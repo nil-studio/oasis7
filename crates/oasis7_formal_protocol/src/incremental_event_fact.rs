@@ -2,6 +2,10 @@
 //! WorldEvent decoder, complete execution closure, authority grant or GC root.
 use super::*;
 
+#[path = "incremental_event_history_extension.rs"]
+mod extension;
+pub use extension::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventFactLocationV1 {
     pub height: u64,

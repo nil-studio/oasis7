@@ -737,3 +737,13 @@ canonical 流式消费者保留既有编码器及其键排序语义作为独立 
 上述语义入口接收调用者已有的具体 WorldEvent 借用值；流式编码节省的是验证阶段新增的 owned Value/输出 Vec，不证明输入 DTO 自身的常驻工作集。它不提供从冷原件直接取得任意大小 WorldEvent 的完整语义流式解码，不能据此宣称完整冷恢复或全链路 C<T 已验收。
 
 当前提交的 Fact 原件完整流验可保留本次 FactSet 内每次出现的种类、原 ID 和实际流验长度，按原顺序保留重复项。此私有观测只占本次 Δ 的有限元数据，完整 Vec capacity 在分配前准入并随证明持有至释放；不保留原件正文，不重置失败已消耗的额度。已验证的 core、这些观测与精确正式接受 head 的 body/roots/history/operation 绑定一致后，才可产生当前高度的原件出现证明；仅有 prepared body、调用者长度或另一 head 的观测均不足。该绑定不重读原件、不变更线格式，也不授予业务、GC 或独立持久保障资格。
+
+<a id="iws-event-history-inheritance"></a>
+
+### 12.47 已接受历史扩展下的原件出现继承
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。普通后继不得重新扫描所有既有 mailbox 原件。继承必须先绑定两个真实正式接受 head 的直接父子关系，以及已完整认证的后继 core：精确 parent record、相同世界、相邻 position、before/after roots、原 parent CommitBody、HistoryPrefix.previous 与计数均一致。仅凭两个高度或新根摘要不能构造扩展资格。
+
+私有扩展证明只授权把精确父 head/roots/body 下的既有原件出现证明迁移到该后继；原 event body、高度、ordinal、原 ID 和实际流验长度保持不变。绑定与继承均提前准入元数据、核对同池收费并在最后检查取消，不读取原件或扫描 catalog。多个后继须逐次提供真实扩展证明，分叉、跳高、错父、异池或不足计费不得成功。
+
+这不证明物理副本仍可用，也不单独授予完整 Agent/World 资格、业务权限、GC 或持久回执；owner 仍须认证其实际结构变化与引用增删，并对新增引用提供当前或历史出现及 Domain 语义证明。该接口保留原件的逻辑历史资格，不能冒充冷语义解码或整条恢复链已接通。

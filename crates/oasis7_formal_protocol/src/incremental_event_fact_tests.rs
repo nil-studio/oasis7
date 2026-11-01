@@ -469,6 +469,35 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
     let old = event_history(&s, id);
     s.commit = accepted(&s, &old);
     let (mut objects, mut pages) = event_sources(&s, &old, id);
+    let old_occurrence = {
+        let stopped = Cell::new(false);
+        let mut source = EventStream {
+            objects: &mut objects,
+            mode: 0,
+            final_cancel: &stopped,
+        };
+        verify_event_fact_occurrence_v1(
+            &EventFactRequestV1 {
+                head: &s.commit,
+                roots: &s.roots,
+                location: EventFactLocationV1 {
+                    height: 0,
+                    ordinal: 1,
+                    original: id,
+                },
+            },
+            &mut EventFactReadContextV1 {
+                originals: &mut source,
+                catalog_pages: &pages,
+                memory: &s.memory,
+                class: MemoryClass::Ordinary,
+                core_budget: &mut budget(),
+                fact_budget: &mut event_budget(),
+                cancelled: || false,
+            },
+        )
+        .unwrap()
+    };
     let catalog = old
         .body
         .catalog_before
@@ -715,6 +744,118 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
     assert_eq!(current.event_body_id(), next.body.digest().unwrap());
     assert_eq!(current.original_bytes(), 25);
     assert_ne!(current.event_body_id(), result.event_body_id());
+
+    // A real direct accepted extension inherits the original occurrence,
+    // without looking up its old catalog entry or reading its original again.
+    let reads = (stream.objects.reads, pages.reads.get());
+    let extension_request = EventHistoryExtensionRequestV1 {
+        parent: &s.commit,
+        head: &head,
+        core: &checked,
+    };
+    let extension =
+        verify_event_history_extension_v1(&extension_request, &s.memory, || false).unwrap();
+    let inherited =
+        inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &s.memory, || false).unwrap();
+    assert_eq!(inherited.head_record_id(), current.head_record_id());
+    assert_eq!(inherited.roots_id(), current.roots_id());
+    assert_eq!(inherited.head_body_id(), current.head_body_id());
+    assert_eq!(inherited.event_body_id(), old_occurrence.event_body_id());
+    assert_eq!(inherited.location(), old_occurrence.location());
+    assert_eq!(inherited.original_bytes(), old_occurrence.original_bytes());
+    assert_eq!((stream.objects.reads, pages.reads.get()), reads);
+    let other_history = event_history(&s, [77; 32]);
+    let sibling = accepted(&s, &other_history);
+    assert_eq!(sibling.record().position, s.commit.record().position);
+    assert_ne!(sibling.head().record_id, s.commit.head().record_id);
+    assert!(matches!(
+        verify_event_history_extension_v1(
+            &EventHistoryExtensionRequestV1 {
+                parent: &sibling,
+                ..extension_request
+            },
+            &s.memory,
+            || false,
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    // The successor's own occurrence is not a predecessor witness.
+    assert!(matches!(
+        inherit_event_fact_occurrence_v1(&current, &extension, &s.memory, || false,),
+        Err(CoreError::Invalid(_))
+    ));
+    let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    assert!(matches!(
+        verify_event_history_extension_v1(&extension_request, &foreign, || false,),
+        Err(CoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &foreign, || false,),
+        Err(CoreError::Invalid(_))
+    ));
+    for final_boundary in [false, true] {
+        let used = s.memory.used();
+        let mut calls = 0;
+        let mut cancel = || {
+            calls += 1;
+            calls == if final_boundary { 2 } else { 1 }
+        };
+        assert!(matches!(
+            verify_event_history_extension_v1(&extension_request, &s.memory, &mut cancel,),
+            Err(CoreError::Cancelled)
+        ));
+        let mut calls = 0;
+        assert!(matches!(
+            inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &s.memory, || {
+                calls += 1;
+                calls == if final_boundary { 2 } else { 1 }
+            },),
+            Err(CoreError::Cancelled)
+        ));
+        assert_eq!(s.memory.used(), used);
+    }
+    assert!(matches!(
+        verify_event_history_extension_v1(
+            &EventHistoryExtensionRequestV1 {
+                parent: &head,
+                ..extension_request
+            },
+            &s.memory,
+            || false,
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        verify_event_history_extension_v1(
+            &EventHistoryExtensionRequestV1 {
+                head: &s.commit,
+                ..extension_request
+            },
+            &s.memory,
+            || false,
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    // Neither binding nor inheritance may borrow Recovery's reserved capacity.
+    let ordinary_limit = s
+        .memory
+        .reserve(usize::MAX, MemoryClass::Ordinary)
+        .err()
+        .unwrap()
+        .admission_limit;
+    let held = s
+        .memory
+        .reserve(ordinary_limit - s.memory.used(), MemoryClass::Ordinary)
+        .unwrap();
+    assert!(matches!(
+        verify_event_history_extension_v1(&extension_request, &s.memory, || false,),
+        Err(CoreError::Execution(ExecutionError::Memory(_)))
+    ));
+    assert!(matches!(
+        inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &s.memory, || false,),
+        Err(CoreError::Execution(ExecutionError::Memory(_)))
+    ));
+    drop(held);
 
     let mut exhausted = budget();
     exhausted.merkle_reads_remaining = 0;
