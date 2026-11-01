@@ -196,6 +196,12 @@ pub use task_terminal_v2::*;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_u64;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_fields;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_genesis;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_read;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_field_read;

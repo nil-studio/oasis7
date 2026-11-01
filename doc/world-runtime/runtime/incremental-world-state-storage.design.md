@@ -748,3 +748,14 @@ JSON 结构算法由 Effects 与 Cognition 真实消费者共用；各 owner 固
 原 effect:v2 identity_key 与 payload_digest 的唯一既有 wire 保持不变。后者是 serde_cbor 对 tuple("oasis7.effect.intent-payload.v2", EffectIntent) 的原编码，不是 canonical-CBOR 新排序。本组可使用穷尽原字段与 JSON 类型的借用流式编码，必须逐 byte 对照原 encoder；所有输出、计费节点/bytes/depth 和临时工作区均有界，源 DTO/输出 sink 各自持有其分配责任。未知字段或自定义 Serialize 不属于该具体 DTO 接口。失败、取消和最终输出边界必须使连续 context 失效，不能把部分 hash/bytes 当完成原件。
 
 完整 owner 仍须覆盖 GEN、root-only 资格/冷读、同 ExecutionTxn 普通贡献、独立 generic+typed receiver、typed 页闭包/finish 与恢复后合法后继；单个 codec/borrowed visitor 的完成不表示这两族已经 ready。Chain 已有正式 outbox/obligation、accepted World/continuation 与 provider 幂等合同不嫁接为这两个 World descriptor；外调 unknown 必须保留原身份且不因存储重试重派。此组不改变业务 capability 检查、effect dispatch 策略、nonce 分配或 history/World 激活权限。
+### 12.52 Cognition 原字段存储闭包
+
+<a id="iws-cognition-owner-v1"></a>
+
+Cognition 沿用原 Runtime JSON envelope 的十二个 required 与八个 optional 名称，不把 envelope 当作一个 blob，不 clone 或反序列化整个 Snapshot。required 为 schema_version、cognition_journal、responses、commit_records、receipt_registry、receipt_lineage_registry、feedback_outbox、idempotency_index、staged_actions、scheduler_state、continuations、recovery；optional 为 runtime_binding、retention_state、continuation_contexts、cognition_economy、agent_delegation、agent_delegation_active_decision、continuation_evaluations、reorg_invalidation_epoch。未知与缺失 required 拒绝，active_decision 继续只属临时事务输入，不能持久 GEN。原 String 外键与记录内 ID 独立，数组保持 ordinal、重复及原顺序，Option 的缺失、null、空字符串与空集合不可折叠。
+
+原归属保持：journal.events 与 responses 是 History；commit_records、receipt_registry、receipt_lineage_registry、recovery、runtime_binding 是 ProofLedger；retention_state 是 RetentionLedger。它们不是 RootSet 当前状态叶，不能为方便实现而引入当前 root 自循环。schema_version 和 journal.schema_version 属 Artifacts，journal.head_seq/head_digest 属 Allocator，feedback_outbox/staged_actions/continuations/continuation_contexts 属 Effects，idempotency_index 与 reorg_invalidation_epoch 属 Authorization，scheduler_state/continuation_evaluations 属 Scheduler；economy 和 delegation 继续细分原投影，不以一个 optional JSON 值替代其已有归属。
+
+控制字段复用原 Cognition descriptor、Metadata 与 Entry/Unit 键，Text/U64 使用现有闭合 Member codec，逐项借用 GEN；普通点读流式输出长文本，不分配全值。动态 JSON 节点复用有实际 Effects 与 Cognition 消费者的中性闭包引擎，由 Cognition 固定 descriptor/schema/namespace 与原语义键；节点独立列/成员及 typed RootRef，不用 JSON 串、整记录 bytes 或任意 callback 代替完整闭包。GEN 只输出 provisional 写集，局部读、控制字段成功和 JSON 子树资格均不得签发完整 CognitionReady。
+
+完整资格必须从认证 RootSet、全部当前状态 cohort 与各独立 side owner 的真实证明组合，校验 required/optional 关系与未知/孤儿；普通事务只沿目标路径和必要关系访问，不能扫描未变大文本/集合。精确 expected、guard/live、同池 Ordinary、连续有限 key/逻辑/物理/heap 额度、NoOp/最后实际 put/finish 的组合取消、所有失败 poison 前缀合同继续适用。接收端先 generic replay，再从已资格父与完整 changed-path 写集推导新闭包；新记录全量资格，未变子树仅继承原已认证闭包。typed pages 跟随全部子 State/Value 引用并等待实际 sink finish，冷恢复不能依赖旧 Snapshot、缓存或旧内存池。本节不新增 cognition 调度、授权、投票或业务规则，不能代签 accepted history 或全 World GC。

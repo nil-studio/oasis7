@@ -4,30 +4,24 @@ use super::*;
 use serde_json::Value;
 #[path = "incremental_projection_economy.rs"]
 mod economy;
-const REQUIRED: &[&str] = &[
-    "schema_version",
-    "cognition_journal",
-    "responses",
-    "commit_records",
-    "receipt_registry",
-    "receipt_lineage_registry",
-    "feedback_outbox",
-    "idempotency_index",
-    "staged_actions",
-    "scheduler_state",
-    "continuations",
-    "recovery",
-];
-const OPTIONAL: &[&str] = &[
-    "runtime_binding",
-    "retention_state",
-    "continuation_contexts",
-    "cognition_economy",
-    "agent_delegation",
-    "agent_delegation_active_decision",
-    "continuation_evaluations",
-    "reorg_invalidation_epoch",
-];
+use oasis7_world_state::incremental_cognition_fields::{
+    OPTIONAL_COGNITION_FIELDS as OPTIONAL, REQUIRED_COGNITION_FIELDS as REQUIRED,
+};
+
+impl World {
+    /// Structural borrowed view only; does not authenticate receipts, history,
+    /// retention, source roots, or any cognition business permission.
+    pub fn borrow_iws_cognition_envelope_v1(
+        &self,
+    ) -> Result<
+        oasis7_world_state::incremental_cognition_fields::CognitionEnvelopeRefV1<'_>,
+        &'static str,
+    > {
+        oasis7_world_state::incremental_cognition_fields::CognitionEnvelopeRefV1::new(
+            &self.cognition,
+        )
+    }
+}
 
 pub(super) fn visit<S: GenesisFieldVisitor>(
     value: &Value,
