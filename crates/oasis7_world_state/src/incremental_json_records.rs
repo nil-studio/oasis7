@@ -160,7 +160,9 @@ pub(crate) mod cursor;
 #[path = "incremental_json_records_point.rs"]
 mod point;
 pub use point::{
-    JsonPathSegmentV1, JsonScalarPointWriteV1, JsonScalarRefV1, prepare_json_scalar_path_change_v1,
+    JsonPathSegmentV1, JsonPointWriteV1, JsonScalarPointWriteV1, JsonScalarRefV1,
+    JsonSubtreeEditV1, prepare_json_scalar_path_change_v1, prepare_json_subtree_change_v1,
+    qualify_json_path_v1,
 };
 
 #[path = "incremental_json_records_change.rs"]

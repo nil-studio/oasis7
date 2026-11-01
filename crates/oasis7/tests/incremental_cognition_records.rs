@@ -10,6 +10,8 @@ use oasis7_runtime::{
 };
 #[path = "support/incremental_cognition_controls.rs"]
 mod cognition_controls;
+#[path = "support/incremental_cognition_json_lifecycle.rs"]
+mod cognition_json_lifecycle;
 #[path = "support/incremental_cognition_missing_child.rs"]
 mod cognition_missing_child;
 #[path = "support/incremental_cognition_namespace.rs"]
@@ -222,6 +224,9 @@ fn run_cognition(all_optional: bool) {
             )
             .unwrap();
             cognition_namespace::reject_relabelled_member(&store, &memory, parent.root());
+            if !all_optional {
+                cognition_json_lifecycle::exercise(&store, &memory, &parent);
+            }
             {
                 // The original proof's retained carrier belongs to `memory`, not
                 // to a new writer/reader pool reopening the same authenticated pages.
