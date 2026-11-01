@@ -412,6 +412,39 @@ fn audit_bid_index_tree(
     assert_eq!(summary.0, expected_ids.len() as u64);
     assert_eq!(seen.len(), expected_ids.len());
     assert_eq!(in_order, expected_ids);
+
+    let mut io = ValueIoBudget {
+        nodes_remaining: 100_000,
+        read_bytes_remaining: 64 << 20,
+        write_bytes_remaining: 64 << 20,
+    };
+    let mut read = ValueReadContext {
+        source: values,
+        memory,
+        class: MemoryClass::Ordinary,
+        io: &mut io,
+    };
+    let mut key_work = SemanticKeyBudget {
+        bytes_remaining: 16 << 20,
+    };
+    for (ordinal, bid_id) in in_order.iter().copied().enumerate() {
+        assert_eq!(
+            bid_index::ordinal_of_id(
+                child,
+                descriptor,
+                root_id,
+                bid_id,
+                &mut read,
+                &mut key_work,
+                1 << 20,
+                8 << 20,
+                &mut || false,
+            )
+            .unwrap(),
+            ordinal as u64,
+            "stable ID {bid_id} must resolve to its current Vec ordinal"
+        );
+    }
 }
 
 #[test]
