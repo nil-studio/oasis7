@@ -1,5 +1,5 @@
-//! Changed-path JSON qualification for scalar edits. Every container keeps its
-//! kind, length and exact member key set. Structural CRUD is a separate scope.
+//! Changed-path JSON qualification. The scalar API preserves every container;
+//! the structural API validates member/count deltas and array tail boundaries.
 use super::*;
 use crate::{
     incremental_field_read::WorldFieldReadContextV1,
@@ -60,6 +60,84 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
     work: &mut JsonScalarChangeWorkV1,
     preserve_kind_depth: Option<usize>,
 ) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
+    advance_records(
+        profile,
+        parent,
+        after,
+        records,
+        work,
+        Mode::Scalar(preserve_kind_depth),
+    )
+}
+#[derive(Clone, Copy)]
+enum Mode {
+    Scalar(Option<usize>),
+    Structural(Option<JsonImmediateShapeV1>),
+}
+/// Same continuous changed-path/node budgets as the scalar operation.
+pub type JsonChangeWorkV1 = JsonScalarChangeWorkV1;
+pub fn advance_json_subtree_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    profile: JsonRecordProfileV1,
+    parent: &ReservedValue<JsonSubtreeQualificationV1>,
+    after: &StateRootV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonChangeWorkV1,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
+    context.check()?;
+    advance_json_subtree_records_v1(profile, parent, after, &mut context.records(), work, None)
+}
+pub(crate) fn advance_json_subtree_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &ReservedValue<JsonSubtreeQualificationV1>,
+    after: &StateRootV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonChangeWorkV1,
+    immediate: Option<JsonImmediateShapeV1>,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
+    advance_records(
+        profile,
+        parent,
+        after,
+        records,
+        work,
+        Mode::Structural(immediate),
+    )
+}
+fn needed_kind(shape: JsonImmediateShapeV1, kind: read::Kind) -> bool {
+    matches!(
+        (shape, kind),
+        (JsonImmediateShapeV1::Object, read::Kind::Object)
+            | (JsonImmediateShapeV1::Unsigned, read::Kind::U64)
+    )
+}
+fn full_at<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    root: &StateRootV1,
+    depth: usize,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
+    let max = work.max_depth;
+    work.max_depth = max
+        .checked_sub(depth)
+        .ok_or(ValueTreeError::ResourceLimited("JSON changed depth"))?;
+    let result = read::qualify_records(profile, root, records, work);
+    work.max_depth = max;
+    result
+}
+fn advance_records<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &ReservedValue<JsonSubtreeQualificationV1>,
+    after: &StateRootV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonScalarChangeWorkV1,
+    mode: Mode,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
@@ -88,6 +166,8 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
         after: after.clone(),
         depth: 0,
     });
+    let mut nodes = parent.node_count_upper_bound();
+    let mut exact = parent.exact;
     while let Some(pair) = pending.pop() {
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled);
@@ -98,6 +178,38 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
         if pair.depth > work.json.max_depth {
             return Err(ValueTreeError::ResourceLimited("JSON scalar changed depth"));
         }
+        if let Mode::Structural(immediate) = mode {
+            work.json.cells_remaining = work
+                .json
+                .cells_remaining
+                .checked_sub(2)
+                .ok_or(ValueTreeError::ResourceLimited("JSON changed kind cells"))?;
+            let old_kind = read::kind(profile, &pair.before, records)?;
+            let new_kind = read::kind(profile, &pair.after, records)?;
+            if pair.depth == 1 && immediate.is_some_and(|shape| !needed_kind(shape, new_kind)) {
+                return Err(invalid());
+            }
+            if !old_kind.container() || old_kind != new_kind {
+                // A qualified old scalar has one node. A type switch replaces
+                // this complete node; no old large scalar payload is read.
+                work.json.json_nodes_remaining = work
+                    .json
+                    .json_nodes_remaining
+                    .checked_sub(1)
+                    .ok_or(ValueTreeError::ResourceLimited("JSON changed old node"))?;
+                let new = full_at(profile, &pair.after, pair.depth, records, &mut work.json)?;
+                if pair.depth == 0 {
+                    nodes = new.node_count_upper_bound();
+                    exact = new.exact;
+                } else if old_kind.container() || new_kind.container() {
+                    nodes = nodes
+                        .checked_add(new.node_count_upper_bound())
+                        .ok_or(ValueTreeError::ResourceLimited("JSON changed node bound"))?;
+                    exact = false;
+                }
+                continue;
+            }
+        }
         work.json.cells_remaining = work
             .json
             .cells_remaining
@@ -105,18 +217,20 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
             .ok_or(ValueTreeError::ResourceLimited("JSON scalar fixed cells"))?;
         let old = read::frame(profile, &pair.before, records, &mut work.json)?;
         let new = read::frame(profile, &pair.after, records, &mut work.json)?;
-        if preserve_kind_depth == Some(pair.depth) && old.kind != new.kind {
+        if matches!(mode,Mode::Scalar(Some(depth)) if depth==pair.depth) && old.kind != new.kind {
             return Err(invalid());
         }
         let container = old.kind.container();
         if container != new.kind.container()
-            || old.length != new.length
+            || (matches!(mode, Mode::Scalar(_)) && old.length != new.length)
             || (container && old.kind != new.kind)
             || pair.before.leaf_count != 5u64.checked_add(old.length).ok_or_else(invalid)?
             || pair.after.leaf_count != 5u64.checked_add(new.length).ok_or_else(invalid)?
         {
             return Err(invalid());
         }
+        let mut added = 0u64;
+        let mut removed = 0u64;
         incremental_record_diff::visit(
             &pair.before,
             &pair.after,
@@ -129,14 +243,16 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
                 tree: LABELS,
             },
             |before, after, records| {
-                let (before, after) = match (before, after) {
-                    (Some(before), Some(after)) => (before, after),
-                    _ => return Err(invalid()),
-                };
-                if let Some(index) = old.keys.iter().position(|key| key.as_bytes() == before.key) {
-                    // Metadata, marker and container length are immutable here.
-                    if !matches!(index, 2 | 3)
-                        || container
+                let entry = before.or(after).ok_or_else(invalid)?;
+                if let Some(index) = old.keys.iter().position(|key| key.as_bytes() == entry.key) {
+                    let (Some(before), Some(after)) = (before, after) else {
+                        return Err(invalid());
+                    };
+                    let mutable = match mode {
+                        Mode::Scalar(_) => matches!(index, 2 | 3) && !container,
+                        Mode::Structural(_) => index == 4 && container,
+                    };
+                    if !mutable
                         || new.keys[index] != old.keys[index]
                         || before.value != old.ids[index]
                         || after.value != new.ids[index]
@@ -148,29 +264,84 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
                 if !container {
                     return Err(invalid());
                 }
-                work.json.cells_remaining = work.json.cells_remaining.checked_sub(2).ok_or(
-                    ValueTreeError::ResourceLimited("JSON scalar child references"),
-                )?;
+                if matches!(mode, Mode::Scalar(_)) && (before.is_none() || after.is_none()) {
+                    return Err(invalid());
+                }
+                let references = u64::from(before.is_some()) + u64::from(after.is_some());
+                work.json.cells_remaining =
+                    work.json.cells_remaining.checked_sub(references).ok_or(
+                        ValueTreeError::ResourceLimited("JSON scalar child references"),
+                    )?;
                 let index = old.kind == read::Kind::Array;
-                let child_before = read::child(profile, before, index, old.length, records)?;
-                let child_after = read::child(profile, after, index, new.length, records)?;
-                if child_before != child_after {
-                    if pending.len() == work.max_pending_pairs {
-                        return Err(ValueTreeError::ResourceLimited("JSON scalar pending roots"));
+                let old_child = before
+                    .map(|entry| {
+                        read::child_with_ordinal(profile, entry, index, old.length, records)
+                    })
+                    .transpose()?;
+                let new_child = after
+                    .map(|entry| {
+                        read::child_with_ordinal(profile, entry, index, new.length, records)
+                    })
+                    .transpose()?;
+                let depth = pair.depth.checked_add(1).ok_or_else(invalid)?;
+                if depth > work.json.max_depth {
+                    return Err(ValueTreeError::ResourceLimited("JSON scalar changed depth"));
+                }
+                match (old_child, new_child) {
+                    (Some((before, old_index)), Some((after, new_index))) => {
+                        if old_index != new_index {
+                            return Err(invalid());
+                        }
+                        if before != after {
+                            if pending.len() == work.max_pending_pairs {
+                                return Err(ValueTreeError::ResourceLimited(
+                                    "JSON scalar pending roots",
+                                ));
+                            }
+                            pending.push(Pending {
+                                before,
+                                after,
+                                depth,
+                            });
+                        }
                     }
-                    let depth = pair.depth.checked_add(1).ok_or_else(invalid)?;
-                    if depth > work.json.max_depth {
-                        return Err(ValueTreeError::ResourceLimited("JSON scalar changed depth"));
+                    (None, Some((after, ordinal))) => {
+                        if index && ordinal.is_none_or(|ordinal| ordinal < old.length) {
+                            return Err(invalid());
+                        }
+                        if let Mode::Structural(Some(shape)) = mode
+                            && depth == 1
+                            && !needed_kind(shape, read::kind(profile, &after, records)?)
+                        {
+                            return Err(invalid());
+                        }
+                        let child = full_at(profile, &after, depth, records, &mut work.json)?;
+                        nodes = nodes
+                            .checked_add(child.node_count_upper_bound())
+                            .ok_or(ValueTreeError::ResourceLimited("JSON changed node bound"))?;
+                        exact = false;
+                        added = added.checked_add(1).ok_or_else(invalid)?;
                     }
-                    pending.push(Pending {
-                        before: child_before,
-                        after: child_after,
-                        depth,
-                    });
+                    (Some((_, ordinal)), None) => {
+                        if index && ordinal.is_none_or(|ordinal| ordinal < new.length) {
+                            return Err(invalid());
+                        }
+                        exact = false;
+                        removed = removed.checked_add(1).ok_or_else(invalid)?;
+                    }
+                    _ => return Err(invalid()),
                 }
                 Ok(())
             },
         )?;
+        if old
+            .length
+            .checked_add(added)
+            .and_then(|length| length.checked_sub(removed))
+            != Some(new.length)
+        {
+            return Err(invalid());
+        }
     }
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
@@ -178,8 +349,8 @@ pub(crate) fn advance_json_scalar_subtree_records_constrained_v1<
     let output = retained.retain(JsonSubtreeQualificationV1 {
         root: after.clone(),
         profile,
-        nodes: parent.node_count_upper_bound(),
-        exact: parent.exact,
+        nodes,
+        exact,
     });
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);

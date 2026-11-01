@@ -165,7 +165,10 @@ pub use point::{
 
 #[path = "incremental_json_records_change.rs"]
 mod change;
-pub use change::{JsonScalarChangeWorkV1, advance_json_scalar_subtree_v1};
+pub use change::{
+    JsonChangeWorkV1, JsonScalarChangeWorkV1, advance_json_scalar_subtree_v1,
+    advance_json_subtree_v1,
+};
 
 pub(crate) use point::prepare_json_scalar_path_change_records_v1;
 

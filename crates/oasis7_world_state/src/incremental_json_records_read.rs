@@ -134,6 +134,48 @@ pub(super) struct Frame {
     pub(super) length: u64,
     members: u64,
 }
+pub(super) fn kind<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Kind, ValueTreeError> {
+    if root.namespace != profile.namespace()? {
+        return Err(invalid());
+    }
+    let key = cell_key(profile, "json.kind", records)?;
+    let id = get(root, &key.0, records)?;
+    kind_value(&id, &key, records)
+}
+fn kind_value<R: ValueNodeReader, C: FnMut() -> bool>(
+    id: &[u8; 32],
+    key: &(WorldFieldKeyV1, u64),
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Kind, ValueTreeError> {
+    let mut text = [0; 8];
+    let observed = value(
+        id,
+        key,
+        MemberPayloadCodecV1::Text,
+        8,
+        records,
+        &mut Bytes::new(text.as_mut_slice()),
+    )?;
+    let RecordValueV1::Text { utf8_bytes } = observed else {
+        return Err(invalid());
+    };
+    let node = match text.get(..utf8_bytes as usize).ok_or_else(invalid)? {
+        b"null" => Kind::Null,
+        b"bool" => Kind::Bool,
+        b"i64" => Kind::I64,
+        b"u64" => Kind::U64,
+        b"f64" => Kind::F64,
+        b"string" => Kind::String,
+        b"array" => Kind::Array,
+        b"object" => Kind::Object,
+        _ => return Err(invalid()),
+    };
+    Ok(node)
+}
 pub(super) fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     root: &StateRootV1,
@@ -173,29 +215,7 @@ pub(super) fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
         records,
         &mut std::io::sink(),
     )?;
-    let mut text = [0; 8];
-    let observed = value(
-        &ids[2],
-        &label,
-        MemberPayloadCodecV1::Text,
-        8,
-        records,
-        &mut Bytes::new(text.as_mut_slice()),
-    )?;
-    let RecordValueV1::Text { utf8_bytes } = observed else {
-        return Err(invalid());
-    };
-    let node = match text.get(..utf8_bytes as usize).ok_or_else(invalid)? {
-        b"null" => Kind::Null,
-        b"bool" => Kind::Bool,
-        b"i64" => Kind::I64,
-        b"u64" => Kind::U64,
-        b"f64" => Kind::F64,
-        b"string" => Kind::String,
-        b"array" => Kind::Array,
-        b"object" => Kind::Object,
-        _ => return Err(invalid()),
-    };
+    let node = kind_value(&ids[2], &label, records)?;
     let codec = match node {
         Kind::Null | Kind::Array | Kind::Object => MemberPayloadCodecV1::Unit,
         Kind::Bool => MemberPayloadCodecV1::Bool,
