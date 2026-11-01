@@ -2,7 +2,7 @@ name: Wasm Determinism Gate
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "ci/pr5351-wasm-evidence-fbac52f15"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
