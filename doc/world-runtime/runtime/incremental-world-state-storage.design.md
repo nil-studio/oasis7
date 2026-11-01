@@ -744,6 +744,28 @@ Mint 另有 (reward_budget_record_closure_v1, length) Entry/U64 全局长度，�
 
 页闭包由本 owner 的完整资格派生，显式跟随 child state/value，有限集合分配前计费；含 buffered finish 的全部输出完成前保持 provisional。本组不授奖励、mint、预算分配或签名业务权限，不改变原 reducer；仍不代签其他 owner、完整 World 激活或 GC。原始字面 oracle、非 Optional 必需列边界、Raw/Zstd 冷根、合法 append/同事务后继、generic-valid 但 typed-invalid、预算/取消/真实 put 故障及小增量成本分别验收。
 
+<a id="iws-factory-authority-records"></a>
+
+### 12.37 场地权限与建造供电配置
+
+`factory_site_authorities` 和 `factory_construction_power_profiles` 均沿原 WorldState/Map/Business descriptor 保存。原 String 外键与 site_id/factory_id 分别保留，不作归一化或互相回填；字段级存储不授予场地准入、模块治理或供电业务权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每族外层含同 descriptor Metadata 与 `(factory_authority_closure_v1, unit)` Entry/Unit 标记。原 String 键的 Entry/RecordRoot 使用标准 tag10，schema 为 BLAKE3(`oasis7.iws.factory-authority.v1\0` 连接原字段名 UTF-8)，绑定原 semantic digest 与 Business namespace。子树含 Metadata、unit 记录 marker 和各原字段，相对列键为 `(unit, 原字段名)`。授权列表以独立 authorized_agent_count/U64 和 `((unit, authorized_agent_ids), 原u64索引)` Text 成员保存，保留原顺序、空值和重复值；业务更新的规范化不由存储重做。
+
+Site 原八字段全部借用解构；Power 原七字段全部借用解构。source_module_id 使用独立 Bool presence 与可选 Text 区分 None 与 Some(empty)；electricity_amount 保存完整 I64，StartOnlySink 的封闭 Mode/U64 为0。GEN 连续计费所有 outer rows、metadata、marker、固定列和列表成员，所有输出在完整调用成功前 provisional。普通修改、原始闭包资格、receiver 和页传输仍须按本设计各自完成，不能以 GEN 或字段投影测试代签完整 World、GC 或接通状态。
+
+显式 child bootstrap/恢复资格只保留固定工作区：先认证全部必需列及 Option 关系，再按声明数量逐点认证列表的每个原索引，最后完整扫描认证实际键路径和叶数。必需键全部存在且真实叶数恰等其数量，才能排除额外未知列或列表洞；不保留随列表增长的键表。资格仅绑定该 kind、原 owner semantic digest 和精确 child root。外层 inspect 仍只证明 metadata/格式及一个原 String 键的 RootRef；点读须核对该外层引用与 child 资格相符，不能把单个 child 证明当作全家族或完整 World 资格。
+
+普通列更新与 overlay getter 共用相同 guard、同池 Ordinary、metadata/格式和当前精确 child 资格解析。标量和已存在授权成员只改目标路径；source_module_id 同事务编辑 presence，禁止直接改独立 flag、Unit marker 或授权数量。数量及成员集合的结构更新由专门操作保持密集索引。getter 在认证值和 Option 关系后检查取消；setter 在原 expected 的逐字节/原整数比较后，还须检查组合读写取消，NoOp 也不豁免。任何失败使整笔贡献不可 seal，先前成功前缀不得漏出为已接受结果。
+
+完整 family bootstrap 对同一 RootSet 的六个顶层根使用连续有限扫描/值/key/cell 预算，检查两个族的必需 metadata/格式、原 Text 外键与每个完整 child，返回仅覆盖这两个族的计数和根绑定。创建要求该精确父家族资格，并在当前同事务视图检查外键不存在，完整借用生产后才发布一个外层引用；删除要求当前精确 child 资格，不重扫被删除记录的大 sibling。结果仍需完整 transition 验证和合法提交，family token 不授予业务权限、全 World 激活或 GC。
+
+授权名单结构操作保留原 Vec 语义：追加借用调用者尾段，截断只删除 `[new_len, old_len)` 的认证 slot，均核对当前资格与精确原数量，并将数量及所有受影响 slot 合成一个最终外层引用；不重写未变前缀，不读取被删成员的长 payload。数量读取复用公开 overlay getter 的 resolver，结构 NoOp 在相同 getter 边界后仍有独立组合取消检查。名单为空、空成员和重复成员均属于可保存原内容，不能在存储层当作集合规范化。
+
+接收端在通用 transition 重放之外，继承精确父 family 资格，只验证真实变化的 record 路径。必需字段/metadata/marker 不得增删；Option 的 flag 与可选值根存在性必须一致。名单变化按原、新数量、真实增删 ordinal 的范围及净计数证明尾部密集性，不以总叶数相同代替索引关系，也不扫描未变 Vec。新记录承担完整 child 资格；删除或未变旧 payload 可继承已资格父证明，只认证需要的原 semantic key/header，不能借此跳过新值的完整闭包与类型验证。原相对键解析使用固定128字节工作区，拒绝未知列、错误 tuple/token 和尾部字节。
+
+本族 typed mark/transfer 沿全部六个顶层状态根及这两个族的完整 child/value 闭包收集原页 hash，复用同池、同 class 的逐页准入与有限页数跟踪；其他 owner 仍须贡献自己的闭包。输出在完整遍历及全部 buffered sink finish 成功前保持 provisional，最终物理发布后观察到取消也不能返回完成交付。内存不足须按实际阶段报告，不能把读取/跟踪额度拒绝改称编码失败；冷恢复另以新 pool、原认证根和原 hash 重新验证，不能由该族资格代签完整 World、全局 GC 或物理故障域保障。
+
 <a id="iws-governance-records"></a>
 
 ### 12.39 治理身份、提案与投票原始记录
