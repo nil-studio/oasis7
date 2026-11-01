@@ -156,3 +156,9 @@ mod read;
 pub use read::{JsonReadWorkV1, JsonSubtreeQualificationV1, qualify_json_subtree_v1};
 #[path = "incremental_json_records_cursor.rs"]
 pub(crate) mod cursor;
+
+#[path = "incremental_json_records_point.rs"]
+mod point;
+pub use point::{
+    JsonPathSegmentV1, JsonScalarPointWriteV1, JsonScalarRefV1, prepare_json_scalar_path_change_v1,
+};

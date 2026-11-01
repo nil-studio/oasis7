@@ -129,6 +129,115 @@ fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old
             .unwrap();
         roots[index].copy_from_slice(&delta.after.canonical_bytes().unwrap());
     }
+    // The neutral point producer changes one scalar below a known qualified
+    // JSON graph. It does not publish the Cognition outer root or grant family
+    // qualification; the cold test below intentionally reopens the old root.
+    {
+        use oasis7_runtime::incremental_json_records::*;
+        let _temporary = memory.reserve(64 << 10, MemoryClass::Ordinary).unwrap();
+        let root = StateRootV1::from_canonical_bytes(&roots[2]).unwrap();
+        let reader = store.value_session(physical());
+        let mut read_io = fixture::logical();
+        let mut read_keys = SemanticKeyBudget {
+            bytes_remaining: 16 << 20,
+        };
+        let mut read = WorldFieldReadContextV1 {
+            root: &root,
+            state: &state,
+            values: ValueReadContext {
+                source: &reader,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut read_io,
+            },
+            key_work: &mut read_keys,
+            semantic_bytes: 4096,
+            record_bytes: 8192,
+            take_state_error: || state.take_read_error().map(state_error),
+            cancelled: || false,
+        };
+        let mut full = JsonReadWorkV1 {
+            cells_remaining: 128,
+            json_nodes_remaining: 24,
+            max_depth: 4,
+            max_payload_bytes: 4096,
+        };
+        let entry = qualify_cognition_json_entry_v1(
+            CognitionJsonFieldV1::FeedbackOutbox,
+            &mut read,
+            &mut full,
+        )
+        .unwrap()
+        .unwrap();
+        let parent = qualify_json_subtree_v1(
+            CognitionJsonFieldV1::FeedbackOutbox.profile(),
+            entry.body_root(),
+            &mut read,
+            &mut full,
+        )
+        .unwrap();
+        let mut write_io = fixture::logical();
+        let mut write_keys = SemanticKeyBudget {
+            bytes_remaining: 16 << 20,
+        };
+        let mut write = MemberRecordWriteContext {
+            sink: &mut writer,
+            memory: &memory,
+            io: &mut write_io,
+            key_work: &mut write_keys,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 4096,
+                record_bytes: 8192,
+            },
+            cancelled: || false,
+        };
+        let mut point_work = JsonWriteWorkV1 {
+            cells_remaining: 32,
+            json_nodes_remaining: 8,
+            max_json_depth: 4,
+            max_pending_node_bytes: 2 << 20,
+        };
+        let changed = prepare_json_scalar_path_change_v1(
+            CognitionJsonFieldV1::FeedbackOutbox.profile(),
+            &parent,
+            &[JsonPathSegmentV1::Name("")],
+            (
+                JsonScalarRefV1::Bool(true),
+                JsonScalarRefV1::Text("原changed"),
+            ),
+            &mut read,
+            &mut write,
+            &mut point_work,
+        )
+        .unwrap();
+        assert!(changed.changed());
+        assert_eq!(changed.before(), parent.root());
+        assert_ne!(changed.before(), changed.after());
+        assert_eq!(changed.before().leaf_count, changed.after().leaf_count);
+        let after = qualify_json_subtree_v1(
+            CognitionJsonFieldV1::FeedbackOutbox.profile(),
+            changed.after(),
+            &mut read,
+            &mut full,
+        )
+        .unwrap();
+        let noop = prepare_json_scalar_path_change_v1(
+            CognitionJsonFieldV1::FeedbackOutbox.profile(),
+            &after,
+            &[JsonPathSegmentV1::Name("")],
+            (
+                JsonScalarRefV1::Text("原changed"),
+                JsonScalarRefV1::Text("原changed"),
+            ),
+            &mut read,
+            &mut write,
+            &mut point_work,
+        )
+        .unwrap();
+        assert!(!noop.changed());
+        assert_eq!(noop.before(), noop.after());
+    }
     drop(writes);
     drop(writer);
     drop(state);
