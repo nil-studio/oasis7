@@ -504,3 +504,5 @@ pub use oasis7_world_state::incremental_world_balances;
 pub use oasis7_world_state::incremental_fixed_economy_records;
 
 pub use oasis7_world_state::incremental_agent_authority_records;
+
+pub use oasis7_world_state::incremental_reward_budget_records;
