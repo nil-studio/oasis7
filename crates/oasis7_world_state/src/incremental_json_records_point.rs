@@ -174,7 +174,7 @@ pub fn prepare_json_scalar_path_change_v1<
     CW: FnMut() -> bool,
 >(
     profile: JsonRecordProfileV1,
-    parent: &JsonSubtreeQualificationV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
     path: &[JsonPathSegmentV1<'_>],
     change: (JsonScalarRefV1<'_>, JsonScalarRefV1<'_>),
     read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
@@ -183,6 +183,9 @@ pub fn prepare_json_scalar_path_change_v1<
 ) -> Result<oasis7_proto::memory_budget::ReservedValue<JsonScalarPointWriteV1>, MemberRecordError> {
     let (expected, after) = change;
     read.check()?;
+    if !parent.uses_budget(read.values.memory) {
+        return Err(ValueTreeError::Invalid("JSON point parent pool").into());
+    }
     parent.validate_binding(profile, parent.root())?;
     if read.values.class != MemoryClass::Ordinary || !read.values.memory.same_pool(write.memory) {
         return Err(ValueTreeError::Invalid("JSON point pool/class").into());
