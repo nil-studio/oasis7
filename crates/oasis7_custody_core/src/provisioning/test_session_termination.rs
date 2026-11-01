@@ -379,19 +379,11 @@ impl AccountProvisionApprovalState {
                     .ok_or_else(invalid)?;
                 let mut generation = observed.generation;
                 let mut nonce = observed.nonce;
-                // Known inventory includes every allocated original, even those never sent or unknown.
-                for setup in self.owner_setups.values() {
-                    generation = generation.max(setup.plan.delegation_generation.0);
-                    nonce = nonce.max(setup.plan.delegation_nonce.0)
-                }
-                for session in self.test_sessions.values() {
-                    for original in session.termination_slots.values() {
-                        if let TerminationPayloadV1::Revoke(d) = &original.payload {
-                            generation = generation.max(d.generation);
-                            nonce = nonce.max(d.nonce)
-                        }
-                    }
-                }
+                // All versions share one allocated-original inventory; unknown
+                // V2 originals must also advance the legacy allocator's floor.
+                let (allocated_generation, allocated_nonce) = self.allocated_signer_high_water()?;
+                generation = generation.max(allocated_generation);
+                nonce = nonce.max(allocated_nonce);
                 let mut d = plan.original_delegation.clone();
                 d.generation = generation.checked_add(1).ok_or_else(invalid)?;
                 d.nonce = nonce.checked_add(1).ok_or_else(invalid)?;
@@ -434,3 +426,29 @@ mod io;
 
 #[path = "test_session_delegation_metadata.rs"]
 mod delegation_metadata;
+
+#[path = "test_session_termination_v2_plan.rs"]
+mod plan_v2;
+pub use plan_v2::*;
+#[path = "test_session_termination_v2_state.rs"]
+mod state_v2;
+pub use state_v2::*;
+#[path = "test_session_signer_inventory.rs"]
+mod signer_inventory;
+
+#[path = "test_session_termination_v2_allocate.rs"]
+mod allocate_v2;
+
+#[path = "test_session_termination_v2_signed.rs"]
+mod signed_v2;
+
+#[path = "test_session_termination_v2_basis.rs"]
+mod basis_v2;
+
+#[path = "test_session_termination_v2_stop.rs"]
+mod stop_v2;
+pub use stop_v2::*;
+#[path = "test_session_termination_v2_stop_io.rs"]
+mod stop_io_v2;
+#[path = "test_session_termination_v2_stop_validate.rs"]
+mod stop_validate_v2;

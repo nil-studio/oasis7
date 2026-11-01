@@ -43,6 +43,11 @@ pub(super) fn validate_profile(
     binding_id: &str,
 ) -> Result<(), HttpPopError> {
     let valid = match profile {
+        HttpPopProfileV1::NativeModelCustodyV2 => matches!(
+            &target.route,
+            HttpPopRoute::ScopedClient { route, .. }
+                if matches!(route.as_ref(),HttpPopRoute::ModelReservations(id) if id==binding_id)
+        ),
         HttpPopProfileV1::Mcp => matches!(target.route.profile_route(), HttpPopRoute::Mcp),
         HttpPopProfileV1::Custody => matches!(
             target.route.profile_route(),

@@ -593,4 +593,5 @@ pub mod task_recipe_quote;
 
 pub mod resource_basis;
 
+pub mod task_cleanup_v2;
 pub mod task_context_projection;

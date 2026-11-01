@@ -985,3 +985,18 @@ pub mod setup_reconcile;
 pub(crate) mod client;
 #[path = "test_session_store.rs"]
 pub(crate) mod test_session;
+
+#[path = "owner_setup_v2_store.rs"]
+mod owner_setup_v2_store;
+
+#[path = "test_session_v2_credential_store.rs"]
+mod credentials_v2;
+
+#[path = "test_session_v2_control_store.rs"]
+mod controls_v2;
+
+#[path = "test_session_execution_prepare_current_store_v2.rs"]
+mod execution_prepare_current_v2;
+
+#[path = "test_session_v2_preflight_world_store.rs"]
+mod preflight_world_v2;

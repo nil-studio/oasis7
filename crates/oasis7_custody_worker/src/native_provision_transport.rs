@@ -20,10 +20,13 @@ pub(crate) enum NativePrivateRoute {
     SessionStatus,
     SessionLifetime,
     ParticipantPolicyOriginal,
+    TestSessionV2PolicyOriginal,
+    TestSessionV2Authorize,
     ParticipantAuthorize,
     ParticipantSubmit,
     ParticipantLookup,
     ParticipantOwnerView,
+    ParticipantReadAndRegisterTestSessionV2,
     OwnerControl,
 }
 impl NativePrivateRoute {
@@ -39,22 +42,30 @@ impl NativePrivateRoute {
             Self::BindingComplete => "/custody/managed-bindings/complete",
             Self::SessionStatus => "/custody/managed-bindings/session-status",
             Self::SessionLifetime => "/custody/managed-bindings/session-lifetime",
+            Self::TestSessionV2PolicyOriginal => "/participant/test-session-v2/policy-original",
+            Self::TestSessionV2Authorize => "/participant/test-session-v2/authorize",
             Self::ParticipantPolicyOriginal => "/participant/policy-original",
             Self::ParticipantAuthorize => "/participant/authorize",
             Self::ParticipantSubmit => "/participant/submit",
             Self::ParticipantLookup => "/participant/lookup",
             Self::ParticipantOwnerView => "/participant/owner-view",
+            Self::ParticipantReadAndRegisterTestSessionV2 => {
+                "/entry/read-and-register-test-session-v2"
+            }
             Self::OwnerControl => "/entry-owner/control",
         }
     }
     fn participant(self) -> bool {
         matches!(
             self,
-            Self::ParticipantPolicyOriginal
+            Self::TestSessionV2PolicyOriginal
+                | Self::TestSessionV2Authorize
+                | Self::ParticipantPolicyOriginal
                 | Self::ParticipantAuthorize
                 | Self::ParticipantSubmit
                 | Self::ParticipantLookup
                 | Self::ParticipantOwnerView
+                | Self::ParticipantReadAndRegisterTestSessionV2
                 | Self::OwnerControl
         )
     }
@@ -153,7 +164,13 @@ impl NativeProvisionTransport {
         // at 64 KiB. Other native protocols retain their existing smaller cap.
         checked(
             original_body.len()
-                <= if route == NativePrivateRoute::OwnerControl {
+                <= if matches!(
+                    route,
+                    NativePrivateRoute::TestSessionV2PolicyOriginal
+                        | NativePrivateRoute::TestSessionV2Authorize
+                        | NativePrivateRoute::OwnerControl
+                        | NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2
+                ) {
                     65_536
                 } else {
                     MAX_REQUEST
@@ -239,7 +256,11 @@ impl NativeProvisionTransport {
             }
             raw.zeroize();
         }
-        let body = super::read_native_body(response).await?;
+        let body = if route == NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2 {
+            super::read_native_body_limited(response, 65_536).await?
+        } else {
+            super::read_native_body(response).await?
+        };
         Ok(NativePrivateReply {
             http_status,
             body,

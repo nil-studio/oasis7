@@ -18,7 +18,11 @@ use serde_json::{Value, json};
 use std::{io::Read, time::Duration};
 use zeroize::Zeroizing;
 
-#[derive(Deserialize)]
+#[path = "participant_entry_owned_read.rs"]
+mod owned_read;
+pub(super) use owned_read::OwnedOwnerReadGateway;
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EntryTrust {
     pub endpoint: String,
@@ -250,151 +254,15 @@ impl ParticipantEntry {
         response_request: &R,
         maximum: usize,
     ) -> Result<Value, StoreError> {
-        // Only this read-only path may expose a fixed failure stage. Mutation
-        // and original-lookup transport failures keep their unknown outcome.
-        let failure = |code| {
-            if path == PARTICIPANT_OWNER_VIEW_PATH {
-                reject(code)
-            } else {
-                StoreError::OutcomeUnknown
-            }
-        };
-        let bytes = serde_json::to_vec(request).map_err(|_| reject("invalid_request"))?;
-        if bytes.len() > 65536 {
-            return Err(reject("invalid_request"));
-        }
-        let response = self
-            .http
-            .post(format!("{}{path}", self.trust.endpoint))
-            .header("Content-Type", "application/json")
-            .body(bytes)
-            .send()
-            .map_err(|error| {
-                failure(if error.is_timeout() {
-                    "participant_read_timeout"
-                } else {
-                    "participant_read_transport"
-                })
-            })?;
-        if response.status().as_u16() != 200 {
-            let status = response.status().as_u16();
-            if path == PARTICIPANT_OWNER_VIEW_PATH {
-                return Err(failure("participant_read_http_status"));
-            }
-            let mut error = Vec::new();
-            response
-                .take(4097)
-                .read_to_end(&mut error)
-                .map_err(|_| failure("participant_read_response_read"))?;
-            if error.len() <= 4096
-                && status == 409
-                && let Ok(value) = parse_request::<Value>(&error)
-            {
-                let code = value["error"].as_str().unwrap_or("");
-                let quote=path==oasis7_client_api::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH || path==oasis7_client_api::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
-                let allowed = (quote
-                    && ["task_quote_base_drift", "task_quote_delivery_drift"].contains(&code))
-                    || (matches!(path,
-                        oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_PATH
-                        | oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH)
-                        && code == "task_context_read_delivery_drift");
-                let projection = matches!(
-                    path,
-                    CONTEXT_PREPARE_ATTESTED_PATH_V2
-                        | CONTEXT_READ_ATTESTED_PATH_V2
-                        | CONTEXT_MOVE_PROJECTION_PATH_V2
-                );
-                let allowed = allowed
-                    || (projection
-                        && matches!(
-                            code,
-                            "context_too_large" | "task_context_read_delivery_drift"
-                        ));
-                if allowed {
-                    return Ok(
-                        json!({"api_version":2,"ok":true,"upstream_read_error":{"status":409,"code":code}}),
-                    );
-                }
-            }
-            return Err(failure("participant_read_http_status"));
-        }
-        let mut bytes = Vec::new();
-        response
-            .take(maximum as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| failure("participant_read_response_read"))?;
-        if bytes.len() > maximum {
-            return Err(failure("participant_read_response_limit"));
-        }
-        let digest = request_digest(response_path, response_request)
-            .map_err(|_| reject("invalid_request"))?;
-        macro_rules! verified {
-            ($kind:ty) => {{
-                let original: Value = parse_bounded_json(&bytes, maximum)
-                    .map_err(|_| failure("participant_read_response_decode"))?;
-                let response: SignedServiceResponse<$kind> =
-                    serde_json::from_value(original.clone())
-                        .map_err(|_| failure("participant_read_response_schema"))?;
-                let wire = serde_json::to_value(&response)
-                    .map_err(|_| failure("participant_read_response_shape"))?;
-                if wire != original {
-                    return Err(failure("participant_read_response_shape"));
-                }
-                if response.request_digest != digest {
-                    return Err(failure("participant_read_response_context"));
-                }
-                verify_service_response(
-                    response_path,
-                    &digest,
-                    &response,
-                    &self.trust.service_public_key,
-                )
-                .map_err(|_| failure("participant_read_response_signature"))?;
-                wire
-            }};
-        }
-        use oasis7_client_api::world_service::task_context_projection::*;
-        use oasis7_client_api::world_service::{
-            private_goal::*, private_goal_read::*, task_context::*, task_factory_quote::*,
-            task_recipe_quote::*,
-        };
-        // Private signatures cover typed CBOR, including typed map keys.
-        // Never reinterpret that proof as the normalized JSON view profile.
-        let response = match response_path {
-            PARTICIPANT_OWNER_VIEW_PATH => {
-                // Both profiles use this path, but signatures cover their
-                // distinct typed CBOR. Select only from the exact request whose
-                // digest is being verified, never from the response body.
-                let owner_request: ParticipantOwnerViewRequestV1 = serde_json::from_value(
-                    serde_json::to_value(response_request)
-                        .map_err(|_| reject("invalid_request"))?,
-                )
-                .map_err(|_| reject("invalid_request"))?;
-                match owner_request.response_profile {
-                    Some(ParticipantOwnerViewProfileV1::OwnerSetupV1) => {
-                        verified!(OwnerSetupObservationV1)
-                    }
-                    Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
-                        verified!(ParticipantOwnerControlResponseV1)
-                    }
-                    None => return Err(reject("invalid_request")),
-                }
-            }
-            GOAL_PREPARE_PATH => verified!(PreparedGoalReceiptV1),
-            GOAL_CURRENT_PATH => verified!(CurrentGoalResponse),
-            TASK_CONTEXT_PREPARE_PATH => verified!(PreparedTaskContextV1),
-            TASK_CONTEXT_READ_PATH | TASK_CONTEXT_LIVE_READ_PATH => {
-                verified!(CapturedTaskContextV1)
-            }
-            CONTEXT_PREPARE_ATTESTED_PATH_V2 => verified!(TaskContextPreparedDeliveryV2),
-            CONTEXT_READ_ATTESTED_PATH_V2 => verified!(TaskContextCapturedDeliveryV2),
-            CONTEXT_MOVE_PROJECTION_PATH_V2 => verified!(TaskContextMoveProjectionV2),
-            TASK_SNAPSHOT_PATH => verified!(GoalExecutionSnapshotV1),
-            TASK_RECIPE_QUOTE_PATH => verified!(TaskRecipeQuoteV1),
-            TASK_FACTORY_QUOTE_PATH => verified!(TaskFactoryQuoteV1),
-            _ => verified!(Value),
-        };
-        Ok(json!({"api_version":2,"ok":true,"world_response":response}))
+        owned_read::forward_bounded(
+            &self.trust,
+            &self.http,
+            path,
+            response_path,
+            request,
+            response_request,
+            maximum,
+        )
     }
 }
 
@@ -595,154 +463,9 @@ impl IdentityService {
             let owner: SignedReadRequest<GameParticipantRegisterV1> =
                 parse_request(&serde_json::to_vec(payload).map_err(|_| reject("invalid_request"))?)
                     .map_err(|_| reject("invalid_request"))?;
-            let r = &owner.request;
-            r.validate().map_err(|_| reject("invalid_request"))?;
-            let namespace = GameIdentityNamespaceV1 {
-                service_id: self.config.namespace.identity_service_id.clone(),
-                environment_id: self.config.namespace.environment_id.clone(),
-                instance_epoch: DecimalU64(self.config.rp.identity_instance_epoch),
-            };
-            if r.identity_namespace.service_id != namespace.service_id
-                || r.identity_namespace.environment_id != namespace.environment_id
-                || r.identity_namespace.instance_epoch.0 > namespace.instance_epoch.0
-                || r.account_id != account.account_id
-                || r.world_id != entry.trust.world.world_id
-                || r.genesis_digest != entry.trust.world.genesis_digest
-                || owner.subject_public_key != r.owner_public_key
-            {
-                return Err(reject("participant_context_mismatch"));
-            }
-            oasis7_client_api::world_service::private_goal::verify_owner_signature_strict(
-                GAME_PARTICIPANT_REGISTER_DOMAIN,
-                r,
-                &owner.subject_public_key,
-                &owner.signature_hex,
-            )
-            .map_err(|_| reject("authentication_failed"))?;
-            let business_digest =
-                oasis7_client_api::world_service_correlation::participant_business_digest(r)
-                    .map_err(|_| reject("invalid_request"))?;
+            self.validate_preflight_participant_owner(&account.account_id, &owner)?;
             let view = entry.policy()?;
-            let p = &view["policy"];
-            let number = |v: &Value| {
-                v.as_u64()
-                    .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
-            };
-            let tick =
-                number(&view["logical_tick"]).ok_or_else(|| reject("participant_unavailable"))?;
-            let window = number(&p["max_grant_ticks"])
-                .filter(|v| *v > 0 && *v <= 300)
-                .ok_or_else(|| reject("participant_unavailable"))?;
-            // A closed policy still authorizes exact existing-binding recovery;
-            // canonical validation decides whether a binding already exists.
-            if !p["enabled"].is_boolean()
-                || p["registry_complete"] != true
-                || view["world_id"] != r.world_id
-                || view["genesis_digest"] != r.genesis_digest
-                || p["world_id"] != r.world_id
-                || p["genesis_digest"] != r.genesis_digest
-                || p["identity_namespace"]
-                    != serde_json::to_value(&namespace)
-                        .map_err(|_| reject("participant_unavailable"))?
-                || p["issuer_public_key"] != entry.issuer_public_key
-            {
-                return Err(reject("participant_unavailable"));
-            }
-            let admission = GameParticipantAdmissionV1 {
-                api_rev: 1,
-                business_digest: business_digest.clone(),
-                identity_namespace: namespace,
-                account_id: r.account_id.clone(),
-                world_id: r.world_id.clone(),
-                genesis_digest: r.genesis_digest.clone(),
-                owner_public_key: r.owner_public_key.clone(),
-                branch_id: view["branch_id"]
-                    .as_str()
-                    .filter(|s| !s.is_empty())
-                    .ok_or_else(|| reject("participant_unavailable"))?
-                    .into(),
-                reorg_epoch: DecimalU64(
-                    number(&view["reorg_epoch"])
-                        .ok_or_else(|| reject("participant_unavailable"))?,
-                ),
-                policy_generation: DecimalU64(
-                    number(&p["generation"])
-                        .filter(|g| *g > 0)
-                        .ok_or_else(|| reject("participant_unavailable"))?,
-                ),
-                valid_from_tick: DecimalU64(tick),
-                valid_until_tick: DecimalU64(
-                    tick.checked_add(window)
-                        .ok_or_else(|| reject("participant_unavailable"))?,
-                ),
-            };
-            let binding_key = format!(
-                "participant-operation:{}",
-                request_digest(
-                    "participant-identity-operation",
-                    &(
-                        &r.identity_namespace.service_id,
-                        &r.identity_namespace.environment_id,
-                        &r.account_id,
-                        &r.world_id,
-                        &r.genesis_digest,
-                        &r.client_operation_id
-                    )
-                )
-                .map_err(|_| reject("invalid_request"))?
-            );
-            let token = session_key(
-                &self.config.session_key,
-                sid.ok_or_else(|| reject("session_expired"))?,
-            );
-            let checked_at = super::now_ms();
-            self.store.transaction(|tx| {
-                let current = valid_session(
-                    tx,
-                    &token,
-                    self.config.rp.identity_instance_epoch,
-                    checked_at,
-                )?;
-                if current.0.account_id != r.account_id {
-                    return Err(reject("authentication_failed"));
-                }
-                if let Some(old) = tx.get::<OriginalBinding>(&binding_key)? {
-                    if old.value.business_digest != business_digest
-                        || old.value.owner_public_key != r.owner_public_key
-                    {
-                        return Err(reject("idempotency_conflict"));
-                    }
-                } else {
-                    tx.create(
-                        &binding_key,
-                        "participant_original",
-                        Some(&r.account_id),
-                        None,
-                        &OriginalBinding {
-                            business_digest: business_digest.clone(),
-                            owner_public_key: r.owner_public_key.clone(),
-                        },
-                    )?;
-                }
-                consume_quota(
-                    tx,
-                    "participant-grant",
-                    &r.account_id,
-                    checked_at,
-                    60_000,
-                    30,
-                )?;
-                Ok(())
-            })?;
-            let signed = sign_read_request(
-                GAME_PARTICIPANT_ADMISSION_DOMAIN,
-                admission,
-                &entry.issuer_key,
-            )
-            .map_err(|_| reject("participant_unavailable"))?;
-            Ok(
-                json!({"api_version":2,"ok":true,"phase":"participant_authorized","state":"pending","new_registration_enabled":p["enabled"],"admission":signed,"next_action":"query_original_participant_request"}),
-            )
+            self.participant_authorize_with_policy(sid, owner, view)
         })();
         Some(result.and_then(|reply| {
             self.session(sid, super::now_ms())?;
@@ -772,3 +495,6 @@ impl IdentityService {
 #[cfg(test)]
 #[path = "participant_resource_component.rs"]
 mod resource_component;
+
+#[path = "participant_entry_authorize_policy.rs"]
+mod authorize_policy;

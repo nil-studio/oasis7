@@ -18,18 +18,19 @@ pub enum SessionPurposeV1 {
     TerminationPlan,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum SessionSourceFundingV1 {
     Control,
     Execution,
     ReconcileRead,
     TerminationPlan,
+    ExecutionFactoryV2 { nonce_salt: [u8; 32] },
 }
 impl SessionSourceFundingV1 {
     pub fn purpose(self) -> Option<SessionPurposeV1> {
         match self {
             Self::Control => None,
-            Self::Execution => Some(SessionPurposeV1::Execution),
+            Self::Execution | Self::ExecutionFactoryV2 { .. } => Some(SessionPurposeV1::Execution),
             Self::ReconcileRead => Some(SessionPurposeV1::ReconcileRead),
             Self::TerminationPlan => Some(SessionPurposeV1::TerminationPlan),
         }
@@ -436,3 +437,122 @@ pub use tool_nonce::{SessionToolNonceIngressV1, SessionToolNonceLinkV1};
 #[path = "test_session_context.rs"]
 mod context;
 pub use context::*;
+
+#[path = "test_session_v2_state.rs"]
+mod state_v2;
+pub use state_v2::*;
+
+#[path = "test_session_v2_admission.rs"]
+mod admission_v2;
+pub use admission_v2::TestSessionAdmissionV2;
+
+#[path = "test_session_v2_source.rs"]
+mod source_v2;
+
+#[path = "test_session_v2_live.rs"]
+mod live_v2;
+
+#[path = "test_session_v2_activation.rs"]
+mod activation_v2;
+
+#[path = "test_session_v2_preflight.rs"]
+mod preflight_v2;
+pub use preflight_v2::*;
+
+#[path = "test_session_v2_restore.rs"]
+mod restore_v2;
+
+#[path = "test_session_v2_management.rs"]
+mod management_v2;
+pub use management_v2::*;
+
+#[path = "test_session_v2_expiry.rs"]
+mod expiry_v2;
+
+#[path = "test_session_v2_credentials.rs"]
+mod v2_credentials;
+pub use v2_credentials::{SessionCredentialAllocationFactV2, SessionCredentialClaimRecordV2};
+#[path = "test_session_v2_credential_challenge.rs"]
+mod v2_credential_challenge;
+#[path = "test_session_v2_credential_http.rs"]
+mod v2_credential_http;
+#[path = "test_session_v2_credential_source.rs"]
+mod v2_credential_source;
+pub use v2_credential_source::TestSessionCredentialLiveDescriptorV2;
+#[path = "test_session_v2_credential_restore.rs"]
+mod v2_credential_restore;
+
+#[path = "test_session_v2_control.rs"]
+mod v2_control;
+pub(in crate::provisioning) use v2_control::{
+    SessionControlRecordV2, authenticated_receipt_v2, control_lifetime_claimed_v2,
+};
+
+#[path = "test_session_v2_journal.rs"]
+mod v2_journal;
+pub(in crate::provisioning) use v2_journal::{
+    SessionEventKindV2, SessionEventV2, SessionJournalProfileV2, append_session_event_v2,
+    next_session_ordinal_v2, session_event_ordinal_v2,
+};
+
+#[path = "test_session_v2_action_http.rs"]
+mod v2_action_http;
+#[path = "test_session_v2_purpose_http.rs"]
+mod v2_purpose_http;
+#[path = "test_session_v2_tool_nonce.rs"]
+mod v2_tool_nonce;
+pub use v2_action_http::SessionActionRequestV2;
+
+pub(in crate::provisioning) use v2_action_http::action_original_v2;
+
+// Pure occupancy/target checks shared by the fixed Account execution factory.
+// These return no grant and do not replace raw PoP or Current verification.
+pub(in crate::provisioning) use v2_control::id_in_use_v2 as execution_old_control_id_in_use_v2;
+pub(in crate::provisioning) use v2_credentials::credential_claim_id_in_use_v2 as execution_old_claim_id_in_use_v2;
+pub(in crate::provisioning) use v2_purpose_http::execution_target_v2;
+
+#[path = "test_session_v2_machine_registration.rs"]
+mod machine_registration_v2;
+pub use machine_registration_v2::*;
+
+#[path = "test_session_v2_machine_registered.rs"]
+mod machine_registered_v2;
+
+#[path = "test_session_v2_machine_active.rs"]
+mod machine_active_v2;
+pub(in crate::provisioning) use machine_active_v2::NativeMachineActiveRecordV2;
+pub use machine_active_v2::{NativeMachineActivationDispatchV2, PreparedNativeMachineActiveV2};
+#[path = "test_session_v2_machine_birth.rs"]
+mod machine_birth_v2;
+
+#[path = "test_session_v2_preflight_world.rs"]
+mod preflight_world_v2;
+pub use preflight_world_v2::{
+    NativePreflightAccessIssuerV2, PreparedNativePreflightAccessV2, TestSessionPreflightWorldV2,
+};
+#[path = "test_session_v2_preflight_world_restore.rs"]
+mod preflight_world_restore_v2;
+
+#[path = "test_session_v2_preflight_world_admission.rs"]
+mod preflight_world_admission_v2;
+
+#[path = "test_session_native_model_budget_v2.rs"]
+mod native_model_budget_v2;
+pub(in crate::provisioning) use native_model_budget_v2::SessionNativeModelBudgetV2;
+
+#[path = "test_session_native_model_entry_fee_v2.rs"]
+mod native_model_entry_fee_v2;
+#[path = "test_session_native_model_http_v2.rs"]
+mod native_model_http_v2;
+pub(in crate::provisioning) use native_model_entry_fee_v2::{
+    NativeModelEntryPortRecordV2, NativeModelHttpAdmissionV2,
+};
+pub use native_model_http_v2::NativeModelHttpContextV2;
+#[path = "test_session_native_model_reserve_v2.rs"]
+mod native_model_reserve_v2;
+pub(in crate::provisioning) use native_model_reserve_v2::NativeModelReservationRecordV2;
+pub use native_model_reserve_v2::NativeModelReserveOutcomeV2;
+
+#[path = "test_session_native_model_ports_v2.rs"]
+mod native_model_ports_v2;
+pub(in crate::provisioning) use native_model_ports_v2::NativeModelReservedPortV2;

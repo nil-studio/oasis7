@@ -1,0 +1,380 @@
+use super::*;
+use oasis7_client_api::world_service::participant_discovery::ParticipantOwnerViewRequestV1;
+use oasis7_custody_core::native_binding::SignedManagedNativeSessionLifetimeV1;
+use oasis7_custody_core::provisioning::CleanupTransportPolicyV2;
+impl OwnerProvisionApprovalStore {
+    pub(crate) fn claim_test_session_v2_preflight(
+        &self,
+        id: &str,
+    ) -> Result<TestSessionPreflightDescriptorV2> {
+        self.test_session_local(id, |s, t| {
+            s.claim_test_session_v2_preflight(id, t)
+                .map_err(|_| rejected())
+        })
+    }
+    pub(crate) fn claim_test_session_v2_preflight_step(
+        &self,
+        id: &str,
+        step: SessionPreflightStepV1,
+    ) -> Result<TestSessionPreflightDescriptorV2> {
+        self.test_session_local(id, |s, t| {
+            s.claim_test_session_v2_preflight_step(id, step, t)
+                .map_err(|_| rejected())
+        })
+    }
+    /// Two local credits are consumed atomically before any remote observation.
+    pub(crate) fn reserve_test_session_v2_preflight_oracle(
+        &self,
+        id: &str,
+        source: &str,
+        role: Role,
+    ) -> Result<(u8, u8)> {
+        let purpose = match role {
+            Role::Identity => OwnerSetupReadPurposeV1::Session,
+            Role::Owner => OwnerSetupReadPurposeV1::Sign,
+            _ => return Err(rejected()),
+        };
+        self.test_session_local(id, |s, t| {
+            let source_ticket = s
+                .reserve_test_session_v2_source_read(id, source, t)
+                .map_err(|_| rejected())?;
+            let oracle_ticket = s
+                .reserve_test_session_v2_preflight_read(id, purpose, role, t)
+                .map_err(|_| rejected())?;
+            Ok((source_ticket, oracle_ticket))
+        })
+    }
+    pub(crate) async fn test_session_v2_preflight_permit<F>(
+        &self,
+        id: &str,
+        role: Role,
+        access: Option<OwnerSetupAccessEvidenceV1>,
+        receipts: Option<
+            [oasis7_custody_core::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2],
+        >,
+        current: F,
+    ) -> Result<(
+        TestSessionPreflightPermitV2,
+        Option<TestSessionPreflightSigningBundleV2>,
+    )>
+    where
+        F: Fn() -> Result<TestSessionPreflightOwned>,
+    {
+        let purpose = match role {
+            Role::Identity => OwnerSetupReadPurposeV1::Session,
+            Role::Owner => OwnerSetupReadPurposeV1::Sign,
+            _ => return Err(rejected()),
+        };
+        self.native_verified(
+            &|| Ok(current()?.native),
+            "test_session_oracle",
+            id,
+            |s, _, _, t| {
+                current()?.with_core(|c| {
+                    let mut jobs = vec![
+                        s.test_session_v2_preflight_checks(id, c, UnixMillis::new(t))
+                            .map_err(|_| rejected())?,
+                    ];
+                    let snapshot = s.test_session_v2_snapshot(id).map_err(|_| rejected())?;
+                    let world3 = s
+                        .test_session_v2_preflight_descriptor(id)
+                        .map_err(|_| rejected())?
+                        .cleanup_transport_policy
+                        == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2);
+                    let evidence = if c.oracle_ticket == 3 {
+                        Some(access.as_ref().ok_or_else(rejected)?)
+                    } else if access.is_some() || receipts.is_some() {
+                        return Err(rejected());
+                    } else if c.oracle_ticket == 4 {
+                        Some(snapshot.preflight_access().ok_or_else(rejected)?)
+                    } else {
+                        None
+                    };
+                    if let Some(evidence) = evidence {
+                        if world3 {
+                            let saved = snapshot.preflight_world_receipts();
+                            let originals = if c.oracle_ticket == 3 {
+                                receipts.as_ref().ok_or_else(rejected)?
+                            } else {
+                                saved.as_ref().ok_or_else(rejected)?
+                            };
+                            jobs.push(
+                                s.test_session_v2_preflight_world_access_checks(
+                                    id,
+                                    evidence,
+                                    originals,
+                                    c,
+                                    UnixMillis::new(t),
+                                )
+                                .map_err(|_| rejected())?,
+                            );
+                        } else {
+                            if receipts.is_some() {
+                                return Err(rejected());
+                            }
+                            jobs.push(
+                                s.test_session_v2_preflight_access_checks(
+                                    id,
+                                    evidence,
+                                    c,
+                                    UnixMillis::new(t),
+                                )
+                                .map_err(|_| rejected())?,
+                            );
+                        }
+                    }
+                    Ok(jobs)
+                })
+            },
+            |s, _, _, t, v| {
+                current()?.with_core(|c| {
+                    if c.oracle_ticket == 3 {
+                        let evidence = access.clone().ok_or_else(rejected)?;
+                        if let Some(originals) = &receipts {
+                            s.record_test_session_v2_preflight_world_access(
+                                id,
+                                evidence,
+                                originals.clone(),
+                                c,
+                                UnixMillis::new(t),
+                                v,
+                            )
+                            .map_err(|_| rejected())?;
+                        } else {
+                            s.record_test_session_v2_preflight_access(
+                                id,
+                                evidence,
+                                c,
+                                UnixMillis::new(t),
+                                v,
+                            )
+                            .map_err(|_| rejected())?;
+                        }
+                    }
+                    let permit = s
+                        .test_session_v2_preflight_permit(
+                            id,
+                            role,
+                            purpose,
+                            c,
+                            UnixMillis::new(t),
+                            v,
+                        )
+                        .map_err(|_| rejected())?;
+                    let signing = if role == Role::Owner {
+                        Some(
+                            s.test_session_v2_preflight_signing_bundle(
+                                id,
+                                c,
+                                UnixMillis::new(t),
+                                v,
+                            )
+                            .map_err(|_| rejected())?,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok((permit, signing))
+                })
+            },
+        )
+        .await
+    }
+    pub(crate) async fn publish_test_session_v2_read<F>(
+        &self,
+        id: &str,
+        original: ParticipantOwnerViewRequestV1,
+        current: F,
+    ) -> Result<crate::owner_test_session_rpc::TestSessionPublishedReadV2>
+    where
+        F: Fn() -> Result<TestSessionPreflightOwned>,
+    {
+        self.native_verified(
+            &|| Ok(current()?.native),
+            "test_session_read_published",
+            id,
+            |s, _, _, t| {
+                current()?.with_core(|c| {
+                    Ok(vec![
+                        s.test_session_v2_preflight_checks(id, c, UnixMillis::new(t))
+                            .map_err(|_| rejected())?,
+                        s.test_session_v2_preflight_publish_checks(
+                            id,
+                            &original,
+                            c,
+                            UnixMillis::new(t),
+                        )
+                        .map_err(|_| rejected())?,
+                    ])
+                })
+            },
+            |s, _, _, t, v| {
+                current()?.with_core(|c| {
+                    s.publish_test_session_v2_preflight_read(
+                        id,
+                        original.clone(),
+                        c,
+                        UnixMillis::new(t),
+                        v,
+                    )
+                    .map_err(|_| rejected())?;
+                    let permit = s
+                        .test_session_v2_preflight_permit(
+                            id,
+                            Role::Owner,
+                            OwnerSetupReadPurposeV1::Sign,
+                            c,
+                            UnixMillis::new(t),
+                            v,
+                        )
+                        .map_err(|_| rejected())?;
+                    let original = s
+                        .test_session_v2_snapshot(id)
+                        .ok()
+                        .and_then(|s| s.preflight_read())
+                        .cloned()
+                        .ok_or_else(rejected)?;
+                    Ok(crate::owner_test_session_rpc::TestSessionPublishedReadV2 {
+                        permit,
+                        original,
+                    })
+                })
+            },
+        )
+        .await
+    }
+    pub(crate) async fn record_test_session_v2_lifetime<F>(
+        &self,
+        id: &str,
+        original: SignedManagedNativeSessionLifetimeV1,
+        current: F,
+    ) -> Result<()>
+    where
+        F: Fn() -> Result<TestSessionPreflightOwned>,
+    {
+        self.native_verified(
+            &|| Ok(current()?.native),
+            "test_session_lifetime",
+            id,
+            |s, _, _, t| {
+                current()?.with_core(|c| {
+                    Ok(vec![
+                        s.test_session_v2_preflight_lifetime_checks(
+                            id,
+                            &original,
+                            c,
+                            UnixMillis::new(t),
+                        )
+                        .map_err(|_| rejected())?,
+                    ])
+                })
+            },
+            |s, _, _, t, v| {
+                current()?.with_core(|c| {
+                    s.record_test_session_v2_preflight_lifetime(
+                        id,
+                        original.clone(),
+                        c,
+                        UnixMillis::new(t),
+                        v,
+                    )
+                    .map_err(|_| rejected())
+                })
+            },
+        )
+        .await
+    }
+    pub(crate) async fn activate_test_session_v2<F>(
+        &self,
+        id: &str,
+        lifetime: SignedManagedNativeSessionLifetimeV1,
+        world: OwnerSetupWorldEvidenceV1,
+        private_sid_generation: DecimalU64,
+        source: String,
+        current: F,
+        #[cfg(feature = "approval-harness")]
+        diagnostic: &crate::provision_approval_store::native::activation_diagnostic::Trace,
+    ) -> Result<TestSessionAuthorityV2>
+    where
+        F: Fn() -> Result<TestSessionApprovalOwned>,
+    {
+        let report = |stage: &'static str, error| {
+            #[cfg(feature = "approval-harness")]
+            diagnostic.fail(stage);
+            #[cfg(not(feature = "approval-harness"))]
+            let _ = stage;
+            error
+        };
+        let saved = self.snapshot().map_err(|e| report("activate.restore", e))?;
+        let session = saved
+            .state
+            .test_session_v2_snapshot(id)
+            .map_err(|_| rejected())?;
+        let write = super::super::alarm::write_deadline(session.input())?;
+        let lease = now()?.checked_add(90_000).ok_or_else(rejected)?;
+        let deadline = UnixMillis::new(write.get().min(lease));
+        self.native_verified_with_alarm_traced(
+            &|| Ok(current()?.native),
+            ("test_session_activated", id),
+            deadline,
+            |s, _, _, t| {
+                current()
+                    .map_err(|e| report("current.checks", e))?
+                    .with_core(|approval| {
+                        let mut checks = s
+                            .test_session_v2_native_restore_checks(id, approval.native_scope)
+                            .map_err(|_| rejected())?;
+                        checks.extend(
+                            s.activate_test_session_v2_checks(
+                                id,
+                                &TestSessionCurrent {
+                                    approval: TestSessionApprovalCurrent {
+                                        provision: approval.provision,
+                                        native_scope: approval.native_scope,
+                                        enrollment: approval.enrollment,
+                                        deployments: approval.deployments,
+                                        observed_at: approval.observed_at,
+                                    },
+                                    lifetime: &lifetime,
+                                    private_sid_generation,
+                                    world: &world,
+                                    source_operation_id: &source,
+                                },
+                                UnixMillis::new(t),
+                            )
+                            .map_err(|_| rejected())?,
+                        );
+                        Ok(checks)
+                    })
+            },
+            |s, _, _, t, v| {
+                current()
+                    .map_err(|e| report("current.transition", e))?
+                    .with_core(|approval| {
+                        s.activate_test_session_v2(
+                            id,
+                            &TestSessionCurrent {
+                                approval: TestSessionApprovalCurrent {
+                                    provision: approval.provision,
+                                    native_scope: approval.native_scope,
+                                    enrollment: approval.enrollment,
+                                    deployments: approval.deployments,
+                                    observed_at: approval.observed_at,
+                                },
+                                lifetime: &lifetime,
+                                private_sid_generation,
+                                world: &world,
+                                source_operation_id: &source,
+                            },
+                            UnixMillis::new(t),
+                            v,
+                        )
+                        .map_err(|_| rejected())
+                    })
+            },
+            #[cfg(feature = "approval-harness")]
+            Some(diagnostic),
+        )
+        .await
+    }
+}

@@ -15,6 +15,11 @@ use oasis7_custody_core::{DecimalU64, approval::*};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[path = "custody_guarded_consent.rs"]
+pub(super) mod guarded_consent;
+#[path = "custody_model_proxy_basis.rs"]
+pub(super) mod model_proxy_basis;
+
 #[path = "custody_managed_binding.rs"]
 pub(super) mod managed_binding;
 
@@ -24,6 +29,9 @@ mod complete;
 pub(super) mod revocation;
 
 pub(super) struct CustodyConfig {
+    // Deployment support for this fixed Native/UI contract, not request consent.
+    model_budget_summary_contract_enabled: bool,
+    full_session_v2_summary_contract_enabled: bool,
     key: SigningKey,
     key_id: String,
     audience: String,
@@ -109,6 +117,18 @@ impl CustodyConfig {
                 ),
             };
         let mut config = Self {
+            model_budget_summary_contract_enabled: std::env::var(
+                "OASIS7_CUSTODY_MODEL_BUDGET_SUMMARY_V1_ENABLED",
+            )
+            .ok()
+            .as_deref()
+                == Some("true"),
+            full_session_v2_summary_contract_enabled: std::env::var(
+                "OASIS7_CUSTODY_FULL_SESSION_V2_SUMMARY_ENABLED",
+            )
+            .ok()
+            .as_deref()
+                == Some("true"),
             key: SigningKey::from_bytes(&seed),
             key_id: values[1].clone(),
             audience: values[2].clone(),
@@ -132,6 +152,11 @@ impl CustodyConfig {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ApprovalRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    guarded_consent_provenance: Option<guarded_consent::GuardedConsentProvenanceV2>,
+    #[serde(default)]
+    model_budget_summary_contract:
+        Option<oasis7_custody_core::approval::NativeCustodySummaryContractV1>,
     approval_id: String,
     request: ApprovalOptionsRequestV1,
     intent_digest: String,
@@ -163,6 +188,17 @@ fn record_response(record: &ApprovalRecord, now: u64) -> Result<Value, StoreErro
         ApprovalPhaseV1::Pending
     };
     serde_json::to_value(ApprovalOptionsResponseV1 {
+        custody_session_summary_v2: record.request.native_session_summary_v2(),
+        model_budget_summary_contract: record.model_budget_summary_contract.clone(),
+        model_budget_summary: match &record.request.intent {
+            oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { plan } => {
+                plan.model_budget.clone()
+            }
+            oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { plan, .. } => {
+                plan.model_budget.clone()
+            }
+            _ => None,
+        },
         api_version: 1,
         phase,
         approval_id: record.approval_id.clone(),
@@ -266,6 +302,7 @@ impl IdentityService {
             .custody
             .as_ref()
             .ok_or_else(|| reject("custody_disabled"))?;
+        guarded_consent::require_supported_profile(config, &request)?;
         if request.context.audience != config.audience
             || request.context.environment != self.config.namespace.environment_id
         {
@@ -322,7 +359,17 @@ impl IdentityService {
             .webauthn
             .authentication_options(&credentials)
             .map_err(|_| reject("authentication_failed"))?;
-        let record = ApprovalRecord {
+        let mut record = ApprovalRecord {
+            guarded_consent_provenance: None,
+            // Only a new record can carry this server-owned contract. Existing
+            // opaque records were returned above and are never upgraded.
+            model_budget_summary_contract: model_proxy_basis::options_contract(
+                self,
+                &request,
+                &account.account_id,
+                &session.session_id,
+                now,
+            )?,
             approval_id: random_token(),
             request,
             intent_digest: digest,
@@ -340,8 +387,16 @@ impl IdentityService {
             complete_digest: None,
             proof_bytes: None,
         };
+        let guarded = guarded_consent::options_binding(
+            self,
+            &record.request,
+            record.model_budget_summary_contract.as_ref(),
+        )?;
         let secret = self.config.session_key;
-        self.store.transaction(|tx| {
+        let write = |tx: &mut IdentityTransaction<'_>| {
+            if let Some(binding) = &guarded {
+                record.guarded_consent_provenance = Some(binding.provenance(tx, &record)?);
+            }
             let (a, _) = management_session(tx, &key, epoch, now)?;
             if a.policy_version != record.policy_version
                 || a.security_epoch != record.security_epoch
@@ -379,7 +434,12 @@ impl IdentityService {
                 &record,
             )?;
             audit(tx, &a, "custody_approval_requested", now)
-        })?;
+        };
+        if guarded.is_some() {
+            self.store.guarded_consent_transaction(write)?;
+        } else {
+            self.store.transaction(write)?;
+        }
         record_response(&record, now)
     }
     pub(super) fn custody_verify_route(
@@ -424,122 +484,9 @@ impl IdentityService {
             .custody
             .as_ref()
             .ok_or_else(|| reject("custody_disabled"))?;
-        let proof = &request.approval.proof;
-        if request.verify_nonce.is_empty()
-            || request.verify_nonce.len() > 256
-            || proof.version != 1
-            || proof.key_id != config.key_id
-            || proof.identity_namespace != self.config.namespace.key()
-            || request.expected_audience != config.audience
-            || proof.context.audience != request.expected_audience
-            || proof.context.environment != self.config.namespace.environment_id
-            || proof.intent_digest != request.expected_intent_digest
-            || request.approval.digest().map_err(|_| StoreError::Corrupt)? != request.proof_digest
-        {
-            return Err(reject("approval_binding_mismatch"));
-        }
-        let signature = URL_SAFE_NO_PAD
-            .decode(&request.approval.signature)
-            .ok()
-            .and_then(|v| Signature::from_slice(&v).ok())
-            .ok_or_else(|| reject("approval_signature_invalid"))?;
-        config
-            .key
-            .verifying_key()
-            .verify_strict(
-                &proof.signing_bytes().map_err(|_| StoreError::Corrupt)?,
-                &signature,
-            )
-            .map_err(|_| reject("approval_signature_invalid"))?;
-        let epoch = self.config.rp.identity_instance_epoch;
+        origin_observation::validate_verification_request(config, &self.config, request)?;
         let result = self.store.transaction(|tx| {
-            consume_quota(tx, "custody-verify", "adapter", now, 60_000, 300)?;
-            revocation::overflow::require_participant(tx, &proof.manager_account_id)?;
-            let saved = tx
-                .get::<ApprovalRecord>(&approval_key(&proof.approval_id))?
-                .ok_or_else(|| reject("approval_history_unavailable"))?
-                .value;
-            let original: SignedCustodyApprovalV1 =
-                serde_json::from_slice(saved.proof_bytes.as_deref().ok_or(StoreError::Corrupt)?)
-                    .map_err(|_| StoreError::Corrupt)?;
-            if original != request.approval {
-                return Err(reject("approval_original_mismatch"));
-            }
-            let source_session = tx.get::<AccountSession>(&saved.session_storage_key)?;
-            let passkey =
-                tx.get::<CredentialRecord>(&credential_key(&proof.passkey_credential_id))?;
-            let account =
-                tx.get::<AccountRecord>(&format!("account:{}", proof.manager_account_id))?;
-            let origin_credential =
-                tx.get::<CredentialRecord>(&credential_key(&proof.origin_credential_id))?;
-            let origin_active =
-                valid_session(tx, &saved.session_storage_key, epoch, now).is_ok_and(|(a, s)| {
-                    a.policy_version == proof.manager_policy_version.0
-                        && a.security_epoch == proof.manager_security_version.0
-                        && s.session_id == proof.manager_session_ref
-                        && s.origin_credential_id == proof.origin_credential_id
-                        && s.origin_credential_version == proof.origin_credential_version.0
-                }) && passkey.as_ref().is_some_and(|c| {
-                    c.value.account_id == proof.manager_account_id
-                        && c.value.state == "active"
-                        && c.value.version == proof.passkey_credential_version.0
-                        && matches!(c.value.public_material, CredentialMaterial::WebAuthn { .. })
-                });
-            let origin_state = if source_session.is_none()
-                || account.is_none()
-                || passkey.is_none()
-                || origin_credential.is_none()
-            {
-                OriginStateV1::Unavailable
-            } else if origin_active {
-                OriginStateV1::Active
-            } else {
-                OriginStateV1::Revoked
-            };
-            let proof_state = if proof.expires_at.0 <= now {
-                ProofStateV1::Expired
-            } else {
-                ProofStateV1::Active
-            };
-            if request.purpose == VerificationPurposeV1::ConsumeApproval
-                && (proof_state != ProofStateV1::Active || origin_state != OriginStateV1::Active)
-            {
-                return Err(reject("approval_expired_or_revoked"));
-            }
-            Ok(ApprovalVerificationV1 {
-                version: 1,
-                key_id: config.key_id.clone(),
-                identity_namespace: self.config.namespace.key(),
-                purpose: request.purpose,
-                proof_digest: request.proof_digest.clone(),
-                approval_request_id: proof.approval_request_id.clone(),
-                audience: proof.context.audience.clone(),
-                intent_digest: proof.intent_digest.clone(),
-                verify_nonce: request.verify_nonce.clone(),
-                manager_security_version: DecimalU64(
-                    account.as_ref().map_or(0, |a| a.value.security_epoch),
-                ),
-                manager_policy_version: DecimalU64(
-                    account.as_ref().map_or(0, |a| a.value.policy_version),
-                ),
-                origin_credential_version: DecimalU64(
-                    origin_credential.map_or(0, |c| c.value.version),
-                ),
-                identity_instance_epoch: DecimalU64(epoch),
-                credential_version: DecimalU64(passkey.map_or(0, |c| c.value.version)),
-                observed_at: DecimalU64(now),
-                proof_expires_at: proof.expires_at,
-                source_session_expires_at: DecimalU64(
-                    source_session.as_ref().map_or(0, |s| s.value.expires_at),
-                ),
-                source_session_idle_expires_at: DecimalU64(
-                    source_session
-                        .as_ref()
-                        .map_or(0, |s| s.value.idle_expires_at),
-                ),
-                proof_state,
-                origin_state,
-            })
+            origin_observation::observe_origin_current(tx, config, &self.config, request, now)
         })?;
         let signed = SignedApprovalVerificationV1 {
             signature: URL_SAFE_NO_PAD.encode(
@@ -561,3 +508,20 @@ mod tests;
 #[cfg(test)]
 #[path = "custody_management_metadata_tests.rs"]
 mod metadata_tests;
+
+#[path = "custody_cleanup_v2_config.rs"]
+mod cleanup_config;
+#[path = "custody_cleanup_v2_consent.rs"]
+mod cleanup_consent;
+#[path = "custody_cleanup_v2_registration_adapter.rs"]
+mod cleanup_registration_adapter;
+#[path = "custody_cleanup_v2_registry.rs"]
+mod cleanup_registry;
+
+#[path = "custody_origin_observation_kernel.rs"]
+mod origin_observation;
+
+#[path = "custody_preflight_world_adapter_v2.rs"]
+mod preflight_world_adapter;
+#[path = "custody_preflight_world_registry_v2.rs"]
+mod preflight_world_registry;

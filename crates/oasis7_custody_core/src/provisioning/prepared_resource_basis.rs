@@ -26,6 +26,7 @@ impl PreparedResourceBasisV1 {
     /// or an approval grant. Caller must separately replay the actual four writes.
     pub fn validate_provenance(&self, plan: &OwnerSetupPlanV2) -> Result<(), String> {
         plan.validate()?;
+        let resource = plan.selection.resource().ok_or_else(invalid)?;
         let q = &self.final_read_original.request;
         let p = &self.final_observation.payload;
         let original = p.current_goal.active_goal.as_ref().ok_or_else(invalid)?;
@@ -36,7 +37,7 @@ impl PreparedResourceBasisV1 {
             || q.plan_digest != plan.digest()?
             || q.setup_id != self.setup_id
             || q.provision_id != self.provision_id
-            || self.selection != plan.selection
+            || &self.selection != resource
             || q.selection != self.selection
             || p.selection != self.selection
             || q.world.world_id != plan.world_identity.world_id

@@ -237,6 +237,37 @@ impl DurableObject for RoleKeyVault {
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
+        #[cfg(feature = "executor")]
+        if request.method() == Method::Post
+            && matches!(
+                url.path(),
+                "/internal/role-key/execution-prepare-v2"
+                    | "/internal/role-key/execution-prepare-initialize-v2"
+            )
+            && url.scheme() == "https"
+            && url.host_str() == Some("role-key.internal")
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && request.headers().get("Content-Type")?.as_deref() == Some("application/json")
+        {
+            let raw = Zeroizing::new(text(
+                bounded_body(request.inner().as_ref(), MAX_BYTES as u32)
+                    .await
+                    .map_err(|_| denied())?,
+                MAX_BYTES,
+            )?);
+            return match crate::execution_prepare_rpc_v2::receive(
+                self.state.clone(),
+                &self.env,
+                &raw,
+                url.path(),
+            )
+            .await
+            {
+                Ok(value) => Response::ok(value),
+                Err(_) => Response::error("execution Prepare rejected", 409),
+            };
+        }
         #[cfg(feature = "owner")]
         if request.method() == Method::Post
             && matches!(
