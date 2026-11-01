@@ -145,10 +145,13 @@ fn controlled_history_rejects_decodable_service_envelopes_without_dropping_them(
         let intents = intents
             .into_iter()
             .map(|(id, intent)| match intent {
-                super::super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(request) => {
-                    (id, *request)
-                }
-                super::super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(_) => {
+                super::super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(
+                    request,
+                ) => (id, *request),
+                super::super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(_)
+                | super::super::world_service_cleanup_v2::RegisteredServiceIntent::GuardedStopV2(
+                    _,
+                ) => {
                     panic!("legacy controlled history decoded as cleanup V2")
                 }
             })

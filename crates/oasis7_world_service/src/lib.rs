@@ -69,3 +69,5 @@ pub mod task_stop_record_control_v2;
 
 #[cfg(test)]
 mod task_stop_record_control_v2_tests;
+
+pub mod task_mutation_admission_v2;

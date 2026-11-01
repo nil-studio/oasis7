@@ -579,3 +579,6 @@ fn read_generated_cut(
 #[cfg(feature = "node-libp2p")]
 #[path = "driver_bft_v3_node_network_tests.rs"]
 mod node_network_tests;
+
+#[path = "driver_bft_v3_closed_mutation_tests.rs"]
+mod closed_mutation_tests;

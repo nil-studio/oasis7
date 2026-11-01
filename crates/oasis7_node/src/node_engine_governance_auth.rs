@@ -9,6 +9,9 @@ impl PosNodeEngine {
         let mut highwater = BTreeMap::<String, u64>::new();
         let mut released_bytes = 0usize;
         self.pending_consensus_actions.retain(|_, action| {
+            if crate::node_runtime_core::is_closed_task_catalog(&action.payload_cbor) {
+                return true;
+            }
             let keep = crate::node_runtime_core::retain_governance_action_for_proposal(
                 action,
                 hook,

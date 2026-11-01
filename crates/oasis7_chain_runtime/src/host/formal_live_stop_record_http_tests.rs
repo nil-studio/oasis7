@@ -50,8 +50,7 @@ fn formal_http_stop_record_control_v2_rejects_invalid_and_unready_without_busine
     node.lock().unwrap().stop().unwrap();
 }
 
-#[path = "../../../oasis7_world_service/src/task_cleanup_v2_formal_fixture.rs"]
-mod actual_task_fixture;
+use crate::formal_live_service::task_cleanup_fixture as actual_task_fixture;
 
 fn http_roundtrip(service: &FormalLiveService, body: &[u8]) -> Vec<u8> {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -201,3 +200,6 @@ fn formal_http_stop_record_control_v2_genuine_current_then_actual_delivery_expir
     assert_eq!(resolver.world.lock().unwrap().snapshot(), world.snapshot());
     node.lock().unwrap().stop().unwrap();
 }
+
+#[path = "formal_live_task_mutation_http_tests.rs"]
+mod mutation_http_tests;

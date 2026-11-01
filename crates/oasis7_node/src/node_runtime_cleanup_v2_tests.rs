@@ -4,7 +4,7 @@ use oasis7_agent_api::game::*;
 use oasis7_client_api::world_service::{
     WorldIdentity, sign_read_request, task_cleanup_v2::TaskCleanupSubmitV2,
 };
-fn request() -> TaskCleanupSubmitV2 {
+pub(crate) fn request() -> TaskCleanupSubmitV2 {
     let private = "11".repeat(32);
     let owner = sign_read_request("key", (), &private)
         .unwrap()
@@ -117,3 +117,31 @@ fn cleanup_v2_without_qualified_execution_hook_never_enters_actual_queue() {
     assert!(runtime.submit_consensus_action_payload(1, bytes).is_err());
     assert!(runtime.pending_consensus_actions.lock().unwrap().is_empty());
 }
+
+pub(crate) fn stop_catalog(
+    request: oasis7_client_api::world_service::task_stop_v2::TaskStopSubmitV2,
+) -> Vec<u8> {
+    serde_cbor::to_vec(&LocalConsensusActionPayloadEnvelope {
+        version: 1,
+        auth: None,
+        gameplay_submission_origin: None,
+        body: LocalConsensusActionPayloadBody::WorldGuardedStopV2 {
+            request: Box::new(request),
+        },
+    })
+    .unwrap()
+}
+pub(crate) fn close_catalog(request: TaskCleanupSubmitV2) -> Vec<u8> {
+    serde_cbor::to_vec(&LocalConsensusActionPayloadEnvelope {
+        version: 1,
+        auth: None,
+        gameplay_submission_origin: None,
+        body: LocalConsensusActionPayloadBody::WorldCleanupV2 {
+            request: Box::new(request),
+        },
+    })
+    .unwrap()
+}
+
+#[path = "node_runtime_closed_preflight_contention_tests.rs"]
+mod contention_tests;

@@ -196,7 +196,7 @@ fn pending_proposal_handoff_keeps_aggregate_reservation_until_payload_drop() {
     .expect("initial action reservation");
 
     let committed_actions = engine
-        .drain_proposable_consensus_actions(1)
+        .drain_proposable_consensus_actions(1, None)
         .expect("proposal handoff");
     assert_eq!(committed_actions, vec![action.clone()]);
     engine.pending = Some(PendingProposal {

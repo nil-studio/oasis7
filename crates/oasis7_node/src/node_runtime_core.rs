@@ -32,6 +32,7 @@ mod gameplay_origin;
 #[path = "node_runtime_cleanup_v2_catalog.rs"]
 mod cleanup_v2_catalog;
 use cleanup_v2_catalog::decode_local_consensus_action_payload_envelope;
+pub(crate) use cleanup_v2_catalog::{closed_task_deadline, is_closed_task_catalog};
 
 const CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION: u8 = 1;
 const MAIN_TOKEN_ACTION_AUTH_PAYLOAD_VERSION: u8 = 1;
@@ -93,6 +94,9 @@ struct LocalMainTokenActionAuthProof {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 enum LocalConsensusActionPayloadBody {
+    WorldGuardedStopV2 {
+        request: Box<oasis7_client_api::world_service::task_stop_v2::TaskStopSubmitV2>,
+    },
     WorldCleanupV2 {
         request: Box<oasis7_client_api::world_service::task_cleanup_v2::TaskCleanupSubmitV2>,
     },
@@ -1181,4 +1185,4 @@ pub(crate) use governance_auth::validate_consensus_action_payload_auth;
 
 #[cfg(test)]
 #[path = "node_runtime_cleanup_v2_tests.rs"]
-mod cleanup_v2_tests;
+pub(crate) mod cleanup_v2_tests;

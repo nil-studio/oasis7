@@ -159,6 +159,22 @@ pub(crate) fn validate_consensus_action_payload_auth(
             reason: format!("decode consensus action payload auth envelope failed: {err}"),
         }
     })?;
+    if let LocalConsensusActionPayloadBody::WorldGuardedStopV2 { request } = &envelope.body {
+        if envelope.version != CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION
+            || envelope.auth.is_some()
+            || envelope.gameplay_submission_origin.is_some()
+        {
+            return Err(NodeError::Consensus {
+                reason: "invalid guarded Stop V2 catalog envelope".into(),
+            });
+        }
+        request
+            .verify_owner_signature()
+            .map_err(|_| NodeError::Consensus {
+                reason: "invalid guarded Stop V2 Owner signature".into(),
+            })?;
+        return Ok(());
+    }
     if let LocalConsensusActionPayloadBody::WorldCleanupV2 { request } = &envelope.body {
         if envelope.version != CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION
             || envelope.auth.is_some()
@@ -214,6 +230,23 @@ pub(super) fn preflight_with_hook(
     if !governance_preflight_required(payload_cbor)? {
         return Ok(());
     }
+    if super::is_closed_task_catalog(payload_cbor) {
+        let hook = execution_hook
+            .as_ref()
+            .ok_or_else(|| NodeError::Consensus {
+                reason: "closed task authorization requires an execution preflight hook".into(),
+            })?;
+        let hook = hook.try_lock().map_err(|error| NodeError::Consensus {
+            reason: match error {
+                std::sync::TryLockError::WouldBlock => "closed task preflight busy; not queued",
+                std::sync::TryLockError::Poisoned(_) => {
+                    "closed task preflight hook poisoned; not queued"
+                }
+            }
+            .into(),
+        })?;
+        return validate_governance_preflight(&**hook, payload_cbor);
+    }
     let hook = execution_hook
         .as_ref()
         .map(|hook| {
@@ -247,6 +280,7 @@ fn governance_preflight_required(payload_cbor: &[u8]) -> Result<bool, NodeError>
     ) || matches!(
         envelope.body,
         LocalConsensusActionPayloadBody::WorldCleanupV2 { .. }
+            | LocalConsensusActionPayloadBody::WorldGuardedStopV2 { .. }
     ))
 }
 
@@ -256,6 +290,13 @@ fn validate_governance_preflight(
 ) -> Result<(), NodeError> {
     let envelope = decode_local_consensus_action_payload_envelope(payload_cbor)
         .map_err(|reason| NodeError::Consensus { reason })?;
+    if let LocalConsensusActionPayloadBody::WorldGuardedStopV2 { request } = &envelope.body {
+        return hook
+            .validate_guarded_stop_v2_action_payload(request)
+            .map_err(|reason| NodeError::Consensus {
+                reason: format!("guarded Stop V2 profile preflight rejected: {reason}"),
+            });
+    }
     if let LocalConsensusActionPayloadBody::WorldCleanupV2 { request } = &envelope.body {
         return hook
             .validate_cleanup_v2_action_payload(request)

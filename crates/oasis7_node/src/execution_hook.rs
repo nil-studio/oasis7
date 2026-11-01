@@ -405,6 +405,14 @@ pub struct NodeExecutionCheckpointInstallContext {
 }
 
 pub trait NodeExecutionHook: Send {
+    /// Separate guarded Stop catalog; unsupported hooks never fall back to V1.
+    fn validate_guarded_stop_v2_action_payload(
+        &self,
+        _request: &oasis7_client_api::world_service::task_stop_v2::TaskStopSubmitV2,
+    ) -> Result<(), String> {
+        Err("execution hook guarded Stop V2 profile unsupported".into())
+    }
+
     /// Dedicated profile admission before enqueueing the new cleanup catalog.
     /// A signature alone does not qualify Runtime context or block selection.
     fn validate_cleanup_v2_action_payload(

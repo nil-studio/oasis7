@@ -111,7 +111,7 @@ fn proposal_revalidation_drops_stale_duplicate_and_descending_nonces_without_blo
         kept_bytes
     );
     let decision = engine
-        .propose_next_head(&config.node_id, &config.world_id, 1)
+        .propose_next_head(&config.node_id, &config.world_id, 1, None)
         .unwrap();
     assert_eq!(decision.committed_actions, vec![first, ordinary]);
     assert!(engine.pending_consensus_actions.is_empty());
@@ -149,7 +149,7 @@ fn missing_hook_removes_governance_and_preserves_ordinary_proposal() {
         ordinary.payload_cbor.len()
     );
     let decision = engine
-        .propose_next_head(&config.node_id, &config.world_id, 1)
+        .propose_next_head(&config.node_id, &config.world_id, 1, None)
         .unwrap();
     assert_eq!(decision.committed_actions, vec![ordinary]);
 }

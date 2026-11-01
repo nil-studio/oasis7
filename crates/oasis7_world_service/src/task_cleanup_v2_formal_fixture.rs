@@ -13,7 +13,7 @@ impl oasis7_formal_protocol::controlled_authority::formal::business_index::Busin
         Ok(None)
     }
 }
-pub(super) fn begin(world: &mut World, at: i64) -> oasis7_runtime::RuntimeCommittedTickContext {
+pub(crate) fn begin(world: &mut World, at: i64) -> oasis7_runtime::RuntimeCommittedTickContext {
     let snapshot = world.snapshot();
     let bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).unwrap();
     let root = world.state().retained_history_root.clone().unwrap();
@@ -70,7 +70,7 @@ fn record(
         })
         .unwrap();
 }
-pub(super) fn fixture() -> (
+pub(crate) fn fixture() -> (
     World,
     oasis7_client_api::world_service::SignedReadRequest<GameTaskRevokeAndCloseV2>,
     String,

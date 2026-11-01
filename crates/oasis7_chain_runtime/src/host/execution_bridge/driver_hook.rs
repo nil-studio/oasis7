@@ -235,7 +235,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         if service_intents.iter().any(|(_, request)| {
             matches!(
                 request,
-                super::super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(_)
+                super::super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(_) | super::super::world_service_cleanup_v2::RegisteredServiceIntent::GuardedStopV2(_)
             )
         }) && (!decoded_runtime_actions.is_empty()
             || !decoded_simulator_actions.is_empty()

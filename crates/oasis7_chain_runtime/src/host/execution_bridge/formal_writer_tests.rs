@@ -636,3 +636,41 @@ mod saved_candidate_tests;
 
 #[path = "formal_writer_attempt_tests.rs"]
 mod attempt_tests;
+
+/// Actual writer/executor with explicit in-memory formal durability endpoints.
+/// The returned opaque writer does not expose fixture signing keys or endpoints.
+pub(crate) fn task_mutation_writer(
+    world: World,
+    root: std::path::PathBuf,
+) -> (
+    impl super::super::formal_node_hook::FormalNodeWriter,
+    oasis7::world_service::client::FormalReadTrustConfigV1,
+) {
+    let policy = ReleaseSecurityPolicy::default();
+    let digest = formal_package::execution_policy_material(&policy)
+        .unwrap()
+        .2;
+    let (world, initial_trust, anchor, _) =
+        fixtures::actual_world_initial_fixture_from_world(world, digest);
+    let primary = endpoint(&anchor, EndpointRole::Primary, false);
+    let replica = endpoint(&anchor, EndpointRole::Replica, false);
+    primary.0.lock().unwrap().closure_readback = true;
+    replica.0.lock().unwrap().closure_readback = true;
+    let checkpoint = anchor.checkpoint();
+    let trust = oasis7::world_service::client::FormalReadTrustConfigV1 {
+        initial_trust,
+        checkpoint_digest: checkpoint.digest().unwrap(),
+        checkpoint,
+    };
+    let writer = FormalWriter::open(
+        root,
+        fixtures::key(4),
+        policy,
+        world,
+        anchor,
+        primary,
+        replica,
+    )
+    .unwrap();
+    (writer, trust)
+}

@@ -180,3 +180,33 @@ fn v2_governance_action_uses_parent_admission_and_survives_proposal_selection() 
     drop(hook);
     signer.server.shutdown();
 }
+
+#[test]
+fn closed_task_bft_v2_selected_config_refuses_before_hook_admission() {
+    let (binding, signer) = binding_and_fixture();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let hook = AdmissionHook {
+        legacy_preflight_calls: calls.clone(),
+        validated_batches: Arc::new(Mutex::new(Vec::new())),
+    };
+    let runtime = NodeRuntime::new(
+        crate::NodeConfig::new(
+            "validator",
+            binding.scope.world_id.clone(),
+            NodeRole::Sequencer,
+        )
+        .unwrap(),
+    )
+    .with_execution_hook(hook)
+    .with_tendermint_v2(binding, signer.provider.clone())
+    .unwrap();
+    let fixture = &crate::node_runtime_core::cleanup_v2_tests::request();
+    let frame = crate::node_runtime_core::cleanup_v2_tests::close_catalog(fixture.clone());
+    let err = runtime
+        .submit_consensus_action_payload(82, frame)
+        .unwrap_err();
+    assert!(
+        matches!(err,crate::NodeError::Consensus {reason} if reason=="closed task mutation requires non-BFT Formal profile; not queued")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

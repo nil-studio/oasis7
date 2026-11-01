@@ -523,6 +523,8 @@ impl FormalLiveService {
             ("POST", SUBMIT_PATH) => self.handle_submit(body),
             ("POST", LOOKUP_PATH) => self.handle_lookup(body),
             ("POST", oasis7_client_api::world_service::task_stop_record_control_v2::TASK_STOP_RECORD_CONTROL_V2) => self.handle_stop_record_control(body),
+            ("POST", oasis7_client_api::world_service::task_stop_v2::TASK_STOP_SUBMIT_V2) => task_mutation_service::handle_stop(self,body),
+            ("POST", oasis7_client_api::world_service::task_cleanup_v2::TASK_CLEANUP_SUBMIT_V2) => task_mutation_service::handle_close(self,body),
             ("POST", CHANGES_PATH) => self.handle_changes(body),
             (
                 "POST",
@@ -1141,3 +1143,10 @@ mod stop_record_clock;
 mod status_service;
 #[path = "formal_live_stop_record_service.rs"]
 mod stop_record_service;
+
+#[path = "formal_live_task_mutation_v2.rs"]
+mod task_mutation_service;
+
+#[cfg(test)]
+#[path = "../../../oasis7_world_service/src/task_cleanup_v2_formal_fixture.rs"]
+pub(crate) mod task_cleanup_fixture;

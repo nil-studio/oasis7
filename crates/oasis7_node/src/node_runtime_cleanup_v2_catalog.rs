@@ -10,13 +10,14 @@ pub(super) fn decode_local_consensus_action_payload_envelope(
             if matches!(
                 &envelope.body,
                 LocalConsensusActionPayloadBody::WorldCleanupV2 { .. }
+                    | LocalConsensusActionPayloadBody::WorldGuardedStopV2 { .. }
             ) && serde_cbor::to_vec(&envelope).map_err(|e| e.to_string())? != payload_cbor
             {
                 return Err("noncanonical cleanup v2 catalog envelope".into());
             }
             Ok(envelope)
         }
-        Err(_) if recognized_cleanup_v2(payload_cbor) => {
+        Err(_) if is_closed_task_catalog(payload_cbor) => {
             Err("invalid cleanup v2 catalog envelope".into())
         }
         Err(error) if gameplay_origin::recognized_metadata(payload_cbor) => {
@@ -35,7 +36,7 @@ pub(super) fn decode_local_consensus_action_payload_envelope(
 }
 
 // Only the new catalog is closed here; legacy raw-runtime fallback stays intact.
-fn recognized_cleanup_v2(bytes: &[u8]) -> bool {
+pub(crate) fn is_closed_task_catalog(bytes: &[u8]) -> bool {
     use serde_cbor::Value;
     let Ok(Value::Map(envelope)) = serde_cbor::from_slice::<Value>(bytes) else {
         return false;
@@ -43,5 +44,44 @@ fn recognized_cleanup_v2(bytes: &[u8]) -> bool {
     let Some(Value::Map(body)) = envelope.get(&Value::Text("body".into())) else {
         return false;
     };
-    body.get(&Value::Text("type".into())) == Some(&Value::Text("world_cleanup_v2".into()))
+    matches!(body.get(&Value::Text("type".into())), Some(Value::Text(tag)) if tag == "world_cleanup_v2" || tag == "world_guarded_stop_v2")
+}
+
+/// Classification only. Caller must still use the actual qualified hook.
+pub(crate) fn closed_task_deadline(
+    payload: &[u8],
+) -> Result<
+    Option<(
+        oasis7_client_api::world_service::task_mutation_admission_v2::TaskMutationKindV2,
+        u64,
+    )>,
+    String,
+> {
+    if !is_closed_task_catalog(payload) {
+        return Ok(None);
+    }
+    let envelope = decode_local_consensus_action_payload_envelope(payload)?;
+    match envelope.body {
+        LocalConsensusActionPayloadBody::WorldGuardedStopV2 { request } => {
+            if envelope.version != CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION
+                || envelope.auth.is_some()
+                || envelope.gameplay_submission_origin.is_some()
+            {
+                return Err("invalid closed Stop frame".into());
+            }
+            request.verify_owner_signature()?;
+            Ok(Some((oasis7_client_api::world_service::task_mutation_admission_v2::TaskMutationKindV2::GuardedStop,request.original.request.execute_until_ms.0)))
+        }
+        LocalConsensusActionPayloadBody::WorldCleanupV2 { request } => {
+            if envelope.version != CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION
+                || envelope.auth.is_some()
+                || envelope.gameplay_submission_origin.is_some()
+            {
+                return Err("invalid closed Close frame".into());
+            }
+            request.verify_owner_signature()?;
+            Ok(Some((oasis7_client_api::world_service::task_mutation_admission_v2::TaskMutationKindV2::RevokeAndClose,request.original.request.cleanup_until_ms.0)))
+        }
+        _ => Ok(None),
+    }
 }

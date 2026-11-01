@@ -75,6 +75,13 @@ pub(super) fn decode_committed_actions(
         }
         match decode_consensus_action_payload_envelope(action.payload_cbor.as_slice()) {
             Ok(envelope) => {
+                if matches!(
+                    &envelope.body,
+                    ConsensusActionPayloadBody::WorldGuardedStopV2 { .. }
+                ) && (envelope.auth.is_some() || envelope.gameplay_submission_origin.is_some())
+                {
+                    return Err("guarded Stop V2 rejects external auth/origin wrappers".into());
+                }
                 let governance_authorization = match envelope.auth {
                     Some(ConsensusActionAuthEnvelope::GovernanceAction(proof)) => Some(proof),
                     _ => None,
@@ -101,6 +108,15 @@ pub(super) fn decode_committed_actions(
                     }
                 }
                 match envelope.body {
+                    ConsensusActionPayloadBody::WorldGuardedStopV2 { request } => {
+                        request.verify_owner_signature()?;
+                        service_intents.push((
+                            action.action_id,
+                            super::world_service_cleanup_v2::RegisteredServiceIntent::GuardedStopV2(
+                                request,
+                            ),
+                        ));
+                    }
                     ConsensusActionPayloadBody::WorldCleanupV2 { request } => {
                         request.validate()?;
                         service_intents.push((
