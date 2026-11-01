@@ -31,12 +31,37 @@ use oasis7_formal_protocol::{
     },
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryReservation, ReservedValue};
 use std::{cell::RefCell, io, io::Write};
 
 #[path = "incremental_owner_closure_report.rs"]
 mod report;
 pub use report::UnsupportedWorldStateOwnersV1;
+
+/// Typed owner evidence at one exact RootSet. This is deliberately separate
+/// from a World acceptance/activation token: unsupported fields remain in the
+/// diagnostic and callers must keep failing closed while any remain.
+pub struct WorldStateOwnerClosureV1 {
+    root_set_digest: [u8; 32],
+    report: UnsupportedWorldStateOwnersV1,
+    families: record_families::RecordFamilyQualificationsV1,
+    memory: MemoryBudget,
+    _charge: MemoryReservation,
+}
+
+impl WorldStateOwnerClosureV1 {
+    pub fn root_set_digest(&self) -> [u8; 32] {
+        self.root_set_digest
+    }
+
+    pub fn report(&self) -> &UnsupportedWorldStateOwnersV1 {
+        &self.report
+    }
+
+    pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        self.memory.same_pool(memory)
+    }
+}
 
 #[path = "incremental_owner_closure_module_instances.rs"]
 mod module_instances;
@@ -593,14 +618,14 @@ fn read_u64_entry<R: ValueNodeReader>(
 /// The roots scanned are taken directly from `root_set`; the returned
 /// diagnostic binds their complete world/genesis/height/tick/root identity.
 /// Callers must reject the incomplete report before issuing a profile-3 receipt.
-pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader>(
+pub fn verify_world_state_owner_closure_v1<S: MerkleNodeReader, V: ValueNodeReader>(
     root_set: &RootSetV1,
     state: &S,
     values: &mut ValueReadContext<'_, V>,
     state_io: &mut StateScanBudget,
     max_value_bytes: u64,
     cancelled: impl FnMut() -> bool,
-) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
+) -> Result<WorldStateOwnerClosureV1, WorldStateOwnerError> {
     if state.allocation_class() != Some(values.class)
         || !state
             .allocation_budget()
@@ -861,7 +886,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     if (cancelled.borrow_mut())() {
         return Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled));
     }
-    let family_coverage = record_families::verify_present_families(
+    let (family_coverage, family_qualifications) = record_families::verify_present_families(
         root_set,
         &root_set_digest,
         state,
@@ -1106,12 +1131,6 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     if unsupported.len() > unsupported.capacity() {
         return Err(WorldStateOwnerError::Invalid("owner diagnostic capacity"));
     }
-    let report_charge = memory
-        .reserve(
-            std::mem::size_of::<UnsupportedWorldStateOwnersV1>(),
-            values.class,
-        )
-        .map_err(WorldStateOwnerError::Memory)?;
     let report = UnsupportedWorldStateOwnersV1 {
         root_set_digest,
         unsupported_fields: fields_charge.retain(unsupported),
@@ -1138,7 +1157,56 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_diplomacy_fields,
     };
     drop(schema_charge);
-    Ok(report_charge.retain(report))
+    let closure_charge = memory
+        .reserve(
+            std::mem::size_of::<WorldStateOwnerClosureV1>(),
+            values.class,
+        )
+        .map_err(WorldStateOwnerError::Memory)?;
+    Ok(WorldStateOwnerClosureV1 {
+        root_set_digest,
+        report,
+        families: family_qualifications,
+        memory: memory.clone(),
+        _charge: closure_charge,
+    })
+}
+
+/// Compatibility diagnostic view. New endpoint code should retain the full
+/// owner closure returned by `verify_world_state_owner_closure_v1` so typed
+/// family qualifications cannot be discarded before changed-only dispatch.
+pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader>(
+    root_set: &RootSetV1,
+    state: &S,
+    values: &mut ValueReadContext<'_, V>,
+    state_io: &mut StateScanBudget,
+    max_value_bytes: u64,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
+    let memory = values.memory;
+    let class = values.class;
+    let closure = verify_world_state_owner_closure_v1(
+        root_set,
+        state,
+        values,
+        state_io,
+        max_value_bytes,
+        cancelled,
+    )?;
+    let WorldStateOwnerClosureV1 {
+        report,
+        families,
+        memory: _held_memory,
+        _charge,
+        ..
+    } = closure;
+    drop(families);
+    drop(_held_memory);
+    drop(_charge);
+    let charge = memory
+        .reserve(std::mem::size_of::<UnsupportedWorldStateOwnersV1>(), class)
+        .map_err(WorldStateOwnerError::Memory)?;
+    Ok(charge.retain(report))
 }
 
 #[cfg(test)]

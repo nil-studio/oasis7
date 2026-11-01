@@ -2,27 +2,42 @@ use super::{SeenField, WorldStateOwnerError};
 use crate::incremental_semantic_key::SemanticKeyBudget;
 use crate::{
     incremental_agent_authority_records::{
-        AgentAuthorityRecordKindV1, qualify_agent_authority_family_v1,
+        AgentAuthorityFamilyQualificationV1, AgentAuthorityRecordKindV1,
+        qualify_agent_authority_family_v1,
     },
-    incremental_diplomacy::{DiplomacyFieldV1, qualify_diplomacy_family_v1},
+    incremental_diplomacy::{
+        DiplomacyFamilyQualificationV1, DiplomacyFieldV1, qualify_diplomacy_family_v1,
+    },
     incremental_factory_authority_records::{
-        FactoryAuthorityRecordKindV1, qualify_factory_authority_family_v1,
+        FactoryAuthorityFamilyQualificationV1, FactoryAuthorityRecordKindV1,
+        qualify_factory_authority_family_v1,
     },
     incremental_field_read::WorldFieldReadContextV1,
-    incremental_fixed_economy_records::{FixedEconomyFieldV1, qualify_fixed_economy_family_v1},
-    incremental_governance_records::{GovernanceRecordKindV1, qualify_governance_family_v1},
+    incremental_fixed_economy_records::{
+        FixedEconomyFamilyQualificationV1, FixedEconomyFieldV1, qualify_fixed_economy_family_v1,
+    },
+    incremental_governance_records::{
+        GovernanceFamilyQualificationV1, GovernanceRecordKindV1, qualify_governance_family_v1,
+    },
     incremental_logistics_records::{
-        LogisticsFamilyReadContextV1, LogisticsRecordKindV1, LogisticsWorkBudgetV1,
-        qualify_logistics_family_v1,
+        LogisticsFamilyQualificationV1, LogisticsFamilyReadContextV1, LogisticsRecordKindV1,
+        LogisticsWorkBudgetV1, qualify_logistics_family_v1,
     },
     incremental_main_token_policy_records::{
-        MainTokenPolicyKindV1, qualify_main_token_policy_family_v1,
+        MainTokenPolicyFamilyQualificationV1, MainTokenPolicyKindV1,
+        qualify_main_token_policy_family_v1,
     },
-    incremental_material_records::{MaterialRecordKindV1, qualify_material_family_v1},
+    incremental_material_records::{
+        MaterialFamilyQualificationV1, MaterialRecordKindV1, qualify_material_family_v1,
+    },
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
-    incremental_reward_budget_records::{RewardRecordKindV1, qualify_reward_family_v1},
-    incremental_world_rule_organization::root::qualify_organization_family_v1,
-    incremental_world_rule_supply_root::qualify_supply_family_v1,
+    incremental_reward_budget_records::{
+        RewardFamilyQualificationV1, RewardRecordKindV1, qualify_reward_family_v1,
+    },
+    incremental_world_rule_organization::root::{
+        OrganizationFamilyQualificationV1, qualify_organization_family_v1,
+    },
+    incremental_world_rule_supply_root::{SupplyFamilyQualificationV1, qualify_supply_family_v1},
 };
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
 use oasis7_formal_protocol::{
@@ -30,6 +45,7 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateScanBudget},
     incremental_value::{ValueNodeReader, ValueReadContext},
 };
+use oasis7_proto::memory_budget::ReservedValue;
 use std::cell::RefCell;
 
 pub(super) const GOVERNANCE_FIELD_COUNT: u8 = GovernanceRecordKindV1::ALL.len() as u8;
@@ -70,6 +86,24 @@ pub(super) struct FamilyCoverage {
     pub organization: bool,
     pub supply: bool,
     pub diplomacy: bool,
+}
+
+/// The typed family qualifications found at one exact RootSet. They are kept
+/// together by the owner-closure caller so an accepted-parent dispatcher can
+/// hand the relevant opaque token to each family receiver.
+#[derive(Default)]
+pub(super) struct RecordFamilyQualificationsV1 {
+    pub governance: Option<ReservedValue<GovernanceFamilyQualificationV1>>,
+    pub factory_authority: Option<ReservedValue<FactoryAuthorityFamilyQualificationV1>>,
+    pub main_token_policy: Option<ReservedValue<MainTokenPolicyFamilyQualificationV1>>,
+    pub material: Option<ReservedValue<MaterialFamilyQualificationV1>>,
+    pub logistics: Option<ReservedValue<LogisticsFamilyQualificationV1>>,
+    pub fixed_economy: Option<ReservedValue<FixedEconomyFamilyQualificationV1>>,
+    pub agent_authority: Option<ReservedValue<AgentAuthorityFamilyQualificationV1>>,
+    pub reward: Option<ReservedValue<RewardFamilyQualificationV1>>,
+    pub organization: Option<ReservedValue<OrganizationFamilyQualificationV1>>,
+    pub supply: Option<ReservedValue<SupplyFamilyQualificationV1>>,
+    pub diplomacy: Option<ReservedValue<DiplomacyFamilyQualificationV1>>,
 }
 
 fn matches(
@@ -248,7 +282,7 @@ pub(super) fn verify_present_families<
     cancelled: &RefCell<C>,
     seen: &[SeenField],
     descriptors: &[FieldDescriptor],
-) -> Result<FamilyCoverage, WorldStateOwnerError> {
+) -> Result<(FamilyCoverage, RecordFamilyQualificationsV1), WorldStateOwnerError> {
     let mut key_work = SemanticKeyBudget {
         // This is one aggregate finite ceiling for the candidate, shared by
         // all family qualifiers. Per-record readers retain their tighter cap.
@@ -256,9 +290,10 @@ pub(super) fn verify_present_families<
     };
     let mut cells = state_io.leaves_remaining;
     let mut coverage = FamilyCoverage::default();
+    let mut qualifications = RecordFamilyQualificationsV1::default();
 
     macro_rules! qualify {
-        ($namespace:expr, $qualifier:path, $binding:ident) => {{
+        ($namespace:expr, $qualifier:path, $binding:ident, $slot:ident) => {{
             let (mut outer, mut inner) = lease_budget(state_io);
             let result = (|| {
                 let root = roots
@@ -290,7 +325,7 @@ pub(super) fn verify_present_families<
                     max_value_bytes,
                 )?;
                 qualification.$binding(root_digest)?;
-                drop(qualification);
+                qualifications.$slot = Some(qualification);
                 Ok::<(), ValueTreeError>(())
             })();
             return_unused_budget(state_io, &outer, &inner)?;
@@ -299,7 +334,7 @@ pub(super) fn verify_present_families<
     }
 
     macro_rules! qualify_without_payload_limit {
-        ($qualifier:path, $binding:ident) => {{
+        ($qualifier:path, $binding:ident, $slot:ident) => {{
             let (mut outer, mut inner) = lease_budget(state_io);
             let result = (|| {
                 let mut context = WorldFieldReadContextV1 {
@@ -320,7 +355,7 @@ pub(super) fn verify_present_families<
                 let qualification =
                     $qualifier(roots, &mut context, &mut outer, &mut inner, &mut cells)?;
                 qualification.$binding(root_digest)?;
-                drop(qualification);
+                qualifications.$slot = Some(qualification);
                 Ok::<(), ValueTreeError>(())
             })();
             return_unused_budget(state_io, &outer, &inner)?;
@@ -332,7 +367,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Business,
             qualify_governance_family_v1,
-            validate_binding
+            validate_binding,
+            governance
         );
         coverage.governance = true;
     }
@@ -340,7 +376,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Business,
             qualify_factory_authority_family_v1,
-            validate_binding
+            validate_binding,
+            factory_authority
         );
         coverage.factory_authority = true;
     }
@@ -348,7 +385,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Business,
             qualify_main_token_policy_family_v1,
-            validate_binding
+            validate_binding,
+            main_token_policy
         );
         coverage.main_token_policy = true;
     }
@@ -356,7 +394,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Business,
             qualify_material_family_v1,
-            validate_binding
+            validate_binding,
+            material
         );
         coverage.material = true;
     }
@@ -389,7 +428,7 @@ pub(super) fn verify_present_families<
             };
             let qualification = qualify_logistics_family_v1(roots, &mut context, &mut work)?;
             qualification.validate_binding(root_digest)?;
-            drop(qualification);
+            qualifications.logistics = Some(qualification);
             Ok::<(), ValueTreeError>(())
         })();
         let inner = work.scan;
@@ -399,14 +438,19 @@ pub(super) fn verify_present_families<
         coverage.logistics = true;
     }
     if family_has_entries(RecordFamily::FixedEconomy, seen, descriptors) {
-        qualify_without_payload_limit!(qualify_fixed_economy_family_v1, validate_binding);
+        qualify_without_payload_limit!(
+            qualify_fixed_economy_family_v1,
+            validate_binding,
+            fixed_economy
+        );
         coverage.fixed_economy = true;
     }
     if family_has_entries(RecordFamily::AgentAuthority, seen, descriptors) {
         qualify!(
             StateNamespaceV1::Business,
             qualify_agent_authority_family_v1,
-            validate_binding
+            validate_binding,
+            agent_authority
         );
         coverage.agent_authority = true;
     }
@@ -414,7 +458,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Business,
             qualify_reward_family_v1,
-            validate_binding
+            validate_binding,
+            reward
         );
         coverage.reward = true;
     }
@@ -423,7 +468,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Authorization,
             qualify_organization_family_v1,
-            validate_binding
+            validate_binding,
+            organization
         );
         coverage.organization = true;
     }
@@ -431,7 +477,8 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Authorization,
             qualify_supply_family_v1,
-            validate_binding
+            validate_binding,
+            supply
         );
         coverage.supply = true;
     }
@@ -447,9 +494,10 @@ pub(super) fn verify_present_families<
         qualify!(
             StateNamespaceV1::Business,
             qualify_diplomacy_family_v1,
-            validate_binding
+            validate_binding,
+            diplomacy
         );
         coverage.diplomacy = true;
     }
-    Ok(coverage)
+    Ok((coverage, qualifications))
 }
