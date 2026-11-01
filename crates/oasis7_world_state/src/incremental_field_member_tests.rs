@@ -189,6 +189,21 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
             .concat(),
         ),
         (MemberPayloadRefV1::Bytes(&[0, 255]), 7, vec![0, 255]),
+        (
+            MemberPayloadRefV1::IdentityU64Triple {
+                identity: "甲\0",
+                amounts: [0, u64::MAX, 17],
+            },
+            9,
+            [
+                &4u64.to_be_bytes()[..],
+                "甲\0".as_bytes(),
+                &0u64.to_be_bytes(),
+                &u64::MAX.to_be_bytes(),
+                &17u64.to_be_bytes(),
+            ]
+            .concat(),
+        ),
     ];
     let key = [
         b"oasis7.iws.semantic-key.v1\0".as_slice(),
