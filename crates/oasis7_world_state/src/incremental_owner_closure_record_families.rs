@@ -4,6 +4,7 @@ use crate::{
     incremental_agent_authority_records::{
         AgentAuthorityRecordKindV1, qualify_agent_authority_family_v1,
     },
+    incremental_diplomacy::{DiplomacyFieldV1, qualify_diplomacy_family_v1},
     incremental_factory_authority_records::{
         FactoryAuthorityRecordKindV1, qualify_factory_authority_family_v1,
     },
@@ -20,6 +21,8 @@ use crate::{
     incremental_material_records::{MaterialRecordKindV1, qualify_material_family_v1},
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
     incremental_reward_budget_records::{RewardRecordKindV1, qualify_reward_family_v1},
+    incremental_world_rule_organization::root::qualify_organization_family_v1,
+    incremental_world_rule_supply_root::qualify_supply_family_v1,
 };
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
 use oasis7_formal_protocol::{
@@ -37,6 +40,9 @@ pub(super) const LOGISTICS_FIELD_COUNT: u8 = LogisticsRecordKindV1::ALL.len() as
 pub(super) const FIXED_ECONOMY_FIELD_COUNT: u8 = FixedEconomyFieldV1::ALL.len() as u8;
 pub(super) const AGENT_AUTHORITY_FIELD_COUNT: u8 = AgentAuthorityRecordKindV1::ALL.len() as u8;
 pub(super) const REWARD_FIELD_COUNT: u8 = RewardRecordKindV1::ALL.len() as u8;
+pub(super) const ORGANIZATION_FIELD_COUNT: u8 = 2;
+pub(super) const SUPPLY_FIELD_COUNT: u8 = 2;
+pub(super) const DIPLOMACY_FIELD_COUNT: u8 = DiplomacyFieldV1::ALL.len() as u8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RecordFamily {
@@ -48,6 +54,7 @@ pub(super) enum RecordFamily {
     FixedEconomy,
     AgentAuthority,
     Reward,
+    Diplomacy,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -60,6 +67,9 @@ pub(super) struct FamilyCoverage {
     pub fixed_economy: bool,
     pub agent_authority: bool,
     pub reward: bool,
+    pub organization: bool,
+    pub supply: bool,
+    pub diplomacy: bool,
 }
 
 fn matches(
@@ -117,10 +127,39 @@ pub(super) fn family_for_descriptor(field: FieldDescriptor) -> Option<RecordFami
     {
         return Some(RecordFamily::AgentAuthority);
     }
-    RewardRecordKindV1::ALL
+    if RewardRecordKindV1::ALL
         .into_iter()
         .any(|kind| matches(field, kind.name(), kind.shape(), kind.namespace()))
-        .then_some(RecordFamily::Reward)
+    {
+        return Some(RecordFamily::Reward);
+    }
+    DiplomacyFieldV1::ALL
+        .into_iter()
+        .any(|kind| {
+            matches(
+                field,
+                kind.name(),
+                FieldShape::Map,
+                StateNamespaceV1::Business,
+            )
+        })
+        .then_some(RecordFamily::Diplomacy)
+}
+
+pub(super) fn is_world_rules_parent(field: FieldDescriptor) -> bool {
+    field.owner == FieldOwner::WorldState
+        && field.name == "world_rules"
+        && field.shape == FieldShape::Value
+        && field.destination == FieldDestination::State(StateNamespaceV1::Authorization)
+}
+
+fn world_rules_entries_present(seen: &[SeenField], descriptors: &[FieldDescriptor]) -> bool {
+    descriptors
+        .iter()
+        .copied()
+        .enumerate()
+        .find(|(_, field)| is_world_rules_parent(*field))
+        .is_some_and(|(index, _)| seen[index].entries != 0)
 }
 
 fn family_has_entries(
@@ -219,11 +258,16 @@ pub(super) fn verify_present_families<
     let mut coverage = FamilyCoverage::default();
 
     macro_rules! qualify {
-        ($qualifier:path, $binding:ident) => {{
+        ($namespace:expr, $qualifier:path, $binding:ident) => {{
             let (mut outer, mut inner) = lease_budget(state_io);
             let result = (|| {
+                let root = roots
+                    .state
+                    .iter()
+                    .find(|root| root.namespace == $namespace)
+                    .ok_or(ValueTreeError::Invalid("record family state root missing"))?;
                 let mut context = WorldFieldReadContextV1 {
-                    root: &roots.state[0],
+                    root,
                     state,
                     values: ValueReadContext {
                         source: values.source,
@@ -285,19 +329,35 @@ pub(super) fn verify_present_families<
     }
 
     if family_has_entries(RecordFamily::Governance, seen, descriptors) {
-        qualify!(qualify_governance_family_v1, validate_binding);
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_governance_family_v1,
+            validate_binding
+        );
         coverage.governance = true;
     }
     if family_has_entries(RecordFamily::FactoryAuthority, seen, descriptors) {
-        qualify!(qualify_factory_authority_family_v1, validate_binding);
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_factory_authority_family_v1,
+            validate_binding
+        );
         coverage.factory_authority = true;
     }
     if family_has_entries(RecordFamily::MainTokenPolicy, seen, descriptors) {
-        qualify!(qualify_main_token_policy_family_v1, validate_binding);
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_main_token_policy_family_v1,
+            validate_binding
+        );
         coverage.main_token_policy = true;
     }
     if family_has_entries(RecordFamily::Material, seen, descriptors) {
-        qualify!(qualify_material_family_v1, validate_binding);
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_material_family_v1,
+            validate_binding
+        );
         coverage.material = true;
     }
     if family_has_entries(RecordFamily::Logistics, seen, descriptors) {
@@ -343,12 +403,53 @@ pub(super) fn verify_present_families<
         coverage.fixed_economy = true;
     }
     if family_has_entries(RecordFamily::AgentAuthority, seen, descriptors) {
-        qualify!(qualify_agent_authority_family_v1, validate_binding);
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_agent_authority_family_v1,
+            validate_binding
+        );
         coverage.agent_authority = true;
     }
     if family_has_entries(RecordFamily::Reward, seen, descriptors) {
-        qualify!(qualify_reward_family_v1, validate_binding);
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_reward_family_v1,
+            validate_binding
+        );
         coverage.reward = true;
+    }
+    let world_rules_present = world_rules_entries_present(seen, descriptors);
+    if world_rules_present {
+        qualify!(
+            StateNamespaceV1::Authorization,
+            qualify_organization_family_v1,
+            validate_binding
+        );
+        coverage.organization = true;
+    }
+    if world_rules_present {
+        qualify!(
+            StateNamespaceV1::Authorization,
+            qualify_supply_family_v1,
+            validate_binding
+        );
+        coverage.supply = true;
+    }
+    if descriptors
+        .iter()
+        .copied()
+        .enumerate()
+        .any(|(index, field)| {
+            family_for_descriptor(field) == Some(RecordFamily::Diplomacy)
+                && (seen[index].metadata != 0 || seen[index].entries != 0)
+        })
+    {
+        qualify!(
+            StateNamespaceV1::Business,
+            qualify_diplomacy_family_v1,
+            validate_binding
+        );
+        coverage.diplomacy = true;
     }
     Ok(coverage)
 }

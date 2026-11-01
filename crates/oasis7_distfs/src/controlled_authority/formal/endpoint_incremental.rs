@@ -319,6 +319,9 @@ impl FileFormalEndpoint {
             || coverage.checked_fixed_economy_fields() != 4
             || coverage.checked_agent_authority_fields() != 3
             || coverage.checked_reward_fields() != 2
+            || coverage.checked_organization_fields() != 2
+            || coverage.checked_supply_fields() != 2
+            || coverage.checked_diplomacy_fields() != 4
             || !coverage.unsupported_fields().is_empty()
             || coverage.runtime_registry_missing()
             || coverage.cognition_registry_missing()

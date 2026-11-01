@@ -1,9 +1,11 @@
 use super::*;
+use crate::incremental_semantic_key::write_semantic_key_v1;
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionWriteV1,
     incremental_state::StateScanBudget,
     incremental_value::{ValueIoBudget, ValueReadContext},
 };
+use std::collections::BTreeSet;
 
 pub(super) fn append_records(
     issue: FixtureIssue,
@@ -15,6 +17,75 @@ pub(super) fn append_records(
     writes: &mut BTreeMap<StateNamespaceV1, Vec<StateWriteV1>>,
 ) {
     let mut source = crate::WorldState::default();
+    let mut rules = crate::WorldRulesStateV1::default();
+    let include_rule_children = !matches!(
+        issue,
+        FixtureIssue::FalseWorldRulesParent | FixtureIssue::EmptyPresentWorldRulesParent
+    );
+    if include_rule_children {
+        rules.organization_cases.insert(
+            "organization-outer-id".into(),
+            crate::OrganizationCaseV1 {
+                id: "organization-inner-id".into(),
+                organization_id: "organization/α".into(),
+                founder_id: "founder/雪".into(),
+                members: BTreeSet::new(),
+                policy_version: 1,
+                revision: 2,
+                phase: crate::world_rules::OrganizationProtectionPhaseV1::Active,
+                disposition: crate::world_rules::OrganizationDispositionPhaseV1::None,
+                notified_at: None,
+                protected_at: None,
+                grants: BTreeMap::new(),
+                requests: BTreeMap::new(),
+                stage_receipts: Vec::new(),
+            },
+        );
+        rules.supply_authorizations.insert(
+            "supply-outer-id".into(),
+            crate::SupplyAuthorizationV1 {
+                id: "supply-inner-id".into(),
+                provider_id: "provider/λ".into(),
+                crisis_id: "crisis/1".into(),
+                crisis_evidence: crate::gameplay_state::CrisisState {
+                    crisis_id: "crisis/1".into(),
+                    kind: "shortage".into(),
+                    severity: 2,
+                    status: crate::gameplay_state::CrisisStatus::Active,
+                    opened_at: 3,
+                    expires_at: 9,
+                    resolver_agent_id: None,
+                    strategy: None,
+                    success: None,
+                    impact: -4,
+                    resolved_at: None,
+                },
+                material: "Water".into(),
+                beneficiaries: BTreeSet::new(),
+                policy_version: 1,
+                starts_at: 3,
+                expires_at: 9,
+                review_proposal: "proposal/α".into(),
+                remaining_escrow: 7,
+                requests: BTreeMap::new(),
+                revision: 4,
+                active: true,
+            },
+        );
+        source.alliances.insert(
+            "alliance-outer-id".into(),
+            crate::gameplay_state::AllianceState {
+                alliance_id: "alliance-inner-id".into(),
+                members: vec!["agent/α".into(), "agent/雪".into()],
+                charter: "charter\0text".into(),
+                formed_by_agent_id: "founder/λ".into(),
+                formed_at: 5,
+            },
+        );
+    }
+    if issue != FixtureIssue::FalseWorldRulesParent {
+        source.world_rules = Some(rules);
+    }
     source.governance_identity_profiles.insert(
         "governance-outer-id".into(),
         crate::GovernanceIdentityProfileState {
@@ -51,6 +122,25 @@ pub(super) fn append_records(
         },
         cancelled: || false,
     };
+    let mut parent_semantic = Vec::new();
+    write_semantic_key_v1(&(), &mut parent_semantic).unwrap();
+    let parent_semantic_digest = *blake3::hash(&parent_semantic).as_bytes();
+    let false_parent_value_root = if issue == FixtureIssue::FalseWorldRulesParentWithChildren {
+        let field = crate::incremental_world_rule_parent::descriptor().unwrap();
+        Some(
+            write_member_record_v1(
+                field,
+                WorldFieldRecordKindV1::Entry,
+                &(),
+                MemberPayloadRefV1::Bool(false),
+                &mut context,
+            )
+            .unwrap()
+            .value_root,
+        )
+    } else {
+        None
+    };
     let mut sink = |write: ReservedValue<ExecutionWriteV1>| -> Result<(), ValueTreeError> {
         let write = &*write;
         if issue == FixtureIssue::MissingGovernanceFamilyEntries {
@@ -64,10 +154,31 @@ pub(super) fn append_records(
                 return Ok(());
             }
         }
-        writes
-            .entry(write.namespace)
-            .or_default()
-            .push(write.mutation.clone());
+        let key =
+            crate::incremental_world_field_key::WorldFieldKeyV1::from_bytes(&write.mutation.key)
+                .unwrap();
+        if (issue == FixtureIssue::MissingWorldRulesMetadata
+            && key.name == "world_rules"
+            && key.kind == WorldFieldRecordKindV1::Metadata)
+            || (issue == FixtureIssue::MissingWorldRulesParent
+                && key.name == "world_rules"
+                && key.kind == WorldFieldRecordKindV1::Entry
+                && key.semantic_key == Some(parent_semantic_digest))
+            || (issue == FixtureIssue::MissingDiplomacyMetadata
+                && key.name == "alliances"
+                && key.kind == WorldFieldRecordKindV1::Metadata)
+        {
+            return Ok(());
+        }
+        let mut mutation = write.mutation.clone();
+        if issue == FixtureIssue::FalseWorldRulesParentWithChildren
+            && key.name == "world_rules"
+            && key.kind == WorldFieldRecordKindV1::Entry
+            && key.semantic_key == Some(parent_semantic_digest)
+        {
+            mutation.after = false_parent_value_root;
+        }
+        writes.entry(write.namespace).or_default().push(mutation);
         Ok(())
     };
 
@@ -194,6 +305,45 @@ pub(super) fn append_records(
         &mut sink,
     )
     .unwrap();
+
+    let mut rules_records = 100_000;
+    crate::incremental_world_rule_effects::prepare_world_rule_effects_genesis_v1(
+        &source,
+        &mut context,
+        &mut rules_records,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut organization_records = 100_000;
+    crate::incremental_world_rule_organization::root::prepare_qualified_organization_genesis_v1(
+        &source,
+        &mut context,
+        &mut organization_records,
+        16 << 20,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut supply_records = 100_000;
+    crate::incremental_world_rule_supply_root::prepare_supply_root_genesis_v1(
+        &source,
+        &mut context,
+        &mut supply_records,
+        16 << 20,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut diplomacy_cells = 100_000;
+    crate::incremental_diplomacy::prepare_diplomacy_genesis_v1(
+        &source,
+        &mut context,
+        &mut diplomacy_cells,
+        16 << 20,
+        &mut sink,
+    )
+    .unwrap();
 }
 
 fn verify_family_fixture(
@@ -230,7 +380,7 @@ fn verify_family_fixture(
 #[test]
 fn absent_closed_record_families_remain_explicitly_unsupported() {
     let fixture = super::fixture(true);
-    let report = super::verify(&fixture, || false).unwrap();
+    let report = verify_family_fixture(&fixture).unwrap();
     assert_eq!(report.checked_governance_fields(), 0);
     assert_eq!(report.checked_factory_authority_fields(), 0);
     assert_eq!(report.checked_main_token_policy_fields(), 0);
@@ -239,6 +389,9 @@ fn absent_closed_record_families_remain_explicitly_unsupported() {
     assert_eq!(report.checked_fixed_economy_fields(), 0);
     assert_eq!(report.checked_agent_authority_fields(), 0);
     assert_eq!(report.checked_reward_fields(), 0);
+    assert_eq!(report.checked_organization_fields(), 0);
+    assert_eq!(report.checked_supply_fields(), 0);
+    assert_eq!(report.checked_diplomacy_fields(), 4);
     for name in [
         "governance_identity_profiles",
         "governance_proposals",
@@ -266,6 +419,7 @@ fn absent_closed_record_families_remain_explicitly_unsupported() {
     ] {
         assert!(report.unsupported_fields().contains(&name), "{name}");
     }
+    assert!(report.unsupported_fields().contains(&"world_rules"));
 }
 
 #[test]
@@ -280,6 +434,9 @@ fn present_record_families_are_qualified_as_root_bound_closed_units() {
     assert_eq!(report.checked_fixed_economy_fields(), 4);
     assert_eq!(report.checked_agent_authority_fields(), 3);
     assert_eq!(report.checked_reward_fields(), 2);
+    assert_eq!(report.checked_organization_fields(), 2);
+    assert_eq!(report.checked_supply_fields(), 2);
+    assert_eq!(report.checked_diplomacy_fields(), 4);
     for name in [
         "governance_identity_profiles",
         "governance_proposals",
@@ -304,6 +461,10 @@ fn present_record_families_are_qualified_as_root_bound_closed_units() {
         "location_anchors",
         "system_order_pool_budgets",
         "reward_mint_records",
+        "alliances",
+        "wars",
+        "crises",
+        "economic_contracts",
     ] {
         assert!(!report.unsupported_fields().contains(&name), "{name}");
     }
@@ -313,6 +474,7 @@ fn present_record_families_are_qualified_as_root_bound_closed_units() {
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(report.unsupported_fields().contains(&"resources"));
+    assert!(report.unsupported_fields().contains(&"world_rules"));
 }
 
 #[test]
@@ -323,4 +485,50 @@ fn a_partial_marked_record_family_fails_closed() {
         verify_family_fixture(&fixture),
         Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(_)))
     ));
+}
+
+#[test]
+fn false_world_rules_parent_qualifies_empty_nested_maps() {
+    let fixture = super::fixture_with_issue(true, Some(FixtureIssue::FalseWorldRulesParent));
+    let report = verify_family_fixture(&fixture).unwrap();
+    assert_eq!(report.checked_organization_fields(), 2);
+    assert_eq!(report.checked_supply_fields(), 2);
+    assert_eq!(report.checked_diplomacy_fields(), 4);
+    assert!(report.unsupported_fields().contains(&"world_rules"));
+    assert!(report.runtime_registry_missing());
+    assert!(report.cognition_registry_missing());
+}
+
+#[test]
+fn true_world_rules_parent_qualifies_empty_nested_maps() {
+    let fixture = super::fixture_with_issue(true, Some(FixtureIssue::EmptyPresentWorldRulesParent));
+    let report = verify_family_fixture(&fixture).unwrap();
+    assert_eq!(report.checked_organization_fields(), 2);
+    assert_eq!(report.checked_supply_fields(), 2);
+    assert!(report.unsupported_fields().contains(&"world_rules"));
+}
+
+#[test]
+fn false_world_rules_parent_rejects_nested_records() {
+    let fixture =
+        super::fixture_with_issue(true, Some(FixtureIssue::FalseWorldRulesParentWithChildren));
+    assert!(matches!(
+        verify_family_fixture(&fixture),
+        Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(_)))
+    ));
+}
+
+#[test]
+fn partial_world_rule_and_diplomacy_families_fail_closed() {
+    for issue in [
+        FixtureIssue::MissingWorldRulesMetadata,
+        FixtureIssue::MissingWorldRulesParent,
+        FixtureIssue::MissingDiplomacyMetadata,
+    ] {
+        let fixture = super::fixture_with_issue(true, Some(issue));
+        assert!(matches!(
+            verify_family_fixture(&fixture),
+            Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(_)))
+        ));
+    }
 }

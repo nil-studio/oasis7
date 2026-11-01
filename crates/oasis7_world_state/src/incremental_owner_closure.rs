@@ -34,6 +34,10 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::ReservedValue;
 use std::{cell::RefCell, io, io::Write};
 
+#[path = "incremental_owner_closure_report.rs"]
+mod report;
+pub use report::UnsupportedWorldStateOwnersV1;
+
 #[path = "incremental_owner_closure_module_instances.rs"]
 mod module_instances;
 #[path = "incremental_owner_closure_module_marketplace.rs"]
@@ -52,117 +56,6 @@ const ROOT_SET_CANONICAL_MAX_BYTES: usize =
 struct SeenField {
     metadata: u8,
     entries: u8,
-}
-
-/// Bounded diagnostics for a state whose generic tree/value closure passed but
-/// whose typed owner inventory is not yet complete. Keeping the fields charged
-/// prevents the diagnostic from escaping the endpoint's shared pool.
-#[derive(Debug)]
-pub struct UnsupportedWorldStateOwnersV1 {
-    root_set_digest: [u8; 32],
-    unsupported_fields: ReservedValue<Vec<&'static str>>,
-    runtime_registry_missing: bool,
-    cognition_registry_missing: bool,
-    checked_u64_fields: u8,
-    checked_id_set_fields: u8,
-    checked_number_map_fields: u8,
-    checked_text_byte_fields: u8,
-    checked_installed_target_fields: u8,
-    checked_world_balance_fields: u8,
-    checked_module_instance_fields: u8,
-    checked_module_marketplace_fields: u8,
-    checked_governance_fields: u8,
-    checked_factory_authority_fields: u8,
-    checked_main_token_policy_fields: u8,
-    checked_material_fields: u8,
-    checked_logistics_fields: u8,
-    checked_fixed_economy_fields: u8,
-    checked_agent_authority_fields: u8,
-    checked_reward_fields: u8,
-}
-
-impl UnsupportedWorldStateOwnersV1 {
-    /// Digest of the exact canonical RootSet scanned by this diagnostic.
-    /// This does not qualify the roots or their authority.
-    pub fn root_set_digest(&self) -> [u8; 32] {
-        self.root_set_digest
-    }
-
-    pub fn unsupported_fields(&self) -> &[&'static str] {
-        self.unsupported_fields.as_slice()
-    }
-
-    pub fn runtime_registry_missing(&self) -> bool {
-        self.runtime_registry_missing
-    }
-
-    pub fn cognition_registry_missing(&self) -> bool {
-        self.cognition_registry_missing
-    }
-
-    pub fn checked_u64_fields(&self) -> u8 {
-        self.checked_u64_fields
-    }
-
-    pub fn checked_id_set_fields(&self) -> u8 {
-        self.checked_id_set_fields
-    }
-
-    pub fn checked_number_map_fields(&self) -> u8 {
-        self.checked_number_map_fields
-    }
-
-    pub fn checked_text_byte_fields(&self) -> u8 {
-        self.checked_text_byte_fields
-    }
-
-    pub fn checked_installed_target_fields(&self) -> u8 {
-        self.checked_installed_target_fields
-    }
-
-    pub fn checked_world_balance_fields(&self) -> u8 {
-        self.checked_world_balance_fields
-    }
-
-    pub fn checked_module_instance_fields(&self) -> u8 {
-        self.checked_module_instance_fields
-    }
-
-    pub fn checked_module_marketplace_fields(&self) -> u8 {
-        self.checked_module_marketplace_fields
-    }
-
-    pub fn checked_governance_fields(&self) -> u8 {
-        self.checked_governance_fields
-    }
-
-    pub fn checked_factory_authority_fields(&self) -> u8 {
-        self.checked_factory_authority_fields
-    }
-
-    pub fn checked_main_token_policy_fields(&self) -> u8 {
-        self.checked_main_token_policy_fields
-    }
-
-    pub fn checked_material_fields(&self) -> u8 {
-        self.checked_material_fields
-    }
-
-    pub fn checked_logistics_fields(&self) -> u8 {
-        self.checked_logistics_fields
-    }
-
-    pub fn checked_fixed_economy_fields(&self) -> u8 {
-        self.checked_fixed_economy_fields
-    }
-
-    pub fn checked_agent_authority_fields(&self) -> u8 {
-        self.checked_agent_authority_fields
-    }
-
-    pub fn checked_reward_fields(&self) -> u8 {
-        self.checked_reward_fields
-    }
 }
 
 #[derive(Debug)]
@@ -917,6 +810,11 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                     {
                         seen[index].entries = seen[index].entries.saturating_add(1);
                     }
+                    WorldFieldRecordKindV1::Entry
+                        if record_families::is_world_rules_parent(field) =>
+                    {
+                        seen[index].entries = seen[index].entries.saturating_add(1);
+                    }
                     _ if u64_field(field).is_some()
                         || id_set_field(field).is_some()
                         || number_map_field(field).is_some()
@@ -924,7 +822,8 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                         || typed_maps::is_installed_target(field)
                         || typed_maps::is_world_balance(field)
                         || module_marketplace::field_from_descriptor(field).is_some()
-                        || record_families::family_for_descriptor(field).is_some() =>
+                        || record_families::family_for_descriptor(field).is_some()
+                        || record_families::is_world_rules_parent(field) =>
                     {
                         return Err(WorldStateOwnerError::Invalid(
                             "unexpected typed owner record kind",
@@ -1012,6 +911,9 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     let mut checked_fixed_economy_fields = 0u8;
     let mut checked_agent_authority_fields = 0u8;
     let mut checked_reward_fields = 0u8;
+    let mut checked_organization_fields = 0u8;
+    let mut checked_supply_fields = 0u8;
+    let mut checked_diplomacy_fields = 0u8;
     for (index, field) in WORLD_STATE_FIELDS.iter().copied().enumerate() {
         let FieldDestination::State(_) = field.destination else {
             continue;
@@ -1140,6 +1042,9 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                 record_families::RecordFamily::Reward if family_coverage.reward => {
                     checked_reward_fields = checked_reward_fields.saturating_add(1);
                 }
+                record_families::RecordFamily::Diplomacy if family_coverage.diplomacy => {
+                    checked_diplomacy_fields = checked_diplomacy_fields.saturating_add(1);
+                }
                 _ => unsupported.push(field.name),
             }
         } else {
@@ -1150,6 +1055,16 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
             }
             unsupported.push(field.name);
         }
+    }
+    // Organization and Supply records are nested children of the single
+    // `world_rules` descriptor, not top-level WorldState descriptors. Their
+    // counts describe the two fully validated child maps after the parent
+    // family qualifier succeeds.
+    if family_coverage.organization {
+        checked_organization_fields = record_families::ORGANIZATION_FIELD_COUNT;
+    }
+    if family_coverage.supply {
+        checked_supply_fields = record_families::SUPPLY_FIELD_COUNT;
     }
     if checked_installed_target_fields != typed_maps::INSTALLED_TARGET_FIELD_COUNT
         || checked_world_balance_fields != typed_maps::WORLD_BALANCE_FIELD_COUNT
@@ -1169,6 +1084,11 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         || (family_coverage.agent_authority
             && checked_agent_authority_fields != record_families::AGENT_AUTHORITY_FIELD_COUNT)
         || (family_coverage.reward && checked_reward_fields != record_families::REWARD_FIELD_COUNT)
+        || (family_coverage.organization
+            && checked_organization_fields != record_families::ORGANIZATION_FIELD_COUNT)
+        || (family_coverage.supply && checked_supply_fields != record_families::SUPPLY_FIELD_COUNT)
+        || (family_coverage.diplomacy
+            && checked_diplomacy_fields != record_families::DIPLOMACY_FIELD_COUNT)
     {
         return Err(WorldStateOwnerError::Invalid(
             "typed map owner descriptor coverage",
@@ -1213,6 +1133,9 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_fixed_economy_fields,
         checked_agent_authority_fields,
         checked_reward_fields,
+        checked_organization_fields,
+        checked_supply_fields,
+        checked_diplomacy_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))
