@@ -110,6 +110,13 @@ pub fn transfer_and_reopen(source_path: &Path, target_path: &Path, roots: &RootS
             .qualification()
             .validate_binding(&roots.digest().unwrap())
             .unwrap();
+        let id = roots.digest().unwrap();
+        let feedback = pages
+            .qualification()
+            .json_entry(CognitionJsonFieldV1::FeedbackOutbox, &id)
+            .unwrap()
+            .unwrap();
+        cognition_missing_child::exercise(&source, &memory, roots, &feedback.body_root().node_root);
         let target_values = target.value_session(physical());
         pages
             .visit_pages(|id| {

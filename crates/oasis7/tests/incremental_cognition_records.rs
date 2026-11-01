@@ -10,6 +10,8 @@ use oasis7_runtime::{
 };
 #[path = "support/incremental_cognition_controls.rs"]
 mod cognition_controls;
+#[path = "support/incremental_cognition_missing_child.rs"]
+mod cognition_missing_child;
 #[path = "support/incremental_cognition_pages.rs"]
 mod cognition_pages;
 #[path = "support/incremental_cognition_family_faults.rs"]
