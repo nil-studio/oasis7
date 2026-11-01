@@ -431,3 +431,6 @@ fn world3_fixture_issuer_native_adapter_spends_each_real_world_read_once() {
     );
     assert_eq!(server.finish(), 2);
 }
+
+#[path = "custody_execution_native_ready_fixture_v2.rs"]
+mod execution_ready;

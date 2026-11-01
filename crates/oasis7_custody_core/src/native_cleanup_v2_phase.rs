@@ -195,6 +195,15 @@ pub struct SignedAccountActiveThreeRootsV2 {
     pub signature_hex: String,
 }
 impl AccountActiveThreeRootsV2 {
+    /// Closed wire codec only. It does not create paid/Current or issuer authority.
+    pub fn signing_bytes(
+        &self,
+        pending: &SignedAccountConsumedPendingV2,
+    ) -> Result<Vec<u8>, String> {
+        self.validate_relative(pending)?;
+        bytes(ACTIVE_THREE_ROOTS_V2_DOMAIN, self)
+    }
+
     pub fn validate_relative(
         &self,
         pending: &SignedAccountConsumedPendingV2,
