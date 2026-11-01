@@ -2,7 +2,7 @@
 use super::*;
 #[path = "custody_execution_native_ready_world_fixture_v2.rs"]
 mod ready_world;
-fn child() {
+fn child_for(test_name: &str, identity_origin: &str, extras: &[(&str, String)]) {
     let directory = std::env::temp_dir().join(format!("execution-ready-{}", random_token()));
     std::fs::create_dir(&directory).unwrap();
     #[cfg(unix)]
@@ -19,16 +19,20 @@ fn child() {
     let config = json!({"api_version":2,"pending_pin":pin("consumed_pending"),"active_pin":pin("active_three_roots"),
         "current_pin":pin("native_current_attempt"),"term_current_pin":pin("native_term_current_attempt"),
         "preflight_access_pin":pin("native_preflight_access_v2"),"execution_prepare_pin":pin("native_execution_prepare_v2"),
-        "execution_dispatch_pin":pin("execution_dispatch_claim_v2"),"execution_identity_origin":"https://identity.fixture",
+        "execution_dispatch_pin":pin("execution_dispatch_claim_v2"),"execution_identity_origin":identity_origin,
         "issuer_floor":{"issuer_epoch":"1","config_generation":"1"},"native_origin":"https://localhost"});
-    let status=std::process::Command::new(std::env::current_exe().unwrap())
-        .arg("execution_native_ready_uses_real_registration_and_activation_apis").arg("--nocapture").arg("--test-threads=1")
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.arg(test_name).arg("--nocapture").arg("--test-threads=1")
         .env("OASIS7_EXECUTION_READY_CHILD","true").env("OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED","true")
         .env("OASIS7_CUSTODY_MANAGED_BINDING_OWNER_PIN",json!({"key_id":"owner-binding","public_key":hex::encode(SigningKey::from_bytes(&[72;32]).verifying_key().to_bytes()),"environment":"test","service_identity":"owner-service","service_epoch":"1"}).to_string())
         .env("OASIS7_CUSTODY_CLEANUP_MACHINE_V2_ENABLED","true")
         .env("OASIS7_CUSTODY_EXECUTION_PREPARE_DISPATCH_V2_ENABLED","true")
         .env("OASIS7_CUSTODY_CLEANUP_ACCOUNT_ISSUER_CONFIG",config.to_string())
-        .env("OASIS7_CUSTODY_CLEANUP_SQLITE_RESTORE_GUARD_PATH",directory.join("lineage")).status().unwrap();
+        .env("OASIS7_CUSTODY_CLEANUP_SQLITE_RESTORE_GUARD_PATH",directory.join("lineage"));
+    for (key, value) in extras {
+        command.env(key, value);
+    }
+    let status = command.status().unwrap();
     std::fs::remove_dir_all(directory).unwrap();
     assert!(status.success());
 }
@@ -39,9 +43,47 @@ fn execution_native_ready_uses_real_registration_and_activation_apis() {
         .as_deref()
         != Some("true")
     {
-        child();
+        child_for(
+            "execution_native_ready_uses_real_registration_and_activation_apis",
+            "https://identity.fixture",
+            &[],
+        );
         return;
     }
+    let (ready, server) = ready_registry();
+    assert_eq!(
+        ready.active.certificate.opaque_registration_ref,
+        ready.registration.ack.opaque_registration_ref
+    );
+    assert_eq!(
+        ready.activation.ack.active_certificate_digest,
+        ready.active.digest().unwrap()
+    );
+    assert_eq!(
+        ready.activation.ack.pending_certificate_digest,
+        ready.pending.digest().unwrap()
+    );
+    assert!(!ready.headers.is_empty());
+    let q = NativeActivateRequestV2 {
+        api_version: 2,
+        opaque_registration_ref: ready.active.certificate.opaque_registration_ref.clone(),
+        active: ready.active.clone(),
+    };
+    assert!(
+        exchange(&ready.service, NATIVE_ACTIVATE_V2_PATH, &ready.headers, &q).is_err(),
+        "actual Active cannot activate twice"
+    );
+    assert_eq!(
+        server.finish(),
+        3,
+        "two actual preflight reads plus original registration read; activation adds no World HTTP"
+    );
+}
+
+fn ready_registry() -> (ReadyNativeRegistryV2, ready_world::Server) {
+    ready_registry_with_world_limit(3)
+}
+fn ready_registry_with_world_limit(limit: usize) -> (ReadyNativeRegistryV2, ready_world::Server) {
     let mut f = native_fixture::managed_fixture();
     let mut data = identity::participant_entry::resource_fixture::Data::new();
     data.owner = hex::encode([11; 32]);
@@ -80,7 +122,11 @@ fn execution_native_ready_uses_real_registration_and_activation_apis() {
     scope.world_identity = plan.termination.world.clone();
     scope.task_fence = plan.termination.initial_fence.clone();
     scope.termination_plan_digest = plan.termination.digest().unwrap();
-    let server = ready_world::Server::start(data, namespace);
+    let server = if limit == 3 {
+        ready_world::Server::start(data, namespace)
+    } else {
+        ready_world::Server::start_with_limit(data, namespace, limit)
+    };
     let trust=serde_json::from_value(json!({"endpoint":server.endpoint,"service_public_key":hex::encode(SigningKey::from_bytes(&[82;32]).verifying_key().to_bytes()),"world":{"world_id":"world","genesis_digest":"genesis"}})).unwrap();
     f.f.service.participant_entry = Some(
         identity::participant_entry::ParticipantEntry::new(
@@ -159,31 +205,8 @@ fn execution_native_ready_uses_real_registration_and_activation_apis() {
         ),
     };
     let ready = register_and_activate(service, proof, owner_read, &f.sid);
-    assert_eq!(
-        ready.active.certificate.opaque_registration_ref,
-        ready.registration.ack.opaque_registration_ref
-    );
-    assert_eq!(
-        ready.activation.ack.active_certificate_digest,
-        ready.active.digest().unwrap()
-    );
-    assert_eq!(
-        ready.activation.ack.pending_certificate_digest,
-        ready.pending.digest().unwrap()
-    );
-    assert!(!ready.headers.is_empty());
-    let q = NativeActivateRequestV2 {
-        api_version: 2,
-        opaque_registration_ref: ready.active.certificate.opaque_registration_ref.clone(),
-        active: ready.active.clone(),
-    };
-    assert!(
-        exchange(&ready.service, NATIVE_ACTIVATE_V2_PATH, &ready.headers, &q).is_err(),
-        "actual Active cannot activate twice"
-    );
-    assert_eq!(
-        server.finish(),
-        3,
-        "two actual preflight reads plus original registration read; activation adds no World HTTP"
-    );
+    (ready, server)
 }
+
+#[path = "custody_execution_callback_tls_cases_v2.rs"]
+mod callback_tls;

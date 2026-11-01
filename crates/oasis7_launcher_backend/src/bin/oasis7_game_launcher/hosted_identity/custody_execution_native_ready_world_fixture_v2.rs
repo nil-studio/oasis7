@@ -12,6 +12,13 @@ impl Server {
         data: identity::participant_entry::resource_fixture::Data,
         namespace: Value,
     ) -> Self {
+        Self::start_with_limit(data, namespace, 3)
+    }
+    pub(super) fn start_with_limit(
+        data: identity::participant_entry::resource_fixture::Data,
+        namespace: Value,
+        limit: usize,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -25,7 +32,7 @@ impl Server {
             let until = Instant::now() + Duration::from_secs(10);
             while !stopping.load(Ordering::SeqCst)
                 && Instant::now() < until
-                && observed.load(Ordering::SeqCst) < 3
+                && observed.load(Ordering::SeqCst) < limit
             {
                 let (mut stream, _) = match listener.accept() {
                     Ok(v) => v,
@@ -85,6 +92,45 @@ impl Server {
                     let payload = json!({"world_id":"world","genesis_digest":"genesis","branch_id":"main","reorg_epoch":3,"logical_tick":3,
                         "policy":{"world_id":"world","genesis_digest":"genesis","enabled":true,"registry_complete":true,"identity_namespace":namespace,
                             "issuer_public_key":ws::sign_read_request("key",(),&data.issuer).unwrap().subject_public_key,"generation":1,"max_grant_ticks":100}});
+                    serde_json::to_vec(
+                        &ws::sign_service_response(
+                            &path,
+                            ws::request_digest(&path, &q).unwrap(),
+                            payload,
+                            &data.world_key,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap()
+                } else if path == ws::VIEW_JSON_PATH {
+                    let q: ws::SignedReadRequest<ws::ReadWorldViewRequest> =
+                        serde_json::from_slice(input).unwrap();
+                    let commit: ws::CommitRef = data.state.read_commit.clone().into();
+                    let payload = ws::ReadWorldViewResponse {
+                        formal_profile: None,
+                        formal_proof: None,
+                        contract_version: 1,
+                        execution_evidence_scope: None,
+                        version: ws::ProjectionVersion {
+                            commit: commit.clone(),
+                            projection_revision: ws::request_digest(
+                                "fixture-current",
+                                &data.state.control,
+                            )
+                            .unwrap(),
+                            visibility_scope: q.request.scope_id.clone(),
+                        },
+                        logical_tick: 3,
+                        continuation: ws::EventCursor {
+                            stream_id: "fixture-current".into(),
+                            scope_id: q.request.scope_id.clone(),
+                            era: 0,
+                            sequence: 0,
+                            commit,
+                        },
+                        view: json!({"game_task_control":data.state.control}),
+                    };
+                    payload.validate(&q.request).unwrap();
                     serde_json::to_vec(
                         &ws::sign_service_response(
                             &path,

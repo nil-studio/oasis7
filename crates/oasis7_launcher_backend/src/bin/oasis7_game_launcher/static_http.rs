@@ -1189,4 +1189,4 @@ pub(super) fn parse_model_json(body: &[u8]) -> Result<serde_json::Value, String>
 #[path = "static_http_cleanup_tcp_test.rs"]
 mod cleanup_tcp_test;
 #[cfg(test)]
-pub(crate) use cleanup_tcp_test::cleanup_dispatch_for_test;
+pub(crate) use cleanup_tcp_test::{cleanup_dispatch_for_test, cleanup_dispatch_with_root_for_test};

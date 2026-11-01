@@ -109,13 +109,14 @@ impl IdentityService {
                 oasis7_custody_core::approval::bytes_digest(body),
             )
         })?;
-        let http = reqwest::blocking::Client::builder()
+        let builder = reqwest::blocking::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
-            .connect_timeout(Duration::from_secs(1))
-            .build()
-            .map_err(|_| unavailable())?;
+            .connect_timeout(Duration::from_secs(1));
+        #[cfg(test)]
+        let builder = fixture_tls::extend(builder);
+        let http = builder.build().map_err(|_| unavailable())?;
         Ok(OwnedExecutionWorldReentryV2 { callback, http })
     }
     pub(in super::super::super) fn finish_execution_world_reentry_v2(
@@ -193,5 +194,43 @@ impl IdentityService {
             }
             Ok(())
         })
+    }
+}
+
+// Component test transport trust only. Production has no CA environment flag,
+// no relaxed certificate/hostname checks and no caller-selected TLS roots.
+#[cfg(test)]
+pub(in super::super) mod fixture_tls {
+    use std::cell::RefCell;
+    thread_local! { static ROOT: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) }; }
+    pub(super) fn extend(
+        builder: reqwest::blocking::ClientBuilder,
+    ) -> reqwest::blocking::ClientBuilder {
+        ROOT.with_borrow(|root| match root {
+            None => builder,
+            Some(pem) => {
+                builder.tls_certs_only([reqwest::Certificate::from_pem(pem).expect("fixture CA")])
+            }
+        })
+    }
+    pub(in super::super::super) fn with_root<T>(pem: &[u8], run: impl FnOnce() -> T) -> T {
+        struct Restore(Option<Vec<u8>>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ROOT.set(self.0.take());
+            }
+        }
+        let _restore = Restore(ROOT.replace(Some(pem.to_vec())));
+        run()
+    }
+}
+
+#[cfg(test)]
+impl IdentityService {
+    pub(crate) fn with_execution_callback_fixture_root<T>(
+        pem: &[u8],
+        run: impl FnOnce() -> T,
+    ) -> T {
+        fixture_tls::with_root(pem, run)
     }
 }
