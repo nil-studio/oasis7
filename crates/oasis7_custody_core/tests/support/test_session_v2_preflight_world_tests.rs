@@ -327,3 +327,61 @@ fn world3_actual_consumed_book_reserves_native_four_and_separate_world_two_once(
         .remove("preflight_world_access");
     assert!(serde_json::from_value::<AccountProvisionApprovalState>(missing).is_err());
 }
+
+// Shared actual allocator/receipt fixtures for the final registered-machine gate.
+pub(super) fn allocate_world_fixture(
+    state: &mut AccountProvisionApprovalState,
+    id: &str,
+    native: &NativeStageScope<'_>,
+    now: u64,
+) -> SignedAccountPreflightAccessV2 {
+    let p = pin(native.http_origin);
+    let floor = floor();
+    let prepared = state
+        .claim_test_session_v2_preflight_world(
+            id,
+            NativePreflightAccessIssuerV2 {
+                issuer: issuer(&p),
+                pin: &p,
+                floor: &floor,
+            },
+            native,
+            UnixMillis::new(now),
+        )
+        .unwrap();
+    let signature = hex(signing_key()
+        .sign(&prepared.signing_bytes().unwrap())
+        .to_bytes());
+    state
+        .finish_test_session_v2_preflight_world(prepared, signature, UnixMillis::new(now))
+        .unwrap()
+}
+pub(super) fn native_world_receipts(
+    original: &SignedAccountPreflightAccessV2,
+    access: &OwnerSetupAccessEvidenceV1,
+    native: &NativeStageScope<'_>,
+    now: u64,
+) -> [SignedNativePreflightWorldReceiptV2; 2] {
+    let results = [
+        NativePreflightWorldReceiptV2::policy_result_digest(&access.policy).unwrap(),
+        NativePreflightWorldReceiptV2::admission_result_digest(&access.admission).unwrap(),
+    ];
+    std::array::from_fn(|i| {
+        let port = &original.certificate.ports[i];
+        let receipt = NativePreflightWorldReceiptV2 {
+            api_version: 2,
+            native_key_id: native.native_root_key_id.into(),
+            certificate_digest: original.digest().unwrap(),
+            operation: port.operation,
+            physical_attempt_id: port.physical_attempt_id.clone(),
+            body_digest: port.body_digest.clone(),
+            result_digest: results[i].clone(),
+            completed_at: DecimalU64(now),
+        };
+        let signature_hex = hex(key().sign(&receipt.signing_bytes().unwrap()).to_bytes());
+        SignedNativePreflightWorldReceiptV2 {
+            receipt,
+            signature_hex,
+        }
+    })
+}

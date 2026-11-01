@@ -76,8 +76,20 @@ fn cold(s: &AccountProvisionApprovalState) {
 }
 #[test]
 fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_restore_exact() {
+    exercise_registered_machine(false);
+}
+#[test]
+fn world3_final_registered_machine_rechecks_native_physical_receipt_signatures_after_cold_restore()
+{
+    exercise_registered_machine(true);
+}
+fn exercise_registered_machine(world3: bool) {
     let start = 9000;
-    let (mut f, d, life) = activation_tests::preactivated(start);
+    let (mut f, d, life) = if world3 {
+        activation_tests::preactivated_world3(start)
+    } else {
+        activation_tests::preactivated(start)
+    };
     let policy = Policy::new(f.state.draft());
     let c = policy.current(&f.context);
     let ns = scope(&f.pin);
@@ -266,11 +278,12 @@ fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_r
             }
         };
     }
+    let before_birth = f.state.clone();
     let born = f
         .state
         .activate_test_session_v2_registered_machine(
             &f.session_id,
-            reply,
+            reply.clone(),
             &current!(start + 15),
             UnixMillis::new(start + 15),
             &mut StrictCrypto,
@@ -278,6 +291,37 @@ fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_r
         .unwrap();
     assert_eq!(born.roots().len(), 3);
     assert!(born.approved_at().is_none());
+    if world3 {
+        // Genuine complete Pending/NativeAck/current has just produced three
+        // roots. Only the historical physical receipt signatures change now.
+        let mut raw = serde_json::to_value(&before_birth).unwrap();
+        for receipt in raw["test_sessions_v2"][&f.session_id]["preflight_world_access"]["receipts"]
+            .as_array_mut()
+            .unwrap()
+        {
+            receipt["signature_hex"] = serde_json::json!("00".repeat(64));
+        }
+        let mut changed: AccountProvisionApprovalState = serde_json::from_value(raw).unwrap();
+        assert!(
+            changed
+                .test_session_v2_native_restore_checks(&f.session_id, &ns)
+                .is_err()
+        );
+        let before = changed.clone();
+        assert!(
+            changed
+                .activate_test_session_v2_registered_machine(
+                    &f.session_id,
+                    reply,
+                    &current!(start + 15),
+                    UnixMillis::new(start + 15),
+                    &mut StrictCrypto
+                )
+                .is_err(),
+            "final machine activation must recheck the physical Native receipt Root signatures"
+        );
+        assert_eq!(changed, before);
+    }
     cold(&f.state);
     let before = f.state.clone();
     assert!(

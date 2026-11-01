@@ -55,6 +55,15 @@ pub(super) fn source_current(
         &f.context,
     )
     .verification;
+    v.key_id = f
+        .state
+        .test_session_v2_original(&f.session_id)
+        .unwrap()
+        .native_verify_request()
+        .unwrap()
+        .approval
+        .proof
+        .key_id;
     v.purpose = VerificationPurposeV1::InspectOrigin;
     v.verify_nonce = d.source_nonce.clone();
     v.observed_at = DecimalU64(now + 2);
@@ -88,6 +97,21 @@ pub(super) fn preactivated(
     SignedManagedNativeSessionLifetimeV1,
 ) {
     preactivation_fixture(pending_fixture(), start)
+}
+pub(super) fn preactivated_world3(
+    start: u64,
+) -> (
+    SessionFixture,
+    TestSessionPreflightDescriptorV2,
+    SignedManagedNativeSessionLifetimeV1,
+) {
+    preactivation_fixture(
+        pending_fixture_with_profile(
+            80,
+            Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2),
+        ),
+        start,
+    )
 }
 fn preactivation_fixture(
     mut f: SessionFixture,
@@ -169,13 +193,25 @@ fn preactivation_fixture(
             )
             .unwrap();
     }
-    f.state
-        .claim_test_session_v2_preflight_step(
+    let paid_world = if d.cleanup_transport_policy
+        == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+    {
+        Some(preflight_world_tests::allocate_world_fixture(
+            &mut f.state,
             &f.session_id,
-            SessionPreflightStepV1::FreshAccessPair,
-            UnixMillis::new(start + 6),
-        )
-        .unwrap();
+            &ns,
+            start + 6,
+        ))
+    } else {
+        f.state
+            .claim_test_session_v2_preflight_step(
+                &f.session_id,
+                SessionPreflightStepV1::FreshAccessPair,
+                UnixMillis::new(start + 6),
+            )
+            .unwrap();
+        None
+    };
     let access = fresh_access(&f.state, &d, start + 7);
     assert_eq!(
         f.state
@@ -218,15 +254,31 @@ fn preactivation_fixture(
             .is_err()
     );
     assert_eq!(f.state, before);
-    f.state
-        .record_test_session_v2_preflight_access(
-            &f.session_id,
-            access.clone(),
-            &current!(4, 3, start + 8),
-            UnixMillis::new(start + 8),
-            &mut StrictCrypto,
-        )
-        .unwrap();
+    if let Some(paid_world) = &paid_world {
+        let receipts =
+            preflight_world_tests::native_world_receipts(paid_world, &access, &ns, start + 7);
+        f.state
+            .record_test_session_v2_preflight_world_access(
+                &f.session_id,
+                access.clone(),
+                receipts,
+                &current!(4, 3, start + 8),
+                UnixMillis::new(start + 8),
+                &mut StrictCrypto,
+            )
+            .unwrap();
+    } else {
+        f.state
+            .record_test_session_v2_preflight_access(
+                &f.session_id,
+                access.clone(),
+                &current!(4, 3, start + 8),
+                UnixMillis::new(start + 8),
+                &mut StrictCrypto,
+            )
+            .unwrap();
+    }
+
     let read = f
         .state
         .test_session_v2_preflight_signing_request(

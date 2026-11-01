@@ -177,6 +177,17 @@ fn pending_fixture_with_model_budget_and_profile(
     input.approval.proof.nonce = "v2-session-new-MFA-nonce".into();
     input.approval.proof.approval_id = "v2-session-proof".into();
     input.approval.proof.approval_request_id = input.request.approval_request_id.clone();
+    if cleanup_transport_policy == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2) {
+        // The new profile uses one actual Native root for consent and managed
+        // facts. Configure the public pin before issuing this new ceremony;
+        // never relabel or re-sign an already-consumed approval.
+        let configured = scope(&pin);
+        c.native_key_pins.insert(
+            configured.native_root_key_id.into(),
+            configured.native_root_public_key.into(),
+        );
+        input.approval.proof.key_id = configured.native_root_key_id.into();
+    }
     input.approval.proof.issued_at = DecimalU64(8000);
     input.approval.proof.expires_at = DecimalU64(38_000);
     input.approval.proof.model_budget_summary_contract =
@@ -253,6 +264,12 @@ fn pending_fixture_with_model_budget_and_profile(
     s.claim_test_session_v2_approval_verification(&session_id, UnixMillis::new(8003))
         .unwrap();
     let mut v = verification(&record, &c).verification;
+    v.key_id = record
+        .native_verify_request()
+        .unwrap()
+        .approval
+        .proof
+        .key_id;
     v.observed_at = DecimalU64(8003);
     s.consume_test_session_v2_approval(
         CommitTestSessionV2 {

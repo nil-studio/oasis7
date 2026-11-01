@@ -152,6 +152,9 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         self.test_session_v2_activation_scope(&s.input, current, now)?;
+        if let Some(world) = &s.preflight_world_access {
+            world.verify_native_history(s, current.approval.native_scope)?;
+        }
         if let Some(machine) = &s.native_machine_registration {
             machine.validate_native_history(s, current.approval.native_scope)?;
             if machine.registered.is_some() {

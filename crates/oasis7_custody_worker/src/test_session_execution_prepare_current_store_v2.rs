@@ -106,7 +106,7 @@ impl OwnerProvisionApprovalStore {
             // refresh, Source request, RKV dispatch, or opaque reconstruction.
             return Ok(None);
         }
-        let current = || {
+        let current = || -> Result<super::client::ClientLiveCurrent> {
             let mut value = private_current()?;
             value.native = observed.current(&self.state, env)?;
             Ok(value)
