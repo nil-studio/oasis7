@@ -9,12 +9,16 @@ import {worldAuthority} from '../tests/fixtures/world_runtime_support.mjs';
 import {browserUvRoleOptions} from '../tests/fixtures/role_runtime_native_support.mjs';
 import {browserHttps,normalizeBrowserPath} from '../tests/fixtures/custody_browser_https.mjs';
 import {approveProvision,installActualGetFault,actualGetFacts} from '../tests/fixtures/custody_browser_actions.mjs';
+import {sessionV2BrowserOptions,acceptSessionV2,withActualHostDescriptor} from '../tests/fixtures/custody_browser_session_v2.mjs';
+import {actualHostDriver} from '../tests/fixtures/custody_browser_host_driver.mjs';
+import {exerciseV2PublicCredentials} from '../tests/fixtures/custody_browser_v2_credentials.mjs';
 import {signFixtureRecoveryActivation} from '../tests/fixtures/fence_activation_signer.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');const repo=resolve(root,'../..');
 const caseIndex=process.argv.indexOf('--case');const faultCase=caseIndex<0?'positive':process.argv[caseIndex+1];
-assert.ok(['positive','lost-complete','lost-owner-approve','wrong-ids','wrong-csrf','cancel-get','cancel-expiry-recover','logout-late-get','account-switch-late-get'].includes(faultCase),'closed --case selector');
+assert.ok(['positive','lost-complete','lost-owner-approve','wrong-ids','wrong-csrf','cancel-get','cancel-expiry-recover','logout-late-get','account-switch-late-get','session-v2-activation','session-v2-claim','session-v2-claim-lost-reply','session-v2-host-control'].includes(faultCase),'closed --case selector');
 const directory=mkdtempSync(join(tmpdir(),'oasis7-browser-uv-'));chmodSync(directory,0o700);
-let world,https,native,mf,browser,context,page;let stage='startup';let exited=false;
+let world,https,native,mf,browser,context,page,hostDriver;let stage='startup';let exited=false;
+const sessionV2=['session-v2-activation','session-v2-claim','session-v2-claim-lost-reply','session-v2-host-control'].includes(faultCase);
 const recovering=faultCase==='cancel-expiry-recover', cancelling=faultCase==='cancel-get'||recovering;let recoveryFacts=null;
 const ready=resolve(directory,'native-ready.json'),stop=resolve(directory,'native-stop');
 try {
@@ -24,7 +28,7 @@ try {
   stage='native';const binary=readFileSync(resolve(root,'artifacts/native-test-binary.txt'),'utf8').trim();
   native=spawn('rtk',['proxy',binary,'serve_custody_browser_uv_fixture','--ignored','--nocapture','--test-threads=1'],{
     env:{PATH:process.env.PATH,...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('OASIS7_'))),OASIS7_CUSTODY_BROWSER_READY:ready,OASIS7_CUSTODY_BROWSER_STOP:stop,
-      OASIS7_CUSTODY_BROWSER_ORIGIN:origin,OASIS7_CUSTODY_BROWSER_WORLD_TRUST:JSON.stringify(world.data)},stdio:'ignore'});native.once('exit',()=>{exited=true;});
+      OASIS7_CUSTODY_BROWSER_ORIGIN:origin,OASIS7_CUSTODY_BROWSER_SESSION_V2:sessionV2?'true':'false',OASIS7_CUSTODY_BROWSER_WORLD_TRUST:JSON.stringify(world.data)},stdio:'ignore'});native.once('exit',()=>{exited=true;});
   for(let i=0;!existsSync(ready);i++){assert.ok(!exited&&i<1500,'Native browser fixture readiness failed');await delay(20);}
   const data=JSON.parse(readFileSync(ready,'utf8'));https.setNative(data.address);
   stage='browser-launch';const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES;
@@ -46,17 +50,39 @@ try {
     return new MiniflareResponse(await response.arrayBuffer(),{status:response.status,headers:response.headers});
   };
   stage='workerd';const runtimeData={...data,world:world.data.world,adapter_secret:'34'.repeat(32),revocation_poll_secret:'53'.repeat(32),revocation_ack_secret:'54'.repeat(32)};
-  mf=new Miniflare(browserUvRoleOptions(resolve(directory,'workerd'),runtimeData,bridge,manager,origin,resolve(root,'tests/fixtures/custody_browser_provider_adapter.mjs')));
+  const roleOptions=browserUvRoleOptions(resolve(directory,'workerd'),runtimeData,bridge,manager,origin,resolve(root,'tests/fixtures/custody_browser_provider_adapter.mjs'),sessionV2?raw=>sessionV2BrowserOptions(raw,root,origin):undefined);
+  mf=new Miniflare(roleOptions);
   https.setIdentity(async request=>mf.dispatchFetch(request.url,{method:request.method,headers:request.headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())})}));
   const controller=await mf.getWorker('fence-controller');const description=await(await controller.fetch('https://fixture.test/describe',{method:'POST'})).json();
   assert.equal((await controller.fetch('https://fixture.test/activate',{method:'POST',body:JSON.stringify(signFixtureRecoveryActivation(description,'browser-fixture-bootstrap'))})).status,200,'real Fence activation');
   stage='parent-precondition';
-  const draft={api_version:1,client_request_id:'browser-parent',plan:{environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:world.data.world.world_id,purpose:'Local browser precondition fixture',expires_at:String(Date.now()+(recovering?360000:180000)),transport_limit:'400'}};
+  const draft={api_version:1,client_request_id:'browser-parent',plan:{environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:world.data.world.world_id,purpose:'Local browser precondition fixture',expires_at:String(Date.now()+((recovering||sessionV2)?360000:180000)),transport_limit:'400'}};
   const identity=await mf.getWorker('identity');const created=await identity.fetch(origin+'/v1/account-provisions',{method:'POST',headers:sourceHeaders,body:JSON.stringify(draft)});assert.equal(created.status,200,'parent draft failed');const original=await created.json();
   const request={approval_request_id:'browser-parent-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},
     intent:{kind:'provision',provision_id:original.entry.provision_id,purpose:draft.plan.purpose,plan_digest:original.entry.plan_digest,bootstrap_config_version:'1',world_identity:world.data.world,identity_route:'native-one',world_route:'world-route-one',native_identity_namespace:data.namespace,register_request_id:'browser-parent-register',login_request_id:'browser-parent-login',deadline:draft.plan.expires_at,transport_limit:'400'}};
   await approveProvision(page,request);
   const continued=await identity.fetch(origin+`/v1/account-provisions/${original.entry.provision_id}/continue`,{method:'POST',headers:sourceHeaders,body:JSON.stringify({api_version:1,operation_id:'browser-parent-participant'})});assert.equal(continued.status,200,'parent participant continuation failed');assert.equal((await continued.json()).stage,'participant_bound','actual parent fixture must reach participant_bound');
+  if(sessionV2) {
+    const hostCase=faultCase==='session-v2-host-control';
+    if(hostCase) hostDriver=actualHostDriver({directory,fixtureSource:resolve(root,'tests/fixtures'),port:Number(new URL(origin).port)});
+    const liveIdentity=hostCase?{fetch:async(...args)=>(await mf.getWorker('identity')).fetch(...args)}:identity;
+    const hostEnrollment=hostCase?async({target})=>{
+      stage='v2-actual-host-identity';const descriptor=await hostDriver.initialize({target,origin});
+      await mf.setOptions(withActualHostDescriptor(roleOptions,descriptor));
+      const retained=await liveIdentity.fetch(origin+`/v1/account-provisions/${encodeURIComponent(original.entry.provision_id)}/progress`,{headers:sourceHeaders});
+      assert.equal(retained.status,200,'actual Account draft/invite must survive local allowlist reconfiguration');
+      stage='v2-actual-host-enroll';return hostDriver.rpc('enroll',{});
+    }:undefined;
+    const facts=await acceptSessionV2({page,identity:liveIdentity,origin,sourceHeaders,parent:original,world:world.data.world,persist:resolve(directory,'workerd'),setStage:value=>{stage=value;},nativeCounts,hostEnrollment,
+      onActivated:hostCase?args=>hostDriver.exercise(args):faultCase==='session-v2-activation'?undefined:args=>exerciseV2PublicCredentials({...args,lostReply:faultCase==='session-v2-claim-lost-reply'})});
+    const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();
+    assert.equal(nativeFacts.bypass_attempts,0);assert.equal(https.facts().bypass_attempts,0);
+    const sum=suffix=>Object.entries(https.facts().counts).filter(([key])=>key.endsWith(suffix)).reduce((n,[,v])=>n+v,0);
+    assert.equal(sum('/custody/approvals/complete'),3,'parent, OwnerV2 and SessionV2 each use a separate actual custody UV');
+    assert.equal(sum('/owner-setups/approve'),1);assert.equal(sum('/test-sessions/approve'),1);
+    writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify({status:'passed',case:faultCase,...facts,mfa_bypass_attempts:0,http_counts:https.facts().counts,native_counts:nativeCounts},null,2),{mode:0o600});
+    console.log(JSON.stringify({status:'passed',case:faultCase,evidence_directory:directory,kind:'local_native_workerd_browser_uv_v2'}));
+  } else {
   stage='mounted-refresh';await page.evaluate(()=>window.surface.refresh());stage='metadata-load';await page.getByRole('button',{name:'加载本人可见父项',exact:true}).click();
   stage='metadata-select';
   await page.getByRole('button',{name:'为此父项准备批准摘要',exact:true}).waitFor();await page.getByLabel(/本次私有目标/).fill('Public local fixture: Move business 0 only');
@@ -141,6 +167,7 @@ try {
   const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();assert.equal(nativeFacts.bypass_attempts,0);assert.equal(nativeFacts.manager_configured,true);
   const evidence={kind:'local_native_workerd_browser_uv',status:'passed',case:faultCase,fault:https.facts().fault,cancel_recovery:recoveryFacts,actual_get:getFacts,software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
   writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify({status:'passed',case:faultCase,evidence_directory:directory,kind:evidence.kind}));
+  }
 }catch(error) {
   await page?.screenshot({path:resolve(directory,'failure.png'),fullPage:true}).catch(()=>{});
   const counts=https?.facts().counts??{};
@@ -149,4 +176,4 @@ try {
   console.error(JSON.stringify({status:'failed',case:faultCase,stage,error_kind:kind,evidence_directory:directory,
     phase_counts:{options:sum('/custody/approvals/options'),complete:sum('/custody/approvals/complete'),prepare:sum('/owner-setups/prepare'),approve:sum('/owner-setups/approve')}}));process.exitCode=1;
 }
-finally {await context?.close();await browser?.close();await mf?.dispose();if(native&&!exited){writeFileSync(stop,'stop');for(let i=0;!exited&&i<250;i++)await delay(20);if(!exited)native.kill('SIGTERM');}await https?.close();await world?.close();}
+finally {await hostDriver?.close();await context?.close();await browser?.close();await mf?.dispose();if(native&&!exited){writeFileSync(stop,'stop');for(let i=0;!exited&&i<250;i++)await delay(20);if(!exited)native.kill('SIGTERM');}await https?.close();await world?.close();}

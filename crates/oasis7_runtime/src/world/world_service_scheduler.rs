@@ -197,7 +197,7 @@ impl World {
                         context.transport_attempt,
                     )
                     .map_err(error)?;
-                serde_json::json!({"captured": true, "request_commitment": context.request_commitment})
+                json(oasis7_client_api::world_service::task_context::TaskProviderPrefixReceiptV1::from_context(&context))?
             }
             SchedulerOperationV1::TaskProviderFailure { context, reason } => {
                 if !matches!(

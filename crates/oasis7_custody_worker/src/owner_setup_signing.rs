@@ -112,6 +112,25 @@ impl Observation {
             return Err(rejected());
         }
         v.plan.validate().map_err(|_| rejected())?;
+        match (&v.approved_plan_v2, selector.request.api_version) {
+            (None, 1) => {}
+            (Some(header), 2)
+                if env
+                    .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                    .ok()
+                    .map(|v| v.to_string())
+                    .as_deref()
+                    == Some("true") =>
+            {
+                if oasis7_custody_core::provisioning::derive_owner_setup_move0_sdk_plan_v2(header)
+                    .map_err(|_| rejected())?
+                    != v.plan
+                {
+                    return Err(rejected());
+                }
+            }
+            _ => return Err(rejected()),
+        }
         scope.validate().map_err(|_| rejected())?;
         self.fence.check_epoch(epoch.0).map_err(|_| rejected())?;
         Ok(SetupSigningCurrent {
@@ -156,7 +175,10 @@ fn decode(raw: &str) -> Result<OwnerSetupStageRpc> {
         return Err(denied());
     }
     let value: OwnerSetupStageRpc = serde_json::from_str(raw).map_err(|_| denied())?;
-    value.request.validate().map_err(|_| denied())?;
+    value
+        .request
+        .validate_sdk_selector()
+        .map_err(|_| denied())?;
     Ok(value)
 }
 pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
@@ -165,7 +187,10 @@ pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
     }
     let request: OwnerSetupSignRpc = serde_json::from_str(raw).map_err(|_| denied())?;
     let selector = request.selector;
-    selector.request.validate().map_err(|_| denied())?;
+    selector
+        .request
+        .validate_sdk_selector()
+        .map_err(|_| denied())?;
     let observed = observe(env, &selector, Some(Box::new(request.access)))
         .await
         .map_err(|_| denied())?;

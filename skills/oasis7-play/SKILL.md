@@ -7,6 +7,16 @@ description: Execute an authorized Oasis7 native task through the supplied signe
 
 This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. The default executor does not perform owner cold entry, token pairing or the full Game HTTP write catalog. A trusted local companion can perform [cold entry](references/cold-entry.md) before handing off a separate executor.
 
+## Use the supplied profile
+
+If the trusted launcher supplies `custody-native-v1`, use the separate
+[custody Control-only reference](references/custody-native.md). It accepts a
+closed `method` request, not the ordinary Executor broker's `args`. The current
+custody profile cannot execute the game commands below. Missing game tools are
+blocked; never switch to a device config, owner command or Native signing path
+to make that profile work. A Control acknowledgement is not gameplay readiness
+or a canonical world result.
+
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.
 
 Trusted identity, world entry and explicit owner operations have a separate

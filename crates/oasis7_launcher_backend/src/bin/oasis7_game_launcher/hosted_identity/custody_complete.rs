@@ -194,6 +194,7 @@ impl IdentityService {
             .as_ref()
             .ok_or_else(|| reject("custody_disabled"))?;
         let proof = CustodyApprovalProofV1 {
+            model_budget_summary_contract: saved.value.model_budget_summary_contract.clone(),
             version: 1,
             key_id: config.key_id.clone(),
             identity_namespace: self.config.namespace.key(),

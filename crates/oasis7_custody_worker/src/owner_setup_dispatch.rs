@@ -13,7 +13,10 @@ fn source(
     oasis7_custody_core::approval_admission::ApprovalAdmissionInput,
     oasis7_custody_core::approval::SignedApprovalVerificationV1,
 )> {
-    let approved = saved.state.owner_setup_original(id).ok_or_else(denied)?;
+    let approved = saved
+        .state
+        .owner_setup_phase_original(id)
+        .map_err(|_| denied())?;
     let inspection = if let Some(stage) = stage {
         &saved
             .state
@@ -21,7 +24,10 @@ fn source(
             .ok_or_else(denied)?
             .source
     } else {
-        saved.state.owner_setup_source(id).ok_or_else(denied)?
+        saved
+            .state
+            .owner_setup_phase_source(id)
+            .map_err(|_| denied())?
     };
     let signed = inspection
         .verification
@@ -29,7 +35,8 @@ fn source(
         .or_else(|| {
             saved
                 .state
-                .owner_setup_source(id)
+                .owner_setup_phase_source(id)
+                .ok()
                 .and_then(|v| v.verification.clone())
         })
         .or_else(|| approved.verification().cloned())
@@ -63,7 +70,10 @@ pub(super) async fn prepare_source(
             .ok_or_else(denied)?
             .source
     } else {
-        saved.state.owner_setup_source(id).ok_or_else(denied)?
+        saved
+            .state
+            .owner_setup_phase_source(id)
+            .map_err(|_| denied())?
     };
     if inspection.verification.is_some() {
         return observe(state, env, id, stage, false).await;
@@ -128,12 +138,28 @@ pub(super) async fn dispatch(
     rpc: OwnerSetupRuntimeRpc,
     static_role: Role,
 ) -> Result<String> {
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     if !role_allowed(&rpc.action, static_role) {
         return Err(denied());
     }
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let saved = store.snapshot().map_err(|_| denied())?;
+    if saved
+        .state
+        .owner_setup_engine_version(&rpc.request.setup_id)
+        .map_err(|_| denied())?
+        != rpc.request.api_version
+        || rpc.request.api_version == 2
+            && env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+    {
+        return Err(denied());
+    }
+
     let draft = saved.state.draft();
     if rpc.request.custody_account_id != draft.entry.custody_account_id
         || rpc.request.provision_id != draft.entry.provision_id

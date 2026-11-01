@@ -289,6 +289,8 @@ impl OwnerSetupReadTicket {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerSetupPermitViewV1 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approved_plan_v2: Option<OwnerSetupPlanV2>,
     pub setup_id: String,
     pub kind: OwnerSetupPermitKindV1,
     pub stage: OwnerSetupStageV1,
@@ -567,3 +569,22 @@ pub use reconcile::*;
 #[path = "test_session.rs"]
 mod test_session;
 pub use test_session::*;
+
+#[path = "test_session_execution_book_v2.rs"]
+mod execution_book_v2;
+pub(in crate::provisioning) use execution_book_v2::SessionExecutionBookV2;
+
+#[path = "owner_setup_v2_prepared.rs"]
+mod prepared_v2;
+pub use prepared_v2::*;
+
+#[path = "test_session_execution_signing_bundle_v2.rs"]
+mod execution_signing_bundle_v2;
+pub use execution_book_v2::{
+    ExecutionPrepareAllocationV2, ExecutionPrepareCurrentPortV2, ExecutionPrepareCurrentPortsV2,
+    ExecutionPrepareCurrentReadV2, ExecutionPrepareCurrentTransportKindV2,
+    ExecutionPrepareCurrentTransportV2, ExecutionPrepareFactoryKindV2,
+    ExecutionPrepareFactoryTransportV2, ExecutionPreparePaidIntentV2,
+    ExecutionPrepareSigningAuthorityV2,
+};
+pub use execution_signing_bundle_v2::*;

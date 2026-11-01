@@ -5,7 +5,9 @@ impl AccountProvisionApprovalState {
         id: &str,
         stage: OwnerSetupStageV1,
     ) -> Option<&OwnerSetupOutboxV1> {
-        self.owner_setups.get(id).and_then(|v| v.stages.get(&stage))
+        self.owner_setup_engine_record(id)
+            .ok()
+            .and_then(|v| v.stages.get(&stage))
     }
     /// Local reservation only; does not assert remote source, Fence or World authority.
     pub fn reserve_owner_setup_stage(
@@ -20,7 +22,7 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         if v.source.as_ref().is_none_or(|s| s.verification.is_none()) {
             return Err(invalid());
         }
@@ -102,7 +104,7 @@ impl AccountProvisionApprovalState {
                 operation_id,
                 digest(&(
                     "oasis7.custody.owner-setup-stage.v1",
-                    v.plan.digest()?,
+                    self.owner_setup_signed_plan_digest(id)?,
                     stage,
                 ))?,
             )
@@ -137,7 +139,7 @@ impl AccountProvisionApprovalState {
             session_nonce: session_nonce.into(),
         };
         let mut next = self.clone();
-        let v = next.owner_setups.get_mut(id).ok_or_else(invalid)?;
+        let v = next.owner_setup_engine_record_mut(id)?;
         v.transport
             .as_mut()
             .ok_or_else(invalid)?
@@ -159,9 +161,9 @@ impl AccountProvisionApprovalState {
         self.owner_setup_local(id, now)?;
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?;
         if o.result.is_some() || o.oracle_reads >= OWNER_SETUP_MAX_ORACLE_READS {
             return Err(invalid());
@@ -204,9 +206,9 @@ impl AccountProvisionApprovalState {
         self.owner_setup_local(id, now)?;
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?;
         if o.claimed_at.is_none() || o.callback_claimed_at.is_some() || o.result.is_some() {
             return Err(invalid());
@@ -217,7 +219,7 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
     pub(super) fn owner_setup_local(&self, id: &str, now: u64) -> Result<()> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let r = v.book.original(id).ok_or_else(invalid)?;
         if self.frozen()
             || now >= v.plan.deadline.0
@@ -244,7 +246,7 @@ impl AccountProvisionApprovalState {
             self.owner_setup_stage_checks(id, read.stage, current.provision, now)?
         };
         verifier.verify(&checks)?;
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let o = v.stages.get(&read.stage).ok_or_else(invalid)?;
         if read.ticket == 0 || read.ticket > o.oracle_reads || o.result.is_some() {
             return Err(invalid());
@@ -259,7 +261,7 @@ impl AccountProvisionApprovalState {
         now: u64,
     ) -> Result<OwnerSetupPermitViewV1> {
         let stage = read.stage;
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let o = v.stages.get(&stage).ok_or_else(invalid)?;
         let source = o.source.verification.as_ref().ok_or_else(invalid)?;
         let expires = v.plan.deadline.0.min(
@@ -285,6 +287,7 @@ impl AccountProvisionApprovalState {
         let mut descriptor = participant.descriptor.clone();
         descriptor.session = v.session.clone().ok_or_else(invalid)?;
         Ok(OwnerSetupPermitViewV1 {
+            approved_plan_v2: self.owner_setup_approved_header_v2(id).cloned(),
             setup_id: v.plan.setup_id.clone(),
             kind: if read.purpose == OwnerSetupReadPurposeV1::Session {
                 OwnerSetupPermitKindV1::Session
@@ -317,12 +320,11 @@ impl AccountProvisionApprovalState {
                 None
             },
             source_revision: source_revision.clone(),
-            authority_revision: digest(&(
-                "oasis7.custody.owner-setup-authority.v1",
-                &v.plan,
+            authority_revision: self.owner_setup_engine_authority_revision(
+                id,
                 &current.approval.authority,
                 &source_revision,
-            ))?,
+            )?,
             service_epoch: current.approval.authority.service_epoch,
             target_security_epoch: current.approval.authority.security_version,
             observed_at: DecimalU64(now),

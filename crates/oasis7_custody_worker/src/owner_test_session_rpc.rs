@@ -146,3 +146,7 @@ pub(crate) enum TestSessionRuntimeAction {
         private_sid_generation: DecimalU64,
     },
 }
+
+#[path = "owner_test_session_v2_rpc.rs"]
+mod v2;
+pub(crate) use v2::*;
