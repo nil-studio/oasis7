@@ -34,6 +34,7 @@ impl AccountProvisionApprovalState {
                     t,
                     SessionPurposeTransportV1::ExecutionNativeLifetimeV2(_)
                         | SessionPurposeTransportV1::ExecutionFactoryCallbackV2(_)
+                        | SessionPurposeTransportV1::ExecutionPrepareCurrentV2(_)
                 )
             }) {
                 Err(invalid())

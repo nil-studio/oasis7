@@ -29,6 +29,8 @@ pub struct ExecutionPrepareFactoryTransportV2 {
     pub intent: Box<ExecutionPreparePaidIntentV2>,
     pub signed_attempt_digest: String,
     pub claimed_at: UnixMillis,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_read: Option<ExecutionPrepareCurrentReadV2>,
 }
 impl core::fmt::Debug for ExecutionPreparePaidIntentV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -204,6 +206,7 @@ impl AccountProvisionApprovalState {
                     intent: Box::new(intent),
                     signed_attempt_digest: signed_attempt,
                     claimed_at: now,
+                    current_read: None,
                 },
             )),
         );

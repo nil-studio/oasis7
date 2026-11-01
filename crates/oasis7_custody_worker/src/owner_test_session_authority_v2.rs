@@ -110,3 +110,7 @@ pub(crate) async fn runtime_observe_paid_factory_v2(
         .ok_or_else(denied)?;
     authority::observe_paid_factory_v2(env, saved.state.draft(), input, signed).await
 }
+
+#[path = "owner_execution_prepare_authority_v2.rs"]
+mod execution_prepare;
+pub(crate) use execution_prepare::execution_prepare_observe_v2;

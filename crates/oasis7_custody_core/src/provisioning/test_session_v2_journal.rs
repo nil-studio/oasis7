@@ -72,6 +72,9 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     ExecutionPrepareFactoryPaid {
         request_id: String,
     },
+    ExecutionPrepareCurrentPortsClaimed {
+        request_id: String,
+    },
     ExecutionPrepareAllocated {
         request_id: String,
     },
@@ -122,6 +125,7 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
                 + usize::from(b.lifetime_admitted_at.is_some())
                 + book.prepare_stage_count()
                 + book.prepare_paid_count()
+                + usize::from(book.prepare_current_read(s).is_some())
         }),
         s.control_transports
             .values()

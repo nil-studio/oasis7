@@ -413,3 +413,6 @@ pub(super) fn approval_current_v2(
         observed_at,
     })
 }
+
+pub(crate) use authority::ExecutionPrepareObservationV2;
+pub(crate) use v2::execution_prepare_observe_v2;

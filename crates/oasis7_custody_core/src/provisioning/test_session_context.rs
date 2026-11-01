@@ -23,6 +23,7 @@ pub enum SessionPurposeTransportV1 {
     LiveContextRead(Box<LiveContextReadTransportV1>),
     ExecutionNativeLifetimeV2(Box<ExecutionNativeLifetimeTransportV2>),
     ExecutionFactoryCallbackV2(Box<ExecutionPrepareFactoryTransportV2>),
+    ExecutionPrepareCurrentV2(Box<ExecutionPrepareCurrentTransportV2>),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,9 +68,9 @@ impl SessionPurposeTransportV1 {
             Self::GenericOne(p) => *p,
             Self::ContextBody(v) => v.purpose,
             Self::LiveContextRead(v) => v.purpose,
-            Self::ExecutionNativeLifetimeV2(_) | Self::ExecutionFactoryCallbackV2(_) => {
-                SessionPurposeV1::Execution
-            }
+            Self::ExecutionNativeLifetimeV2(_)
+            | Self::ExecutionFactoryCallbackV2(_)
+            | Self::ExecutionPrepareCurrentV2(_) => SessionPurposeV1::Execution,
         }
     }
 }

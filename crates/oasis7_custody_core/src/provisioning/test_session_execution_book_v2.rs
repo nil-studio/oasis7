@@ -233,6 +233,13 @@ impl SessionExecutionBookV2 {
     }
 }
 
+#[path = "test_session_execution_current_ports_v2.rs"]
+mod execution_current_ports_v2;
+pub use execution_current_ports_v2::{
+    ExecutionPrepareCurrentPortV2, ExecutionPrepareCurrentPortsV2, ExecutionPrepareCurrentReadV2,
+    ExecutionPrepareCurrentTransportKindV2, ExecutionPrepareCurrentTransportV2,
+};
+
 #[path = "test_session_execution_prepare_allocation_v2.rs"]
 mod prepare_allocation;
 #[path = "test_session_execution_prepare_paid_v2.rs"]
@@ -287,5 +294,32 @@ impl SessionExecutionBookV2 {
     }
     pub(in crate::provisioning) fn prepare_paid_count(&self) -> usize {
         usize::from(self.last_allocation_sequence.0 != 0)
+    }
+}
+
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn prepare_current_read<'a>(
+        &self,
+        s: &'a TestSessionAuthorityV2,
+    ) -> Option<&'a ExecutionPrepareCurrentReadV2> {
+        s.purpose_transports.values().find_map(|row| match row {
+            SessionPurposeTransportV1::ExecutionFactoryCallbackV2(p) => p.current_read.as_ref(),
+            _ => None,
+        })
+    }
+}
+
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn owns_prepare_current_transport(
+        &self,
+        s: &TestSessionAuthorityV2,
+        key: &str,
+    ) -> bool {
+        match s.purpose_transports.get(key) {
+            Some(SessionPurposeTransportV1::ExecutionPrepareCurrentV2(p)) => {
+                execution_current_ports_v2::current_port_parent_valid(s, key, p).is_ok()
+            }
+            _ => false,
+        }
     }
 }

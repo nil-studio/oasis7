@@ -43,6 +43,11 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV2,
         b: &SessionExecutionBookV2,
     ) -> Result<()> {
+        for (key, row) in &s.purpose_transports {
+            if let SessionPurposeTransportV1::ExecutionPrepareCurrentV2(port) = row {
+                super::execution_current_ports_v2::current_port_parent_valid(s, key, port)?;
+            }
+        }
         let rows: Vec<_> = s
             .purpose_transports
             .iter()
@@ -81,6 +86,7 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
+        super::execution_current_ports_v2::validate_current_ports(s, key, paid)?;
         let mut ids = std::collections::BTreeSet::new();
         for id in intent_ids(intent) {
             if id.is_empty()

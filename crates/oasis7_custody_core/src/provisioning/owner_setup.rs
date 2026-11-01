@@ -581,7 +581,9 @@ pub use prepared_v2::*;
 #[path = "test_session_execution_signing_bundle_v2.rs"]
 mod execution_signing_bundle_v2;
 pub use execution_book_v2::{
-    ExecutionPrepareAllocationV2, ExecutionPrepareFactoryKindV2,
+    ExecutionPrepareAllocationV2, ExecutionPrepareCurrentPortV2, ExecutionPrepareCurrentPortsV2,
+    ExecutionPrepareCurrentReadV2, ExecutionPrepareCurrentTransportKindV2,
+    ExecutionPrepareCurrentTransportV2, ExecutionPrepareFactoryKindV2,
     ExecutionPrepareFactoryTransportV2, ExecutionPreparePaidIntentV2,
     ExecutionPrepareSigningAuthorityV2,
 };

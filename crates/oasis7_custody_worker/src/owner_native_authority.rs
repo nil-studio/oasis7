@@ -504,3 +504,8 @@ pub(super) fn observed_custody_intent(
 ) -> &oasis7_custody_core::approval::CustodyIntentV1 {
     &observed.input.request.intent
 }
+
+#[path = "owner_native_execution_current_v2.rs"]
+mod execution_current_v2;
+pub(crate) use execution_current_v2::ExecutionPrepareObservationV2;
+pub(super) use execution_current_v2::observe_execution_prepare_v2;

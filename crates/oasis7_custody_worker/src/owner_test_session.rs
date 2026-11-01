@@ -33,3 +33,5 @@ pub(crate) use controls_v2::dispatch as dispatch_controls_v2;
 #[path = "owner_test_session_v2_client_router.rs"]
 mod client_router_v2;
 pub(crate) use client_router_v2::first_admit as first_client_v2_admit;
+
+pub(crate) use session_authority::{ExecutionPrepareObservationV2, execution_prepare_observe_v2};

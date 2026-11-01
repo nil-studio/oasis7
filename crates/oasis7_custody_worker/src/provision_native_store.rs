@@ -994,3 +994,6 @@ mod credentials_v2;
 
 #[path = "test_session_v2_control_store.rs"]
 mod controls_v2;
+
+#[path = "test_session_execution_prepare_current_store_v2.rs"]
+mod execution_prepare_current_v2;

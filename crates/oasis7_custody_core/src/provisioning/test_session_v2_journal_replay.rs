@@ -21,6 +21,7 @@ pub(super) struct Replay<'a> {
     execution_requests: BudgetLedger,
     execution_started: bool,
     execution_prepare_paid: bool,
+    execution_prepare_current_ports: bool,
     execution_prepare_admitted: bool,
     execution_lifetime_claimed: bool,
     execution_lifetime_archived: bool,
@@ -69,6 +70,7 @@ impl<'a> Replay<'a> {
             execution_requests: BudgetLedger::new(p.request_limit.0),
             execution_started: false,
             execution_prepare_paid: false,
+            execution_prepare_current_ports: false,
             execution_prepare_admitted: false,
             execution_lifetime_claimed: false,
             execution_lifetime_archived: false,
@@ -238,7 +240,8 @@ impl<'a> Replay<'a> {
 
         if let Some(book) = &s.execution_book {
             let b = book.journal_record();
-            if self.execution_prepare_paid != (book.prepare_paid_count() == 1)
+            if self.execution_prepare_current_ports != book.prepare_current_read(self.s).is_some()
+                || self.execution_prepare_paid != (book.prepare_paid_count() == 1)
                 || self.execution_prepare_admitted != (book.prepare_stage_count() == 1)
                 || !self.execution_started
                 || !self.execution_lifetime_claimed
@@ -251,6 +254,7 @@ impl<'a> Replay<'a> {
             || self.execution_lifetime_claimed
             || self.execution_lifetime_archived
             || self.execution_lifetime_admitted
+            || self.execution_prepare_current_ports
             || self.execution_prepare_paid
             || self.execution_prepare_admitted
         {

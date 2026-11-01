@@ -1,5 +1,7 @@
 //! Actual activated/claimed V2, real RFC Action PoP and Native Source/LF.
 use super::*;
+#[path = "test_session_v2_execution_prepare_current_ports_tests.rs"]
+mod current_ports_tests;
 #[path = "test_session_v2_execution_prepare_lf_restore_tests.rs"]
 mod lf_restore_tests;
 fn allocation() -> ExecutionPrepareAllocationV2 {
@@ -31,6 +33,13 @@ fn ready_with_status_window(status_window_ms: Option<u64>) -> ReadyPrepare {
 fn ready_with_windows(
     status_window_ms: Option<u64>,
     manager_window: Option<ManagerWindow>,
+) -> ReadyPrepare {
+    ready_with_current_ticket(status_window_ms, manager_window, true)
+}
+fn ready_with_current_ticket(
+    status_window_ms: Option<u64>,
+    manager_window: Option<ManagerWindow>,
+    reserve_current: bool,
 ) -> ReadyPrepare {
     let mut f = claimed_execution();
     // Existing consumed record is left intact. A new real Native Source below
@@ -112,14 +121,16 @@ fn ready_with_windows(
             &mut StrictCrypto,
         )
         .unwrap();
-    // This is only the shared eight-use once reservation, not a transport fee.
-    // The actual driver must separately prepay every observation HTTP/RPC edge.
-    assert_eq!(
-        f.state
-            .reserve_test_session_v2_source_read(&f.session_id, source, UnixMillis::new(14_005))
-            .unwrap(),
-        5
-    );
+    if reserve_current {
+        // This is only the shared eight-use once reservation, not a transport fee.
+        // The actual driver must separately prepay every observation HTTP/RPC edge.
+        assert_eq!(
+            f.state
+                .reserve_test_session_v2_source_read(&f.session_id, source, UnixMillis::new(14_005))
+                .unwrap(),
+            5
+        );
+    }
     ReadyPrepare { f, body, pop, fact }
 }
 fn prepay(
