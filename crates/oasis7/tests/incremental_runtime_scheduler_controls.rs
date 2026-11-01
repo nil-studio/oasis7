@@ -252,3 +252,6 @@ fn scheduler_controls_root_only_cold_original_values() {
         }
     }
 }
+
+#[path = "support/incremental_runtime_scheduler_operations.rs"]
+mod operations;
