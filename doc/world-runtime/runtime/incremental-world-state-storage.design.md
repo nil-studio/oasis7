@@ -779,3 +779,17 @@ options 保存独立 count marker 和原 u64 index Text 成员，保留原顺序
 GEN 对明确的全部记录/成员范围使用连续有限 cell/record/key/state/value/pending 额度并先准入再分配；输出在完整成功前 provisional。原始根/恢复资格需认证外键 preimage/hash、每条 RootRef、完整 required/Option、Map 各列成员集合一致、Vec count/dense index、所有状态/值页和拒绝未知/缺页/旧格式。普通单列或单成员更新必须有同池 Ordinary、guard/live、精确 expected、同事务当前视图和组合取消；不得扫描未变 description/options/snapshot/ballots。后继接收端先 generic replay，再从 qualified parent 与认证 changed paths 推导 schema、必需列和净 count/成员关系；GEN 或局部读不代签完整资格。
 
 取消/no-op/相等比较后、最后真实 put 后和 buffered sink finish 失败均不可接受成功前缀。typed page mark/transfer 必须显式追踪本族 child StateRoot 与 ValueTree，最终 finish 成功后才可完成；原 pool/store 销毁后的有限小池 root-only 恢复须独立验证。本节定义目标合同，GEN checkpoint 不代签未实现的 qualification、普通事务、receiver、页传输、完整 World 激活/GC 或整体 H/S 性能验收。
+
+### 12.40 主代币配置与发行治理记录的封闭存储
+
+<a id="iws-main-token-policy-records-v1"></a>
+
+本组覆盖原 main_token_config（Value/Business）、main_token_genesis_buckets（Map/Business）、main_token_epoch_issuance_records 与 restricted_starter_claim_grants（Map/Authorization）、main_token_scheduled_policy_updates（Map/Scheduler）。配置以原 Unit 外键、bucket/grant 以原 String、issuance/scheduled 以原 U64 外键分别绑定独立 RootRef165；外键与 bucket_id、beneficiary_account_id、epoch_index、proposal_id/effective_epoch 各自原值独立保存，禁止裁剪、归一化、从内部 ID 重造外键。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每族必需 Metadata 与 (main_token_policy_record_closure_v1, unit) Entry/Unit 格式标记；每个 child 有同 namespace 的 Metadata、Unit record marker 与穷尽原名列。Config 的 symbol/decimals/initial_supply/max_supply 以及 inflation_policy 六列、issuance_split 四列、burn_policy 三列按原嵌套相对 tuple 路径保存；scheduled 的 proposal_id/effective_epoch 为独立列，next_config 下复用完全相同的借用配置 visitor 和列定义。Config 全局对象始终存在且不得删除；其他四族允许从完整 qualified 父创建或显式删除闭合独立 child，不暴露不受资格约束的 empty-create。
+
+bucket 八字段、issuance 七字段、grant 十一字段均为原类型的独立列，不聚合 Serde/JSON。decimals 严格保留 u8 全域，其余原 u32 列仅校验表示范围，不施加 bps/经济业务上限。grant status 穷尽 issued/expired/revoked 标签；max_supply、status_updated_at_epoch、status_reason 必需列以 Unit 表示 None、原 U64/Text 表示 Some，保留 Some(0)/Some(empty)，不得省略为缺列。所有其他原 U64/Text 保留零、极值、空值和 Unicode；不得 clone 整 DTO，也不改 mint、发行、治理或授权 reducer。
+
+借用 GEN 完整投影原状态，root-only family 恢复仅凭六根、原 schema/semantic binding 与有限 state/value/key/cell/heap/pending 预算验证全部已保存关系，不以原 World snapshot 为必需 oracle。未知/缺列、孤儿、错误 codec/范围/标签、原键错配、child leaf_count/path/页缺失均拒绝。普通单列点读写要求精确 expected、同事务 guard/live、同池 Ordinary、组合取消与失败 poison；Option 作为一个完整目标列更新，不扫描无关长 symbol、reason、recipient。NoOp 最终取消须使用独立 getter 基线检验额外返回边界。
+
+后继接收端先独立 generic replay，再根据 actual outer writes 与 changed Merkle 子树验证本 owner 闭包，继承 qualified 父的未变关系，不重复扫描未变 Text。页 mark/transfer 复用完整本组资格并显式追踪 child state/value，集合分配前计费，含 buffered finish 的全部输出成功前均为暂态。本组资格只证明存储完整性，不授代币发行、grant 花费或政策生效权限，不代签完整 World 激活/GC。独立字面字段/键 oracle、Raw/Zstd 冷根恢复及合法后继、generic-valid/typed-invalid、真实发布故障与取消、预算原子性和固定增量成本分别验证，未完成者不得由 GEN/check 或局部 visitor 冒称已闭合。
