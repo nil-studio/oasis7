@@ -74,6 +74,11 @@ pub struct UnsupportedWorldStateOwnersV1 {
     checked_governance_fields: u8,
     checked_factory_authority_fields: u8,
     checked_main_token_policy_fields: u8,
+    checked_material_fields: u8,
+    checked_logistics_fields: u8,
+    checked_fixed_economy_fields: u8,
+    checked_agent_authority_fields: u8,
+    checked_reward_fields: u8,
 }
 
 impl UnsupportedWorldStateOwnersV1 {
@@ -137,6 +142,26 @@ impl UnsupportedWorldStateOwnersV1 {
 
     pub fn checked_main_token_policy_fields(&self) -> u8 {
         self.checked_main_token_policy_fields
+    }
+
+    pub fn checked_material_fields(&self) -> u8 {
+        self.checked_material_fields
+    }
+
+    pub fn checked_logistics_fields(&self) -> u8 {
+        self.checked_logistics_fields
+    }
+
+    pub fn checked_fixed_economy_fields(&self) -> u8 {
+        self.checked_fixed_economy_fields
+    }
+
+    pub fn checked_agent_authority_fields(&self) -> u8 {
+        self.checked_agent_authority_fields
+    }
+
+    pub fn checked_reward_fields(&self) -> u8 {
+        self.checked_reward_fields
     }
 }
 
@@ -982,6 +1007,11 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     let mut checked_governance_fields = 0u8;
     let mut checked_factory_authority_fields = 0u8;
     let mut checked_main_token_policy_fields = 0u8;
+    let mut checked_material_fields = 0u8;
+    let mut checked_logistics_fields = 0u8;
+    let mut checked_fixed_economy_fields = 0u8;
+    let mut checked_agent_authority_fields = 0u8;
+    let mut checked_reward_fields = 0u8;
     for (index, field) in WORLD_STATE_FIELDS.iter().copied().enumerate() {
         let FieldDestination::State(_) = field.destination else {
             continue;
@@ -1092,6 +1122,24 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                     checked_main_token_policy_fields =
                         checked_main_token_policy_fields.saturating_add(1);
                 }
+                record_families::RecordFamily::Material if family_coverage.material => {
+                    checked_material_fields = checked_material_fields.saturating_add(1);
+                }
+                record_families::RecordFamily::Logistics if family_coverage.logistics => {
+                    checked_logistics_fields = checked_logistics_fields.saturating_add(1);
+                }
+                record_families::RecordFamily::FixedEconomy if family_coverage.fixed_economy => {
+                    checked_fixed_economy_fields = checked_fixed_economy_fields.saturating_add(1);
+                }
+                record_families::RecordFamily::AgentAuthority
+                    if family_coverage.agent_authority =>
+                {
+                    checked_agent_authority_fields =
+                        checked_agent_authority_fields.saturating_add(1);
+                }
+                record_families::RecordFamily::Reward if family_coverage.reward => {
+                    checked_reward_fields = checked_reward_fields.saturating_add(1);
+                }
                 _ => unsupported.push(field.name),
             }
         } else {
@@ -1112,6 +1160,15 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
             && checked_factory_authority_fields != record_families::FACTORY_AUTHORITY_FIELD_COUNT)
         || (family_coverage.main_token_policy
             && checked_main_token_policy_fields != record_families::MAIN_TOKEN_POLICY_FIELD_COUNT)
+        || (family_coverage.material
+            && checked_material_fields != record_families::MATERIAL_FIELD_COUNT)
+        || (family_coverage.logistics
+            && checked_logistics_fields != record_families::LOGISTICS_FIELD_COUNT)
+        || (family_coverage.fixed_economy
+            && checked_fixed_economy_fields != record_families::FIXED_ECONOMY_FIELD_COUNT)
+        || (family_coverage.agent_authority
+            && checked_agent_authority_fields != record_families::AGENT_AUTHORITY_FIELD_COUNT)
+        || (family_coverage.reward && checked_reward_fields != record_families::REWARD_FIELD_COUNT)
     {
         return Err(WorldStateOwnerError::Invalid(
             "typed map owner descriptor coverage",
@@ -1151,6 +1208,11 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_governance_fields,
         checked_factory_authority_fields,
         checked_main_token_policy_fields,
+        checked_material_fields,
+        checked_logistics_fields,
+        checked_fixed_economy_fields,
+        checked_agent_authority_fields,
+        checked_reward_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))

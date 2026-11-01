@@ -314,6 +314,11 @@ impl FileFormalEndpoint {
             || coverage.checked_governance_fields() != 3
             || coverage.checked_factory_authority_fields() != 2
             || coverage.checked_main_token_policy_fields() != 5
+            || coverage.checked_material_fields() != 2
+            || coverage.checked_logistics_fields() != 2
+            || coverage.checked_fixed_economy_fields() != 4
+            || coverage.checked_agent_authority_fields() != 3
+            || coverage.checked_reward_fields() != 2
             || !coverage.unsupported_fields().is_empty()
             || coverage.runtime_registry_missing()
             || coverage.cognition_registry_missing()

@@ -19,6 +19,11 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert_eq!(report.checked_governance_fields(), 0);
     assert_eq!(report.checked_factory_authority_fields(), 0);
     assert_eq!(report.checked_main_token_policy_fields(), 0);
+    assert_eq!(report.checked_material_fields(), 0);
+    assert_eq!(report.checked_logistics_fields(), 0);
+    assert_eq!(report.checked_fixed_economy_fields(), 0);
+    assert_eq!(report.checked_agent_authority_fields(), 0);
+    assert_eq!(report.checked_reward_fields(), 0);
     for name in [
         "governance_identity_profiles",
         "governance_proposals",
@@ -30,6 +35,19 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
         "main_token_epoch_issuance_records",
         "restricted_starter_claim_grants",
         "main_token_scheduled_policy_updates",
+        "material_profiles",
+        "direct_material_transfer_receipts",
+        "logistics_routes",
+        "completed_logistics_paths",
+        "main_token_supply",
+        "reward_asset_config",
+        "protocol_power_reserve",
+        "reward_signature_governance_policy",
+        "agent_intent_ledger",
+        "agent_location_authorities",
+        "location_anchors",
+        "system_order_pool_budgets",
+        "reward_mint_records",
     ] {
         assert!(report.unsupported_fields().contains(&name), "{name}");
     }

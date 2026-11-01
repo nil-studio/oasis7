@@ -1,15 +1,25 @@
 use super::{SeenField, WorldStateOwnerError};
 use crate::incremental_semantic_key::SemanticKeyBudget;
 use crate::{
+    incremental_agent_authority_records::{
+        AgentAuthorityRecordKindV1, qualify_agent_authority_family_v1,
+    },
     incremental_factory_authority_records::{
         FactoryAuthorityRecordKindV1, qualify_factory_authority_family_v1,
     },
     incremental_field_read::WorldFieldReadContextV1,
+    incremental_fixed_economy_records::{FixedEconomyFieldV1, qualify_fixed_economy_family_v1},
     incremental_governance_records::{GovernanceRecordKindV1, qualify_governance_family_v1},
+    incremental_logistics_records::{
+        LogisticsFamilyReadContextV1, LogisticsRecordKindV1, LogisticsWorkBudgetV1,
+        qualify_logistics_family_v1,
+    },
     incremental_main_token_policy_records::{
         MainTokenPolicyKindV1, qualify_main_token_policy_family_v1,
     },
+    incremental_material_records::{MaterialRecordKindV1, qualify_material_family_v1},
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
+    incremental_reward_budget_records::{RewardRecordKindV1, qualify_reward_family_v1},
 };
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
 use oasis7_formal_protocol::{
@@ -22,12 +32,22 @@ use std::cell::RefCell;
 pub(super) const GOVERNANCE_FIELD_COUNT: u8 = GovernanceRecordKindV1::ALL.len() as u8;
 pub(super) const FACTORY_AUTHORITY_FIELD_COUNT: u8 = FactoryAuthorityRecordKindV1::ALL.len() as u8;
 pub(super) const MAIN_TOKEN_POLICY_FIELD_COUNT: u8 = MainTokenPolicyKindV1::ALL.len() as u8;
+pub(super) const MATERIAL_FIELD_COUNT: u8 = MaterialRecordKindV1::ALL.len() as u8;
+pub(super) const LOGISTICS_FIELD_COUNT: u8 = LogisticsRecordKindV1::ALL.len() as u8;
+pub(super) const FIXED_ECONOMY_FIELD_COUNT: u8 = FixedEconomyFieldV1::ALL.len() as u8;
+pub(super) const AGENT_AUTHORITY_FIELD_COUNT: u8 = AgentAuthorityRecordKindV1::ALL.len() as u8;
+pub(super) const REWARD_FIELD_COUNT: u8 = RewardRecordKindV1::ALL.len() as u8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RecordFamily {
     Governance,
     FactoryAuthority,
     MainTokenPolicy,
+    Material,
+    Logistics,
+    FixedEconomy,
+    AgentAuthority,
+    Reward,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -35,6 +55,11 @@ pub(super) struct FamilyCoverage {
     pub governance: bool,
     pub factory_authority: bool,
     pub main_token_policy: bool,
+    pub material: bool,
+    pub logistics: bool,
+    pub fixed_economy: bool,
+    pub agent_authority: bool,
+    pub reward: bool,
 }
 
 fn matches(
@@ -62,10 +87,40 @@ pub(super) fn family_for_descriptor(field: FieldDescriptor) -> Option<RecordFami
     {
         return Some(RecordFamily::FactoryAuthority);
     }
-    MainTokenPolicyKindV1::ALL
+    if MainTokenPolicyKindV1::ALL
         .into_iter()
         .any(|kind| matches(field, kind.name(), kind.shape(), kind.namespace()))
-        .then_some(RecordFamily::MainTokenPolicy)
+    {
+        return Some(RecordFamily::MainTokenPolicy);
+    }
+    if MaterialRecordKindV1::ALL
+        .into_iter()
+        .any(|kind| matches(field, kind.field_name(), FieldShape::Map, kind.namespace()))
+    {
+        return Some(RecordFamily::Material);
+    }
+    if LogisticsRecordKindV1::ALL
+        .into_iter()
+        .any(|kind| matches(field, kind.field_name(), FieldShape::Map, kind.namespace()))
+    {
+        return Some(RecordFamily::Logistics);
+    }
+    if FixedEconomyFieldV1::ALL
+        .into_iter()
+        .any(|kind| matches(field, kind.name(), FieldShape::Value, kind.namespace()))
+    {
+        return Some(RecordFamily::FixedEconomy);
+    }
+    if AgentAuthorityRecordKindV1::ALL
+        .into_iter()
+        .any(|kind| matches(field, kind.field_name(), FieldShape::Map, kind.namespace()))
+    {
+        return Some(RecordFamily::AgentAuthority);
+    }
+    RewardRecordKindV1::ALL
+        .into_iter()
+        .any(|kind| matches(field, kind.name(), kind.shape(), kind.namespace()))
+        .then_some(RecordFamily::Reward)
 }
 
 fn family_has_entries(
@@ -199,6 +254,36 @@ pub(super) fn verify_present_families<
         }};
     }
 
+    macro_rules! qualify_without_payload_limit {
+        ($qualifier:path, $binding:ident) => {{
+            let (mut outer, mut inner) = lease_budget(state_io);
+            let result = (|| {
+                let mut context = WorldFieldReadContextV1 {
+                    root: &roots.state[0],
+                    state,
+                    values: ValueReadContext {
+                        source: values.source,
+                        memory: values.memory,
+                        class: values.class,
+                        io: &mut *values.io,
+                    },
+                    key_work: &mut key_work,
+                    semantic_bytes: max_value_bytes,
+                    record_bytes: max_value_bytes,
+                    take_state_error: || None,
+                    cancelled: || (cancelled.borrow_mut())(),
+                };
+                let qualification =
+                    $qualifier(roots, &mut context, &mut outer, &mut inner, &mut cells)?;
+                qualification.$binding(root_digest)?;
+                drop(qualification);
+                Ok::<(), ValueTreeError>(())
+            })();
+            return_unused_budget(state_io, &outer, &inner)?;
+            result.map_err(WorldStateOwnerError::Value)?;
+        }};
+    }
+
     if family_has_entries(RecordFamily::Governance, seen, descriptors) {
         qualify!(qualify_governance_family_v1, validate_binding);
         coverage.governance = true;
@@ -210,6 +295,60 @@ pub(super) fn verify_present_families<
     if family_has_entries(RecordFamily::MainTokenPolicy, seen, descriptors) {
         qualify!(qualify_main_token_policy_family_v1, validate_binding);
         coverage.main_token_policy = true;
+    }
+    if family_has_entries(RecordFamily::Material, seen, descriptors) {
+        qualify!(qualify_material_family_v1, validate_binding);
+        coverage.material = true;
+    }
+    if family_has_entries(RecordFamily::Logistics, seen, descriptors) {
+        let max_pending_node_bytes = usize::try_from(max_value_bytes)
+            .map_err(|_| WorldStateOwnerError::Invalid("logistics payload limit"))?;
+        let (mut outer, inner) = lease_budget(state_io);
+        let cells_remaining = cells;
+        let mut work = LogisticsWorkBudgetV1 {
+            cells_remaining,
+            max_pending_node_bytes,
+            scan: inner,
+        };
+        let result = (|| {
+            let mut context = LogisticsFamilyReadContextV1 {
+                state,
+                values: ValueReadContext {
+                    source: values.source,
+                    memory: values.memory,
+                    class: values.class,
+                    io: &mut *values.io,
+                },
+                key_work: &mut key_work,
+                semantic_bytes: max_value_bytes,
+                record_bytes: max_value_bytes,
+                max_payload_bytes: max_value_bytes,
+                outer_scan: &mut outer,
+                take_state_error: || None,
+                cancelled: || (cancelled.borrow_mut())(),
+            };
+            let qualification = qualify_logistics_family_v1(roots, &mut context, &mut work)?;
+            qualification.validate_binding(root_digest)?;
+            drop(qualification);
+            Ok::<(), ValueTreeError>(())
+        })();
+        let inner = work.scan;
+        cells = work.cells_remaining;
+        return_unused_budget(state_io, &outer, &inner)?;
+        result.map_err(WorldStateOwnerError::Value)?;
+        coverage.logistics = true;
+    }
+    if family_has_entries(RecordFamily::FixedEconomy, seen, descriptors) {
+        qualify_without_payload_limit!(qualify_fixed_economy_family_v1, validate_binding);
+        coverage.fixed_economy = true;
+    }
+    if family_has_entries(RecordFamily::AgentAuthority, seen, descriptors) {
+        qualify!(qualify_agent_authority_family_v1, validate_binding);
+        coverage.agent_authority = true;
+    }
+    if family_has_entries(RecordFamily::Reward, seen, descriptors) {
+        qualify!(qualify_reward_family_v1, validate_binding);
+        coverage.reward = true;
     }
     Ok(coverage)
 }

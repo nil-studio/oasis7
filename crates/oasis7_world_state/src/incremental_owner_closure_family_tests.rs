@@ -113,6 +113,87 @@ pub(super) fn append_records(
         &mut sink,
     )
     .unwrap();
+
+    let mut material_records = 100_000;
+    let mut material_work = crate::incremental_material_records::MaterialWorkBudgetV1 {
+        cells_remaining: 100_000,
+        max_pending_node_bytes: 16 << 20,
+        scan: StateScanBudget {
+            nodes_remaining: 100_000,
+            read_bytes_remaining: 64 << 20,
+            leaves_remaining: 10_000,
+        },
+    };
+    crate::incremental_material_records::prepare_material_records_genesis_v1(
+        &source,
+        &mut context,
+        &mut material_records,
+        &mut material_work,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut logistics_records = 100_000;
+    let mut logistics_work = crate::incremental_logistics_records::LogisticsWorkBudgetV1 {
+        cells_remaining: 100_000,
+        max_pending_node_bytes: 16 << 20,
+        scan: StateScanBudget {
+            nodes_remaining: 100_000,
+            read_bytes_remaining: 64 << 20,
+            leaves_remaining: 10_000,
+        },
+    };
+    crate::incremental_logistics_records::prepare_logistics_records_genesis_v1(
+        &source,
+        &mut context,
+        &mut logistics_records,
+        &mut logistics_work,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut fixed_economy_work = crate::incremental_fixed_economy_records::FixedEconomyWorkV1 {
+        cells_remaining: 100_000,
+        max_pending_node_bytes: 16 << 20,
+    };
+    crate::incremental_fixed_economy_records::prepare_fixed_economy_genesis_v1(
+        &source,
+        &mut context,
+        &mut fixed_economy_work,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut agent_records = 100_000;
+    let mut agent_work = crate::incremental_agent_authority_records::AgentAuthorityWorkBudgetV1 {
+        cells_remaining: 100_000,
+        max_pending_node_bytes: 16 << 20,
+        scan: StateScanBudget {
+            nodes_remaining: 100_000,
+            read_bytes_remaining: 64 << 20,
+            leaves_remaining: 10_000,
+        },
+    };
+    crate::incremental_agent_authority_records::prepare_agent_authority_records_genesis_v1(
+        &source,
+        &mut context,
+        &mut agent_records,
+        &mut agent_work,
+        &mut sink,
+    )
+    .unwrap();
+
+    let mut reward_work = crate::incremental_reward_budget_records::RewardRecordsWorkV1 {
+        cells_remaining: 100_000,
+        max_pending_node_bytes: 16 << 20,
+    };
+    crate::incremental_reward_budget_records::prepare_reward_records_genesis_v1(
+        &source,
+        &mut context,
+        &mut reward_work,
+        &mut sink,
+    )
+    .unwrap();
 }
 
 fn verify_family_fixture(
@@ -133,7 +214,7 @@ fn verify_family_fixture(
     // family. One explicit finite allowance covers those shared traversals.
     let mut state_io = StateScanBudget {
         nodes_remaining: 1_000_000,
-        read_bytes_remaining: 256 << 20,
+        read_bytes_remaining: 768 << 20,
         leaves_remaining: 100_000,
     };
     verify_world_state_owner_coverage(
@@ -153,6 +234,11 @@ fn absent_closed_record_families_remain_explicitly_unsupported() {
     assert_eq!(report.checked_governance_fields(), 0);
     assert_eq!(report.checked_factory_authority_fields(), 0);
     assert_eq!(report.checked_main_token_policy_fields(), 0);
+    assert_eq!(report.checked_material_fields(), 0);
+    assert_eq!(report.checked_logistics_fields(), 0);
+    assert_eq!(report.checked_fixed_economy_fields(), 0);
+    assert_eq!(report.checked_agent_authority_fields(), 0);
+    assert_eq!(report.checked_reward_fields(), 0);
     for name in [
         "governance_identity_profiles",
         "governance_proposals",
@@ -164,6 +250,19 @@ fn absent_closed_record_families_remain_explicitly_unsupported() {
         "main_token_epoch_issuance_records",
         "restricted_starter_claim_grants",
         "main_token_scheduled_policy_updates",
+        "material_profiles",
+        "direct_material_transfer_receipts",
+        "logistics_routes",
+        "completed_logistics_paths",
+        "main_token_supply",
+        "reward_asset_config",
+        "protocol_power_reserve",
+        "reward_signature_governance_policy",
+        "agent_intent_ledger",
+        "agent_location_authorities",
+        "location_anchors",
+        "system_order_pool_budgets",
+        "reward_mint_records",
     ] {
         assert!(report.unsupported_fields().contains(&name), "{name}");
     }
@@ -176,6 +275,11 @@ fn present_record_families_are_qualified_as_root_bound_closed_units() {
     assert_eq!(report.checked_governance_fields(), 3);
     assert_eq!(report.checked_factory_authority_fields(), 2);
     assert_eq!(report.checked_main_token_policy_fields(), 5);
+    assert_eq!(report.checked_material_fields(), 2);
+    assert_eq!(report.checked_logistics_fields(), 2);
+    assert_eq!(report.checked_fixed_economy_fields(), 4);
+    assert_eq!(report.checked_agent_authority_fields(), 3);
+    assert_eq!(report.checked_reward_fields(), 2);
     for name in [
         "governance_identity_profiles",
         "governance_proposals",
@@ -187,6 +291,19 @@ fn present_record_families_are_qualified_as_root_bound_closed_units() {
         "main_token_epoch_issuance_records",
         "restricted_starter_claim_grants",
         "main_token_scheduled_policy_updates",
+        "material_profiles",
+        "direct_material_transfer_receipts",
+        "logistics_routes",
+        "completed_logistics_paths",
+        "main_token_supply",
+        "reward_asset_config",
+        "protocol_power_reserve",
+        "reward_signature_governance_policy",
+        "agent_intent_ledger",
+        "agent_location_authorities",
+        "location_anchors",
+        "system_order_pool_budgets",
+        "reward_mint_records",
     ] {
         assert!(!report.unsupported_fields().contains(&name), "{name}");
     }
