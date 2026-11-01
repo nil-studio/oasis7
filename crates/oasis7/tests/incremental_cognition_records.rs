@@ -8,6 +8,8 @@ use oasis7_runtime::{
     incremental_cognition_read::*, incremental_field_member::*,
     incremental_field_read::WorldFieldReadContextV1,
 };
+#[path = "support/incremental_cognition_pages.rs"]
+mod cognition_pages;
 #[path = "support/incremental_cognition_family_faults.rs"]
 mod family_faults;
 #[allow(dead_code)]
@@ -1032,6 +1034,11 @@ fn run_cognition(all_optional: bool) {
         }
         if !all_optional {
             family_faults::reject_malformed_outer(&store, &cold, &root_set);
+            cognition_pages::transfer_and_reopen(
+                &path,
+                &directory.0.join("cognition-copy"),
+                &root_set,
+            );
         }
         eprintln!(
             "Cognition full current-state family Some={all_optional} physicalState={:?} values={:?} logical={:?}",
