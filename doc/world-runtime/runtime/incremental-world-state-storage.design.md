@@ -772,3 +772,12 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。候选 owner 的完整性检查发生在正式接受之前；不能要求它先取得已接受原件出现证明，形成循环资格。候选出现证明必须由真实签名候选、其已核对的精确 record ID/core，以及本次已流验的 Fact 原件观察构造，保持 Event 种类、ordinal、原 ID 和实际长度；prepared 内容或另一份同 body 的签名记录不能替代该候选。
 
 候选类型与已接受历史类型分开，不提供可替代接受资格的转换或公共构造器。只有真正 VerifiedFormalCommit 的精确 record ID 与候选一致时，才能在同池收费及最终取消检查后提升原出现证明；不重读原件，不改原 body、位置或 bytes。候选 Domain 验证仍须核对具体借用 WorldEvent 的唯一 canonical 原件身份，并只能形成候选语义，不能在接受前被当作已接受 mailbox 历史。owner/endpoint 的业务、完整闭包和持久保障仍各自验证，本接口不能单独签发这些资格。
+
+<a id="iws-agent-event-original-stream-v1"></a>
+### 12.48 Agent body/move 原事件的借用流式生产
+
+`contribute_iws_agent_event` 必须直接复用唯一 canonical CBOR 流式 ABI，对不可变借用的原 `WorldEvent` 先计算 flat BLAKE3 与确切长度，再向实际 original sink 流写；两次编码消耗同一份调用者配置的连续 work，不重置 visits/bytes/depth/map/key 限额。原件长字符串不进入完整 encoded Vec、全文件桥或按输入八倍预留的 workspace。Hasher 与固定 scratch 先取得同池 Ordinary admission，canonical key/model 的独立暂存仍由 ABI 分次预收费。原始字节/ID 与既有 encoder 相同，不新增 WorldEvent wire 或接受权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+持久化回调接收不可自行构造完成状态的一次性 producer；返回 Ok 或只使用长度/ID 不能追加 fact。实际 sink 必须消费完整 canonical stream，核对第二次长度与 hash，并完成自己的 writer/flush/locator 屏障后才返回成功，producer 随后检查私有完成状态及最终取消。跳过 producer/stream、部分写、重复使用、IO/额度/finish 错误和最后实际 put/flush 后取消均使整个 ExecutionTxn 的既有成功前缀不可 seal。Canonical encoder 与真实页 writer 通过短借用共享同一 FnMut 取消源，ObjectIo 独立 AtomicBool 也保持贯穿物理路径；不能用成功物理前缀代表整个原件完成。
+
+ObjectStore push 路径复用现有 ValueStreamWriter、有限 BufferedPageWriter、原 locator 格式和获胜 locator 的完整原件回验，只有长度与原 flat ID 一致、各屏障成功才返回。body/move event 和 commit 的原公共消费者全部使用这条路径；测试仅可为小黄金向量收集已预收费 bytes，大 reason 必须以借用输入、有限小工作池与真实流式 sink 验证。本节证明原件生产/持久化与 fact 贡献边界，不代替 §12.42/§12.47 的真实接受历史/当前出现证明或完整 AgentReady。

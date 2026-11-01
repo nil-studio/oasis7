@@ -137,7 +137,9 @@ pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields}
 pub use world::incremental_agent_genesis;
 pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
-pub use world::incremental_body_event::AgentEventContext;
+pub use world::incremental_body_event::{
+    AgentEventContext, AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1,
+};
 pub use oasis7_world_state::incremental_agent_body;
 pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};
 pub use world::{

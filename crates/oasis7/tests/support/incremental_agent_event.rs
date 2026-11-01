@@ -1,8 +1,8 @@
 use oasis7::AgentState;
 use oasis7_agent_api::world_action::{BodyKernelView, GeoPos};
 use oasis7_distfs::incremental_page_store::{
-    IncrementalPageStore, PageIoBudget,
-    objects::{IncrementalObjectStore, ObjectIo},
+    IncrementalPageStore, PageIoBudget, PageStoreError,
+    objects::{IncrementalObjectStore, ObjectIo, ObjectStreamWriteError},
 };
 use oasis7_formal_protocol::{
     incremental_execution::{
@@ -12,10 +12,11 @@ use oasis7_formal_protocol::{
     incremental_state::{StateDeltaV1, StateNamespaceV1 as Ns, StateWriteV1},
     incremental_value::{ValueIoBudget, ValueStreamWriter},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use oasis7_runtime::{
-    AgentCell, AgentEventContext, BodyMutationContext, BodyMutationError, CausedBy, DomainEvent,
-    World, WorldEvent, WorldEventBody, WorldState,
+    AgentCell, AgentEventContext, AgentEventOriginalStreamV1, AgentEventOriginalV1,
+    BodyMutationContext, BodyMutationError, CausedBy, DomainEvent, World, WorldEvent,
+    WorldEventBody, WorldState,
     incremental_agent_genesis::AgentGenesisContext,
     incremental_event_fields::{EVENT_SEQUENCE_KEY_V1, EventSequenceV1},
 };
@@ -36,6 +37,49 @@ pub fn logical() -> ValueIoBudget {
         write_bytes_remaining: 128 << 20,
     }
 }
+pub fn original_work() -> oasis7_wasm_abi::CanonicalCborWorkV1 {
+    oasis7_wasm_abi::CanonicalCborWorkV1 {
+        visits_remaining: 1_000_000,
+        bytes_remaining: 16 << 20,
+        max_depth: 32,
+        max_map_keys: 64,
+        max_key_bytes: 1024,
+    }
+}
+pub fn persist_original(
+    original: &mut dyn AgentEventOriginalV1,
+    objects: &IncrementalObjectStore<'_>,
+    io: &mut ObjectIo<'_>,
+) -> Result<(), BodyMutationError> {
+    original.persist_to(&mut |stream: &mut dyn AgentEventOriginalStreamV1,
+                              cancelled: &mut dyn FnMut() -> bool| {
+        let id = stream.original_id();
+        let length = stream.original_bytes();
+        objects
+            .write_object_from_stream(length, id, io, cancelled, |output| stream.write_to(output))
+            .map(|_| ())
+            .map_err(|error| match error {
+                ObjectStreamWriteError::Producer(error) => error,
+                ObjectStreamWriteError::Store(PageStoreError::Memory(error)) => {
+                    oasis7_formal_protocol::incremental_execution::ExecutionError::Memory(error)
+                        .into()
+                }
+                ObjectStreamWriteError::Store(PageStoreError::ResourceLimited(label)) => {
+                    oasis7_formal_protocol::incremental_execution::ExecutionError::ResourceLimited(
+                        label,
+                    )
+                    .into()
+                }
+                ObjectStreamWriteError::Store(PageStoreError::Cancelled) => {
+                    oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled.into()
+                }
+                ObjectStreamWriteError::Store(error) => {
+                    BodyMutationError::Original(Box::new(error))
+                }
+            })
+    })
+}
+
 pub struct Directory(pub std::path::PathBuf);
 impl Directory {
     pub fn new() -> Self {
@@ -245,23 +289,20 @@ pub fn contribute(
                     io: &mut logical(),
                     cancelled: || false,
                 },
-                persist_original: |bytes: &ReservedValue<Vec<u8>>, id| {
-                    objects
-                        .write_object(
-                            &mut bytes.as_slice(),
-                            bytes.len() as u64,
-                            Some(id),
-                            &mut ObjectIo {
-                                physical: &mut physical_io,
-                                logical: &mut logical(),
-                                class: MemoryClass::Ordinary,
-                                cancelled: &cancelled,
-                            },
-                        )
-                        .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
-                    Ok(())
+                persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                    persist_original(
+                        original,
+                        &objects,
+                        &mut ObjectIo {
+                            physical: &mut physical_io,
+                            logical: &mut logical(),
+                            class: MemoryClass::Ordinary,
+                            cancelled: &cancelled,
+                        },
+                    )
                 },
                 max_event_bytes: 1 << 20,
+                original_work: original_work(),
             },
         )
         .unwrap();

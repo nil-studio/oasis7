@@ -127,11 +127,13 @@ fn actual_body_driver_seals_one_consistent_candidate_and_keeps_all_charges() {
                             io: &mut quota,
                             cancelled: || false,
                         },
-                        persist_original: |_: &ReservedValue<Vec<u8>>, id| {
-                            stored.push(id);
+                        persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                            stored.push(original.original_id());
+                            collect_original(original, &memory)?;
                             Ok(())
                         },
                         max_event_bytes: 1024 * 1024,
+                        original_work: original_work(),
                     },
                 )
             },
@@ -214,8 +216,11 @@ fn live_fence_conflicts_at_each_driver_boundary_discard_candidate_only() {
                             io: &mut quota,
                             cancelled: || false,
                         },
-                        persist_original: |_: &ReservedValue<Vec<u8>>, _| Ok(()),
+                        persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                            collect_original(original, &memory).map(|_| ())
+                        },
                         max_event_bytes: 1024 * 1024,
+                        original_work: original_work(),
                     },
                 )
             },
