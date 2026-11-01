@@ -209,6 +209,8 @@ enum FixtureIssue {
     WrongModuleInstanceSemanticKey,
     WrongModuleInstanceCodec,
     EmptyModuleInstances,
+    RecordFamilies,
+    MissingGovernanceFamilyEntries,
 }
 
 struct FixtureWriteContext<'a> {
@@ -511,6 +513,10 @@ fn fixture(include_u64_entries: bool) -> Fixture {
 }
 
 fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) -> Fixture {
+    let include_family_fixture = matches!(
+        issue,
+        Some(FixtureIssue::RecordFamilies | FixtureIssue::MissingGovernanceFamilyEntries)
+    );
     let memory = MemoryBudget::new(96 << 20, 4 << 20).unwrap();
     let state = StatePages::new(memory.clone());
     let mut values = ValuePages::default();
@@ -546,7 +552,11 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
             || (issue == Some(FixtureIssue::MissingInstalledTargetMetadata)
                 && field.name == "installed_module_targets")
             || (issue == Some(FixtureIssue::MissingWorldBalanceMetadata)
-                && field.name == "main_token_balances");
+                && field.name == "main_token_balances")
+            || (issue == Some(FixtureIssue::RecordFamilies)
+                && super::record_families::family_for_descriptor(field).is_some())
+            || (issue == Some(FixtureIssue::MissingGovernanceFamilyEntries)
+                && super::record_families::family_for_descriptor(field).is_some());
         if !omit_metadata {
             let metadata = write_field_metadata_v1(
                 field,
@@ -764,7 +774,7 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
             }
         }
 
-        if let Some(owner) = text_byte_field(field) {
+        if !include_family_fixture && let Some(owner) = text_byte_field(field) {
             if owner == TextByteOwnerField::ModuleStates {
                 if issue == Some(FixtureIssue::WrongBytesCodec) {
                     fixture_writer!().append_raw_member(
@@ -821,6 +831,7 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
 
         if let Some(owner) = super::module_marketplace::field_from_descriptor(field)
             && issue != Some(FixtureIssue::EmptyModuleMarketplaceMaps)
+            && !include_family_fixture
         {
             use crate::incremental_module_marketplace::ModuleMarketplaceFieldV1 as Market;
 
@@ -1142,6 +1153,9 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                     after: Some(metadata.value_root),
                 });
         }
+        if include_family_fixture {
+            continue;
+        }
         if issue == Some(FixtureIssue::MissingModuleInstanceSibling)
             && field == crate::incremental_module_instance_fields::ModuleInstanceFieldV1::WasmHash
         {
@@ -1204,6 +1218,21 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
             },
         )
         .unwrap();
+    }
+
+    if matches!(
+        issue,
+        Some(FixtureIssue::RecordFamilies | FixtureIssue::MissingGovernanceFamilyEntries)
+    ) {
+        family_tests::append_records(
+            issue.unwrap(),
+            &mut values,
+            &memory,
+            &state,
+            &mut value_io,
+            &mut key_work,
+            &mut writes,
+        );
     }
 
     let namespaces = [
@@ -1299,6 +1328,8 @@ fn verify_with_root_set(
     )
 }
 
+#[path = "incremental_owner_closure_family_tests.rs"]
+mod family_tests;
 #[path = "incremental_owner_closure_marketplace_tests.rs"]
 mod marketplace_tests;
 #[path = "incremental_owner_closure_registry_tests.rs"]

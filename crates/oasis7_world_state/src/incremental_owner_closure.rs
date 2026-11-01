@@ -38,6 +38,8 @@ use std::{cell::RefCell, io, io::Write};
 mod module_instances;
 #[path = "incremental_owner_closure_module_marketplace.rs"]
 mod module_marketplace;
+#[path = "incremental_owner_closure_record_families.rs"]
+mod record_families;
 #[path = "incremental_owner_closure_typed_maps.rs"]
 mod typed_maps;
 
@@ -69,6 +71,9 @@ pub struct UnsupportedWorldStateOwnersV1 {
     checked_world_balance_fields: u8,
     checked_module_instance_fields: u8,
     checked_module_marketplace_fields: u8,
+    checked_governance_fields: u8,
+    checked_factory_authority_fields: u8,
+    checked_main_token_policy_fields: u8,
 }
 
 impl UnsupportedWorldStateOwnersV1 {
@@ -120,6 +125,18 @@ impl UnsupportedWorldStateOwnersV1 {
 
     pub fn checked_module_marketplace_fields(&self) -> u8 {
         self.checked_module_marketplace_fields
+    }
+
+    pub fn checked_governance_fields(&self) -> u8 {
+        self.checked_governance_fields
+    }
+
+    pub fn checked_factory_authority_fields(&self) -> u8 {
+        self.checked_factory_authority_fields
+    }
+
+    pub fn checked_main_token_policy_fields(&self) -> u8 {
+        self.checked_main_token_policy_fields
     }
 }
 
@@ -651,8 +668,10 @@ fn read_u64_entry<R: ValueNodeReader>(
 /// frozen WorldState descriptor table. `verify_state_values` must already have
 /// established every value-tree closure. This function adds owner typing for
 /// the implemented scalar-u64, ID-set, number-map, text-map and byte-map
-/// descriptors, checks required metadata/member records, and returns explicit
-/// unsupported owners.
+/// descriptors and checks required metadata/member records for the closed
+/// owner families connected here. Family qualifiers run only when their
+/// format markers are present; absent families remain explicit unsupported
+/// fields. Partial or malformed marked families fail closed.
 /// The roots scanned are taken directly from `root_set`; the returned
 /// diagnostic binds their complete world/genesis/height/tick/root identity.
 /// Callers must reject the incomplete report before issuing a profile-3 receipt.
@@ -868,13 +887,19 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                             &mut cancel_now,
                         )?;
                     }
+                    WorldFieldRecordKindV1::Entry
+                        if record_families::family_for_descriptor(field).is_some() =>
+                    {
+                        seen[index].entries = seen[index].entries.saturating_add(1);
+                    }
                     _ if u64_field(field).is_some()
                         || id_set_field(field).is_some()
                         || number_map_field(field).is_some()
                         || text_byte_field(field).is_some()
                         || typed_maps::is_installed_target(field)
                         || typed_maps::is_world_balance(field)
-                        || module_marketplace::field_from_descriptor(field).is_some() =>
+                        || module_marketplace::field_from_descriptor(field).is_some()
+                        || record_families::family_for_descriptor(field).is_some() =>
                     {
                         return Err(WorldStateOwnerError::Invalid(
                             "unexpected typed owner record kind",
@@ -912,6 +937,20 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     if (cancelled.borrow_mut())() {
         return Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled));
     }
+    let family_coverage = record_families::verify_present_families(
+        root_set,
+        &root_set_digest,
+        state,
+        values,
+        state_io,
+        max_value_bytes,
+        &cancelled,
+        &seen,
+        WORLD_STATE_FIELDS,
+    )?;
+    if (cancelled.borrow_mut())() {
+        return Err(WorldStateOwnerError::Value(ValueTreeError::Cancelled));
+    }
 
     let unsupported_capacity =
         WORLD_STATE_FIELDS
@@ -940,6 +979,9 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     let mut checked_installed_target_fields = 0u8;
     let mut checked_world_balance_fields = 0u8;
     let mut checked_module_marketplace_fields = 0u8;
+    let mut checked_governance_fields = 0u8;
+    let mut checked_factory_authority_fields = 0u8;
+    let mut checked_main_token_policy_fields = 0u8;
     for (index, field) in WORLD_STATE_FIELDS.iter().copied().enumerate() {
         let FieldDestination::State(_) = field.destination else {
             continue;
@@ -1028,6 +1070,30 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
                 ));
             }
             checked_module_marketplace_fields = checked_module_marketplace_fields.saturating_add(1);
+        } else if let Some(family) = record_families::family_for_descriptor(field) {
+            if seen[index].metadata != 1 {
+                return Err(WorldStateOwnerError::Invalid(
+                    "required record-family metadata missing or duplicate",
+                ));
+            }
+            match family {
+                record_families::RecordFamily::Governance if family_coverage.governance => {
+                    checked_governance_fields = checked_governance_fields.saturating_add(1);
+                }
+                record_families::RecordFamily::FactoryAuthority
+                    if family_coverage.factory_authority =>
+                {
+                    checked_factory_authority_fields =
+                        checked_factory_authority_fields.saturating_add(1);
+                }
+                record_families::RecordFamily::MainTokenPolicy
+                    if family_coverage.main_token_policy =>
+                {
+                    checked_main_token_policy_fields =
+                        checked_main_token_policy_fields.saturating_add(1);
+                }
+                _ => unsupported.push(field.name),
+            }
         } else {
             if seen[index].metadata != 1 {
                 return Err(WorldStateOwnerError::Invalid(
@@ -1040,6 +1106,12 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     if checked_installed_target_fields != typed_maps::INSTALLED_TARGET_FIELD_COUNT
         || checked_world_balance_fields != typed_maps::WORLD_BALANCE_FIELD_COUNT
         || checked_module_marketplace_fields != module_marketplace::FIELD_COUNT
+        || (family_coverage.governance
+            && checked_governance_fields != record_families::GOVERNANCE_FIELD_COUNT)
+        || (family_coverage.factory_authority
+            && checked_factory_authority_fields != record_families::FACTORY_AUTHORITY_FIELD_COUNT)
+        || (family_coverage.main_token_policy
+            && checked_main_token_policy_fields != record_families::MAIN_TOKEN_POLICY_FIELD_COUNT)
     {
         return Err(WorldStateOwnerError::Invalid(
             "typed map owner descriptor coverage",
@@ -1076,6 +1148,9 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         checked_world_balance_fields,
         checked_module_instance_fields,
         checked_module_marketplace_fields,
+        checked_governance_fields,
+        checked_factory_authority_fields,
+        checked_main_token_policy_fields,
     };
     drop(schema_charge);
     Ok(report_charge.retain(report))

@@ -16,6 +16,23 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert_eq!(report.checked_world_balance_fields(), 2);
     assert_eq!(report.checked_module_instance_fields(), 8);
     assert_eq!(report.checked_module_marketplace_fields(), 3);
+    assert_eq!(report.checked_governance_fields(), 0);
+    assert_eq!(report.checked_factory_authority_fields(), 0);
+    assert_eq!(report.checked_main_token_policy_fields(), 0);
+    for name in [
+        "governance_identity_profiles",
+        "governance_proposals",
+        "governance_votes",
+        "factory_site_authorities",
+        "factory_construction_power_profiles",
+        "main_token_config",
+        "main_token_genesis_buckets",
+        "main_token_epoch_issuance_records",
+        "restricted_starter_claim_grants",
+        "main_token_scheduled_policy_updates",
+    ] {
+        assert!(report.unsupported_fields().contains(&name), "{name}");
+    }
     assert!(report.unsupported_fields().contains(&"resources"));
     assert!(
         !report

@@ -311,6 +311,9 @@ impl FileFormalEndpoint {
             || coverage.checked_id_set_fields() != 5
             || coverage.checked_number_map_fields() != 11
             || coverage.checked_text_byte_fields() != 4
+            || coverage.checked_governance_fields() != 3
+            || coverage.checked_factory_authority_fields() != 2
+            || coverage.checked_main_token_policy_fields() != 5
             || !coverage.unsupported_fields().is_empty()
             || coverage.runtime_registry_missing()
             || coverage.cognition_registry_missing()
