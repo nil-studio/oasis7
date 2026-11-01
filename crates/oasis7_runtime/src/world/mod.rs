@@ -1192,3 +1192,5 @@ pub mod incremental_commit;
 pub mod incremental_allocators;
 
 pub(super) mod incremental_clock;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_scheduler_controls;
