@@ -924,3 +924,15 @@ GEN 借用全部原值并流写；空创建要求精确完整家族资格、guar
 页 mark/transfer 复用同一完整 owner 资格并追随所有内部根；sink 输出在包括 buffered finish 的全部步骤成功前保持暂态。本四字段资格不是完整 World、协议接受、业务权限或全局 GC live set；必须组合其他 owner/历史/lease/未决和回滚保护。独立字面 oracle、Raw/Zstd 冷恢复、合法后继、预算/取消/真实 put/poison 和缺页拒绝分别验证，不把 visitor/typecheck 当完整实现。
 
 `change_qualified_diplomacy_scalar_v1` 是这四个 owner 的普通单列更新入口：调用者显式选取封闭字段枚举及其 typed expected/after，仅校验该列的原值；Option 只额外校验并原子编辑同列旗标，不读无关标量、长 Text 或 Vec。`change_qualified_diplomacy_scalars_v1` 是显式完整 expected 投影核对，成本为 O(S)，不能用于证明普通单列更新的固定 Δ。单列更新须以未变 32 MiB charter、仅改 formed_at、receiver payload 上限165的公开冷根证据证明未扫描无关内容。
+
+### 12.43 Runtime 调度确定性控制组
+
+<a id="iws-runtime-scheduler-controls-v1"></a>
+
+本 owner 只覆盖原 Runtime/Scheduler 的八个 Value descriptor：scheduler_cursor、runtime_memory_limits.max_pending_actions/max_pending_effects/max_inflight_effects、runtime_backpressure_stats.pending_actions_evicted/pending_effects_evicted/inflight_effects_evicted、module_tick_routing_metrics。游标为原 Option<String>，不是 Cognition 的 SchedulerCursorV1；三项容量为原 usize、三项驱逐计数为原 u64。路由只保存 ModuleTickRoutingDeterministicSnapshot 的 last_due_count/last_invoked_count/last_missing_invocation_count 三 usize、missing_invocation_count/routing_count 两 u64 和 oldest_overdue_ticks Option<u64>。usize 以 U64 保存并校验接收目标原 usize 域，不新增容量或调度业务上限。max_journal_events、inflight_effect_dispatch_blocked、journal_events_evicted、wall-clock duration/buckets 仍是已登记 Process 字段，不借此 owner 落盘或标 ready。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+七个 primitive 全局值各用原 descriptor 的 Metadata 与 Entry/Unit 语义键，payload 为原 U64 或 nullable Unit/Text。游标 None 与 Some(empty)、overdue None 与 Some(0) 必须区分，必需全局对象和列不能删除。路由原对象是独立 RootRef165 child，同 Scheduler namespace，绑定专属 schema 与原 Unit digest；child 有 Metadata、Unit marker 和六个原名列，不聚合 JSON/Serde blob。完整借用 GEN 从实际 World 控制值和既有 deterministic_snapshot 投影得到，穷尽 DTO 并明确排除 Process 部分，不 clone 完整 World 或长游标。
+
+根绑定 opaque 资格只在有限预算下验证此完整八字段组；固定根和 same-TX getter/单列 expected 更新不能冒称完整 Runtime 资格。普通贡献须使用同一 ExecutionTransaction、guard/live、同池 Ordinary、认证元数据与实际 pending 根，保留所有读写依赖；NoOp/长比较、输出重试和返回前取消、真实 put 失败均 poison 已成功贡献。receiver 先独立 generic replay，再由 qualified 父及实际 changed paths 验证本组，跳过未变长游标/无关 owner。冷恢复不能要求原 World snapshot，页闭包仍须本组完整验证及 sink finish 完成。
+
+已有 allocator/event sequence/module-wake/index 专用键与 wire 不得被本组 generic primitive 或 RootRef 影子替代；本组也不为 pending actions/effects、provider pending/result、nonce、idempotency、continuation、Cognition journal/history/receipt 关系发放 ready 或外调资格。原请求/attempt/nonce/continuation 身份、外调 unknown 不重派及业务调度次序继续由原 owner/driver 接线验证，不能从这八项控制值相等推出续跑或完整 World 激活/GC 成功。
