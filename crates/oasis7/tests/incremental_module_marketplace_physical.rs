@@ -291,7 +291,7 @@ fn prepare_state_roots(path: &std::path::Path, compression: PageCompression) -> 
 
 fn verify_world_state_closure(
     store: &IncrementalPageStore,
-    roots: &[StateRootV1; 6],
+    roots: &RootSetV1,
     memory: &MemoryBudget,
 ) -> u64 {
     let state = store
@@ -318,7 +318,7 @@ fn verify_world_state_closure(
         leaves_remaining: 100_000,
     };
     let mut leaves = 0u64;
-    for root in roots {
+    for root in &roots.state {
         let mut scan = StateScanContext {
             source: &state,
             memory,
@@ -366,7 +366,6 @@ fn verify_world_state_closure(
 
     let report = verify_world_state_owner_coverage(
         roots,
-        *blake3::hash(b"marketplace owner coverage fixture").as_bytes(),
         &state,
         &mut value_context,
         &mut state_io,
@@ -603,7 +602,7 @@ fn marketplace_owner_closure_and_bid_update_survive_raw_zstd_cold_reopen() {
                 MemoryClass::Ordinary,
             )
             .unwrap();
-            verify_world_state_closure(&store, &root_set.state, &memory);
+            verify_world_state_closure(&store, &root_set, &memory);
             assert_eq!(
                 read_bid_price(&store, &root_set.state, &memory, "bids/组件", 1),
                 17
