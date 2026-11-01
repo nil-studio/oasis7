@@ -34,6 +34,8 @@ getrandom = "0.4"
 tungstenite = "0.30.0"
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false }
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
+oasis7_formal_protocol = { version = "0.1.0", path = "../oasis7_formal_protocol" }
+libc = "0.2"
 
 [features]
 default = ["wasmtime", "node-libp2p"]

@@ -1033,6 +1033,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         pending: PendingProviderServiceIntent,
         receipt: ProviderServiceCognitionReceipt,
     ) -> Result<(), String> {
+        validate_provider_service_receipt(&pending, &receipt)?;
         let request = &pending.cognition.request.request_context;
         if self
             .llm_sidecar
@@ -1055,6 +1056,14 @@ impl crate::viewer::ViewerRuntimeLiveServer {
             .strip_prefix("action:")
             .and_then(|id| id.parse::<u64>().ok())
             .ok_or("canonical action ID is not numeric")?;
+        self.llm_sidecar
+            .verify_provider_original_materials(&pending.cognition)?;
+        self.llm_sidecar
+            .mark_provider_original_materials_committed(
+                &pending.cognition,
+                receipt.lineage.receipt_id.as_str(),
+                action_id,
+            )?;
         self.llm_sidecar.track_action(
             action_id,
             request.agent_subject.clone(),

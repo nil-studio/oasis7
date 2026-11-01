@@ -36,6 +36,35 @@ pub struct StateScanContext<'a, R> {
     pub class: MemoryClass,
     pub io: &'a mut StateScanBudget,
 }
+
+/// One authenticated page from a fixed-root scan. The digest is the last
+/// visited sparse-Merkle path, not a semantic key. Callers that persist or
+/// accept a continuation must bind it to the exact root and keep the cursor
+/// opaque; this low-level result is not a completeness token by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StateScanPageV1 {
+    pub visited: u64,
+    pub last_key_digest: Option<[u8; 32]>,
+    pub has_more: bool,
+}
+
+const MAX_STATE_SCAN_PAGE_ENTRIES: usize = 4096;
+
+enum PageVisitError<E> {
+    Visitor(E),
+    Full,
+}
+
+fn digest_successor(mut digest: [u8; 32]) -> Option<[u8; 32]> {
+    for index in (0..digest.len()).rev() {
+        if digest[index] != u8::MAX {
+            digest[index] += 1;
+            digest[index + 1..].fill(0);
+            return Some(digest);
+        }
+    }
+    None
+}
 #[derive(Clone, Copy)]
 pub(crate) enum Stop {
     Limited,
@@ -155,4 +184,144 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
         }
         Ok(count)
     }
+
+    /// Visit at most `max_entries` leaves after an authenticated sparse-Merkle
+    /// path. This does not restart at the root on every page: paths below the
+    /// exclusive lower bound are pruned before their pages are read. The next
+    /// call must use `last_key_digest` and the same immutable root. A caller
+    /// must still validate whole-root completeness before using paged output
+    /// for retention or authority decisions.
+    pub fn visit_entries_page<E>(
+        &mut self,
+        root: &StateRootV1,
+        after_key_digest: Option<[u8; 32]>,
+        max_entries: usize,
+        mut visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<StateScanPageV1, StateScanError<E>> {
+        if max_entries == 0 || max_entries > MAX_STATE_SCAN_PAGE_ENTRIES {
+            return Err(StateScanError::Invalid("state scan page bound"));
+        }
+        let _workspace = self
+            .memory
+            .reserve(128 * 1024, self.class)
+            .map_err(StateScanError::Memory)?;
+        if self.source.allocation_class() != Some(self.class)
+            || !self
+                .source
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(self.memory))
+        {
+            return Err(StateScanError::Invalid("state scan source pool/class"));
+        }
+        root.validate().map_err(StateScanError::Tree)?;
+        if cancelled() {
+            return Err(StateScanError::Cancelled);
+        }
+        let lower = match after_key_digest {
+            Some(digest) => match digest_successor(digest) {
+                Some(lower) => lower,
+                None => {
+                    if cancelled() {
+                        return Err(StateScanError::Cancelled);
+                    }
+                    return Ok(StateScanPageV1 {
+                        visited: 0,
+                        last_key_digest: after_key_digest,
+                        has_more: false,
+                    });
+                }
+            },
+            None => [0; 32],
+        };
+
+        let cancelled = RefCell::new(cancelled);
+        let stop = Cell::new(None);
+        let source = Guarded {
+            source: self.source,
+            nodes: Cell::from_mut(&mut self.io.nodes_remaining),
+            bytes: Cell::from_mut(&mut self.io.read_bytes_remaining),
+            cancelled: &cancelled,
+            stop: &stop,
+        };
+        let mut updater = Updater::<StateCodec, _>::new(
+            &source,
+            empty_hashes().map_err(StateScanError::Tree)?,
+            0,
+        );
+        let mut visited = 0u64;
+        let mut last_key_digest = after_key_digest;
+        let result = updater.visit_key_range(&root.node_root, &lower, &[u8::MAX; 32], |entry| {
+            if (cancelled.borrow_mut())() {
+                return Err(PageVisitError::Visitor(
+                    StateScanPageVisitorError::Cancelled,
+                ));
+            }
+            if visited >= max_entries as u64 {
+                return Err(PageVisitError::Full);
+            }
+            if entry.namespace != root.namespace {
+                return Err(PageVisitError::Visitor(StateScanPageVisitorError::Invalid(
+                    "state scan namespace",
+                )));
+            }
+            if self.io.leaves_remaining == 0 {
+                return Err(PageVisitError::Visitor(
+                    StateScanPageVisitorError::ResourceLimited,
+                ));
+            }
+            let digest = key_digest(entry.namespace, &entry.key)
+                .map_err(|error| PageVisitError::Visitor(StateScanPageVisitorError::Tree(error)))?;
+            self.io.leaves_remaining -= 1;
+            visit(entry).map_err(|error| {
+                PageVisitError::Visitor(StateScanPageVisitorError::Visitor(error))
+            })?;
+            visited += 1;
+            last_key_digest = Some(digest);
+            Ok(())
+        });
+        match stop.get() {
+            Some(Stop::Limited) => return Err(StateScanError::ResourceLimited),
+            Some(Stop::Cancelled) => return Err(StateScanError::Cancelled),
+            None => {}
+        }
+        let has_more = match result {
+            Ok(_) => false,
+            Err(crate::merkle::VisitError::Visitor(PageVisitError::Full)) => true,
+            Err(crate::merkle::VisitError::Visitor(PageVisitError::Visitor(error))) => {
+                return match error {
+                    StateScanPageVisitorError::Visitor(error) => {
+                        Err(StateScanError::Visitor(error))
+                    }
+                    StateScanPageVisitorError::Tree(error) => Err(StateScanError::Tree(error)),
+                    StateScanPageVisitorError::Invalid(reason) => {
+                        Err(StateScanError::Invalid(reason))
+                    }
+                    StateScanPageVisitorError::ResourceLimited => {
+                        Err(StateScanError::ResourceLimited)
+                    }
+                    StateScanPageVisitorError::Cancelled => Err(StateScanError::Cancelled),
+                };
+            }
+            Err(crate::merkle::VisitError::Tree(error)) => {
+                return Err(StateScanError::Tree(error));
+            }
+        };
+        if (cancelled.borrow_mut())() {
+            return Err(StateScanError::Cancelled);
+        }
+        Ok(StateScanPageV1 {
+            visited,
+            last_key_digest,
+            has_more,
+        })
+    }
+}
+
+enum StateScanPageVisitorError<E> {
+    Visitor(E),
+    Tree(String),
+    Invalid(&'static str),
+    ResourceLimited,
+    Cancelled,
 }
