@@ -575,3 +575,7 @@ mod tests;
 #[path = "incremental_fact_material.rs"]
 mod fact_material;
 pub use fact_material::*;
+
+#[path = "incremental_event_fact.rs"]
+mod event_fact;
+pub use event_fact::*;

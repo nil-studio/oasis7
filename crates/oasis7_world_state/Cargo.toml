@@ -33,4 +33,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 default = []
 test_tier_required = []
 test_tier_full = ["test_tier_required"]
-test-support = []
+test-support = ["oasis7_formal_protocol/test-support"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
