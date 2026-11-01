@@ -677,3 +677,31 @@ factories 保持 WorldState/Map/Business，pending_factory_builds 保持 WorldSt
 借用创世完整枚举五族全部真实字段，遍历与分配先获有限 quota/Ordinary admission；标量、账本、长文本、集合成员复用既有封闭编码。正常 point 只沿 outer RootRef 和目标相对路径，不扫描未变 payload/成员。新建只能依据绑定同一父 RootSet 的 opaque 闭包资格，不能凭缺 marker 接纳孤儿。原始根/恢复以有限预算认证完整顶层及 typed child 值/状态页、白名单、键 preimage、Option 关系和真实集合计数；通用 transition verifier 之外必须从 qualified parent 与完整 changed-write-set 增量验证本族闭包。通用顶层 values marker 不代签 typed child 闭包。
 
 公开 oracle 应独立列出五族原键/原值，覆盖原 outer/embedded ID 不同、None/空/非空、重复列表值、原 Unicode 与整数极值；冷读固定小池，普通 Δ 扩大未变 sibling 时计数不得跟随其大小。错误/取消发生于准备、no-op、真实 put 和最终 buffered flush 时不得接受 token/mark/root；typed transfer 必须先成功 finish 目标 sink 再接受闭包回执，根恢复必须在新 pool 重开验证。
+
+<a id="iws-logistics-route-records"></a>
+
+### 12.32 物流路线与已完成路径
+
+本族仅覆盖原 WorldState/Map/Business 的 logistics_routes 和 WorldState/Map/Authorization 的 completed_logistics_paths。原 String outer map key 与记录内 route_id/path_id 分别保留原字节，不裁剪、归一化、排序或用其中一个回填另一个。原 LogisticsRouteV1 的11字段、LogisticsPathAuthorityV1 的7字段均须无省略借用解构；此两 DTO 无 Option 字段，不新增可选语义。账本沿原封闭 Ledger codec；MaterialTransitPriority 的 Standard=0、Urgent=1，拒绝其他值；I64 包括负数/极值原位保存，存储层不自行执行路线可用性、容量、收费或 recipe 数量业务规则。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每族外层有同 descriptor Metadata 和 (logistics_record_closure_v1, unit) Entry/Unit 格式标记。每条原 String key 的 Entry/RecordRoot(tag10) 绑定原 semantic digest、namespace 和分别为 ASCII oasis7.logistics.route.v1 / oasis7.logistics.path.v1 右补零至32字节的 schema。子树有 Metadata、相对 unit 记录 marker 及全部真实字段；列键为 ((unit, record), 原字段名)。Path route_ids 独立 Vec marker 为 (((unit, record), route_ids), unit)，保存包括0的原长度；每个 Text 成员以原 u64 index 为尾键，保留次序与重复 ID。不得以整体 JSON/Serde blob 代替字段和成员。
+
+借用 GEN、正常创建、显式完整读取和原始根/恢复 qualification 承担各自明确的完整范围，使用调用方连续有限 work/records/key/state/value/pending 预算及预先内存准入。创建需同父 RootSet 的 opaque family 资格；raw qualifier 认证原键 preimage/hash、outer RootRef 绑定、全部必需列、真实 Vec count/dense index、所有状态/值页闭包并拒绝旧 flat、缺 marker、未知字段/类型和缺页。普通标量或单 Vec 成员更新只沿 outer reference 与目标相对路径，保留原 guard/live、expected、同池 Ordinary、取消/no-op 后及最后实际 put 后检查，错误 poison 整笔事务。
+
+接收端在通用 transition replay 之外，从 qualified 父 child 和全部 changed paths 推导后继闭包；固定列/marker 不得增删，Vec 数量净变化及首尾 slot 必须与计数一致，不能每次扫未变长文本或整 Vec。typed mark/transfer 显式沿两族 RootRef 到子状态及 ValueTree，复制先准入；所有回执在成功 finish 最后缓冲发布前 provisional。根恢复必须丢弃原 pool/store 后在有限小池重开验证；通用顶层 ValueTree 资格不代签本族子根或完整 World GC/激活资格。
+
+### 12.33 Material profile 与直接转移原始回执
+
+`material_profiles`（Business，原 String 外键）与 `direct_material_transfer_receipts`（Authorization，原 ActionId 外键）各使用隔离的 record StateRoot；外键与原记录内 kind/transfer_id 独立保留，不能因不一致而归一化。每个 record 包含唯一 metadata、Unit 记录标记和封闭原字段，未知字段或缺失字段拒绝完整资格。原始大 Text 与 Ledger 身份沿既有流式 codec 处理，不将完整记录串行化为单个 Vec。
+
+MaterialProfile 保留 kind、tier、category、stack_limit、transport_loss_class、decay_bps_per_tick、default_priority。tier 以 U64 精确承载 u8 范围；loss class 的封闭值为 Low=0、Medium=1、High=2；default priority 为 Urgent=0、Standard=1。直接转移回执保留 transfer_id、requester_agent_id、from_ledger、to_ledger、kind、amount、distance_km、priority、route_id；Ledger 用原完整 enum 身份，priority 为原 Urgent=0、Standard=1，route_id 以独立 Bool presence 和可选 Text 区分 None 与 Some(empty)。
+
+GEN、完整 family 资格、本地列更新与接收端验证使用同一封闭 schema；本地变更必须绑定已验证原 record root、精确 expected 值与同一事务 guard。页传输在完整 typed 闭包与缓冲 sink finish 都成功后才可作为完整交付；这些能力不授予 authority、全 World 激活或全局 GC 资格。实现与物理验证仍须在当前 PR 提供，不由本节文字代签。
+
+原始家族恢复通过全部 top-level roots 的连续预算扫描，认证两个命名空间内的 Metadata、格式标记、原始外键类型及每个完整 child；返回资格仅绑定这两个家族和原 RootSet digest。它不授予其他 owner 的完整性。RecordRoot 点读中的原 Text/U64 键在同一次认证 member 读取中流式校验，固定前缀和 UTF-8 状态不保留完整原身份。
+
+普通事务的 Material 单列 setter 只认证指定原 expected 值并编辑该列；RouteId 同次编辑其 Bool presence，不能单独修改 flag 或删除必需列。创建绑定完整父家族资格和当前不存在的外键，原嵌入身份不替代外键；删除绑定当前完整 record 资格和相同事务 guard，不为移除外层引用重读大 sibling payload。接收端必须先完成通用重放，再从已资格父根按认证变化路径验证封闭列、必需 marker、Option 关系和家族计数，跳过相等子树。此片仍不授予完整 World 资格。
+
+Material 的页标记与传输复用有界逐页追踪，在完整 typed 家族资格结束后返回原页 hash 集合；其他 owner 仍须独立贡献闭包。传输输出在所有缓冲 sink finish 成功前保持 provisional，最后物理批次发布后观察到取消也不得报告完成。恢复可另开操作从原认证根重新验证已经耐久的页。物理压缩沿用既有 codec 工作区准入，额度不足必须明确失败；不能通过省略压缩工作区计费获得成功。
+
+Material 的普通事务 getter 与 setter 共用经过 guard、同池 Ordinary、完整当前 record 资格绑定的 resolver，读取同一 ExecutionTransaction 的当前视图。resolver 在全部列与 Option 关系校验后检查取消；getter 据此返回暂态值。setter 在精确 expected 和借用 after 比较后还须独立检查读/写取消通道，NoOp 也不能跳过。任何查询或更新错误都使当前贡献不可 seal；getter 的独立读取边界可作为 NoOp 最后检查回归的基线。
