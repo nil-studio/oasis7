@@ -2462,5 +2462,98 @@ class LocalStatementCfgOwners(unittest.TestCase):
         with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
             self.policy(self.BEFORE, moved)
 
+
+
+class AlternativeModuleMounts(unittest.TestCase):
+    LEAF = 'crates/core/src/cases.rs'
+    ROOT = 'crates/core/src/lib.rs'
+
+    def policy(self, *, test_mount=True, extra=None, test_gate='', defaults=(), root_gate=''):
+        # Exact shape of host production mount versus its real test bridge.
+        source = {
+            self.ROOT: (root_gate + 'mod host;').encode(),
+            'crates/core/src/host.rs': (
+                '#[cfg(not(test))] #[path="shared/mod.rs"] mod production;\n'
+                + ('#[cfg(test)] #[path="real_tests.rs"] mod real;\n' if test_mount else '')
+            ).encode(),
+            'crates/core/src/real_tests.rs': (test_gate + '#[path="shared/mod.rs"] mod real_bridge;').encode(),
+            'crates/core/src/shared/mod.rs': b'#[cfg(test)] #[path="../cases.rs"] mod cases;',
+            self.LEAF: b'#[test] fn existing() {}\n#[test] fn added() {}',
+        }
+        uncertain = set()
+        if extra == 'expanded_include':
+            source[self.ROOT] += b'\n#[cfg(feature="test_tier_full")] mod extra;'
+            source['crates/core/src/extra.rs'] = b'include!("cases.rs");'
+        elif extra:
+            source[self.ROOT] += (b'\n#[cfg(test)] mod extra;' if extra.endswith('_plain')
+                                  else b'\n#[cfg(feature="custom_off")] mod extra;')
+            if extra in ('unknown_include', 'unknown_include_plain'):
+                source['crates/core/src/extra.rs'] = b'include!(concat!("ca", "ses.rs"));'
+                uncertain.add('crates/core/src/extra.rs')
+            elif extra in ('cycle', 'cycle_plain'):
+                source['crates/core/src/extra.rs'] = b'#[path="shared/mod.rs"] mod bridge; #[path="cycle.rs"] mod cycle;'
+                source['crates/core/src/cycle.rs'] = b'#[path="extra.rs"] mod back;'
+            else:
+                source['crates/core/src/extra.rs'] = b'#[path="shared/mod.rs"] mod bridge;'
+        before = '#[test] fn existing() {}'
+        after = source[self.LEAF].decode()
+        def read(*args):
+            self.assertEqual(args[0], 'show')
+            ref, path = args[1].split(':', 1)
+            self.assertEqual(path, self.LEAF)
+            return {'base': before, 'source': after}[ref].encode()
+        with patch.object(selector, 'git', side_effect=read):
+            return selector.changed_test_policy(
+                'base', 'source', [self.LEAF], {self.LEAF: {'core'}}, {'core'},
+                {'core': {'test_tier_required', 'test_tier_full', 'custom_off', 'native_driver', 'transport'}},
+                ordinary_roots={self.ROOT}, source_inputs={
+                    'sources': source, 'directories': {'core': 'crates/core'},
+                    'uncertain_modules': uncertain, 'unresolved_includes': (),
+                    'default_features': {'core': set(defaults)},
+                })
+
+    def test_production_and_test_mounts_are_alternative_paths(self):
+        paths, ignored, production = self.policy()
+        self.assertFalse(ignored)
+        self.assertFalse(production)
+        self.assertTrue(set(paths).issubset({self.LEAF}))
+
+    def test_alternative_paths_do_not_or_together_contradictory_same_path_gates(self):
+        with self.assertRaises(selector.TestPolicyError):
+            self.policy(test_gate='#![cfg(not(test))]\n')
+
+    def test_all_statically_disabled_paths_still_reject(self):
+        with self.assertRaises(selector.TestPolicyError):
+            self.policy(test_mount=False)
+
+    def test_known_test_path_cannot_hide_unknown_alternative_provenance(self):
+        for extra in ('unknown_feature', 'unknown_include', 'cycle'):
+            with self.subTest(extra=extra), self.assertRaises(selector.TestPolicyError):
+                self.policy(extra=extra)
+
+    def test_good_path_cannot_hide_plain_nonliteral_include_or_exact_cycle(self):
+        for extra in ('unknown_include_plain', 'cycle_plain'):
+            with self.subTest(extra=extra), self.assertRaises(selector.TestPolicyError):
+                self.policy(extra=extra)
+
+    def test_default_features_are_derived_transitively_from_manifest(self):
+        manifest = {'features': {'default': ['native_driver'],
+                                'native_driver': ['transport', 'dep:secret', 'foreign/feature'],
+                                'transport': []}}
+        defaults = selector.default_feature_closure(manifest)
+        self.assertEqual(defaults, {'default', 'native_driver', 'transport'})
+        paths, ignored, production = self.policy(
+            defaults=defaults, root_gate='#[cfg(feature="transport")] ')
+        self.assertFalse(ignored or production)
+        self.assertTrue(set(paths).issubset({self.LEAF}))
+        with self.assertRaises(selector.TestPolicyError):
+            self.policy(root_gate='#[cfg(feature="transport")] ')
+
+    def test_reachable_expanded_include_retains_feature_policy_coverage(self):
+        paths, ignored, production = self.policy(extra='expanded_include')
+        self.assertEqual(paths, [self.LEAF])
+        self.assertFalse(ignored)
+        self.assertFalse(production)
+
 if __name__ == '__main__':
     unittest.main()
