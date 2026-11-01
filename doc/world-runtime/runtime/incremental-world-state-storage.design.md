@@ -743,3 +743,17 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 Mint 另有 (reward_budget_record_closure_v1, length) Entry/U64 全局长度，原 ordinal 必须精确形成 0..length-1，重复内容仍是不同 ordinal。借用 GEN 与 root-only 恢复资格完整校验原格式、required 列、动态成员与 dense ordinal；连续使用有限 state/value/key/cell/heap/pending 预算，不需要原 World snapshot。普通 append 只创建新 ordinal 的完整 child 并更新 length；receiver 从 qualified 父与实际 changed Merkle 路径验证净计数/索引/长度，不扫描未变大签名或重写整个 Vec。既有记录单列、Pool 成员点写须精确 expected、同事务 guard/live、同池 Ordinary、最终组合取消与错误 poison；完整对象删除只可在隔离关系与父资格允许时显式提供。
 
 页闭包由本 owner 的完整资格派生，显式跟随 child state/value，有限集合分配前计费；含 buffered finish 的全部输出完成前保持 provisional。本组不授奖励、mint、预算分配或签名业务权限，不改变原 reducer；仍不代签其他 owner、完整 World 激活或 GC。原始字面 oracle、非 Optional 必需列边界、Raw/Zstd 冷根、合法 append/同事务后继、generic-valid 但 typed-invalid、预算/取消/真实 put 故障及小增量成本分别验收。
+
+<a id="iws-governance-records"></a>
+
+### 12.39 治理身份、提案与投票原始记录
+
+本族仅覆盖 WorldState/Map/Authorization 的 governance_identity_profiles、governance_proposals、governance_votes。沿各原 String 外键保存，不能以内嵌 agent_id/proposal_key 替换、回填或规范化；snapshot 与 ballot 的原 String 成员键也独立于值内身份。存储不新增 staking、warmup、身份处罚、quorum、提案结算、投票资格或权重业务规则。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每族保留 Metadata 和 (governance_record_closure_v1, unit) Entry/Unit 格式标记。每条外键的 tag10 RootRef165 绑定原 Text semantic digest、原 namespace 和 BLAKE3(ASCII oasis7.iws.governance-record.v1\0 连接原字段名 UTF8) schema。child 保留 Metadata、unit record marker；固定列为 ((unit, record), 原字段名)。Identity 六字段、Proposal 十七字段、Vote 五字段全部穷尽借用解构。原 IdentityStatus Active/Frozen/Expelled 和 ProposalStatus Open/Passed/Rejected 分别编码 0/1/2，拒绝其余值；pass_threshold_bps/u16、slash_count 与 ballot weight/snapshot vote_weight_cap 的 u32 范围保持，原 U64/I64 包括全部极值不加业务限制。finalized_at 与 winning_option 固定必需列用 Unit 表示 None，原 U64/Text 表示 Some，包括 0/空串。
+
+options 保存独立 count marker 和原 u64 index Text 成员，保留原顺序、重复和空值。vote_weight_snapshot、votes_by_agent、tallies 各有独立 count marker，成员按原 Text 键保存；前两者分别逐列保存 Snapshot 五字段、Ballot 三字段，后者保存原 U64。集合 count 键为 (((unit, record), 原集合名), unit)，Vec/标量 Map 成员尾为原 index/Text，结构 Map 成员再接原字段名。空集合不能省略 marker，不用整 DTO、整集合 JSON/Serde blob 或旧通用投影代替 typed 闭包。
+
+GEN 对明确的全部记录/成员范围使用连续有限 cell/record/key/state/value/pending 额度并先准入再分配；输出在完整成功前 provisional。原始根/恢复资格需认证外键 preimage/hash、每条 RootRef、完整 required/Option、Map 各列成员集合一致、Vec count/dense index、所有状态/值页和拒绝未知/缺页/旧格式。普通单列或单成员更新必须有同池 Ordinary、guard/live、精确 expected、同事务当前视图和组合取消；不得扫描未变 description/options/snapshot/ballots。后继接收端先 generic replay，再从 qualified parent 与认证 changed paths 推导 schema、必需列和净 count/成员关系；GEN 或局部读不代签完整资格。
+
+取消/no-op/相等比较后、最后真实 put 后和 buffered sink finish 失败均不可接受成功前缀。typed page mark/transfer 必须显式追踪本族 child StateRoot 与 ValueTree，最终 finish 成功后才可完成；原 pool/store 销毁后的有限小池 root-only 恢复须独立验证。本节定义目标合同，GEN checkpoint 不代签未实现的 qualification、普通事务、receiver、页传输、完整 World 激活/GC 或整体 H/S 性能验收。
