@@ -1,6 +1,7 @@
 use super::*;
 use oasis7_client_api::world_service::participant_discovery::ParticipantOwnerViewRequestV1;
 use oasis7_custody_core::native_binding::SignedManagedNativeSessionLifetimeV1;
+use oasis7_custody_core::provisioning::CleanupTransportPolicyV2;
 impl OwnerProvisionApprovalStore {
     pub(crate) fn claim_test_session_v2_preflight(
         &self,
@@ -48,6 +49,9 @@ impl OwnerProvisionApprovalStore {
         id: &str,
         role: Role,
         access: Option<OwnerSetupAccessEvidenceV1>,
+        receipts: Option<
+            [oasis7_custody_core::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2],
+        >,
         current: F,
     ) -> Result<(
         TestSessionPreflightPermitV2,
@@ -71,29 +75,53 @@ impl OwnerProvisionApprovalStore {
                         s.test_session_v2_preflight_checks(id, c, UnixMillis::new(t))
                             .map_err(|_| rejected())?,
                     ];
-                    if c.oracle_ticket == 3 {
-                        let a = access.as_ref().ok_or_else(rejected)?;
-                        jobs.push(
-                            s.test_session_v2_preflight_access_checks(id, a, c, UnixMillis::new(t))
-                                .map_err(|_| rejected())?,
-                        );
-                    } else if access.is_some() {
+                    let snapshot = s.test_session_v2_snapshot(id).map_err(|_| rejected())?;
+                    let world3 = s
+                        .test_session_v2_preflight_descriptor(id)
+                        .map_err(|_| rejected())?
+                        .cleanup_transport_policy
+                        == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2);
+                    let evidence = if c.oracle_ticket == 3 {
+                        Some(access.as_ref().ok_or_else(rejected)?)
+                    } else if access.is_some() || receipts.is_some() {
                         return Err(rejected());
                     } else if c.oracle_ticket == 4 {
-                        let stored = s
-                            .test_session_v2_snapshot(id)
-                            .ok()
-                            .and_then(|s| s.preflight_access())
-                            .ok_or_else(rejected)?;
-                        jobs.push(
-                            s.test_session_v2_preflight_access_checks(
-                                id,
-                                stored,
-                                c,
-                                UnixMillis::new(t),
-                            )
-                            .map_err(|_| rejected())?,
-                        );
+                        Some(snapshot.preflight_access().ok_or_else(rejected)?)
+                    } else {
+                        None
+                    };
+                    if let Some(evidence) = evidence {
+                        if world3 {
+                            let saved = snapshot.preflight_world_receipts();
+                            let originals = if c.oracle_ticket == 3 {
+                                receipts.as_ref().ok_or_else(rejected)?
+                            } else {
+                                saved.as_ref().ok_or_else(rejected)?
+                            };
+                            jobs.push(
+                                s.test_session_v2_preflight_world_access_checks(
+                                    id,
+                                    evidence,
+                                    originals,
+                                    c,
+                                    UnixMillis::new(t),
+                                )
+                                .map_err(|_| rejected())?,
+                            );
+                        } else {
+                            if receipts.is_some() {
+                                return Err(rejected());
+                            }
+                            jobs.push(
+                                s.test_session_v2_preflight_access_checks(
+                                    id,
+                                    evidence,
+                                    c,
+                                    UnixMillis::new(t),
+                                )
+                                .map_err(|_| rejected())?,
+                            );
+                        }
                     }
                     Ok(jobs)
                 })
@@ -101,14 +129,27 @@ impl OwnerProvisionApprovalStore {
             |s, _, _, t, v| {
                 current()?.with_core(|c| {
                     if c.oracle_ticket == 3 {
-                        s.record_test_session_v2_preflight_access(
-                            id,
-                            access.clone().ok_or_else(rejected)?,
-                            c,
-                            UnixMillis::new(t),
-                            v,
-                        )
-                        .map_err(|_| rejected())?;
+                        let evidence = access.clone().ok_or_else(rejected)?;
+                        if let Some(originals) = &receipts {
+                            s.record_test_session_v2_preflight_world_access(
+                                id,
+                                evidence,
+                                originals.clone(),
+                                c,
+                                UnixMillis::new(t),
+                                v,
+                            )
+                            .map_err(|_| rejected())?;
+                        } else {
+                            s.record_test_session_v2_preflight_access(
+                                id,
+                                evidence,
+                                c,
+                                UnixMillis::new(t),
+                                v,
+                            )
+                            .map_err(|_| rejected())?;
+                        }
                     }
                     let permit = s
                         .test_session_v2_preflight_permit(

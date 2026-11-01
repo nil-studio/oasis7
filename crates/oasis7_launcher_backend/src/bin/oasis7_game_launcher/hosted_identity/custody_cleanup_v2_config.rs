@@ -11,6 +11,8 @@ pub(super) struct MachineConfig {
     pub(super) current_pin: AccountMachineIssuerPinV2,
     pub(super) term_current_pin: AccountMachineIssuerPinV2,
     pub(super) issuer_floor: AccountMachineIssuerFloorV2,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preflight_access_pin: Option<AccountMachineIssuerPinV2>,
     native_origin: String,
 }
 fn unavailable() -> StoreError {
@@ -53,7 +55,11 @@ impl MachineConfig {
                 AccountMachinePurposeV2::NativeTermCurrentAttempt,
             ),
         ];
-        for (pin, purpose) in pins {
+        for (pin, purpose) in pins.into_iter().chain(
+            self.preflight_access_pin
+                .as_ref()
+                .map(|pin| (pin, AccountMachinePurposeV2::NativePreflightAccessV2)),
+        ) {
             let identity = AccountMachineIssuerV2 {
                 namespace: pin.namespace.clone(),
                 service_id: pin.service_id.clone(),
@@ -91,7 +97,8 @@ impl MachineConfig {
         }
         let p = &self.pending_pin;
         if [&self.active_pin, &self.current_pin, &self.term_current_pin]
-            .iter()
+            .into_iter()
+            .chain(self.preflight_access_pin.iter())
             .any(|other| {
                 other.namespace != p.namespace
                     || other.service_id != p.service_id
@@ -105,6 +112,10 @@ impl MachineConfig {
             return Err(unavailable());
         }
         Ok(())
+    }
+    pub(super) fn preflight_access_pin(&self) -> Result<&AccountMachineIssuerPinV2, StoreError> {
+        self.validate()?;
+        self.preflight_access_pin.as_ref().ok_or_else(unavailable)
     }
     pub(super) fn fingerprint(
         &self,

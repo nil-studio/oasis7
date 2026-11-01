@@ -105,6 +105,41 @@ pub(super) fn term_current(
     }
 }
 
+fn preflight_world(
+    runtime: &StaticHttpRuntimeConfig,
+    method: &str,
+    path: &str,
+    headers: &str,
+    body: &[u8],
+) -> IdentityReply {
+    let work = {
+        let Ok(mut guard) = runtime.identity.lock() else {
+            return unavailable();
+        };
+        let Some(service) = guard.as_mut() else {
+            return unavailable();
+        };
+        match service.prepare_preflight_world_v2(method, path, headers, body) {
+            Ok(work) => work,
+            Err(error) => return IdentityReply::error(error),
+        }
+    };
+    let completed = match work.send() {
+        Ok(work) => work,
+        Err(error) => return IdentityReply::error(error),
+    };
+    let Ok(mut guard) = runtime.identity.lock() else {
+        return unavailable();
+    };
+    let Some(service) = guard.as_mut() else {
+        return unavailable();
+    };
+    match service.finish_preflight_world_v2(completed) {
+        Ok(reply) => IdentityReply::ok(reply),
+        Err(error) => IdentityReply::error(error),
+    }
+}
+
 pub(super) fn handle(
     runtime: &StaticHttpRuntimeConfig,
     method: &str,
@@ -113,10 +148,13 @@ pub(super) fn handle(
     body: &[u8],
 ) -> Option<IdentityReply> {
     use oasis7_custody_core::native_cleanup_v2::{
-        NATIVE_ACTIVATE_V2_PATH, NATIVE_CURRENT_V2_PATH, NATIVE_REGISTER_V2_PATH,
-        NATIVE_TERM_CURRENT_V2_PATH,
+        NATIVE_ACTIVATE_V2_PATH, NATIVE_CURRENT_V2_PATH, NATIVE_PREFLIGHT_AUTHORIZE_V2_PATH,
+        NATIVE_PREFLIGHT_POLICY_V2_PATH, NATIVE_REGISTER_V2_PATH, NATIVE_TERM_CURRENT_V2_PATH,
     };
     Some(match target {
+        NATIVE_PREFLIGHT_POLICY_V2_PATH | NATIVE_PREFLIGHT_AUTHORIZE_V2_PATH => {
+            preflight_world(runtime, method, target, headers, body)
+        }
         NATIVE_REGISTER_V2_PATH => registration(runtime, method, headers, body),
         NATIVE_ACTIVATE_V2_PATH => activate(runtime, method, body),
         NATIVE_CURRENT_V2_PATH => current(runtime, method, body),

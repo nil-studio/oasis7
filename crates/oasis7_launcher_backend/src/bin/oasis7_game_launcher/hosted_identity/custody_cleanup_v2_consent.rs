@@ -17,10 +17,26 @@ pub(super) fn validate_saved_full_consent(
     pending
         .verify_issuer(issuer_pin, issuer_floor, now)
         .map_err(|_| unavailable())?;
+    validate_saved_full_input(
+        tx,
+        config,
+        identity,
+        &pending.certificate.input,
+        &pending.certificate.intent_digest,
+    )
+}
+
+/// Exact completed protected human ceremony; not Current or a paid HTTP permit.
+pub(super) fn validate_saved_full_input(
+    tx: &mut IdentityTransaction<'_>,
+    config: &CustodyConfig,
+    identity: &super::super::config::IdentityConfig,
+    input: &oasis7_custody_core::approval_admission::ApprovalAdmissionInput,
+    intent_digest: &str,
+) -> Result<(), StoreError> {
     if !config.full_session_v2_summary_contract_enabled {
         return Err(unavailable());
     }
-    let input = &pending.certificate.input;
     let proof = &input.approval.proof;
     let row = tx
         .get::<ApprovalRecord>(&approval_key(&proof.approval_id))?
@@ -46,7 +62,7 @@ pub(super) fn validate_saved_full_consent(
     if saved.complete_digest.is_none()
         || saved.request != input.request
         || completed != input.approval
-        || saved.intent_digest != pending.certificate.intent_digest
+        || saved.intent_digest != intent_digest
         || saved.manager_account_id != proof.manager_account_id
         || saved.manager_session_ref != proof.manager_session_ref
         || saved.origin_credential_id != proof.origin_credential_id

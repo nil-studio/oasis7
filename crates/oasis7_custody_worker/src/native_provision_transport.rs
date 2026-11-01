@@ -20,6 +20,8 @@ pub(crate) enum NativePrivateRoute {
     SessionStatus,
     SessionLifetime,
     ParticipantPolicyOriginal,
+    TestSessionV2PolicyOriginal,
+    TestSessionV2Authorize,
     ParticipantAuthorize,
     ParticipantSubmit,
     ParticipantLookup,
@@ -40,6 +42,8 @@ impl NativePrivateRoute {
             Self::BindingComplete => "/custody/managed-bindings/complete",
             Self::SessionStatus => "/custody/managed-bindings/session-status",
             Self::SessionLifetime => "/custody/managed-bindings/session-lifetime",
+            Self::TestSessionV2PolicyOriginal => "/participant/test-session-v2/policy-original",
+            Self::TestSessionV2Authorize => "/participant/test-session-v2/authorize",
             Self::ParticipantPolicyOriginal => "/participant/policy-original",
             Self::ParticipantAuthorize => "/participant/authorize",
             Self::ParticipantSubmit => "/participant/submit",
@@ -54,7 +58,9 @@ impl NativePrivateRoute {
     fn participant(self) -> bool {
         matches!(
             self,
-            Self::ParticipantPolicyOriginal
+            Self::TestSessionV2PolicyOriginal
+                | Self::TestSessionV2Authorize
+                | Self::ParticipantPolicyOriginal
                 | Self::ParticipantAuthorize
                 | Self::ParticipantSubmit
                 | Self::ParticipantLookup
@@ -160,7 +166,9 @@ impl NativeProvisionTransport {
             original_body.len()
                 <= if matches!(
                     route,
-                    NativePrivateRoute::OwnerControl
+                    NativePrivateRoute::TestSessionV2PolicyOriginal
+                        | NativePrivateRoute::TestSessionV2Authorize
+                        | NativePrivateRoute::OwnerControl
                         | NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2
                 ) {
                     65_536

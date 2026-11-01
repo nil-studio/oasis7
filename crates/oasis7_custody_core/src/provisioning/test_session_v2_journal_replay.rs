@@ -6,6 +6,8 @@ mod events;
 mod execution;
 #[path = "test_session_v2_journal_replay_machine.rs"]
 mod machine;
+#[path = "test_session_v2_journal_replay_model.rs"]
+mod model;
 #[path = "test_session_v2_journal_replay_purpose.rs"]
 mod purpose;
 #[path = "test_session_v2_journal_replay_world_preflight.rs"]
@@ -22,6 +24,8 @@ pub(super) struct Replay<'a> {
     source_verified: BTreeSet<String>,
     fees: BTreeSet<String>,
     purpose_fees: BTreeSet<String>,
+    model_fees: BTreeSet<String>,
+    model_reservations: BTreeSet<String>,
     execution_requests: BudgetLedger,
     execution_started: bool,
     execution_prepare_paid: bool,
@@ -77,6 +81,8 @@ impl<'a> Replay<'a> {
             source_verified: BTreeSet::new(),
             fees: BTreeSet::new(),
             purpose_fees: BTreeSet::new(),
+            model_fees: BTreeSet::new(),
+            model_reservations: BTreeSet::new(),
             execution_requests: BudgetLedger::new(p.request_limit.0),
             execution_started: false,
             execution_prepare_paid: false,
@@ -323,6 +329,14 @@ impl<'a> Replay<'a> {
                     .count()
             || self.fees.len() != s.client_http_admissions.len()
             || self.purpose_fees.len() != s.purpose_http_admissions.len()
+            || self.model_fees.len()
+                != s.native_model_budget
+                    .as_ref()
+                    .map_or(0, |m| m.http_admissions.len())
+            || self.model_reservations.len()
+                != s.native_model_budget
+                    .as_ref()
+                    .map_or(0, |m| m.reservations.len())
             || self.lifetimes.len()
                 != s.control_transports
                     .values()

@@ -493,6 +493,10 @@ impl Replay<'_> {
             }
             // Their actual independent consumers must extend this closed replay
             // before any future field or Book can carry an admissible event.
+            SessionEventKindV2::NativeModelHttpSettled { .. }
+            | SessionEventKindV2::NativeModelGraphReserved { .. } => {
+                return self.apply_model(event, at);
+            }
             _ => return self.apply_machine(event, at),
         }
         Ok(())

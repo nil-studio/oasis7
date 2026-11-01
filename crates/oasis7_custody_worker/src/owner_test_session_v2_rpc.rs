@@ -69,7 +69,12 @@ pub(crate) enum TestSessionRuntimeActionV2 {
     ClaimPreflight,
     GetPermit {
         access: Option<Box<OwnerSetupAccessEvidenceV1>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipts: Option<
+            Box<[oasis7_custody_core::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2]>,
+        >,
     },
+    ClaimPreflightWorldAccess,
     ClaimStep {
         step: SessionPreflightStepV1,
     },
@@ -98,6 +103,10 @@ pub(crate) enum TestSessionRuntimeActionV2 {
 pub(crate) struct TestSessionSignRpcV2 {
     pub request: TestSessionSelectorV1,
     pub access: OwnerSetupAccessEvidenceV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipts: Option<
+        Box<[oasis7_custody_core::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2]>,
+    >,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

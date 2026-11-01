@@ -154,10 +154,40 @@ pub(in super::super) struct OwnedOwnerReadGateway {
     http: reqwest::blocking::Client,
 }
 impl OwnedOwnerReadGateway {
+    pub(in super::super) fn require_approved_world(
+        &self,
+        world: &oasis7_custody_core::approval::ApprovedWorldV1,
+    ) -> Result<(), StoreError> {
+        if self.trust.world.world_id != world.world_id
+            || self.trust.world.genesis_digest != world.genesis_digest
+            || self.trust.service_public_key != world.service_public_key
+        {
+            return Err(reject("participant_context_mismatch"));
+        }
+        Ok(())
+    }
     pub(in super::super) fn fingerprint(&self) -> Result<String, StoreError> {
         let bytes =
             serde_json::to_vec(&self.trust).map_err(|_| reject("participant_unavailable"))?;
         Ok(blake3::hash(&bytes).to_hex().to_string())
+    }
+    /// One fixed independently paid World policy read. No issuer key crosses
+    /// the Native service mutex; the request was signed before this work began.
+    pub(in super::super) fn read_participant_policy(
+        &self,
+        request: &SignedReadRequest<ParticipantPolicyRequestV1>,
+    ) -> Result<SignedServiceResponse<Value>, StoreError> {
+        let value = forward_bounded(
+            &self.trust,
+            &self.http,
+            PARTICIPANT_POLICY_PATH,
+            PARTICIPANT_POLICY_PATH,
+            request,
+            request,
+            65536,
+        )?;
+        serde_json::from_value(value["world_response"].clone())
+            .map_err(|_| reject("participant_read_response_schema"))
     }
     pub(in super::super) fn read_owner_setup(
         &self,
@@ -180,6 +210,29 @@ impl OwnedOwnerReadGateway {
     }
 }
 impl ParticipantEntry {
+    pub(in super::super) fn prepare_participant_policy_read(
+        &self,
+        observation_nonce: String,
+    ) -> Result<SignedReadRequest<ParticipantPolicyRequestV1>, StoreError> {
+        if observation_nonce.len() != 64
+            || !observation_nonce
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(reject("invalid_request"));
+        }
+        sign_read_request(
+            PARTICIPANT_POLICY_PATH,
+            ParticipantPolicyRequestV1 {
+                contract_version: 1,
+                expected_world: self.trust.world.clone(),
+                trust_config_ref: self.trust.service_public_key.clone(),
+                observation_nonce,
+            },
+            &self.issuer_key,
+        )
+        .map_err(|_| reject("participant_unavailable"))
+    }
     pub(in super::super) fn owned_owner_read_gateway(&self) -> OwnedOwnerReadGateway {
         OwnedOwnerReadGateway {
             trust: self.trust.clone(),

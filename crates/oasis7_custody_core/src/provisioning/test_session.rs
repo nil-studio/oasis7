@@ -535,3 +535,24 @@ mod preflight_world_restore_v2;
 
 #[path = "test_session_v2_preflight_world_admission.rs"]
 mod preflight_world_admission_v2;
+
+#[path = "test_session_native_model_budget_v2.rs"]
+mod native_model_budget_v2;
+pub(in crate::provisioning) use native_model_budget_v2::SessionNativeModelBudgetV2;
+
+#[path = "test_session_native_model_entry_fee_v2.rs"]
+mod native_model_entry_fee_v2;
+#[path = "test_session_native_model_http_v2.rs"]
+mod native_model_http_v2;
+pub(in crate::provisioning) use native_model_entry_fee_v2::{
+    NativeModelEntryPortRecordV2, NativeModelHttpAdmissionV2,
+};
+pub use native_model_http_v2::NativeModelHttpContextV2;
+#[path = "test_session_native_model_reserve_v2.rs"]
+mod native_model_reserve_v2;
+pub(in crate::provisioning) use native_model_reserve_v2::NativeModelReservationRecordV2;
+pub use native_model_reserve_v2::NativeModelReserveOutcomeV2;
+
+#[path = "test_session_native_model_ports_v2.rs"]
+mod native_model_ports_v2;
+pub(in crate::provisioning) use native_model_ports_v2::NativeModelReservedPortV2;

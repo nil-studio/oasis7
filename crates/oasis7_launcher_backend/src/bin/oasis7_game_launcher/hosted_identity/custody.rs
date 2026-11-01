@@ -298,11 +298,11 @@ impl IdentityService {
     ) -> Result<Value, StoreError> {
         let request: ApprovalOptionsRequestV1 =
             serde_json::from_value(payload.clone()).map_err(|_| reject("invalid_request"))?;
-        guarded_consent::require_supported_profile(&request)?;
         let config = self
             .custody
             .as_ref()
             .ok_or_else(|| reject("custody_disabled"))?;
+        guarded_consent::require_supported_profile(config, &request)?;
         if request.context.audience != config.audience
             || request.context.environment != self.config.namespace.environment_id
         {
@@ -520,3 +520,8 @@ mod cleanup_registry;
 
 #[path = "custody_origin_observation_kernel.rs"]
 mod origin_observation;
+
+#[path = "custody_preflight_world_adapter_v2.rs"]
+mod preflight_world_adapter;
+#[path = "custody_preflight_world_registry_v2.rs"]
+mod preflight_world_registry;

@@ -110,12 +110,21 @@ pub(crate) async fn dispatch(
                 .claim_test_session_v2_preflight(id)
                 .map_err(|_| denied())?,
         ),
+        TestSessionRuntimeActionV2::ClaimPreflightWorldAccess => {
+            enabled_machine_v2(env)?;
+            let issuer = crate::account_service_issuer::AccountServiceIssuer::load(env)?;
+            json(
+                store
+                    .claim_test_session_v2_preflight_world(id, &issuer)
+                    .map_err(|_| denied())?,
+            )
+        }
         TestSessionRuntimeActionV2::ClaimStep { step } => json(
             store
                 .claim_test_session_v2_preflight_step(id, step)
                 .map_err(|_| denied())?,
         ),
-        TestSessionRuntimeActionV2::GetPermit { access } => {
+        TestSessionRuntimeActionV2::GetPermit { access, receipts } => {
             let (source_ticket, oracle_ticket) = store
                 .reserve_test_session_v2_preflight_oracle(id, source, role)
                 .map_err(|_| denied())?;
@@ -133,15 +142,21 @@ pub(crate) async fn dispatch(
                     .await?
             };
             let (permit, signing) = store
-                .test_session_v2_preflight_permit(id, role, access.map(|v| *v), || {
-                    Ok(TestSessionPreflightOwned {
-                        native: session_authority::current_v2(state, env, &observed, true)?,
-                        source_operation_id: source.clone(),
-                        source_ticket,
-                        oracle_ticket,
-                        observed_at: started,
-                    })
-                })
+                .test_session_v2_preflight_permit(
+                    id,
+                    role,
+                    access.map(|v| *v),
+                    receipts.map(|v| *v),
+                    || {
+                        Ok(TestSessionPreflightOwned {
+                            native: session_authority::current_v2(state, env, &observed, true)?,
+                            source_operation_id: source.clone(),
+                            source_ticket,
+                            oracle_ticket,
+                            observed_at: started,
+                        })
+                    },
+                )
                 .await
                 .map_err(|_| denied())?;
             match role {

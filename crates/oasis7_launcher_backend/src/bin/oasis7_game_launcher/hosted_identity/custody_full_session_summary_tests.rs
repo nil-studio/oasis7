@@ -119,3 +119,6 @@ mod guarded_consent_bootstrap_tests;
 
 #[path = "custody_model_draft_generation_tests.rs"]
 mod model_draft_generation_tests;
+
+#[path = "custody_preflight_world_native_tests.rs"]
+mod preflight_world_native_tests;

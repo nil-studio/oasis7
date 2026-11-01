@@ -593,7 +593,3 @@ pub use execution_book_v2::{
     VerifiedExecutionPreparePermitV2, execution_prepare_physical_port_id_v2,
 };
 pub use execution_signing_bundle_v2::*;
-
-#[path = "test_session_native_model_budget_v2.rs"]
-mod native_model_budget_v2;
-pub(in crate::provisioning) use native_model_budget_v2::SessionNativeModelBudgetV2;

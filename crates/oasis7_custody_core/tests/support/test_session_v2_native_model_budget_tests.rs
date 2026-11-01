@@ -47,7 +47,7 @@ pub(super) fn summary_contract(
         }),
     ))
 }
-fn budget(proxy: bool) -> ModelInferenceBudgetV1 {
+pub(super) fn budget(proxy: bool) -> ModelInferenceBudgetV1 {
     ModelInferenceBudgetV1 {
         api_version: 1,
         approval_contract: if proxy {

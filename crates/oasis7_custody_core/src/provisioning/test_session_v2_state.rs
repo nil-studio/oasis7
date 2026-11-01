@@ -179,7 +179,9 @@ impl core::fmt::Debug for TestSessionSourceV2 {
 }
 impl TestSessionAuthorityV2 {
     pub(in crate::provisioning) fn input_digest(&self) -> Result<String> {
-        digest(&("oasis7.custody.test-session-approved-input.v2", &self.input))
+        self.input
+            .approved_test_session_v2_digest()
+            .map_err(|_| invalid())
     }
 }
 

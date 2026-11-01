@@ -95,7 +95,10 @@ pub(super) async fn observe(env: &Env, selector: &Selector, ticket: u8) -> JResu
     let p: TestSessionPreflightPermitV2 = rpc(
         env,
         selector,
-        TestSessionRuntimeActionV2::GetPermit { access: None },
+        TestSessionRuntimeActionV2::GetPermit {
+            access: None,
+            receipts: None,
+        },
     )
     .await?;
     if p.role != Role::Identity

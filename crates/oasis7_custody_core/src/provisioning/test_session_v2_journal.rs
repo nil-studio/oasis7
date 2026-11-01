@@ -11,6 +11,12 @@ pub(in crate::provisioning) enum SessionJournalProfileV2 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(in crate::provisioning) enum SessionEventKindV2 {
+    NativeModelHttpSettled {
+        ingress_attempt_id: String,
+    },
+    NativeModelGraphReserved {
+        reservation_id: String,
+    },
     PreflightReservation,
     ApprovalVerificationClaim,
     ApprovalConsumed,
@@ -145,6 +151,12 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         s.sources.len(),
         s.client_http_admissions.len(),
         s.purpose_http_admissions.len(),
+        s.native_model_budget
+            .as_ref()
+            .map_or(0, |m| m.http_admissions.len()),
+        s.native_model_budget
+            .as_ref()
+            .map_or(0, |m| m.reservations.len()),
         s.execution_book.as_ref().map_or(0, |book| {
             let b = book.journal_record();
             2 + usize::from(b.lifetime_archived_at.is_some())

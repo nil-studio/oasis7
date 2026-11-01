@@ -1184,3 +1184,9 @@ pub(super) fn resolve_viewer_auth_bootstrap_for_embedded_server(
 pub(super) fn parse_model_json(body: &[u8]) -> Result<serde_json::Value, String> {
     identity_security::parse_identity_json(body)
 }
+
+#[cfg(test)]
+#[path = "static_http_cleanup_tcp_test.rs"]
+mod cleanup_tcp_test;
+#[cfg(test)]
+pub(crate) use cleanup_tcp_test::cleanup_dispatch_for_test;

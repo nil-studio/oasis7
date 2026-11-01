@@ -5,7 +5,7 @@ use oasis7_custody_core::native_binding::ManagedNativeSessionLifetimeV1;
 use oasis7_custody_core::native_cleanup_v2::*;
 #[path = "custody_cleanup_v2_registry_journal.rs"]
 mod journal;
-use journal::{admit_issuer_floor, claim_physical_attempt};
+pub(super) use journal::{admit_issuer_floor, claim_physical_attempt};
 #[path = "custody_cleanup_v2_registry_current.rs"]
 mod current;
 pub(super) use current::{claim_current_registered, observe_current_registered};
@@ -135,6 +135,20 @@ pub(super) fn claim(
     request
         .validate_relative(&pending)
         .map_err(|_| unavailable())?;
+    if matches!(&pending.certificate.input.request.intent,CustodyIntentV1::TestSessionV2 {plan,..}
+        if plan.termination.cleanup_transport_policy==oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+    {
+        let machine = super::cleanup_config::MachineConfig::from_env()?;
+        let preflight_pin = machine.preflight_access_pin()?;
+        let floor = admit_issuer_floor(tx, preflight_pin, &machine.issuer_floor)?;
+        super::preflight_world_registry::require_completed(
+            tx,
+            config,
+            &pending,
+            preflight_pin,
+            &floor,
+        )?;
+    }
     let approval = tx
         .get::<ApprovalRecord>(&approval_key(
             &pending.certificate.input.approval.proof.approval_id,

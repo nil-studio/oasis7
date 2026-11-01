@@ -13,6 +13,9 @@ pub(crate) struct AccountServiceIssuer {
     issuer: AccountMachineIssuerV2,
     pins: Vec<AccountMachineIssuerPinV2>,
     seed: Zeroizing<[u8; 32]>,
+    native_root_key_id: String,
+    native_root_public_key: String,
+    native_owner_binding_pin: oasis7_custody_core::native_binding::NativeBindingPinV1,
 }
 impl AccountServiceIssuer {
     pub(crate) fn load(env: &Env) -> Result<Self> {
@@ -103,10 +106,27 @@ impl AccountServiceIssuer {
                 )
                 .map_err(|_| denied())?;
         }
-        Ok(Self { issuer, pins, seed })
+        Ok(Self {
+            issuer,
+            pins,
+            seed,
+            native_root_key_id: native_root_id,
+            native_root_public_key: native_root,
+            native_owner_binding_pin: binding,
+        })
     }
     pub(crate) fn issuer(&self) -> &AccountMachineIssuerV2 {
         &self.issuer
+    }
+    /// Fixed public deployment pins only; not Current, Source or consent authority.
+    /// No Identity adapter secret or binding/Owner signing seed is loaded here.
+    pub(crate) fn native_scope(&self) -> oasis7_custody_core::provisioning::NativeStageScope<'_> {
+        oasis7_custody_core::provisioning::NativeStageScope {
+            http_origin: &self.issuer.native_audience_origin,
+            native_root_key_id: &self.native_root_key_id,
+            native_root_public_key: &self.native_root_public_key,
+            owner_binding_pin: &self.native_owner_binding_pin,
+        }
     }
     // Child typed producers must first compare their Core token's issuer and
     // lifetime to this configuration. Caller-supplied purpose/bytes never reach
@@ -140,3 +160,6 @@ impl AccountServiceIssuer {
 mod execution;
 #[path = "account_service_issuer_native.rs"]
 mod native;
+
+#[path = "account_service_issuer_preflight.rs"]
+mod preflight;

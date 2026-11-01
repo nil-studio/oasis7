@@ -545,3 +545,14 @@ fn session_v2_actual_new_mfa_source_preflight_activates_exact_three_versioned_si
         json!("aa".repeat(32));
     assert!(serde_json::from_value::<AccountProvisionApprovalState>(changed).is_err());
 }
+
+pub(super) fn activated_with_model_transport(
+    start: u64,
+    budget: ModelInferenceBudgetV1,
+    transport: u64,
+) -> SessionFixture {
+    activate_fixture(
+        pending_fixture_with_model_budget_profile_transport(80, Some(budget), None, transport),
+        start,
+    )
+}

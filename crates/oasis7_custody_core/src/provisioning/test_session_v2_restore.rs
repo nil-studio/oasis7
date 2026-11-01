@@ -196,6 +196,12 @@ impl AccountProvisionApprovalState {
                         )
                         .map_err(|_| invalid())?;
                     if purpose == SessionPurposeV1::Execution {
+                        if let Some(model) = &s.native_model_budget {
+                            expected
+                                .transport
+                                .charge(model.reserved_transport_units()?)
+                                .map_err(|_| invalid())?;
+                        }
                         expected
                             .requests
                             .charge(

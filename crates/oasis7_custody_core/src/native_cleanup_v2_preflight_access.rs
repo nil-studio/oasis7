@@ -40,6 +40,20 @@ pub struct AccountPreflightAccessV2 {
     pub ports: [NativePreflightWorldPortV2; 2],
 }
 impl AccountPreflightAccessV2 {
+    /// Typed canonical metadata codecs, not a signing or permission interface.
+    pub fn expected_input_digest(input: &ApprovalAdmissionInput) -> Result<String, String> {
+        hash(&("oasis7.custody.test-session-approved-input.v2", input))
+    }
+    pub fn policy_body_digest(body: &PreflightPolicyBodyV2) -> Result<String, String> {
+        hash(body)
+    }
+    pub fn authorize_body_digest(
+        body: &oasis7_client_api::world_service::SignedReadRequest<
+            oasis7_agent_api::game::GameParticipantRegisterV1,
+        >,
+    ) -> Result<String, String> {
+        hash(body)
+    }
     pub fn validate_shape(&self) -> Result<(), String> {
         let d = &self.descriptor;
         let crate::approval::CustodyIntentV1::TestSessionV2 { plan, scope } =
@@ -47,7 +61,7 @@ impl AccountPreflightAccessV2 {
         else {
             return Err(invalid());
         };
-        let expected_input = hash(&("oasis7.custody.test-session-approved-input.v2", &self.input))?;
+        let expected_input = Self::expected_input_digest(&self.input)?;
         if self.api_version != 2
             || !hex64(&self.certificate_id)
             || !hex64(&self.source_record_digest)
@@ -100,12 +114,12 @@ impl AccountPreflightAccessV2 {
             (
                 NativePreflightWorldOperationV2::PolicyOriginal,
                 NATIVE_PREFLIGHT_POLICY_V2_PATH,
-                hash(&policy_body)?,
+                Self::policy_body_digest(&policy_body)?,
             ),
             (
                 NativePreflightWorldOperationV2::AuthorizePolicy,
                 NATIVE_PREFLIGHT_AUTHORIZE_V2_PATH,
-                hash(&d.participant_owner)?,
+                Self::authorize_body_digest(&d.participant_owner)?,
             ),
         ];
         for (port, (operation, path, body)) in self.ports.iter().zip(expected) {

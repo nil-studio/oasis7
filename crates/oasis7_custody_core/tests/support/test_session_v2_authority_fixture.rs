@@ -30,8 +30,21 @@ fn pending_fixture_with_profile(
 }
 fn pending_fixture_with_model_budget_and_profile(
     control_requests: u64,
+    model_budget: Option<ModelInferenceBudgetV1>,
+    cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
+) -> SessionFixture {
+    pending_fixture_with_model_budget_profile_transport(
+        control_requests,
+        model_budget,
+        cleanup_transport_policy,
+        400,
+    )
+}
+fn pending_fixture_with_model_budget_profile_transport(
+    control_requests: u64,
     mut model_budget: Option<ModelInferenceBudgetV1>,
     cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
+    execution_transport: u64,
 ) -> SessionFixture {
     let (mut s, mut c, pin) = prepared_move0_v2_fixture();
     c.handoff_until = DecimalU64(80_000);
@@ -131,7 +144,7 @@ fn pending_fixture_with_model_budget_and_profile(
         read_until: DecimalU64(90_000),
         cleanup_until: DecimalU64(60_000),
         request_limit: DecimalU64(100),
-        transport_limit: DecimalU64(400),
+        transport_limit: DecimalU64(execution_transport),
         business_limit: DecimalU64(0),
         read_budget: PurposeBudgetV1 {
             requests: DecimalU64(100),

@@ -505,3 +505,6 @@ mod control_preflight_restore_tests;
 
 #[path = "test_session_v2_execution_http_tests.rs"]
 mod execution_http_tests;
+
+#[path = "test_session_v2_native_model_entry_tests.rs"]
+mod native_model_entry_tests;

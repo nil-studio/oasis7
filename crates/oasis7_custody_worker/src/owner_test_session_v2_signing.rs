@@ -149,12 +149,15 @@ async fn observe(
     env: &Env,
     request: &TestSessionSelectorV1,
     access: Option<Box<oasis7_custody_core::provisioning::OwnerSetupAccessEvidenceV1>>,
+    receipts: Option<
+        Box<[oasis7_custody_core::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2]>,
+    >,
     ticket: u8,
 ) -> JResult<Observation> {
     let view = rpc(
         env,
         request,
-        TestSessionRuntimeActionV2::GetPermit { access },
+        TestSessionRuntimeActionV2::GetPermit { access, receipts },
     )
     .await?;
     let (fence, fence_started) = fence(env).await?;
@@ -201,9 +204,15 @@ pub(super) async fn sign(env: &Env, raw: &str) -> Result<String> {
     }
     let input: TestSessionSignRpcV2 = serde_json::from_str(raw).map_err(|_| denied())?;
     let request = input.request;
-    let observed = observe(env, &request, Some(Box::new(input.access)), 3)
-        .await
-        .map_err(|_| denied())?;
+    let observed = observe(
+        env,
+        &request,
+        Some(Box::new(input.access)),
+        input.receipts,
+        3,
+    )
+    .await
+    .map_err(|_| denied())?;
     let name = observed
         .view
         .permit
@@ -250,7 +259,7 @@ pub(super) async fn sign(env: &Env, raw: &str) -> Result<String> {
 }
 pub(super) async fn sign_in_vault(state: JsValue, env: &Env, raw: &str) -> Result<Response> {
     let request = selector(raw)?;
-    let observed = observe(env, &request, None, 4)
+    let observed = observe(env, &request, None, None, 4)
         .await
         .map_err(|_| denied())?;
     let text = Zeroizing::new(env.secret("CUSTODY_ROLE_KEY_KEK")?.to_string());

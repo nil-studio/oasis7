@@ -443,4 +443,5 @@ pub(in crate::provisioning) fn transport_id_in_non_world2_state_v2(
             || s.tool_nonce_ingresses.contains_key(attempt) || s.termination_state.transport_id_in_use(attempt)
             // ExecutionBook supplies its exact occupancy method before any execution is mounted.
             || s.execution_book.as_ref().is_some_and(|b|b.transport_id_in_use(attempt))
+            || s.native_model_budget.as_ref().is_some_and(|m| m.id_in_use(attempt))
 }

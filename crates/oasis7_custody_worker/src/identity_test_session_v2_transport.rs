@@ -69,7 +69,9 @@ pub(super) async fn original<T: DeserializeOwned + Serialize, Q: Serialize>(
     check(env, selector, observation)?;
     if !matches!(
         route,
-        NativePrivateRoute::ParticipantOwnerView
+        NativePrivateRoute::TestSessionV2PolicyOriginal
+            | NativePrivateRoute::TestSessionV2Authorize
+            | NativePrivateRoute::ParticipantOwnerView
             | NativePrivateRoute::ParticipantPolicyOriginal
             | NativePrivateRoute::ParticipantAuthorize
     ) {
@@ -177,7 +179,11 @@ pub(super) async fn access(
     selector: &TestSessionSelectorV1,
     view: &Observation,
     secrets: &SessionSecrets,
-) -> JResult<OwnerSetupAccessEvidenceV1> {
+    world: Option<&oasis7_custody_core::native_cleanup_v2::SignedAccountPreflightAccessV2>,
+) -> JResult<(
+    OwnerSetupAccessEvidenceV1,
+    Option<[oasis7_custody_core::native_cleanup_v2::SignedNativePreflightWorldReceiptV2; 2]>,
+)> {
     let nonces = &view.descriptor.access_nonces;
     // The two distinct Root observations are independent. Complete both with the
     // unchanged checks before policy, and keep policy before authorize's mutation.
@@ -189,6 +195,53 @@ pub(super) async fn access(
     let policy_session = policy_session?;
     let authorize_session = authorize_session?;
     check(env, selector, view)?;
+    if let Some(proof) = world {
+        use oasis7_custody_core::native_cleanup_v2::*;
+        proof
+            .certificate
+            .validate_shape()
+            .map_err(|_| js_denied())?;
+        if proof.certificate.descriptor.as_ref() != &view.descriptor {
+            return Err(js_denied());
+        }
+        let policy: NativePreflightPolicyReplyV2 = original(
+            env,
+            selector,
+            view,
+            secrets,
+            NativePrivateRoute::TestSessionV2PolicyOriginal,
+            &NativePreflightPolicyRequestV2 {
+                proof: Box::new(proof.clone()),
+                body: PreflightPolicyBodyV2 {
+                    observation_nonce: nonces.policy.clone(),
+                },
+            },
+        )
+        .await?;
+        check(env, selector, view)?;
+        let authorized: NativePreflightAuthorizeReplyV2 = original(
+            env,
+            selector,
+            view,
+            secrets,
+            NativePrivateRoute::TestSessionV2Authorize,
+            &NativePreflightAuthorizeRequestV2 {
+                proof: Box::new(proof.clone()),
+                body: view.descriptor.participant_owner.clone(),
+            },
+        )
+        .await?;
+        check(env, selector, view)?;
+        return Ok((
+            OwnerSetupAccessEvidenceV1 {
+                policy: policy.policy,
+                policy_session,
+                admission: authorized.admission,
+                authorize_session,
+            },
+            Some([policy.receipt, authorized.receipt]),
+        ));
+    }
     let policy = original(
         env,
         selector,
@@ -233,12 +286,15 @@ pub(super) async fn access(
     // policy/admission and independent current OwnerControl decide this lane.
     let _ = reply.new_registration_enabled;
     let admission = reply.admission;
-    Ok(OwnerSetupAccessEvidenceV1 {
-        policy,
-        policy_session,
-        admission,
-        authorize_session,
-    })
+    Ok((
+        OwnerSetupAccessEvidenceV1 {
+            policy,
+            policy_session,
+            admission,
+            authorize_session,
+        },
+        None,
+    ))
 }
 
 // No spawned task or dependency: each completed read is retained, never repolled.

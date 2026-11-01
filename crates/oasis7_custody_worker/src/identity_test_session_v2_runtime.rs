@@ -83,6 +83,16 @@ async fn execute(state: JsValue, env: &Env, selector: &Selector) -> JResult<serd
     if d.session_id != selector.session_id {
         return Err(js_denied());
     }
+    if d.cleanup_transport_policy == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+        && env
+            .var("CUSTODY_CLEANUP_MACHINE_V2_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+    {
+        return Err(js_denied());
+    }
     let request: ApprovalVerifyRequestV1 = rpc(
         env,
         selector,
@@ -112,22 +122,54 @@ async fn execute(state: JsValue, env: &Env, selector: &Selector) -> JResult<serd
         return Err(js_denied());
     }
     let (second, secrets) = private::read(state, env, selector, &first).await?;
-    let claimed: TestSessionPreflightDescriptorV2 = rpc(
-        env,
-        selector,
-        TestSessionRuntimeActionV2::ClaimStep {
-            step: SessionPreflightStepV1::FreshAccessPair,
-        },
-    )
-    .await?;
-    if claimed != d {
-        return Err(js_denied());
-    }
-    let access = transport::access(env, selector, &second, &secrets).await?;
+    let world3 = d.cleanup_transport_policy
+        == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2);
+    let preflight_world = if world3 {
+        // This is a replacement of the original FreshAccess claim, not a probe.
+        if env
+            .var("CUSTODY_CLEANUP_MACHINE_V2_ENABLED")
+            .ok()
+            .map(|v| v.to_string())
+            .as_deref()
+            != Some("true")
+        {
+            return Err(js_denied());
+        }
+        let proof: oasis7_custody_core::native_cleanup_v2::SignedAccountPreflightAccessV2 = rpc(
+            env,
+            selector,
+            TestSessionRuntimeActionV2::ClaimPreflightWorldAccess,
+        )
+        .await?;
+        proof
+            .certificate
+            .validate_shape()
+            .map_err(|_| js_denied())?;
+        if *proof.certificate.descriptor != d {
+            return Err(js_denied());
+        }
+        Some(proof)
+    } else {
+        let claimed: TestSessionPreflightDescriptorV2 = rpc(
+            env,
+            selector,
+            TestSessionRuntimeActionV2::ClaimStep {
+                step: SessionPreflightStepV1::FreshAccessPair,
+            },
+        )
+        .await?;
+        if claimed != d {
+            return Err(js_denied());
+        }
+        None
+    };
+    let (access, receipts) =
+        transport::access(env, selector, &second, &secrets, preflight_world.as_ref()).await?;
     let raw = zeroize::Zeroizing::new(
         serde_json::to_string(&TestSessionSignRpcV2 {
             request: selector.clone(),
             access,
+            receipts: receipts.map(Box::new),
         })
         .map_err(|_| js_denied())?,
     );
