@@ -259,6 +259,7 @@ impl World {
                 apply_agent_identity(self, agent_id, identity)?;
             }
             event @ (CapabilityAuthorizationEvent::TaskTerminalRecordedV2 { .. }
+            | CapabilityAuthorizationEvent::TaskStoppedV2 { .. }
             | CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { .. }
             | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }
             | CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { .. }

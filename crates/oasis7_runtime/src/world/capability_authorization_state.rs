@@ -92,6 +92,9 @@ impl World {
         if let Some(index) = &capability_revocation_state.task_terminals_v2 {
             index.validate().map_err(deny)?;
         }
+        if let Some(index) = &capability_revocation_state.task_stops_v2 {
+            index.validate().map_err(deny)?;
+        }
         // Correlation results share the durable snapshot/journal container,
         // but are not permissions. Their bytes remain committed by the full
         // execution snapshot and journal; recording an outcome must not revoke

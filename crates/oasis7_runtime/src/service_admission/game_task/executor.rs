@@ -77,7 +77,7 @@ pub fn prepare_executor_control<'a>(
     {
         return Err("executor correlation mismatch".into());
     }
-    let tasks = reduce(collect(world, staged)?)?;
+    let tasks = reduce(world, collect(world, staged)?)?;
     let current = select_current(world, &signed.request.fence.agent_id, &tasks)?
         .ok_or("executor task unavailable")?;
     if GameTaskFenceV1::from_control(&current.control) != signed.request.fence {
@@ -204,7 +204,7 @@ pub fn validate_cognition_fence_staged<'a>(
     if let Some(fence) = fence {
         super::ensure_task_not_closed(world, &fence.task_id)?;
     }
-    let tasks = reduce(collect(world, staged)?)?;
+    let tasks = reduce(world, collect(world, staged)?)?;
     validate_cognition_fence_against_tasks(world, agent, fence, subject, generation, &tasks)
 }
 
@@ -217,9 +217,19 @@ pub(super) fn validate_cognition_fence_against_tasks(
     tasks: &BTreeMap<String, ReducedTask>,
 ) -> Result<(), String> {
     let current = select_current(world, agent, tasks)?.map(|t| &t.control);
-    if current.is_none() && fence.is_none()
-        && world.capability_revocation_state().task_terminals_v2.as_ref()
-            .is_some_and(|index| index.records.values().any(|r| r.closed.initial_fence.agent_id == agent)) {
+    if current.is_none()
+        && fence.is_none()
+        && world
+            .capability_revocation_state()
+            .task_terminals_v2
+            .as_ref()
+            .is_some_and(|index| {
+                index
+                    .records
+                    .values()
+                    .any(|r| r.closed.initial_fence.agent_id == agent)
+            })
+    {
         return Err("a terminal Agent needs a real new task, not taskless cognition".into());
     }
     if let Some(control) = current {

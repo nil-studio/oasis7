@@ -880,7 +880,7 @@ fn game_goal_cold_revision_chain_restores_and_accepts_next_publication() {
         );
         world.record_world_service_result(published).unwrap();
     }
-    let expected = reduce(collect(&world, []).unwrap()).unwrap()
+    let expected = reduce(&world, collect(&world, []).unwrap()).unwrap()
         [&current_control(&world, "agent").unwrap().unwrap().task_id]
         .control
         .clone();

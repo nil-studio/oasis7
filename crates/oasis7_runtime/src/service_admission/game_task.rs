@@ -6,8 +6,8 @@ pub use oasis7_agent_api::game::{
     GameGoalPublishV1, GameGoalReferenceV1, GameTaskControlV1, GameTaskCreateV1,
 };
 use std::collections::BTreeMap;
-mod task_scope;
 mod executor;
+mod task_scope;
 pub use executor::*;
 mod task_context;
 pub use self::task_context::*;
@@ -162,7 +162,14 @@ fn matches_control(r: &GameGoalPublishV1, c: &GameTaskControlV1) -> bool {
         && r.expected_task_revision == c.task_revision
         && r.expected_latest_goal_revision == c.latest_goal_revision
 }
-fn reduce(results: Vec<CanonicalIntentResultV1>) -> Result<BTreeMap<String, ReducedTask>, String> {
+enum ReducedTaskEvent {
+    Legacy(Box<CanonicalIntentResultV1>),
+    Guarded(Box<oasis7_world_state::TaskStopRecordV2>),
+}
+fn reduce(
+    world: &World,
+    results: Vec<CanonicalIntentResultV1>,
+) -> Result<BTreeMap<String, ReducedTask>, String> {
     let mut tasks = BTreeMap::new();
     let mut scopes = BTreeMap::new();
     let mut publishes = Vec::new();
@@ -207,18 +214,45 @@ fn reduce(results: Vec<CanonicalIntentResultV1>) -> Result<BTreeMap<String, Redu
             WorldServicePayloadV1::GameExecutorControl(signed) => publishes.push((
                 signed.request.fence.task_id.clone(),
                 signed.request.fence.task_revision.0,
-                result,
+                ReducedTaskEvent::Legacy(Box::new(result)),
             )),
             WorldServicePayloadV1::GameGoalPublish(signed) => publishes.push((
                 signed.request.task_id.clone(),
                 signed.request.expected_task_revision.0,
-                result,
+                ReducedTaskEvent::Legacy(Box::new(result)),
             )),
             _ => (),
         }
     }
+    if let Some(index) = &world.capability_revocation_state().task_stops_v2 {
+        index.validate()?;
+        for record in index.records.values() {
+            crate::world::task_stop_v2::validate_record(record)?;
+            publishes.push((
+                record.original.request.initial_fence.task_id.clone(),
+                record.original.request.initial_fence.task_revision.0,
+                ReducedTaskEvent::Guarded(Box::new(record.clone())),
+            ));
+        }
+    }
     publishes.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
-    for (_, _, result) in publishes {
+    for (_, _, event) in publishes {
+        let result = match event {
+            ReducedTaskEvent::Guarded(record) => {
+                let task = tasks
+                    .get_mut(&record.original.request.initial_fence.task_id)
+                    .ok_or("guarded Stop has no canonical task predecessor")?;
+                if task.control != record.before_control
+                    || task.last_height > record.committed_height
+                {
+                    return Err("guarded Stop canonical predecessor mismatch".into());
+                }
+                task.control = record.after_control;
+                task.last_height = record.committed_height;
+                continue;
+            }
+            ReducedTaskEvent::Legacy(result) => *result,
+        };
         if let WorldServicePayloadV1::GameExecutorControl(signed) = &result.request.signed_payload {
             let task = tasks
                 .get_mut(&signed.request.fence.task_id)
@@ -288,11 +322,15 @@ fn select_current<'a>(
 /// Validate every historical task chain, including currently revoked owners.
 pub fn validate_history(world: &World) -> Result<(), String> {
     crate::world::task_terminal_v2::validate_index(world)?;
-    reduce(collect(world, [])?)?;
+    crate::world::task_stop_v2::validate_index(world)?;
+    reduce(world, collect(world, [])?)?;
     Ok(())
 }
-pub(crate) fn current_control_before_terminal(world: &World, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
-    let tasks = reduce(collect(world, [])?)?;
+pub(crate) fn current_control_before_terminal(
+    world: &World,
+    agent: &str,
+) -> Result<Option<GameTaskControlV1>, String> {
+    let tasks = reduce(world, collect(world, [])?)?;
     Ok(select_current(world, agent, &tasks)?.map(|task| task.control.clone()))
 }
 pub fn current_control(world: &World, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
@@ -305,8 +343,12 @@ pub fn current_control(world: &World, agent: &str) -> Result<Option<GameTaskCont
     Ok(control)
 }
 pub fn ensure_task_not_closed(world: &World, task_id: &str) -> Result<(), String> {
-    if world.capability_revocation_state().task_terminals_v2.as_ref()
-        .is_some_and(|index| index.records.contains_key(task_id)) {
+    if world
+        .capability_revocation_state()
+        .task_terminals_v2
+        .as_ref()
+        .is_some_and(|index| index.records.contains_key(task_id))
+    {
         return Err("task Closed V2 is unsupported by legacy V1 lifecycle".into());
     }
     Ok(())
@@ -316,7 +358,7 @@ pub fn active_publish(
     world: &World,
     agent: &str,
 ) -> Result<Option<CanonicalIntentResultV1>, String> {
-    let tasks = reduce(collect(world, [])?)?;
+    let tasks = reduce(world, collect(world, [])?)?;
     let task = select_current(world, agent, &tasks)?;
     if let Some(task) = task {
         ensure_task_not_closed(world, &task.control.task_id)?;
@@ -339,10 +381,22 @@ pub struct ValidatedRetentionHistory<'a> {
 /// Validate canonical world-service results once for one retention refresh.
 #[doc(hidden)]
 pub fn validate_retention_history(world: &World) -> Result<ValidatedRetentionHistory<'_>, String> {
-    validate_retention_history_results(
-        world,
-        &world.capability_revocation_state().world_service_results,
-    )
+    // Preserve hot scheduler/prefix records, but rebuild task predecessors
+    // from the same authenticated hot+cold source used by validate_history.
+    // Permanent GuardedStop records are not a substitute for those predecessors.
+    // This checkpoint/restore builder may read its attached cold CAS reader;
+    // a local-only HTTP witness must instead require already-hydrated provenance.
+    let mut results = world
+        .capability_revocation_state()
+        .world_service_results
+        .clone();
+    for result in collect(world, [])? {
+        let key = correlation::key_digest(&result.request.correlation.key)?;
+        if let std::collections::btree_map::Entry::Vacant(entry) = results.entry(key) {
+            entry.insert(serde_json::to_value(result).map_err(|error| error.to_string())?);
+        }
+    }
+    validate_retention_history_results(world, &results)
 }
 
 fn validate_retention_history_results<'a>(
@@ -389,7 +443,7 @@ fn validate_retention_history_results<'a>(
     let tasks = if world.state().agents.is_empty() && prefixes.is_empty() {
         BTreeMap::new()
     } else {
-        reduce(history)?
+        reduce(world, history)?
     };
     Ok(ValidatedRetentionHistory {
         world,
@@ -430,7 +484,9 @@ impl ValidatedRetentionHistory<'_> {
     #[doc(hidden)]
     pub fn active_publish(&self, agent: &str) -> Result<Option<CanonicalIntentResultV1>, String> {
         let task = select_current(self.world, agent, &self.tasks)?;
-        if let Some(task) = task { ensure_task_not_closed(self.world, &task.control.task_id)?; }
+        if let Some(task) = task {
+            ensure_task_not_closed(self.world, &task.control.task_id)?;
+        }
         Ok(task.and_then(|task| task.publish.clone()))
     }
 
@@ -440,8 +496,9 @@ impl ValidatedRetentionHistory<'_> {
     #[doc(hidden)]
     pub fn current_control(&self, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
         let task = select_current(self.world, agent, &self.tasks)?;
-        if let Some(task) = task { ensure_task_not_closed(self.world, &task.control.task_id)?; }
-        else if task_scope::has_closed_in_current_scope(self.world, agent)? {
+        if let Some(task) = task {
+            ensure_task_not_closed(self.world, &task.control.task_id)?;
+        } else if task_scope::has_closed_in_current_scope(self.world, agent)? {
             return Err("closed task requires explicit V2 task identity".into());
         }
         Ok(task.map(|task| task.control.clone()))
@@ -550,7 +607,7 @@ pub fn prepare_create<'a>(
     if current_control(world, &signed.request.agent_id)?.is_some() {
         return Err("task already exists".into());
     }
-    let tasks = reduce(collect(world, staged)?)?;
+    let tasks = reduce(world, collect(world, staged)?)?;
     if select_current(world, &signed.request.agent_id, &tasks)?.is_some() {
         return Err("task already exists within block".into());
     }
@@ -574,7 +631,7 @@ pub fn prepare_publish<'a>(
     {
         return Err("goal publish correlation mismatch".into());
     }
-    let tasks = reduce(collect(world, staged)?)?;
+    let tasks = reduce(world, collect(world, staged)?)?;
     let current = select_current(world, &signed.request.agent_id, &tasks)?
         .ok_or("goal publish canonical task unavailable")?;
     if !matches_control(&signed.request, &current.control) {

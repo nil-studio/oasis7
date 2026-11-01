@@ -340,6 +340,7 @@ impl World {
                 | CapabilityAuthorizationEvent::AgentIdentityInstalled { .. }
                 | CapabilityAuthorizationEvent::AgentSignerDelegationInstalled { .. }
                 | CapabilityAuthorizationEvent::TaskTerminalRecordedV2 { .. }
+            | CapabilityAuthorizationEvent::TaskStoppedV2 { .. }
                 | CapabilityAuthorizationEvent::WorldServiceIntentRecorded { .. }
                 | CapabilityAuthorizationEvent::SafeAlternativeCommandRecorded { .. }
                 | CapabilityAuthorizationEvent::SafeAlternativeOutcomeRecorded { .. }

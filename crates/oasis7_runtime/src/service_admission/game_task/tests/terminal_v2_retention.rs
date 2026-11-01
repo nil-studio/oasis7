@@ -9,14 +9,20 @@ impl oasis7_formal_protocol::controlled_authority::formal::business_index::Busin
     }
 }
 #[test]
-fn terminal_v2_actual_retention_prunes_stop_but_cold_restore_keeps_closed_and_floor() {
+fn terminal_v2_actual_retention_prunes_v1_prefix_but_guarded_stop_cold_restore_keeps_closed_and_floor()
+ {
     let (mut world, owner, initial) = setup();
     assert!(active_publish(&world, "agent").unwrap().is_some());
     let (stop, close) = originals(&world, &owner, &initial);
-    let stop_key =
-        crate::service_admission::correlation::key_digest(&stop.correlation.key).unwrap();
-    let committed = execute(&world, stop, &[], 4);
-    world.record_world_service_result(committed).unwrap();
+    let stop_key=world.capability_revocation_state().world_service_results.iter().find_map(|(key,value)|{
+        let result:CanonicalIntentResultV1=serde_json::from_value(value.clone()).unwrap();
+        matches!(result.request.signed_payload,WorldServicePayloadV1::GameExecutorControl(ref c) if matches!(c.request.operation,GameExecutorOperationV1::Bind{..})).then(||key.clone())
+    }).unwrap();
+    let stop_context = begin(&mut world);
+    let stopped = world.apply_guarded_task_stop_v2(&stop).unwrap();
+    world
+        .finish_formal_administrative_tick(&stop_context)
+        .unwrap();
     // Genuine signed requests with actual deterministic admission failures,
     // not fabricated successful operations, push the actual retention limit.
     for i in 0..40 {
@@ -38,6 +44,7 @@ fn terminal_v2_actual_retention_prunes_stop_but_cold_restore_keeps_closed_and_fl
         .capability_revocation_state()
         .task_terminals_v2
         .clone();
+    let guarded_before = world.capability_revocation_state().task_stops_v2.clone();
     let authority_before = world.snapshot().capability_authorization_root;
     let plan = world.prepare_formal_retention_candidate().unwrap();
     assert!(plan.world_service_result_keys_to_prune.contains(&stop_key));
@@ -57,6 +64,11 @@ fn terminal_v2_actual_retention_prunes_stop_but_cold_restore_keeps_closed_and_fl
             .world_service_results
             .contains_key(&stop_key)
     );
+    assert_eq!(
+        world.capability_revocation_state().task_stops_v2,
+        guarded_before
+    );
+    assert_eq!(world.guarded_task_stop_v2(&stop).unwrap(), Some(stopped));
     assert_eq!(
         world.capability_revocation_state().task_terminals_v2,
         index_before
@@ -106,6 +118,30 @@ fn terminal_v2_actual_retention_prunes_stop_but_cold_restore_keeps_closed_and_fl
             .is_err()
     );
     assert!(history.current_control("agent").is_err());
+    // A permanent Stop index cannot fill in missing canonical Create/Publish/Bind.
+    // Keep the authentic snapshot/root but replace only process-local CAS access.
+    let mut missing = restored.clone();
+    let before = missing.snapshot();
+    let bytes = oasis7_world_state::codec::snapshot_cbor(&before).unwrap();
+    let parent = crate::VerifiedFormalRetainedHistoryParentV1::for_test_snapshot(
+        before.state.retained_history_root.clone().unwrap(),
+        &bytes,
+    );
+    missing
+        .attach_verified_formal_history(
+            parent,
+            std::sync::Arc::new(ArchivedNodes(std::collections::BTreeMap::new())),
+        )
+        .unwrap();
+    assert!(
+        validate_retention_history(&missing).is_err(),
+        "missing authenticated cold predecessors must not be synthesized from the Guarded record"
+    );
+    assert_eq!(missing.snapshot(), before);
+    assert_eq!(
+        missing.capability_revocation_state().task_stops_v2,
+        before.capability_revocation_state.task_stops_v2
+    );
 }
 
 #[test]
@@ -132,25 +168,19 @@ fn terminal_v2_real_max_signer_inventory_has_no_wrapping_close() {
     assert_eq!(actual.nonce, u64::MAX);
     assert!(actual.generation.checked_add(1).is_none());
     assert!(actual.nonce.checked_add(1).is_none());
-    let stop = executor_request(
-        &owner,
-        &max_control,
-        "own-stop-max",
-        GameExecutorOperationV1::Stop,
-    );
-    let WorldServicePayloadV1::GameExecutorControl(stop) = stop.signed_payload else {
-        unreachable!()
-    };
+    let stop = guarded_stop(&world, &owner, &max_control, "own-stop-max", 5000);
     let mut payload = template.request;
     payload.permitted_branches.exact_initial_active = GameTaskFenceV1::from_control(&max_control);
     payload.permitted_branches.own_stop_intent = Some(GameOwnStopIntentV2 {
+        profile: GameStopIntentProfileV2::GuardedTaskStopV2,
         operation_id: "own-stop-max".into(),
         intent_digest: hash(&(
-            GAME_EXECUTOR_CONTROL_DOMAIN,
+            GAME_TASK_STOP_DOMAIN_V2,
             &stop.subject_public_key,
             &stop.request,
         )),
     });
+    payload.signer_public_key = delegate;
     payload.signer_generation = DecimalU64(u64::MAX);
     payload.signer_nonce = DecimalU64(u64::MAX);
     payload.revoke_generation = DecimalU64(u64::MAX);

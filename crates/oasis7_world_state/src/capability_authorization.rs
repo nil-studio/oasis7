@@ -204,6 +204,10 @@ pub struct CapabilityRevocationState {
     /// Removing a present index cannot match the stored authorization root.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_terminals_v2: Option<crate::TaskTerminalIndexV2>,
+    /// Explicit intrinsic guarded Stop history. Absence preserves old V1 root bytes;
+    /// a present versioned index is committed and cannot be silently dropped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_stops_v2: Option<crate::TaskStopIndexV2>,
     /// Permanent alternative lineage and dedup facts; never cold-result evicted.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub safe_alternatives: BTreeMap<String, serde_json::Value>,

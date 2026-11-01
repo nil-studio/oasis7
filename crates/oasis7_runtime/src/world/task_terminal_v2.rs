@@ -1,6 +1,6 @@
 //! New terminal authority; old V1 payloads/domains and result maps are unchanged.
 use super::World;
-use crate::service_admission::{self as admission, SignedReadRequest, WorldServicePayloadV1};
+use crate::service_admission::{self as admission, SignedReadRequest};
 use oasis7_agent_api::game::*;
 use oasis7_world_state::{TaskTerminalIndexV2, TaskTerminalRecordV2};
 use std::collections::BTreeMap;
@@ -43,51 +43,40 @@ fn signature(record: &TaskTerminalRecordV2) -> Result<(), String> {
                 .permitted_branches
                 .own_stop_intent
                 .as_ref()
-                .ok_or("OwnStop was not allowed by the signed conditions")?;
+                .ok_or("OwnStop was not allowed")?;
             let bytes = record
                 .stop_predecessor_canonical_cbor
                 .as_ref()
-                .ok_or("terminal own-Stop full witness missing")?;
-            let result: admission::CanonicalIntentResultV1 =
-                serde_cbor::from_slice(bytes).map_err(|_| "invalid terminal Stop witness codec")?;
-            if serde_cbor::to_vec(&result).map_err(|e| e.to_string())? != *bytes {
-                return Err("terminal Stop witness is not exact canonical result bytes".into());
+                .ok_or("guarded Stop full witness missing")?;
+            let stopped: oasis7_world_state::TaskStopRecordV2 =
+                serde_cbor::from_slice(bytes).map_err(|_| "invalid guarded Stop witness codec")?;
+            if serde_cbor::to_vec(&stopped).map_err(|e| e.to_string())? != *bytes {
+                return Err("guarded Stop witness is not canonical typed bytes".into());
             }
-            let key = admission::correlation::key_digest(&result.request.correlation.key)?;
-            admission::correlation::validate_result(
-                &key,
-                &serde_json::to_value(&result).map_err(|e| e.to_string())?,
-            )?;
-            let WorldServicePayloadV1::GameExecutorControl(stop) = &result.request.signed_payload
-            else {
-                return Err("terminal witness is not Stop".into());
-            };
-            if stop.request.operation != GameExecutorOperationV1::Stop
-                || stop.request.fence != p.permitted_branches.exact_initial_active
+            super::task_stop_v2::validate_record(&stopped)?;
+            let stop = &stopped.original;
+            if stop.request.initial_fence != p.permitted_branches.exact_initial_active
                 || stop.subject_public_key != record.original.subject_public_key
                 || stop.request.client_operation_id != intent.operation_id
+                || stop.request.custody_account_id != p.custody_account_id
+                || stop.request.termination_plan_digest != p.termination_plan_digest
+                || stop.request.target_executor_public_key != p.signer_public_key
+                || stop.request.target_executor_generation != p.signer_generation
+                || stop.request.target_executor_nonce != p.signer_nonce
                 || hash(&(
-                    GAME_EXECUTOR_CONTROL_DOMAIN,
+                    GAME_TASK_STOP_DOMAIN_V2,
                     &stop.subject_public_key,
                     &stop.request,
                 ))? != intent.intent_digest
-                || result.rejected.is_some()
-                || result.committed_height > record.committed_height
+                || stopped.committed_height > record.committed_height
+                || reference.profile != intent.profile
                 || reference.operation_id != stop.request.client_operation_id
                 || reference.original_digest != hash(stop)?
-                || reference.canonical_result_digest != blake3::hash(bytes).to_hex().to_string()
+                || reference.canonical_result_digest != stopped.result_core_digest
+                || reference.post_fence != GameTaskFenceV1::from_control(&stopped.after_control)
                 || reference.post_fence != c.actual_before_fence
             {
-                return Err("terminal own-Stop lineage mismatch".into());
-            }
-            let receipt = admission::game_task::executor_receipt(&result.request)?;
-            let mut expected = stop.request.fence.clone();
-            expected.task_revision = receipt.task_revision;
-            expected.executor_epoch = receipt.executor_epoch;
-            expected.executor_binding = receipt.executor_binding;
-            expected.task_status = receipt.task_status;
-            if expected != c.actual_before_fence {
-                return Err("terminal own-Stop derived fence mismatch".into());
+                return Err("terminal guarded Stop lineage mismatch".into());
             }
         }
     }
@@ -241,37 +230,29 @@ fn prepare(
             .as_ref()
             .ok_or("signed conditions only allow exact InitialActive")?;
         let mut found = None;
-        for (_, result) in admission::retained_queries::game_task_results(world, &initial.agent_id)?
-        {
-            let WorldServicePayloadV1::GameExecutorControl(stop) = &result.request.signed_payload
-            else {
-                continue;
-            };
-            if stop.request.client_operation_id == intent.operation_id
-                && hash(&(
-                    GAME_EXECUTOR_CONTROL_DOMAIN,
-                    &stop.subject_public_key,
-                    &stop.request,
-                ))? == intent.intent_digest
-            {
-                if found.is_some() {
-                    return Err("ambiguous own-Stop witness".into());
+        if let Some(index) = &world.capability_revocation_state.task_stops_v2 {
+            for stopped in index.records.values() {
+                let stop = &stopped.original;
+                if stop.request.client_operation_id == intent.operation_id
+                    && hash(&(
+                        GAME_TASK_STOP_DOMAIN_V2,
+                        &stop.subject_public_key,
+                        &stop.request,
+                    ))? == intent.intent_digest
+                    && found.replace(stopped).is_some()
+                {
+                    return Err("ambiguous guarded Stop witness".into());
                 }
-                found = Some(result);
             }
         }
-        let result = found.ok_or("exact own-Stop committed witness unavailable")?;
-        let bytes = serde_cbor::to_vec(&result).map_err(|e| e.to_string())?;
-        let WorldServicePayloadV1::GameExecutorControl(stop) = &result.request.signed_payload
-        else {
-            return Err("resolved own-Stop type changed".into());
-        };
-        let signed_original_digest = hash(stop)?;
+        let stopped = found.ok_or("exact guarded Stop committed witness unavailable")?;
+        let bytes = serde_cbor::to_vec(stopped).map_err(|e| e.to_string())?;
         (
             GameTaskClosePredicateV2::OwnStopSuspended(Box::new(GameOwnStopReferenceV2 {
+                profile: GameStopIntentProfileV2::GuardedTaskStopV2,
                 operation_id: intent.operation_id.clone(),
-                original_digest: signed_original_digest,
-                canonical_result_digest: blake3::hash(&bytes).to_hex().to_string(),
+                original_digest: hash(&stopped.original)?,
+                canonical_result_digest: stopped.result_core_digest.clone(),
                 post_fence: current.clone(),
             })),
             Some(bytes),

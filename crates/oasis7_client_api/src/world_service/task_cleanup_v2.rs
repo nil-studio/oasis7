@@ -237,9 +237,7 @@ fn validate_predecessor(
     current: &TaskCleanupFactV2,
     request: &TaskCleanupLookupV2,
 ) -> Result<(), String> {
-    use oasis7_agent_api::game::{
-        GAME_EXECUTOR_CONTROL_DOMAIN, GameExecutorOperationV1, GameTaskClosePredicateV2,
-    };
+    use oasis7_agent_api::game::*;
     let p = &request.submitted.original.request;
     match &current.closed.selected_predicate {
         GameTaskClosePredicateV2::InitialActive => {
@@ -258,61 +256,54 @@ fn validate_predecessor(
             let bytes = current
                 .stop_predecessor_canonical_cbor
                 .as_ref()
-                .ok_or("full Stop predecessor missing")?;
+                .ok_or("full guarded Stop predecessor missing")?;
             if bytes.len() > 64 * 1024 {
                 return Err("Stop predecessor exceeds bound".into());
             }
-            let result: crate::legacy_world_service::CanonicalIntentResultV1 =
-                serde_cbor::from_slice(bytes).map_err(|_| "invalid full Stop predecessor")?;
-            if serde_cbor::to_vec(&result).map_err(|e| e.to_string())? != *bytes
-                || result.rejected.is_some()
-                || result.committed_height > current.committed_height.0
+            let record: GameTaskStopRecordV2 = serde_cbor::from_slice(bytes)
+                .map_err(|_| "invalid full guarded Stop predecessor")?;
+            record.validate()?;
+            if serde_cbor::to_vec(&record).map_err(|e| e.to_string())? != *bytes
+                || record.committed_height > current.committed_height.0
+                || record.committed_at_unix_ms > current.committed_at_unix_ms.0
             {
-                return Err("noncanonical or unsuccessful Stop predecessor".into());
+                return Err("noncanonical guarded Stop predecessor".into());
             }
-            result.request.validate().map_err(|e| e.to_string())?;
-            let expected_correlation = crate::legacy_world_service::derive_correlation(
-                result.request.correlation.key.world.clone(),
-                &result.request.signed_payload,
+            let stop = &record.original;
+            super::private_goal::verify_owner_signature_strict(
+                GAME_TASK_STOP_DOMAIN_V2,
+                &stop.request,
+                &stop.subject_public_key,
+                &stop.signature_hex,
             )?;
-            if result.request.correlation != expected_correlation
-                || result.request.correlation.key.world != request.submitted.expected_world
-            {
-                return Err("Stop predecessor correlation/World mismatch".into());
-            }
-            crate::legacy_task_results::validate_result(&result)?;
-            let crate::legacy_world_service::WorldServicePayloadV1::GameExecutorControl(stop) =
-                &result.request.signed_payload
-            else {
-                return Err("predecessor is not executor Stop".into());
-            };
-            crate::legacy_task_results::verify_executor_control(stop)?;
             let intent_digest = oasis7_wasm_abi::canonical_hash(&(
-                GAME_EXECUTOR_CONTROL_DOMAIN,
+                GAME_TASK_STOP_DOMAIN_V2,
                 &stop.subject_public_key,
                 &stop.request,
             ))
             .map_err(|e| e.to_string())?;
-            let signed_digest = oasis7_wasm_abi::canonical_hash(stop).map_err(|e| e.to_string())?;
-            if stop.request.operation != GameExecutorOperationV1::Stop
-                || stop.request.fence != p.permitted_branches.exact_initial_active
+            let original_digest =
+                oasis7_wasm_abi::canonical_hash(stop).map_err(|e| e.to_string())?;
+            if intent.profile != GameStopIntentProfileV2::GuardedTaskStopV2
+                || reference.profile != intent.profile
+                || stop.request.initial_fence != p.permitted_branches.exact_initial_active
                 || stop.subject_public_key != request.submitted.original.subject_public_key
+                || stop.request.custody_account_id != p.custody_account_id
+                || stop.request.termination_plan_digest != p.termination_plan_digest
+                || stop.request.target_executor_public_key != p.signer_public_key
+                || stop.request.target_executor_generation != p.signer_generation
+                || stop.request.target_executor_nonce != p.signer_nonce
                 || stop.request.client_operation_id != intent.operation_id
                 || intent_digest != intent.intent_digest
                 || reference.operation_id != intent.operation_id
-                || reference.original_digest != signed_digest
-                || reference.canonical_result_digest != blake3::hash(bytes).to_hex().to_string()
+                || reference.original_digest != original_digest
+                || reference.canonical_result_digest != record.result_core_digest
             {
-                return Err("Stop predecessor intent/domain/Owner mismatch".into());
+                return Err("guarded Stop predecessor intent/domain/Owner mismatch".into());
             }
-            let receipt = crate::legacy_task_results::executor_receipt(&result.request)?;
-            let mut post = stop.request.fence.clone();
-            post.task_revision = receipt.task_revision;
-            post.executor_epoch = receipt.executor_epoch;
-            post.executor_binding = receipt.executor_binding;
-            post.task_status = receipt.task_status;
+            let post = GameTaskFenceV1::from_control(&record.after_control);
             if post != reference.post_fence || post != current.closed.actual_before_fence {
-                return Err("Stop predecessor post-fence mismatch".into());
+                return Err("guarded Stop predecessor post-fence mismatch".into());
             }
         }
     }

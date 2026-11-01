@@ -159,3 +159,14 @@ impl ActionSubmissionV1 {
 
 mod starter;
 pub use starter::*;
+
+#[path = "game/task_stop_v2.rs"]
+mod task_stop_v2;
+pub use task_stop_v2::*;
+
+#[path = "game/task_stop_result_v2.rs"]
+mod task_stop_result_v2;
+pub use task_stop_result_v2::*;
+
+mod task_stop_observation_v2;
+pub use task_stop_observation_v2::*;

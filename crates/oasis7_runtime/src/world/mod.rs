@@ -182,13 +182,14 @@ mod rules;
 mod scheduling;
 mod snapshot;
 mod step;
+pub(crate) mod task_stop_v2;
+pub(crate) mod task_terminal_v2;
 mod tick_consensus;
 mod tick_consensus_state_root;
 #[cfg(test)]
 mod tick_consensus_test_support;
 mod transition;
 mod world_service;
-pub(crate) mod task_terminal_v2;
 pub use cognition_economy::{
     COGNITION_ECONOMY_SCHEMA_VERSION, COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
     COGNITION_LEASE_SCHEMA_VERSION, COGNITION_PROVISIONING_EVENT_SCHEMA_VERSION,
