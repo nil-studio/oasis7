@@ -54,6 +54,114 @@ impl VerifiedEventFactOccurrenceV1 {
     }
 }
 
+fn event_head_binding<E>(
+    head: &VerifiedFormalCommitV1,
+    roots: &RootSetV1,
+) -> Result<([u8; 32], [u8; 32]), CoreError<E>> {
+    let record = head.record();
+    record.validate().map_err(BindingError::from)?;
+    if !incremental::is_iws_record(record.schema_version) {
+        return Err(CoreError::Invalid(
+            "event history requires IWS accepted head",
+        ));
+    }
+    let roots_id = roots.digest()?;
+    if role(record, ArtifactRole::IncrementalRootSet)? != roots_id
+        || record.after_state_root != hex::encode(roots_id)
+        || record.world.world_id != roots.world_id
+        || record.world.genesis_digest != hex::encode(roots.genesis_config)
+        || roots.height.checked_add(1) != Some(record.position)
+    {
+        return Err(CoreError::Invalid("event history head/root binding"));
+    }
+    Ok((roots_id, role(record, ArtifactRole::IncrementalCommitBody)?))
+}
+
+pub struct CurrentEventFactRequestV1<'a> {
+    pub head: &'a VerifiedFormalCommitV1,
+    pub core: &'a ReservedValue<CheckedCommitCore>,
+    pub originals: &'a ReservedValue<CheckedFactOriginals>,
+    pub ordinal: u64,
+}
+
+/// Bind an actually observed current occurrence to its exact accepted head.
+/// No original IO is repeated: the private observation was minted only after
+/// stream/hash/length verification of every occurrence in this same FactSet.
+/// Neither prepared content alone nor a caller-reported length is sufficient.
+pub fn bind_checked_current_event_fact_v1(
+    request: &CurrentEventFactRequestV1<'_>,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<VerifiedEventFactOccurrenceV1>, CoreError<std::convert::Infallible>> {
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    if !request.core.uses_budget(memory)
+        || !request.originals.uses_budget(memory)
+        || !request.core.facts.uses_budget(memory)
+        || request.core.reserved_bytes() < std::mem::size_of::<CheckedCommitCore>()
+        || request.originals.reserved_bytes() < std::mem::size_of::<CheckedFactOriginals>()
+    {
+        return Err(CoreError::Invalid("current event observation pool/charge"));
+    }
+    let mut workspace = memory
+        .reserve(128 << 10, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    let core = &request.core;
+    let (roots_id, body_id) = event_head_binding(request.head, &core.roots)?;
+    let record = request.head.record();
+    if core.body.digest()? != body_id
+        || core.body.roots != roots_id
+        || !core.body.scope.matches(&core.roots)
+        || core.body.height != core.roots.height
+        || hex::encode(core.body.operation) != record.request_digest
+        || core.body.history != role(record, ArtifactRole::IncrementalHistoryPrefix)?
+        || request.originals.body_id() != body_id
+        || request.originals.fact_set_id() != core.body.facts
+    {
+        return Err(CoreError::Invalid(
+            "current event observation head/body/facts",
+        ));
+    }
+    let ordinal = usize::try_from(request.ordinal)
+        .map_err(|_| CoreError::Invalid("current event ordinal overflow"))?;
+    let fact = core
+        .facts
+        .facts
+        .get(ordinal)
+        .filter(|fact| fact.kind == ExecutionFactKindV1::Event)
+        .ok_or(CoreError::Invalid("current event fact occurrence"))?;
+    let observed = request
+        .originals
+        .checked_occurrence(ordinal, memory)
+        .map_err(CoreError::Invalid)?
+        .ok_or(CoreError::Invalid("current event observation missing"))?;
+    if observed.kind != fact.kind || observed.id != fact.id {
+        return Err(CoreError::Invalid("current event observed identity"));
+    }
+    let head_record = crate::incremental_history::wire::parse_hash(
+        &record.record_id().map_err(BindingError::from)?,
+    )?;
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    let charge = workspace
+        .split(std::mem::size_of::<VerifiedEventFactOccurrenceV1>())
+        .map_err(|_| CoreError::Invalid("current event summary accounting"))?;
+    Ok(charge.retain(VerifiedEventFactOccurrenceV1 {
+        head_record,
+        roots: roots_id,
+        head_body: body_id,
+        event_body: body_id,
+        location: EventFactLocationV1 {
+            height: core.roots.height,
+            ordinal: request.ordinal,
+            original: fact.id,
+        },
+        original_bytes: observed.bytes,
+    }))
+}
+
 /// The height/ordinal is only an untrusted lookup hint. In-prefix missing
 /// catalog content is corruption, never authenticated absence. This does not
 /// decode WorldEvent or assume that all Event bytes have that particular type.
@@ -91,23 +199,10 @@ pub fn verify_event_fact_occurrence_v1<
         .reserve(128 * 1024, *class)
         .map_err(ExecutionError::Memory)?;
     let record = request.head.record();
-    record.validate().map_err(BindingError::from)?;
-    if !incremental::is_iws_record(record.schema_version) {
-        return Err(CoreError::Invalid(
-            "event history requires IWS accepted head",
-        ));
-    }
-    let roots_id = request.roots.digest()?;
-    if role(record, ArtifactRole::IncrementalRootSet)? != roots_id
-        || record.after_state_root != hex::encode(roots_id)
-        || record.world.world_id != request.roots.world_id
-        || record.world.genesis_digest != hex::encode(request.roots.genesis_config)
-        || request.roots.height.checked_add(1) != Some(record.position)
-        || request.location.height > request.roots.height
-    {
+    let (roots_id, head_body) = event_head_binding(request.head, request.roots)?;
+    if request.location.height > request.roots.height {
         return Err(CoreError::Invalid("event history head/root binding"));
     }
-    let head_body = role(record, ArtifactRole::IncrementalCommitBody)?;
     let body = CommitBodyV1::from_canonical_bytes(&load(
         *originals,
         &head_body,

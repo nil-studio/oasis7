@@ -28,6 +28,13 @@ pub struct CheckedFactOriginals {
     facts: [u8; 32],
     counts: [u64; 3],
     bytes: u64,
+    occurrences: ReservedValue<Vec<CheckedFactOccurrence>>,
+}
+#[derive(Debug)]
+pub(super) struct CheckedFactOccurrence {
+    pub(super) kind: ExecutionFactKindV1,
+    pub(super) id: [u8; 32],
+    pub(super) bytes: u64,
 }
 impl CheckedFactOriginals {
     pub fn body_id(&self) -> [u8; 32] {
@@ -42,6 +49,21 @@ impl CheckedFactOriginals {
     }
     pub fn original_bytes(&self) -> u64 {
         self.bytes
+    }
+    pub(super) fn checked_occurrence(
+        &self,
+        ordinal: usize,
+        memory: &MemoryBudget,
+    ) -> Result<Option<&CheckedFactOccurrence>, &'static str> {
+        let required = self
+            .occurrences
+            .capacity()
+            .checked_mul(std::mem::size_of::<CheckedFactOccurrence>())
+            .ok_or("fact observation capacity overflow")?;
+        if !self.occurrences.uses_budget(memory) || self.occurrences.reserved_bytes() < required {
+            return Err("fact observation memory pool/charge");
+        }
+        Ok(self.occurrences.get(ordinal))
     }
 }
 #[derive(Clone, Copy)]
@@ -112,12 +134,22 @@ pub fn verify_fact_originals<O: OriginalObjectStreamReader>(
     {
         return Err(CoreError::Invalid("fact source memory pools"));
     }
-    let mut result = CheckedFactOriginals {
-        body: core.body.digest()?,
-        facts: core.body.facts,
-        counts: [0; 3],
-        bytes: 0,
-    };
+    let capacity = core.facts.facts.len();
+    let observation_bytes = capacity
+        .checked_mul(std::mem::size_of::<CheckedFactOccurrence>())
+        .ok_or(CoreError::ResourceLimited("fact observation capacity"))?;
+    let observations_charge = memory
+        .reserve(observation_bytes, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    let mut occurrences = Vec::new();
+    occurrences
+        .try_reserve_exact(capacity)
+        .map_err(|_| CoreError::ResourceLimited("fact observation allocation"))?;
+    if occurrences.capacity() > capacity {
+        return Err(CoreError::ResourceLimited("fact observation capacity"));
+    }
+    let mut counts = [0u64; 3];
+    let mut bytes = 0u64;
     for fact in &core.facts.facts {
         if cancelled() {
             return Err(CoreError::Cancelled);
@@ -130,8 +162,7 @@ pub fn verify_fact_originals<O: OriginalObjectStreamReader>(
         budget.original_bytes_remaining -= admitted;
         let length = verify_original_stream(objects, &fact.id, admitted, memory, &mut cancelled)?;
         budget.original_bytes_remaining += admitted - length;
-        result.bytes = result
-            .bytes
+        bytes = bytes
             .checked_add(length)
             .ok_or(CoreError::ResourceLimited("fact byte total"))?;
         let index = match fact.kind {
@@ -139,9 +170,23 @@ pub fn verify_fact_originals<O: OriginalObjectStreamReader>(
             ExecutionFactKindV1::Result => 1,
             ExecutionFactKindV1::Event => 2,
         };
-        result.counts[index] += 1;
+        counts[index] += 1;
+        occurrences.push(CheckedFactOccurrence {
+            kind: fact.kind,
+            id: fact.id,
+            bytes: length,
+        });
     }
-    Ok(charge.retain(result))
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    Ok(charge.retain(CheckedFactOriginals {
+        body: core.body.digest()?,
+        facts: core.body.facts,
+        counts,
+        bytes,
+        occurrences: observations_charge.retain(occurrences),
+    }))
 }
 
 /// Caller admits fixed hash metadata and IO allowance before invoking this.
