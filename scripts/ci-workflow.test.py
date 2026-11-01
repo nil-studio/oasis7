@@ -943,8 +943,22 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertIn('fail-fast: false', job)
             self.assertNotIn('Scope note', job)
             self.assertNotIn('outputs.run_m', job)
-            self.assertNotIn('        if:', job)
+            execution = re.sub(r'^      - name: Preserve failed candidate build evidence\n.*?(?=^      - |\Z)',
+                               '', job, flags=re.M | re.S)
+            self.assertNotIn('        if:', execution)
             self.assertIn('if-no-files-found: error', job)
+        evidence = re.search(r'^      - name: Preserve failed candidate build evidence\n.*?(?=^      - |\Z)',
+                             jobs['collect-wasm-summaries'], re.M | re.S).group()
+        self.assertIn('        if: failure()\n', evidence)
+        self.assertIn('uses: actions/upload-artifact@', evidence)
+        self.assertIn('include-hidden-files: true', evidence)
+        self.assertIn('if-no-files-found: warn', evidence)
+        self.assertNotIn('        run:', evidence)
+        self.assertEqual(re.findall(r'^            (.+)$', evidence, re.M), [
+            '.tmp/builtin-wasm-sync-modules/*.wasm',
+            '.tmp/builtin-wasm-sync-modules/*.metadata.json',
+            '.tmp/builtin-wasm-sync-modules/*.build-receipt.json',
+        ])
         self.assertIn("needs.collect-wasm-summaries.result == 'success'", jobs['verify-wasm-determinism'])
         self.assertNotIn('continue-on-error:', workflow)
         for filename in ('wasm-determinism-gate.yml', 'document-corpus-platform.yml'):

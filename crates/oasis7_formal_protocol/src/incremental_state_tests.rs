@@ -475,6 +475,63 @@ fn namespace_format_and_key_bounds_are_enforced() {
 }
 
 #[test]
+fn state_entry_key_digest_matches_codec_and_binds_namespace_and_key_bounds() {
+    let key = b"factory:outer/\xce\x94".to_vec();
+    let entry = StateEntryV1 {
+        namespace: StateNamespaceV1::Business,
+        key: key.clone(),
+        value: [7; 32],
+    };
+    assert_eq!(
+        entry.key_digest().unwrap(),
+        StateCodec::key(&entry).unwrap()
+    );
+
+    let mut preimage = b"oasis7.iws.state-key.v1\0".to_vec();
+    preimage.extend_from_slice(&(StateNamespaceV1::Business as u16).to_be_bytes());
+    preimage.extend_from_slice(&(key.len() as u16).to_be_bytes());
+    preimage.extend_from_slice(&key);
+    assert_eq!(
+        entry.key_digest().unwrap(),
+        *blake3::hash(&preimage).as_bytes()
+    );
+
+    let allocator_entry = StateEntryV1 {
+        namespace: StateNamespaceV1::Allocator,
+        ..entry.clone()
+    };
+    assert_ne!(
+        entry.key_digest().unwrap(),
+        allocator_entry.key_digest().unwrap()
+    );
+
+    let mut pages = Pages::default();
+    let root = StateRootV1::empty(entry.namespace).unwrap();
+    let delta = StateDeltaV1::build(
+        root,
+        vec![StateWriteV1 {
+            key: entry.key.clone(),
+            before: None,
+            after: Some(entry.value),
+        }],
+        &pages,
+        QUOTA,
+    )
+    .unwrap();
+    pages.persist(&delta);
+    assert_eq!(
+        delta.after.get(&entry.key, &pages).unwrap(),
+        Some(entry.value)
+    );
+
+    let oversized = StateEntryV1 {
+        key: vec![0; STATE_MAX_KEY_BYTES + 1],
+        ..entry
+    };
+    assert!(oversized.key_digest().is_err());
+}
+
+#[test]
 fn canonical_root_roundtrip_rejects_unknown_versions_types_lengths_and_counts() {
     let root = StateRootV1::empty(StateNamespaceV1::Effects).unwrap();
     let bytes = root.canonical_bytes().unwrap();

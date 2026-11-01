@@ -249,6 +249,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - Wasm 与 document-corpus workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
   - verify job 会按命中的 `module_set` 下载 summaries，并执行：`./scripts/wasm-release-evidence-report.sh --module-sets <m1|m4|m5> --skip-collect --summary-import-dir <downloaded-summary-dir> --expected-runners linux-x86_64`
   - verify job 同时上传 `summary.md/json + logs + module_sets.tsv` 的 release evidence report artifact
+  - collect 失败时另保留 `wasm-candidate-raw-<module_set>-<runner>-<run_id>-<attempt>` artifact，保存 7 天，只包含实际生成的 `.wasm`、`.metadata.json` 和 `.build-receipt.json`；构建早期失败时可能不完整，上传成功不改变原 gate 的失败结果。成功运行不重复上传这些诊断原件。
+  - 根 `Cargo.lock` 等 producer 输入改变后，即使 WASM hash 未变，candidate identity 仍需刷新。从同一实际源码与 recipe 的三组运行取得全部 37 组原件，保留原 bytes，拒绝路径穿越、重复文件和覆盖；在匹配源码的本地工作区按[候选基线生成约定](doc/world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)运行 `OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity -- --candidate-baseline-prepare "$PWD" <raw-dir> <new-staging-dir>`，审核 staging 后提升 candidate 文件，再对 m1/m4/m5 执行 `--candidate-baseline-check "$PWD" <raw-dir> <module-set>`。CI 不生成或提交基线；缺原件不得用日志哈希补造 receipt，也不修改冻结的 release 清单。
   - 若要补独立跨宿主产物证据，可把外部 Docker-capable macOS runner 产出的 summary 作为额外 import 输入，再以 `--expected-runners linux-x86_64,darwin-arm64` 做离线对账；该结果不属于 `test_tier_full`，也不替代 `./scripts/ci-tests.sh full`
 
 ### CI 工具缓存与 local-signer 验证

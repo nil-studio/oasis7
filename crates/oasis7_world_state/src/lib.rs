@@ -223,9 +223,15 @@ pub mod incremental_authorization_mapsets;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_expected_bytes;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_records;
+#[cfg(not(target_arch = "wasm32"))]
 mod incremental_identity_amounts;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_industry_jobs;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_installed_module_targets;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_record_tree;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_utf8_output;
 #[cfg(not(target_arch = "wasm32"))]

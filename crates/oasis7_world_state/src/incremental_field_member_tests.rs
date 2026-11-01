@@ -69,6 +69,108 @@ fn quota() -> ValueIoBudget {
         write_bytes_remaining: 1 << 20,
     }
 }
+
+#[test]
+fn header_probe_authenticates_identity_without_scanning_the_long_payload() {
+    let memory = MemoryBudget::new(16 << 20, 0).unwrap();
+    let mut pages = Pages::new(&memory);
+    let payload = memory
+        .reserve(200_000, MemoryClass::Ordinary)
+        .unwrap()
+        .retain(vec![b'x'; 200_000]);
+    let mut io = ValueIoBudget {
+        nodes_remaining: 1000,
+        read_bytes_remaining: 4 << 20,
+        write_bytes_remaining: 4 << 20,
+    };
+    let record = write_member_record_v1(
+        descriptor(WorldFieldRecordKindV1::Entry),
+        WorldFieldRecordKindV1::Entry,
+        "é",
+        MemberPayloadRefV1::Text(std::str::from_utf8(&payload).unwrap()),
+        &mut MemberRecordWriteContext {
+            sink: &mut pages,
+            memory: &memory,
+            io: &mut io,
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 4096,
+            },
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 1024,
+                payload_bytes: 1 << 20,
+                record_bytes: 2 << 20,
+            },
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    let mut io = ValueIoBudget {
+        nodes_remaining: 1000,
+        read_bytes_remaining: 4 << 20,
+        write_bytes_remaining: 4 << 20,
+    };
+    let mut context = ValueReadContext {
+        source: &pages,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        io: &mut io,
+    };
+    pages.reads.set(0);
+    let info = read_member_record_header_v1(
+        &record.value_root,
+        &record.field_key,
+        &mut context,
+        MemberRecordLimitsV1 {
+            semantic_bytes: 1024,
+            payload_bytes: 1 << 20,
+            record_bytes: 2 << 20,
+        },
+        || false,
+    )
+    .unwrap();
+    let header_reads = pages.reads.get();
+    assert_eq!(info.codec, MemberPayloadCodecV1::Text);
+    assert_eq!(info.payload_bytes, 200_000);
+    pages.reads.set(0);
+    read_member_record_v1(
+        &record.value_root,
+        &record.field_key,
+        &mut context,
+        MemberRecordLimitsV1 {
+            semantic_bytes: 1024,
+            payload_bytes: 1 << 20,
+            record_bytes: 2 << 20,
+        },
+        &mut std::io::sink(),
+        &mut std::io::sink(),
+        || false,
+    )
+    .unwrap();
+    assert!(
+        pages.reads.get() > header_reads,
+        "full payload must require additional pages"
+    );
+    let wrong = WorldFieldKeyV1::new(
+        descriptor(WorldFieldRecordKindV1::Entry),
+        WorldFieldRecordKindV1::Entry,
+        Some([9; 32]),
+    )
+    .unwrap();
+    assert!(matches!(
+        read_member_record_header_v1(
+            &record.value_root,
+            &wrong,
+            &mut context,
+            MemberRecordLimitsV1 {
+                semantic_bytes: 1024,
+                payload_bytes: 1 << 20,
+                record_bytes: 2 << 20
+            },
+            || false
+        ),
+        Err(ValueTreeError::Invalid(_))
+    ));
+}
 fn limits() -> MemberRecordLimitsV1 {
     MemberRecordLimitsV1 {
         semantic_bytes: 1024,

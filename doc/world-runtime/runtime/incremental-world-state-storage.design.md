@@ -608,6 +608,7 @@ WorldState.time 只使用字段登记的 WorldState / Value / Allocator profile�
 
 时钟不符、缺 Metadata/Entry、同池检查或最后取消失败均沿共享事务贡献传播，不能 seal 先前成功前缀。固定两项编码、比较、输出遵守 Ordinary 预先准入及调用方连续 I/O 预算；不为校验扫描 World、历史或所有字段。控制字段变化后的 Runtime 后继读取必须看同一 overlay，不能继续采用旧专用时钟。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
+
 ### 12.19 原文本映射
 
 <a id="iws-world-text-maps-v1"></a>
@@ -639,3 +640,40 @@ main_token_balances 与 node_asset_balances 均沿 WorldState/Map/Business 唯�
 创世借用原 map/记录逐条流写，不 clone 或收集整表；原记录用无省略的类型解构，新增成员必须明确处理。固定根点读先认证 Metadata 与原 map key，并校验 tag9/原键长度；原身份 UTF-8 流式输出，header 与三个数值仅保留固定缓冲，不构造完整旧身份。输出在完整记录、原身份长度/UTF-8、数值尾部与最终取消成功前保持暂态，成功返回原身份字节数和对应三个具名量。调用方准入源、查询键、保留输出和批次；records/key-work/I/O、原身份及总记录字节、同池/class 均有限，取消或预算错误不当作缺失。点读只证明该记录，不验证兄弟记录、完整字段族或 World/C<T 恢复资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
 余额共享事务入口以具名借用 view 同时表示原身份和三个量，view 由原结构无省略解构得到，创世与点更新复用同一映射。field 与 view 类型不符立即拒绝，不能把节点余额的三个数按主代币余额解释。一次 contribute 认证 Metadata 和当前成员，流式比较 expected 原身份，并精确比较原具名数值与缺失状态；不收集旧身份，不以 map key 回填。检查当前 guard/live fence、读写同池 Ordinary、有限原身份/record/key/I/O 与组合取消后，保存 owner 的最终 after 或成员 tombstone；Metadata 不删除。no-op 保留两项读取依赖，并在可能较长的 view 比较后再查取消。类型/预期/原记录/额度/取消或后续写入失败均 poison 整笔事务。view/存储 setter 不校验供给、业务余额约束、转账/铸造权限或全字段资格，原 owner 仍须在同一共享事务内接通这些规则。
+
+<a id="iws-factory-records-v1"></a>
+### 12.28 工厂与待建造记录
+
+factories 保持 WorldState/Map/Business，pending_factory_builds 保持 WorldState/Map/Scheduler 唯一登记。外层 Entry 以原 String/u64 map key 为身份，保留完整原 semantic preimage；不能用记录内 factory_id、job_id 或 spec.factory_id 替换，也不裁剪、归一化或合并真实 ID。每个字段保留必需 Metadata 和 Entry/Unit 格式标记，标记键为 (factory_record_closure_v1, unit)。此为尚未发布的新 profile，拒绝旧平面列/成员，不从旧 tuple 证据推定新 profile 已验证。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+外层实际记录仅写 field-member.v1 Entry/RecordRoot(tag10)，固定165字节 payload 为[记录根引用](#iws-record-root-reference)。Factory schema 固定32字节 ASCII oasis7.factory.state.record.v1 加两个零字节，Build schema 为 oasis7.factory.build.record.v1 加两个零字节；必须同时绑定记录种类、原 outer semantic digest、namespace 和完整 child StateRoot。child 只有经此类型边才是该记录的可达内容；不能将未知散落全局列吸收为新记录。解析 RootRef 本身不授予闭包资格。
+
+每条记录有独立 child StateRoot，含同字段描述符的 Metadata、相对 unit key 的 Entry/Unit 记录标记及全部真实叶子。列键固定为 ((unit, section), 原列名)。Factory 顶层 section=factory，Build 顶层=build，共享 spec、Factory 的 production、last_completed_canonical_snapshot，以及 Build 的 construction_power_obligation，均由封闭枚举选择。FactoryState、FactoryBuildJobState、FactoryModuleSpec、FactoryProductionState、FactoryProductionSnapshot、FactoryBuildPowerObligationV1、MaterialStack 无省略解构。u8/u16/u32 保存原 U64 并校验范围；生产状态 Idle/Running/Blocked/Paused 对应0/1/2/3，StartOnlySink 对应0，未知枚举拒绝。Option 叶子 None 为 Unit，Some 为具名类型；快照和电力义务另有 Bool 存在列。Text/ledger 保存原字节，不用任意 Serde 或整工厂 clone。
+
+集合标记键为 (((unit, section), 原集合名), unit)。spec 只允许 tags/build_cost；快照只允许 consume/produce/byproducts/bottleneck_tags/logistics_route_ids/logistics_path_ids；电力义务只允许 material_balances_before/material_balances_after。Vec 标记保存 U64 原长度，包括0，optional 父结构缺失为 Unit；Text 项在集合前缀后配对原 u64 index，MaterialStack 再配对 kind/amount。保留次序、重复项、原材料名和 I64 位。两个可选 map 分别保留 Unit(None)、U64(0)(Some空map)、U64(n)，独立成员在集合前缀后配对原 String key，保存 I64。
+
+普通点操作只认证外层 Metadata/格式/原 Entry RootRef 及目标 relative key 的必要祖先，不扫描未变 Spec、长 outer ID 的子树副本或其他集合。读支持同池/class Ordinary/Recovery，写要求同池 Ordinary、精确 guard/live 与 expected；更新 inner 路径后贡献唯一外层 RootRef。创建从 empty 构造完整新 child，不采用松散旧字段。显式整记录替换先认证 expected 的全部具名列/成员，并验证当前真实 child 关系完整，不能只相信声明 leaf_count 或 expected 提供的子集；删除仅在此完整关系成立后移除外层引用。固定 scratch 在解析/分配前准入，records/key/I/O/work/scan/pending-node 额度有限且连续，取消和失败 poison 整笔事务，no-op 比较及最后实际 put 后再次检查组合取消。
+
+原始根、创世和恢复必须对所有 Factory 外层条目和 child 做有界 qualification：校验原 key preimage 与 digest、严格白名单、全部必需列、Option 父子关系、真实集合 cardinality/Vec index、类型和 namespace，拒绝旧 flat/orphan/缺页/未知字段。opaque 资格绑定完整 RootSet 和本 schema。通用事务 write 可绕过 producer helper，接收端必须在通用 TransitionVerifier 之外验证所有本族 outer 变化及 changed child closure，才可继承新 RootSet 的资格。一般 verify_state_values 只证明顶层 ValueTree，不证明这些 nested 状态页。
+
+复制和 GC mark 必须实际沿已绑定 typed child edge 遍历子状态页及其 ValueTree；只保留外层 value pages 不完整。所有暂存输出与复制前缀在完整验证成功前 provisional，不发布部分资格。此组件不改变建设、生产、权限和电费规则，不把独立 receipt/recipe job 算入两个字段，也不单独授予完整 World、恢复/持久性或业务执行资格。
+
+<a id="iws-record-root-reference"></a>
+### 记录闭包的类型化子状态根引用
+
+动态记录使用独立子状态树时，外层原 key 的认证 entry 承载封闭的 RecordRootRefV1：`oasis7.iws.record-root.v1\0`、大端 u32 正文长度、owner 定义的 32 字节 schema 身份、原语义 key 的 32 字节 digest，以及原 StateRootV1 的完整 canonical bytes。schema 身份必须区分记录种类；子根 namespace 必须与 owner 的固定预期一致。长度固定，拒绝尾随字节、未知版本、错误绑定或非法子根描述，不以任意 Bytes/Serde 包装后静默忽略子根。
+
+该 codec 仅提供完整性及明确的子根类型边。外层值须先认证；owner 随后核对 schema/key/namespace，验证子树的字段白名单、必需列、Option 和集合关系，并使资格绑定当前根与 schema。通用 StateRoot/TransitionVerifier 校验不等于记录闭包资格；通用事务写入不能绕过 owner 的接收验证。复制和 GC 必须沿该类型边遍历子状态根，不能只遍历外层 value pages。创世、原始根准入、同 overlay 更新、资格继承及可达边维护由具体 owner 实现和验证；本 codec 本身不宣称这些链路已接通。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c。
+
+
+<a id="iws-industry-job-records"></a>
+
+### 12.30 工业任务与终态回执记录
+
+本族覆盖原 Scheduler Map 字段 pending_recipe_jobs、pending_material_transits，以及原 Authorization Map 字段 recipe_completion_receipts、factory_production_failure_dispositions、logistics_settlement_receipts。立即 material transfer 的独立回执、行业进度、世界规则工业图、Factory 记录及原 settled-ID/order 字段保持各自 owner，不以本族资格代签。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；沿用 §12.28 的计费、取消和闭包合同；本节不授予业务结算权限。
+
+每个原 ActionId outer key 对应一个 RecordRoot(tag10)，绑定原 u64 semantic digest、原 field descriptor、namespace 与本族五个独立 schema-id 之一；不得以 record.job_id/action_id 替换外层键。五个 schema-id 分别为 ASCII oasis7.industry.recipe.v1、oasis7.industry.transit.v1、oasis7.industry.completion.v1、oasis7.industry.failure.v1、oasis7.industry.settlement.v1，右侧补零至32字节。外层各有同 descriptor Metadata 与 (industry_record_closure_v1, unit) Entry/Unit 格式标记，拒绝旧 flat profile。child 保留同 descriptor Metadata、相对 unit 的记录 marker。固定列使用 ((unit, section), 原字段名)；section 白名单为 record、industrial_root_ref、committed_recipe_origin、submission。列表 marker 为 (((unit, record), 原字段名), unit)，按原 u64 index 分成员；MaterialStack 每项分 kind/amount 两列。owner_payouts 按原字符串 key 分成员。空集合必须有计数零 marker，不能与缺 marker 混同。工业引用六项、提交身份七项、CommittedRecipeOrigin 的六项均逐字段保存；Option 原 None/Some 和可达字段关系必须认证，不使用任意 Serde 或整记录 JSON。WorldTime 保留原 U64；accepted_batches/duration_ticks/reroute_count 保存 U64 并拒绝超过原 u32 范围；Priority 的 Standard=0、Urgent=1，其他值拒绝。两个可选嵌套对象以原字段 Bool 存在列标记；None 时其每个固定子列为 Unit，Some 时除 hosted_registration_nonce 外的必需子列不得为 Unit。
+
+借用创世完整枚举五族全部真实字段，遍历与分配先获有限 quota/Ordinary admission；标量、账本、长文本、集合成员复用既有封闭编码。正常 point 只沿 outer RootRef 和目标相对路径，不扫描未变 payload/成员。新建只能依据绑定同一父 RootSet 的 opaque 闭包资格，不能凭缺 marker 接纳孤儿。原始根/恢复以有限预算认证完整顶层及 typed child 值/状态页、白名单、键 preimage、Option 关系和真实集合计数；通用 transition verifier 之外必须从 qualified parent 与完整 changed-write-set 增量验证本族闭包。通用顶层 values marker 不代签 typed child 闭包。
+
+公开 oracle 应独立列出五族原键/原值，覆盖原 outer/embedded ID 不同、None/空/非空、重复列表值、原 Unicode 与整数极值；冷读固定小池，普通 Δ 扩大未变 sibling 时计数不得跟随其大小。错误/取消发生于准备、no-op、真实 put 和最终 buffered flush 时不得接受 token/mark/root；typed transfer 必须先成功 finish 目标 sink 再接受闭包回执，根恢复必须在新 pool 重开验证。
