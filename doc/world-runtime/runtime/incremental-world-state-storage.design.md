@@ -758,4 +758,12 @@ Cognition 沿用原 Runtime JSON envelope 的十二个 required 与八个 option
 
 控制字段复用原 Cognition descriptor、Metadata 与 Entry/Unit 键，Text/U64 使用现有闭合 Member codec，逐项借用 GEN；普通点读流式输出长文本，不分配全值。动态 JSON 节点复用有实际 Effects 与 Cognition 消费者的中性闭包引擎，由 Cognition 固定 descriptor/schema/namespace 与原语义键；节点独立列/成员及 typed RootRef，不用 JSON 串、整记录 bytes 或任意 callback 代替完整闭包。GEN 只输出 provisional 写集，局部读、控制字段成功和 JSON 子树资格均不得签发完整 CognitionReady。
 
+当前状态 v1 地址闭合为十个 primitive 控制 cohort 与二十个 JSON cohort。每个存在的 cohort 在原 descriptor/namespace 下恰有 Metadata 与 Entry/Unit 两叶；JSON Entry 使用标准 RecordRootRefV1，绑定该 cohort 的 schema、Unit 原语义摘要和 namespace。JSON 内部 descriptor 的 name 是原 cohort 名加 `.json.v1`，shape 为 Map，namespace 保持原目的地；内部所有节点复用同一 profile，原 object String 键及 array ordinal 不改写。旧 flat ordinal/member 地址不是本 profile 的可兼容输入，raw 资格必须拒绝，不能把缺 Metadata 的遗留后代吸收到新记录。
+
+JSON schema 固定为对应单字节重复三十二次：feedback_outbox、idempotency_index、staged_actions、scheduler_state、continuations、continuation_contexts、continuation_evaluations 顺序为 0xc1..0xc7；economy.balances、economy.provisioned_balances、economy.lease_binding_keys、economy.provisions、economy.provision_receipts、economy.leases、economy.receipts、economy.idempotency、economy.operations 顺序为 0xd1..0xd9；delegation.grants、delegation.spent、delegation.decisions、delegation.controls 顺序为 0xe1..0xe4。Map/NestedMap 根必须是 object，continuations 必须是 array，scheduler_state 保留原 JSON 值种类。balances 的账户子项以及 grants/decisions/controls 的即时成员必须为 object，spent 的即时成员必须为 u64；这些结构约束不是新业务授权或经济规则。
+
+CurrentStateQualification 只证明认证 RootSet 中这些当前状态地址与完整 JSON 图闭合：必需 cohort 存在，economy 十四个当前状态 cohort 同时有或同时无，delegation 四个当前状态 cohort 同时有或同时无；所有 Metadata/Unit 必须成对，未知地址拒绝。它不替代原 Runtime 恢复/业务解析，也不授 History、ProofLedger、RetentionLedger、权限或完整 CognitionReady。原 Snapshot.cognition 本身仍是 serde_json::Value。
+
+scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 before RootSet，先 generic replay，再逐 changed 地址检查；未变 JSON 子树按原资格继承，变化子树必须认证实际旧/新路径并保持结构、长度与成员集合。控制字段新值按原 Text/u64 与 schema 常量验证，Metadata、必需列与可选组存在性不能由 scalar API 增删。结构 CRUD 须使用独立完整关系证明路径，不能借 scalar token 或完整 JSON 原始读取来冒称已实现；页 mark/transfer 只提供本 current-state scope 与顶层六树依赖，其他 owner 和独立 side ledger 的闭包仍需联合。
+
 完整资格必须从认证 RootSet、全部当前状态 cohort 与各独立 side owner 的真实证明组合，校验 required/optional 关系与未知/孤儿；普通事务只沿目标路径和必要关系访问，不能扫描未变大文本/集合。精确 expected、guard/live、同池 Ordinary、连续有限 key/逻辑/物理/heap 额度、NoOp/最后实际 put/finish 的组合取消、所有失败 poison 前缀合同继续适用。接收端先 generic replay，再从已资格父与完整 changed-path 写集推导新闭包；新记录全量资格，未变子树仅继承原已认证闭包。typed pages 跟随全部子 State/Value 引用并等待实际 sink finish，冷恢复不能依赖旧 Snapshot、缓存或旧内存池。本节不新增 cognition 调度、授权、投票或业务规则，不能代签 accepted history 或全 World GC。
