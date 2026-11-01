@@ -805,3 +805,14 @@ module_artifacts（Set）与 module_artifact_bytes（ByteMap）属于 Runtime/Ar
 此组须闭合 root-only 结构资格、同 ExecutionTxn expected 更新及错误 poison、独立 generic+typed receiver、状态页与外部原件的不同 typed 闭包。原件验证共享明确 pool/class、条目/bytes/时间及取消预算，流式核对原 bytes/hash/实际长度，拒绝 source 吞掉输出错误、截断、错误长度、错误 ID 和最终取消；source 成功并不授予接受历史、业务执行或独立持久保障。实际持久消费者须完成对象 finish/locator/原件回读。未变原件复用精确已资格父的闭包，普通增删只访问实际 changed paths；全量 bootstrap/审计按其实际范围另计。两集合成员可独立新增和删除，必须保留原权限与保留要求，不把登记删除等同于历史原件可回收。
 
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。本节是完整 owner 的实现合同；单独原件 codec/流验证不代表 Runtime、World 或 GC 已就绪。
+### 12.38 系统订单池 epoch 预算与有序奖励铸造原记录
+
+<a id="iws-reward-budget-records-v1"></a>
+
+本族仅覆盖 WorldState/Map/Business 的 system_order_pool_budgets 与 WorldState/Ordered/Authorization 的 reward_mint_records。Pool 原 u64 epoch 外键与 DTO 内 epoch_index 独立；Mint 原 Vec ordinal 是外键，DTO epoch_index/node_id/签名等仍按原值保存，不排序、去重或归一化。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每族要求 Metadata 与 (reward_budget_record_closure_v1, unit) Entry/Unit 格式标记。每条原 U64 外键/ordinal 以 Entry/RootRef165 绑定原 semantic digest、各字段 schema 与 namespace；记录 child 有 Metadata、Unit marker、原名固定列。Pool 的 epoch_index/total_credit_budget/remaining_credit_budget 为 U64；node_credit_caps/node_credit_allocated 各有独立 Unit collection marker 与原 String→U64 成员，保留空 String、0、u64::MAX 和两个 map 的独立缺失/存在关系。Mint 的 epoch_index/source_awarded_points/minted_power_credits 为 U64，node_id/settlement_hash/signer_node_id/signature 为原 Text，均无 Option，不引入字段省略或任意 Serde blob。
+
+Mint 另有 (reward_budget_record_closure_v1, length) Entry/U64 全局长度，原 ordinal 必须精确形成 0..length-1，重复内容仍是不同 ordinal。借用 GEN 与 root-only 恢复资格完整校验原格式、required 列、动态成员与 dense ordinal；连续使用有限 state/value/key/cell/heap/pending 预算，不需要原 World snapshot。普通 append 只创建新 ordinal 的完整 child 并更新 length；receiver 从 qualified 父与实际 changed Merkle 路径验证净计数/索引/长度，不扫描未变大签名或重写整个 Vec。既有记录单列、Pool 成员点写须精确 expected、同事务 guard/live、同池 Ordinary、最终组合取消与错误 poison；完整对象删除只可在隔离关系与父资格允许时显式提供。
+
+页闭包由本 owner 的完整资格派生，显式跟随 child state/value，有限集合分配前计费；含 buffered finish 的全部输出完成前保持 provisional。本组不授奖励、mint、预算分配或签名业务权限，不改变原 reducer；仍不代签其他 owner、完整 World 激活或 GC。原始字面 oracle、非 Optional 必需列边界、Raw/Zstd 冷根、合法 append/同事务后继、generic-valid 但 typed-invalid、预算/取消/真实 put 故障及小增量成本分别验收。

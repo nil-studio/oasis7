@@ -518,3 +518,4 @@ pub use oasis7_world_state::incremental_json_records;
 pub use oasis7_world_state::incremental_agent_subtree;
 
 pub use oasis7_world_state::incremental_runtime_artifact_content;
+pub use oasis7_world_state::incremental_reward_budget_records;
