@@ -135,6 +135,7 @@ pub use formal_retained_history::{
 };
 pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields};
 pub use world::incremental_agent_genesis;
+pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
 pub use world::incremental_body_event::AgentEventContext;
 pub use oasis7_world_state::incremental_agent_body;

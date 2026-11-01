@@ -4,10 +4,16 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 mod canonical_cbor;
+mod canonical_cbor_stream;
 mod capability_v2;
 mod economy;
 mod recipe_substitution;
 pub use canonical_cbor::encode_canonical_cbor;
+pub use canonical_cbor_stream::{
+    CanonicalCborAllocator, CanonicalCborStreamContextV1, CanonicalCborStreamError,
+    CanonicalCborStreamMetricsV1, CanonicalCborStreamSummaryV1, CanonicalCborWorkV1,
+    compare_canonical_cbor_v1, stream_canonical_cbor_v1,
+};
 pub use capability_v2::*;
 pub use economy::*;
 pub use recipe_substitution::*;

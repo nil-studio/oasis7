@@ -717,3 +717,21 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 完整 root-only family 资格只凭认证 RootSet、schema 与有限 reader 检查四个外部绑定、六根错位、全部必需 child 列、primitive 完整 framing 与未知/孤儿拒绝；不依赖原 World snapshot。普通点读和单列精确 expected 更新只访问目标及必需身份关系，支持同事务连续后继；单列值类型必须匹配字段，guard/live、同池 Ordinary、独立 key/read/write/node/heap 计费、NoOp 与成功返回前组合取消、失败后全事务 poison 均不得省略。不得从局部读成功签发完整 family 资格。
 
 正常 receiver 先独立验证 generic 转移，再按真实四字段外写及 child changed Merkle 路径验证原 schema、身份、primitive 和完整固定列关系；仅继承已 qualified 父的未变闭包，禁止移除或引入非本格式外叶。page mark/transfer 复用完整本组资格，追随所有 child state/value 页，有限集合在分配前计费；包括 buffered finish 在内的全部输出成功前保持暂态。此组不授予经济业务权限、协议接受或全 World GC；仍须组合其他 owner、历史/lease、未决和回滚保护。独立字面原值、Raw/Zstd 冷根/合法后继、generic-valid 但 typed-invalid、真实 put 故障、精确预算及原子失败分别验证；末次取消的独立边界回归须有独立前序基线，不能用被测函数自身总回调自校准替代。
+
+<a id="iws-event-fact-provenance"></a>
+
+### 12.42 原事件引用的历史出现与原件认证
+
+Agent mailbox 沿用原32字节 WorldEvent 原件ID，不在通用字段或新索引中重造事件身份。完整引用资格须证明该ID是同一已接受head历史内的Event fact，并核对实际原件；只解析引用或接收调用者返回Ok的回调不能授予资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+历史出现验证以原VerifiedFormalCommit及精确RootSet为锚，读取并认证原CommitBody；目标为旧高度时，从该body绑定的前一catalog按高度seek，不扫描所有祖先或相信未认证locator。高度与fact ordinal可由调用者提供为不受信任查询提示，必须逐项核对已认证body、prefix/segment、FactSet scope/operation、Event种类与原ID。输出为绑定head身份、RootSet、目标body及原出现位置的不透明暂态证明；它只证明此Event fact与原bytes，不能代替WorldEvent类型/Domain内容匹配、完整Agent/World资格、写入权限或独立持久保障。
+
+元数据、来源carrier、catalog读取与原件流读共享调用者预算池和明确Ordinary/Recovery类别；对象、原bytes、catalog节点和fact额度连续消耗，失败与取消不重置。原件按原flat digest流验，保留最终取消检查和来源错误，不能用已输出前缀或预先声明的长度代签成功。WorldEvent语义消费者须继续使用既有唯一canonical编码和原类型核对，不能将原始事实字节身份提升为语义资格。
+
+Domain 语义验证接收具体的借用 WorldEvent 与上述不透明原件证明，核对消费者预期的精确 head/RootSet、Domain 变体、唯一 canonical 编码的完整长度及原 flat digest。输出持续借用原事件和原证明，不能分离原件计费，也不能以调用者返回 Ok 或自报 digest 构造语义资格。它仍不授予完整 Agent、业务授权或独立持久保障；mailbox 消费者还须核对自身原 Domain 内容和引用所属根。
+
+canonical 流式消费者保留既有编码器及其键排序语义作为独立 oracle。长值直接流向 digest，不先建立整个 owned Value 或编码 Vec；只为有限 map key、排序与重放元数据提前准入，ordinal 重放消耗连续工作预算。键的原 Tag 等类型不得因中间解码规范化而改变排序；取消、资源不足、输出失败或身份不匹配后整次验证上下文失效，不能用重试重置额度。
+
+已接受历史来源的 Agent GEN lowering 复用原字段 visitor 与写入编码器；mailbox 来源提供上述私有 Domain 证明后，消费者继续核对精确 head、RootSet、原件 ID 及实际 mailbox Domain 的完整 canonical 内容。原件证明与 mailbox 匹配使用调用者连续额度，普通写入与语义验证的两个取消通道在流式匹配、写入、emit 和最终返回边界均生效；任一失败使本次验证上下文失效，已输出字段仍是不可激活的暂态前缀。此入口不能验证同一事务中新准备但尚未被接受的 Event，也不能把旧根证明直接迁移成新根资格；新事件的候选验证、正式 head 绑定及未变引用的合法继承仍须由完整提交/owner 链路接通。
+
+上述语义入口接收调用者已有的具体 WorldEvent 借用值；流式编码节省的是验证阶段新增的 owned Value/输出 Vec，不证明输入 DTO 自身的常驻工作集。它不提供从冷原件直接取得任意大小 WorldEvent 的完整语义流式解码，不能据此宣称完整冷恢复或全链路 C<T 已验收。
