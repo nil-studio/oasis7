@@ -288,10 +288,7 @@ impl FileFormalEndpoint {
         // it cannot silently double the per-candidate state traversal budget.
         let coverage =
             oasis7_world_state::incremental_owner_closure::verify_world_state_owner_coverage(
-                &core.roots().state,
-                core.body()
-                    .digest()
-                    .map_err(|error| invalid(error.to_string()))?,
+                core.roots(),
                 &state,
                 &mut value_context,
                 &mut scan,
@@ -304,7 +301,12 @@ impl FileFormalEndpoint {
                     .map(page_store_formal_error)
                     .unwrap_or_else(|| invalid(format!("IWS typed owner coverage: {error}")))
             })?;
-        if checked.body_id() != coverage.body_id()
+        if checked.body_id()
+            != core
+                .body()
+                .digest()
+                .map_err(|error| invalid(error.to_string()))?
+            || coverage.root_set_digest() != core.body().roots
             || coverage.checked_u64_fields() != 7
             || coverage.checked_id_set_fields() != 5
             || coverage.checked_number_map_fields() != 11

@@ -80,7 +80,7 @@ pub(super) fn validate_installed_target_member<R: ValueNodeReader>(
     }
     let mut key_probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, max_value_bytes);
     let mut discarded = io::sink();
-    let mut payload = Utf8Output::new(&mut discarded);
+    let mut payload = Utf8Output::new(&mut discarded, "installed target text payload UTF-8");
     let result = read_member_record_v1(
         &entry.value,
         &key,
@@ -99,7 +99,7 @@ pub(super) fn validate_installed_target_member<R: ValueNodeReader>(
             "installed target semantic key profile",
         ));
     }
-    if payload.invalid() {
+    if payload.is_invalid() {
         return Err(WorldStateOwnerError::Invalid(
             "installed target text payload UTF-8",
         ));
@@ -112,7 +112,7 @@ pub(super) fn validate_installed_target_member<R: ValueNodeReader>(
     }
     let valid = match info.codec {
         MemberPayloadCodecV1::Unit => info.payload_bytes == 0,
-        MemberPayloadCodecV1::Text => payload.complete(),
+        MemberPayloadCodecV1::Text => payload.is_complete(),
         _ => false,
     };
     if !valid {

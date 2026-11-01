@@ -24,8 +24,9 @@ use crate::{
     incremental_world_u64::WorldU64FieldV1,
 };
 use oasis7_formal_protocol::{
+    incremental_execution::{ExecutionError, RootSetV1},
     incremental_state::{
-        MerkleNodeReader, StateNamespaceV1, StateRootV1, StateScanBudget, StateScanContext,
+        MerkleNodeReader, STATE_ROOT_BYTES, StateNamespaceV1, StateScanBudget, StateScanContext,
         StateScanError,
     },
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
@@ -42,6 +43,8 @@ mod typed_maps;
 
 const OWNER_SCAN_METADATA_BYTES: usize = 4096;
 const U64_SEMANTIC_BYTES: u64 = (SEMANTIC_KEY_DOMAIN.len() + 1) as u64;
+const ROOT_SET_CANONICAL_MAX_BYTES: usize =
+    b"oasis7.iws.root-set.v1\0".len() + 4 + 2 + 256 + 48 + 6 * STATE_ROOT_BYTES;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct SeenField {
@@ -54,7 +57,7 @@ struct SeenField {
 /// prevents the diagnostic from escaping the endpoint's shared pool.
 #[derive(Debug)]
 pub struct UnsupportedWorldStateOwnersV1 {
-    body_id: [u8; 32],
+    root_set_digest: [u8; 32],
     unsupported_fields: ReservedValue<Vec<&'static str>>,
     runtime_registry_missing: bool,
     cognition_registry_missing: bool,
@@ -69,8 +72,10 @@ pub struct UnsupportedWorldStateOwnersV1 {
 }
 
 impl UnsupportedWorldStateOwnersV1 {
-    pub fn body_id(&self) -> [u8; 32] {
-        self.body_id
+    /// Digest of the exact canonical RootSet scanned by this diagnostic.
+    /// This does not qualify the roots or their authority.
+    pub fn root_set_digest(&self) -> [u8; 32] {
+        self.root_set_digest
     }
 
     pub fn unsupported_fields(&self) -> &[&'static str] {
@@ -121,6 +126,7 @@ impl UnsupportedWorldStateOwnersV1 {
 #[derive(Debug)]
 pub enum WorldStateOwnerError {
     Scan(String),
+    RootSet(ExecutionError),
     Value(ValueTreeError),
     Memory(oasis7_proto::memory_budget::MemoryLimitExceeded),
     ResourceLimited(&'static str),
@@ -130,6 +136,7 @@ impl std::fmt::Display for WorldStateOwnerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Scan(error) => write!(f, "WorldState owner scan: {error}"),
+            Self::RootSet(error) => write!(f, "WorldState owner RootSet: {error}"),
             Self::Value(error) => error.fmt(f),
             Self::Memory(error) => error.fmt(f),
             Self::ResourceLimited(error) => write!(f, "WorldState owner resource limited: {error}"),
@@ -489,7 +496,7 @@ fn read_text_byte_member<R: ValueNodeReader>(
         record_bytes: max_value_bytes,
     };
     let info = if owner.payload_is_text() {
-        let mut payload_probe = Utf8Output::new(&mut discarded);
+        let mut payload_probe = Utf8Output::new(&mut discarded, "typed owner text payload UTF-8");
         let result = read_member_record_v1(
             value,
             key,
@@ -504,13 +511,13 @@ fn read_text_byte_member<R: ValueNodeReader>(
                 "typed owner semantic key profile",
             ));
         }
-        if payload_probe.invalid() {
+        if payload_probe.is_invalid() {
             return Err(WorldStateOwnerError::Invalid(
                 "typed owner text payload UTF-8",
             ));
         }
         let info = result.map_err(WorldStateOwnerError::Value)?;
-        if !payload_probe.complete() {
+        if !payload_probe.is_complete() {
             return Err(WorldStateOwnerError::Invalid(
                 "typed owner text payload UTF-8 framing",
             ));
@@ -646,10 +653,11 @@ fn read_u64_entry<R: ValueNodeReader>(
 /// the implemented scalar-u64, ID-set, number-map, text-map and byte-map
 /// descriptors, checks required metadata/member records, and returns explicit
 /// unsupported owners.
+/// The roots scanned are taken directly from `root_set`; the returned
+/// diagnostic binds their complete world/genesis/height/tick/root identity.
 /// Callers must reject the incomplete report before issuing a profile-3 receipt.
 pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader>(
-    roots: &[StateRootV1; 6],
-    body_id: [u8; 32],
+    root_set: &RootSetV1,
     state: &S,
     values: &mut ValueReadContext<'_, V>,
     state_io: &mut StateScanBudget,
@@ -664,6 +672,12 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         return Err(WorldStateOwnerError::Invalid("owner source pool/class"));
     }
     let memory = values.memory;
+    let root_set_charge = memory
+        .reserve(ROOT_SET_CANONICAL_MAX_BYTES, values.class)
+        .map_err(WorldStateOwnerError::Memory)?;
+    let root_set_digest = root_set.digest().map_err(WorldStateOwnerError::RootSet)?;
+    drop(root_set_charge);
+
     let seen_bytes = WORLD_STATE_FIELDS
         .len()
         .checked_mul(std::mem::size_of::<SeenField>())
@@ -679,7 +693,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
     }
     let mut module_instance_coverage = module_instances::Coverage::default();
     let mut unknown_owner = false;
-    for root in roots {
+    for root in &root_set.state {
         let mut scan = StateScanContext {
             source: state,
             memory,
@@ -1050,7 +1064,7 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
         )
         .map_err(WorldStateOwnerError::Memory)?;
     let report = UnsupportedWorldStateOwnersV1 {
-        body_id,
+        root_set_digest,
         unsupported_fields: fields_charge.retain(unsupported),
         runtime_registry_missing: true,
         cognition_registry_missing: true,

@@ -645,6 +645,8 @@ main_token_balances 与 node_asset_balances 均沿 WorldState/Map/Business 唯�
 
 完整 WorldState owner 检查对 `installed_module_targets` 要求其 Artifacts descriptor、Metadata 和每个原键对应的 Unit/Text 成员；对 `main_token_balances` 与 `node_asset_balances` 要求 Business descriptor、Metadata 和每个原键对应的 tag 9 身份/三数值 payload。检查将记录数、原键摘要、记录 kind、namespace、codec 与原身份 UTF-8 绑定，缺项、额外或类型错配均拒绝。该检查只闭合这三个已覆盖字段，不取代剩余 WorldState、Runtime/Cognition owner 的资格验证，也不授予安装、余额业务权限、激活或完整 GC 标记资格。
 
+Owner 覆盖诊断直接扫描传入 `RootSetV1` 的六个有序根，并保存该完整 RootSet 的 canonical digest；它不接受调用方任意选择的 body ID 作为状态身份。调用方仍须验证 CommitBody 与该 RootSet 的绑定，并检查诊断 digest 与已验证的根集一致。该 digest 仅标识被扫描的世界、genesis、height、simulation tick 和六个根，不证明原 authority 接受、owner 覆盖完整、Runtime/Cognition 闭合或 World 可激活。RootSet 编码缓冲在摘要计算前按其最大长度从 reader 的同一池/class 预留。
+
 
 ### 12.22 模块视觉实体与工件市场记录
 

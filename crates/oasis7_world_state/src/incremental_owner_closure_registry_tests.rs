@@ -4,7 +4,10 @@ use super::*;
 fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owners() {
     let fixture = fixture(true);
     let report = verify(&fixture, || false).unwrap();
-    assert_eq!(report.body_id(), [0x5a; 32]);
+    assert_eq!(
+        report.root_set_digest(),
+        root_set(&fixture).digest().unwrap()
+    );
     assert_eq!(report.checked_u64_fields(), 7);
     assert_eq!(report.checked_id_set_fields(), 5);
     assert_eq!(report.checked_number_map_fields(), 11);
@@ -23,6 +26,44 @@ fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owner
     assert!(report.runtime_registry_missing());
     assert!(report.cognition_registry_missing());
     assert!(!report.unsupported_fields().is_empty());
+}
+
+#[test]
+fn owner_coverage_digest_binds_the_complete_root_set_identity() {
+    let fixture = fixture(true);
+    let root_set = root_set(&fixture);
+    let report =
+        verify_with_root_set(&fixture, &root_set, MemoryClass::Ordinary, || false).unwrap();
+    let digest = root_set.digest().unwrap();
+    assert_eq!(report.root_set_digest(), digest);
+
+    let mut variants = Vec::new();
+    let mut changed = root_set.clone();
+    changed.world_id.push_str("-other");
+    variants.push(changed);
+    let mut changed = root_set.clone();
+    changed.genesis_config[0] ^= 1;
+    variants.push(changed);
+    let mut changed = root_set.clone();
+    changed.height += 1;
+    variants.push(changed);
+    let mut changed = root_set.clone();
+    changed.simulation_tick += 1;
+    variants.push(changed);
+    let mut changed = root_set.clone();
+    changed.state[0] = StateRootV1::empty(StateNamespaceV1::Business).unwrap();
+    variants.push(changed);
+
+    for changed in variants {
+        assert_ne!(changed.digest().unwrap(), report.root_set_digest());
+    }
+
+    let mut invalid = root_set;
+    invalid.state[0].namespace = StateNamespaceV1::Allocator;
+    assert!(matches!(
+        verify_with_root_set(&fixture, &invalid, MemoryClass::Ordinary, || false),
+        Err(WorldStateOwnerError::RootSet(_))
+    ));
 }
 
 #[test]

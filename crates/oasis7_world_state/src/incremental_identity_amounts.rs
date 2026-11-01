@@ -180,11 +180,11 @@ fn read_inner<R: ValueNodeReader, K: Write>(
     if let Some(error) = decoded.error.take() {
         return Err(error);
     }
-    if decoded.identity.invalid() {
+    if decoded.identity.is_invalid() {
         return Err(ValueTreeError::Invalid("balance identity UTF-8"));
     }
     let info = result?;
-    if !decoded.identity.complete() {
+    if !decoded.identity.is_complete() {
         return Err(ValueTreeError::Invalid("balance identity UTF-8"));
     }
     if decoded.header_bytes != 8

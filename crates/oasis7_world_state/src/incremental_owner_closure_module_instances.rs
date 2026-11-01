@@ -63,7 +63,7 @@ fn validate_member<R: ValueNodeReader>(
 
     let mut key_probe = OwnerSemanticKeyProbe::new(OwnerKeyKind::Text, max_value_bytes);
     let mut discarded = io::sink();
-    let mut utf8_payload = Utf8Output::new(&mut discarded);
+    let mut utf8_payload = Utf8Output::new(&mut discarded, "module instance text payload UTF-8");
     let mut fixed_payload = [0u8; 8];
 
     let info = match field {
@@ -86,7 +86,7 @@ fn validate_member<R: ValueNodeReader>(
                     "module instance semantic key profile",
                 ));
             }
-            if utf8_payload.invalid() {
+            if utf8_payload.is_invalid() {
                 return Err(WorldStateOwnerError::Invalid(
                     "module instance text payload UTF-8",
                 ));
@@ -143,11 +143,11 @@ fn validate_member<R: ValueNodeReader>(
     }
     let codec_matches = match field {
         F::InstanceId | F::ModuleId | F::Version | F::WasmHash | F::Owner => {
-            info.codec == MemberPayloadCodecV1::Text && utf8_payload.complete()
+            info.codec == MemberPayloadCodecV1::Text && utf8_payload.is_complete()
         }
         F::Target => {
             (info.codec == MemberPayloadCodecV1::Unit && info.payload_bytes == 0)
-                || (info.codec == MemberPayloadCodecV1::Text && utf8_payload.complete())
+                || (info.codec == MemberPayloadCodecV1::Text && utf8_payload.is_complete())
         }
         F::Active => {
             info.codec == MemberPayloadCodecV1::Bool

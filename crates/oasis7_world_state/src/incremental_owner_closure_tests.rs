@@ -11,10 +11,11 @@ use crate::{
     incremental_semantic_key::{SemanticKeyBudget, SemanticKeyV1, write_semantic_key_v1},
 };
 use oasis7_formal_protocol::{
+    incremental_execution::RootSetV1,
     incremental_record_root::RecordRootRefV1,
     incremental_state::{
-        MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StateRootV1, StateScanBudget,
-        StateWriteV1,
+        MerkleNodeReader, StateDeltaV1, StateNamespaceV1, StatePageWriter, StateRootV1,
+        StateScanBudget, StateWriteV1,
     },
     incremental_value::{
         ValueIoBudget, ValueNodeReader, ValueNodeWriter, ValueStreamWriter, ValueTreeError,
@@ -103,6 +104,7 @@ impl ValueNodeWriter for ValuePages {
         Ok(())
     }
 }
+impl StatePageWriter for ValuePages {}
 impl ValueNodeReader for ValuePages {
     fn read_node(
         &self,
@@ -111,9 +113,8 @@ impl ValueNodeReader for ValuePages {
         memory: &MemoryBudget,
         _class: MemoryClass,
     ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
-        let page = self
-            .pages
-            .borrow()
+        let pages = self.pages.borrow();
+        let page = pages
             .get(id)
             .cloned()
             .ok_or(ValueTreeError::Invalid("owner test missing value page"))?;
@@ -121,6 +122,53 @@ impl ValueNodeReader for ValuePages {
             return Err(ValueTreeError::Invalid("owner test value pool/class/bound"));
         }
         Ok(page)
+    }
+}
+
+struct FixtureRecordStore<'a> {
+    values: &'a mut ValuePages,
+    state: &'a StatePages,
+}
+
+impl ValueNodeWriter for FixtureRecordStore<'_> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        self.values.put_node(id, bytes)
+    }
+}
+
+impl ValueNodeReader for FixtureRecordStore<'_> {
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        self.values.read_node(id, max_bytes, memory, class)
+    }
+}
+
+impl StatePageWriter for FixtureRecordStore<'_> {
+    fn put_state_pages_cancelled(
+        &mut self,
+        delta: &ReservedValue<StateDeltaV1>,
+        memory: &MemoryBudget,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<(), ValueTreeError> {
+        self.values
+            .put_state_pages_cancelled(delta, memory, cancelled)?;
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        self.state.add_delta((**delta).clone());
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        Ok(())
     }
 }
 
@@ -216,6 +264,22 @@ fn marketplace_bids() -> Vec<crate::state::ModuleArtifactBidState> {
 }
 
 impl FixtureWriteContext<'_> {
+    fn add_child_delta(&mut self, delta: StateDeltaV1) {
+        for node in &delta.new_nodes {
+            let charge = self
+                .memory
+                .reserve(node.bytes.capacity(), MemoryClass::Ordinary)
+                .unwrap();
+            self.values
+                .put_node(
+                    *blake3::hash(&node.bytes).as_bytes(),
+                    charge.retain(node.bytes.clone()),
+                )
+                .unwrap();
+        }
+        self.state.add_delta(delta);
+    }
+
     fn make_member<K: SemanticKeyV1 + ?Sized>(
         &mut self,
         field: FieldDescriptor,
@@ -299,8 +363,75 @@ impl FixtureWriteContext<'_> {
             16 << 20,
         )
         .unwrap();
+        let child = delta.after.clone();
+        self.add_child_delta(delta);
+        self.finish_marketplace_root(owner, field, outer_key, child, issue);
+    }
+
+    fn finish_marketplace_bids_record(
+        &mut self,
+        owner: crate::incremental_module_marketplace::ModuleMarketplaceFieldV1,
+        field: FieldDescriptor,
+        outer_key: &str,
+        bids: &[crate::state::ModuleArtifactBidState],
+        mut child_writes: Vec<StateWriteV1>,
+        issue: Option<FixtureIssue>,
+    ) {
+        child_writes.sort_unstable_by(|left, right| left.key.cmp(&right.key));
+        assert!(
+            child_writes
+                .windows(2)
+                .all(|pair| pair[0].key < pair[1].key)
+        );
+        let _workspace = self.memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
+        let delta = StateDeltaV1::build(
+            StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
+            child_writes,
+            self.state,
+            16 << 20,
+        )
+        .unwrap();
         let mut child = delta.after.clone();
-        self.state.add_delta(delta);
+        self.add_child_delta(delta);
+
+        let mut remaining = u64::MAX;
+        let mut cancelled = || false;
+        {
+            let mut sink = FixtureRecordStore {
+                values: self.values,
+                state: self.state,
+            };
+            crate::incremental_module_marketplace::bid_membership::append_groups(
+                field,
+                &mut child,
+                bids,
+                &mut MemberRecordWriteContext {
+                    sink: &mut sink,
+                    memory: self.memory,
+                    io: self.value_io,
+                    key_work: self.key_work,
+                    limits: MemberRecordLimitsV1 {
+                        semantic_bytes: 1024,
+                        payload_bytes: 4096,
+                        record_bytes: 16 << 20,
+                    },
+                    cancelled: &mut cancelled,
+                },
+                &mut remaining,
+            )
+            .unwrap();
+        }
+        self.finish_marketplace_root(owner, field, outer_key, child, issue);
+    }
+
+    fn finish_marketplace_root<K: SemanticKeyV1 + ?Sized>(
+        &mut self,
+        owner: crate::incremental_module_marketplace::ModuleMarketplaceFieldV1,
+        field: FieldDescriptor,
+        outer_key: &K,
+        mut child: StateRootV1,
+        issue: Option<FixtureIssue>,
+    ) {
         if issue == Some(FixtureIssue::WrongModuleMarketplaceChildCount) {
             child.leaf_count = child.leaf_count.checked_add(1).unwrap();
         }
@@ -955,7 +1086,9 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
                                 &mut children,
                             );
                         }
-                        writer.finish_marketplace_record(owner, field, "bid-key", children, issue);
+                        writer.finish_marketplace_bids_record(
+                            owner, field, "bid-key", &bids, children, issue,
+                        );
                     }
                 }
             }
@@ -1108,11 +1241,35 @@ fn verify(
     fixture: &Fixture,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
-    verify_with_class(fixture, MemoryClass::Ordinary, cancelled)
+    verify_with_root_set(
+        fixture,
+        &root_set(fixture),
+        MemoryClass::Ordinary,
+        cancelled,
+    )
 }
 
 fn verify_with_class(
     fixture: &Fixture,
+    class: MemoryClass,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
+    verify_with_root_set(fixture, &root_set(fixture), class, cancelled)
+}
+
+fn root_set(fixture: &Fixture) -> RootSetV1 {
+    RootSetV1 {
+        world_id: "owner-coverage-test".into(),
+        genesis_config: [0x5a; 32],
+        height: 17,
+        simulation_tick: 29,
+        state: fixture.roots.clone(),
+    }
+}
+
+fn verify_with_root_set(
+    fixture: &Fixture,
+    root_set: &RootSetV1,
     class: MemoryClass,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<UnsupportedWorldStateOwnersV1>, WorldStateOwnerError> {
@@ -1133,8 +1290,7 @@ fn verify_with_class(
         leaves_remaining: 10_000,
     };
     verify_world_state_owner_coverage(
-        &fixture.roots,
-        [0x5a; 32],
+        root_set,
         &fixture.state,
         &mut values,
         &mut state_io,
