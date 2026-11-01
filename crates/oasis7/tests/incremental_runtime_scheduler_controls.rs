@@ -72,6 +72,13 @@ fn limits() -> MemberRecordLimitsV1 {
     }
 }
 fn seed(store: &IncrementalPageStore, memory: &MemoryBudget) -> RootSetV1 {
+    seed_cursor(store, memory, Some(""))
+}
+fn seed_cursor(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    cursor: Option<&str>,
+) -> RootSetV1 {
     let _caller = memory.reserve(128 << 10, MemoryClass::Ordinary).unwrap();
     let mut writer = store.value_session(physical());
     let mut rows = Vec::with_capacity(16);
@@ -81,7 +88,7 @@ fn seed(store: &IncrementalPageStore, memory: &MemoryBudget) -> RootSetV1 {
     };
     prepare_runtime_scheduler_controls_genesis_v1(
         &RuntimeSchedulerControlsRefV1 {
-            cursor: Some(""),
+            cursor,
             limits: &limits_source(),
             backpressure: &stats_source(),
             routing: &routing_source(),
@@ -93,7 +100,11 @@ fn seed(store: &IncrementalPageStore, memory: &MemoryBudget) -> RootSetV1 {
             key_work: &mut SemanticKeyBudget {
                 bytes_remaining: 1 << 20,
             },
-            limits: limits(),
+            limits: MemberRecordLimitsV1 {
+                payload_bytes: 165.max(cursor.map_or(0, |s| s.len() as u64)),
+                record_bytes: 4096.max(cursor.map_or(0, |s| s.len() as u64 + 4096)),
+                ..limits()
+            },
             cancelled: || false,
         },
         &mut work,
@@ -107,7 +118,8 @@ fn seed(store: &IncrementalPageStore, memory: &MemoryBudget) -> RootSetV1 {
     assert_eq!(work.cells_remaining, 0);
     assert_eq!(rows.len(), 16);
     let mut roots = RootSetV1::empty("scheduler-controls".into(), [0x63; 32]).unwrap();
-    for namespace in [StateNamespaceV1::Scheduler] {
+    {
+        let namespace = StateNamespaceV1::Scheduler;
         let state = store
             .state_session(physical(), MemoryClass::Ordinary)
             .unwrap();
@@ -255,3 +267,15 @@ fn scheduler_controls_root_only_cold_original_values() {
 
 #[path = "support/incremental_runtime_scheduler_operations.rs"]
 mod operations;
+
+#[path = "support/incremental_runtime_scheduler_schema.rs"]
+mod schema;
+
+#[path = "support/incremental_runtime_scheduler_pages.rs"]
+mod pages;
+
+#[path = "support/incremental_runtime_scheduler_faults.rs"]
+mod faults;
+
+#[path = "support/incremental_runtime_scheduler_scaling.rs"]
+mod scaling;
