@@ -253,7 +253,7 @@ fn persist_bid_change(
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
-    let values = store.value_session(physical());
+    let values = store.value_session(physical_bid_overlay_read());
     let mut transaction = ExecutionTransaction::begin(
         parent.clone(),
         [60 + operation_id; 32],
@@ -302,7 +302,7 @@ fn persist_bid_change(
         },
         cancelled: || false,
     };
-    let next = change_module_bid_overlay_v1(
+    let next_result = change_module_bid_overlay_v1(
         "bids/组件",
         &expected,
         change,
@@ -311,8 +311,29 @@ fn persist_bid_change(
         &mut write,
         &guard,
         &live,
-    )
-    .unwrap();
+    );
+    let read_logical_remaining = (
+        read.values.io.nodes_remaining,
+        read.values.io.read_bytes_remaining,
+        read.values.io.write_bytes_remaining,
+    );
+    let write_logical_remaining = (
+        write.io.nodes_remaining,
+        write.io.read_bytes_remaining,
+        write.io.write_bytes_remaining,
+    );
+    let state_read_error = state.take_read_error();
+    let state_physical_remaining = state.remaining_io().unwrap();
+    let value_physical_remaining = values.remaining_io().unwrap();
+    let writer_physical_remaining = value_writer.remaining_io().unwrap();
+    let next = next_result.unwrap_or_else(|error| {
+        panic!(
+            "bid change failed: {error:?}; state read error={state_read_error:?}; state physical={state_physical_remaining:?}; value physical={value_physical_remaining:?}; writer physical={writer_physical_remaining:?}; read logical={read_logical_remaining:?}; write logical={write_logical_remaining:?}; records remaining={remaining_records}"
+        )
+    });
+    eprintln!(
+        "bid overlay IO operation={operation_id}: state physical={state_physical_remaining:?}; value physical={value_physical_remaining:?}; writer physical={writer_physical_remaining:?}; read logical={read_logical_remaining:?}; write logical={write_logical_remaining:?}; records remaining={remaining_records}"
+    );
     assert_ne!(next, expected);
     let guard = transaction.guard();
     let prepared = transaction.seal(&guard, &live, 0).unwrap();
@@ -335,6 +356,17 @@ fn persist_bid_change(
         .unwrap();
     destination.persist_transition_pages(&verified).unwrap();
     verified.record.after.canonical_bytes().unwrap()
+}
+
+fn physical_bid_overlay_read() -> PageIoBudget {
+    // The two-member DeleteMatching overlay consumed 688,291 packed-page
+    // physical reads; retain a finite margin and the original 256 MiB cap.
+    PageIoBudget {
+        reads_remaining: 720_000,
+        read_bytes_remaining: 256 << 20,
+        writes_remaining: 100_000,
+        write_bytes_remaining: 256 << 20,
+    }
 }
 
 #[test]

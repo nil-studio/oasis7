@@ -297,7 +297,7 @@ fn verify_world_state_closure(
     let state = store
         .state_session(physical_full_scan(), MemoryClass::Ordinary)
         .unwrap();
-    let values = store.value_session(physical());
+    let values = store.value_session(physical_owner_coverage());
     // Generic value closure and owner qualification are one acceptance scan.
     // This is the sum of their former independent finite test allowances,
     // shared continuously across both phases.
@@ -363,16 +363,29 @@ fn verify_world_state_closure(
     let generic_value_bytes = (512 << 20) - value_context.io.read_bytes_remaining;
     let generic_value_output_bytes = (256 << 20) - value_context.io.write_bytes_remaining;
     let generic_physical = state.remaining_io().unwrap();
+    let generic_value_physical = values.remaining_io().unwrap();
 
-    let report = verify_world_state_owner_coverage(
+    let report_result = verify_world_state_owner_coverage(
         roots,
         &state,
         &mut value_context,
         &mut state_io,
         MAX_TEST_VALUE_BYTES,
         || false,
-    )
-    .unwrap();
+    );
+    let owner_state_remaining = state.remaining_io().unwrap();
+    let owner_value_remaining = values.remaining_io().unwrap();
+    let report = report_result.unwrap_or_else(|error| {
+        panic!(
+            "owner coverage failed: {error:?}; state physical remaining={owner_state_remaining:?}; value physical remaining={owner_value_remaining:?}; state logical remaining nodes={} bytes={} leaves={}; value logical remaining nodes={} bytes={} output_bytes={}",
+            state_io.nodes_remaining,
+            state_io.read_bytes_remaining,
+            state_io.leaves_remaining,
+            value_io.nodes_remaining,
+            value_io.read_bytes_remaining,
+            value_io.write_bytes_remaining,
+        )
+    });
     assert_eq!(report.checked_module_marketplace_fields(), 3);
     assert!(
         !report.unsupported_fields().is_empty(),
@@ -380,12 +393,12 @@ fn verify_world_state_closure(
     );
     assert!(state.take_read_error().is_none());
     drop(report);
-    let owner_value_nodes_remaining = value_context.io.nodes_remaining;
-    let owner_value_bytes_remaining = value_context.io.read_bytes_remaining;
-    let owner_value_output_remaining = value_context.io.write_bytes_remaining;
+    let owner_value_nodes_remaining = value_io.nodes_remaining;
+    let owner_value_bytes_remaining = value_io.read_bytes_remaining;
+    let owner_value_output_remaining = value_io.write_bytes_remaining;
     let physical_remaining = state.remaining_io().unwrap();
     eprintln!(
-        "combined generic+owner closure: generic_leaves={leaves}; generic scan nodes={generic_scan_nodes} bytes={generic_scan_bytes} leaves={generic_scan_leaves}; owner scan nodes={} bytes={} leaves={}; generic value nodes={generic_value_nodes} bytes={generic_value_bytes} output_bytes={generic_value_output_bytes}; owner value nodes={} bytes={} output_bytes={}; generic physical reads={} bytes={}; owner physical reads={} bytes={}",
+        "combined generic+owner closure: generic_leaves={leaves}; generic scan nodes={generic_scan_nodes} bytes={generic_scan_bytes} leaves={generic_scan_leaves}; owner scan nodes={} bytes={} leaves={}; generic value nodes={generic_value_nodes} bytes={generic_value_bytes} output_bytes={generic_value_output_bytes}; owner value nodes={} bytes={} output_bytes={}; generic state physical reads={} bytes={}; owner state physical reads={} bytes={}; generic value physical reads={} bytes={}; owner value physical reads={} bytes={}",
         generic_scan_nodes_remaining - state_io.nodes_remaining,
         generic_scan_bytes_remaining - state_io.read_bytes_remaining,
         generic_scan_leaves_remaining - state_io.leaves_remaining,
@@ -396,6 +409,10 @@ fn verify_world_state_closure(
         (256 << 20) - generic_physical.read_bytes_remaining,
         generic_physical.reads_remaining - physical_remaining.reads_remaining,
         generic_physical.read_bytes_remaining - physical_remaining.read_bytes_remaining,
+        OWNER_CLOSURE_VALUE_READS - generic_value_physical.reads_remaining,
+        (256 << 20) - generic_value_physical.read_bytes_remaining,
+        generic_value_physical.reads_remaining - owner_value_remaining.reads_remaining,
+        generic_value_physical.read_bytes_remaining - owner_value_remaining.read_bytes_remaining,
     );
     leaves
 }
@@ -578,6 +595,19 @@ fn physical_full_scan() -> PageIoBudget {
         // WorldState schema at up to 256 leaves per scan; bytes stay at the
         // normal physical fixture limit.
         reads_remaining: 2_000_000,
+        read_bytes_remaining: 256 << 20,
+        writes_remaining: 100_000,
+        write_bytes_remaining: 256 << 20,
+    }
+}
+
+// The largest observed owner scan used 120,414 physical value reads. Keep a
+// finite margin without widening its independent 256 MiB byte allowance.
+const OWNER_CLOSURE_VALUE_READS: u64 = 128_000;
+
+fn physical_owner_coverage() -> PageIoBudget {
+    PageIoBudget {
+        reads_remaining: OWNER_CLOSURE_VALUE_READS,
         read_bytes_remaining: 256 << 20,
         writes_remaining: 100_000,
         write_bytes_remaining: 256 << 20,
