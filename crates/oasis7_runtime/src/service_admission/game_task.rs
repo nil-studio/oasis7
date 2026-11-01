@@ -319,6 +319,41 @@ fn select_current<'a>(
     }
     Ok(current)
 }
+/// Validate an already resident canonical task chain without invoking the cold
+/// history reader. Missing predecessors remain unavailable; permanent guarded
+/// records never substitute for their canonical Create/Publish/Bind history.
+/// This is only local Runtime integrity, not formal publication qualification.
+pub(crate) fn resident_task_history(world: &World) -> Result<ResidentTaskHistory<'_>, String> {
+    crate::world::task_terminal_v2::validate_index(world)?;
+    crate::world::task_stop_v2::validate_index(world)?;
+    let history = world
+        .capability_revocation_state()
+        .world_service_results
+        .iter()
+        .map(|(key, value)| correlation::validate_result_record(key, value))
+        .collect::<Result<Vec<_>, _>>()?;
+    let tasks = reduce(world, history)?;
+    Ok(ResidentTaskHistory { world, tasks })
+}
+
+/// An in-process resident-history proof. No wire constructor or cold reader.
+pub struct ResidentTaskHistory<'a> {
+    world: &'a World,
+    tasks: BTreeMap<String, ReducedTask>,
+}
+impl ResidentTaskHistory<'_> {
+    pub fn current_control(&self, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
+        let control =
+            select_current(self.world, agent, &self.tasks)?.map(|task| task.control.clone());
+        if let Some(control) = &control {
+            ensure_task_not_closed(self.world, &control.task_id)?;
+        } else if task_scope::has_closed_in_current_scope(self.world, agent)? {
+            return Err("closed task requires explicit V2 task identity".into());
+        }
+        Ok(control)
+    }
+}
+
 /// Validate every historical task chain, including currently revoked owners.
 pub fn validate_history(world: &World) -> Result<(), String> {
     crate::world::task_terminal_v2::validate_index(world)?;

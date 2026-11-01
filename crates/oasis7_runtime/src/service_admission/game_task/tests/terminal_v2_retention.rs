@@ -110,6 +110,7 @@ fn terminal_v2_actual_retention_prunes_v1_prefix_but_guarded_stop_cold_restore_k
         .is_err()
     );
     assert!(prepare_create(&restored, &request(&owner, "create"), []).is_err());
+    assert!(restored.resident_guarded_task_history().is_err());
     let history = validate_retention_history(&restored).unwrap();
     let fence = GameTaskFenceV1::from_control(&initial);
     assert!(

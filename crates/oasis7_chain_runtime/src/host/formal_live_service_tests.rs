@@ -64,7 +64,9 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
         self.business_reads.fetch_add(1, Ordering::SeqCst);
         // This fixture has no business result. It proves exact-cut selection
         // without fabricating a qualified outcome or an absence proof.
-        Err(FormalReadError::HistoryUnavailable("test exact fixed publication selected; business proof unavailable".into()))
+        Err(FormalReadError::HistoryUnavailable(
+            "test exact fixed publication selected; business proof unavailable".into(),
+        ))
     }
     fn origin_publication(
         &self,
@@ -74,9 +76,14 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
         FormalReadPublication::new(self.anchor.clone(), self.world.lock().unwrap().clone())
     }
 
-    fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, FormalReadError> {
+    fn fixed_publication(
+        &self,
+        commit: &CommitRef,
+    ) -> Result<FormalReadPublication, FormalReadError> {
         if self.fixed.lock().unwrap().as_ref() != Some(commit) {
-            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: fixed commit is not in the exact test history".into()));
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: fixed commit is not in the exact test history".into(),
+            ));
         }
         FormalReadPublication::new(self.anchor.clone(), self.world.lock().unwrap().clone())
     }
@@ -88,10 +95,14 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
         max_steps: usize,
     ) -> Result<FormalReadPublication, FormalReadError> {
         if max_steps > MAX_FORMAL_HISTORY_STEPS {
-            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: test resolver page exceeds the bound".into()));
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: test resolver page exceeds the bound".into(),
+            ));
         }
         if !same_anchor(origin, &self.anchor)? || !same_anchor(live, &self.anchor)? {
-            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: current-only test has no forward history".into()));
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: current-only test has no forward history".into(),
+            ));
         }
         FormalReadPublication::new(self.anchor.clone(), self.world.lock().unwrap().clone())
     }
@@ -104,7 +115,9 @@ impl FormalLiveHistoryResolver for CurrentOnlyResolver {
     ) -> Result<FormalReadHistoryV1, FormalReadError> {
         assert!(max_steps <= MAX_FORMAL_HISTORY_STEPS);
         if !same_anchor(origin, target)? {
-            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: current-only test has no intervening proof".into()));
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: current-only test has no intervening proof".into(),
+            ));
         }
         Ok(FormalReadHistoryV1 {
             schema_version: 1,
@@ -427,6 +440,7 @@ fn signed_submit_queues_real_node_action_without_mutating_world_and_lookup_fails
         current: Mutex::new(Some(PublishedReadCut {
             world: world.clone(),
             anchor: anchor.clone(),
+            stop_publication: None,
         })),
         ..PublishedReadState::default()
     });
@@ -796,3 +810,6 @@ fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signatu
 
 #[path = "formal_live_read_error_tests.rs"]
 mod read_error_tests;
+
+#[path = "formal_live_stop_record_http_tests.rs"]
+mod stop_record_http_tests;

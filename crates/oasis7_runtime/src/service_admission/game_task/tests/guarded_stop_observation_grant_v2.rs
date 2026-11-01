@@ -41,6 +41,11 @@ fn guarded_stop_v2_observation_grant_is_permanent_and_close_witness_bound() {
         current_control(&world, "agent").unwrap(),
         current_control(&ordinary, "agent").unwrap()
     );
+    let resident = world.resident_guarded_task_history().unwrap();
+    assert_eq!(
+        resident.current_control("agent").unwrap(),
+        current_control(&world, "agent").unwrap()
+    );
     let intent = GameOwnStopIntentV2 {
         profile: GameStopIntentProfileV2::GuardedTaskStopV2,
         operation_id: stop.request.client_operation_id.clone(),

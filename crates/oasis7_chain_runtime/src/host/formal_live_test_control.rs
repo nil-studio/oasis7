@@ -14,6 +14,7 @@ pub(crate) enum Point {
     BeforeResume,
     CandidateSaved,
     Published,
+    StopRecordPrepared,
 }
 
 #[derive(Clone, Debug)]
@@ -208,6 +209,19 @@ impl BoundaryState {
             state = next;
         }
         Ok(())
+    }
+
+    pub(crate) fn stop_record_prepared(&self, position: u64) -> Result<(), String> {
+        self.arrive(
+            Observation {
+                point: Point::StopRecordPrepared,
+                position,
+                record_id: None,
+                node_block_hash: None,
+                action_count: 0,
+            },
+            None,
+        )
     }
 
     pub(crate) fn published(&self, position: u64) -> Result<(), String> {

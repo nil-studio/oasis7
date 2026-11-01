@@ -507,3 +507,28 @@ mod tests {
         assert!(service.read(&signed, &origin, &history).is_err());
     }
 }
+
+/// A network-free exact local cut for the closed Stop observation. Its anchor
+/// remains an opaque verified formal anchor; no public CommitRef can mint it.
+pub struct LocalStopPublication {
+    world: World,
+    commit: CommitRef,
+}
+impl LocalStopPublication {
+    /// Consume the actual full publication producer's successful projection-
+    /// root check; a public anchor/World pair cannot construct this token.
+    pub fn from_publication(publication: FormalReadPublication) -> FormalReadResult<Self> {
+        let view = publication.projection("public", "")?;
+        let commit = committed_reference(&publication.anchor, &view)?;
+        Ok(Self {
+            world: publication.world,
+            commit,
+        })
+    }
+    pub(crate) fn world(&self) -> &World {
+        &self.world
+    }
+    pub(crate) fn commit(&self) -> &CommitRef {
+        &self.commit
+    }
+}

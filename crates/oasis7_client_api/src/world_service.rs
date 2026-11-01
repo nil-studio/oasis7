@@ -599,3 +599,5 @@ pub mod task_context_projection;
 pub mod task_cleanup_v2;
 
 pub mod task_stop_v2;
+
+pub mod task_stop_record_control_v2;

@@ -185,3 +185,14 @@ impl World {
         Ok(record)
     }
 }
+
+impl World {
+    /// No cold reader: only complete already resident predecessors qualify.
+    pub fn resident_guarded_task_history(
+        &self,
+    ) -> Result<crate::service_admission::game_task::ResidentTaskHistory<'_>, String> {
+        self.verify_capability_authorization_root()
+            .map_err(|e| format!("{e:?}"))?;
+        crate::service_admission::game_task::resident_task_history(self)
+    }
+}

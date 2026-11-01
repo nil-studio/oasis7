@@ -64,3 +64,8 @@ pub mod starter;
 mod task_cleanup_v2_formal_projection_tests;
 
 pub mod task_cleanup_v2_observation;
+
+pub mod task_stop_record_control_v2;
+
+#[cfg(test)]
+mod task_stop_record_control_v2_tests;
