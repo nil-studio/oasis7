@@ -868,7 +868,16 @@ impl OriginalObjectStreamReader for PatternStream<'_> {
         _: &MemoryBudget,
         output: &mut dyn Write,
     ) -> std::io::Result<u64> {
-        assert_eq!(*id, self.original);
+        if *id != self.original {
+            let bytes = self
+                .objects
+                .values
+                .get(id)
+                .ok_or(std::io::ErrorKind::NotFound)?;
+            assert!(bytes.len() as u64 <= max);
+            output.write_all(bytes)?;
+            return Ok(bytes.len() as u64);
+        }
         assert!(self.length as u64 <= max);
         let mut remaining = self.length;
         while remaining != 0 {
@@ -879,6 +888,87 @@ impl OriginalObjectStreamReader for PatternStream<'_> {
             remaining -= n;
         }
         Ok(self.length as u64)
+    }
+}
+
+#[test]
+fn current_observation_binding_streams_large_events_under_an_eight_mib_pool() {
+    for length in [(32 << 20) + 17, (64 << 20) + 17] {
+        let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+        let s = fixture::incremental::setup_with_memory(memory);
+        let charge = s
+            .memory
+            .reserve(
+                crate::incremental_value::VALUE_CHUNK_BYTES,
+                MemoryClass::Ordinary,
+            )
+            .unwrap();
+        let chunk = charge.retain(vec![b'x'; crate::incremental_value::VALUE_CHUNK_BYTES]);
+        let mut hash = blake3::Hasher::new();
+        let mut remaining = length;
+        while remaining != 0 {
+            let n = remaining.min(chunk.len());
+            hash.update(&chunk[..n]);
+            remaining -= n;
+        }
+        let id = *hash.finalize().as_bytes();
+        let history = event_history(&s, id);
+        let head = accepted(&s, &history);
+        let candidate = candidate(&s, head.record().clone());
+        let (mut objects, pages) = sources(&s, &history);
+        let peak = Cell::new(s.memory.used());
+        let full_reads = Cell::new(0);
+        let mut stream = PatternStream {
+            objects: &mut objects,
+            original: id,
+            length,
+            chunk,
+            peak: &peak,
+            full_reads: &full_reads,
+        };
+        let core = verify_commit_core(
+            &request(&s, &candidate),
+            &mut stream,
+            &pages,
+            &s.memory,
+            &mut budget(),
+            || false,
+        )
+        .unwrap();
+        let observed = verify_fact_originals(
+            &core,
+            &mut stream,
+            &s.memory,
+            &mut FactBudget {
+                facts_remaining: 2,
+                original_bytes_remaining: length as u64 + (1 << 20),
+                max_fact_bytes: length as u64,
+            },
+            || false,
+        )
+        .unwrap();
+        drop(stream);
+        drop(objects);
+        drop(pages);
+        let proof = bind_checked_current_event_fact_v1(
+            &CurrentEventFactRequestV1 {
+                head: &head,
+                core: &core,
+                originals: &observed,
+                ordinal: 1,
+            },
+            &s.memory,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(proof.original_bytes(), length as u64);
+        assert_eq!(proof.location().original, id);
+        assert_eq!(full_reads.get(), 0);
+        eprintln!(
+            "current raw Event bytes={length} pool_limit={} stream_observed_reserved_peak={}",
+            8 << 20,
+            peak.get()
+        );
     }
 }
 #[test]

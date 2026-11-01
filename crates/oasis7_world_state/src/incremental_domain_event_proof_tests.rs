@@ -63,6 +63,32 @@ fn concrete_domain_matches_signed_history_and_keeps_original_borrow_and_charge()
 }
 
 #[test]
+fn current_fact_observations_feed_the_same_concrete_domain_and_mailbox_consumer() {
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let event = event();
+    let raw = test_support::current_provenance(&event, &memory);
+    let mut context =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    let proof = verify_domain_event_occurrence_v1(&request(&event, &raw), &mut context).unwrap();
+    let id = verified_mailbox_domain_original_v1(
+        &MailboxDomainProofRequestV1 {
+            domain: proof.domain(),
+            proof: &proof,
+            expected_original: raw.location().original,
+            expected_head_record: raw.head_record_id(),
+            expected_roots: raw.roots_id(),
+        },
+        &mut context,
+    )
+    .unwrap();
+    assert_eq!(
+        id,
+        *blake3::hash(&oasis7_wasm_abi::encode_canonical_cbor(&event).unwrap()).as_bytes()
+    );
+    assert!(!context.is_poisoned());
+}
+
+#[test]
 fn domain_identity_type_pool_and_same_length_content_mismatches_poison() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
     let event = event();
