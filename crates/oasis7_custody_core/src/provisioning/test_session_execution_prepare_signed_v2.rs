@@ -14,6 +14,15 @@ pub struct ExecutionPrepareSignedOriginalV2 {
     pub access: EntryExecutorAccessV1,
     pub request: TaskContextPrepareAttestationRequestV2,
 }
+impl ExecutionPrepareSignedOriginalV2 {
+    /// Exact existing public-original commitment; this does not verify a
+    /// signer, Current, payment or dispatch permission.
+    pub fn commitment_digest(&self) -> core::result::Result<String, String> {
+        oasis7_wasm_abi::encode_canonical_cbor(self)
+            .map(|bytes| crate::approval::bytes_digest(&bytes))
+            .map_err(|e| e.to_string())
+    }
+}
 impl PartialEq for ExecutionPrepareSignedOriginalV2 {
     fn eq(&self, other: &Self) -> bool {
         match (

@@ -234,10 +234,7 @@ impl NativeExecutionPrepareRequestV2 {
     pub fn wire_bytes(&self) -> Result<Vec<u8>, String> {
         self.proof.wire_bytes()?;
         if self.proof.certificate.original_digest
-            != crate::approval::bytes_digest(
-                &oasis7_wasm_abi::encode_canonical_cbor(self.original.as_ref())
-                    .map_err(|_| invalid())?,
-            )
+            != self.original.commitment_digest().map_err(|_| invalid())?
         {
             return Err(invalid());
         }
