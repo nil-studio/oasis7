@@ -11,8 +11,10 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFactKindV1, ExecutionFactRefV1},
     incremental_history::{CatalogRootV1, HeaderPreparation},
     incremental_material::{
-        CoreBudget, EventFactLocationV1, EventFactReadContextV1, EventFactRequestV1, FactBudget,
-        OriginalObjectReader, OriginalObjectStreamReader, verify_event_fact_occurrence_v1,
+        CoreBudget, CoreRequest, CurrentEventFactRequestV1, EventFactLocationV1,
+        EventFactReadContextV1, EventFactRequestV1, FactBudget, OriginalObjectReader,
+        OriginalObjectStreamReader, bind_checked_current_event_fact_v1, verify_commit_core,
+        verify_event_fact_occurrence_v1, verify_fact_originals,
     },
     incremental_state::MerkleNodeReader,
 };
@@ -57,32 +59,63 @@ impl OriginalObjectStreamReader for Source {
         _: &MemoryBudget,
         out: &mut dyn Write,
     ) -> io::Result<u64> {
-        if id != &self.id || self.original.len() as u64 > max {
+        let bytes = if id == &self.id {
+            &self.original
+        } else {
+            self.headers.get(id).ok_or(io::ErrorKind::NotFound)?
+        };
+        if bytes.len() as u64 > max {
             return Err(io::ErrorKind::InvalidInput.into());
         }
-        for part in self.original.chunks(8192) {
+        for part in bytes.chunks(8192) {
             out.write_all(part)?;
         }
-        Ok(self.original.len() as u64)
+        Ok(bytes.len() as u64)
     }
 }
-struct NoPages(MemoryBudget);
-impl MerkleNodeReader for NoPages {
-    type Node = Vec<u8>;
+struct Page(Arc<ReservedValue<Vec<u8>>>);
+impl AsRef<[u8]> for Page {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+struct Pages {
+    memory: MemoryBudget,
+    nodes: BTreeMap<String, Arc<ReservedValue<Vec<u8>>>>,
+}
+impl MerkleNodeReader for Pages {
+    type Node = Page;
     fn allocation_budget(&self) -> Option<&MemoryBudget> {
-        Some(&self.0)
+        Some(&self.memory)
     }
     fn allocation_class(&self) -> Option<MemoryClass> {
         Some(MemoryClass::Ordinary)
     }
-    fn read_node(&self, _: &str, _: usize) -> Result<Option<Self::Node>, String> {
-        Err("genesis occurrence must not read ancestors".into())
+    fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
+        let node = self.nodes.get(id).ok_or("fixture catalog page missing")?;
+        if node.len() > max {
+            return Err("fixture catalog page allowance".into());
+        }
+        Ok(Some(Page(node.clone())))
     }
 }
 
 pub fn provenance(
     event: &WorldEvent,
     memory: &MemoryBudget,
+) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
+    provenance_with_current(event, memory, false)
+}
+pub fn current_provenance(
+    event: &WorldEvent,
+    memory: &MemoryBudget,
+) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
+    provenance_with_current(event, memory, true)
+}
+fn provenance_with_current(
+    event: &WorldEvent,
+    memory: &MemoryBudget,
+    current: bool,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
     let s = incremental::setup_with_memory(memory.clone());
     // The original, unchanged encoder is the independent byte oracle.
@@ -132,8 +165,21 @@ pub fn provenance(
         6,
     );
     let head = formal::verify_formal_qualified(&proof, &s.authority, None, None).unwrap();
-    let (objects, _) = incremental::core_objects(&s, &history);
+    let (objects, catalog) = incremental::core_objects(&s, &history);
     let metadata = memory.reserve(64 << 10, MemoryClass::Ordinary).unwrap();
+    let mut pages = Pages {
+        memory: memory.clone(),
+        nodes: BTreeMap::new(),
+    };
+    for node in &catalog.new_nodes {
+        let charge = memory
+            .reserve(node.bytes.capacity() + 128, MemoryClass::Ordinary)
+            .unwrap();
+        pages.nodes.insert(
+            node.digest.clone(),
+            Arc::new(charge.retain(node.bytes.clone())),
+        );
+    }
     let mut source = Source {
         memory: memory.clone(),
         headers: objects
@@ -144,6 +190,66 @@ pub fn provenance(
         id,
         _metadata: metadata,
     };
+    if current {
+        let signed = formal::SignedCanonicalCandidateV1 {
+            record: head.record().clone(),
+            writer_signature_hex: fixture::sign(
+                formal::canonical_candidate_signing_bytes(head.record()).unwrap(),
+                4,
+            ),
+        };
+        let candidate = formal::verify_formal_candidate(
+            &signed,
+            None,
+            &s.authority,
+            None,
+            None,
+            formal::FormalCompletionBranchV1::Normal,
+        )
+        .unwrap();
+        let core = verify_commit_core(
+            &CoreRequest {
+                candidate: &candidate,
+                original_authority: &s.authority,
+                parent: None,
+                max_pending_node_bytes: 4 << 20,
+            },
+            &mut source,
+            &pages,
+            memory,
+            &mut CoreBudget {
+                objects_remaining: 32,
+                original_bytes_remaining: 1 << 20,
+                new_pages_remaining: 4096,
+                merkle_reads_remaining: 10000,
+            },
+            || false,
+        )
+        .unwrap();
+        let observed = verify_fact_originals(
+            &core,
+            &mut source,
+            memory,
+            &mut FactBudget {
+                facts_remaining: 2,
+                original_bytes_remaining: 1 << 20,
+                max_fact_bytes: 1 << 20,
+            },
+            || false,
+        )
+        .unwrap();
+        return bind_checked_current_event_fact_v1(
+            &CurrentEventFactRequestV1 {
+                head: &head,
+                core: &core,
+                originals: &observed,
+                ordinal: 1,
+            },
+            memory,
+            || false,
+        )
+        .unwrap();
+    }
     verify_event_fact_occurrence_v1(
         &EventFactRequestV1 {
             head: &head,
@@ -156,7 +262,7 @@ pub fn provenance(
         },
         &mut EventFactReadContextV1 {
             originals: &mut source,
-            catalog_pages: &NoPages(memory.clone()),
+            catalog_pages: &pages,
             memory,
             class: MemoryClass::Ordinary,
             core_budget: &mut CoreBudget {
