@@ -455,7 +455,6 @@ pub(crate) fn select_ordinal<R: ValueNodeReader, C: FnMut() -> bool>(
 /// Resolve a stable bid ID to its current Vec ordinal by following the
 /// authenticated parent links. The traversal uses a fixed path buffer and
 /// shares the caller's value/key budgets with the enclosing owner operation.
-#[cfg(test)]
 #[expect(
     clippy::too_many_arguments,
     reason = "Keeps the root, classed reader, bounds, and cancellation callback explicit for one shared traversal."
@@ -531,6 +530,86 @@ pub(crate) fn ordinal_of_id<R: ValueNodeReader, C: FnMut() -> bool>(
         }
         current_id = parent_id;
         current = parent;
+    }
+    Err(ValueTreeError::ResourceLimited(
+        "marketplace bid index depth",
+    ))
+}
+
+/// Find the insertion rank for a stable ID in a tree whose in-order sequence
+/// is strictly increasing by ID. Full owner qualification proves that order;
+/// this bounded traversal verifies the local parent path and cached sizes.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Keeps root identity, classed reads, semantic work, limits and cancellation explicit."
+)]
+pub(crate) fn rank_of_id<R: ValueNodeReader, C: FnMut() -> bool>(
+    root: &StateRootV1,
+    descriptor: crate::incremental_projection::FieldDescriptor,
+    root_id: u64,
+    length: u64,
+    target_id: u64,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    semantic_limit: u64,
+    record_limit: u64,
+    cancelled: &mut C,
+) -> Result<(u64, bool), ValueTreeError> {
+    if (length == 0) != (root_id == NO_BID_ID) || target_id == NO_BID_ID {
+        return Err(ValueTreeError::Invalid(
+            "marketplace bid index root profile",
+        ));
+    }
+    let mut node_id = root_id;
+    let mut parent_id = NO_BID_ID;
+    let mut rank = 0u64;
+    let mut path = [NO_BID_ID; MAX_BID_INDEX_DEPTH];
+    for depth in 0..MAX_BID_INDEX_DEPTH {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        if node_id == NO_BID_ID {
+            return Ok((rank, false));
+        }
+        if path[..depth].contains(&node_id) {
+            return Err(ValueTreeError::Invalid("marketplace bid index cycle"));
+        }
+        path[depth] = node_id;
+        let node = read_node(
+            root,
+            descriptor,
+            node_id,
+            values,
+            key_work,
+            semantic_limit,
+            record_limit,
+            cancelled,
+        )?;
+        if node.parent_id != parent_id {
+            return Err(ValueTreeError::Invalid("marketplace bid index parent link"));
+        }
+        let summary = node.summary()?;
+        if summary.size > length || (depth == 0 && summary.size != length) {
+            return Err(ValueTreeError::Invalid("marketplace bid index size"));
+        }
+        if target_id == node_id {
+            return Ok((
+                rank.checked_add(node.left_size)
+                    .ok_or(ValueTreeError::Invalid("marketplace bid index rank"))?,
+                true,
+            ));
+        }
+        if target_id < node_id {
+            parent_id = node_id;
+            node_id = node.left_id;
+        } else {
+            rank = rank
+                .checked_add(node.left_size)
+                .and_then(|value| value.checked_add(1))
+                .ok_or(ValueTreeError::Invalid("marketplace bid index rank"))?;
+            parent_id = node_id;
+            node_id = node.right_id;
+        }
     }
     Err(ValueTreeError::ResourceLimited(
         "marketplace bid index depth",

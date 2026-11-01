@@ -32,7 +32,28 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;
+use std::cell::RefCell;
 use std::io::{self, Write};
+
+#[path = "incremental_module_marketplace_bid_overlay_membership.rs"]
+mod membership;
+
+struct CancellationPair<'a, C, CW> {
+    context: RefCell<&'a mut C>,
+    writer: RefCell<&'a mut CW>,
+}
+
+impl<C: FnMut() -> bool, CW: FnMut() -> bool> CancellationPair<'_, C, CW> {
+    fn is_cancelled(&self) -> bool {
+        let mut context = self.context.borrow_mut();
+        if (**context)() {
+            return true;
+        }
+        drop(context);
+        let mut writer = self.writer.borrow_mut();
+        (**writer)()
+    }
+}
 
 const BID_RECORD_FIELDS: [&str; 6] = [
     "present",
@@ -43,7 +64,7 @@ const BID_RECORD_FIELDS: [&str; 6] = [
     "bid_at",
 ];
 
-/// One ordinal insertion or deletion from a bid Vec.
+/// A bounded bid sequence or identity mutation.
 #[derive(Debug, Clone, Copy)]
 pub enum ModuleArtifactBidChangeV1<'a> {
     Insert {
@@ -54,6 +75,18 @@ pub enum ModuleArtifactBidChangeV1<'a> {
         ordinal: u64,
         expected_order_id: u64,
         expected_bidder_agent_id: &'a str,
+    },
+    DeleteMatching {
+        order_id: u64,
+        bidder_agent_id: &'a str,
+        expected_matches: u64,
+    },
+    UpdateIdentity {
+        ordinal: u64,
+        expected_order_id: u64,
+        expected_bidder_agent_id: &'a str,
+        after_order_id: u64,
+        after_bidder_agent_id: &'a str,
     },
 }
 
@@ -106,7 +139,7 @@ fn require_member_root<R: ValueNodeReader, C: FnMut() -> bool>(
         key_work,
         semantic_limit,
         record_limit,
-        cancelled,
+        &mut *cancelled,
     )?;
     let value_root =
         incremental_record_tree::get(root, &key, values, cancelled, RECORD_TREE_LABELS)?
@@ -138,7 +171,7 @@ fn read_bid_text_equals<R: ValueNodeReader, C: FnMut() -> bool>(
         key_work,
         semantic_limit,
         record_limit,
-        cancelled,
+        &mut *cancelled,
     )?;
     let mut compare = ExactBytes {
         expected: expected.as_bytes(),
@@ -250,6 +283,190 @@ where
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Deletes one authenticated stable ID while sharing the primary root and transaction budgets."
+)]
+fn delete_stable_bid<R, W, C, CW>(
+    root: &mut StateRootV1,
+    descriptor: FieldDescriptor,
+    stable_id: u64,
+    order_id: u64,
+    bidder_agent_id: &str,
+    sequence_root_id: u64,
+    length: u64,
+    length_root: [u8; 32],
+    sequence_root_field_root: [u8; 32],
+    values: &mut ValueReadContext<'_, R>,
+    read_key_work: &mut SemanticKeyBudget,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    cancelled: &mut C,
+    remaining_records: &mut u64,
+) -> Result<(u64, u64, [u8; 32], [u8; 32]), ValueTreeError>
+where
+    R: ValueNodeReader,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    C: FnMut() -> bool,
+    CW: FnMut() -> bool,
+{
+    let ordinal = bid_index::ordinal_of_id(
+        root,
+        descriptor,
+        sequence_root_id,
+        stable_id,
+        values,
+        read_key_work,
+        write.limits.semantic_bytes,
+        write.limits.record_bytes,
+        cancelled,
+    )?;
+    let (actual_order_id, _) = bid_index::read_u64_member(
+        root,
+        descriptor,
+        &(("bid", stable_id), "order_id"),
+        values,
+        read_key_work,
+        write.limits.semantic_bytes,
+        write.limits.record_bytes,
+        cancelled,
+    )?;
+    if actual_order_id != order_id
+        || !read_bid_text_equals(
+            root,
+            descriptor,
+            stable_id,
+            bidder_agent_id,
+            values,
+            read_key_work,
+            write.limits.semantic_bytes,
+            write.limits.record_bytes,
+            cancelled,
+        )?
+    {
+        return Err(ValueTreeError::Invalid(
+            "marketplace bid membership source mismatch",
+        ));
+    }
+    let marker = (("bid", stable_id), "present");
+    let (marker_root, marker_key, marker_semantic) = require_member_root(
+        root,
+        descriptor,
+        &marker,
+        values,
+        read_key_work,
+        write.limits.semantic_bytes,
+        write.limits.record_bytes,
+        cancelled,
+    )?;
+    let marker_info = read_member_record_profile_v1(
+        &marker_root,
+        &marker_key,
+        values,
+        MemberReadProfileV1 {
+            codec: MemberPayloadCodecV1::Unit,
+            semantic_bytes: marker_semantic,
+            limits: write.limits,
+        },
+        &mut io::sink(),
+        &mut io::sink(),
+        &mut *cancelled,
+    )?;
+    if marker_info.payload_bytes != 0 {
+        return Err(ValueTreeError::Invalid("marketplace bid marker profile"));
+    }
+    let (next_root, summary) = bid_index::delete_at(
+        root,
+        descriptor,
+        sequence_root_id,
+        ordinal,
+        values,
+        read_key_work,
+        write.limits.semantic_bytes,
+        write.limits.record_bytes,
+        write,
+        &mut *cancelled,
+        remaining_records,
+    )?;
+    let next_length = length
+        .checked_sub(1)
+        .ok_or(ValueTreeError::Invalid("marketplace bid length underflow"))?;
+    if summary.size != next_length || (next_length == 0) != (next_root == bid_index::NO_BID_ID) {
+        return Err(ValueTreeError::Invalid("marketplace bid delete size"));
+    }
+    for name in BID_RECORD_FIELDS {
+        delete_bid_member(
+            root,
+            descriptor,
+            stable_id,
+            name,
+            values,
+            write,
+            cancelled,
+            remaining_records,
+        )?;
+    }
+    let next_length_root = update_scalar(
+        root,
+        descriptor,
+        "length",
+        length_root,
+        next_length,
+        values,
+        write,
+        cancelled,
+        remaining_records,
+    )?;
+    let next_sequence_root_field = update_scalar(
+        root,
+        descriptor,
+        "sequence_root_id",
+        sequence_root_field_root,
+        next_root,
+        values,
+        write,
+        cancelled,
+        remaining_records,
+    )?;
+    Ok((
+        next_root,
+        next_length,
+        next_length_root,
+        next_sequence_root_field,
+    ))
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Replaces one bidder payload while preserving the same field root and shared transaction budgets."
+)]
+fn update_bidder_member<R, W, C, CW>(
+    root: &mut StateRootV1,
+    descriptor: FieldDescriptor,
+    stable_id: u64,
+    bidder_agent_id: &str,
+    values: &mut ValueReadContext<'_, R>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    cancelled: &mut C,
+    remaining_records: &mut u64,
+) -> Result<(), ValueTreeError>
+where
+    R: ValueNodeReader,
+    W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
+    C: FnMut() -> bool,
+    CW: FnMut() -> bool,
+{
+    membership::update_bidder_text(
+        root,
+        descriptor,
+        stable_id,
+        bidder_agent_id,
+        values,
+        write,
+        cancelled,
+        remaining_records,
+    )
+}
+
 fn encode_bid(price_kind: ResourceKind) -> u64 {
     match price_kind {
         ResourceKind::Electricity => 0,
@@ -318,7 +535,6 @@ pub fn change_module_bid_overlay_v1<
     guard: &PreparedGuard,
     live: &ExecutionFence,
 ) -> Result<RecordRootRefV1, WorldFieldOverlayErrorV1> {
-    let cancelled = &mut context.cancelled;
     let state_error = &mut context.take_state_error;
     context.transaction.contribute(|transaction| {
         transaction.validate_guard(guard, live)?;
@@ -336,8 +552,11 @@ pub fn change_module_bid_overlay_v1<
         let write_io = &mut *write.io;
         let write_key_work = &mut *write.key_work;
         let write_limits = write.limits;
-        let write_cancelled = &mut write.cancelled;
-        let mut combined_cancelled = || cancelled() || (write_cancelled)();
+        let cancellation = CancellationPair {
+            context: RefCell::new(&mut context.cancelled),
+            writer: RefCell::new(&mut write.cancelled),
+        };
+        let mut combined_cancelled = || cancellation.is_cancelled();
         let (outer_key, outer_semantic_bytes, outer_value_root) = {
             let mut records = InventoryValueReader {
                 values: &mut context.values,
@@ -457,6 +676,7 @@ pub fn change_module_bid_overlay_v1<
         }
 
         let mut updated_child = child.clone();
+        let mut changed = true;
         let new_sequence_root = match change {
             ModuleArtifactBidChangeV1::Insert { ordinal, bid } => {
                 if ordinal > length {
@@ -501,7 +721,7 @@ pub fn change_module_bid_overlay_v1<
                         io: write_io,
                         key_work: write_key_work,
                         limits: write_limits,
-                        cancelled: || combined_cancelled(),
+                        cancelled: || cancellation.is_cancelled(),
                     };
                     append_bid(
                         &mut updated_child,
@@ -568,6 +788,29 @@ pub fn change_module_bid_overlay_v1<
                     index_root.id,
                     &mut context.values,
                     &mut index_output,
+                    &mut combined_cancelled,
+                    remaining_records,
+                )?;
+                let mut membership_output = MemberRecordWriteContext {
+                    sink: write_sink,
+                    memory: write_memory,
+                    io: write_io,
+                    key_work: write_key_work,
+                    limits: write_limits,
+                    cancelled: || cancellation.is_cancelled(),
+                };
+                membership::mutate_pair_member(
+                    &mut updated_child,
+                    descriptor,
+                    bid.order_id,
+                    &bid.bidder_agent_id,
+                    next_bid_id,
+                    true,
+                    &mut context.values,
+                    context.key_work,
+                    context.semantic_bytes,
+                    context.record_bytes,
+                    &mut membership_output,
                     &mut combined_cancelled,
                     remaining_records,
                 )?;
@@ -708,11 +951,300 @@ pub fn change_module_bid_overlay_v1<
                     &mut combined_cancelled,
                     remaining_records,
                 )?;
+                let mut membership_output = MemberRecordWriteContext {
+                    sink: write_sink,
+                    memory: write_memory,
+                    io: write_io,
+                    key_work: write_key_work,
+                    limits: write_limits,
+                    cancelled: || cancellation.is_cancelled(),
+                };
+                membership::mutate_pair_member(
+                    &mut updated_child,
+                    descriptor,
+                    order_id,
+                    expected_bidder_agent_id,
+                    stable_id,
+                    false,
+                    &mut context.values,
+                    context.key_work,
+                    context.semantic_bytes,
+                    context.record_bytes,
+                    &mut membership_output,
+                    &mut combined_cancelled,
+                    remaining_records,
+                )?;
                 next_root
+            }
+            ModuleArtifactBidChangeV1::DeleteMatching {
+                order_id,
+                bidder_agent_id,
+                expected_matches,
+            } => {
+                if expected_matches > length {
+                    return Err(
+                        ValueTreeError::Invalid("marketplace bid matching delete count").into(),
+                    );
+                }
+                let group = membership::first_pair_member_id(
+                    &updated_child,
+                    descriptor,
+                    order_id,
+                    bidder_agent_id,
+                    &mut context.values,
+                    context.key_work,
+                    context.semantic_bytes,
+                    context.record_bytes,
+                    &mut combined_cancelled,
+                )?;
+                match group {
+                    None => {
+                        if expected_matches != 0 {
+                            return Err(ValueTreeError::Invalid(
+                                "marketplace bid matching delete missing group",
+                            )
+                            .into());
+                        }
+                        changed = false;
+                        sequence_root_id
+                    }
+                    Some((pair_length, _)) => {
+                        if pair_length != expected_matches || expected_matches == 0 {
+                            return Err(ValueTreeError::Invalid(
+                                "marketplace bid matching delete expected count",
+                            )
+                            .into());
+                        }
+                        let mut remaining_matches = pair_length;
+                        let mut current_length = length;
+                        let mut current_length_root = length_root;
+                        let mut current_sequence_root = sequence_root_id;
+                        let mut current_sequence_root_field = sequence_root_field_root;
+                        while remaining_matches != 0 {
+                            let (observed_length, stable_id) = membership::first_pair_member_id(
+                                &updated_child,
+                                descriptor,
+                                order_id,
+                                bidder_agent_id,
+                                &mut context.values,
+                                context.key_work,
+                                context.semantic_bytes,
+                                context.record_bytes,
+                                &mut combined_cancelled,
+                            )?
+                            .ok_or(ValueTreeError::Invalid(
+                                "marketplace bid matching delete group ended early",
+                            ))?;
+                            if observed_length != remaining_matches {
+                                return Err(ValueTreeError::Invalid(
+                                    "marketplace bid matching delete group length",
+                                )
+                                .into());
+                            }
+                            let mut delete_output = MemberRecordWriteContext {
+                                sink: write_sink,
+                                memory: write_memory,
+                                io: write_io,
+                                key_work: write_key_work,
+                                limits: write_limits,
+                                cancelled: || cancellation.is_cancelled(),
+                            };
+                            let (
+                                next_root,
+                                next_length,
+                                next_length_root,
+                                next_sequence_root_field,
+                            ) = delete_stable_bid(
+                                &mut updated_child,
+                                descriptor,
+                                stable_id,
+                                order_id,
+                                bidder_agent_id,
+                                current_sequence_root,
+                                current_length,
+                                current_length_root,
+                                current_sequence_root_field,
+                                &mut context.values,
+                                context.key_work,
+                                &mut delete_output,
+                                &mut combined_cancelled,
+                                remaining_records,
+                            )?;
+                            let mut membership_output = MemberRecordWriteContext {
+                                sink: write_sink,
+                                memory: write_memory,
+                                io: write_io,
+                                key_work: write_key_work,
+                                limits: write_limits,
+                                cancelled: || cancellation.is_cancelled(),
+                            };
+                            membership::mutate_pair_member(
+                                &mut updated_child,
+                                descriptor,
+                                order_id,
+                                bidder_agent_id,
+                                stable_id,
+                                false,
+                                &mut context.values,
+                                context.key_work,
+                                context.semantic_bytes,
+                                context.record_bytes,
+                                &mut membership_output,
+                                &mut combined_cancelled,
+                                remaining_records,
+                            )?;
+                            current_length = next_length;
+                            current_length_root = next_length_root;
+                            current_sequence_root = next_root;
+                            current_sequence_root_field = next_sequence_root_field;
+                            remaining_matches -= 1;
+                        }
+                        if membership::first_pair_member_id(
+                            &updated_child,
+                            descriptor,
+                            order_id,
+                            bidder_agent_id,
+                            &mut context.values,
+                            context.key_work,
+                            context.semantic_bytes,
+                            context.record_bytes,
+                            &mut combined_cancelled,
+                        )?
+                        .is_some()
+                        {
+                            return Err(ValueTreeError::Invalid(
+                                "marketplace bid matching delete left members",
+                            )
+                            .into());
+                        }
+                        current_sequence_root
+                    }
+                }
+            }
+            ModuleArtifactBidChangeV1::UpdateIdentity {
+                ordinal,
+                expected_order_id,
+                expected_bidder_agent_id,
+                after_order_id,
+                after_bidder_agent_id,
+            } => {
+                if ordinal >= length {
+                    return Err(ValueTreeError::Invalid("marketplace bid identity ordinal").into());
+                }
+                let stable_id = bid_index::select_ordinal(
+                    &child,
+                    descriptor,
+                    ordinal,
+                    &mut context.values,
+                    context.key_work,
+                    context.semantic_bytes,
+                    context.record_bytes,
+                    &mut combined_cancelled,
+                )?;
+                let (order_id, order_root) = bid_index::read_u64_member(
+                    &child,
+                    descriptor,
+                    &(("bid", stable_id), "order_id"),
+                    &mut context.values,
+                    context.key_work,
+                    context.semantic_bytes,
+                    context.record_bytes,
+                    &mut combined_cancelled,
+                )?;
+                if order_id != expected_order_id
+                    || !read_bid_text_equals(
+                        &child,
+                        descriptor,
+                        stable_id,
+                        expected_bidder_agent_id,
+                        &mut context.values,
+                        context.key_work,
+                        context.semantic_bytes,
+                        context.record_bytes,
+                        &mut combined_cancelled,
+                    )?
+                {
+                    return Err(
+                        ValueTreeError::Invalid("marketplace bid identity expected value").into(),
+                    );
+                }
+                if after_order_id == expected_order_id
+                    && after_bidder_agent_id.as_bytes() == expected_bidder_agent_id.as_bytes()
+                {
+                    changed = false;
+                    sequence_root_id
+                } else {
+                    let mut identity_output = MemberRecordWriteContext {
+                        sink: write_sink,
+                        memory: write_memory,
+                        io: write_io,
+                        key_work: write_key_work,
+                        limits: write_limits,
+                        cancelled: || cancellation.is_cancelled(),
+                    };
+                    bid_index::write_u64_member(
+                        &mut updated_child,
+                        descriptor,
+                        &(("bid", stable_id), "order_id"),
+                        Some(order_root),
+                        Some(after_order_id),
+                        &mut context.values,
+                        &mut identity_output,
+                        &mut combined_cancelled,
+                        remaining_records,
+                    )?
+                    .ok_or(ValueTreeError::Invalid(
+                        "marketplace identity order update root",
+                    ))?;
+                    update_bidder_member(
+                        &mut updated_child,
+                        descriptor,
+                        stable_id,
+                        after_bidder_agent_id,
+                        &mut context.values,
+                        &mut identity_output,
+                        &mut combined_cancelled,
+                        remaining_records,
+                    )?;
+                    membership::mutate_pair_member(
+                        &mut updated_child,
+                        descriptor,
+                        expected_order_id,
+                        expected_bidder_agent_id,
+                        stable_id,
+                        false,
+                        &mut context.values,
+                        context.key_work,
+                        context.semantic_bytes,
+                        context.record_bytes,
+                        &mut identity_output,
+                        &mut combined_cancelled,
+                        remaining_records,
+                    )?;
+                    membership::mutate_pair_member(
+                        &mut updated_child,
+                        descriptor,
+                        after_order_id,
+                        after_bidder_agent_id,
+                        stable_id,
+                        true,
+                        &mut context.values,
+                        context.key_work,
+                        context.semantic_bytes,
+                        context.record_bytes,
+                        &mut identity_output,
+                        &mut combined_cancelled,
+                        remaining_records,
+                    )?;
+                    sequence_root_id
+                }
             }
         };
         if combined_cancelled() {
             return Err(ValueTreeError::Cancelled.into());
+        }
+        if !changed {
+            return Ok(expected.clone());
         }
         let next_reference = RecordRootRefV1::new(owner.schema(), owner_digest, updated_child)
             .map_err(|_| ValueTreeError::Invalid("marketplace updated record root"))?;
@@ -723,7 +1255,7 @@ pub fn change_module_bid_overlay_v1<
                 io: write_io,
                 key_work: write_key_work,
                 limits: write_limits,
-                cancelled: || combined_cancelled(),
+                cancelled: || cancellation.is_cancelled(),
             };
             write_member_record_v1(
                 descriptor,
@@ -763,7 +1295,7 @@ fn update_scalar<R, W, C, CW>(
     write: &mut MemberRecordWriteContext<'_, W, CW>,
     cancelled: &mut C,
     remaining_records: &mut u64,
-) -> Result<(), ValueTreeError>
+) -> Result<[u8; 32], ValueTreeError>
 where
     R: ValueNodeReader,
     W: ValueNodeReader + ValueNodeWriter + StatePageWriter,
@@ -782,6 +1314,5 @@ where
         remaining_records,
     )?
     .ok_or(ValueTreeError::Invalid("marketplace scalar update root"))?;
-    let _ = member;
-    Ok(())
+    Ok(member)
 }

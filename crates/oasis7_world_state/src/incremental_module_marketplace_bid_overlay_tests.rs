@@ -8,7 +8,7 @@ fn bid_overlay_parent(
     let world = bid_overlay_world_with_count(bid_count);
     let mut values = SharedValues::new(memory.clone());
     let mut io = ValueIoBudget {
-        nodes_remaining: 100_000u64.max(bid_count.saturating_mul(2_000)),
+        nodes_remaining: 100_000u64.max(bid_count.saturating_mul(10_000)),
         read_bytes_remaining: 1 << 30,
         // Fixture construction appends a large tree incrementally. This
         // setup allowance is separate from and never included in mutation
@@ -111,6 +111,48 @@ fn apply_bid_change(
     write_key_work: &mut SemanticKeyBudget,
     remaining: &mut u64,
 ) -> Result<RecordRootRefV1, crate::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+    apply_bid_change_with_cancel(
+        transaction,
+        values,
+        memory,
+        expected,
+        change,
+        guard,
+        live,
+        read_io,
+        write_io,
+        read_key_work,
+        write_key_work,
+        remaining,
+        || false,
+        || false,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The test helper supplies transaction inputs, independent budgets, and controlled cancellation channels."
+)]
+fn apply_bid_change_with_cancel<C, CW>(
+    transaction: &mut ExecutionTransaction<'_, StatePages>,
+    values: &mut SharedValues,
+    memory: &MemoryBudget,
+    expected: &RecordRootRefV1,
+    change: ModuleArtifactBidChangeV1<'_>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+    read_io: &mut ValueIoBudget,
+    write_io: &mut ValueIoBudget,
+    read_key_work: &mut SemanticKeyBudget,
+    write_key_work: &mut SemanticKeyBudget,
+    remaining: &mut u64,
+    mut context_cancelled: C,
+    mut writer_cancelled: CW,
+) -> Result<RecordRootRefV1, crate::incremental_field_overlay::WorldFieldOverlayErrorV1>
+where
+    C: FnMut() -> bool,
+    CW: FnMut() -> bool,
+{
     let reader = values.clone();
     let mut overlay = crate::incremental_field_overlay::WorldFieldOverlayContextV1 {
         transaction,
@@ -124,7 +166,7 @@ fn apply_bid_change(
         semantic_bytes: 1 << 20,
         record_bytes: 8 << 20,
         take_state_error: || None,
-        cancelled: || false,
+        cancelled: &mut context_cancelled,
     };
     let mut write = MemberRecordWriteContext {
         sink: values,
@@ -136,7 +178,7 @@ fn apply_bid_change(
             payload_bytes: 4 << 20,
             record_bytes: 8 << 20,
         },
-        cancelled: || false,
+        cancelled: &mut writer_cancelled,
     };
     change_module_bid_overlay_v1(
         "bid-map-key",
@@ -228,7 +270,15 @@ fn measure_middle_bid_delete(bid_count: u64) -> BidMutatorMetrics {
             StateNamespaceV1::Business,
         )
         .unwrap();
-    assert_eq!(child.leaf_count, 3 + (bid_count - 1) * 7);
+    let duplicate_count = [0u64, 4, 8]
+        .into_iter()
+        .filter(|ordinal| *ordinal < bid_count)
+        .count() as u64;
+    let initial_group_count = bid_count - duplicate_count + u64::from(duplicate_count != 0);
+    let deleted_from_duplicate = [0u64, 4, 8].contains(&ordinal) && duplicate_count != 0;
+    let group_count =
+        initial_group_count - u64::from(!deleted_from_duplicate || duplicate_count == 1);
+    assert_eq!(child.leaf_count, 3 + (bid_count - 1) * 7 + group_count);
     let operation_reads = values.read_counts();
     let metrics = BidMutatorMetrics {
         nodes: nodes_before - read_io.nodes_remaining,
@@ -261,10 +311,12 @@ fn read_bid_ids(
     length: u64,
 ) -> BidIdsOracleRead {
     let mut io = ValueIoBudget {
-        nodes_remaining: 100_000,
-        read_bytes_remaining: 64 << 20,
+        nodes_remaining: 1_000_000,
+        read_bytes_remaining: 256 << 20,
         write_bytes_remaining: 16 << 20,
     };
+    let nodes_before = io.nodes_remaining;
+    let bytes_before = io.read_bytes_remaining;
     let mut source = ValueReadContext {
         source: values,
         memory,
@@ -293,8 +345,8 @@ fn read_bid_ids(
     let reads_after = values.read_counts();
     BidIdsOracleRead {
         ids,
-        nodes: 100_000 - io.nodes_remaining,
-        bytes: (64 << 20) - io.read_bytes_remaining,
+        nodes: nodes_before - io.nodes_remaining,
+        bytes: bytes_before - io.read_bytes_remaining,
         value_reads: reads_after.0 - reads_before.0,
         state_reads: reads_after.1 - reads_before.1,
     }
@@ -414,8 +466,8 @@ fn audit_bid_index_tree(
     assert_eq!(in_order, expected_ids);
 
     let mut io = ValueIoBudget {
-        nodes_remaining: 100_000,
-        read_bytes_remaining: 64 << 20,
+        nodes_remaining: 1_000_000,
+        read_bytes_remaining: 256 << 20,
         write_bytes_remaining: 64 << 20,
     };
     let mut read = ValueReadContext {
@@ -836,7 +888,7 @@ fn marketplace_bid_overlay_keeps_vec_order_and_removes_duplicate_matches_one_at_
             StateNamespaceV1::Business,
         )
         .unwrap();
-    assert_eq!(child.leaf_count, 3 + 7 * 7);
+    assert_eq!(child.leaf_count, 3 + 7 * 7 + 7);
     let oracle = read_bid_ids(child, &values, &memory, 7);
     eprintln!(
         "independent read_bid_ids oracle: nodes={} bytes={} value_reads={} state_reads={}",
@@ -981,3 +1033,6 @@ fn marketplace_bid_overlay_expected_mismatch_poisoned_after_prior_prefix() {
         Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
     ));
 }
+
+#[path = "incremental_module_marketplace_bid_membership_tests.rs"]
+mod membership_tests;

@@ -36,6 +36,8 @@ use std::io::{self, Write};
 
 #[path = "incremental_module_marketplace_bid_index.rs"]
 pub(crate) mod bid_index;
+#[path = "incremental_module_marketplace_bid_membership.rs"]
+pub(crate) mod bid_membership;
 #[path = "incremental_module_marketplace_bid_overlay.rs"]
 mod bid_overlay;
 pub use bid_overlay::{ModuleArtifactBidChangeV1, change_module_bid_overlay_v1};
@@ -139,7 +141,7 @@ impl ModuleMarketplaceFieldV1 {
         let domain: &[u8] = match self {
             Self::VisualEntities => b"oasis7.iws.market.visual-entity-record.v1\0",
             Self::ArtifactListings => b"oasis7.iws.market.listing-record.v1\0",
-            Self::ArtifactBids => b"oasis7.iws.market.bids-record.v1\0",
+            Self::ArtifactBids => b"oasis7.iws.market.bids-record.v2\0",
         };
         *blake3::hash(domain).as_bytes()
     }
@@ -902,6 +904,7 @@ fn append_bids<W: ValueNodeReader + ValueNodeWriter + StatePageWriter, C: FnMut(
         context,
         remaining,
     )?;
+    bid_membership::append_groups(descriptor, &mut root, values, context, remaining)?;
     Ok(root)
 }
 

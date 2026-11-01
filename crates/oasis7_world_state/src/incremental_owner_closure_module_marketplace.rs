@@ -4,6 +4,7 @@ use crate::{
         MemberPayloadCodecV1, MemberRecordLimitsV1, WorldFieldKeyV1, read_member_record_v1,
     },
     incremental_module_marketplace::ModuleMarketplaceFieldV1,
+    incremental_module_marketplace::bid_membership::GroupKeyV1,
     incremental_projection::{FieldDescriptor, FieldDestination, FieldOwner, FieldShape},
     incremental_semantic_key::{
         SemanticKeyBudget, SemanticKeyError, SemanticKeyRefV1, SemanticKeyV1, hash_semantic_key_v1,
@@ -50,12 +51,14 @@ pub(super) fn valid_descriptor(field: FieldDescriptor) -> bool {
 enum ChildSemantic {
     Field(&'static str),
     Bid { bid_id: u64, field: &'static str },
+    BidGroup([u8; 32]),
 }
 
 impl ChildSemantic {
     fn field(self) -> &'static str {
         match self {
             Self::Field(field) | Self::Bid { field, .. } => field,
+            Self::BidGroup(_) => "group_root_reference",
         }
     }
 }
@@ -68,6 +71,7 @@ enum ChildPayloadKind {
     I64,
     Text,
     FixedU64x7,
+    RecordRoot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,7 +81,9 @@ enum ChildValue {
     U64(u64),
     I64(i64),
     Text,
+    TextPairDigest([u8; 32]),
     BidIndexNode(crate::incremental_module_marketplace::bid_index::BidIndexNodeV1),
+    BidGroupRoot([u8; RECORD_ROOT_BYTES]),
 }
 
 fn child_payload_kind(field: &str) -> Option<ChildPayloadKind> {
@@ -90,6 +96,7 @@ fn child_payload_kind(field: &str) -> Option<ChildPayloadKind> {
         "entity_id" | "module_id" | "kind" | "label_text" | "anchor_agent_id"
         | "anchor_location_id" | "seller_agent_id" | "bidder_agent_id" => ChildPayloadKind::Text,
         "index_node" => ChildPayloadKind::FixedU64x7,
+        "group_root_reference" => ChildPayloadKind::RecordRoot,
         _ => return None,
     })
 }
@@ -102,6 +109,7 @@ fn child_codec(kind: ChildPayloadKind) -> MemberPayloadCodecV1 {
         ChildPayloadKind::I64 => MemberPayloadCodecV1::I64,
         ChildPayloadKind::Text => MemberPayloadCodecV1::Text,
         ChildPayloadKind::FixedU64x7 => MemberPayloadCodecV1::FixedU64x7,
+        ChildPayloadKind::RecordRoot => MemberPayloadCodecV1::RecordRoot,
     }
 }
 
@@ -136,7 +144,13 @@ fn static_field(name: &str) -> Option<&'static str> {
 
 fn classify_semantic(bytes: &[u8]) -> Option<ChildSemantic> {
     match read_semantic_key_v1(bytes).ok()? {
-        SemanticKeyRefV1::Text(field) => Some(ChildSemantic::Field(static_field(field)?)),
+        SemanticKeyRefV1::Text(key) => {
+            if let Some((digest, _)) = GroupKeyV1::from_text(key) {
+                Some(ChildSemantic::BidGroup(digest))
+            } else {
+                Some(ChildSemantic::Field(static_field(key)?))
+            }
+        }
         SemanticKeyRefV1::Pair { left, right } => match (left.decode().ok()?, right.decode().ok()?)
         {
             (
@@ -166,9 +180,14 @@ struct ChildProbe {
     semantic: Option<ChildSemantic>,
     fixed: [u8; crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES],
     fixed_len: usize,
+    record_root: [u8; RECORD_ROOT_BYTES],
+    record_root_len: usize,
+    pair_order_id: Option<u64>,
+    pair_hasher: Option<blake3::Hasher>,
     payload_bytes_seen: u64,
     utf8_pending: [u8; 4],
     utf8_pending_len: usize,
+    work_limited: bool,
     invalid: bool,
 }
 
@@ -180,15 +199,51 @@ impl Default for ChildProbe {
             semantic: None,
             fixed: [0; crate::incremental_module_marketplace::bid_index::BID_INDEX_NODE_BYTES],
             fixed_len: 0,
+            record_root: [0; RECORD_ROOT_BYTES],
+            record_root_len: 0,
+            pair_order_id: None,
+            pair_hasher: None,
             payload_bytes_seen: 0,
             utf8_pending: [0; 4],
             utf8_pending_len: 0,
+            work_limited: false,
             invalid: false,
         }
     }
 }
 
 impl ChildProbe {
+    fn for_pair(order_id: u64) -> Self {
+        Self {
+            pair_order_id: Some(order_id),
+            ..Self::default()
+        }
+    }
+
+    fn is_pair_text(&self) -> bool {
+        self.pair_order_id.is_some()
+            && matches!(
+                self.semantic,
+                Some(
+                    ChildSemantic::Field("bidder_agent_id")
+                        | ChildSemantic::Bid {
+                            field: "bidder_agent_id",
+                            ..
+                        }
+                )
+            )
+    }
+
+    fn start_pair_hash(&mut self) {
+        let Some(order_id) = self.pair_order_id else {
+            return;
+        };
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(crate::incremental_module_marketplace::bid_membership::PAIR_DIGEST_DOMAIN);
+        hasher.update(&order_id.to_be_bytes());
+        self.pair_hasher = Some(hasher);
+    }
+
     fn push_utf8(&mut self, mut bytes: &[u8]) -> bool {
         if self.utf8_pending_len != 0 {
             let width = match self.utf8_pending[0] {
@@ -258,7 +313,10 @@ impl ChildProbe {
                 if self.utf8_pending_len != 0 {
                     return None;
                 }
-                ChildValue::Text
+                match &self.pair_hasher {
+                    Some(hasher) => ChildValue::TextPairDigest(*hasher.finalize().as_bytes()),
+                    None => ChildValue::Text,
+                }
             }
             ChildPayloadKind::FixedU64x7
                 if info.payload_bytes
@@ -271,6 +329,15 @@ impl ChildProbe {
                 ChildValue::BidIndexNode(
                     crate::incremental_module_marketplace::bid_index::BidIndexNodeV1::decode(bytes),
                 )
+            }
+            ChildPayloadKind::RecordRoot
+                if info.payload_bytes == RECORD_ROOT_BYTES as u64
+                    && self.record_root_len == RECORD_ROOT_BYTES =>
+            {
+                let ChildSemantic::BidGroup(_) = semantic else {
+                    return None;
+                };
+                ChildValue::BidGroupRoot(self.record_root)
             }
             _ => return None,
         })
@@ -301,10 +368,48 @@ impl Write for ChildKeyOutput<'_> {
     }
 }
 
-struct ChildPayloadOutput<'a>(&'a RefCell<ChildProbe>);
+struct ChildPayloadOutput<'a> {
+    probe: &'a RefCell<ChildProbe>,
+    pair_key_work: Option<&'a mut SemanticKeyBudget>,
+}
 impl Write for ChildPayloadOutput<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let mut probe = self.0.borrow_mut();
+        let (pair_text, needs_prefix) = {
+            let probe = self.probe.borrow();
+            (
+                probe.is_pair_text(),
+                probe.is_pair_text() && probe.pair_hasher.is_none(),
+            )
+        };
+        if pair_text {
+            let budget = self
+                .pair_key_work
+                .as_deref_mut()
+                .ok_or_else(|| io::Error::other("marketplace pair hash budget missing"))?;
+            let payload = u64::try_from(bytes.len())
+                .map_err(|_| io::Error::other("marketplace pair hash work overflow"))?;
+            let fixed = if needs_prefix {
+                crate::incremental_module_marketplace::bid_membership::PAIR_DIGEST_DOMAIN
+                    .len()
+                    .checked_add(8)
+                    .and_then(|length| u64::try_from(length).ok())
+                    .ok_or_else(|| io::Error::other("marketplace pair hash work overflow"))?
+            } else {
+                0
+            };
+            let charge = fixed
+                .checked_add(payload)
+                .ok_or_else(|| io::Error::other("marketplace pair hash work overflow"))?;
+            if budget.bytes_remaining < charge {
+                self.probe.borrow_mut().work_limited = true;
+                return Err(io::Error::other("marketplace pair hash work exhausted"));
+            }
+            budget.bytes_remaining -= charge;
+        }
+        let mut probe = self.probe.borrow_mut();
+        if pair_text && needs_prefix {
+            probe.start_pair_hash();
+        }
         let Some(semantic) = probe.semantic else {
             probe.invalid = true;
             return Err(io::Error::other("market child semantic profile"));
@@ -329,6 +434,9 @@ impl Write for ChildPayloadOutput<'_> {
                     probe.invalid = true;
                     return Err(io::Error::other("market child text UTF-8"));
                 }
+                if pair_text && let Some(hasher) = &mut probe.pair_hasher {
+                    hasher.update(bytes);
+                }
             }
             ChildPayloadKind::Bool
             | ChildPayloadKind::U64
@@ -346,6 +454,19 @@ impl Write for ChildPayloadOutput<'_> {
                 probe.fixed[start..end].copy_from_slice(bytes);
                 probe.fixed_len = end;
             }
+            ChildPayloadKind::RecordRoot => {
+                let Some(end) = probe.record_root_len.checked_add(bytes.len()) else {
+                    probe.invalid = true;
+                    return Err(io::Error::other("market child record root length"));
+                };
+                if end > probe.record_root.len() {
+                    probe.invalid = true;
+                    return Err(io::Error::other("market child record root length"));
+                }
+                let start = probe.record_root_len;
+                probe.record_root[start..end].copy_from_slice(bytes);
+                probe.record_root_len = end;
+            }
         }
         Ok(bytes.len())
     }
@@ -361,6 +482,38 @@ fn read_child_member<R: ValueNodeReader>(
     values: &mut ValueReadContext<'_, R>,
     max_value_bytes: u64,
     cancelled: &mut impl FnMut() -> bool,
+) -> Result<(ChildSemantic, ChildValue), WorldStateOwnerError> {
+    read_child_member_inner(entry, field, values, max_value_bytes, cancelled, None, None)
+}
+
+fn read_child_member_with_pair<R: ValueNodeReader>(
+    entry: &StateEntryV1,
+    field: FieldDescriptor,
+    order_id: u64,
+    key_work: &mut SemanticKeyBudget,
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(ChildSemantic, ChildValue), WorldStateOwnerError> {
+    read_child_member_inner(
+        entry,
+        field,
+        values,
+        max_value_bytes,
+        cancelled,
+        Some(order_id),
+        Some(key_work),
+    )
+}
+
+fn read_child_member_inner<R: ValueNodeReader>(
+    entry: &StateEntryV1,
+    field: FieldDescriptor,
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+    pair_order_id: Option<u64>,
+    mut pair_key_work: Option<&mut SemanticKeyBudget>,
 ) -> Result<(ChildSemantic, ChildValue), WorldStateOwnerError> {
     let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(WorldStateOwnerError::Invalid)?;
     if parsed.owner != FieldOwner::WorldState
@@ -381,7 +534,7 @@ fn read_child_member<R: ValueNodeReader>(
             "module marketplace child key mismatch",
         ));
     }
-    let probe = RefCell::new(ChildProbe::default());
+    let probe = RefCell::new(pair_order_id.map_or_else(ChildProbe::default, ChildProbe::for_pair));
     let info = read_member_record_v1(
         &entry.value,
         &key,
@@ -392,10 +545,42 @@ fn read_child_member<R: ValueNodeReader>(
             record_bytes: max_value_bytes,
         },
         &mut ChildKeyOutput(&probe),
-        &mut ChildPayloadOutput(&probe),
+        &mut ChildPayloadOutput {
+            probe: &probe,
+            pair_key_work: pair_key_work.as_deref_mut(),
+        },
         &mut *cancelled,
     );
-    let probe = probe.into_inner();
+    let mut probe = probe.into_inner();
+    if probe.work_limited {
+        return Err(WorldStateOwnerError::ResourceLimited(
+            "module marketplace pair hash work",
+        ));
+    }
+    if probe.is_pair_text() && probe.pair_hasher.is_none() {
+        let fixed = crate::incremental_module_marketplace::bid_membership::PAIR_DIGEST_DOMAIN
+            .len()
+            .checked_add(8)
+            .and_then(|bytes| u64::try_from(bytes).ok())
+            .ok_or(WorldStateOwnerError::ResourceLimited(
+                "module marketplace pair hash work",
+            ))?;
+        let work = match &mut pair_key_work {
+            Some(work) => &mut **work,
+            None => {
+                return Err(WorldStateOwnerError::Invalid(
+                    "module marketplace pair hash budget",
+                ));
+            }
+        };
+        if work.bytes_remaining < fixed {
+            return Err(WorldStateOwnerError::ResourceLimited(
+                "module marketplace pair hash work",
+            ));
+        }
+        work.bytes_remaining -= fixed;
+        probe.start_pair_hash();
+    }
     if probe.invalid {
         return Err(WorldStateOwnerError::Invalid(
             "module marketplace child member framing",
@@ -519,6 +704,7 @@ where
             bid_id,
             field: name,
         },
+        key_work,
         values,
         max_value_bytes,
         cancelled,
@@ -551,6 +737,7 @@ where
         field,
         &key,
         ChildSemantic::Field(name),
+        key_work,
         values,
         max_value_bytes,
         cancelled,
@@ -567,6 +754,83 @@ fn read_bid_value_at_key<M, R, C>(
     field: FieldDescriptor,
     key: &WorldFieldKeyV1,
     expected: ChildSemantic,
+    key_work: &mut SemanticKeyBudget,
+    values: &mut ValueReadContext<'_, R>,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ChildValue, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    read_value_at_key(
+        child,
+        state_reader,
+        field,
+        key,
+        expected,
+        None,
+        key_work,
+        values,
+        max_value_bytes,
+        cancelled,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Authenticates one identity text through the active scan with the pair-order digest prefix."
+)]
+fn read_bid_text_digest<M, R, C>(
+    child: &StateRootV1,
+    state_reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    key: &impl SemanticKeyV1,
+    expected: ChildSemantic,
+    order_id: u64,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<[u8; 32], WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let key = make_semantic_key(field, key, values, key_work, max_value_bytes, cancelled)?;
+    match read_value_at_key(
+        child,
+        state_reader,
+        field,
+        &key,
+        expected,
+        Some(order_id),
+        key_work,
+        values,
+        max_value_bytes,
+        cancelled,
+    )? {
+        ChildValue::TextPairDigest(digest) => Ok(digest),
+        _ => Err(WorldStateOwnerError::Invalid(
+            "module bid pair text profile",
+        )),
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Authenticates one child key under shared state, value, memory and cancellation budgets."
+)]
+fn read_value_at_key<M, R, C>(
+    child: &StateRootV1,
+    state_reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    key: &WorldFieldKeyV1,
+    expected: ChildSemantic,
+    pair_order_id: Option<u64>,
+    key_work: &mut SemanticKeyBudget,
     values: &mut ValueReadContext<'_, R>,
     max_value_bytes: u64,
     cancelled: &mut impl FnMut() -> bool,
@@ -608,8 +872,18 @@ where
         key: owned_key,
         value,
     };
-    let (actual_semantic, value) =
-        read_child_member(&entry, field, values, max_value_bytes, cancelled)?;
+    let (actual_semantic, value) = match pair_order_id {
+        Some(order_id) => read_child_member_with_pair(
+            &entry,
+            field,
+            order_id,
+            key_work,
+            values,
+            max_value_bytes,
+            cancelled,
+        )?,
+        None => read_child_member(&entry, field, values, max_value_bytes, cancelled)?,
+    };
     if actual_semantic != expected {
         return Err(WorldStateOwnerError::Invalid(
             "module marketplace bid member identity",

@@ -1,7 +1,10 @@
 use super::*;
 
+use crate::incremental_module_marketplace::bid_index::NO_BID_ID;
+use crate::incremental_module_marketplace::bid_membership::{group_schema_v1, load_group};
+
 #[derive(Clone, Copy)]
-struct BidIndexSummary {
+pub(super) struct BidIndexSummary {
     size: u64,
 }
 
@@ -44,7 +47,7 @@ where
     clippy::too_many_arguments,
     reason = "Checks linked AVL nodes with the same scan, value, key and cancellation budgets."
 )]
-fn validate_bid_node_links<M, R, C>(
+pub(super) fn validate_index_node_links<M, R, C>(
     child: &StateRootV1,
     reader: &StateScanReader<'_, M, C>,
     field: FieldDescriptor,
@@ -145,6 +148,46 @@ where
         }
     }
 
+    Ok(BidIndexSummary { size: summary.size })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validates a primary bid node and its business payload under shared budgets."
+)]
+fn validate_bid_node_links<M, R, C>(
+    child: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    bid_id: u64,
+    node: crate::incremental_module_marketplace::bid_index::BidIndexNodeV1,
+    root_id: u64,
+    length: u64,
+    next_bid_id: u64,
+    values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<BidIndexSummary, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let summary = validate_index_node_links(
+        child,
+        reader,
+        field,
+        bid_id,
+        node,
+        root_id,
+        length,
+        next_bid_id,
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
     for (name, expected) in [
         ("present", 0),
         ("order_id", 1),
@@ -177,8 +220,284 @@ where
             return Err(WorldStateOwnerError::Invalid("module bid field profile"));
         }
     }
+    Ok(summary)
+}
 
-    Ok(BidIndexSummary { size: summary.size })
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Validates one pair membership child against the same parent scan and shared budgets."
+)]
+fn validate_bid_group<M, V, C>(
+    primary: &StateRootV1,
+    reader: &StateScanReader<'_, M, C>,
+    field: FieldDescriptor,
+    digest: [u8; 32],
+    reference_bytes: [u8; RECORD_ROOT_BYTES],
+    next_bid_id: u64,
+    values: &mut ValueReadContext<'_, V>,
+    key_work: &mut SemanticKeyBudget,
+    max_value_bytes: u64,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<u64, WorldStateOwnerError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    C: FnMut() -> bool,
+{
+    let reference = RecordRootRefV1::from_canonical_bytes(&reference_bytes)
+        .map_err(|_| WorldStateOwnerError::Invalid("module bid group reference framing"))?;
+    let child = reference
+        .validate_binding(&group_schema_v1(), &digest, StateNamespaceV1::Business)
+        .map_err(|_| WorldStateOwnerError::Invalid("module bid group reference binding"))?
+        .clone();
+    let order_id = read_bid_scalar(
+        &child,
+        reader,
+        field,
+        "order_id",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    let bidder_digest = super::read_bid_text_digest(
+        &child,
+        reader,
+        field,
+        &"bidder_agent_id",
+        ChildSemantic::Field("bidder_agent_id"),
+        order_id,
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    if bidder_digest != digest {
+        return Err(WorldStateOwnerError::Invalid("module bid group identity"));
+    }
+    let length = read_bid_scalar(
+        &child,
+        reader,
+        field,
+        "length",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    let sequence_root_id = read_bid_scalar(
+        &child,
+        reader,
+        field,
+        "sequence_root_id",
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    if length == 0
+        || sequence_root_id == NO_BID_ID
+        || sequence_root_id >= next_bid_id
+        || length
+            .checked_add(4)
+            .is_none_or(|expected| expected != child.leaf_count)
+    {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid group root profile",
+        ));
+    }
+    let root_node = read_index_node(
+        &child,
+        reader,
+        field,
+        sequence_root_id,
+        values,
+        key_work,
+        max_value_bytes,
+        cancelled,
+    )?;
+    if root_node.parent_id != NO_BID_ID
+        || root_node
+            .summary()
+            .map_err(|_| WorldStateOwnerError::Invalid("module bid group root summary"))?
+            .size
+            != length
+    {
+        return Err(WorldStateOwnerError::Invalid(
+            "module bid group root summary",
+        ));
+    }
+
+    let mut scalar_mask = 0u8;
+    let mut index_nodes = 0u64;
+    let mut roots = 0u64;
+    let scanned =
+        reader
+            .visit_entries(&child, |entry| {
+                let (semantic, value) = super::read_child_member_with_pair(
+                    entry,
+                    field,
+                    order_id,
+                    key_work,
+                    values,
+                    max_value_bytes,
+                    cancelled,
+                )?;
+                match semantic {
+                    ChildSemantic::Field("order_id") if value == ChildValue::U64(order_id) => {
+                        scalar_mask |= 1;
+                        Ok(())
+                    }
+                    ChildSemantic::Field("bidder_agent_id")
+                        if value == ChildValue::TextPairDigest(digest) =>
+                    {
+                        scalar_mask |= 2;
+                        Ok(())
+                    }
+                    ChildSemantic::Field("length") if value == ChildValue::U64(length) => {
+                        scalar_mask |= 4;
+                        Ok(())
+                    }
+                    ChildSemantic::Field("sequence_root_id")
+                        if value == ChildValue::U64(sequence_root_id) =>
+                    {
+                        scalar_mask |= 8;
+                        Ok(())
+                    }
+                    ChildSemantic::Field(_) => Err(WorldStateOwnerError::Invalid(
+                        "module bid group unexpected scalar child",
+                    )),
+                    ChildSemantic::Bid {
+                        bid_id,
+                        field: "index_node",
+                    } => {
+                        let ChildValue::BidIndexNode(node) = value else {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid group index type",
+                            ));
+                        };
+                        if bid_id >= next_bid_id {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid group member ID range",
+                            ));
+                        }
+                        let summary = validate_index_node_links(
+                            &child,
+                            reader,
+                            field,
+                            bid_id,
+                            node,
+                            sequence_root_id,
+                            length,
+                            next_bid_id,
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        index_nodes = index_nodes.checked_add(1).ok_or(
+                            WorldStateOwnerError::ResourceLimited("module bid group index count"),
+                        )?;
+                        if bid_id == sequence_root_id {
+                            roots = roots.checked_add(1).ok_or(
+                                WorldStateOwnerError::ResourceLimited("module bid group roots"),
+                            )?;
+                            if summary.size != length {
+                                return Err(WorldStateOwnerError::Invalid(
+                                    "module bid group root size",
+                                ));
+                            }
+                        }
+                        let (rank, found) =
+                            crate::incremental_module_marketplace::bid_index::rank_of_id(
+                                &child,
+                                field,
+                                sequence_root_id,
+                                length,
+                                bid_id,
+                                values,
+                                key_work,
+                                max_value_bytes,
+                                max_value_bytes,
+                                cancelled,
+                            )
+                            .map_err(WorldStateOwnerError::Value)?;
+                        if !found
+                            || crate::incremental_module_marketplace::bid_index::select_ordinal(
+                                &child,
+                                field,
+                                rank,
+                                values,
+                                key_work,
+                                max_value_bytes,
+                                max_value_bytes,
+                                cancelled,
+                            )
+                            .map_err(WorldStateOwnerError::Value)?
+                                != bid_id
+                        {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid group order index",
+                            ));
+                        }
+                        let primary_order = match super::read_bid_member(
+                            primary,
+                            reader,
+                            field,
+                            bid_id,
+                            "order_id",
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )? {
+                            ChildValue::U64(order_id) => order_id,
+                            _ => {
+                                return Err(WorldStateOwnerError::Invalid(
+                                    "module bid group primary order type",
+                                ));
+                            }
+                        };
+                        if primary_order != order_id {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid group member order",
+                            ));
+                        }
+                        let primary_digest = super::read_bid_text_digest(
+                            primary,
+                            reader,
+                            field,
+                            &(("bid", bid_id), "bidder_agent_id"),
+                            ChildSemantic::Bid {
+                                bid_id,
+                                field: "bidder_agent_id",
+                            },
+                            order_id,
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        if primary_digest != digest {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid group member pair",
+                            ));
+                        }
+                        Ok(())
+                    }
+                    ChildSemantic::Bid { .. } => Err(WorldStateOwnerError::Invalid(
+                        "module bid group unexpected member",
+                    )),
+                    ChildSemantic::BidGroup(_) => Err(WorldStateOwnerError::Invalid(
+                        "module bid group nested reference",
+                    )),
+                }
+            })
+            .map_err(super::map_scan_error)?;
+    if scanned != length + 4 || scalar_mask != 0b1111 || index_nodes != length || roots != 1 {
+        return Err(WorldStateOwnerError::Invalid("module bid group closure"));
+    }
+    Ok(length)
 }
 
 pub(super) fn validate_bids<M, V, C>(
@@ -195,8 +514,6 @@ where
     V: ValueNodeReader,
     C: FnMut() -> bool,
 {
-    use crate::incremental_module_marketplace::bid_index::NO_BID_ID;
-
     let length = read_bid_length(
         child,
         reader,
@@ -229,15 +546,12 @@ where
     if next_bid_id < length {
         return Err(WorldStateOwnerError::Invalid("module bids next ID"));
     }
-    let expected_leaves = length
+    let base_expected_leaves = length
         .checked_mul(7)
         .and_then(|count| count.checked_add(3))
         .ok_or(WorldStateOwnerError::Invalid(
             "module bids leaf count overflow",
         ))?;
-    if expected_leaves != child.leaf_count {
-        return Err(WorldStateOwnerError::Invalid("module bids leaf count"));
-    }
     if (length == 0) != (sequence_root_id == NO_BID_ID)
         || (sequence_root_id != NO_BID_ID && sequence_root_id >= next_bid_id)
     {
@@ -247,6 +561,9 @@ where
     let mut scalar_mask = 0u8;
     let mut index_nodes = 0u64;
     let mut bid_fields = 0u64;
+    let mut primary_membership_checks = 0u64;
+    let mut group_count = 0u64;
+    let mut group_memberships = 0u64;
     let mut roots = 0u64;
     let mut root_summary = None;
     let scanned =
@@ -269,6 +586,34 @@ where
                         if value == ChildValue::U64(sequence_root_id) =>
                     {
                         scalar_mask |= 4;
+                        Ok(())
+                    }
+                    ChildSemantic::BidGroup(digest) => {
+                        let ChildValue::BidGroupRoot(reference_bytes) = value else {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid group reference type",
+                            ));
+                        };
+                        let group_length = validate_bid_group(
+                            child,
+                            reader,
+                            field,
+                            digest,
+                            reference_bytes,
+                            next_bid_id,
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        group_count = group_count.checked_add(1).ok_or(
+                            WorldStateOwnerError::ResourceLimited("module bid group count"),
+                        )?;
+                        group_memberships = group_memberships.checked_add(group_length).ok_or(
+                            WorldStateOwnerError::ResourceLimited(
+                                "module bid group membership count",
+                            ),
+                        )?;
                         Ok(())
                     }
                     ChildSemantic::Field(_) => Err(WorldStateOwnerError::Invalid(
@@ -312,6 +657,124 @@ where
                     }
                     ChildSemantic::Bid {
                         bid_id,
+                        field: "present",
+                    } => {
+                        if bid_id >= next_bid_id || value != ChildValue::Unit {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid membership source marker",
+                            ));
+                        }
+                        let order_id = match super::read_bid_member(
+                            child,
+                            reader,
+                            field,
+                            bid_id,
+                            "order_id",
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )? {
+                            ChildValue::U64(order_id) => order_id,
+                            _ => {
+                                return Err(WorldStateOwnerError::Invalid(
+                                    "module bid membership order type",
+                                ));
+                            }
+                        };
+                        let digest = super::read_bid_text_digest(
+                            child,
+                            reader,
+                            field,
+                            &(("bid", bid_id), "bidder_agent_id"),
+                            ChildSemantic::Bid {
+                                bid_id,
+                                field: "bidder_agent_id",
+                            },
+                            order_id,
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        let group = load_group(
+                            child,
+                            field,
+                            &digest,
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            max_value_bytes,
+                            cancelled,
+                        )
+                        .map_err(WorldStateOwnerError::Value)?
+                        .ok_or(WorldStateOwnerError::Invalid(
+                            "module bid group for primary member missing",
+                        ))?;
+                        let group_length = read_bid_scalar(
+                            &group.child,
+                            reader,
+                            field,
+                            "length",
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        let group_root_id = read_bid_scalar(
+                            &group.child,
+                            reader,
+                            field,
+                            "sequence_root_id",
+                            values,
+                            key_work,
+                            max_value_bytes,
+                            cancelled,
+                        )?;
+                        let (rank, found) =
+                            crate::incremental_module_marketplace::bid_index::rank_of_id(
+                                &group.child,
+                                field,
+                                group_root_id,
+                                group_length,
+                                bid_id,
+                                values,
+                                key_work,
+                                max_value_bytes,
+                                max_value_bytes,
+                                cancelled,
+                            )
+                            .map_err(WorldStateOwnerError::Value)?;
+                        if !found
+                            || crate::incremental_module_marketplace::bid_index::select_ordinal(
+                                &group.child,
+                                field,
+                                rank,
+                                values,
+                                key_work,
+                                max_value_bytes,
+                                max_value_bytes,
+                                cancelled,
+                            )
+                            .map_err(WorldStateOwnerError::Value)?
+                                != bid_id
+                        {
+                            return Err(WorldStateOwnerError::Invalid(
+                                "module bid missing from membership index",
+                            ));
+                        }
+                        primary_membership_checks = primary_membership_checks
+                            .checked_add(1)
+                            .ok_or(WorldStateOwnerError::ResourceLimited(
+                                "module bid membership checks",
+                            ))?;
+                        bid_fields = bid_fields.checked_add(1).ok_or(
+                            WorldStateOwnerError::ResourceLimited("module bid field count"),
+                        )?;
+                        Ok(())
+                    }
+                    ChildSemantic::Bid {
+                        bid_id,
                         field: name,
                     } => {
                         if bid_id >= next_bid_id {
@@ -343,10 +806,18 @@ where
             .ok_or(WorldStateOwnerError::ResourceLimited(
                 "module bid field count",
             ))?;
+    let expected_leaves =
+        base_expected_leaves
+            .checked_add(group_count)
+            .ok_or(WorldStateOwnerError::Invalid(
+                "module bids leaf count overflow",
+            ))?;
     if scanned != expected_leaves
         || scalar_mask != 0b111
         || index_nodes != length
         || bid_fields != expected_bid_fields
+        || primary_membership_checks != length
+        || group_memberships != length
     {
         return Err(WorldStateOwnerError::Invalid("module bids record closure"));
     }
