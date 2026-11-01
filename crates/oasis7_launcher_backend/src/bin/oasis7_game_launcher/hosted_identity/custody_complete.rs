@@ -303,7 +303,7 @@ impl IdentityService {
     }
 }
 
-fn check_record(
+pub(super) fn check_record(
     record: &ApprovalRecord,
     account: &AccountRecord,
     session: &AccountSession,

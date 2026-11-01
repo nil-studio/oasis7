@@ -144,6 +144,17 @@ impl AccountProvisionApprovalState {
                 }
                 self.validate_owner_setup_outbox(id, *stage, o, r, signature_scope)?;
             }
+            if let Some(final_common) = self.owner_setup_resource_final_common_v2(id)? {
+                if v.stages.contains_key(&OwnerSetupStageV1::FinalObservation)
+                    || !nonces.insert(final_common.session_nonce.clone())
+                {
+                    return Err(invalid());
+                }
+                budget
+                    .charge(OWNER_SETUP_STAGE_TRANSPORT_COST)
+                    .map_err(|_| invalid())?;
+                self.validate_owner_setup_resource_final_common_restore_v2(id, r, signature_scope)?;
+            }
             if v.transport.as_ref() != Some(&budget) {
                 return Err(invalid());
             }

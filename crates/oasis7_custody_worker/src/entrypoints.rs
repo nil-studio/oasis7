@@ -659,3 +659,41 @@ pub async fn owner_client_v2_control_heartbeat(
     )
     .await
 }
+
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_attest_execution_private_current_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::execution_private_current_v2::read(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "identity")]
+#[wasm_bindgen]
+pub async fn identity_execution_prepare_native_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::identity_native_runtime::execution_prepare_native_v2::run(&env, &raw)
+        .await
+        .map_err(|_| rejected())
+}
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_execution_prepare_context_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_execution_prepare_context_v2::forward(&env, &raw).await
+}
+
+#[cfg(feature = "owner")]
+#[wasm_bindgen]
+pub async fn owner_native_model_reservation_v2(
+    env: Env,
+    raw: String,
+) -> std::result::Result<String, JsValue> {
+    crate::owner_native_model_entry_v2::forward(&env, &raw).await
+}

@@ -28,6 +28,7 @@ pub(crate) enum NativePrivateRoute {
     ParticipantOwnerView,
     ParticipantReadAndRegisterTestSessionV2,
     OwnerControl,
+    ExecutionPrepareFundedV2,
 }
 impl NativePrivateRoute {
     fn path(self) -> &'static str {
@@ -53,6 +54,7 @@ impl NativePrivateRoute {
                 "/entry/read-and-register-test-session-v2"
             }
             Self::OwnerControl => "/entry-owner/control",
+            Self::ExecutionPrepareFundedV2 => "/entry-executor/prepare-funded-v2",
         }
     }
     fn participant(self) -> bool {
@@ -67,6 +69,7 @@ impl NativePrivateRoute {
                 | Self::ParticipantOwnerView
                 | Self::ParticipantReadAndRegisterTestSessionV2
                 | Self::OwnerControl
+                | Self::ExecutionPrepareFundedV2
         )
     }
 }
@@ -169,6 +172,7 @@ impl NativeProvisionTransport {
                     NativePrivateRoute::TestSessionV2PolicyOriginal
                         | NativePrivateRoute::TestSessionV2Authorize
                         | NativePrivateRoute::OwnerControl
+                        | NativePrivateRoute::ExecutionPrepareFundedV2
                         | NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2
                 ) {
                     65_536
@@ -256,7 +260,10 @@ impl NativeProvisionTransport {
             }
             raw.zeroize();
         }
-        let body = if route == NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2 {
+        let body = if route == NativePrivateRoute::ExecutionPrepareFundedV2 {
+            super::read_native_body_limited(response,
+                oasis7_custody_core::native_execution_prepare_v2::MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2).await?
+        } else if route == NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2 {
             super::read_native_body_limited(response, 65_536).await?
         } else {
             super::read_native_body(response).await?

@@ -36,6 +36,8 @@ impl AccountProvisionApprovalState {
                         | SessionPurposeTransportV1::ExecutionFactoryCallbackV2(_)
                         | SessionPurposeTransportV1::ExecutionPrepareCurrentV2(_)
                         | SessionPurposeTransportV1::ExecutionPrepareRkvV2(_)
+                        | SessionPurposeTransportV1::ExecutionNativePrepareV2(_)
+                        | SessionPurposeTransportV1::ExecutionPrivateCurrentV2(_)
                 )
             }) {
                 Err(invalid())
@@ -200,6 +202,8 @@ impl AccountProvisionApprovalState {
             _ => return Err(invalid()),
         }
         self.validate_execution_prepare_v2(s, b)?;
+        self.validate_prepare_private_current_v2(s, b)?;
+        self.validate_native_prepare_record_v2(s, b)?;
         Ok(())
     }
 }

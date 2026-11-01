@@ -6,7 +6,7 @@ use std::{
     path::Path,
 };
 use zeroize::{Zeroize, Zeroizing};
-pub(crate) const HELP: &str = "custody-host-init|custody-host-enroll|custody-host-bind|custody-host-claim --vault <private-root>\ncustody-host-serve|custody-host-profile --vault <private-root> --socket <preprovisioned-public-socket>\nTrusted commands require private bounded JSON stdin with wrapping_key; no credentials or keys in argv/env/stdout. Model calls only custody-control-call --socket <approved-custody-socket> with closed Control JSON. This component does not establish deployment isolation acceptance or enable business actions.";
+pub(crate) const HELP: &str = "custody-host-init|custody-host-enroll|custody-host-bind|custody-host-claim --vault <private-root>\ncustody-host-serve|custody-host-profile --vault <private-root> --socket <preprovisioned-public-socket>\nNative H-only custody-host-native-serve|custody-host-native-profile use the same private vault/socket options; N-only custody-native-reserve-call --socket <approved-native-socket> accepts a public signed query. It does not enable provider dispatch.\nTrusted commands require private bounded JSON stdin with wrapping_key; no credentials or keys in argv/env/stdout. Model calls only custody-control-call --socket <approved-custody-socket> with closed Control JSON. This component does not establish deployment isolation acceptance or enable business actions.";
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Init {
@@ -77,6 +77,19 @@ pub(crate) fn model_call(socket: &Path) -> Result<(), String> {
     let request: control::ModelRequest = serde_json::from_slice(&bytes).map_err(|_| denied())?;
     crate::device_client::print(&ipc::call(socket, request)?)
 }
+/// N-only fixed client; stdin is a public signed query, never Host unlock data.
+pub(crate) fn native_reserve_call(socket: &Path) -> Result<(), String> {
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .take(32769)
+        .read_to_end(&mut bytes)
+        .map_err(|_| denied())?;
+    if bytes.len() > 32768 {
+        return Err(denied());
+    }
+    let query = serde_json::from_slice(&bytes).map_err(|_| denied())?;
+    crate::device_client::print(&ipc::native::call(socket, query)?)
+}
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if args.len() != 3 && args.len() != 5 {
         return Err(HELP.into());
@@ -137,17 +150,25 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
                 "client_key_id":public.1.key_id,"descriptor_digest":public.1.descriptor_digest,"descriptor":public.0,"authority_granted":false}),
             )
         }
-        "custody-host-serve" | "custody-host-profile" if args.len() == 5 => {
+        "custody-host-serve"
+        | "custody-host-profile"
+        | "custody-host-native-serve"
+        | "custody-host-native-profile"
+            if args.len() == 5 =>
+        {
             let request: Unlock = input()?;
             let host = Host::open(vault::Vault::open(
                 root,
                 vault::secret32(&request.wrapping_key)?,
             )?)?;
             let socket = Path::new(&args[4]);
-            if args[0] == "custody-host-serve" {
-                ipc::serve(host, socket)
-            } else {
-                crate::device_client::print(&ipc::binding(&host, socket)?)
+            match args[0].as_str() {
+                "custody-host-serve" => ipc::serve(host, socket),
+                "custody-host-native-serve" => ipc::native::serve(host, socket),
+                "custody-host-native-profile" => {
+                    crate::device_client::print(&ipc::native::binding(&host, socket)?)
+                }
+                _ => crate::device_client::print(&ipc::binding(&host, socket)?),
             }
         }
         _ => Err(HELP.into()),

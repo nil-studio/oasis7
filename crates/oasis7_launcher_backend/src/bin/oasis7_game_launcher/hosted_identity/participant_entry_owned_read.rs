@@ -1,6 +1,14 @@
 //! Shared exact bounded transport plus an owned read-only gateway. The owned
 //! gateway contains no Native admission issuer or Cloud Owner secret.
 use super::*;
+use oasis7_client_api::world_service::{
+    ReadWorldViewResponse,
+    task_context_projection::{
+        CONTEXT_PREPARE_ATTESTED_PATH_V2, MAX_ATTESTED_CONTEXT_WIRE_BYTES_V2,
+        TaskContextPreparedDeliveryV2, WorldContextAttestationV2,
+        validate_prepare_attestation_request_v2,
+    },
+};
 pub(super) fn forward_bounded<Q: Serialize, R: Serialize>(
     trust: &EntryTrust,
     http: &reqwest::blocking::Client,
@@ -185,6 +193,87 @@ impl OwnedOwnerReadGateway {
             request,
             request,
             65536,
+        )?;
+        serde_json::from_value(value["world_response"].clone())
+            .map_err(|_| reject("participant_read_response_schema"))
+    }
+    /// Exactly two funded World calls for the new Prepare profile. This owned
+    /// gateway carries no Native SID, CSRF, issuer or Owner signing material.
+    pub(in super::super) fn execution_prepare_funded_v2(
+        &self,
+        original: &oasis7_custody_core::provisioning::ExecutionPrepareSignedOriginalV2,
+        mut before_send: impl FnMut() -> Result<(), StoreError>,
+    ) -> Result<WorldContextAttestationV2<TaskContextPreparedDeliveryV2>, StoreError> {
+        use oasis7_agent_api::game::{GameTaskControlV1, GameTaskFenceV1, GameTaskStatusV1};
+        use oasis7_client_api::world_service::private_goal::verify_owner_signature_strict;
+        let access = &original.access;
+        let fence = &access.fence;
+        let actor = access.read.subject_public_key.as_str();
+        fence
+            .validate()
+            .map_err(|_| reject("executor_context_mismatch"))?;
+        if access.read.request.world != self.trust.world
+            || access.read.request.scope_id != format!("agent:{}", fence.agent_id)
+            || access.read.request.fixed_commit.is_some()
+            || access.read.request.observation_nonce.is_none()
+            || fence.world_id != self.trust.world.world_id
+            || fence.genesis_digest != self.trust.world.genesis_digest
+            || actor == fence.owner_public_key
+            || original.request.original.subject_public_key != actor
+            || original.request.original.request.fence != *fence
+        {
+            return Err(reject("executor_context_mismatch"));
+        }
+        verify_owner_signature_strict(
+            VIEW_JSON_PATH,
+            &access.read.request,
+            actor,
+            &access.read.signature_hex,
+        )
+        .map_err(|_| reject("authentication_failed"))?;
+        validate_prepare_attestation_request_v2(&original.request)
+            .map_err(|_| reject("authentication_failed"))?;
+        before_send()?;
+        let value = forward_bounded(
+            &self.trust,
+            &self.http,
+            VIEW_JSON_PATH,
+            VIEW_JSON_PATH,
+            &access.read,
+            &access.read,
+            4 * 1024 * 1024,
+        )?;
+        let response: SignedServiceResponse<ReadWorldViewResponse<Value>> =
+            serde_json::from_value(value["world_response"].clone())
+                .map_err(|_| reject("executor_context_mismatch"))?;
+        response
+            .payload
+            .validate(&access.read.request)
+            .map_err(|_| reject("executor_context_mismatch"))?;
+        let current: GameTaskControlV1 =
+            serde_json::from_value(response.payload.view["game_task_control"].clone())
+                .map_err(|_| reject("executor_context_mismatch"))?;
+        if GameTaskFenceV1::from_control(&current) != *fence
+            || current.task_status != GameTaskStatusV1::Active
+            || current
+                .executor_binding
+                .as_ref()
+                .is_none_or(|b| b.executor_public_key != actor)
+            || current.owner_public_key == actor
+            || current.branch_id != response.payload.version.commit.binding.branch_id
+            || current.reorg_epoch.0 != response.payload.version.commit.binding.reorg_generation
+        {
+            return Err(reject("executor_context_mismatch"));
+        }
+        before_send()?;
+        let value = forward_bounded(
+            &self.trust,
+            &self.http,
+            CONTEXT_PREPARE_ATTESTED_PATH_V2,
+            CONTEXT_PREPARE_ATTESTED_PATH_V2,
+            &original.request,
+            &original.request,
+            MAX_ATTESTED_CONTEXT_WIRE_BYTES_V2,
         )?;
         serde_json::from_value(value["world_response"].clone())
             .map_err(|_| reject("participant_read_response_schema"))

@@ -34,7 +34,30 @@ fn fixed_path(model: u32) -> PathBuf {
     PathBuf::from(root).join(format!("{model}.json"))
 }
 pub(super) fn check(expected: &PublicBinding) -> Result<(), String> {
-    let path = fixed_path(expected.isolation.model_uid);
+    check_path(
+        fixed_path(expected.isolation.model_uid),
+        expected,
+        &expected.transport_profile,
+    )
+}
+pub(super) fn check_native(expected: &PublicBinding) -> Result<(), String> {
+    let super::state::NativePlacement::Local { uid } = &expected.isolation.native else {
+        return Err(denied());
+    };
+    check_path(
+        fixed_path(expected.isolation.model_uid),
+        expected,
+        "native-broker-custody-v1",
+    )?;
+    let path = fixed_path(*uid)
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(denied)?
+        .join("native-bindings")
+        .join(format!("{uid}.json"));
+    check_path(path, expected, "native-model-custody-v2")
+}
+fn check_path(path: PathBuf, expected: &PublicBinding, profile: &str) -> Result<(), String> {
     let mut dir = Dir::open_ambient_dir("/", cap_std::ambient_authority()).map_err(|_| denied())?;
     root_directory(&dir)?;
     for component in path.parent().ok_or_else(denied)?.components().skip(1) {
@@ -71,11 +94,15 @@ pub(super) fn check(expected: &PublicBinding) -> Result<(), String> {
         return Err(denied());
     }
     let actual: RuntimeBinding = serde_json::from_slice(&bytes).map_err(|_| denied())?;
-    matches(&actual, expected)
+    matches_profile(&actual, expected, profile)
 }
-fn matches(actual: &RuntimeBinding, expected: &PublicBinding) -> Result<(), String> {
+fn matches_profile(
+    actual: &RuntimeBinding,
+    expected: &PublicBinding,
+    profile: &str,
+) -> Result<(), String> {
     if actual.api_version != 1
-        || actual.transport_profile != expected.transport_profile
+        || actual.transport_profile != profile
         || actual.identity_digest != expected.identity_digest
         || actual.descriptor_digest != expected.descriptor_digest
         || actual.session_digest != expected.session_digest
@@ -120,11 +147,11 @@ mod tests {
             restricted_runtime_identity: expected.restricted_runtime_identity.clone(),
             isolation,
         };
-        assert!(matches(&actual, &expected).is_ok());
+        assert!(matches_profile(&actual, &expected, &expected.transport_profile).is_ok());
         actual.session_digest = "14".repeat(32);
-        assert!(matches(&actual, &expected).is_err());
+        assert!(matches_profile(&actual, &expected, &expected.transport_profile).is_err());
         actual.session_digest = expected.session_digest.clone();
         actual.isolation.model_uid = 504;
-        assert!(matches(&actual, &expected).is_err());
+        assert!(matches_profile(&actual, &expected, &expected.transport_profile).is_err());
     }
 }

@@ -51,7 +51,21 @@ fn ready_with_current_ticket_and_hook(
     reserve_current: bool,
     before_source: impl FnOnce(&mut SessionFixture),
 ) -> ReadyPrepare {
-    let mut f = claimed_execution();
+    ready_with_actual_session(
+        claimed_execution(),
+        status_window_ms,
+        manager_window,
+        reserve_current,
+        before_source,
+    )
+}
+fn ready_with_actual_session(
+    mut f: SessionFixture,
+    status_window_ms: Option<u64>,
+    manager_window: Option<ManagerWindow>,
+    reserve_current: bool,
+    before_source: impl FnOnce(&mut SessionFixture),
+) -> ReadyPrepare {
     // Existing consumed record is left intact. A new real Native Source below
     // is strongly signed with these tighter current Manager natural versions.
     match manager_window {
@@ -420,3 +434,9 @@ fn session_v2_prepare_factory_opaque_obeys_manager_session_expiry() {
 fn session_v2_prepare_factory_opaque_obeys_manager_idle_expiry() {
     check_manager_window(ManagerWindow::Idle);
 }
+
+#[path = "test_session_v2_execution_owner_factory_tests.rs"]
+mod owner_factory_tests;
+
+#[path = "test_session_v2_execution_prepare_native_tests.rs"]
+mod native_prepare_tests;

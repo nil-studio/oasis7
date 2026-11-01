@@ -274,3 +274,6 @@ fn host_session_plan_consumes_actual_rust_v2_and_preserves_v1_wire() {
         assert!(decoded.validate().is_err());
     }
 }
+
+#[path = "custody_host_native_model_tests.rs"]
+mod native_model_tests;

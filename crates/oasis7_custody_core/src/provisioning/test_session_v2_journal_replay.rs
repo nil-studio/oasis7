@@ -33,6 +33,10 @@ pub(super) struct Replay<'a> {
     execution_prepare_admitted: bool,
     execution_prepare_permits_recorded: bool,
     execution_prepare_original_archived: bool,
+    execution_native_prepare_claimed: bool,
+    execution_prepared_public_archived: bool,
+    execution_private_current_claimed: bool,
+    execution_private_current_observed: bool,
     execution_lifetime_claimed: bool,
     execution_lifetime_archived: bool,
     execution_lifetime_admitted: bool,
@@ -90,6 +94,10 @@ impl<'a> Replay<'a> {
             execution_prepare_admitted: false,
             execution_prepare_permits_recorded: false,
             execution_prepare_original_archived: false,
+            execution_native_prepare_claimed: false,
+            execution_prepared_public_archived: false,
+            execution_private_current_claimed: false,
+            execution_private_current_observed: false,
             execution_lifetime_claimed: false,
             execution_lifetime_archived: false,
             execution_lifetime_admitted: false,
@@ -262,8 +270,18 @@ impl<'a> Replay<'a> {
 
         if let Some(book) = &s.execution_book {
             let b = book.journal_record();
-            if self.execution_prepare_original_archived
-                != book.prepare_original_recorded_at().is_some()
+            if self.execution_native_prepare_claimed != book.native_prepare_record().is_some()
+                || self.execution_prepared_public_archived
+                    != book
+                        .native_prepare_record()
+                        .is_some_and(|r| r.public_recorded_at.is_some())
+                || self.execution_private_current_claimed != book.private_current_read(s).is_some()
+                || self.execution_private_current_observed
+                    != book
+                        .private_current_read(s)
+                        .is_some_and(|r| r.completed_at.is_some())
+                || self.execution_prepare_original_archived
+                    != book.prepare_original_recorded_at().is_some()
                 || self.execution_prepare_permits_recorded
                     != book.prepare_service_record().is_some()
                 || self.execution_prepare_current_ports

@@ -188,7 +188,7 @@ impl IdentityService {
                 now,
             )
         })?;
-        self.store.transaction(|tx| {
+        let ack = self.store.transaction(|tx| {
             cleanup_registry::activate_registered(
                 tx,
                 config,
@@ -199,7 +199,20 @@ impl IdentityService {
                 &machine.issuer_floor,
                 now,
             )
-        })
+        })?;
+        // Signal extraction is a separate local read after the first actual
+        // Active commit. Any scheduling/extraction failure leaves Active intact.
+        let signal = self
+            .store
+            .transaction(|tx| cleanup_registry::active_model_signal(tx, config, &self.config, &ack))
+            .ok()
+            .flatten();
+        // The transaction above has committed. This callback may only enqueue
+        // local work; the Native handler still owns the identity mutex.
+        if let (Some(authority), Some(signal)) = (&self.model_proxy_basis, signal) {
+            authority.active_committed(signal);
+        }
+        Ok(ack)
     }
 }
 

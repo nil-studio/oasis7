@@ -110,7 +110,7 @@ impl AccountProvisionApprovalState {
         stage: OwnerSetupStageV1,
     ) -> Result<ws::ReadWorldViewRequest> {
         let v = self.owner_setup_engine_record(id)?;
-        let o = v.stages.get(&stage).ok_or_else(invalid)?;
+        let o = self.owner_setup_engine_outbox(id, stage)?;
         let participant = self
             .participant_provisions
             .values()
@@ -141,6 +141,14 @@ impl AccountProvisionApprovalState {
         id: &str,
         stage: OwnerSetupStageV1,
     ) -> Result<OwnerSetupSigningRequestV1> {
+        if stage == OwnerSetupStageV1::FinalObservation
+            && self
+                .owner_setup_v2_plan()
+                .is_some_and(|p| p.setup_id == id && p.selection.resource().is_some())
+        {
+            return Err(invalid());
+        }
+
         let v = self.owner_setup_engine_record(id)?;
         let plan = &v.plan;
         let participant = self

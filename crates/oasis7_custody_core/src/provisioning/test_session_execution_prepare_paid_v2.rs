@@ -21,6 +21,7 @@ pub struct ExecutionPreparePaidIntentV2 {
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionPrepareFactoryKindV2 {
     IdentityToAccountPrepare,
+    OwnerServiceAndAccountV2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,6 +32,72 @@ pub struct ExecutionPrepareFactoryTransportV2 {
     pub claimed_at: UnixMillis,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_read: Option<ExecutionPrepareCurrentReadV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_current: Option<ExecutionPrivateCurrentReadV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub factory_ports: Option<[ExecutionPrepareFactoryPortV2; 2]>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionPrepareFactoryHopV2 {
+    IdentityToOwnerService,
+    OwnerServiceToAccountActor,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionPrepareFactoryPortV2 {
+    pub hop: ExecutionPrepareFactoryHopV2,
+    pub physical_id: String,
+}
+impl ExecutionPrepareFactoryKindV2 {
+    pub(in crate::provisioning) fn units(self) -> u64 {
+        match self {
+            Self::IdentityToAccountPrepare => 1,
+            Self::OwnerServiceAndAccountV2 => 2,
+        }
+    }
+}
+impl ExecutionPrepareFactoryTransportV2 {
+    fn expected_factory_ports(
+        &self,
+        s: &TestSessionAuthorityV2,
+    ) -> Result<Option<[ExecutionPrepareFactoryPortV2; 2]>> {
+        if self.kind == ExecutionPrepareFactoryKindV2::IdentityToAccountPrepare {
+            return Ok(None);
+        }
+        let parent = self.intent.ledger_key(s, &self.signed_attempt_digest)?;
+        let make = |hop| -> Result<ExecutionPrepareFactoryPortV2> {
+            Ok(ExecutionPrepareFactoryPortV2 {
+                hop,
+                physical_id: format!(
+                    "execution-factory-hop-v2:{}",
+                    digest(&(
+                        "oasis7.custody.execution-factory-hop.v2",
+                        self.kind,
+                        &s.input.operation_id,
+                        &self.intent.approved_input_digest,
+                        &parent,
+                        &self.signed_attempt_digest,
+                        &self.intent,
+                        hop,
+                    ))?
+                ),
+            })
+        };
+        Ok(Some([
+            make(ExecutionPrepareFactoryHopV2::IdentityToOwnerService)?,
+            make(ExecutionPrepareFactoryHopV2::OwnerServiceToAccountActor)?,
+        ]))
+    }
+    pub(in crate::provisioning) fn validate_factory_profile(
+        &self,
+        s: &TestSessionAuthorityV2,
+    ) -> Result<()> {
+        if self.factory_ports != self.expected_factory_ports(s)? {
+            return Err(invalid());
+        }
+        Ok(())
+    }
 }
 impl core::fmt::Debug for ExecutionPreparePaidIntentV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -71,6 +138,39 @@ impl AccountProvisionApprovalState {
         proof: SessionProofRequest<'_>,
         now: UnixMillis,
     ) -> Result<String> {
+        self.charge_execution_prepare_factory_inner(
+            session_id,
+            allocation,
+            proof,
+            now,
+            ExecutionPrepareFactoryKindV2::IdentityToAccountPrepare,
+        )
+    }
+    /// Actual fixed Owner named method plus its one Account Actor call.
+    /// This does not upgrade or reuse a pre-existing legacy one-fee record.
+    pub fn charge_test_session_v2_execution_prepare_owner_factory_attempt(
+        &mut self,
+        session_id: &str,
+        allocation: &ExecutionPrepareAllocationV2,
+        proof: SessionProofRequest<'_>,
+        now: UnixMillis,
+    ) -> Result<String> {
+        self.charge_execution_prepare_factory_inner(
+            session_id,
+            allocation,
+            proof,
+            now,
+            ExecutionPrepareFactoryKindV2::OwnerServiceAndAccountV2,
+        )
+    }
+    fn charge_execution_prepare_factory_inner(
+        &mut self,
+        session_id: &str,
+        allocation: &ExecutionPrepareAllocationV2,
+        proof: SessionProofRequest<'_>,
+        now: UnixMillis,
+        kind: ExecutionPrepareFactoryKindV2,
+    ) -> Result<String> {
         let q = super::super::test_session::action_original_v2(&proof)?;
         let s = self.test_session_v2_record(session_id)?;
         authenticated_receipt_v2(s, SessionPurposeV1::Execution, proof.possession, now)?;
@@ -100,7 +200,7 @@ impl AccountProvisionApprovalState {
                         && intent.action_request_id == q.request_id
                         && intent.approved_input_digest == s.input_digest()?
                         && paid.signed_attempt_digest == signed_attempt
-                        && paid.kind == ExecutionPrepareFactoryKindV2::IdentityToAccountPrepare
+                        && paid.kind == kind
                         && intent.ledger_key(s, &signed_attempt)? == *key
                     {
                         Ok(key.clone())
@@ -183,6 +283,24 @@ impl AccountProvisionApprovalState {
         if s.purpose_transports.contains_key(&key) {
             return Err(ProvisionApprovalError::Conflict);
         }
+        let mut paid_record = ExecutionPrepareFactoryTransportV2 {
+            kind,
+            intent: Box::new(intent.clone()),
+            signed_attempt_digest: signed_attempt.clone(),
+            claimed_at: now,
+            current_read: None,
+            private_current: None,
+            factory_ports: None,
+        };
+        paid_record.factory_ports = paid_record.expected_factory_ports(s)?;
+        if let Some(ports) = &paid_record.factory_ports {
+            if ports[0].physical_id == ports[1].physical_id {
+                return Err(invalid());
+            }
+            for port in ports {
+                self.test_session_v2_transport_id_available(session_id, &port.physical_id)?;
+            }
+        }
         let mut next = self.clone();
         let saved = next.test_session_v2_record_mut(session_id)?;
         saved
@@ -191,7 +309,7 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?
             .budgets
             .transport
-            .charge(1)
+            .charge(kind.units())
             .map_err(|_| invalid())?;
         saved
             .execution_book
@@ -200,15 +318,7 @@ impl AccountProvisionApprovalState {
             .last_allocation_sequence = intent.allocation_sequence;
         saved.purpose_transports.insert(
             key.clone(),
-            SessionPurposeTransportV1::ExecutionFactoryCallbackV2(Box::new(
-                ExecutionPrepareFactoryTransportV2 {
-                    kind: ExecutionPrepareFactoryKindV2::IdentityToAccountPrepare,
-                    intent: Box::new(intent),
-                    signed_attempt_digest: signed_attempt,
-                    claimed_at: now,
-                    current_read: None,
-                },
-            )),
+            SessionPurposeTransportV1::ExecutionFactoryCallbackV2(Box::new(paid_record)),
         );
         append_session_event_v2(
             saved,

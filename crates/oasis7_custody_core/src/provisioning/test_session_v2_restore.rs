@@ -101,6 +101,8 @@ impl AccountProvisionApprovalState {
                                 || book.owns_prepare_factory_transport(s, key)
                                 || book.owns_prepare_current_transport(s, key)
                                 || book.owns_prepare_rkv_transport(s, key)
+                                || book.owns_prepare_private_transport(s, key)
+                                || book.owns_prepare_native_transport(s, key)
                         })
                 })
             {
@@ -183,7 +185,9 @@ impl AccountProvisionApprovalState {
                             s.purpose_transports
                                 .values()
                                 .filter(|a| a.purpose() == purpose)
-                                .count() as u64,
+                                .try_fold(0u64, |n, a| {
+                                    n.checked_add(a.physical_units_v2()).ok_or_else(invalid)
+                                })?,
                         )
                         .map_err(|_| invalid())?;
                     expected
@@ -253,6 +257,19 @@ impl AccountProvisionApprovalState {
                     || !hex64(&source.verify_nonce)
                     || super::v2_control::id_in_use_v2(s, key)
                     || super::v2_control::id_in_use_v2(s, &source.verify_nonce)
+                    || s.native_model_budget
+                        .as_ref()
+                        .is_some_and(|m| m.id_in_use(key) || m.id_in_use(&source.verify_nonce))
+                    || s.execution_book.as_ref().is_some_and(|book| {
+                        // The Book references its original Source itself; that
+                        // exact reference is not a newly allocated transport.
+                        (key.as_str() != book.journal_record().source_operation_id
+                            && book.transport_id_in_use(key))
+                            || book.owns_native_prepare_id(key)
+                            || book.owns_prepare_private_transport(s, key)
+                            || book.transport_id_in_use(&source.verify_nonce)
+                            || book.owns_prepare_private_transport(s, &source.verify_nonce)
+                    })
                     || source.created_at.0 < s.consumed_at.ok_or_else(invalid)?.get()
                     || source.expires_at.0 <= source.created_at.0
                     || source.expires_at.0

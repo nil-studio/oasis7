@@ -9,6 +9,13 @@ use worker::{Env, Response, Result};
 
 pub(super) fn response(state: JsValue, env: &Env, raw: &str) -> Result<Response> {
     let request: TestSessionAttestationRequest = serde_json::from_str(raw).map_err(|_| denied())?;
+    Response::from_json(&metadata(state, env, &request)?)
+}
+pub(super) fn metadata(
+    state: JsValue,
+    env: &Env,
+    request: &TestSessionAttestationRequest,
+) -> Result<TestSessionPrivateAttestation> {
     let session = &request.session;
     let identity = &session.scope.role_scope.context.identity;
     if env.var("CUSTODY_ROLE_KEY_ENVIRONMENT")?.to_string() != identity.environment {
@@ -55,7 +62,7 @@ pub(super) fn response(state: JsValue, env: &Env, raw: &str) -> Result<Response>
     {
         return Err(denied());
     }
-    Response::from_json(&TestSessionPrivateAttestation {
+    Ok(TestSessionPrivateAttestation {
         session_ref: stored.session_ref,
         private_sid_generation: stored.private_sid_generation,
         lifetime_digest: request.lifetime.lifetime.digest().map_err(|_| denied())?,

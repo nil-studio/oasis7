@@ -398,3 +398,26 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+impl AccountProvisionApprovalState {
+    /// Stored Ready identity only. This neither proves current Native/Source
+    /// state nor grants Execution or dispatch. The actual producer must verify
+    /// externally pinned Native history, live_scope and its independent fee.
+    pub(in crate::provisioning) fn test_session_v2_stored_native_ready_identity(
+        &self,
+        id: &str,
+    ) -> Result<(&str, String)> {
+        let s = self.test_session_v2_record(id)?;
+        let machine = s.native_machine_registration.as_ref().ok_or_else(invalid)?;
+        machine.validate_session(s)?;
+        let active = machine.active.as_ref().ok_or_else(invalid)?;
+        if active.ready.is_none() || machine.registered.is_none() {
+            return Err(invalid());
+        }
+        let signed = active.signed.as_ref().ok_or_else(invalid)?;
+        Ok((
+            signed.certificate.opaque_registration_ref.as_str(),
+            signed.digest().map_err(|_| invalid())?,
+        ))
+    }
+}

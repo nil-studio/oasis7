@@ -81,6 +81,8 @@ struct MoveStageOutboxV2 {
     signing_admitted_at: UnixMillis,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     service_record: Option<ExecutionPrepareServiceRecordV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_prepare: Option<ExecutionNativePrepareRecordV2>,
     #[serde(deserialize_with = "required_option")]
     original: Option<PublicStageOriginalV2>,
     #[serde(deserialize_with = "required_option")]
@@ -162,6 +164,9 @@ impl SessionExecutionBookV2 {
     /// The referenced action/challenge/Host-ingress ids remain occupied by
     /// their original challenge/paid maps; they are not new transport ids.
     pub(in crate::provisioning) fn transport_id_in_use(&self, id: &str) -> bool {
+        if self.owns_native_prepare_id(id) {
+            return true;
+        }
         self.session_id == id
             || self.source_operation_id == id
             || self.lifetime_transport_id == id
@@ -251,7 +256,8 @@ mod prepare_paid;
 mod prepare_restore;
 pub use prepare_allocation::{ExecutionPrepareAllocationV2, ExecutionPrepareSigningAuthorityV2};
 pub use prepare_paid::{
-    ExecutionPrepareFactoryKindV2, ExecutionPrepareFactoryTransportV2, ExecutionPreparePaidIntentV2,
+    ExecutionPrepareFactoryHopV2, ExecutionPrepareFactoryKindV2, ExecutionPrepareFactoryPortV2,
+    ExecutionPrepareFactoryTransportV2, ExecutionPreparePaidIntentV2,
 };
 pub(in crate::provisioning) use prepare_restore::prepare_paid_id_in_use_v2;
 
@@ -378,3 +384,122 @@ mod prepare_continue_v2;
 
 #[path = "test_session_execution_prepare_original_v2.rs"]
 mod prepare_original_v2;
+
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn prepare_factory_units(
+        &self,
+        s: &TestSessionAuthorityV2,
+    ) -> Result<u64> {
+        let mut rows = s.purpose_transports.values().filter_map(|row| match row {
+            SessionPurposeTransportV1::ExecutionFactoryCallbackV2(p) => Some(p),
+            _ => None,
+        });
+        let one = rows.next().ok_or(ProvisionApprovalError::BindingMismatch)?;
+        if rows.next().is_some() {
+            return Err(ProvisionApprovalError::BindingMismatch);
+        }
+        one.validate_factory_profile(s)?;
+        Ok(one.kind.units())
+    }
+}
+
+#[path = "test_session_execution_native_prepare_v2.rs"]
+mod native_prepare_v2;
+pub use native_prepare_v2::{
+    ExecutionNativePrepareAuthorityV2, ExecutionNativePrepareDispatchV2,
+    ExecutionNativePrepareRecordV2, ExecutionNativePrepareTransportV2,
+};
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn native_prepare_record(
+        &self,
+    ) -> Option<&ExecutionNativePrepareRecordV2> {
+        self.stages
+            .get(&MoveExecutionStageV2::Prepare)?
+            .native_prepare
+            .as_ref()
+    }
+    pub(in crate::provisioning) fn owns_native_prepare_id(&self, id: &str) -> bool {
+        self.native_prepare_record().is_some_and(|r| {
+            r.ledger_keys.iter().any(|k| k == id)
+                || r.proof.certificate.ports.iter().any(|p| p.attempt_id == id)
+        })
+    }
+}
+
+#[path = "test_session_execution_prepare_private_v2.rs"]
+mod private_current_v2;
+pub use private_current_v2::{
+    ExecutionPrivateCurrentHopV2, ExecutionPrivateCurrentMetadataV2,
+    ExecutionPrivateCurrentObservationV2, ExecutionPrivateCurrentPortV2,
+    ExecutionPrivateCurrentPortsV2, ExecutionPrivateCurrentReadV2,
+    ExecutionPrivateCurrentTransportV2,
+};
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn private_current_read<'a>(
+        &self,
+        s: &'a TestSessionAuthorityV2,
+    ) -> Option<&'a ExecutionPrivateCurrentReadV2> {
+        s.purpose_transports.values().find_map(|v| match v {
+            SessionPurposeTransportV1::ExecutionFactoryCallbackV2(p) => p.private_current.as_ref(),
+            _ => None,
+        })
+    }
+}
+
+impl SessionExecutionBookV2 {
+    pub(in crate::provisioning) fn owns_prepare_private_transport(
+        &self,
+        s: &TestSessionAuthorityV2,
+        key: &str,
+    ) -> bool {
+        let Some(SessionPurposeTransportV1::ExecutionPrivateCurrentV2(marker)) =
+            s.purpose_transports.get(key)
+        else {
+            return false;
+        };
+        let Some(SessionPurposeTransportV1::ExecutionFactoryCallbackV2(factory)) =
+            s.purpose_transports.get(&marker.factory_key)
+        else {
+            return false;
+        };
+        let Some(read) = &factory.private_current else {
+            return false;
+        };
+        factory.kind == ExecutionPrepareFactoryKindV2::OwnerServiceAndAccountV2
+            && factory.intent.action_request_id == self.action_request_id
+            && factory.intent.approved_input_digest == self.approved_input_digest
+            && read.lifetime_digest == marker.lifetime_digest
+            && read.claimed_at == marker.claimed_at
+            && read
+                .ports
+                .iter()
+                .any(|port| port.physical_id == key && port.hop == marker.hop)
+    }
+    pub(in crate::provisioning) fn owns_prepare_native_transport(
+        &self,
+        s: &TestSessionAuthorityV2,
+        key: &str,
+    ) -> bool {
+        let Some(SessionPurposeTransportV1::ExecutionNativePrepareV2(marker)) =
+            s.purpose_transports.get(key)
+        else {
+            return false;
+        };
+        let Some(record) = self.native_prepare_record() else {
+            return false;
+        };
+        let Ok(digest) = record.proof.digest() else {
+            return false;
+        };
+        record.proof.certificate.session_id == self.session_id
+            && record.proof.certificate.action_request_id == self.action_request_id
+            && record.proof.certificate.approved_input_digest == self.approved_input_digest
+            && marker.proof_digest == digest
+            && marker.claimed_at == record.claimed_at
+            && record
+                .ledger_keys
+                .iter()
+                .zip(&record.proof.certificate.ports)
+                .any(|(parent_key, port)| parent_key == key && marker.edge == port.edge)
+    }
+}

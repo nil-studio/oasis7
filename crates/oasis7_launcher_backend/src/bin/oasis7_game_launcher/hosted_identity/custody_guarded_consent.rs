@@ -67,13 +67,15 @@ fn native_configuration_digest(
 }
 // Explicit World3 cannot fall through ordinary consent without fixed consumer configuration.
 pub(super) fn require_supported_profile(
-    config:&CustodyConfig,
+    config: &CustodyConfig,
     request: &ApprovalOptionsRequestV1,
 ) -> Result<(), StoreError> {
     if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
         if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
     {
-        if !config.full_session_v2_summary_contract_enabled { return Err(unavailable()); }
+        if !config.full_session_v2_summary_contract_enabled {
+            return Err(unavailable());
+        }
         // This explicit new producer requires its own fixed-purpose pin and
         // the same protected options-before-MFA lineage as the old owned mode.
         super::cleanup_config::MachineConfig::from_env()?.preflight_access_pin()?;
@@ -196,8 +198,13 @@ pub(super) fn verify_existing_guarded_consent_v2(
     identity: &super::super::config::IdentityConfig,
     record: &ApprovalRecord,
 ) -> Result<(), StoreError> {
-    require_supported_profile(config,&record.request)?;
+    require_supported_profile(config, &record.request)?;
     let Some(tag) = &record.guarded_consent_provenance else {
+        if matches!(&record.request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
+            if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+        {
+            return Err(unavailable());
+        }
         return Ok(());
     };
     if !(1..=2).contains(&tag.uses.len()) || tag.uses.len() == 2 && tag.uses[0] == tag.uses[1] {

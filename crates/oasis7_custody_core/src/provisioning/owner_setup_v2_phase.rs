@@ -8,6 +8,12 @@ pub fn derive_owner_setup_move0_sdk_plan_v2(p: &OwnerSetupPlanV2) -> Result<Owne
     if !p.selection.is_exact_move0() {
         return Err(invalid());
     }
+    derive_owner_setup_write_projection_v2(p)
+}
+// Pure SDK write projection. The enclosing actual V2 Book remains the only
+// approval authority; selection never becomes resource_refs or installs a grant.
+fn derive_owner_setup_write_projection_v2(p: &OwnerSetupPlanV2) -> Result<OwnerSetupPlanV1> {
+    p.validate().map_err(|_| invalid())?;
     let projection = OwnerSetupPlanV1 {
         api_version: 1,
         setup_id: p.setup_id.clone(),
@@ -58,7 +64,7 @@ impl OwnerSetupSdkPhaseProjectionV2 {
         }
         Ok(Self {
             record: OwnerSetupApprovalV1 {
-                plan: derive_owner_setup_move0_sdk_plan_v2(plan)?,
+                plan: derive_owner_setup_write_projection_v2(plan)?,
                 book: book.clone(),
                 transport: Some(approval_charge.clone()),
                 source: Some(ProvisionOriginInspectionV1 {
@@ -91,7 +97,7 @@ impl OwnerSetupSdkPhaseProjectionV2 {
         plan: &OwnerSetupPlanV2,
         book: &ApprovalAdmissionBook,
     ) -> Result<()> {
-        if self.record.plan != derive_owner_setup_move0_sdk_plan_v2(plan)?
+        if self.record.plan != derive_owner_setup_write_projection_v2(plan)?
             || &self.record.book != book
         {
             return Err(invalid());

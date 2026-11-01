@@ -1,7 +1,9 @@
 //! Genuine V2 roots/claim and actual Rust-issued metadata nonce. No dispatch.
 use super::*;
 fn claimed_execution() -> SessionFixture {
-    let mut f = activation_tests::activated(9000);
+    claimed_execution_from(activation_tests::activated(9000))
+}
+fn claimed_execution_from(mut f: SessionFixture) -> SessionFixture {
     let mut q = request(&f, "execution-fee-claim", None);
     q.purposes = vec![TestSessionPurposeV1::Execute, TestSessionPurposeV1::Read];
     let mut read = allocation(32);

@@ -35,7 +35,7 @@ impl Replay<'_> {
                 self.root_transport
                     .get_mut(&SessionPurposeV1::Execution)
                     .ok_or_else(invalid)?
-                    .charge(1)
+                    .charge(book.prepare_factory_units(self.s)?)
                     .map_err(|_| invalid())?;
                 self.execution_prepare_paid = true;
             }
@@ -61,6 +61,80 @@ impl Replay<'_> {
                     .charge(3)
                     .map_err(|_| invalid())?;
                 self.execution_prepare_current_ports = true;
+            }
+            SessionEventKindV2::ExecutionPrivateCurrentClaimed { request_id } => {
+                self.live(SessionPurposeV1::Execution, at)?;
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let r = book.private_current_read(self.s).ok_or_else(invalid)?;
+                if !self.execution_prepare_current_ports
+                    || self.execution_prepare_admitted
+                    || self.execution_private_current_claimed
+                    || r.claimed_at != at
+                    || request_id != b.request_id
+                    || self.reads.get(b.source_operation_id) != Some(&5)
+                    || r.expires_at.get() > self.lease.ok_or_else(invalid)?.get()
+                    || self.generations.get(&SessionPurposeV1::Execution)
+                        != Some(&b.credential_generation.0)
+                {
+                    return Err(invalid());
+                }
+                self.source_ready(b.source_operation_id, at)?;
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::Execution)
+                    .ok_or_else(invalid)?
+                    .charge(2)
+                    .map_err(|_| invalid())?;
+                self.execution_private_current_claimed = true;
+            }
+            SessionEventKindV2::ExecutionPrivateCurrentObserved { request_id } => {
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let r = book.private_current_read(self.s).ok_or_else(invalid)?;
+                if !self.execution_private_current_claimed
+                    || self.execution_private_current_observed
+                    || r.completed_at != Some(at)
+                    || r.result.is_none()
+                    || request_id != b.request_id
+                {
+                    return Err(invalid());
+                }
+                self.execution_private_current_observed = true;
+            }
+            SessionEventKindV2::ExecutionNativePrepareClaimed { request_id } => {
+                self.live(SessionPurposeV1::Execution, at)?;
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let record = book.native_prepare_record().ok_or_else(invalid)?;
+                if !self.execution_prepare_original_archived
+                    || self.execution_native_prepare_claimed
+                    || request_id != b.request_id
+                    || record.claimed_at != at
+                    || self.reads.get(b.source_operation_id) != Some(&5)
+                    || record.proof.certificate.expires_at.0 > self.lease.ok_or_else(invalid)?.get()
+                    || self.generations.get(&SessionPurposeV1::Execution)
+                        != Some(&b.credential_generation.0)
+                {
+                    return Err(invalid());
+                }
+                self.source_ready(b.source_operation_id, at)?;
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::Execution)
+                    .ok_or_else(invalid)?
+                    .charge(10)
+                    .map_err(|_| invalid())?;
+                self.execution_native_prepare_claimed = true;
+            }
+            SessionEventKindV2::ExecutionPreparedPublicArchived { request_id } => {
+                let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
+                let record = book.native_prepare_record().ok_or_else(invalid)?;
+                if !self.execution_native_prepare_claimed
+                    || self.execution_prepared_public_archived
+                    || request_id != b.request_id
+                    || record.public_recorded_at != Some(at)
+                    || record.public_original_cbor_hex.is_none()
+                {
+                    return Err(invalid());
+                }
+                // Immutable fact arrival can be late. No live/fee/dispatch grant.
+                self.execution_prepared_public_archived = true;
             }
             SessionEventKindV2::ExecutionPrepareOriginalArchived { request_id } => {
                 let book = self.s.execution_book.as_ref().ok_or_else(invalid)?;
@@ -122,6 +196,16 @@ impl Replay<'_> {
                     return Err(invalid());
                 }
                 self.source_ready(b.source_operation_id, at)?;
+                if self
+                    .s
+                    .execution_book
+                    .as_ref()
+                    .and_then(|book| book.private_current_read(self.s))
+                    .is_some()
+                    && !self.execution_private_current_observed
+                {
+                    return Err(invalid());
+                }
                 self.execution_prepare_admitted = true;
             }
             SessionEventKindV2::ExecutionBookStarted { request_id } => {

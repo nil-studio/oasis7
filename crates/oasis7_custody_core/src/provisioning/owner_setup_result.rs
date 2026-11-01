@@ -427,6 +427,11 @@ impl AccountProvisionApprovalState {
                 ));
             }
         }
+        if let Some(v) = &self.owner_setup_v2 {
+            if let Some(phase) = self.owner_setup_resource_final_phase_v2(&v.plan.setup_id)? {
+                phases.push((ProvisionStage::Prepared, phase, None));
+            }
+        }
         Ok(phases)
     }
 }

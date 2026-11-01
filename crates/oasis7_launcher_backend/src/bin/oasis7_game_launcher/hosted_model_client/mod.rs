@@ -1,6 +1,7 @@
 //! Authenticated session-only model receiver. No arbitrary prompt proxy or world writer.
 mod config;
 mod custody_proxy_basis;
+mod custody_proxy_local;
 mod execution;
 mod executor;
 mod http;
@@ -102,7 +103,7 @@ impl HostedModelClient {
             identity
                 .as_mut()
                 .ok_or("custody model proxy requires native identity")?
-                .attach_model_proxy_basis(Arc::new(proxy))?;
+                .attach_model_proxy_basis(Arc::new(proxy.with_local_runtime(&proxy_identity)?))?;
         }
         Ok(Self {
             config,

@@ -1,13 +1,49 @@
 use super::*;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StageProfileV2 {
+    Ordinary,
+    ResourceFinal,
+}
+
 impl AccountProvisionApprovalState {
+    // Storage selection only. All callers retain their own actual Book/Source/
+    // purpose/current checks; this does not turn a Resource original into V1.
+    pub(in crate::provisioning) fn owner_setup_engine_outbox(
+        &self,
+        id: &str,
+        stage: OwnerSetupStageV1,
+    ) -> Result<&OwnerSetupOutboxV1> {
+        if stage == OwnerSetupStageV1::FinalObservation {
+            if let Some(common) = self.owner_setup_resource_final_common_v2(id)? {
+                return Ok(common);
+            }
+        }
+        self.owner_setup_engine_record(id)?
+            .stages
+            .get(&stage)
+            .ok_or_else(invalid)
+    }
+    pub(in crate::provisioning) fn owner_setup_engine_outbox_mut(
+        &mut self,
+        id: &str,
+        stage: OwnerSetupStageV1,
+    ) -> Result<&mut OwnerSetupOutboxV1> {
+        if stage == OwnerSetupStageV1::FinalObservation
+            && self.owner_setup_resource_final_common_v2(id)?.is_some()
+        {
+            return self.owner_setup_resource_final_common_mut_v2(id);
+        }
+        self.owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
+            .ok_or_else(invalid)
+    }
     pub fn owner_setup_outbox(
         &self,
         id: &str,
         stage: OwnerSetupStageV1,
     ) -> Option<&OwnerSetupOutboxV1> {
-        self.owner_setup_engine_record(id)
-            .ok()
-            .and_then(|v| v.stages.get(&stage))
+        self.owner_setup_engine_outbox(id, stage).ok()
     }
     /// Local reservation only; does not assert remote source, Fence or World authority.
     pub fn reserve_owner_setup_stage(
@@ -17,6 +53,59 @@ impl AccountProvisionApprovalState {
         session_nonce: &str,
         now: u64,
     ) -> Result<OwnerSetupOutboxV1> {
+        self.reserve_owner_setup_stage_profile(
+            id,
+            stage,
+            session_nonce,
+            now,
+            StageProfileV2::Ordinary,
+        )
+    }
+    /// Local dedicated V2 sixth-stage reservation. No original is signed and no
+    /// HTTP is dispatched here; the existing fixed phase charge is retained.
+    pub fn reserve_owner_setup_resource_final_v2(
+        &mut self,
+        id: &str,
+        session_nonce: &str,
+        now: u64,
+    ) -> Result<()> {
+        self.reserve_owner_setup_stage_profile(
+            id,
+            OwnerSetupStageV1::FinalObservation,
+            session_nonce,
+            now,
+            StageProfileV2::ResourceFinal,
+        )
+        .map(|_| ())
+    }
+    fn reserve_owner_setup_stage_profile(
+        &mut self,
+        id: &str,
+        stage: OwnerSetupStageV1,
+        session_nonce: &str,
+        now: u64,
+        profile: StageProfileV2,
+    ) -> Result<OwnerSetupOutboxV1> {
+        let selected_resource = self
+            .owner_setup_v2_plan()
+            .is_some_and(|p| p.setup_id == id && p.selection.resource().is_some());
+        if profile == StageProfileV2::ResourceFinal
+            && (!selected_resource || stage != OwnerSetupStageV1::FinalObservation)
+            || profile == StageProfileV2::Ordinary
+                && selected_resource
+                && stage == OwnerSetupStageV1::FinalObservation
+        {
+            return Err(invalid());
+        }
+        if profile == StageProfileV2::ResourceFinal {
+            if let Some(old) = self.owner_setup_resource_final_common_v2(id)? {
+                return if old.session_nonce == session_nonce {
+                    Ok(old.clone())
+                } else {
+                    Err(ProvisionApprovalError::Conflict)
+                };
+            }
+        }
         if stage != OwnerSetupStageV1::CreateTask
             && self.provision.stage() != ProvisionStage::ReadyForSetup
         {
@@ -145,7 +234,11 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?
             .charge(OWNER_SETUP_STAGE_TRANSPORT_COST)
             .map_err(|_| invalid())?;
-        v.stages.insert(stage, outbox.clone());
+        if profile == StageProfileV2::Ordinary {
+            v.stages.insert(stage, outbox.clone());
+        } else {
+            next.install_owner_setup_resource_final_common_v2(id, outbox.clone())?;
+        }
         next.validate_persistence()?;
         *self = next;
         Ok(outbox)
@@ -160,11 +253,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<OwnerSetupReadTicket> {
         self.owner_setup_local(id, now)?;
         let mut next = self.clone();
-        let o = next
-            .owner_setup_engine_record_mut(id)?
-            .stages
-            .get_mut(&stage)
-            .ok_or_else(invalid)?;
+        let o = next.owner_setup_engine_outbox_mut(id, stage)?;
         if o.result.is_some() || o.oracle_reads >= OWNER_SETUP_MAX_ORACLE_READS {
             return Err(invalid());
         }
@@ -205,11 +294,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<()> {
         self.owner_setup_local(id, now)?;
         let mut next = self.clone();
-        let o = next
-            .owner_setup_engine_record_mut(id)?
-            .stages
-            .get_mut(&stage)
-            .ok_or_else(invalid)?;
+        let o = next.owner_setup_engine_outbox_mut(id, stage)?;
         if o.claimed_at.is_none() || o.callback_claimed_at.is_some() || o.result.is_some() {
             return Err(invalid());
         }
@@ -246,8 +331,7 @@ impl AccountProvisionApprovalState {
             self.owner_setup_stage_checks(id, read.stage, current.provision, now)?
         };
         verifier.verify(&checks)?;
-        let v = self.owner_setup_engine_record(id)?;
-        let o = v.stages.get(&read.stage).ok_or_else(invalid)?;
+        let o = self.owner_setup_engine_outbox(id, read.stage)?;
         if read.ticket == 0 || read.ticket > o.oracle_reads || o.result.is_some() {
             return Err(invalid());
         }
@@ -262,7 +346,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<OwnerSetupPermitViewV1> {
         let stage = read.stage;
         let v = self.owner_setup_engine_record(id)?;
-        let o = v.stages.get(&stage).ok_or_else(invalid)?;
+        let o = self.owner_setup_engine_outbox(id, stage)?;
         let source = o.source.verification.as_ref().ok_or_else(invalid)?;
         let expires = v.plan.deadline.0.min(
             source

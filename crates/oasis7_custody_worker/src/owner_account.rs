@@ -257,6 +257,22 @@ impl DurableObject for AccountAuthority {
             )
             .await;
         }
+        if url.path() == crate::owner_execution_prepare_context_v2::PATH {
+            return crate::owner_execution_prepare_context_v2::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
+        if url.path() == crate::owner_native_model_entry_v2::PATH {
+            return crate::owner_native_model_entry_v2::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
         if crate::owner_test_session_v2_control_entry::operation(url.path()).is_some() {
             return crate::owner_test_session_v2_control_entry::handle(
                 &self.state,

@@ -10,6 +10,8 @@ pub enum AccountMachinePurposeV2 {
     NativeTermCurrentAttempt,
     NativePreflightAccessV2,
     ExecutionPrepareSignerV2,
+    NativeExecutionPrepareV2,
+    ExecutionPrivateCurrentV2,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

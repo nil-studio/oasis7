@@ -20,6 +20,10 @@ pub(in crate::provisioning) fn prepare_paid_id_in_use_v2(
     s.purpose_transports.values().any(|row| match row {
         SessionPurposeTransportV1::ExecutionFactoryCallbackV2(paid) => {
             intent_ids(&paid.intent).contains(&id)
+                || paid
+                    .factory_ports
+                    .as_ref()
+                    .is_some_and(|ports| ports.iter().any(|p| p.physical_id == id))
         }
         _ => false,
     })
@@ -73,7 +77,6 @@ impl AccountProvisionApprovalState {
         };
         if intent.ledger_key(s, &paid.signed_attempt_digest)? != **key
             || key.len() <= 256
-            || paid.kind != ExecutionPrepareFactoryKindV2::IdentityToAccountPrepare
             || !hex64(&paid.signed_attempt_digest)
             || intent.action_request_id != b.action_request_id
             || intent.approved_input_digest != b.approved_input_digest
@@ -88,6 +91,19 @@ impl AccountProvisionApprovalState {
                 .is_none_or(|n| *n < 4)
         {
             return Err(invalid());
+        }
+        paid.validate_factory_profile(s)?;
+        if let Some(ports) = &paid.factory_ports {
+            for port in ports {
+                if port.physical_id.is_empty()
+                    || port.physical_id.len() > 256
+                    || port.physical_id.chars().any(char::is_control)
+                    || old_namespace_in_use(s, &port.physical_id)
+                    || intent_ids(intent).contains(&port.physical_id.as_str())
+                {
+                    return Err(invalid());
+                }
+            }
         }
         super::execution_current_ports_v2::validate_current_ports(s, key, paid)?;
         let mut ids = std::collections::BTreeSet::new();
@@ -171,6 +187,20 @@ impl AccountProvisionApprovalState {
             || stage.admitted_at.is_some()
         {
             return Err(invalid());
+        }
+        if paid.kind == ExecutionPrepareFactoryKindV2::OwnerServiceAndAccountV2 {
+            let private = paid.private_current.as_ref().ok_or_else(invalid)?;
+            if private
+                .completed_at
+                .is_none_or(|at| at.get() > stage.signing_admitted_at.get())
+                || private.result.is_none()
+                || stage.signing_admitted_at.get() >= private.expires_at.get()
+                || stage.service_record.as_ref().is_some_and(|service| {
+                    service.permits.sign.permit.expires_at.get() > private.expires_at.get()
+                })
+            {
+                return Err(invalid());
+            }
         }
         // This branch is an admitted signing stage, not the earlier durable
         // paid intent. Reuse the same strong LF semantic validator at its exact

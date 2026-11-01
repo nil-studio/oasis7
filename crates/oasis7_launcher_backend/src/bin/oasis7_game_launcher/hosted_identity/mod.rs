@@ -2,7 +2,9 @@
 mod config;
 mod credentials;
 mod custody;
-pub(crate) use custody::model_proxy_basis::ModelProxyBasisAuthority;
+pub(crate) use custody::model_proxy_basis::{
+    ActiveModelSignal, ModelProxyBasisAuthority, ModelProxyOwnerBinding,
+};
 mod email;
 mod entry_executor_control;
 mod entry_owner_control;

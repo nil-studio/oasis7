@@ -41,11 +41,14 @@ fn port_id(
     port: NativeModelEntryPortV2,
 ) -> Result<String> {
     Ok(format!(
-        "native-model-entry-v2:{}:{}:{}:{}",
-        s.input_digest()?,
-        digest(&("model-http-ingress", ingress))?,
-        digest(&("model-http-query", q))?,
-        digest(&("model-http-route", port))?
+        "native-model-entry-v2:{}",
+        digest(&(
+            "oasis7.custody.native-model-entry-port.v2",
+            s.input_digest()?,
+            ingress,
+            q,
+            port,
+        ))?
     ))
 }
 impl AccountProvisionApprovalState {

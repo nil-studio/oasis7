@@ -1,6 +1,8 @@
 //! One owned registration World request, outside the global Native mutex.
 use super::super::hosted_identity::{IdentityReply, store::StoreError};
 use super::*;
+#[path = "static_http_identity_execution_prepare_v2.rs"]
+mod execution_prepare_v2;
 fn unavailable() -> IdentityReply {
     IdentityReply::error(StoreError::Rejected(
         "cleanup_registration_unavailable".into(),
@@ -152,6 +154,9 @@ pub(super) fn handle(
         NATIVE_PREFLIGHT_POLICY_V2_PATH, NATIVE_REGISTER_V2_PATH, NATIVE_TERM_CURRENT_V2_PATH,
     };
     Some(match target {
+        oasis7_custody_core::native_execution_prepare_v2::NATIVE_EXECUTION_PREPARE_PATH_V2 => {
+            execution_prepare_v2::run(runtime, method, target, headers, body)
+        }
         NATIVE_PREFLIGHT_POLICY_V2_PATH | NATIVE_PREFLIGHT_AUTHORIZE_V2_PATH => {
             preflight_world(runtime, method, target, headers, body)
         }

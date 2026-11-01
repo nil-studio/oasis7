@@ -116,6 +116,13 @@ fn raw_http(
     f: &SessionFixture,
     query: &SignedNativeModelReservationQueryV2,
 ) -> SessionClientHttpRequestV1 {
+    raw_http_with_token(f, query, &URL_SAFE_NO_PAD.encode([31; 32]))
+}
+fn raw_http_with_token(
+    f: &SessionFixture,
+    query: &SignedNativeModelReservationQueryV2,
+    token: &str,
+) -> SessionClientHttpRequestV1 {
     let bytes = serde_json::to_vec(query).unwrap();
     let target = CanonicalHttpTarget::new(
         "https://custody.example",
@@ -126,7 +133,6 @@ fn raw_http(
         },
     )
     .unwrap();
-    let token = URL_SAFE_NO_PAD.encode([31; 32]);
     let material = build_http_pop_signing_material(&HttpPopSigningInput {
         profile: HttpPopProfileV1::NativeModelCustodyV2,
         target: &target,
@@ -134,7 +140,7 @@ fn raw_http(
         binding_id: &f.session_id,
         request_id: &query.query.request_id,
         nonce: Some(&query.query.query_nonce),
-        token: Some(&token),
+        token: Some(token),
         created: UnixSeconds::new(13),
         expires: UnixSeconds::new(18),
         body: &bytes,
@@ -145,7 +151,7 @@ fn raw_http(
             .sign(material.signature_base())
             .to_bytes(),
     );
-    let http = SessionClientHttpRequestV1 {
+    SessionClientHttpRequestV1 {
         session_id: f.session_id.clone(),
         method: target.method().into(),
         target_uri: target.uri().into(),
@@ -158,8 +164,7 @@ fn raw_http(
             .collect(),
         body: String::from_utf8(bytes).unwrap(),
         nonce_hint: Some(query.query.query_nonce.clone()),
-    };
-    http
+    }
 }
 fn pop(f: &SessionFixture, query: &SignedNativeModelReservationQueryV2) -> HttpPossessionReceipt {
     let http = raw_http(f, query);
@@ -175,6 +180,94 @@ fn pop(f: &SessionFixture, query: &SignedNativeModelReservationQueryV2) -> HttpP
         .unwrap();
     verify_http_possession(prepared, UnixMillis::new(13000), &mut StrictCrypto).unwrap()
 }
+/// Export only a newly re-signed, never-issued credential request. This is not
+/// an Account possession positive; the original genuine issued path stays local.
+fn refusal_http_with_unissued_credential(
+    f: &SessionFixture,
+    q: &SignedNativeModelReservationQueryV2,
+) -> SessionClientHttpRequestV1 {
+    let token = URL_SAFE_NO_PAD.encode([93; 32]);
+    let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+    let hex_digest = digest
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    let snapshot = f.state.test_session_v2_snapshot(&f.session_id).unwrap();
+    q.verify_input_binding(snapshot.input(), 13000).unwrap();
+    assert!(
+        snapshot
+            .roots()
+            .values()
+            .all(|r| r.credential_history.iter().all(|c| c.digest != hex_digest)),
+        "refusal fixture credential was never issued"
+    );
+    let http = raw_http_with_token(f, q, &token);
+    let target = CanonicalHttpTarget::new(
+        "https://custody.example",
+        HttpPopRoute::ScopedClient {
+            provision_id: f.state.draft().entry.provision_id.clone(),
+            custody_account_id: f.state.draft().entry.custody_account_id.clone(),
+            route: Box::new(HttpPopRoute::ModelReservations(f.session_id.clone())),
+        },
+    )
+    .unwrap();
+    let headers: Vec<_> = http
+        .headers
+        .iter()
+        .map(|h| HttpHeader {
+            name: &h.name,
+            value: &h.value,
+        })
+        .collect();
+    let prepared = prepare_http_pop(
+        &HttpPopMessage {
+            method: &http.method,
+            target_uri: &http.target_uri,
+            headers: &headers,
+            representation: HttpHeaderRepresentation::RawInstances,
+            body: http.body.as_bytes(),
+        },
+        &HttpPopBinding {
+            profile: HttpPopProfileV1::NativeModelCustodyV2,
+            target: &target,
+            key_id: &f.fact.registration.key_id,
+            public_key_hex: &f.fact.registration.request.descriptor.client_public_key,
+            binding_id: &f.session_id,
+            request_id: &q.query.request_id,
+            nonce: Some(&q.query.query_nonce),
+            credential_digest: &digest,
+            valid_until: UnixMillis::new(18000),
+        },
+        UnixMillis::new(13000),
+    )
+    .unwrap();
+    let crypto_only =
+        verify_http_possession(prepared, UnixMillis::new(13000), &mut StrictCrypto).unwrap();
+    assert_eq!(
+        crypto_only.token_digest(),
+        &digest,
+        "the replacement headers carry a real recomputed H signature"
+    );
+    let before = f.state.clone();
+    assert!(
+        f.state
+            .prepare_test_session_v2_native_model_reserve_http(
+                &http,
+                &NativeModelHttpContextV2 {
+                    public_origin: "https://custody.example",
+                    custody_account_id: &f.state.draft().entry.custody_account_id,
+                    provision_id: &f.state.draft().entry.provision_id,
+                    representation: HttpHeaderRepresentation::RawInstances,
+                },
+                UnixMillis::new(13000)
+            )
+            .is_err(),
+        "never-issued token must not authenticate against actual stored Account credential"
+    );
+    assert_eq!(f.state, before);
+    http
+}
+
 fn spent(f: &SessionFixture) -> u64 {
     let snapshot = f.state.test_session_v2_snapshot(&f.session_id).unwrap();
     serde_json::to_value(
@@ -196,9 +289,11 @@ fn session_v2_native_model_entry_fee_survives_pending_and_exact_history() {
     let proof = pop(&f, &q);
     let body = serde_json::to_vec(&q).unwrap();
     if let Some(path) = std::env::var_os("OASIS7_N_MODEL_ENTRY_FIXTURE_PATH") {
-        let wire = serde_json::json!({"fixture":"genuine-core-history-routing-refusal-v2","component_time":"13000",
+        let refusal = refusal_http_with_unissued_credential(&f, &q);
+        let wire = serde_json::json!({"fixture":"genuine-core-unissued-credential-routing-refusal-v2","component_time":"13000",
+            "credential_qualification":"never_issued_refusal_only",
             "public_origin":"https://custody.example","account_id":f.state.draft().entry.custody_account_id,
-            "http_request":raw_http(&f,&q)});
+            "http_request":refusal});
         let bytes = serde_json::to_vec_pretty(&wire).unwrap();
         assert!(
             !std::str::from_utf8(&bytes)
@@ -222,6 +317,15 @@ fn session_v2_native_model_entry_fee_survives_pending_and_exact_history() {
         )
         .unwrap();
     assert_eq!(spent(&f), before + 5);
+    let paid_state = serde_json::to_value(&f.state).unwrap();
+    let ports = paid_state["test_sessions_v2"][&f.session_id]["native_model_budget"]["entry_ports"]
+        .as_object()
+        .unwrap();
+    assert_eq!(ports.len(), 4);
+    assert!(
+        ports.keys().all(|id| !id.is_empty() && id.len() <= 256),
+        "service-derived route identifiers must fit the unchanged global namespace"
+    );
     let original = SessionProofRequest {
         ingress_attempt_id: "model-ingress-a",
         original_bytes: &body,
@@ -598,3 +702,6 @@ fn native_model_closed_profile_nonce_hint_preserves_old_parser_and_accepts_actua
         Some(signed.query.query_nonce)
     );
 }
+
+#[path = "test_session_v2_native_model_source_collision_tests.rs"]
+mod source_collision_tests;

@@ -39,6 +39,7 @@ impl State {
         let mut seen = std::collections::BTreeSet::new();
         let mut boot = 0u64;
         let mut live = 0u64;
+        let mut native = 0u64;
         for a in &self.attempts {
             if !id(&a.id)
                 || !id(&a.original_id)
@@ -62,12 +63,24 @@ impl State {
                                     | HttpPopProfileV1::CustodyChallenge
                                     | HttpPopProfileV1::ClaimChallenge
                                     | HttpPopProfileV1::CredentialClaim
+                                    | HttpPopProfileV1::NativeModelCustodyV2
                             )
                         ))
             {
                 return Err(denied());
             }
-            if a.bootstrap { boot += 1 } else { live += 1 }
+            if a.bootstrap {
+                boot += 1
+            } else if a.profile == Some(HttpPopProfileV1::NativeModelCustodyV2) {
+                if a.purpose != Some(SessionPurposeV1::Execution)
+                    || a.generation.is_none_or(|g| g.0 == 0)
+                {
+                    return Err(denied());
+                }
+                native += 1;
+            } else {
+                live += 1
+            }
         }
         if boot > 8 {
             return Err(denied());
@@ -78,7 +91,7 @@ impl State {
                 self.enrollment.response.as_ref().ok_or_else(denied)?,
             )?;
             if !self.enrollment.proved
-                || live > 0 && !s.inbox_ready
+                || (live > 0 || native > 0) && !s.inbox_ready
                 || super::super::vault::secret32(&s.inbox_key).is_err()
                 || s.credentials.len() > 2
                 || s.retired_execution > 4
@@ -91,6 +104,19 @@ impl State {
                     > s.binding.plan.control_budget().identity_transport.0
             {
                 return Err(denied());
+            }
+            if native > 0 {
+                let HostSessionPlan::V2(plan) = &s.binding.plan else {
+                    return Err(denied());
+                };
+                let budget = plan.model_budget.as_ref().ok_or_else(denied)?;
+                use oasis7_custody_core::provisioning::ModelBudgetApprovalContractV1;
+                if budget.approval_contract
+                    != ModelBudgetApprovalContractV1::NativeCustodyModelProxyV2
+                    || native.checked_mul(5).ok_or_else(denied)? > plan.transport_limit.0
+                {
+                    return Err(denied());
+                }
             }
             let mut purposes = std::collections::BTreeSet::new();
             for c in &s.credentials {
@@ -168,7 +194,7 @@ impl State {
                     return Err(denied());
                 }
             }
-        } else if live != 0 {
+        } else if live != 0 || native != 0 {
             return Err(denied());
         }
         Ok(())

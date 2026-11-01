@@ -35,3 +35,7 @@ mod client_router_v2;
 pub(crate) use client_router_v2::first_admit as first_client_v2_admit;
 
 pub(crate) use session_authority::{ExecutionPrepareObservationV2, execution_prepare_observe_v2};
+
+#[path = "owner_native_model_reservation_v2.rs"]
+mod model_reservation_v2;
+pub(crate) use model_reservation_v2::admit as dispatch_native_model_reservation_v2;

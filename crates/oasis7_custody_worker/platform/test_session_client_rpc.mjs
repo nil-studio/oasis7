@@ -39,3 +39,8 @@ export async function ownerControlV2Call(env, operation, raw) {
  default: throw new Error("test session V2 control unavailable");
  }
 }
+
+// New N-query/H-Execution profile only; no caller-selected operation or URL.
+export async function ownerNativeModelReservationV2(env, raw) {
+  return env.OWNER_NATIVE_PERMITS.nativeModelReservationV2(raw);
+}

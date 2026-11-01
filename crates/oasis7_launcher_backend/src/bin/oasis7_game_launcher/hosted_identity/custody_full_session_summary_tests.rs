@@ -122,3 +122,6 @@ mod model_draft_generation_tests;
 
 #[path = "custody_preflight_world_native_tests.rs"]
 mod preflight_world_native_tests;
+
+#[path = "custody_model_proxy_owner_tests.rs"]
+mod model_proxy_owner_tests;

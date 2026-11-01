@@ -60,6 +60,51 @@ impl CustodyTransport {
         input: &HttpPopSigningInput<'_>,
         key: &SigningKey,
     ) -> Result<PrivateTransportReply, String> {
+        self.send_with_client(&self.client, input, key)
+    }
+    /// N's fixed entry graph cannot acquire an ambient HTTP proxy/extra hop.
+    /// Ordinary custody transport behavior remains unchanged.
+    pub(crate) fn send_native_model_once(
+        &self,
+        input: &HttpPopSigningInput<'_>,
+        key: &SigningKey,
+    ) -> Result<PrivateTransportReply, String> {
+        if input.profile != oasis7_custody_core::http_pop::HttpPopProfileV1::NativeModelCustodyV2 {
+            return Err("invalid native model profile".into());
+        }
+        let until = input
+            .expires
+            .checked_millis()
+            .map_err(|_| "invalid native model deadline")?
+            .get();
+        let now = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "native model clock unavailable")?
+                .as_millis(),
+        )
+        .map_err(|_| "native model clock unavailable")?;
+        let remaining = until
+            .checked_sub(now)
+            .filter(|n| *n > 0)
+            .ok_or("native model entry expired")?;
+        let client = Client::builder()
+            .https_only(true)
+            .no_proxy()
+            .redirect(Policy::none())
+            .retry(reqwest::retry::never())
+            .connect_timeout(Duration::from_millis(remaining.min(5000)))
+            .timeout(Duration::from_millis(remaining.min(10000)))
+            .build()
+            .map_err(|_| "native model HTTPS unavailable")?;
+        self.send_with_client(&client, input, key)
+    }
+    fn send_with_client(
+        &self,
+        client: &Client,
+        input: &HttpPopSigningInput<'_>,
+        key: &SigningKey,
+    ) -> Result<PrivateTransportReply, String> {
         if input.target.origin() != self.origin || input.body.len() > MAX_HTTP_BODY_BYTES {
             return Err("custody request does not match fixed transport".into());
         }
@@ -67,8 +112,8 @@ impl CustodyTransport {
             .map_err(|_| "invalid fixed custody proof request")?;
         let signature = key.sign(material.signature_base()).to_bytes();
         let mut request = match input.target.method() {
-            "POST" => self.client.post(input.target.uri()),
-            "GET" if input.body.is_empty() => self.client.get(input.target.uri()),
+            "POST" => client.post(input.target.uri()),
+            "GET" if input.body.is_empty() => client.get(input.target.uri()),
             _ => return Err("custody method unavailable".into()),
         };
         for header in material.signed_headers(&signature) {
@@ -84,8 +129,7 @@ impl CustodyTransport {
         if request.url().as_str() != input.target.uri() {
             return Err("custody target normalization rejected".into());
         }
-        let response = self
-            .client
+        let response = client
             .execute(request)
             .map_err(|_| "custody outcome unknown")?;
         Self::read_reply(response)

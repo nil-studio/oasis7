@@ -25,10 +25,18 @@ struct Profile {
 /// Produced only by the actual Native paid-current driver, never deserialized
 /// from policy/input or replaced by a ready/verified flag.
 pub(super) struct ModelGraphDescription {
+    pub physical_graph: oasis7_custody_core::native_model_graph_v2::NativeModelPhysicalGraphV2,
     pub digest: String,
     pub probes: [u64; 2],
     pub inference: u64,
     pub endpoint_policy_digest: String,
+}
+/// Produced by a vendor-specific authenticated all-in ceiling adapter, never
+/// by parsing the local operator policy. No supported adapter exists yet.
+/// The private fields deliberately have no JSON or public constructor.
+pub(super) struct QualifiedProviderPriceCeiling {
+    policy_digest: String,
+    valid_until: u64,
 }
 pub(super) trait ModelProxyCurrentGraph: Send + Sync {
     fn describe(
@@ -36,9 +44,21 @@ pub(super) trait ModelProxyCurrentGraph: Send + Sync {
         request: &ApprovalOptionsRequestV1,
         preset: &oasis7_model_provider::preset::ProviderPreset,
     ) -> Result<ModelGraphDescription, String>;
+    // Pure cached qualification only: an additional HTTP here would be an
+    // unreserved graph edge. The current provider adapters have token usage,
+    // not an authenticated vendor all-in money ceiling, so they stay closed.
+    fn qualified_price(
+        &self,
+        _preset: &oasis7_model_provider::preset::ProviderPreset,
+        _budget: &oasis7_custody_core::provisioning::ModelInferenceBudgetV1,
+        _now: u64,
+    ) -> Result<QualifiedProviderPriceCeiling, String> {
+        Err(failure())
+    }
 }
 pub(super) struct NativeProxyBasisAuthority {
     manager: WeakConnectionManager,
+    local: Option<super::custody_proxy_local::LocalRuntime>,
     policy: Policy,
     instance: SigningKey,
     // None until an actual mounted paid Context/LiveRead driver is supplied.
@@ -104,15 +124,20 @@ impl NativeProxyBasisAuthority {
         seed.zeroize();
         Ok(Some(Self {
             manager,
+            local: None,
             policy,
             instance,
             graph: RwLock::new(None),
         }))
     }
+    pub(super) fn with_local_runtime(mut self, identity: &Identity) -> Result<Self, String> {
+        self.local = super::custody_proxy_local::LocalRuntime::from_env(identity)?;
+        Ok(self)
+    }
     fn instance_public_key(&self) -> String {
         hex::encode(self.instance.verifying_key().as_bytes())
     }
-    fn resolve(
+    pub(super) fn resolve(
         &self,
         request: &ApprovalOptionsRequestV1,
         account: &str,
@@ -162,11 +187,23 @@ impl NativeProxyBasisAuthority {
             return Err(failure());
         }
         let graph = self.graph.read().map_err(|_| failure())?;
+        let driver = graph.as_ref().ok_or_else(failure)?;
+        let price = driver.qualified_price(&meta.preset, budget, now)?;
+        if price.valid_until < budget.deadline.0
+            || price.policy_digest
+                != oasis7_custody_core::native_model_proxy_v2::native_model_price_policy_digest(
+                    &budget.price_policy,
+                )?
+        {
+            return Err(failure());
+        }
         let graph = graph
             .as_ref()
             .ok_or_else(failure)?
             .describe(request, &meta.preset)?;
-        if graph.digest != budget.physical_graph_digest
+        graph.physical_graph.validate_budget(budget)?;
+        if graph.digest != graph.physical_graph.digest()?
+            || graph.digest != budget.physical_graph_digest
             || graph.probes != budget.probe_physical_http.map(|v| v.0)
             || graph.inference != budget.inference_physical_http.0
         {
@@ -199,8 +236,88 @@ impl NativeProxyBasisAuthority {
     }
 }
 impl super::super::hosted_identity::ModelProxyBasisAuthority for NativeProxyBasisAuthority {
+    fn active_committed(&self, signal: super::super::hosted_identity::ActiveModelSignal) {
+        if let Some(local) = &self.local {
+            local.notify(signal);
+        }
+    }
+    fn first_reservation_query(
+        &self,
+        input: &oasis7_custody_core::approval_admission::ApprovalAdmissionInput,
+        owner: &super::super::hosted_identity::ModelProxyOwnerBinding,
+        now: u64,
+    ) -> Result<
+        oasis7_custody_core::native_model_proxy_query_v2::SignedNativeModelReservationQueryV2,
+        String,
+    > {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        use ed25519_dalek::Signer;
+        use oasis7_custody_core::native_model_proxy_query_v2::*;
+        use oasis7_custody_core::native_model_proxy_v2::NativeModelCallKindV2;
+        // Cached, actual local connection + qualified vendor ceiling + fixed
+        // graph only. This has no network call and never probes a provider.
+        let (metadata, graph) =
+            self.resolve(&input.request, owner.account_id(), owner.session_ref(), now)?;
+        let CustodyIntentV1::TestSessionV2 { plan, scope } = &input.request.intent else {
+            return Err(failure());
+        };
+        let Some(NativeCustodySummaryContractV1::FullTestSessionProxyV2(contract)) =
+            &input.approval.proof.model_budget_summary_contract
+        else {
+            return Err(failure());
+        };
+        let budget = plan.model_budget.as_ref().ok_or_else(failure)?;
+        let mut conversation = oasis7_model_provider::protocol::probe_conversation();
+        conversation.max_output_tokens = conversation
+            .max_output_tokens
+            .min(u32::try_from(budget.max_output_tokens.0).unwrap_or(u32::MAX));
+        let encoded = zeroize::Zeroizing::new(
+            oasis7_model_provider::protocol::encode_request(&metadata.preset, &conversation)
+                .map_err(|_| failure())?,
+        );
+        let provider_request_digest = oasis7_custody_core::approval::bytes_digest(&encoded);
+        let mut nonce = [0u8; 32];
+        getrandom::fill(&mut nonce).map_err(|_| failure())?;
+        let reservation_id = digest(
+            "oasis7.custody.native-model-first-reservation.v2",
+            &owner.approved_input_digest(),
+        )?;
+        let query = NativeModelReservationQueryV2 {
+            api_version: 2,
+            request_id: format!("model-query-{reservation_id}"),
+            reservation_id,
+            provision_id: scope.client_pairing.target.provision_id.clone(),
+            custody_account_id: scope.client_pairing.target.custody_account_id.clone(),
+            session_id: scope.session_id.clone(),
+            approved_input_digest: owner.approved_input_digest().to_owned(),
+            budget_digest: budget.digest(plan.write_deadline.0)?,
+            basis_digest: contract.basis_digest.clone(),
+            request_commitment: NativeModelRequestCommitmentV2::EncodedRequestV2 {
+                provider_request_digest,
+            },
+            physical_graph: graph.physical_graph,
+            call_kind: NativeModelCallKindV2::ProbeFirst,
+            ordinal: DecimalU64(1),
+            expected_floor: DecimalU64(0),
+            query_nonce: URL_SAFE_NO_PAD.encode(nonce),
+            issued_at: DecimalU64(now),
+            admit_until: DecimalU64(
+                now.checked_add(5000)
+                    .ok_or_else(failure)?
+                    .min(budget.deadline.0)
+                    .min(plan.write_deadline.0),
+            ),
+        };
+        let bytes = query.signing_bytes()?;
+        let signed = SignedNativeModelReservationQueryV2 {
+            query,
+            signature_hex: hex::encode(self.instance.sign(&bytes).to_bytes()),
+        };
+        signed.verify_input_binding(input, now)?;
+        Ok(signed)
+    }
     fn public_metadata(&self) -> Value {
-        json!({"api_version":2,"available":self.manager.upgrade().is_some() && self.graph.read().is_ok_and(|v|v.is_some()),
+        json!({"api_version":2,"available":false,
             "contract":"native_custody_model_proxy_v2","native_instance_public_key":self.instance_public_key(),
             "profiles":self.policy.profiles.iter().map(|p|json!({"preset_id":p.preset_id,
                 "preset_revision":p.preset_revision,"runtime_digest":p.runtime_digest,

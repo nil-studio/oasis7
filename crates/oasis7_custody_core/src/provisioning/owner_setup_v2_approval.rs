@@ -2,6 +2,7 @@
 use super::*;
 #[path = "owner_setup_v2_phase.rs"]
 mod phase;
+use super::owner_setup::OwnerSetupResourceFinalOutboxV2;
 use phase::OwnerSetupSdkPhaseProjectionV2;
 pub use phase::derive_owner_setup_move0_sdk_plan_v2;
 fn invalid() -> ProvisionApprovalError {
@@ -19,6 +20,10 @@ pub struct OwnerSetupApprovalV2 {
     pub(super) transport: Option<crate::budget::BudgetLedger>,
     #[serde(deserialize_with = "required_phase")]
     phase: Option<OwnerSetupSdkPhaseProjectionV2>,
+    // Absent legacy V2 data remains unarmed; presence is checked against the
+    // exact sixth-stage charge and may never be inferred from a saved quote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) resource_final: Option<OwnerSetupResourceFinalOutboxV2>,
 }
 fn required_transport<'de, D>(
     d: D,
@@ -192,6 +197,7 @@ impl AccountProvisionApprovalState {
                 book: ApprovalAdmissionBook::default(),
                 transport: None,
                 phase: None,
+                resource_final: None,
             });
         if v.plan != plan {
             return Err(ProvisionApprovalError::Conflict);
@@ -225,6 +231,11 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
+        let already_consumed = self
+            .owner_setup_v2
+            .as_ref()
+            .and_then(|v| v.book.original(id))
+            .is_some_and(|r| r.stage() == ApprovalAdmissionStage::Consumed);
         let (session, status) = self.participant_session(native_scope)?;
         let participant = self
             .participant_provisions
@@ -249,7 +260,7 @@ impl AccountProvisionApprovalState {
             transport.charge(8).map_err(|_| invalid())?;
             v.transport = Some(transport);
         }
-        if v.phase.is_none() && v.plan.selection.is_exact_move0() {
+        if v.phase.is_none() && !already_consumed {
             v.phase = Some(OwnerSetupSdkPhaseProjectionV2::from_consumed(
                 &v.plan,
                 &v.book,
@@ -268,6 +279,7 @@ impl AccountProvisionApprovalState {
         let Some(v) = &self.owner_setup_v2 else {
             return Ok(());
         };
+        self.validate_owner_setup_resource_final_binding_v2()?;
         v.plan.validate().map_err(|_| invalid())?;
         let r = v.book.original(&v.plan.setup_id).ok_or_else(invalid)?;
         self.check_owner_setup_proof_unique(r.input())?;
@@ -281,13 +293,11 @@ impl AccountProvisionApprovalState {
         if v.transport != expected_transport {
             return Err(invalid());
         }
-        match (
-            &v.phase,
-            r.stage() == ApprovalAdmissionStage::Consumed,
-            v.plan.selection.is_exact_move0(),
-        ) {
-            (Some(phase), true, true) => phase.validate_header(&v.plan, &v.book)?,
-            (None, false, _) | (None, true, false) => {}
+        match (&v.phase, r.stage() == ApprovalAdmissionStage::Consumed) {
+            (Some(phase), true) => phase.validate_header(&v.plan, &v.book)?,
+            // Legacy consent-only records remain readable and cannot create a
+            // phase through an idempotent commit replay after code rollout.
+            (None, _) if v.resource_final.is_none() => {}
             _ => return Err(invalid()),
         }
         if !self.owner_setups.is_empty()

@@ -466,3 +466,10 @@ mod paid_prepare;
 pub(super) use paid_prepare::{
     PaidActivation, PaidRegistration, claim_activation_native, claim_registration_native,
 };
+
+#[path = "custody_execution_prepare_registry_v2.rs"]
+pub(super) mod execution_identity;
+
+#[path = "custody_cleanup_v2_registry_model_signal.rs"]
+mod model_signal;
+pub(super) use model_signal::active_model_signal;

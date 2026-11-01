@@ -17,7 +17,7 @@ use std::{
 };
 const MAX_FRAME: usize = 32768;
 const TOOLS: &str = include_str!("custody_control_tools.v1.json");
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PublicBinding {
     pub api_version: u8,
@@ -110,7 +110,7 @@ pub(super) fn verify_runtime_pins(i: &IdentityBinding) -> Result<(), String> {
     }
     Ok(())
 }
-fn peer_uid(stream: &UnixStream) -> Result<u32, String> {
+pub(super) fn peer_uid(stream: &UnixStream) -> Result<u32, String> {
     #[cfg(any(
         target_os = "macos",
         target_os = "freebsd",
@@ -243,7 +243,7 @@ fn publish_binding(dir: &Dir, socket: &Path, binding: &PublicBinding) -> Result<
             f.sync_all().map_err(|_| denied())?;
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let existing = read_binding(socket)?;
+            let existing = read_binding_for(socket, &binding.transport_profile)?;
             if serde_json::to_vec(&existing).map_err(|_| denied())? != bytes {
                 return Err(denied());
             }
@@ -253,6 +253,9 @@ fn publish_binding(dir: &Dir, socket: &Path, binding: &PublicBinding) -> Result<
     Ok(())
 }
 fn read_binding(socket: &Path) -> Result<PublicBinding, String> {
+    read_binding_for(socket, "native-broker-custody-v1")
+}
+fn read_binding_for(socket: &Path, profile: &str) -> Result<PublicBinding, String> {
     let path = sidecar(socket)?;
     let m = std::fs::symlink_metadata(&path).map_err(|_| denied())?;
     if !m.is_file()
@@ -274,7 +277,7 @@ fn read_binding(socket: &Path) -> Result<PublicBinding, String> {
     let b: PublicBinding = serde_json::from_slice(&bytes).map_err(|_| denied())?;
     b.isolation.validate()?;
     if b.api_version != 1
-        || b.transport_profile != "native-broker-custody-v1"
+        || b.transport_profile != profile
         || b.socket_path != socket.to_str().ok_or_else(denied)?
         || m.uid() != b.isolation.host_uid
         || !id(&b.resource_id)
@@ -442,3 +445,6 @@ mod tests {
 #[cfg(all(test, target_os = "linux"))]
 #[path = "custody_host_linux_os_tests.rs"]
 mod linux_os_tests;
+
+#[path = "custody_host_native_ipc.rs"]
+pub(super) mod native;

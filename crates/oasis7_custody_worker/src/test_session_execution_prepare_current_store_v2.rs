@@ -64,17 +64,14 @@ impl OwnerProvisionApprovalStore {
     /// The private SID/LF caller is the existing fixed Identity coordinator,
     /// never a serialized Current/proof flag. Source/LF/Actor fees remain its
     /// separate already-paid graph; these three reads supply only Dir/RF.
-    pub(crate) async fn complete_execution_prepare_permits_v2<F>(
+    pub(crate) async fn complete_execution_prepare_permits_v2(
         &self,
         env: &Env,
         request: &TestSessionSelectorV1,
         factory_key: &str,
         observed: &ExecutionPrepareObservationV2,
-        private_current: F,
-    ) -> Result<Option<oasis7_custody_core::provisioning::ExecutionPrepareSignedOriginalV2>>
-    where
-        F: Fn() -> Result<super::client::ClientLiveCurrent>,
-    {
+        private_current: &oasis7_custody_core::provisioning::ExecutionPrivateCurrentObservationV2,
+    ) -> Result<Option<oasis7_custody_core::provisioning::ExecutionPrepareSignedOriginalV2>> {
         if env
             .var("CUSTODY_TEST_SESSION_V2_ENABLED")
             .ok()
@@ -107,9 +104,18 @@ impl OwnerProvisionApprovalStore {
             return Ok(None);
         }
         let current = || -> Result<super::client::ClientLiveCurrent> {
-            let mut value = private_current()?;
-            value.native = observed.current(&self.state, env)?;
-            Ok(value)
+            let native = observed.current(&self.state, env)?;
+            if now()? >= private_current.expires_at().get() {
+                return Err(rejected());
+            }
+            Ok(super::client::ClientLiveCurrent {
+                native,
+                lifetime: private_current.lifetime().clone(),
+                private_sid_generation: private_current.session().private_sid_generation,
+                source_operation_id: private_current.source_operation_id().into(),
+                source_ticket: 5,
+                observed_at: private_current.observed_at().get(),
+            })
         };
         let paid = self
             .native_verified(

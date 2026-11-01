@@ -525,3 +525,6 @@ mod origin_observation;
 mod preflight_world_adapter;
 #[path = "custody_preflight_world_registry_v2.rs"]
 mod preflight_world_registry;
+
+#[path = "custody_execution_prepare_adapter_v2.rs"]
+mod execution_prepare_adapter;

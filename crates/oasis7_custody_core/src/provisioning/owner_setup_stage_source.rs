@@ -9,13 +9,16 @@ impl AccountProvisionApprovalState {
     ) -> Result<crate::approval::ApprovalVerifyRequestV1> {
         self.owner_setup_live(id, current, now)?;
         let mut next = self.clone();
-        let setup = next.owner_setup_engine_record_mut(id)?;
-        let original = setup.book.original(id).ok_or_else(invalid)?;
-        let source = &mut setup.stages.get_mut(&stage).ok_or_else(invalid)?.source;
+        let mut request = next
+            .owner_setup_engine_record(id)?
+            .book
+            .original(id)
+            .ok_or_else(invalid)?
+            .native_verify_request()?;
+        let source = &mut next.owner_setup_engine_outbox_mut(id, stage)?.source;
         if source.claimed_at.is_some() || now >= source.expires_at.0 {
             return Err(invalid());
         }
-        let mut request = original.native_verify_request()?;
         request.purpose = crate::approval::VerificationPurposeV1::InspectOrigin;
         request.verify_nonce = source.verify_nonce.clone();
         source.claimed_at = Some(DecimalU64(now));
@@ -51,12 +54,7 @@ impl AccountProvisionApprovalState {
         verifier
             .verify(&self.owner_setup_stage_source_checks(id, stage, &signed, current, now)?)?;
         let mut next = self.clone();
-        let source = &mut next
-            .owner_setup_engine_record_mut(id)?
-            .stages
-            .get_mut(&stage)
-            .ok_or_else(invalid)?
-            .source;
+        let source = &mut next.owner_setup_engine_outbox_mut(id, stage)?.source;
         source.verification = Some(signed);
         source.verified_at = Some(DecimalU64(now));
         next.validate_persistence()?;

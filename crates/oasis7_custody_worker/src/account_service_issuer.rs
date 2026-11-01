@@ -163,3 +163,6 @@ mod native;
 
 #[path = "account_service_issuer_preflight.rs"]
 mod preflight;
+
+#[path = "account_service_issuer_execution_native.rs"]
+mod execution_native;

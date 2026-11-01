@@ -85,6 +85,18 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     ExecutionPrepareCurrentPortsClaimed {
         request_id: String,
     },
+    ExecutionPrivateCurrentClaimed {
+        request_id: String,
+    },
+    ExecutionPrivateCurrentObserved {
+        request_id: String,
+    },
+    ExecutionNativePrepareClaimed {
+        request_id: String,
+    },
+    ExecutionPreparedPublicArchived {
+        request_id: String,
+    },
     ExecutionPrepareOriginalArchived {
         request_id: String,
     },
@@ -166,6 +178,16 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
                 + usize::from(book.prepare_current_read(s).is_some())
                 + usize::from(book.prepare_service_record().is_some())
                 + usize::from(book.prepare_original_recorded_at().is_some())
+                + usize::from(book.native_prepare_record().is_some())
+                + usize::from(
+                    book.native_prepare_record()
+                        .is_some_and(|r| r.public_recorded_at.is_some()),
+                )
+                + usize::from(book.private_current_read(s).is_some())
+                + usize::from(
+                    book.private_current_read(s)
+                        .is_some_and(|r| r.completed_at.is_some()),
+                )
         }),
         s.control_transports
             .values()

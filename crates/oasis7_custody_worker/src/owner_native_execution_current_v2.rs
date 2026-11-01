@@ -48,6 +48,50 @@ impl ExecutionPrepareObservationV2 {
         }
         Ok(())
     }
+    pub(crate) fn check_native_prepare_authority(
+        &self,
+        authority: &oasis7_custody_core::provisioning::ExecutionNativePrepareAuthorityV2,
+        now: UnixMillis,
+    ) -> Result<()> {
+        let c = authority.certificate();
+        if now.get() >= self.until.get()
+            || now.get() != c.issued_at.0
+            || c.expires_at.0 > self.until.get()
+            || c.session_id != self.funding.session_id()
+            || c.approved_input_digest != self.funding.approved_input_digest()
+            || c.factory_record_key != self.funding.factory_key()
+            || c.source_operation_id != self.funding.read().source_operation_id
+            || c.source_nonce != self.funding.source_nonce()
+            || self.funding.read().source_ticket != 5
+            || c.issued_at.0 < self.funding.read().claimed_at.get()
+            || c.issued_at.0 < self.observed.gate.observed_at.0
+            || c.issued_at.0 < self.observed.fence_started.0
+        {
+            return Err(denied());
+        }
+        Ok(())
+    }
+    pub(crate) fn check_private_current_certificate(
+        &self,
+        c: &oasis7_custody_core::execution_private_current_v2::AccountExecutionPrivateCurrentV2,
+        now: UnixMillis,
+    ) -> Result<()> {
+        if now.get() >= self.until.get()
+            || c.issued_at.0 != now.get()
+            || c.expires_at.0 > self.until.get()
+            || c.session_id != self.funding.session_id()
+            || c.approved_input_digest != self.funding.approved_input_digest()
+            || c.factory_key != self.funding.factory_key()
+            || c.source_operation_id != self.funding.read().source_operation_id
+            || self.funding.read().source_ticket != 5
+            || c.issued_at.0 < self.funding.read().claimed_at.get()
+            || c.issued_at.0 < self.observed.gate.observed_at.0
+            || c.issued_at.0 < self.observed.fence_started.0
+        {
+            return Err(denied());
+        }
+        Ok(())
+    }
     pub(crate) fn check_service_history(
         &self,
         pair: &oasis7_custody_core::provisioning::SignedExecutionPreparePermitsV2,

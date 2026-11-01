@@ -105,6 +105,17 @@ impl NativeModelReservationQueryV2 {
     }
 }
 impl SignedNativeModelReservationQueryV2 {
+    /// Cryptographic check for this closed N query only. The caller supplies a
+    /// configured/approved instance key; this grants no Current, input or floor.
+    pub fn verify_instance_key(&self, expected_instance_key: &str) -> Result<(), String> {
+        self.query.signing_bytes()?;
+        crate::native_cleanup_v2::verify(
+            "oasis7.custody.native-model-reserve-query.v2",
+            &self.query,
+            &self.signature_hex,
+            expected_instance_key,
+        )
+    }
     /// Only the real consumed/activated Account record supplies `input` here.
     /// Strong N proof precedes using its nonce in H RFC validation; successful
     /// verification alone consumes neither nonce nor budget and grants no IO.
@@ -152,11 +163,6 @@ impl SignedNativeModelReservationQueryV2 {
         {
             return Err(invalid());
         }
-        crate::native_cleanup_v2::verify(
-            "oasis7.custody.native-model-reserve-query.v2",
-            &self.query,
-            &self.signature_hex,
-            &budget.native_instance_public_key,
-        )
+        self.verify_instance_key(&budget.native_instance_public_key)
     }
 }

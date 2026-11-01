@@ -1000,3 +1000,14 @@ mod execution_prepare_current_v2;
 
 #[path = "test_session_v2_preflight_world_store.rs"]
 mod preflight_world_v2;
+
+#[path = "test_session_execution_native_prepare_store_v2.rs"]
+mod execution_native_prepare_v2;
+#[path = "test_session_execution_owner_factory_store_v2.rs"]
+mod execution_owner_factory_v2;
+#[path = "test_session_execution_prepare_pipeline_v2.rs"]
+mod execution_prepare_pipeline_v2;
+#[path = "test_session_execution_private_current_store_v2.rs"]
+mod execution_private_current_v2;
+#[path = "test_session_native_model_store_v2.rs"]
+mod native_model_v2;

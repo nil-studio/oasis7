@@ -13,6 +13,16 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return crate::custody_tool_host::cli::run(&args);
     }
     #[cfg(unix)]
+    if args
+        .first()
+        .is_some_and(|v| v == "custody-native-reserve-call")
+    {
+        if args.len() != 3 || args[1] != "--socket" {
+            return Err(crate::custody_tool_host::cli::HELP.into());
+        }
+        return crate::custody_tool_host::cli::native_reserve_call(Path::new(&args[2]));
+    }
+    #[cfg(unix)]
     if args.first().is_some_and(|v| v == "custody-control-call") {
         if args.len() != 3 || args[1] != "--socket" {
             return Err(crate::custody_tool_host::cli::HELP.into());

@@ -1,16 +1,20 @@
 //! New V2 approval is consumed before the shared SDK factory produces any write.
 use super::*;
-fn consumed_move0() -> (
+fn consumed_selection(
+    selection: impl FnOnce(&AccountProvisionApprovalState, &OwnerSetupPlanV1) -> serde_json::Value,
+) -> (
     AccountProvisionApprovalState,
     ApprovalAdmissionContext,
     NativeBindingPinV1,
 ) {
     let (mut s, mut c, pin) = fixture::participant_bound();
-    let mut raw = serde_json::to_value(plan(&s)).unwrap();
+    let legacy_plan = plan(&s);
+    let selection = selection(&s, &legacy_plan);
+    let mut raw = serde_json::to_value(legacy_plan).unwrap();
     raw.as_object_mut().unwrap().remove("resource_refs");
     raw["api_version"] = json!(2);
     raw["model_budget"] = serde_json::Value::Null;
-    raw["selection"] = json!({"kind":"move","position_cm":["1","2","3"]});
+    raw["selection"] = selection;
     let header: OwnerSetupPlanV2 = serde_json::from_value(raw).unwrap();
     header.validate().unwrap();
     c.handoff_until = header.deadline;
@@ -72,6 +76,13 @@ fn consumed_move0() -> (
     )
     .unwrap();
     (s, c, pin)
+}
+fn consumed_move0() -> (
+    AccountProvisionApprovalState,
+    ApprovalAdmissionContext,
+    NativeBindingPinV1,
+) {
+    consumed_selection(|_, _| json!({"kind":"move","position_cm":["1","2","3"]}))
 }
 #[test]
 fn owner_v2_actual_four_writes_and_final_read_replay_under_full_header() {
@@ -204,3 +215,6 @@ pub(super) fn prepared_move0_v2_fixture() -> (
 
 #[path = "test_session_v2_authority_fixture.rs"]
 mod session_v2_tests;
+
+#[path = "owner_setup_resource_final_tests.rs"]
+mod resource_final;

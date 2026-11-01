@@ -75,9 +75,16 @@ impl Host {
             let e = s.enrollment.response.as_ref().ok_or_else(denied)?;
             if let Some(p) = q.purpose {
                 let session = s.session.as_ref().ok_or_else(denied)?;
+                if q.profile == HttpPopProfileV1::NativeModelCustodyV2
+                    && (p != SessionPurposeV1::Execution || session.closing)
+                {
+                    return Err(denied());
+                }
                 let private = matches!(
                     q.profile,
-                    HttpPopProfileV1::Custody | HttpPopProfileV1::CustodyChallenge
+                    HttpPopProfileV1::Custody
+                        | HttpPopProfileV1::CustodyChallenge
+                        | HttpPopProfileV1::NativeModelCustodyV2
                 );
                 let credential = if private {
                     Some(session.credential(p)?)
@@ -120,20 +127,25 @@ impl Host {
             self.vault.retain(q.request_id, &target, q.body)?;
             self.vault.mark_retained(&attempt)?;
         }
-        self.transport.send_once(
-            &HttpPopSigningInput {
-                profile: q.profile,
-                target: &target,
-                key_id: &key_id,
-                binding_id: &binding_id,
-                request_id: q.request_id,
-                nonce: q.nonce,
-                token: token.as_deref().map(|s| s.as_str()),
-                created,
-                expires,
-                body: q.body,
-            },
-            &key,
-        )
+        let input = HttpPopSigningInput {
+            profile: q.profile,
+            target: &target,
+            key_id: &key_id,
+            binding_id: &binding_id,
+            request_id: q.request_id,
+            nonce: q.nonce,
+            token: token.as_deref().map(|s| s.as_str()),
+            created,
+            expires,
+            body: q.body,
+        };
+        if q.profile == HttpPopProfileV1::NativeModelCustodyV2 {
+            self.transport.send_native_model_once(&input, &key)
+        } else {
+            self.transport.send_once(&input, &key)
+        }
     }
 }
+
+#[path = "custody_host_native_model.rs"]
+mod native_model;

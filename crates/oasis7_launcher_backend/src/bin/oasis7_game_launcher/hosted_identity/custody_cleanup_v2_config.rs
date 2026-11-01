@@ -13,6 +13,8 @@ pub(super) struct MachineConfig {
     pub(super) issuer_floor: AccountMachineIssuerFloorV2,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preflight_access_pin: Option<AccountMachineIssuerPinV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_prepare_pin: Option<AccountMachineIssuerPinV2>,
     native_origin: String,
 }
 fn unavailable() -> StoreError {
@@ -55,11 +57,19 @@ impl MachineConfig {
                 AccountMachinePurposeV2::NativeTermCurrentAttempt,
             ),
         ];
-        for (pin, purpose) in pins.into_iter().chain(
-            self.preflight_access_pin
-                .as_ref()
-                .map(|pin| (pin, AccountMachinePurposeV2::NativePreflightAccessV2)),
-        ) {
+        for (pin, purpose) in pins
+            .into_iter()
+            .chain(
+                self.preflight_access_pin
+                    .as_ref()
+                    .map(|pin| (pin, AccountMachinePurposeV2::NativePreflightAccessV2)),
+            )
+            .chain(
+                self.execution_prepare_pin
+                    .as_ref()
+                    .map(|pin| (pin, AccountMachinePurposeV2::NativeExecutionPrepareV2)),
+            )
+        {
             let identity = AccountMachineIssuerV2 {
                 namespace: pin.namespace.clone(),
                 service_id: pin.service_id.clone(),
@@ -99,6 +109,7 @@ impl MachineConfig {
         if [&self.active_pin, &self.current_pin, &self.term_current_pin]
             .into_iter()
             .chain(self.preflight_access_pin.iter())
+            .chain(self.execution_prepare_pin.iter())
             .any(|other| {
                 other.namespace != p.namespace
                     || other.service_id != p.service_id
@@ -116,6 +127,10 @@ impl MachineConfig {
     pub(super) fn preflight_access_pin(&self) -> Result<&AccountMachineIssuerPinV2, StoreError> {
         self.validate()?;
         self.preflight_access_pin.as_ref().ok_or_else(unavailable)
+    }
+    pub(super) fn execution_prepare_pin(&self) -> Result<&AccountMachineIssuerPinV2, StoreError> {
+        self.validate()?;
+        self.execution_prepare_pin.as_ref().ok_or_else(unavailable)
     }
     pub(super) fn fingerprint(
         &self,

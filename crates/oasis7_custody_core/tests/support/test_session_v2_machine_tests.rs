@@ -76,15 +76,17 @@ fn cold(s: &AccountProvisionApprovalState) {
 }
 #[test]
 fn machine_v2_real_book_pending_registered_await_native_and_ready_are_once_and_restore_exact() {
-    exercise_registered_machine(false);
+    exercise_registered_machine(false, 9000);
 }
 #[test]
 fn world3_final_registered_machine_rechecks_native_physical_receipt_signatures_after_cold_restore()
 {
-    exercise_registered_machine(true);
+    exercise_registered_machine(true, 9000);
 }
-fn exercise_registered_machine(world3: bool) {
-    let start = 9000;
+pub(super) fn ready_world3(start: u64) -> SessionFixture {
+    exercise_registered_machine(true, start)
+}
+fn exercise_registered_machine(world3: bool, start: u64) -> SessionFixture {
     let (mut f, d, life) = if world3 {
         activation_tests::preactivated_world3(start)
     } else {
@@ -514,6 +516,7 @@ fn exercise_registered_machine(world3: bool) {
             .is_err()
     );
     assert_eq!(f.state, before);
+    f
 }
 
 #[test]

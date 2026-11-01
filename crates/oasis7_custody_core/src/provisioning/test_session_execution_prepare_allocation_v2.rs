@@ -138,13 +138,28 @@ impl AccountProvisionApprovalState {
         else {
             return Err(invalid());
         };
+        paid.validate_factory_profile(s)?;
+        if paid.kind == ExecutionPrepareFactoryKindV2::OwnerServiceAndAccountV2 {
+            let r = paid.private_current.as_ref().ok_or_else(invalid)?;
+            let result = r.result.as_ref().ok_or_else(invalid)?;
+            if r.completed_at.is_none_or(|at| at.get() > now.get())
+                || now.get() >= r.expires_at.get()
+                || current.observed_at != r.claimed_at
+                || result.private_sid_generation != current.private_sid_generation
+                || result.session_ref != current.lifetime.lifetime.status.session_ref
+                || result.lifetime_digest
+                    != current.lifetime.lifetime.digest().map_err(|_| invalid())?
+                || r.source_operation_id != current.source_operation_id
+            {
+                return Err(invalid());
+            }
+        }
         let intent = &paid.intent;
         let allocation = &intent.allocation;
         if intent.action_request_id != b.action_request_id
             || intent.approved_input_digest != b.approved_input_digest
             || intent.source_operation_id != b.source_operation_id
             || intent.ledger_key(s, &paid.signed_attempt_digest)? != paid_key
-            || paid.kind != ExecutionPrepareFactoryKindV2::IdentityToAccountPrepare
             || paid.claimed_at.get() > now.get()
         {
             return Err(invalid());
@@ -245,6 +260,17 @@ impl AccountProvisionApprovalState {
         // No Source or Native observation is retimestamped to this SQL time.
         let expires_at = UnixMillis::new(
             [
+                // New funded private observations retain their original C3
+                // intersection. Legacy factory1 has no such observation.
+                if paid.kind == ExecutionPrepareFactoryKindV2::OwnerServiceAndAccountV2 {
+                    paid.private_current
+                        .as_ref()
+                        .ok_or_else(invalid)?
+                        .expires_at
+                        .get()
+                } else {
+                    u64::MAX
+                },
                 b.execution_deadline.get(),
                 saved_allocation.source_expires_at.get(),
                 current.lifetime.lifetime.status.expires_at.0,
@@ -297,6 +323,7 @@ impl AccountProvisionApprovalState {
                 original: None,
                 signing_admitted_at: now,
                 service_record: None,
+                native_prepare: None,
                 send_claim: None,
                 lookup_claims: BTreeMap::new(),
                 archived_fact_cbor_hex: None,
