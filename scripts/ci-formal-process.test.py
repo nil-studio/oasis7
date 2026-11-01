@@ -342,7 +342,172 @@ class FastExecutionSelection(unittest.TestCase):
                 self.assertEqual(records[0]['suite'], 'ordinary')
 
 
+class FastTargetInventory(unittest.TestCase):
+    def target(self, **changes):
+        return dict(package='oasis7_viewer_codec', target_kind='test', target_name='pr_fast',
+                    default_features=False, features=['test_tier_required'], cases=['required::round_trip']) | changes
+
+    def selection(self, targets=None, full=False):
+        selected = FastExecutionSelection().selection(('oasis7_viewer_codec', 'oasis7_runtime'))
+        key = 'ordinary_full_fast_targets' if full else 'ordinary_fast_targets'
+        selected['full_fast_test_inventory_version' if full else 'fast_test_inventory_version'] = 1
+        selected[key] = [self.target()] if targets is None else targets
+        if full:
+            selected.update(execution_profile='periodic-full', scope='explicit-full')
+        return selected
+
+    def binary(self, target=None, variant='required-fast-0'):
+        target = target or self.target()
+        return dict(ordinary=True, test=True, package=target['package'], target=target['target_name'],
+                    target_kind=[target['target_kind']], default_features=target['default_features'],
+                    requested_features=target['features'], features=target['features'],
+                    tests=target['cases'] + ['new_regression'], ignored_tests=[], variant=variant)
+
+    def test_explicit_targets_select_before_compilation_and_match_clippy(self):
+        selected = self.selection([self.target(), self.target(package='oasis7_runtime',
+                                  target_kind='lib', target_name='oasis7_runtime')])
+        commands = artifacts.required_native_commands(selected)
+        self.assertEqual(commands, [
+            ['-p', 'oasis7_viewer_codec', '--test', 'pr_fast', '--no-default-features', '--features', 'test_tier_required'],
+            ['-p', 'oasis7_runtime', '--lib', '--no-default-features', '--features', 'test_tier_required'],
+        ])
+        variants = artifacts.build_variants('ordinary', selected)
+        self.assertEqual([command for _, command, _ in variants], [['test', *args, '--no-run'] for args in commands])
+        self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=selected)), ())
+        viewer = self.selection([self.target(package='oasis7_viewer_runtime')])
+        viewer['oasis7_required_packages'] = ['oasis7_viewer_runtime']
+        self.assertEqual(len(artifacts.build_variants('ordinary', viewer)), 1)
+        manifest = dict(execution_plan=viewer, binaries={'selected': self.binary(viewer['ordinary_fast_targets'][0])})
+        self.assertEqual(artifacts.dependency_closure(manifest, {}, suite='ordinary'), {'selected'})
+
+    def test_native_commands_cli_emits_json_for_both_fast_profiles(self):
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'plan.json'
+            for profile in ('pr-fast', 'main-fast'):
+                selected = self.selection()
+                selected.update(execution_profile=profile, architecture=dict(source=sha, tested=sha))
+                path.write_text(json.dumps(selected))
+                command = [sys.executable, str(HERE / 'ci-test-artifacts.py'), 'required-args',
+                           '--repo-root', str(artifacts.ROOT), '--plan', str(path)]
+                result = subprocess.run([*command, '--phase', 'native-commands'], check=True,
+                                        text=True, capture_output=True, env=dict(os.environ, SOURCE_SHA=sha))
+                self.assertEqual(json.loads(result.stdout), [['-p', 'oasis7_viewer_codec', '--test', 'pr_fast',
+                                 '--no-default-features', '--features', 'test_tier_required']])
+                legacy = subprocess.run([*command, '--phase', 'packages'], check=True,
+                                        text=True, capture_output=True, env=dict(os.environ, SOURCE_SHA=sha))
+                self.assertEqual(legacy.stdout.splitlines(), ['oasis7_viewer_codec', 'oasis7_runtime'])
+
+    def test_old_full_and_policy_plans_keep_original_inventory(self):
+        ordinary = self.selection()
+        for changes in ({'scope': 'full'}, {'scope': 'explicit-full'}, {'test_policy_changed': True},
+                        {'execution_profile': 'periodic-full'}, {'execution_profile': 'candidate-full'}):
+            selected = ordinary | changes
+            # Inactive capability data cannot break or narrow the fallback.
+            selected.update(fast_test_inventory_version=True, ordinary_fast_targets='invalid')
+            with self.subTest(changes=changes):
+                self.assertIsNone(artifacts.ordinary_fast_targets(selected))
+                required = next(args for name, args, _ in artifacts.build_variants('ordinary', selected) if name == 'required')
+                self.assertIn('--tests', required)
+                self.assertEqual(len(artifacts.required_native_commands(selected)), 1)
+        legacy = copy.deepcopy(ordinary)
+        del legacy['fast_test_inventory_version']
+        self.assertIsNone(artifacts.ordinary_fast_targets(legacy))
+        self.assertIn('--tests', artifacts.required_native_commands(legacy)[0])
+        self.assertEqual(artifacts.required_native_commands(None), [artifacts.required_arguments(None)])
+
+    def test_invalid_target_inventory_fails_before_build(self):
+        for key, value in [('fast_test_inventory_version', True), ('fast_test_inventory_version', 2),
+                           ('ordinary_fast_targets', []), ('ordinary_fast_targets', [self.target(), self.target()])]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                artifacts.build_variants('ordinary', self.selection() | {key: value})
+        for changes in (dict(package='unselected'), dict(target_kind='bin'), dict(target_name='../escape'),
+                        dict(default_features='false'), dict(features=['default']), dict(features=['x/y']),
+                        dict(features=['repeated', 'repeated']), dict(cases=[]), dict(cases=['x\ny']),
+                        dict(cases=['repeated', 'repeated']), dict(extra=True)):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                artifacts.build_variants('ordinary', self.selection([self.target(**changes)]))
+
+    def test_minimum_cases_target_and_actual_features_are_verified(self):
+        manifest = dict(scope='ordinary', execution_plan=self.selection(), binaries={'fast': self.binary()})
+        artifacts.validate_ordinary_selection(manifest)
+        for change in (dict(target='renamed'), dict(target_kind=['lib']), dict(test=False),
+                       dict(requested_features=[]), dict(features=[]), dict(features=['default', 'test_tier_required']),
+                       dict(default_features=True), dict(tests=['new_regression']),
+                       dict(ignored_tests=['required::round_trip'])):
+            altered = copy.deepcopy(manifest)
+            altered['binaries']['fast'].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(altered)
+        altered = copy.deepcopy(manifest)
+        altered['binaries']['duplicate'] = self.binary()
+        with self.assertRaisesRegex(ValueError, 'target inventory'):
+            artifacts.validate_ordinary_selection(altered)
+
+    def test_same_package_lib_and_test_have_distinct_artifact_names(self):
+        lib = artifacts.artifact_logical_name('required-fast-0', 'oasis7_runtime',
+                                            dict(name='oasis7_runtime', kind=['lib']), True)
+        test = artifacts.artifact_logical_name('required-fast-1', 'oasis7_runtime',
+                                             dict(name='oasis7_runtime', kind=['test']), True)
+        self.assertNotEqual(lib, test)
+        full = artifacts.artifact_logical_name('required-full-fast-0', 'oasis7_runtime',
+                                             dict(name='oasis7_runtime', kind=['lib']), True)
+        self.assertNotEqual(lib, full)
+
+    def test_full_variants_preserve_originals_and_append_exact_fast_commands(self):
+        selected = self.selection(full=True)
+        selected.update(fast_test_inventory_version='invalid', ordinary_fast_targets='invalid')
+        legacy = copy.deepcopy(selected)
+        del legacy['full_fast_test_inventory_version']
+        for scope in ('ordinary', 'all'):
+            full_variants = artifacts.build_variants(scope, selected)
+            original = artifacts.build_variants(scope, legacy)
+            self.assertEqual(full_variants[:-1], original)
+            self.assertEqual(full_variants[-1][1], ['test', '-p', 'oasis7_viewer_codec', '--test', 'pr_fast',
+                                                   '--no-default-features', '--features', 'test_tier_required', '--no-run'])
+        self.assertEqual(artifacts.required_native_commands(selected), [artifacts.required_arguments(selected),
+                         ['-p', 'oasis7_viewer_codec', '--test', 'pr_fast', '--no-default-features', '--features', 'test_tier_required']])
+        for profile in ('periodic-full', 'candidate-full'):
+            for key, value in [('full_fast_test_inventory_version', True), ('full_fast_test_inventory_version', 2),
+                               ('ordinary_full_fast_targets', [])]:
+                with self.subTest(profile=profile, key=key), self.assertRaises(ValueError):
+                    artifacts.build_variants('ordinary', selected | {'execution_profile': profile, key: value})
+
+    def test_full_supplements_cannot_replace_original_required_inventory(self):
+        selected = self.selection(full=True)
+        originals = {package: dict(ordinary=True, test=True, package=package, tests=['old'], ignored_tests=[], variant='required')
+                     for package in artifacts.required_packages()}
+        manifest = dict(scope='ordinary', execution_plan=selected,
+                        binaries=originals | {'supplement': self.binary(variant='required-full-fast-0')})
+        for scope in ('ordinary', 'all'):
+            manifest['scope'] = scope
+            artifacts.validate_ordinary_selection(manifest)
+            for missing in ('oasis7_viewer_codec', 'supplement'):
+                altered = copy.deepcopy(manifest)
+                del altered['binaries'][missing]
+                with self.subTest(scope=scope, missing=missing), self.assertRaises(ValueError):
+                    artifacts.validate_ordinary_selection(altered)
+
+
 class DriverCoverage(unittest.TestCase):
+    def test_target_clippy_executes_every_command_and_propagates_each_failure(self):
+        driver = (HERE / 'ci-tests.sh').read_text()
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_oasis7_required_tier_clippy']
+        commands = [['-p', 'first', '--test', 'smoke', '--no-default-features'], ['-p', 'second', '--lib']]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'ci-test-artifacts.py').write_text('import json\nprint(json.dumps(' + repr(commands) + '))\n')
+            for fail in ('none', 'first', 'second'):
+                script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"; repo_root="$2"; required_plan="fixture"\n'
+                script += 'run_cargo_clippy() { printf "%s\\n" "$*"; [[ "$2" != "$FAIL_TARGET" ]] || return 19; }\n'
+                script += 'run_oasis7_required_tier_clippy() {\n' + body + '}\nrun_oasis7_required_tier_clippy\n'
+                result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(root)],
+                                        text=True, capture_output=True, env=dict(os.environ, FAIL_TARGET=fail))
+                with self.subTest(fail=fail):
+                    self.assertEqual(result.returncode, 0 if fail == 'none' else 19, result.stderr)
+                    self.assertIn('-p first --test smoke --no-default-features', result.stdout)
+                    self.assertEqual('-p second --lib' in result.stdout, fail != 'first')
+
     def invoke(self, commands, fail_browser=False):
         driver = (HERE / 'ci-tests.sh').read_text()
         functions = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))
@@ -1524,6 +1689,130 @@ class Process(unittest.TestCase):
                 plan['oasis7_required_packages'].append('oasis7_runtime')
                 with self.assertRaisesRegex(RuntimeError, 'build failed'):
                     artifacts.build(root / 'expanded', 'ordinary', plan=plan)
+
+    def prepare_target_workspace(self, root, source, integration=None):
+        (root / 'Cargo.toml').write_text('[workspace]\nmembers=["codec","unrelated"]\nresolver="2"\n')
+        for directory, package, text in (
+            ('codec', 'oasis7_viewer_codec', source),
+            ('unrelated', 'oasis7_runtime', 'compile_error!("unselected package was compiled");'),
+        ):
+            member = root / directory
+            (member / 'src').mkdir(parents=True)
+            (member / 'Cargo.toml').write_text('[package]\nname="' + package +
+                '"\nversion="0.1.0"\nedition="2021"\n[features]\ndefault=[]\ntest_tier_required=[]\n')
+            (member / 'src/lib.rs').write_text(text)
+        if integration is not None:
+            (root / 'codec/tests').mkdir()
+            (root / 'codec/tests/pr_fast.rs').write_text(integration)
+            (root / 'codec/tests/heavy.rs').write_text('compile_error!("unselected integration was compiled");')
+        config = root / 'scripts/ci-formal-process-suites.json'
+        config.parent.mkdir()
+        config.write_text('{}')
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, check=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for command in (['git', 'init', '-q'], ['git', 'add', '.'],
+                        ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                         'commit', '-qm', 'fixture']):
+            subprocess.run(command, cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        return config, sha
+
+    def test_real_target_build_excludes_heavy_harnesses_and_runs_new_nonignored_cases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            integration = ('#[cfg(feature="test_tier_required")] mod required {\n'
+                           '  #[test] fn round_trip() { assert_eq!(1 + 1, 2); }\n'
+                           '  #[test] fn newly_added() { assert_eq!(2 + 2, 4); }\n'
+                           '  #[test] #[ignore] fn expensive() { panic!("ignored test ran"); }\n}\n')
+            config, sha = self.prepare_target_workspace(root,
+                '#[cfg(test)] compile_error!("unselected lib harness was compiled");\n'
+                '#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");\n', integration)
+            selected = FastTargetInventory().selection()
+            selected['architecture'] = dict(source=sha, tested=sha)
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle, consumer = root / 'producer', root / 'consumer'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                self.assertEqual(len(manifest['binaries']), 1)
+                binary = next(iter(manifest['binaries'].values()))
+                self.assertEqual(binary['target_kind'], ['test'])
+                self.assertEqual(binary['target'], 'pr_fast')
+                self.assertEqual(binary['features'], ['test_tier_required'])
+                archive_path = root / 'ordinary.tar.gz'
+                artifacts.pack(bundle, archive_path, suite='ordinary', plan=selected)
+                with tarfile.open(archive_path) as archive:
+                    archive.extractall(consumer, filter='data')
+                results = root / 'results.jsonl'
+                artifacts.execute(consumer, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertTrue(records[0]['passed'])
+                self.assertEqual(records[0]['expected_count'], 2)
+                # Minimum case identities are checked against the actual binary,
+                # including when the recorded manifest claims a case still exists.
+                altered = copy.deepcopy(manifest)
+                next(iter(altered['binaries'].values()))['tests'].append('invented_case')
+                (consumer / 'manifest.json').write_text(json.dumps(altered))
+                with self.assertRaisesRegex(ValueError, 'downloaded test inventory'):
+                    artifacts.load(consumer, suite='ordinary', plan=selected)
+                for label, rewritten in (
+                    ('renamed', integration.replace('fn round_trip()', 'fn renamed()')),
+                    ('ignored', integration.replace('#[test] fn round_trip()', '#[test] #[ignore] fn round_trip()')),
+                ):
+                    (root / 'codec/tests/pr_fast.rs').write_text(rewritten)
+                    with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'minimum case inventory'):
+                        artifacts.build(root / label, 'ordinary', plan=selected)
+
+    def test_real_full_bundle_runs_default_and_no_default_variants_of_same_lib(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root,
+                '#[test] fn common() {}\n'
+                '#[cfg(feature="default")] #[test] fn original_default() {}\n'
+                '#[cfg(not(feature="default"))] #[test] fn fast_only() {}\n'
+                '#[cfg(not(feature="default"))] #[test] fn newly_added() {}\n')
+            target = FastTargetInventory().target(target_kind='lib', target_name='oasis7_viewer_codec', cases=['fast_only'])
+            selected = FastTargetInventory().selection([target], full=True)
+            selected['architecture'] = dict(source=sha, tested=sha)
+            # Restrict only the old package inventory to this real tiny workspace;
+            # build, Cargo feature resolution, pack, download checks and run stay real.
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'required_packages', return_value=['oasis7_viewer_codec']), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle, consumer = root / 'producer', root / 'consumer'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                self.assertEqual(len(manifest['binaries']), 2)
+                self.assertEqual({entry['target'] for entry in manifest['binaries'].values()}, {'oasis7_viewer_codec'})
+                self.assertEqual(sorted('default' in entry['features'] for entry in manifest['binaries'].values()), [False, True])
+                archive_path = root / 'ordinary.tar.gz'
+                artifacts.pack(bundle, archive_path, suite='ordinary', plan=selected)
+                with tarfile.open(archive_path) as archive:
+                    archive.extractall(consumer, filter='data')
+                results = root / 'results.jsonl'
+                artifacts.execute(consumer, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(sorted(record['expected_count'] for record in records), [2, 3])
+                self.assertTrue(all(record['passed'] for record in records))
+                original = json.loads((consumer / 'manifest.json').read_text())
+                for logical in manifest['binaries']:
+                    altered = copy.deepcopy(original)
+                    altered['included_binaries'].remove(logical)
+                    (consumer / 'manifest.json').write_text(json.dumps(altered))
+                    with self.subTest(missing=logical), self.assertRaisesRegex(ValueError, 'executable closure'):
+                        artifacts.load(consumer, suite='ordinary', plan=selected)
+                (consumer / 'manifest.json').write_text(json.dumps(original))
+                for logical, entry in manifest['binaries'].items():
+                    path = consumer / entry['path']
+                    data = path.read_bytes()
+                    path.unlink()
+                    try:
+                        with self.subTest(missing_file=logical), self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                            artifacts.load(consumer, suite='ordinary', plan=selected)
+                    finally:
+                        path.write_bytes(data)
+                        path.chmod(0o755)
 
     def test_absolute_timeout_is_not_reset_by_heartbeats(self):
         result = self.execute([sys.executable, '-c', 'import time; time.sleep(30)'], count=None, timeout_seconds=0.2, heartbeat_seconds=0.05)

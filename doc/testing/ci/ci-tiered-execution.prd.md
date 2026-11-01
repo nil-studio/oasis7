@@ -90,7 +90,7 @@ Trace ID: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29
 
 分配到周期层的检查必须有真实执行入口，`full` 包含快速集合及所有迁出的适用检查。单一 Linux job 不能代替原生 Windows/macOS 行为。付费模型、生产环境和专用硬件验证仍按既有授权与环境合同执行，不因周期调度自动扩大范围；未执行的范围明确列出。
 
-当前 ordinary Rust 按受影响 package 收窄 `--tests` 编译与全部非 ignored 行为测试，支持包按既有 profile 执行，Formal 按逻辑 suite 保留完整 case 并映射实际物理 shard。该实现不声称已经逐个 case 完成预算归类，也不把仍使用整组入口的消费者称为任意 target 精确选测；后续收窄仍遵守本节准入与迁出规则。
+当前 ordinary Rust 默认按受影响 package 执行 `--tests`。可信规则完整覆盖本次输入时，以独立 target 收窄构建、Clippy 和全部非 ignored 行为测试；已登记的增量候选准备/查询保留 Runtime owner 全部原生 unit 及真实物理重开 integration，把无关上层回归交给 full。最低 case 清单保留关键拒绝/取消保护，新增回归仍由实际目标执行；未映射输入、不可达 feature gate 或 host/共享协议/存储变化恢复原必要范围。支持包仍按 profile，Formal 按逻辑 suite；精确路径与命令见配对设计和 scope 配置。十分钟/P95 仍以真实 hosted 数据验收。
 
 ### 关键改动的定向加测
 

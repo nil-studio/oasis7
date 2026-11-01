@@ -16,6 +16,7 @@ from pathlib import Path
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
+FAST_TEST_INVENTORY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
@@ -616,7 +617,135 @@ def validate_config(config):
                 not isinstance(pattern, str) or not pattern.startswith('tools/oasis7-command-center/')
                 or '..' in pattern.split('/') or '\\' in pattern for pattern in fast_paths)):
             raise ValueError('invalid command center fast paths')
+    validate_fast_test_inventory(config)
     return config
+
+
+def valid_fast_declaration(item):
+    if not isinstance(item, str):
+        return False
+    item = item.strip()
+    native = '#[cfg(not(target_arch = "wasm32"))]'
+    if item.startswith(native):
+        item = item[len(native):].strip()
+    identifier = r'[A-Za-z_][A-Za-z0-9_]*'
+    module = r'(?:pub(?:\(super\))?\s+)?mod\s+' + identifier + r'\s*;'
+    names = identifier + r'(?:\s*,\s*' + identifier + r')*\s*,?'
+    export = (r'pub\s+use\s+(?:' + identifier + r'::)+'
+              r'(?:' + identifier + r'|\{\s*' + names + r'\s*\})\s*;')
+    return re.fullmatch(module + '|' + export, item) is not None
+
+
+def validate_fast_test_inventory(config):
+    """Only an explicit trusted inventory may replace package-wide tests."""
+    fields = {'fast_test_inventory_version', 'ordinary_fast_targets', 'ordinary_fast_rules'}
+    if not fields.intersection(config):
+        return
+    if (not fields.issubset(config)
+            or type(config['fast_test_inventory_version']) is not int
+            or config['fast_test_inventory_version'] != FAST_TEST_INVENTORY_VERSION
+            or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+        raise ValueError('invalid fast test inventory version')
+    targets = config['ordinary_fast_targets']
+    rules = config['ordinary_fast_rules']
+    if not isinstance(targets, dict) or not targets or not isinstance(rules, list) or not rules:
+        raise ValueError('invalid fast test targets or rules')
+    identities = set()
+    for key, target in targets.items():
+        if (not isinstance(key, str) or not re.fullmatch(r'[a-z0-9_-]+', key)
+                or not isinstance(target, dict)
+                or set(target) != {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases'}):
+            raise ValueError('invalid fast test target')
+        if (target['package'] not in config['oasis7_required_packages']
+                or target['target_kind'] not in ('lib', 'test')
+                or not isinstance(target['target_name'], str)
+                or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', target['target_name'])
+                or type(target['default_features']) is not bool):
+            raise ValueError('invalid fast test target identity')
+        identity = (target['package'], target['target_kind'], target['target_name'])
+        if identity in identities:
+            raise ValueError('duplicate fast test target identity')
+        identities.add(identity)
+        for field in ('features', 'cases'):
+            values = target[field]
+            if (not isinstance(values, list) or (field == 'cases' and not values)
+                    or any(not isinstance(value, str) or not value or value.startswith('-')
+                           or any(character.isspace() for character in value) for value in values)
+                    or len(values) != len(set(values))):
+                raise ValueError('invalid fast test ' + field)
+        if (any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', feature) for feature in target['features'])
+                or not target['default_features'] and 'default' in target['features']):
+            raise ValueError('invalid fast test features')
+    seen_paths = set()
+    for rule in rules:
+        if (not isinstance(rule, dict) or set(rule) - {'paths', 'targets', 'reason', 'added_declarations'}
+                or not {'paths', 'targets', 'reason'}.issubset(rule)
+                or not isinstance(rule['paths'], list) or not rule['paths']
+                or not isinstance(rule['targets'], list) or not rule['targets']
+                or any(not isinstance(key, str) or key not in targets for key in rule['targets'])
+                or len(rule['targets']) != len(set(rule['targets']))
+                or not isinstance(rule['reason'], str) or not rule['reason']):
+            raise ValueError('invalid fast test coverage rule')
+        for path in rule['paths']:
+            if (not isinstance(path, str) or not path.endswith('.rs')
+                    or posixpath.isabs(path) or posixpath.normpath(path) != path
+                    or '..' in path.split('/') or any(c in path for c in ('\\', '*', '?', '[', ']'))
+                    or any(ord(c) < 32 for c in path) or path in seen_paths):
+                raise ValueError('invalid or duplicate fast test input path')
+            seen_paths.add(path)
+        declarations = rule.get('added_declarations')
+        if declarations is not None and (
+                not isinstance(declarations, list) or not declarations
+                or any(not valid_fast_declaration(item) for item in declarations)
+                or len(declarations) != len(set(declarations))):
+            raise ValueError('invalid fast test declaration additions')
+
+
+def only_registered_declarations_added(path, comparisons, declarations):
+    """Permit additive wiring, never removal/replacement of consumer APIs."""
+    alternatives = [re.escape(re.sub(r'\s+', '', item)) for item in declarations]
+    allowed = re.compile('(?:' + '|'.join(alternatives) + ')+')
+    for before, after in comparisons:
+        patch = git('diff', '--no-ext-diff', '--unified=0', before, after, '--', path).decode()
+        added = []
+        for line in patch.splitlines():
+            if line.startswith(('---', '+++')):
+                continue
+            if line.startswith('-') and line[1:].strip():
+                return False
+            if line.startswith('+'):
+                added.append(line[1:])
+        text = re.sub(r'\s+', '', '\n'.join(added))
+        if text and allowed.fullmatch(text) is None:
+            return False
+    return True
+
+
+def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_core, comparisons):
+    """Every affected native/Formal input needs a bounded, trusted contract."""
+    if config.get('fast_test_inventory_version') != FAST_TEST_INVENTORY_VERSION:
+        return None
+    mappings = {path: rule for rule in config['ordinary_fast_rules'] for path in rule['paths']}
+    selected, covered, reasons = set(), set(), []
+    for path in paths:
+        groups = set(path_rules.get(path, ()))
+        groups.update(group for package in path_affected.get(path, ())
+                      for group in config['package_groups'].get(package, ()))
+        if not groups.intersection({'oasis7_required', 'formal_process'}):
+            continue
+        rule = mappings.get(path)
+        if rule is None or (rule.get('added_declarations') is not None
+                and not only_registered_declarations_added(path, comparisons, rule['added_declarations'])):
+            return None
+        selected.update(rule['targets'])
+        covered.add(path)
+        reasons.append('fast target contract ' + rule['reason'] + ': ' + path)
+    if not selected:
+        return None
+    targets = [config['ordinary_fast_targets'][key] for key in sorted(selected)]
+    if not {target['package'] for target in targets}.issubset(selected_core):
+        return None
+    return targets, covered, reasons
 
 
 def resolve_commit(ref):
@@ -643,7 +772,8 @@ def formal_shards(suites, inventory):
 
 
 def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
-                        ordinary_roots=(), source_inputs=None):
+                        ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
+                        narrow_unavailable=None, selected_targets=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -894,13 +1024,13 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             parsed_sources[key] = attributes(sources[path].decode('utf-8', 'replace'), native)
         return parsed_sources[key]
 
-    def parents(path, native):
+    def parents(path, native, selected_features=None):
         """Find every literal mod/include reference without expanding macros.
 
         Only same-package, unambiguous static references can prove ordinary
         execution. The file's own inner attributes are checked by its caller.
         """
-        key = path, native
+        key = path, native, selected_features
         if key in parent_cache:
             return parent_cache[key]
         owners = source_owners(path)
@@ -924,7 +1054,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 kind = tokens[index][1]
                 inline = tuple(name for start, end, name in modules if start < index < end)
                 attributes_here = [attribute for attribute, target in annotations if applies_to(target, owner)]
-                known = owner in context and source_owners(parent) == owners
+                known = owner in context and (selected_features is not None or source_owners(parent) == owners)
                 targets = []
                 if kind == 'mod' and tokens[index + 2][1] == ';':
                     name = tokens[index + 1][1].removeprefix('r#')
@@ -957,7 +1087,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         targets.append(path)
                         known = False
                 elif kind == 'include':
-                    known &= not inline
+                    if selected_features is None:
+                        known &= not inline
                     end = closing.get(index + 2)
                     values = [value for _, value, _ in tokens[index + 3:end]] if end is not None else []
                     if values and values[-1] == ',':
@@ -965,13 +1096,16 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     if len(values) == 1 and rust_literal_path(values[0]) is not None:
                         value = rust_literal_path(values[0])
                         targets.append(posixpath.normpath(posixpath.join(directory, value)))
-                        known &= '/' not in value and '\\' not in value
+                        if selected_features is None:
+                            known &= '/' not in value and '\\' not in value
                     else:
                         targets.append(path)
                         known = False
                 if path in targets:
                     references.append((parent, kind, known and all(
-                        ordinary_attribute(attribute, native) for attribute in attributes_here), attributes_here))
+                        ordinary_attribute(attribute, native)
+                        or (selected_features is not None and enabled_gate(attribute, native, selected_features))
+                        for attribute in attributes_here), attributes_here))
         parent_cache[key] = references
         return references
 
@@ -1006,6 +1140,62 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             result.update(inherited_gates(parent, native, visiting | {path}))
         return result
 
+    def selected_target_root(target):
+        package = target['package']
+        manifest = source_inputs.get('manifests', {}).get(package)
+        directory = directories.get(package)
+        if not isinstance(manifest, dict) or directory is None:
+            return None
+        name = target['target_name']
+        if target['target_kind'] == 'lib':
+            declaration = manifest.get('lib', {})
+            if declaration.get('name', package.replace('-', '_')) != name:
+                return None
+            path = declaration.get('path', 'src/lib.rs')
+        else:
+            declarations = manifest.get('test', [])
+            matches = [item for item in declarations if item.get('name') == name]
+            if len(matches) > 1 or declarations and not matches:
+                return None
+            declaration = matches[0] if matches else {}
+            if not matches and not manifest.get('package', {}).get('autotests', True):
+                return None
+            path = declaration.get('path', 'tests/' + name + '.rs')
+        root = posixpath.normpath(posixpath.join(directory, path))
+        if (root not in sources or root not in ordinary_roots
+                or not declaration.get('test', True) or not declaration.get('harness', True)
+                or not set(declaration.get('required-features', ())).issubset(target['features'])):
+            return None
+        return root
+
+    selected_context_cache = {}
+
+    def selected_source_context(path, target, visiting=frozenset()):
+        """One proven route to the selected target is sufficient for shared tests.
+
+        This proof is used only after every affected input has matched trusted
+        fast rules. It does not change the legacy all-parent ownership proof.
+        """
+        root = selected_target_root(target)
+        features = frozenset(target['features'])
+        key = path, root, features
+        if key in selected_context_cache:
+            return selected_context_cache[key]
+        if (root is None or path in visiting or path not in sources
+                or source_inputs.get('uncertain_modules')
+                or source_owners(path) & set(source_inputs.get('unresolved_includes', ()))):
+            return False
+        annotations = parsed(path, True)[6]
+        inner = [attribute for attribute, owner in annotations if owner == ('module', '', 0)]
+        if any(not (ordinary_attribute(attribute, True) or enabled_gate(attribute, True, features))
+               for attribute in inner):
+            return False
+        result = path == root or any(
+            known and selected_source_context(parent, target, visiting | {path})
+            for parent, _, known, _ in parents(path, True, features))
+        selected_context_cache[key] = result
+        return result
+
     def native_context(path):
         owners = feature_owners.get(path, set())
         if path in ordinary_roots or owners and owners.issubset(feature_packages):
@@ -1032,6 +1222,17 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         changes = before_attrs ^ after_attrs
         native = native_context(path)
         ordinary_source = ordinary_source_context(path, native)
+        # Unchanged full/WASM gates still matter when the enclosed body changes.
+        # Attribute diffs alone cannot prove that a narrower driver runs it.
+        if narrow_unavailable is not None and path in (narrow_features_by_path or {}):
+            gates = {attribute for attribute, _ in after_attrs if attribute[0] in ('cfg', 'cfg_attr')}
+            gates.update(inherited_gates(path, True))
+            if any(not enabled_gate(attribute, True, narrow_features_by_path[path]) for attribute in gates):
+                narrow_unavailable.add(path)
+        if selected_targets and path in (narrow_features_by_path or {}):
+            # A legacy root is not evidence that the chosen small target runs a
+            # new case. Prove one static route to an actually selected root.
+            ordinary_source = any(selected_source_context(path, target) for target in selected_targets)
         new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
         for attribute, owner in after_attrs - before_attrs:
@@ -1112,7 +1313,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
     policy = resolve_commit(policy_ref or source_head)
     groups = sorted(config['groups'])
     suites = list(FORMAL_SUITES) if 'formal_process' in groups else []
-    return {
+    plan = {
         'scope': 'explicit-full', 'groups': groups,
         'resources': sorted({resource for group in groups for resource in config['resources'][group]}),
         'architecture': {'version': 1, 'mode': 'full', 'packages': [],
@@ -1127,6 +1328,11 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         'command_center_package': True, 'test_policy_changed': False, 'test_policy_paths': [],
         'fast_plan_exceptions': [], 'reasons': ['complete trusted inventory; no changed-files filter'],
     }
+    if config.get('fast_test_inventory_version') == FAST_TEST_INVENTORY_VERSION:
+        plan['full_fast_test_inventory_version'] = FAST_TEST_INVENTORY_VERSION
+        plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
+                                               for key in sorted(config['ordinary_fast_targets'])]
+    return plan
 
 
 def fast_plan(config, plan, base, source, tested, paths, affected, path_affected,
@@ -1140,17 +1346,37 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     conservative = plan['scope'] == 'full'
     exceptions = []
     policy_paths, ignored_risk, production_cfg_paths = set(), False, set()
+    selected_core = affected & set(config['oasis7_required_packages'])
+    native_fast_candidate = None
+    if (not conservative and 'oasis7_required' in chosen and selected_core
+            and 'oasis7_required' not in additions
+            and not any('oasis7_required' in groups for groups in path_rules.values())):
+        native_fast_candidate = ordinary_fast_selection(
+            config, paths, path_affected, path_rules, selected_core, comparisons or [(base, source)])
+    narrow_features_by_path, narrow_unavailable = {}, set()
+    if config.get('fast_test_inventory_version') == FAST_TEST_INVENTORY_VERSION:
+        for rule in config['ordinary_fast_rules']:
+            if 'added_declarations' not in rule:
+                features = set.intersection(*(set(config['ordinary_fast_targets'][key]['features'])
+                                              for key in rule['targets']))
+                narrow_features_by_path.update((path, features) for path in rule['paths'])
     for before, after in comparisons or [(base, source)]:
         changed_policy, changed_ignored, production_cfg = changed_test_policy(
             before, after, paths, feature_owners or {},
             set(config['oasis7_required_packages']) | set(SUPPORT_PROFILES),
             (feature_manifests or {}).get(resolve_commit(after), {}),
             (test_target_roots or {}).get(resolve_commit(after), set()),
-            (source_inputs or {}).get(resolve_commit(after), {}))
+            (source_inputs or {}).get(resolve_commit(after), {}),
+            narrow_features_by_path, narrow_unavailable,
+            native_fast_candidate[0] if native_fast_candidate else None)
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
         production_cfg_paths.update(production_cfg)
     policy_paths = sorted(policy_paths)
+    if narrow_unavailable:
+        plan['reasons'].extend('changed source has an existing gate outside fast features; expanded coverage: ' + path
+                               for path in sorted(narrow_unavailable))
+        policy_paths = sorted(set(policy_paths) | narrow_unavailable)
     if production_cfg_paths:
         # Production platform/feature edits are not test retirement. Preserve
         # the old necessary groups and platform jobs instead of rejecting code.
@@ -1178,6 +1404,12 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     else:
         wasm = affected & set(config['oasis7_required_wasm_packages'])
 
+    native_fast = native_fast_candidate if not core_fallback and not policy_paths and not ignored_risk else None
+    if native_fast is not None:
+        plan['fast_test_inventory_version'] = FAST_TEST_INVENTORY_VERSION
+        plan['ordinary_fast_targets'] = native_fast[0]
+        plan['reasons'].extend(native_fast[2])
+
     suites = set()
     if 'formal_process' in chosen:
         if conservative or 'formal_process' in additions or ignored_risk:
@@ -1188,6 +1420,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                 path_groups.update(group for package in path_affected.get(path, ())
                                    for group in config['package_groups'].get(package, ()))
                 if 'formal_process' not in path_groups:
+                    continue
+                if native_fast is not None and path in native_fast[1]:
+                    plan['reasons'].append('bounded native contract; complete process regression stays in full: ' + path)
                     continue
                 matches = [rule for rule in config['formal_risk_rules']
                            if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])]
@@ -1298,6 +1533,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                     source_inputs[resolve_commit(ref)] = {
                         'sources': sources,
                         'directories': {package: directory for package, (directory, _) in graph[0].items()},
+                        'manifests': {package: manifest for package, (_, manifest) in graph[0].items()},
                         'includes': graph[2].get('__rust_include_targets__', ()),
                         'unresolved_includes': graph[2].get('__unresolved_rust_include_owners__', ()),
                         'uncertain_modules': graph[2].get('__uncertain_module_sources__', ()),
