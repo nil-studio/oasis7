@@ -89,6 +89,107 @@ fn current_fact_observations_feed_the_same_concrete_domain_and_mailbox_consumer(
 }
 
 #[test]
+fn inherited_domain_reuses_exact_immutable_semantics_across_signed_successor() {
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let event = event();
+    let old = provenance(&event, &memory);
+    let next = test_support::inherited_provenance(&event, &memory);
+    assert_ne!(old.head_record_id(), next.head_record_id());
+    assert_ne!(old.roots_id(), next.roots_id());
+    assert_ne!(old.head_body_id(), next.head_body_id());
+    assert_eq!(old.event_body_id(), next.event_body_id());
+    assert_eq!(old.location(), next.location());
+    let mut context =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    let proof = verify_domain_event_occurrence_v1(&request(&event, &old), &mut context).unwrap();
+    let inheritance = DomainEventInheritanceRequestV1 {
+        previous: &proof,
+        occurrence: &next,
+        expected_head_record: next.head_record_id(),
+        expected_roots: next.roots_id(),
+    };
+    // Zero bytes and exactly one metadata visit cannot re-encode the event.
+    context.work.as_mut().unwrap().visits_remaining = 1;
+    context.work.as_mut().unwrap().bytes_remaining = 0;
+    let baseline = memory.used();
+    let inherited = inherit_domain_event_occurrence_v1(&inheritance, &mut context).unwrap();
+    assert!(std::ptr::eq(inherited.event(), &event));
+    assert_eq!(
+        inherited.occurrence().head_record_id(),
+        next.head_record_id()
+    );
+    assert_eq!(inherited.domain(), proof.domain());
+    assert_eq!(memory.used(), baseline + inherited.reserved_bytes());
+    assert_eq!(context.work.as_ref().unwrap().visits_remaining, 0);
+    assert_eq!(context.work.as_ref().unwrap().bytes_remaining, 0);
+    drop(inherited);
+    assert_eq!(memory.used(), baseline);
+    assert!(matches!(
+        inherit_domain_event_occurrence_v1(&inheritance, &mut context),
+        Err(CanonicalCborStreamError::ResourceLimited(
+            "Domain inheritance work"
+        ))
+    ));
+    assert!(context.is_poisoned());
+    assert!(matches!(
+        inherit_domain_event_occurrence_v1(&inheritance, &mut context),
+        Err(CanonicalCborStreamError::Poisoned)
+    ));
+
+    let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let mut wrong_pool =
+        DomainEventProofContextV1::new(&foreign, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        inherit_domain_event_occurrence_v1(&inheritance, &mut wrong_pool),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    for final_boundary in [false, true] {
+        let mut calls = 0;
+        let mut cancelled =
+            DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || {
+                calls += 1;
+                calls == if final_boundary { 2 } else { 1 }
+            });
+        let used = memory.used();
+        assert!(matches!(
+            inherit_domain_event_occurrence_v1(&inheritance, &mut cancelled),
+            Err(CanonicalCborStreamError::Cancelled)
+        ));
+        assert!(cancelled.is_poisoned());
+        assert_eq!(memory.used(), used);
+    }
+    let mut wrong_head =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        inherit_domain_event_occurrence_v1(
+            &DomainEventInheritanceRequestV1 {
+                expected_head_record: old.head_record_id(),
+                ..inheritance
+            },
+            &mut wrong_head
+        ),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let mut changed = event.clone();
+    changed.id -= 1;
+    let wrong = test_support::inherited_provenance(&changed, &memory);
+    let mut mismatch =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        inherit_domain_event_occurrence_v1(
+            &DomainEventInheritanceRequestV1 {
+                previous: &proof,
+                occurrence: &wrong,
+                expected_head_record: wrong.head_record_id(),
+                expected_roots: wrong.roots_id(),
+            },
+            &mut mismatch
+        ),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+}
+
+#[test]
 fn domain_identity_type_pool_and_same_length_content_mismatches_poison() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
     let event = event();

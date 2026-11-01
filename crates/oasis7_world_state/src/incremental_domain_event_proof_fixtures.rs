@@ -20,6 +20,9 @@ use oasis7_formal_protocol::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 
+#[path = "incremental_domain_event_inheritance_fixture.rs"]
+mod inheritance;
+
 struct Source {
     memory: MemoryBudget,
     headers: BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>,
@@ -104,18 +107,25 @@ pub fn provenance(
     event: &WorldEvent,
     memory: &MemoryBudget,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
-    provenance_with_current(event, memory, false)
+    provenance_with_current(event, memory, false, false)
 }
 pub fn current_provenance(
     event: &WorldEvent,
     memory: &MemoryBudget,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
-    provenance_with_current(event, memory, true)
+    provenance_with_current(event, memory, true, false)
+}
+pub fn inherited_provenance(
+    event: &WorldEvent,
+    memory: &MemoryBudget,
+) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
+    provenance_with_current(event, memory, false, true)
 }
 fn provenance_with_current(
     event: &WorldEvent,
     memory: &MemoryBudget,
     current: bool,
+    inherit: bool,
 ) -> ReservedValue<VerifiedEventFactOccurrenceV1> {
     let s = incremental::setup_with_memory(memory.clone());
     // The original, unchanged encoder is the independent byte oracle.
@@ -250,7 +260,7 @@ fn provenance_with_current(
         )
         .unwrap();
     }
-    verify_event_fact_occurrence_v1(
+    let raw = verify_event_fact_occurrence_v1(
         &EventFactRequestV1 {
             head: &head,
             roots: &s.roots,
@@ -279,5 +289,10 @@ fn provenance_with_current(
             cancelled: || false,
         },
     )
-    .unwrap()
+    .unwrap();
+    if inherit {
+        inheritance::extend(&s, &history, &head, &mut source, &mut pages, &raw, memory)
+    } else {
+        raw
+    }
 }
