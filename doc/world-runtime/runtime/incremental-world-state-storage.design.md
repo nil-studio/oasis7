@@ -936,3 +936,15 @@ GEN 借用全部原值并流写；空创建要求精确完整家族资格、guar
 根绑定 opaque 资格只在有限预算下验证此完整八字段组；固定根和 same-TX getter/单列 expected 更新不能冒称完整 Runtime 资格。普通贡献须使用同一 ExecutionTransaction、guard/live、同池 Ordinary、认证元数据与实际 pending 根，保留所有读写依赖；NoOp/长比较、输出重试和返回前取消、真实 put 失败均 poison 已成功贡献。receiver 先独立 generic replay，再由 qualified 父及实际 changed paths 验证本组，跳过未变长游标/无关 owner。冷恢复不能要求原 World snapshot，页闭包仍须本组完整验证及 sink finish 完成。
 
 已有 allocator/event sequence/module-wake/index 专用键与 wire 不得被本组 generic primitive 或 RootRef 影子替代；本组也不为 pending actions/effects、provider pending/result、nonce、idempotency、continuation、Cognition journal/history/receipt 关系发放 ready 或外调资格。原请求/attempt/nonce/continuation 身份、外调 unknown 不重派及业务调度次序继续由原 owner/driver 接线验证，不能从这八项控制值相等推出续跑或完整 World 激活/GC 成功。
+
+### 12.45 Runtime capability 执行账本
+
+<a id="iws-runtime-capability-execution-records-v1"></a>
+
+本组只覆盖原 Runtime 的三个 Map descriptor：Authorization namespace 的 capability_nonce_records、capability_budget_accounts，以及 Effects namespace 的 capability_effect_receipt_links。原外层 String key 与记录内 request_hash/outcome_hash/grant_id/主体ID/authorization_receipt_id 分别保存，不能自动补全、重新生成 nonce、规范化或推导成相同身份。Nonce 原四字段的 state 仍是 String，不因注释列出 reserved/committed/aborted 就拒绝其他原内容。预算原 subject/grant_id/remaining_units/reserved_units/spent_units 五字段与 link 的原单字段穷尽借用，不调用任意 Serialize 或 clone 整账本。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每条记录为独立同 namespace RootRef165，绑定专属 schema 与原 String key digest；外层保留原 descriptor 和 key 前像，另有封闭 format marker。内部相对 Unit/原字段名列避免把长 ID 重复到每个子键。Nonce 四列、budget 十三列、link 一列全部存在；预算 subject.kind 保留原 CapabilitySubject 的 agent/module/system 三变体，八个变体 payload 列按原所属分支为原 Text/U64，其他分支显式 Unit。主体关联必须同时验证，不能只靠总叶数；None/Some(empty)、不适用 Unit 与有效空 String、u64/i64 原极值严格区分。三项预算 i64 不增加新的经济约束；存储类型资格也不把数据里的 subject/grant/state 当成授权信任或新执行权限。
+
+本组完整合同包括 borrowed GEN、有限 root-only 资格/冷读、同 ExecutionTransaction 的 guard/live/同池 Ordinary 点读写、完整新记录与闭合删除、精确 expected、NoOp 和长比较后的组合取消、真实写入故障后整事务 poison。subject 变体变化须成组更新，单列预算变化不得扫描未变的长主体或 grant Text；接收器先独立 generic replay，再验证真正 changed child 路径并继承未变资格。页 mark/transfer 须遍历此 owner 的全部根和值闭包，sink 与 buffered finish 前均保持暂态。编译或 GEN visitor 不能代签完整合同已经验证。
+
+真实生产来源是原 capability_authorization_command/events/publication 的 nonce/预算/link 准备结果及 effects receipt ingestion 的 link 删除，字段贡献须与原关联事件、账本和授权 root 一起进入既有事务/接受流程；本组不改变这些业务动作。pending_effects/inflight_effects 的顺序、birth_era、identity_key、专用 intent payload digest、正式 outbox/world/continuation gate，以及 audit receipts、Cognition 状态仍由原或后续 owner 证明；不能用本组三个结构资格代签它们 ready、重派 unknown 外调、World 激活或全局 GC。

@@ -1194,3 +1194,6 @@ pub mod incremental_allocators;
 pub(super) mod incremental_clock;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_scheduler_controls;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_capability_records;

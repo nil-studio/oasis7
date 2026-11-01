@@ -523,3 +523,5 @@ pub use oasis7_world_state::incremental_world_rule_supply_root;
 pub use oasis7_world_state::incremental_diplomacy;
 
 pub use oasis7_world_state::incremental_runtime_scheduler_controls;
+
+pub use oasis7_world_state::incremental_runtime_capability_records;
