@@ -574,6 +574,8 @@ pub use execution_pending_start_v2::{
     AcceptedExecutionPendingStartV2, ExecutionPendingDirectoryDispatchV2,
     ExecutionPendingDirectorySigningAuthorityV2, PendingDirectoryAttemptV2,
     PendingFenceDispatchAuthorityV2, PendingFenceDispatchV2, PendingFenceReadAuthorityV2,
+    PendingSourceDispatchAuthorityV2, PendingSourceDispatchTargetV2, PendingSourceDispatchV2,
+    PendingSourceHistoryV2, PendingSourceLeafAuthorityV2,
 };
 pub(in crate::provisioning) use execution_pending_start_v2::{
     ExecutionPendingIngressV2, ExecutionPendingStartV2,

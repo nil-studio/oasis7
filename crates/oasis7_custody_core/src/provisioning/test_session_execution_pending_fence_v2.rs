@@ -71,11 +71,22 @@ impl PendingFenceDispatchAuthorityV2 {
 }
 /// The sole first-return transport token. Cold metadata and raw IDs cannot mint it.
 pub struct PendingFenceDispatchV2 {
+    accepted: AcceptedExecutionPendingStartV2,
     proof: SignedExecutionFenceDispatchV2,
 }
 impl PendingFenceDispatchV2 {
     pub fn proof(&self) -> &SignedExecutionFenceDispatchV2 {
         &self.proof
+    }
+    // Only the same parent handler may advance this first-return continuation.
+    // The signed wire proof/history cannot recreate the private accepted handle.
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        AcceptedExecutionPendingStartV2,
+        SignedExecutionFenceDispatchV2,
+    ) {
+        (self.accepted, self.proof)
     }
 }
 pub struct PendingFenceReadAuthorityV2 {
@@ -99,7 +110,7 @@ fn request_id(s: &TestSessionAuthorityV2) -> Result<String> {
         .request_id
         .clone())
 }
-fn claim_leaf(
+pub(super) fn claim_leaf(
     state: &mut AccountProvisionApprovalState,
     id: &str,
     leaf: ExecutionPendingLeafV2,
@@ -248,7 +259,7 @@ impl AccountProvisionApprovalState {
         proof
             .verify(&pin, &floor, &proof.binding.dispatcher_object_id, now.get())
             .map_err(|_| invalid())?;
-        let id = authority.accepted.session_id;
+        let id = authority.accepted.session_id.clone();
         let mut next = self.clone();
         let s = next.test_session_v2_record_mut(&id)?;
         let request_id = request_id(s)?;
@@ -268,7 +279,10 @@ impl AccountProvisionApprovalState {
         )?;
         next.validate_persistence()?;
         *self = next;
-        Ok(Some(PendingFenceDispatchV2 { proof }))
+        Ok(Some(PendingFenceDispatchV2 {
+            accepted: authority.accepted,
+            proof,
+        }))
     }
     pub fn pending_first_fence_read_authority_v2(
         &mut self,
@@ -383,10 +397,11 @@ pub(super) fn validate_records(s: &TestSessionAuthorityV2) -> Result<()> {
     // Only the committed states produced by this fixed subtree are legal:
     // Directory, then Dispatcher, then the two received control hops + FENCES.
     let sequence = first_rf_sequence();
-    let count = p.claimed_leaf_count();
-    if !matches!(count, 0 | 1 | 2 | 5) {
+    let total_count = p.claimed_leaf_count();
+    if !matches!(total_count, 0 | 1 | 2 | 5 | 6 | 9) {
         return Err(invalid());
     }
+    let count = total_count.min(5);
     let mut previous_ordinal = p.accepted_ordinal;
     let mut previous_at = p.accepted_at;
     for (index, leaf) in sequence.into_iter().enumerate() {
@@ -444,7 +459,7 @@ pub(super) fn validate_records(s: &TestSessionAuthorityV2) -> Result<()> {
     }
     if (p.directory_signature.is_some() && count == 0)
         || (p.fence_dispatch.is_some() && count < 2)
-        || (p.fence_read.is_some() && count != 5)
+        || (p.fence_read.is_some() && total_count < 5)
     {
         return Err(invalid());
     }
