@@ -183,6 +183,7 @@ mod rules;
 mod scheduling;
 mod snapshot;
 mod step;
+pub(crate) mod task_stop_v2;
 pub(crate) mod task_terminal_v2;
 mod tick_consensus;
 mod tick_consensus_state_root;
