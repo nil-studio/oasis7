@@ -282,9 +282,12 @@ impl Spool {
             if name == ".activation-spool.lock" {
                 continue;
             }
-            let digest = name.strip_suffix(".activation.cbor").ok_or_else(|| {
-                FormalReadError::Integrity("activation spool unknown entry".into())
-            })?;
+            let digest = name
+                .strip_suffix(".activation.cbor")
+                .or_else(|| name.strip_suffix(".activation-v2.cbor"))
+                .ok_or_else(|| {
+                    FormalReadError::Integrity("activation spool unknown entry".into())
+                })?;
             if digest.len() != 64
                 || !digest
                     .bytes()
