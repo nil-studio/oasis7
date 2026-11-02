@@ -51,3 +51,7 @@ pub mod execution_private_current_v2;
 pub mod execution_dispatch_gate_v2;
 
 pub mod term_guarded_signer_v2;
+
+pub mod term_guarded_close_signer_v2;
+
+pub mod term_owner_slot_lineage_v2;

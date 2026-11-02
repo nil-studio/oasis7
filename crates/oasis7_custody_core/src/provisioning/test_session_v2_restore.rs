@@ -108,6 +108,12 @@ impl AccountProvisionApprovalState {
                 return Err(invalid());
             }
             self.validate_guarded_stop_owner_slot(s)?;
+            self.validate_close_owner_slot(s)?;
+            if let Some(close) = &s.termination_state.close {
+                if let Some(claim) = &close.signature_claim {
+                    claim.validate_session(close, s)?;
+                }
+            }
             if let Some(stop) = &s.termination_state.guarded_stop {
                 stop.validate_session(s)?;
             }
