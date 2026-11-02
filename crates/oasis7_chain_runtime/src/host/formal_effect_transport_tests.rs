@@ -118,6 +118,37 @@ fn repeated_at_later_commit(
 }
 
 #[test]
+fn effect_attempt_readback_failure_prevents_the_first_delivery_post() {
+    let sender = SigningKey::from_bytes(&[57; 32]);
+    let mut receiver = super::test_support::LocalEffectReceiverFixture::start(
+        vec![hex::encode(sender.verifying_key().to_bytes())],
+        false,
+        true,
+    ).unwrap();
+    let contract = receiver.contract().clone();
+    let effect = obligation(&contract);
+    let root = PrivateTestRoot::new();
+    let store = Arc::new(FormalEffectDeliveryStore::open(&root.store_path()).unwrap());
+    let transport = FormalEffectDeliveryTransport::new(vec![contract], sender, store.clone()).unwrap();
+    // The fault happens after file/parent fsync, before the transport receives
+    // permission to send. The actual published file, not an in-memory DTO, is altered.
+    store.inject_attempt_publish_for_test(|path| {
+        let mut bytes = fs::read(path).unwrap();
+        bytes[0] ^= 1;
+        fs::write(path, bytes).unwrap();
+    });
+    let result = transport.drive_qualified_obligation(&effect);
+    let posts = receiver.posts();
+    let executions = receiver.executions();
+    assert!(matches!(result, EffectDeliveryDriveResultV1::Unknown { .. }) && posts == 0 && executions == 0,
+        "failed readback must prohibit delivery: result={result:?}, posts={posts}, executions={executions}");
+    assert!(store.read(&effect.identity).is_err());
+    assert!(matches!(transport.drive_qualified_obligation(&effect), EffectDeliveryDriveResultV1::Unknown { .. }));
+    assert_eq!(receiver.posts(), 0);
+    receiver.stop().unwrap();
+}
+
+#[test]
 fn formal_effect_receiver_contract_digest_binds_loopback_endpoint_and_preapproved_sender_set() {
     let sender_a = SigningKey::from_bytes(&[31; 32]);
     let sender_b = SigningKey::from_bytes(&[32; 32]);
