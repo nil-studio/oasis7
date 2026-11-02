@@ -6459,6 +6459,7 @@ dependencies = [
  "oasis7_model_provider",
  "oasis7_observability",
  "oasis7_proto",
+ "oasis7_runtime",
  "openssl",
  "prost 0.13.5",
  "reqwest 0.13.5",
