@@ -14,8 +14,8 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::{
-    AgentEventContext, BodyMutationContext, BodyMutationError, CommitPreparationRequest,
-    ParentCommitView, PreparedRuntimeCommit, World, WorldEvent,
+    AgentEventContext, AgentEventOriginalV1, BodyMutationContext, BodyMutationError,
+    CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit, World, WorldEvent,
 };
 use std::sync::atomic::AtomicBool;
 #[allow(dead_code)]
@@ -31,7 +31,7 @@ fn prepare(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedRuntimeCommit> {
     let pages = store
-        .state_session(physical_io(), MemoryClass::Ordinary)
+        .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let values = store.value_session(physical_io());
     let mut sink = store.value_session(physical_io());
@@ -66,23 +66,20 @@ fn prepare(
                             io: &mut logical_io(),
                             cancelled: || false,
                         },
-                        persist_original: |bytes: &ReservedValue<Vec<u8>>, id| {
-                            objects
-                                .write_object(
-                                    &mut bytes.as_slice(),
-                                    bytes.len() as u64,
-                                    Some(id),
-                                    &mut ObjectIo {
-                                        physical: &mut physical,
-                                        logical: &mut logical,
-                                        class: MemoryClass::Ordinary,
-                                        cancelled: &cancelled,
-                                    },
-                                )
-                                .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
-                            Ok(())
+                        persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                            agent_fixture::persist_original(
+                                original,
+                                &objects,
+                                &mut ObjectIo {
+                                    physical: &mut physical,
+                                    logical: &mut logical,
+                                    class: MemoryClass::Ordinary,
+                                    cancelled: &cancelled,
+                                },
+                            )
                         },
                         max_event_bytes: 1 << 20,
+                        original_work: agent_fixture::original_work(),
                     },
                 )
             },
@@ -144,7 +141,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
                 &memory,
             );
             let mut pages = store
-                .state_session(physical_io(), MemoryClass::Ordinary)
+                .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
                 .unwrap();
             pages.persist_transition_pages(first.transition()).unwrap();
             pages.persist_catalog_pages(first.catalog()).unwrap();
@@ -243,7 +240,7 @@ fn runtime_candidate_history_reopens_and_continues_from_original_parent_material
         )
         .unwrap();
         let pages = store
-            .state_session(physical_io(), MemoryClass::Recovery)
+            .state_session(agent_fixture::state_physical(), MemoryClass::Recovery)
             .unwrap();
         TransitionVerifier {
             parent: &parent,
@@ -346,7 +343,7 @@ fn setup(
     .unwrap();
     parent.commit = genesis.body.digest().unwrap();
     let mut pages = store
-        .state_session(physical_io(), MemoryClass::Ordinary)
+        .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let delta = empty
         .extend(&genesis.body, &pages, memory, 4 << 20)

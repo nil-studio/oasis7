@@ -1,17 +1,55 @@
 use super::*;
+use crate::CausedBy;
 use crate::world::incremental_body::tests::{Pages, fixture, io, limits};
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionParent, TransitionVerifier},
     incremental_state::{StateDeltaV1, StateWriteV1},
     incremental_value::ValueTreeError,
 };
-use oasis7_proto::memory_budget::MemoryBudget;
+use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeMap,
     rc::Rc,
     sync::Arc,
 };
+
+fn original_work() -> CanonicalCborWorkV1 {
+    CanonicalCborWorkV1 {
+        visits_remaining: 1_000_000,
+        bytes_remaining: 16 << 20,
+        max_depth: 32,
+        max_map_keys: 64,
+        max_key_bytes: 1024,
+    }
+}
+// Only small unit fixtures collect bytes. Production always streams to its sink.
+fn collect_original(
+    original: &mut dyn AgentEventOriginalV1,
+    memory: &MemoryBudget,
+) -> Result<ReservedValue<Vec<u8>>, BodyMutationError> {
+    let n = usize::try_from(original.original_bytes())
+        .map_err(|_| BodyMutationError::Invalid("fixture address space"))?;
+    if n > 1 << 20 {
+        return Err(ExecutionError::ResourceLimited("small original fixture").into());
+    }
+    let charge = memory
+        .reserve(n, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    let mut bytes = Vec::with_capacity(n);
+    original.persist_to(
+        &mut |stream: &mut dyn AgentEventOriginalStreamV1, cancelled: &mut dyn FnMut() -> bool| {
+            stream.write_to(&mut bytes)?;
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            std::io::Write::flush(&mut bytes)
+                .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+            Ok(())
+        },
+    )?;
+    Ok(charge.retain(bytes))
+}
 
 type ValuePages = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
 
@@ -179,11 +217,14 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
                     io: &mut io(),
                     cancelled: || false,
                 },
-                persist_original: |bytes: &ReservedValue<Vec<u8>>, id| {
-                    originals.insert(id, bytes.as_slice().to_vec());
+                persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                    let id = original.original_id();
+                    let bytes = collect_original(original, &memory)?;
+                    originals.insert(id, bytes);
                     Ok(())
                 },
                 max_event_bytes: 1024 * 1024,
+                original_work: original_work(),
             },
         )
         .unwrap();
@@ -194,7 +235,7 @@ fn body_event_uses_original_fact_and_four_leaves_with_fixed_control_reads() {
     assert_eq!(prepared.record.facts.len(), 1);
     let fact = &prepared.record.facts[0];
     assert_eq!(fact.kind, ExecutionFactKindV1::Event);
-    assert_eq!(originals[&fact.id], expected);
+    assert_eq!(originals[&fact.id].as_slice(), expected);
     let mut legacy = world.clone();
     let WorldEventBody::Domain(DomainEvent::BodyAttributesUpdated {
         agent_id,
@@ -306,17 +347,19 @@ fn late_original_or_fact_failure_prevents_sealing_all_staged_state() {
                     io: &mut io(),
                     cancelled: || false,
                 },
-                persist_original: |_: &ReservedValue<Vec<u8>>, _| {
+                persist_original: |original: &mut dyn AgentEventOriginalV1| {
                     called.set(true);
                     if mode == 0 {
                         Err(BodyMutationError::Original(Box::new(std::io::Error::from(
                             std::io::ErrorKind::WriteZero,
                         ))))
                     } else {
+                        collect_original(original, &memory)?;
                         Ok(())
                     }
                 },
                 max_event_bytes: if mode == 4 { 1 } else { 1024 * 1024 },
+                original_work: original_work(),
             },
         );
         assert!(result.is_err());
@@ -372,8 +415,11 @@ fn mailbox_offsets_and_event_era_preserve_original_allocator_semantics() {
                     io: &mut io(),
                     cancelled: || false,
                 },
-                persist_original: |_: &ReservedValue<Vec<u8>>, _| Ok(()),
+                persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                    collect_original(original, &memory).map(|_| ())
+                },
                 max_event_bytes: 1024 * 1024,
+                original_work: original_work(),
             },
         )
         .unwrap();
@@ -483,11 +529,13 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
             io: &mut quota,
             cancelled: || false,
         },
-        persist_original: |_: &ReservedValue<Vec<u8>>, id| {
-            ids.push(id);
+        persist_original: |original: &mut dyn AgentEventOriginalV1| {
+            ids.push(original.original_id());
+            collect_original(original, &memory)?;
             Ok(())
         },
         max_event_bytes: 1024 * 1024,
+        original_work: original_work(),
     };
     for id in 1..=2 {
         let mut next = event(&world, id);
@@ -523,3 +571,9 @@ mod scheduler;
 
 #[path = "incremental_commit_tests.rs"]
 mod commit_driver;
+
+#[path = "incremental_agent_event_original_tests.rs"]
+mod originals;
+
+#[path = "incremental_agent_event_original_fact_tests.rs"]
+mod original_fact;

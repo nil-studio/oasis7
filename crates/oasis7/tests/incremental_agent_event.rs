@@ -46,7 +46,7 @@ fn actual_agent_events_reopen_originals_and_continue_from_authenticated_pages() 
             let original = event(&world, 1, movement);
             let first = contribute(&world, &original, parent.clone(), &store, &memory);
             let mut source = store
-                .state_session(physical(), MemoryClass::Ordinary)
+                .state_session(state_physical(), MemoryClass::Ordinary)
                 .unwrap();
             source.persist_transition_pages(&first).unwrap();
             let next_parent = ExecutionParent {
@@ -103,7 +103,7 @@ fn actual_agent_events_reopen_originals_and_continue_from_authenticated_pages() 
             )
             .unwrap();
             let source = reopened
-                .state_session(physical(), MemoryClass::Recovery)
+                .state_session(state_physical(), MemoryClass::Recovery)
                 .unwrap();
             TransitionVerifier {
                 parent: &parent,
@@ -154,3 +154,6 @@ fn actual_agent_events_reopen_originals_and_continue_from_authenticated_pages() 
         }
     }
 }
+
+#[path = "support/incremental_agent_event_original.rs"]
+mod originals;

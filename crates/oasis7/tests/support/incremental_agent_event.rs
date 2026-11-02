@@ -1,21 +1,22 @@
 use oasis7::AgentState;
 use oasis7_agent_api::world_action::{BodyKernelView, GeoPos};
 use oasis7_distfs::incremental_page_store::{
-    IncrementalPageStore, PageIoBudget,
-    objects::{IncrementalObjectStore, ObjectIo},
+    IncrementalPageStore, PageIoBudget, PageStoreError,
+    objects::{IncrementalObjectStore, ObjectIo, ObjectStreamWriteError},
 };
 use oasis7_formal_protocol::{
     incremental_execution::{
         AuthorityBinding, ExecutionParent, ExecutionTransaction, PreparedTransition, RootSetV1,
         TransactionLimits,
     },
-    incremental_state::{StateDeltaV1, StateNamespaceV1 as Ns, StateWriteV1},
+    incremental_state::{StateDeltaV1, StateNamespaceV1 as Ns, StatePageWriter, StateWriteV1},
     incremental_value::{ValueIoBudget, ValueStreamWriter},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::{
-    AgentCell, AgentEventContext, BodyMutationContext, BodyMutationError, CausedBy, DomainEvent,
-    World, WorldEvent, WorldEventBody, WorldState,
+    AgentCell, AgentEventContext, AgentEventOriginalStreamV1, AgentEventOriginalV1,
+    BodyMutationContext, BodyMutationError, CausedBy, DomainEvent, World, WorldEvent,
+    WorldEventBody, WorldState,
     incremental_agent_genesis::AgentGenesisContext,
     incremental_event_fields::{EVENT_SEQUENCE_KEY_V1, EventSequenceV1},
 };
@@ -29,6 +30,15 @@ pub fn physical() -> PageIoBudget {
         write_bytes_remaining: 128 << 20,
     }
 }
+// Complete staging+seal over packed fixture pages: measured maximum107859
+// reads for the first move. Keep a finite128Ki operation /128MiB byte scope;
+// production/cold memory and per-field logical control-read limits are unchanged.
+pub fn state_physical() -> PageIoBudget {
+    PageIoBudget {
+        reads_remaining: 128 << 10,
+        ..physical()
+    }
+}
 pub fn logical() -> ValueIoBudget {
     ValueIoBudget {
         nodes_remaining: 100_000,
@@ -36,6 +46,49 @@ pub fn logical() -> ValueIoBudget {
         write_bytes_remaining: 128 << 20,
     }
 }
+pub fn original_work() -> oasis7_wasm_abi::CanonicalCborWorkV1 {
+    oasis7_wasm_abi::CanonicalCborWorkV1 {
+        visits_remaining: 1_000_000,
+        bytes_remaining: 16 << 20,
+        max_depth: 32,
+        max_map_keys: 64,
+        max_key_bytes: 1024,
+    }
+}
+pub fn persist_original(
+    original: &mut dyn AgentEventOriginalV1,
+    objects: &IncrementalObjectStore<'_>,
+    io: &mut ObjectIo<'_>,
+) -> Result<(), BodyMutationError> {
+    original.persist_to(&mut |stream: &mut dyn AgentEventOriginalStreamV1,
+                              cancelled: &mut dyn FnMut() -> bool| {
+        let id = stream.original_id();
+        let length = stream.original_bytes();
+        objects
+            .write_object_from_stream(length, id, io, cancelled, |output| stream.write_to(output))
+            .map(|_| ())
+            .map_err(|error| match error {
+                ObjectStreamWriteError::Producer(error) => error,
+                ObjectStreamWriteError::Store(PageStoreError::Memory(error)) => {
+                    oasis7_formal_protocol::incremental_execution::ExecutionError::Memory(error)
+                        .into()
+                }
+                ObjectStreamWriteError::Store(PageStoreError::ResourceLimited(label)) => {
+                    oasis7_formal_protocol::incremental_execution::ExecutionError::ResourceLimited(
+                        label,
+                    )
+                    .into()
+                }
+                ObjectStreamWriteError::Store(PageStoreError::Cancelled) => {
+                    oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled.into()
+                }
+                ObjectStreamWriteError::Store(error) => {
+                    BodyMutationError::Original(Box::new(error))
+                }
+            })
+    })
+}
+
 pub struct Directory(pub std::path::PathBuf);
 impl Directory {
     pub fn new() -> Self {
@@ -148,7 +201,7 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         },
     };
     let source = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let cancelled = AtomicBool::new(false);
     for (namespace, mut writes) in fields {
@@ -157,22 +210,72 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         writes.sort_unstable_by(|a, b| a.key.cmp(&b.key));
         assert!(writes.windows(2).all(|pair| pair[0].key != pair[1].key));
         let index = namespace as usize - 1;
+        let mut charge = memory
+            .reserve(
+                writes.len() * (512 << 10) + (128 << 10),
+                MemoryClass::Ordinary,
+            )
+            .unwrap();
         let delta =
             StateDeltaV1::build(parent.roots.state[index].clone(), writes, &source, 4 << 20)
                 .unwrap();
-        parent.roots.state[index] = delta.after;
-        for node in delta.new_nodes {
-            let id = hex::decode(node.digest).unwrap().try_into().unwrap();
-            let charge = memory
-                .reserve(node.bytes.len(), MemoryClass::Ordinary)
-                .unwrap();
-            store
-                .put_page(id, &charge.retain(node.bytes), &mut physical(), &cancelled)
-                .unwrap();
-        }
+        // Construction scratch is dead before physical encoding. Retain every
+        // actual owned capacity instead of overlapping its conservative build
+        // workspace with Zstd's independent16MiB encode workspace.
+        let heap = delta_heap(&delta);
+        let retained = charge.split(heap).unwrap();
+        drop(charge);
+        let delta = retained.retain(delta);
+        sink.put_state_pages_cancelled(&delta, memory, &mut || false)
+            .unwrap();
+        parent.roots.state[index] = delta.after.clone();
     }
     drop(IncrementalObjectStore::create(store, &mut physical(), &cancelled).unwrap());
     (world, parent)
+}
+
+fn delta_heap(delta: &StateDeltaV1) -> usize {
+    use oasis7_formal_protocol::incremental_state::{StateNodeWriteV1, StateRootV1};
+    let StateDeltaV1 {
+        before,
+        after,
+        writes,
+        new_nodes,
+    } = delta;
+    let mut heap = std::mem::size_of::<StateDeltaV1>();
+    let mut add = |n: usize| {
+        heap = heap.checked_add(n).unwrap();
+    };
+    for root in [before, after] {
+        let StateRootV1 {
+            namespace: _,
+            node_root,
+            leaf_count: _,
+        } = root;
+        add(node_root.capacity());
+    }
+    add(writes
+        .capacity()
+        .checked_mul(std::mem::size_of::<StateWriteV1>())
+        .unwrap());
+    for write in writes {
+        let StateWriteV1 {
+            key,
+            before: _,
+            after: _,
+        } = write;
+        add(key.capacity());
+    }
+    add(new_nodes
+        .capacity()
+        .checked_mul(std::mem::size_of::<StateNodeWriteV1>())
+        .unwrap());
+    for node in new_nodes {
+        let StateNodeWriteV1 { digest, bytes } = node;
+        add(digest.capacity());
+        add(bytes.capacity());
+    }
+    heap
 }
 
 pub fn event(world: &World, id: u64, movement: bool) -> WorldEvent {
@@ -210,7 +313,7 @@ pub fn contribute(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedTransition> {
     let source = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let mut sink = store.value_session(physical());
     let values = store.value_session(physical());
@@ -233,6 +336,7 @@ pub fn contribute(
         },
     )
     .unwrap();
+    let before_contribute = source.remaining_io().unwrap();
     world
         .contribute_iws_agent_event(
             event,
@@ -245,26 +349,30 @@ pub fn contribute(
                     io: &mut logical(),
                     cancelled: || false,
                 },
-                persist_original: |bytes: &ReservedValue<Vec<u8>>, id| {
-                    objects
-                        .write_object(
-                            &mut bytes.as_slice(),
-                            bytes.len() as u64,
-                            Some(id),
-                            &mut ObjectIo {
-                                physical: &mut physical_io,
-                                logical: &mut logical(),
-                                class: MemoryClass::Ordinary,
-                                cancelled: &cancelled,
-                            },
-                        )
-                        .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
-                    Ok(())
+                persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                    persist_original(
+                        original,
+                        &objects,
+                        &mut ObjectIo {
+                            physical: &mut physical_io,
+                            logical: &mut logical(),
+                            class: MemoryClass::Ordinary,
+                            cancelled: &cancelled,
+                        },
+                    )
                 },
                 max_event_bytes: 1 << 20,
+                original_work: original_work(),
             },
         )
         .unwrap();
+    let after_contribute = source.remaining_io().unwrap();
     let guard = txn.guard();
-    txn.seal(&guard, &live, 0).unwrap()
+    let sealed = txn.seal(&guard, &live, 0);
+    eprintln!(
+        "Agent candidate State probe event={} before={before_contribute:?} afterContribute={after_contribute:?} afterSeal={:?}",
+        event.id,
+        source.remaining_io()
+    );
+    sealed.unwrap()
 }
