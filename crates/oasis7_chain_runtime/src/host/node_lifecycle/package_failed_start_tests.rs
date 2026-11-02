@@ -57,6 +57,18 @@ fn mark_manager_progress(phase: &str) {
     }
 }
 
+fn manager_state_label(state: &str) -> &'static str {
+    match state {
+        "starting" => "starting",
+        "running" => "running",
+        "stopping" => "stopping",
+        "stopped" => "stopped",
+        "failed" => "failed",
+        "unknown" => "unknown",
+        _ => "other",
+    }
+}
+
 #[test]
 fn package_supervisor_child_entry() {
     let (Some(config), Some(incarnation), Some(action_id)) = (
@@ -239,24 +251,38 @@ fn package_operation_manager_child_run() {
         record = read_operation(&store_path, &operation_id);
         mark_manager_progress(&format!("operation_resume_{attempt}_finished"));
     }
+    mark_manager_progress("terminal_record_assertions_started");
     assert_eq!(
         record["state"], "failed",
         "operation did not reach a terminal rollback result: {record}"
     );
     assert_eq!(record["stage"], "package_promoted_start_failed_rolled_back");
+    mark_manager_progress("terminal_record_assertions_finished");
 
     let failed_start_id = format!("op:{operation_id}:start");
+    let failed_start_query_started = Instant::now();
+    mark_manager_progress("failed_start_action_query_started");
     let failed_start = actions::query(data, &failed_start_id)
         .expect("query failed candidate action")
         .expect("failed candidate action receipt");
+    mark_manager_progress(&format!(
+        "failed_start_action_query_finished duration_ms={}",
+        failed_start_query_started.elapsed().as_millis()
+    ));
     assert_eq!(failed_start.target.state, "failed");
     assert_eq!(failed_start.target.exit_code, Some(INJECTED_EXIT_CODE));
     assert!(failed_start.target.runtime_pid.is_none());
 
     let rollback_start_id = format!("op:{operation_id}:rollback-start");
+    let rollback_start_query_started = Instant::now();
+    mark_manager_progress("rollback_start_action_query_started");
     let rollback_start = actions::query(data, &rollback_start_id)
         .expect("query rollback-start action")
         .expect("rollback-start receipt");
+    mark_manager_progress(&format!(
+        "rollback_start_action_query_finished duration_ms={}",
+        rollback_start_query_started.elapsed().as_millis()
+    ));
     assert_eq!(rollback_start.target.state, "running");
     assert_eq!(
         rollback_start
@@ -271,22 +297,41 @@ fn package_operation_manager_child_run() {
         owner_instance.incarnation
     );
 
+    let rollback_instance_read_started = Instant::now();
+    mark_manager_progress("rollback_instance_read_started");
     let rollback_instance = super::read_instance(data)
         .expect("read rollback instance")
         .expect("rollback instance exists");
+    mark_manager_progress(&format!(
+        "rollback_instance_read_finished duration_ms={} pid={:?} state={}",
+        rollback_instance_read_started.elapsed().as_millis(),
+        rollback_instance.runtime_pid,
+        manager_state_label(&rollback_instance.state)
+    ));
     assert_eq!(
         rollback_instance.incarnation,
         rollback_start.target.incarnation
     );
     assert_eq!(rollback_instance.state, "running");
-    let _ = actions::stop(
+    let rollback_cleanup_started = Instant::now();
+    mark_manager_progress(&format!(
+        "rollback_runtime_cleanup_started pid={:?} state={}",
+        rollback_instance.runtime_pid,
+        manager_state_label(&rollback_instance.state)
+    ));
+    let stopped_rollback = actions::stop(
         data,
         "package-failed-start-test-cleanup",
         &rollback_instance,
         10_000,
     )
     .expect("stop actual rollback runtime child");
-    mark_manager_progress("rollback_runtime_cleanup_finished");
+    mark_manager_progress(&format!(
+        "rollback_runtime_cleanup_finished duration_ms={} pid={:?} state={}",
+        rollback_cleanup_started.elapsed().as_millis(),
+        stopped_rollback.target.runtime_pid,
+        manager_state_label(&stopped_rollback.target.state)
+    ));
     io::write(
         &store_path.join("package-failed-start-test-result.json"),
         &json!({
@@ -398,6 +443,10 @@ fn package_failed_candidate_start_rolls_back_and_restarts_exact_prior_image() {
         "OperationRecord package child failed: {}\nprogress:\n{}",
         fs::read_to_string(&manager_log_path).unwrap_or_default(),
         fs::read_to_string(&manager_progress_path).unwrap_or_default()
+    );
+    eprintln!(
+        "package OperationRecord manager phase progress:\n{}",
+        fs::read_to_string(&manager_progress_path).expect("read manager phase progress")
     );
 
     let result: Value = io::read(&store_path.join("package-failed-start-test-result.json"))
