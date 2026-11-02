@@ -490,6 +490,8 @@ mod v2_credential_restore;
 
 #[path = "test_session_v2_control.rs"]
 mod v2_control;
+pub(in crate::provisioning) use v2_control::TermOwnedInvocationRecordV2;
+pub use v2_control::TermOwnedInvocationV2;
 pub(in crate::provisioning) use v2_control::{
     SessionControlRecordV2, authenticated_receipt_v2, control_lifetime_claimed_v2,
 };

@@ -42,7 +42,8 @@ pub(crate) use setup_reconcile_signing::{SetupReconcileSigningCurrent, reconcile
 mod term_guarded_signer_v2;
 #[cfg(feature = "owner")]
 pub(crate) use term_guarded_signer_v2::{
-    TermGuardedSignerConfigurationV2, TermOwnerSlotQualificationRequestV2,
+    TermGuardedSignerConfigurationV2, TermOwnerSlotQualificationReplyV2,
+    TermOwnerSlotQualificationRequestV2,
 };
 
 #[cfg(feature = "identity")]

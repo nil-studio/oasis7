@@ -166,6 +166,56 @@ impl OwnerProvisionApprovalStore {
         )
         .await
     }
+    pub(crate) async fn complete_control_v2_with_term_installation_prefix(
+        &self,
+        env: &Env,
+        rpc: &TestSessionClientAdmissionRpc,
+        kind: SessionControlKindV1,
+    ) -> Result<SessionControlAckV1> {
+        if !matches!(
+            kind,
+            SessionControlKindV1::Finish | SessionControlKindV1::Abort
+        ) {
+            return Err(rejected());
+        }
+        let (ack, first) = self
+            .control_v2_proof_transaction(
+                env,
+                rpc,
+                SessionClientOperation::Control(kind),
+                "test_session_v2_control_owned_term",
+                |state, proof, time, cache| {
+                    state
+                        .control_test_session_v2_and_begin_owned_term(
+                            SessionProofRequest {
+                                ingress_attempt_id: &rpc.ingress_attempt_id,
+                                original_bytes: rpc.http.original.body.as_bytes(),
+                                possession: proof,
+                            },
+                            time,
+                            cache,
+                        )
+                        .map_err(|_| rejected())
+                },
+            )
+            .await?;
+        // Closing is already committed. A missing/unknown installation must not
+        // turn this accepted Ack into a rollback, retry or a false Closed fact.
+        if let Some(owned) = first {
+            let Ok(attempt) = oasis7_wasm_abi::canonical_hash(&(
+                "oasis7.custody.term-owner-slot-first-read.v2",
+                owned.invocation_id(),
+            )) else {
+                return Ok(ack);
+            };
+            let _installation = self.qualify_term_owner_slot_v2(env, &owned, &attempt).await;
+            // The installation prefix ends here. There is intentionally no
+            // Source6 driver until its fixed receivers are implemented.
+            // Neither local object is serialized, stored as eligibility,
+            // returned to Identity, or turned into a signing/Current grant.
+        }
+        Ok(ack)
+    }
     pub(crate) async fn complete_control_v2_tightening(
         &self,
         env: &Env,
