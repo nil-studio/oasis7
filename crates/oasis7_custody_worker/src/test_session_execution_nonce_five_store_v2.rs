@@ -69,16 +69,28 @@ impl OwnerProvisionApprovalStore {
         ) -> Result<R>,
     {
         let initial = self.snapshot()?;
-        selected(&initial.state, rpc)?;
-        let p = prepare(env, &initial.state, rpc, UnixMillis::new(now()?))?;
-        let mut cache = verify(p.signature_checks().map_err(|_| rejected())?).await?;
+        selected(&initial.state, rpc).inspect_err(|_| nonce_failure("nonce.selected"))?;
+        let p = prepare(env, &initial.state, rpc, UnixMillis::new(now()?))
+            .inspect_err(|_| nonce_failure("nonce.prepare"))?;
+        let mut cache = verify(p.signature_checks().map_err(|_| rejected())?)
+            .await
+            .inspect_err(|_| nonce_failure("nonce.signature"))?;
         self.local_reservation(event, &rpc.http.selector.session_id, |state, time| {
-            selected(state, rpc)?;
-            let p = prepare(env, state, rpc, UnixMillis::new(time))?;
+            selected(state, rpc).inspect_err(|_| nonce_failure("nonce.sql_selected"))?;
+            let p = prepare(env, state, rpc, UnixMillis::new(time))
+                .inspect_err(|_| nonce_failure("nonce.sql_prepare"))?;
             let proof = verify_http_possession(p, UnixMillis::new(time), &mut cache)
-                .map_err(|_| rejected())?;
-            transition(state, &proof, UnixMillis::new(time))
+                .map_err(|_| rejected())
+                .inspect_err(|_| nonce_failure("nonce.possession"))?;
+            transition(state, &proof, UnixMillis::new(time)).inspect_err(|_| {
+                nonce_failure(if event == "execution_nonce_five_fee" {
+                    "nonce.core_fee"
+                } else {
+                    "nonce.core_issue"
+                })
+            })
         })
+        .inspect_err(|_| nonce_failure("nonce.transaction"))
     }
     pub(crate) async fn issue_client_execution_nonce_five(
         &self,
@@ -132,4 +144,11 @@ impl OwnerProvisionApprovalStore {
         )
         .await
     }
+}
+
+fn nonce_failure(stage: &'static str) {
+    #[cfg(feature = "approval-harness")]
+    worker::console_error!("nonce_five_failure.{}", stage);
+    #[cfg(not(feature = "approval-harness"))]
+    let _ = stage;
 }

@@ -64,7 +64,10 @@ impl AccountProvisionApprovalState {
         self.test_session_v2_local(id, purpose, now)?;
         let s = self.test_session_v2_record(id)?;
         if s.source_funding.get(source_id) != Some(&SessionSourceFundingV1::Control)
-            || s.source_oracle_reads.get(source_id) != Some(&3)
+            || s.source_oracle_reads.get(source_id)
+                != Some(
+                    &client_source_tickets_v2(s, source_id, SessionJournalProfileV2::Control)?.0,
+                )
             || s.control_transports.contains_key(
                 &super::super::v2_credential_source::lifetime_attempt_v2(s, source_id)?,
             )
@@ -118,14 +121,16 @@ pub(super) fn validate_observation(
     purpose: SessionPurposeV1,
     at: UnixMillis,
 ) -> Result<()> {
+    let expected_ticket =
+        client_source_tickets_v2(s, &o.source_operation_id, SessionJournalProfileV2::Control)?.1;
     if o.approved_input_digest != s.input_digest()?
-        || o.source_ticket != 4
+        || o.source_ticket != expected_ticket
         || o.checked_at != at
         || o.private_sid_generation != s.session.private_sid_generation
         || s.source_funding.get(&o.source_operation_id) != Some(&SessionSourceFundingV1::Control)
         || s.source_oracle_reads
             .get(&o.source_operation_id)
-            .is_none_or(|v| *v < 4)
+            .is_none_or(|v| *v < expected_ticket)
         || !control_lifetime_claimed_v2(s, &o.source_operation_id)?
     {
         return Err(invalid());

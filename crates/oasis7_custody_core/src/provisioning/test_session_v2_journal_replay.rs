@@ -19,6 +19,7 @@ pub(super) struct Replay<'a> {
     connector: Option<BudgetLedger>,
     logicals: BTreeMap<String, String>,
     sources: BTreeSet<String>,
+    source_profiles: BTreeSet<String>,
     reads: BTreeMap<String, u8>,
     source_claims: BTreeSet<String>,
     source_verified: BTreeSet<String>,
@@ -83,6 +84,7 @@ impl<'a> Replay<'a> {
                 .then(|| BudgetLedger::new(p.control_budget.transport_per_hop.0)),
             logicals: BTreeMap::new(),
             sources: BTreeSet::new(),
+            source_profiles: BTreeSet::new(),
             reads: BTreeMap::new(),
             source_claims: BTreeSet::new(),
             source_verified: BTreeSet::new(),
@@ -359,6 +361,12 @@ impl<'a> Replay<'a> {
             || self.published != s.preflight_read.is_some()
             || self.active != s.approved_at.is_some()
             || self.sources.len() != s.sources.len()
+            || self.source_profiles
+                != s.sources
+                    .iter()
+                    .filter(|(_, w)| w.observation_profile.is_some())
+                    .map(|(id, _)| id.clone())
+                    .collect()
             || self.reads != s.source_oracle_reads
             || self.source_claims.len()
                 != s.sources

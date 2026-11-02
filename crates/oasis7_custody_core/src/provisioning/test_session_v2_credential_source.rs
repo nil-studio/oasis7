@@ -124,7 +124,10 @@ impl AccountProvisionApprovalState {
             proof.ingress_attempt_id,
         )?;
         if s.source_funding.get(source_id) != Some(&SessionSourceFundingV1::Control)
-            || s.source_oracle_reads.get(source_id) != Some(&3)
+            || s.source_oracle_reads.get(source_id)
+                != Some(
+                    &client_source_tickets_v2(s, source_id, SessionJournalProfileV2::Credential)?.0,
+                )
         {
             return Err(invalid());
         }
