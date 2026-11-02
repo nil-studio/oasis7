@@ -21,9 +21,9 @@ use oasis7_runtime::BuiltinReleaseManifestEntry;
 use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 use oasis7_runtime::incremental_runtime_artifact_resources::{
     BuiltinReleaseEntryRefV1, BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1,
-    RuntimeArtifactDeltaTickChangeV1, RuntimeArtifactResourcesReadContextV1,
-    change_runtime_artifact_delta_tick_overlay_v1, qualify_runtime_artifact_resources_v1,
-    verify_runtime_artifact_resources_transition_v1,
+    RuntimeArtifactDeltaTickChangeV1, RuntimeArtifactResourcesChangeV1,
+    RuntimeArtifactResourcesReadContextV1, change_runtime_artifact_delta_tick_overlay_v1,
+    qualify_runtime_artifact_resources_v1, verify_runtime_artifact_resources_change_transition_v1,
 };
 use oasis7_runtime::incremental_runtime_controls::{
     RuntimeControlsRefV1, prepare_runtime_controls_genesis_v1,
@@ -1089,8 +1089,25 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
             take_state_error: || receiver_state.take_read_error().map(super::typed),
             cancelled: || false,
         };
-        let prepared = verify_runtime_artifact_resources_transition_v1(
-            Some(RuntimeArtifactDeltaTickChangeV1 {
+        let mut receiver_writer = store.value_session(physical());
+        let mut receiver_writer_io = logical();
+        let mut receiver_writer_key_work = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut receiver_write = MemberRecordWriteContext {
+            sink: &mut receiver_writer,
+            memory: &memory,
+            io: &mut receiver_writer_io,
+            key_work: &mut receiver_writer_key_work,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 1 << 20,
+                payload_bytes: 8 << 20,
+                record_bytes: 16 << 20,
+            },
+            cancelled: || false,
+        };
+        let prepared = verify_runtime_artifact_resources_change_transition_v1(
+            RuntimeArtifactResourcesChangeV1::DeltaTick(RuntimeArtifactDeltaTickChangeV1 {
                 expected: initial_tick,
                 after: after_tick,
             }),
@@ -1105,7 +1122,9 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
             },
             &sealed.record,
             &mut receiver_context,
+            &mut receiver_write,
             &mut work,
+            &live,
         )
         .unwrap();
         assert_eq!(prepared.transition().record, sealed.record);
@@ -1116,6 +1135,8 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
         drop(prepared);
         drop(receiver_values);
         drop(receiver_state);
+        drop(receiver_write);
+        drop(receiver_writer);
         drop(writer);
         drop(reader);
         drop(state);
@@ -1153,6 +1174,9 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
         );
     }
 }
+
+#[path = "incremental_runtime_artifact_resources_change_tests.rs"]
+mod change_tests;
 
 #[path = "incremental_runtime_artifact_resources_pages.rs"]
 mod pages;

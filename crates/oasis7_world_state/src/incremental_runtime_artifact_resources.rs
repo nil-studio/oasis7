@@ -24,7 +24,8 @@ mod key;
 pub use family::{
     RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1, RuntimeArtifactResourcesPreparedTransitionV1,
     RuntimeArtifactResourcesQualificationV1, RuntimeArtifactResourcesReadContextV1,
-    qualify_runtime_artifact_resources_v1, verify_runtime_artifact_resources_transition_v1,
+    qualify_runtime_artifact_resources_v1, verify_runtime_artifact_resources_change_transition_v1,
+    verify_runtime_artifact_resources_transition_v1,
 };
 #[path = "incremental_runtime_artifact_resources_overlay.rs"]
 mod overlay;
@@ -45,9 +46,46 @@ pub use pages::{
 
 /// A borrowed view of one builtin manifest entry. Strings and maps remain
 /// owned by Runtime and are traversed without cloning.
+#[derive(Clone, Copy)]
 pub struct BuiltinReleaseEntryRefV1<'a> {
     pub hash_tokens: &'a [String],
     pub artifact_identities: &'a BTreeMap<String, ModuleArtifactIdentity>,
+}
+
+/// A complete replacement input for a snapshot-derived Runtime artifact.
+/// `expected_root` is the exact previously authenticated child StateRoot
+/// digest; `None` is only valid for the optional latest delta when it was
+/// absent. The manifest is always required by the family schema.
+#[derive(Clone, Copy)]
+pub enum RuntimeArtifactBodyChangeV1<'a> {
+    ReplaceManifest {
+        expected_root: [u8; 32],
+        after: &'a ChainResourceManifest,
+    },
+    ReplaceLatestDelta {
+        expected_root: Option<[u8; 32]>,
+        after: Option<&'a ChainResourceDelta>,
+    },
+}
+
+/// A local operation matching Runtime's real two-key builtin manifest API.
+/// `expected_entry_root` binds the whole old entry without materializing its
+/// hash-token vector or identity map. `after` is the caller's complete
+/// upsert value; `None` removes the module and prunes an empty module set.
+#[derive(Clone, Copy)]
+pub struct RuntimeBuiltinEntryChangeV1<'a> {
+    pub module_set: &'a str,
+    pub module_id: &'a str,
+    pub expected_entry_root: Option<[u8; 32]>,
+    pub after: Option<BuiltinReleaseEntryRefV1<'a>>,
+}
+
+/// One Runtime Artifact operation replayed by the changed-only receiver.
+#[derive(Clone, Copy)]
+pub enum RuntimeArtifactResourcesChangeV1<'a> {
+    DeltaTick(RuntimeArtifactDeltaTickChangeV1),
+    Body(RuntimeArtifactBodyChangeV1<'a>),
+    BuiltinEntry(RuntimeBuiltinEntryChangeV1<'a>),
 }
 
 pub trait BuiltinReleaseModuleSetSourceV1 {
@@ -84,3 +122,9 @@ pub struct RuntimeArtifactResourcesRefV1<'a, B> {
     pub latest_chain_resource_delta: Option<&'a ChainResourceDelta>,
     pub builtin_release_manifest: &'a B,
 }
+
+#[path = "incremental_runtime_artifact_resources_change.rs"]
+mod change;
+pub use change::{
+    change_runtime_artifact_body_overlay_v1, change_runtime_builtin_entry_overlay_v1,
+};

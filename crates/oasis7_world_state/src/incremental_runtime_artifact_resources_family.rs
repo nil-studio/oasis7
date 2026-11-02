@@ -90,7 +90,9 @@ impl RuntimeArtifactResourcesQualificationV1 {
 #[path = "incremental_runtime_artifact_resources_receiver.rs"]
 mod receiver;
 pub use receiver::{
-    RuntimeArtifactResourcesPreparedTransitionV1, verify_runtime_artifact_resources_transition_v1,
+    RuntimeArtifactResourcesPreparedTransitionV1,
+    verify_runtime_artifact_resources_change_transition_v1,
+    verify_runtime_artifact_resources_transition_v1,
 };
 
 #[derive(Clone, Copy)]
