@@ -59,7 +59,36 @@ pub(super) fn runtime_admission(
     node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
     control: &test_control::BoundaryControl,
     close: &TaskCleanupSubmitV2,
-) -> SignedServiceResponse<TaskMutationAdmissionV2> {
+) {
+    let task = &close
+        .original
+        .request
+        .permitted_branches
+        .exact_initial_active;
+    let before = service.published.current().unwrap();
+    let before_task = before
+        .world
+        .current_game_task_state_v2(&task.agent_id)
+        .unwrap();
+    let before_signer = before
+        .world
+        .capability_revocation_state()
+        .agent_signer_delegations
+        .get(&task.agent_id)
+        .cloned();
+    let before_stop = before
+        .world
+        .capability_revocation_state()
+        .task_stops_v2
+        .clone();
+    assert!(before_task.is_some() && before_stop.is_some());
+    assert!(
+        before
+            .world
+            .closed_game_task_v2(&task.task_id)
+            .unwrap()
+            .is_none()
+    );
     let q = wrapper(close, 300);
     let guard = node.lock().unwrap();
     let (rx, worker) = send(service, &q);
@@ -95,17 +124,43 @@ pub(super) fn runtime_admission(
     );
     let error: SignedServiceResponse<FormalServiceErrorV1> = serde_json::from_slice(&raw).unwrap();
     assert_eq!(error.payload.code, "mutation_not_queued");
-    // Complete this genuine fixture with one separately observable bare Submit.
-    // This is test-only and explicitly not a Term24 payment/counter qualification.
-    let (status, raw) = exchange(
-        service,
+    // raw_error signs the exact incoming bytes, independently of a bare request.
+    let sent = serde_json::to_vec(&q).unwrap();
+    verify_service_response(
         TASK_CLEANUP_SUBMIT_V2,
-        &serde_json::to_vec(close).unwrap(),
+        &authority::request_digest(TASK_CLEANUP_SUBMIT_V2, &sent.as_slice()).unwrap(),
+        &error,
+        &hex::encode(service.signer.verifying_key().to_bytes()),
+    )
+    .unwrap();
+    // No second Submit belongs to this expired, unadmitted invocation. Stop the
+    // actual Node before checking that the genuine Stop and signer HWM remain.
+    node.lock().unwrap().stop().unwrap();
+    let after = service.published.current().unwrap();
+    assert!(
+        after
+            .world
+            .current_game_task_state_v2(&task.agent_id)
+            .unwrap()
+            == before_task
     );
-    assert_eq!(status, 200);
-    let ack = serde_json::from_slice(&raw).unwrap();
-    strong_ack(service, close, &ack);
-    ack
+    assert!(
+        after
+            .world
+            .capability_revocation_state()
+            .agent_signer_delegations
+            .get(&task.agent_id)
+            .cloned()
+            == before_signer
+    );
+    assert!(after.world.capability_revocation_state().task_stops_v2 == before_stop);
+    assert!(
+        after
+            .world
+            .closed_game_task_v2(&task.task_id)
+            .unwrap()
+            .is_none()
+    );
 }
 pub(super) fn publication_wait(
     service: &Arc<FormalLiveService>,
