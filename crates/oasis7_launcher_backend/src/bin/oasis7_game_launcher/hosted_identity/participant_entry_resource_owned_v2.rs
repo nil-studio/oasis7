@@ -4,14 +4,14 @@ use oasis7_client_api::world_service::resource_basis as resource;
 use oasis7_custody_core::provisioning::{
     OwnerSetupResourceFinalHttpV2, RESOURCE_READ_PROOF_HEADER,
 };
-use serde::de::DeserializeOwned;
 impl OwnedOwnerReadGateway {
-    fn resource_post<Q: Serialize, T: DeserializeOwned + Serialize + Clone>(
+    fn resource_post<Q: Serialize>(
         &self,
         path: &str,
         request: &Q,
         frame: &OwnerSetupResourceFinalHttpV2,
-    ) -> Result<resource::SignedResourceResponseV1<T>, StoreError> {
+        substep: resource::ResourcePaidWorldSubstepV1,
+    ) -> Result<resource::SignedResourcePaidWorldReplyV1, StoreError> {
         let now = crate::hosted_identity::now_ms();
         if now < frame.paid().payload.issued_at.0 || now >= frame.paid().payload.expires_at.0 {
             return Err(StoreError::OutcomeUnknown);
@@ -53,40 +53,47 @@ impl OwnedOwnerReadGateway {
         if bytes.len() > resource::MAX_RESOURCE_ENVELOPE_BYTES {
             return Err(StoreError::OutcomeUnknown);
         }
-        let result: resource::SignedResourceResponseV1<T> =
-            parse_request(&bytes).map_err(|_| StoreError::OutcomeUnknown)?;
-        let key: [u8; 32] = hex::decode(&self.trust.service_public_key)
-            .map_err(|_| StoreError::OutcomeUnknown)?
-            .try_into()
+        let result = resource::decode_paid_resource_world_reply(&bytes)
             .map_err(|_| StoreError::OutcomeUnknown)?;
-        let signature = ed25519_dalek::Signature::from_slice(
-            &hex::decode(&result.signature_hex).map_err(|_| StoreError::OutcomeUnknown)?,
+        let expected = frame
+            .paid_world_reply_binding(substep)
+            .map_err(|_| StoreError::OutcomeUnknown)?;
+        if path != substep.world_path() {
+            return Err(StoreError::OutcomeUnknown);
+        }
+        resource::verify_paid_resource_world_reply(
+            &result,
+            &expected,
+            &self.trust.service_public_key,
         )
         .map_err(|_| StoreError::OutcomeUnknown)?;
-        let bytes = oasis7_client_api::world_service::signing_bytes(
-            path,
-            &(&result.request_digest, &result.payload),
-        )
-        .map_err(|_| StoreError::OutcomeUnknown)?;
-        ed25519_dalek::VerifyingKey::from_bytes(&key)
-            .map_err(|_| StoreError::OutcomeUnknown)?
-            .verify_strict(&bytes, &signature)
-            .map_err(|_| StoreError::OutcomeUnknown)?;
         Ok(result)
     }
     pub(in super::super::super) fn read_resource_owner_preflight(
         &self,
         frame: &OwnerSetupResourceFinalHttpV2,
-    ) -> Result<SignedServiceResponse<OwnerSetupObservationV1>, StoreError> {
+    ) -> Result<
+        (
+            SignedServiceResponse<OwnerSetupObservationV1>,
+            resource::SignedResourcePaidWorldReplyV1,
+        ),
+        StoreError,
+    > {
         frame
             .validate_bindings()
             .map_err(|_| reject("invalid_request"))?;
         let q = &frame.request().access;
-        let response = self.resource_post::<_, OwnerSetupObservationV1>(
+        let outer = self.resource_post(
             PARTICIPANT_OWNER_VIEW_PATH,
             q,
             frame,
+            resource::ResourcePaidWorldSubstepV1::OwnerPreflight,
         )?;
+        let resource::ResourcePaidWorldReplyV1::OwnerPreflight { observation, .. } = &outer.payload
+        else {
+            return Err(StoreError::OutcomeUnknown);
+        };
+        let response = observation.as_ref().clone();
         let response = SignedServiceResponse {
             request_digest: response.request_digest,
             payload: response.payload,
@@ -101,17 +108,30 @@ impl OwnedOwnerReadGateway {
             &self.trust.service_public_key,
         )
         .map_err(|_| StoreError::OutcomeUnknown)?;
-        Ok(response)
+        Ok((response, outer))
     }
     pub(in super::super::super) fn read_resource_final(
         &self,
         frame: &OwnerSetupResourceFinalHttpV2,
     ) -> Result<
-        resource::SignedResourceResponseV1<resource::OwnerSetupFinalResourceObservationV2>,
+        (
+            resource::SignedResourceResponseV1<resource::OwnerSetupFinalResourceObservationV2>,
+            resource::SignedResourcePaidWorldReplyV1,
+        ),
         StoreError,
     > {
         let body = frame.world_body().map_err(|_| reject("invalid_request"))?;
-        let response = self.resource_post(resource::RESOURCE_GOAL_PATH_V2, &body, frame)?;
+        let outer = self.resource_post(
+            resource::RESOURCE_GOAL_PATH_V2,
+            &body,
+            frame,
+            resource::ResourcePaidWorldSubstepV1::ResourceFinal,
+        )?;
+        let resource::ResourcePaidWorldReplyV1::ResourceFinal { observation, .. } = &outer.payload
+        else {
+            return Err(StoreError::OutcomeUnknown);
+        };
+        let response = observation.as_ref().clone();
         resource::verify_resource_goal_response(
             body.resource(),
             &response,
@@ -120,6 +140,6 @@ impl OwnedOwnerReadGateway {
         .map_err(|_| StoreError::OutcomeUnknown)?;
         resource::encode_native_resource_envelope(response.clone())
             .map_err(|_| StoreError::OutcomeUnknown)?;
-        Ok(response)
+        Ok((response, outer))
     }
 }
