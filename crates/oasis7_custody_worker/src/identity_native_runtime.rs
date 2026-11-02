@@ -3,6 +3,8 @@
 //! envelopes only. No inbound DTO is deserialized into a trusted current reader.
 #[path = "identity_test_session_client_runtime.rs"]
 pub(crate) mod client;
+#[path = "identity_test_session_v2_credential_runtime.rs"]
+pub(crate) mod credentials_v2;
 #[cfg(feature = "native-runtime-harness")]
 #[path = "../tests/support/native_runtime_harness.rs"]
 mod harness;
@@ -1048,13 +1050,20 @@ impl DurableObject for NativeSession {
         {
             return Response::error("not found", 404);
         }
+        let body_limit = if url.path() == "/internal/execution-prepare-native-v2" {
+            crate::execution_dispatch_rpc_v2::MAX_FRAME
+        } else {
+            MAX
+        };
         let raw = raw_text(
-            bounded_body(request.inner().as_ref(), MAX as u32)
+            bounded_body(request.inner().as_ref(), body_limit as u32)
                 .await
                 .map_err(|_| denied())?,
-            MAX,
+            body_limit,
         )
         .map_err(|_| denied())?;
+        crate::execution_context_stage_store_v2::validate_snapshot(&self.state)
+            .map_err(|_| denied())?;
         if url.path() == "/internal/history" {
             return history::response(self.state.clone(), &self.env, &raw);
         }
@@ -1078,11 +1087,24 @@ impl DurableObject for NativeSession {
         if url.path() == "/internal/recover-status" {
             return recovery::response(self.state.clone(), &self.env, &raw).await;
         }
+        if url.path() == oasis7_custody_core::execution_private_current_v2::EXECUTION_PRIVATE_CURRENT_ACTOR_PATH_V2 {
+            return execution_private_current_v2::response(self.state.clone(), &self.env, &raw).await;
+        }
+        if url.path() == "/internal/execution-prepare-native-v2" {
+            return execution_prepare_native_v2::response(self.state.clone(), &self.env, &raw)
+                .await;
+        }
         if url.path() == "/internal/test-session-attestation" {
             return test_session_attestation::response(self.state.clone(), &self.env, &raw);
         }
         if url.path() == "/internal/test-session-preflight" {
             return test_session::response(self.state.clone(), &self.env, &raw).await;
+        }
+        if controls_v2::operation(url.path()).is_some() {
+            return controls_v2::response(self.state.clone(), &self.env, url.path(), &raw).await;
+        }
+        if credentials_v2::operation(url.path()).is_some() {
+            return credentials_v2::response(self.state.clone(), &self.env, url.path(), &raw).await;
         }
         if client::operation(url.path()).is_some() {
             return client::response(self.state.clone(), &self.env, url.path(), &raw).await;
@@ -1148,3 +1170,18 @@ impl DurableObject for NativeSession {
 
 #[path = "identity_test_session_attestation.rs"]
 pub(crate) mod test_session_attestation;
+
+#[path = "identity_test_session_v2_runtime.rs"]
+mod test_session_v2;
+
+#[path = "identity_test_session_v2_control_runtime.rs"]
+pub(crate) mod controls_v2;
+
+#[path = "identity_execution_private_current_v2.rs"]
+pub(crate) mod execution_private_current_v2;
+
+#[path = "identity_execution_prepare_native_v2.rs"]
+pub(crate) mod execution_prepare_native_v2;
+
+#[path = "identity_private_session_read_v2.rs"]
+mod private_session_read_v2;

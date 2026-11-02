@@ -185,6 +185,7 @@ pub(super) fn export(directory: &std::path::Path) {
     let requests = options();
     let intent_digest = requests[0].intent_digest().unwrap();
     let proof = CustodyApprovalProofV1 {
+        model_budget_summary_contract: None,
         version: 1,
         key_id: "key-one".into(),
         identity_namespace: "identity:test".into(),
@@ -250,6 +251,9 @@ pub(super) fn export(directory: &std::path::Path) {
         response: json!({"type":"public-key"}),
     };
     let options_response = ApprovalOptionsResponseV1 {
+        custody_session_summary_v2: None,
+        model_budget_summary: None,
+        model_budget_summary_contract: None,
         api_version: 1,
         phase: ApprovalPhaseV1::Pending,
         approval_id: "approval-one".into(),

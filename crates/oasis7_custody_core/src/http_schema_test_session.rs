@@ -243,6 +243,7 @@ pub(super) fn fixture(approval: &SignedCustodyApprovalV1) -> Value {
 fn public_test_session_and_enrollment_codecs_are_closed_and_decimal_exact() {
     let approval = SignedCustodyApprovalV1 {
         proof: CustodyApprovalProofV1 {
+            model_budget_summary_contract: None,
             version: 1,
             key_id: "fixture".into(),
             identity_namespace: "identity:test".into(),

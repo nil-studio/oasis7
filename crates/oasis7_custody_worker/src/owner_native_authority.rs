@@ -21,6 +21,7 @@ pub(super) struct Observations {
     fence: RecoveryFence,
     fence_started: DecimalU64,
     paid_started: Option<DecimalU64>,
+    custody_v2: Option<v2::Profile>,
     inspection_only: bool,
 }
 fn manager(
@@ -107,6 +108,15 @@ pub(super) async fn observe(
     inspection_only: bool,
 ) -> Result<Observations> {
     reject_resource_v2(&input)?;
+    observe_impl(env, draft, input, signed, inspection_only).await
+}
+async fn observe_impl(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+    inspection_only: bool,
+) -> Result<Observations> {
     let manager = manager(&input, signed);
     let gate = if inspection_only {
         let rpc = ProvisionInspectGateRpc {
@@ -137,6 +147,7 @@ pub(super) async fn observe(
         fence,
         fence_started,
         paid_started: None,
+        custody_v2: None,
         inspection_only,
     })
 }
@@ -150,6 +161,14 @@ pub(super) async fn observe_paid_test_session_factory(
     signed: &SignedApprovalVerificationV1,
 ) -> Result<Observations> {
     reject_resource_v2(&input)?;
+    observe_paid_test_session_factory_impl(env, draft, input, signed).await
+}
+async fn observe_paid_test_session_factory_impl(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
     let manager = manager(&input, signed);
     let rpc = ApproveRpc {
         manager_session: manager.clone(),
@@ -169,6 +188,7 @@ pub(super) async fn observe_paid_test_session_factory(
         fence,
         fence_started,
         paid_started: None,
+        custody_v2: None,
         inspection_only: false,
     })
 }
@@ -204,6 +224,7 @@ pub(super) async fn observe_paid_owner_setup_result(
         fence,
         fence_started,
         paid_started: Some(paid_started),
+        custody_v2: None,
         inspection_only: false,
     })
 }
@@ -247,6 +268,14 @@ pub(super) async fn observe_fresh_manager(
     manager: CustodySessionStatusV1,
 ) -> Result<Observations> {
     reject_resource_v2(&input)?;
+    observe_fresh_manager_impl(env, draft, input, manager).await
+}
+async fn observe_fresh_manager_impl(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    manager: CustodySessionStatusV1,
+) -> Result<Observations> {
     let rpc = ApproveRpc {
         manager_session: manager.clone(),
         provision_id: draft.entry.provision_id.clone(),
@@ -264,6 +293,7 @@ pub(super) async fn observe_fresh_manager(
         fence,
         fence_started,
         paid_started: None,
+        custody_v2: None,
         inspection_only: false,
     })
 }
@@ -274,6 +304,9 @@ pub(super) fn current(
     observed: &Observations,
     require_business: bool,
 ) -> std::result::Result<NativeStageCurrent, JsValue> {
+    if observed.custody_v2.is_some() {
+        return Err(JsValue::from_str("native authority unavailable"));
+    }
     build_current(state, env, observed, require_business)
         .map_err(|_| JsValue::from_str("native authority unavailable"))
 }
@@ -339,10 +372,26 @@ fn build_current(
     // deadline/proof and current source bound it; an expired Provision plan grants
     // no new rights and must not suppress this independently approved recovery.
     let authority_deadline = match &observed.input.request.intent {
-        // Core contracts do not enable V2 source or paid read production paths.
-        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
-        | oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { .. } => {
-            return Err(denied());
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { plan } => {
+            if observed.custody_v2 != Some(v2::Profile::OwnerSetup)
+                || v2::profile(env, &observed.input)? != v2::Profile::OwnerSetup
+            {
+                return Err(denied());
+            }
+            plan.validate().map_err(|_| denied())?;
+            plan.deadline.0
+        }
+        oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { plan, .. } => {
+            if observed.custody_v2 != Some(v2::Profile::TestSession)
+                || v2::profile(env, &observed.input)? != v2::Profile::TestSession
+            {
+                return Err(denied());
+            }
+            plan.validate().map_err(|_| denied())?;
+            plan.write_deadline
+                .0
+                .max(plan.read_until.0)
+                .max(plan.cleanup_until.0)
         }
         oasis7_custody_core::approval::CustodyIntentV1::ManagedLogin { deadline, .. } => {
             deadline.0.min(proof.expires_at.0)
@@ -412,4 +461,60 @@ fn build_current(
             owner_binding_pin: native.owner_pin,
         },
     })
+}
+
+#[path = "owner_native_authority_v2.rs"]
+mod v2;
+pub(super) async fn observe_v2(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+    inspection_only: bool,
+) -> Result<Observations> {
+    v2::observe_v2(env, draft, input, signed, inspection_only).await
+}
+pub(super) async fn observe_manager_v2(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    manager: oasis7_custody_core::approval::CustodySessionStatusV1,
+) -> Result<Observations> {
+    v2::observe_manager_v2(env, draft, input, manager).await
+}
+pub(super) async fn observe_paid_factory_v2(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
+    v2::observe_paid_factory_v2(env, draft, input, signed).await
+}
+pub(super) fn current_v2(
+    state: &JsValue,
+    env: &Env,
+    observed: &Observations,
+    business: bool,
+) -> std::result::Result<NativeStageCurrent, JsValue> {
+    v2::current_v2(state, env, observed, business)
+}
+
+pub(super) fn observed_custody_intent(
+    observed: &Observations,
+) -> &oasis7_custody_core::approval::CustodyIntentV1 {
+    &observed.input.request.intent
+}
+
+#[path = "owner_native_execution_current_v2.rs"]
+mod execution_current_v2;
+pub(crate) use execution_current_v2::ExecutionPrepareObservationV2;
+pub(super) use execution_current_v2::observe_execution_prepare_v2;
+
+pub(super) async fn observe_paid_owner_setup_result_v2(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+) -> Result<Observations> {
+    v2::observe_paid_owner_setup_result_v2(env, draft, input, signed).await
 }

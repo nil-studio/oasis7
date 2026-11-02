@@ -106,7 +106,27 @@ pub(crate) async fn run(
     if matches!(op, SessionClientOperation::ToolNonce) {
         return Err(js_denied());
     }
-    let _: serde_json::Value = rpc(env, &admission, op, TestSessionClientAction::Admit).await?;
+
+    let admitted: serde_json::Value =
+        rpc(env, &admission, op, TestSessionClientAction::Admit).await?;
+    if admitted.is_object() {
+        let domain = admitted
+            .get("domain")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(js_denied)?
+            .to_owned();
+        return match domain.as_str() {
+            crate::test_session_v2_credential_rpc::CREDENTIAL_ROUTING_DOMAIN_V2 => {
+                let routing = serde_json::from_value(admitted).map_err(|_| js_denied())?;
+                super::credentials_v2::continue_after_admit(env, admission, op, routing).await
+            }
+            crate::test_session_v2_control_rpc::CONTROL_ROUTING_DOMAIN_V2 => {
+                let routing = serde_json::from_value(admitted).map_err(|_| js_denied())?;
+                super::controls_v2::continue_after_admit(env, admission, op, routing).await
+            }
+            _ => Err(js_denied()),
+        };
+    }
     if matches!(
         op,
         SessionClientOperation::Control(SessionControlKindV1::Finish | SessionControlKindV1::Abort)
