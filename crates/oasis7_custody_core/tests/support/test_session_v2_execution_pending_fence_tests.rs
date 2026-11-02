@@ -2,7 +2,7 @@
 //! Native/Ack facts use fixed fixture keys, not a protected Native deployment.
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7_custody_core::{execution_fence_dispatch_v2::*, native_cleanup_v2::*};
+use oasis7_custody_core::native_cleanup_v2::*;
 fn hex_bytes(bytes: impl AsRef<[u8]>) -> String {
     bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -10,16 +10,7 @@ fn issuer(f: &SessionFixture) -> AccountMachineIssuerV2 {
     AccountMachineIssuerV2 {
         namespace: "account-fixture".into(),
         service_id: "account-service".into(),
-        environment: f
-            .state
-            .test_session_v2_header(&f.session_id)
-            .unwrap()
-            .1
-            .role_scope
-            .context
-            .identity
-            .environment
-            .clone(),
+        environment: f.context.authority.environment.clone(),
         key_id: "account-issuer".into(),
         issuer_epoch: DecimalU64(1),
         config_generation: DecimalU64(1),

@@ -419,6 +419,10 @@ impl AccountProvisionApprovalState {
         saved.sources.insert(
             source_id.clone(),
             TestSessionSourceV2 {
+                // Client-only profiles cannot authorize this Execution source.
+                // Its paid birth is the exact pending master/funding record.
+                observation_profile: None,
+                client_admission: None,
                 api_version: 2,
                 approved_input_digest: original.approved_input_digest.clone(),
                 source: ProvisionOriginInspectionV1 {

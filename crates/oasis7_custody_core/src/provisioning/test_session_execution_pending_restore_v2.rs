@@ -175,7 +175,9 @@ pub(in crate::provisioning) fn validate_pending_start_v2(s: &TestSessionAuthorit
         return Err(invalid());
     }
     let source = s.sources.get(&p.source_operation_id).ok_or_else(invalid)?;
-    if !pending_funds_source_v2(s, &p.source_operation_id)
+    if source.observation_profile.is_some()
+        || source.client_admission.is_some()
+        || !pending_funds_source_v2(s, &p.source_operation_id)
         || source.approved_input_digest != original.approved_input_digest
         || source.source.operation_id != p.source_operation_id
         || source.source.verify_nonce != p.source_verify_nonce
