@@ -320,6 +320,14 @@ pub(in crate::provisioning) struct TermOwnedInvocationRecordV2 {
     invocation_id: String,
 }
 impl TermOwnedInvocationRecordV2 {
+    pub(in crate::provisioning) fn acknowledged_ordinal(
+        &self,
+        s: &TestSessionAuthorityV2,
+    ) -> Result<u64> {
+        self.validate_for_session(s)?;
+        Ok(self.sequence)
+    }
+
     pub(in crate::provisioning) fn validate_for_session(
         &self,
         s: &TestSessionAuthorityV2,
