@@ -39,6 +39,14 @@ pub(in crate::provisioning) struct ExecutionPendingStartV2 {
     fence_dispatch: Option<fence::FenceDispatchRecord>,
     #[serde(deserialize_with = "required_nullable")]
     fence_read: Option<fence::FenceReadRecord>,
+    #[serde(deserialize_with = "required_nullable")]
+    source_inspect_dispatch: Option<source_inspect::DispatchRecord>,
+    #[serde(deserialize_with = "required_nullable")]
+    source_inspect_current_until: Option<UnixMillis>,
+    #[serde(deserialize_with = "required_nullable")]
+    source_inspect_native_leaf: Option<source_inspect::NativeLeafRecord>,
+    #[serde(deserialize_with = "required_nullable")]
+    source_inspect_result: Option<source_inspect::ResultRecord>,
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -417,6 +425,10 @@ impl AccountProvisionApprovalState {
             directory_signature: None,
             fence_dispatch: None,
             fence_read: None,
+            source_inspect_dispatch: None,
+            source_inspect_current_until: None,
+            source_inspect_native_leaf: None,
+            source_inspect_result: None,
         };
         let master_digest = pending.master_digest(&original)?;
         let source_id = pending.source_operation_id.clone();
@@ -804,6 +816,31 @@ impl ExecutionPendingStartV2 {
         self.fence_read.as_ref().map(|r| r.recorded_at)
     }
     pub(super) fn expected_first_rf_leaf(&self, index: usize) -> Option<ExecutionPendingLeafV2> {
-        fence::first_rf_sequence().get(index).copied()
+        fence::first_rf_sequence().get(index).copied().or_else(|| {
+            index
+                .checked_sub(5)
+                .and_then(|i| source_inspect::source_sequence().get(i).copied())
+        })
+    }
+}
+
+#[path = "test_session_execution_pending_source_inspect_v2.rs"]
+mod source_inspect;
+pub use source_inspect::{
+    PendingSourceDispatchAuthorityV2, PendingSourceDispatchTargetV2, PendingSourceDispatchV2,
+    PendingSourceHistoryV2, PendingSourceLeafAuthorityV2,
+};
+
+impl ExecutionPendingStartV2 {
+    pub(super) fn source_dispatch_recorded_at(&self) -> Option<UnixMillis> {
+        self.source_inspect_dispatch.as_ref().map(|r| r.recorded_at)
+    }
+    pub(super) fn source_native_leaf_recorded_at(&self) -> Option<UnixMillis> {
+        self.source_inspect_native_leaf
+            .as_ref()
+            .map(|r| r.recorded_at)
+    }
+    pub(super) fn source_result_recorded_at(&self) -> Option<UnixMillis> {
+        self.source_inspect_result.as_ref().map(|r| r.recorded_at)
     }
 }
