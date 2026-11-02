@@ -152,6 +152,37 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     let shared = Arc::new(Mutex::new(server));
     let mut session = application_stream_boundaries::Session::start(&shared, false);
     let warmed = session.warm();
+    // Issued recovery must hydrate local actors under Pause, before fresh Play.
+    // The original checkpoint and canonical Admit are produced by the crash child.
+    if !crash && std::env::var_os("PRE2_WAIT_COLD_PAUSE_RUNNER").is_some() {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            session.snapshot(Duration::from_millis(25));
+            let value: serde_json::Value = serde_json::from_slice(
+                &fs::read(root.join(STORE)).unwrap(),
+            ).unwrap();
+            let stage = value["hosted_wait"]["stage"].as_str();
+            let summary = shared.lock().unwrap().test_canonical_provider_diagnostic_summary();
+            assert_eq!(summary["native_model_call_count"].as_u64(), Some(0),
+                "paused recovery must not start a fresh provider turn");
+            if stage == Some("admit_view") || stage == Some("settle") {
+                assert!(value["hosted_wait"]["admitted"].is_object(),
+                    "actual original Lookup must produce the authoritative receipt");
+                println!("hosted_wait_cold_pause_original_lookup_view_reached=true");
+                assert_eq!(summary["io_lifecycle"]["apply_error_count"].as_u64().expect("actual service lifecycle counter"), 0,
+                    "cold issued Wait must hydrate its runner before Play: {}",
+                    application_completion::hosted_failure_diagnostic(&summary));
+            }
+            if matches!(stage, Some("settle" | "settle_view")) {
+                assert_eq!(summary["native_runner_present"], true);
+                println!("hosted_wait_cold_pause_runner_hydrated_without_model_turn=true");
+                break;
+            }
+            assert!(Instant::now() < deadline,
+                "actual restored Wait must reach verified Admit View under Pause: {}",
+                application_completion::hosted_failure_diagnostic(&summary));
+        }
+    }
     session
         .send(serde_json::json!({"type":"live_control","mode":{"mode":"play"},"request_id":1301}))
         .unwrap();
@@ -161,10 +192,11 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
         .unwrap();
     let ordered = session.snapshot_ordered(Duration::from_secs(3), true);
     let eligibility = shared.lock().unwrap().test_agent_service_pump_status();
-    let deadline = Instant::now() + Duration::from_secs(12);
+    let observation_started = Instant::now();
+    let mut completion = application_completion::CompletionWatch::new();
     let mut summary = serde_json::Value::Null;
     let mut completed = false;
-    while Instant::now() < deadline {
+    loop {
         session.snapshot(Duration::from_millis(25));
         if crash && root.join("world-wait-admit-view-started").exists() {
             let bytes = fs::read(root.join(STORE)).unwrap();
@@ -207,10 +239,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
                     && summary["memory_store"]
                         .to_string()
                         .contains(resumed["request_digest"].as_str().unwrap());
-                if completed {
-                    break;
-                }
             }
+        }
+        if completion.finished(&summary, completed) {
+            break;
         }
     }
     let stage = fs::read(root.join(STORE))
@@ -231,8 +263,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     .unwrap();
     let joined = session.close();
     println!(
-        "hosted_wait_admit_recreated_process warmed={warmed} ordered={ordered} eligible={} native_runner_present={} retained_stage={stage:?} completed={completed} drained={drained} worker={joined:?} factory_calls=0 direct_poll_calls=0",
-        eligibility["eligible"], summary["native_runner_present"]
+        "hosted_wait_admit_recreated_process warmed={warmed} ordered={ordered} eligible={} native_runner_present={} retained_stage={stage:?} completed={completed} observation_elapsed_ms={} drained={drained} worker={joined:?} factory_calls=0 direct_poll_calls=0",
+        eligibility["eligible"],
+        summary["native_runner_present"],
+        observation_started.elapsed().as_millis()
     );
     assert!(
         warmed && ordered && eligibility["eligible"] == true,
@@ -244,7 +278,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
     );
     assert!(
         completed,
-        "original Wait Admit process recovery must settle and resume to exact Act memory"
+        "original Wait Admit process recovery must settle and resume to exact Act memory; diagnostic={}",
+        application_completion::hosted_failure_diagnostic(&summary)
     );
     println!("PRE2_HOSTED_WAIT_ADMIT_PROCESS_RECOVERY_PASSED");
 }
@@ -430,6 +465,8 @@ pub(super) fn recover_parent(
         .count();
     let recovered = command
         .env("PRE2_APP_ADMISSION", "wait-admit-recover")
+        // Existing fixture-only trace: reveal the real apply error, never relax it.
+        .env("PRE2_RESUME_REJECTION_RECOVERY_TRACE", "1")
         .output()
         .unwrap();
     secure_artifact(fixture, root, &recovered, "recover");
@@ -463,4 +500,85 @@ pub(super) fn recover_parent(
         "actual Wait Admit recovery failed after original Lookup; retained child stderr contains exact Wait projection error witness"
     );
     application_hosted_wait::report(fixture, root, model_count.load(Ordering::SeqCst));
+}
+
+/// Causal probe only: every successful View stays below its original transport
+/// timeout while the actual two-process recovery crosses the old observer12s.
+#[test]
+fn real_tcp_hosted_wait_admit_crash_delayed_success_preserves_completion_oracle() {
+    let root = temp_dir("qa-wait-admit-crash-delayed-completion");
+    fs::create_dir_all(&root).unwrap();
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.args(["--exact","execution_bridge_real_tests::real_execution_bridge::tests::qa_conformance::application_hosted_wait_crash::real_tcp_hosted_wait_admit_process_crash_recovers_original_identity","--nocapture"]);
+    command.env("PRE2_CONFORMANCE_VIEW_DELAY_MS", "1000");
+    let started = Instant::now();
+    let output = application_completion::run_child(&mut command, &root);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!(
+        "wait_admit_crash_causal_delay elapsed_ms={} exit={}\n{stdout}\n{stderr}",
+        started.elapsed().as_millis(),
+        output.status
+    );
+    fs::remove_dir_all(root).unwrap();
+    assert!(
+        stdout.contains("hosted_wait_admit_real_process_crash_boundary=true"),
+        "genuine exact persisted Admit must reach exit73 before measuring recovery"
+    );
+    assert!(stdout.contains("hosted_wait_admit_crash_canonical original_admit_committed=true old_lease_reserved=true old_settle_absent=true persisted_admit_view=true exact_receipt=true"),"genuine canonical original and exact retained checkpoint prerequisite");
+    assert!(
+        stdout.contains("hosted_wait_admit_original_recovery"),
+        "recreated process must finish its actual original Lookup trace"
+    );
+    assert!(
+        stdout.contains("hosted_wait_admit_actual_missing_harness_witness=false"),
+        "missing runtime witness is a separate failure class"
+    );
+    let recovery_elapsed_ms = stdout
+        .lines()
+        .find(|line| line.starts_with("hosted_wait_admit_recreated_process "))
+        .and_then(|line| {
+            line.split_whitespace().find_map(|field| {
+                field
+                    .strip_prefix("observation_elapsed_ms=")
+                    .and_then(|value| value.parse::<u128>().ok())
+            })
+        })
+        .expect("actual recovery child observation timing");
+    assert!(
+        recovery_elapsed_ms >= 12_000,
+        "recovery protocol stages themselves, not only pre-crash setup, must cross old observation budget"
+    );
+    assert!(
+        started.elapsed() > Duration::from_secs(12),
+        "actual successful-view stages must cross old observation window"
+    );
+    assert!(
+        output.status.success(),
+        "successful per-RPC View delay must preserve exact two-process Wait/Resume/Act oracle"
+    );
+    assert!(stdout.contains("PRE2_HOSTED_WAIT_ADMIT_PROCESS_RECOVERY_PASSED"));
+}
+
+/// Genuine cold recovery: no Play is sent until the original issued Wait has
+/// passed its authenticated Lookup/View and hydrated its local continuation.
+#[test]
+fn real_tcp_hosted_wait_admit_cold_pause_initializes_original_runner() {
+    let root = temp_dir("qa-wait-admit-cold-pause-runner");
+    fs::create_dir_all(&root).unwrap();
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.args(["--exact", "execution_bridge_real_tests::real_execution_bridge::tests::qa_conformance::application_hosted_wait_crash::real_tcp_hosted_wait_admit_process_crash_recovers_original_identity", "--nocapture"]);
+    command.env("PRE2_WAIT_COLD_PAUSE_RUNNER", "1");
+    let output = application_completion::run_child(&mut command, &root);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    println!("cold_pause_runner exit={}\n{stdout}\n{stderr}", output.status);
+    fs::remove_dir_all(root).unwrap();
+    assert!(stdout.contains("hosted_wait_admit_real_process_crash_boundary=true"));
+    assert!(stdout.contains("hosted_wait_admit_crash_canonical original_admit_committed=true old_lease_reserved=true old_settle_absent=true persisted_admit_view=true exact_receipt=true"));
+    assert!(stdout.contains("hosted_wait_cold_pause_original_lookup_view_reached=true"),
+        "actual original Lookup/View prerequisite, not an initialization-only fixture");
+    assert!(output.status.success(), "cold paused issued Wait recovery must preserve the original completion oracle");
+    assert!(stdout.contains("hosted_wait_cold_pause_runner_hydrated_without_model_turn=true"));
+    assert!(stdout.contains("PRE2_HOSTED_WAIT_ADMIT_PROCESS_RECOVERY_PASSED"));
 }
