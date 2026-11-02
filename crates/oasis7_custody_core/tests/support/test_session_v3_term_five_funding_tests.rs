@@ -217,3 +217,125 @@ fn term_v3_cold_five_ledger_rejects_missing_slot_old_ports_holes_and_expiry_chan
         serde_json::json!([]);
     assert!(serde_json::from_value::<AccountProvisionApprovalState>(old_raw).is_err());
 }
+
+/// Genuine Core Abort PoP preserves its ordinary Ack, not a new V3 payer.
+/// Native/service signatures remain the existing explicit fixture boundary.
+#[test]
+fn term_v3_human_abort_ack_does_not_birth_owned_five_payer() {
+    let mut f = super::super::machine_tests::ready_v3(9000);
+    let mut initial = request(&f, "v3-abort-initial-claim", None);
+    initial.purposes = vec![TestSessionPurposeV1::Execute, TestSessionPurposeV1::Read];
+    let mut read = allocation(32);
+    read.purpose = SessionPurposeV1::ReconcileRead;
+    assert!(
+        claim(&mut f, &initial, &[allocation(31), read], 41, 12_000)
+            .unwrap()
+            .newly_claimed
+    );
+    let request = SessionControlRequestV1 {
+        api_version: 1,
+        session_id: f.session_id.clone(),
+        request_id: "v3-term-human-abort".into(),
+        kind: SessionControlKindV1::Abort,
+    };
+    let nonce = control_tests::challenge(&mut f, &request, SessionPurposeV1::Execution, 71, 13_000);
+    let bytes = serde_json::to_vec(&request).unwrap();
+    let pop = control_tests::control_pop(
+        &f,
+        &bytes,
+        (
+            HttpPopRoute::Abort(f.session_id.clone()),
+            HttpPopProfileV1::Custody,
+        ),
+        &request.request_id,
+        Some(&nonce),
+        SessionPurposeV1::Execution,
+        13_003,
+    );
+    let ingress = "v3-term-human-abort-http";
+    control_tests::control_paid(&mut f, &pop, ingress, 13_003);
+    let mut ordinary = f.state.clone();
+    let expected_ack = ordinary
+        .control_test_session_v2(
+            SessionProofRequest {
+                ingress_attempt_id: ingress,
+                original_bytes: &bytes,
+                possession: &pop,
+            },
+            None,
+            UnixMillis::new(13_005),
+            &mut NoNativeChecks,
+        )
+        .unwrap();
+    let (ack, owned) = f
+        .state
+        .control_test_session_v2_and_begin_owned_term(
+            SessionProofRequest {
+                ingress_attempt_id: ingress,
+                original_bytes: &bytes,
+                possession: &pop,
+            },
+            UnixMillis::new(13_005),
+            &mut NoNativeChecks,
+        )
+        .unwrap();
+    assert_eq!(ack.kind, SessionControlKindV1::Abort);
+    assert_eq!(
+        serde_json::to_value(&ack).unwrap(),
+        serde_json::to_value(&expected_ack).unwrap(),
+        "actual Abort must preserve its complete ordinary Ack"
+    );
+    assert_eq!(spent(&f), 0, "actual Abort Ack must not spend Term24");
+    // Optional actual pre-fix artifact, never fabricated or printed. Root can
+    // replay this exact service-key fixture after the cold eligibility fix.
+    if owned.is_some() {
+        if let Some(path) = std::env::var_os("OASIS7_TERM_V3_ABORT_LEGACY_STATE_OUT") {
+            use std::io::Write;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let mut file = options.open(path).unwrap();
+            file.write_all(&serde_json::to_vec(&f.state).unwrap())
+                .unwrap();
+            file.sync_all().unwrap();
+            println!("term_v3_actual_abort_owned_legacy_fixture_saved=true");
+        }
+    }
+    if let Some(path) = std::env::var_os("OASIS7_TERM_V3_ABORT_LEGACY_STATE_IN") {
+        assert!(
+            serde_json::from_slice::<AccountProvisionApprovalState>(&std::fs::read(path).unwrap())
+                .is_err(),
+            "exact actual pre-fix Abort-owned state must fail cold validation"
+        );
+    }
+    if let Some(ref previous_owned) = owned {
+        let after_ack = f.state.clone();
+        assert!(
+            f.state
+                .reserve_test_session_term_five_v3(
+                    previous_owned,
+                    Round::First,
+                    UnixMillis::new(13_007)
+                )
+                .is_err(),
+            "HumanAbort must not produce the HumanFinish-only V3 payer"
+        );
+        assert_eq!(f.state, after_ack);
+    }
+    assert!(
+        owned.is_none(),
+        "V3 Abort Ack must not return a HumanFinish-only first continuation"
+    );
+    assert_eq!(
+        f.state, ordinary,
+        "ordinary Abort appends no new V3 ownership/qualification/funding"
+    );
+    assert_eq!(spent(&f), 0);
+    let cold: AccountProvisionApprovalState =
+        serde_json::from_slice(&serde_json::to_vec(&f.state).unwrap()).unwrap();
+    assert_eq!(cold, f.state);
+}
