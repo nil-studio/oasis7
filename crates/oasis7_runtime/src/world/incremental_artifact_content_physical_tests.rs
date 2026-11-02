@@ -95,7 +95,11 @@ impl<A: ValueNodeWriter, B: ValueNodeWriter> ValueNodeWriter for Dual<'_, A, B> 
 }
 #[test]
 fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_originals() {
-    const LENGTH: usize = 32 << 20;
+    for length in [64, 1 << 20, 32 << 20] {
+        run_artifact_physical_case(length);
+    }
+}
+fn run_artifact_physical_case(length: usize) {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let paths = [
@@ -122,7 +126,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                 // Caller-owned functional World input is charged separately
                 // from temporary storage work; this is not a C<T benchmark.
                 let _input = memory
-                    .reserve(2 * LENGTH + (8 << 20), MemoryClass::Ordinary)
+                    .reserve(2 * length + (8 << 20), MemoryClass::Ordinary)
                     .unwrap();
                 let mut world = World::new();
                 world.module_artifacts.clear();
@@ -132,7 +136,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                     .module_artifacts
                     .insert(" arbitrary registered 界 ".into());
                 let bytes: Arc<[u8]> = Arc::from(
-                    (0..LENGTH)
+                    (0..length)
                         .map(|i| ((i.wrapping_mul(131) ^ i.wrapping_shr(7)) & 255) as u8)
                         .collect::<Vec<_>>(),
                 );
@@ -162,7 +166,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                             cancelled: || false,
                         },
                         &mut 6,
-                        &mut raw(LENGTH as u64),
+                        &mut raw(length as u64),
                         &mut |original, bytes| {
                             objects
                                 .write_object(
@@ -253,7 +257,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                     &mut objects.original_reader(&mut source_io),
                     &mut RuntimeArtifactContentPagesWorkV1 {
                         outer_scan: &mut scan(),
-                        raw: &mut raw(LENGTH as u64),
+                        raw: &mut raw(length as u64),
                         max_pages: 6 * (257 + 2),
                         max_originals: 2,
                     },
@@ -373,7 +377,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                         class: MemoryClass::Recovery,
                         cancelled: &stopped,
                     }),
-                    &mut raw(LENGTH as u64),
+                    &mut raw(length as u64),
                 )
                 .unwrap()
                 .validate_binding(&roots)
@@ -386,7 +390,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                 &cold,
                 &roots,
                 &stopped,
-                LENGTH as u64,
+                length as u64,
                 expected_encode_limit,
             );
         }
@@ -480,6 +484,18 @@ fn continue_storage_after_recovery(
         )
         .unwrap()
     };
+    // Separate bootstrap/full-family IO from the ordinary fixed-delta path.
+    // The same finite allowance is used for every original size and codec.
+    let ordinary_io = || PageIoBudget {
+        reads_remaining: 4096,
+        read_bytes_remaining: 1 << 20,
+        writes_remaining: 4096,
+        write_bytes_remaining: 1 << 20,
+    };
+    let state = store
+        .state_session(ordinary_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let values = store.value_session(ordinary_io());
     let parent = ExecutionParent {
         roots: roots.clone(),
         commit: [57; 32],
@@ -510,7 +526,7 @@ fn continue_storage_after_recovery(
         )
         .unwrap();
     }
-    let mut writer = store.value_session(physical());
+    let mut writer = store.value_session(ordinary_io());
     {
         let mut reads = logical();
         let mut writes = logical();
@@ -627,6 +643,15 @@ fn continue_storage_after_recovery(
             .put_node(id, charge.retain(node.bytes.clone()))
             .unwrap();
     }
+    let read_io = values.remaining_io().unwrap();
+    let write_io = writer.remaining_io().unwrap();
+    eprintln!(
+        "artifact fixed-delta original={length} value_reads={} value_read_bytes={} writes={} write_bytes={}",
+        4096 - read_io.reads_remaining,
+        (1 << 20) - read_io.read_bytes_remaining,
+        4096 - write_io.writes_remaining,
+        (1 << 20) - write_io.write_bytes_remaining
+    );
     let reopened = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
