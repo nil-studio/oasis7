@@ -140,6 +140,53 @@ fn session_v2_pending_start_first_five_then_master134_no_book_and_cold() {
         nonce["consumed_by"].is_null(),
         "only real Book birth may consume the nonce"
     );
+    let pending = &row["execution_pending_start"];
+    let source_id = pending["source_operation_id"].as_str().unwrap();
+    let source = &row["sources"][source_id];
+    assert!(source.get("observation_profile").is_none());
+    assert!(source.get("client_admission").is_none());
+    assert_eq!(pending["ingress_attempt_id"], "pending-start-ingress");
+    assert!(pending["accepted_ordinal"].as_u64().unwrap() > 0);
+    assert_eq!(source["source"]["created_at"], pending["accepted_at"]);
+    assert_eq!(source["source"]["expires_at"], pending["absolute_until"]);
+    assert!(
+        row["source_funding"][source_id]
+            .get("execution_pending_start_v2")
+            .is_some()
+    );
+    // Each mutation starts from the genuine paid birth, before any observation.
+    for mutation in 0..7 {
+        let mut bad = value.clone();
+        let row = &mut bad["test_sessions_v2"][&f.session_id];
+        match mutation {
+            0 => {
+                row["sources"][source_id]["observation_profile"] =
+                    serde_json::json!("client_credential_five_oracle_v2")
+            }
+            1 => {
+                row["sources"][source_id]["client_admission"] = serde_json::json!({
+                    "ingress_attempt_id":"pending-start-ingress",
+                    "signed_attempt_digest":"11".repeat(32)
+                })
+            }
+            2 => row["source_funding"][source_id] = serde_json::json!("control"),
+            3 => {
+                row["source_funding"][source_id]["execution_pending_start_v2"]["master_digest"] =
+                    serde_json::json!(vec![0u8; 32])
+            }
+            4 => {
+                row["execution_pending_start"]["ingress_attempt_id"] =
+                    serde_json::json!("different-ingress")
+            }
+            5 => row["execution_pending_start"]["accepted_ordinal"] = serde_json::json!(0),
+            6 => row["sources"][source_id]["source"]["expires_at"] = serde_json::json!("99999"),
+            _ => unreachable!(),
+        }
+        assert!(
+            serde_json::from_value::<AccountProvisionApprovalState>(bad).is_err(),
+            "paid pending source mutation {mutation} must fail closed"
+        );
+    }
     let cold: AccountProvisionApprovalState = serde_json::from_value(value).unwrap();
     assert_eq!(cold, f.state);
     let before_history = f.state.clone();
@@ -191,6 +238,7 @@ fn session_v2_pending_start_138_retains_first_five_when_master134_fails() {
         n += 1;
     }
     assert_eq!(remaining(&f), 138);
+    let baseline = serde_json::to_value(&f.state).unwrap();
     let proof = || SessionProofRequest {
         ingress_attempt_id: "pending-insufficient-ingress",
         original_bytes: &body,
@@ -217,7 +265,16 @@ fn session_v2_pending_start_138_retains_first_five_when_master134_fails() {
     let row = &value["test_sessions_v2"][&f.session_id];
     assert!(row["execution_book"].is_null());
     assert!(row["execution_pending_start"].is_null());
-    assert!(row["sources"].as_object().unwrap().is_empty());
+    let baseline_row = &baseline["test_sessions_v2"][&f.session_id];
+    for key in ["sources", "source_funding", "source_oracle_reads"] {
+        assert_eq!(
+            row.get(key).expect("actual source inventory field"),
+            baseline_row
+                .get(key)
+                .expect("actual baseline source inventory field"),
+            "no new source state after insufficient master budget: {key}"
+        );
+    }
     let cold: AccountProvisionApprovalState = serde_json::from_value(value).unwrap();
     assert_eq!(cold, f.state);
 }
