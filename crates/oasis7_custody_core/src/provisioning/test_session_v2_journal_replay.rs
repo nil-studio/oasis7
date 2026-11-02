@@ -30,6 +30,9 @@ pub(super) struct Replay<'a> {
     execution_pending_directory_signed: bool,
     execution_pending_fence_signed: bool,
     execution_pending_fence_read_signed: bool,
+    read_current_ports: BTreeSet<(String, ReadCurrentPortV3)>,
+    read_current_fees: BTreeSet<String>,
+    read_current_reservations: BTreeSet<String>,
     read_history_fees: BTreeSet<String>,
     read_history_returns: BTreeSet<String>,
     model_fees: BTreeSet<String>,
@@ -104,6 +107,9 @@ impl<'a> Replay<'a> {
             execution_pending_directory_signed: false,
             execution_pending_fence_signed: false,
             execution_pending_fence_read_signed: false,
+            read_current_ports: BTreeSet::new(),
+            read_current_fees: BTreeSet::new(),
+            read_current_reservations: BTreeSet::new(),
             read_history_fees: BTreeSet::new(),
             read_history_returns: BTreeSet::new(),
             model_fees: BTreeSet::new(),
@@ -415,6 +421,8 @@ impl<'a> Replay<'a> {
                 != s.execution_pending_start
                     .as_ref()
                     .is_some_and(|p| p.has_directory_signature())
+            || (self.read_current_fees.len() as u64, self.read_current_reservations.len() as u64) != super::super::v2_read_current::fee_counts(s)
+            || self.read_current_ports.len() + self.read_current_fees.len() + self.read_current_reservations.len() != super::super::v2_read_current::event_count(s)
             || self.read_history_fees.len() != super::super::v2_read_history::read_fee_count(s) as usize
             || self.read_history_returns.len() != s.purpose_http_admissions.values().filter(|a|matches!(&a.class,
                 SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } if fee.outcome.is_some())).count()

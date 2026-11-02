@@ -76,6 +76,9 @@ pub enum SessionPurposeHttpAdmissionClassV1 {
     GenericOne,
     /// Fixed Read-only Host1 plus actual Owner-service/Account2 settlement.
     ReadPrepareHistoryV2 { fee: Box<ReadPrepareHistoryFeeV2> },
+    ReadCurrentFiveV3 {
+        preparation: Box<ReadCurrentPreparationRecordV3>,
+    },
     ToolNonceThree {
         owner_attempt: String,
         account_attempt: String,

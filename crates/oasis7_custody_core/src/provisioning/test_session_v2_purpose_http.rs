@@ -81,6 +81,7 @@ impl AccountProvisionApprovalState {
                 old.class,
                 SessionPurposeHttpAdmissionClassV1::GenericOne
                     | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { .. }
             ) && old.purpose == purpose
                 && old.hop == SessionControlHopV1::Host
                 && old.signed_attempt_digest == signature
@@ -153,6 +154,7 @@ pub(in crate::provisioning) fn validate_purpose_http_v2(s: &TestSessionAuthority
                 paid.class,
                 SessionPurposeHttpAdmissionClassV1::GenericOne
                     | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { .. }
                     | SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
                     | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
                     | SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. }
