@@ -17,6 +17,14 @@ pub use read::{
     inspect_runtime_artifact_record_root_v1, read_runtime_artifact_member_v1,
     read_runtime_artifact_record_reference_v1,
 };
+#[path = "incremental_runtime_artifact_resources_family.rs"]
+mod family;
+#[path = "incremental_runtime_artifact_resources_key.rs"]
+mod key;
+pub use family::{
+    RuntimeArtifactResourcesQualificationV1, RuntimeArtifactResourcesReadContextV1,
+    qualify_runtime_artifact_resources_v1,
+};
 
 #[path = "incremental_runtime_artifact_resources_genesis.rs"]
 mod genesis;
@@ -31,6 +39,9 @@ pub struct BuiltinReleaseEntryRefV1<'a> {
 
 pub trait BuiltinReleaseModuleSetSourceV1 {
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn for_each_module<'a, E, F>(&'a self, visit: F) -> Result<(), E>
     where
         F: FnMut(&'a str, BuiltinReleaseEntryRefV1<'a>) -> Result<(), E>;
@@ -45,6 +56,9 @@ pub trait BuiltinReleaseManifestSourceV1 {
         Self: 'a;
 
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 
     fn for_each_module_set<'a, E, F>(&'a self, visit: F) -> Result<(), E>
     where

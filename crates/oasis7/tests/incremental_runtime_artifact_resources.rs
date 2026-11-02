@@ -39,6 +39,9 @@ use oasis7_runtime::{
 mod fixture;
 use fixture::{Directory, logical, physical};
 
+#[path = "support/incremental_runtime_artifact_resources_qualification.rs"]
+mod qualification;
+
 struct EmptyModuleSet;
 impl BuiltinReleaseModuleSetSourceV1 for EmptyModuleSet {
     fn len(&self) -> usize {

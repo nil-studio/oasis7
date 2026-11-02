@@ -19,7 +19,10 @@ pub struct RuntimeArtifactResourcesWorkV1 {
     pub max_pending_node_bytes: usize,
 }
 impl RuntimeArtifactResourcesWorkV1 {
-    fn spend(&mut self, cancelled: &mut impl FnMut() -> bool) -> Result<(), ValueTreeError> {
+    pub(in crate::incremental_runtime_artifact_resources) fn spend(
+        &mut self,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<(), ValueTreeError> {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
