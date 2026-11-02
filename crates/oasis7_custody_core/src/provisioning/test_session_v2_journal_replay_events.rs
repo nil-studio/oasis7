@@ -64,7 +64,15 @@ impl Replay<'_> {
                 if !self.approval_consumed {
                     return Err(invalid());
                 }
-                let source = &self.s.sources.get(id).ok_or_else(invalid)?.source;
+                let wrapper = self.s.sources.get(id).ok_or_else(invalid)?;
+                if wrapper
+                    .client_admission
+                    .as_ref()
+                    .is_some_and(|b| !self.fees.contains(&b.ingress_attempt_id))
+                {
+                    return Err(invalid());
+                }
+                let source = &wrapper.source;
                 if source.created_at.0 != at.get() {
                     return Err(invalid());
                 }
@@ -82,11 +90,51 @@ impl Replay<'_> {
                     self.identity.charge(1).map_err(|_| invalid())?;
                 }
             }
+            E::ClientSourceProfileBorn {
+                source_operation_id: id,
+                profile,
+                ingress_attempt_id,
+                signed_attempt_digest,
+                source_reserved_ordinal,
+            } => {
+                let wrapper = self.s.sources.get(id).ok_or_else(invalid)?;
+                if !self.sources.contains(id)
+                    || !self.fees.contains(ingress_attempt_id)
+                    || self.reads.get(id) != Some(&0)
+                    || wrapper.observation_profile != Some(*profile)
+                    || wrapper.client_admission.as_ref().is_none_or(|binding| {
+                        !binding.matches(ingress_attempt_id, signed_attempt_digest)
+                    })
+                    || wrapper.source.created_at.0 != at.get()
+                    || source_reserved_ordinal.checked_add(1) != Some(ordinal)
+                    || session_event_ordinal_v2(
+                        self.s,
+                        &E::SourceReserved {
+                            source_operation_id: id.clone(),
+                        },
+                    )? != Some(*source_reserved_ordinal)
+                {
+                    return Err(invalid());
+                }
+                validate_client_source_profile_v2(self.s, id)?;
+                Self::unique(&mut self.source_profiles, id)?;
+            }
             E::SourceReadReserved {
                 source_operation_id: id,
                 ticket,
             } => {
                 let source = &self.s.sources.get(id).ok_or_else(invalid)?.source;
+                if self
+                    .s
+                    .sources
+                    .get(id)
+                    .ok_or_else(invalid)?
+                    .observation_profile
+                    .is_some()
+                    && !self.source_profiles.contains(id)
+                {
+                    return Err(invalid());
+                }
                 if at.get() >= source.expires_at.0 {
                     return Err(invalid());
                 }
@@ -287,7 +335,8 @@ impl Replay<'_> {
             } => {
                 if !self.active
                     || !self.fees.contains(ingress)
-                    || self.reads.get(id) != Some(&3)
+                    || self.reads.get(id)
+                        != Some(&client_source_tickets_v2(self.s, id, *profile)?.0)
                     || self.s.source_funding.get(id) != Some(&SessionSourceFundingV1::Control)
                     || !self.lifetimes.insert((*profile, id.clone()))
                 {
@@ -327,7 +376,8 @@ impl Replay<'_> {
                 let c = self.s.challenges.get(id).ok_or_else(invalid)?;
                 self.source_ready(source, at)?;
                 if !self.fees.contains(ingress)
-                    || self.reads.get(source) != Some(&4)
+                    || self.reads.get(source)
+                        != Some(&client_source_tickets_v2(self.s, source, *profile)?.1)
                     || !self.lifetimes.contains(&(*profile, source.clone()))
                 {
                     return Err(invalid());
@@ -359,7 +409,15 @@ impl Replay<'_> {
                 let record = self.s.credential_claims.get(id).ok_or_else(invalid)?;
                 if record.claimed_at != at
                     || !self.fees.contains(&record.ingress_attempt_id)
-                    || self.reads.get(&record.source_operation_id) != Some(&4)
+                    || self.reads.get(&record.source_operation_id)
+                        != Some(
+                            &client_source_tickets_v2(
+                                self.s,
+                                &record.source_operation_id,
+                                SessionJournalProfileV2::Credential,
+                            )?
+                            .1,
+                        )
                     || !self.lifetimes.contains(&(
                         SessionJournalProfileV2::Credential,
                         record.source_operation_id.clone(),
@@ -434,7 +492,15 @@ impl Replay<'_> {
                     self.live(c.purpose, at)?;
                     let o = observation.as_ref().ok_or_else(invalid)?;
                     self.source_ready(o.source_operation_id(), at)?;
-                    if self.reads.get(o.source_operation_id()) != Some(&4)
+                    if self.reads.get(o.source_operation_id())
+                        != Some(
+                            &client_source_tickets_v2(
+                                self.s,
+                                o.source_operation_id(),
+                                SessionJournalProfileV2::Control,
+                            )?
+                            .1,
+                        )
                         || !self.lifetimes.contains(&(
                             SessionJournalProfileV2::Control,
                             o.source_operation_id().into(),

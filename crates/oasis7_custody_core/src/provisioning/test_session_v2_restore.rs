@@ -263,6 +263,7 @@ impl AccountProvisionApprovalState {
             }
             let mut source_nonces = std::collections::BTreeSet::new();
             for (key, wrapper) in &s.sources {
+                validate_client_source_profile_v2(s, key)?;
                 if !source_nonces.insert(&wrapper.source.verify_nonce) {
                     return Err(invalid());
                 }

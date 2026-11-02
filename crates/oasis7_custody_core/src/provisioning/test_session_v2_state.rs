@@ -171,6 +171,10 @@ pub struct TestSessionSourceV2 {
     pub api_version: u8,
     pub approved_input_digest: String,
     pub source: ProvisionOriginInspectionV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::provisioning) observation_profile: Option<ClientSourceObservationProfileV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::provisioning) client_admission: Option<ClientSourceAdmissionV2>,
 }
 impl core::fmt::Debug for TestSessionSourceV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

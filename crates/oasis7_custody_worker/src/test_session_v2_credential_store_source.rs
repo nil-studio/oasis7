@@ -46,12 +46,17 @@ impl OwnerProvisionApprovalStore {
                     .map(|saved| saved.source.verify_nonce.clone())
                     .unwrap_or_else(|| random.clone());
                 state
-                    .reserve_test_session_v2_source(
+                    .reserve_test_session_v2_credential_five_source(
                         &rpc.http.selector.session_id,
                         SessionSourceReservation {
                             operation_id: &id,
                             nonce: &nonce,
                             funding: SessionSourceFundingV1::Control,
+                        },
+                        SessionProofRequest {
+                            ingress_attempt_id: &rpc.ingress_attempt_id,
+                            original_bytes: rpc.http.original.body.as_bytes(),
+                            possession: proof,
                         },
                         time,
                     )
@@ -129,7 +134,7 @@ impl OwnerProvisionApprovalStore {
                     return Err(rejected());
                 }
                 if lifetime_claim {
-                    if ticket != 3 {
+                    if ticket != 4 {
                         return Err(rejected());
                     }
                     state
@@ -145,7 +150,7 @@ impl OwnerProvisionApprovalStore {
                             cache,
                         )
                         .map_err(|_| rejected())?;
-                } else if !matches!(ticket, 1 | 2) {
+                } else if !matches!(ticket, 2 | 3) {
                     return Err(rejected());
                 }
                 state
