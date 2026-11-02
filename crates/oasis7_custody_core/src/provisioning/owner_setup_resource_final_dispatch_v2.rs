@@ -48,7 +48,6 @@ pub struct PreparedOwnerSetupResourceDispatchV2 {
 mod http;
 pub use http::{
     OwnerSetupPaidResourceResultV2, OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceFinalHttpV2,
-    OwnerSetupResourceWorldBodyV2, RESOURCE_READ_PROOF_HEADER,
 };
 impl PreparedOwnerSetupResourceDispatchV2 {
     pub fn issuer_pin(&self) -> &PaidResourceReadIssuerPinV1 {

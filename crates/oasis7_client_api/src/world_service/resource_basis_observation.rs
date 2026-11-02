@@ -131,9 +131,21 @@ pub struct ResourceOwnerStateV1 {
     #[serde(deserialize_with = "required_option")]
     pub signer_delegation: Option<ResourceSignerRecordV1>,
 }
+/// Runtime committed height is distinct from Formal log position. The real
+/// activation CommitRef stays unchanged and is covered by the Node signature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResourceGoalActivationProfileV2 {
+    FormalQualifiedV2 {
+        committed_runtime_height: DecimalU64,
+    },
+}
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceCurrentGoalV2 {
+    /// Factual coordinate selection only; no Current/read or payment authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation_profile: Option<ResourceGoalActivationProfileV2>,
     pub schema_revision: u32,
     pub control: GameTaskControlV1,
     pub read_commit: ResourceCommitRefV1,
@@ -145,6 +157,7 @@ pub struct ResourceCurrentGoalV2 {
 impl From<&ws::private_goal_read::CurrentGoalResponse> for ResourceCurrentGoalV2 {
     fn from(v: &ws::private_goal_read::CurrentGoalResponse) -> Self {
         Self {
+            activation_profile: None,
             schema_revision: v.schema_revision,
             control: v.control.clone(),
             read_commit: (&v.read_commit).into(),
