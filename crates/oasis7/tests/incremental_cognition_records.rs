@@ -20,6 +20,8 @@ mod cognition_missing_child;
 mod cognition_namespace;
 #[path = "support/incremental_cognition_pages.rs"]
 mod cognition_pages;
+#[path = "support/incremental_cognition_scaling.rs"]
+mod cognition_scaling;
 #[path = "support/incremental_cognition_family_faults.rs"]
 mod family_faults;
 #[allow(dead_code)]
@@ -1102,4 +1104,13 @@ fn run_cognition(all_optional: bool, groups_only: bool) {
         values.remaining_io().unwrap(),
         io
     );
+}
+
+#[test]
+fn cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json() {
+    let small = cognition_scaling::run(64);
+    let medium = cognition_scaling::run(1 << 20);
+    let large = cognition_scaling::run(32 << 20);
+    assert_eq!(small, medium);
+    assert_eq!(small, large);
 }
