@@ -863,3 +863,111 @@ fn instance_noop_independent_getter_boundary_and_real_io_failures_abort_prefix()
         ));
     }
 }
+
+#[test]
+fn instance_create_move_delete_each_advance_qualified_parent_and_raw_counts() {
+    use oasis7_formal_protocol::incremental_execution::TransitionVerifier;
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (_, mut parent, mut pages, mut values) = setup_instances(&memory);
+    let mut proof = qualify(
+        &parent.roots,
+        &pages,
+        &values,
+        &memory,
+        MemoryClass::Ordinary,
+    );
+    let mut second = instance();
+    second.instance_id = "different embedded ID".into();
+    let mut moved = instance();
+    moved.module_id = "different module\0 ".into();
+    for (ordinal, (key, after, total, modules)) in [
+        ("second", Some(second), 2, 1),
+        ("map-key", Some(moved), 2, 2),
+        ("second", None, 1, 1),
+        ("map-key", None, 0, 0),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let source = values.clone();
+        let live = parent.fence().unwrap();
+        let operation = [ordinal as u8 + 20; 32];
+        let mut bounds = limits();
+        bounds.max_reads = 128;
+        bounds.max_writes = 128;
+        let mut tx =
+            ExecutionTransaction::begin(parent.clone(), operation, &pages, &memory, bounds)
+                .unwrap();
+        crate::contribute_module_instance_change(
+            &proof,
+            key,
+            after.as_ref(),
+            &mut tx,
+            &source,
+            &mut BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut genesis_io(),
+                cancelled: || false,
+            },
+            4096,
+        )
+        .unwrap();
+        let guard = tx.guard();
+        let sealed = tx.seal(&guard, &live, 0).unwrap();
+        for node in &sealed.new_nodes {
+            pages.0.insert(node.digest.clone(), node.bytes.clone());
+        }
+        let state = Store {
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            pages: RefCell::new(pages.0.clone()),
+            fail_write: false,
+        };
+        let scratch = Store {
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            pages: RefCell::new(BTreeMap::new()),
+            fail_write: false,
+        };
+        let verifier = TransitionVerifier {
+            parent: &parent,
+            operation,
+            source: &state,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: 1 << 20,
+        };
+        let mut ctx = ModuleInstanceRecoveryContext {
+            root: sealed.record.after.state_root(Ns::Business),
+            state: &state,
+            values: &values,
+            scratch: &scratch,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            state_io: &mut state_io(),
+            value_io: &mut genesis_io(),
+            scratch_io: &mut scratch_io(),
+            max_scalar_bytes: 4096,
+        };
+        let next = crate::accept_module_instance_transition_v1(
+            &proof,
+            &sealed.record,
+            &verifier,
+            &mut ctx,
+            &mut 10_000,
+            || false,
+        )
+        .unwrap();
+        let raw = ctx.qualify_family(&sealed.record.after, || false).unwrap();
+        assert_eq!(
+            (next.instance_count(), next.module_count()),
+            (total, modules)
+        );
+        assert_eq!((raw.instance_count(), raw.module_count()), (total, modules));
+        next.validate_binding(&sealed.record.after).unwrap();
+        parent.roots = sealed.record.after.clone();
+        parent.commit = operation;
+        proof = next;
+    }
+}
