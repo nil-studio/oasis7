@@ -26,8 +26,15 @@ use crate::{
 
 #[path = "node_bft_action_validation.rs"]
 mod bft_action_validation;
+#[path = "node_runtime_closed_bounded.rs"]
+mod closed_bounded;
 #[path = "node_runtime_gameplay_origin.rs"]
 mod gameplay_origin;
+
+#[path = "node_runtime_cleanup_v2_catalog.rs"]
+mod cleanup_v2_catalog;
+use cleanup_v2_catalog::decode_local_consensus_action_payload_envelope;
+pub(crate) use cleanup_v2_catalog::{closed_task_deadline, is_closed_task_catalog};
 
 const CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION: u8 = 1;
 const MAIN_TOKEN_ACTION_AUTH_PAYLOAD_VERSION: u8 = 1;
@@ -89,6 +96,12 @@ struct LocalMainTokenActionAuthProof {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 enum LocalConsensusActionPayloadBody {
+    WorldGuardedStopV2 {
+        request: Box<oasis7_client_api::world_service::task_stop_v2::TaskStopSubmitV2>,
+    },
+    WorldCleanupV2 {
+        request: Box<oasis7_client_api::world_service::task_cleanup_v2::TaskCleanupSubmitV2>,
+    },
     RuntimeAction {
         action: JsonValue,
     },
@@ -362,7 +375,51 @@ impl NodeRuntime {
         action_id: u64,
         payload_cbor: Vec<u8>,
     ) -> Result<(), NodeError> {
-        let player_id = player_id.into();
+        let action =
+            self.validated_player_consensus_action(player_id.into(), action_id, payload_cbor)?;
+        if let Some(selected) = &self.bft_v3_config {
+            if selected.capacity_exhausted.load(Ordering::Acquire) {
+                return Err(NodeError::Consensus {
+                    reason: "wire-3 H prefix capacity exhausted".into(),
+                });
+            }
+            crate::node_bft_v3_runtime::validate_single_action(&action)?;
+        }
+        let mut pending = self
+            .pending_consensus_actions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if (self.bft_config.is_some()
+            || self.bft_v2_config.is_some()
+            || self.bft_v3_config.is_some())
+            && bft_action_validation::reject_conflicting_queue_id(&pending, &action)?
+        {
+            return Ok(());
+        }
+        if pending.len() >= self.config.max_pending_consensus_actions {
+            return Err(NodeError::Consensus {
+                reason: format!(
+                    "pending consensus actions queue saturated: len={} limit={}",
+                    pending.len(),
+                    self.config.max_pending_consensus_actions
+                ),
+            });
+        }
+        reserve_action_payload_bytes(
+            &self.pending_consensus_action_queue_bytes,
+            self.config.max_pending_consensus_action_queue_bytes,
+            action.payload_cbor.len(),
+        )?;
+        pending.push(action);
+        Ok(())
+    }
+
+    fn validated_player_consensus_action(
+        &self,
+        player_id: String,
+        action_id: u64,
+        payload_cbor: Vec<u8>,
+    ) -> Result<NodeConsensusAction, NodeError> {
         let player_id = player_id.trim();
         if player_id.is_empty() {
             return Err(NodeError::Consensus {
@@ -401,41 +458,7 @@ impl NodeRuntime {
             payload_cbor,
         )
         .map_err(|err| NodeError::Consensus { reason: err.reason })?;
-        if let Some(selected) = &self.bft_v3_config {
-            if selected.capacity_exhausted.load(Ordering::Acquire) {
-                return Err(NodeError::Consensus {
-                    reason: "wire-3 H prefix capacity exhausted".into(),
-                });
-            }
-            crate::node_bft_v3_runtime::validate_single_action(&action)?;
-        }
-        let mut pending = self
-            .pending_consensus_actions
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if (self.bft_config.is_some()
-            || self.bft_v2_config.is_some()
-            || self.bft_v3_config.is_some())
-            && bft_action_validation::reject_conflicting_queue_id(&pending, &action)?
-        {
-            return Ok(());
-        }
-        if pending.len() >= self.config.max_pending_consensus_actions {
-            return Err(NodeError::Consensus {
-                reason: format!(
-                    "pending consensus actions queue saturated: len={} limit={}",
-                    pending.len(),
-                    self.config.max_pending_consensus_actions
-                ),
-            });
-        }
-        reserve_action_payload_bytes(
-            &self.pending_consensus_action_queue_bytes,
-            self.config.max_pending_consensus_action_queue_bytes,
-            action.payload_cbor.len(),
-        )?;
-        pending.push(action);
-        Ok(())
+        Ok(action)
     }
 
     pub fn submit_feedback(
@@ -535,30 +558,6 @@ impl NodeRuntime {
         }
         pending.push(announce);
         Ok(())
-    }
-}
-
-fn decode_local_consensus_action_payload_envelope(
-    payload_cbor: &[u8],
-) -> Result<LocalConsensusActionPayloadEnvelope, String> {
-    gameplay_origin::validate_metadata_presence(payload_cbor)?;
-    match serde_cbor::from_slice::<LocalConsensusActionPayloadEnvelope>(payload_cbor) {
-        Ok(envelope) => {
-            gameplay_origin::validate_envelope(&envelope)?;
-            Ok(envelope)
-        }
-        Err(error) if gameplay_origin::recognized_metadata(payload_cbor) => {
-            Err(format!("invalid gameplay origin envelope: {error}"))
-        }
-        Err(_) => Ok(LocalConsensusActionPayloadEnvelope {
-            version: CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION,
-            gameplay_submission_origin: None,
-            auth: None,
-            body: LocalConsensusActionPayloadBody::RuntimeAction {
-                action: serde_cbor::from_slice::<JsonValue>(payload_cbor)
-                    .map_err(|err| format!("legacy runtime action decode failed: {err}"))?,
-            },
-        }),
     }
 }
 
@@ -1195,3 +1194,7 @@ pub(crate) use governance_auth::preflight_with_execution_hook;
 pub(crate) use governance_auth::retain_for_bft_v3_parent;
 pub(crate) use governance_auth::retain_for_proposal as retain_governance_action_for_proposal;
 pub(crate) use governance_auth::validate_consensus_action_payload_auth;
+
+#[cfg(test)]
+#[path = "node_runtime_cleanup_v2_tests.rs"]
+pub(crate) mod cleanup_v2_tests;
