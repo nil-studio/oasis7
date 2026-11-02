@@ -19,6 +19,8 @@ pub(super) struct MachineConfig {
     execution_dispatch_pin: Option<AccountMachineIssuerPinV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     execution_identity_origin: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_inspect_pin: Option<AccountMachineIssuerPinV2>,
     native_origin: String,
 }
 fn unavailable() -> StoreError {
@@ -88,6 +90,12 @@ impl MachineConfig {
                     .as_ref()
                     .map(|pin| (pin, AccountMachinePurposeV2::ExecutionDispatchClaimV2)),
             )
+            .chain(self.source_inspect_pin.as_ref().map(|pin| {
+                (
+                    pin,
+                    AccountMachinePurposeV2::ExecutionPendingSourceNativeLeafV2,
+                )
+            }))
         {
             let identity = AccountMachineIssuerV2 {
                 namespace: pin.namespace.clone(),
@@ -130,6 +138,7 @@ impl MachineConfig {
             .chain(self.preflight_access_pin.iter())
             .chain(self.execution_prepare_pin.iter())
             .chain(self.execution_dispatch_pin.iter())
+            .chain(self.source_inspect_pin.iter())
             .any(|other| {
                 other.namespace != p.namespace
                     || other.service_id != p.service_id
@@ -162,6 +171,17 @@ impl MachineConfig {
         }
         self.validate()?;
         self.execution_dispatch_pin.as_ref().ok_or_else(unavailable)
+    }
+    pub(super) fn source_inspect_pin(&self) -> Result<&AccountMachineIssuerPinV2, StoreError> {
+        if std::env::var("OASIS7_CUSTODY_EXECUTION_SOURCE_INSPECT_V2_ENABLED")
+            .ok()
+            .as_deref()
+            != Some("true")
+        {
+            return Err(unavailable());
+        }
+        self.validate()?;
+        self.source_inspect_pin.as_ref().ok_or_else(unavailable)
     }
     pub(super) fn execution_identity_origin(&self) -> Result<&str, StoreError> {
         self.validate()?;
