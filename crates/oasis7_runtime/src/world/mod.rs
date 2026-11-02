@@ -73,6 +73,7 @@ mod formal_retention_candidate_restore;
 mod formal_retention_tick;
 mod formal_retention_tick_reads;
 mod runtime_support;
+mod rolling_sequence;
 pub use formal_retention::FormalWorldRetentionPlanV1;
 #[cfg(test)]
 use oasis7_wasm_router::PreparedSubscription;
@@ -1004,23 +1005,6 @@ impl World {
         era: u64,
     ) -> (ProposalId, ProposalId, u64) {
         Self::preview_rolling_sequence_id(next_id, era)
-    }
-
-    fn allocate_rolling_sequence_id(next_id: &mut u64, era: &mut u64) -> u64 {
-        let (allocated, next_id_after, era_after) =
-            Self::preview_rolling_sequence_id(*next_id, *era);
-        *next_id = next_id_after;
-        *era = era_after;
-        allocated
-    }
-
-    fn preview_rolling_sequence_id(next_id: u64, era: u64) -> (u64, u64, u64) {
-        let allocated = next_id.max(1);
-        if allocated == u64::MAX {
-            (allocated, 1, era.saturating_add(1))
-        } else {
-            (allocated, allocated + 1, era)
-        }
     }
 
     pub(super) fn enforce_pending_action_limit(&mut self) {
