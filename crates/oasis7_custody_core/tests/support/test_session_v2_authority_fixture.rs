@@ -312,6 +312,8 @@ fn pending_fixture_with_model_budget_profile_transport(
 }
 #[path = "test_session_v2_activation_tests.rs"]
 mod activation_tests;
+#[path = "test_session_v2_source_caller_order_tests.rs"]
+mod source_caller_order_tests;
 
 #[test]
 fn new_v2_source_cannot_reuse_another_source_nonce_or_restore_it() {

@@ -224,3 +224,102 @@ impl OwnerSetupResourceFinalHttpV2 {
         Ok(value)
     }
 }
+
+impl OwnerSetupResourceFinalHttpV2 {
+    /// Fixed correlations of this already-persisted original, not a payment grant.
+    pub fn paid_world_reply_binding(
+        &self,
+        substep: resource::ResourcePaidWorldSubstepV1,
+    ) -> Result<resource::ResourcePaidWorldBindingV1> {
+        self.validate_bindings()?;
+        if self.paid.payload.stage != PaidResourceReadStageV1::OwnerSetupFinal {
+            return Err(invalid());
+        }
+        let path = substep.world_path();
+        let body_digest = match substep {
+            resource::ResourcePaidWorldSubstepV1::OwnerPreflight => {
+                ws::request_digest(path, &self.request.access)
+            }
+            resource::ResourcePaidWorldSubstepV1::ResourceFinal => {
+                ws::request_digest(path, &self.world_body()?)
+            }
+        }
+        .map_err(|_| invalid())?;
+        let value = resource::ResourcePaidWorldBindingV1 {
+            api_version: 1,
+            proof_digest: ws::request_digest(
+                resource::RESOURCE_PAID_PROOF_DIGEST_DOMAIN,
+                &self.paid,
+            )
+            .map_err(|_| invalid())?,
+            stage: resource::ResourcePaidWorldStageV1::OwnerSetupFinal,
+            substep,
+            world_path: path.into(),
+            body_digest,
+        };
+        value.validate().map_err(|_| invalid())?;
+        Ok(value)
+    }
+}
+
+/// New closed callback result retains the received issuer signature and both
+/// consumed-World Node originals. Decoding is not admission or payment proof.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerSetupPaidResourceResultV2 {
+    pub api_version: u8,
+    pub paid_proof: PaidResourceReadProofV1,
+    pub world_evidence: resource::PaidOwnerSetupResourceEnvelopeV1,
+}
+impl OwnerSetupPaidResourceResultV2 {
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        if self.api_version != 1 {
+            return Err(invalid());
+        }
+        self.paid_proof
+            .payload
+            .validate_shape()
+            .map_err(|_| invalid())?;
+        self.world_evidence
+            .validate_shape()
+            .map_err(|_| invalid())?;
+        let bytes = serde_json::to_vec(self).map_err(|_| invalid())?;
+        if bytes.len() > resource::MAX_RESOURCE_ENVELOPE_BYTES {
+            return Err(invalid());
+        }
+        Ok(bytes)
+    }
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.is_empty() || bytes.len() > resource::MAX_RESOURCE_ENVELOPE_BYTES {
+            return Err(invalid());
+        }
+        let result: Self = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+        let raw: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+        if serde_json::to_value(&result).map_err(|_| invalid())? != raw {
+            return Err(invalid());
+        }
+        result.encode()?;
+        Ok(result)
+    }
+    pub fn verify_frame(
+        &self,
+        frame: &OwnerSetupResourceFinalHttpV2,
+        node_public_key: &str,
+    ) -> Result<()> {
+        self.encode()?;
+        if self.paid_proof != *frame.paid() {
+            return Err(invalid());
+        }
+        self.world_evidence
+            .verify(
+                &frame.paid_world_reply_binding(
+                    resource::ResourcePaidWorldSubstepV1::OwnerPreflight,
+                )?,
+                &frame.paid_world_reply_binding(
+                    resource::ResourcePaidWorldSubstepV1::ResourceFinal,
+                )?,
+                node_public_key,
+            )
+            .map_err(|_| invalid())
+    }
+}
