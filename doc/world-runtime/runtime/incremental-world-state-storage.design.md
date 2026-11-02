@@ -733,6 +733,16 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 正常 receiver 先独立验证 generic 转移，再按真实四字段外写及 child changed Merkle 路径验证原 schema、身份、primitive 和完整固定列关系；仅继承已 qualified 父的未变闭包，禁止移除或引入非本格式外叶。page mark/transfer 复用完整本组资格，追随所有 child state/value 页，有限集合在分配前计费；包括 buffered finish 在内的全部输出成功前保持暂态。此组不授予经济业务权限、协议接受或全 World GC；仍须组合其他 owner、历史/lease、未决和回滚保护。独立字面原值、Raw/Zstd 冷根/合法后继、generic-valid 但 typed-invalid、真实 put 故障、精确预算及原子失败分别验证；末次取消的独立边界回归须有独立前序基线，不能用被测函数自身总回调自校准替代。
 
 
+### 12.54 Runtime Artifacts 配置与 registry 闭包
+
+<a id="iws-runtime-artifact-config-v1"></a>
+
+本组严格限定 Runtime/Artifacts 的 manifest、module_registry.records.manifest/registered_at/registered_by/audit_event_id、module_registry.active、module_limits_max 与 release_security_policy 八个原 descriptor。前者及两全局配置保留 Value/Entry/Unit，registry 五列保留 Map 和原 String 外键；不从 module_id/version 重造外键，不要求 informational hash 为小写 SHA256，不把 active、records 与原件 set/bytes 强行联立。原件字节由独立 owner 闭合；chain_resource_manifest、latest_chain_resource_delta、builtin_release_manifest 不属于本组。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每个全局值和 active 成员具有独立 child StateRoot。一个 registry record 的四个原列分别以原 descriptor/schema/外键的 RootRef165 指向同一个完整 record child；完整资格必须核对四列同键齐备且 child 相同，不得从只读某列成功授完整 registry 资格。child 保留 metadata、封闭 body-kind 标记和逐原名列。ModuleManifest 穷尽十三字段；Limits 保留六列及三个 u32 上界；Security 穷尽四 Bool。ModuleAbiContract 七字段、GameplayContract 四字段、ModuleArtifactIdentity 五字段与 CommandDeclaration 五字段分别穷尽。Vec 以原 ordinal/认证 length 保序并保留重复值，cap_slots 保留原 String 成员；Option 以 Unit/实际值或显式 presence 与完整子结构区分 None、Some(0/empty/null)。不调用 resolved_stage 补造默认值，不用完整 ModuleManifest CBOR DOM 或 DTO JSON 影子叶。仅实际 JsonValue 的 Manifest.content 与 subscription.filters 使用中性 JSON 子树 schema。
+
+新 profile 内部相对地址为 section/column、外 ordinal、内 ordinal、原 map member 的封闭 tuple；每个可缺组件有独立存在位，不以零或空串代替不存在。原 Unit、String 外键及业务 hash 字段原值不变。借用 GEN 仅产 provisional writes，所有 cell、JSON node/depth、key/IO/heap 预算连续有界。root-only 资格须凭认证 RootSet 与保存内容完整拒绝未知列、缺列、孤儿、Option/Vec 关系错误；不能要求原 World snapshot 作恢复 oracle。普通同事务点读/精确 expected 修改须复用已资格父，仅访问目标及必要关系，长比较、NoOp、末次 put 后均组合取消，任何失败 poison 整笔成功前缀。receiver 独立 generic replay 后仅检查实际 changed paths，继承未变闭包。typed pages 追随全部 child/JSON 页，buffered finish 前保持暂态。本节是此 owner 的实现合同；单独 visitor/GEN checkpoint 不登记 ready，不授部署、签名、政策、完整 Runtime/World 或 GC 权限。
+
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 
 <a id="iws-runtime-effect-intent-records-v1"></a>
@@ -866,3 +876,27 @@ bucket 八字段、issuance 七字段、grant 十一字段均为原类型的独�
 借用 GEN 完整投影原状态，root-only family 恢复仅凭六根、原 schema/semantic binding 与有限 state/value/key/cell/heap/pending 预算验证全部已保存关系，不以原 World snapshot 为必需 oracle。未知/缺列、孤儿、错误 codec/范围/标签、原键错配、child leaf_count/path/页缺失均拒绝。普通单列点读写要求精确 expected、同事务 guard/live、同池 Ordinary、组合取消与失败 poison；Option 作为一个完整目标列更新，不扫描无关长 symbol、reason、recipient。NoOp 最终取消须使用独立 getter 基线检验额外返回边界。
 
 后继接收端先独立 generic replay，再根据 actual outer writes 与 changed Merkle 子树验证本 owner 闭包，继承 qualified 父的未变关系，不重复扫描未变 Text。页 mark/transfer 复用完整本组资格并显式追踪 child state/value，集合分配前计费，含 buffered finish 的全部输出成功前均为暂态。本组资格只证明存储完整性，不授代币发行、grant 花费或政策生效权限，不代签完整 World 激活/GC。独立字面字段/键 oracle、Raw/Zstd 冷根恢复及合法后继、generic-valid/typed-invalid、真实发布故障与取消、预算原子性和固定增量成本分别验证，未完成者不得由 GEN/check 或局部 visitor 冒称已闭合。
+
+### 12.57 Runtime 资源账本与内置发布清单
+
+<a id="iws-runtime-artifact-resources-v1"></a>
+
+本 cohort 闭合 Runtime 的三个原有 Artifacts 状态描述符：`chain_resource_manifest`、`latest_chain_resource_delta` 与 `builtin_release_manifest`。它们是 Runtime 原字段，不转移到 `WorldState`，也不把当前 Snapshot、observer JSON 或 `serde_json::Value` 作为格式。三者均须在同一 Runtime owner 资格中出现；`latest_chain_resource_delta` 的 `None` 和 `Some` 是同一已登记描述符中的不同值，不能把缺字段解释成 `None`。资格只证明这三个字段的当前 typed 记录闭合，不证明链上提交、资源派发、签名或 builtin 工件授权。
+
+每个原字段保留 `Runtime/Artifacts/Value` descriptor 和原字段名。外层记录使用现有 `field-member.v1` 的 Metadata 与 Entry；Entry 以 tag 10 `RecordRootRefV1` 指向字段专属 child `StateRoot`，RootRef 绑定固定 schema、该原字段的 Unit 语义摘要、原 namespace 与完整 child root。不得用单个整值 bytes、整 DTO JSON、原 snapshot hash，或仅可解析的 RootRef 代替闭包。所有原始 String/map key 按原 UTF-8 bytes 保留，内部业务 ID 和外层 key 独立编码；不 trim、大小写折叠、重排有序列表或重算原字段值。
+
+`chain_resource_manifest` 的 child schema 固定覆盖 `schema_version`、`world_id`、`chain_id`、`genesis_ref`、`world_seed`、`chunk_generation_schema_version`、`world_config_hash`、`generation_algorithm_id`、`generation_algorithm_hash`、`created_at_height`、`created_at_block_hash`、`manifest_height`、`manifest_hash` 及三个原集合 `resource_balances`、`material_ledgers`、`generated_chunks`。三个集合分别保留 `ResourceKind -> i64`、`MaterialLedgerId -> MaterialLedger child RootRef -> (原 String material key -> i64)` 与原 String chunk key。每个材料账本 child 由原 `MaterialLedgerId` 绑定，包含自己的 Metadata、`materials` group/count 和原 String key 的 I64 members。虽然 field-member 保留完整 tuple 语义字节，平铺的 `(ledger_id, material)` entries 要在闭包验证时建立跨 ledger 的成员计数关系；独立 child 可按原账本身份局部验证 group/count，并让点读与普通变更沿一个账本 RootRef 工作。空账本仍是存在的账本 child，且其空 `materials` group/count 与缺失账本不同。
+
+每个 generated chunk 使用另一个固定 typed child，穷尽保存 `schema_version`、`world_id`、`chain_id`、`world_seed`、`chunk_generation_schema_version`、原 `coord(x,y,z)`、`seed`、`chunk_status`、`fragment_count`、`block_count`、有序 `fragment_refs`、两项 chunk budget hash、`total_by_element_g`、`remaining_by_element_g`、`commit_ref` 与 `manifest_hash`。状态枚举仅接受 `Committed`、`ChainPending`、`Provisional`、`Exhausted`；元素 key 使用既有 `FragmentElementKind` 闭合枚举。每个 fragment ref 保留原 `fragment_id`、`location_id`、`profile_hash`、`budget_total_hash`、`budget_remaining_hash`；commit ref 保留 `height` 与可选原 `block_hash`、`event_id`、`action_id`。数组 ordinal、重复元素和原顺序都属于状态。
+
+枚举编码固定为显式 `U64` tag：chunk status 按上述顺序为 `0..=3`；`ChainResourceDeltaSource` 的 `ChunkGenerated/MineCompound/Replenish/Genesis/Migration` 为 `0..=4`；`ChainResourceReplayStatus` 的 `Committed/Rejected/RolledBack` 为 `0..=2`。Delta entry 另用固定 variant 列 `RuntimeResource/MaterialLedger/ChunkResource = 0/1/2`，ResourceKind 为 `Electricity/Data = 0/1`。Chunk 的 FragmentElementKind map key 和 delta 中的 element 使用原 `wire_label()` UTF-8 字符串；读取端必须只接受枚举定义的 label，不得把未知字符串映射为默认元素。
+
+`latest_chain_resource_delta` 显式编码 `None/Some`；Some child 穷尽保存 `schema_version`、`world_id`、`chain_id`、`delta_id`、可选 `action_id/event_id`、`ordering_key(height,event_sequence,action_sequence)`、`base_manifest_hash`、`resulting_manifest_hash`、`block_height`、可选 `commit_block_hash`、`tick`、闭合 `source`、闭合 `replay_status` 与有序 `entries`。`source` 仅接受 `ChunkGenerated`、`MineCompound`、`Replenish`、`Genesis`、`Migration`；`replay_status` 仅接受 `Committed`、`Rejected`、`RolledBack`。每个 entry ordinal 保留原判别式及其全部成员：`RuntimeResource(kind,delta,resulting_balance)`；`MaterialLedger(ledger_id,material_kind,delta,resulting_balance)`；或 `ChunkResource(coord,element,total_delta_g,remaining_delta_g,resulting_remaining_g,remaining_after_hash,chunk_remaining_after_hash)`。原 Resource/Material/Fragment 枚举和值不通过新任意字符串或 JSON 兜底。
+
+`builtin_release_manifest` 穷尽保留 `module_sets` 的两层原 String key、每个 `BuiltinReleaseManifestEntry.hash_tokens` 的有序 String 列表及 `artifact_identities` 的原 String key 和 `ModuleArtifactIdentity` 全部五个 String (`source_hash`、`build_manifest_hash`、`signer_node_id`、`signature_scheme`、`artifact_signature`)。空 module set、空 module map、空列表及空字符串值均与缺失不同；不能从一个不完整内层成员推断完整外层记录。
+
+GEN 从 Runtime 原值借用遍历，在写入前对每个列表/map 计数、key/hash 工作、临时 workspace、source/output I/O 和页缓冲分别做有限准入；长文本按原始 UTF-8 流读取/写入，不 clone 整体 DTO 或物化另一份完整映射。raw family qualification 先认证三个外层记录及其完整动态子图、形状、成员、长度、ordinal 密度和 RootRef 关系；缺任一 required 记录、任一叶/组、重复或未知地址、错误 namespace/key/codec/tag、未知枚举和多余记录均拒绝。`latest_chain_resource_delta` 的 Option 标记不能掩盖残留的 Some 子树。
+
+ordinary 变化必须使用同一 `ExecutionTransaction`、原 accepted family token、before RootSet、live fence、同池 `Ordinary` 上下文及共享剩余预算；逐字段比较原值，完整检查被改变的 typed 子树，精确产生实际 write set，并在成功、no-op 和任何错误/取消返回前执行组合取消检查。失败、超预算、IO 错误或 panic 不得 seal 已暂存前缀。未改变的两个 sibling 只能从已验证父资格继承；仅按字段名或 digest 复制旧资格不是证明。页面标记/转移必须沿三个 RootRef child edges 递归访问底层 StateRoot 与 ValueTree，缺 child 必须失败。此 cohort 不代表其余 Runtime、Cognition、History/Proof、World activation、完整 Runtime driver 或 GC 已闭合。
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
