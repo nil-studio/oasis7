@@ -20,14 +20,17 @@ pub(in super::super::super) struct OwnedResourcePreflightV2 {
 pub(in super::super::super) struct CompletedResourcePreflightV2 {
     invocation: ObservedResourceInvocationV2,
     response: SignedServiceResponse<OwnerSetupObservationV1>,
+    paid_reply: resource::SignedResourcePaidWorldReplyV1,
 }
 pub(in super::super::super) struct OwnedResourceFinalV2 {
+    preflight_paid_reply: resource::SignedResourcePaidWorldReplyV1,
     invocation: ObservedResourceInvocationV2,
     gateway: OwnedOwnerReadGateway,
 }
 pub(in super::super::super) struct CompletedResourceFinalV2 {
+    preflight_paid_reply: resource::SignedResourcePaidWorldReplyV1,
+    final_paid_reply: resource::SignedResourcePaidWorldReplyV1,
     invocation: ObservedResourceInvocationV2,
-    response: resource::SignedResourceResponseV1<resource::OwnerSetupFinalResourceObservationV2>,
 }
 fn unavailable() -> StoreError {
     reject("resource_final_unavailable")
@@ -51,12 +54,13 @@ impl OwnedResourcePreflightV2 {
         if now_ms() >= self.invocation.valid_until() {
             return Err(StoreError::OutcomeUnknown);
         }
-        let response = self
+        let (response, paid_reply) = self
             .gateway
             .read_resource_owner_preflight(self.invocation.frame())?;
         Ok(CompletedResourcePreflightV2 {
             invocation: self.invocation,
             response,
+            paid_reply,
         })
     }
 }
@@ -65,10 +69,11 @@ impl OwnedResourceFinalV2 {
         if now_ms() >= self.invocation.valid_until() {
             return Err(StoreError::OutcomeUnknown);
         }
-        let response = self.gateway.read_resource_final(self.invocation.frame())?;
+        let (_, final_paid_reply) = self.gateway.read_resource_final(self.invocation.frame())?;
         Ok(CompletedResourceFinalV2 {
+            preflight_paid_reply: self.preflight_paid_reply,
+            final_paid_reply,
             invocation: self.invocation,
-            response,
         })
     }
 }
@@ -238,6 +243,7 @@ impl IdentityService {
             .store
             .transaction(|tx| registry::claim_resource(tx, &scope, completed.invocation, now))?;
         Ok(OwnedResourceFinalV2 {
+            preflight_paid_reply: completed.paid_reply,
             invocation,
             gateway,
         })
@@ -268,8 +274,23 @@ impl IdentityService {
             resource: &resource,
             configuration_digest: &fingerprint,
         };
+        let paid_proof = completed.invocation.frame().paid().clone();
         self.store
             .transaction(|tx| registry::finish(tx, &scope, completed.invocation, now))?;
-        resource::encode_native_resource_envelope(completed.response).map_err(|_| unavailable())
+        let envelope = resource::PaidOwnerSetupResourceEnvelopeV1 {
+            api_version: 1,
+            ok: true,
+            preflight: completed.preflight_paid_reply,
+            resource_final: completed.final_paid_reply,
+        };
+        // Preserve the exact two received Node originals, never re-sign an inner
+        // response into evidence of a World ledger claim.
+        oasis7_custody_core::provisioning::OwnerSetupPaidResourceResultV2 {
+            api_version: 1,
+            paid_proof,
+            world_evidence: envelope,
+        }
+        .encode()
+        .map_err(|_| unavailable())
     }
 }

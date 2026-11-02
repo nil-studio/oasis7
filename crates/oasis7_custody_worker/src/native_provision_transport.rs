@@ -347,7 +347,12 @@ impl NativeProvisionTransport {
             raw.zeroize();
         }
         let body = if matches!(&authorization, Some(FixedNativeAuthorization::Resource(_))) {
-            super::read_native_body_limited(response, 65_536).await?
+            let bytes = crate::native_http_bounded::read_body_bytes(response, 65_536).await?;
+            let closed =
+                oasis7_custody_core::provisioning::OwnerSetupPaidResourceResultV2::decode(&bytes)
+                    .map_err(|_| rejected())?;
+            serde_json::from_value(serde_json::to_value(closed).map_err(|_| rejected())?)
+                .map_err(|_| rejected())?
         } else if route == NativePrivateRoute::ExecutionPrepareFundedV2 {
             super::read_native_body_limited(response,
                 oasis7_custody_core::native_execution_prepare_v2::MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2).await?

@@ -77,6 +77,16 @@ pub(crate) async fn dispatch(
             if operation_id != *source {
                 return Err(denied());
             }
+            // Commit the first local oracle credit before remote Current
+            // observation. The Source's Native transport was prepaid when the
+            // Source was reserved; this is not a second Native charge.
+            if store
+                .reserve_test_session_v2_source_read(id, source)
+                .map_err(|_| denied())?
+                != 1
+            {
+                return Err(denied());
+            }
             #[cfg(feature = "approval-harness")]
             let diagnostic =
                 crate::provision_approval_store::native::activation_diagnostic::Trace::new(

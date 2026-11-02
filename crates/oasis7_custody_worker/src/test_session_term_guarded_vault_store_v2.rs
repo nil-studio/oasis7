@@ -13,7 +13,7 @@ impl OwnerProvisionApprovalStore {
         id: &str,
         attempt: &str,
         current: &F,
-    ) -> Result<Option<SignedGameTaskStopV2>>
+    ) -> Result<SignedGameTaskStopV2>
     where
         F: Fn() -> Result<super::client::ClientLiveCurrent>,
     {
@@ -61,9 +61,6 @@ impl OwnerProvisionApprovalStore {
                 },
             )
             .await?;
-        let Some(first) = first else {
-            return Ok(None);
-        };
         // Only after actual SQL commit may this opaque handle reach the issuer.
         let issuer = crate::account_service_issuer::AccountServiceIssuer::load(env)
             .map_err(|_| rejected())?;
@@ -128,7 +125,7 @@ impl OwnerProvisionApprovalStore {
                 .map_err(|_| rejected())
         })?;
         // Strong historical original only. No World dispatch/Current follows here.
-        Ok(Some(signed))
+        Ok(signed)
     }
 }
 

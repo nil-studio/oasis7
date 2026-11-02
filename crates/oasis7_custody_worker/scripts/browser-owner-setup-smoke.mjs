@@ -98,6 +98,7 @@ try {
       assert.equal(wrappers,1,'actual Owner wrapper must be redirected once');
       const previous=raw.handleStructuredLogs;
       raw.handleStructuredLogs=record=>{previous?.(record);let value;try{value=JSON.parse(record?.message);}catch{return;}
+        const bits=value?.session_source_predicates;const allowed=["session_present", "record_present", "recorded_context_valid", "input_digest_available", "source_present", "state_not_frozen", "current_not_frozen", "fence_epoch_valid", "authority_equal", "source_version_two", "approved_input_equal", "source_unclaimed", "before_source_expiry", "guards_pass", "native_request_build_valid", "request_encoding_valid", "journal_append_valid", "post_claim_persistence_valid"];if(Array.isArray(bits)&&bits.every(v=>Array.isArray(v)&&v.length===2&&allowed.includes(v[0])&&typeof v[1]==='boolean'))console.error(JSON.stringify({source_claim_predicates:bits}));
         const f=value?.activation_failure;const stages=['source.observe','sql.initial_read','sql.restore','sql.current','sql.clock','source.core.admission','source.core.provision','source.core.binding','source.core.context_bound','source.core.conflict','source.core.persistence','sql.transition','sql.inventory_read','sql.inventory_write'];
         if(f&&stages.includes(f.stage))console.error(JSON.stringify({session_source_failure:{stage:f.stage,elapsed_ms:Number.isSafeInteger(f.elapsed_ms)&&f.elapsed_ms>=0?f.elapsed_ms:null}}));
       };

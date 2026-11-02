@@ -251,3 +251,7 @@ mod fact_verify;
 #[cfg(test)]
 #[path = "resource_basis_tests.rs"]
 mod tests;
+
+#[path = "resource_paid_world_reply_v1.rs"]
+mod paid_world_reply;
+pub use paid_world_reply::*;

@@ -7,6 +7,7 @@ pub struct CompleteOwnerSetupResourceFinalV2 {
     pub response:
         resource::SignedResourceResponseV1<resource::OwnerSetupFinalResourceObservationV2>,
     pub session: ParticipantSessionEvidenceV1,
+    pub paid_result: OwnerSetupPaidResourceResultV2,
 }
 impl AccountProvisionApprovalState {
     pub(super) fn validate_resource_final_prefix_v2(
@@ -18,6 +19,9 @@ impl AccountProvisionApprovalState {
         if v.plan.setup_id != id {
             return Err(invalid());
         }
+        let paid_result: OwnerSetupPaidResourceResultV2 =
+            decode(proof.paid_result_bytes.as_ref().ok_or_else(invalid)?)?;
+        self.validate_resource_paid_result_v2(id, &paid_result)?;
         let (_, response) = proof.typed(&v.plan)?;
         let r = self.owner_setup_engine_record(id)?;
         for stage in [
@@ -95,6 +99,7 @@ impl AccountProvisionApprovalState {
         now: u64,
     ) -> Result<ExactSignatureChecks> {
         self.validate_persistence()?;
+        self.validate_resource_paid_result_v2(id, &completed.paid_result)?;
         let checks = self.owner_setup_stored_admission_checks(
             id,
             OwnerSetupStageV1::FinalObservation,
@@ -150,8 +155,12 @@ impl AccountProvisionApprovalState {
         let final_outbox = v.resource_final.as_ref().ok_or_else(invalid)?;
         verifier.verify(&checks)?;
         let original = decode(final_outbox.original_bytes.as_ref().ok_or_else(invalid)?)?;
-        let proof =
-            OwnerSetupResourceFinalProofV2::from_typed(&v.plan, original, completed.response)?;
+        let proof = OwnerSetupResourceFinalProofV2::from_typed(
+            &v.plan,
+            original,
+            completed.response,
+            completed.paid_result,
+        )?;
         let ready = self.validate_resource_final_prefix_v2(id, &proof)?;
         if ready {
             proof.prepared(&v.plan)?;
@@ -269,5 +278,24 @@ impl AccountProvisionApprovalState {
             )?)?;
         }
         proof.prepared(&v.plan)
+    }
+}
+
+impl AccountProvisionApprovalState {
+    fn validate_resource_paid_result_v2(
+        &self,
+        id: &str,
+        result: &OwnerSetupPaidResourceResultV2,
+    ) -> Result<()> {
+        let v = self.owner_setup_v2.as_ref().ok_or_else(invalid)?;
+        let record = v
+            .resource_final
+            .as_ref()
+            .ok_or_else(invalid)?
+            .dispatch
+            .as_ref()
+            .ok_or_else(invalid)?;
+        let frame = record.recorded_frame(self, id, result.paid_proof.clone())?;
+        result.verify_frame(&frame, &v.plan.world_identity.service_public_key)
     }
 }

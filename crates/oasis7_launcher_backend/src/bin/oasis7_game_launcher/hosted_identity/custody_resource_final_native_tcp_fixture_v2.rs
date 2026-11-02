@@ -95,13 +95,18 @@ impl Server {
                         now_ms(),
                     )
                     .unwrap();
+                let original_body_digest;
                 let body = if path == resource::RESOURCE_GOAL_PATH_V2 {
                     let q: oasis7_custody_core::provisioning::OwnerSetupResourceWorldBodyV2 =
                         serde_json::from_slice(&bytes[head..head + length]).unwrap();
                     q.validate_bindings(&proof.payload).unwrap();
+                    original_body_digest = ws::request_digest(path, &q).unwrap();
                     serde_json::to_vec(q.resource()).unwrap()
                 } else {
                     assert_eq!(path, ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH);
+                    let q: ws::participant_discovery::ParticipantOwnerViewRequestV1 =
+                        serde_json::from_slice(&bytes[head..head + length]).unwrap();
+                    original_body_digest = ws::request_digest(path, &q).unwrap();
                     bytes[head..head + length].to_vec()
                 };
                 let body = data.body(path, &body);
@@ -163,6 +168,56 @@ impl Server {
                     serde_json::to_vec(&response).unwrap()
                 } else {
                     body
+                };
+                let body = if std::env::var("OASIS7_RESOURCE_NATIVE_SCENARIO")
+                    .is_ok_and(|v| v == "ordinary-downgrade")
+                {
+                    // Deliberately preserve an otherwise-valid ordinary Node
+                    // response: no paid wrapper and no World ledger assertion.
+                    body
+                } else {
+                    let substep = if path == resource::RESOURCE_GOAL_PATH_V2 {
+                        resource::ResourcePaidWorldSubstepV1::ResourceFinal
+                    } else {
+                        resource::ResourcePaidWorldSubstepV1::OwnerPreflight
+                    };
+                    let binding = resource::ResourcePaidWorldBindingV1 {
+                        api_version: 1,
+                        proof_digest: ws::request_digest(
+                            resource::RESOURCE_PAID_PROOF_DIGEST_DOMAIN,
+                            &proof,
+                        )
+                        .unwrap(),
+                        stage: resource::ResourcePaidWorldStageV1::OwnerSetupFinal,
+                        substep,
+                        world_path: path.into(),
+                        body_digest: original_body_digest,
+                    };
+                    let request_digest = binding.request_digest().unwrap();
+                    let payload = if substep == resource::ResourcePaidWorldSubstepV1::ResourceFinal
+                    {
+                        resource::ResourcePaidWorldReplyV1::ResourceFinal {
+                            binding,
+                            observation: Box::new(serde_json::from_slice(&body).unwrap()),
+                        }
+                    } else {
+                        resource::ResourcePaidWorldReplyV1::OwnerPreflight {
+                            binding,
+                            observation: Box::new(serde_json::from_slice(&body).unwrap()),
+                        }
+                    };
+                    // Component Node signer only; real World floor/once is tested
+                    // at its own actual receiver, never inferred from this fixture.
+                    serde_json::to_vec(
+                        &ws::sign_service_response(
+                            resource::RESOURCE_PAID_WORLD_REPLY_DOMAIN,
+                            request_digest,
+                            payload,
+                            &data.world_key,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap()
                 };
                 write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
                 stream.write_all(&body).unwrap();

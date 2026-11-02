@@ -320,6 +320,107 @@ impl AccountProvisionApprovalState {
         *self = next;
         Ok(result)
     }
+    /// Component tracing only: exact captured-input predicate bits, never a
+    /// Current/authority token. Probe work is confined to a discarded clone.
+    #[cfg(feature = "signature-metrics")]
+    pub fn test_session_v2_source_claim_diagnostics(
+        &self,
+        id: &str,
+        source_id: &str,
+        current: &ProvisionApprovalContext<'_>,
+        now: UnixMillis,
+    ) -> Vec<(&'static str, bool)> {
+        let mut flags = vec![("session_present", self.test_sessions_v2.contains_key(id))];
+        let Some(s) = self.test_sessions_v2.get(id) else {
+            return flags;
+        };
+        let record = s.book.original(id);
+        flags.push(("record_present", record.is_some()));
+        let Some(record) = record else {
+            return flags;
+        };
+        let context_ok = record.check_recorded_context(current.approval).is_ok();
+        flags.push(("recorded_context_valid", context_ok));
+        let expected = s.input_digest();
+        flags.push(("input_digest_available", expected.is_ok()));
+        let source = s.sources.get(source_id);
+        flags.push(("source_present", source.is_some()));
+        let Some(source) = source else {
+            return flags;
+        };
+        let predicates = [
+            ("state_not_frozen", !self.frozen()),
+            ("current_not_frozen", !current.approval.frozen),
+            (
+                "fence_epoch_valid",
+                current
+                    .approval
+                    .fence
+                    .check_epoch(current.approval.authority.service_epoch.0)
+                    .is_ok(),
+            ),
+            (
+                "authority_equal",
+                current.approval.authority == s.input.request.context,
+            ),
+            ("source_version_two", source.api_version == 2),
+            (
+                "approved_input_equal",
+                expected
+                    .as_ref()
+                    .is_ok_and(|v| source.approved_input_digest == *v),
+            ),
+            ("source_unclaimed", source.source.claimed_at.is_none()),
+            (
+                "before_source_expiry",
+                now.get() < source.source.expires_at.0,
+            ),
+        ];
+        flags.extend(predicates);
+        let guards_pass =
+            context_ok && expected.is_ok() && predicates.iter().all(|(_, pass)| *pass);
+        flags.push(("guards_pass", guards_pass));
+        if !guards_pass {
+            return flags;
+        }
+        let request = record.native_verify_request();
+        flags.push(("native_request_build_valid", request.is_ok()));
+        let Ok(mut request) = request else {
+            return flags;
+        };
+        request.purpose = crate::approval::VerificationPurposeV1::InspectOrigin;
+        request.verify_nonce = source.source.verify_nonce.clone();
+        let encoded = serde_json::to_string(&request);
+        flags.push(("request_encoding_valid", encoded.is_ok()));
+        let Ok(encoded) = encoded else {
+            return flags;
+        };
+        let mut probe = self.clone();
+        let Some(session) = probe.test_sessions_v2.get_mut(id) else {
+            return flags;
+        };
+        let Some(source) = session.sources.get_mut(source_id) else {
+            return flags;
+        };
+        source.source.claimed_at = Some(DecimalU64(now.get()));
+        source.source.request_bytes = Some(encoded);
+        let appended = append_session_event_v2(
+            session,
+            SessionEventKindV2::SourceVerificationClaimed {
+                source_operation_id: source_id.into(),
+            },
+            now,
+        )
+        .is_ok();
+        flags.push(("journal_append_valid", appended));
+        if appended {
+            flags.push((
+                "post_claim_persistence_valid",
+                probe.validate_persistence().is_ok(),
+            ));
+        }
+        flags
+    }
     pub fn claim_test_session_v2_source(
         &mut self,
         id: &str,

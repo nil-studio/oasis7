@@ -5,19 +5,11 @@ use crate::{
     native_identity::provision_transport::NativeProvisionTransport,
     owner_setup_rpc::OwnerSetupStageRpc,
 };
-use oasis7_client_api::world_service::resource_basis as resource;
-use oasis7_custody_core::provisioning::OwnerSetupResourceFinalHttpV2;
-use serde::{Deserialize, Serialize};
+use oasis7_custody_core::provisioning::{
+    OwnerSetupPaidResourceResultV2, OwnerSetupResourceFinalHttpV2,
+};
 use wasm_bindgen::JsValue;
 use worker::Env;
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct NativeReply {
-    api_version: u8,
-    ok: bool,
-    world_response:
-        resource::SignedResourceResponseV1<resource::OwnerSetupFinalResourceObservationV2>,
-}
 pub(super) async fn send(
     env: &Env,
     selector: &OwnerSetupStageRpc,
@@ -25,10 +17,7 @@ pub(super) async fn send(
     secrets: &SessionSecrets,
     frame: &OwnerSetupResourceFinalHttpV2,
     source_record_digest: &str,
-) -> Result<
-    resource::SignedResourceResponseV1<resource::OwnerSetupFinalResourceObservationV2>,
-    JsValue,
-> {
+) -> Result<OwnerSetupPaidResourceResultV2, JsValue> {
     check(env, selector, observed)?;
     secrets.check_resource_generation()?;
     let now = crate::identity_native_runtime::clock()?;
@@ -48,7 +37,7 @@ pub(super) async fn send(
     }
     let transport = NativeProvisionTransport::from_env(env).map_err(|_| js_denied())?;
     let reply = transport
-        .request_owner_resource_final_v2::<serde_json::Value>(
+        .request_owner_resource_final_v2::<OwnerSetupPaidResourceResultV2>(
             frame,
             &secrets.cookie,
             std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| js_denied())?,
@@ -57,14 +46,13 @@ pub(super) async fn send(
         .map_err(|_| js_denied())?;
     secrets.check_resource_generation()?;
     check(env, selector, observed)?;
-    let body: NativeReply = serde_json::from_value(reply.body.clone()).map_err(|_| js_denied())?;
-    if serde_json::to_value(&body).map_err(|_| js_denied())? != reply.body {
+    if reply.http_status != 200 || reply.cookie.is_some() {
         return Err(js_denied());
     }
-    if reply.http_status != 200 || body.api_version != 2 || !body.ok || reply.cookie.is_some() {
-        return Err(js_denied());
-    }
-    // The Account completion independently verifies this full exact Node result;
-    // the Native envelope does not replace the World service key.
-    Ok(body.world_response)
+    let body = reply.body;
+    body.verify_frame(frame, &v.plan.world_identity.service_public_key)
+        .map_err(|_| js_denied())?;
+    // Account independently replays actual issuer/dispatch/Book correlations and
+    // both retained Node originals; Native online acceptance is not cold proof.
+    Ok(body)
 }
