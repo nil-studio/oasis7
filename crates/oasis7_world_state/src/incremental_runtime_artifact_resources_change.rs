@@ -473,7 +473,11 @@ pub fn change_runtime_builtin_entry_overlay_v1<
         if actual_entry_root != change.expected_entry_root {
             return Err(invalid().into());
         }
-        if change.after.is_none() && actual_entry_root.is_none() {
+        let prune_existing_empty_set = change.after.is_none()
+            && module_root_before.is_none()
+            && set_root_before.is_some()
+            && set_count == 0;
+        if change.after.is_none() && actual_entry_root.is_none() && !prune_existing_empty_set {
             if cancelled() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -504,7 +508,7 @@ pub fn change_runtime_builtin_entry_overlay_v1<
             .as_ref()
             .map(state_root_digest)
             .transpose()?;
-        if after_entry_digest == actual_entry_root {
+        if after_entry_digest == actual_entry_root && !prune_existing_empty_set {
             if cancelled() {
                 return Err(ValueTreeError::Cancelled.into());
             }
@@ -514,6 +518,8 @@ pub fn change_runtime_builtin_entry_overlay_v1<
         let set_is_new = set_root_before.is_none();
         let module_count_after = if change.after.is_some() {
             set_count.checked_add(u64::from(module_root_before.is_none()))
+        } else if prune_existing_empty_set {
+            Some(0)
         } else {
             set_count.checked_sub(1)
         }

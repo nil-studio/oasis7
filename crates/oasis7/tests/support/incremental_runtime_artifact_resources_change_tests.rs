@@ -192,6 +192,10 @@ fn digest(root: &StateRootV1) -> [u8; 32] {
         .as_bytes()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The fixture binds the input transition to its independent expected changed/no-op outcome and its execution resources."
+)]
 fn execute_change(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
@@ -202,6 +206,7 @@ fn execute_change(
     operation: [u8; 32],
     change: RuntimeArtifactResourcesChangeV1<'_>,
     work: &mut RuntimeArtifactResourcesWorkV1,
+    expect_changed: bool,
 ) -> oasis7_runtime::incremental_runtime_artifact_resources::RuntimeArtifactResourcesPreparedTransitionV1
 {
     let parent = ExecutionParent {
@@ -318,15 +323,16 @@ fn execute_change(
             );
             panic!("Artifact typed change failed")
         });
-        assert!(changed);
+        assert_eq!(changed, expect_changed);
     }
     let guard = transaction.guard();
     let sealed = transaction.seal(&guard, &live, 0).unwrap();
-    assert_eq!(sealed.record.writes.len(), 1);
-    assert_eq!(
-        sealed.record.writes[0].namespace,
-        StateNamespaceV1::Artifacts
-    );
+    assert_eq!(sealed.record.writes.len(), usize::from(expect_changed));
+    if let Some(write) = sealed.record.writes.first() {
+        assert_eq!(write.namespace, StateNamespaceV1::Artifacts);
+    } else {
+        assert!(!expect_changed);
+    }
 
     let verifier_state = store
         .state_session(qualification_state_physical(), MemoryClass::Ordinary)
@@ -687,6 +693,7 @@ fn latest_delta_body_none_some_changes_replay_and_cold_qualify() {
                 },
             ),
             &mut work,
+            true,
         );
         assert_eq!(removed.qualification().record_counts(), [1, 0, 1]);
         let removed_roots = removed.transition().record.after.clone();
@@ -716,6 +723,7 @@ fn latest_delta_body_none_some_changes_replay_and_cold_qualify() {
                 },
             ),
             &mut work,
+            true,
         );
         assert_eq!(inserted.qualification().record_counts(), [1, 1, 1]);
         let after_roots = inserted.transition().record.after.clone();
@@ -799,6 +807,7 @@ fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
                 after: None,
             }),
             &mut work,
+            true,
         );
         assert_eq!(removed.qualification().record_counts(), [1, 1, 1]);
         let removed_roots = removed.transition().record.after.clone();
@@ -840,6 +849,7 @@ fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
                 }),
             }),
             &mut work,
+            true,
         );
         assert_eq!(inserted.qualification().record_counts(), [1, 1, 1]);
         let after_roots = inserted.transition().record.after.clone();
@@ -1011,3 +1021,6 @@ fn body_and_builtin_failures_poison_after_expected_mismatch_and_real_value_put()
         assert!(cancelled_builtin.aborted);
     }
 }
+
+#[path = "incremental_runtime_artifact_resources_empty_set_tests.rs"]
+mod empty_set_tests;
