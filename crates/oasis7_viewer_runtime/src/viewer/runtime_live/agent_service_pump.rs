@@ -204,6 +204,8 @@ impl ViewerRuntimeLiveServer {
                             let unpublished_response = unpublished_response(&result);
                             #[cfg(any(test, feature = "test_tier_required"))]
                             diagnostics.consumed();
+                            #[cfg(any(test, feature = "test_tier_required"))]
+                            let apply_diagnostic = diagnostics.prepare_apply(&result);
                             let Some((guard, prepared)) =
                                 super::agent_service_result::prepare_result_phase(
                                     &shared, server, &result,
@@ -213,10 +215,9 @@ impl ViewerRuntimeLiveServer {
                             };
                             server = guard;
                             let apply_phase = stream_budget_diagnostics::phase(22);
-                            #[cfg(any(test, feature = "test_tier_required"))]
-                            let applied = diagnostics.apply_prepared(&mut server, result, prepared);
-                            #[cfg(not(any(test, feature = "test_tier_required")))]
                             let applied = server.apply_prepared_agent_result(result, prepared);
+                            #[cfg(any(test, feature = "test_tier_required"))]
+                            diagnostics.finish_apply(apply_diagnostic, &applied);
                             drop(apply_phase);
                             let phase_identity = if applied.is_err() {
                                 None

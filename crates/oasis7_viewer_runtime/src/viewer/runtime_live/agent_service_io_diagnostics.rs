@@ -102,17 +102,22 @@ impl IoDiagnostics {
         result: AgentServiceIoResult,
     ) -> Result<AgentServiceProgress, String> {
         self.consumed();
-        self.apply_prepared(server, result, None)
+        let diagnostic = self.prepare_apply(&result);
+        let applied = server.apply_agent_service_io(result);
+        self.finish_apply(diagnostic, &applied);
+        applied
     }
-    pub(super) fn apply_prepared(
+    pub(super) fn prepare_apply(&self, result: &AgentServiceIoResult) -> (Option<String>, u64) {
+        (
+            result.response.as_ref().err().cloned(),
+            phase_code(&result.token.phase_digest),
+        )
+    }
+    pub(super) fn finish_apply(
         &self,
-        server: &mut super::ViewerRuntimeLiveServer,
-        result: AgentServiceIoResult,
-        prepared: Option<super::agent_service_result::ReadyResultPhase>,
-    ) -> Result<AgentServiceProgress, String> {
-        let execute_error = result.response.as_ref().err().cloned();
-        let phase = phase_code(&result.token.phase_digest);
-        let applied = server.apply_prepared_agent_result(result, prepared);
+        (execute_error, phase): (Option<String>, u64),
+        applied: &Result<AgentServiceProgress, String>,
+    ) {
         self.last_apply_error.store(
             apply_error_class(
                 execute_error.as_deref(),
@@ -124,7 +129,6 @@ impl IoDiagnostics {
             self.last_apply_error_phase.store(phase, Ordering::Relaxed);
         }
         self.applied(applied.is_err());
-        applied
     }
     fn now_us(&self) -> u64 {
         self.origin.elapsed().as_micros().min(u64::MAX as u128) as u64
