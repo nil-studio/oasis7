@@ -99,6 +99,12 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     PurposeHttpCharged {
         ingress_attempt_id: String,
     },
+    ReadPrepareHistoryOwnerPaid {
+        ingress_attempt_id: String,
+    },
+    ReadPrepareHistoryReturned {
+        ingress_attempt_id: String,
+    },
     ToolMetadataNonceIssued {
         request_id: String,
     },
@@ -221,6 +227,9 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
                 .as_ref()
                 .is_some_and(|p| p.has_fence_read()),
         ),
+        super::v2_read_history::read_fee_count(s) as usize,
+        s.purpose_http_admissions.values().filter(|a| matches!(&a.class,
+            SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } if fee.outcome.is_some())).count(),
         s.native_model_budget
             .as_ref()
             .map_or(0, |m| m.http_admissions.len()),

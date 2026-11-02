@@ -169,3 +169,6 @@ fn session_v2_execution_nonce_five_failure_preserves_paid_and_rejects_read_cross
     );
     assert_eq!(read.state, before);
 }
+
+#[path = "test_session_v2_read_nonce_five_tests.rs"]
+mod read_five;

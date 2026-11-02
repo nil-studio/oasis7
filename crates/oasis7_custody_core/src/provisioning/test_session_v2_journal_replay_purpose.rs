@@ -19,7 +19,8 @@ impl Replay<'_> {
                 self.live(fee.purpose, at)?;
                 let amount =
                     match &fee.class {
-                        SessionPurposeHttpAdmissionClassV1::GenericOne => 1,
+                        SessionPurposeHttpAdmissionClassV1::GenericOne
+                        | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. } => 1,
                         SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. } => {
                             let original = self
                                 .s
@@ -36,7 +37,8 @@ impl Replay<'_> {
                             5
                         }
                         SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
-                        | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. } => {
+                        | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                        | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. } => {
                             let original = self
                                 .s
                                 .tool_nonce_ingresses
@@ -54,6 +56,11 @@ impl Replay<'_> {
                                 SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 {
                                     ..
                                 } if fee.purpose == SessionPurposeV1::Execution => 5,
+                                SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
+                                    if fee.purpose == SessionPurposeV1::ReconcileRead =>
+                                {
+                                    5
+                                }
                                 _ => return Err(invalid()),
                             }
                         }
@@ -191,6 +198,74 @@ impl Replay<'_> {
                 // The leaf was already claimed; this only archives its exact
                 // signing result and does not bypass Closing for any new leaf.
                 self.execution_pending_directory_signed = true;
+            }
+            SessionEventKindV2::ReadPrepareHistoryOwnerPaid { ingress_attempt_id } => {
+                let a = self
+                    .s
+                    .purpose_http_admissions
+                    .get(ingress_attempt_id)
+                    .ok_or_else(invalid)?;
+                let SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } = &a.class
+                else {
+                    return Err(invalid());
+                };
+                self.live(SessionPurposeV1::ReconcileRead, at)?;
+                if a.purpose != SessionPurposeV1::ReconcileRead
+                    || fee.owner_paid_at != at
+                    || !self.purpose_fees.contains(ingress_attempt_id)
+                {
+                    return Err(invalid());
+                }
+                if fee.consumed_challenge {
+                    let c = self
+                        .s
+                        .challenges
+                        .get(&fee.challenge_request_id)
+                        .ok_or_else(invalid)?;
+                    if self.generations.get(&SessionPurposeV1::ReconcileRead)
+                        != Some(&c.credential_generation.0)
+                    {
+                        return Err(invalid());
+                    }
+                    self.consume(
+                        &fee.challenge_request_id,
+                        &fee.request.request_id,
+                        SessionPurposeV1::ReconcileRead,
+                        at,
+                    )?;
+                } else if !self.consumed.contains(&fee.challenge_request_id) {
+                    return Err(invalid());
+                }
+                Self::unique(&mut self.read_history_fees, ingress_attempt_id)?;
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::ReconcileRead)
+                    .ok_or_else(invalid)?
+                    .charge(2)
+                    .map_err(|_| invalid())?;
+            }
+            SessionEventKindV2::ReadPrepareHistoryReturned { ingress_attempt_id } => {
+                let a = self
+                    .s
+                    .purpose_http_admissions
+                    .get(ingress_attempt_id)
+                    .ok_or_else(invalid)?;
+                let SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } = &a.class
+                else {
+                    return Err(invalid());
+                };
+                let o = fee.outcome.as_ref().ok_or_else(invalid)?;
+                self.live(SessionPurposeV1::ReconcileRead, at)?;
+                if o.returned_at != at
+                    || !self.read_history_fees.contains(ingress_attempt_id)
+                    || !self.source_verified.contains(&o.source_operation_id)
+                    || self
+                        .reads
+                        .get(&o.source_operation_id)
+                        .is_none_or(|n| *n < o.source_ticket)
+                {
+                    return Err(invalid());
+                }
+                Self::unique(&mut self.read_history_returns, ingress_attempt_id)?;
             }
             SessionEventKindV2::ToolMetadataNonceIssued { request_id } => {
                 let link = self

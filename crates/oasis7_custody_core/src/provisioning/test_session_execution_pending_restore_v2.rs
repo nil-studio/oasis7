@@ -247,6 +247,7 @@ pub(in crate::provisioning) fn validate_pending_start_v2(s: &TestSessionAuthorit
         }
         record.proof.verify_issuer(&record.pin,&record.floor,crate::execution_pending_current_v2::PendingCurrentReceiverV2::ManagerAssociationsActor,record.proof.claim.issued_at.0).map_err(|_|invalid())?;
     }
+    source_observation::validate(s)?;
     fence::validate_records(s)?;
     Ok(())
 }

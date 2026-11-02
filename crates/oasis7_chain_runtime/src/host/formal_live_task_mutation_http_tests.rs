@@ -66,6 +66,7 @@ enum CloseReplyCase {
     #[cfg(unix)]
     ResourcePreflight,
     ResourceGoal,
+    ResourceGoalTransfer(bool),
 }
 #[test]
 fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_commit() {
@@ -120,18 +121,12 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
         )
         .unwrap();
     #[cfg(unix)]
-    let paid_participant = matches!(
-        reply_case,
-        CloseReplyCase::ResourcePreflight | CloseReplyCase::ResourceGoal
-    )
-    .then(|| resource_preflight_http::participant(&mut initial));
+    let paid_participant = reply_case
+        .uses_registered_participant()
+        .then(|| resource_preflight_http::participant(&mut initial));
     #[cfg(unix)]
-    if matches!(reply_case, CloseReplyCase::ResourceGoal) {
-        resource_goal_paid_http::delegate(
-            &mut initial,
-            paid_participant.as_ref().unwrap(),
-            &delegate,
-        );
+    if let Some(p) = &paid_participant {
+        resource_transfer_ready::bootstrap_case(&mut initial, p, &delegate, reply_case);
     }
     assert!(
         initial
@@ -149,6 +144,8 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
         #[cfg(unix)]
         CloseReplyCase::ResourcePreflight => "resource-preflight",
         CloseReplyCase::ResourceGoal => "resource-goal",
+        CloseReplyCase::ResourceGoalTransfer(false) => "resource-transfer-ready",
+        CloseReplyCase::ResourceGoalTransfer(true) => "resource-transfer-revoked",
     };
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "guarded-mutation-node-{}-{}-{}",
@@ -172,7 +169,10 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
     let archive_directory = root.join("resource-activation-archive");
     let publication = if matches!(
         reply_case,
-        CloseReplyCase::Archive | CloseReplyCase::ArchiveCoordinates | CloseReplyCase::ResourceGoal
+        CloseReplyCase::Archive
+            | CloseReplyCase::ArchiveCoordinates
+            | CloseReplyCase::ResourceGoal
+            | CloseReplyCase::ResourceGoalTransfer(_)
     ) {
         #[cfg(unix)]
         create_private_archive_directory(&root, &archive_directory);
@@ -241,8 +241,16 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
     let service = Arc::new(service);
     #[cfg(unix)]
     if let Some(participant) = paid_participant {
-        if matches!(reply_case, CloseReplyCase::ResourceGoal) {
-            resource_goal_paid_http::run(service, node, publication, root, participant, &delegate);
+        if reply_case.is_resource_goal() {
+            resource_goal_paid_http::run_case(
+                service,
+                node,
+                publication,
+                root,
+                participant,
+                &delegate,
+                reply_case,
+            );
             return;
         }
         resource_preflight_http::run(service, node, publication, root, participant);
@@ -538,7 +546,9 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
         CloseReplyCase::Archive | CloseReplyCase::ArchiveCoordinates => {
             unreachable!("archive case returned before Stop/Close")
         }
-        CloseReplyCase::ResourceGoal => unreachable!("resource Goal returned before Stop/Close"),
+        CloseReplyCase::ResourceGoal | CloseReplyCase::ResourceGoalTransfer(_) => {
+            unreachable!("resource Goal returned before Stop/Close")
+        }
         #[cfg(unix)]
         CloseReplyCase::ResourcePreflight => {
             unreachable!("resource case returned before Stop/Close")
@@ -1182,3 +1192,7 @@ mod resource_goal_paid_http;
 fn resource_world_paid_goal_real_http_uses_original_archive_and_private_goal() {
     mutation_case(CloseReplyCase::ResourceGoal, false)
 }
+
+#[cfg(unix)]
+#[path = "resource_transfer_ready_bootstrap_http_tests.rs"]
+mod resource_transfer_ready;

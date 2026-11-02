@@ -35,12 +35,23 @@ pub(crate) async fn dispatch(
                 // Only the exact existing namespace decides V2. The signed
                 // request/body/target remain untouched; failures never fallback.
                 selected.http.selector.api_version = 2;
-                return json(
-                    store
-                        .issue_client_execution_nonce_five(env, &selected)
-                        .await
-                        .map_err(|_| denied())?,
-                );
+                let q: oasis7_custody_core::provisioning::SessionChallengeRequestV1 =
+                    serde_json::from_str(&selected.http.original.body).map_err(|_| denied())?;
+                return match q.purpose {
+                    SessionPurposeV1::Execution => json(
+                        store
+                            .issue_client_execution_nonce_five(env, &selected)
+                            .await
+                            .map_err(|_| denied())?,
+                    ),
+                    SessionPurposeV1::ReconcileRead => json(
+                        store
+                            .issue_client_read_nonce_five(env, &selected)
+                            .await
+                            .map_err(|_| denied())?,
+                    ),
+                    _ => Err(denied()),
+                };
             }
             (true, false) => {}
             _ => return Err(denied()),

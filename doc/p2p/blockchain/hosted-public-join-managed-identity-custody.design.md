@@ -1208,7 +1208,17 @@ Source wrapper新增独立可缺省Option字段，None序列化完全省略以�
 |完成|Identity→Owner service→Account Actor2；Account→Identity attestation service→manifest Actor2；Account C3|7|
 |合计||43|
 
-三次 Source oracle read 对应真实三次观察，不手填 read count。Complete 的私有 metadata attestation 为独立实际读取，不能把旧私有 generation 或历史 LF 当当前。Source nonce 保留已核 Native 强签绑定 input/session/sourceID/ingress/actual RFC attempt/action/独立salt；Native LF nonce 分域，不复用 token。Native verify 使用现 Identity-only broker 配置，Account 不加载 Identity secret。
+中段三次 Observe 对应 PreDecrypt、PostDecrypt、ClaimLF，不能将它们与首 Inspect 或末 Complete 合并；本专用 Pending Execution Source 的本地 oracle 票序独立封闭为下表。每票必须在其实际观察前同 Account 本地 SQL 永久预留，失败保票；不手填 read count，不新增表外 HTTP 或 transport 扣费。该票序只由真实 paid pending master/原 Actions ingress 的首次工厂选择，不能使用 ClientCredentialFive/ClientControlFive、Read300 或调用者 bool，也不升级旧 None 来源。旧 ExecutionFactory/Book 的三票/四票及后续既有数学保持独立。
+
+|本次固定观察|本地票|触发与实际权威时序|
+|---|---:|---|
+|Inspect|1|SourceInspect 前实际 Account C3；先 reserve，再强 Current 下 claim 原 Source；Native verify 使用另已付固定叶，原件返回后另做 PreArchive C3 强归档。|
+|PreDecrypt|2|在真实 SID/CSRF 解密前的第一次 Observe；原 Account C3 与 Identity RF 各自真实，不能拿 Inspect 观察续期。|
+|PostDecrypt|3|四个实际 cipher Actor 读取后再次 Observe；重核实际版本/private generation 与原 Source 窗口。|
+|ClaimLF|4|Native LF 发送前第三次 Observe；先完整 Current 和逐叶回入，再发该次独立 LF nonce。|
+|Complete|5|LF 原件返回后，实际 completion Owner/Account、私有 attestation service/manifest、Account C3；核原强 LF/Source、私有 generation、causal gate 与所有原期限。|
+
+上述五票是同一原 Source 的固定观察记录，不授新观察、不刷新 accepted/Source/LF until；票号不等于新物理叶或新的400预算。三次中段 Observe 的 Account/RF 以及首末阶段原清单都保持，所有额外实发边仍须另列。新的 Pending Book 出生只消费该完成状态及同父 handler 首次 continuation，不能走旧 GenericOne/LF1 再扣 transport，也不能从冷记录重建首次 token。Complete 的私有 metadata attestation 为独立实际读取，不能把旧私有 generation 或历史 LF 当当前。Source nonce 保留已核 Native 强签绑定 input/session/sourceID/ingress/actual RFC attempt/action/独立salt；Native LF nonce 分域，不复用 token。Native verify 使用现 Identity-only broker 配置，Account 不加载 Identity secret。
 
 ##### 未发远端叶的 F/A 回入
 
@@ -1219,6 +1229,27 @@ Account 自己出站的叶由该 DO 本地 SQL 在出站前逐叶 claim；Accoun
 此外，原 Prepare prefix 的 Current3 另有 RF Actor child1、private2 另有 manifest Actor child1、RKV init/sign 各有 ROLE_KEYS Actor child1；新专用 handler 对这四个未发业务 child 也各加真实 Account service+Actor2，共8，不能拿原两费/四费 component 证明已逐叶 claim。旧 profile 与旧记录保持原数学，不自动升级为本新 profile。
 
 每个 Account 回入强核原 start/full body tuple、预付叶ID、causal closing、当前冻结/epoch、绝对until后永久 claim 唯一叶并签固定 purpose/domain receipt。Identity/Native receiver 持久消费对应 receipt；业务失败/回复 unknown 不释放。Native Root 不离开锁；Native 每 World 仍真实当前→短锁签 query→锁外回入→短锁强验/当前→锁外 World。
+
+##### Source inspect 首接收者的独立 durable once（候选，未实现）
+
+Source verify 的首个 Account→Identity stateless service 不能在永久 once 之前再向 Account 发 callback。拟对本新 closed Pending profile 将这一个 service1 替换为 `ExecutionSourceInspectDispatcherActorV2` 的一次实际 Actor fetch；旧普通 Identity inspect/service 与旧 Source 合同不变。Account 必须有明确、仅指向该 Identity-owned 专用 class 的跨脚本 DO namespace binding，不经 Identity service 转发，也不暴露 NativeSession/FENCES/普通控制对象。缺此实际部署 binding 或其 scope/script/environment 不匹配时新模式 Unsupported；不能拿 service.fetch 再转 Actor 却仍记一叶。
+
+首次签发只能由原 pending 同父 handler 的真实 PreInspect C3/Dir/RF 观察、Inspect票1与 Source claim 原 request 构成，完整绑定 actual Actions/nonce/ingress/master/sourceID/verifyNonce、approvedinput/session/manager/native binding、固定 Native broker origin、原 Current/config tuple 与绝对 until。原件签在新的封闭 Account purpose/domain，Native request 使用实际 canonical 原字节的 digest；不接受 caller URL、任意 message、receiver 自报 pin 或历史/冷记录重建首次 opaque。Account 对该唯一 Dispatcher 叶逐叶本地 SQL claim 后才请求。
+
+专用 Dispatcher 的对象命名从服务器固定 namespace/schema 与完整批准 scope 的稳定 partition 推导（不以可轮换 key、单次 attempt 或 caller 提供的对象名分区）。签名 proof 包含预期 object ID；receiver 以配置 namespace.idFromName 的纯计算与真实 state.id 双重强等后，才可接触库存。换一个空对象或错 namespace/script/environment 都必须在任何 callback 前拒绝。
+
+容量来自独立服务器部署配置 `CUSTODY_EXECUTION_SOURCE_INSPECT_ADMISSION_CAPACITY`：必需 canonical 非零 u32、checked parse、无默认值，不借 Account256/Directory/FENCES 容量，不由请求指定。配置模板只声明需要部署者给定值；它不是安装证书。首次真实已付接收的同一 SQLite 事务原子固定 schema/scope/object/capacity/固定 issuer tuple 与 floor 的 header、不可变首 proof birth、永久 attempt→完整 proof/claim 信息及 count。缺失/partial/未知/conflict/容量漂移/满容一律保费拒绝，绝不 CREATE IF NOT EXISTS 修复半坏状态、delete/refund/过期清理或用 rotation/namespace 迁移重置。新 class 无普通业务 record；其关闭与普通路径不能将持久记录降级解读，历史校验必须保固定历史 pin，缺历史配置拒绝。完整控制状态连 birth 全抹除本地无法鉴别，独立外锚/迁移未设计，生产模式保持 off。
+
+Receiver 永久 once 首提交完成后，才执行该 `SourceVerifyNative` 未发叶的真实 Account service+Actor2 回入；本地 await/commit 失败不得让 closure 产生的 token 提前泄漏。重放原 signed request 在这个首 Actor 内拒绝，不产生第二次 Account callback 或 Native IO，不返回缓存成功冒新 Current。Account 回入强验原 tuple/唯一 leaf/paid IDs/causal Closing/epoch/freeze/原until，不调用新 C3、不递归回入，只签同 leaf 一次收件证明。Dispatcher 本地永久消费这张精确证明，按实际 Identity-only broker 配置向固定 Native verify 发送一次，不重试；未知结果保占用。
+
+Native verify 的新 closed branch 仍须在自身真实 protected storage 中先永久消费该精确 leaf receipt，强核实际 saved FullInput/provenance、原 Native binding/generation/current/config/floor，再产原 InspectOrigin 强事实；不能把 Account grant 当 Native Current，不导出 Root key，不将既有 ordinary verify 的可重复语义静默升级。独立 Account purpose/pin 必须在实际 Native options 前进入受保护配置指纹；旧无该配置的 consent/lineage 不自动获得本新模式。若新增本地 row 与原严格 inventory 冲突，须先专门联合设计与真实负例，不能删旧守卫；未闭合前 receiver Unsupported。这里本地 SQL/验签不新增 HTTP，但任何实际安装/探测/查状态/额外转发都须另付具体叶。
+
+本新模式的 Native reply 必须另带独立封闭 `SignedPendingSourceInspectResultV2` NativeRoot 强签外层，不能仅返回普通 `InspectOrigin` 内层强事实。外层固定域绑定原 Account dispatch proof digest、实际 Native leaf receipt digest、实际 canonical request/body digest、完整 source/master/scope/attempt tuple、原 inner 强事实 digest 与实际 completedAt；不能用 caller 摘要代实际接收原件。Native 在受保护 once 与 Current 全过后才本地生成，Root key 不离开原锁；不新增 HTTP 或通用签名入口。Account 必须持久保存完整两层原件，在统一 Native restore、Source admit 和最终 Book 消费时以实际固定 NativeStageScope 重验外层与全部 paid 原件关联、原窗口和内层强签；新 paid archive/birth/record 的 required-nullable 槽及事件三向反查不可缺。仅有旧 ordinary 合法强事实、剥去外层、换一个合法不同 paid attempt、或仅在线曾验 header 都不能升级为本次已付成功；晚到真实原件只作历史，不构造 Current/首次 opaque。旧 ordinary domain/回包保持原样。
+
+
+只有实际发送确为 Account→DispatcherActor1、Dispatcher→Account service+Actor2、Dispatcher→Native verify1 时，本替换才保持 Source inspect 原两业务边和原 Native child 回入两边，即局部4；原43业务/40回入及 startup139、含独立元数据5的144仍只是待实证候选。若 Account 只能先 service 再到 Dispatcher，则本次实际多一叶，不能继续沿用139；所有其它首接收者、Native45、LF/Complete/RKV 的 durable once 也仍独立欠审，不能据此宣布全图合格。
+
+验收须包含实际跨脚本 namespace/object-ID 错配、首付费与原签重放、任何 callback 前 once、header/birth/claim 单/双侧丢失、cold、commit unknown、容量满/配置漂移、Account F/A 前后线性化与 Native guarded current 变化；明确区分本地全状态抹除未覆盖。合法大 canonical request/reply 必须穿过实际专用 receiver，沿该 profile 各自已有真实 byte cap 强核，不能全局放大旧32KiB通道、填充凑大或用 reply 大小替 request 资格。
 
 ##### 控制回入与实际 Current 的权威边界
 
