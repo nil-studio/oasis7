@@ -308,3 +308,187 @@ impl AccountProvisionApprovalState {
         Ok(ack)
     }
 }
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::provisioning) struct TermOwnedInvocationRecordV2 {
+    session_id: String,
+    request_id: String,
+    sequence: u64,
+    input_digest: String,
+    signed_attempt_digest: String,
+    invocation_id: String,
+}
+impl TermOwnedInvocationRecordV2 {
+    pub(in crate::provisioning) fn validate_for_session(
+        &self,
+        s: &TestSessionAuthorityV2,
+    ) -> Result<()> {
+        let Some(SessionControlRecordV2::Control {
+            sequence,
+            approved_input_digest,
+            request,
+            signed_attempt_digest,
+            ..
+        }) = s.control_records.get(&self.request_id)
+        else {
+            return Err(invalid());
+        };
+        if *sequence != self.sequence
+            || approved_input_digest != &self.input_digest
+            || signed_attempt_digest != &self.signed_attempt_digest
+            || request.session_id != self.session_id
+            || request.request_id != self.request_id
+            || !closing_kind(request.kind)
+            || s.closing.is_none()
+            || s.input_digest()? != self.input_digest
+            || self.invocation_id
+                != digest(&(
+                    "oasis7.custody.term-owned-control-invocation.v2",
+                    &self.session_id,
+                    &self.input_digest,
+                    &self.request_id,
+                    self.sequence,
+                    &self.signed_attempt_digest,
+                ))?
+        {
+            return Err(invalid());
+        }
+        let event = SessionEventKindV2::ControlAcknowledged {
+            request_id: self.request_id.clone(),
+        };
+        if session_event_ordinal_v2(s, &event)? != Some(self.sequence) {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+    pub(in crate::provisioning) fn invocation_id(&self) -> &str {
+        &self.invocation_id
+    }
+    pub(in crate::provisioning) fn acknowledged_at(
+        &self,
+        s: &TestSessionAuthorityV2,
+    ) -> Result<UnixMillis> {
+        self.validate_for_session(s)?;
+        Ok(s.controls
+            .get(&self.request_id)
+            .ok_or_else(invalid)?
+            .acknowledged_at)
+    }
+}
+/// Only the actual first successful Control SQL transition can create this
+/// invocation holder. A stored Ack, JSON or another module cannot recreate it.
+pub struct TermOwnedInvocationV2 {
+    record: TermOwnedInvocationRecordV2,
+}
+impl TermOwnedInvocationV2 {
+    pub fn invocation_id(&self) -> &str {
+        &self.record.invocation_id
+    }
+    pub(in crate::provisioning) fn validate_local(
+        &self,
+        state: &AccountProvisionApprovalState,
+    ) -> Result<()> {
+        let s = state.test_session_v2_record(&self.record.session_id)?;
+        if s.termination_state.owned_invocation.as_ref() != Some(&self.record) {
+            return Err(invalid());
+        }
+        self.record.validate_for_session(s)
+    }
+    pub(in crate::provisioning) fn session_id(&self) -> &str {
+        &self.record.session_id
+    }
+}
+impl AccountProvisionApprovalState {
+    /// New closed caller only. Ordinary Control continues using its original
+    /// method and wire. Fees have already committed independently at ingress.
+    pub fn control_test_session_v2_and_begin_owned_term(
+        &mut self,
+        proof: SessionProofRequest<'_>,
+        now: UnixMillis,
+        verifier: &mut impl ApprovalSignatureVerifier,
+    ) -> Result<(SessionControlAckV1, Option<TermOwnedInvocationV2>)> {
+        if let Some(ack) = self.test_session_v2_control_history(
+            SessionProofRequest {
+                ingress_attempt_id: proof.ingress_attempt_id,
+                original_bytes: proof.original_bytes,
+                possession: proof.possession,
+            },
+            now,
+        )? {
+            return Ok((ack, None));
+        }
+        let q: SessionControlRequestV1 = original(&proof)?;
+        if !closing_kind(q.kind) {
+            return Err(invalid());
+        }
+        let mut next = self.clone();
+        let ack = next.control_test_session_v2(proof, None, now, verifier)?;
+        let Ok(s) =
+            next.test_session_v2_local(&q.session_id, SessionPurposeV1::TerminationPlan, now)
+        else {
+            // Cleanup unavailability cannot roll back a valid paid closing Ack.
+            *self = next;
+            return Ok((ack, None));
+        };
+        let term = &s.header()?.0.termination;
+        if term.stop_policy != WorldTaskStopPolicyV2::GuardedCommittedUtcStopV2
+            || !matches!(
+                term.cleanup_transport_policy,
+                CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
+                    | CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            )
+        {
+            *self = next;
+            return Ok((ack, None));
+        }
+        if s.native_machine_registration
+            .as_ref()
+            .is_none_or(|m| !m.ready())
+            || s.termination_state.owned_invocation.is_some()
+        {
+            *self = next;
+            return Ok((ack, None));
+        }
+        let Some(SessionControlRecordV2::Control {
+            sequence,
+            approved_input_digest,
+            signed_attempt_digest,
+            ..
+        }) = s.control_records.get(&q.request_id)
+        else {
+            return Err(invalid());
+        };
+        let record = TermOwnedInvocationRecordV2 {
+            session_id: q.session_id.clone(),
+            request_id: q.request_id.clone(),
+            sequence: *sequence,
+            input_digest: approved_input_digest.clone(),
+            signed_attempt_digest: signed_attempt_digest.clone(),
+            invocation_id: digest(&(
+                "oasis7.custody.term-owned-control-invocation.v2",
+                &q.session_id,
+                approved_input_digest,
+                &q.request_id,
+                *sequence,
+                signed_attempt_digest,
+            ))?,
+        };
+        // Cleanup failure must not roll back the already valid closing Ack.
+        if next
+            .test_session_v2_transport_id_available(&q.session_id, &record.invocation_id)
+            .is_err()
+        {
+            *self = next;
+            return Ok((ack, None));
+        }
+        next.test_session_v2_record_mut(&q.session_id)?
+            .termination_state
+            .owned_invocation = Some(record.clone());
+        let token = TermOwnedInvocationV2 { record };
+        token.validate_local(&next)?;
+        next.validate_persistence()?;
+        *self = next;
+        Ok((ack, Some(token)))
+    }
+}

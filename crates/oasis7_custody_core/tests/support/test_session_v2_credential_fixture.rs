@@ -511,3 +511,6 @@ mod native_model_entry_tests;
 
 #[path = "test_session_v2_client_five_source_tests.rs"]
 mod five_source_tests;
+
+#[path = "test_session_v2_term_owned_qualification_tests.rs"]
+mod term_owned_qualification;
