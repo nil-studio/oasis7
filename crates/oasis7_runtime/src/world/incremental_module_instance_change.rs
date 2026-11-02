@@ -153,18 +153,21 @@ fn put_count<R: MerkleNodeReader, W: ValueNodeWriter, C: FnMut() -> bool>(
 /// Exact single-column update of an existing qualified row. Unchanged columns
 /// are not loaded. Whole-record replacement above deliberately validates its
 /// complete old projection; this path is the ordinary fixed-delta operation.
-pub fn change_module_instance_field_v1<R, V, W, C>(
-    qualification: &oasis7_proto::memory_budget::ReservedValue<
+pub struct ModuleInstanceFieldChangeV1<'a> {
+    pub qualification: &'a oasis7_proto::memory_budget::ReservedValue<
         super::incremental_module_instance_family::ModuleInstanceFamilyQualificationV1,
     >,
-    map_key: &str,
-    field: Field,
-    expected: Scalar<'_>,
-    after: Scalar<'_>,
+    pub map_key: &'a str,
+    pub field: Field,
+    pub expected: Scalar<'a>,
+    pub after: Scalar<'a>,
+    pub max_scalar_bytes: u64,
+}
+pub fn change_module_instance_field_v1<R, V, W, C>(
+    request: ModuleInstanceFieldChangeV1<'_>,
     txn: &mut ExecutionTransaction<'_, R>,
     values: &V,
     context: &mut BodyMutationContext<'_, W, C>,
-    max_scalar_bytes: u64,
 ) -> Result<bool, BodyMutationError>
 where
     R: MerkleNodeReader,
@@ -172,6 +175,14 @@ where
     W: ValueNodeWriter,
     C: FnMut() -> bool,
 {
+    let ModuleInstanceFieldChangeV1 {
+        qualification,
+        map_key,
+        field,
+        expected,
+        after,
+        max_scalar_bytes,
+    } = request;
     txn.contribute(|txn| {
         let mut read = ModuleReadContext {
             qualification,

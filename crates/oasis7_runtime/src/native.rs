@@ -530,7 +530,7 @@ pub use oasis7_world_state::incremental_main_token_policy_records;
 pub use oasis7_world_state::incremental_runtime_scheduler_controls;
 pub use oasis7_world_state::incremental_runtime_capability_records;
 pub use world::incremental_module_instance_change::contribute_module_instance_change;
-pub use world::incremental_module_instance_change::change_module_instance_field_v1;
+pub use world::incremental_module_instance_change::{change_module_instance_field_v1, ModuleInstanceFieldChangeV1};
 pub use world::incremental_module_instance_family::{ModuleInstanceFamilyQualificationV1, readmit_module_instance_family_ordinary_v1};
 pub use world::incremental_module_instance_receiver::accept_module_instance_transition_v1;
 pub use world::incremental_module_read::{ModuleReadContext, PreparedModuleInstanceFields};
