@@ -21,6 +21,16 @@ impl Replay<'_> {
                     match &fee.class {
                         SessionPurposeHttpAdmissionClassV1::GenericOne
                         | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. } => 1,
+                        SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { preparation } => {
+                            if fee.purpose != SessionPurposeV1::ReconcileRead
+                                || preparation.settled_at != at
+                                || self.generations.get(&fee.purpose)
+                                    != Some(&preparation.credential_generation.0)
+                            {
+                                return Err(invalid());
+                            }
+                            5
+                        }
                         SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. } => {
                             let original = self
                                 .s
@@ -264,6 +274,90 @@ impl Replay<'_> {
                 // The leaf was already claimed; this only archives its exact
                 // signing result and does not bypass Closing for any new leaf.
                 self.execution_pending_directory_signed = true;
+            }
+            SessionEventKindV2::ReadCurrentIngressSettled { ingress_attempt_id } => {
+                let a = self
+                    .s
+                    .purpose_http_admissions
+                    .get(ingress_attempt_id)
+                    .ok_or_else(invalid)?;
+                let SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { preparation: r } =
+                    &a.class
+                else {
+                    return Err(invalid());
+                };
+                self.live(SessionPurposeV1::ReconcileRead, at)?;
+                if r.settled_at != at || !self.purpose_fees.contains(ingress_attempt_id) {
+                    return Err(invalid());
+                }
+                if r.consumed_challenge {
+                    self.consume(
+                        &r.challenge_request_id,
+                        &r.request.request_id,
+                        SessionPurposeV1::ReconcileRead,
+                        at,
+                    )?;
+                } else if !self.consumed.contains(&r.challenge_request_id) {
+                    return Err(invalid());
+                }
+                Self::unique(&mut self.read_current_fees, ingress_attempt_id)?;
+            }
+            SessionEventKindV2::ReadCurrentPortPrepaidClaimed {
+                ingress_attempt_id,
+                port,
+            } => {
+                let a = self
+                    .s
+                    .purpose_http_admissions
+                    .get(ingress_attempt_id)
+                    .ok_or_else(invalid)?;
+                let SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { preparation: r } =
+                    &a.class
+                else {
+                    return Err(invalid());
+                };
+                let p = r.reservation.as_ref().ok_or_else(invalid)?;
+                self.live(SessionPurposeV1::ReconcileRead, at)?;
+                if !self.read_current_reservations.contains(ingress_attempt_id)
+                    || at.get() < p.reserved_at.get()
+                    || at.get() >= p.until.get()
+                    || p.claims.get(port).is_none_or(|c| c.at != at)
+                    || self.generations.get(&SessionPurposeV1::ReconcileRead)
+                        != Some(&r.credential_generation.0)
+                    || !self
+                        .read_current_ports
+                        .insert((ingress_attempt_id.clone(), *port))
+                {
+                    return Err(invalid());
+                }
+            }
+            SessionEventKindV2::ReadCurrentReserved { ingress_attempt_id } => {
+                let a = self
+                    .s
+                    .purpose_http_admissions
+                    .get(ingress_attempt_id)
+                    .ok_or_else(invalid)?;
+                let SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { preparation: r } =
+                    &a.class
+                else {
+                    return Err(invalid());
+                };
+                let p = r.reservation.as_ref().ok_or_else(invalid)?;
+                self.live(SessionPurposeV1::ReconcileRead, at)?;
+                if p.reserved_at != at
+                    || at.get() >= p.until.get()
+                    || !self.read_current_fees.contains(ingress_attempt_id)
+                    || self.generations.get(&SessionPurposeV1::ReconcileRead)
+                        != Some(&r.credential_generation.0)
+                {
+                    return Err(invalid());
+                }
+                self.root_transport
+                    .get_mut(&SessionPurposeV1::ReconcileRead)
+                    .ok_or_else(invalid)?
+                    .charge(54)
+                    .map_err(|_| invalid())?;
+                Self::unique(&mut self.read_current_reservations, ingress_attempt_id)?;
             }
             SessionEventKindV2::ReadPrepareHistoryOwnerPaid { ingress_attempt_id } => {
                 let a = self
