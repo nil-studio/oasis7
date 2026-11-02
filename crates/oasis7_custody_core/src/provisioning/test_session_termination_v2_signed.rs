@@ -57,6 +57,14 @@ impl AccountProvisionApprovalState {
                 Err(ProvisionApprovalError::Conflict)
             };
         }
+        // Existing exact signed bytes above remain a historical idempotent
+        // acknowledgement. A fresh Guarded publication needs its actual paid
+        // signature claim; a valid Owner signature alone does not create it.
+        if s.header()?.0.termination.stop_policy == WorldTaskStopPolicyV2::GuardedCommittedUtcStopV2
+            && allocation.signature_claim.is_none()
+        {
+            return Err(ProvisionApprovalError::BindingMismatch);
+        }
         let mut next = self.clone();
         next.test_session_v2_record_mut(id)?
             .termination_state
