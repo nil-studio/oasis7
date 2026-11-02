@@ -513,3 +513,6 @@ fn fixed_original_lookup_signs_exact_selector_and_rejects_substitution_without_c
         assert_eq!(client.formal_checkpoint().unwrap(), before);
     }
 }
+
+#[path = "client_formal_lookup_page_tests.rs"]
+mod lookup_page_once;

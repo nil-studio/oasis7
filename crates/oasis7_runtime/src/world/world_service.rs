@@ -47,10 +47,18 @@ pub(super) fn apply_service_authorization_event(
             super::task_terminal_v2::project(world, &mut projection, record)?;
             world.capability_revocation_state = projection;
         }
+        Event::TaskStoppedV2 { record } => {
+            let mut projection = world.capability_revocation_state.clone();
+            super::task_stop_v2::project(world, &mut projection, record)?;
+            world.capability_revocation_state = projection;
+        }
         Event::WorldServiceIntentRecorded { key, record } => {
             crate::service_admission::correlation::validate_result(key, record).map_err(deny)?;
-            super::participant::validate_service_receipt(&world.capability_revocation_state,record)?;
-            crate::service_admission::starter::validate_result(world,record).map_err(deny)?;
+            super::participant::validate_service_receipt(
+                &world.capability_revocation_state,
+                record,
+            )?;
+            crate::service_admission::starter::validate_result(world, record).map_err(deny)?;
             if world
                 .capability_revocation_state
                 .world_service_results
