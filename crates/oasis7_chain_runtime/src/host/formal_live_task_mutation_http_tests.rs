@@ -65,6 +65,7 @@ enum CloseReplyCase {
     ArchiveCoordinates,
     #[cfg(unix)]
     ResourcePreflight,
+    ResourceGoal,
 }
 #[test]
 fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_commit() {
@@ -119,8 +120,19 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
         )
         .unwrap();
     #[cfg(unix)]
-    let paid_participant = matches!(reply_case, CloseReplyCase::ResourcePreflight)
-        .then(|| resource_preflight_http::participant(&mut initial));
+    let paid_participant = matches!(
+        reply_case,
+        CloseReplyCase::ResourcePreflight | CloseReplyCase::ResourceGoal
+    )
+    .then(|| resource_preflight_http::participant(&mut initial));
+    #[cfg(unix)]
+    if matches!(reply_case, CloseReplyCase::ResourceGoal) {
+        resource_goal_paid_http::delegate(
+            &mut initial,
+            paid_participant.as_ref().unwrap(),
+            &delegate,
+        );
+    }
     assert!(
         initial
             .capability_revocation_state()
@@ -136,6 +148,7 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
         CloseReplyCase::ArchiveCoordinates => "archive-coordinates",
         #[cfg(unix)]
         CloseReplyCase::ResourcePreflight => "resource-preflight",
+        CloseReplyCase::ResourceGoal => "resource-goal",
     };
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
         "guarded-mutation-node-{}-{}-{}",
@@ -159,8 +172,9 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
     let archive_directory = root.join("resource-activation-archive");
     let publication = if matches!(
         reply_case,
-        CloseReplyCase::Archive | CloseReplyCase::ArchiveCoordinates
+        CloseReplyCase::Archive | CloseReplyCase::ArchiveCoordinates | CloseReplyCase::ResourceGoal
     ) {
+        #[cfg(unix)]
         create_private_archive_directory(&root, &archive_directory);
         let queue=oasis7::world_service::formal_read_service::GoalActivationArchiveQueueV1::open_existing(
             archive_directory.clone(),64*1024*1024,128*1024*1024,64).unwrap();
@@ -227,6 +241,10 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
     let service = Arc::new(service);
     #[cfg(unix)]
     if let Some(participant) = paid_participant {
+        if matches!(reply_case, CloseReplyCase::ResourceGoal) {
+            resource_goal_paid_http::run(service, node, publication, root, participant, &delegate);
+            return;
+        }
         resource_preflight_http::run(service, node, publication, root, participant);
         return;
     }
@@ -520,6 +538,7 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
         CloseReplyCase::Archive | CloseReplyCase::ArchiveCoordinates => {
             unreachable!("archive case returned before Stop/Close")
         }
+        CloseReplyCase::ResourceGoal => unreachable!("resource Goal returned before Stop/Close"),
         #[cfg(unix)]
         CloseReplyCase::ResourcePreflight => {
             unreachable!("resource case returned before Stop/Close")
@@ -569,6 +588,14 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
             let raw = serde_json::to_vec(&wrapper).unwrap();
             let cloned = Arc::clone(&service);
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let observation_started = Instant::now();
+            let delivery_budget_ms = wrapper.delivery_until_ms.0.saturating_sub(now_unix_ms());
+            let close_budget_ms = close
+                .original
+                .request
+                .cleanup_until_ms
+                .0
+                .saturating_sub(now_unix_ms());
             let worker = std::thread::spawn(move || {
                 let reply = exchange(&cloned, TASK_CLEANUP_SUBMIT_V2, &raw);
                 tx.send(reply).unwrap();
@@ -591,6 +618,7 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
                 panic!("qualified reply returned before the actual paused Close commit");
             }
             control.wait(wait_until).unwrap();
+            let resume_reached_ms = observation_started.elapsed().as_millis();
             assert!(
                 service.admission_gate.try_lock().is_ok(),
                 "waiting HTTP retained admission gate"
@@ -619,6 +647,7 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
                     .unwrap()
                     .is_none()
             );
+            let resume_release_ms = observation_started.elapsed().as_millis();
             control.release().unwrap();
             let (status, raw) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
             worker.join().unwrap();
@@ -626,7 +655,10 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
             let reply = TaskMutationSubmitReplyV2::decode_strict(&raw).unwrap();
             let diagnostic = task_mutation_service::qualified_wait_diagnostic(&service, &wrapper);
             let TaskMutationSubmitReplyV2::Qualified { admission, effect } = reply else {
-                panic!("actual qualified Close fact required; wait={diagnostic:?}")
+                panic!(
+                    "actual qualified Close fact required; wait={diagnostic:?} delivery_budget_ms={delivery_budget_ms} close_budget_ms={close_budget_ms} resume_reached_ms={resume_reached_ms} resume_release_ms={resume_release_ms} reply_ms={}",
+                    observation_started.elapsed().as_millis()
+                )
             };
             verify_service_response(
                 CLOSE_QUALIFIED_EFFECT_DOMAIN_V2,
@@ -890,6 +922,32 @@ fn install_task_with_private_goal(
     world: &WorldIdentity,
     private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
 ) -> GameTaskControlV1 {
+    install_task_for_agent_with_private_goal(
+        service,
+        publication,
+        owner,
+        delegate,
+        world,
+        "agent",
+        private,
+    )
+}
+fn install_task_for_agent_with_private_goal(
+    service: &FormalLiveService,
+    publication: &PublishedReadState,
+    owner: &str,
+    delegate: &str,
+    world: &WorldIdentity,
+    agent: &str,
+    private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
+) -> GameTaskControlV1 {
+    let cut = publication.current().unwrap();
+    let current_owner = cut.world.current_agent_owner(agent).unwrap();
+    let owner_binding = current_owner.player_id.clone();
+    let owner_generation = DecimalU64(current_owner.generation);
+    let task = |world: &World| {
+        oasis7_runtime::service_admission::game_task::current_control(world, agent).unwrap()
+    };
     let create = setup_envelope(
         world,
         WorldServicePayloadV1::GameTaskCreate(
@@ -902,9 +960,9 @@ fn install_task_with_private_goal(
                     genesis_digest: world.genesis_digest.clone(),
                     branch_id: "main".into(),
                     reorg_epoch: DecimalU64(0),
-                    agent_id: "agent".into(),
-                    owner_binding: "owner".into(),
-                    owner_generation: DecimalU64(1),
+                    agent_id: agent.into(),
+                    owner_binding,
+                    owner_generation,
                 },
                 owner,
             )
@@ -912,8 +970,8 @@ fn install_task_with_private_goal(
         ),
     );
     submit_setup(service, &create);
-    let created = wait_cut(publication, |world| actual_task(world).is_some());
-    let control = actual_task(&created.world).unwrap();
+    let created = wait_cut(publication, |world| task(world).is_some());
+    let control = task(&created.world).unwrap();
     let goal_ref =
         private.map(|store| coordinate_tests::prepare_actual_goal(store, &control, owner));
     let goal = GameGoalPublishV1 {
@@ -944,9 +1002,9 @@ fn install_task_with_private_goal(
         ),
     );
     let published = wait_cut(publication, |world| {
-        actual_task(world).is_some_and(|c| c.active_goal_revision.0 == 1)
+        task(world).is_some_and(|c| c.active_goal_revision.0 == 1)
     });
-    let control = actual_task(&published.world).unwrap();
+    let control = task(&published.world).unwrap();
     let bind = GameExecutorControlV1 {
         api_rev: 1,
         client_operation_id: "actual-bind".into(),
@@ -967,9 +1025,9 @@ fn install_task_with_private_goal(
         ),
     );
     let bound = wait_cut(publication, |world| {
-        actual_task(world).is_some_and(|c| c.executor_binding.is_some())
+        task(world).is_some_and(|c| c.executor_binding.is_some())
     });
-    actual_task(&bound.world).unwrap()
+    task(&bound.world).unwrap()
 }
 
 // Fixed classifications only; never log body, signature, request IDs or raw errors.
@@ -1106,19 +1164,21 @@ fn resource_formal_coordinate_actual_goal_owner_node_proofs_reach_sdk_target() {
     mutation_case(CloseReplyCase::ArchiveCoordinates, false)
 }
 
+#[cfg(unix)]
 fn create_private_archive_directory(root: &std::path::Path, archive: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::create_dir_all(root).unwrap();
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(archive)
-            .unwrap();
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (root, archive);
-        unreachable!("private Resource archive test requires Unix storage");
-    }
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::create_dir_all(root).unwrap();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(archive)
+        .unwrap();
+}
+
+#[cfg(unix)]
+#[path = "resource_goal_paid_actual_http_tests.rs"]
+mod resource_goal_paid_http;
+#[cfg(unix)]
+#[test]
+fn resource_world_paid_goal_real_http_uses_original_archive_and_private_goal() {
+    mutation_case(CloseReplyCase::ResourceGoal, false)
 }

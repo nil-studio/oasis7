@@ -7,8 +7,7 @@ use oasis7::world_service::{
     private_goal_store::PrivateGoalStore,
     resource_world_paid_ledger_v1::{
         PaidResourceReadIssuerFloorV1, PaidResourceReadIssuerPinV1, PaidResourceReadPayloadV1,
-        PaidResourceReadProofV1,
-        PaidResourceReadStageV1, WorldResourcePaidLedgerV1,
+        PaidResourceReadProofV1, PaidResourceReadStageV1, WorldResourcePaidLedgerV1,
     },
     resource_world_read_service_v1::ResourceWorldReadServiceV1,
 };
@@ -28,9 +27,9 @@ fn namespace() -> GameIdentityNamespaceV1 {
 #[path = "execution_bridge/tests/participant_governance.rs"]
 mod governed_policy;
 pub(super) struct Participant {
-    owner: SignedReadRequest<GameParticipantRegisterV1>,
-    admission: SignedReadRequest<GameParticipantAdmissionV1>,
-    agent: String,
+    pub(super) owner: SignedReadRequest<GameParticipantRegisterV1>,
+    pub(super) admission: SignedReadRequest<GameParticipantAdmissionV1>,
+    pub(super) agent: String,
 }
 pub(super) fn participant(world: &mut World) -> Participant {
     let identity = WorldIdentity {
@@ -88,7 +87,7 @@ pub(super) fn participant(world: &mut World) -> Participant {
         agent: receipt.agent_id,
     }
 }
-fn exchange_paid(
+pub(super) fn exchange_paid(
     service: &FormalLiveService,
     request: &participant::ParticipantOwnerViewRequestV1,
     proof: &PaidResourceReadProofV1,
@@ -120,12 +119,12 @@ fn exchange_paid(
         .unwrap();
     (status, raw[end..].to_vec())
 }
-fn private_directory(root: &std::path::Path, path: &std::path::Path) {
+pub(super) fn private_directory(root: &std::path::Path, path: &std::path::Path) {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::create_dir_all(root).unwrap();
     std::fs::DirBuilder::new().mode(0o700).create(path).unwrap();
 }
-fn events(path: &std::path::Path) -> usize {
+pub(super) fn events(path: &std::path::Path) -> usize {
     std::fs::read_dir(path)
         .unwrap()
         .map(|v| v.unwrap().file_name().into_string().unwrap())
@@ -136,7 +135,7 @@ fn events(path: &std::path::Path) -> usize {
         })
         .count()
 }
-fn issue(
+pub(super) fn issue(
     pin: &PaidResourceReadIssuerPinV1,
     q: &participant::ParticipantOwnerViewRequestV1,
     attempt: &str,
@@ -168,7 +167,10 @@ fn issue(
         prepared_resource_basis_digest: None,
         selection_digest: "ad".repeat(32),
         owner_public_key: q.owner.subject_public_key.clone(),
-        owner_binding: oasis7_runtime::service_admission::participant::account_key(&q.owner.request).unwrap(),
+        owner_binding: oasis7_runtime::service_admission::participant::account_key(
+            &q.owner.request,
+        )
+        .unwrap(),
         task_fence_digest: "ae".repeat(32),
         signer_record_digest: "af".repeat(32),
         native_request_digest: "ba".repeat(32),
