@@ -29,7 +29,14 @@ fn term_world3_actual_guarded_policy_must_allocate_owner_grant_in_first_stop_pre
 fn term_guarded_stop_respects_a_valid_earlier_current_observation_window() {
     guarded_current_window_case(true);
 }
+#[test]
+fn term_guarded_close_fresh_publish_requires_actual_paid_signature_claim() {
+    guarded_current_window_case_mode(false, true);
+}
 fn guarded_current_window_case(earlier: bool) {
+    guarded_current_window_case_mode(earlier, false);
+}
+fn guarded_current_window_case_mode(earlier: bool, unpaid_close_publish: bool) {
     let mut f = machine_tests::ready_world3(9000);
     let now = 31_000;
     f.state
@@ -410,6 +417,100 @@ fn guarded_current_window_case(earlier: bool) {
             &mut StrictCrypto,
         )
         .unwrap();
+    if unpaid_close_publish {
+        let signed_close = ws::sign_read_request(
+            oasis7_agent_api::game::GAME_TASK_CLEANUP_DOMAIN_V2,
+            close.clone(),
+            &"3e".repeat(32),
+        )
+        .unwrap();
+        assert_eq!(
+            signed_close.subject_public_key,
+            close
+                .permitted_branches
+                .exact_initial_active
+                .owner_public_key
+        );
+        ws::private_goal::verify_owner_signature_strict(
+            oasis7_agent_api::game::GAME_TASK_CLEANUP_DOMAIN_V2,
+            &signed_close.request,
+            &signed_close.subject_public_key,
+            &signed_close.signature_hex,
+        )
+        .unwrap();
+        let allocated = serde_json::to_value(&f.state).unwrap();
+        assert!(allocated["test_sessions_v2"][&f.session_id]["termination_state"]["close"]["signature_claim"].is_null());
+        assert!(
+            allocated["test_sessions_v2"][&f.session_id]["termination_state"]["close"]["signed"]
+                .is_null()
+        );
+        let cold: AccountProvisionApprovalState =
+            serde_json::from_value(allocated.clone()).unwrap();
+        assert_eq!(cold, f.state);
+        // Real paid sibling first proves the original, Current, publication,
+        // exact cache idempotence and historical getter are all accepted.
+        let mut paid = f.state.clone();
+        paid.claim_test_session_close_vault_v2(
+            &f.session_id,
+            "close-publish-paid-positive",
+            &live,
+            UnixMillis::new(now + 4),
+            &mut StrictCrypto,
+        )
+        .unwrap();
+        paid.publish_test_session_close_v2_signed(
+            &f.session_id,
+            signed_close.clone(),
+            &live,
+            UnixMillis::new(now + 4),
+            &mut StrictCrypto,
+        )
+        .unwrap();
+        let published = serde_json::to_value(&paid).unwrap();
+        assert_eq!(spent(&published), spent(&allocated) + 1);
+        assert_eq!(
+            paid.test_session_close_v2_original(&f.session_id)
+                .unwrap()
+                .original,
+            signed_close
+        );
+        assert_eq!(
+            serde_json::from_value::<AccountProvisionApprovalState>(published.clone()).unwrap(),
+            paid
+        );
+        paid.publish_test_session_close_v2_signed(
+            &f.session_id,
+            signed_close.clone(),
+            &live,
+            UnixMillis::new(now + 4),
+            &mut StrictCrypto,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&paid).unwrap(),
+            published,
+            "exact already published original is idempotent"
+        );
+        // Only the paid claim differs. No World sender or physical fee bypass
+        // is asserted by this Core persistence-coupling regression.
+        let exact = f.state.clone();
+        let result = f.state.publish_test_session_close_v2_signed(
+            &f.session_id,
+            signed_close,
+            &live,
+            UnixMillis::new(now + 4),
+            &mut StrictCrypto,
+        );
+        assert!(
+            result.is_err(),
+            "fresh Guarded Close publish cannot bypass the actual signature claim"
+        );
+        assert_eq!(
+            f.state, exact,
+            "rejected unpaid publication changes no state or budget"
+        );
+        return;
+    }
     let close_first = f
         .state
         .claim_test_session_close_vault_v2(
