@@ -112,6 +112,35 @@ impl DurableObject for RecoveryFence {
             &self.object_id,
             &self.initial_epoch,
         );
+        if request.method() == Method::Post
+            && url.path() == oasis7_custody_core::read_fence_dispatch_v3::READ_FENCE_READ_PATH_V3
+        {
+            if request.headers().get("Content-Type")?.as_deref() != Some("application/json") {
+                return unavailable();
+            }
+            let raw = crate::recovery_fence_control::bounded(request).await?;
+            let request = serde_json::from_str(&raw)
+                .map_err(|_| worker::Error::RustError("invalid Read fence receipt".into()))?;
+            return match store.read_prepaid_read_v3(request) {
+                Ok(v) => Response::from_json(&v),
+                Err(_) => Response::error("recovery pending", 409),
+            };
+        }
+        if request.method() == Method::Post
+            && url.path()
+                == oasis7_custody_core::execution_fence_dispatch_v2::EXECUTION_FENCE_READ_PATH_V2
+        {
+            if request.headers().get("Content-Type")?.as_deref() != Some("application/json") {
+                return unavailable();
+            }
+            let raw = crate::recovery_fence_control::bounded(request).await?;
+            let request = serde_json::from_str(&raw)
+                .map_err(|_| worker::Error::RustError("invalid Execution fence receipt".into()))?;
+            return match store.read_prepaid_execution_v2(request) {
+                Ok(v) => Response::from_json(&v),
+                Err(_) => Response::error("recovery pending", 409),
+            };
+        }
         if request.method() == Method::Post {
             if !crate::recovery_fence_store::control_enabled(&self.env)
                 || request.headers().get("Content-Type")?.as_deref() != Some("application/json")

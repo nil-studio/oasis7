@@ -5,16 +5,6 @@ use wasm_bindgen::{JsCast, prelude::*};
 use worker::{Env, Result};
 const LEDGER: &str = "recovery-fence-ledger-v1";
 const FENCE: &str = "recovery-fence-v1";
-#[wasm_bindgen(module = "/platform/fence_sql.mjs")]
-extern "C" {
-    #[wasm_bindgen(catch, js_name = readFenceInventory)]
-    fn inventory(state: &JsValue) -> core::result::Result<String, JsValue>;
-    #[wasm_bindgen(catch, js_name = fenceTransition)]
-    fn transition(
-        state: &JsValue,
-        callback: &js_sys::Function,
-    ) -> core::result::Result<String, JsValue>;
-}
 fn denied() -> JsValue {
     JsValue::from_str("independent fence authority unavailable")
 }
@@ -25,7 +15,7 @@ fn now() -> core::result::Result<u64, JsValue> {
     }
     Ok(value as u64)
 }
-fn policy(env: &Env) -> core::result::Result<RecoveryAuthorityPolicyV1, JsValue> {
+pub(super) fn policy(env: &Env) -> core::result::Result<RecoveryAuthorityPolicyV1, JsValue> {
     let text = env
         .var("CUSTODY_RECOVERY_AUTHORITY_POLICY")
         .map_err(|_| denied())?
@@ -188,13 +178,30 @@ impl<'a> FenceStore<'a> {
         &self,
         policy: &RecoveryAuthorityPolicyV1,
     ) -> core::result::Result<RecoveryFenceLedgerV1, JsValue> {
-        crate::sql_store::read_frozen_fence(self.state, self.initial).map_err(|_| denied())?;
-        parse(&inventory(self.state)?, policy, self.object)
+        let raw = crate::read_fence_admission_v3::ordinary_inventory(
+            self.state,
+            self.env,
+            self.object,
+            self.initial,
+        )?;
+        parse(&raw, policy, self.object)
     }
     pub fn read(&self) -> Result<RecoveryFence> {
-        let initial = crate::sql_store::read_frozen_fence(self.state, self.initial)?;
-        let raw = inventory(self.state)?;
+        let raw = crate::read_fence_admission_v3::ordinary_inventory(
+            self.state,
+            self.env,
+            self.object,
+            self.initial,
+        )?;
         let inv: Inventory = serde_json::from_str(&raw).map_err(|_| denied())?;
+        let initial: oasis7_custody_core::recovery::RecoveryFence = serde_json::from_str(
+            &inv.records
+                .iter()
+                .find(|r| r.id == FENCE)
+                .ok_or_else(denied)?
+                .payload,
+        )
+        .map_err(|_| denied())?;
         if inv.records.iter().all(|v| v.id != LEDGER) {
             // An active legacy row without history is never trusted.
             if !initial.disabled()
@@ -207,6 +214,80 @@ impl<'a> FenceStore<'a> {
             return Ok(initial);
         }
         Ok(parse(&raw, &policy(self.env)?, self.object)?.fence())
+    }
+    fn read_prepaid_profile(
+        &self,
+        proof: oasis7_custody_core::read_fence_admission_v3::FenceAdmissionProofV3,
+    ) -> core::result::Result<(RecoveryFence, u64), JsValue> {
+        crate::read_fence_admission_v3::consume_profile(
+            self.state,
+            self.env,
+            self.object,
+            proof.clone(),
+            now()?,
+        )?;
+        // No business payload is fetched by the admission transaction. This is
+        // the first authoritative payload read after permanent once commits.
+        let fence = self.read().map_err(|_| denied())?;
+        let observed = now()?;
+        crate::read_fence_admission_v3::verify_profile_current(
+            self.env,
+            self.object,
+            &proof,
+            observed,
+        )?;
+        fence
+            .check_epoch(proof.expected_epoch().0)
+            .map_err(|_| denied())?;
+        Ok((fence, observed))
+    }
+    pub fn read_prepaid_read_v3(
+        &self,
+        request: oasis7_custody_core::read_fence_dispatch_v3::ReadFenceReadRequestV3,
+    ) -> core::result::Result<
+        oasis7_custody_core::read_fence_dispatch_v3::ReadFenceObservationV3,
+        JsValue,
+    > {
+        request.validate_binding().map_err(|_| denied())?;
+        let proof = request.authorization;
+        let (fence, observed) = self.read_prepaid_profile(
+            oasis7_custody_core::read_fence_admission_v3::FenceAdmissionProofV3::ReconcileReadV3(
+                proof.clone(),
+            ),
+        )?;
+        Ok(
+            oasis7_custody_core::read_fence_dispatch_v3::ReadFenceObservationV3 {
+                api_version: 3,
+                dispatch_digest: proof.claim.dispatch_digest.clone(),
+                read_digest: proof.digest().map_err(|_| denied())?,
+                fence,
+                observed_at: DecimalU64(observed),
+            },
+        )
+    }
+    pub fn read_prepaid_execution_v2(
+        &self,
+        request: oasis7_custody_core::execution_fence_dispatch_v2::ExecutionFenceReadRequestV2,
+    ) -> core::result::Result<
+        oasis7_custody_core::execution_fence_dispatch_v2::ExecutionFenceObservationV2,
+        JsValue,
+    > {
+        request.validate_binding().map_err(|_| denied())?;
+        let proof = request.authorization;
+        let (fence, observed) = self.read_prepaid_profile(
+            oasis7_custody_core::read_fence_admission_v3::FenceAdmissionProofV3::ExecutionV2(
+                proof.clone(),
+            ),
+        )?;
+        Ok(
+            oasis7_custody_core::execution_fence_dispatch_v2::ExecutionFenceObservationV2 {
+                api_version: 2,
+                dispatch_digest: proof.claim.dispatch_digest.clone(),
+                read_digest: proof.digest().map_err(|_| denied())?,
+                fence,
+                observed_at: DecimalU64(observed),
+            },
+        )
     }
     pub fn describe(&self) -> core::result::Result<FenceDescription, JsValue> {
         let ledger = self.snapshot(&policy(self.env)?)?;
@@ -254,7 +335,12 @@ impl<'a> FenceStore<'a> {
             Ok(result)
         };
         let closure = Closure::borrow_mut(&mut callback);
-        transition(self.state, closure.as_ref().unchecked_ref())?;
+        crate::read_fence_admission_v3::ordinary_transition(
+            self.state,
+            self.env,
+            self.object,
+            closure.as_ref().unchecked_ref(),
+        )?;
         drop(closure);
         returned.ok_or_else(denied)
     }
