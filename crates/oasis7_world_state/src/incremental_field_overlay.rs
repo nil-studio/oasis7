@@ -68,7 +68,50 @@ pub(crate) fn lookup<
     let namespace = WorldFieldKeyV1::from_bytes(key.as_bytes())
         .map_err(ValueTreeError::Invalid)?
         .namespace;
-    let result = transaction.read(namespace, key.as_bytes());
+    lookup_raw_after_admission(
+        transaction,
+        namespace,
+        key.as_bytes(),
+        records,
+        take_state_error,
+    )
+}
+/// Dedicated codecs validate their own key and namespace before calling.
+pub(crate) fn lookup_raw<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    transaction: &mut ExecutionTransaction<'_, M>,
+    namespace: oasis7_formal_protocol::incremental_state::StateNamespaceV1,
+    key: &[u8],
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    take_state_error: &mut E,
+) -> Result<Option<[u8; 32]>, WorldFieldOverlayErrorV1> {
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    let _workspace = records
+        .values
+        .memory
+        .reserve(512 << 10, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    lookup_raw_after_admission(transaction, namespace, key, records, take_state_error)
+}
+fn lookup_raw_after_admission<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    transaction: &mut ExecutionTransaction<'_, M>,
+    namespace: oasis7_formal_protocol::incremental_state::StateNamespaceV1,
+    key: &[u8],
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    take_state_error: &mut E,
+) -> Result<Option<[u8; 32]>, WorldFieldOverlayErrorV1> {
+    let result = transaction.read(namespace, key);
     let original = take_state_error();
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());

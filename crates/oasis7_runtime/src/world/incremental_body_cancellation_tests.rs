@@ -1,7 +1,7 @@
 use super::tests::{fixture, io, limits};
 use super::*;
 use oasis7_formal_protocol::incremental_state::{StateDeltaV1, StateWriteV1};
-use oasis7_proto::memory_budget::MemoryBudget;
+use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
 use oasis7_world_state::{AgentCell, AgentState};
 use std::{cell::Cell, rc::Rc};
 struct Puts(Rc<Cell<usize>>);

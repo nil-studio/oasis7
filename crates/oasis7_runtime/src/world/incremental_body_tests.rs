@@ -3,6 +3,8 @@ use oasis7_formal_protocol::incremental_execution::{
     AuthorityBinding, ExecutionParent, RootSetV1, TransactionLimits, TransitionVerifier,
 };
 use oasis7_formal_protocol::incremental_state::{StateDeltaV1, StateWriteV1};
+use oasis7_formal_protocol::incremental_value::ValueIoBudget;
+use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
 use oasis7_world_state::{AgentCell, AgentState};
 use std::collections::BTreeMap;
 

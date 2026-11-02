@@ -80,6 +80,23 @@ impl<
         if self.root.namespace != expected.namespace {
             return Err(ValueTreeError::Invalid("field namespace"));
         }
+        self.lookup_raw_after_check(self.root, key.as_bytes())
+    }
+    /// A dedicated codec must check its own key/namespace profile first.
+    /// This authenticates a lookup only and grants no owner qualification.
+    pub(crate) fn lookup_raw(
+        &mut self,
+        root: &StateRootV1,
+        key: &[u8],
+    ) -> Result<Option<[u8; 32]>, ValueTreeError> {
+        self.check()?;
+        self.lookup_raw_after_check(root, key)
+    }
+    fn lookup_raw_after_check(
+        &mut self,
+        root: &StateRootV1,
+        key: &[u8],
+    ) -> Result<Option<[u8; 32]>, ValueTreeError> {
         let _workspace = self.values.memory.reserve(512 << 10, self.values.class)?;
         let (result, cancelled) = {
             let source = CancelState {
@@ -87,7 +104,7 @@ impl<
                 cancelled: RefCell::new(&mut self.cancelled),
                 seen: Cell::new(false),
             };
-            let result = self.root.get(key.as_bytes(), &source);
+            let result = root.get(key, &source);
             (result, source.seen.get())
         };
         let original = (self.take_state_error)();
