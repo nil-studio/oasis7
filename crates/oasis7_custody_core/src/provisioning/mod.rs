@@ -19,3 +19,7 @@ pub use crate::context_body::*;
 
 mod resource_v2_contract;
 pub use resource_v2_contract::*;
+
+#[path = "owner_setup_resource_world_body_v2_shared.rs"]
+mod resource_world_body_v2;
+pub use resource_world_body_v2::{OwnerSetupResourceWorldBodyV2, RESOURCE_READ_PROOF_HEADER};

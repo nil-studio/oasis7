@@ -57,6 +57,10 @@ mod changes_service;
 pub(crate) mod full_sync_read_gate;
 #[path = "formal_live_full_sync.rs"]
 mod full_sync_service;
+#[path = "formal_live_resource_archive.rs"]
+mod resource_archive;
+#[path = "formal_live_resource_read_http.rs"]
+mod resource_read_http;
 const MAX_REQUEST_BODY: usize = 256 * 1024;
 const MAX_HTTP_HEADER: usize = 8 * 1024;
 const MAX_HTTP_REPLY: usize = 8 * 1024 * 1024;
@@ -70,6 +74,8 @@ const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 pub(crate) struct PublishedReadCut {
     pub(crate) world: World,
     pub(crate) anchor: VerifiedFormalReadAnchorV1,
+    pub(crate) original_material:
+        Option<Arc<super::execution_bridge::formal_writer::OwnedVerifiedPublicationMaterialV1>>,
     stop_publication:
         Option<Arc<Mutex<oasis7::world_service::formal_read_service::LocalStopPublication>>>,
 }
@@ -99,6 +105,8 @@ pub(crate) struct FullSyncMaterialCacheEntry {
 #[derive(Default)]
 pub(crate) struct PublishedReadState {
     current: Mutex<Option<PublishedReadCut>>,
+    resource_archive:
+        Option<oasis7::world_service::formal_read_service::GoalActivationArchiveQueueV1>,
     #[cfg(test)]
     test_control: Mutex<Option<Arc<test_control::BoundaryState>>>,
 }
@@ -163,16 +171,40 @@ impl PublishedReadState {
         world: World,
         anchor: VerifiedFormalReadAnchorV1,
     ) -> Result<(), String> {
+        self.publish_with_material(world, anchor, None)
+    }
+    pub(crate) fn publish_with_material(
+        &self,
+        world: World,
+        anchor: VerifiedFormalReadAnchorV1,
+        material: Option<
+            Arc<super::execution_bridge::formal_writer::OwnedVerifiedPublicationMaterialV1>,
+        >,
+    ) -> Result<(), String> {
+        if let Some(material) = &material
+            && material.after().checkpoint() != anchor.checkpoint()
+        {
+            return Err("publication material is not the exact installed cut".into());
+        }
         // Validate the full immutable cut before making it visible. The lock
         // replaces World and anchor together, so a reader can never mix heads.
         let full = FormalReadPublication::new(anchor.clone(), world.clone())
             .map_err(|error| error.to_string())?;
-        let stop_publication = Some(Arc::new(Mutex::new(
+        let local =
             oasis7::world_service::formal_read_service::LocalStopPublication::from_publication(
                 full,
             )
-            .map_err(|error| error.to_string())?,
-        )));
+            .map_err(|e| e.to_string())?;
+        if let (Some(queue), Some(original)) = (&self.resource_archive, material.as_ref()) {
+            if let Ok(input) = local.qualified_cut().capture_original_material(
+                original.before().cloned(),
+                original.after().clone(),
+                Arc::clone(original.original_bytes()),
+            ) {
+                let _ = queue.offer_original(input);
+            }
+        }
+        let stop_publication = Some(Arc::new(Mutex::new(local)));
         let mut current = self
             .current
             .lock()
@@ -182,6 +214,7 @@ impl PublishedReadState {
         *current = Some(PublishedReadCut {
             world,
             anchor,
+            original_material: material,
             stop_publication,
         });
         drop(current);
@@ -195,6 +228,16 @@ impl PublishedReadState {
 impl super::execution_bridge::formal_node_hook::FormalPublicationSink for PublishedReadState {
     fn publish(&self, world: World, anchor: VerifiedFormalReadAnchorV1) -> Result<(), String> {
         PublishedReadState::publish(self, world, anchor)
+    }
+    fn publish_with_material(
+        &self,
+        world: World,
+        anchor: VerifiedFormalReadAnchorV1,
+        material: Option<
+            Arc<super::execution_bridge::formal_writer::OwnedVerifiedPublicationMaterialV1>,
+        >,
+    ) -> Result<(), String> {
+        PublishedReadState::publish_with_material(self, world, anchor, material)
     }
     #[cfg(test)]
     fn test_boundary_control(&self) -> Result<Option<Arc<test_control::BoundaryState>>, String> {
@@ -408,6 +451,8 @@ impl Default for FormalLiveState {
 }
 
 pub(crate) struct FormalLiveService {
+    #[cfg(unix)]
+    resource_world_reads: Option<Arc<resource_read_http::ResourceWorldReadServiceV1>>,
     node_id: String,
     world: WorldIdentity,
     signer: SigningKey,
@@ -438,6 +483,8 @@ impl FormalLiveService {
         admission_gate: Arc<Mutex<()>>,
     ) -> Self {
         Self {
+            #[cfg(unix)]
+            resource_world_reads: None,
             stop_record_clock: Mutex::new(stop_record_clock::StopRecordClock::default()),
             node_id,
             world,

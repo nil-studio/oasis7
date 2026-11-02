@@ -5,6 +5,7 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+oasis7_custody_core = { path = "../oasis7_custody_core" }
 oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_world_projection = { path = "../oasis7_world_projection" }
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }

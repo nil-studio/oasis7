@@ -6166,6 +6166,7 @@ dependencies = [
 name = "oasis7_chain_runtime"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "blake3",
  "ctrlc",
  "ed25519-dalek",
@@ -6896,6 +6897,7 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_client_api",
  "oasis7_client_storage",
+ "oasis7_custody_core",
  "oasis7_formal_protocol",
  "oasis7_game_client",
  "oasis7_proto",
