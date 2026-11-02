@@ -11,6 +11,7 @@ impl AccountProvisionApprovalState {
                     | SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. }
                     | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
                     | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 { .. }
             )
         }) {
             return Err(invalid());

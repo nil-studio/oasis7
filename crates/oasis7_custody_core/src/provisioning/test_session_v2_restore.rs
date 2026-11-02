@@ -90,6 +90,7 @@ impl AccountProvisionApprovalState {
             self.validate_execution_book_v2(s)?;
             super::execution_pending_start_v2::validate_pending_start_v2(s)?;
             super::v2_read_history::validate_read_history(self, s)?;
+            super::v2_read_current::validate_read_current_v3(self, s)?;
             super::v2_journal::validate(s)?;
             // These old V1 execution/control formats never become V2 execution authority.
             if s.context.is_some()
@@ -227,6 +228,19 @@ impl AccountProvisionApprovalState {
                         )
                         .map_err(|_| invalid())?;
                     if purpose == SessionPurposeV1::ReconcileRead {
+                        let (entries, reserved) = super::v2_read_current::fee_counts(s);
+                        expected.requests.charge(entries).map_err(|_| invalid())?;
+                        expected
+                            .transport
+                            .charge(
+                                entries
+                                    .checked_mul(4)
+                                    .and_then(|v| {
+                                        reserved.checked_mul(54).and_then(|n| v.checked_add(n))
+                                    })
+                                    .ok_or_else(invalid)?,
+                            )
+                            .map_err(|_| invalid())?;
                         let count = super::v2_read_history::read_fee_count(s);
                         expected.requests.charge(count).map_err(|_| invalid())?;
                         expected

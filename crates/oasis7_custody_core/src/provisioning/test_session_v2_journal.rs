@@ -108,6 +108,16 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     PurposeHttpCharged {
         ingress_attempt_id: String,
     },
+    ReadCurrentIngressSettled {
+        ingress_attempt_id: String,
+    },
+    ReadCurrentPortPrepaidClaimed {
+        ingress_attempt_id: String,
+        port: ReadCurrentPortV3,
+    },
+    ReadCurrentReserved {
+        ingress_attempt_id: String,
+    },
     ReadPrepareHistoryOwnerPaid {
         ingress_attempt_id: String,
     },
@@ -246,6 +256,7 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         usize::from(s.execution_pending_start.as_ref().is_some_and(|p| p.source_dispatch_recorded_at().is_some())),
         usize::from(s.execution_pending_start.as_ref().is_some_and(|p| p.source_native_leaf_recorded_at().is_some())),
         usize::from(s.execution_pending_start.as_ref().is_some_and(|p| p.source_result_recorded_at().is_some())),
+        super::v2_read_current::event_count(s),
         super::v2_read_history::read_fee_count(s) as usize,
         s.purpose_http_admissions.values().filter(|a| matches!(&a.class,
             SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } if fee.outcome.is_some())).count(),

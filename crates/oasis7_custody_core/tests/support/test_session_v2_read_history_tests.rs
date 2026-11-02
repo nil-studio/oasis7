@@ -376,3 +376,9 @@ fn read_history_execution_funded_current_cannot_finish_read_and_fee_stays_spent(
         "paid row cannot lose its chronological fee event"
     );
 }
+
+#[path = "test_session_v2_read_current_tests.rs"]
+mod current_tests;
+
+#[path = "test_session_v2_read_fence_codec_tests.rs"]
+mod read_fence_codec_tests;
