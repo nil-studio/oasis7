@@ -78,13 +78,14 @@ fn paid_exchange(
         .unwrap();
     (status, raw[end..].to_vec())
 }
-pub(super) fn run(
+pub(super) fn run_case(
     service: Arc<FormalLiveService>,
     node: Arc<Mutex<oasis7_node::NodeRuntime>>,
     publication: Arc<PublishedReadState>,
     root: std::path::PathBuf,
     p: Participant,
     delegate: &str,
+    case: CloseReplyCase,
 ) {
     let goals_path = root.join("actual-private-goals");
     private_directory(&root, &goals_path);
@@ -193,11 +194,7 @@ pub(super) fn run(
             .unwrap()
             .goal_ref
             .clone(),
-        selection: resource::ResourceBasisSelectionV1::Build {
-            site: "unavailable-site".into(),
-            factory: "component-smelter".into(),
-            factory_kind: "factory.smelter.mk1".into(),
-        },
+        selection: resource_transfer_ready::selection(case, &p.agent),
         observation_nonce: "73".repeat(32),
     };
     request.selection.validate().unwrap();
@@ -207,7 +204,12 @@ pub(super) fn run(
             .into();
     resource::verify_resource_goal_request(&signed).unwrap();
     let body = OwnerSetupResourceWorldBodyV2::from_originals(access.clone(), signed.clone());
-    let mut proof = issue(&pin, &access, "actual-goal-physical-attempt");
+    let attempt = match case {
+        CloseReplyCase::ResourceGoalTransfer(false) => "actual-transfer-ready-physical-attempt",
+        CloseReplyCase::ResourceGoalTransfer(true) => "actual-transfer-revoked-physical-attempt",
+        _ => "actual-goal-physical-attempt",
+    };
+    let mut proof = issue(&pin, &access, attempt);
     proof.payload.world_request_digest =
         ws::request_digest(resource::RESOURCE_GOAL_PATH_V2, &signed)
             .unwrap()
@@ -292,12 +294,11 @@ pub(super) fn run(
             .goal_ref,
         signed.request.goal_reference
     );
-    assert!(
-        matches!(
-            observation.payload.resource,
-            resource::ResourceBasisResolutionV1::Blocked { .. }
-        ),
-        "this fixture has no resource site; it must not invent a Ready basis"
+    resource_transfer_ready::assert_resolution(
+        case,
+        &observation.payload.resource,
+        &signed.request.selection,
+        &p.agent,
     );
     let (status, _) = paid_exchange(&service, &body, &proof);
     assert_ne!(status, 200);

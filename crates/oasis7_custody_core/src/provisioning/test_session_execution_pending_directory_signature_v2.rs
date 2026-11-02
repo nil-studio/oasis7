@@ -11,7 +11,7 @@ pub(super) fn expected_claim(
         .ok_or_else(invalid)?;
     let leaf = ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
         phase: inventory::StartCurrentPhaseV2::PreInspect,
-        port: inventory::StartCurrentPortV2::ManagerAssociationsActor,
+        port: inventory::StartCurrentPortV2::ManagerAssociations,
     });
     let port = p
         .physical_ports
@@ -135,7 +135,7 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         let leaf = ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
             phase: inventory::StartCurrentPhaseV2::PreInspect,
-            port: inventory::StartCurrentPortV2::ManagerAssociationsActor,
+            port: inventory::StartCurrentPortV2::ManagerAssociations,
         });
         if p.accepted_ordinal != attempt.accepted.accepted_ordinal
             || p.ingress_attempt_id != attempt.accepted.ingress_attempt_id
