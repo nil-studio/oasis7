@@ -1,6 +1,9 @@
 //! Atomic serialization of the durable private lineage checkpoint.
 use super::*;
 
+#[path = "llm_sidecar_lineage_checkpoint_io.rs"]
+mod checkpoint_io;
+
 impl RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) fn persist_provider_lineage(&self) -> Result<(), String> {
         let Some(path) = self.provider_lineage_store.as_deref() else {
@@ -46,31 +49,7 @@ impl RuntimeLlmSidecar {
         };
         let encoded = serde_json::to_vec_pretty(&checkpoint)
             .map_err(|error| format!("provider lineage checkpoint encode failed: {error}"))?;
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "provider lineage checkpoint directory creation failed ({}): {error}",
-                parent.display()
-            )
-        })?;
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default();
-        let temp_path = path.with_extension(format!("tmp-{}-{nonce}", std::process::id()));
-        fs::write(&temp_path, encoded).map_err(|error| {
-            format!(
-                "provider lineage checkpoint temporary write failed ({}): {error}",
-                temp_path.display()
-            )
-        })?;
-        if let Err(error) = fs::rename(&temp_path, path) {
-            let _ = fs::remove_file(&temp_path);
-            return Err(format!(
-                "provider lineage checkpoint commit failed ({}): {error}",
-                path.display()
-            ));
-        }
-        Ok(())
+        checkpoint_io::publish(path, &encoded)
+            .map_err(|error| format!("provider lineage checkpoint commit failed: {error}"))
     }
 }
