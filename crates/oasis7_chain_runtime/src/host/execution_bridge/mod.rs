@@ -904,3 +904,6 @@ pub(crate) mod controlled_bootstrap_anchor;
 mod controlled_capture;
 
 pub(crate) mod controlled_history;
+
+#[cfg(all(test, unix))]
+pub(crate) mod formal_retention_route_test_support;

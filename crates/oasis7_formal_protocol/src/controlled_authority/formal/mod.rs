@@ -1,5 +1,6 @@
 //! Formal-profile wire contracts and independent verification; no endpoint actor.
 pub mod activation;
+pub mod candidate_material;
 pub mod crypto;
 pub mod frozen;
 pub mod proof;
@@ -9,6 +10,7 @@ pub mod types;
 pub use super::fencing;
 pub mod issuer;
 pub use activation::*;
+pub use candidate_material::FormalCandidateMaterialV1;
 pub use frozen::*;
 pub use proof::*;
 pub use record::*;
@@ -16,6 +18,7 @@ pub use recovery::*;
 pub use types::*;
 pub mod business_history;
 pub mod business_index;
+pub mod business_material;
 pub use business_history::*;
 pub mod recovery_bootstrap;
 pub use recovery_bootstrap::*;

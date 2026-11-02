@@ -267,5 +267,14 @@ fn execute_with_business_reader(
     .collect::<Vec<_>>();
     drop(executor);
     super::formal_attempt_lifecycle::awaiting(&attempt, &candidate, &outputs)?;
+    #[cfg(all(test, unix))]
+    super::formal_retention_route_test_support::observe_candidate(
+        private_root,
+        &attempt,
+        original.context.height,
+        &candidate,
+        authority,
+        parent,
+    );
     Ok(candidate)
 }

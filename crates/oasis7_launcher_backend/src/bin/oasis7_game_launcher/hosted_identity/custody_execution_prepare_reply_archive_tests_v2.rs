@@ -2,14 +2,18 @@ use super::*;
 
 #[test]
 fn prepare_reply_archive_checks_serialized_byte_boundary_including_wrappers() {
-    // JSON string quotes are part of the protected row/wire bound. Independent
-    // literal limits catch an off-by-one or payload-character-only check.
-    let exact = "a".repeat(65_534);
-    assert_eq!(bounded(&exact).unwrap().len(), 65_536);
-    assert!(bounded(&"a".repeat(65_535)).is_err());
-    // Escaping and multibyte text spend real encoded bytes, not chars.
-    assert!(bounded(&"\\".repeat(32_768)).is_err());
-    assert!(bounded(&"界".repeat(21_845)).is_err());
+    use oasis7_custody_core::native_execution_prepare_v2::MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2;
+    // The public Native reply profile, rather than the request-body bound, is
+    // authoritative. This exercises the archive's actual serialization guard;
+    // it is a bound-unit fixture, not a cryptographically valid large reply.
+    let maximum = MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2;
+    assert_eq!(maximum, 256 * 1024);
+    let exact = "a".repeat(maximum - 2);
+    assert_eq!(bounded(&exact).unwrap().len(), maximum);
+    assert!(bounded(&"a".repeat(maximum - 1)).is_err());
+    // JSON escaping and UTF-8 spend encoded bytes rather than character count.
+    assert!(bounded(&"\\".repeat(maximum / 2)).is_err());
+    assert!(bounded(&"界".repeat(maximum / 3)).is_err());
 }
 
 #[test]
