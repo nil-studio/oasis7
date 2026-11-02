@@ -1,5 +1,7 @@
 //! Three actual loopback requests with typed synthetic Node responses.
 use super::*;
+#[path = "custody_execution_prepare_delivery_fixture_v2.rs"]
+mod prepare_delivery;
 pub(super) struct Server {
     pub endpoint: String,
     pub probe: LockProbe,
@@ -141,6 +143,8 @@ impl Server {
                         .unwrap(),
                     )
                     .unwrap()
+                } else if path == ws::task_context_projection::CONTEXT_PREPARE_ATTESTED_PATH_V2 {
+                    prepare_delivery::response(&data, input)
                 } else {
                     assert_eq!(path, ws::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH);
                     data.body(&path, input)

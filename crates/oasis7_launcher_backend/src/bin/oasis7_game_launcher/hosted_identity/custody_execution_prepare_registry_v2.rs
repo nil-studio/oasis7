@@ -328,20 +328,11 @@ pub(in super::super) fn observe_execution_prepare(
         dispatch_until,
     })
 }
-/// Reenter the same real registry after owned World work; never retimestamp or
-/// recreate a failed/unknown claim. Returning raw delivery does not admit it.
-pub(in super::super) fn finish_execution_prepare(
-    tx: &mut IdentityTransaction<'_>,
-    scope: &ExecutionScope<'_>,
-    observed: ObservedExecutionPrepare,
-) -> Result<(), StoreError> {
-    observed.require_dispatch_window(scope.now)?;
-    let (after, _) = current_execution_identity(tx, scope, &observed.claimed)?;
-    if !same_security(&observed.lifetime, &after) {
-        return Err(unavailable());
-    }
-    Ok(())
-}
+// A historical reply is persisted in the same transaction as the final local
+// Current check. No persistent row can recreate ObservedExecutionPrepare.
+#[path = "custody_execution_prepare_reply_archive_v2.rs"]
+mod reply_archive;
+pub(in super::super) use reply_archive::finish_execution_prepare;
 
 pub(in super::super) fn recheck_execution_prepare(
     tx: &mut IdentityTransaction<'_>,
