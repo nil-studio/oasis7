@@ -23,6 +23,13 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     SourceReserved {
         source_operation_id: String,
     },
+    ClientSourceProfileBorn {
+        source_operation_id: String,
+        profile: ClientSourceObservationProfileV2,
+        ingress_attempt_id: String,
+        signed_attempt_digest: String,
+        source_reserved_ordinal: u64,
+    },
     SourceReadReserved {
         source_operation_id: String,
         ticket: u8,
@@ -232,6 +239,9 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         n = n.checked_add(add).ok_or_else(invalid)?;
     }
     for wrapper in s.sources.values() {
+        n = n
+            .checked_add(usize::from(wrapper.observation_profile.is_some()))
+            .ok_or_else(invalid)?;
         n = n
             .checked_add(usize::from(wrapper.source.claimed_at.is_some()))
             .ok_or_else(invalid)?;

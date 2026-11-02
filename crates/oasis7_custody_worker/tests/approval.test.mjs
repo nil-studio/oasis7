@@ -394,3 +394,24 @@ test('Term Guarded Actor rejects invalid Account grants before durable allocatio
       {invalid_rejected:true,key_loans:0,claims:0});
   }
 }));
+
+// Synthetic Account/current grants; actual normal UTC/SQLite/Owner crypto only.
+test('Term Guarded Dual Actor installs on new paid slot creation and separates two signatures', {timeout:90000}, async()=>fixture(async(current,restart)=>{
+  for(const mode of ['sign','unknown']) {
+    assert.deepEqual(await ok(current(),'term-dual-'+mode,'/role-key/term-guarded/dual-'+mode),
+      {stop_signed:true,close_signed:mode==='sign',close_unknown:mode==='unknown',qualification_once:true,crosspurpose_rejected:true,key_loans:2});
+  }
+  const cold=await restart();
+  for(const mode of ['sign','unknown']) assert.deepEqual(await ok(cold,'term-dual-'+mode,'/role-key/term-guarded/dual-cold-replay'), {cold_replay_rejected:true,key_loans:0});
+}));
+test('Term Guarded Dual Actor cannot upgrade Stop-only slots or accept wrong Close signatures', {timeout:90000}, async()=>fixture(async current=>{
+  assert.deepEqual(await ok(current(),'term-dual-old','/role-key/term-guarded/dual-old-slot'),{old_slot_rejected:true,key_loans:0});
+  assert.deepEqual(await ok(current(),'term-dual-bad','/role-key/term-guarded/dual-bad-signature'),{invalid_close_rejected:true,key_loans:1});
+}));
+
+test('Term Guarded Dual Actor cold history rejects a foreign strongly signed Close subject', {timeout:90000}, async()=>fixture(async current=>{
+  const actual=await ok(current(),'term-dual-foreign-history','/role-key/term-guarded/dual-foreign-history');
+  assert.equal(actual.strong_foreign_signature,true);
+  assert.equal(actual.key_loans,2);
+  assert.equal(actual.foreign_history_rejected,true);
+}));

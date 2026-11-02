@@ -202,7 +202,7 @@ async fn execute(
             },
         )
         .await?,
-        1,
+        2,
     )
     .await?;
     if first.descriptor.approved_input_digest != admission.approved_input_digest {
@@ -221,7 +221,7 @@ async fn execute(
             },
         )
         .await?,
-        2,
+        3,
     )
     .await?;
     if first.fingerprint()? != second.fingerprint()? {
@@ -237,7 +237,7 @@ async fn execute(
             TestSessionControlActionV2::ClaimLifetime,
         )
         .await?,
-        3,
+        4,
     )
     .await?;
     if second.fingerprint()? != current.fingerprint()? {
