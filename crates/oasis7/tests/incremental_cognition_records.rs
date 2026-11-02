@@ -439,6 +439,12 @@ fn run_cognition(all_optional: bool) {
             };
             if let Some(parent_family) = &parent_family {
                 cognition_controls::exercise(&store, &memory, &execution_parent, parent_family);
+                cognition_json_lifecycle::same_transaction(
+                    &store,
+                    &memory,
+                    &execution_parent,
+                    parent_family,
+                );
             }
             let live = execution_parent.fence().unwrap();
             let mut tx = ExecutionTransaction::begin(
