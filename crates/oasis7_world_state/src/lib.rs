@@ -268,3 +268,6 @@ pub mod incremental_reward_budget_records;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_governance_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_main_token_policy_records;
