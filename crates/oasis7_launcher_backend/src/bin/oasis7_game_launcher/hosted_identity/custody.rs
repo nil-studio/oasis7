@@ -540,3 +540,6 @@ mod resource_final_registry;
 
 #[path = "custody_execution_dispatch_adapter_v2.rs"]
 mod execution_dispatch_adapter;
+
+#[path = "custody_pending_source_inspect_adapter_v2.rs"]
+mod pending_source_inspect_adapter;

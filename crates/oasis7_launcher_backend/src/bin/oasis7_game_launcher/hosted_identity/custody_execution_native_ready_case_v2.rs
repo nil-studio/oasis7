@@ -18,11 +18,19 @@ fn child_for(test_name: &str, identity_origin: &str, extras: &[(&str, String)]) 
         "public_key":hex::encode(SigningKey::from_bytes(&[81;32]).verifying_key().to_bytes()),"issuer_epoch":"1","config_generation":"1",
         "not_before":now.saturating_sub(1000).to_string(),"not_after":(now+600000).to_string(),"native_audience_origin":"https://localhost","allowed_purpose":purpose})
     };
-    let config = json!({"api_version":2,"pending_pin":pin("consumed_pending"),"active_pin":pin("active_three_roots"),
+    let mut config = json!({"api_version":2,"pending_pin":pin("consumed_pending"),"active_pin":pin("active_three_roots"),
         "current_pin":pin("native_current_attempt"),"term_current_pin":pin("native_term_current_attempt"),
         "preflight_access_pin":pin("native_preflight_access_v2"),"execution_prepare_pin":pin("native_execution_prepare_v2"),
         "execution_dispatch_pin":pin("execution_dispatch_claim_v2"),"execution_identity_origin":identity_origin,
         "issuer_floor":{"issuer_epoch":"1","config_generation":"1"},"native_origin":"https://localhost"});
+    if extras.iter().any(|(key, value)| {
+        *key == "OASIS7_CUSTODY_EXECUTION_SOURCE_INSPECT_V2_ENABLED" && value == "true"
+    }) {
+        config.as_object_mut().unwrap().insert(
+            "source_inspect_pin".into(),
+            pin("execution_pending_source_native_leaf_v2"),
+        );
+    }
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command.arg(test_name).arg("--nocapture").arg("--test-threads=1")
         .env("OASIS7_EXECUTION_READY_CHILD","true").env("OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED","true")
@@ -271,3 +279,6 @@ mod term_current_world3;
 
 #[path = "custody_execution_prepare_archive_case_v2.rs"]
 mod reply_archive_case;
+
+#[path = "custody_pending_source_inspect_tests_v2.rs"]
+mod pending_source_inspect_tests;

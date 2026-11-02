@@ -160,6 +160,20 @@ pub(super) fn handle(
     {
         return Some(resource_final::handle(runtime, method, headers, body));
     }
+    if target == oasis7_custody_core::execution_pending_source_inspect_v2::SOURCE_NATIVE_PATH_V2 {
+        let Ok(mut guard) = runtime.identity.lock() else {
+            return Some(unavailable());
+        };
+        let Some(service) = guard.as_mut() else {
+            return Some(unavailable());
+        };
+        return Some(
+            match service.pending_source_inspect_route_v2(method, target, headers, body) {
+                Ok(reply) => IdentityReply::ok(reply),
+                Err(error) => IdentityReply::error(error),
+            },
+        );
+    }
     Some(match target {
         oasis7_custody_core::native_execution_prepare_v2::NATIVE_EXECUTION_PREPARE_PATH_V2 => {
             execution_prepare_v2::run(runtime, method, target, headers, body)
