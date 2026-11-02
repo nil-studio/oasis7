@@ -731,3 +731,15 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 完整 root-only family 资格只凭认证 RootSet、schema 与有限 reader 检查四个外部绑定、六根错位、全部必需 child 列、primitive 完整 framing 与未知/孤儿拒绝；不依赖原 World snapshot。普通点读和单列精确 expected 更新只访问目标及必需身份关系，支持同事务连续后继；单列值类型必须匹配字段，guard/live、同池 Ordinary、独立 key/read/write/node/heap 计费、NoOp 与成功返回前组合取消、失败后全事务 poison 均不得省略。不得从局部读成功签发完整 family 资格。
 
 正常 receiver 先独立验证 generic 转移，再按真实四字段外写及 child changed Merkle 路径验证原 schema、身份、primitive 和完整固定列关系；仅继承已 qualified 父的未变闭包，禁止移除或引入非本格式外叶。page mark/transfer 复用完整本组资格，追随所有 child state/value 页，有限集合在分配前计费；包括 buffered finish 在内的全部输出成功前保持暂态。此组不授予经济业务权限、协议接受或全 World GC；仍须组合其他 owner、历史/lease、未决和回滚保护。独立字面原值、Raw/Zstd 冷根/合法后继、generic-valid 但 typed-invalid、真实 put 故障、精确预算及原子失败分别验证；末次取消的独立边界回归须有独立前序基线，不能用被测函数自身总回调自校准替代。
+
+### 12.38 系统订单池 epoch 预算与有序奖励铸造原记录
+
+<a id="iws-reward-budget-records-v1"></a>
+
+本族仅覆盖 WorldState/Map/Business 的 system_order_pool_budgets 与 WorldState/Ordered/Authorization 的 reward_mint_records。Pool 原 u64 epoch 外键与 DTO 内 epoch_index 独立；Mint 原 Vec ordinal 是外键，DTO epoch_index/node_id/签名等仍按原值保存，不排序、去重或归一化。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每族要求 Metadata 与 (reward_budget_record_closure_v1, unit) Entry/Unit 格式标记。每条原 U64 外键/ordinal 以 Entry/RootRef165 绑定原 semantic digest、各字段 schema 与 namespace；记录 child 有 Metadata、Unit marker、原名固定列。Pool 的 epoch_index/total_credit_budget/remaining_credit_budget 为 U64；node_credit_caps/node_credit_allocated 各有独立 Unit collection marker 与原 String→U64 成员，保留空 String、0、u64::MAX 和两个 map 的独立缺失/存在关系。Mint 的 epoch_index/source_awarded_points/minted_power_credits 为 U64，node_id/settlement_hash/signer_node_id/signature 为原 Text，均无 Option，不引入字段省略或任意 Serde blob。
+
+Mint 另有 (reward_budget_record_closure_v1, length) Entry/U64 全局长度，原 ordinal 必须精确形成 0..length-1，重复内容仍是不同 ordinal。借用 GEN 与 root-only 恢复资格完整校验原格式、required 列、动态成员与 dense ordinal；连续使用有限 state/value/key/cell/heap/pending 预算，不需要原 World snapshot。普通 append 只创建新 ordinal 的完整 child 并更新 length；receiver 从 qualified 父与实际 changed Merkle 路径验证净计数/索引/长度，不扫描未变大签名或重写整个 Vec。既有记录单列、Pool 成员点写须精确 expected、同事务 guard/live、同池 Ordinary、最终组合取消与错误 poison；完整对象删除只可在隔离关系与父资格允许时显式提供。
+
+页闭包由本 owner 的完整资格派生，显式跟随 child state/value，有限集合分配前计费；含 buffered finish 的全部输出完成前保持 provisional。本组不授奖励、mint、预算分配或签名业务权限，不改变原 reducer；仍不代签其他 owner、完整 World 激活或 GC。原始字面 oracle、非 Optional 必需列边界、Raw/Zstd 冷根、合法 append/同事务后继、generic-valid 但 typed-invalid、预算/取消/真实 put 故障及小增量成本分别验收。
