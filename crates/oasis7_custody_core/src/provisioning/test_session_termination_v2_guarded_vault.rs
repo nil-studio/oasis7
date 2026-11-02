@@ -21,6 +21,7 @@ pub struct TerminationGuardedVaultClaimV2 {
 /// Only the first actual Account commit may hand this to its typed issuer child.
 /// History/JSON cannot reconstruct it. Public getters contain no private key.
 pub struct PreparedGuardedStopSignatureV2 {
+    lineage: crate::term_owner_slot_lineage_v2::TermOwnerSlotLineageV2,
     payload: GameTaskStopV2,
     owner_scope: RoleKeySlotScopeV1,
     owner_key: PublicRoleKey,
@@ -34,6 +35,9 @@ pub struct PreparedGuardedStopSignatureV2 {
     until: UnixMillis,
 }
 impl PreparedGuardedStopSignatureV2 {
+    pub fn lineage(&self) -> &crate::term_owner_slot_lineage_v2::TermOwnerSlotLineageV2 {
+        &self.lineage
+    }
     pub fn payload(&self) -> &GameTaskStopV2 {
         &self.payload
     }
@@ -150,7 +154,7 @@ impl TerminationGuardedVaultClaimV2 {
 }
 impl AccountProvisionApprovalState {
     /// Exact stored participant receipt/Owner slot, never arbitrary key_ref lookup.
-    fn guarded_stop_owner_slot(
+    pub(super) fn term_owner_slot(
         &self,
         term: &TerminationPlanV2,
     ) -> Result<(RoleKeySlotScopeV1, PublicRoleKey)> {
@@ -213,7 +217,7 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        let (scope, key) = self.guarded_stop_owner_slot(&s.header()?.0.termination)?;
+        let (scope, key) = self.term_owner_slot(&s.header()?.0.termination)?;
         let root = s
             .roots
             .get(&SessionPurposeV1::TerminationPlan)
@@ -259,6 +263,10 @@ impl AccountProvisionApprovalState {
             owner_key: key.clone(),
         };
         let token = PreparedGuardedStopSignatureV2 {
+            lineage:
+                crate::term_owner_slot_lineage_v2::TermOwnerSlotLineageV2::from_actual_account(
+                    self, &scope,
+                )?,
             payload: slot.payload.clone(),
             owner_scope: scope,
             owner_key: key,
@@ -303,7 +311,7 @@ impl AccountProvisionApprovalState {
             .as_ref()
             .and_then(|s| s.signature_claim.as_ref())
         {
-            let (scope, key) = self.guarded_stop_owner_slot(&s.header()?.0.termination)?;
+            let (scope, key) = self.term_owner_slot(&s.header()?.0.termination)?;
             if claim.owner_scope != scope || claim.owner_key != key {
                 return Err(invalid());
             }

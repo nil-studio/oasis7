@@ -13,6 +13,7 @@ const key=createPrivateKey({key:Buffer.concat([Buffer.from('302e020100300506032b
 const publicKey=createPublicKey(key).export({format:'der',type:'spki'}).subarray(-32).toString('hex');
 export async function world3BrowserFixture(directory,nativeOrigin){
   const tls=resolve(directory,'world3-callback');mkdirSync(tls,{mode:0o700});
+  const guardDirectory=resolve(directory,'native-machine-guard');mkdirSync(guardDirectory,{mode:0o700});
   const ca=resolve(tls,'ca.pem'),caKey=resolve(tls,'ca.key'),leaf=resolve(tls,'leaf.pem'),leafKey=resolve(tls,'leaf.key'),csr=resolve(tls,'leaf.csr'),ext=resolve(tls,'leaf.ext');
   const openssl=args=>execFileSync('rtk',['proxy','openssl',...args],{stdio:'ignore'});
   openssl(['req','-x509','-newkey','rsa:2048','-nodes','-keyout',caKey,'-out',ca,'-days','1','-subj','/CN=Oasis7 World3 fixture CA','-addext','basicConstraints=critical,CA:TRUE','-addext','keyUsage=critical,keyCertSign,cRLSign','-addext','subjectKeyIdentifier=hash']);
@@ -42,7 +43,7 @@ export async function world3BrowserFixture(directory,nativeOrigin){
   const pins=['consumed_pending','active_three_roots','native_current_attempt','native_term_current_attempt','native_preflight_access_v2','native_execution_prepare_v2','execution_dispatch_claim_v2'].map(pin);
   const config={api_version:2,pending_pin:pins[0],active_pin:pins[1],current_pin:pins[2],term_current_pin:pins[3],preflight_access_pin:pins[4],execution_prepare_pin:pins[5],execution_dispatch_pin:pins[6],execution_identity_origin:callbackOrigin,issuer_floor:{issuer_epoch:'1',config_generation:'1'},native_origin:nativeOrigin};
   return{
-    nativeEnv:{OASIS7_CUSTODY_BROWSER_WORLD3:'true',OASIS7_CUSTODY_CLEANUP_MACHINE_V2_ENABLED:'true',OASIS7_CUSTODY_EXECUTION_PREPARE_DISPATCH_V2_ENABLED:'true',OASIS7_CUSTODY_CLEANUP_ACCOUNT_ISSUER_CONFIG:JSON.stringify(config),OASIS7_CUSTODY_CLEANUP_SQLITE_RESTORE_GUARD_PATH:resolve(directory,'native-machine-lineage'),OASIS7_CUSTODY_BROWSER_CALLBACK_CA:ca},
+    nativeEnv:{OASIS7_CUSTODY_BROWSER_WORLD3:'true',OASIS7_CUSTODY_CLEANUP_MACHINE_V2_ENABLED:'true',OASIS7_CUSTODY_EXECUTION_PREPARE_DISPATCH_V2_ENABLED:'true',OASIS7_CUSTODY_CLEANUP_ACCOUNT_ISSUER_CONFIG:JSON.stringify(config),OASIS7_CUSTODY_CLEANUP_SQLITE_RESTORE_GUARD_PATH:resolve(guardDirectory,'lineage'),OASIS7_CUSTODY_BROWSER_CALLBACK_CA:ca},
     configure(options,data,bridge){for(const w of Object.values(rawBrowserRoles(options))){
       w.bindings={...w.bindings,CUSTODY_CLEANUP_MACHINE_V2_ENABLED:'true',CUSTODY_EXECUTION_PREPARE_DISPATCH_V2_ENABLED:'true',CUSTODY_ACCOUNT_SERVICE_ISSUER_ENABLED:'true',CUSTODY_ACCOUNT_SERVICE_ISSUER:JSON.stringify(issuer),CUSTODY_ACCOUNT_SERVICE_ISSUER_PINS:JSON.stringify(pins),CUSTODY_NATIVE_BINDING_OWNER_PIN:JSON.stringify(data.managed_binding_owner_pin)};
       if(w.name==='owner'){w.bindings.CUSTODY_ACCOUNT_SERVICE_SIGNING_SEED=seed;w.outboundService=bridge;}

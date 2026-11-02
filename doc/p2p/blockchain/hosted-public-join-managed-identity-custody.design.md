@@ -1168,6 +1168,16 @@ Native 的两个 World 叶不能借 Cloudflare binding、Cookie、H PoP 或 clea
 
 Account 的回入只核它当下实际本地 authority/causal journal 和原短窗，不能从串行化字段恢复原父 handler 的私有 Current3/私观察句柄，也不把本地 gate 说成新 Directory/RF/Native Current。原父 handler 持有的私观察、Source/LF/C3 原 until 由独立 typed grant 完整承诺，接收端固定配置强验，时间绝不刷新；Native 仍运行自己的 managed/human/config protected Current 并在每个 World 发送前后核对。若某 stage 合同需要新的外部 Directory/RF/Native 事实，须增加真实已付观测叶，不能由此回入替代。每个业务 dispatch claim 的强签 receipt 绑定原 reservation ordinal、唯一业务 leaf、callback attempts、Account 实际 claim ordinal 与原 until；Identity/Native 的本地 durable physical once 只能消费这一叶，missing/changed/duplicate receipt 在发送前拒。Account claim 之后才发生的异步失败可归档历史，不能恢复新的 claim 句柄或后续 Current。旧 Native10 proof/receiver 没有这套逐边 receipt 时保持 unsupported，不把旧预付 reservation 升级成 dispatched。
 
+#### V2 Credential/Control 的五次 Source 观察 profile（CT-004/007）
+
+真实固定 Worker caller 的 Source 顺序为 InspectOrigin 前第1票、PreDecrypt 第2票、PostDecrypt 第3票、ClaimLifetime 前第4票、Complete 前第5票。每次必须在对应实际远端 Current/私密观察前，把已有 Source oracle 预约独立提交到同 AccountDO SQL；失败保票，不事后补票，不把同一票重用于另一观察。Source 创建已经预扣的 Native verify1 和随后真实 Lifetime1 各只扣一次，oracle票不是额外 Native HTTP；原 Source最多8票、Native/Control/Execution/Read预算和物理请求数均不因修正序号而增加。Realm/Provider限流、Owner service/AccountActor和DF/RF实际边仍按真实请求计，五票不代表五个HTTP或完整图资格。
+
+旧合法 Core 四观察记录及其 None wire、强签原件、LF第3票/完成第4票、cold/journal精确数学保留；不能全库4改5、泛允许4或5、把旧Source重标为新profile。新固定 Worker首次paid admit只能通过Core独立closed工厂创建 `client_credential_five_oracle_v2` 或 `client_control_five_oracle_v2` Source。工厂强验实际原PoP、原批准input/session、已提交ingress与对应Credential/Control用途，原子写全Source与其immutable observation profile；不是caller bool、通用Source参数或迁移开关。旧通用Source producer继续产None，不因后续stage或caller请求补Some。既存Source若缺新profile，仅可按原历史协议读取原事实；新receiver拒绝继续，unknown费用和占用保持，不自动建新Source/重试。
+
+Source wrapper新增独立可缺省Option字段，None序列化完全省略以保旧字节；Some仅两个闭值。旧实际业务Body/MFA/原Native强签/SDK公开格式不变，profile不增加权限或预算。新Credential与Control receiver必须在任何新观察前核stored exact profile、原Source/input/ingress和实际固定route；Some Credential不能作为Control票，反向同样拒绝。新profile的Native LF claim严格要求第4票，最终challenge/credential/control实际current严格第5票；旧None仍只允许原3/4合同。Identity独立核Pre/Post/ClaimLF回包为2/3/4，Account Complete核真实私有generation/原强LF和第5票。双方的deadline/Source5秒/Native status较窄expiry/批准自然期限/lease/原H nonce截止均取原交集，绝不因profile或后续观察续期。
+
+持久恢复必须从Source原profile、同一SourceReadReserved顺序、LifetimeClaimed与最终事件重算对应的精确票序；profile与事件缺失、orphan、混用、downgrade/upgrade或不匹配均拒绝。新工厂不能反序列化出opaque、旧history不能恢复出站或新Current。None旧4记录继续强签/cold正控，新Some5记录有完整真实paid首admit与五次实际预约正控；删Some、换另一Some、旧None补Some、LF/最终错票及有余额但失败后预约保留均需实际负例。既有browser Observe在已提交第2票却expected1的首拒是实现/设计协议不一致证据，不是放宽Core `SourceVerificationClaimed` 第1票守卫的理由。
+
 #### Execution 专用 pending-start 与同一 Execution400 总账（CT-004/007）
 
 ##### 已证启动环

@@ -192,21 +192,28 @@ function credentialCycle({identity,origin,scope,enrollment,plan,prefix,nativeCou
   const authorized=async(kind,body,nonce=null,until=null)=>{
     const before={...nativeCounts};const count=total();
     const response=await signed(kind,body,nonce,until);
-    assert.equal(response.status,200,'actual V2 public credential HTTP must succeed');
-    assert.equal((nativeCounts['/api/public/hosted-account/v2/custody/approvals/verify']??0)-(before['/api/public/hosted-account/v2/custody/approvals/verify']??0),1);
-    assert.equal((nativeCounts['/api/public/hosted-account/v2/custody/managed-bindings/session-lifetime']??0)-(before['/api/public/hosted-account/v2/custody/managed-bindings/session-lifetime']??0),1);
-    assert.equal(total()-count,2,'each live public V2 credential HTTP must perform only its actual Inspect+LF');
+    const diagnostic={kind,http_status:response.status,native_verify_delta:(nativeCounts['/api/public/hosted-account/v2/custody/approvals/verify']??0)-(before['/api/public/hosted-account/v2/custody/approvals/verify']??0),native_lifetime_delta:(nativeCounts['/api/public/hosted-account/v2/custody/managed-bindings/session-lifetime']??0)-(before['/api/public/hosted-account/v2/custody/managed-bindings/session-lifetime']??0),native_total_delta:total()-count};
+    try{
+      assert.equal(response.status,200,'actual V2 public credential HTTP must succeed');
+      assert.equal(diagnostic.native_verify_delta,1);
+      assert.equal(diagnostic.native_lifetime_delta,1);
+      assert.equal(diagnostic.native_total_delta,2,'each live public V2 credential HTTP must perform only its actual Inspect+LF');
+    }catch(error){error.custodyCredentialDiagnostic=diagnostic;throw error;}
     return response;
   };
-  const cycle=async({label,purposes,replace,expectedGeneration,discardReply})=>{
+  const cycle=async({label,purposes,replace,expectedGeneration,discardReply,onPhase})=>{
     assert.ok(/^[a-z-]{1,32}$/.test(label));assert.ok(purposes.length>0&&purposes.every(p=>['execute','read'].includes(p)));
     const request={api_version:1,enrollment_id:enrollment.enrollment_id,test_session_id:scope.session_id,request_id:`${prefix}-claim-${label}`,purposes,replace,expected_generation:expectedGeneration};
     const challengeRequest={api_version:1,session_id:scope.session_id,request_id:`${prefix}-challenge-${label}`,purpose:purposes[0]==='read'?'reconcile_read':'execution',kind:{kind:'credential_claim'},logical_request_id:request.request_id,operation_request_digest:digest('oasis7.custody.test-session-claim.v1',request)};
+    onPhase?.('credential-challenge-http');
     const challenge=await(await authorized('challenge',challengeRequest)).json();
+    onPhase?.('credential-challenge-shape');
     assert.equal(typeof challenge.nonce,'string');assert.equal(challenge.nonce.length,43);
+    onPhase?.('credential-claim-http');
     const response=await authorized('claim',request,challenge.nonce,challenge.expires_at);
     const replay=async()=>{const before=total();const r=await signed('claim',request,challenge.nonce,challenge.expires_at);assert.equal(r.status,200);assert.equal(total(),before,'paid history must perform no native HTTP');return r.json();};
     if(discardReply){await response.body?.cancel();return {discarded_committed_reply:true,replay};}
+    onPhase?.('credential-claim-json');
     return {reply:await response.json(),replay};
   };
   // Only fixed Execution metadata, same origin/session/key/actual approved Move.

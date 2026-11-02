@@ -76,6 +76,7 @@ fn permit(
         .checked_add(4900)
         .ok_or_else(|| failure("clock overflow"))?;
     let payload = TermGuardedStopSignerPermitV2 {
+        account_lineage: None,
         api_version: 2,
         issuer,
         recipient_role: Role::Owner,

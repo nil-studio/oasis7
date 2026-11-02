@@ -100,6 +100,7 @@ impl AccountProvisionApprovalState {
         let source_record_digest =
             crate::provisioning::types::digest(wrapper).map_err(ProvisionApprovalError::from)?;
         let mut allocation = TerminationCloseAllocationV2 {
+            signature_claim: None,
             payload: payload.clone(),
             allocated_at: now,
             allocation_record_digest: String::new(),
