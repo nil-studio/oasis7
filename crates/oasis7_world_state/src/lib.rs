@@ -280,6 +280,9 @@ mod incremental_intent_fields;
 pub mod incremental_agent_authority_records;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_domain_event_proof;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_effect_intent_cbor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_effect_records;
