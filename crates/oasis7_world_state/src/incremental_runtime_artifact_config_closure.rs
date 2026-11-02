@@ -81,6 +81,34 @@ pub(super) fn mint(
             class,
         }))
 }
+/// Copy only an already checked body binding into newly paid Ordinary memory.
+/// The caller still needs its family/head binding before using it for execution.
+pub fn readmit_artifact_config_body_ordinary_v1(
+    source: &ReservedValue<ArtifactConfigBodyQualificationV1>,
+    kind: ArtifactConfigBodyKindV1,
+    root: &StateRootV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<ArtifactConfigBodyQualificationV1>, ValueTreeError> {
+    use oasis7_proto::memory_budget::MemoryClass;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < 512
+        || source.class != MemoryClass::Recovery
+    {
+        return Err(read::invalid());
+    }
+    let _scratch = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    source.validate_binding(kind, root)?;
+    let output = mint(source.kind, &source.root, memory, MemoryClass::Ordinary)?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(output)
+}
+
 struct Checker<'a, 'ctx, M, R, E, C> {
     kind: ArtifactConfigBodyKindV1,
     ctx: &'a mut WorldFieldReadContextV1<'ctx, M, R, E, C>,

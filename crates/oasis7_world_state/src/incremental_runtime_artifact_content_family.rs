@@ -27,6 +27,38 @@ impl RuntimeArtifactContentQualificationV1 {
         self.class
     }
 }
+/// Re-admit only the same raw-content family scope, without re-reading originals.
+/// Availability, accepted-head selection and dispatch policy remain separate.
+pub fn readmit_runtime_artifact_content_ordinary_v1(
+    source: &ReservedValue<RuntimeArtifactContentQualificationV1>,
+    roots: &RootSetV1,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<RuntimeArtifactContentQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < 512
+        || source.class != MemoryClass::Recovery
+    {
+        return Err(invalid());
+    }
+    let _scratch = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    source.validate_binding(roots)?;
+    let output =
+        memory
+            .reserve(512, MemoryClass::Ordinary)?
+            .retain(RuntimeArtifactContentQualificationV1 {
+                roots: source.roots,
+                class: MemoryClass::Ordinary,
+            });
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(output)
+}
+
 pub fn qualify_runtime_artifact_content_v1<M, R, E, C, O>(
     roots: &RootSetV1,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,

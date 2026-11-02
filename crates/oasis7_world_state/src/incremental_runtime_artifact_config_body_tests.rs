@@ -472,6 +472,117 @@ fn recovery_family_cannot_open_an_ordinary_body() {
     assert_eq!(ordinary.allocation_class(), MemoryClass::Ordinary);
 }
 
+#[test]
+fn recovered_config_readmission_retains_scope_and_pays_ordinary_without_io() {
+    let memory = MemoryBudget::new(192 << 20, 4 << 20).unwrap();
+    let _index = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
+    let mut pages = Pages {
+        nodes: Rc::new(RefCell::new(BTreeMap::new())),
+    };
+    let (roots, _) = seed(&memory, &mut pages);
+    let (family, body) = family_in_pool(&roots, &pages, &memory, MemoryClass::Recovery).unwrap();
+    let kind = body.kind();
+    let root = body.root().clone();
+    let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    assert!(matches!(
+        readmit_artifact_config_family_ordinary_v1(&family, &roots, &foreign, || false),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    assert!(matches!(
+        readmit_artifact_config_body_ordinary_v1(&body, kind, &root, &foreign, || false),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let mut wrong = roots.clone();
+    wrong.state[5] =
+        StateRootV1::empty(oasis7_formal_protocol::incremental_state::StateNamespaceV1::Artifacts)
+            .unwrap();
+    assert!(matches!(
+        readmit_artifact_config_family_ordinary_v1(&family, &wrong, &memory, || false),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let empty_body = StateRootV1::empty(root.namespace).unwrap();
+    assert!(matches!(
+        readmit_artifact_config_body_ordinary_v1(&body, kind, &empty_body, &memory, || false),
+        Err(ValueTreeError::Invalid(_))
+    ));
+
+    let hold = memory
+        .reserve((188 << 20) - memory.used(), MemoryClass::Ordinary)
+        .unwrap();
+    assert!(matches!(
+        readmit_artifact_config_family_ordinary_v1(&family, &roots, &memory, || false),
+        Err(ValueTreeError::Memory(_))
+    ));
+    assert!(matches!(
+        readmit_artifact_config_body_ordinary_v1(&body, kind, &root, &memory, || false),
+        Err(ValueTreeError::Memory(_))
+    ));
+    drop(hold);
+    let before = memory.used();
+    let mut calls = 0;
+    assert!(matches!(
+        readmit_artifact_config_family_ordinary_v1(&family, &roots, &memory, || {
+            calls += 1;
+            calls == 2
+        }),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert_eq!(calls, 2);
+    assert_eq!(memory.used(), before);
+    calls = 0;
+    assert!(matches!(
+        readmit_artifact_config_body_ordinary_v1(&body, kind, &root, &memory, || {
+            calls += 1;
+            calls == 2
+        }),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert_eq!(calls, 2);
+    assert_eq!(memory.used(), before);
+
+    // Make all original pages unavailable during the two resource-only copies.
+    let unavailable = std::mem::take(&mut *pages.nodes.borrow_mut());
+    let ordinary_family =
+        readmit_artifact_config_family_ordinary_v1(&family, &roots, &memory, || false).unwrap();
+    let ordinary_body =
+        readmit_artifact_config_body_ordinary_v1(&body, kind, &root, &memory, || false).unwrap();
+    *pages.nodes.borrow_mut() = unavailable;
+    assert_eq!(ordinary_family.allocation_class(), MemoryClass::Ordinary);
+    assert_eq!(ordinary_body.allocation_class(), MemoryClass::Ordinary);
+    assert!(matches!(
+        readmit_artifact_config_family_ordinary_v1(&ordinary_family, &roots, &memory, || false),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    assert!(matches!(
+        readmit_artifact_config_body_ordinary_v1(&ordinary_body, kind, &root, &memory, || false),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    drop(family);
+    drop(body);
+    assert_eq!(
+        memory.used(),
+        before,
+        "new paid carriers replace both old Recovery carriers"
+    );
+    ordinary_family
+        .validate_binding(&roots.digest().unwrap())
+        .unwrap();
+    let json = json_in_pool(
+        &ordinary_body,
+        ArtifactConfigAddressV1 {
+            section: "subscriptions",
+            ordinal: Some(0),
+            inner_ordinal: None,
+            member: None,
+            column: "filters",
+        },
+        &pages,
+        &memory,
+        MemoryClass::Ordinary,
+    );
+    assert_eq!(json.allocation_class(), MemoryClass::Ordinary);
+}
+
 pub(super) fn json_in_pool(
     body: &ReservedValue<ArtifactConfigBodyQualificationV1>,
     address: ArtifactConfigAddressV1<'_>,

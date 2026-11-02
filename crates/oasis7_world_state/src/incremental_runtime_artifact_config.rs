@@ -602,12 +602,13 @@ pub use read::{ArtifactConfigValueV1, inspect_artifact_config_cell_v1};
 mod closure;
 pub use closure::{
     ArtifactConfigBodyQualificationV1, ArtifactConfigReadWorkV1, qualify_artifact_config_body_v1,
+    readmit_artifact_config_body_ordinary_v1,
 };
 #[path = "incremental_runtime_artifact_config_family.rs"]
 mod family;
 pub use family::{
     ArtifactConfigFamilyQualificationV1, open_qualified_artifact_config_body_v1,
-    qualify_artifact_config_family_v1,
+    qualify_artifact_config_family_v1, readmit_artifact_config_family_ordinary_v1,
 };
 #[path = "incremental_runtime_artifact_config_overlay.rs"]
 mod overlay;

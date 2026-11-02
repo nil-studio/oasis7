@@ -89,6 +89,42 @@ impl RuntimeArtifactResourcesQualificationV1 {
 
 #[path = "incremental_runtime_artifact_resources_receiver.rs"]
 mod receiver;
+
+/// Resource-only readmission of the same recovered three-descriptor scope.
+/// No original, page, history or replacement RootSet is loaded or inferred.
+pub fn readmit_runtime_artifact_resources_ordinary_v1(
+    source: &ReservedValue<RuntimeArtifactResourcesQualificationV1>,
+    roots: &RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<RuntimeArtifactResourcesQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    let bytes = std::mem::size_of::<RuntimeArtifactResourcesQualificationV1>();
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < bytes
+        || source.class != MemoryClass::Recovery
+    {
+        return Err(invalid());
+    }
+    let _scratch = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    source.validate_binding(
+        &roots.digest().map_err(|_| invalid())?,
+        MemoryClass::Recovery,
+    )?;
+    let output = memory.reserve(bytes, MemoryClass::Ordinary)?.retain(
+        RuntimeArtifactResourcesQualificationV1 {
+            roots: source.roots,
+            counts: source.counts,
+            class: MemoryClass::Ordinary,
+        },
+    );
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(output)
+}
 pub use receiver::{
     RuntimeArtifactResourcesPreparedTransitionV1,
     verify_runtime_artifact_resources_change_transition_v1,

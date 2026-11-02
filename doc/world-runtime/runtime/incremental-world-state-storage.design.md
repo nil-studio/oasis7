@@ -900,3 +900,5 @@ GEN 从 Runtime 原值借用遍历，在写入前对每个列表/map 计数、ke
 ordinary 变化必须使用同一 `ExecutionTransaction`、原 accepted family token、before RootSet、live fence、同池 `Ordinary` 上下文及共享剩余预算；逐字段比较原值，完整检查被改变的 typed 子树，精确产生实际 write set，并在成功、no-op 和任何错误/取消返回前执行组合取消检查。失败、超预算、IO 错误或 panic 不得 seal 已暂存前缀。未改变的两个 sibling 只能从已验证父资格继承；仅按字段名或 digest 复制旧资格不是证明。页面标记/转移必须沿三个 RootRef child edges 递归访问底层 StateRoot 与 ValueTree，缺 child 必须失败。此 cohort 不代表其余 Runtime、Cognition、History/Proof、World activation、完整 Runtime driver 或 GC 已闭合。
 
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+Artifacts 的恢复资格与普通执行资格不得隐式互换。配置 family/body、内容 family 和资源清单 family 可以显式重新准入：仅从同池且保留原计费的 Recovery 私有资格复制固定 metadata，保持原完整 RootSet 或 body kind/root 绑定，在分配前取得新的 Ordinary 计费并保留至最后持有者释放。该桥不读取原页、原件或历史，不更换 head、root、schema 或 owner，不授业务/派发权限；Ordinary 额度不足、错误绑定/池/来源和前后取消均不得返回可采用的新资格。旧 Recovery carrier 可独立释放；实际存储读取、事务与接受仍分别验证原合同。
