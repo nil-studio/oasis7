@@ -149,12 +149,7 @@ fn try_fetch_via_fetcher(
     let Some(fetcher_path) = builtin_wasm_env_non_empty("FETCHER") else {
         return Ok(None);
     };
-    let out_path = temp_artifact_path("fetched", module_id, repo_root);
-    let Some(parent) = out_path.parent() else {
-        return Ok(None);
-    };
-    fs::create_dir_all(parent)?;
-
+    let out_path = temp_artifact_path("fetched", module_id, repo_root)?;
     for expected_hash in expected_hashes {
         let status = match Command::new(&fetcher_path)
             .arg(module_id)
@@ -254,14 +249,7 @@ fn compile_via_command(
     expected_hashes: &[&str],
     repo_root: &Path,
 ) -> Result<Vec<u8>, MaterializeError> {
-    let out_path = temp_artifact_path("compiled", module_id, repo_root);
-    let Some(parent) = out_path.parent() else {
-        return Err(MaterializeError::ModuleChangeInvalid {
-            reason: "compiler output path has no parent".to_string(),
-        });
-    };
-    fs::create_dir_all(parent)?;
-
+    let out_path = temp_artifact_path("compiled", module_id, repo_root)?;
     let mut failed_statuses = Vec::new();
     for expected_hash in expected_hashes {
         let status = Command::new(compiler_path)
@@ -309,8 +297,7 @@ fn compile_via_default_script(
     let build_script = repo_root
         .join("scripts")
         .join("build-builtin-wasm-modules.sh");
-    let out_dir = temp_build_dir(module_id, repo_root);
-    fs::create_dir_all(&out_dir)?;
+    let out_dir = temp_build_dir(module_id, repo_root)?;
 
     let artifact_path = out_dir.join(format!("{module_id}.wasm"));
     let prefer_host_native = should_prefer_host_native_builtin_wasm_build();
@@ -617,18 +604,37 @@ fn env_truthy(key: &str) -> bool {
     )
 }
 
-fn temp_artifact_path(kind: &str, module_id: &str, repo_root: &Path) -> PathBuf {
-    temp_build_dir(module_id, repo_root).join(format!("{module_id}.{kind}.wasm"))
+fn temp_artifact_path(kind: &str, module_id: &str, repo_root: &Path) -> std::io::Result<PathBuf> {
+    Ok(temp_build_dir(module_id, repo_root)?.join(format!("{module_id}.{kind}.wasm")))
 }
 
-fn temp_build_dir(module_id: &str, repo_root: &Path) -> PathBuf {
+fn temp_build_dir(module_id: &str, repo_root: &Path) -> std::io::Result<PathBuf> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    repo_root.join(".tmp").join(format!(
-        "oasis7-builtin-wasm-{module_id}-{}-{now}",
-        std::process::id()
+    temp_build_dir_at(module_id, repo_root, now)
+}
+
+fn temp_build_dir_at(module_id: &str, repo_root: &Path, now: u128) -> std::io::Result<PathBuf> {
+    let parent = repo_root.join(".tmp");
+    fs::create_dir_all(&parent)?;
+    // A clock reading is not unique across concurrent calls. Reserve each directory
+    // atomically so no caller can overwrite or clean up another caller's artifact.
+    for attempt in 0..128 {
+        let path = parent.join(format!(
+            "oasis7-builtin-wasm-{module_id}-{}-{now}-{attempt}",
+            std::process::id()
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("cannot reserve builtin wasm build directory for {module_id}"),
     ))
 }
 

@@ -107,13 +107,16 @@ fn cached_expected_module_hash_ignores_stale_hashes() {
 
 #[test]
 fn temp_build_dir_stays_under_repo_tmp_root() {
-    let repo_root = Path::new("/tmp/workspace");
-    let temp_dir = temp_build_dir("m1.rule.move", repo_root);
+    let repo_root =
+        std::env::temp_dir().join(format!("oasis7-materializer-tmp-{}", std::process::id()));
+    let temp_dir = temp_build_dir("m1.rule.move", &repo_root).expect("reserve build directory");
     assert!(
         temp_dir.starts_with(repo_root.join(".tmp")),
         "temp build dir should stay under repo .tmp, got {}",
         temp_dir.display()
     );
+    assert!(temp_dir.is_dir(), "directory must be reserved before use");
+    fs::remove_dir_all(repo_root).unwrap();
 }
 
 #[test]
@@ -247,4 +250,85 @@ fn verified_expected_cas_artifact_needs_no_fetch_or_compiler() {
     .expect("verified CAS hit bypasses host IO");
     assert_eq!(loaded, bytes);
     fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn concurrent_builds_at_same_timestamp_keep_artifacts_isolated() {
+    let root = std::env::temp_dir().join(format!(
+        "oasis7-materializer-collision-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).expect("create fixture root");
+    let first = temp_build_dir_at("m4.recipe.smelter.polymer_resin", &root, 42).unwrap();
+    let second = temp_build_dir_at("m4.recipe.smelter.polymer_resin", &root, 42).unwrap();
+    let artifact = "m4.recipe.smelter.polymer_resin.wasm";
+    fs::write(first.join(artifact), b"first build").unwrap();
+    fs::write(second.join(artifact), b"second build").unwrap();
+    let first_bytes = fs::read(first.join(artifact)).unwrap();
+    fs::remove_dir_all(&first).unwrap();
+    let second_bytes = fs::read(second.join(artifact));
+    fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        first_bytes, b"first build",
+        "one build must not overwrite another"
+    );
+    assert_eq!(
+        second_bytes.unwrap(),
+        b"second build",
+        "one build cleanup must not delete another artifact"
+    );
+}
+
+#[test]
+fn parallel_builds_reserve_distinct_directories_with_a_frozen_clock() {
+    let root = std::env::temp_dir().join(format!(
+        "oasis7-materializer-parallel-{}",
+        std::process::id()
+    ));
+    let barrier = std::sync::Barrier::new(8);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0u8..8)
+            .map(|id| {
+                let root = &root;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    let dir = temp_build_dir_at("m1.rule.move", root, 42).unwrap();
+                    fs::write(dir.join("artifact.wasm"), [id]).unwrap();
+                    barrier.wait();
+                    let bytes = fs::read(dir.join("artifact.wasm")).unwrap();
+                    fs::remove_dir_all(&dir).unwrap();
+                    assert_eq!(bytes, [id], "parallel outputs must remain isolated");
+                    dir
+                })
+            })
+            .collect();
+        let paths: std::collections::BTreeSet<_> =
+            handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert_eq!(paths.len(), 8);
+    });
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn build_directory_reservation_preserves_existing_entries_and_reports_io_errors() {
+    let root = std::env::temp_dir().join(format!(
+        "oasis7-materializer-reservation-{}",
+        std::process::id()
+    ));
+    let parent = root.join(".tmp");
+    fs::create_dir_all(&parent).unwrap();
+    let occupied = parent.join(format!(
+        "oasis7-builtin-wasm-m1.rule.move-{}-42-0",
+        std::process::id()
+    ));
+    fs::write(&occupied, b"existing output").unwrap();
+    let reserved = temp_build_dir_at("m1.rule.move", &root, 42).unwrap();
+    assert!(reserved.is_dir());
+    assert_eq!(fs::read(&occupied).unwrap(), b"existing output");
+    fs::remove_dir_all(&parent).unwrap();
+    fs::write(&parent, b"blocked parent").unwrap();
+    assert!(temp_build_dir_at("m1.rule.move", &root, 42).is_err());
+    assert_eq!(fs::read(&parent).unwrap(), b"blocked parent");
+    fs::remove_dir_all(root).unwrap();
 }
