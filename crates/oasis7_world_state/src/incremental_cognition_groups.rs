@@ -309,3 +309,69 @@ pub fn change_cognition_group_v1<
         Ok(true)
     })
 }
+
+/// Explicitly verifies one current overlay cohort body. This bounded bootstrap
+/// is useful after creation; subsequent point edits consume its retained proof.
+/// The returned entry proof does not qualify the remaining family or side owners.
+pub fn qualify_cognition_group_json_overlay_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    expected: &ReservedValue<CognitionGroupExpectedV1>,
+    field: CognitionJsonFieldV1,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut crate::incremental_json_records::JsonReadWorkV1,
+) -> Result<
+    ReservedValue<crate::incremental_cognition_json_read::CognitionJsonEntryQualificationV1>,
+    WorldFieldOverlayErrorV1,
+> {
+    context.transaction.contribute(|tx| {
+        if context.values.class != MemoryClass::Ordinary
+            || !tx.uses_budget(context.values.memory)
+            || !expected.uses_budget(context.values.memory)
+            || expected.parent != tx.parent_fence().parent_roots
+            || !expected.present
+        {
+            return Err(invalid().into());
+        }
+        let index = CognitionJsonFieldV1::ALL
+            .iter()
+            .position(|candidate| *candidate == field)
+            .ok_or_else(invalid)?;
+        if !expected.group.contains(10 + index) {
+            return Err(invalid().into());
+        }
+        let mut records = InventoryValueReader {
+            values: &mut context.values,
+            key_work: &mut *context.key_work,
+            semantic_bytes: context.semantic_bytes,
+            record_bytes: context.record_bytes,
+            cancelled: &mut context.cancelled,
+        };
+        if current(
+            expected.group,
+            tx,
+            &mut records,
+            &mut context.take_state_error,
+        )? != expected.rows
+        {
+            return Err(invalid().into());
+        }
+        let key = records.key(field.descriptor(), WorldFieldRecordKindV1::Entry, &())?;
+        let value = expected.rows[10 + index][1].ok_or_else(invalid)?;
+        let child =
+            crate::incremental_cognition_json_read::outer(field, &key, &value, &mut records)?;
+        let output = crate::incremental_cognition_json_read::qualify_body_records(
+            field,
+            &child,
+            &mut records,
+            work,
+        )?;
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        Ok(output)
+    })
+}

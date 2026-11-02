@@ -60,13 +60,17 @@ fn state_error(error: PageStoreError) -> ValueTreeError {
 }
 #[test]
 fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old_pool() {
-    run_cognition(false);
+    run_cognition(false, false);
 }
 #[test]
 fn cognition_optional_economy_and_delegation_keep_original_state_and_side_routing() {
-    run_cognition(true);
+    run_cognition(true, false);
 }
-fn run_cognition(all_optional: bool) {
+#[test]
+fn cognition_optional_group_lifecycle_is_closed_in_the_shared_transaction() {
+    run_cognition(false, true);
+}
+fn run_cognition(all_optional: bool, groups_only: bool) {
     let directory = fixture::Directory::new();
     let path = directory.0.join("cognition");
     let namespaces = [
@@ -177,6 +181,27 @@ fn run_cognition(all_optional: bool) {
                 .put_state_pages_cancelled(&delta, &memory, &mut || false)
                 .unwrap();
             roots[index].copy_from_slice(&delta.after.canonical_bytes().unwrap());
+        }
+        if groups_only {
+            use oasis7_formal_protocol::incremental_execution::*;
+            let mut top = RootSetV1::empty("cognition-test".into(), [0x52; 32]).unwrap();
+            for (index, namespace) in namespaces.iter().enumerate() {
+                *top.state
+                    .iter_mut()
+                    .find(|root| root.namespace == *namespace)
+                    .unwrap() = StateRootV1::from_canonical_bytes(&roots[index]).unwrap();
+            }
+            let family = family_faults::qualify_ordinary(&store, &memory, &top);
+            let parent = ExecutionParent {
+                roots: top,
+                commit: [4; 32],
+                authority: AuthorityBinding {
+                    token: [5; 32],
+                    epoch: 7,
+                },
+            };
+            cognition_groups::exercise(&store, &memory, &parent, &family);
+            return;
         }
         // The neutral point producer changes one scalar below a known qualified
         // JSON graph. It does not publish the Cognition outer root or grant family
@@ -441,7 +466,6 @@ fn run_cognition(all_optional: bool) {
             };
             if let Some(parent_family) = &parent_family {
                 cognition_controls::exercise(&store, &memory, &execution_parent, parent_family);
-                cognition_groups::exercise(&store, &memory, &execution_parent, parent_family);
                 cognition_json_lifecycle::same_transaction(
                     &store,
                     &memory,

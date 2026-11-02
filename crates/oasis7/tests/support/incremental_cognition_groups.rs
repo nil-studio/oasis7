@@ -11,19 +11,41 @@ pub fn exercise(
     parent: &ExecutionParent,
     family: &ReservedValue<CognitionCurrentStateQualificationV1>,
 ) {
+    for group in [
+        CognitionOptionalGroupV1::Economy,
+        CognitionOptionalGroupV1::Delegation,
+        CognitionOptionalGroupV1::ContinuationContexts,
+        CognitionOptionalGroupV1::ContinuationEvaluations,
+        CognitionOptionalGroupV1::ReorgEpoch,
+    ] {
+        exercise_group(store, memory, parent, family, group);
+    }
+}
+fn exercise_group(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    parent: &ExecutionParent,
+    family: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    group: CognitionOptionalGroupV1,
+) {
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
-    let values = store.value_session(physical());
-    let mut writer = store.value_session(physical());
+    let whole = PageIoBudget {
+        reads_remaining: 8_000_000,
+        read_bytes_remaining: 2 << 30,
+        ..physical()
+    };
+    let values = store.value_session(whole.clone());
+    let mut writer = store.value_session(whole);
     let mut tx = ExecutionTransaction::begin(
         parent.clone(),
         [0x79; 32],
         &state,
         memory,
         TransactionLimits {
-            max_reads: 8,
-            max_writes: 4,
+            max_reads: 64,
+            max_writes: 28,
             max_facts: 0,
             max_pending_node_bytes: 2 << 20,
         },
@@ -41,10 +63,10 @@ pub fn exercise(
     let source = super::source(true);
     let source = CognitionEnvelopeRefV1::new(&source).unwrap();
     let mut work = CognitionGroupWriteWorkV1 {
-        records_remaining: 32,
+        records_remaining: 128,
         json: JsonWriteWorkV1 {
-            cells_remaining: 128,
-            json_nodes_remaining: 16,
+            cells_remaining: 4096,
+            json_nodes_remaining: 512,
             max_json_depth: 8,
             max_pending_node_bytes: 2 << 20,
         },
@@ -76,60 +98,115 @@ pub fn exercise(
             },
             cancelled: || false,
         };
-        for group in [
-            CognitionOptionalGroupV1::ReorgEpoch,
-            CognitionOptionalGroupV1::ContinuationEvaluations,
-        ] {
-            let before = read_cognition_group_overlay_v1(group, family, &mut context).unwrap();
+        let before = read_cognition_group_overlay_v1(group, family, &mut context).unwrap();
+        let guard = context.transaction.guard();
+        assert_eq!(
+            change_cognition_group_v1(
+                &before,
+                None,
+                &mut context,
+                &mut write,
+                &mut work,
+                &guard,
+                &live
+            )
+            .unwrap(),
+            before.present()
+        );
+        let absent = read_cognition_group_overlay_v1(group, family, &mut context).unwrap();
+        assert!(!absent.present());
+        let guard = context.transaction.guard();
+        assert!(
+            !change_cognition_group_v1(
+                &absent,
+                None,
+                &mut context,
+                &mut write,
+                &mut work,
+                &guard,
+                &live
+            )
+            .unwrap()
+        );
+        let guard = context.transaction.guard();
+        assert!(
+            change_cognition_group_v1(
+                &absent,
+                Some(source),
+                &mut context,
+                &mut write,
+                &mut work,
+                &guard,
+                &live
+            )
+            .unwrap()
+        );
+        let present = read_cognition_group_overlay_v1(group, family, &mut context).unwrap();
+        assert!(present.present());
+        if group == CognitionOptionalGroupV1::ContinuationEvaluations {
+            use oasis7_runtime::incremental_cognition_json_overlay::*;
+            let proof = qualify_cognition_group_json_overlay_v1(
+                &present,
+                CognitionJsonFieldV1::ContinuationEvaluations,
+                &mut context,
+                &mut JsonReadWorkV1 {
+                    cells_remaining: 128,
+                    json_nodes_remaining: 16,
+                    max_depth: 8,
+                    max_payload_bytes: 4096,
+                },
+            )
+            .unwrap();
             let guard = context.transaction.guard();
-            assert_eq!(
-                change_cognition_group_v1(
-                    &before,
-                    None,
-                    &mut context,
-                    &mut write,
-                    &mut work,
-                    &guard,
-                    &live
-                )
-                .unwrap(),
-                before.present()
-            );
-            let absent = read_cognition_group_overlay_v1(group, family, &mut context).unwrap();
-            assert!(!absent.present());
-            let guard = context.transaction.guard();
-            assert!(
-                !change_cognition_group_v1(
-                    &absent,
-                    None,
-                    &mut context,
-                    &mut write,
-                    &mut work,
-                    &guard,
-                    &live
-                )
-                .unwrap()
-            );
-            let guard = context.transaction.guard();
-            assert!(
-                change_cognition_group_v1(
-                    &absent,
-                    Some(source),
-                    &mut context,
-                    &mut write,
-                    &mut work,
-                    &guard,
-                    &live
-                )
-                .unwrap()
-            );
-            let present = read_cognition_group_overlay_v1(group, family, &mut context).unwrap();
-            assert!(present.present());
+            let updated = change_cognition_json_scalar_v1(
+                CognitionJsonScalarChangeV1 {
+                    field: CognitionJsonFieldV1::ContinuationEvaluations,
+                    qualification: &proof,
+                    path: &[JsonPathSegmentV1::Name("n"), JsonPathSegmentV1::Name("tick")],
+                    change: (
+                        JsonScalarRefV1::Unsigned(u64::MAX),
+                        JsonScalarRefV1::Unsigned(0),
+                    ),
+                },
+                &mut context,
+                &mut write,
+                &mut oasis7_runtime::incremental_cognition_json_overlay::CognitionJsonPointWorkV1 {
+                    point: JsonWriteWorkV1 {
+                        cells_remaining: 128,
+                        json_nodes_remaining: 16,
+                        max_json_depth: 8,
+                        max_pending_node_bytes: 2 << 20,
+                    },
+                    changed: JsonChangeWorkV1 {
+                        json: JsonReadWorkV1 {
+                            cells_remaining: 128,
+                            json_nodes_remaining: 16,
+                            max_depth: 8,
+                            max_payload_bytes: 4096,
+                        },
+                        paths_remaining: 4096,
+                        max_pending_pairs: 8,
+                    },
+                },
+                &guard,
+                &live,
+            )
+            .unwrap()
+            .unwrap();
+            assert_ne!(proof.body_root(), updated.body_root());
         }
     }
     let guard = tx.guard();
     let sealed = tx.seal(&guard, &live, 1).unwrap();
-    assert_eq!(sealed.record.writes.len(), 2); // Epoch recreated unchanged; evaluations is new.
+    assert_eq!(
+        sealed.record.writes.len(),
+        match group {
+            CognitionOptionalGroupV1::Economy => 28,
+            CognitionOptionalGroupV1::Delegation => 8,
+            CognitionOptionalGroupV1::ContinuationEvaluations => 2,
+            _ => 0,
+        }
+    );
     let verifier = TransitionVerifier {
         parent,
         operation: [0x79; 32],
@@ -160,12 +237,12 @@ pub fn exercise(
         &mut context,
         &mut JsonChangeWorkV1 {
             json: JsonReadWorkV1 {
-                cells_remaining: 128,
-                json_nodes_remaining: 16,
+                cells_remaining: 4096,
+                json_nodes_remaining: 512,
                 max_depth: 8,
                 max_payload_bytes: 4096,
             },
-            paths_remaining: 16,
+            paths_remaining: 4096,
             max_pending_pairs: 8,
         },
     )
@@ -199,12 +276,14 @@ pub fn exercise(
             .unwrap();
     }
     let raw = super::family_faults::qualify_ordinary(store, memory, &sealed.record.after);
-    assert!(
-        raw.json_entry(
-            CognitionJsonFieldV1::ContinuationEvaluations,
-            &sealed.record.after.digest().unwrap()
-        )
-        .unwrap()
-        .is_some()
+    raw.validate_binding(&sealed.record.after.digest().unwrap())
+        .unwrap();
+    eprintln!(
+        "Cognition optional group {group:?} accepted writes={} remaining records={} state={:?} values={:?} writer={:?}",
+        sealed.record.writes.len(),
+        work.records_remaining,
+        state.remaining_io(),
+        values.remaining_io(),
+        writer.remaining_io()
     );
 }
