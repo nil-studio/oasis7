@@ -612,8 +612,8 @@ pub(super) use resource_final::OwnerSetupResourceFinalOutboxV2;
 pub use resource_final::{
     CompleteOwnerSetupResourceFinalV2, OwnerSetupPaidResourceResultV2,
     OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceCandidateV2, OwnerSetupResourceFinalHttpV2,
-    OwnerSetupResourceWorldBodyV2, PreparedOwnerSetupResourceDispatchV2,
-    PreparedOwnerSetupResourceReadV2, RESOURCE_READ_PROOF_HEADER, ResourceFinalIssueContextV2,
+    PreparedOwnerSetupResourceDispatchV2, PreparedOwnerSetupResourceReadV2,
+    ResourceFinalIssueContextV2,
 };
 
 #[path = "owner_setup_paid_result_material_v2.rs"]

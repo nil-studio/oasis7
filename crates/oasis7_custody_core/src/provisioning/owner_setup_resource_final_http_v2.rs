@@ -1,11 +1,8 @@
 //! Closed paid Native frame. A matching signed payload is not Current authority.
 use super::*;
 use crate::approval::CustodyIntentV1;
+pub use crate::provisioning::resource_world_body_v2::OwnerSetupResourceWorldBodyV2;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-#[path = "owner_setup_resource_world_body_v2.rs"]
-mod world;
-pub use world::OwnerSetupResourceWorldBodyV2;
-pub const RESOURCE_READ_PROOF_HEADER: &str = "Oasis7-Custody-Resource-Read";
 #[derive(Clone)]
 pub struct OwnerSetupResourceFinalHttpV2 {
     api_version: u8,
@@ -86,7 +83,13 @@ impl OwnerSetupResourceFinalHttpV2 {
     }
     pub fn world_body(&self) -> Result<OwnerSetupResourceWorldBodyV2> {
         self.validate_bindings()?;
-        OwnerSetupResourceWorldBodyV2::from_frame(self)
+        let EntryOwnerOperationV1::ReadResourceGoal(q) = &self.request.operation else {
+            return Err(invalid());
+        };
+        Ok(OwnerSetupResourceWorldBodyV2::from_originals(
+            self.request.access.clone(),
+            q.clone(),
+        ))
     }
     pub fn participant(&self) -> &ParticipantDescriptorV1 {
         &self.participant

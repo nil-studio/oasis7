@@ -200,6 +200,26 @@ impl PaidResourceReadPayloadV1 {
     }
 }
 impl PaidResourceReadProofV1 {
+    /// Exact existing authentication-header codec only. Issuer/purpose/floor,
+    /// original body, Current and durable physical once remain separate gates.
+    pub fn decode_http_header(header: &str) -> core::result::Result<Self, String> {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        if header.is_empty() || header.len() > 64 * 1024 {
+            return Err("invalid Resource paid header".into());
+        }
+        let bytes = URL_SAFE_NO_PAD
+            .decode(header)
+            .map_err(|_| "invalid Resource paid header")?;
+        let proof: Self =
+            serde_json::from_slice(&bytes).map_err(|_| "invalid Resource paid header")?;
+        if serde_json::to_vec(&proof).map_err(|_| "invalid Resource paid header")? != bytes
+            || URL_SAFE_NO_PAD.encode(&bytes) != header
+        {
+            return Err("invalid Resource paid header".into());
+        }
+        proof.payload.validate_shape()?;
+        Ok(proof)
+    }
     /// Only the configured signature/lease contract, not payment consumption,
     /// current Source/account authority or an assertion of antirollback storage.
     pub fn verify_issuer(

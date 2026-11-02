@@ -340,6 +340,7 @@ impl FormalLiveRuntime {
         // Approved initial material does not reset an existing writer to C0.
         // Every open starts from both protected native heads beneath the same
         // external origin, including the first already-qualified activation.
+        let capture_material = PublishedReadState::publication_capture_mode(&validated.config);
         let writer = {
             let restore = timing.stage("dual_native_restore");
             // The request carries the original trusted authority. A signed
@@ -392,7 +393,7 @@ impl FormalLiveRuntime {
                 .and_then(|startup| startup.activation.as_ref())
                 .is_some()
             {
-                FormalWriter::open_native(
+                FormalWriter::open_native_with_material(
                     writer_root,
                     writer_key,
                     release_policy,
@@ -402,9 +403,10 @@ impl FormalLiveRuntime {
                     writer_endpoint(primary_restore.0, EndpointRole::Primary),
                     writer_endpoint(replica_restore.0, EndpointRole::Replica),
                     business_reader.clone(),
+                    capture_material,
                 )
             } else if let Some(permission) = validated.recovery.as_ref() {
-                FormalWriter::open_native_recovery(
+                FormalWriter::open_native_recovery_with_material(
                     writer_root,
                     writer_key,
                     release_policy,
@@ -415,9 +417,10 @@ impl FormalLiveRuntime {
                     writer_endpoint(primary_restore.0, EndpointRole::Primary),
                     writer_endpoint(replica_restore.0, EndpointRole::Replica),
                     business_reader.clone(),
+                    capture_material,
                 )
             } else {
-                FormalWriter::open_native(
+                FormalWriter::open_native_with_material(
                     writer_root,
                     writer_key,
                     release_policy,
@@ -427,6 +430,7 @@ impl FormalLiveRuntime {
                     writer_endpoint(primary_restore.0, EndpointRole::Primary),
                     writer_endpoint(replica_restore.0, EndpointRole::Replica),
                     business_reader.clone(),
+                    capture_material,
                 )
             }
             .map_err(|error| format!("open restored formal native writer: {error}"))?
@@ -464,7 +468,7 @@ impl FormalLiveRuntime {
             .map_err(|error| format!("verify restored formal governance history: {error}"))?;
 
         let _bootstrap = timing.stage("publication_and_node_bootstrap");
-        let published = Arc::new(PublishedReadState::default());
+        let published = Arc::new(PublishedReadState::from_resource_archive_environment()?);
         let (effect_delivery, sink): (
             _,
             Arc<dyn super::execution_bridge::formal_node_hook::FormalPublicationSink>,
@@ -731,7 +735,7 @@ impl FormalLiveRuntime {
             Some(gate) => service.with_full_sync_read_gate(gate)?,
             None => service,
         };
-        let service = Arc::new(service);
+        let service = Arc::new(service.with_resource_world_reads_from_environment()?);
         let _admission = self
             .admission_gate
             .lock()
@@ -798,6 +802,7 @@ impl FormalLiveRuntime {
         if let Some(delivery) = &self.effect_delivery {
             delivery.request_stop();
         }
+        self.published.request_resource_archive_stop()?;
         // Close ingress before waiting for the already-admitted operation.
         self.state
             .ready
@@ -891,6 +896,7 @@ impl FormalLiveRuntime {
         if let Some(mut server) = self.server.take() {
             server.stop()?;
         }
+        self.published.finish_resource_archive_stop()?;
         self.state
             .stopping
             .store(false, std::sync::atomic::Ordering::Release);

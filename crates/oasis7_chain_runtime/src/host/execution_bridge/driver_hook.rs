@@ -662,9 +662,13 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
         ));
         let world_head_proof_ms = world_head_proof_started_at.elapsed();
         let record_persist_started_at = Instant::now();
-        rollback_on_error!(begin_execution_bridge_retention_transaction(
-            self.records_dir.as_path()
-        ));
+        // Profile two already captured its authenticated retained-history delta.
+        // A one-shot Formal attempt has no Native predecessor-record ledger.
+        if !self.formal_retention_enabled {
+            rollback_on_error!(begin_execution_bridge_retention_transaction(
+                self.records_dir.as_path()
+            ));
+        }
         rollback_on_error!(persist_execution_bridge_record(
             self.records_dir.as_path(),
             &record
