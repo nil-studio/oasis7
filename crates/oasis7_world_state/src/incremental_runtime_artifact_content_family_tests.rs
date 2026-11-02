@@ -821,3 +821,6 @@ fn shared_transaction_keyed_reads_changes_and_noops_pass_changed_receiver_then_r
     .unwrap();
     assert_eq!(originals.calls, 3);
 }
+
+#[path = "incremental_runtime_artifact_content_pages_tests.rs"]
+mod pages_tests;

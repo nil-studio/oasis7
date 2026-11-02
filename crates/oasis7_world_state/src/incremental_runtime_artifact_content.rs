@@ -224,3 +224,7 @@ fn prepare_borrowed_original<C: FnMut() -> bool>(
 #[path = "incremental_runtime_artifact_content_overlay.rs"]
 mod overlay;
 pub use overlay::*;
+
+#[path = "incremental_runtime_artifact_content_pages.rs"]
+mod pages;
+pub use pages::*;
