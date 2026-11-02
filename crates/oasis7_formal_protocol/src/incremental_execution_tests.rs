@@ -859,3 +859,6 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
         assert_eq!(memory.used(), before);
     }
 }
+
+#[path = "incremental_final_fact_tests.rs"]
+mod final_fact_tests;
