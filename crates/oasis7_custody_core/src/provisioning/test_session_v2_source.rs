@@ -438,6 +438,11 @@ impl AccountProvisionApprovalState {
         current: &ProvisionApprovalContext<'_>,
         now: UnixMillis,
     ) -> Result<crate::approval::ApprovalVerifyRequestV1> {
+        // This Read reservation has no production Read DFRF issuer yet. Never
+        // turn a prepaid budget token into a legacy Native verify request.
+        if super::v2_read_current::source_owned(self.test_session_v2_record(id)?, source_id) {
+            return Err(invalid());
+        }
         let mut next = self.clone();
         let s = next.test_session_v2_record_mut(id)?;
         // No generic Native request may be derived from a paid Pending source.
@@ -602,7 +607,8 @@ pub(in crate::provisioning) fn transport_id_in_non_world2_state_v2(
     s: &TestSessionAuthorityV2,
     attempt: &str,
 ) -> bool {
-    super::super::execution_book_v2::prepare_paid_id_in_use_v2(s, attempt)
+    super::v2_read_current::read_current_entry_internal_v3(s, attempt)
+        || super::super::execution_book_v2::prepare_paid_id_in_use_v2(s, attempt)
             || !id_nonempty(attempt) || s.sources.contains_key(attempt) || s.source_funding.contains_key(attempt)
             || s.purpose_transports.contains_key(attempt) || s.purpose_http_admissions.contains_key(attempt)
             || s.control_transports.contains_key(attempt) || s.client_http_admissions.contains_key(attempt)

@@ -581,8 +581,14 @@ pub(in crate::provisioning) use execution_pending_start_v2::{
     ExecutionPendingIngressV2, ExecutionPendingStartV2,
 };
 
+#[path = "test_session_v2_read_current.rs"]
+mod v2_read_current;
 #[path = "test_session_v2_read_history.rs"]
 mod v2_read_history;
+pub use v2_read_current::{
+    ReadCurrentIngressPaidV3, ReadCurrentPortPrepaidV3, ReadCurrentPortV3,
+    ReadCurrentPreparationRecordV3, ReadCurrentSourceV3,
+};
 pub use v2_read_history::{
     ReadPrepareHistoryFeeV2, ReadPrepareHistoryPaidV2, ReadPrepareHistoryReplyV2,
 };
