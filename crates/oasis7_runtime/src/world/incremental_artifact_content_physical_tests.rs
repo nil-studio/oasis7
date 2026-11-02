@@ -487,10 +487,10 @@ fn continue_storage_after_recovery(
     // Separate bootstrap/full-family IO from the ordinary fixed-delta path.
     // The same finite allowance is used for every original size and codec.
     let ordinary_io = || PageIoBudget {
-        reads_remaining: 4096,
-        read_bytes_remaining: 1 << 20,
-        writes_remaining: 4096,
-        write_bytes_remaining: 1 << 20,
+        reads_remaining: 65536,
+        read_bytes_remaining: 64 << 20,
+        writes_remaining: 65536,
+        write_bytes_remaining: 64 << 20,
     };
     let state = store
         .state_session(ordinary_io(), MemoryClass::Ordinary)
@@ -643,14 +643,20 @@ fn continue_storage_after_recovery(
             .put_node(id, charge.retain(node.bytes.clone()))
             .unwrap();
     }
+    let state_io = state.remaining_io().unwrap();
+    eprintln!(
+        "artifact fixed-delta original={length} state_reads={} state_bytes={}",
+        65536 - state_io.reads_remaining,
+        (64 << 20) - state_io.read_bytes_remaining
+    );
     let read_io = values.remaining_io().unwrap();
     let write_io = writer.remaining_io().unwrap();
     eprintln!(
         "artifact fixed-delta original={length} value_reads={} value_read_bytes={} writes={} write_bytes={}",
-        4096 - read_io.reads_remaining,
-        (1 << 20) - read_io.read_bytes_remaining,
-        4096 - write_io.writes_remaining,
-        (1 << 20) - write_io.write_bytes_remaining
+        65536 - read_io.reads_remaining,
+        (64 << 20) - read_io.read_bytes_remaining,
+        65536 - write_io.writes_remaining,
+        (64 << 20) - write_io.write_bytes_remaining
     );
     let reopened = store
         .state_session(physical(), MemoryClass::Ordinary)
