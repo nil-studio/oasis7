@@ -2,9 +2,9 @@ use super::*;
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R> {
     #[expect(
         clippy::too_many_arguments,
-        reason = "Recovery opening validates the original pin, permission, dual restores, endpoint pair, and authenticated reader independently."
+        reason = "Recovery keeps independently verified permission, replicas, reader and optional storage capture policy distinct."
     )]
-    pub(crate) fn open_native_recovery(
+    pub(crate) fn open_native_recovery_with_material(
         root: PathBuf,
         writer: SigningKey,
         release: ReleaseSecurityPolicy,
@@ -15,6 +15,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         primary: P,
         replica: R,
         reader: std::sync::Arc<dyn business_index::BusinessIndexNodeReader + Send + Sync>,
+        capture_material: PublicationMaterialCaptureV1,
     ) -> Result<Self, String> {
         Self::open_native_context(
             root,
@@ -27,6 +28,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             primary,
             replica,
             reader,
+            capture_material,
         )
     }
     #[expect(
@@ -44,6 +46,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         primary: P,
         replica: R,
         reader: std::sync::Arc<dyn business_index::BusinessIndexNodeReader + Send + Sync>,
+        capture_material: PublicationMaterialCaptureV1,
     ) -> Result<Self, String> {
         let lineage = if let Some(permission) = permission {
             if permission.external_anchor().checkpoint() != trusted.checkpoint() {
@@ -155,6 +158,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 pending,
                 recovery: permission.map(|context| context.recovery().clone()),
             }),
+            capture_material,
         )?
         .with_business_reader(reader)
     }

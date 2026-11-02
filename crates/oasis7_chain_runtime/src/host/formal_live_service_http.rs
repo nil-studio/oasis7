@@ -92,6 +92,42 @@ pub(super) fn plain_error(message: &str) -> Vec<u8> {
     .unwrap_or_else(|_| b"{}".to_vec())
 }
 
+enum HttpHeaderBudget {
+    Ordinary,
+    #[cfg(unix)]
+    PaidResource,
+}
+fn header_bound(bytes: &[u8], budget: &HttpHeaderBudget) -> usize {
+    #[cfg(not(unix))]
+    {
+        let _ = (bytes, budget);
+        MAX_HTTP_HEADER
+    }
+    #[cfg(unix)]
+    {
+        if matches!(budget, HttpHeaderBudget::Ordinary) {
+            return MAX_HTTP_HEADER;
+        }
+        let Some(end) = bytes.windows(2).position(|v| v == b"\r\n") else {
+            return MAX_HTTP_HEADER;
+        };
+        let Ok(line) = std::str::from_utf8(&bytes[..end]) else {
+            return MAX_HTTP_HEADER;
+        };
+        let mut fields = line.split_ascii_whitespace();
+        if fields.next() != Some("POST") {
+            return MAX_HTTP_HEADER;
+        }
+        let path = fields.next();
+        if !matches!(fields.next(), Some("HTTP/1.0" | "HTTP/1.1")) || fields.next().is_some() {
+            return MAX_HTTP_HEADER;
+        }
+        match path {
+        Some(oasis7_client_api::world_service::participant_discovery::PARTICIPANT_OWNER_VIEW_PATH | oasis7_client_api::world_service::resource_basis::RESOURCE_GOAL_PATH_V2)=>MAX_HTTP_HEADER+64*1024,
+        _=>MAX_HTTP_HEADER,
+    }
+    }
+}
 pub(super) fn serve_connection(
     service: &FormalLiveService,
     stream: &mut TcpStream,
@@ -106,8 +142,16 @@ pub(super) fn serve_connection(
         .set_write_timeout(Some(HTTP_CONNECTION_TIMEOUT))
         .map_err(|error| error.to_string())?;
     let deadline = std::time::Instant::now() + HTTP_CONNECTION_TIMEOUT;
-    let (method, path, body) = read_http_request(stream, deadline)?;
-    let reply = service.handle(&method, &path, &body);
+    #[cfg(unix)]
+    let budget = if service.resource_world_reads.is_some() {
+        HttpHeaderBudget::PaidResource
+    } else {
+        HttpHeaderBudget::Ordinary
+    };
+    #[cfg(not(unix))]
+    let budget = HttpHeaderBudget::Ordinary;
+    let (method, path, body, headers) = read_http_request_with_headers(stream, deadline, budget)?;
+    let reply = service.handle_with_resource_headers(&method, &path, &body, &headers);
     write_http_reply(stream, reply.status, &reply.body)
 }
 
@@ -115,6 +159,15 @@ pub(crate) fn read_http_request(
     stream: &mut TcpStream,
     deadline: std::time::Instant,
 ) -> Result<(String, String, Vec<u8>), String> {
+    let (method, path, body, _headers) =
+        read_http_request_with_headers(stream, deadline, HttpHeaderBudget::Ordinary)?;
+    Ok((method, path, body))
+}
+fn read_http_request_with_headers(
+    stream: &mut TcpStream,
+    deadline: std::time::Instant,
+    budget: HttpHeaderBudget,
+) -> Result<(String, String, Vec<u8>, String), String> {
     let mut bytes = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
     loop {
@@ -125,12 +178,12 @@ pub(crate) fn read_http_request(
         }
         bytes.extend_from_slice(&chunk[..count]);
         let Some(header_end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") else {
-            if bytes.len() > MAX_HTTP_HEADER {
+            if bytes.len() > header_bound(&bytes, &budget) {
                 return Err("HTTP headers exceed bound".into());
             }
             continue;
         };
-        if header_end > MAX_HTTP_HEADER {
+        if header_end > header_bound(&bytes, &budget) {
             return Err("HTTP headers exceed bound".into());
         }
         let (method, path, content_length) = parse_http_headers(&bytes[..header_end])?;
@@ -155,7 +208,10 @@ pub(crate) fn read_http_request(
                 return Err("HTTP pipelining is unsupported".into());
             }
         }
-        return Ok((method, path, bytes[body_start..total].to_vec()));
+        let headers = std::str::from_utf8(&bytes[..header_end])
+            .map_err(|_| "HTTP headers are not UTF-8")?
+            .to_owned();
+        return Ok((method, path, bytes[body_start..total].to_vec(), headers));
     }
 }
 

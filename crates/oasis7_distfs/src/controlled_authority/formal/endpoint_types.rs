@@ -2,14 +2,8 @@ use super::*;
 use crate::controlled_authority::replicated_protocol::{ClosedRecord, EndpointRole};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FormalCandidateMaterialV1 {
-    pub candidate: SignedCanonicalCandidateV1,
-    pub material: ClosedRecord,
-    pub frozen: Option<FormalFrozenCertificateV1>,
-    pub frozen_material: Option<ClosedRecord>,
-    pub branch: FormalCompletionBranchV1,
-}
+pub use oasis7_formal_protocol::controlled_authority::formal::FormalCandidateMaterialV1;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormalPrepareReceiptBodyV1 {
     pub final_receipt: FormalFinalReceiptBodyV1,

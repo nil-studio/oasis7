@@ -71,3 +71,16 @@ pub mod task_stop_record_control_v2;
 mod task_stop_record_control_v2_tests;
 
 pub mod task_mutation_admission_v2;
+
+pub mod task_mutation_effect_projection_v2;
+
+/// Fixed paid World floor/once; default profile remains uninstalled.
+#[cfg(unix)]
+pub mod resource_world_paid_ledger_v1;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod resource_basis_runtime_adapter_v1;
+#[cfg(unix)]
+pub mod resource_world_http_codec_v1;
+#[cfg(unix)]
+pub mod resource_world_read_service_v1;

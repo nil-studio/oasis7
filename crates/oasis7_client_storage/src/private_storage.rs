@@ -271,6 +271,27 @@ fn encode_record(
 /// Lock a private regular file relative to the held directory. The returned
 /// handle must remain alive through the complete local read-modify-write.
 pub fn lock_record(dir: &Dir, key: &[u8; 32], name: &str) -> Result<(std::fs::File, bool), String> {
+    lock_record_mode(dir, key, name, RecordLockMode::Wait)
+}
+/// Same validated private record lock, with immediate failure on contention.
+/// Callers retain ownership and decide recovery; this does not establish trust.
+pub fn try_lock_record(
+    dir: &Dir,
+    key: &[u8; 32],
+    name: &str,
+) -> Result<(std::fs::File, bool), String> {
+    lock_record_mode(dir, key, name, RecordLockMode::Immediate)
+}
+enum RecordLockMode {
+    Wait,
+    Immediate,
+}
+fn lock_record_mode(
+    dir: &Dir,
+    key: &[u8; 32],
+    name: &str,
+    mode: RecordLockMode,
+) -> Result<(std::fs::File, bool), String> {
     validate_record_name(name)?;
     private_directory(dir)?;
     verify_key(dir, key)?;
@@ -297,7 +318,13 @@ pub fn lock_record(dir: &Dir, key: &[u8; 32], name: &str) -> Result<(std::fs::Fi
     };
     private_file(&file.metadata().map_err(io_error)?)?;
     let file = file.into_std();
-    file.lock().map_err(io_error)?;
+    match mode {
+        RecordLockMode::Wait => file.lock().map_err(io_error)?,
+        RecordLockMode::Immediate => file
+            .try_lock()
+            .map_err(|_| "private record lock unavailable".to_string())?,
+    }
+
     sync(dir)?;
     Ok((file, created))
 }
