@@ -627,6 +627,25 @@ fn result_for_continuation(
 }
 
 impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
+    fn validate_guarded_stop_v2_action_payload(
+        &self,
+        request: &oasis7_client_api::world_service::task_stop_v2::TaskStopSubmitV2,
+    ) -> Result<(), String> {
+        let (world, _anchor) = self.writer.committed_read_cut()?;
+        oasis7::world_service::task_mutation_admission_v2::guarded_stop_in_resident_world(
+            &world, request,
+        )
+    }
+    fn validate_cleanup_v2_action_payload(
+        &self,
+        request: &oasis7_client_api::world_service::task_cleanup_v2::TaskCleanupSubmitV2,
+    ) -> Result<(), String> {
+        let (world, _anchor) = self.writer.committed_read_cut()?;
+        oasis7::world_service::task_mutation_admission_v2::cleanup_in_resident_world(
+            &world, request,
+        )
+    }
+
     fn validate_governance_action_payload(&self, payload_cbor: &[u8]) -> Result<(), String> {
         let (world, _) = self.writer.committed_read_cut()?;
         super::governance_authorization::validate_payload(&world, payload_cbor)

@@ -595,3 +595,12 @@ pub mod resource_basis;
 
 pub mod task_cleanup_v2;
 pub mod task_context_projection;
+
+pub mod task_stop_v2;
+
+pub mod task_stop_record_control_v2;
+
+pub mod task_mutation_admission_v2;
+
+/// Explicit opt-in reply wire only; no Node producer is installed.
+pub mod task_mutation_qualified_v2;
