@@ -671,3 +671,20 @@ impl AccountProvisionApprovalState {
 #[path = "test_session_execution_native_gate_v2.rs"]
 mod gate;
 pub use gate::*;
+
+impl AccountProvisionApprovalState {
+    pub(in crate::provisioning) fn read_prepared_public_history_v2(
+        &self,
+        id: &str,
+        native: &NativeStageScope<'_>,
+    ) -> Result<Option<ExecutionPreparedPublicResultV2>> {
+        self.test_session_v2_execution_public_native_history(id, native)?;
+        let s = self.test_session_v2_record(id)?;
+        s.execution_book
+            .as_ref()
+            .and_then(|b| b.native_prepare_record())
+            .and_then(|r| r.public_original_cbor_hex.as_deref())
+            .map(decode_public_result)
+            .transpose()
+    }
+}
