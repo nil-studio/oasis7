@@ -1,7 +1,7 @@
 //! Fresh authenticated external ingress differs from same-ingress SQL idempotence.
 use super::*;
 #[test]
-fn session_v2_pending_start_authenticated_consumed_nonce_replay_pays_only_new_first_five() {
+fn session_v2_pending_start_authenticated_pending_master_replay_pays_only_new_first_five() {
     let mut f = ready();
     let (body, pop, http) = action_with_http(&mut f, "paid-replay-action", 13000);
     let first = || SessionProofRequest {
@@ -32,8 +32,20 @@ fn session_v2_pending_start_authenticated_consumed_nonce_replay_pays_only_new_fi
     let restored: AccountProvisionApprovalState =
         serde_json::from_value(before_json.clone()).unwrap();
     assert_eq!(restored, before);
-    // Rebuild and strictly verify the actual original H HTTP bytes after nonce
-    // consumption. Root/token/generation/URI/pins/time remain valid; no fake receipt.
+    let original_nonce = before_json["test_sessions_v2"][&f.session_id]
+        .get("challenges")
+        .expect("real challenge inventory")
+        .get("metadata-paid-replay-action")
+        .expect("actual action helper issued metadata challenge");
+    assert!(
+        original_nonce
+            .get("consumed_by")
+            .expect("required consumed_by field")
+            .is_null(),
+        "pending is not Book birth and has not consumed the action nonce"
+    );
+    // Reverify the actual original H HTTP bytes after pending master reservation.
+    // This tests pending conflict, not a consumed action nonce. All bindings remain valid.
     let prepared = f
         .state
         .prepare_test_session_v2_action_http(
@@ -58,7 +70,7 @@ fn session_v2_pending_start_authenticated_consumed_nonce_replay_pays_only_new_fi
         .charge_test_session_v2_execution_pending_ingress(next(), UnixMillis::new(13004));
     assert!(
         fee.is_ok(),
-        "valid external new ingress must commit its first five despite already consumed nonce"
+        "valid external new ingress commits its first five before pending master conflict"
     );
     assert_eq!(remaining(&f), budget - 5);
     let paid = f.state.clone();
@@ -72,7 +84,7 @@ fn session_v2_pending_start_authenticated_consumed_nonce_replay_pays_only_new_fi
                 &mut StrictCrypto
             )
             .is_err(),
-        "consumed nonce cannot create a second master or opaque"
+        "existing pending master cannot create a second master or opaque"
     );
     assert_eq!(
         f.state, paid,
