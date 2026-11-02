@@ -21,6 +21,8 @@ pub enum AccountMachinePurposeV2 {
     OwnerSetupResourceFinalV2,
     ExecutionPendingSourceInspectDispatchV2,
     ExecutionPendingSourceNativeLeafV2,
+    ReadFenceDispatchV3,
+    ReadFenceReadV3,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

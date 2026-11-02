@@ -131,6 +131,7 @@ impl AccountProvisionApprovalState {
                     !s.execution_book
                         .as_ref()
                         .is_some_and(|book| book.consumed_nonce_is_exact(request, key))
+                        && !super::super::v2_read_current::read_current_nonce_consumed_v3(s, c)
                         && !super::super::v2_read_history::read_nonce_consumed_exact(
                             s, request, key,
                         )
