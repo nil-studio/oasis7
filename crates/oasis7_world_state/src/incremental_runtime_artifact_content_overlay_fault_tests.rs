@@ -16,7 +16,8 @@ impl ValueNodeWriter for FailPut {
 fn getter_and_noop_final_poll_and_actual_put_poison_successful_prefix() {
     let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
     let (pages, roots) = seed(&memory);
-    for (getter, write_channel) in [(false, false), (false, true), (true, false)] {
+    let mut getter_polls = None;
+    for (getter, write_channel) in [(true, false), (false, false), (false, true)] {
         let mut final_poll = 0;
         for cancel_final in [false, true] {
             let parent = ExecutionParent {
@@ -134,7 +135,16 @@ fn getter_and_noop_final_poll_and_actual_put_poison_successful_prefix() {
                 ));
             } else {
                 assert!(!result.unwrap());
-                final_poll = polls.get();
+                if getter {
+                    getter_polls = Some(polls.get());
+                } else {
+                    assert_eq!(
+                        polls.get(),
+                        getter_polls.unwrap(),
+                        "NoOp must retain the independent getter completion poll"
+                    );
+                }
+                final_poll = getter_polls.unwrap();
                 assert!(final_poll > 1);
                 let guard = tx.guard();
                 assert_eq!(tx.seal(&guard, &live, 1).unwrap().record.writes.len(), 1);
