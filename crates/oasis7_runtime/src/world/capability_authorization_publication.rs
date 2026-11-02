@@ -274,6 +274,9 @@ impl World {
             CapabilityAuthorizationEvent::TaskTerminalRecordedV2 { record } => {
                 super::task_terminal_v2::project(self, capability_revocation_state, record)
             }
+            CapabilityAuthorizationEvent::TaskStoppedV2 { record } => {
+                super::task_stop_v2::project(self, capability_revocation_state, record)
+            }
             CapabilityAuthorizationEvent::WorldServiceIntentRecorded { key, record } => {
                 crate::service_admission::correlation::validate_result(key, record)
                     .map_err(|reason| super::capability_authorization::deny(&reason))?;
@@ -306,7 +309,9 @@ impl World {
             }
             CapabilityAuthorizationEvent::AuthorityInstalledWithProof { record, proof } => {
                 if self.devlocal_participant_authority.is_some() {
-                    return Err(super::capability_authorization::deny("finality authority conflicts with explicit DevLocal participant authority"));
+                    return Err(super::capability_authorization::deny(
+                        "finality authority conflicts with explicit DevLocal participant authority",
+                    ));
                 }
 
                 super::capability_authorization::validate_authority_record(record)?;
