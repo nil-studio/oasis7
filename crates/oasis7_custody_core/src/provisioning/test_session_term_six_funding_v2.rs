@@ -65,6 +65,8 @@ pub struct TermSixFundingRecordV2 {
     header: Header,
     reserved_ordinal: u64,
     claims: BTreeMap<TermObservationPortV2, Claim>,
+    #[serde(deserialize_with = "required_native_paid")]
+    native_paid: Option<native_paid::TermNativePaidRecordV2>,
 }
 /// Only first reservation returns this. History cannot reconstruct a caller.
 pub struct PreparedTermSixFundingV2 {
@@ -297,6 +299,16 @@ impl TermSixFundingRecordV2 {
         }
         Ok(())
     }
+    pub(in crate::provisioning) fn has_native_paid(&self) -> bool {
+        self.native_paid.is_some()
+    }
+    pub(in crate::provisioning) fn replay_native_paid(
+        &self,
+        at: UnixMillis,
+        ordinal: u64,
+    ) -> Result<()> {
+        native_paid::replay_record(self, at, ordinal)
+    }
     pub(in crate::provisioning) fn claim_count(&self) -> usize {
         self.claims.len()
     }
@@ -304,7 +316,7 @@ impl TermSixFundingRecordV2 {
         self.header.ids().any(|v| v == id)
     }
     pub(in crate::provisioning) fn event_count(&self) -> usize {
-        1 + self.claims.len()
+        1 + self.claims.len() + usize::from(self.native_paid.is_some())
     }
     pub(in crate::provisioning) fn paid_indices(&self) -> impl Iterator<Item = u64> + '_ {
         self.header.ports.iter().map(|p| u64::from(p.paid_index))
@@ -364,6 +376,7 @@ impl TermSixFundingRecordV2 {
             }
             last = c.ordinal;
         }
+        native_paid::validate_record(s, self)?;
         Ok(())
     }
 }
@@ -410,6 +423,7 @@ impl AccountProvisionApprovalState {
             header: header.clone(),
             reserved_ordinal: ordinal,
             claims: BTreeMap::new(),
+            native_paid: None,
         };
         let mut next = self.clone();
         let s = next.test_session_v2_record_mut(id)?;
@@ -546,3 +560,12 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+fn required_native_paid<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> core::result::Result<Option<native_paid::TermNativePaidRecordV2>, D::Error> {
+    Option::deserialize(d)
+}
+#[path = "test_session_term_native_paid_v2.rs"]
+mod native_paid;
+pub use native_paid::{PreparedTermNativePaidV2, TermNativeDispatchV2};

@@ -80,6 +80,7 @@ pub(super) struct Replay<'a> {
     closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
     term_six_reserved: BTreeSet<String>,
     term_six_claims: BTreeSet<String>,
+    term_six_native_paid: BTreeSet<String>,
 }
 impl<'a> Replay<'a> {
     fn new(s: &'a TestSessionAuthorityV2) -> Result<Self> {
@@ -157,6 +158,7 @@ impl<'a> Replay<'a> {
             closing: None,
             term_six_reserved: BTreeSet::new(),
             term_six_claims: BTreeSet::new(),
+            term_six_native_paid: BTreeSet::new(),
         })
     }
     fn unique(set: &mut BTreeSet<String>, id: &str) -> Result<()> {
@@ -457,7 +459,13 @@ impl<'a> Replay<'a> {
         {
             return Err(invalid());
         }
-        if self.term_six_reserved.len() != s.termination_state.term_six_funding.len()
+        if self.term_six_native_paid.len()
+            != s.termination_state
+                .term_six_funding
+                .iter()
+                .filter(|r| r.has_native_paid())
+                .count()
+            || self.term_six_reserved.len() != s.termination_state.term_six_funding.len()
             || self.term_six_claims.len()
                 != s.termination_state
                     .term_six_funding
