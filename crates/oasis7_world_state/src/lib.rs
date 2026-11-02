@@ -306,3 +306,8 @@ pub mod incremental_runtime_controls;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_artifact_content;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod task_stop_v2;
+#[cfg(not(target_arch = "wasm32"))]
+pub use task_stop_v2::{TaskStopIndexV2, TaskStopRecordV2};
