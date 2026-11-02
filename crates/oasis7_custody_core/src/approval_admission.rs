@@ -551,6 +551,15 @@ fn validate_input(
                 .request
                 .intent_digest()
                 .map_err(|_| ApprovalAdmissionError::Invalid)?
+        || input
+            .request
+            .validate_native_summary_contract(
+                p.model_budget_summary_contract.as_ref(),
+                &s.manager_account_id,
+                context.native_key_pins.get(&p.key_id).map(String::as_str),
+                now,
+            )
+            .is_err()
         || p.manager_account_id != s.manager_account_id
         || p.manager_session_ref != s.manager_session_ref
         || p.origin_credential_id != s.origin_credential_id
@@ -750,3 +759,22 @@ pub(crate) use http_pop_checks::http_pop_signature_checks;
 #[path = "context_body_signature_checks.rs"]
 mod context_body_signature_checks;
 pub(crate) use context_body_signature_checks::*;
+
+#[path = "context_body_signature_checks_v2.rs"]
+mod context_body_signature_checks_v2;
+pub use context_body_signature_checks_v2::*;
+
+impl ApprovalAdmissionInput {
+    /// Exact full approved V2 input, including its actual Native proof.
+    pub fn approved_test_session_v2_digest(&self) -> std::result::Result<String, String> {
+        if !matches!(self.request.intent, CustodyIntentV1::TestSessionV2 { .. }) {
+            return Err("not a TestSession V2 approval".into());
+        }
+        oasis7_wasm_abi::encode_canonical_cbor(&(
+            "oasis7.custody.test-session-approved-input.v2",
+            self,
+        ))
+        .map(|bytes| crate::approval::bytes_digest(&bytes))
+        .map_err(|_| "invalid TestSession V2 approval encoding".into())
+    }
+}

@@ -16,6 +16,12 @@ const ROLE: Role = Role::RecoveryFence;
 async fn main(request: Request, _env: Env, _ctx: Context) -> Result<Response> {
     let url = request.url()?;
     #[cfg(feature = "identity")]
+    if url.path()
+        == oasis7_custody_core::execution_dispatch_gate_v2::NATIVE_EXECUTION_REENTRY_PATH_V2
+    {
+        return crate::identity_execution_native_callback_v2::handle(&_env, request).await;
+    }
+    #[cfg(feature = "identity")]
     if crate::test_session_client_route::parse(url.path()).is_some() {
         return crate::test_session_client_entrypoints::handle(&_env, request).await;
     }

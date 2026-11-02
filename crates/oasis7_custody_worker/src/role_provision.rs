@@ -239,6 +239,64 @@ impl DurableObject for RoleKeyVault {
         let url = request.url()?;
         #[cfg(feature = "owner")]
         if request.method() == Method::Post
+            && url.path()
+                == oasis7_custody_core::term_guarded_signer_v2::TERM_GUARDED_STOP_SIGNER_PATH_V2
+            && url.scheme() == "https"
+            && url.host_str() == Some("role-key.internal")
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && request.headers().get("Content-Type")?.as_deref() == Some("application/json")
+        {
+            let raw = Zeroizing::new(text(
+                bounded_body(request.inner().as_ref(), MAX_BYTES as u32)
+                    .await
+                    .map_err(|_| denied())?,
+                MAX_BYTES,
+            )?);
+            return match crate::term_guarded_signer_runtime_v2::receive(
+                self.state.clone(),
+                &self.env,
+                &raw,
+            )
+            .await
+            {
+                Ok(response) => Ok(response),
+                Err(_) => Response::error("Term Guarded signer rejected", 409),
+            };
+        }
+        #[cfg(feature = "executor")]
+        if request.method() == Method::Post
+            && matches!(
+                url.path(),
+                "/internal/role-key/execution-prepare-v2"
+                    | "/internal/role-key/execution-prepare-initialize-v2"
+            )
+            && url.scheme() == "https"
+            && url.host_str() == Some("role-key.internal")
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && request.headers().get("Content-Type")?.as_deref() == Some("application/json")
+        {
+            let raw = Zeroizing::new(text(
+                bounded_body(request.inner().as_ref(), MAX_BYTES as u32)
+                    .await
+                    .map_err(|_| denied())?,
+                MAX_BYTES,
+            )?);
+            return match crate::execution_prepare_rpc_v2::receive(
+                self.state.clone(),
+                &self.env,
+                &raw,
+                url.path(),
+            )
+            .await
+            {
+                Ok(value) => Response::ok(value),
+                Err(_) => Response::error("execution Prepare rejected", 409),
+            };
+        }
+        #[cfg(feature = "owner")]
+        if request.method() == Method::Post
             && matches!(
                 url.path(),
                 "/internal/participant-sign"
@@ -370,6 +428,27 @@ impl RoleKeyVault {
             *observations.borrow_mut() = updated;
             Ok(())
         };
+        #[cfg(feature = "owner")]
+        let public = if let Some(profile) =
+            crate::term_guarded_signer_runtime_v2::installation(&self.env)?
+        {
+            RoleKeyStore::new(self.state.clone())
+                .ensure_with_refresh_and_term_profile(
+                    expected.scope.clone(),
+                    (version, &kek),
+                    current,
+                    refresh,
+                    profile,
+                )
+                .await
+                .map_err(|_| denied())?
+        } else {
+            RoleKeyStore::new(self.state.clone())
+                .ensure_with_refresh(expected.scope.clone(), version, &kek, current, refresh)
+                .await
+                .map_err(|_| denied())?
+        };
+        #[cfg(not(feature = "owner"))]
         let public = RoleKeyStore::new(self.state.clone())
             .ensure_with_refresh(expected.scope.clone(), version, &kek, current, refresh)
             .await

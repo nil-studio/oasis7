@@ -20,11 +20,15 @@ pub(crate) enum NativePrivateRoute {
     SessionStatus,
     SessionLifetime,
     ParticipantPolicyOriginal,
+    TestSessionV2PolicyOriginal,
+    TestSessionV2Authorize,
     ParticipantAuthorize,
     ParticipantSubmit,
     ParticipantLookup,
     ParticipantOwnerView,
+    ParticipantReadAndRegisterTestSessionV2,
     OwnerControl,
+    ExecutionPrepareFundedV2,
 }
 impl NativePrivateRoute {
     fn path(self) -> &'static str {
@@ -39,23 +43,33 @@ impl NativePrivateRoute {
             Self::BindingComplete => "/custody/managed-bindings/complete",
             Self::SessionStatus => "/custody/managed-bindings/session-status",
             Self::SessionLifetime => "/custody/managed-bindings/session-lifetime",
+            Self::TestSessionV2PolicyOriginal => "/participant/test-session-v2/policy-original",
+            Self::TestSessionV2Authorize => "/participant/test-session-v2/authorize",
             Self::ParticipantPolicyOriginal => "/participant/policy-original",
             Self::ParticipantAuthorize => "/participant/authorize",
             Self::ParticipantSubmit => "/participant/submit",
             Self::ParticipantLookup => "/participant/lookup",
             Self::ParticipantOwnerView => "/participant/owner-view",
+            Self::ParticipantReadAndRegisterTestSessionV2 => {
+                "/entry/read-and-register-test-session-v2"
+            }
             Self::OwnerControl => "/entry-owner/control",
+            Self::ExecutionPrepareFundedV2 => "/entry-executor/prepare-funded-v2",
         }
     }
     fn participant(self) -> bool {
         matches!(
             self,
-            Self::ParticipantPolicyOriginal
+            Self::TestSessionV2PolicyOriginal
+                | Self::TestSessionV2Authorize
+                | Self::ParticipantPolicyOriginal
                 | Self::ParticipantAuthorize
                 | Self::ParticipantSubmit
                 | Self::ParticipantLookup
                 | Self::ParticipantOwnerView
+                | Self::ParticipantReadAndRegisterTestSessionV2
                 | Self::OwnerControl
+                | Self::ExecutionPrepareFundedV2
         )
     }
 }
@@ -100,6 +114,10 @@ pub(crate) struct NativePrivateReply<T> {
 }
 pub(crate) struct NativeProvisionTransport {
     config: NativeIdentityConfig,
+}
+enum FixedNativeAuthorization<'a> {
+    Execution(&'a oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2),
+    Resource(&'a oasis7_custody_core::provisioning::OwnerSetupResourceFinalHttpV2),
 }
 impl NativeProvisionTransport {
     pub(crate) fn from_env(env: &Env) -> Result<Self> {
@@ -149,15 +167,76 @@ impl NativeProvisionTransport {
         cookie: Option<&PrivateCookie>,
         original_csrf: Option<&str>,
     ) -> Result<NativePrivateReply<T>> {
+        self.request_inner(route, original_body, cookie, original_csrf, None)
+            .await
+    }
+    pub(crate) async fn request_gated_execution_prepare<T: DeserializeOwned>(
+        &self,
+        original_body: &str,
+        cookie: &PrivateCookie,
+        original_csrf: &str,
+        authorization: &oasis7_custody_core::execution_dispatch_gate_v2::SignedExecutionDispatchClaimV2,
+    ) -> Result<NativePrivateReply<T>> {
+        self.request_inner(
+            NativePrivateRoute::ExecutionPrepareFundedV2,
+            original_body,
+            Some(cookie),
+            Some(original_csrf),
+            Some(FixedNativeAuthorization::Execution(authorization)),
+        )
+        .await
+    }
+    /// Exact Account-prepaid Resource body and fixed proof header. Cookie and
+    /// CSRF stay in Identity; the receiver still verifies issuer/floor/Current.
+    pub(crate) async fn request_owner_resource_final_v2<T: DeserializeOwned>(
+        &self,
+        frame: &oasis7_custody_core::provisioning::OwnerSetupResourceFinalHttpV2,
+        cookie: &PrivateCookie,
+        original_csrf: &str,
+    ) -> Result<NativePrivateReply<T>> {
+        frame.validate_bindings().map_err(|_| rejected())?;
+        checked(frame.paid().payload.native_audience_origin == self.config.origin)?;
+        let raw = Zeroizing::new(
+            String::from_utf8(frame.body_bytes().map_err(|_| rejected())?)
+                .map_err(|_| rejected())?,
+        );
+        self.request_inner(
+            NativePrivateRoute::OwnerControl,
+            &raw,
+            Some(cookie),
+            Some(original_csrf),
+            Some(FixedNativeAuthorization::Resource(frame)),
+        )
+        .await
+    }
+    async fn request_inner<T: DeserializeOwned>(
+        &self,
+        route: NativePrivateRoute,
+        original_body: &str,
+        cookie: Option<&PrivateCookie>,
+        original_csrf: Option<&str>,
+        authorization: Option<FixedNativeAuthorization<'_>>,
+    ) -> Result<NativePrivateReply<T>> {
         // The fixed owner gateway already bounds complete private goal requests
         // at 64 KiB. Other native protocols retain their existing smaller cap.
         checked(
             original_body.len()
-                <= if route == NativePrivateRoute::OwnerControl {
+                <= if matches!(
+                    route,
+                    NativePrivateRoute::TestSessionV2PolicyOriginal
+                        | NativePrivateRoute::TestSessionV2Authorize
+                        | NativePrivateRoute::OwnerControl
+                        | NativePrivateRoute::ExecutionPrepareFundedV2
+                        | NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2
+                ) {
                     65_536
                 } else {
                     MAX_REQUEST
                 },
+        )?;
+        checked(
+            (route == NativePrivateRoute::ExecutionPrepareFundedV2)
+                == matches!(&authorization, Some(FixedNativeAuthorization::Execution(_))),
         )?;
         let get = route == NativePrivateRoute::Capabilities;
         checked(if get {
@@ -175,6 +254,34 @@ impl NativeProvisionTransport {
             checked(cookie.is_some_and(|v| v.kind == PrivateCookieKind::Preauth))?;
         }
         let headers = Headers::new();
+        if let Some(FixedNativeAuthorization::Execution(receipt)) = &authorization {
+            use base64::Engine;
+            let q:oasis7_custody_core::native_execution_prepare_v2::NativeExecutionPrepareRequestV2=
+                serde_json::from_str(original_body).map_err(|_| rejected())?;
+            receipt
+                .claim
+                .validate_relative(&q)
+                .map_err(|_| rejected())?;
+            checked(receipt.claim.leaf.edge==oasis7_custody_core::native_execution_prepare_v2::ExecutionPreparePhysicalEdgeV2::IdentityActorToNative
+                && receipt.claim.body_digest==oasis7_custody_core::approval::bytes_digest(original_body.as_bytes()))?;
+            let raw = serde_json::to_vec(receipt).map_err(|_| rejected())?;
+            checked(raw.len() <= 16384)?;
+            headers.set(
+                "Oasis7-Custody-Execution-Dispatch",
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw),
+            )?;
+        }
+        if let Some(FixedNativeAuthorization::Resource(frame)) = &authorization {
+            checked(route == NativePrivateRoute::OwnerControl)?;
+            frame.validate_bindings().map_err(|_| rejected())?;
+            checked(
+                frame.body_bytes().map_err(|_| rejected())?.as_slice() == original_body.as_bytes(),
+            )?;
+            headers.set(
+                oasis7_custody_core::provisioning::RESOURCE_READ_PROOF_HEADER,
+                &frame.proof_header().map_err(|_| rejected())?,
+            )?;
+        }
         if let Some(cookie) = cookie {
             let header = Zeroizing::new(format!("{}={}", cookie.kind.name(), cookie.token()));
             headers.set("Cookie", &header)?;
@@ -239,7 +346,16 @@ impl NativeProvisionTransport {
             }
             raw.zeroize();
         }
-        let body = super::read_native_body(response).await?;
+        let body = if matches!(&authorization, Some(FixedNativeAuthorization::Resource(_))) {
+            super::read_native_body_limited(response, 65_536).await?
+        } else if route == NativePrivateRoute::ExecutionPrepareFundedV2 {
+            super::read_native_body_limited(response,
+                oasis7_custody_core::native_execution_prepare_v2::MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2).await?
+        } else if route == NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2 {
+            super::read_native_body_limited(response, 65_536).await?
+        } else {
+            super::read_native_body(response).await?
+        };
         Ok(NativePrivateReply {
             http_status,
             body,

@@ -32,6 +32,8 @@ mod public_payload;
 
 const MAX_HTTP_REQUEST_BYTES: usize = 64 * 1024;
 const HOSTED_TEST_LOGIN_ENABLED_ENV: &str = "OASIS7_HOSTED_TEST_LOGIN_ENABLED";
+#[path = "static_http_identity_cleanup_v2.rs"]
+mod identity_cleanup_v2;
 #[cfg(test)]
 #[path = "identity_request_security_tests.rs"]
 mod identity_request_security_tests;
@@ -180,6 +182,16 @@ pub(super) fn handle_http_connection(
             request,
             request_body,
         );
+        write_identity_response(&mut stream, &reply)?;
+        return Ok(());
+    }
+    if let Some(reply) = identity_cleanup_v2::handle(
+        runtime_config,
+        method,
+        target,
+        request,
+        request_body.as_bytes(),
+    ) {
         write_identity_response(&mut stream, &reply)?;
         return Ok(());
     }
@@ -1172,3 +1184,9 @@ pub(super) fn resolve_viewer_auth_bootstrap_for_embedded_server(
 pub(super) fn parse_model_json(body: &[u8]) -> Result<serde_json::Value, String> {
     identity_security::parse_identity_json(body)
 }
+
+#[cfg(test)]
+#[path = "static_http_cleanup_tcp_test.rs"]
+mod cleanup_tcp_test;
+#[cfg(test)]
+pub(crate) use cleanup_tcp_test::{cleanup_dispatch_for_test, cleanup_dispatch_with_root_for_test};

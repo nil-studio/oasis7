@@ -22,10 +22,44 @@ impl core::fmt::Debug for PreparedResourceBasisV1 {
     }
 }
 impl PreparedResourceBasisV1 {
+    /// Internal producer only. The Account caller must first replay all actual
+    /// V2 phase originals and accept the dedicated paid final outbox. This method
+    /// validates complete historical evidence; it grants no current permission.
+    pub(in crate::provisioning) fn from_accepted_final_v2(
+        plan: &OwnerSetupPlanV2,
+        final_read_original: wire::SignedResourceReadV1<wire::OwnerSetupFinalResourceReadV2>,
+        final_observation: wire::SignedResourceResponseV1<
+            wire::OwnerSetupFinalResourceObservationV2,
+        >,
+    ) -> Result<Self, String> {
+        let wire::ResourceBasisResolutionV1::Ready { fact } = &final_observation.payload.resource
+        else {
+            return Err(invalid());
+        };
+        let value = Self {
+            api_version: 1,
+            setup_id: plan.setup_id.clone(),
+            provision_id: plan.provision_id.clone(),
+            owner_setup_plan_digest: plan.digest()?,
+            final_observation_digest: digest(
+                "oasis7.custody.final-resource-observation.v1",
+                &final_observation,
+            )?,
+            selection: plan.selection.resource().ok_or_else(invalid)?.clone(),
+            as_of_commit: final_observation.payload.owner.read_commit.clone(),
+            as_of_tick: final_observation.payload.owner.logical_tick,
+            derived_resource_refs: fact.derived_resource_refs.clone(),
+            final_read_original,
+            final_observation,
+        };
+        value.validate_provenance(plan)?;
+        Ok(value)
+    }
     /// Strong proof/provenance checks, never current permission, phase acceptance
     /// or an approval grant. Caller must separately replay the actual four writes.
     pub fn validate_provenance(&self, plan: &OwnerSetupPlanV2) -> Result<(), String> {
         plan.validate()?;
+        let resource = plan.selection.resource().ok_or_else(invalid)?;
         let q = &self.final_read_original.request;
         let p = &self.final_observation.payload;
         let original = p.current_goal.active_goal.as_ref().ok_or_else(invalid)?;
@@ -36,7 +70,7 @@ impl PreparedResourceBasisV1 {
             || q.plan_digest != plan.digest()?
             || q.setup_id != self.setup_id
             || q.provision_id != self.provision_id
-            || self.selection != plan.selection
+            || &self.selection != resource
             || q.selection != self.selection
             || p.selection != self.selection
             || q.world.world_id != plan.world_identity.world_id

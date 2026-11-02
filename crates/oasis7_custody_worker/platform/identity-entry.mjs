@@ -31,8 +31,10 @@ export class IdentityClientEnrollments extends WorkerEntrypoint {
 }
 
 export class TestSessionPrivateHistory extends WorkerEntrypoint {
+  async attestExecutionV2(raw) { return new RustWorker(this.ctx,this.env).identity_attest_execution_private_current_v2(this.env,raw); }
   async attest(raw) { return new RustWorker(this.ctx,this.env).identity_attest_test_session(this.env,raw); }
 }
 export class IdentityTestSessions extends WorkerEntrypoint {
+  async prepareExecutionV2(raw) { return new RustWorker(this.ctx,this.env).identity_execution_prepare_native_v2(this.env,raw); }
   async preflight(raw) { return new RustWorker(this.ctx,this.env).identity_preflight_test_session(this.env,raw); }
 }

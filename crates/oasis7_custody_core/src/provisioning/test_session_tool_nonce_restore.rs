@@ -4,6 +4,14 @@ impl AccountProvisionApprovalState {
         &self,
         s: &TestSessionAuthorityV1,
     ) -> Result<()> {
+        if s.purpose_http_admissions.values().any(|p| {
+            matches!(
+                p.class,
+                SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+            )
+        }) {
+            return Err(invalid());
+        }
         if s.tool_nonce_ingresses.is_empty()
             && s.tool_nonce_links.is_empty()
             && !s

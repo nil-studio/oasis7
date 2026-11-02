@@ -37,6 +37,12 @@ mod setup_reconcile_signing;
 #[cfg(feature = "owner")]
 pub(crate) use setup_reconcile_signing::{SetupReconcileSigningCurrent, reconcile_permit_digest};
 
+#[cfg(feature = "owner")]
+#[path = "role_key_term_guarded_signer_v2.rs"]
+mod term_guarded_signer_v2;
+#[cfg(feature = "owner")]
+pub(crate) use term_guarded_signer_v2::TermGuardedSignerConfigurationV2;
+
 #[cfg(feature = "identity")]
 const COMPILED_ROLE: Role = Role::Identity;
 #[cfg(feature = "owner")]
@@ -125,17 +131,33 @@ fn encode(saved: &Snapshot) -> Result<String> {
 }
 fn inventory(raw: &str) -> Result<()> {
     let inventory: Inventory = serde_json::from_str(raw).map_err(|_| rejected())?;
+    inventory_value(&inventory)
+}
+fn inventory_value(inventory: &Inventory) -> Result<()> {
     if inventory.records.len() != 1
         || inventory.records[0].id != KEY
         || inventory.records[0].payload.len() > MAX_BYTES
         || inventory.table_names.iter().any(|name| {
-            !matches!(
+            !(matches!(
                 name.as_str(),
                 "table:custody_records"
                     | "table:custody_audit"
                     | "table:sqlite_sequence"
                     | "table:_cf_METADATA"
-            )
+            ) || (COMPILED_ROLE == Role::Executor
+                && matches!(
+                    name.as_str(),
+                    "table:custody_execution_signer_state_v2"
+                        | "table:custody_execution_signer_once_v2"
+                        | "table:custody_execution_signer_originals_v2"
+                        | "table:custody_execution_signer_initializations_v2"
+                ))
+                || (COMPILED_ROLE == Role::Owner
+                    && matches!(
+                        name.as_str(),
+                        "table:custody_term_guarded_signer_state_v2"
+                            | "table:custody_term_guarded_signer_once_v2"
+                    )))
         })
     {
         return Err(rejected());
@@ -170,6 +192,14 @@ fn random_seed() -> Result<Zeroizing<[u8; 32]>> {
 extern "C" {
     #[wasm_bindgen(catch, js_name = readTextRecord)]
     fn read(state: &JsValue, key: &str) -> Result<String>;
+    #[cfg(feature = "owner")]
+    #[wasm_bindgen(catch, js_name = ownerTermRoleSlotTransitionV2)]
+    fn update_owner_term(
+        state: &JsValue,
+        key: &str,
+        initial: &str,
+        transition: &js_sys::Function,
+    ) -> Result<String>;
     #[wasm_bindgen(catch, js_name = accountTransition)]
     fn update(
         state: &JsValue,
@@ -183,6 +213,8 @@ pub struct RoleKeyStore {
     state: JsValue,
 }
 struct RefreshPolicy<R> {
+    #[cfg(feature = "owner")]
+    term_profile: Option<TermGuardedSignerConfigurationV2>,
     refresh: R,
     attempts: usize,
 }
@@ -224,6 +256,8 @@ impl RoleKeyStore {
             current,
             clock,
             RefreshPolicy {
+                #[cfg(feature = "owner")]
+                term_profile: None,
                 refresh: || async { Ok(()) },
                 attempts: 3,
             },
@@ -253,8 +287,38 @@ impl RoleKeyStore {
             current,
             now,
             RefreshPolicy {
+                #[cfg(feature = "owner")]
+                term_profile: None,
                 refresh,
                 attempts: 1,
+            },
+        )
+        .await
+    }
+    #[cfg(feature = "owner")]
+    pub(crate) async fn ensure_with_refresh_and_term_profile<F, R, U>(
+        &self,
+        scope: RoleKeySlotScopeV1,
+        key: (DecimalU64, &[u8; 32]),
+        current: F,
+        refresh: R,
+        config: TermGuardedSignerConfigurationV2,
+    ) -> Result<PublicRoleKey>
+    where
+        F: Fn() -> Result<RoleKeyCurrent>,
+        R: Fn() -> U,
+        U: Future<Output = Result<()>>,
+    {
+        self.ensure_with_clock_and_refresh(
+            scope,
+            key.0,
+            key.1,
+            current,
+            now,
+            RefreshPolicy {
+                refresh,
+                attempts: 1,
+                term_profile: Some(config),
             },
         )
         .await
@@ -294,6 +358,10 @@ impl RoleKeyStore {
             };
             let candidate = if let Some(slot) = &observed {
                 slot.validate_for(&scope).map_err(|_| rejected())?;
+                #[cfg(feature = "owner")]
+                if let Some(config) = &policy.term_profile {
+                    term_guarded_signer_v2::check_existing(&self.state, slot, config)?;
+                }
                 if slot.envelope.wrapping_key_version != wrapping_version {
                     return Err(rejected());
                 }
@@ -329,6 +397,18 @@ impl RoleKeyStore {
                 }
                 let saved = decode(&old)?;
                 let result = Array::new();
+                #[cfg(feature = "owner")]
+                let term_initial = if let Some(config) = &policy.term_profile {
+                    if let Some(existing) = &saved.slot {
+                        term_guarded_signer_v2::check_existing(&self.state, existing, config)?;
+                        Some(String::new())
+                    } else {
+                        Some(term_guarded_signer_v2::new_metadata(&candidate, config)?)
+                    }
+                } else {
+                    None
+                };
+
                 if let Some(original) = saved.slot {
                     original.validate_for(&scope).map_err(|_| rejected())?;
                     if observed.as_ref() == Some(&original) {
@@ -362,9 +442,20 @@ impl RoleKeyStore {
                     result.push(&audit.into());
                     returned = Some(candidate.public_ref.clone());
                 }
+                #[cfg(feature = "owner")]
+                if let Some(metadata) = term_initial {
+                    result.push(&metadata.into());
+                }
                 Ok(result)
             };
             let closure = Closure::borrow_mut(&mut callback);
+            #[cfg(feature = "owner")]
+            if policy.term_profile.is_some() {
+                update_owner_term(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
+            } else {
+                update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
+            }
+            #[cfg(not(feature = "owner"))]
             update(&self.state, KEY, &initial, closure.as_ref().unchecked_ref())?;
             drop(closure);
             if let Some(public_ref) = returned {
@@ -521,3 +612,39 @@ impl RoleKeyStore {
 mod test_session_signing;
 #[cfg(feature = "owner")]
 pub(crate) use test_session_signing::{TestSessionSigningCurrent, test_session_signing_digest};
+
+#[cfg(feature = "owner")]
+#[path = "role_key_test_session_v2_signing.rs"]
+mod test_session_v2_signing;
+#[cfg(feature = "owner")]
+pub(crate) use test_session_v2_signing::test_session_v2_signing_digest;
+
+#[cfg(feature = "executor")]
+#[path = "role_key_execution_once_v2.rs"]
+mod execution_once_v2;
+#[cfg(feature = "executor")]
+#[path = "role_key_execution_prepare_v2.rs"]
+mod execution_prepare_v2;
+#[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
+pub(crate) use execution_prepare_v2::{
+    ExecutionPrepareKeyV2, ExecutionPrepareSigningCurrentV2, execution_prepare_sealed_current_v2,
+};
+#[cfg(feature = "executor")]
+#[path = "role_key_execution_configuration_v2.rs"]
+mod execution_configuration_v2;
+#[cfg(feature = "executor")]
+pub(crate) use execution_configuration_v2::ExecutionIssuerConfigurationV2;
+
+#[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
+#[path = "../tests/support/execution_prepare_signer_harness_v2.rs"]
+mod execution_prepare_harness;
+#[cfg(all(feature = "executor", feature = "execution-signer-harness"))]
+pub use execution_prepare_harness::ExecutionPrepareSignerHarness;
+
+#[cfg(feature = "owner")]
+#[path = "role_key_owner_resource_signing_v2.rs"]
+mod owner_resource_signing_v2;
+#[cfg(feature = "owner")]
+pub(crate) use owner_resource_signing_v2::{
+    OwnerResourceSigningCurrentV2, owner_resource_bundle_digest_v2,
+};

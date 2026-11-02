@@ -21,6 +21,27 @@ pub enum SessionPurposeTransportV1 {
     GenericOne(SessionPurposeV1),
     ContextBody(Box<ContextBodyTransportV1>),
     LiveContextRead(Box<LiveContextReadTransportV1>),
+    ExecutionNativeLifetimeV2(Box<ExecutionNativeLifetimeTransportV2>),
+    ExecutionFactoryCallbackV2(Box<ExecutionPrepareFactoryTransportV2>),
+    ExecutionPrepareCurrentV2(Box<ExecutionPrepareCurrentTransportV2>),
+    ExecutionPrepareRkvV2(Box<ExecutionPrepareRkvTransportV2>),
+    ExecutionNativePrepareV2(Box<ExecutionNativePrepareTransportV2>),
+    ExecutionNativeReentryV2(Box<ExecutionNativeReentryTransportV2>),
+    ExecutionPrivateCurrentV2(Box<ExecutionPrivateCurrentTransportV2>),
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionNativeLifetimeTransportKindV2 {
+    ExecutionNativeLifetimeV2,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionNativeLifetimeTransportV2 {
+    pub kind: ExecutionNativeLifetimeTransportKindV2,
+    pub request_id: String,
+    pub source_operation_id: String,
+    pub approved_input_digest: String,
+    pub claimed_at: UnixMillis,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,11 +67,24 @@ impl From<SessionPurposeV1> for SessionPurposeTransportV1 {
     }
 }
 impl SessionPurposeTransportV1 {
+    pub(in crate::provisioning) fn physical_units_v2(&self) -> u64 {
+        match self {
+            Self::ExecutionFactoryCallbackV2(p) => p.kind.units(),
+            _ => 1,
+        }
+    }
     pub fn purpose(&self) -> SessionPurposeV1 {
         match self {
             Self::GenericOne(p) => *p,
             Self::ContextBody(v) => v.purpose,
             Self::LiveContextRead(v) => v.purpose,
+            Self::ExecutionNativeLifetimeV2(_)
+            | Self::ExecutionFactoryCallbackV2(_)
+            | Self::ExecutionPrepareCurrentV2(_)
+            | Self::ExecutionPrepareRkvV2(_)
+            | Self::ExecutionNativeReentryV2(_)
+            | Self::ExecutionNativePrepareV2(_)
+            | Self::ExecutionPrivateCurrentV2(_) => SessionPurposeV1::Execution,
         }
     }
 }

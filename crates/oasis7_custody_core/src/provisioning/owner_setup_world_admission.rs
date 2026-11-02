@@ -8,11 +8,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<()> {
         self.owner_setup_local(id, now)?;
         let mut next = self.clone();
-        let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
-            .ok_or_else(invalid)?;
+        let o = next.owner_setup_engine_outbox_mut(id, stage)?;
         if o.admission_callback_claimed_at.is_some() || o.original.is_none() || o.result.is_some() {
             return Err(invalid());
         }
@@ -41,7 +37,7 @@ impl AccountProvisionApprovalState {
             now,
             current.provision.approval.authority.service_epoch,
         )?;
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let setup = self.owner_setup_engine_record(id)?;
         let checks = append_owner_setup_checks(
             checks,
             OwnerSetupSignatureFact::World(
@@ -69,11 +65,7 @@ impl AccountProvisionApprovalState {
     ) -> Result<OwnerSetupOutboxV1> {
         verifier.verify(&self.owner_setup_admission_checks(id, stage, &evidence, current, now)?)?;
         let mut next = self.clone();
-        let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
-            .ok_or_else(invalid)?;
+        let o = next.owner_setup_engine_outbox_mut(id, stage)?;
         if o.world.is_some() {
             return if o.world.as_ref() == Some(&evidence.world)
                 && o.admission_session.as_ref() == Some(&evidence.session)
@@ -143,8 +135,8 @@ impl AccountProvisionApprovalState {
         now: u64,
         service_epoch: DecimalU64,
     ) -> Result<()> {
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
-        let o = setup.stages.get(&stage).ok_or_else(invalid)?;
+        self.owner_setup_engine_record(id)?;
+        let o = self.owner_setup_engine_outbox(id, stage)?;
         self.validate_owner_setup_access(
             id,
             stage,
@@ -202,7 +194,7 @@ impl AccountProvisionApprovalState {
         now: u64,
         service_epoch: DecimalU64,
     ) -> Result<()> {
-        let setup = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let setup = self.owner_setup_engine_record(id)?;
         let participant = self
             .participant_provisions
             .values()

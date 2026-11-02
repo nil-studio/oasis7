@@ -1,6 +1,7 @@
 //! Routing selectors are signed as part of the actual URI, never authority.
 pub(crate) enum ClientRoute {
     Challenge,
+    ModelReservation { session_id: String },
     Claim { enrollment_id: String },
     Initialize { session_id: String },
     ToolsList { session_id: String },
@@ -54,6 +55,7 @@ pub(crate) fn parse(path: &str) -> Option<ClientTarget> {
         ["test-sessions", id, operation] if identifier(id) => {
             let session_id = (*id).into();
             match *operation {
+                "model-reservations" => ClientRoute::ModelReservation { session_id },
                 "initialize" => ClientRoute::Initialize { session_id },
                 "tools-list" => ClientRoute::ToolsList { session_id },
                 "heartbeat" => ClientRoute::Heartbeat { session_id },

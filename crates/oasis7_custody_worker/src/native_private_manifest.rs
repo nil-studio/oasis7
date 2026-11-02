@@ -420,6 +420,9 @@ impl NativeManifestStore {
                         | "table:custody_audit"
                         | "table:sqlite_sequence"
                         | "table:_cf_METADATA"
+                        | "table:custody_execution_context_mode_v2"
+                        | "table:custody_execution_context_once_v2"
+                        | "table:custody_execution_context_edges_v2"
                 )
             })
         {
@@ -467,6 +470,9 @@ impl NativeManifestStore {
                             | "table:custody_audit"
                             | "table:sqlite_sequence"
                             | "table:_cf_METADATA"
+                            | "table:custody_execution_context_mode_v2"
+                            | "table:custody_execution_context_once_v2"
+                            | "table:custody_execution_context_edges_v2"
                     )
                 })
             {
@@ -954,6 +960,9 @@ impl NativeManifestStore {
                     | "table:custody_audit"
                     | "table:sqlite_sequence"
                     | "table:_cf_METADATA"
+                    | "table:custody_execution_context_mode_v2"
+                    | "table:custody_execution_context_once_v2"
+                    | "table:custody_execution_context_edges_v2"
             )
         }) {
             return Err(rejected());
