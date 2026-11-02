@@ -137,3 +137,11 @@ pub(super) fn handle_close(service: &FormalLiveService, body: &[u8]) -> HttpRepl
         ),
     }
 }
+
+#[cfg(test)]
+pub(super) fn qualified_wait_diagnostic(
+    service: &FormalLiveService,
+    q: &oasis7_client_api::world_service::task_mutation_qualified_v2::TaskMutationWaitSubmitV2,
+) -> Option<&'static str> {
+    qualified::wait_diagnostic(service, q)
+}

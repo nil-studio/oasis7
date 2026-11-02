@@ -74,7 +74,9 @@ pub(super) fn handle(
     // Admission already happened. A later clock/lock/evidence/signing failure
     // retains the original signed ACK instead of claiming it never queued.
     let retained_ack = admission.clone();
-    let reply = wait(
+    #[cfg(test)]
+    diagnostic::begin(service, &q);
+    let waited = wait(
         service,
         &q,
         &raw,
@@ -82,8 +84,12 @@ pub(super) fn handle(
         received,
         started,
         &actual_submitter,
-    )
-    .unwrap_or(TaskMutationSubmitReplyV2::Queued {
+    );
+    #[cfg(test)]
+    if let Err(error) = &waited {
+        diagnostic::failure(service, &q, error);
+    }
+    let reply = waited.unwrap_or(TaskMutationSubmitReplyV2::Queued {
         admission: retained_ack,
         wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
     });
@@ -106,9 +112,16 @@ fn wait(
     );
     let mut inspected = None;
     loop {
-        let now = match checked_now(service) {
+        let sampled = checked_now(service);
+        #[cfg(test)]
+        if let Err(error) = &sampled {
+            diagnostic::failure(service, q, error);
+        }
+        let now = match sampled {
             Ok(now) if now < until && started.elapsed() < HTTP_CONNECTION_TIMEOUT => now,
             _ => {
+                #[cfg(test)]
+                diagnostic::note(service, q, diagnostic::Reason::PollExpired);
                 return Ok(TaskMutationSubmitReplyV2::Queued {
                     admission,
                     wait_outcome: TaskMutationWaitOutcomeV2::Expired,
@@ -116,6 +129,8 @@ fn wait(
             }
         };
         if !ready(service)? {
+            #[cfg(test)]
+            diagnostic::note(service, q, diagnostic::Reason::NotReady);
             return Ok(TaskMutationSubmitReplyV2::Queued {
                 admission,
                 wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
@@ -141,6 +156,8 @@ fn wait(
                 (material, publication, record_id)
             }
             _ => {
+                #[cfg(test)]
+                diagnostic::note(service, q, diagnostic::Reason::MissingMaterial);
                 return Ok(TaskMutationSubmitReplyV2::Queued {
                     admission,
                     wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
@@ -148,6 +165,8 @@ fn wait(
             }
         };
         if observed_record_id != material.after().head().head().record_id {
+            #[cfg(test)]
+            diagnostic::note(service, q, diagnostic::Reason::MaterialHeadMismatch);
             return Ok(TaskMutationSubmitReplyV2::Queued {
                 admission,
                 wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
@@ -172,6 +191,8 @@ fn wait(
                     let committed_at = u64::try_from(context.committed_at_unix_ms)
                         .map_err(|_| "qualified mutation clock invalid")?;
                     if committed_at < admission.payload.admitted_at_ms.0 || committed_at > now {
+                        #[cfg(test)]
+                        diagnostic::note(service, q, diagnostic::Reason::CommitClockMismatch);
                         return Ok(TaskMutationSubmitReplyV2::Queued {
                             admission,
                             wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
@@ -197,6 +218,8 @@ fn wait(
                     };
                     if let Ok((commit, result)) = extracted {
                         if !ready(service)? || !same_current(service, material.after())? {
+                            #[cfg(test)]
+                            diagnostic::note(service, q, diagnostic::Reason::FreshHeadUnavailable);
                             return Ok(TaskMutationSubmitReplyV2::Queued {
                                 admission,
                                 wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
@@ -204,6 +227,8 @@ fn wait(
                         }
                         let delivered = checked_now(service)?;
                         if delivered >= until || started.elapsed() >= HTTP_CONNECTION_TIMEOUT {
+                            #[cfg(test)]
+                            diagnostic::note(service, q, diagnostic::Reason::BeforeSigningExpired);
                             return Ok(TaskMutationSubmitReplyV2::Queued {
                                 admission,
                                 wait_outcome: TaskMutationWaitOutcomeV2::Expired,
@@ -246,6 +271,8 @@ fn wait(
                             else {
                                 unreachable!()
                             };
+                            #[cfg(test)]
+                            diagnostic::note(service, q, diagnostic::Reason::ReplyBound);
                             return Ok(TaskMutationSubmitReplyV2::Queued {
                                 admission,
                                 wait_outcome: TaskMutationWaitOutcomeV2::Unavailable,
@@ -261,6 +288,16 @@ fn wait(
                             else {
                                 unreachable!()
                             };
+                            #[cfg(test)]
+                            diagnostic::note(
+                                service,
+                                q,
+                                if expired {
+                                    diagnostic::Reason::FinalDeliveryExpired
+                                } else {
+                                    diagnostic::Reason::FinalDeliveryUnavailable
+                                },
+                            );
                             return Ok(TaskMutationSubmitReplyV2::Queued {
                                 admission,
                                 wait_outcome: if expired {
@@ -419,4 +456,105 @@ fn same_current(
     Ok(cut
         .as_ref()
         .is_some_and(|cut| cut.anchor.head().head() == expected.head().head()))
+}
+
+#[cfg(test)]
+mod diagnostic {
+    use super::*;
+    #[derive(Clone, Copy)]
+    pub(super) enum Reason {
+        PollExpired,
+        NotReady,
+        MissingMaterial,
+        MaterialHeadMismatch,
+        CommitClockMismatch,
+        FreshHeadUnavailable,
+        BeforeSigningExpired,
+        ReplyBound,
+        FinalDeliveryExpired,
+        FinalDeliveryUnavailable,
+        ClockBusy,
+        RuntimeBusy,
+        PublicationBusy,
+        ResidentBusy,
+        StatusBusy,
+        DeliveryBusy,
+        OtherWaitError,
+    }
+    impl Reason {
+        fn label(self) -> &'static str {
+            match self {
+                Self::PollExpired => "PollExpired",
+                Self::NotReady => "NotReady",
+                Self::MissingMaterial => "MissingMaterial",
+                Self::MaterialHeadMismatch => "MaterialHeadMismatch",
+                Self::CommitClockMismatch => "CommitClockMismatch",
+                Self::FreshHeadUnavailable => "FreshHeadUnavailable",
+                Self::BeforeSigningExpired => "BeforeSigningExpired",
+                Self::ReplyBound => "ReplyBound",
+                Self::FinalDeliveryExpired => "FinalDeliveryExpired",
+                Self::FinalDeliveryUnavailable => "FinalDeliveryUnavailable",
+                Self::ClockBusy => "ClockBusy",
+                Self::RuntimeBusy => "RuntimeBusy",
+                Self::PublicationBusy => "PublicationBusy",
+                Self::ResidentBusy => "ResidentBusy",
+                Self::StatusBusy => "StatusBusy",
+                Self::DeliveryBusy => "DeliveryBusy",
+                Self::OtherWaitError => "OtherWaitError",
+            }
+        }
+    }
+    type Key = (usize, String);
+    static RECORDS: std::sync::OnceLock<Mutex<std::collections::BTreeMap<Key, Option<Reason>>>> =
+        std::sync::OnceLock::new();
+    fn records() -> &'static Mutex<std::collections::BTreeMap<Key, Option<Reason>>> {
+        RECORDS.get_or_init(|| Mutex::new(std::collections::BTreeMap::new()))
+    }
+    fn key(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2) -> Key {
+        (
+            service as *const FormalLiveService as usize,
+            q.digest().unwrap(),
+        )
+    }
+    pub(super) fn begin(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2) {
+        records().lock().unwrap().insert(key(service, q), None);
+    }
+    pub(super) fn note(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2, reason: Reason) {
+        if let Some(slot) = records().lock().unwrap().get_mut(&key(service, q)) {
+            if slot.is_none() {
+                *slot = Some(reason);
+            }
+        }
+    }
+    pub(super) fn failure(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2, error: &str) {
+        let reason = match error {
+            "qualified mutation clock busy or poisoned" => Reason::ClockBusy,
+            "qualified mutation runtime busy" => Reason::RuntimeBusy,
+            "qualified mutation publication busy"
+            | "qualified mutation publication busy or poisoned" => Reason::PublicationBusy,
+            "qualified mutation resident cut busy or poisoned" => Reason::ResidentBusy,
+            "qualified mutation status busy" => Reason::StatusBusy,
+            "qualified mutation delivery busy" => Reason::DeliveryBusy,
+            _ => Reason::OtherWaitError,
+        };
+        note(service, q, reason);
+    }
+    pub(super) fn take(
+        service: &FormalLiveService,
+        q: &TaskMutationWaitSubmitV2,
+    ) -> Option<&'static str> {
+        records()
+            .lock()
+            .unwrap()
+            .remove(&key(service, q))
+            .flatten()
+            .map(Reason::label)
+    }
+}
+#[cfg(test)]
+pub(super) fn wait_diagnostic(
+    service: &FormalLiveService,
+    q: &TaskMutationWaitSubmitV2,
+) -> Option<&'static str> {
+    diagnostic::take(service, q)
 }

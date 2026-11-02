@@ -58,5 +58,6 @@ test_tier_required = []
 test_tier_full = ["test_tier_required"]
 
 [dev-dependencies]
+oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 openssl = "0.10"
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }
