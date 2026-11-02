@@ -36,7 +36,15 @@ fn run(name: &str, scenario: &str) {
         .as_deref()
         != Some("true")
     {
-        child_for(name, "https://identity.fixture", &[]);
+        let extras = if scenario == "large_runtime" {
+            vec![(
+                "OASIS7_NATIVE_ARCHIVE_RUNTIME_OBSERVATION",
+                "true".to_owned(),
+            )]
+        } else {
+            vec![]
+        };
+        child_for(name, "https://identity.fixture", &extras);
         return;
     }
     with_ready_registry(8, |ready, world| {
@@ -152,6 +160,51 @@ fn run(name: &str, scenario: &str) {
                 &q.proof.certificate.world.service_public_key,
             )
             .unwrap();
+            if scenario == "large_runtime" {
+                let canonical =
+                    ws::task_context_projection::ContextBodyCommitmentV2::from_signed_body(
+                        &decoded.reply.world_response.payload.private_body,
+                    )
+                    .unwrap();
+                assert!(
+                    canonical.canonical_bytes.0
+                        <= ws::task_context_projection::MAX_ATTESTED_CONTEXT_BODY_BYTES_V2 as u64
+                );
+                let world_wire = serde_json::to_vec(&decoded.reply.world_response).unwrap();
+                assert!(
+                    world_wire.len()
+                        <= ws::task_context_projection::MAX_ATTESTED_CONTEXT_WIRE_BYTES_V2
+                );
+                let wire = decoded.wire_bytes().unwrap();
+                eprintln!(
+                    "world_canonical_private_bytes={} world_attested_wire_bytes={} native_archive_complete_wire_bytes={} native_max_reply_bytes={}",
+                    canonical.canonical_bytes.0,
+                    world_wire.len(),
+                    wire.len(),
+                    MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2
+                );
+                assert!(
+                    wire.len() > 64 * 1024,
+                    "complete Native reply must cross the obsolete archive cap"
+                );
+                assert!(wire.len() <= MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2);
+                let mut tampered = decoded.reply.world_response.clone();
+                tampered
+                    .payload
+                    .private_body
+                    .payload
+                    .reference_salt
+                    .push('0');
+                assert!(
+                    ws::task_context_projection::verify_prepared_delivery_v2(
+                        &q.original.request,
+                        &tampered,
+                        &q.proof.certificate.world.service_public_key,
+                    )
+                    .is_err()
+                );
+            }
+
             let claims = cold_rows(&ready, "custody_execution_prepare_gated_v2");
             assert!(claims[0]["request"] == serde_json::to_value(&q).unwrap());
             assert!(rows[0]["configuration_digest"] == claims[0]["configuration_digest"]);
@@ -214,5 +267,13 @@ fn native_prepare_reply_legacy_claim_only_unknown_cannot_resend() {
     run(
         "native_prepare_reply_legacy_claim_only_unknown_cannot_resend",
         "unknown",
+    );
+}
+
+#[test]
+fn native_prepare_matching_runtime_observation_large_reply_is_cold_durable() {
+    run(
+        "native_prepare_matching_runtime_observation_large_reply_is_cold_durable",
+        "large_runtime",
     );
 }

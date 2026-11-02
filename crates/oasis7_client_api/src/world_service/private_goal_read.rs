@@ -160,6 +160,7 @@ fn verify_current_response_with_scope(
         &original.subject_public_key,
         &response.payload,
         scope,
+        None,
     )
 }
 
@@ -170,13 +171,33 @@ pub fn verify_current_payload(
     subject_public_key: &str,
     payload: &CurrentGoalResponse,
 ) -> Result<(), String> {
-    verify_current_payload_with_scope(request, subject_public_key, payload, None)
+    verify_current_payload_with_scope(request, subject_public_key, payload, None, None)
+}
+/// Resource-only Formal coordinate adapter. The enclosing Resource response
+/// must already have been verified against the fixed Node service key.
+pub(crate) fn verify_resource_formal_current_payload(
+    request: &CurrentGoalRequest,
+    subject_public_key: &str,
+    payload: &CurrentGoalResponse,
+    committed_runtime_height: u64,
+) -> Result<(), String> {
+    if committed_runtime_height == 0 {
+        return Err("current goal activation mismatch".into());
+    }
+    verify_current_payload_with_scope(
+        request,
+        subject_public_key,
+        payload,
+        None,
+        Some(committed_runtime_height),
+    )
 }
 fn verify_current_payload_with_scope(
     r: &CurrentGoalRequest,
     subject_public_key: &str,
     p: &CurrentGoalResponse,
     mut scope: Option<&mut StrictOwnerSignatureScope>,
+    activation_runtime_height: Option<u64>,
 ) -> Result<(), String> {
     let c = &p.control;
     p.read_commit.validate().map_err(|e| e.to_string())?;
@@ -226,7 +247,8 @@ fn verify_current_payload_with_scope(
                 || commit.binding.provider_world_id != p.read_commit.binding.provider_world_id
                 || commit.binding.branch_id != p.read_commit.binding.branch_id
                 || commit.binding.reorg_generation != p.read_commit.binding.reorg_generation
-                || commit.position != reference.activation_committed_height.0
+                || activation_runtime_height.unwrap_or(commit.position)
+                    != reference.activation_committed_height.0
                 || commit.position > p.read_commit.position
                 || c.latest_goal_revision != c.active_goal_revision
                 || proof
