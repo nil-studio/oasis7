@@ -304,7 +304,7 @@ fn exercise_group(
     let after_parent = ExecutionParent {
         roots: sealed.record.after.clone(),
         commit: [0x7a; 32],
-        authority: parent.authority.clone(),
+        authority: parent.authority,
     };
     delete_and_reject_partial(store, memory, &after_parent, &accepted, group);
     eprintln!(
