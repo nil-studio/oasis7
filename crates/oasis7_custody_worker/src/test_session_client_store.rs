@@ -493,3 +493,6 @@ fn client_diagnostic(stage: &'static str, error: JsValue) -> JsValue {
 
 #[path = "test_session_execution_nonce_five_store_v2.rs"]
 mod execution_nonce_five;
+
+#[path = "test_session_read_nonce_five_store_v2.rs"]
+mod read_nonce_five;

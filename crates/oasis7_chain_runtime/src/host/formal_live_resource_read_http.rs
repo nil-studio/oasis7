@@ -12,17 +12,17 @@ fn handles(path: &str) -> bool {
     matches!(path, PARTICIPANT_OWNER_VIEW_PATH | RESOURCE_GOAL_PATH_V2)
 }
 #[cfg(unix)]
-fn one_proof_header<'a>(headers: &'a str) -> Result<&'a str, String> {
+fn one_proof_header(headers: &str) -> Result<&str, String> {
     let name = oasis7::world_service::resource_world_paid_ledger_v1::RESOURCE_READ_PROOF_HEADER;
     let mut value = None;
     for line in headers.split("\r\n").skip(1) {
-        if let Some((key, field)) = line.split_once(':') {
-            if key.eq_ignore_ascii_case(name) {
-                if value.is_some() {
-                    return Err("duplicate Resource paid header".into());
-                }
-                value = Some(field.trim());
+        if let Some((key, field)) = line.split_once(':')
+            && key.eq_ignore_ascii_case(name)
+        {
+            if value.is_some() {
+                return Err("duplicate Resource paid header".into());
             }
+            value = Some(field.trim());
         }
     }
     value

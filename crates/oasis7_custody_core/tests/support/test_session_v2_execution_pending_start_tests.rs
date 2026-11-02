@@ -143,6 +143,22 @@ fn session_v2_pending_start_first_five_then_master134_no_book_and_cold() {
     let pending = &row["execution_pending_start"];
     let source_id = pending["source_operation_id"].as_str().unwrap();
     let source = &row["sources"][source_id];
+    let protocol = pending
+        .get("source_observation")
+        .expect("mandatory paid Pending protocol");
+    assert_eq!(
+        protocol.get("profile").unwrap(),
+        "inspect_three_observe_complete_v1"
+    );
+    let reservations = protocol.get("reservations").unwrap().as_array().unwrap();
+    assert_eq!(reservations.len(), 5);
+    assert!(reservations.iter().all(serde_json::Value::is_null));
+    let mut missing_protocol = value.clone();
+    missing_protocol["test_sessions_v2"][&f.session_id]["execution_pending_start"]
+        .as_object_mut()
+        .unwrap()
+        .remove("source_observation");
+    assert!(serde_json::from_value::<AccountProvisionApprovalState>(missing_protocol).is_err());
     assert!(source.get("observation_profile").is_none());
     assert!(source.get("client_admission").is_none());
     assert_eq!(pending["ingress_attempt_id"], "pending-start-ingress");
@@ -216,6 +232,61 @@ fn session_v2_pending_start_first_five_then_master134_no_book_and_cold() {
         )
         .unwrap();
     assert!(directory.until().get() <= 18003);
+    let inspect = serde_json::to_value(&f.state).unwrap();
+    let row = &inspect["test_sessions_v2"][&f.session_id];
+    let pending = row.get("execution_pending_start").unwrap();
+    let source_id = pending
+        .get("source_operation_id")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        row.get("source_oracle_reads")
+            .unwrap()
+            .get(&source_id)
+            .unwrap(),
+        1
+    );
+    let slots = pending["source_observation"]["reservations"]
+        .as_array()
+        .unwrap();
+    assert!(slots[0].is_object());
+    assert!(slots[1..].iter().all(serde_json::Value::is_null));
+    let paid = f.state.clone();
+    assert!(
+        f.state
+            .reserve_test_session_v2_source_read(&f.session_id, &source_id, UnixMillis::new(13005))
+            .is_err(),
+        "Pending cannot use the generic eight-ticket reader"
+    );
+    assert_eq!(paid, f.state);
+    let policy = Policy::new(f.state.draft());
+    let current = policy.current(&f.context);
+    assert!(
+        f.state
+            .claim_test_session_v2_source(
+                &f.session_id,
+                &source_id,
+                &current,
+                UnixMillis::new(13005)
+            )
+            .is_err(),
+        "no generic Native request before the dedicated paid consumer"
+    );
+    assert_eq!(paid, f.state);
+    for mutation in 0..4 {
+        let mut bad = inspect.clone();
+        let protocol = &mut bad["test_sessions_v2"][&f.session_id]["execution_pending_start"]["source_observation"];
+        match mutation {
+            0 => protocol["reservations"][0] = serde_json::Value::Null,
+            1 => protocol["profile"] = serde_json::json!("client_control_five_oracle_v2"),
+            2 => protocol["reservations"][1] = protocol["reservations"][0].clone(),
+            3 => protocol["reservations"][0]["ordinal"] = serde_json::json!(0),
+            _ => unreachable!(),
+        }
+        assert!(serde_json::from_value::<AccountProvisionApprovalState>(bad).is_err());
+    }
     let cold: AccountProvisionApprovalState =
         serde_json::from_value(serde_json::to_value(&f.state).unwrap()).unwrap();
     assert_eq!(cold, f.state);

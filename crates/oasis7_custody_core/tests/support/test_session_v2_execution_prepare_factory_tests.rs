@@ -440,3 +440,6 @@ mod owner_factory_tests;
 
 #[path = "test_session_v2_execution_prepare_native_tests.rs"]
 mod native_prepare_tests;
+
+#[path = "test_session_v2_read_history_http_fixture.rs"]
+mod read_history_http_fixture;

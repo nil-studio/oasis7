@@ -30,6 +30,8 @@ pub(super) struct Replay<'a> {
     execution_pending_directory_signed: bool,
     execution_pending_fence_signed: bool,
     execution_pending_fence_read_signed: bool,
+    read_history_fees: BTreeSet<String>,
+    read_history_returns: BTreeSet<String>,
     model_fees: BTreeSet<String>,
     model_reservations: BTreeSet<String>,
     execution_requests: BudgetLedger,
@@ -100,6 +102,8 @@ impl<'a> Replay<'a> {
             execution_pending_directory_signed: false,
             execution_pending_fence_signed: false,
             execution_pending_fence_read_signed: false,
+            read_history_fees: BTreeSet::new(),
+            read_history_returns: BTreeSet::new(),
             model_fees: BTreeSet::new(),
             model_reservations: BTreeSet::new(),
             execution_requests: BudgetLedger::new(p.request_limit.0),
@@ -407,6 +411,9 @@ impl<'a> Replay<'a> {
                 != s.execution_pending_start
                     .as_ref()
                     .is_some_and(|p| p.has_directory_signature())
+            || self.read_history_fees.len() != super::super::v2_read_history::read_fee_count(s) as usize
+            || self.read_history_returns.len() != s.purpose_http_admissions.values().filter(|a|matches!(&a.class,
+                SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } if fee.outcome.is_some())).count()
             || self.model_fees.len()
                 != s.native_model_budget
                     .as_ref()
