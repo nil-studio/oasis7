@@ -44,11 +44,30 @@ fn begin(world: &mut World) -> crate::RuntimeCommittedTickContext {
         .map(|result| result.committed_height)
         .max()
         .unwrap_or(0);
+    let intrinsic_height = world
+        .capability_revocation_state()
+        .task_stops_v2
+        .as_ref()
+        .into_iter()
+        .flat_map(|i| i.records.values())
+        .map(|r| r.committed_height)
+        .chain(
+            world
+                .capability_revocation_state()
+                .task_terminals_v2
+                .as_ref()
+                .into_iter()
+                .flat_map(|i| i.records.values())
+                .map(|r| r.committed_height),
+        )
+        .max()
+        .unwrap_or(0);
     let context = crate::RuntimeCommittedTickContext {
         height: world
             .state()
             .time
             .max(last_task_commit)
+            .max(intrinsic_height)
             .checked_add(1)
             .unwrap(),
         slot: 0,
@@ -86,24 +105,53 @@ fn close_for_conditions(
     };
     sign_read_request(GAME_TASK_CLEANUP_DOMAIN_V2, payload, owner).unwrap()
 }
+fn guarded_stop(
+    world: &World,
+    owner: &str,
+    initial: &GameTaskControlV1,
+    operation: &str,
+    until: u64,
+) -> SignedGameTaskStopV2 {
+    let d = &world.capability_revocation_state().agent_signer_delegations["agent"];
+    let signed = sign_read_request(
+        GAME_TASK_STOP_DOMAIN_V2,
+        GameTaskStopV2 {
+            api_revision: 2,
+            client_operation_id: operation.into(),
+            custody_account_id: "account".into(),
+            termination_plan_digest: "44".repeat(32),
+            initial_fence: GameTaskFenceV1::from_control(initial),
+            target_executor_public_key: d.delegate_public_key.clone(),
+            target_executor_generation: DecimalU64(d.generation),
+            target_executor_nonce: DecimalU64(d.nonce),
+            execute_until_ms: DecimalU64(until),
+            observation_grant: None,
+        },
+        owner,
+    )
+    .unwrap();
+    SignedGameTaskStopV2 {
+        request: signed.request,
+        subject_public_key: signed.subject_public_key,
+        signature_hex: signed.signature_hex,
+    }
+}
 fn originals(
     world: &World,
     owner: &str,
     initial: &GameTaskControlV1,
 ) -> (
-    SubmitIntentRequest<WorldServicePayloadV1>,
+    SignedGameTaskStopV2,
     SignedReadRequest<GameTaskRevokeAndCloseV2>,
 ) {
-    let stop = executor_request(owner, initial, "own-stop", GameExecutorOperationV1::Stop);
-    let WorldServicePayloadV1::GameExecutorControl(signed) = &stop.signed_payload else {
-        unreachable!()
-    };
+    let stop = guarded_stop(world, owner, initial, "own-stop", 5000);
     let intent = GameOwnStopIntentV2 {
-        operation_id: "own-stop".into(),
+        profile: GameStopIntentProfileV2::GuardedTaskStopV2,
+        operation_id: stop.request.client_operation_id.clone(),
         intent_digest: hash(&(
-            GAME_EXECUTOR_CONTROL_DOMAIN,
-            &signed.subject_public_key,
-            &signed.request,
+            GAME_TASK_STOP_DOMAIN_V2,
+            &stop.subject_public_key,
+            &stop.request,
         )),
     };
     let close = close_for_conditions(world, owner, initial, Some(intent));
@@ -170,8 +218,11 @@ fn terminal_v2_stop_unknown_active_closes_and_legacy_cannot_resume() {
 fn terminal_v2_lost_stop_result_is_resolved_and_full_witness_is_permanent() {
     let (mut world, owner, initial) = setup();
     let (stop, close) = originals(&world, &owner, &initial);
-    let committed = execute(&world, stop, &[], 4);
-    world.record_world_service_result(committed).unwrap();
+    let stop_context = begin(&mut world);
+    world.apply_guarded_task_stop_v2(&stop).unwrap();
+    world
+        .finish_formal_administrative_tick(&stop_context)
+        .unwrap();
     // Caller gets no receipt; the pre-existing close request has only original identity.
     assert!(
         serde_json::to_value(&close.request).unwrap()["permitted_branches"]["own_stop_intent"]
@@ -327,16 +378,24 @@ mod retention;
 #[test]
 fn terminal_v2_allocated_unsigned_stop_intent_does_not_require_stop_signature() {
     let (mut world, owner, initial) = setup();
-    let unsigned = GameExecutorControlV1 {
-        api_rev: 1,
+    let delegation = &world.capability_revocation_state().agent_signer_delegations["agent"];
+    let unsigned = GameTaskStopV2 {
+        api_revision: 2,
         client_operation_id: "unsigned-stop".into(),
-        fence: GameTaskFenceV1::from_control(&initial),
-        operation: GameExecutorOperationV1::Stop,
+        custody_account_id: "account".into(),
+        termination_plan_digest: "44".repeat(32),
+        initial_fence: GameTaskFenceV1::from_control(&initial),
+        target_executor_public_key: delegation.delegate_public_key.clone(),
+        target_executor_generation: DecimalU64(delegation.generation),
+        target_executor_nonce: DecimalU64(delegation.nonce),
+        execute_until_ms: DecimalU64(5000),
+        observation_grant: None,
     };
     let intent = GameOwnStopIntentV2 {
+        profile: GameStopIntentProfileV2::GuardedTaskStopV2,
         operation_id: unsigned.client_operation_id.clone(),
         intent_digest: hash(&(
-            GAME_EXECUTOR_CONTROL_DOMAIN,
+            GAME_TASK_STOP_DOMAIN_V2,
             &initial.owner_public_key,
             &unsigned,
         )),
@@ -378,3 +437,12 @@ fn terminal_v2_same_qualified_context_reexecution_is_deterministic() {
 
 #[path = "terminal_v2_scope_rotation.rs"]
 mod scope_rotation;
+
+#[path = "guarded_stop_v2_authority.rs"]
+mod guarded_stop_authority;
+
+#[path = "guarded_stop_v2_incremental_restore.rs"]
+mod guarded_stop_incremental_restore;
+
+#[path = "guarded_stop_observation_grant_v2.rs"]
+mod observation_grant;
