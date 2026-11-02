@@ -19,3 +19,13 @@ export async function ownerTestSessionKeyCall(env, raw) {
   if (!env.ACCOUNT_KEY_PERMITS) throw new Error('test session key authority unavailable');
   return env.ACCOUNT_KEY_PERMITS.verifyTestSessionPermit(raw);
 }
+
+export async function readExecutionPrivateCurrentV2(env, raw) {
+  if (!env.TEST_SESSION_PRIVATE_HISTORY) throw new Error('execution private current unavailable');
+  return env.TEST_SESSION_PRIVATE_HISTORY.attestExecutionV2(raw);
+}
+
+export async function runExecutionPrepareNativeV2(env, raw) {
+  if (!env.IDENTITY_TEST_SESSIONS) throw new Error('execution context unavailable');
+  return env.IDENTITY_TEST_SESSIONS.prepareExecutionV2(raw);
+}

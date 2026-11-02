@@ -370,3 +370,27 @@ test('real strict Ed25519 plus WebCrypto reject tampering, weak points and nonca
     { ...valid, key: pin.toUpperCase() }, { ...valid, key: '02'.repeat(32) },
   ]) assert.equal((await ok(mf, name, '/crypto', vector)).valid, false);
 }));
+
+// Synthetic Account grant/current and normal clock; real Owner crypto and SQLite.
+// This does not qualify Term6 or the World cleanup graph.
+test('Term Guarded Actor initializes only a new slot and commits once before the key loan', {timeout:90000}, async()=>fixture(async (current,restart)=>{
+  const mf=current();
+  assert.deepEqual(await ok(mf,'term-sign','/role-key/term-guarded/sign'),
+    {signed:true,unknown:false,repeat_rejected:true,key_loans:1});
+  assert.deepEqual(await ok(mf,'term-unknown','/role-key/term-guarded/unknown'),
+    {signed:false,unknown:true,repeat_rejected:true,key_loans:1});
+  assert.deepEqual(await ok(mf,'term-old','/role-key/term-guarded/old-slot'),
+    {old_slot_rejected:true,key_loans:0});
+  const cold=await restart();
+  for(const name of ['term-sign','term-unknown']) {
+    assert.deepEqual(await ok(cold,name,'/role-key/term-guarded/replay'),
+      {cold_replay_rejected:true,key_loans:0,claims:1});
+  }
+}));
+
+test('Term Guarded Actor rejects invalid Account grants before durable allocation or key access', {timeout:90000}, async()=>fixture(async current=>{
+  for(const mode of ['bad-signature','expired','wrong-slot']) {
+    assert.deepEqual(await ok(current(),'term-'+mode,'/role-key/term-guarded/'+mode),
+      {invalid_rejected:true,key_loans:0,claims:0});
+  }
+}));

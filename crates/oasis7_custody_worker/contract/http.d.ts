@@ -24,6 +24,7 @@ export type CustodyApprovalProofV1 = {
   "manager_policy_version": DecimalU64;
   "manager_security_version": DecimalU64;
   "manager_session_ref": string;
+  "model_budget_summary_contract"?: (NativeCustodySummaryContractV1 | null);
   "nonce": string;
   "origin_credential_id": string;
   "origin_credential_version": DecimalU64;
@@ -32,10 +33,51 @@ export type CustodyApprovalProofV1 = {
   "version": number;
 };
 export type DecimalU64 = string;
+export type NativeCustodySummaryContractV1 = (NativeModelBudgetSummaryContractV1 | NativeFullSessionSummaryContractV2 | NativeFullSessionProxySummaryContractV2);
+export type NativeFullSessionProxyProfileV2 = "full_test_session_proxy_v2";
+export type NativeFullSessionProxySummaryContractV2 = {
+  "api_version": number;
+  "basis": NativeModelProxyBasisV2;
+  "basis_digest": string;
+  "contract": NativeFullSessionProxyProfileV2;
+  "full_session": NativeFullSessionSummaryContractV2;
+};
+export type NativeFullSessionSummaryContractV2 = {
+  "api_version": number;
+  "contract": NativeFullSessionSummaryProfileV2;
+  "model_budget_contract": (NativeModelBudgetSummaryContractV1 | null);
+  "summary_digest": string;
+};
+export type NativeFullSessionSummaryProfileV2 = "full_test_session_v2";
+export type NativeModelBudgetSummaryContractV1 = {
+  "api_version": number;
+  "summary_digest": string;
+};
+export type NativeModelProxyBasisV2 = {
+  "api_version": number;
+  "approval_request_id": string;
+  "budget_digest": string;
+  "connection_generation": DecimalU64;
+  "connection_ref_digest": string;
+  "context_digest": string;
+  "endpoint_policy_digest": string;
+  "expires_at": DecimalU64;
+  "intent_digest": string;
+  "issued_at": DecimalU64;
+  "ledger_id": string;
+  "model": string;
+  "native_account_id": string;
+  "native_instance_public_key": string;
+  "physical_graph_digest": string;
+  "preset_id": string;
+  "preset_revision": DecimalU64;
+  "price_policy_digest": string;
+};
 export type SignedCustodyApprovalV1 = {
   "proof": CustodyApprovalProofV1;
   "signature": string;
 };
+export type ActionSelectionSchemaV2 = (ExactMoveSelectionV2 | ResourceSelectionSchemaV1);
 export type ApprovedActionV1 = ({
   "position_cm": Array<DecimalI64>;
   "tool": "move";
@@ -80,6 +122,7 @@ export type ApprovedWorldV1 = {
   "service_public_key": string;
   "world_id": string;
 };
+export type CleanupTransportPolicyV2 = ("term_wide_five_second_owned_v2" | "term_wide_five_second_owned_world3_v2");
 export type ClientPairingBindingV1 = {
   "api_version": number;
   "client_key_id": string;
@@ -170,6 +213,21 @@ export type CustodyIntentV1 = ({
   "write_deadline": DecimalU64;
 });
 export type DecimalI64 = string;
+export type DelegationMetadataV1 = {
+  "agent_id": string;
+  "agent_identity_generation": DecimalU64;
+  "branch_id": string;
+  "delegate_public_key": string;
+  "generation": DecimalU64;
+  "nonce": DecimalU64;
+  "owner_binding": string;
+  "revoked": boolean;
+  "world_id": string;
+};
+export type ExactMoveSelectionV2 = ({
+  "kind": "move";
+  "position_cm": Array<DecimalI64>;
+});
 export type GameExecutorBindingV1 = {
   "delegation_generation": DecimalU64;
   "executor_epoch": DecimalU64;
@@ -208,6 +266,40 @@ export type GoalContentV1 = {
 };
 export type MaterialLedgerId = string;
 export type MaterialTransitPriority = "urgent" | "standard";
+export type ModelBudgetApprovalContractV1 = "native_custody_model_budget_v1" | "native_custody_model_proxy_v2";
+export type ModelInferenceBudgetV1 = {
+  "api_version": number;
+  "approval_contract": ModelBudgetApprovalContractV1;
+  "context_policy_digest": string;
+  "deadline": DecimalU64;
+  "inference_physical_http": DecimalU64;
+  "ledger_id": string;
+  "max_calls": DecimalU64;
+  "max_concurrent": DecimalU64;
+  "max_input_tokens": DecimalU64;
+  "max_output_tokens": DecimalU64;
+  "max_total_tokens": DecimalU64;
+  "model": string;
+  "native_account_id": string;
+  "native_instance_public_key": string;
+  "native_public_key": string;
+  "physical_graph_digest": string;
+  "preset_id": string;
+  "preset_revision": DecimalU64;
+  "price_policy": ModelPricePolicyV1;
+  "probe_physical_http": Array<DecimalU64>;
+  "runtime_digest": string;
+  "skill_digest": string;
+  "tools_digest": string;
+};
+export type ModelPricePolicyV1 = {
+  "currency": string;
+  "input_micro_units_per_million": DecimalU64;
+  "max_total_micro_units": DecimalU64;
+  "output_micro_units_per_million": DecimalU64;
+  "quote_digest": string;
+  "valid_until": DecimalU64;
+};
 export type OwnerSetupPlanV2 = {
   "api_version": number;
   "bind_operation_id": string;
@@ -221,6 +313,7 @@ export type OwnerSetupPlanV2 = {
   "executor_key_ref": string;
   "executor_public_key": string;
   "goal_content": GoalContentV1;
+  "model_budget"?: (ModelInferenceBudgetV1 | null);
   "owner_key_ref": string;
   "participant_receipt_digest": string;
   "prepare_nonce": string;
@@ -228,7 +321,7 @@ export type OwnerSetupPlanV2 = {
   "provision_id": string;
   "publish_operation_id": string;
   "request_limit": DecimalU64;
-  "selection": ResourceSelectionSchemaV1;
+  "selection": ActionSelectionSchemaV2;
   "setup_id": string;
   "transport_limit": DecimalU64;
   "world_identity": ApprovedWorldV1;
@@ -314,6 +407,31 @@ export type ResourceTestSessionScopeV2 = {
   "termination_plan_digest": string;
   "world_identity": ApprovedWorldV1;
 };
+export type TerminationNoncePolicyV1 = "account_allocated_high_water_v1";
+export type TerminationPlanV2 = {
+  "api_version": number;
+  "cleanup_transport_policy": CleanupTransportPolicyV2;
+  "cleanup_until": DecimalU64;
+  "close_operation_id": string;
+  "close_policy": WorldTaskClosePolicyV2;
+  "custody_account_id": string;
+  "executor_key_ref": string;
+  "initial_fence": GameTaskFenceV1;
+  "nonce_policy": TerminationNoncePolicyV1;
+  "original_delegation": DelegationMetadataV1;
+  "owner_key_ref": string;
+  "prepared_result_digest": string;
+  "provision_id": string;
+  "request_limit": DecimalU64;
+  "session_id": string;
+  "setup_id": string;
+  "stop_operation_id": string;
+  "stop_policy": WorldTaskStopPolicyV2;
+  "transport_limit": DecimalU64;
+  "trigger": TerminationTriggerV1;
+  "world": ApprovedWorldV1;
+};
+export type TerminationTriggerV1 = "closing_only_v1";
 export type TestSessionPlanV2 = {
   "actions": Array<ApprovedActionV1>;
   "allowed_resource_refs": Array<string>;
@@ -324,15 +442,24 @@ export type TestSessionPlanV2 = {
   "cleanup_until": DecimalU64;
   "control_budget": ControlBudgetV1;
   "enrollment_id": string;
+  "model_budget"?: (ModelInferenceBudgetV1 | null);
   "owner_setup_plan_digest": string;
-  "prepared_resource_basis_digest": string;
+  "prepared_resource_basis_digest"?: (string | null);
   "read_budget": PurposeBudgetV1;
   "read_until": DecimalU64;
   "request_id": string;
   "request_limit": DecimalU64;
-  "selection": ResourceSelectionSchemaV1;
+  "selection": ActionSelectionSchemaV2;
+  "termination": TerminationPlanV2;
   "transport_limit": DecimalU64;
   "write_deadline": DecimalU64;
+};
+export type WorldTaskClosePolicyV2 = "literal_persistent_closed_v2";
+export type WorldTaskStopPolicyV2 = "guarded_committed_utc_stop_v2";
+export type NativeSessionApprovalSummaryV2 = {
+  "api_version": number;
+  "plan": TestSessionPlanV2;
+  "scope": ResourceTestSessionScopeV2;
 };
 export type VerificationPurposeV1 = "consume_approval" | "inspect_origin";
 export type TestSessionPurposeV1 = "execute" | "read" | "cleanup";
@@ -586,18 +713,6 @@ export type TestSessionPlanV1 = {
   "transport_limit": DecimalU64;
   "write_deadline": DecimalU64;
 };
-export type DelegationMetadataV1 = {
-  "agent_id": string;
-  "agent_identity_generation": DecimalU64;
-  "branch_id": string;
-  "delegate_public_key": string;
-  "generation": DecimalU64;
-  "nonce": DecimalU64;
-  "owner_binding": string;
-  "revoked": boolean;
-  "world_id": string;
-};
-export type TerminationNoncePolicyV1 = "account_allocated_high_water_v1";
 export type TerminationPlanV1 = {
   "api_version": number;
   "cleanup_until": DecimalU64;
@@ -618,7 +733,6 @@ export type TerminationPlanV1 = {
   "trigger": TerminationTriggerV1;
   "world": ApprovedWorldV1;
 };
-export type TerminationTriggerV1 = "closing_only_v1";
 export type TestSessionBasisV1 = {
   "allowed_resource_refs": Array<string>;
   "api_version": number;
@@ -677,7 +791,10 @@ export type ApprovalOptionsResponseV1 = {
   "audience": string;
   "ceremony_expires_at": DecimalU64;
   "ceremony_id": string;
+  "custody_session_summary_v2"?: (NativeSessionApprovalSummaryV2 | null);
   "intent_digest": string;
+  "model_budget_summary"?: (ModelInferenceBudgetV1 | null);
+  "model_budget_summary_contract"?: (NativeCustodySummaryContractV1 | null);
   "operation_id": string;
   "options"?: unknown;
   "phase": ApprovalPhaseV1;
@@ -793,6 +910,11 @@ export type OwnerSetupApproveRequestV1 = {
   "input": ApprovalAdmissionInput;
   "plan": OwnerSetupPlanV1;
 };
+export type OwnerSetupApproveRequestV2 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
+  "plan": OwnerSetupPlanV2;
+};
 export type OwnerSetupBasisRequestV1 = {
   "api_version": number;
 };
@@ -821,6 +943,11 @@ export type OwnerSetupPrepareRequestV1 = {
   "api_version": number;
   "approval_request_id": string;
   "plan": OwnerSetupPlanV1;
+};
+export type OwnerSetupPrepareRequestV2 = {
+  "api_version": number;
+  "approval_request_id": string;
+  "plan": OwnerSetupPlanV2;
 };
 export type OwnerSetupPrepareResponseV1 = {
   "approval_request_id": string;
@@ -991,10 +1118,30 @@ export type SourceRevocationsPollResponseV1 = {
   "api_version": number;
   "events": Array<SignedSourceRevocationEventV1>;
 };
+export type TestSessionActivationProgressV2 = {
+  "activated_at": (DecimalU64 | null);
+  "api_version": number;
+  "closing": boolean;
+  "custody_account_id": string;
+  "preflight_pending": boolean;
+  "provision_id": string;
+  "session_id": string;
+};
+export type TestSessionApprovalProgressV2 = {
+  "api_version": number;
+  "custody_account_id": string;
+  "phase": ApprovalPhaseV1;
+  "provision_id": string;
+  "session_id": string;
+};
 export type TestSessionApproveRequestV1 = {
   "api_version": number;
   "input": ApprovalAdmissionInput;
   "plan": TestSessionPlanV1;
+};
+export type TestSessionApproveRequestV2 = {
+  "api_version": number;
+  "input": ApprovalAdmissionInput;
 };
 export type TestSessionBasisRequestV1 = {
   "api_version": number;
@@ -1002,11 +1149,33 @@ export type TestSessionBasisRequestV1 = {
   "enrollment_id": string;
   "request_id": string;
 };
+export type TestSessionBasisRequestV2 = {
+  "api_version": number;
+  "cleanup_transport_policy"?: (CleanupTransportPolicyV2 | null);
+  "cleanup_until": DecimalU64;
+  "enrollment_id": string;
+  "request_id": string;
+  "setup_id": string;
+};
 export type TestSessionBasisResponseV1 = {
   "basis": TestSessionBasisV1;
   "basis_digest": string;
 };
+export type TestSessionBasisV2 = {
+  "api_version": number;
+  "basis_digest": string;
+  "custody_account_id": string;
+  "owner_setup_plan_digest": string;
+  "provision_id": string;
+  "request_id": string;
+  "scope": ResourceTestSessionScopeV2;
+  "termination": TerminationPlanV2;
+};
 export type TestSessionContinueRequestV1 = {
+  "api_version": number;
+  "session_id": string;
+};
+export type TestSessionContinueRequestV2 = {
   "api_version": number;
   "session_id": string;
 };
@@ -1014,6 +1183,12 @@ export type TestSessionPrepareRequestV1 = {
   "api_version": number;
   "approval_request_id": string;
   "plan": TestSessionPlanV1;
+};
+export type TestSessionPrepareRequestV2 = {
+  "api_version": number;
+  "approval_request_id": string;
+  "plan": TestSessionPlanV2;
+  "scope": ResourceTestSessionScopeV2;
 };
 export type TestSessionPrepareResponseV1 = {
   "approval_request_id": string;

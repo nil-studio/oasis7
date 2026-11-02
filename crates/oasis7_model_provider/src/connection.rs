@@ -10,6 +10,9 @@ use zeroize::Zeroizing;
 #[path = "connection_types.rs"]
 mod types;
 pub use types::*;
+#[path = "connection_custody_metadata.rs"]
+mod custody_metadata;
+pub use custody_metadata::{CustodyConnectionMetadata, WeakConnectionManager};
 pub enum ProbeStart {
     Pending,
     Ready,
