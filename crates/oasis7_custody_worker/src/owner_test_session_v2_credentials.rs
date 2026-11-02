@@ -168,6 +168,15 @@ pub(crate) async fn dispatch(
                 .map_err(|_| denied())?,
         ),
         TestSessionCredentialActionV2::ClaimSource => {
+            // Source creation already paid its Native transport. Persist the
+            // distinct first oracle credit before any remote observation.
+            if store
+                .reserve_test_session_v2_source_read(id, &source)
+                .map_err(|_| denied())?
+                != 1
+            {
+                return Err(denied());
+            }
             let current = observed(state, env, &store, admission, &source, true).await?;
             json(
                 store
