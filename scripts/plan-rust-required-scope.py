@@ -961,7 +961,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # statement tokens and their enclosing qualified function as identity.
         # Changed expressions/initializers, new statements and moved scopes
         # remain additions and go through the existing validated-driver check.
-        function_bodies = []
+        function_bodies, function_starts = [], {}
         for start, owner in item_owners.items():
             if owner[0] != 'fn':
                 continue
@@ -973,6 +973,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     cursor += 1
             if cursor in closing and tokens[cursor][1] == '{':
                 function_bodies.append((cursor, closing[cursor], owner))
+                function_starts[cursor] = start
         statement_owners, statement_occurrences = {}, {}
         for start, (_, value, _) in enumerate(tokens):
             if value != 'let':
@@ -1004,6 +1005,83 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             statement_occurrences[key] = occurrence + 1
             statement_owners[start] = ('statement', f'{function[1]}#{function[2]}::let:{identity}', occurrence)
 
+        # An unresolved field/statement inside an unchanged method must not get
+        # a new identity merely because an earlier module or item was inserted.
+        # Bind it to the complete function tokens, lexical owner and relative
+        # position. Any body/initializer/scope edit still requires expanded
+        # coverage; this does not prove that an unknown gate is executable.
+        reverse_closing = {end: start for start, end in closing.items()}
+
+        def declaration_start(start):
+            while start:
+                previous = tokens[start - 1][1]
+                if previous in ('pub', 'async', 'const', 'unsafe', 'extern', 'default'):
+                    start -= 1
+                elif (tokens[start - 1][0] == 'string' and start > 1
+                      and tokens[start - 2][1] == 'extern'):
+                    start -= 2
+                elif previous in (']', ')') and start - 1 in reverse_closing:
+                    opening = reverse_closing[start - 1]
+                    prefix = '#' if previous == ']' else 'pub'
+                    if opening == 0 or tokens[opening - 1][1] != prefix:
+                        break
+                    start = opening - 1
+                else:
+                    break
+            return start
+
+        plain_impls, impl_occurrences = {}, {}
+        for start, owner in item_owners.items():
+            if owner[0] != 'impl':
+                continue
+            end = start + 1
+            while end < len(tokens) and tokens[end][1] not in ('{', ';'):
+                end += 1
+            header = tokens[start + 1:end]
+            if (end not in closing or tokens[end][1] != '{'
+                    or len(header) % 3 != 1
+                    or any(kind != 'identifier' if offset % 3 == 0 else value != ':'
+                           for offset, (kind, value, _) in enumerate(header))):
+                continue  # Generic/trait/opaque impl contexts stay conservative.
+            key = (module_path(start), tuple(value for _, value, _ in tokens[declaration_start(start):end]))
+            occurrence = impl_occurrences.get(key, 0)
+            impl_occurrences[key] = occurrence + 1
+            plain_impls[end] = key, occurrence
+
+        stable_functions, function_occurrences = {}, {}
+        for left, right, _ in function_bodies:
+            start = function_starts[left]
+            parents = [opening for opening, stop in closing.items()
+                       if opening < start < right < stop and opening not in module_braces]
+            if len(parents) > 1 or parents and parents[0] not in plain_impls:
+                continue  # Nested functions, traits and macro token trees.
+            start = declaration_start(start)
+            modules_here = tuple(item_owners[opening - 2] for opening, stop, _ in modules
+                                 if opening < start < stop)
+            context = (modules_here, plain_impls.get(parents[0]) if parents else None,
+                       tuple(value for _, value, _ in tokens[start:left]))
+            occurrence = function_occurrences.get(context, 0)
+            function_occurrences[context] = occurrence + 1
+            identity = hashlib.sha256(json.dumps(
+                (context, occurrence, [value for _, value, _ in tokens[left:right + 1]]),
+                ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+            stable_functions[left] = start, right, identity
+
+        macro_ranges = [(opening, stop) for opening, stop in closing.items()
+                        if (opening and tokens[opening - 1][1] == '!')
+                        or (opening > 1 and tokens[opening - 2][1] == '!'
+                            and tokens[opening - 1][0] == 'identifier')]
+
+        def enclosing_function_owner(index, fallback):
+            bodies = [left for left, right, _ in function_bodies if left < index < right]
+            if not bodies or any(left < index < right for left, right in macro_ranges):
+                return fallback
+            scope = stable_functions.get(max(bodies))
+            if scope is None:
+                return fallback
+            start, _, identity = scope
+            return 'body', identity, index - start
+
         for index, (_, token, _) in enumerate(tokens):
             inner = index + 1 < len(tokens) and tokens[index + 1][1] == '!'
             opening = index + 2 if inner else index + 1
@@ -1026,7 +1104,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 target = end + 1
                 while target < len(tokens) and tokens[target][1] == '#' and target + 1 in closing:
                     target = closing[target + 1] + 1
-                owner = statement_owners.get(target, owner)
+                owner = statement_owners.get(target, enclosing_function_owner(index, owner))
             annotations.add((values, owner))
             if values[0] not in ('cfg', 'cfg_attr', 'ignore') and 'test' not in values:
                 continue

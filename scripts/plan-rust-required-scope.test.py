@@ -3189,6 +3189,119 @@ class LocalStatementCfgOwners(unittest.TestCase):
 
 
 
+class EnclosingFunctionCfgOwners(unittest.TestCase):
+    PATH = 'crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs'
+    BEFORE = textwrap.dedent('''\
+        mod agent_service_pump;
+        struct Server {
+            #[cfg(any(test, feature = "test_tier_required"))]
+            diagnostics: usize,
+            pending: Option<usize>,
+            #[cfg(test)]
+            recovery: Option<usize>,
+        }
+        impl Server {
+            fn new() -> Self {
+                let server = Self {
+                    #[cfg(any(test, feature = "test_tier_required"))]
+                    diagnostics: 0,
+                    pending: Some(1).map(|generation| { generation + 1 }),
+                    #[cfg(test)]
+                    recovery: None,
+                };
+                server
+            }
+        }
+    ''')
+
+    def policy(self, before, after):
+        def source(*args):
+            self.assertEqual(args[0], 'show')
+            ref, path = args[1].split(':', 1)
+            self.assertEqual(path, self.PATH)
+            return {'base': before, 'source': after}[ref].encode()
+        with patch.object(selector, 'git', side_effect=source):
+            return selector.changed_test_policy(
+                'base', 'source', [self.PATH], {self.PATH: {'oasis7_viewer_runtime'}},
+                {'oasis7_viewer_runtime'},
+                {'oasis7_viewer_runtime': {'test_tier_required', 'test_tier_full'}})
+
+    def assert_expanded(self, before, after):
+        paths, ignored, production = self.policy(before, after)
+        self.assertFalse(ignored)
+        self.assertIn(self.PATH, paths + production)
+
+    def test_added_module_does_not_change_existing_initializer_cfg_policy(self):
+        after = self.BEFORE.replace('mod agent_service_pump;',
+                                   'mod agent_service_pump;\nmod agent_service_result;')
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_unrelated_items_do_not_change_existing_method_cfg_policy(self):
+        variants = [
+            'struct Unrelated;\n' + self.BEFORE,
+            self.BEFORE.replace('impl Server {', 'impl Server { fn unrelated() {}'),
+            'impl Other { fn new() -> Self { Self } }\n' + self.BEFORE,
+            'mod unrelated { pub fn new() {} }\n' + self.BEFORE,
+        ]
+        for after in variants:
+            with self.subTest(after=after):
+                self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_method_local_cfg_is_stable_only_outside_its_complete_body(self):
+        before = ('impl Server { fn read() { '
+                  '#[cfg(any(test, feature="test_tier_required"))] let value = input(); } }')
+        self.assertEqual(self.policy(before, 'mod unrelated;\n' + before), ([], False, []))
+        self.assert_expanded(before, before.replace('input()', 'other_input()'))
+        self.assert_expanded(before, before.replace('fn read() {', 'fn read() { extra!();'))
+        self.assert_expanded(before, before.replace('fn read() {', 'fn read() { fn nested() {}'))
+
+    def test_comments_and_whitespace_do_not_change_initializer_cfg_policy(self):
+        after = self.BEFORE.replace('diagnostics: 0,', 'diagnostics /* unchanged */ :  0,')
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_initializer_expression_or_gate_changes_keep_expanded_coverage(self):
+        variants = [
+            self.BEFORE.replace('diagnostics: 0,', 'diagnostics: 1,'),
+            self.BEFORE.replace('generation + 1', 'generation + 2'),
+            self.BEFORE.replace('feature = "test_tier_required"', 'feature = "test_tier_full"'),
+            self.BEFORE.replace('fn new() -> Self {', 'fn new() -> Self { extra!();'),
+        ]
+        for after in variants:
+            with self.subTest(after=after):
+                self.assert_expanded(self.BEFORE, after)
+
+    def test_function_impl_and_module_moves_do_not_cancel_cfg_changes(self):
+        variants = [
+            self.BEFORE.replace('fn new()', 'fn create()'),
+            self.BEFORE.replace('impl Server', 'impl Other'),
+            'mod nested {\n' + self.BEFORE + '\n}',
+        ]
+        for after in variants:
+            with self.subTest(after=after):
+                self.assert_expanded(self.BEFORE, after)
+
+    def test_nested_scope_moves_keep_expanded_coverage(self):
+        before = ('impl Server { fn read() { if first { '
+                  '#[cfg(any(test, feature="test_tier_required"))] let value = input(); '
+                  '} else { other(); } } }')
+        after = ('impl Server { fn read() { if first { other(); } else { '
+                 '#[cfg(any(test, feature="test_tier_required"))] let value = input(); } } }')
+        self.assert_expanded(before, after)
+
+    def test_macro_and_unknown_parent_contexts_keep_conservative_handling(self):
+        variants = [
+            'fn read() { opaque! { #[cfg(test)] let value = input(); } }',
+            'opaque! { impl Server { fn read() { #[cfg(test)] let value = input(); } } }',
+            'fn outer() { fn nested() { #[cfg(test)] let value = input(); } }',
+            'trait Reader { fn read() { #[cfg(test)] let value = input(); } }',
+            'impl Reader for Server { fn read() { #[cfg(test)] let value = input(); } }',
+            'impl<T> Server<T> { fn read() { #[cfg(test)] let value = input(); } }',
+        ]
+        for before in variants:
+            with self.subTest(before=before):
+                self.assert_expanded(before, 'mod unrelated;\n' + before)
+
+
 class AlternativeModuleMounts(unittest.TestCase):
     LEAF = 'crates/core/src/cases.rs'
     ROOT = 'crates/core/src/lib.rs'
