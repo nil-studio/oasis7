@@ -109,6 +109,7 @@ pub fn inherit_event_fact_occurrence_v1(
         return Err(CoreError::Cancelled);
     }
     if !occurrence.uses_budget(memory)
+        || occurrence.class != MemoryClass::Ordinary
         || !extension.uses_budget(memory)
         || occurrence.reserved_bytes() < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()
         || extension.reserved_bytes() < std::mem::size_of::<VerifiedEventHistoryExtensionV1>()
@@ -130,6 +131,7 @@ pub fn inherit_event_fact_occurrence_v1(
             kind: ExecutionFactKindV1::Event,
             location: occurrence.location,
             original_bytes: occurrence.original_bytes,
+            class: occurrence.class,
         },
         extension,
         &mut cancelled,
@@ -141,6 +143,7 @@ pub fn inherit_event_fact_occurrence_v1(
         event_body: binding.fact_body,
         location: binding.location,
         original_bytes: binding.original_bytes,
+        class: binding.class,
     }))
 }
 pub(super) fn inherit_fact_binding(
@@ -148,7 +151,8 @@ pub(super) fn inherit_fact_binding(
     extension: &VerifiedEventHistoryExtensionV1,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<FactBinding, Error> {
-    if binding.record != extension.parent_record
+    if binding.class != MemoryClass::Ordinary
+        || binding.record != extension.parent_record
         || binding.roots != extension.parent_roots
         || binding.head_body != extension.parent_body
         || binding.location.height > extension.parent_height

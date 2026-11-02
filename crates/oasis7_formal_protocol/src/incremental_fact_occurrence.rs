@@ -35,6 +35,9 @@ pub struct CheckedCandidateFactOccurrenceV1 {
     binding: FactBinding,
 }
 impl VerifiedFactOccurrenceV1 {
+    pub fn allocation_class(&self) -> MemoryClass {
+        self.binding.class
+    }
     pub fn kind(&self) -> ExecutionFactKindV1 {
         self.binding.kind
     }
@@ -86,6 +89,7 @@ fn current_binding(kind: ExecutionFactKindV1, value: CurrentEventFactBinding) ->
         kind,
         location: value.location,
         original_bytes: value.original_bytes,
+        class: MemoryClass::Ordinary,
     }
 }
 /// Requires the exact authenticated ordinal kind and its actual observed bytes.
@@ -141,6 +145,7 @@ pub fn promote_candidate_fact_v1(
         return Err(CoreError::Cancelled);
     }
     if !checked.uses_budget(memory)
+        || checked.binding.class != MemoryClass::Ordinary
         || checked.reserved_bytes() < std::mem::size_of::<CheckedCandidateFactOccurrenceV1>()
     {
         return Err(CoreError::Invalid("candidate fact pool/charge"));
@@ -200,6 +205,7 @@ pub fn inherit_fact_occurrence_v1(
         return Err(CoreError::Cancelled);
     }
     if !occurrence.uses_budget(memory)
+        || occurrence.binding.class != MemoryClass::Ordinary
         || !extension.uses_budget(memory)
         || occurrence.reserved_bytes() < std::mem::size_of::<VerifiedFactOccurrenceV1>()
         || extension.reserved_bytes() < std::mem::size_of::<VerifiedFactHistoryExtensionV1>()
@@ -213,5 +219,31 @@ pub fn inherit_fact_occurrence_v1(
         )
         .map_err(ExecutionError::Memory)?;
     let binding = extension::inherit_fact_binding(occurrence.binding, extension, &mut cancelled)?;
+    Ok(charge.retain(VerifiedFactOccurrenceV1 { binding }))
+}
+
+/// Copy only authenticated fixed metadata into newly admitted Ordinary credit.
+/// Exact accepted head/RootSet must be unchanged. No provenance is re-created
+/// from public getters, and no original/catalog/history IO is performed.
+pub fn readmit_fact_occurrence_ordinary_v1(
+    occurrence: &ReservedValue<VerifiedFactOccurrenceV1>,
+    head: &VerifiedFormalCommitV1,
+    roots: &RootSetV1,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<VerifiedFactOccurrenceV1>, Error> {
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    if !occurrence.uses_budget(memory)
+        || occurrence.reserved_bytes() < std::mem::size_of::<VerifiedFactOccurrenceV1>()
+    {
+        return Err(CoreError::Invalid("fact readmission pool/charge"));
+    }
+    let (mut workspace, binding) =
+        readmit_fact_binding_ordinary(occurrence.binding, head, roots, memory, &mut cancelled)?;
+    let charge = workspace
+        .split(std::mem::size_of::<VerifiedFactOccurrenceV1>())
+        .map_err(|_| CoreError::Invalid("fact readmission accounting"))?;
     Ok(charge.retain(VerifiedFactOccurrenceV1 { binding }))
 }

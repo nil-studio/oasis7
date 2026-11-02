@@ -24,6 +24,7 @@ struct FactBinding {
     kind: ExecutionFactKindV1,
     location: EventFactLocationV1,
     original_bytes: u64,
+    class: MemoryClass,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,8 +57,12 @@ pub struct VerifiedEventFactOccurrenceV1 {
     event_body: [u8; 32],
     location: EventFactLocationV1,
     original_bytes: u64,
+    class: MemoryClass,
 }
 impl VerifiedEventFactOccurrenceV1 {
+    pub fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
     pub fn head_record_id(&self) -> [u8; 32] {
         self.head_record
     }
@@ -141,6 +146,7 @@ pub fn bind_checked_current_event_fact_v1(
         event_body: binding.body,
         location: binding.location,
         original_bytes: binding.original_bytes,
+        class: MemoryClass::Ordinary,
     }))
 }
 
@@ -281,6 +287,7 @@ pub fn verify_event_fact_occurrence_v1<
         event_body: binding.fact_body,
         location: binding.location,
         original_bytes: binding.original_bytes,
+        class: binding.class,
     }))
 }
 fn verify_fact_binding<O: OriginalObjectStreamReader, R: MerkleNodeReader, C: FnMut() -> bool>(
@@ -452,6 +459,98 @@ fn verify_fact_binding<O: OriginalObjectStreamReader, R: MerkleNodeReader, C: Fn
             kind,
             location: request.location,
             original_bytes: bytes,
+            class: *class,
         },
     ))
+}
+
+/// Fixed metadata admission only: no original, catalog or history lookup and
+/// no change of accepted head, occurrence kind/location or content identity.
+fn readmit_fact_binding_ordinary<E>(
+    binding: FactBinding,
+    head: &VerifiedFormalCommitV1,
+    roots: &RootSetV1,
+    memory: &MemoryBudget,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(oasis7_proto::memory_budget::MemoryReservation, FactBinding), CoreError<E>> {
+    if binding.class != MemoryClass::Recovery {
+        return Err(CoreError::Invalid(
+            "fact readmission requires Recovery proof",
+        ));
+    }
+    // Same bounded encoder workspace used by current/head binding operations;
+    // this admission also includes the fixed output carrier split below.
+    let workspace = memory
+        .reserve(128 << 10, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    let (roots_id, head_body) = event_head_binding(head, roots)?;
+    let record = crate::incremental_history::wire::parse_hash(
+        &head.record().record_id().map_err(BindingError::from)?,
+    )?;
+    if binding.record != record
+        || binding.roots != roots_id
+        || binding.head_body != head_body
+        || binding.location.height > roots.height
+    {
+        return Err(CoreError::Invalid(
+            "fact readmission exact accepted binding",
+        ));
+    }
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    Ok((
+        workspace,
+        FactBinding {
+            class: MemoryClass::Ordinary,
+            ..binding
+        },
+    ))
+}
+
+/// Re-admit a real Recovery Event proof without re-reading its original/H.
+/// The kind remains strictly Event; this is not a generic Fact conversion.
+pub fn readmit_event_fact_occurrence_ordinary_v1(
+    occurrence: &ReservedValue<VerifiedEventFactOccurrenceV1>,
+    head: &VerifiedFormalCommitV1,
+    roots: &RootSetV1,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<VerifiedEventFactOccurrenceV1>, CoreError<std::convert::Infallible>> {
+    if cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    if !occurrence.uses_budget(memory)
+        || occurrence.reserved_bytes() < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()
+    {
+        return Err(CoreError::Invalid("event readmission pool/charge"));
+    }
+    let (mut workspace, binding) = readmit_fact_binding_ordinary(
+        FactBinding {
+            record: occurrence.head_record,
+            roots: occurrence.roots,
+            head_body: occurrence.head_body,
+            fact_body: occurrence.event_body,
+            kind: ExecutionFactKindV1::Event,
+            location: occurrence.location,
+            original_bytes: occurrence.original_bytes,
+            class: occurrence.class,
+        },
+        head,
+        roots,
+        memory,
+        &mut cancelled,
+    )?;
+    let charge = workspace
+        .split(std::mem::size_of::<VerifiedEventFactOccurrenceV1>())
+        .map_err(|_| CoreError::Invalid("event readmission accounting"))?;
+    Ok(charge.retain(VerifiedEventFactOccurrenceV1 {
+        head_record: binding.record,
+        roots: binding.roots,
+        head_body: binding.head_body,
+        event_body: binding.fact_body,
+        location: binding.location,
+        original_bytes: binding.original_bytes,
+        class: binding.class,
+    }))
 }

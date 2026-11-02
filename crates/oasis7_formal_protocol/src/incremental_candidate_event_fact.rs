@@ -92,6 +92,7 @@ pub fn promote_candidate_event_fact_v1(
         event_body: checked.event_body,
         location: checked.location,
         original_bytes: checked.original_bytes,
+        class: MemoryClass::Ordinary,
     }))
 }
 pub(super) fn candidate_promotion_binding(

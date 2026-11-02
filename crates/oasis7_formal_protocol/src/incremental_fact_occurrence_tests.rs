@@ -715,6 +715,29 @@ fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
         },
     )
     .unwrap();
+    assert_eq!(generic.allocation_class(), MemoryClass::Recovery);
+    assert_eq!(legacy.allocation_class(), MemoryClass::Recovery);
+    let memory_before = f.s.memory.used();
+    for result in [
+        readmit_fact_occurrence_ordinary_v1(&generic, &f.s.commit, &f.s.roots, &f.s.memory, || {
+            false
+        })
+        .map(|_| ()),
+        readmit_event_fact_occurrence_ordinary_v1(
+            &legacy,
+            &f.s.commit,
+            &f.s.roots,
+            &f.s.memory,
+            || false,
+        )
+        .map(|_| ()),
+    ] {
+        assert!(
+            matches!(result, Err(CoreError::Execution(ExecutionError::Memory(_)))),
+            "{result:?}"
+        );
+    }
+    assert_eq!(f.s.memory.used(), memory_before);
     // Free ordinary space: failure must be the class boundary, not a lucky
     // allocation failure. Both paths are observed before the final assertion.
     drop(hold);
@@ -726,4 +749,133 @@ fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
             && matches!(legacy_result, Err(CoreError::Invalid(_))),
         "Recovery inheritance: generic={generic_result:?}, legacy={legacy_result:?}"
     );
+    let reads = (f.objects.reads, f.pages.reads.get());
+    let foreign = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    for result in [
+        readmit_fact_occurrence_ordinary_v1(&generic, &f.s.commit, &f.s.roots, &foreign, || false)
+            .map(|_| ()),
+        readmit_event_fact_occurrence_ordinary_v1(
+            &legacy,
+            &f.s.commit,
+            &f.s.roots,
+            &foreign,
+            || false,
+        )
+        .map(|_| ()),
+        readmit_fact_occurrence_ordinary_v1(&generic, &head, &f.s.roots, &f.s.memory, || false)
+            .map(|_| ()),
+        readmit_event_fact_occurrence_ordinary_v1(&legacy, &head, &f.s.roots, &f.s.memory, || {
+            false
+        })
+        .map(|_| ()),
+    ] {
+        assert!(matches!(result, Err(CoreError::Invalid(_))), "{result:?}");
+    }
+    let mut wrong_roots = f.s.roots.clone();
+    wrong_roots.simulation_tick += 1;
+    assert!(matches!(
+        readmit_fact_occurrence_ordinary_v1(
+            &generic,
+            &f.s.commit,
+            &wrong_roots,
+            &f.s.memory,
+            || false
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        readmit_event_fact_occurrence_ordinary_v1(
+            &legacy,
+            &f.s.commit,
+            &wrong_roots,
+            &f.s.memory,
+            || false
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    let baseline = f.s.memory.used();
+    for boundary in [1, 2] {
+        let mut calls = 0;
+        assert!(matches!(
+            readmit_fact_occurrence_ordinary_v1(
+                &generic,
+                &f.s.commit,
+                &f.s.roots,
+                &f.s.memory,
+                || {
+                    calls += 1;
+                    calls == boundary
+                }
+            ),
+            Err(CoreError::Cancelled)
+        ));
+        assert_eq!(calls, boundary);
+        assert_eq!(f.s.memory.used(), baseline);
+        let mut calls = 0;
+        assert!(matches!(
+            readmit_event_fact_occurrence_ordinary_v1(
+                &legacy,
+                &f.s.commit,
+                &f.s.roots,
+                &f.s.memory,
+                || {
+                    calls += 1;
+                    calls == boundary
+                }
+            ),
+            Err(CoreError::Cancelled)
+        ));
+        assert_eq!(calls, boundary);
+        assert_eq!(f.s.memory.used(), baseline);
+    }
+    let admitted =
+        readmit_fact_occurrence_ordinary_v1(&generic, &f.s.commit, &f.s.roots, &f.s.memory, || {
+            false
+        })
+        .unwrap();
+    let event_admitted = readmit_event_fact_occurrence_ordinary_v1(
+        &legacy,
+        &f.s.commit,
+        &f.s.roots,
+        &f.s.memory,
+        || false,
+    )
+    .unwrap();
+    assert_eq!(admitted.allocation_class(), MemoryClass::Ordinary);
+    assert_eq!(event_admitted.allocation_class(), MemoryClass::Ordinary);
+    assert_eq!(admitted.head_record_id(), generic.head_record_id());
+    assert_eq!(admitted.roots_id(), generic.roots_id());
+    assert_eq!(admitted.head_body_id(), generic.head_body_id());
+    assert_eq!(admitted.fact_body_id(), generic.fact_body_id());
+    assert_eq!(admitted.kind(), generic.kind());
+    assert_eq!(admitted.location(), generic.location());
+    assert_eq!(admitted.original_bytes(), generic.original_bytes());
+    assert_eq!(event_admitted.head_record_id(), legacy.head_record_id());
+    assert_eq!(event_admitted.roots_id(), legacy.roots_id());
+    assert_eq!(event_admitted.head_body_id(), legacy.head_body_id());
+    assert_eq!(event_admitted.event_body_id(), legacy.event_body_id());
+    assert_eq!(event_admitted.location(), legacy.location());
+    assert_eq!(event_admitted.original_bytes(), legacy.original_bytes());
+    let admitted_bytes = admitted.reserved_bytes() + event_admitted.reserved_bytes();
+    assert_eq!(f.s.memory.used(), baseline + admitted_bytes);
+    let old_bytes = generic.reserved_bytes() + legacy.reserved_bytes();
+    drop(generic);
+    drop(legacy);
+    assert_eq!(f.s.memory.used(), baseline + admitted_bytes - old_bytes);
+    assert_eq!(
+        (f.objects.reads, f.pages.reads.get()),
+        reads,
+        "readmission did source IO"
+    );
+    let inherited =
+        inherit_fact_occurrence_v1(&admitted, &extension, &f.s.memory, || false).unwrap();
+    let event_inherited =
+        inherit_event_fact_occurrence_v1(&event_admitted, &extension, &f.s.memory, || false)
+            .unwrap();
+    assert_eq!(inherited.allocation_class(), MemoryClass::Ordinary);
+    assert_eq!(event_inherited.allocation_class(), MemoryClass::Ordinary);
+    assert_eq!(inherited.kind(), ExecutionFactKindV1::Result);
+    assert_eq!(inherited.location(), location);
+    assert_eq!(event_inherited.location().ordinal, 2);
+    assert_eq!((f.objects.reads, f.pages.reads.get()), reads);
 }
