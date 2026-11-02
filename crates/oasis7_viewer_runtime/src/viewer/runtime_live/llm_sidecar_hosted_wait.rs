@@ -866,9 +866,10 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     .continuations
                     .iter()
                     .find(|entry| entry.continuation_id == admitted.continuation_id)
+                    .cloned()
                     .ok_or("hosted Wait admitted projection missing")?;
                 if wait.stage != "resumed_view"
-                    && serde_json::to_value(actual).map_err(|error| error.to_string())?
+                    && serde_json::to_value(&actual).map_err(|error| error.to_string())?
                         != serde_json::to_value(&admitted).map_err(|error| error.to_string())?
                 {
                     return Err("hosted Wait admitted receipt projection mismatch".into());
@@ -887,6 +888,10 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     .validate_proposal(&wait.proposal)
                     .map_err(|error| error.to_string())?;
                 let restored = self.llm_sidecar.hosted_restored_wait.is_some();
+                if restored && self.llm_sidecar.runner.is_none() {
+                    // Issued recovery completes under Pause without a fresh turn or lease.
+                    self.llm_sidecar.ensure_runner_initialized()?;
+                }
                 let runner = self
                     .llm_sidecar
                     .runner
@@ -901,7 +906,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                             .validate_active_continuation_with_authority(
                                 &request.agent_subject,
                                 &authority,
-                                actual,
+                                &actual,
                             )
                             .map_err(|error| error.to_string())?;
                     } else {
