@@ -239,8 +239,7 @@ impl DurableObject for RoleKeyVault {
         let url = request.url()?;
         #[cfg(feature = "owner")]
         if request.method() == Method::Post
-            && url.path()
-                == oasis7_custody_core::term_guarded_signer_v2::TERM_GUARDED_STOP_SIGNER_PATH_V2
+            && matches!(url.path(), oasis7_custody_core::term_guarded_signer_v2::TERM_GUARDED_STOP_SIGNER_PATH_V2 | oasis7_custody_core::term_guarded_close_signer_v2::TERM_GUARDED_CLOSE_SIGNER_PATH_V2 | "/internal/role-key/term-owner-slot-qualification-v2")
             && url.scheme() == "https"
             && url.host_str() == Some("role-key.internal")
             && url.query().is_none()
@@ -253,13 +252,12 @@ impl DurableObject for RoleKeyVault {
                     .map_err(|_| denied())?,
                 MAX_BYTES,
             )?);
-            return match crate::term_guarded_signer_runtime_v2::receive(
-                self.state.clone(),
-                &self.env,
-                &raw,
-            )
-            .await
-            {
+            let result = match url.path() {
+                oasis7_custody_core::term_guarded_close_signer_v2::TERM_GUARDED_CLOSE_SIGNER_PATH_V2 => crate::term_guarded_signer_runtime_v2::receive_close(self.state.clone(), &self.env, &raw).await,
+                "/internal/role-key/term-owner-slot-qualification-v2" => crate::term_guarded_signer_runtime_v2::receive_qualification(self.state.clone(), &self.env, &raw),
+                _ => crate::term_guarded_signer_runtime_v2::receive(self.state.clone(), &self.env, &raw).await,
+            };
+            return match result {
                 Ok(response) => Ok(response),
                 Err(_) => Response::error("Term Guarded signer rejected", 409),
             };
