@@ -151,6 +151,7 @@ pub(in crate::provisioning) fn validate_purpose_http_v2(s: &TestSessionAuthority
                 SessionPurposeHttpAdmissionClassV1::GenericOne
                     | SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
                     | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. }
             ))
             || paid.hop != SessionControlHopV1::Host
             || paid.charged_at.get() < s.approved_at.ok_or_else(invalid)?.get()

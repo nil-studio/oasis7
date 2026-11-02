@@ -25,12 +25,15 @@ pub enum SessionSourceFundingV1 {
     ReconcileRead,
     TerminationPlan,
     ExecutionFactoryV2 { nonce_salt: [u8; 32] },
+    ExecutionPendingStartV2 { master_digest: [u8; 32] },
 }
 impl SessionSourceFundingV1 {
     pub fn purpose(self) -> Option<SessionPurposeV1> {
         match self {
             Self::Control => None,
-            Self::Execution | Self::ExecutionFactoryV2 { .. } => Some(SessionPurposeV1::Execution),
+            Self::Execution
+            | Self::ExecutionFactoryV2 { .. }
+            | Self::ExecutionPendingStartV2 { .. } => Some(SessionPurposeV1::Execution),
             Self::ReconcileRead => Some(SessionPurposeV1::ReconcileRead),
             Self::TerminationPlan => Some(SessionPurposeV1::TerminationPlan),
         }
@@ -564,3 +567,14 @@ pub use native_model_reserve_v2::NativeModelReserveOutcomeV2;
 #[path = "test_session_native_model_ports_v2.rs"]
 mod native_model_ports_v2;
 pub(in crate::provisioning) use native_model_ports_v2::NativeModelReservedPortV2;
+
+#[path = "test_session_execution_pending_start_v2.rs"]
+mod execution_pending_start_v2;
+pub use execution_pending_start_v2::{
+    AcceptedExecutionPendingStartV2, ExecutionPendingDirectoryDispatchV2,
+    ExecutionPendingDirectorySigningAuthorityV2, PendingDirectoryAttemptV2,
+    PendingFenceDispatchAuthorityV2, PendingFenceDispatchV2, PendingFenceReadAuthorityV2,
+};
+pub(in crate::provisioning) use execution_pending_start_v2::{
+    ExecutionPendingIngressV2, ExecutionPendingStartV2,
+};

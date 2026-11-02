@@ -44,6 +44,10 @@ pub struct TestSessionAuthorityV2 {
         BTreeMap<String, SessionPurposeHttpAdmissionV1>,
     pub(in crate::provisioning) tool_nonce_ingresses: BTreeMap<String, SessionToolNonceIngressV1>,
     pub(in crate::provisioning) tool_nonce_links: BTreeMap<String, SessionToolNonceLinkV1>,
+    pub(in crate::provisioning) execution_pending_ingresses:
+        BTreeMap<String, ExecutionPendingIngressV2>,
+    #[serde(deserialize_with = "required_nullable")]
+    pub(in crate::provisioning) execution_pending_start: Option<ExecutionPendingStartV2>,
     #[serde(deserialize_with = "required_nullable")]
     pub(in crate::provisioning) context: Option<SessionContextV1>,
     pub(in crate::provisioning) roots: BTreeMap<SessionPurposeV1, SessionRootV2>,
