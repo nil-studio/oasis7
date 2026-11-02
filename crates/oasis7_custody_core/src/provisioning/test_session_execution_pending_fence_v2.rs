@@ -380,6 +380,74 @@ pub(super) fn validate_records(s: &TestSessionAuthorityV2) -> Result<()> {
     let Some(p) = &s.execution_pending_start else {
         return Ok(());
     };
+    // Only the committed states produced by this fixed subtree are legal:
+    // Directory, then Dispatcher, then the two received control hops + FENCES.
+    let sequence = first_rf_sequence();
+    let count = p.claimed_leaf_count();
+    if !matches!(count, 0 | 1 | 2 | 5) {
+        return Err(invalid());
+    }
+    let mut previous_ordinal = p.accepted_ordinal;
+    let mut previous_at = p.accepted_at;
+    for (index, leaf) in sequence.into_iter().enumerate() {
+        let ordinal = p.claimed_leaf_ordinal(leaf);
+        let at = p.claimed_leaf_at(leaf);
+        if index >= count {
+            if ordinal.is_some() || at.is_some() {
+                return Err(invalid());
+            }
+            continue;
+        }
+        let ordinal = ordinal.ok_or_else(invalid)?;
+        let at = at.ok_or_else(invalid)?;
+        if ordinal <= previous_ordinal || at.get() < previous_at.get() {
+            return Err(invalid());
+        }
+        if index == 1 {
+            let directory = p.directory_signature.as_ref().ok_or_else(invalid)?;
+            let recorded = session_event_ordinal_v2(
+                s,
+                &SessionEventKindV2::ExecutionPendingDirectorySignatureRecorded {
+                    request_id: request_id(s)?,
+                },
+            )?
+            .ok_or_else(invalid)?;
+            if recorded <= previous_ordinal
+                || recorded >= ordinal
+                || directory.recorded_at.get() > at.get()
+            {
+                return Err(invalid());
+            }
+        }
+        if index == 2 {
+            let dispatch = p.fence_dispatch.as_ref().ok_or_else(invalid)?;
+            let recorded = session_event_ordinal_v2(
+                s,
+                &SessionEventKindV2::ExecutionPendingFenceDispatchRecorded {
+                    request_id: request_id(s)?,
+                },
+            )?
+            .ok_or_else(invalid)?;
+            if recorded <= previous_ordinal
+                || recorded >= ordinal
+                || dispatch.recorded_at.get() > at.get()
+            {
+                return Err(invalid());
+            }
+        }
+        // The received two-hop callback and its child claim commit atomically.
+        if index >= 3 && at != previous_at {
+            return Err(invalid());
+        }
+        previous_ordinal = ordinal;
+        previous_at = at;
+    }
+    if (p.directory_signature.is_some() && count == 0)
+        || (p.fence_dispatch.is_some() && count < 2)
+        || (p.fence_read.is_some() && count != 5)
+    {
+        return Err(invalid());
+    }
     if let Some(record) = &p.fence_dispatch {
         let b = &record.proof.binding;
         let expected = expected_binding(
