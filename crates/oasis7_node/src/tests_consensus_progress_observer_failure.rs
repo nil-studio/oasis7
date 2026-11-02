@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const OBSERVER_FAILURE: &str = "injected consensus progress observer failure";
 const OBSERVER_BACKPRESSURE: &str = "consensus progress observer queue saturated";
+const OBSERVER_BACKPRESSURE_CODE: &str = "consensus_progress_observer_backpressure";
 const STALE_GENERATION_FAILURE: &str = "stale observer generation failure";
 
 #[derive(Clone)]
@@ -487,45 +488,84 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
                 "observer never entered its deliberately blocking call"
             );
             let blocked_at = runtime.snapshot();
-            let publications_at = retained_commit_publication_count(network.as_ref(), world_id);
-            let maintenance_at = dht.published_records().len();
-            let blocked_progress_observed =
-                wait_until(Instant::now() + Duration::from_secs(2), || {
+            let progress_deadline = Instant::now() + Duration::from_secs(2);
+            let mut saturated_at = None;
+            let backpressure_observed = wait_until(progress_deadline, || {
+                let snapshot = runtime.snapshot();
+                let saturated = snapshot
+                    .consensus_progress_observer_error
+                    .as_ref()
+                    .is_some_and(|error| {
+                        error.code.as_deref() == Some(OBSERVER_BACKPRESSURE_CODE)
+                            && error.message == OBSERVER_BACKPRESSURE
+                    });
+                if saturated
+                    && observer.calls.load(Ordering::SeqCst) == 1
+                    && !observer.release.load(Ordering::SeqCst)
+                {
+                    saturated_at = Some(snapshot);
+                    true
+                } else {
+                    false
+                }
+            });
+            let publications_at_saturation =
+                retained_commit_publication_count(network.as_ref(), world_id);
+            let maintenance_at_saturation = dht.published_records().len();
+            let pos_state_store =
+                super::super::pos_state_store::PosNodeStateStore::from_replication(
+                    config.replication.as_ref().expect("replication config"),
+                );
+            let saturated_at_snapshot = saturated_at.as_ref();
+            let blocked_progress_observed = backpressure_observed
+                && wait_until(progress_deadline, || {
+                    let Some(saturated_at) = saturated_at_snapshot else {
+                        return false;
+                    };
                     let snapshot = runtime.snapshot();
-                    let persisted =
-                        super::super::pos_state_store::PosNodeStateStore::from_replication(
-                            config.replication.as_ref().expect("replication config"),
-                        )
-                        .load()
-                        .ok()
-                        .flatten();
-                    snapshot.tick_count >= blocked_at.tick_count.saturating_add(5)
+                    let backpressure_persists = snapshot
+                        .consensus_progress_observer_error
+                        .as_ref()
+                        .is_some_and(|error| {
+                            error.code.as_deref() == Some(OBSERVER_BACKPRESSURE_CODE)
+                                && error.message == OBSERVER_BACKPRESSURE
+                        });
+                    let progressed_after_saturation = snapshot.tick_count
+                        >= saturated_at.tick_count.saturating_add(2)
                         && snapshot.consensus.committed_height
-                            >= blocked_at.consensus.committed_height.saturating_add(2)
+                            >= saturated_at.consensus.committed_height.saturating_add(2)
                         && snapshot.consensus.last_execution_height
-                            >= blocked_at.consensus.last_execution_height.saturating_add(2)
+                            >= saturated_at
+                                .consensus
+                                .last_execution_height
+                                .saturating_add(2)
                         && retained_commit_publication_count(network.as_ref(), world_id)
-                            > publications_at
-                        && dht.published_records().len() > maintenance_at
-                        && persisted.as_ref().is_some_and(|state| {
-                            state.committed_height
-                                >= blocked_at.consensus.committed_height.saturating_add(2)
-                        })
+                            > publications_at_saturation
+                        && dht.published_records().len() > maintenance_at_saturation
                         && batches_ready.wait_for_batches(Duration::ZERO)
                         && !execution_calls
                             .lock()
                             .expect("lock execution calls")
-                            .is_empty()
+                            .is_empty();
+                    let persisted = if progressed_after_saturation {
+                        pos_state_store.load().ok().flatten()
+                    } else {
+                        None
+                    };
+                    backpressure_persists
+                        && observer.calls.load(Ordering::SeqCst) == 1
+                        && !observer.release.load(Ordering::SeqCst)
+                        && progressed_after_saturation
+                        && persisted.is_some_and(|state| {
+                            state.committed_height
+                                >= saturated_at.consensus.committed_height.saturating_add(2)
+                        })
                 });
 
             let while_blocked = runtime.snapshot();
             let publications_while_blocked =
                 retained_commit_publication_count(network.as_ref(), world_id);
             let maintenance_while_blocked = dht.published_records().len();
-            let pos_state_store =
-                super::super::pos_state_store::PosNodeStateStore::from_replication(
-                    config.replication.as_ref().expect("replication config"),
-                );
             let blocked_height = while_blocked.consensus.committed_height;
             let mut persisted_while_blocked = None;
             let persisted_caught_up = wait_until(Instant::now() + Duration::from_secs(2), || {
@@ -568,19 +608,19 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
 
             assert!(
                 blocked_progress_observed,
-                "blocking observer delayed tick/execution progress: blocked_at={blocked_at:?} while_blocked={while_blocked:?}",
+                "observer queue did not saturate and then preserve post-saturation progress: blocked_at={blocked_at:?} saturated_at={saturated_at:?} while_blocked={while_blocked:?}",
             );
             assert!(
                 committed_batch_while_blocked && execution_call_count > 0,
                 "blocking observer delayed execution or committed-batch delivery: batch_ready={committed_batch_while_blocked} execution_calls={execution_call_count}",
             );
             assert!(
-                publications_while_blocked > publications_at,
-                "blocking observer delayed consensus rebroadcast: before={publications_at} during={publications_while_blocked}",
+                publications_while_blocked > publications_at_saturation,
+                "blocking observer delayed consensus rebroadcast after saturation: before={publications_at_saturation} during={publications_while_blocked}",
             );
             assert!(
-                maintenance_while_blocked > maintenance_at,
-                "blocking observer delayed replica maintenance: before={maintenance_at} during={maintenance_while_blocked}",
+                maintenance_while_blocked > maintenance_at_saturation,
+                "blocking observer delayed replica maintenance after saturation: before={maintenance_at_saturation} during={maintenance_while_blocked}",
             );
             assert!(
                 persisted_caught_up
@@ -593,8 +633,11 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
             assert!(
                 while_blocked
                     .consensus_progress_observer_error
-                    .as_deref()
-                    .is_some_and(|error| error.contains(OBSERVER_BACKPRESSURE)),
+                    .as_ref()
+                    .is_some_and(|error| {
+                        error.code.as_deref() == Some(OBSERVER_BACKPRESSURE_CODE)
+                            && error.message == OBSERVER_BACKPRESSURE
+                    }),
                 "bounded queue saturation must be visible through the dedicated observer error: {:?}",
                 while_blocked.consensus_progress_observer_error,
             );
