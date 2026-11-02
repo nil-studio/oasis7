@@ -1111,6 +1111,6 @@ fn cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json() {
     let small = cognition_scaling::run(64);
     let medium = cognition_scaling::run(1 << 20);
     let large = cognition_scaling::run(32 << 20);
-    assert_eq!(small, medium);
-    assert_eq!(small, large);
+    small.assert_fixed(&medium);
+    small.assert_fixed(&large);
 }
