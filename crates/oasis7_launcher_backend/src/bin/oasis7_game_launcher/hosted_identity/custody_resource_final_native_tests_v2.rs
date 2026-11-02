@@ -245,15 +245,21 @@ fn resource_final_actual_static_dispatch_spends_two_world_reads_once() {
         return;
     }
     assert_eq!(reply.status, 200);
-    let envelope: resource::NativeResourceEnvelopeV1<
-        resource::OwnerSetupFinalResourceObservationV2,
-    > = serde_json::from_value(reply.body).unwrap();
+    let result = oasis7_custody_core::provisioning::OwnerSetupPaidResourceResultV2::decode(
+        &serde_json::to_vec(&reply.body).unwrap(),
+    )
+    .unwrap();
+    let node = ws::sign_read_request("key", (), &hex::encode([60; 32]))
+        .unwrap()
+        .subject_public_key;
+    result.verify_frame(&frame, &node).unwrap();
+    let response = result.world_evidence.world_response().unwrap();
     resource::verify_resource_goal_response(
         match &frame.request().operation {
             ws::entry_control::EntryOwnerOperationV1::ReadResourceGoal(q) => q,
             _ => unreachable!(),
         },
-        &envelope.world_response,
+        response,
         &ws::sign_read_request("key", (), &hex::encode([60; 32]))
             .unwrap()
             .subject_public_key,

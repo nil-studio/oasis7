@@ -44,6 +44,15 @@ pub(crate) async fn read_body<T: DeserializeOwned>(
     response: worker::Response,
     limit: usize,
 ) -> Result<T> {
+    let bytes = read_body_bytes(response, limit).await?;
+    serde_json::from_slice(&bytes).map_err(|_| rejected())
+}
+/// The same bounded physical read, allowing a fixed protocol to inspect its
+/// original JSON before any Value conversion can erase duplicate/unknown keys.
+pub(crate) async fn read_body_bytes(
+    response: worker::Response,
+    limit: usize,
+) -> Result<zeroize::Zeroizing<Vec<u8>>> {
     checked((1..=65_536).contains(&limit))?;
     let response: web_sys::Response = response.into();
     let body = response.body().ok_or_else(rejected)?;
@@ -89,5 +98,5 @@ pub(crate) async fn read_body<T: DeserializeOwned>(
         bytes.extend_from_slice(part_bytes.as_slice());
         value.fill(0, 0, value.length());
     }
-    serde_json::from_slice(&bytes).map_err(|_| rejected())
+    Ok(bytes)
 }
