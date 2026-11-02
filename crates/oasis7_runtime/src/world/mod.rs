@@ -1189,3 +1189,11 @@ mod incremental_artifact_resources;
 mod incremental_scheduler_controls;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_capability_records;
+pub mod incremental_module_instance_genesis;
+mod incremental_module_instance_genesis_state;
+pub mod incremental_module_instance_change;
+pub mod incremental_module_instance_recovery;
+pub mod incremental_module_read;
+
+#[cfg(test)]
+mod incremental_module_instance_tests;
