@@ -4,6 +4,187 @@ use oasis7_runtime::incremental_runtime_artifact_resources::{
     change_runtime_artifact_body_overlay_v1, change_runtime_builtin_entry_overlay_v1,
     read_runtime_artifact_record_reference_v1,
 };
+use std::cell::Cell;
+
+struct CancelAfterFirstPut<'a, W> {
+    inner: &'a mut W,
+    writes: &'a Cell<usize>,
+    cancelled: &'a Cell<bool>,
+}
+
+impl<W: oasis7_formal_protocol::incremental_value::ValueNodeWriter>
+    oasis7_formal_protocol::incremental_value::ValueNodeWriter for CancelAfterFirstPut<'_, W>
+{
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        self.inner.put_node(id, bytes)?;
+        self.writes.set(self.writes.get() + 1);
+        self.cancelled.set(true);
+        Ok(())
+    }
+}
+
+impl<W: oasis7_formal_protocol::incremental_value::ValueNodeReader>
+    oasis7_formal_protocol::incremental_value::ValueNodeReader for CancelAfterFirstPut<'_, W>
+{
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<std::sync::Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        self.inner.read_node(id, max_bytes, memory, class)
+    }
+}
+
+impl<W: oasis7_formal_protocol::incremental_value::ValueNodeWriter>
+    oasis7_formal_protocol::incremental_state::StatePageWriter for CancelAfterFirstPut<'_, W>
+{
+}
+
+struct FailedChange {
+    error: oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1,
+    aborted: bool,
+    value_puts: usize,
+    cancelled_after_put: bool,
+}
+
+fn failed_change(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    roots: &RootSetV1,
+    qualification: &ReservedValue<
+        oasis7_runtime::incremental_runtime_artifact_resources::RuntimeArtifactResourcesQualificationV1,
+    >,
+    operation: [u8; 32],
+    change: RuntimeArtifactResourcesChangeV1<'_>,
+) -> FailedChange {
+    let parent = ExecutionParent {
+        commit: [operation[0].wrapping_add(1); 32],
+        roots: roots.clone(),
+        authority: AuthorityBinding {
+            token: [0x9c; 32],
+            epoch: 4,
+        },
+    };
+    let live = parent.fence().unwrap();
+    let state = store
+        .state_session(qualification_state_physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut transaction = ExecutionTransaction::begin(
+        parent,
+        operation,
+        &state,
+        memory,
+        TransactionLimits {
+            max_reads: 64,
+            max_writes: 8,
+            max_facts: 0,
+            max_pending_node_bytes: 4 << 20,
+        },
+    )
+    .unwrap();
+    let guard = transaction.guard();
+    let reader = store.value_session(generation_physical());
+    let mut reader_io = logical();
+    let mut key_work = SemanticKeyBudget {
+        bytes_remaining: 8 << 20,
+    };
+    let mut output = store.value_session(generation_physical());
+    let value_puts = Cell::new(0);
+    let cancelled = Cell::new(false);
+    let mut sink = CancelAfterFirstPut {
+        inner: &mut output,
+        writes: &value_puts,
+        cancelled: &cancelled,
+    };
+    let mut writer_io = logical();
+    let mut writer_key_work = SemanticKeyBudget {
+        bytes_remaining: 8 << 20,
+    };
+    let mut work = RuntimeArtifactResourcesWorkV1 {
+        cells_remaining: 100_000,
+        max_pending_node_bytes: 4 << 20,
+    };
+    let result = {
+        let mut write = MemberRecordWriteContext {
+            sink: &mut sink,
+            memory,
+            io: &mut writer_io,
+            key_work: &mut writer_key_work,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 8 << 20,
+                payload_bytes: 16 << 20,
+                record_bytes: 32 << 20,
+            },
+            cancelled: || cancelled.get(),
+        };
+        let mut context = WorldFieldOverlayContextV1 {
+            transaction: &mut transaction,
+            values: ValueReadContext {
+                source: &reader,
+                memory,
+                class: MemoryClass::Ordinary,
+                io: &mut reader_io,
+            },
+            key_work: &mut key_work,
+            semantic_bytes: 8 << 20,
+            record_bytes: 32 << 20,
+            take_state_error: || state.take_read_error().map(super::super::typed),
+            cancelled: || false,
+        };
+        match change {
+            RuntimeArtifactResourcesChangeV1::DeltaTick(change) => {
+                oasis7_runtime::incremental_runtime_artifact_resources::change_runtime_artifact_delta_tick_overlay_v1(
+                    change,
+                    qualification,
+                    &mut context,
+                    &mut write,
+                    &mut work,
+                    &guard,
+                    &live,
+                )
+            }
+            RuntimeArtifactResourcesChangeV1::Body(change) => {
+                change_runtime_artifact_body_overlay_v1(
+                    change,
+                    qualification,
+                    &mut context,
+                    &mut write,
+                    &mut work,
+                    &guard,
+                    &live,
+                )
+            }
+            RuntimeArtifactResourcesChangeV1::BuiltinEntry(change) => {
+                change_runtime_builtin_entry_overlay_v1(
+                    change,
+                    qualification,
+                    &mut context,
+                    &mut write,
+                    &mut work,
+                    &guard,
+                    &live,
+                )
+            }
+        }
+    };
+    let error = result.expect_err("failure case unexpectedly prepared a transition");
+    let aborted = matches!(
+        transaction.seal(&guard, &live, 0),
+        Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+    );
+    FailedChange {
+        error,
+        aborted,
+        value_puts: value_puts.get(),
+        cancelled_after_put: cancelled.get(),
+    }
+}
 
 fn digest(root: &StateRootV1) -> [u8; 32] {
     *blake3::Hash::from_hex(root.digest().unwrap())
@@ -33,7 +214,7 @@ fn execute_change(
     };
     let live = parent.fence().unwrap();
     let state = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(qualification_state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let mut transaction = ExecutionTransaction::begin(
         parent.clone(),
@@ -49,12 +230,12 @@ fn execute_change(
     )
     .unwrap();
     let guard = transaction.guard();
-    let reader = store.value_session(physical());
+    let reader = store.value_session(generation_physical());
     let mut reader_io = logical();
     let mut key_work = SemanticKeyBudget {
         bytes_remaining: 8 << 20,
     };
-    let mut writer = store.value_session(physical());
+    let mut writer = store.value_session(generation_physical());
     let mut writer_io = logical();
     let mut writer_key_work = SemanticKeyBudget {
         bytes_remaining: 8 << 20,
@@ -121,7 +302,22 @@ fn execute_change(
                 )
             }
         }
-        .unwrap();
+        .unwrap_or_else(|error| {
+            let state_io = state.remaining_io().unwrap();
+            let reader_io = reader.remaining_io().unwrap();
+            let writer_io = writer.remaining_io().unwrap();
+            eprintln!(
+                "Artifact change failed: {error:?}; state reads={} bytes={}; reader reads={} bytes={}; writer reads={} bytes={}; cells={}",
+                state_io.reads_remaining,
+                state_io.read_bytes_remaining,
+                reader_io.reads_remaining,
+                reader_io.read_bytes_remaining,
+                writer_io.reads_remaining,
+                writer_io.read_bytes_remaining,
+                work.cells_remaining,
+            );
+            panic!("Artifact typed change failed")
+        });
         assert!(changed);
     }
     let guard = transaction.guard();
@@ -133,7 +329,7 @@ fn execute_change(
     );
 
     let verifier_state = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(qualification_state_physical(), MemoryClass::Ordinary)
         .unwrap();
     let generic = TransitionVerifier {
         parent: &parent,
@@ -169,9 +365,9 @@ fn execute_change(
     let after_roots = generic.record.after.clone();
 
     let receiver_state = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(qualification_state_physical(), MemoryClass::Ordinary)
         .unwrap();
-    let receiver_values = store.value_session(physical());
+    let receiver_values = store.value_session(generation_physical());
     let mut receiver_io = logical();
     let mut receiver_key_work = SemanticKeyBudget {
         bytes_remaining: 8 << 20,
@@ -191,7 +387,7 @@ fn execute_change(
         take_state_error: || receiver_state.take_read_error().map(super::super::typed),
         cancelled: || false,
     };
-    let mut receiver_writer = store.value_session(physical());
+    let mut receiver_writer = store.value_session(generation_physical());
     let mut receiver_writer_io = logical();
     let mut receiver_writer_key_work = SemanticKeyBudget {
         bytes_remaining: 8 << 20,
@@ -229,10 +425,7 @@ fn execute_change(
     assert_eq!(received.transition().record, generic.record);
     received
         .qualification()
-        .validate_binding(
-            &digest(after_roots.state_root(StateNamespaceV1::Artifacts)),
-            MemoryClass::Ordinary,
-        )
+        .validate_binding(&after_roots.digest().unwrap(), MemoryClass::Ordinary)
         .unwrap();
     received
 }
@@ -303,6 +496,50 @@ fn builtin_entry_digest(
     .unwrap()
     .expect("builtin entry");
     digest(entry.root())
+}
+
+fn builtin_module_set_root(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    root: &StateRootV1,
+    module_set: &str,
+) -> Option<ReservedValue<RuntimeArtifactChildRootV1>> {
+    let manifest = field_root(
+        store,
+        memory,
+        root,
+        RuntimeArtifactFieldV1::BuiltinReleaseManifest,
+    )
+    .expect("required builtin manifest");
+    let state = store
+        .state_session(qualification_state_physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let values = store.value_session(generation_physical());
+    let mut key_work = SemanticKeyBudget {
+        bytes_remaining: 4096,
+    };
+    read_runtime_artifact_record_reference_v1(
+        RuntimeArtifactRecordV1::BuiltinReleaseManifest,
+        RuntimeArtifactRecordV1::BuiltinModuleSet,
+        &manifest,
+        &("module_sets", module_set),
+        &mut WorldFieldReadContextV1 {
+            root: manifest.root(),
+            state: &state,
+            values: ValueReadContext {
+                source: &values,
+                memory,
+                class: MemoryClass::Ordinary,
+                io: &mut logical(),
+            },
+            key_work: &mut key_work,
+            semantic_bytes: 1 << 20,
+            record_bytes: 2 << 20,
+            take_state_error: || state.take_read_error().map(super::super::typed),
+            cancelled: || false,
+        },
+    )
+    .unwrap()
 }
 
 fn assert_builtin_hash_token(
@@ -482,7 +719,7 @@ fn latest_delta_body_none_some_changes_replay_and_cold_qualify() {
         );
         assert_eq!(inserted.qualification().record_counts(), [1, 1, 1]);
         let after_roots = inserted.transition().record.after.clone();
-        let after_digest = digest(after_roots.state_root(StateNamespaceV1::Artifacts));
+        let after_digest = after_roots.digest().unwrap();
         drop(inserted);
         drop(removed);
         drop(qualified);
@@ -565,6 +802,16 @@ fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
         );
         assert_eq!(removed.qualification().record_counts(), [1, 1, 1]);
         let removed_roots = removed.transition().record.after.clone();
+        assert!(
+            builtin_module_set_root(
+                &store,
+                &memory,
+                removed_roots.state_root(StateNamespaceV1::Artifacts),
+                "set\0key",
+            )
+            .is_none(),
+            "removing the last module must prune its empty module set"
+        );
 
         let new_tokens = vec![String::from("fresh-token"), String::new()];
         let new_identities = BTreeMap::from([(
@@ -596,7 +843,7 @@ fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
         );
         assert_eq!(inserted.qualification().record_counts(), [1, 1, 1]);
         let after_roots = inserted.transition().record.after.clone();
-        let after_digest = digest(after_roots.state_root(StateNamespaceV1::Artifacts));
+        let after_digest = after_roots.digest().unwrap();
         drop(inserted);
         drop(removed);
         drop(qualified);
@@ -620,5 +867,147 @@ fn builtin_last_entry_remove_prunes_set_and_create_rebuilds_it_cold() {
             after_roots.state_root(StateNamespaceV1::Artifacts),
             "fresh-token",
         );
+    }
+}
+
+#[test]
+fn body_and_builtin_failures_poison_after_expected_mismatch_and_real_value_put() {
+    use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1 as Error;
+
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let (manifest, delta, builtins) = rich_sources();
+        let builtin_source = BuiltinSource(&builtins);
+        let source = RuntimeArtifactResourcesRefV1 {
+            chain_resource_manifest: &manifest,
+            latest_chain_resource_delta: Some(&delta),
+            builtin_release_manifest: &builtin_source,
+        };
+        let directory = Directory::new();
+        let path = directory.0.join("pages");
+        let (canonical, _producer_memory) = persist_sources(&path, compression, &source);
+        let memory = MemoryBudget::new(64 << 20, 16 << 20).unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
+                .unwrap();
+        let roots = bounded_root_set(StateRootV1::from_canonical_bytes(&canonical).unwrap());
+        let qualification = qualify(&store, &memory, &roots).unwrap();
+        let delta_root = field_root(
+            &store,
+            &memory,
+            roots.state_root(StateNamespaceV1::Artifacts),
+            RuntimeArtifactFieldV1::LatestChainResourceDelta,
+        )
+        .expect("required delta");
+        let delta_digest = digest(delta_root.root());
+        let mut replacement_delta = delta.clone();
+        replacement_delta.tick = replacement_delta.tick.checked_add(17).unwrap();
+        replacement_delta.delta_id = "failure-matrix-delta".into();
+
+        let mismatch_body = failed_change(
+            &store,
+            &memory,
+            &roots,
+            &qualification,
+            [0xa1; 32],
+            RuntimeArtifactResourcesChangeV1::Body(
+                RuntimeArtifactBodyChangeV1::ReplaceLatestDelta {
+                    expected_root: Some([0xee; 32]),
+                    after: Some(&replacement_delta),
+                },
+            ),
+        );
+        assert!(matches!(
+            mismatch_body.error,
+            Error::Value(ValueTreeError::Invalid(_))
+        ));
+        assert_eq!(mismatch_body.value_puts, 0);
+        assert!(!mismatch_body.cancelled_after_put);
+        assert!(mismatch_body.aborted);
+
+        let cancelled_body = failed_change(
+            &store,
+            &memory,
+            &roots,
+            &qualification,
+            [0xa2; 32],
+            RuntimeArtifactResourcesChangeV1::Body(
+                RuntimeArtifactBodyChangeV1::ReplaceLatestDelta {
+                    expected_root: Some(delta_digest),
+                    after: Some(&replacement_delta),
+                },
+            ),
+        );
+        assert!(matches!(
+            cancelled_body.error,
+            Error::Value(ValueTreeError::Cancelled)
+                | Error::Member(MemberRecordError::Value(ValueTreeError::Cancelled))
+        ));
+        assert!(cancelled_body.value_puts > 0);
+        assert!(cancelled_body.cancelled_after_put);
+        assert!(cancelled_body.aborted);
+
+        let replacement_tokens = [String::from("replacement-token")];
+        let replacement_identities = BTreeMap::from([(
+            String::from("replacement-artifact"),
+            oasis7_runtime::ModuleArtifactIdentity {
+                source_hash: "replacement-source".into(),
+                build_manifest_hash: "replacement-build".into(),
+                signer_node_id: "replacement-signer".into(),
+                signature_scheme: "replacement-scheme".into(),
+                artifact_signature: "replacement-signature".into(),
+            },
+        )]);
+        let replacement_entry =
+            oasis7_runtime::incremental_runtime_artifact_resources::BuiltinReleaseEntryRefV1 {
+                hash_tokens: &replacement_tokens,
+                artifact_identities: &replacement_identities,
+            };
+        let actual_entry_digest = builtin_entry_digest(
+            &store,
+            &memory,
+            roots.state_root(StateNamespaceV1::Artifacts),
+        );
+        let mismatch_builtin = failed_change(
+            &store,
+            &memory,
+            &roots,
+            &qualification,
+            [0xa3; 32],
+            RuntimeArtifactResourcesChangeV1::BuiltinEntry(RuntimeBuiltinEntryChangeV1 {
+                module_set: "set\0key",
+                module_id: "module-1",
+                expected_entry_root: Some([0xef; 32]),
+                after: Some(replacement_entry),
+            }),
+        );
+        assert!(matches!(
+            mismatch_builtin.error,
+            Error::Value(ValueTreeError::Invalid(_))
+        ));
+        assert_eq!(mismatch_builtin.value_puts, 0);
+        assert!(!mismatch_builtin.cancelled_after_put);
+        assert!(mismatch_builtin.aborted);
+
+        let cancelled_builtin = failed_change(
+            &store,
+            &memory,
+            &roots,
+            &qualification,
+            [0xa4; 32],
+            RuntimeArtifactResourcesChangeV1::BuiltinEntry(RuntimeBuiltinEntryChangeV1 {
+                module_set: "set\0key",
+                module_id: "module-1",
+                expected_entry_root: Some(actual_entry_digest),
+                after: Some(replacement_entry),
+            }),
+        );
+        assert!(matches!(
+            cancelled_builtin.error,
+            Error::Value(ValueTreeError::Cancelled)
+                | Error::Member(MemberRecordError::Value(ValueTreeError::Cancelled))
+        ));
+        assert!(cancelled_builtin.value_puts > 0);
+        assert!(cancelled_builtin.cancelled_after_put);
+        assert!(cancelled_builtin.aborted);
     }
 }

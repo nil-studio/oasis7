@@ -1094,48 +1094,50 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
         let mut receiver_writer_key_work = SemanticKeyBudget {
             bytes_remaining: 1 << 20,
         };
-        let mut receiver_write = MemberRecordWriteContext {
-            sink: &mut receiver_writer,
-            memory: &memory,
-            io: &mut receiver_writer_io,
-            key_work: &mut receiver_writer_key_work,
-            limits: MemberRecordLimitsV1 {
-                semantic_bytes: 1 << 20,
-                payload_bytes: 8 << 20,
-                record_bytes: 16 << 20,
-            },
-            cancelled: || false,
-        };
-        let prepared = verify_runtime_artifact_resources_change_transition_v1(
-            RuntimeArtifactResourcesChangeV1::DeltaTick(RuntimeArtifactDeltaTickChangeV1 {
-                expected: initial_tick,
-                after: after_tick,
-            }),
-            &qualified,
-            &TransitionVerifier {
-                parent: &parent,
-                operation: [0x71; 32],
-                source: &receiver_state,
+        let prepared = {
+            let mut receiver_write = MemberRecordWriteContext {
+                sink: &mut receiver_writer,
                 memory: &memory,
-                class: MemoryClass::Ordinary,
-                max_pending_node_bytes: 2 << 20,
-            },
-            &sealed.record,
-            &mut receiver_context,
-            &mut receiver_write,
-            &mut work,
-            &live,
-        )
-        .unwrap();
-        assert_eq!(prepared.transition().record, sealed.record);
-        prepared
-            .qualification()
-            .validate_binding(&after_roots.digest().unwrap(), MemoryClass::Ordinary)
+                io: &mut receiver_writer_io,
+                key_work: &mut receiver_writer_key_work,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 1 << 20,
+                    payload_bytes: 8 << 20,
+                    record_bytes: 16 << 20,
+                },
+                cancelled: || false,
+            };
+            let prepared = verify_runtime_artifact_resources_change_transition_v1(
+                RuntimeArtifactResourcesChangeV1::DeltaTick(RuntimeArtifactDeltaTickChangeV1 {
+                    expected: initial_tick,
+                    after: after_tick,
+                }),
+                &qualified,
+                &TransitionVerifier {
+                    parent: &parent,
+                    operation: [0x71; 32],
+                    source: &receiver_state,
+                    memory: &memory,
+                    class: MemoryClass::Ordinary,
+                    max_pending_node_bytes: 2 << 20,
+                },
+                &sealed.record,
+                &mut receiver_context,
+                &mut receiver_write,
+                &mut work,
+                &live,
+            )
             .unwrap();
+            assert_eq!(prepared.transition().record, sealed.record);
+            prepared
+                .qualification()
+                .validate_binding(&after_roots.digest().unwrap(), MemoryClass::Ordinary)
+                .unwrap();
+            prepared
+        };
         drop(prepared);
         drop(receiver_values);
         drop(receiver_state);
-        drop(receiver_write);
         drop(receiver_writer);
         drop(writer);
         drop(reader);

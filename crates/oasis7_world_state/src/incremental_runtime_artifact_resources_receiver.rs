@@ -344,6 +344,10 @@ pub fn verify_runtime_artifact_resources_transition_v1<
 /// compares its final Artifact write set with the verified transition. This
 /// keeps builtin changes local to their module key and permits full-body work
 /// only when the operation supplied a complete replacement body.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The replay binds the typed change, parent qualification, generic verifier, independent read/write contexts, work allowance, and live fence together."
+)]
 pub fn verify_runtime_artifact_resources_change_transition_v1<
     M: MerkleNodeReader,
     S: MerkleNodeReader,
@@ -470,7 +474,7 @@ pub fn verify_runtime_artifact_resources_change_transition_v1<
         let mut overlay = WorldFieldOverlayContextV1 {
             transaction: &mut replay,
             values: overlay_values,
-            key_work: &mut **key_work,
+            key_work,
             semantic_bytes: *semantic_bytes,
             record_bytes: *record_bytes,
             take_state_error,

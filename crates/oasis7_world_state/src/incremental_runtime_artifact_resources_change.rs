@@ -178,6 +178,24 @@ pub fn change_runtime_artifact_body_overlay_v1<
     guard: &PreparedGuard,
     live: &ExecutionFence,
 ) -> Result<bool, WorldFieldOverlayErrorV1> {
+    let (field, expected_root, after) = match change {
+        RuntimeArtifactBodyChangeV1::ReplaceManifest {
+            expected_root,
+            after,
+        } => (
+            RuntimeArtifactFieldV1::ChainResourceManifest,
+            Some(expected_root),
+            Some(BodyRef::Manifest(after)),
+        ),
+        RuntimeArtifactBodyChangeV1::ReplaceLatestDelta {
+            expected_root,
+            after,
+        } => (
+            RuntimeArtifactFieldV1::LatestChainResourceDelta,
+            expected_root,
+            after.map(BodyRef::Delta),
+        ),
+    };
     let callbacks = RefCell::new((&mut context.cancelled, &mut write.cancelled));
     let take_error = &mut context.take_state_error;
     context.transaction.contribute(|transaction| {
@@ -193,7 +211,8 @@ pub fn change_runtime_artifact_body_overlay_v1<
             return Err(invalid().into());
         }
         qualification.validate_binding(&transaction.parent_fence().parent_roots, class)?;
-        if qualification.record_counts()[1] != 1 {
+        let counts = qualification.record_counts();
+        if counts[0] != 1 || counts[1] > 1 || counts[2] != 1 {
             return Err(invalid().into());
         }
         let _workspace = memory
@@ -205,24 +224,6 @@ pub fn change_runtime_artifact_body_overlay_v1<
         };
         work.spend(&mut cancelled)?;
 
-        let (field, expected_root, after) = match change {
-            RuntimeArtifactBodyChangeV1::ReplaceManifest {
-                expected_root,
-                after,
-            } => (
-                RuntimeArtifactFieldV1::ChainResourceManifest,
-                Some(expected_root),
-                Some(BodyRef::Manifest(after)),
-            ),
-            RuntimeArtifactBodyChangeV1::ReplaceLatestDelta {
-                expected_root,
-                after,
-            } => (
-                RuntimeArtifactFieldV1::LatestChainResourceDelta,
-                expected_root,
-                after.map(BodyRef::Delta),
-            ),
-        };
         let (outer_key, outer_value, child_before) = {
             let mut records = InventoryValueReader {
                 values: &mut context.values,
@@ -877,6 +878,10 @@ where
     Ok((row.field_key, row.value_root))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "A typed path edit must keep the independent state reader, charged value writer, work budget, and cancellation callback explicit."
+)]
 fn edit_root_member<R, W, C, CW, K>(
     root: &mut oasis7_formal_protocol::incremental_state::StateRootV1,
     record: RuntimeArtifactRecordV1,
@@ -921,6 +926,10 @@ where
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "A scalar path edit preserves separate read, write, work-budget, and cancellation channels for the delegated member edit."
+)]
 fn edit_u64<R, W, C, CW, K>(
     root: &mut oasis7_formal_protocol::incremental_state::StateRootV1,
     record: RuntimeArtifactRecordV1,
