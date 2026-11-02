@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import contextlib
+import fnmatch
 import hashlib
 import io
 import sys
@@ -3392,6 +3393,151 @@ class AlternativeModuleMounts(unittest.TestCase):
         self.assertEqual(paths, [self.LEAF])
         self.assertFalse(ignored)
         self.assertFalse(production)
+
+class ExpandedNativeContracts(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    fast_config = Selection.fast_config
+    bounded_config = Selection.bounded_config
+    component_config = Selection.component_config
+
+    ROOT = 'crates/core/src/bounded.rs'
+    LEAF = 'crates/core/src/bounded/added.rs'
+
+    def fixture(self):
+        config = self.component_config()
+        config['ordinary_fast_rules'] = [{
+            'paths': [self.ROOT], 'targets': ['core-lib'], 'reason': 'static library wiring',
+            'added_declarations': ['mod registered;'], 'static_module_additions': True}]
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))]\nmod bounded;\n')
+        self.write(self.ROOT, 'pub fn unchanged() {}\n')
+        return config, self.commit()
+
+    def test_static_new_module_and_actual_library_source_use_inline_execution(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn unchanged() {}\npub(super) mod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n#[test] fn rejection() {}\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            plan = selector.select(config, base, head, profile=profile)
+            self.assertEqual(plan['ordinary_execution'], 'inline')
+            self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+            self.assertFalse(plan['test_policy_changed'])
+            self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+            legacy = json.loads(json.dumps(config))
+            del legacy['ordinary_fast_rules'][0]['static_module_additions']
+            self.assertNotIn('ordinary_execution', selector.select(legacy, base, head, profile=profile))
+
+    def test_static_root_requires_opt_in_complete_lib_and_no_other_edits(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn changed() {}\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        self.assertNotIn('ordinary_execution', selector.select(config, base, self.commit(), profile='pr-fast'))
+        for mutation in ('nonboolean', 'integration_only'):
+            invalid = json.loads(json.dumps(config))
+            if mutation == 'nonboolean':
+                invalid['ordinary_fast_rules'][0]['static_module_additions'] = 1
+            else:
+                invalid['ordinary_fast_targets']['core-lib']['target_kind'] = 'test'
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                selector.validate_config(invalid)
+
+    def test_static_only_rule_does_not_recheck_unchanged_full_feature_bodies(self):
+        config, base = self.fixture()
+        del config['ordinary_fast_rules'][0]['added_declarations']
+        body = '#[cfg(feature="test_tier_full")] pub fn existing_full() {}\n'
+        self.write(self.ROOT, body)
+        base = self.commit()
+        self.write(self.ROOT, body + 'mod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_static_module_helper_rejects_attributes_nested_code_and_existing_file(self):
+        config, base = self.fixture()
+        for statement in ('#[cfg(test)] mod added;', '#[path="bounded/added.rs"] mod added;',
+                          'mod added {}', 'fn inner() { mod added; }',
+                          'include!("bounded/added.rs");', 'pub use added::Value;'):
+            self.write(self.ROOT, 'pub fn unchanged() {}\n' + statement + '\n')
+            self.write(self.LEAF, '#[test] fn behavior() {}\n')
+            head = self.commit()
+            with self.subTest(statement=statement):
+                self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, head)]))
+            self.git('reset', '--hard', base)
+        self.write(self.LEAF, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+
+    def test_static_module_requires_unique_regular_file_and_unchanged_prior_binding(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        self.write('crates/core/src/bounded/added/mod.rs', '#[test] fn ambiguous() {}\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+        self.git('reset', '--hard', base)
+        self.write(self.ROOT, '#[cfg(test)]\nmod existing;\n')
+        self.write('crates/core/src/bounded/existing.rs', '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(self.ROOT, '#[cfg(test)]\nmod added;\nmod existing;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+
+    def test_inserted_comments_cannot_hide_or_change_existing_rust_tokens(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, '/*\npub fn unchanged() {}\n*/\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        head = self.commit()
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, head)]))
+        self.assertNotIn('ordinary_execution', selector.select(config, base, head, profile='pr-fast'))
+
+    def test_static_module_keeps_formal_risk_and_unavailable_feature_expansion(self):
+        config, base = self.fixture()
+        config['formal_risk_rules'].append({'match': [self.LEAF], 'suites': ['world-history'],
+                                           'reason': 'explicit retained history'})
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+        self.write(self.LEAF, '#![cfg(feature="test_tier_full")]\n#[test] fn behavior() {}\n')
+        self.assertNotIn('ordinary_execution', selector.select(config, base, self.commit(), profile='pr-fast'))
+
+    def test_static_module_proof_checks_every_source_and_tested_comparison(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        source = self.commit()
+        self.write(self.ROOT, 'pub fn replaced() {}\nmod added;\n')
+        tested = self.commit()
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, source), (source, tested)]))
+
+    def test_viewer_inventory_is_bounded_and_full_retains_exact_feature_variant(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        target = config['ordinary_fast_targets']['viewer-runtime-lib']
+        self.assertEqual((target['package'], target['target_kind'], target['target_name']),
+                         ('oasis7_viewer_runtime', 'lib', 'oasis7_viewer_runtime'))
+        self.assertFalse(target['default_features'])
+        self.assertEqual(target['features'], ['test_tier_required'])
+        viewer = [rule for rule in config['ordinary_fast_component_rules']
+                  if 'viewer-runtime-lib' in rule['targets']]
+        self.assertEqual(len(viewer), 1)
+        for path in ('crates/oasis7_viewer_runtime/src/viewer/auth.rs',
+                     'crates/oasis7_viewer_runtime/src/viewer/runtime_live/authoritative.rs',
+                     'crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs'):
+            self.assertFalse(any(fnmatch.fnmatchcase(path, pattern) for pattern in viewer[0]['match']))
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, self.base)
+            self.assertIn(target, plan['ordinary_full_fast_targets'])
+            self.assertIn('oasis7_viewer_runtime', plan['oasis7_required_packages'])
+
 
 if __name__ == '__main__':
     unittest.main()

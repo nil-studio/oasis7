@@ -511,6 +511,7 @@ pub use oasis7_world_state::incremental_fixed_economy_records;
 
 pub use oasis7_world_state::incremental_agent_authority_records;
 pub use oasis7_world_state::incremental_runtime_effect_records;
+pub use oasis7_world_state::incremental_runtime_controls;
 
 pub use oasis7_world_state::incremental_json_records;
 
