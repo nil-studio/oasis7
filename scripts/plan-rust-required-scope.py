@@ -21,6 +21,7 @@ FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
+PYTHON_CONTROL_CONTRACT_VERSION = 1
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
@@ -618,7 +619,9 @@ def validate_config(config):
     if not isinstance(scoped, dict):
         raise ValueError('invalid scoped control inventory')
     for path, selected in scoped.items():
-        if (not isinstance(path, str) or not path.startswith('.github/')
+        python_control = (exact_python_script(path)
+                          and any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL))
+        if (not isinstance(path, str) or not (path.startswith('.github/') or python_control)
                 or path.endswith('/') or posixpath.normpath(path) != path
                 or any(character in path for character in ('\\', '*', '?', '[', ']'))
                 or '..' in path.split('/') or any(ord(character) < 32 for character in path)
@@ -626,6 +629,7 @@ def validate_config(config):
                 or any(not isinstance(group, str) or group not in groups for group in selected)
                 or len(selected) != len(set(selected))):
             raise ValueError('invalid scoped control path or groups')
+    validate_python_control_contracts(config)
     for selected in config['package_groups'].values():
         if not selected or not set(selected).issubset(groups):
             raise ValueError('invalid package groups')
@@ -706,6 +710,64 @@ def validate_config(config):
             raise ValueError('invalid architecture build policy capability')
     validate_fast_test_inventory(config)
     return config
+
+
+def exact_python_script(path):
+    return (isinstance(path, str) and path.startswith('scripts/') and path.endswith('.py')
+            and posixpath.normpath(path) == path and '..' not in path.split('/')
+            and not any(character in path for character in ('\\', '*', '?', '[', ']'))
+            and not any(ord(character) < 32 for character in path))
+
+
+def validate_python_control_contracts(config):
+    scoped = config.get('scoped_control_paths', {})
+    python_paths = {path for path in scoped if path.endswith('.py')}
+    fields = {'python_control_contract_version', 'python_control_contracts'}
+    if not python_paths and not fields.intersection(config):
+        return
+    contracts = config.get('python_control_contracts')
+    version = config.get('python_control_contract_version')
+    if (type(version) is not int or version != PYTHON_CONTROL_CONTRACT_VERSION
+            or 'workflow_governance' not in config['groups']
+            or not isinstance(contracts, dict) or not contracts or set(contracts) != python_paths):
+        raise ValueError('invalid Python control contract capability or inventory')
+    for path, contract in contracts.items():
+        if (not exact_python_script(path) or not isinstance(contract, dict)
+                or set(contract) != {'group', 'tests'}
+                or not isinstance(contract['group'], str)
+                or contract['group'] not in scoped[path]
+                or not isinstance(contract['tests'], list) or not contract['tests']
+                or any(not exact_python_script(test) or not test.endswith('.test.py')
+                       for test in contract['tests'])
+                or len(set(contract['tests'])) != len(contract['tests'])):
+            raise ValueError('invalid Python control contract path, group or tests')
+
+
+def python_control_inputs(config):
+    """A minimum test must protect its own edits as well as its source edits."""
+    inputs = {}
+    if config.get('python_control_contract_version') != PYTHON_CONTROL_CONTRACT_VERSION:
+        return inputs
+    for path, contract in config['python_control_contracts'].items():
+        for entry in [path, *contract['tests']]:
+            inputs.setdefault(entry, {}).setdefault(contract['group'], set()).update(contract['tests'])
+    return inputs
+
+
+def python_control_plan(config, paths=None):
+    """Only the supplied trusted inventory can select immutable control tests."""
+    inputs = python_control_inputs(config)
+    if not inputs:
+        return {}
+    contracts = config['python_control_contracts']
+    selected = sorted(contracts if paths is None else set(paths).intersection(inputs))
+    tests = {}
+    for path in selected:
+        for group, contract_tests in inputs[path].items():
+            tests.setdefault(group, set()).update(contract_tests)
+    return {'python_control_contract_version': PYTHON_CONTROL_CONTRACT_VERSION,
+            'python_control_paths': selected,
+            'python_control_tests': {group: sorted(paths) for group, paths in sorted(tests.items())}}
 
 
 def valid_fast_declaration(item):
@@ -1728,6 +1790,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['full_fast_test_inventory_version'] = FAST_TEST_INVENTORY_VERSION
         plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
                                                for key in sorted(config['ordinary_fast_targets'])]
+    plan.update(python_control_plan(config))
     return plan
 
 
@@ -1916,6 +1979,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
 def select(config, base, source_head, test_head=None, additions=(), profile=None,
            formal_inventory=None, policy_ref=None):
     validate_config(config)
+    python_inputs = python_control_inputs(config)
     groups = set(config['groups'])
     chosen = {'baseline'}
     reasons = ['baseline always runs']
@@ -2015,7 +2079,13 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
-            matched = controlled
+            contract_groups = python_inputs.get(path, {})
+            if contract_groups:
+                chosen.update(contract_groups)
+                path_rules[path].update(contract_groups)
+                support_rule |= 'workspace_support' in contract_groups
+                reasons.append('trusted Python control contract input changed: ' + path)
+            matched = controlled or bool(contract_groups)
             for manifests, reverse, embedded in graphs:
                 owners = {name for name, (directory, _) in manifests.items()
                           if directory and path.startswith(directory + '/')}
@@ -2083,6 +2153,10 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
         reasons.append('uncertain Git/dependency inputs: ' + str(error))
     if unknown_paths:
         raise UnknownInputsError(unknown_paths)
+    python_controls = python_control_plan(config, paths)
+    if python_controls.get('python_control_paths'):
+        chosen.add('workflow_governance')
+        reasons.append('trusted Python control contracts run in workflow_governance')
     if full:
         chosen = set(groups)
         reasons.append('ordinary required fallback')
@@ -2116,6 +2190,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             'workspace_support_profiles': support_profiles,
             'workspace_support_profile_version': 1,
             'reasons': list(dict.fromkeys(reasons)), 'scope': 'full' if full else 'targeted'}
+    plan.update(python_controls)
     if profile is not None:
         if profile not in ('pr-fast', 'main-fast'):
             raise ValueError('select requires a fast execution profile')

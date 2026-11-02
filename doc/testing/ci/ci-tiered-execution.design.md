@@ -116,6 +116,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
 | `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
+| `python_control_contract_version=1`、`python_control_paths`、`python_control_tests` | 可信精确路径命中的 CI Python 控制输入及按组归并的非空最低合同，由可信基线执行入口针对候选实现验证 |
 | `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
@@ -126,6 +127,20 @@ PR/push 继续从事件可信 BASE 取得选择策略、配置及汇总规则；
 workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/push 调用旧接口，driver 缺少新版本字段时保留原 native、WASM、Formal 和 support 范围。可信 main 尚未具备完整 profile 时，非 main 的手动 full 可用旧完整组库存做首次接线验证，计划标记 `bootstrap_full=true`。该只读运行不能缩减旧覆盖，也不能被发布消费者接受；main 的周期/完整入口不以此 bootstrap 替代可信策略升级。
 
 风险映射由真实路径、消费者和行为合同决定，不依赖作者贴标签或模型猜测。没有已验证的窄用例映射时保留相应旧完整组，不能将缺映射解释为无风险。关键改动的定向测试仍在普通 CI 图内；环境专项只用于普通 runner 的具体能力缺口。
+
+### Python 与 CI 控制输入的职责选择
+
+普通 Python 路径沿用显式 `rules` 与 Cargo 输入图，按文档、治理、打包、架构或协议等真实职责选择已有组；直接调用、嵌入数据及反向消费者继续参与选择。无真实合同的工具不能为了缩短 CI 被任意登记为轻量治理组，未知路径仍由既有门禁阻断。
+
+对原本命中共享控制的 Python 脚本，可信 `scoped_control_paths` 允许登记规范化的精确 `scripts/` 路径，不接受扩展名通配豁免。对应 `python_control_contracts` 必须指定已选中的执行组与非空精确测试清单；未登记或合同不完整时不能取得窄范围。登记的最低测试文件自身变化也通过精确反向关联触发同一合同，不能仅因它原属普通文档检查而绕过可信验证。命中后的计划保留实际源码或测试路径、按组去重的测试清单，并选择 `workflow_governance` 执行独立可信合同。真实 Rust 消费者与混合变更要求的组照常取并集；scope 配置、共享执行器、可信合同入口及 workflow 自身变化继续按共享控制处理。
+
+workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候选 driver 之外执行；测试源码也固定来自该 BASE，受测实现与路径绑定到候选 checkout。执行入口核对非空发现、真实执行、完成状态及失败传播，拒绝跳过与成功退出但未完成合同的情况。候选自身的完整回归仍由所属组运行，不能替代可信最低断言；最低用例身份的删除、空发现或意外跳过须在本轮被发现，不能随候选成为下一轮基线后才暴露。断言语义的保留仍由独立评审核对。可信入口及该固定 revision 配置登记的全部最低测试源码纳入完整 CI 结果的检查定义摘要，固定安全测试也必须属于这份登记；旧结果不能签认已改变的执行合同。
+
+可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留全组时，才允许迁移旧的全量策略断言。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
+
+planner 的可信最低合同固定验证必要的选择、未知输入和失败边界，另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单，覆盖词法归属及门控变化。该合同不冻结每个历史路径的全量策略断言，允许经过评审的职责细分进入新 BASE；候选完整 planner 回归仍验证新策略。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
+
+完整 profile 保留原全集并执行完整控制合同库存；合同自身迁移仅适用上述明确条件。普通 required 的保守 `scope=full` 执行本次实际命中的控制合同，不混同于完整 profile 的全库存。旧 BASE 未提供此能力时，候选保持旧共享控制范围，不能以自身新规则收窄当前 PR；本轮改变可信配置、执行器和 workflow 的迁移同样接受旧必要检查。纯 Python 具名路径、真实嵌入消费者、混合 Rust 变化、删除/重命名、未知路径、空执行、取消与失败传播分别回归；十分钟效果仍由合入后的真实 hosted 样本验收。
 
 <a id="ci-pr-fast-selection-design"></a>
 ### 准入规则到实际选择

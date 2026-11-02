@@ -226,6 +226,9 @@ jobs:
           for file in plan-rust-required-scope.py ci-required-scope.json ci-required-result.py ci-formal-plan.py ci-formal-process-suites.json; do
             git show "${policy_sha}:scripts/${file}" >"${authority}/${file}"
           done
+          if git cat-file -e "${policy_sha}:scripts/ci-python-control-contracts.py" 2>/dev/null; then
+            git show "${policy_sha}:scripts/ci-python-control-contracts.py" >"${authority}/ci-python-control-contracts.py"
+          fi
           args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$GITHUB_OUTPUT" --output "$RUNNER_TEMP/selection.json")
           bootstrap_full=false
           if python3 "$authority/plan-rust-required-scope.py" --help | grep -q -- '--profile'; then
@@ -1790,6 +1793,41 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
+      - name: Download trusted control authority
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.authority_artifact }}
+          path: ${{ runner.temp }}/ci-authority
+      - name: Download trusted control selection
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}/ci-control-selection
+      - name: Install document contract parser
+        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+      - name: Install pinned tools for offline control fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
+          command -v zstd
+          command -v zstdmt
+      - name: Execute trusted baseline Python control contracts
+        if: fromJSON(needs.select.outputs.plan).python_control_contract_version == 1
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py"
+          python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run \
+            --repo-root "$GITHUB_WORKSPACE" --policy-sha "$POLICY_SHA" \
+            --plan "$RUNNER_TEMP/ci-control-selection/selection.json"
       - name: Verify scoped candidate cache permission
         uses: ./.github/actions/cache-permission-probe
       - name: Restore trusted cache sentinel

@@ -72,8 +72,12 @@ def validate_candidate_graph(workflow, config):
             raise ValueError('ordinary groups must not have singleton matrices')
         if group == 'command_center' and 'uses: ./.github/workflows/command-center.yml' not in job:
             raise ValueError('Command Center checks must execute through the reusable workflow')
-        if 'ci-authority' in job:
+        if 'ci-authority' in job and group != 'workflow_governance':
             raise ValueError('execution must use candidate checkout')
+        if group == 'workflow_governance' and (
+                'python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run' not in job
+                or 'bash ./scripts/ci-tests.sh required --group "workflow_governance"' not in job):
+            raise ValueError('trusted Python assertions and candidate governance must both execute')
     return True
 
 
@@ -92,9 +96,14 @@ class Workflow(unittest.TestCase):
                  'ci-formal-plan.py', 'ci-formal-process-suites.json')
         for name in files:
             (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        if not legacy:
+            (repo / 'scripts/ci-python-control-contracts.py').write_bytes(
+                (ROOT / 'scripts/ci-python-control-contracts.py').read_bytes())
         if real_receipt:
             import runpy
-            policy_files = runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))['POLICY_FILES']
+            policy_files = set(runpy.run_path(str(ROOT / 'scripts/ci-full-result.py'))['POLICY_FILES'])
+            policy_files.update(test for entry in CONFIG.get('python_control_contracts', {}).values()
+                                for test in entry['tests'])
             for path in policy_files:
                 destination = repo / path
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -118,6 +127,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         (repo / 'README.md').write_text('candidate behavior\n')
         # If the shell accidentally runs candidate policy instead of BASE, fail.
         (repo / 'scripts/plan-rust-required-scope.py').write_text("raise SystemExit('untrusted candidate planner executed')\n")
+        (repo / 'scripts/ci-python-control-contracts.py').write_text("raise SystemExit('untrusted candidate control authority executed')\n")
         git('add', '.')
         git('commit', '-qm', 'candidate')
         source = git('rev-parse', 'HEAD')
@@ -1631,7 +1641,8 @@ run_cargo() {
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
             if group != 'fleet_health':
                 self.assertNotIn('strategy:', job)
-            self.assertNotIn('ci-authority', job)
+            if group != 'workflow_governance':
+                self.assertNotIn('ci-authority', job)
         self.assertNotIn('needs: required-gate', WORKFLOW)
         self.assertNotIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW))
         self.assertNotIn('paths-ignore:', WORKFLOW)
@@ -1663,7 +1674,7 @@ run_cargo() {
         self.assertIn('for file in plan-rust-required-scope.py ci-required-scope.json ci-required-result.py ci-formal-plan.py ci-formal-process-suites.json;', select)
         self.assertIn('bootstrap_full=true', select)
         self.assertIn('&& "$GITHUB_REF" != refs/heads/main', select)
-        self.assertEqual(WORKFLOW.count('name: ${{ needs.select.outputs.authority_artifact }}'), 5)
+        self.assertEqual(WORKFLOW.count('name: ${{ needs.select.outputs.authority_artifact }}'), 6)
         for name, job in JOBS.items():
             if name != 'pr-fast-preview':
                 self.assertNotIn('matrix.group', job, name)
@@ -1677,6 +1688,35 @@ run_cargo() {
         self.assertNotIn('scripts/pm/', WORKFLOW)
         self.assertNotIn('task_uid', WORKFLOW)
         self.assertIn('permissions:\n  contents: read', WORKFLOW)
+
+    def test_python_control_assertions_use_fixed_baseline_and_pinned_offline_tools(self):
+        job = JOBS['workflow-governance']
+        trusted = 'python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run'
+        self.assertIn(trusted, job)
+        self.assertIn('--policy-sha "$POLICY_SHA"', job)
+        self.assertIn('--plan "$RUNNER_TEMP/ci-control-selection/selection.json"', job)
+        self.assertIn('python_control_contract_version == 1', job)
+        self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
+        self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
+        self.assertIn('command -v zstdmt', job)
+        self.assertIn('pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt', job)
+        self.assertLess(job.index(trusted), job.index('bash ./scripts/ci-tests.sh required'))
+        self.assertNotIn('cargo test -p', job)
+        self.assertNotIn('Swatinem/rust-cache', job)
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        self.assertIn('run python3 ./scripts/ci-python-control-contracts.test.py', driver)
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as directory:
+                result, _, plan, _, _ = self.run_selection(
+                    directory, event='pull_request', legacy=legacy, candidate=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                runner = Path(directory) / 'ci-authority/ci-python-control-contracts.py'
+                if legacy:
+                    self.assertFalse(runner.exists())
+                    self.assertEqual(plan['scope'], 'full')
+                    self.assertNotIn('python_control_contract_version', plan)
+                else:
+                    self.assertEqual(runner.read_bytes(), (ROOT / 'scripts/ci-python-control-contracts.py').read_bytes())
 
     def test_runner_discovers_supported_python_when_default_is_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:

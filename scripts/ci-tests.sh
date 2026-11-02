@@ -515,6 +515,7 @@ run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
+  run python3 ./scripts/ci-python-control-contracts.test.py
   run python3 ./scripts/ci-formal-process.test.py
   run python3 ./scripts/ci-storage-acceptance.test.py
   run python3 ./scripts/ci-storage-network.test.py

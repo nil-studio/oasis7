@@ -765,7 +765,8 @@
     "operational_contracts": [],
     "packaging_contracts": [],
     "workflow_governance": [
-      "python"
+      "python",
+      "rust_toolchain"
     ],
     "codex_agent_config_validation": [],
     "compile_metrics": [
@@ -813,7 +814,324 @@
     ".github/workflows/codeql.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-capacity.yml": ["workflow_governance"],
     ".github/workflows/codeql-rust-cargo-check.yml": ["workflow_governance"],
-    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"]
+    ".github/workflows/codeql-rust-cfg-diagnostic.yml": ["workflow_governance"],
+    "scripts/ci-bin-ownership.test.py": ["cargo_tooling_contracts"],
+    "scripts/ci-cache-archive.py": ["workflow_governance"],
+    "scripts/ci-cache-archive.test.py": ["workflow_governance"],
+    "scripts/ci-cache-diagnostic.py": ["workflow_governance"],
+    "scripts/ci-cache-diagnostic.test.py": ["workflow_governance"],
+    "scripts/ci-cache-maintenance.py": ["workflow_governance"],
+    "scripts/ci-cache-maintenance.test.py": ["workflow_governance"],
+    "scripts/ci-cache-policy.py": ["workflow_governance"],
+    "scripts/ci-cache-policy.test.py": ["workflow_governance"],
+    "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
+    "scripts/ci-ecs-build-metrics.test.py": ["compile_metrics"],
+    "scripts/ci-ecs-cache.py": ["compile_metrics"],
+    "scripts/ci-ecs-cache.test.py": ["compile_metrics"],
+    "scripts/ci-fast-preview.py": ["workflow_governance"],
+    "scripts/ci-fast-preview.test.py": ["workflow_governance"],
+    "scripts/ci-formal-plan.py": ["workflow_governance"],
+    "scripts/ci-formal-process.test.py": ["workflow_governance"],
+    "scripts/ci-full-result.py": ["workflow_governance"],
+    "scripts/ci-full-result.test.py": ["workflow_governance"],
+    "scripts/ci-local-signer-tests.py": ["workflow_governance", "packaging_contracts", "fleet_health"],
+    "scripts/ci-local-signer-tests.test.py": ["workflow_governance"],
+    "scripts/ci-required-result.py": ["workflow_governance"],
+    "scripts/ci-required-result.test.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-admission.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-admission.test.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-build.test.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-toolchains.py": ["workflow_governance"],
+    "scripts/ci-rust-cache-toolchains.test.py": ["workflow_governance"],
+    "scripts/ci-storage-acceptance.py": ["workflow_governance"],
+    "scripts/ci-storage-acceptance.test.py": ["workflow_governance"],
+    "scripts/ci-storage-network.py": ["workflow_governance"],
+    "scripts/ci-storage-network.test.py": ["workflow_governance"],
+    "scripts/ci-support-profiles.test.py": ["workflow_governance"],
+    "scripts/ci-test-artifacts.py": ["workflow_governance"],
+    "scripts/ci-workflow.test.py": ["workflow_governance"],
+    "scripts/ci-workspace-cache.py": ["workflow_governance"],
+    "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
+    "scripts/document_corpus.py": ["doc_checker_contracts"],
+    "scripts/plan-rust-required-scope.py": ["workflow_governance"],
+    "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
+  },
+  "python_control_contract_version": 1,
+  "python_control_contracts": {
+    "scripts/ci-bin-ownership.test.py": {
+      "group": "cargo_tooling_contracts",
+      "tests": [
+        "scripts/ci-bin-ownership.test.py"
+      ]
+    },
+    "scripts/ci-cache-archive.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-archive.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-cache-archive.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-archive.test.py"
+      ]
+    },
+    "scripts/ci-cache-diagnostic.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-diagnostic.test.py"
+      ]
+    },
+    "scripts/ci-cache-diagnostic.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-diagnostic.test.py"
+      ]
+    },
+    "scripts/ci-cache-maintenance.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-cache-maintenance.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py"
+      ]
+    },
+    "scripts/ci-cache-policy.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-cache-policy.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-policy.test.py"
+      ]
+    },
+    "scripts/ci-ecs-build-metrics.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-build-metrics.test.py"
+      ]
+    },
+    "scripts/ci-ecs-build-metrics.test.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-build-metrics.test.py"
+      ]
+    },
+    "scripts/ci-ecs-cache.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-cache.test.py"
+      ]
+    },
+    "scripts/ci-ecs-cache.test.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-ecs-cache.test.py"
+      ]
+    },
+    "scripts/ci-fast-preview.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-fast-preview.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-fast-preview.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-fast-preview.test.py"
+      ]
+    },
+    "scripts/ci-formal-plan.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/ci-formal-process.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process.test.py"
+      ]
+    },
+    "scripts/ci-full-result.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-full-result.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-full-result.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-full-result.test.py"
+      ]
+    },
+    "scripts/ci-local-signer-tests.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-signer-tests.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-local-signer-tests.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-signer-tests.test.py"
+      ]
+    },
+    "scripts/ci-required-result.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-required-result.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/ci-required-result.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-required-result.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-admission.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-maintenance.test.py",
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-admission.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-admission.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-build.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-build.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-toolchains.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-toolchains.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-rust-cache-toolchains.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-toolchains.test.py"
+      ]
+    },
+    "scripts/ci-storage-acceptance.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-acceptance.test.py"
+      ]
+    },
+    "scripts/ci-storage-acceptance.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-acceptance.test.py"
+      ]
+    },
+    "scripts/ci-storage-network.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-network.test.py"
+      ]
+    },
+    "scripts/ci-storage-network.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-network.test.py"
+      ]
+    },
+    "scripts/ci-support-profiles.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-support-profiles.test.py"
+      ]
+    },
+    "scripts/ci-test-artifacts.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-ecs-cache.test.py",
+        "scripts/ci-formal-process.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-workflow.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-python-control-contracts.test.py"
+      ]
+    },
+    "scripts/ci-workspace-cache.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-cache-policy.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci-workspace-cache.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/document_corpus.py": {
+      "group": "doc_checker_contracts",
+      "tests": [
+        "scripts/doc-evidence-inventory-check.test.py",
+        "scripts/document-corpus-inventory-check.test.py",
+        "scripts/product-doc-governance-check.test.py"
+      ]
+    },
+    "scripts/plan-rust-required-scope.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-fast-preview.test.py",
+        "scripts/ci-support-profiles.test.py",
+        "scripts/ci-workflow.test.py",
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    },
+    "scripts/plan-rust-required-scope.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/plan-rust-required-scope.test.py"
+      ]
+    }
   },
   "generated_inputs": [
     {
@@ -1062,6 +1380,69 @@
     ]
   },
   "rules": [
+    {
+      "match": [
+        "scripts/ci_process_runner.py",
+        "scripts/pr-review-threads.py",
+        "scripts/pr-review-threads.test.py"
+      ],
+      "groups": [
+        "workflow_governance"
+      ],
+      "reason": "python_workflow_helpers"
+    },
+    {
+      "match": [
+        "scripts/doc_content_warnings.py"
+      ],
+      "groups": [
+        "doc_checker_contracts"
+      ],
+      "reason": "document_warning_helper"
+    },
+    {
+      "match": [
+        "scripts/runtime-module-routing-perf-harness.test.py"
+      ],
+      "groups": [
+        "cargo_tooling_contracts"
+      ],
+      "reason": "runtime_routing_harness_contract"
+    },
+    {
+      "match": [
+        "scripts/safe_git_archive.py",
+        "scripts/safe-git-archive.test.py"
+      ],
+      "groups": [
+        "workflow_governance",
+        "packaging_contracts"
+      ],
+      "reason": "safe_archive_consumers"
+    },
+    {
+      "match": [
+        "scripts/release-web-fixture-process.py",
+        "scripts/release-web-startup.test.py"
+      ],
+      "groups": [
+        "launcher_web",
+        "operational_contracts"
+      ],
+      "reason": "web_fixture_process_consumers"
+    },
+    {
+      "match": [
+        "scripts/industrial-starter-evidence.py",
+        "scripts/tests/test_industrial_starter_evidence.py"
+      ],
+      "groups": [
+        "viewer_js_required",
+        "oasis7_required",
+        "operational_contracts"
+      ],
+      "reason": "industrial_evidence_consumers"
+    },
     {
       "match": ["crates/oasis7_builtin_wasm_modules/m1_power_storage/src/**"],
       "groups": ["rust_baseline", "oasis7_required", "formal_process", "launcher_web"],

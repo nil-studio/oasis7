@@ -122,6 +122,79 @@ class Qualification(unittest.TestCase):
             module.decode_json('{"source":"a","source":"b"}')
 
 
+class DefinitionDigest(unittest.TestCase):
+    RUNNER = 'scripts/ci-python-control-contracts.py'
+    CONTRACT = 'scripts/ci-required-result.test.py'
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.git('init', '-q')
+        for path in sorted(set(module.POLICY_FILES) | {self.RUNNER, self.CONTRACT}):
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('# original control definition\n')
+        self.config = dict(python_control_contract_version=1, python_control_contracts={
+            'scripts/ci-required-result.py': dict(group='workflow_governance', tests=[self.CONTRACT])})
+        self.write_config()
+
+    def git(self, *arguments):
+        return subprocess.check_output(['git', '-C', str(self.root), *arguments], text=True).strip()
+
+    def write_config(self):
+        (self.root / 'scripts/ci-required-scope.json').write_text(json.dumps(self.config))
+
+    def commit(self):
+        self.git('add', '.')
+        self.git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid',
+                 'commit', '-qm', 'definition fixture')
+        return self.git('rev-parse', 'HEAD')
+
+    def assert_rejects_previous_definition(self, path):
+        previous = module.definition_digest(self.root, self.commit())
+        (self.root / path).write_text('# changed trusted contract execution\n')
+        current = module.definition_digest(self.root, self.commit())
+        self.assertNotEqual(previous, current)
+        receipt, run, jobs = fixture()
+        receipt['definition_sha256'] = previous
+        with self.assertRaises(ValueError):
+            module.verify_receipt(receipt, run, jobs, source=A, repository='nil-studio/oasis7',
+                                  workflow_id=7, config=CONFIG, digest=current)
+
+    def test_trusted_python_runner_change_invalidates_previous_definition(self):
+        self.assert_rejects_previous_definition(self.RUNNER)
+
+    def test_registered_baseline_assertion_change_invalidates_previous_definition(self):
+        self.assert_rejects_previous_definition(self.CONTRACT)
+
+    def test_digest_reads_contracts_at_fixed_revision_not_worktree(self):
+        revision = self.commit()
+        previous = module.definition_digest(self.root, revision)
+        self.config['python_control_contracts'] = {}
+        self.write_config()
+        (self.root / self.CONTRACT).write_text('# uncommitted candidate assertions\n')
+        self.assertEqual(module.definition_digest(self.root, revision), previous)
+
+    def test_unknown_python_is_not_an_implicit_policy_input(self):
+        previous = module.definition_digest(self.root, self.commit())
+        (self.root / 'scripts/ordinary-helper.py').write_text('VALUE=7\n')
+        self.assertEqual(module.definition_digest(self.root, self.commit()), previous)
+
+    def test_invalid_trusted_contract_paths_fail_before_reading_unowned_data(self):
+        for path in ('../outside.test.py', '/tmp/outside.test.py', 'scripts/*.test.py',
+                     'scripts/../outside.test.py', 'scripts/ordinary.py'):
+            self.config['python_control_contracts']['scripts/ci-required-result.py']['tests'] = [path]
+            self.write_config()
+            with self.assertRaises(ValueError):
+                module.definition_digest(self.root, self.commit())
+
+    def test_old_configuration_without_python_contract_capability_remains_readable(self):
+        self.config = {}
+        self.write_config()
+        self.assertEqual(len(module.definition_digest(self.root, self.commit())), 64)
+
+
 class Response(io.BytesIO):
     def __init__(self, data, link=""):
         super().__init__(json.dumps(data).encode())

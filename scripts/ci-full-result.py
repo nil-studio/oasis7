@@ -28,7 +28,7 @@ POLICY_FILES = (
     "scripts/ci-tests.sh", "scripts/ci-test-artifacts.py",
     "scripts/ci-formal-process-suites.json", "scripts/ci-formal-plan.py",
     "scripts/ci_process_runner.py", "scripts/ci-required-result.py",
-    "scripts/ci-full-result.py",
+    "scripts/ci-full-result.py", "scripts/ci-python-control-contracts.py",
 )
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -51,12 +51,43 @@ def commit(value):
 
 
 def definition_digest(root, revision):
-    digest = hashlib.sha256()
-    for path in POLICY_FILES:
-        content = subprocess.check_output(
-            ["git", "-C", str(root), "show", f"{commit(revision)}:{path}"],
+    revision = commit(revision)
+
+    def read(path):
+        return subprocess.check_output(
+            ["git", "-C", str(root), "show", f"{revision}:{path}"],
             stderr=subprocess.PIPE,
         )
+
+    contents = {path: read(path) for path in POLICY_FILES}
+    config = decode_json(contents["scripts/ci-required-scope.json"])
+    if not isinstance(config, dict):
+        raise ValueError("invalid trusted scope definition")
+    contract_tests = set()
+    if {"python_control_contract_version", "python_control_contracts"}.intersection(config):
+        contracts = config.get("python_control_contracts")
+        if (type(config.get("python_control_contract_version")) is not int
+                or config["python_control_contract_version"] != 1
+                or not isinstance(contracts, dict) or not contracts):
+            raise ValueError("invalid trusted Python contract definition")
+        for contract in contracts.values():
+            tests = contract.get("tests") if isinstance(contract, dict) else None
+            if not isinstance(tests, list) or not tests:
+                raise ValueError("missing trusted Python contract tests")
+            for path in tests:
+                if (not isinstance(path, str) or not path.startswith("scripts/")
+                        or not path.endswith(".test.py")
+                        or any(part in ("", ".", "..") for part in path.split("/"))
+                        or any(character in path for character in ("\\", "*", "?", "[", "]"))
+                        or any(ord(character) < 32 for character in path)):
+                    raise ValueError("invalid trusted Python contract test path")
+                contract_tests.add(path)
+    # These assertions are now executable policy inputs, read from the same
+    # immutable revision as the runner and scope. Never load candidate Python.
+    for path in sorted(contract_tests.difference(contents)):
+        contents[path] = read(path)
+    digest = hashlib.sha256()
+    for path, content in contents.items():
         digest.update(path.encode() + b"\0" + hashlib.sha256(content).digest())
     return digest.hexdigest()
 
