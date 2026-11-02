@@ -561,6 +561,9 @@ impl Replay<'_> {
                 }
                 self.closing = Some((*reason, at));
             }
+            E::TermSixReserved { .. } | E::TermSixPortClaimed { .. } => {
+                return self.apply_term_six(event, at, ordinal);
+            }
             // Their actual independent consumers must extend this closed replay
             // before any future field or Book can carry an admissible event.
             SessionEventKindV2::NativeModelHttpSettled { .. }
