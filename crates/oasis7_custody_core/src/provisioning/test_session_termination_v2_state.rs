@@ -26,6 +26,10 @@ pub struct TestSessionTerminationStateV2 {
     pub(in crate::provisioning) transports: BTreeMap<String, TerminationPaidTransportV2>,
     #[serde(deserialize_with = "required")]
     pub(in crate::provisioning) archived_fact: Option<TerminationArchivedFactV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::provisioning) owned_invocation: Option<TermOwnedInvocationRecordV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::provisioning) qualification_read: Option<TermOwnerSlotReadRecordV2>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,6 +48,10 @@ struct RawTestSessionTerminationStateV2 {
     transports: BTreeMap<String, TerminationPaidTransportV2>,
     #[serde(deserialize_with = "required")]
     archived_fact: Option<TerminationArchivedFactV2>,
+    #[serde(default)]
+    owned_invocation: Option<TermOwnedInvocationRecordV2>,
+    #[serde(default)]
+    qualification_read: Option<TermOwnerSlotReadRecordV2>,
 }
 fn present_guarded_stop<'de, D>(
     d: D,
@@ -73,6 +81,8 @@ impl TryFrom<RawTestSessionTerminationStateV2> for TestSessionTerminationStateV2
             close: raw.close,
             transports: raw.transports,
             archived_fact: raw.archived_fact,
+            owned_invocation: raw.owned_invocation,
+            qualification_read: raw.qualification_read,
             guarded_stop,
         };
         state.validate_shape()?;
@@ -229,6 +239,7 @@ impl TestSessionTerminationStateV2 {
         u64::try_from(self.transports.len())
             .ok()
             .and_then(|n| n.checked_mul(2))
+            .and_then(|n| n.checked_add(u64::from(self.qualification_read.is_some())))
             .and_then(|n| {
                 n.checked_add(u64::from(
                     self.guarded_stop
@@ -300,10 +311,18 @@ impl TestSessionTerminationStateV2 {
         Ok(())
     }
     pub(in crate::provisioning) fn transport_id_in_use(&self, id: &str) -> bool {
-        self.close
+        self.owned_invocation
             .as_ref()
-            .and_then(|c| c.signature_claim.as_ref())
-            .is_some_and(|c| c.attempt_id == id)
+            .is_some_and(|v| v.invocation_id() == id)
+            || self
+                .qualification_read
+                .as_ref()
+                .is_some_and(|v| v.attempt_id == id)
+            || self
+                .close
+                .as_ref()
+                .and_then(|c| c.signature_claim.as_ref())
+                .is_some_and(|c| c.attempt_id == id)
             || self
                 .guarded_stop
                 .as_ref()
@@ -347,6 +366,8 @@ impl TestSessionTerminationStateV2 {
             close: None,
             transports: BTreeMap::new(),
             archived_fact: None,
+            owned_invocation: None,
+            qualification_read: None,
         };
         state.validate_shape()?;
         Ok(state)
@@ -457,6 +478,10 @@ impl TestSessionTerminationStateV2 {
         self.validate_shape()
     }
     pub(in crate::provisioning) fn validate_shape(&self) -> Result<()> {
+        if let Some(read) = &self.qualification_read {
+            read.validate_shape(self.owned_invocation.as_ref().ok_or_else(invalid)?)?;
+        }
+
         if self.schema_revision != 2
             || ![
                 &self.approved_intent_digest,
@@ -529,6 +554,13 @@ impl TestSessionTerminationStateV2 {
         }
         let mut indexes = BTreeSet::new();
         let mut transport_ids = BTreeSet::new();
+        if let Some(read) = &self.qualification_read {
+            if !indexes.insert(u64::from(read.paid_index))
+                || !transport_ids.insert(read.attempt_id.as_str())
+            {
+                return Err(invalid());
+            }
+        }
         if let Some(claim) = self.close.as_ref().and_then(|c| c.signature_claim.as_ref()) {
             if !indexes.insert(u64::from(claim.paid_index))
                 || !transport_ids.insert(claim.attempt_id.as_str())

@@ -49,10 +49,21 @@ pub(crate) async fn first_admit(
             SessionClientOperation::Control(
                 k @ (SessionControlKindV1::Finish | SessionControlKindV1::Abort),
             ) => Some(
-                store
-                    .complete_control_v2_tightening(env, &selected, k)
-                    .await
-                    .map_err(|_| denied())?,
+                if env
+                    .var("CUSTODY_TERM_OWNED_INSTALLATION_PREFIX_V2_ENABLED")
+                    .ok()
+                    .is_some_and(|v| v.to_string() == "true")
+                {
+                    store
+                        .complete_control_v2_with_term_installation_prefix(env, &selected, k)
+                        .await
+                        .map_err(|_| denied())?
+                } else {
+                    store
+                        .complete_control_v2_tightening(env, &selected, k)
+                        .await
+                        .map_err(|_| denied())?
+                },
             ),
             _ => {
                 store
