@@ -61,19 +61,9 @@ impl ExecutionNativePrepareDispatchV2 {
     }
 }
 fn edge_order() -> [ExecutionPreparePhysicalEdgeV2; 10] {
-    [
-        ExecutionPreparePhysicalEdgeV2::AccountToIdentityService,
-        ExecutionPreparePhysicalEdgeV2::IdentityServiceToNativeActor,
-        ExecutionPreparePhysicalEdgeV2::SidCipherReadBefore,
-        ExecutionPreparePhysicalEdgeV2::SidCipherReadAfter,
-        ExecutionPreparePhysicalEdgeV2::CsrfCipherReadBefore,
-        ExecutionPreparePhysicalEdgeV2::CsrfCipherReadAfter,
-        ExecutionPreparePhysicalEdgeV2::IdentityActorToNative,
-        ExecutionPreparePhysicalEdgeV2::NativeToWorldCurrent,
-        ExecutionPreparePhysicalEdgeV2::NativeToWorldPrepare,
-        ExecutionPreparePhysicalEdgeV2::IdentityActorToContextBody,
-    ]
+    crate::native_execution_prepare_v2::execution_prepare_physical_edges_v2()
 }
+
 fn ledger_keys(request: &NativeExecutionPrepareRequestV2) -> Result<[String; 10]> {
     let c = &request.proof.certificate;
     let proof = request.proof.digest().map_err(|_| invalid())?;

@@ -29,6 +29,22 @@ pub enum ExecutionPreparePhysicalEdgeV2 {
     NativeToWorldPrepare,
     IdentityActorToContextBody,
 }
+/// Canonical metadata inventory; this list never confers paid/send authority.
+pub fn execution_prepare_physical_edges_v2() -> [ExecutionPreparePhysicalEdgeV2; 10] {
+    use ExecutionPreparePhysicalEdgeV2::*;
+    [
+        AccountToIdentityService,
+        IdentityServiceToNativeActor,
+        SidCipherReadBefore,
+        SidCipherReadAfter,
+        CsrfCipherReadBefore,
+        CsrfCipherReadAfter,
+        IdentityActorToNative,
+        NativeToWorldCurrent,
+        NativeToWorldPrepare,
+        IdentityActorToContextBody,
+    ]
+}
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionPreparePhysicalPortV2 {
@@ -83,18 +99,7 @@ fn hex(v: &str) -> bool {
 impl AccountNativeExecutionPrepareV2 {
     pub fn validate_shape(&self) -> Result<(), String> {
         self.native_binding.validate().map_err(|_| invalid())?;
-        let expected = [
-            ExecutionPreparePhysicalEdgeV2::AccountToIdentityService,
-            ExecutionPreparePhysicalEdgeV2::IdentityServiceToNativeActor,
-            ExecutionPreparePhysicalEdgeV2::SidCipherReadBefore,
-            ExecutionPreparePhysicalEdgeV2::SidCipherReadAfter,
-            ExecutionPreparePhysicalEdgeV2::CsrfCipherReadBefore,
-            ExecutionPreparePhysicalEdgeV2::CsrfCipherReadAfter,
-            ExecutionPreparePhysicalEdgeV2::IdentityActorToNative,
-            ExecutionPreparePhysicalEdgeV2::NativeToWorldCurrent,
-            ExecutionPreparePhysicalEdgeV2::NativeToWorldPrepare,
-            ExecutionPreparePhysicalEdgeV2::IdentityActorToContextBody,
-        ];
+        let expected = execution_prepare_physical_edges_v2();
         if self.api_version != 2
             || !self.world.valid()
             || ![
