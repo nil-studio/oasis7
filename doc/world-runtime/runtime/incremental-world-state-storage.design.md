@@ -748,3 +748,28 @@ JSON 结构算法由 Effects 与 Cognition 真实消费者共用；各 owner 固
 原 effect:v2 identity_key 与 payload_digest 的唯一既有 wire 保持不变。后者是 serde_cbor 对 tuple("oasis7.effect.intent-payload.v2", EffectIntent) 的原编码，不是 canonical-CBOR 新排序。本组可使用穷尽原字段与 JSON 类型的借用流式编码，必须逐 byte 对照原 encoder；所有输出、计费节点/bytes/depth 和临时工作区均有界，源 DTO/输出 sink 各自持有其分配责任。未知字段或自定义 Serialize 不属于该具体 DTO 接口。失败、取消和最终输出边界必须使连续 context 失效，不能把部分 hash/bytes 当完成原件。
 
 完整 owner 仍须覆盖 GEN、root-only 资格/冷读、同 ExecutionTxn 普通贡献、独立 generic+typed receiver、typed 页闭包/finish 与恢复后合法后继；单个 codec/borrowed visitor 的完成不表示这两族已经 ready。Chain 已有正式 outbox/obligation、accepted World/continuation 与 provider 幂等合同不嫁接为这两个 World descriptor；外调 unknown 必须保留原身份且不因存储重试重派。此组不改变业务 capability 检查、effect dispatch 策略、nonce 分配或 history/World 激活权限。
+### 12.52 Cognition 原字段存储闭包
+
+<a id="iws-cognition-owner-v1"></a>
+
+Cognition 沿用原 Runtime JSON envelope 的十二个 required 与八个 optional 名称，不把 envelope 当作一个 blob，不 clone 或反序列化整个 Snapshot。required 为 schema_version、cognition_journal、responses、commit_records、receipt_registry、receipt_lineage_registry、feedback_outbox、idempotency_index、staged_actions、scheduler_state、continuations、recovery；optional 为 runtime_binding、retention_state、continuation_contexts、cognition_economy、agent_delegation、agent_delegation_active_decision、continuation_evaluations、reorg_invalidation_epoch。未知与缺失 required 拒绝，active_decision 继续只属临时事务输入，不能持久 GEN。原 String 外键与记录内 ID 独立，数组保持 ordinal、重复及原顺序，Option 的缺失、null、空字符串与空集合不可折叠。
+
+原归属保持：journal.events 与 responses 是 History；commit_records、receipt_registry、receipt_lineage_registry、recovery、runtime_binding 是 ProofLedger；retention_state 是 RetentionLedger。它们不是 RootSet 当前状态叶，不能为方便实现而引入当前 root 自循环。schema_version 和 journal.schema_version 属 Artifacts，journal.head_seq/head_digest 属 Allocator，feedback_outbox/staged_actions/continuations/continuation_contexts 属 Effects，idempotency_index 与 reorg_invalidation_epoch 属 Authorization，scheduler_state/continuation_evaluations 属 Scheduler；economy 和 delegation 继续细分原投影，不以一个 optional JSON 值替代其已有归属。
+
+控制字段复用原 Cognition descriptor、Metadata 与 Entry/Unit 键，Text/U64 使用现有闭合 Member codec，逐项借用 GEN；普通点读流式输出长文本，不分配全值。动态 JSON 节点复用有实际 Effects 与 Cognition 消费者的中性闭包引擎，由 Cognition 固定 descriptor/schema/namespace 与原语义键；节点独立列/成员及 typed RootRef，不用 JSON 串、整记录 bytes 或任意 callback 代替完整闭包。GEN 只输出 provisional 写集，局部读、控制字段成功和 JSON 子树资格均不得签发完整 CognitionReady。
+
+当前状态 v1 地址闭合为十个 primitive 控制 cohort 与二十个 JSON cohort。每个存在的 cohort 在原 descriptor/namespace 下恰有 Metadata 与 Entry/Unit 两叶；JSON Entry 使用标准 RecordRootRefV1，绑定该 cohort 的 schema、Unit 原语义摘要和 namespace。JSON 内部 descriptor 的 name 是原 cohort 名加 `.json.v1`，shape 为 Map，namespace 保持原目的地；内部所有节点复用同一 profile，原 object String 键及 array ordinal 不改写。旧 flat ordinal/member 地址不是本 profile 的可兼容输入，raw 资格必须拒绝，不能把缺 Metadata 的遗留后代吸收到新记录。
+
+JSON schema 固定为对应单字节重复三十二次：feedback_outbox、idempotency_index、staged_actions、scheduler_state、continuations、continuation_contexts、continuation_evaluations 顺序为 0xc1..0xc7；economy.balances、economy.provisioned_balances、economy.lease_binding_keys、economy.provisions、economy.provision_receipts、economy.leases、economy.receipts、economy.idempotency、economy.operations 顺序为 0xd1..0xd9；delegation.grants、delegation.spent、delegation.decisions、delegation.controls 顺序为 0xe1..0xe4。Map/NestedMap 根必须是 object，continuations 必须是 array，scheduler_state 保留原 JSON 值种类。balances 的账户子项以及 grants/decisions/controls 的即时成员必须为 object，spent 的即时成员必须为 u64；这些结构约束不是新业务授权或经济规则。
+
+CurrentStateQualification 只证明认证 RootSet 中这些当前状态地址与完整 JSON 图闭合：必需 cohort 存在，economy 十四个当前状态 cohort 同时有或同时无，delegation 四个当前状态 cohort 同时有或同时无；所有 Metadata/Unit 必须成对，未知地址拒绝。它不替代原 Runtime 恢复/业务解析，也不授 History、ProofLedger、RetentionLedger、权限或完整 CognitionReady。原 Snapshot.cognition 本身仍是 serde_json::Value。
+
+scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 before RootSet，先 generic replay，再逐 changed 地址检查；未变 JSON 子树按原资格继承，变化子树必须认证实际旧/新路径并保持结构、长度与成员集合。控制字段新值按原 Text/u64 与 schema 常量验证，Metadata、必需列与可选组存在性不能由 scalar API 增删。
+
+独立结构路径覆盖 object 单成员创建、替换与删除，array 原尾部 append/truncate，以及调用者明确要求的整子树 Replace。array 净数量与实际新增、删除 ordinal 范围共同证明密度，不能接受 count-only 或非尾部删除；新子树必须完整资格，删除旧已资格子树不扫描其未变 payload。整 Replace 的工作量包含完整 new 子树，不把它当作小字段点改。根类型切换仍须重新施加 Cognition 目标根形状和即时成员约束。JSON 原始资格的节点出现数为 Exact；结构变更不能精确扣除旧子树时只保留显式 UpperBound，scalar 变更继承精度，不得将该诊断上界作为实际工作额度或闭包关系证明。
+
+可选组生命周期以 economy 十四 cohort、delegation 四 cohort、continuation_contexts、continuation_evaluations 和 reorg_invalidation_epoch 为边界。expected 只绑定同池、parent 根和当前 overlay 全组 Metadata/Unit 行，不授组结构资格；缺失创建仅借用过滤后的原 GEN，完成全部组写入，删除完整移除组行。接收端在 generic replay 后重新检查 Metadata/Unit 配对、全部必需列、组的全有或全无、新 JSON 完整资格及已有 JSON 实际 changed paths。创建后的同事务点改须先对实际新 Entry RootRef 完整验证目标 JSON，并仅取得该 Entry 的私有资格，不能从 opaque expected IDs 推出整 family 就绪。NoOp 同样在最后成功返回前检查读写组合取消。
+
+固定增量验证分别记录逻辑节点调用/编码字节和真实 state/value/writer 会话读写操作/字节，不能把逻辑节点数等同物理 IO。content-addressed pack 的索引位置会改变有界查找探针；这种开销须从实际原索引独立核对并按物理 profile 上界解释，不能把归因后的相等数字表述为原物理 IO 完全相同。页 mark/transfer 只提供本 current-state scope 与顶层六树依赖，其他 owner 和独立 side ledger 的闭包仍需联合。
+
+完整资格必须从认证 RootSet、全部当前状态 cohort 与各独立 side owner 的真实证明组合，校验 required/optional 关系与未知/孤儿；普通事务只沿目标路径和必要关系访问，不能扫描未变大文本/集合。精确 expected、guard/live、同池 Ordinary、连续有限 key/逻辑/物理/heap 额度、NoOp/最后实际 put/finish 的组合取消、所有失败 poison 前缀合同继续适用。接收端先 generic replay，再从已资格父与完整 changed-path 写集推导新闭包；新记录全量资格，未变子树仅继承原已认证闭包。typed pages 跟随全部子 State/Value 引用并等待实际 sink finish，冷恢复不能依赖旧 Snapshot、缓存或旧内存池。本节不新增 cognition 调度、授权、投票或业务规则，不能代签 accepted history 或全 World GC。

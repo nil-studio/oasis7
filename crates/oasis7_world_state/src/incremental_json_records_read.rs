@@ -17,7 +17,7 @@ fn invalid() -> ValueTreeError {
 }
 use super::cursor;
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(super) enum Kind {
     Null,
     Bool,
     I64,
@@ -28,7 +28,7 @@ enum Kind {
     Object,
 }
 impl Kind {
-    fn container(self) -> bool {
+    pub(super) fn container(self) -> bool {
         matches!(self, Self::Array | Self::Object)
     }
 }
@@ -49,10 +49,10 @@ impl JsonReadWorkV1 {
 }
 #[derive(Debug)]
 pub struct JsonSubtreeQualificationV1 {
-    root: StateRootV1,
-    profile: JsonRecordProfileV1,
-    nodes: u64,
-    exact: bool,
+    pub(super) root: StateRootV1,
+    pub(super) profile: JsonRecordProfileV1,
+    pub(super) nodes: u64,
+    pub(super) exact: bool,
 }
 impl JsonSubtreeQualificationV1 {
     pub fn root(&self) -> &StateRootV1 {
@@ -126,15 +126,57 @@ fn get<R: ValueNodeReader, C: FnMut() -> bool>(
 ) -> Result<[u8; 32], ValueTreeError> {
     tree::lookup(root, key, records, LABELS)?.ok_or_else(invalid)
 }
-struct Frame {
-    cursor: cursor::Cursor,
-    keys: [WorldFieldKeyV1; 5],
-    ids: [[u8; 32]; 5],
-    kind: Kind,
-    length: u64,
+pub(super) struct Frame {
+    pub(super) cursor: cursor::Cursor,
+    pub(super) keys: [WorldFieldKeyV1; 5],
+    pub(super) ids: [[u8; 32]; 5],
+    pub(super) kind: Kind,
+    pub(super) length: u64,
     members: u64,
 }
-fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn kind<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Kind, ValueTreeError> {
+    if root.namespace != profile.namespace()? {
+        return Err(invalid());
+    }
+    let key = cell_key(profile, "json.kind", records)?;
+    let id = get(root, &key.0, records)?;
+    kind_value(&id, &key, records)
+}
+fn kind_value<R: ValueNodeReader, C: FnMut() -> bool>(
+    id: &[u8; 32],
+    key: &(WorldFieldKeyV1, u64),
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Kind, ValueTreeError> {
+    let mut text = [0; 8];
+    let observed = value(
+        id,
+        key,
+        MemberPayloadCodecV1::Text,
+        8,
+        records,
+        &mut Bytes::new(text.as_mut_slice()),
+    )?;
+    let RecordValueV1::Text { utf8_bytes } = observed else {
+        return Err(invalid());
+    };
+    let node = match text.get(..utf8_bytes as usize).ok_or_else(invalid)? {
+        b"null" => Kind::Null,
+        b"bool" => Kind::Bool,
+        b"i64" => Kind::I64,
+        b"u64" => Kind::U64,
+        b"f64" => Kind::F64,
+        b"string" => Kind::String,
+        b"array" => Kind::Array,
+        b"object" => Kind::Object,
+        _ => return Err(invalid()),
+    };
+    Ok(node)
+}
+pub(super) fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     root: &StateRootV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,
@@ -173,29 +215,7 @@ fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
         records,
         &mut std::io::sink(),
     )?;
-    let mut text = [0; 8];
-    let observed = value(
-        &ids[2],
-        &label,
-        MemberPayloadCodecV1::Text,
-        8,
-        records,
-        &mut Bytes::new(text.as_mut_slice()),
-    )?;
-    let RecordValueV1::Text { utf8_bytes } = observed else {
-        return Err(invalid());
-    };
-    let node = match text.get(..utf8_bytes as usize).ok_or_else(invalid)? {
-        b"null" => Kind::Null,
-        b"bool" => Kind::Bool,
-        b"i64" => Kind::I64,
-        b"u64" => Kind::U64,
-        b"f64" => Kind::F64,
-        b"string" => Kind::String,
-        b"array" => Kind::Array,
-        b"object" => Kind::Object,
-        _ => return Err(invalid()),
-    };
+    let node = kind_value(&ids[2], &label, records)?;
     let codec = match node {
         Kind::Null | Kind::Array | Kind::Object => MemberPayloadCodecV1::Unit,
         Kind::Bool => MemberPayloadCodecV1::Bool,
@@ -333,13 +353,22 @@ impl Write for Probe<'_> {
         self.text.flush()
     }
 }
-fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     entry: &oasis7_formal_protocol::incremental_state::StateEntryV1,
     index: bool,
     length: u64,
     records: &mut InventoryValueReader<'_, '_, R, C>,
 ) -> Result<StateRootV1, ValueTreeError> {
+    child_with_ordinal(profile, entry, index, length, records).map(|(root, _)| root)
+}
+pub(super) fn child_with_ordinal<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    entry: &oasis7_formal_protocol::incremental_state::StateEntryV1,
+    index: bool,
+    length: u64,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<(StateRootV1, Option<u64>), ValueTreeError> {
     let _scratch = records.values.memory.reserve(8192, records.values.class)?;
     let binding = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
     if binding.owner != profile.field.owner
@@ -389,21 +418,23 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
         return Err(invalid());
     }
     result?;
-    if probe.finish()?.is_some_and(|ordinal| ordinal >= length) {
+    let ordinal = probe.finish()?;
+    if ordinal.is_some_and(|ordinal| ordinal >= length) {
         return Err(invalid());
     }
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
     let reference = RecordRootRefV1::from_canonical_bytes(&bytes).map_err(|_| invalid())?;
-    Ok(reference
+    let root = reference
         .validate_binding(
             &profile.schema,
             &binding.semantic_key.ok_or_else(invalid)?,
             profile.namespace()?,
         )
         .map_err(|_| invalid())?
-        .clone())
+        .clone();
+    Ok((root, ordinal))
 }
 /// Standalone complete JSON-body proof only. Family/parent RootSet binding and
 /// all pending/inflight relations must be checked by their separate owner gate.
@@ -419,30 +450,39 @@ pub fn qualify_json_subtree_v1<
     work: &mut JsonReadWorkV1,
 ) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
     ctx.check()?;
+    qualify_records(profile, root, &mut ctx.records(), work)
+}
+/// The caller establishes the phase/source context; all JSON reads and work
+/// remain on the same borrowed continuous record context.
+pub(crate) fn qualify_records<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<ReservedValue<JsonSubtreeQualificationV1>, ValueTreeError> {
     profile.namespace()?;
-    let retained = ctx.values.memory.reserve(512, ctx.values.class)?;
+    let retained = records.values.memory.reserve(512, records.values.class)?;
     let capacity = work
         .max_depth
         .checked_add(1)
         .ok_or(ValueTreeError::ResourceLimited(
             "effect JSON closure depth admission",
         ))?;
-    let _stack = ctx.values.memory.reserve(
+    let _stack = records.values.memory.reserve(
         capacity.checked_mul(std::mem::size_of::<Frame>()).ok_or(
             ValueTreeError::ResourceLimited("effect JSON closure stack admission"),
         )?,
-        ctx.values.class,
+        records.values.class,
     )?;
     let before = work.json_nodes_remaining;
-    let mut records = ctx.records();
     let mut stack = Vec::with_capacity(capacity);
-    stack.push(frame(profile, root, &mut records, work)?);
+    stack.push(frame(profile, root, records, work)?);
     loop {
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled);
         }
         let current = stack.last_mut().ok_or_else(invalid)?;
-        let Some(entry) = current.cursor.next(&mut records)? else {
+        let Some(entry) = current.cursor.next(records)? else {
             if current.members != current.length {
                 return Err(invalid());
             }
@@ -471,7 +511,7 @@ pub fn qualify_json_subtree_v1<
             &entry,
             current.kind == Kind::Array,
             current.length,
-            &mut records,
+            records,
         )?;
         current.members = current.members.checked_add(1).ok_or_else(invalid)?;
         if current.members > current.length {
@@ -480,7 +520,7 @@ pub fn qualify_json_subtree_v1<
         if stack.len() > work.max_depth {
             return Err(ValueTreeError::ResourceLimited("effect JSON closure depth"));
         }
-        stack.push(frame(profile, &child, &mut records, work)?);
+        stack.push(frame(profile, &child, records, work)?);
     }
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
