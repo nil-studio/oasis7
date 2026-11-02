@@ -101,6 +101,12 @@ fn first() -> (SessionFixture, PendingFenceDispatchV2) {
             UnixMillis::new(13006),
         )
         .unwrap();
+    let dispatch_claimed: AccountProvisionApprovalState =
+        serde_json::from_value(serde_json::to_value(&f.state).unwrap()).unwrap();
+    assert_eq!(
+        dispatch_claimed, f.state,
+        "Dispatcher claim is a genuine durable intermediate state"
+    );
     let signature = signed(&authority.signing_bytes().unwrap());
     let dispatch_pin = pin(&f, AccountMachinePurposeV2::ExecutionFenceDispatchV2);
     let first = f
@@ -136,6 +142,12 @@ fn session_v2_pending_fence_genuine_first_issuer_read_once_cold() {
             UnixMillis::new(13008),
         )
         .unwrap();
+    let read_claimed: AccountProvisionApprovalState =
+        serde_json::from_value(serde_json::to_value(&f.state).unwrap()).unwrap();
+    assert_eq!(
+        read_claimed, f.state,
+        "received callback + FENCES claims commit before signing"
+    );
     let signature = signed(&authority.signing_bytes().unwrap());
     let read_pin = pin(&f, AccountMachinePurposeV2::ExecutionFenceReadV2);
     let read = f
@@ -173,6 +185,56 @@ fn session_v2_pending_fence_genuine_first_issuer_read_once_cold() {
     let value = serde_json::to_value(&paid).unwrap();
     let cold: AccountProvisionApprovalState = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(cold, paid);
+    let pending = value["test_sessions_v2"][&f.session_id]
+        .get("execution_pending_start")
+        .unwrap();
+    let ports = pending.get("physical_ports").unwrap().as_array().unwrap();
+    let mut claimed: Vec<_> = ports
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| p.get("claimed_ordinal").unwrap().as_u64().map(|o| (o, i)))
+        .collect();
+    claimed.sort_unstable();
+    assert_eq!(
+        claimed.len(),
+        5,
+        "three business leaves plus two actual callback hops"
+    );
+    let unused = ports
+        .iter()
+        .position(|p| p.get("claimed_ordinal").unwrap().is_null())
+        .unwrap();
+    for mutation in 0..7 {
+        let mut bad = value.clone();
+        let p = &mut bad["test_sessions_v2"][&f.session_id]["execution_pending_start"];
+        match mutation {
+            0 => p["directory_signature"] = serde_json::Value::Null,
+            1 => p["directory_signature"]["recorded_at"] = serde_json::json!(13007),
+            2 => p["fence_dispatch"]["recorded_at"] = serde_json::json!(13009),
+            3 => {
+                let ordinal = p["physical_ports"][claimed[4].1]["claimed_ordinal"].clone();
+                let at = p["physical_ports"][claimed[4].1]["claimed_at"].clone();
+                p["physical_ports"][unused]["claimed_ordinal"] = ordinal;
+                p["physical_ports"][unused]["claimed_at"] = at;
+                p["physical_ports"][claimed[4].1]["claimed_ordinal"] = serde_json::Value::Null;
+                p["physical_ports"][claimed[4].1]["claimed_at"] = serde_json::Value::Null;
+            }
+            4 => {
+                p["physical_ports"][claimed[3].1]["claimed_ordinal"] =
+                    p["physical_ports"][claimed[2].1]["claimed_ordinal"].clone()
+            }
+            5 => {
+                p["physical_ports"][claimed[3].1]["claimed_ordinal"] = serde_json::Value::Null;
+                p["physical_ports"][claimed[3].1]["claimed_at"] = serde_json::Value::Null;
+            }
+            6 => p["physical_ports"][claimed[4].1]["claimed_at"] = serde_json::json!(13010),
+            _ => unreachable!(),
+        }
+        assert!(
+            serde_json::from_value::<AccountProvisionApprovalState>(bad).is_err(),
+            "causal fixed-subtree mutation {mutation} must fail cold restore"
+        );
+    }
     for field in ["fence_dispatch", "fence_read"] {
         let mut bad = value.clone();
         bad["test_sessions_v2"][&f.session_id]["execution_pending_start"][field] =
