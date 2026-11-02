@@ -646,6 +646,10 @@ fn generic_result_catalog_seek_and_direct_prefix_inheritance_preserve_kind() {
 #[test]
 fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
     let mut f = current();
+    let _fixture =
+        f.s.memory
+            .reserve(128 << 10, MemoryClass::Ordinary)
+            .unwrap();
     f.s.commit = formal::verify_formal_qualified(&f.proof, &f.s.authority, None, None).unwrap();
     let (head, core, _) = normal_extension(&mut f);
     let extension = verify_fact_history_extension_v1(
@@ -750,6 +754,55 @@ fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
         "Recovery inheritance: generic={generic_result:?}, legacy={legacy_result:?}"
     );
     let reads = (f.objects.reads, f.pages.reads.get());
+    // Distinct genuinely accepted record, but the same RootSet and body roles:
+    // this must hit the exact record-ID check, not only head/root validation.
+    let mut other_record = f.s.commit.record().clone();
+    other_record.request_digest = hex::encode([83; 32]);
+    let other_proof = fixture::proof(
+        other_record,
+        &f.s.authority,
+        formal::FormalCompletionBranchV1::Normal,
+        None,
+        None,
+        4,
+        5,
+        6,
+    );
+    let other_head =
+        formal::verify_formal_qualified(&other_proof, &f.s.authority, None, None).unwrap();
+    for role in [
+        ArtifactRole::IncrementalRootSet,
+        ArtifactRole::IncrementalCommitBody,
+    ] {
+        assert_eq!(
+            other_head.record().artifact_roots.get(&role),
+            f.s.commit.record().artifact_roots.get(&role)
+        );
+    }
+    for result in [
+        readmit_fact_occurrence_ordinary_v1(&generic, &other_head, &f.s.roots, &f.s.memory, || {
+            false
+        })
+        .map(|_| ()),
+        readmit_event_fact_occurrence_ordinary_v1(
+            &legacy,
+            &other_head,
+            &f.s.roots,
+            &f.s.memory,
+            || false,
+        )
+        .map(|_| ()),
+    ] {
+        assert!(
+            matches!(
+                result,
+                Err(CoreError::Invalid(
+                    "fact readmission exact accepted binding"
+                ))
+            ),
+            "{result:?}"
+        );
+    }
     let foreign = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     for result in [
         readmit_fact_occurrence_ordinary_v1(&generic, &f.s.commit, &f.s.roots, &foreign, || false)
@@ -843,6 +896,26 @@ fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
     .unwrap();
     assert_eq!(admitted.allocation_class(), MemoryClass::Ordinary);
     assert_eq!(event_admitted.allocation_class(), MemoryClass::Ordinary);
+    assert!(matches!(
+        readmit_fact_occurrence_ordinary_v1(
+            &admitted,
+            &f.s.commit,
+            &f.s.roots,
+            &f.s.memory,
+            || false
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        readmit_event_fact_occurrence_ordinary_v1(
+            &event_admitted,
+            &f.s.commit,
+            &f.s.roots,
+            &f.s.memory,
+            || false
+        ),
+        Err(CoreError::Invalid(_))
+    ));
     assert_eq!(admitted.head_record_id(), generic.head_record_id());
     assert_eq!(admitted.roots_id(), generic.roots_id());
     assert_eq!(admitted.head_body_id(), generic.head_body_id());
