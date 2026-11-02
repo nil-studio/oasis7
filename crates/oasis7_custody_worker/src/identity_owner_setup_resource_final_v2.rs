@@ -103,7 +103,7 @@ pub(super) async fn finish(
         &preflight.view.session_observation_nonce,
     )
     .await?;
-    let response = resource_transport_v2::send(
+    let paid_result = resource_transport_v2::send(
         env,
         selector,
         &preflight,
@@ -112,6 +112,11 @@ pub(super) async fn finish(
         &source_record_digest,
     )
     .await?;
+    let response = paid_result
+        .world_evidence
+        .world_response()
+        .map_err(|_| js_denied())?
+        .clone();
     resource::verify_resource_goal_response(
         &candidate.original,
         &response,
@@ -124,7 +129,11 @@ pub(super) async fn finish(
         env,
         selector,
         OwnerSetupRuntimeAction::RecordResourceResult {
-            completed: Box::new(CompleteOwnerSetupResourceFinalV2 { response, session }),
+            completed: Box::new(CompleteOwnerSetupResourceFinalV2 {
+                response,
+                session,
+                paid_result,
+            }),
         },
     )
     .await?;
