@@ -113,6 +113,21 @@ pub(super) fn preactivated_world3(
         start,
     )
 }
+pub(super) fn preactivated_v3(
+    start: u64,
+) -> (
+    SessionFixture,
+    TestSessionPreflightDescriptorV2,
+    SignedManagedNativeSessionLifetimeV1,
+) {
+    preactivation_fixture(
+        pending_fixture_with_profile(
+            80,
+            Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3),
+        ),
+        start,
+    )
+}
 fn preactivation_fixture(
     mut f: SessionFixture,
     start: u64,
@@ -193,9 +208,13 @@ fn preactivation_fixture(
             )
             .unwrap();
     }
-    let paid_world = if d.cleanup_transport_policy
-        == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
-    {
+    let paid_world = if matches!(
+        d.cleanup_transport_policy,
+        Some(
+            CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+                | CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
+        )
+    ) {
         Some(preflight_world_tests::allocate_world_fixture(
             &mut f.state,
             &f.session_id,

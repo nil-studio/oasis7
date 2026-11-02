@@ -122,3 +122,6 @@ fn first_actual_closing_control_owns_one_paid_installation_read_and_history_cann
 
 #[path = "test_session_v2_term_six_funding_tests.rs"]
 mod term_six_tests;
+
+#[path = "test_session_v3_term_five_funding_tests.rs"]
+mod term_five_v3_tests;

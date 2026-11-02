@@ -94,6 +94,12 @@ pub(super) fn require_supported_profile(
     config: &CustodyConfig,
     request: &ApprovalOptionsRequestV1,
 ) -> Result<(), StoreError> {
+    // V3 metadata must never fall through to old ordinary consent/receivers.
+    if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
+        if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3)
+    {
+        return Err(unavailable());
+    }
     if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
         if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
     {

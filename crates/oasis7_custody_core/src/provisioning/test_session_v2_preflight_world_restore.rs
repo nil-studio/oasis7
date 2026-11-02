@@ -133,8 +133,10 @@ impl AccountProvisionApprovalState {
         let CustodyIntentV1::TestSessionV2 { plan, .. } = &s.input.request.intent else {
             return Err(invalid());
         };
-        let new = plan.termination.cleanup_transport_policy
-            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2;
+        let new = plan
+            .termination
+            .cleanup_transport_policy
+            .requires_fixed_world3();
         let Some(w) = &s.preflight_world_access else {
             return if new
                 && s.preflight_steps

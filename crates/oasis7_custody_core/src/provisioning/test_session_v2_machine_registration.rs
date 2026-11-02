@@ -275,13 +275,16 @@ impl AccountProvisionApprovalState {
                 plan.termination.cleanup_transport_policy,
                 CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
                     | CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+                    | CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
             )
             || pin.native_audience_origin != current.native_scope.http_origin
         {
             return Err(invalid());
         }
-        if plan.termination.cleanup_transport_policy
-            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+        if plan
+            .termination
+            .cleanup_transport_policy
+            .requires_fixed_world3()
         {
             let world = s
                 .preflight_world_access
