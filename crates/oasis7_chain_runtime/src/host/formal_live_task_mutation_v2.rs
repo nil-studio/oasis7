@@ -3,6 +3,8 @@ use super::*;
 use oasis7_client_api::world_service::{
     task_cleanup_v2::*, task_mutation_admission_v2::*, task_stop_v2::*,
 };
+#[path = "formal_live_task_mutation_qualified_v2.rs"]
+mod qualified;
 fn admit(
     service: &FormalLiveService,
     kind: TaskMutationKindV2,
@@ -40,6 +42,9 @@ fn admit(
     })
 }
 pub(super) fn handle_stop(service: &FormalLiveService, body: &[u8]) -> HttpReply {
+    if let Ok(q) = oasis7_client_api::world_service::task_mutation_qualified_v2::TaskMutationWaitSubmitV2::decode_strict(body) {
+        return qualified::handle(service, q, TaskMutationKindV2::GuardedStop, body);
+    }
     let q: TaskStopSubmitV2 = match parse_strict::<TaskStopSubmitV2>(body) {
         Ok(q) if body.len() <= 64 * 1024 => q,
         Ok(_) => {
@@ -85,6 +90,9 @@ pub(super) fn handle_stop(service: &FormalLiveService, body: &[u8]) -> HttpReply
     }
 }
 pub(super) fn handle_close(service: &FormalLiveService, body: &[u8]) -> HttpReply {
+    if let Ok(q) = oasis7_client_api::world_service::task_mutation_qualified_v2::TaskMutationWaitSubmitV2::decode_strict(body) {
+        return qualified::handle(service, q, TaskMutationKindV2::RevokeAndClose, body);
+    }
     let q: TaskCleanupSubmitV2 = match parse_strict::<TaskCleanupSubmitV2>(body) {
         Ok(q) if body.len() <= 64 * 1024 => q,
         Ok(_) => {

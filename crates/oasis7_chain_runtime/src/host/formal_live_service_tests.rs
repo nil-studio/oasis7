@@ -441,6 +441,7 @@ fn signed_submit_queues_real_node_action_without_mutating_world_and_lookup_fails
             world: world.clone(),
             anchor: anchor.clone(),
             stop_publication: None,
+            original_material: None,
         })),
         ..PublishedReadState::default()
     });

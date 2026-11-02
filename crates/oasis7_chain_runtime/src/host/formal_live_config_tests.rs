@@ -97,6 +97,7 @@ impl Fixture {
             recovery_origin_history_directory: None,
             approved_initial_file: None,
             effect_delivery: None,
+            capture_qualified_mutation_material: false,
             full_sync_provider_read_authorization:
                 FullSyncProviderReadAuthorizationModeV1::LegacyV1,
         };
@@ -185,6 +186,7 @@ fn missing_private_paths_are_rejected_without_creating_or_repairing_them() {
         recovery_origin_history_directory: None,
         approved_initial_file: None,
         effect_delivery: None,
+        capture_qualified_mutation_material: false,
         full_sync_provider_read_authorization: FullSyncProviderReadAuthorizationModeV1::LegacyV1,
     };
     write_private(&config_path, &serde_json::to_vec(&config).unwrap());

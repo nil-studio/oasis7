@@ -53,9 +53,26 @@ pub struct FormalReadPublication {
     anchor: VerifiedFormalReadAnchorV1,
     world: World,
     tree: ProjectionCommitmentsV1,
+    // Reuse the bytes already hashed by `new`; archive handoff never encodes
+    // a World while holding the Node/publication lock.
+    archive_snapshot: Option<std::sync::Arc<Vec<u8>>>,
 }
 impl FormalReadPublication {
     pub fn new(anchor: VerifiedFormalReadAnchorV1, world: World) -> FormalReadResult<Self> {
+        Self::new_mode(anchor, world, false)
+    }
+    /// Same full qualification; opt-in retention of bytes already hashed here.
+    pub fn new_with_archive(
+        anchor: VerifiedFormalReadAnchorV1,
+        world: World,
+    ) -> FormalReadResult<Self> {
+        Self::new_mode(anchor, world, true)
+    }
+    fn new_mode(
+        anchor: VerifiedFormalReadAnchorV1,
+        world: World,
+        retain_archive: bool,
+    ) -> FormalReadResult<Self> {
         let record = anchor.head().record();
         let snapshot = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
             .map_err(|e| FormalReadError::Internal(e.to_string()))?;
@@ -92,6 +109,7 @@ impl FormalReadPublication {
             anchor,
             world,
             tree,
+            archive_snapshot: retain_archive.then(|| std::sync::Arc::new(snapshot)),
         })
     }
     pub fn anchor(&self) -> &VerifiedFormalReadAnchorV1 {
@@ -510,25 +528,100 @@ mod tests {
 
 /// A network-free exact local cut for the closed Stop observation. Its anchor
 /// remains an opaque verified formal anchor; no public CommitRef can mint it.
-pub struct LocalStopPublication {
+/// Opaque qualification only. This contains no Stop, Resource, reader or fee
+/// grant, and has no wire constructor or arbitrary World/anchor constructor.
+pub struct LocalQualifiedPublicationV1 {
     world: World,
+    anchor: VerifiedFormalReadAnchorV1,
     commit: CommitRef,
+    snapshot: Option<std::sync::Arc<Vec<u8>>>,
 }
-impl LocalStopPublication {
-    /// Consume the actual full publication producer's successful projection-
-    /// root check; a public anchor/World pair cannot construct this token.
-    pub fn from_publication(publication: FormalReadPublication) -> FormalReadResult<Self> {
+impl LocalQualifiedPublicationV1 {
+    fn from_publication(publication: FormalReadPublication) -> FormalReadResult<Self> {
+        Self::from_publication_mode(publication, false)
+    }
+    fn from_publication_mode(
+        publication: FormalReadPublication,
+        retain_archive: bool,
+    ) -> FormalReadResult<Self> {
         let view = publication.projection("public", "")?;
         let commit = committed_reference(&publication.anchor, &view)?;
         Ok(Self {
             world: publication.world,
+            anchor: publication.anchor,
             commit,
+            snapshot: if retain_archive {
+                publication.archive_snapshot
+            } else {
+                None
+            },
         })
     }
-    pub(crate) fn world(&self) -> &World {
-        &self.world
-    }
-    pub(crate) fn commit(&self) -> &CommitRef {
-        &self.commit
+    /// O(1) owned handoff of bytes already hashed by the real publication.
+    /// The token carries no read permission and cannot be deserialized.
+    pub fn archive_cut(&self) -> FormalReadResult<GoalActivationArchiveCutV1> {
+        Ok(GoalActivationArchiveCutV1 {
+            anchor: self.anchor.clone(),
+            commit: self.commit.clone(),
+            committed_journal: None,
+            snapshot: std::sync::Arc::clone(self.snapshot.as_ref().ok_or_else(|| {
+                FormalReadError::HistoryUnavailable("archive capture disabled".into())
+            })?),
+        })
     }
 }
+pub struct LocalStopPublication {
+    cut: LocalQualifiedPublicationV1,
+}
+impl LocalStopPublication {
+    /// Only an actual successful full publication can construct this holder.
+    pub fn from_publication(publication: FormalReadPublication) -> FormalReadResult<Self> {
+        Ok(Self {
+            cut: LocalQualifiedPublicationV1::from_publication(publication)?,
+        })
+    }
+    /// Opt-in archive capture; ordinary Stop publications retain no snapshot bytes.
+    pub fn from_publication_with_archive(
+        publication: FormalReadPublication,
+    ) -> FormalReadResult<Self> {
+        Ok(Self {
+            cut: LocalQualifiedPublicationV1::from_publication_mode(publication, true)?,
+        })
+    }
+    /// Reuse only the exact opaque qualification, never Stop observation rights.
+    pub fn qualified_cut(&self) -> &LocalQualifiedPublicationV1 {
+        &self.cut
+    }
+    pub(crate) fn world(&self) -> &World {
+        &self.cut.world
+    }
+    pub(crate) fn commit(&self) -> &CommitRef {
+        &self.cut.commit
+    }
+}
+#[path = "resource_goal_activation_archive_v1.rs"]
+mod goal_activation_archive_v1;
+pub use goal_activation_archive_v1::{
+    GoalActivationArchiveCutV1, GoalActivationArchiveMaterialV1, GoalActivationArchiveQueueV1,
+    PreparedGoalActivationArchiveV1,
+};
+
+#[path = "resource_goal_qualified_material_v2.rs"]
+mod qualified_material_v2;
+pub use qualified_material_v2::CapturedResourcePublicationV2;
+#[path = "resource_goal_archive_record_v2.rs"]
+mod archive_record_v2;
+pub use archive_record_v2::{ResourceGoalArchiveRecordV2, VerifiedResourceGoalArchiveV2};
+
+#[cfg(unix)]
+#[path = "formal_resource_paid_read_v1.rs"]
+mod formal_resource_paid_read_v1;
+#[cfg(unix)]
+pub use formal_resource_paid_read_v1::{
+    AuthorizedResourceArchiveReadV1, PreparedResourceWorldReadV1, ResourceCurrentDeliveryCutV1,
+};
+#[cfg(unix)]
+#[path = "resource_goal_archive_reader_v2.rs"]
+mod resource_goal_archive_reader_v2;
+#[cfg(unix)]
+pub use resource_goal_archive_reader_v2::ResourceGoalArchiveReaderV2;
