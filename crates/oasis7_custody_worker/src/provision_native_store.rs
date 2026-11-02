@@ -1017,3 +1017,6 @@ mod execution_dispatch_v2;
 
 #[path = "test_session_term_guarded_vault_store_v2.rs"]
 mod term_guarded_vault_v2;
+
+#[path = "test_session_term_owner_slot_qualification_v2.rs"]
+mod term_owner_slot_qualification_v2;
