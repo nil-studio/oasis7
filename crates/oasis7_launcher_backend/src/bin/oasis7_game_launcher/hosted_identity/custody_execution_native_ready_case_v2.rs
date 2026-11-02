@@ -2,6 +2,8 @@
 use super::*;
 #[path = "custody_execution_native_ready_world_fixture_v2.rs"]
 mod ready_world;
+#[path = "custody_execution_prepare_runtime_observation_fixture_v2.rs"]
+mod runtime_observation;
 fn child_for(test_name: &str, identity_origin: &str, extras: &[(&str, String)]) {
     let directory = std::env::temp_dir().join(format!("execution-ready-{}", random_token()));
     std::fs::create_dir(&directory).unwrap();
@@ -109,6 +111,10 @@ fn with_ready_registry(limit: usize, run: impl FnOnce(ReadyNativeRegistryV2, rea
         .as_mut()
         .unwrap()
         .goal_ref = data.prepared.goal_ref.clone();
+    if std::env::var_os("OASIS7_NATIVE_ARCHIVE_RUNTIME_OBSERVATION").is_some() {
+        let (tick, _) = runtime_observation::build(&data);
+        data.state.logical_tick = DecimalU64(tick);
+    }
     let namespace = json!({"service_id":f.f.service.config.namespace.identity_service_id,
         "environment_id":f.f.service.config.namespace.environment_id,"instance_epoch":f.f.service.config.rp.identity_instance_epoch.to_string()});
     let mut request = native_certificate::options_for(&f, now_ms());
