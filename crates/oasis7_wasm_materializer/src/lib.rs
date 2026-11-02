@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
@@ -36,6 +37,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 const BUILTIN_WASM_ENV_PREFIX: &str = "OASIS7_BUILTIN_WASM_";
+static TEMP_BUILD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_FETCH_TIMEOUT_MS: u64 = 1_500;
@@ -149,11 +151,7 @@ fn try_fetch_via_fetcher(
     let Some(fetcher_path) = builtin_wasm_env_non_empty("FETCHER") else {
         return Ok(None);
     };
-    let out_path = temp_artifact_path("fetched", module_id, repo_root);
-    let Some(parent) = out_path.parent() else {
-        return Ok(None);
-    };
-    fs::create_dir_all(parent)?;
+    let out_path = temp_artifact_path("fetched", module_id, repo_root)?;
 
     for expected_hash in expected_hashes {
         let status = match Command::new(&fetcher_path)
@@ -254,13 +252,7 @@ fn compile_via_command(
     expected_hashes: &[&str],
     repo_root: &Path,
 ) -> Result<Vec<u8>, MaterializeError> {
-    let out_path = temp_artifact_path("compiled", module_id, repo_root);
-    let Some(parent) = out_path.parent() else {
-        return Err(MaterializeError::ModuleChangeInvalid {
-            reason: "compiler output path has no parent".to_string(),
-        });
-    };
-    fs::create_dir_all(parent)?;
+    let out_path = temp_artifact_path("compiled", module_id, repo_root)?;
 
     let mut failed_statuses = Vec::new();
     for expected_hash in expected_hashes {
@@ -309,10 +301,9 @@ fn compile_via_default_script(
     let build_script = repo_root
         .join("scripts")
         .join("build-builtin-wasm-modules.sh");
-    let out_dir = temp_build_dir(module_id, repo_root);
-    fs::create_dir_all(&out_dir)?;
+    let mut out_dir = temp_build_dir(module_id, repo_root)?;
 
-    let artifact_path = out_dir.join(format!("{module_id}.wasm"));
+    let mut artifact_path = out_dir.join(format!("{module_id}.wasm"));
     let prefer_host_native = should_prefer_host_native_builtin_wasm_build();
     run_default_builtin_wasm_build(
         &build_script,
@@ -331,7 +322,8 @@ fn compile_via_default_script(
 
     if prefer_host_native {
         let _ = fs::remove_dir_all(&out_dir);
-        fs::create_dir_all(&out_dir)?;
+        out_dir = temp_build_dir(module_id, repo_root)?;
+        artifact_path = out_dir.join(format!("{module_id}.wasm"));
         run_default_builtin_wasm_build(&build_script, repo_root, module_id, &out_dir, false)?;
         bytes = read_compiled_artifact(module_id, &artifact_path)?;
         actual_hash = sha256_hex(&bytes);
@@ -617,19 +609,43 @@ fn env_truthy(key: &str) -> bool {
     )
 }
 
-fn temp_artifact_path(kind: &str, module_id: &str, repo_root: &Path) -> PathBuf {
-    temp_build_dir(module_id, repo_root).join(format!("{module_id}.{kind}.wasm"))
+fn temp_artifact_path(
+    kind: &str,
+    module_id: &str,
+    repo_root: &Path,
+) -> Result<PathBuf, MaterializeError> {
+    Ok(temp_build_dir(module_id, repo_root)?.join(format!("{module_id}.{kind}.wasm")))
 }
 
-fn temp_build_dir(module_id: &str, repo_root: &Path) -> PathBuf {
+fn temp_build_dir(module_id: &str, repo_root: &Path) -> Result<PathBuf, MaterializeError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    repo_root.join(".tmp").join(format!(
-        "oasis7-builtin-wasm-{module_id}-{}-{now}",
-        std::process::id()
-    ))
+    temp_build_dir_at(module_id, repo_root, now, &TEMP_BUILD_SEQUENCE)
+}
+
+fn temp_build_dir_at(
+    module_id: &str,
+    repo_root: &Path,
+    now: u128,
+    sequence: &AtomicU64,
+) -> Result<PathBuf, MaterializeError> {
+    let root = repo_root.join(".tmp");
+    fs::create_dir_all(&root)?;
+    loop {
+        let serial = sequence.fetch_add(1, Ordering::Relaxed);
+        let path = root.join(format!(
+            "oasis7-builtin-wasm-{module_id}-{}-{now}-{serial}",
+            std::process::id()
+        ));
+        // Clock readings can repeat; exclusive creation establishes ownership.
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(path),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 #[cfg(test)]
