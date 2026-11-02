@@ -94,6 +94,9 @@ impl std::fmt::Display for WorldServiceClientError {
 }
 impl std::error::Error for WorldServiceClientError {}
 
+#[path = "world_service_transport_once.rs"]
+mod transport_once;
+
 #[derive(Clone)]
 pub struct WorldServiceTransport {
     config: WorldServiceClientConfig,
