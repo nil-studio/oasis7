@@ -19,6 +19,17 @@ use worker::Env;
 pub(super) struct SessionSecrets {
     pub cookie: PrivateCookie,
     pub csrf: envelope_crypto::SecretBytes,
+    resource_manifest: Option<(NativeManifestStore, oasis7_custody_core::DecimalU64)>,
+}
+impl SessionSecrets {
+    pub(super) fn check_resource_generation(&self) -> Result<(), JsValue> {
+        if let Some((manifest, expected)) = &self.resource_manifest {
+            if manifest.current_private_session_generation()? != *expected {
+                return Err(js_denied());
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(super) async fn read(
@@ -29,7 +40,18 @@ pub(super) async fn read(
 ) -> Result<(Observation, SessionSecrets), JsValue> {
     check(env, selector, first)?;
     let session = &first.view.participant.session;
-    let snapshot = NativeManifestStore::new(state)
+    let manifest = NativeManifestStore::new(state);
+    let resource_profile = first
+        .view
+        .approved_plan_v2
+        .as_ref()
+        .is_some_and(|p| p.selection.resource().is_some());
+    if resource_profile
+        && manifest.current_private_session_generation()? != session.private_sid_generation
+    {
+        return Err(js_denied());
+    }
+    let snapshot = manifest
         .read_completed_history(&NativeHistoryLookup {
             environment: &session.scope.role_scope.context.identity.environment,
             account_id: &selector.request.custody_account_id,
@@ -63,6 +85,11 @@ pub(super) async fn read(
         (&refs.csrf, &refs.csrf_digest),
     ] {
         check(env, selector, first)?;
+        if resource_profile
+            && manifest.current_private_session_generation()? != session.private_sid_generation
+        {
+            return Err(js_denied());
+        }
         if scope.role_scope != session.scope.role_scope
             || scope.identity_namespace != session.scope.identity_namespace
             || scope.identity_instance_epoch != session.scope.identity_instance_epoch
@@ -79,6 +106,11 @@ pub(super) async fn read(
         )
         .await?;
         check(env, selector, first)?;
+        if resource_profile
+            && manifest.current_private_session_generation()? != session.private_sid_generation
+        {
+            return Err(js_denied());
+        }
         let envelope = envelope.ok_or_else(js_denied)?;
         if envelope.wrapping_key_version != config.wrapping_version {
             return Err(js_denied());
@@ -87,6 +119,11 @@ pub(super) async fn read(
             .await
             .map_err(|_| js_denied())?;
         check(env, selector, first)?;
+        if resource_profile
+            && manifest.current_private_session_generation()? != session.private_sid_generation
+        {
+            return Err(js_denied());
+        }
         if bytes_digest(secret.as_bytes()) != *digest || secret.as_bytes().len() > 12 * 1024 {
             return Err(js_denied());
         }
@@ -100,6 +137,11 @@ pub(super) async fn read(
         )
         .await?;
         check(env, selector, first)?;
+        if resource_profile
+            && manifest.current_private_session_generation()? != session.private_sid_generation
+        {
+            return Err(js_denied());
+        }
         if after.as_ref() != Some(&envelope) {
             return Err(js_denied());
         }
@@ -114,6 +156,11 @@ pub(super) async fn read(
         return Err(js_denied());
     }
     check(env, selector, &second)?;
+    if resource_profile
+        && manifest.current_private_session_generation()? != session.private_sid_generation
+    {
+        return Err(js_denied());
+    }
     let cookie = PrivateCookie::from_private(
         PrivateCookieKind::ManagedSession,
         std::str::from_utf8(cookie.as_bytes())
@@ -122,5 +169,13 @@ pub(super) async fn read(
     )
     .map_err(|_| js_denied())?;
     let _ = clock()?;
-    Ok((second, SessionSecrets { cookie, csrf }))
+    let resource_manifest = resource_profile.then_some((manifest, session.private_sid_generation));
+    Ok((
+        second,
+        SessionSecrets {
+            cookie,
+            csrf,
+            resource_manifest,
+        },
+    ))
 }

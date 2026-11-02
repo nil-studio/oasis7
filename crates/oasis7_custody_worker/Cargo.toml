@@ -19,6 +19,8 @@ recovery-fence = []
 approval-harness = ["oasis7_custody_core/signature-metrics"]
 # Identity manifest fixtures only; never enabled by deployment role builds.
 native-runtime-harness = []
+# Isolated Executor SQLite/WebCrypto fixture; never a deployment feature.
+execution-signer-harness = []
 
 [dependencies]
 oasis7_custody_core = { path = "../oasis7_custody_core" }

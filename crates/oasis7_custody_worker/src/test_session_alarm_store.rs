@@ -18,10 +18,22 @@ impl OwnerProvisionApprovalStore {
             "test-session-alarm",
             |state, time| {
                 let time = UnixMillis::new(time);
-                let closed = state.expire_test_sessions(time).map_err(|_| rejected())?;
+                let mut closed = state.expire_test_sessions(time).map_err(|_| rejected())?;
+                closed.extend(
+                    state
+                        .expire_test_sessions_v2(time)
+                        .map_err(|_| rejected())?,
+                );
                 let next_expiry = state
                     .next_test_session_expiry_at(time)
                     .map_err(|_| rejected())?;
+                let next_v2 = state
+                    .next_test_session_v2_expiry_at()
+                    .map_err(|_| rejected())?;
+                let next_expiry = next_expiry
+                    .into_iter()
+                    .chain(next_v2)
+                    .min_by_key(|t| t.get());
                 Ok(AlarmExpiry {
                     closed_count: u64::try_from(closed.len()).map_err(|_| rejected())?,
                     next_expiry,
@@ -78,6 +90,10 @@ pub(super) fn write_deadline(input: &ApprovalAdmissionInput) -> Result<UnixMilli
     match &input.request.intent {
         oasis7_custody_core::approval::CustodyIntentV1::TestSession { write_deadline, .. } => {
             Ok(UnixMillis::new(write_deadline.0))
+        }
+        oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { plan, .. } => {
+            plan.validate().map_err(|_| rejected())?;
+            Ok(UnixMillis::new(plan.write_deadline.0))
         }
         _ => Err(rejected()),
     }

@@ -40,6 +40,7 @@ pub enum HttpPopProfileV1 {
     CustodyChallenge,
     McpChallenge,
     ClaimChallenge,
+    NativeModelCustodyV2,
 }
 impl HttpPopProfileV1 {
     pub fn tag(self) -> &'static str {
@@ -50,6 +51,7 @@ impl HttpPopProfileV1 {
             Self::CredentialClaim => "oasis7-custody-enroll-v1",
             Self::CustodyChallenge | Self::ClaimChallenge => "oasis7-custody-challenge-v1",
             Self::McpChallenge => "oasis7-mcp-challenge-v1",
+            Self::NativeModelCustodyV2 => "oasis7-custody-native-model-v2",
         }
     }
     pub fn is_challenge(self) -> bool {
@@ -94,6 +96,7 @@ pub enum HttpPopRoute {
     Heartbeat(String),
     Finish(String),
     Abort(String),
+    ModelReservations(String),
 }
 impl HttpPopRoute {
     fn profile_route(&self) -> &Self {
@@ -128,6 +131,7 @@ impl HttpPopRoute {
                         | Self::Heartbeat(_)
                         | Self::Finish(_)
                         | Self::Abort(_)
+                        | Self::ModelReservations(_)
                 )
             {
                 return Err(HttpPopError::Target);
@@ -147,7 +151,8 @@ impl HttpPopRoute {
             | Self::ToolsList(id)
             | Self::Heartbeat(id)
             | Self::Finish(id)
-            | Self::Abort(id) => Some(id),
+            | Self::Abort(id)
+            | Self::ModelReservations(id) => Some(id),
             _ => None,
         };
         if dynamic.is_some_and(|id| !identifier(id)) {
@@ -167,6 +172,7 @@ impl HttpPopRoute {
             Self::Heartbeat(id) => format!("/v1/test-sessions/{id}/heartbeat"),
             Self::Finish(id) => format!("/v1/test-sessions/{id}/finish"),
             Self::Abort(id) => format!("/v1/test-sessions/{id}/abort"),
+            Self::ModelReservations(id) => format!("/v1/test-sessions/{id}/model-reservations"),
         })
     }
 }
@@ -398,7 +404,7 @@ fn key_id(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-._~:".contains(&b))
 }
-fn nonce_valid(s: &str) -> bool {
+pub(crate) fn nonce_valid(s: &str) -> bool {
     URL_SAFE_NO_PAD
         .decode(s)
         .is_ok_and(|v| v.len() == 32 && URL_SAFE_NO_PAD.encode(&v) == s)

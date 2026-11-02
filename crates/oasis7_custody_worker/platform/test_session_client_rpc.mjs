@@ -19,3 +19,28 @@ export async function ownerClientCall(env, operation, raw) {
     default: throw new Error("test session client operation unavailable");
   }
 }
+
+// Fixed V2 continuation only; public capture and first Admit are unchanged.
+export async function ownerCredentialV2Call(env, operation, raw) {
+  switch (operation) {
+    case "challenge": return env.OWNER_NATIVE_PERMITS.clientV2CredentialChallenge(raw);
+    case "claim": return env.OWNER_NATIVE_PERMITS.clientV2CredentialClaim(raw);
+    default: throw new Error("test session V2 credentials unavailable");
+  }
+}
+
+// Fixed paid V2 Control continuation; no URL or role is selected by the caller.
+export async function ownerControlV2Call(env, operation, raw) {
+ switch(operation){
+ case "challenge": return env.OWNER_NATIVE_PERMITS.clientV2ControlChallenge(raw);
+ case "initialize": return env.OWNER_NATIVE_PERMITS.clientV2ControlInitialize(raw);
+ case "tools-list": return env.OWNER_NATIVE_PERMITS.clientV2ControlToolsList(raw);
+ case "heartbeat": return env.OWNER_NATIVE_PERMITS.clientV2ControlHeartbeat(raw);
+ default: throw new Error("test session V2 control unavailable");
+ }
+}
+
+// New N-query/H-Execution profile only; no caller-selected operation or URL.
+export async function ownerNativeModelReservationV2(env, raw) {
+  return env.OWNER_NATIVE_PERMITS.nativeModelReservationV2(raw);
+}

@@ -78,6 +78,14 @@ pub enum SessionPurposeHttpAdmissionClassV1 {
         owner_attempt: String,
         account_attempt: String,
     },
+    /// Only the explicit V2 Execution nonce producer may create this five-hop
+    /// class. Existing Three admissions keep their original wire and math.
+    ExecutionNonceFiveV2 {
+        provider_abuse_attempt: String,
+        realm_abuse_attempt: String,
+        owner_attempt: String,
+        account_attempt: String,
+    },
 }
 impl AccountProvisionApprovalState {
     /// Pure preparation from actual Account originals. This neither charges nor grants authority.

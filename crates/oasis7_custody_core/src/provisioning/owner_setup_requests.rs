@@ -18,7 +18,7 @@ impl AccountProvisionApprovalState {
         w: &OwnerSetupWorldEvidenceV1,
         admission: &ws::SignedReadRequest<GameParticipantAdmissionV1>,
     ) -> Result<()> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         w.response
             .payload
             .validate(&w.request)
@@ -97,7 +97,7 @@ impl AccountProvisionApprovalState {
         &self,
         id: &str,
     ) -> Result<ws::participant_discovery::ParticipantOwnerViewRequestV1> {
-        self.owner_setups.get(id).ok_or_else(invalid)?;
+        self.owner_setup_engine_record(id)?;
         self.participant_provisions
             .values()
             .find(|p| p.result.is_some())
@@ -109,8 +109,8 @@ impl AccountProvisionApprovalState {
         id: &str,
         stage: OwnerSetupStageV1,
     ) -> Result<ws::ReadWorldViewRequest> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
-        let o = v.stages.get(&stage).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
+        let o = self.owner_setup_engine_outbox(id, stage)?;
         let participant = self
             .participant_provisions
             .values()
@@ -141,7 +141,15 @@ impl AccountProvisionApprovalState {
         id: &str,
         stage: OwnerSetupStageV1,
     ) -> Result<OwnerSetupSigningRequestV1> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        if stage == OwnerSetupStageV1::FinalObservation
+            && self
+                .owner_setup_v2_plan()
+                .is_some_and(|p| p.setup_id == id && p.selection.resource().is_some())
+        {
+            return Err(invalid());
+        }
+
+        let v = self.owner_setup_engine_record(id)?;
         let plan = &v.plan;
         let participant = self
             .participant_provisions
@@ -283,7 +291,7 @@ impl AccountProvisionApprovalState {
         ) {
             return Ok(Some(control));
         }
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let Some(OwnerSetupResultV1::Canonical { response, .. }) = v
             .stages
             .get(&OwnerSetupStageV1::PublishGoal)
@@ -323,9 +331,9 @@ impl AccountProvisionApprovalState {
     }
     pub(super) fn owner_setup_created_task(&self, id: &str) -> Result<GameTaskControlV1> {
         let v = self
-            .owner_setups
-            .get(id)
-            .and_then(|v| v.stages.get(&OwnerSetupStageV1::CreateTask))
+            .owner_setup_engine_record(id)?
+            .stages
+            .get(&OwnerSetupStageV1::CreateTask)
             .ok_or_else(invalid)?;
         let Some(OwnerSetupResultV1::Canonical { response, .. }) = &v.result else {
             return Err(invalid());
@@ -336,11 +344,11 @@ impl AccountProvisionApprovalState {
         serde_json::from_value(receipt.clone()).map_err(|_| invalid())
     }
     pub(super) fn owner_setup_active_goal(&self, id: &str, task: &GameTaskControlV1) -> Result<()> {
-        let plan = &self.owner_setups.get(id).ok_or_else(invalid)?.plan;
+        let plan = &self.owner_setup_engine_record(id)?.plan;
         let p = self
-            .owner_setups
-            .get(id)
-            .and_then(|v| v.stages.get(&OwnerSetupStageV1::PublishGoal))
+            .owner_setup_engine_record(id)?
+            .stages
+            .get(&OwnerSetupStageV1::PublishGoal)
             .and_then(|v| v.result.as_ref())
             .ok_or_else(invalid)?;
         let OwnerSetupResultV1::Canonical { response, .. } = p else {
@@ -368,9 +376,9 @@ impl AccountProvisionApprovalState {
         current: Option<&oasis7_client_api::world_service_wire::AgentSignerDelegationChangeV1>,
     ) -> Result<()> {
         let o = self
-            .owner_setups
-            .get(id)
-            .and_then(|v| v.stages.get(&OwnerSetupStageV1::Delegation))
+            .owner_setup_engine_record(id)?
+            .stages
+            .get(&OwnerSetupStageV1::Delegation)
             .ok_or_else(invalid)?;
         let Some(OwnerSetupOriginalV1::Canonical { submit, .. }) = &o.original else {
             return Err(invalid());
