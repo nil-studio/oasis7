@@ -120,7 +120,10 @@ impl Replay<'_> {
                     || (self.execution_pending_claims >= 1
                         && !self.execution_pending_directory_signed)
                     || (self.execution_pending_claims >= 2 && !self.execution_pending_fence_signed)
-                    || self.execution_pending_fence_read_signed
+                    || (self.execution_pending_claims >= 5
+                        && !self.execution_pending_fence_read_signed)
+                    || (self.execution_pending_claims < 5
+                        && self.execution_pending_fence_read_signed)
                     || original.request.request_id != *request_id
                     || p.claimed_leaf_ordinal(*leaf).is_none()
                     || p.claimed_leaf_at(*leaf) != Some(at)
@@ -174,6 +177,69 @@ impl Replay<'_> {
                     return Err(invalid());
                 }
                 self.execution_pending_fence_read_signed = true;
+            }
+            SessionEventKindV2::ExecutionPendingSourceDispatchRecorded { request_id } => {
+                let p = self
+                    .s
+                    .execution_pending_start
+                    .as_ref()
+                    .ok_or_else(invalid)?;
+                if !self.execution_pending_fence_read_signed
+                    || self.execution_pending_claims != 6
+                    || p.source_dispatch_recorded_at() != Some(at)
+                    || self
+                        .s
+                        .execution_pending_ingresses
+                        .get(&p.ingress_attempt_id)
+                        .ok_or_else(invalid)?
+                        .request
+                        .request_id
+                        != *request_id
+                {
+                    return Err(invalid());
+                }
+            }
+            SessionEventKindV2::ExecutionPendingSourceNativeLeafRecorded { request_id } => {
+                let p = self
+                    .s
+                    .execution_pending_start
+                    .as_ref()
+                    .ok_or_else(invalid)?;
+                if !self.execution_pending_fence_read_signed
+                    || self.execution_pending_claims != 9
+                    || p.source_native_leaf_recorded_at() != Some(at)
+                    || self
+                        .s
+                        .execution_pending_ingresses
+                        .get(&p.ingress_attempt_id)
+                        .ok_or_else(invalid)?
+                        .request
+                        .request_id
+                        != *request_id
+                {
+                    return Err(invalid());
+                }
+            }
+            SessionEventKindV2::ExecutionPendingSourceResultRecorded { request_id } => {
+                let p = self
+                    .s
+                    .execution_pending_start
+                    .as_ref()
+                    .ok_or_else(invalid)?;
+                if !self.execution_pending_fence_read_signed
+                    || self.execution_pending_claims != 9
+                    || p.source_result_recorded_at() != Some(at)
+                    || self
+                        .s
+                        .execution_pending_ingresses
+                        .get(&p.ingress_attempt_id)
+                        .ok_or_else(invalid)?
+                        .request
+                        .request_id
+                        != *request_id
+                {
+                    return Err(invalid());
+                }
             }
             SessionEventKindV2::ExecutionPendingDirectorySignatureRecorded { request_id } => {
                 let p = self

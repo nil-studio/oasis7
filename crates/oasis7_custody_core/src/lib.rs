@@ -59,3 +59,6 @@ pub mod term_owner_slot_lineage_v2;
 pub mod execution_pending_current_v2;
 
 pub mod execution_fence_dispatch_v2;
+
+pub mod execution_pending_source_inspect_v2;
+pub mod execution_pending_source_result_v2;
