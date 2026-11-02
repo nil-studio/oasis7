@@ -260,3 +260,6 @@ mod incremental_intent_fields;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_agent_authority_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_domain_event_proof;
