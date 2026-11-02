@@ -476,3 +476,6 @@ pub(super) mod execution_identity;
 #[path = "custody_cleanup_v2_registry_model_signal.rs"]
 mod model_signal;
 pub(super) use model_signal::active_model_signal;
+
+#[path = "custody_pending_source_inspect_registry_v2.rs"]
+pub(in super::super) mod pending_source_inspect;
