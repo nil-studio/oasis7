@@ -91,7 +91,24 @@ fn with_ready_registry(limit: usize, run: impl FnOnce(ReadyNativeRegistryV2, rea
         .unwrap()
         .subject_public_key;
     data.state.owner.public_key = owner.clone();
-    data.state.control.owner_public_key = owner;
+    data.state.control.owner_public_key = owner.clone();
+    // Keep the synthetic Native plan and the future strong Prepare delivery
+    // on the same legitimately signed goal; the old fixture only needed view.
+    let mut goal = data.prepared.owner_proof.request.clone();
+    goal.owner_public_key = owner;
+    let proof = ws::private_goal::sign_goal_prepare(goal, &data.owner).unwrap();
+    data.prepared = ws::private_goal::PreparedGoalReceiptV1 {
+        schema_revision: 1,
+        goal_ref: ws::private_goal::prepared_goal_commitment(&[1; 32], &proof).unwrap(),
+        reference_salt: hex::encode([1; 32]),
+        owner_proof: proof,
+    };
+    data.state
+        .control
+        .active_goal_reference
+        .as_mut()
+        .unwrap()
+        .goal_ref = data.prepared.goal_ref.clone();
     let namespace = json!({"service_id":f.f.service.config.namespace.identity_service_id,
         "environment_id":f.f.service.config.namespace.environment_id,"instance_epoch":f.f.service.config.rp.identity_instance_epoch.to_string()});
     let mut request = native_certificate::options_for(&f, now_ms());
@@ -245,3 +262,6 @@ fn execution_native_ready_scoped_fixture_persists_actual_sqlite() {
 
 #[path = "custody_term_current_world3_ready_tests.rs"]
 mod term_current_world3;
+
+#[path = "custody_execution_prepare_archive_case_v2.rs"]
+mod reply_archive_case;
