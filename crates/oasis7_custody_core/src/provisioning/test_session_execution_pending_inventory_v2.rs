@@ -17,9 +17,12 @@ pub(in crate::provisioning) enum StartCurrentPhaseV2 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(in crate::provisioning) enum StartCurrentPortV2 {
-    ManagerAssociationsActor,
-    RecoveryFenceDispatcherActor,
-    RecoveryFenceActor,
+    #[serde(rename = "manager_associations_actor")]
+    ManagerAssociations,
+    #[serde(rename = "recovery_fence_dispatcher_actor")]
+    RecoveryFenceDispatcher,
+    #[serde(rename = "recovery_fence_actor")]
+    RecoveryFence,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,10 +50,14 @@ pub(in crate::provisioning) enum StartCipherPortV2 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(in crate::provisioning) enum StartPrefixActorV2 {
-    CurrentFenceActor,
-    PrivateManifestActor,
-    RkvInitializeActor,
-    RkvSignActor,
+    #[serde(rename = "current_fence_actor")]
+    CurrentFence,
+    #[serde(rename = "private_manifest_actor")]
+    PrivateManifest,
+    #[serde(rename = "rkv_initialize_actor")]
+    RkvInitialize,
+    #[serde(rename = "rkv_sign_actor")]
+    RkvSign,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -176,9 +183,9 @@ pub(super) fn fixed_inventory() -> Result<Vec<ExecutionPendingLeafV2>> {
         StartCipherPortV2::CsrfAfter,
     ];
     for port in [
-        C::ManagerAssociationsActor,
-        C::RecoveryFenceDispatcherActor,
-        C::RecoveryFenceActor,
+        C::ManagerAssociations,
+        C::RecoveryFenceDispatcher,
+        C::RecoveryFence,
     ] {
         leaves.push(Business(B::PrefixCurrent(port)));
     }
@@ -206,9 +213,9 @@ pub(super) fn fixed_inventory() -> Result<Vec<ExecutionPendingLeafV2>> {
     }
     for phase in currents {
         for port in [
-            C::ManagerAssociationsActor,
-            C::RecoveryFenceDispatcherActor,
-            C::RecoveryFenceActor,
+            C::ManagerAssociations,
+            C::RecoveryFenceDispatcher,
+            C::RecoveryFence,
         ] {
             leaves.push(Business(B::Current { phase, port }));
         }
@@ -256,10 +263,10 @@ pub(super) fn fixed_inventory() -> Result<Vec<ExecutionPendingLeafV2>> {
     }
     targets.extend(ciphers.into_iter().map(G::Cipher));
     for port in [
-        StartPrefixActorV2::CurrentFenceActor,
-        StartPrefixActorV2::PrivateManifestActor,
-        StartPrefixActorV2::RkvInitializeActor,
-        StartPrefixActorV2::RkvSignActor,
+        StartPrefixActorV2::CurrentFence,
+        StartPrefixActorV2::PrivateManifest,
+        StartPrefixActorV2::RkvInitialize,
+        StartPrefixActorV2::RkvSign,
     ] {
         targets.push(G::PrefixActor(port));
     }
@@ -286,4 +293,40 @@ pub(super) fn fixed_inventory() -> Result<Vec<ExecutionPendingLeafV2>> {
         return Err(invalid());
     }
     Ok(leaves)
+}
+
+#[cfg(test)]
+mod wire_compatibility_tests {
+    use super::*;
+    #[test]
+    fn pending_private_port_variant_wire_names_are_unchanged() {
+        for (value, wire) in [
+            (
+                StartCurrentPortV2::ManagerAssociations,
+                "manager_associations_actor",
+            ),
+            (
+                StartCurrentPortV2::RecoveryFenceDispatcher,
+                "recovery_fence_dispatcher_actor",
+            ),
+            (StartCurrentPortV2::RecoveryFence, "recovery_fence_actor"),
+        ] {
+            let bytes = format!("\"{wire}\"");
+            assert_eq!(serde_json::to_string(&value).unwrap(), bytes);
+            assert!(serde_json::from_str::<StartCurrentPortV2>(&bytes).unwrap() == value);
+        }
+        for (value, wire) in [
+            (StartPrefixActorV2::CurrentFence, "current_fence_actor"),
+            (
+                StartPrefixActorV2::PrivateManifest,
+                "private_manifest_actor",
+            ),
+            (StartPrefixActorV2::RkvInitialize, "rkv_initialize_actor"),
+            (StartPrefixActorV2::RkvSign, "rkv_sign_actor"),
+        ] {
+            let bytes = format!("\"{wire}\"");
+            assert_eq!(serde_json::to_string(&value).unwrap(), bytes);
+            assert!(serde_json::from_str::<StartPrefixActorV2>(&bytes).unwrap() == value);
+        }
+    }
 }

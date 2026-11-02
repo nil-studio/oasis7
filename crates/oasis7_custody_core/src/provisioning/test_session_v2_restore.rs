@@ -89,6 +89,7 @@ impl AccountProvisionApprovalState {
             self.validate_session_v2_tool_nonce_persistence(s)?;
             self.validate_execution_book_v2(s)?;
             super::execution_pending_start_v2::validate_pending_start_v2(s)?;
+            super::v2_read_history::validate_read_history(self, s)?;
             super::v2_journal::validate(s)?;
             // These old V1 execution/control formats never become V2 execution authority.
             if s.context.is_some()
@@ -225,6 +226,14 @@ impl AccountProvisionApprovalState {
                                 .count() as u64,
                         )
                         .map_err(|_| invalid())?;
+                    if purpose == SessionPurposeV1::ReconcileRead {
+                        let count = super::v2_read_history::read_fee_count(s);
+                        expected.requests.charge(count).map_err(|_| invalid())?;
+                        expected
+                            .transport
+                            .charge(count.checked_mul(2).ok_or_else(invalid)?)
+                            .map_err(|_| invalid())?;
+                    }
                     if purpose == SessionPurposeV1::Execution {
                         expected
                             .transport

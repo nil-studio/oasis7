@@ -3,6 +3,8 @@
 use super::*;
 #[path = "test_session_execution_pending_inventory_v2.rs"]
 mod inventory;
+#[path = "test_session_execution_pending_source_observation_v2.rs"]
+mod source_observation;
 pub(in crate::provisioning) use inventory::ExecutionPendingLeafV2;
 use inventory::StartIngressPortV2;
 
@@ -30,6 +32,7 @@ pub(in crate::provisioning) struct ExecutionPendingStartV2 {
     pub(super) accepted_lease_until: UnixMillis,
     pub(super) accepted_ordinal: u64,
     physical_ports: Vec<ExecutionPendingPhysicalPortV2>,
+    source_observation: source_observation::PendingSourceObservationV2,
     #[serde(deserialize_with = "required_nullable")]
     directory_signature: Option<PendingDirectorySignatureV2>,
     #[serde(deserialize_with = "required_nullable")]
@@ -410,6 +413,7 @@ impl AccountProvisionApprovalState {
             accepted_lease_until: s.lease_until.ok_or_else(invalid)?,
             accepted_ordinal: ordinal,
             physical_ports: ports,
+            source_observation: source_observation::PendingSourceObservationV2::new(),
             directory_signature: None,
             fence_dispatch: None,
             fence_read: None,
@@ -535,9 +539,7 @@ impl ExecutionPendingStartV2 {
             self.accepted_ordinal,
             ports,
         ))?;
-        roots::hex_bytes(&commitment)?
-            .try_into()
-            .map_err(|_| invalid())
+        roots::hex_bytes(&commitment)
     }
 }
 pub(in crate::provisioning) fn pending_funds_source_v2(
@@ -687,7 +689,7 @@ impl AccountProvisionApprovalState {
         let s = self.pending_execution_local(&accepted, now)?;
         let leaf = ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
             phase: inventory::StartCurrentPhaseV2::PreInspect,
-            port: inventory::StartCurrentPortV2::ManagerAssociationsActor,
+            port: inventory::StartCurrentPortV2::ManagerAssociations,
         });
         let p = s.execution_pending_start.as_ref().ok_or_else(invalid)?;
         if p.physical_ports.iter().any(|p| p.claimed_ordinal.is_some()) {
@@ -709,6 +711,7 @@ impl AccountProvisionApprovalState {
         let input_digest = original.approved_input_digest.clone();
         let mut next = self.clone();
         let saved = next.test_session_v2_record_mut(&accepted.session_id)?;
+        source_observation::reserve_inspect(saved, now)?;
         let ordinal = next_session_ordinal_v2(saved)?;
         let port = saved
             .execution_pending_start
