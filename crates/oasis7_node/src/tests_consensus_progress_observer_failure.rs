@@ -428,6 +428,23 @@ fn retained_commit_publication_count(network: &TestInMemoryNetwork, world_id: &s
         .unwrap_or_default()
 }
 
+fn maintenance_poll_advanced(previous_poll_at_ms: Option<i64>, current_poll_at_ms: Option<i64>) -> bool {
+    match (previous_poll_at_ms, current_poll_at_ms) {
+        (None, Some(_)) => true,
+        (Some(previous), Some(current)) => current > previous,
+        _ => false,
+    }
+}
+
+fn replica_maintenance_poll_advanced(
+    runtime: &NodeRuntime,
+    previous_poll_at_ms: Option<i64>,
+) -> bool {
+    let current_poll_at_ms = super::super::runtime_util::lock_state(&runtime.state)
+        .replica_maintenance_last_polled_at_ms;
+    maintenance_poll_advanced(previous_poll_at_ms, current_poll_at_ms)
+}
+
 #[test]
 fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_tick() {
     run_test_with_timeout(
@@ -511,7 +528,11 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
             });
             let publications_at_saturation =
                 retained_commit_publication_count(network.as_ref(), world_id);
-            let maintenance_at_saturation = dht.published_records().len();
+            // A maintenance poll may run without publishing a DHT record when no repair transfer
+            // succeeds, so observe the actual completed-poll timestamp instead.
+            let maintenance_poll_at_saturation =
+                super::super::runtime_util::lock_state(&runtime.state)
+                    .replica_maintenance_last_polled_at_ms;
             let pos_state_store =
                 super::super::pos_state_store::PosNodeStateStore::from_replication(
                     config.replication.as_ref().expect("replication config"),
@@ -541,7 +562,10 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
                                 .saturating_add(2)
                         && retained_commit_publication_count(network.as_ref(), world_id)
                             > publications_at_saturation
-                        && dht.published_records().len() > maintenance_at_saturation
+                        && replica_maintenance_poll_advanced(
+                            &runtime,
+                            maintenance_poll_at_saturation,
+                        )
                         && batches_ready.wait_for_batches(Duration::ZERO)
                         && !execution_calls
                             .lock()
@@ -565,7 +589,9 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
             let while_blocked = runtime.snapshot();
             let publications_while_blocked =
                 retained_commit_publication_count(network.as_ref(), world_id);
-            let maintenance_while_blocked = dht.published_records().len();
+            let maintenance_poll_while_blocked =
+                super::super::runtime_util::lock_state(&runtime.state)
+                    .replica_maintenance_last_polled_at_ms;
             let blocked_height = while_blocked.consensus.committed_height;
             let mut persisted_while_blocked = None;
             let persisted_caught_up = wait_until(Instant::now() + Duration::from_secs(2), || {
@@ -619,8 +645,11 @@ fn blocking_consensus_progress_observer_is_bounded_coalescing_and_never_stalls_t
                 "blocking observer delayed consensus rebroadcast after saturation: before={publications_at_saturation} during={publications_while_blocked}",
             );
             assert!(
-                maintenance_while_blocked > maintenance_at_saturation,
-                "blocking observer delayed replica maintenance after saturation: before={maintenance_at_saturation} during={maintenance_while_blocked}",
+                maintenance_poll_advanced(
+                    maintenance_poll_at_saturation,
+                    maintenance_poll_while_blocked,
+                ),
+                "blocking observer delayed replica maintenance polling after saturation: before={maintenance_poll_at_saturation:?} during={maintenance_poll_while_blocked:?}",
             );
             assert!(
                 persisted_caught_up
