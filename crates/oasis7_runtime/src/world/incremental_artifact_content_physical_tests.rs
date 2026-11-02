@@ -316,11 +316,14 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
         };
         assert_eq!(memory.used(), 0);
         drop(memory);
-        for (path, compression) in [
-            (&paths[1], PageCompression::Raw),
-            (&paths[2], PageCompression::Zstd),
+        for (path, compression, total, expected_encode_limit) in [
+            (&paths[1], PageCompression::Raw, 8 << 20, false),
+            (&paths[2], PageCompression::Zstd, 8 << 20, true),
+            // Recovery still receives only 4MiB. Ordinary Zstd writes need
+            // the existing 16MiB codec admission plus transaction workspace.
+            (&paths[2], PageCompression::Zstd, 32 << 20, false),
         ] {
-            let cold = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+            let cold = MemoryBudget::new(total, 4 << 20).unwrap();
             let store =
                 IncrementalPageStore::open(path, cold.clone(), compression, MemoryClass::Recovery)
                     .unwrap();
@@ -334,7 +337,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
             )
             .unwrap();
             let _ordinary = cold
-                .reserve((4 << 20) - cold.used(), MemoryClass::Ordinary)
+                .reserve(total - (4 << 20) - cold.used(), MemoryClass::Ordinary)
                 .unwrap();
             assert!(cold.reserve(1, MemoryClass::Ordinary).is_err());
             {
@@ -384,6 +387,7 @@ fn world_genesis_source_only_raw_zstd_mirrors_drop_and_recovery_stream_large_ori
                 &roots,
                 &stopped,
                 LENGTH as u64,
+                expected_encode_limit,
             );
         }
     }
@@ -432,6 +436,7 @@ fn continue_storage_after_recovery(
     roots: &RootSetV1,
     stopped: &AtomicBool,
     length: u64,
+    expected_encode_limit: bool,
 ) {
     use oasis7_formal_protocol::incremental_execution::*;
     use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1;
@@ -497,6 +502,14 @@ fn continue_storage_after_recovery(
         },
     )
     .unwrap();
+    if expected_encode_limit {
+        tx.write(
+            StateNamespaceV1::Business,
+            b"successful-before-overbudget",
+            Some([60; 32]),
+        )
+        .unwrap();
+    }
     let mut writer = store.value_session(physical());
     {
         let mut reads = logical();
@@ -508,46 +521,57 @@ fn continue_storage_after_recovery(
             bytes_remaining: 1 << 20,
         };
         let guard = tx.guard();
-        assert!(
-            change_runtime_artifact_content_overlay_v1(
-                RuntimeArtifactContentChangeV1::Registered {
-                    key: "after-recovery",
-                    expected: false,
-                    after: true
-                },
-                &mut WorldFieldOverlayContextV1 {
-                    transaction: &mut tx,
-                    values: ValueReadContext {
-                        source: &values,
-                        memory,
-                        class: MemoryClass::Ordinary,
-                        io: &mut reads
-                    },
-                    key_work: &mut read_keys,
-                    semantic_bytes: 4096,
-                    record_bytes: 8192,
-                    take_state_error: || state.take_read_error().map(state_error),
-                    cancelled: || false
-                },
-                &mut MemberRecordWriteContext {
-                    sink: &mut writer,
+        let changed = change_runtime_artifact_content_overlay_v1(
+            RuntimeArtifactContentChangeV1::Registered {
+                key: "after-recovery",
+                expected: false,
+                after: true,
+            },
+            &mut WorldFieldOverlayContextV1 {
+                transaction: &mut tx,
+                values: ValueReadContext {
+                    source: &values,
                     memory,
-                    io: &mut writes,
-                    key_work: &mut write_keys,
-                    limits: MemberRecordLimitsV1 {
-                        semantic_bytes: 4096,
-                        payload_bytes: 4096,
-                        record_bytes: 8192
-                    },
-                    cancelled: || false
+                    class: MemoryClass::Ordinary,
+                    io: &mut reads,
                 },
-                &mut raw(0),
-                &mut |_, _| panic!("registration must not import raw content"),
-                &guard,
-                &live
-            )
-            .unwrap()
+                key_work: &mut read_keys,
+                semantic_bytes: 4096,
+                record_bytes: 8192,
+                take_state_error: || state.take_read_error().map(state_error),
+                cancelled: || false,
+            },
+            &mut MemberRecordWriteContext {
+                sink: &mut writer,
+                memory,
+                io: &mut writes,
+                key_work: &mut write_keys,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 4096,
+                    payload_bytes: 4096,
+                    record_bytes: 8192,
+                },
+                cancelled: || false,
+            },
+            &mut raw(0),
+            &mut |_, _| panic!("registration must not import raw content"),
+            &guard,
+            &live,
         );
+        if expected_encode_limit {
+            use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
+            assert!(
+                matches!(changed,Err(WorldFieldOverlayErrorV1::Member(MemberRecordError::Value(ValueTreeError::Memory(error))))
+                if error.requested==16<<20 && error.admission_limit==4<<20)
+            );
+            let guard = tx.guard();
+            assert!(matches!(
+                tx.seal(&guard, &live, 1),
+                Err(ExecutionError::Aborted)
+            ));
+            return;
+        }
+        assert!(changed.unwrap());
     }
     let guard = tx.guard();
     let prepared = tx.seal(&guard, &live, 1).unwrap();
