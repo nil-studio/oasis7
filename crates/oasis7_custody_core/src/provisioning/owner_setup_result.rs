@@ -30,9 +30,9 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?;
         let d = &participant.descriptor;
         let setup_session = self
-            .owner_setups
-            .get(id)
-            .and_then(|v| v.session.as_ref())
+            .owner_setup_engine_record(id)?
+            .session
+            .as_ref()
             .ok_or_else(invalid)?;
         let nonce = match result {
             OwnerSetupResultV1::Canonical {
@@ -117,9 +117,9 @@ impl AccountProvisionApprovalState {
             .verify(&self.owner_setup_result_checks(id, stage, &result, &session, current, now)?)?;
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?;
         if result.terminal() {
             o.operation
@@ -140,7 +140,7 @@ impl AccountProvisionApprovalState {
         {
             let phase = PhaseOriginal {
                 operation_id: id.into(),
-                body_digest: digest(&next.owner_setups.get(id).ok_or_else(invalid)?.plan)?,
+                body_digest: next.owner_setup_phase_body_digest(id)?,
                 receipt_digest: Some(digest(result.result.as_ref().ok_or_else(invalid)?)?),
             };
             next.provision.confirm_owner_setup(phase)?;
@@ -164,7 +164,7 @@ impl AccountProvisionApprovalState {
         result: &OwnerSetupResultV1,
         mut signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let o = v.stages.get(&stage).ok_or_else(invalid)?;
         let key = &v.plan.world_identity.service_public_key;
         match (o.original.as_ref().ok_or_else(invalid)?, result) {
@@ -381,7 +381,7 @@ impl AccountProvisionApprovalState {
         signature_scope: &mut RestoreSignatureScope,
     ) -> Result<Vec<(ProvisionStage, PhaseOriginal, Option<String>)>> {
         let mut phases = Vec::new();
-        for (id, v) in &self.owner_setups {
+        for (id, v) in self.owner_setup_engine_records() {
             if v.stages
                 .get(&OwnerSetupStageV1::CreateTask)
                 .is_some_and(|o| o.admitted_at.is_some())
@@ -420,11 +420,16 @@ impl AccountProvisionApprovalState {
                     ProvisionStage::Prepared,
                     PhaseOriginal {
                         operation_id: id.clone(),
-                        body_digest: digest(&v.plan)?,
+                        body_digest: self.owner_setup_phase_body_digest(id)?,
                         receipt_digest: Some(digest(result)?),
                     },
                     None,
                 ));
+            }
+        }
+        if let Some(v) = &self.owner_setup_v2 {
+            if let Some(phase) = self.owner_setup_resource_final_phase_v2(&v.plan.setup_id)? {
+                phases.push((ProvisionStage::Prepared, phase, None));
             }
         }
         Ok(phases)

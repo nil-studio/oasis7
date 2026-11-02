@@ -3,10 +3,16 @@ use super::{DecimalU64, GameTaskFenceV1};
 use serde::{Deserialize, Serialize};
 pub const GAME_TASK_CLEANUP_DOMAIN_V2: &str = "game_task_cleanup/v2";
 pub const GAME_TASK_CLOSED_DOMAIN_V2: &str = "game_task_closed/v2";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameStopIntentProfileV2 {
+    GuardedTaskStopV2,
+}
 /// Runtime must resolve this exact reference from authenticated canonical history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GameOwnStopReferenceV2 {
+    pub profile: GameStopIntentProfileV2,
     pub operation_id: String,
     pub original_digest: String,
     pub canonical_result_digest: String,
@@ -30,6 +36,7 @@ pub enum GameTaskClosePredicateV2 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GameOwnStopIntentV2 {
+    pub profile: GameStopIntentProfileV2,
     pub operation_id: String,
     pub intent_digest: String,
 }
@@ -224,6 +231,7 @@ mod tests {
             value: &'a T,
         }
         let reference = GameOwnStopReferenceV2 {
+            profile: GameStopIntentProfileV2::GuardedTaskStopV2,
             operation_id: "stop".into(),
             original_digest: "44".repeat(32),
             canonical_result_digest: "55".repeat(32),
@@ -322,6 +330,7 @@ mod tests {
         let conditions = GameTaskCloseConditionsV2 {
             exact_initial_active: fence,
             own_stop_intent: Some(GameOwnStopIntentV2 {
+                profile: GameStopIntentProfileV2::GuardedTaskStopV2,
                 operation_id: "stop-original".into(),
                 intent_digest: "22".repeat(32),
             }),

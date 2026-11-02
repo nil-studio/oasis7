@@ -1,5 +1,7 @@
 //! Authenticated session-only model receiver. No arbitrary prompt proxy or world writer.
 mod config;
+mod custody_proxy_basis;
+mod custody_proxy_local;
 mod execution;
 mod executor;
 mod http;
@@ -70,6 +72,7 @@ impl HostedModelClient {
             Arc::clone(&identity),
         )?);
         disable_core_dumps()?;
+        let proxy_identity = Arc::clone(&identity);
         let authority = move |principal: &Principal| {
             identity
                 .lock()
@@ -90,6 +93,18 @@ impl HostedModelClient {
             config.limits.clone(),
         )
         .map_err(|_| "invalid model session limits")?;
+        if let Some(proxy) = custody_proxy_basis::NativeProxyBasisAuthority::from_env(
+            manager.downgrade(),
+            &config.presets,
+        )? {
+            let mut identity = proxy_identity
+                .lock()
+                .map_err(|_| "identity authority unavailable")?;
+            identity
+                .as_mut()
+                .ok_or("custody model proxy requires native identity")?
+                .attach_model_proxy_basis(Arc::new(proxy.with_local_runtime(&proxy_identity)?))?;
+        }
         Ok(Self {
             config,
             // Immutable process-start policy. A new manager has no restored

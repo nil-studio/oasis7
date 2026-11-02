@@ -72,3 +72,7 @@ pub mod legacy_world_service;
 pub mod legacy_task_results;
 
 pub mod safe_alternative;
+
+pub mod canonical_https_origin;
+pub mod cleanup_http_envelope_v1;
+pub mod paid_cleanup_transport_v1;

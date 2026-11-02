@@ -315,7 +315,11 @@ async fn activate(
 
 // Poll every independent read without spawning tasks or introducing a runtime
 // dependency. Completed futures are never polled again, including error results.
-async fn activation_inputs<A, B, C>(a: A, b: B, c: C) -> (A::Output, B::Output, C::Output)
+pub(super) async fn activation_inputs<A, B, C>(
+    a: A,
+    b: B,
+    c: C,
+) -> (A::Output, B::Output, C::Output)
 where
     A: std::future::Future,
     B: std::future::Future,

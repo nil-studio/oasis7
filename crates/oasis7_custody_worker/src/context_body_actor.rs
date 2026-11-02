@@ -1,6 +1,10 @@
 //! Dedicated opaque private-context namespace, with no public Worker route.
+#[path = "context_body_actor_v2.rs"]
+mod fullsigned_v2;
 #[path = "context_body_store.rs"]
 mod store;
+#[path = "context_body_store_v2.rs"]
+mod store_v2;
 use oasis7_custody_core::context_body::*;
 use wasm_bindgen::prelude::*;
 use worker::*;
@@ -51,6 +55,9 @@ impl ContextBody {
         Ok(())
     }
     fn handle(&self, path: &str, raw: &str) -> Result<Response> {
+        if path.starts_with("/internal/fullsigned-v2/") {
+            return self.handle_fullsigned_v2(path, raw);
+        }
         match path {
             "/internal/put" => {
                 let candidate: ContextBodyRecordV1 =
@@ -92,7 +99,12 @@ impl DurableObject for ContextBody {
             || url.fragment().is_some()
             || !matches!(
                 url.path(),
-                "/internal/put" | "/internal/read" | "/internal/metadata"
+                "/internal/put"
+                    | "/internal/read"
+                    | "/internal/metadata"
+                    | "/internal/fullsigned-v2/put"
+                    | "/internal/fullsigned-v2/read"
+                    | "/internal/fullsigned-v2/metadata"
             )
             || request.headers().get("Content-Type")?.as_deref() != Some("application/json")
         {

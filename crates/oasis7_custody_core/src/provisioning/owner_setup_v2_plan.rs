@@ -5,6 +5,8 @@ use oasis7_agent_api::game::GoalContentV1;
 #[serde(deny_unknown_fields)]
 pub struct OwnerSetupPlanV2 {
     pub api_version: u8,
+    #[serde(deserialize_with = "required_option")]
+    pub model_budget: Option<ModelInferenceBudgetV1>,
     pub setup_id: String,
     pub provision_id: String,
     pub participant_receipt_digest: String,
@@ -23,8 +25,8 @@ pub struct OwnerSetupPlanV2 {
     pub executor_public_key: String,
     pub delegation_generation: DecimalU64,
     pub delegation_nonce: DecimalU64,
-    #[cfg_attr(test, schemars(with = "super::schema::ResourceSelectionSchemaV1"))]
-    pub selection: wire::ResourceBasisSelectionV1,
+    #[cfg_attr(test, schemars(with = "super::schema::ActionSelectionSchemaV2"))]
+    pub selection: ApprovedActionSelectionV2,
     pub deadline: DecimalU64,
     pub request_limit: DecimalU64,
     pub transport_limit: DecimalU64,
@@ -37,6 +39,9 @@ impl core::fmt::Debug for OwnerSetupPlanV2 {
 }
 impl OwnerSetupPlanV2 {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(budget) = &self.model_budget {
+            budget.validate(self.deadline.0)?;
+        }
         let ops = [
             &self.create_operation_id,
             &self.prepare_operation_id,
@@ -84,4 +89,57 @@ impl OwnerSetupPlanV2 {
             plan: Box::new(self.clone()),
         })
     }
+}
+
+/// Actual management prepare input. Preparing a UV request does not accept
+/// phases, issue a model capability or grant any network dispatch permission.
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerSetupPrepareRequestV2 {
+    pub api_version: u8,
+    pub approval_request_id: String,
+    pub plan: OwnerSetupPlanV2,
+}
+impl OwnerSetupPrepareRequestV2 {
+    pub fn validate(&self) -> Result<(), String> {
+        self.plan.validate()?;
+        if self.api_version != 2 || !id(&self.approval_request_id) {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+}
+
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerSetupApproveRequestV2 {
+    pub api_version: u8,
+    pub input: crate::approval_admission::ApprovalAdmissionInput,
+    pub plan: OwnerSetupPlanV2,
+}
+impl OwnerSetupApproveRequestV2 {
+    pub fn validate(&self) -> Result<(), String> {
+        self.plan.validate()?;
+        if self.api_version != 2
+            || self.input.operation_id != self.plan.setup_id
+            || self.input.request.intent != self.plan.intent()?
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
+}
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerSetupApprovalProgressV2 {
+    pub api_version: u8,
+    pub custody_account_id: String,
+    pub provision_id: String,
+    pub setup_id: String,
+    pub phase: crate::approval::ApprovalPhaseV1,
+    /// This approval result is not a paid inference graph capability.
+    pub model_budget_digest: Option<String>,
 }
