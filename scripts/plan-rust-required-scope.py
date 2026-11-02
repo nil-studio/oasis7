@@ -17,6 +17,7 @@ PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
 FAST_TEST_INVENTORY_VERSION = 1
+FAST_EXECUTION_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
@@ -105,6 +106,29 @@ def known_test_target_root(path, directory, manifest):
         if re.fullmatch(pattern, relative):
             return True
     return False
+
+
+def production_target_roots(sources, directories, manifests):
+    """Actual lib/bin roots, independently of test harness and feature settings."""
+    roots = set()
+    for package, manifest in manifests.items():
+        if package not in directories:
+            continue
+        directory = directories[package]
+        metadata = manifest.get('package', {})
+        if 'lib' in manifest or metadata.get('autolib', True):
+            roots.add(posixpath.normpath(posixpath.join(directory,
+                      manifest.get('lib', {}).get('path', 'src/lib.rs'))))
+        for target in manifest.get('bin', []):
+            candidates = ([target['path']] if 'path' in target else
+                          ['src/main.rs', 'src/bin/' + target['name'] + '.rs',
+                           'src/bin/' + target['name'] + '/main.rs'])
+            roots.update(posixpath.normpath(posixpath.join(directory, candidate)) for candidate in candidates)
+        if metadata.get('autobins', True):
+            prefix = directory + '/' if directory else ''
+            roots.update(candidate for candidate in sources if candidate.startswith(prefix) and re.fullmatch(
+                r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))', candidate[len(prefix):]))
+    return roots.intersection(sources)
 
 
 def default_feature_closure(manifest):
@@ -462,6 +486,7 @@ def cargo_graph(ref, generated_inputs=()):
     # Embedded inputs retain whether their reader is a library or a leaf target.
     embedded = {}
     library_embeds = {}
+    data_readers, unresolved_data_readers = {}, set()
     included_sources, unresolved_source_owners, uncertain_includes = set(), set(), set()
 
     for path in paths:
@@ -486,6 +511,7 @@ def cargo_graph(ref, generated_inputs=()):
                 candidate = posixpath.normpath(posixpath.join(posixpath.dirname(path), call['path']))
                 embedded.setdefault(candidate, set()).update(owners)
                 library_embeds.setdefault(candidate, set()).update(library_owners)
+                data_readers.setdefault(candidate, set()).add(path)
             elif call['kind'] == 'manifest':
                 for owner in owners:
                     directory = manifests[owner][0]
@@ -493,6 +519,7 @@ def cargo_graph(ref, generated_inputs=()):
                     embedded.setdefault(candidate, set()).add(owner)
                     if owner in library_owners:
                         library_embeds.setdefault(candidate, set()).add(owner)
+                    data_readers.setdefault(candidate, set()).add(path)
             else:
                 for owner in owners:
                     # Each reader has its own OUT_DIR; one registration cannot
@@ -501,6 +528,7 @@ def cargo_graph(ref, generated_inputs=()):
                              and call['path'].startswith('/')
                              and call['path'][1:] in generated_outputs.get(owner, set()))
                     if not known:
+                        unresolved_data_readers.add(path)
                         embedded.setdefault('__unresolved_embed__', set()).add(owner)
                         expression = ' '.join(call['expression'].split())[:160]
                         embedded.setdefault('__unresolved_embed_sources__', set()).add(
@@ -517,10 +545,13 @@ def cargo_graph(ref, generated_inputs=()):
                         embedded.setdefault(candidate, set()).add(owner)
                         if owner in library_owners:
                             library_embeds.setdefault(candidate, set()).add(owner)
+                        data_readers.setdefault(candidate, set()).add(path)
     embedded['__leaf_inputs__'] = leaf_inputs
     embedded['__library_directories__'] = library_directories
     embedded['__library_readers__'] = library_readers
     embedded['__library_embeds__'] = library_embeds
+    embedded['__rust_data_readers__'] = data_readers
+    embedded['__unresolved_rust_data_readers__'] = unresolved_data_readers
     # Reuse the exact Git blobs for bounded module-context proofs in fast mode.
     embedded['__rust_sources__'] = {path: content for path, content in blobs.items() if path.endswith('.rs')}
     embedded['__rust_include_targets__'] = included_sources
@@ -654,7 +685,7 @@ def valid_fast_declaration(item):
 def validate_fast_test_inventory(config):
     """Only an explicit trusted inventory may replace package-wide tests."""
     fields = {'fast_test_inventory_version', 'ordinary_fast_targets', 'ordinary_fast_rules'}
-    if not fields.intersection(config):
+    if not (fields | {'fast_execution_version', 'ordinary_fast_component_rules'}).intersection(config):
         return
     if (not fields.issubset(config)
             or type(config['fast_test_inventory_version']) is not int
@@ -714,6 +745,29 @@ def validate_fast_test_inventory(config):
                 or any(not valid_fast_declaration(item) for item in declarations)
                 or len(declarations) != len(set(declarations))):
             raise ValueError('invalid fast test declaration additions')
+    component_rules = config.get('ordinary_fast_component_rules')
+    if 'fast_execution_version' not in config:
+        if component_rules is not None:
+            raise ValueError('component rules require trusted fast execution capability')
+        return
+    if (type(config['fast_execution_version']) is not int
+            or config['fast_execution_version'] != FAST_EXECUTION_VERSION
+            or not isinstance(component_rules, list) or not component_rules):
+        raise ValueError('invalid fast execution capability')
+    for rule in component_rules:
+        if (not isinstance(rule, dict) or set(rule) != {'match', 'exclude', 'targets', 'reason'}
+                or not isinstance(rule['match'], list) or not rule['match']
+                or not isinstance(rule['exclude'], list)
+                or not isinstance(rule['targets'], list) or not rule['targets']
+                or any(not isinstance(key, str) or key not in targets for key in rule['targets'])
+                or len(rule['targets']) != len(set(rule['targets']))
+                or not isinstance(rule['reason'], str) or not rule['reason']):
+            raise ValueError('invalid fast component rule')
+        for pattern in rule['match'] + rule['exclude']:
+            if (not isinstance(pattern, str) or not pattern or posixpath.isabs(pattern)
+                    or posixpath.normpath(pattern) != pattern or '..' in pattern.split('/')
+                    or '\\' in pattern or any(ord(character) < 32 for character in pattern)):
+                raise ValueError('invalid fast component pattern')
 
 
 def only_registered_declarations_added(path, comparisons, declarations):
@@ -741,7 +795,9 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
     if config.get('fast_test_inventory_version') != FAST_TEST_INVENTORY_VERSION:
         return None
     mappings = {path: rule for rule in config['ordinary_fast_rules'] for path in rule['paths']}
-    selected, covered, reasons = set(), set(), []
+    component_rules = (config.get('ordinary_fast_component_rules', [])
+                       if config.get('fast_execution_version') == FAST_EXECUTION_VERSION else [])
+    selected, covered, reasons, path_features = set(), set(), [], {}
     for path in paths:
         groups = set(path_rules.get(path, ()))
         groups.update(group for package in path_affected.get(path, ())
@@ -749,18 +805,31 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
         if not groups.intersection({'oasis7_required', 'formal_process'}):
             continue
         rule = mappings.get(path)
-        if rule is None or (rule.get('added_declarations') is not None
+        # A wider component cannot bypass an existing exact API-wiring contract.
+        if (rule is not None and rule.get('added_declarations') is not None
                 and not only_registered_declarations_added(path, comparisons, rule['added_declarations'])):
             return None
-        selected.update(rule['targets'])
+        matches = ([rule] if rule is not None else []) + [candidate for candidate in component_rules
+                   if path.endswith('.rs')
+                   and any(fnmatch.fnmatchcase(path, pattern) for pattern in candidate['match'])
+                   and not any(fnmatch.fnmatchcase(path, pattern) for pattern in candidate['exclude'])]
+        if not matches:
+            return None
+        path_targets = {key for candidate in matches for key in candidate['targets']}
+        selected.update(path_targets)
         covered.add(path)
-        reasons.append('fast target contract ' + rule['reason'] + ': ' + path)
+        # Exact additive wiring does not edit unrelated gated bodies elsewhere
+        # in a root file. Keep its existing declaration-only proof intact.
+        if rule is None or 'added_declarations' not in rule:
+            path_features[path] = set.intersection(*(set(config['ordinary_fast_targets'][key]['features'])
+                                                    for key in path_targets))
+        reasons.extend('fast target contract ' + candidate['reason'] + ': ' + path for candidate in matches)
     if not selected:
         return None
     targets = [config['ordinary_fast_targets'][key] for key in sorted(selected)]
     if not {target['package'] for target in targets}.issubset(selected_core):
         return None
-    return targets, covered, reasons
+    return targets, covered, reasons, path_features
 
 
 def resolve_commit(ref):
@@ -788,7 +857,8 @@ def formal_shards(suites, inventory):
 
 def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
                         ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
-                        narrow_unavailable=None, selected_targets=None):
+                        narrow_unavailable=None, selected_targets=None, required_source_paths=(),
+                        portable_paths=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -1030,6 +1100,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     source_inputs = source_inputs or {}
     sources = source_inputs.get('sources', {})
     directories = source_inputs.get('directories', {})
+    production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
 
     def source_owners(path):
@@ -1064,7 +1135,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:]
             directory = posixpath.dirname(parent)
-            module_directory = (directory if parent in ordinary_roots
+            module_directory = (directory if parent in ordinary_roots or parent in production_roots
                                 or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
                                 or parent in source_inputs.get('includes', ())
                                 else parent.removesuffix('.rs'))
@@ -1167,13 +1238,13 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         context_cache[key] = enabled
         return enabled
 
-    def inherited_paths(path, native, visiting=frozenset()):
+    def inherited_paths(path, native, visiting=frozenset(), roots=None):
         # AND within a concrete Cargo-root path, never across alternative mounts.
         # Opaque references/cycles cannot be hidden by a second convenient path.
         if path in visiting:
             return [((), False, True, frozenset())]
         result = []
-        if path in ordinary_roots:
+        if path in (ordinary_roots if roots is None else roots):
             result.append(((), True, False, frozenset(source_owners(path))))
         if path not in sources:
             return result
@@ -1181,7 +1252,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         for parent, known, opaque, resolved, gates in reference_cache[(path, native, None)]:
             if parent in visiting and not resolved:
                 continue
-            for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}):
+            for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}, roots):
                 result.append((previous + gates, proven and known, uncertain or opaque, packages))
         return result
 
@@ -1252,6 +1323,41 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         selected_context_cache[key] = result
         return result
 
+    def native_only_source(path):
+        """Prove every production mount is absent from a non-test WASM build.
+
+        A reverse dependency alone is neither proof of portability nor proof of
+        native-only ownership. Keep portable checks for unknown cfgs, alternate
+        mounts, includes and cycles. Only literal, already resolved exclusion
+        gates establish this optimization; no candidate annotation authorizes
+        itself because production cfg edits expand the plan below.
+        """
+        if (path not in sources or source_inputs.get('uncertain_modules')
+                or source_owners(path) & set(source_inputs.get('unresolved_includes', ()))):
+            return False
+        excluded = {
+            ('cfg', '(', 'not', '(', 'target_arch', '=', '"wasm32"', ')', ')'),
+            ('cfg', '(', 'test', ')'),
+        }
+
+        def excluded_mounts(current, visiting=frozenset()):
+            if (current in visiting or current not in sources
+                    or source_owners(current) & set(source_inputs.get('unresolved_includes', ()))):
+                return False
+            routes = inherited_paths(current, True, roots=production_roots)
+            # An independent integration target is absent from production builds.
+            # This is separate from, and cannot replace, executable source proof.
+            absent = (all(proven and not opaque and any(gate in excluded for gate in gates)
+                          for gates, proven, opaque, _ in routes) if routes else
+                      current in ordinary_roots and current not in production_roots)
+            # include_str!/include_bytes! are dependency edges only. They never
+            # authorize Rust execution, but portable readers prohibit deferral.
+            return absent and all(excluded_mounts(reader, visiting | {current})
+                                  for reader in source_inputs.get('data_readers', {}).get(current, ()))
+
+        return excluded_mounts(path) and all(excluded_mounts(reader)
+                                            for reader in source_inputs.get('unresolved_data_readers', ()))
+
     def inherited_execution(path, native):
         combinations = []
         paths = inherited_paths(path, native)
@@ -1305,6 +1411,13 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         changes = before_attrs ^ after_attrs
         native = native_context(path)
         ordinary_source = ordinary_source_context(path, native)
+        if path in required_source_paths:
+            selected_source = bool(selected_targets) and any(
+                selected_source_context(path, target) for target in selected_targets)
+            if not selected_source and narrow_unavailable is not None:
+                narrow_unavailable.add(path)
+            if portable_paths is not None and (not selected_source or not native_only_source(path)):
+                portable_paths.add(path)
         # Unchanged full/WASM gates still matter when the enclosed body changes.
         # Attribute diffs alone cannot prove that a narrower driver runs it.
         if narrow_unavailable is not None and path in (narrow_features_by_path or {}):
@@ -1436,12 +1549,16 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         native_fast_candidate = ordinary_fast_selection(
             config, paths, path_affected, path_rules, selected_core, comparisons or [(base, source)])
     narrow_features_by_path, narrow_unavailable = {}, set()
+    execution_capable = config.get('fast_execution_version') == FAST_EXECUTION_VERSION
+    portable_paths = set()
     if config.get('fast_test_inventory_version') == FAST_TEST_INVENTORY_VERSION:
         for rule in config['ordinary_fast_rules']:
             if 'added_declarations' not in rule:
                 features = set.intersection(*(set(config['ordinary_fast_targets'][key]['features'])
                                               for key in rule['targets']))
                 narrow_features_by_path.update((path, features) for path in rule['paths'])
+    if native_fast_candidate is not None:
+        narrow_features_by_path.update(native_fast_candidate[3])
     for before, after in comparisons or [(base, source)]:
         changed_policy, changed_ignored, production_cfg = changed_test_policy(
             before, after, paths, feature_owners or {},
@@ -1450,13 +1567,15 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             (test_target_roots or {}).get(resolve_commit(after), set()),
             (source_inputs or {}).get(resolve_commit(after), {}),
             narrow_features_by_path, narrow_unavailable,
-            native_fast_candidate[0] if native_fast_candidate else None)
+            native_fast_candidate[0] if native_fast_candidate else None,
+            native_fast_candidate[1] if execution_capable and native_fast_candidate else (),
+            portable_paths if execution_capable else None)
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
         production_cfg_paths.update(production_cfg)
     policy_paths = sorted(policy_paths)
     if narrow_unavailable:
-        plan['reasons'].extend('changed source has an existing gate outside fast features; expanded coverage: ' + path
+        plan['reasons'].extend('changed source is not proven executable by the selected fast target/features; expanded coverage: ' + path
                                for path in sorted(narrow_unavailable))
         policy_paths = sorted(set(policy_paths) | narrow_unavailable)
     if production_cfg_paths:
@@ -1492,6 +1611,33 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         plan['ordinary_fast_targets'] = native_fast[0]
         plan['reasons'].extend(native_fast[2])
 
+    if native_fast is not None and execution_capable:
+        plan['fast_execution_version'] = FAST_EXECUTION_VERSION
+        plan['ordinary_execution'] = 'inline'
+        baseline_checks = []
+        if 'oasis7_newapi_bridge_service' in affected:
+            baseline_checks.append('newapi_accounting')
+        if any(path.startswith(('tools/', 'crates/oasis7_builtin_wasm_modules/'))
+               or path.startswith('scripts/check-standalone-tool-lockfiles') for path in paths):
+            baseline_checks.append('standalone_tool_lockfiles')
+        plan['rust_baseline_checks'] = baseline_checks
+        native_paths = native_fast[1] - portable_paths
+        portable_consumers = {package for path in paths if path not in native_paths
+                              for package in path_affected.get(path, ())}
+        deferred_wasm = wasm - portable_consumers
+        wasm -= deferred_wasm
+        if deferred_wasm:
+            plan['reasons'].append('all changed production mounts are native/test-only; portable checks stay in full: '
+                                   + ', '.join(sorted(deferred_wasm)))
+        launcher_paths = {path for path in paths if 'launcher_web' in path_rules.get(path, ()) or any(
+            'launcher_web' in config['package_groups'].get(package, ())
+            for package in path_affected.get(path, ()))}
+        if ('launcher_web' in chosen and 'launcher_web' not in additions and launcher_paths
+                and launcher_paths.issubset(native_paths)
+                and not any('launcher_web' in groups for groups in path_rules.values())):
+            chosen.remove('launcher_web')
+            plan['reasons'].append('all launcher consumer inputs are proven native/test-only; web packaging stays in full')
+
     suites = set()
     if 'formal_process' in chosen:
         if conservative or 'formal_process' in additions or ignored_risk:
@@ -1503,11 +1649,11 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                                    for group in config['package_groups'].get(package, ()))
                 if 'formal_process' not in path_groups:
                     continue
-                if native_fast is not None and path in native_fast[1]:
-                    plan['reasons'].append('bounded native contract; complete process regression stays in full: ' + path)
-                    continue
                 matches = [rule for rule in config['formal_risk_rules']
                            if any(fnmatch.fnmatchcase(path, pattern) for pattern in rule['match'])]
+                if not matches and native_fast is not None and path in native_fast[1]:
+                    plan['reasons'].append('bounded native contract; complete process regression stays in full: ' + path)
+                    continue
                 if not matches:
                     suites.update(FORMAL_SUITES)
                     plan['reasons'].append('no trusted narrow Formal mapping: ' + path)
@@ -1535,6 +1681,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                 check_inventory_version=CHECK_INVENTORY_VERSION,
                 source_sha=resolve_commit(source), tested_sha=resolve_commit(tested or source),
                 policy_sha=resolve_commit(policy_ref or base),
+                affected_packages=sorted(affected),
                 oasis7_required_packages=sorted(selected_core), oasis7_required_wasm_packages=sorted(wasm),
                 formal_suites=sorted(suites), formal_shards=formal_shards(suites, formal_inventory),
                 command_center_package=center_package,
@@ -1622,6 +1769,8 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         'includes': graph[2].get('__rust_include_targets__', ()),
                         'unresolved_includes': graph[2].get('__unresolved_rust_include_owners__', ()),
                         'uncertain_modules': graph[2].get('__uncertain_module_sources__', ()),
+                        'data_readers': graph[2].get('__rust_data_readers__', {}),
+                        'unresolved_data_readers': graph[2].get('__unresolved_rust_data_readers__', ()),
                     }
             except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
                 # Keep usable graphs to establish ownership even when another

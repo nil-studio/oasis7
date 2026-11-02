@@ -533,6 +533,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
                             'fromJSON(needs.select.outputs.plan).execution_profile': '',
                             'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                            'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                            'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                             'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
                         }
                         expression = condition
@@ -544,6 +546,70 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             # Evaluate only this checked-in boolean condition with fixture literals.
                             actual = eval(expression, {'__builtins__': {}}, {})
                             self.assertEqual(actual, result == 'success' and not cancelled and name == expected)
+
+    def test_inline_execution_skips_only_compatible_producers_and_rejects_bad_dependency_states(self):
+        for version, mode in ((0, ''), (2, 'inline'), (1, 'artifact'), (1, 'inline')):
+            inline = version == 1 and mode == 'inline'
+            for producer in ('success', 'skipped', 'failure', 'cancelled', '', 'unknown'):
+                for cancelled in (False, True):
+                    values = {
+                        'always()': True, 'cancelled()': cancelled, 'needs.select.result': 'success',
+                        'needs.oasis7-test-build.result': producer,
+                        'needs.select.outputs.run_oasis7_required': 'true',
+                        'needs.select.outputs.trusted_source': 'false',
+                        'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                        'fromJSON(needs.select.outputs.plan).execution_profile': 'pr-fast',
+                        'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
+                        'fromJSON(needs.select.outputs.plan).fast_execution_version': version,
+                        'fromJSON(needs.select.outputs.plan).ordinary_execution': mode,
+                        'github.event_name': 'pull_request', 'github.ref': 'refs/pull/1/merge',
+                        'github.workflow_sha': 'a', 'github.sha': 'b', 'inputs.run_mode': '',
+                    }
+                    for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+                                 'oasis7-test-build', 'oasis7-required'):
+                        condition = JOBS[name].split('    if:', 1)[1].split('    runs-on:', 1)[0].strip().removeprefix('>-')
+                        for token, value in values.items():
+                            condition = condition.replace(token, repr(value))
+                        condition = re.sub(r'!(?!=)', 'not ', condition.replace('&&', ' and ').replace('||', ' or '))
+                        actual = eval(' '.join(condition.split()), {'__builtins__': {}}, {})
+                        if name == 'oasis7-required':
+                            expected = not cancelled and producer == ('skipped' if inline else 'success')
+                        elif name == 'oasis7-test-build-trusted':
+                            expected = False
+                        else:
+                            expected = not inline
+                        with self.subTest(job=name, version=version, mode=mode, producer=producer, cancelled=cancelled):
+                            self.assertEqual(actual, expected)
+
+    def test_preview_is_cold_read_only_and_independent_of_required_authority(self):
+        planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
+        self.assertIn("if: github.event_name == 'pull_request'", planner)
+        self.assertNotIn('needs: select', planner)
+        self.assertIn('ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
+        self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
+        self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
+        self.assertIn('group: [baseline, rust_baseline, oasis7_required]', preview)
+        self.assertIn('fail-fast: false', preview)
+        self.assertIn('ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}', preview)
+        self.assertIn('ci-fast-preview.py restore --metadata', preview)
+        self.assertIn('scripts/ci-tests.sh required --group "$PREVIEW_GROUP" --plan', preview)
+        self.assertIn('--requirement scripts/doc-governance-requirements.txt', preview)
+        self.assertIn('OASIS7_CI_PROFILE: pr-fast', preview)
+        self.assertIn('set -euo pipefail', preview)
+        self.assertIn('diagnostic_only', preview)
+        for name, job in (('plan', planner), ('preview', preview)):
+            with self.subTest(job=name):
+                self.assertIn('contents: read', job)
+                self.assertIn('persist-credentials: false', job)
+                for forbidden in ('contents: write', 'actions: write', 'cache-mode: write', 'continue-on-error:',
+                                  'rust-cache@', 'actions/cache/', 'ci-full-result.py', 'ci-required-result.py'):
+                    self.assertNotIn(forbidden, job)
+        for gate in ('required-gate', 'explicit-full-gate'):
+            self.assertNotIn('pr-fast-preview', JOBS[gate])
+        baseline = JOBS['rust-baseline']
+        self.assertIn('name: ${{ needs.select.outputs.selection_artifact }}', baseline)
+        self.assertIn('--plan "$RUNNER_TEMP/selection.json"', baseline)
+        self.assertIn('SOURCE_SHA: ${{ needs.select.outputs.source_sha }}', baseline)
 
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
@@ -613,6 +679,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                     'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
                                     'fromJSON(needs.select.outputs.plan).execution_profile': '',
                                     'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                                    'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                                    'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                                     'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
                                     'github.workflow_sha': 'a' if matching_workflow else 'b', 'github.sha': 'a',
                                 }
@@ -668,6 +736,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             'needs.select.outputs.trusted_source': str(ref == 'refs/heads/main').lower(),
                             'fromJSON(needs.select.outputs.plan).execution_profile': '',
                             'fromJSON(needs.select.outputs.plan).fast_plan_version': 0,
+                            'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                            'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                                 'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': mode,
                                 'github.workflow_sha': 'a' if matching_workflow else 'b', 'github.sha': 'a',
                             }
@@ -1569,7 +1639,9 @@ run_cargo() {
         self.assertIn('bootstrap_full=true', select)
         self.assertIn('&& "$GITHUB_REF" != refs/heads/main', select)
         self.assertEqual(WORKFLOW.count('name: ${{ needs.select.outputs.authority_artifact }}'), 5)
-        self.assertNotIn('matrix.group', WORKFLOW)
+        for name, job in JOBS.items():
+            if name != 'pr-fast-preview':
+                self.assertNotIn('matrix.group', job, name)
         self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', WORKFLOW)), WORKFLOW.count('persist-credentials: false'))
         self.assertNotIn('secrets.', WORKFLOW)
         dependency_cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
@@ -1745,6 +1817,8 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
                 'fromJSON(needs.select.outputs.plan).scope': 'full',
                 'fromJSON(needs.select.outputs.plan).execution_profile': profile,
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': version,
+                'fromJSON(needs.select.outputs.plan).fast_execution_version': 0,
+                'fromJSON(needs.select.outputs.plan).ordinary_execution': '',
                 'github.event_name': event, 'github.ref': ref, 'inputs.run_mode': 'full',
                 'github.workflow_sha': 'a', 'github.sha': 'a',
             }

@@ -489,7 +489,126 @@ class FastTargetInventory(unittest.TestCase):
                     artifacts.validate_ordinary_selection(altered)
 
 
+class InlineExecutionSelection(unittest.TestCase):
+    def selection(self, checks=None):
+        return FastTargetInventory().selection() | {
+            'fast_execution_version': 1, 'ordinary_execution': 'inline',
+            'rust_baseline_checks': [] if checks is None else checks,
+        }
+
+    def test_only_compatible_bounded_plans_select_baseline_extras(self):
+        for profile in ('pr-fast', 'main-fast'):
+            selected = self.selection() | {'execution_profile': profile}
+            self.assertEqual(artifacts.required_arguments(selected, 'baseline-checks'), [])
+            self.assertEqual(artifacts.required_native_commands(selected),
+                             artifacts.required_native_commands(FastTargetInventory().selection()))
+        selected = self.selection(['newapi_accounting'])
+        self.assertEqual(artifacts.required_arguments(selected, 'baseline-checks'), ['newapi_accounting'])
+        for selected in (None, {}, FastTargetInventory().selection(),
+                         self.selection() | {'fast_execution_version': 2}):
+            with self.subTest(legacy=selected):
+                self.assertEqual(artifacts.required_arguments(selected, 'baseline-checks'),
+                                 list(artifacts.RUST_BASELINE_CHECKS))
+
+    def test_known_inline_capability_rejects_incomplete_or_expanded_plans(self):
+        for version in (True, '1', 1.0, None):
+            with self.subTest(legacy_version=version), self.assertRaises(ValueError):
+                artifacts.required_arguments({'fast_execution_version': version}, 'baseline-checks')
+        invalid = [('fast_execution_version', True), ('fast_execution_version', '1'),
+                   ('ordinary_execution', 'artifact'), ('execution_profile', 'periodic-full'),
+                   ('execution_profile', 'candidate-full'), ('scope', 'full'), ('scope', 'explicit-full'),
+                   ('test_policy_changed', True), ('groups', ['baseline']),
+                   ('fast_test_inventory_version', True), ('fast_test_inventory_version', 2),
+                   ('ordinary_fast_targets', []), ('rust_baseline_checks', 'newapi_accounting'),
+                   ('rust_baseline_checks', ['unknown']),
+                   ('rust_baseline_checks', ['newapi_accounting', 'newapi_accounting'])]
+        for key, value in invalid:
+            for phase in ('baseline-checks', 'native', 'wasm'):
+                with self.subTest(field=key, phase=phase), self.assertRaises(ValueError):
+                    artifacts.required_arguments(self.selection() | {key: value}, phase)
+        for key in ('fast_plan_version', 'fast_test_inventory_version', 'ordinary_execution',
+                    'ordinary_fast_targets', 'rust_baseline_checks'):
+            selected = self.selection()
+            del selected[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                artifacts.required_arguments(selected, 'baseline-checks')
+        selected = self.selection()
+        selected['ordinary_fast_targets'][0]['cases'] = []
+        with self.assertRaises(ValueError):
+            artifacts.required_arguments(selected, 'baseline-checks')
+
+
 class DriverCoverage(unittest.TestCase):
+    def test_inline_driver_builds_once_runs_manifest_and_propagates_each_failure(self):
+        driver = (HERE / 'ci-tests.sh').read_text()
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_oasis7_required_tier_tests']
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            helper = root / 'ci-test-artifacts.py'
+            helper.write_text('''import json, os, pathlib, sys
+action = sys.argv[1]
+if action == 'required-args':
+    sys.exit(0)
+bundle = pathlib.Path(sys.argv[sys.argv.index('--bundle') + 1])
+with open(os.environ['CALL_LOG'], 'a') as stream:
+    stream.write(json.dumps({'args': sys.argv[1:], 'bundle': str(bundle)}) + '\\n')
+if action == 'build':
+    bundle.mkdir(parents=True)
+if os.environ['FAILED'] == action:
+    sys.exit(19)
+''')
+            for failed in ('', 'build', 'run'):
+                log = root / 'calls.jsonl'
+                log.unlink(missing_ok=True)
+                script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"; repo_root="$2"; required_plan=fixture\n'
+                script += 'run() { "$@"; }\nrun_cargo() { echo unexpected-Cargo; return 83; }\n'
+                script += 'run_oasis7_required_tier_tests() {\n' + body + '}\nrun_oasis7_required_tier_tests\n'
+                result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(root)],
+                                        text=True, capture_output=True,
+                                        env=dict(os.environ, FAILED=failed, CALL_LOG=str(log), OASIS7_CI_TEST_BUNDLE=''))
+                calls = [json.loads(line) for line in log.read_text().splitlines()]
+                with self.subTest(failed=failed):
+                    self.assertEqual(result.returncode, 19 if failed else 0, result.stderr)
+                    self.assertEqual([call['args'][0] for call in calls], ['build'] if failed == 'build' else ['build', 'run'])
+                    self.assertEqual(calls[0]['args'][calls[0]['args'].index('--scope') + 1], 'ordinary')
+                    self.assertEqual(len({call['bundle'] for call in calls}), 1)
+                    self.assertFalse(Path(calls[0]['bundle']).exists())
+
+    def test_baseline_executes_selected_real_extra_commands_and_propagates_failure(self):
+        driver = (HERE / 'ci-tests.sh').read_text()
+        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_rust_baseline']
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'selection.json'
+            for checks, failed in (([], ''), (['newapi_accounting'], ''),
+                                   (list(artifacts.RUST_BASELINE_CHECKS), ''),
+                                   (list(artifacts.RUST_BASELINE_CHECKS), 'newapi_accounting'),
+                                   (list(artifacts.RUST_BASELINE_CHECKS), 'standalone_tool_lockfiles'),
+                                   (None, '')):
+                selected = InlineExecutionSelection().selection(checks)
+                selected.update(source_sha=sha, tested_sha=sha, architecture=dict(source=sha, tested=sha))
+                if checks is None:
+                    del selected['fast_execution_version']
+                path.write_text(json.dumps(selected))
+                script = 'set -euo pipefail\ntier=required; ci_python="$1"; driver_dir="$2"; repo_root="$3"; required_plan="$4"\n'
+                script += 'run() { printf "command:%s\\n" "$*"; }\nrun_cargo() { printf "cargo:%s\\n" "$*"; }\n'
+                script += 'run_rustsec_advisory_check() { echo advisories; }\n'
+                script += 'run_newapi_bridge_service_accounting_tests() { echo newapi_accounting; [[ "$FAILED" != newapi_accounting ]] || return 19; }\n'
+                script += 'run_standalone_tool_lockfiles_checks() { echo standalone_tool_lockfiles; [[ "$FAILED" != standalone_tool_lockfiles ]] || return 19; }\n'
+                script += 'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
+                result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(HERE),
+                                         str(artifacts.ROOT), str(path)], text=True, capture_output=True,
+                                        env=dict(os.environ, FAILED=failed, SOURCE_SHA=sha))
+                expected = list(artifacts.RUST_BASELINE_CHECKS) if checks is None else checks
+                with self.subTest(checks=checks, failed=failed):
+                    self.assertEqual(result.returncode, 19 if failed else 0, result.stderr)
+                    self.assertIn('cargo:fetch --locked', result.stdout)
+                    self.assertIn('cargo-dev-architecture.py', result.stdout)
+                    self.assertIn('advisories', result.stdout)
+                    self.assertEqual('newapi_accounting' in result.stdout.splitlines(), 'newapi_accounting' in expected)
+                    self.assertEqual('standalone_tool_lockfiles' in result.stdout.splitlines(),
+                                     'standalone_tool_lockfiles' in expected and failed != 'newapi_accounting')
+
     def test_target_clippy_executes_every_command_and_propagates_each_failure(self):
         driver = (HERE / 'ci-tests.sh').read_text()
         body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_oasis7_required_tier_clippy']

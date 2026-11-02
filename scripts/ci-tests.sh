@@ -506,6 +506,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-full-result.test.py
   run python3 ./scripts/ci-workflow.test.py
+  run python3 ./scripts/ci-fast-preview.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
   run python3 ./scripts/ci-cache-policy.test.py
   run python3 ./scripts/ci-cache-archive.test.py
@@ -917,6 +918,11 @@ run_full_extended_tier_tests() {
 }
 
 run_rust_baseline() {
+  local extra_checks=$'newapi_accounting\nstandalone_tool_lockfiles' check
+  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+    extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase baseline-checks) || return
+  fi
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
@@ -929,8 +935,14 @@ run_rust_baseline() {
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
-  run_newapi_bridge_service_accounting_tests
-  run_standalone_tool_lockfiles_checks
+  while IFS= read -r check; do
+    case "$check" in
+      newapi_accounting) run_newapi_bridge_service_accounting_tests ;;
+      standalone_tool_lockfiles) run_standalone_tool_lockfiles_checks ;;
+      '') ;;
+      *) echo "Unknown Rust baseline check: $check" >&2; return 2 ;;
+    esac
+  done <<< "$extra_checks"
 }
 
 run_group() {
