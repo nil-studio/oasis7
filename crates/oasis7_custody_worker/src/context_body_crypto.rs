@@ -118,3 +118,7 @@ impl ContextBodyCrypto {
         Ok(bytes)
     }
 }
+
+#[path = "context_body_crypto_v2.rs"]
+mod fullsigned_v2;
+pub use fullsigned_v2::SealedFullSignedSlotV2;

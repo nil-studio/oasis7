@@ -29,6 +29,13 @@ for role in owner executor recovery-fence; do
   fi
   grep -q 'native-runtime-harness requires identity' "$scratch/native-harness-$role"
 done
+for role in identity owner recovery-fence; do
+  if env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features "$role,execution-signer-harness" --locked >"$scratch/execution-harness-$role" 2>&1; then
+    echo 'execution signer harness without Executor unexpectedly built' >&2; exit 1
+  fi
+  grep -q 'execution-signer-harness requires executor' "$scratch/execution-harness-$role"
+done
+env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features executor,execution-signer-harness --locked
 for role in identity owner executor recovery-fence; do
   env -u RUSTC_WRAPPER cargo check -p oasis7_custody_worker --target wasm32-unknown-unknown --no-default-features --features "$role" --locked
 done
@@ -45,6 +52,7 @@ case "${1:-}" in
     done
     bash crates/oasis7_custody_worker/scripts/build-approval-harness.sh
     bash crates/oasis7_custody_worker/scripts/build-native-runtime-harness.sh
+    bash crates/oasis7_custody_worker/scripts/build-execution-signer-harness.sh
     # Execute native custody regressions, including the Provision bootstrap wire
     # contract; compiling the HTTP fixture alone does not run these assertions.
     env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher hosted_identity::custody::tests --locked
@@ -52,6 +60,7 @@ case "${1:-}" in
     bash crates/oasis7_custody_worker/scripts/build-world-fixture.sh
     node crates/oasis7_custody_worker/scripts/contract.mjs check
     bash crates/oasis7_custody_worker/scripts/export-context-body-fixture.sh
+    bash crates/oasis7_custody_worker/scripts/export-execution-prepare-signer-fixture.sh
     npm test --prefix crates/oasis7_custody_worker
     ;;
   *) echo 'usage: verify.sh [--platform]' >&2; exit 2 ;;
