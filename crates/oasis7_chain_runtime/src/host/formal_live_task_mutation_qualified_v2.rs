@@ -117,11 +117,21 @@ fn wait(
         if let Err(error) = &sampled {
             diagnostic::failure(service, q, error);
         }
+        #[cfg(test)]
+        let absolute_expired = sampled.as_ref().is_ok_and(|now| *now >= until);
         let now = match sampled {
             Ok(now) if now < until && started.elapsed() < HTTP_CONNECTION_TIMEOUT => now,
             _ => {
                 #[cfg(test)]
-                diagnostic::note(service, q, diagnostic::Reason::PollExpired);
+                diagnostic::note(
+                    service,
+                    q,
+                    if absolute_expired {
+                        diagnostic::Reason::PollAbsoluteExpired
+                    } else {
+                        diagnostic::Reason::PollConnectionTimeout
+                    },
+                );
                 return Ok(TaskMutationSubmitReplyV2::Queued {
                     admission,
                     wait_outcome: TaskMutationWaitOutcomeV2::Expired,
@@ -463,7 +473,8 @@ mod diagnostic {
     use super::*;
     #[derive(Clone, Copy)]
     pub(super) enum Reason {
-        PollExpired,
+        PollAbsoluteExpired,
+        PollConnectionTimeout,
         NotReady,
         MissingMaterial,
         MaterialHeadMismatch,
@@ -484,7 +495,8 @@ mod diagnostic {
     impl Reason {
         fn label(self) -> &'static str {
             match self {
-                Self::PollExpired => "PollExpired",
+                Self::PollAbsoluteExpired => "PollAbsoluteExpired",
+                Self::PollConnectionTimeout => "PollConnectionTimeout",
                 Self::NotReady => "NotReady",
                 Self::MissingMaterial => "MissingMaterial",
                 Self::MaterialHeadMismatch => "MaterialHeadMismatch",
