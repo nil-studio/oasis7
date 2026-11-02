@@ -2,7 +2,8 @@
 //! The body leaf excludes mailbox, intent/receipt and all other agent state.
 use crate::{BodyKernelView, WorldTime};
 
-const KEY_DOMAIN: &[u8] = b"oasis7.iws.agent-body-key.v1\0";
+pub const AGENT_BODY_KEY_DOMAIN_V1: &[u8] = b"oasis7.iws.agent-body-key.v1\0";
+const KEY_DOMAIN: &[u8] = AGENT_BODY_KEY_DOMAIN_V1;
 const VALUE_DOMAIN: &[u8] = b"oasis7.iws.agent-body-value.v1\0";
 pub const AGENT_BODY_VALUE_BYTES: usize = VALUE_DOMAIN.len() + 40;
 
@@ -30,6 +31,23 @@ impl AgentBodyKeyV1 {
     }
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.length]
+    }
+    /// Parse the original framed key. Parsing confers no owner qualification.
+    pub fn from_bytes(bytes: &[u8]) -> Result<&str, &'static str> {
+        let payload = bytes
+            .strip_prefix(KEY_DOMAIN)
+            .ok_or("agent body key domain")?;
+        let length = payload.get(..2).ok_or("agent body key framing")?;
+        let length = usize::from(u16::from_be_bytes(length.try_into().unwrap()));
+        let raw = payload
+            .get(2..)
+            .filter(|v| v.len() == length)
+            .ok_or("agent body key length")?;
+        let id = std::str::from_utf8(raw).map_err(|_| "agent body key UTF-8")?;
+        if Self::new(id)?.as_bytes() != bytes {
+            return Err("agent body key canonical");
+        }
+        Ok(id)
     }
 }
 

@@ -61,7 +61,8 @@ fields! {
     IntentReasonSummary=50,Authorization,OptionalText,false; IntentReplacedBy=51,Authorization,OptionalText,false;
     IntentActor=52,Authorization,Text,false; IntentRequestDigest=53,Authorization,Text,false;
 }
-const KEY: &[u8] = b"oasis7.iws.agent-field-key.v1\0";
+pub const AGENT_FIELD_KEY_DOMAIN_V1: &[u8] = b"oasis7.iws.agent-field-key.v1\0";
+const KEY: &[u8] = AGENT_FIELD_KEY_DOMAIN_V1;
 pub const AGENT_FIELD_KEY_BYTES: usize = KEY.len() + 42;
 pub struct AgentFieldKeyV1([u8; AGENT_FIELD_KEY_BYTES]);
 impl AgentFieldKeyV1 {
@@ -79,9 +80,23 @@ impl AgentFieldKeyV1 {
         hash.update(b"oasis7.iws.agent-id.v1\0");
         hash.update(&(agent.len() as u64).to_be_bytes());
         hash.update(agent.as_bytes());
+        Self::from_owner_digest(*hash.finalize().as_bytes(), field, ordinal)
+    }
+    /// Framing only. Recovery must independently bind this digest to the
+    /// original body/identity key before claiming Agent ownership.
+    pub(crate) fn from_owner_digest(
+        owner: [u8; 32],
+        field: AgentFieldV1,
+        ordinal: u64,
+    ) -> Result<Self, &'static str> {
+        if (field == AgentFieldV1::ResourceAmount && ordinal > 1)
+            || (!field.indexed() && ordinal != 0)
+        {
+            return Err("agent field key ordinal");
+        }
         let mut bytes = [0; AGENT_FIELD_KEY_BYTES];
         bytes[..KEY.len()].copy_from_slice(KEY);
-        bytes[KEY.len()..KEY.len() + 32].copy_from_slice(hash.finalize().as_bytes());
+        bytes[KEY.len()..KEY.len() + 32].copy_from_slice(&owner);
         bytes[KEY.len() + 32..KEY.len() + 34].copy_from_slice(&(field as u16).to_be_bytes());
         bytes[KEY.len() + 34..].copy_from_slice(&ordinal.to_be_bytes());
         Ok(Self(bytes))
@@ -129,3 +144,7 @@ impl AgentFieldV1 {
 #[cfg(test)]
 #[path = "incremental_agent_fields_tests.rs"]
 mod tests;
+
+#[path = "incremental_agent_scalar_stream.rs"]
+mod stream;
+pub use stream::write_agent_scalar_stream_v1;

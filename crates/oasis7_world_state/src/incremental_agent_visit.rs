@@ -101,59 +101,51 @@ pub fn visit_agent_cell<S: AgentCellFieldVisitor>(
     emit!(SlotCount, V::U64(slots.len() as u64));
     emit!(SlotNext, V::U64(slots.len() as u64));
     for (ordinal, slot) in slots.iter().enumerate() {
-        let BodyModuleSlot {
-            slot_id,
-            slot_type,
-            installed_module,
-            locked,
-        } = slot;
-        let kind = match slot_type {
-            BodySlotType::Power => 0,
-            BodySlotType::Sensor => 1,
-            BodySlotType::Mobility => 2,
-            BodySlotType::Cognitive => 3,
-            BodySlotType::Cargo => 4,
-            BodySlotType::Universal => 5,
-        };
-        for (field, value) in [
-            (F::SlotId, V::Text(slot_id)),
-            (F::SlotType, V::U8(kind)),
-            (
-                F::SlotInstalled,
-                V::OptionalText(installed_module.as_deref()),
-            ),
-            (F::SlotLocked, V::Bool(*locked)),
-        ] {
+        visit_agent_slot_values_v1(slot, |field, value| {
             sink.scalar(field, ordinal as u64, value)
-                .map_err(AgentVisitError::Sink)?;
-        }
+        })
+        .map_err(AgentVisitError::Sink)?;
     }
     emit!(CargoCount, V::U64(cargo_entries.len() as u64));
     emit!(CargoNext, V::U64(cargo_entries.len() as u64));
     for (ordinal, entry) in cargo_entries.iter().enumerate() {
-        let CargoEntityEntry {
-            entity_id,
-            entity_kind,
-            quantity,
-            size_per_unit,
-        } = entry;
-        let kind = match entity_kind {
-            CargoEntityKind::Mineral => 0,
-            CargoEntityKind::ModuleItem => 1,
-            CargoEntityKind::InterfaceModuleItem => 2,
-        };
-        for (field, value) in [
-            (F::CargoId, V::Text(entity_id)),
-            (F::CargoKind, V::U8(kind)),
-            (F::CargoQuantity, V::I64(*quantity)),
-            (F::CargoUnitSize, V::I64(*size_per_unit)),
-        ] {
+        visit_agent_cargo_values_v1(entry, |field, value| {
             sink.scalar(field, ordinal as u64, value)
-                .map_err(AgentVisitError::Sink)?;
-        }
+        })
+        .map_err(AgentVisitError::Sink)?;
     }
     emit!(ActivityPresent, V::Bool(activity.is_some()));
-    if let Some(AgentActivityV1 {
+    if let Some(activity) = activity {
+        visit_agent_activity_values_v1(activity, |field, value| sink.scalar(field, 0, value))
+            .map_err(AgentVisitError::Sink)?;
+    }
+    emit!(IntentPresent, V::Bool(intent.is_some()));
+    if let Some(intent) = intent {
+        visit_agent_intent_values_v1(intent, |field, value| sink.scalar(field, 0, value))
+            .map_err(AgentVisitError::Sink)?;
+    }
+    sink.mailbox_frontier(mailbox.len() as u64)
+        .map_err(AgentVisitError::Sink)?;
+    for (index, event) in mailbox.iter().enumerate() {
+        sink.mailbox(index as u64, event)
+            .map_err(AgentVisitError::Sink)?;
+    }
+    Ok(())
+}
+
+/// Borrowed original Activity columns, shared by GEN and explicit Option replacement.
+pub fn visit_agent_activity_values_v1<'a, E>(
+    activity: &'a AgentActivityV1,
+    mut emit: impl FnMut(AgentFieldV1, AgentScalarRefV1<'a>) -> Result<(), E>,
+) -> Result<(), E> {
+    use AgentFieldV1 as F;
+    use AgentScalarRefV1 as V;
+    macro_rules! emit {
+        ($field:ident, $value:expr) => {
+            emit(F::$field, $value)?
+        };
+    }
+    let AgentActivityV1 {
         status,
         updated_at,
         operation_kind,
@@ -161,74 +153,134 @@ pub fn visit_agent_cell<S: AgentCellFieldVisitor>(
         target_id,
         reason_code,
         reason_summary,
-    }) = activity
-    {
-        let status = match status {
-            AgentActivityStatus::Idle => 0,
-            AgentActivityStatus::Executing => 1,
-            AgentActivityStatus::Blocked => 2,
-            AgentActivityStatus::Waiting => 3,
-            AgentActivityStatus::Unavailable => 4,
+    } = activity;
+    let status = match status {
+        AgentActivityStatus::Idle => 0,
+        AgentActivityStatus::Executing => 1,
+        AgentActivityStatus::Blocked => 2,
+        AgentActivityStatus::Waiting => 3,
+        AgentActivityStatus::Unavailable => 4,
+    };
+    emit!(ActivityStatus, V::U8(status));
+    emit!(ActivityUpdated, V::U64(*updated_at));
+    emit!(
+        ActivityOperationKind,
+        V::OptionalText(operation_kind.as_deref())
+    );
+    emit!(ActivityOperationId, V::OptionalU64(*operation_id));
+    emit!(ActivityTarget, V::OptionalText(target_id.as_deref()));
+    emit!(ActivityReasonCode, V::OptionalText(reason_code.as_deref()));
+    emit!(
+        ActivityReasonSummary,
+        V::OptionalText(reason_summary.as_deref())
+    );
+    Ok(())
+}
+/// Borrowed original Intent columns; enum/field mapping is the unique GEN mapping.
+pub fn visit_agent_intent_values_v1<'a, E>(
+    intent: &'a crate::AgentIntentV2,
+    mut emit: impl FnMut(AgentFieldV1, AgentScalarRefV1<'a>) -> Result<(), E>,
+) -> Result<(), E> {
+    use crate::incremental_intent_fields::{
+        IntentFieldV1 as I, IntentScalarRefV1 as S, visit_intent_values_v1,
+    };
+    use AgentFieldV1 as F;
+    use AgentScalarRefV1 as V;
+    visit_intent_values_v1(intent, |field, value| {
+        let field = match field {
+            I::SchemaVersion => F::IntentSchema,
+            I::AgentId => F::IntentAgent,
+            I::IntentId => F::IntentId,
+            I::Kind => F::IntentKind,
+            I::Summary => F::IntentSummary,
+            I::TargetId => F::IntentTarget,
+            I::EffectIntentId => F::IntentEffect,
+            I::IntentTick => F::IntentTick,
+            I::WorldId => F::IntentWorld,
+            I::ReorgEpoch => F::IntentReorg,
+            I::AuthorityScope => F::IntentAuthorityScope,
+            I::Status => F::IntentStatus,
+            I::Source => F::IntentSource,
+            I::LogicalTime => F::IntentLogicalTime,
+            I::EventSeq => F::IntentEventSeq,
+            I::UpdatedAt => F::IntentUpdated,
+            I::ReceiptRef => F::IntentReceipt,
+            I::ReasonCode => F::IntentReasonCode,
+            I::ReasonSummary => F::IntentReasonSummary,
+            I::ReplacedBy => F::IntentReplacedBy,
+            I::ActorId => F::IntentActor,
+            I::RequestDigest => F::IntentRequestDigest,
         };
-        emit!(ActivityStatus, V::U8(status));
-        emit!(ActivityUpdated, V::U64(*updated_at));
-        emit!(
-            ActivityOperationKind,
-            V::OptionalText(operation_kind.as_deref())
-        );
-        emit!(ActivityOperationId, V::OptionalU64(*operation_id));
-        emit!(ActivityTarget, V::OptionalText(target_id.as_deref()));
-        emit!(ActivityReasonCode, V::OptionalText(reason_code.as_deref()));
-        emit!(
-            ActivityReasonSummary,
-            V::OptionalText(reason_summary.as_deref())
-        );
-    }
-    emit!(IntentPresent, V::Bool(intent.is_some()));
-    if let Some(intent) = intent {
-        use crate::incremental_intent_fields::{
-            IntentFieldV1 as I, IntentScalarRefV1 as S, visit_intent_values_v1,
+        let value = match value {
+            S::U32(v) => V::U32(v),
+            S::U64(v) => V::U64(v),
+            S::Text(v) => V::Text(v),
+            S::OptionalText(v) => V::OptionalText(v),
+            S::OptionalU64(v) => V::OptionalU64(v),
         };
-        visit_intent_values_v1(intent, |field, value| {
-            let field = match field {
-                I::SchemaVersion => F::IntentSchema,
-                I::AgentId => F::IntentAgent,
-                I::IntentId => F::IntentId,
-                I::Kind => F::IntentKind,
-                I::Summary => F::IntentSummary,
-                I::TargetId => F::IntentTarget,
-                I::EffectIntentId => F::IntentEffect,
-                I::IntentTick => F::IntentTick,
-                I::WorldId => F::IntentWorld,
-                I::ReorgEpoch => F::IntentReorg,
-                I::AuthorityScope => F::IntentAuthorityScope,
-                I::Status => F::IntentStatus,
-                I::Source => F::IntentSource,
-                I::LogicalTime => F::IntentLogicalTime,
-                I::EventSeq => F::IntentEventSeq,
-                I::UpdatedAt => F::IntentUpdated,
-                I::ReceiptRef => F::IntentReceipt,
-                I::ReasonCode => F::IntentReasonCode,
-                I::ReasonSummary => F::IntentReasonSummary,
-                I::ReplacedBy => F::IntentReplacedBy,
-                I::ActorId => F::IntentActor,
-                I::RequestDigest => F::IntentRequestDigest,
-            };
-            let value = match value {
-                S::U32(v) => V::U32(v),
-                S::U64(v) => V::U64(v),
-                S::Text(v) => V::Text(v),
-                S::OptionalText(v) => V::OptionalText(v),
-                S::OptionalU64(v) => V::OptionalU64(v),
-            };
-            sink.scalar(field, 0, value).map_err(AgentVisitError::Sink)
-        })?;
+        emit(field, value)
+    })
+}
+
+/// Four original slot columns; no ID normalization or collection renumbering.
+pub fn visit_agent_slot_values_v1<'a, E>(
+    slot: &'a BodyModuleSlot,
+    mut emit: impl FnMut(AgentFieldV1, AgentScalarRefV1<'a>) -> Result<(), E>,
+) -> Result<(), E> {
+    use AgentFieldV1 as F;
+    use AgentScalarRefV1 as V;
+    let BodyModuleSlot {
+        slot_id,
+        slot_type,
+        installed_module,
+        locked,
+    } = slot;
+    let kind = match slot_type {
+        BodySlotType::Power => 0,
+        BodySlotType::Sensor => 1,
+        BodySlotType::Mobility => 2,
+        BodySlotType::Cognitive => 3,
+        BodySlotType::Cargo => 4,
+        BodySlotType::Universal => 5,
+    };
+    for (field, value) in [
+        (F::SlotId, V::Text(slot_id)),
+        (F::SlotType, V::U8(kind)),
+        (
+            F::SlotInstalled,
+            V::OptionalText(installed_module.as_deref()),
+        ),
+        (F::SlotLocked, V::Bool(*locked)),
+    ] {
+        emit(field, value)?;
     }
-    sink.mailbox_frontier(mailbox.len() as u64)
-        .map_err(AgentVisitError::Sink)?;
-    for (index, event) in mailbox.iter().enumerate() {
-        sink.mailbox(index as u64, event)
-            .map_err(AgentVisitError::Sink)?;
+    Ok(())
+}
+/// Four original cargo columns; duplicate semantic IDs remain independent rows.
+pub fn visit_agent_cargo_values_v1<'a, E>(
+    entry: &'a CargoEntityEntry,
+    mut emit: impl FnMut(AgentFieldV1, AgentScalarRefV1<'a>) -> Result<(), E>,
+) -> Result<(), E> {
+    use AgentFieldV1 as F;
+    use AgentScalarRefV1 as V;
+    let CargoEntityEntry {
+        entity_id,
+        entity_kind,
+        quantity,
+        size_per_unit,
+    } = entry;
+    let kind = match entity_kind {
+        CargoEntityKind::Mineral => 0,
+        CargoEntityKind::ModuleItem => 1,
+        CargoEntityKind::InterfaceModuleItem => 2,
+    };
+    for (field, value) in [
+        (F::CargoId, V::Text(entity_id)),
+        (F::CargoKind, V::U8(kind)),
+        (F::CargoQuantity, V::I64(*quantity)),
+        (F::CargoUnitSize, V::I64(*size_per_unit)),
+    ] {
+        emit(field, value)?;
     }
     Ok(())
 }

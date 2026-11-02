@@ -268,3 +268,14 @@ pub mod incremental_runtime_effect_records;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_json_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_subtree;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_value_mutation;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_genesis;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_mutation;
