@@ -130,6 +130,10 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
                         module_instance_index_from_bytes(&bytes)
                             .map_err(BodyMutationError::Invalid)?,
                     );
+                } else if entry.key.starts_with(MODULE_INSTANCE_INDEX_KEY_V1) {
+                    return Err(BodyMutationError::Invalid(
+                        "module instance index key suffix",
+                    ));
                 } else if Key::is_instance_key(&entry.key) {
                     let (map_key, field) =
                         Key::from_bytes(&entry.key).map_err(BodyMutationError::Invalid)?;
@@ -309,7 +313,9 @@ pub(super) fn validate_scalar<V: ValueNodeReader, C: FnMut() -> bool>(
     let read_result = read.read_range(&root, 0, root.0.logical_len, &mut sink, || {
         (cancelled.borrow_mut())()
     });
-    if sink.is_failed() { return Err(BodyMutationError::Invalid("module instance scalar stream")); }
+    if sink.is_failed() {
+        return Err(BodyMutationError::Invalid("module instance scalar stream"));
+    }
     read_result?;
     let result = sink.finish().map_err(BodyMutationError::Invalid)?;
     if (cancelled.borrow_mut())() {

@@ -389,7 +389,7 @@ fn late_cancellation_and_scratch_unwind_release_workspace_without_partial_conten
 #[test]
 fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
     use oasis7_formal_protocol::incremental_execution::TransitionVerifier;
-    for case in 0..5 {
+    for case in 0..7 {
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let (_, parent, mut pages, mut values) = setup_instances(&memory);
         let proof = qualify(
@@ -494,6 +494,41 @@ fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
                         .to_vec(),
                     Some([7; 32]),
                 ),
+                5 => {
+                    let mut key = MODULE_INSTANCE_INDEX_KEY_V1.to_vec();
+                    key.push(0);
+                    let id = parent
+                        .roots
+                        .state_root(Ns::Business)
+                        .get(MODULE_INSTANCE_INDEX_KEY_V1, &pages)
+                        .unwrap()
+                        .unwrap();
+                    (Ns::Business, key, Some(id))
+                }
+                6 => {
+                    let mut bad = Vec::new();
+                    S::Bool(true).write_to(F::Active, &mut bad).unwrap();
+                    *bad.last_mut().unwrap() = 2;
+                    assert!(S::from_canonical_bytes(&bad, F::Active).is_err());
+                    let id = write_field_bytes(
+                        &bad,
+                        &mut BodyMutationContext {
+                            sink: &mut values,
+                            memory: &memory,
+                            io: &mut quota,
+                            cancelled: || false,
+                        },
+                    )
+                    .unwrap();
+                    (
+                        Ns::Business,
+                        ModuleInstanceKeyV1::new("map-key", F::Active)
+                            .unwrap()
+                            .as_bytes()
+                            .to_vec(),
+                        Some(id),
+                    )
+                }
                 _ => unreachable!(),
             };
             tx.write(namespace, &key, after).unwrap();
@@ -567,7 +602,7 @@ fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
 #[test]
 fn recovery_instance_family_requires_explicit_ordinary_readmission_and_poison() {
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
-    let (_, parent, pages, values) = setup_instances(&memory);
+    let (_, parent, pages, mut values) = setup_instances(&memory);
     let proof = qualify(
         &parent.roots,
         &pages,
@@ -579,8 +614,31 @@ fn recovery_instance_family_requires_explicit_ordinary_readmission_and_poison() 
     let live = parent.fence().unwrap();
     let mut tx =
         ExecutionTransaction::begin(parent.clone(), [4; 32], &pages, &memory, limits()).unwrap();
-    tx.write(Ns::Business, b"successful-prefix", Some([8; 32]))
-        .unwrap();
+    let ordinary =
+        crate::readmit_module_instance_family_ordinary_v1(&proof, &parent.roots, &memory, || false)
+            .unwrap();
+    let source = values.clone();
+    assert!(
+        crate::change_module_instance_field_v1(
+            crate::ModuleInstanceFieldChangeV1 {
+                qualification: &ordinary,
+                map_key: "map-key",
+                field: F::Active,
+                expected: S::Bool(false),
+                after: S::Bool(true),
+                max_scalar_bytes: 4096,
+            },
+            &mut tx,
+            &source,
+            &mut BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut genesis_io(),
+                cancelled: || false,
+            }
+        )
+        .unwrap()
+    );
     values.reads.set(0);
     let result = ModuleReadContext {
         qualification: &proof,
@@ -649,4 +707,159 @@ fn recovery_instance_family_requires_explicit_ordinary_readmission_and_poison() 
         .unwrap()
         .is_some()
     );
+}
+
+#[test]
+fn instance_noop_independent_getter_boundary_and_real_io_failures_abort_prefix() {
+    struct BadReader(Cell<usize>);
+    impl ValueNodeReader for BadReader {
+        fn read_node(
+            &self,
+            _: &[u8; 32],
+            _: usize,
+            _: &MemoryBudget,
+            _: MemoryClass,
+        ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+            self.0.set(self.0.get() + 1);
+            Err(ValueTreeError::Io(std::io::Error::other(
+                "actual source failure",
+            )))
+        }
+    }
+    struct BadWriter(Cell<usize>);
+    impl ValueNodeWriter for BadWriter {
+        fn put_node(
+            &mut self,
+            _: [u8; 32],
+            _: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            self.0.set(self.0.get() + 1);
+            Err(ValueTreeError::Io(std::io::Error::other(
+                "actual put failure",
+            )))
+        }
+    }
+    for mode in 0..3 {
+        let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+        let (_, parent, pages, mut values) = setup_instances(&memory);
+        let proof = qualify(
+            &parent.roots,
+            &pages,
+            &values,
+            &memory,
+            MemoryClass::Ordinary,
+        );
+        let source = values.clone();
+        let polls = Cell::new(0);
+        let mut getter =
+            ExecutionTransaction::begin(parent.clone(), [4; 32], &pages, &memory, limits())
+                .unwrap();
+        ModuleReadContext {
+            qualification: &proof,
+            values: &source,
+            memory: &memory,
+            io: &mut genesis_io(),
+            max_value_bytes: 165,
+            cancelled: || {
+                polls.set(polls.get() + 1);
+                false
+            },
+        }
+        .read_instance_field("map-key", F::InstalledAt, &mut getter)
+        .unwrap()
+        .unwrap();
+        let n = polls.get();
+        drop(getter);
+        let live = parent.fence().unwrap();
+        let mut tx =
+            ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, limits()).unwrap();
+        let mut quota = genesis_io();
+        assert!(
+            crate::change_module_instance_field_v1(
+                crate::ModuleInstanceFieldChangeV1 {
+                    qualification: &proof,
+                    map_key: "map-key",
+                    field: F::Active,
+                    expected: S::Bool(false),
+                    after: S::Bool(true),
+                    max_scalar_bytes: 165,
+                },
+                &mut tx,
+                &source,
+                &mut BodyMutationContext {
+                    sink: &mut values,
+                    memory: &memory,
+                    io: &mut quota,
+                    cancelled: || false,
+                }
+            )
+            .unwrap()
+        );
+        let failed_source = BadReader(Cell::new(0));
+        let mut failed_writer = BadWriter(Cell::new(0));
+        polls.set(0);
+        let result = if mode == 0 {
+            ModuleReadContext {
+                qualification: &proof,
+                values: &failed_source,
+                memory: &memory,
+                io: &mut quota,
+                max_value_bytes: 165,
+                cancelled: || false,
+            }
+            .read_instance_field("map-key", F::InstalledAt, &mut tx)
+            .map(|_| false)
+        } else {
+            crate::change_module_instance_field_v1(
+                crate::ModuleInstanceFieldChangeV1 {
+                    qualification: &proof,
+                    map_key: "map-key",
+                    field: F::InstalledAt,
+                    expected: S::U64(u64::MAX),
+                    after: S::U64(if mode == 1 { 0 } else { u64::MAX }),
+                    max_scalar_bytes: 165,
+                },
+                &mut tx,
+                &source,
+                &mut BodyMutationContext {
+                    sink: &mut failed_writer,
+                    memory: &memory,
+                    io: &mut quota,
+                    cancelled: || {
+                        polls.set(polls.get() + 1);
+                        mode == 2 && polls.get() == n + 1
+                    },
+                },
+            )
+        };
+        if mode == 2 {
+            assert!(matches!(
+                result,
+                Err(BodyMutationError::Value(ValueTreeError::Cancelled))
+            ));
+            assert_eq!(polls.get(), n + 1);
+            assert_eq!(failed_writer.0.get(), 0);
+            eprintln!(
+                "instance independent getter N={n}, NoOp cancelled at {}",
+                n + 1
+            );
+        } else {
+            assert!(matches!(
+                result,
+                Err(BodyMutationError::Value(ValueTreeError::Io(_)))
+            ));
+            assert!(
+                if mode == 0 {
+                    failed_source.0.get()
+                } else {
+                    failed_writer.0.get()
+                } > 0
+            );
+        }
+        let guard = tx.guard();
+        assert!(matches!(
+            tx.seal(&guard, &live, 0),
+            Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+        ));
+    }
 }

@@ -49,7 +49,7 @@ pub(super) fn invalid() -> BodyMutationError {
 }
 pub(super) fn owns(key: &[u8]) -> bool {
     ModuleInstanceKeyV1::is_instance_key(key)
-        || key == MODULE_INSTANCE_INDEX_KEY_V1
+        || key.starts_with(MODULE_INSTANCE_INDEX_KEY_V1)
         || is_module_instance_count_key(key)
 }
 pub(super) fn binding<R: MerkleNodeReader>(

@@ -19,7 +19,9 @@ pub struct ModuleInstanceScalarStreamV1 {
     failed: bool,
 }
 impl ModuleInstanceScalarStreamV1 {
-    pub fn is_failed(&self) -> bool { self.failed }
+    pub fn is_failed(&self) -> bool {
+        self.failed
+    }
     pub fn new(field: Field, length: u64) -> Self {
         let extra = match field {
             Field::Active => 1,
