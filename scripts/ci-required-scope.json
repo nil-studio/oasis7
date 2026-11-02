@@ -1,5 +1,226 @@
 {
   "fast_scope_version": 1,
+  "fast_test_inventory_version": 1,
+  "ordinary_fast_targets": {
+    "runtime-basic": {
+      "package": "oasis7_runtime",
+      "target_kind": "test",
+      "target_name": "pr_fast_runtime",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::basic::register_and_move_agent",
+        "tests::basic::snapshot_and_replay",
+        "tests::basic::rejects_invalid_actions",
+        "tests::basic::scheduler_round_robin",
+        "tests::basic::new_world_migrates_legacy_world_materials_into_material_ledgers",
+        "tests::basic::action_id_rolls_over_into_next_era",
+        "tests::basic::event_id_rolls_over_into_next_era",
+        "tests::basic::persisted_max_event_id_does_not_double_advance_stored_era",
+        "tests::basic::adjust_resource_balance_rejects_overflow",
+        "tests::basic::emit_resource_transfer_overflow_keeps_balances_atomic",
+        "tests::basic::pending_actions_are_bounded_and_track_evictions",
+        "tests::basic::journal_events_are_bounded_and_track_evictions",
+        "tests::basic::tick_consensus_records_chain_and_verify_across_steps",
+        "tests::basic::tick_consensus_records_include_empty_tick",
+        "tests::basic::from_snapshot_replay_rebuilds_missing_tick_consensus_records",
+        "tests::basic::tick_consensus_rejects_non_authoritative_submission_after_authority_commit",
+        "tests::basic::tick_consensus_rejects_authority_submission_from_unconfigured_source",
+        "tests::basic::tick_consensus_authority_source_can_be_reconfigured_for_new_commits",
+        "tests::basic::tick_consensus_propagation_conflict_requires_authority_adjudication",
+        "tests::basic::tick_consensus_authority_can_replace_propagation_record_after_conflict"
+      ]
+    },
+    "world-reducers": {
+      "package": "oasis7_world_state",
+      "target_kind": "test",
+      "target_name": "pr_fast_reducers",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::apply_domain_event_guards::direct_material_transfer_duplicate_is_byte_stable",
+        "tests::apply_domain_event_guards::direct_material_transfer_tampered_duplicate_fails_before_mutation",
+        "tests::apply_domain_event_guards::distinct_direct_material_transfer_ids_may_share_the_same_payload",
+        "tests::apply_domain_event_guards::legacy_direct_material_transfer_without_identity_still_deserializes",
+        "tests::apply_domain_event_guards::economic_contract_legacy_persistence_defaults_to_atomic_exchange",
+        "tests::apply_domain_event_guards::economic_contract_persisted_service_cannot_be_settled_by_atomic_event",
+        "tests::apply_domain_event_guards::economic_contract_persisted_service_cannot_be_expired_by_atomic_lifecycle",
+        "tests::apply_domain_event_guards::economic_contract_settlement_missing_operator_returns_agent_not_found",
+        "tests::apply_domain_event_guards::claim_release_request_missing_claimer_returns_error_without_mutating_claim",
+        "tests::apply_domain_event_guards::apply_domain_event_agent_move_keeps_integer_centimeter_positions",
+        "tests::apply_domain_event_guards::claim_reclaim_missing_claimer_returns_error_without_removing_claim"
+      ]
+    },
+    "runtime-incremental": {
+      "package": "oasis7_runtime",
+      "target_kind": "test",
+      "target_name": "pr_fast_incremental",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "due_module_batch::real_schedule_pages_reopen_and_select_in_original_instance_order",
+        "runtime_allocators::allocator_raw_zstd_cold_roots_continue_without_materialized_world",
+        "runtime_commit::runtime_candidate_history_reopens_and_continues_from_original_parent_material"
+      ]
+    },
+    "runtime-lib": {
+      "package": "oasis7_runtime",
+      "target_kind": "lib",
+      "target_name": "oasis7_runtime",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::basic::register_and_move_agent",
+        "tests::basic::snapshot_and_replay",
+        "tests::basic::rejects_invalid_actions",
+        "tests::basic::scheduler_round_robin",
+        "tests::basic::new_world_migrates_legacy_world_materials_into_material_ledgers",
+        "tests::basic::action_id_rolls_over_into_next_era",
+        "tests::basic::event_id_rolls_over_into_next_era",
+        "tests::basic::persisted_max_event_id_does_not_double_advance_stored_era",
+        "tests::basic::adjust_resource_balance_rejects_overflow",
+        "tests::basic::emit_resource_transfer_overflow_keeps_balances_atomic",
+        "tests::basic::pending_actions_are_bounded_and_track_evictions",
+        "tests::basic::journal_events_are_bounded_and_track_evictions",
+        "tests::basic::tick_consensus_records_chain_and_verify_across_steps",
+        "tests::basic::tick_consensus_records_include_empty_tick",
+        "tests::basic::from_snapshot_replay_rebuilds_missing_tick_consensus_records",
+        "tests::basic::tick_consensus_rejects_non_authoritative_submission_after_authority_commit",
+        "tests::basic::tick_consensus_rejects_authority_submission_from_unconfigured_source",
+        "tests::basic::tick_consensus_authority_source_can_be_reconfigured_for_new_commits",
+        "tests::basic::tick_consensus_propagation_conflict_requires_authority_adjudication",
+        "tests::basic::tick_consensus_authority_can_replace_propagation_record_after_conflict",
+        "world::incremental_body::tests::all_body_failures_poison_preceding_outer_write_without_mutating_world",
+        "world::incremental_body::tests::body_codec_has_exact_fixed_scalars_and_rejects_wrong_domain_and_length",
+        "world::incremental_body::cancellation_tests::standalone_body_final_cancellation_cannot_seal_another_agents_typed_prefix",
+        "world::incremental_body_event::tests::commit_driver::live_fence_conflicts_at_each_driver_boundary_discard_candidate_only",
+        "world::incremental_body_event::tests::commit_driver::inconsistent_parent_material_is_rejected_before_running_runtime",
+        "world::incremental_body_event::tests::commit_driver::parent_catalog_requires_its_certified_prefix_not_only_a_readable_latest_entry",
+        "world::incremental_body_event::tests::commit_driver::driver_rejects_foreign_or_partial_source_admission_before_node_or_runtime_reads",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_failure_never_returns_a_prefix_or_seals_earlier_outer_work",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_rejects_index_scalar_mismatch_and_stale_same_owner_guard",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_rejects_same_instance_at_two_wakes_before_scalar_acceptance",
+        "world::incremental_body_event::tests::scheduler::due_order::due_batch_empty_selection_and_mid_read_cancellation_are_explicit",
+        "world::incremental_allocators::tests::allocator_errors_poison_prior_typed_allocation",
+        "world::incremental_allocators::tests::final_allocator_cancellation_poison_keeps_no_successful_prefix",
+        "world::incremental_clock::tests::missing_stale_or_old_private_clock_never_preserves_a_typed_body_prefix"
+      ]
+    }
+  },
+  "ordinary_fast_rules": [
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/tests/basic.rs",
+        "crates/oasis7_runtime/tests/pr_fast_runtime.rs",
+        "crates/oasis7_runtime/src/world/scheduling.rs"
+      ],
+      "targets": [
+        "runtime-basic"
+      ],
+      "reason": "bounded_actions_and_round_robin"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/tests/apply_domain_event_guards.rs",
+        "crates/oasis7_world_state/tests/pr_fast_reducers.rs"
+      ],
+      "targets": [
+        "world-reducers"
+      ],
+      "reason": "complete_event_reducer_contracts"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/world/incremental_commit.rs",
+        "crates/oasis7_runtime/src/world/incremental_allocators.rs",
+        "crates/oasis7_runtime/src/world/incremental_clock.rs",
+        "crates/oasis7_runtime/src/world/incremental_body.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_event.rs",
+        "crates/oasis7_runtime/src/world/incremental_agent_move.rs",
+        "crates/oasis7_runtime/src/world/incremental_agent_genesis.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_due.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_index.rs",
+        "crates/oasis7_runtime/src/world/incremental_commit_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_allocators_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_clock_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_event_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_body_cancellation_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_agent_move_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_tests.rs",
+        "crates/oasis7_runtime/src/world/incremental_scheduler_due_tests.rs",
+        "crates/oasis7_world_state/src/incremental_agent_body.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "incremental_candidates_keep_all_runtime_units_and_physical_reopen"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/tests/pr_fast_incremental.rs",
+        "crates/oasis7/tests/incremental_runtime_commit.rs",
+        "crates/oasis7/tests/incremental_runtime_allocators.rs",
+        "crates/oasis7/tests/incremental_due_module_batch.rs",
+        "crates/oasis7/tests/support/incremental_agent_event.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "shared_incremental_regressions_execute_in_actual_runtime_owner"
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/world/mod.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "additive_registered_incremental_module_wiring",
+      "added_declarations": [
+        "pub mod incremental_body;",
+        "pub mod incremental_body_event;",
+        "pub mod incremental_agent_genesis;",
+        "pub mod incremental_scheduler;",
+        "mod incremental_scheduler_index;",
+        "mod incremental_agent_move;",
+        "pub mod incremental_commit;",
+        "#[cfg(not(target_arch = \"wasm32\"))] pub mod incremental_commit;",
+        "pub mod incremental_allocators;",
+        "pub(super) mod incremental_clock;"
+      ]
+    },
+    {
+      "paths": [
+        "crates/oasis7_runtime/src/native.rs"
+      ],
+      "targets": [
+        "runtime-lib",
+        "runtime-incremental"
+      ],
+      "reason": "additive_registered_incremental_public_exports",
+      "added_declarations": [
+        "pub use world::incremental_body::{BodyMutationContext, BodyMutationError};",
+        "pub use world::incremental_body_event::AgentEventContext;",
+        "pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};",
+        "pub use world::incremental_commit::{CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit};",
+        "pub use world::incremental_commit::{CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,};",
+        "pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};"
+      ]
+    }
+  ],
   "oasis7_required_packages": [
     "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",

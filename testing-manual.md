@@ -148,7 +148,23 @@ python3 "$CI_AUTHORITY/plan-rust-required-scope.py" \
 ./scripts/ci-tests.sh required --group oasis7_required --plan "$PLAN_PATH"
 ```
 
-仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 继续以 `--support-plan` 接收完整 JSON，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。
+
+可信 `fast_test_inventory_version=1` 启用时，native 构建与 strict Clippy 共同消费 `ordinary_fast_targets`。最低 case 必须存在且非 ignored，但目标内所有非 ignored 用例都执行；便携 WASM 范围保持。`required-args --phase native-commands` 输出实际命令列表。完整 profile 保留原库存，并以 `ordinary_full_fast_targets` 追加快速目标的精确无默认 feature 组合；不同 feature 的同名 harness 独立打包和执行。
+
+本地入口（增量物理 fixture 适用于 native Unix，canonical PR runner 为 Linux）：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --test pr_fast_runtime \
+  --no-default-features --features test_tier_required --locked
+env -u RUSTC_WRAPPER cargo test -p oasis7_world_state --test pr_fast_reducers \
+  --no-default-features --features test_tier_required --locked
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --test pr_fast_incremental \
+  --no-default-features --features test_tier_required --locked
+```
+
+验收包括旧 BASE/控制自改、未映射与混合风险、测试 gate 正文变化、声明删除替换、共享新增 case 的实际 target 可达性，以及真实 Cargo fixture 对未选重目标的编译失败注入。artifact 缺目标/最低 case/feature 变体、零执行和 Clippy 失败均须传播；完整模式仍保留旧 ordinary、五个 Formal suites 与平台集合。上述本地命令和 fixture 不代签 hosted 十分钟或跨平台 full 成功。
+
+仅在计划选中 `oasis7_required` 时运行该组；选中的 package 为空会失败。未启用独立 target 时，该组按计划收窄 native `--tests`、Clippy 和便携 WASM 包，实际执行全部适用非 ignored 测试。support 继续以 `--support-plan` 接收完整 JSON，Formal 的 `ci-test-artifacts.py build/pack/run` 使用同一 `--plan` 和 `--formal-config`；producer/consumer 计划、source 或 authority 不符会失败。
 
 `main-fast` 使用 push 的完整差异；`periodic-full`/`candidate-full` 无须 diff，直接从可信库存展开全部组。完整 hosted 图并行执行普通组、Formal、平台和 `./scripts/ci-tests.sh full-extended`，最后由 `explicit-full-gate` 核齐。`full-extended` 单独成功不代表完整回归，本地 `full`/`full-standard` 也不能代签其他 OS 的结果。
 
@@ -233,6 +249,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - Wasm 与 document-corpus workflow 按 workflow 和 PR 编号取消过期运行；非 PR 使用独立 run_id。只有后继匹配事件触发运行时才取消旧运行。
   - verify job 会按命中的 `module_set` 下载 summaries，并执行：`./scripts/wasm-release-evidence-report.sh --module-sets <m1|m4|m5> --skip-collect --summary-import-dir <downloaded-summary-dir> --expected-runners linux-x86_64`
   - verify job 同时上传 `summary.md/json + logs + module_sets.tsv` 的 release evidence report artifact
+  - collect 失败时另保留 `wasm-candidate-raw-<module_set>-<runner>-<run_id>-<attempt>` artifact，保存 7 天，只包含实际生成的 `.wasm`、`.metadata.json` 和 `.build-receipt.json`；构建早期失败时可能不完整，上传成功不改变原 gate 的失败结果。成功运行不重复上传这些诊断原件。
+  - 根 `Cargo.lock` 等 producer 输入改变后，即使 WASM hash 未变，candidate identity 仍需刷新。从同一实际源码与 recipe 的三组运行取得全部 37 组原件，保留原 bytes，拒绝路径穿越、重复文件和覆盖；在匹配源码的本地工作区按[候选基线生成约定](doc/world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)运行 `OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity -- --candidate-baseline-prepare "$PWD" <raw-dir> <new-staging-dir>`，审核 staging 后提升 candidate 文件，再对 m1/m4/m5 执行 `--candidate-baseline-check "$PWD" <raw-dir> <module-set>`。CI 不生成或提交基线；缺原件不得用日志哈希补造 receipt，也不修改冻结的 release 清单。
   - 若要补独立跨宿主产物证据，可把外部 Docker-capable macOS runner 产出的 summary 作为额外 import 输入，再以 `--expected-runners linux-x86_64,darwin-arm64` 做离线对账；该结果不属于 `test_tier_full`，也不替代 `./scripts/ci-tests.sh full`
 
 ### CI 工具缓存与 local-signer 验证

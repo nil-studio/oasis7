@@ -122,6 +122,82 @@ def required_arguments(plan=None, phase='native'):
     return args + (['--features', ','.join(features)] if features else [])
 
 
+def target_inventory(plan, version_key, targets_key):
+    if type(plan[version_key]) is not int or plan[version_key] != 1:
+        raise ValueError('unsupported ordinary target inventory: ' + version_key)
+    targets = plan.get(targets_key)
+    if not isinstance(targets, list) or not targets:
+        raise ValueError('missing ordinary target inventory: ' + targets_key)
+    packages = set(required_packages(plan))
+    identities = set()
+    fields = {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases'}
+    for target in targets:
+        if (not isinstance(target, dict) or set(target) != fields
+                or not isinstance(target['package'], str) or target['package'] not in packages
+                or target['target_kind'] not in ('lib', 'test')
+                or not isinstance(target['target_name'], str)
+                or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', target['target_name']) is None
+                or type(target['default_features']) is not bool):
+            raise ValueError('invalid ordinary target identity')
+        for key in ('features', 'cases'):
+            values = target[key]
+            if (not isinstance(values, list) or (key == 'cases' and not values)
+                    or any(not isinstance(value, str) or not value or '\n' in value or '\r' in value for value in values)
+                    or len(values) != len(set(values))
+                    or (key == 'features' and any(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', value) is None for value in values))):
+                raise ValueError('invalid ordinary target ' + key)
+        if not target['default_features'] and 'default' in target['features']:
+            raise ValueError('ordinary target explicitly enables disabled default features')
+        identity = (target['package'], target['target_kind'], target['target_name'])
+        if identity in identities:
+            raise ValueError('duplicate ordinary target identity')
+        identities.add(identity)
+    return targets
+
+
+def ordinary_fast_targets(plan=None):
+    """A versioned target inventory narrows only an unambiguous fast plan."""
+    plan = fast_plan(plan)
+    if (plan is None or 'fast_test_inventory_version' not in plan
+            or plan['scope'] != 'targeted'
+            or plan['execution_profile'] not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed', False)):
+        return None
+    return target_inventory(plan, 'fast_test_inventory_version', 'ordinary_fast_targets')
+
+
+def ordinary_full_fast_targets(plan=None):
+    """Full runs retain the original inventory and add exact fast feature variants."""
+    plan = fast_plan(plan)
+    if (plan is None or 'full_fast_test_inventory_version' not in plan
+            or plan['execution_profile'] not in ('periodic-full', 'candidate-full')):
+        return None
+    return target_inventory(plan, 'full_fast_test_inventory_version', 'ordinary_full_fast_targets')
+
+
+def target_native_arguments(target):
+    args = ['-p', target['package']]
+    args += ['--lib'] if target['target_kind'] == 'lib' else ['--test', target['target_name']]
+    if not target['default_features']:
+        args.append('--no-default-features')
+    if target['features']:
+        args += ['--features', ','.join(target['features'])]
+    return args
+
+
+def required_native_commands(plan=None):
+    targets = ordinary_fast_targets(plan)
+    if targets is not None:
+        return [target_native_arguments(target) for target in targets]
+    return [required_arguments(plan)] + [target_native_arguments(target)
+                                       for target in ordinary_full_fast_targets(plan) or []]
+
+
+def target_build_variants(targets, prefix):
+    return [(prefix + str(index), ['test', *target_native_arguments(target), '--no-run'], target['features'])
+            for index, target in enumerate(targets or [])]
+
+
 def formal_suites(plan=None):
     plan = fast_plan(plan)
     if plan is None:
@@ -223,6 +299,8 @@ def validate_plan_identity(plan):
 
 def snapshot_regressions(manifest):
     plan = fast_plan(manifest.get('execution_plan'))
+    if ordinary_fast_targets(plan) is not None:
+        return ()
     if plan is None:
         return DEFAULT_SNAPSHOT_REGRESSIONS
     packages = set(required_packages(plan))
@@ -230,16 +308,50 @@ def snapshot_regressions(manifest):
     return tuple((owner, pattern) for owner, pattern in DEFAULT_SNAPSHOT_REGRESSIONS if owners[owner] in packages)
 
 
+def validate_target_inventory(targets, binaries):
+    expected = {(target['package'], (target['target_kind'],), target['target_name']): target for target in targets}
+    actual = set()
+    for binary in binaries:
+        identity = (binary.get('package'), tuple(binary.get('target_kind', [])), binary.get('target'))
+        if identity not in expected or identity in actual or not binary.get('test'):
+            raise ValueError('ordinary target inventory mismatch')
+        target = expected[identity]
+        actual.add(identity)
+        if (binary.get('requested_features') != target['features']
+                or binary.get('default_features') is not target['default_features']
+                or not set(target['features']) <= set(binary.get('features', []))
+                or (not target['default_features'] and 'default' in binary.get('features', []))):
+            raise ValueError('ordinary target feature inventory mismatch')
+        behavior = set(binary.get('tests', [])) - set(binary.get('ignored_tests', []))
+        if not set(target['cases']) <= behavior:
+            raise ValueError('ordinary target minimum case inventory mismatch')
+    if actual != set(expected):
+        raise ValueError('ordinary target inventory mismatch')
+
+
 def validate_ordinary_selection(manifest):
     plan = fast_plan(manifest.get('execution_plan'))
-    if plan is None or manifest.get('scope') != 'ordinary':
+    if plan is None:
         return
+    supplements = ordinary_full_fast_targets(plan)
+    if manifest.get('scope') != 'ordinary' and not (manifest.get('scope') == 'all' and supplements is not None):
+        return
+    binaries = [entry for entry in manifest['binaries'].values() if entry.get('ordinary')]
+    targets = ordinary_fast_targets(plan)
+    if targets is not None:
+        validate_target_inventory(targets, binaries)
+        return
+    if supplements is not None:
+        validate_target_inventory(supplements, [entry for entry in binaries
+                                  if entry.get('variant', '').startswith('required-full-fast-')])
+        # Supplementary no-default-feature harnesses cannot replace any of the
+        # original required packages, including the same package's default build.
+        binaries = [entry for entry in binaries if not entry.get('variant', '').startswith('required-full-fast-')]
     expected = set(required_packages(plan))
-    actual = {entry.get('package') for entry in manifest['binaries'].values() if entry.get('ordinary')}
+    actual = {entry.get('package') for entry in binaries}
     if actual != expected:
         raise ValueError('ordinary test package inventory mismatch')
-    if not any(entry.get('ordinary') and set(entry['tests']) - set(entry['ignored_tests'])
-               for entry in manifest['binaries'].values()):
+    if not any(set(entry['tests']) - set(entry['ignored_tests']) for entry in binaries):
         raise ValueError('selected ordinary packages have no executable behavior tests')
 
 
@@ -330,8 +442,11 @@ def build_variants(scope, plan=None):
         ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
-        return variants
+        return variants + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
     if scope == 'ordinary':
+        targets = ordinary_fast_targets(plan)
+        if targets is not None:
+            return target_build_variants(targets, 'required-fast-')
         if fast_plan(plan) is not None:
             packages = set(required_packages(plan))
             native_args = required_arguments(plan)
@@ -343,7 +458,7 @@ def build_variants(scope, plan=None):
                                                '--features', ','.join(viewer_features)], viewer_features))
             owners = {'snapshot-tests': 'oasis7', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
-            return selected
+            return selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage'):
         # Keep both core libraries and the exact Chain binary harness. Chain
@@ -367,6 +482,11 @@ def artifact_logical_name(variant, package, target, test):
     name, kinds = target['name'], tuple(target['kind'])
     if variant == 'storage-libs':
         return 'storage-lib-' + name
+    if variant.startswith('required-full-fast-'):
+        # Preserve both feature variants of a package/target in full bundles.
+        return variant + '-' + artifact_logical_name('required', package, target, test)
+    if variant.startswith('required-fast-'):
+        return artifact_logical_name('required', package, target, test)
     if variant not in ('required', 'formal-required'):
         return variant
     if test:
@@ -434,6 +554,11 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                                complete=False, error=str(error))
     binaries, timings = {}, []
     variants = build_variants(scope, plan) if plan is not None else build_variants(scope)
+    target_specs = {}
+    if scope in ('ordinary', 'all'):
+        for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
+                                ('required-full-fast-', ordinary_full_fast_targets(plan))):
+            target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
     for variant, args, features in variants:
         started = time.monotonic()
         local_units = local_fresh = dependency_units = dependency_fresh = 0
@@ -480,8 +605,10 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
                     test=test, package=package, target=name, target_kind=target['kind'],
                     original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
-                    ordinary=variant == 'required' and test, variant=variant,
+                    ordinary=(variant == 'required' or variant in target_specs) and test, variant=variant,
                     bytes=destination.stat().st_size, libraries=[])
+                if variant in target_specs:
+                    binaries[logical]['default_features'] = target_specs[variant]['default_features']
                 validate_profile(logical, binaries[logical], scope)
                 if sys.platform == 'linux':
                     linked = subprocess.run(['ldd', str(source)], text=True, capture_output=True)
@@ -567,6 +694,7 @@ def dependency_closure(manifest, config, suite=None, shard=None):
             if owner not in required:
                 raise ValueError('missing default-feature snapshot harness: ' + owner)
         if (fast_plan(manifest.get('execution_plan')) is not None
+                and ordinary_fast_targets(manifest['execution_plan']) is None
                 and set(required_packages(manifest['execution_plan'])) & VIEWER_REQUIRED_CONSUMERS
                 and 'viewer' not in required):
             raise ValueError('missing selected Viewer process dependency')
@@ -1338,7 +1466,7 @@ def main():
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'wasm', 'packages'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
@@ -1349,7 +1477,10 @@ def main():
         return
     if args.action == 'required-args':
         validate_plan_identity(plan)
-        print('\n'.join(required_arguments(plan, args.phase)))
+        if args.phase == 'native-commands':
+            print(json.dumps(required_native_commands(plan)))
+        else:
+            print('\n'.join(required_arguments(plan, args.phase)))
         return
     if args.measure_only and args.action != 'cache-stage':
         parser.error('--measure-only requires cache-stage')

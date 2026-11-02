@@ -204,11 +204,30 @@ run_scenario_regression_tests() {
 run_oasis7_required_tier_clippy() {
   if [[ -n "${required_plan:-}" ]]; then
     local selected argument args=()
-    selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" --plan "$required_plan") || return
+    selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" --plan "$required_plan" --phase native-commands) || return
+    selected=$("$ci_python" -c '
+import json, sys
+commands = json.loads(sys.argv[1])
+if not isinstance(commands, list) or not commands:
+    raise ValueError("missing native commands")
+for command in commands:
+    if (not isinstance(command, list) or not command
+            or any(not isinstance(arg, str) or not arg or "\n" in arg or "\r" in arg for arg in command)):
+        raise ValueError("invalid native command")
+    print("\n".join(command))
+    print()
+' "$selected") || return
     while IFS= read -r argument; do
-      [[ -z "$argument" ]] || args+=("$argument")
+      if [[ -n "$argument" ]]; then
+        args+=("$argument")
+      elif [[ ${#args[@]} -gt 0 ]]; then
+        run_cargo_clippy "${args[@]}" || return
+        args=()
+      fi
     done <<< "$selected"
-    run_cargo_clippy "${args[@]}"
+    if [[ ${#args[@]} -gt 0 ]]; then
+      run_cargo_clippy "${args[@]}"
+    fi
     return
   fi
   run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required

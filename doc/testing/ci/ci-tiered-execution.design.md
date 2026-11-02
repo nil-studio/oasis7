@@ -112,6 +112,8 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `execution_profile`、`fast_plan_version=1`、`check_inventory_version=1` | 区分快速/完整策略及接口、库存版本；旧 BASE 不含 capability 时不得套用候选的窄范围 |
 | `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
+| `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
+| `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
 
@@ -146,7 +148,7 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 ### 现有测试的首批归类依据
 
-下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。当前 ordinary 主要按 package、support 按 profile、Formal 按逻辑 suite 收窄；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
+下表用于解释当前选择及后续细化依据，实际入口见 [CI driver](../../../scripts/ci-tests.sh)、[Formal 清单](../../../scripts/ci-formal-process-suites.json)及 [Command Center workflow](../../../.github/workflows/command-center.yml)。ordinary 对已登记输入按独立 target 合同收窄，其余按 package；support 按 profile、Formal 按逻辑 suite 收窄；表中快速候选尚未取得逐项 hosted 预算验收，现有 `required`、组名或 feature 不能直接改称已达标 fast。
 
 | 现有入口或用例 | PR 快速候选与触发范围 | 合入前必要加测 | 周期完整覆盖 |
 | --- | --- | --- | --- |
@@ -163,9 +165,30 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 ### 快速基础检查与编译范围
 
+#### 独立快速 target 库存
+
+可信 `ci-required-scope.json` 登记精确输入、目标及非空最低 case 清单。仅 `pr-fast/main-fast` 的 targeted 计划、没有测试政策迁移且每个相关 native/Formal 输入均命中可信合同，才以 `ordinary_fast_targets` 替代包级 `--tests`。旧 BASE 缺 capability、共享控制、未知或未映射输入、混合风险变化均保留原必要范围，其他组与便携 WASM 闭包不随 native 精简而删除。
+
+| 目标 | 完整原始用例 | 选择依据 |
+| --- | --- | --- |
+| Runtime `pr_fast_runtime` | `src/tests/basic.rs` 的 20 个用例 | 已登记的动作测试和独立 round-robin 调度，包含拒绝、ID 回绕、余额溢出、容量与 tick authority 不变量 |
+| World State `pr_fast_reducers` | Runtime `src/tests/apply_domain_event_guards.rs` 的 11 个用例 | 已登记归约测试源，保留幂等、篡改重复、legacy 格式、错误 service 合约及缺失角色的拒绝与状态不变 |
+| Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
+| Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
+
+目标使用 `--no-default-features --features test_tier_required`。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。这批增量候选准备/查询接口尚未承接 host canonical acceptance；host、共享协议、磁盘存储实现、WASM 及未登记模块变化仍保留原专项和消费者。不能将整个 `src/**` 或 `incremental_*` 目录作为快速白名单。
+
+构建前直接生成 `cargo test -p <package> --lib` 或 `--test <name>`；strict Clippy 使用同一命令列表。独立模式不隐式追加 Viewer/snapshot harness。artifact 核对 package/target、请求及实际 features、默认 feature、最低 case 存在且非 ignored、计划与 source/tested 身份；缺目标、空执行、错误变体或遗漏最低用例均失败。最低名单不限制执行，所选目标的全部非 ignored 用例包括后续新增回归都实际运行。
+
+修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 的例外只允许新增完整匹配的已登记声明/导出；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码及未知模块均回退。
+
+periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、扩展 features 和平台组合，并通过独立 `ordinary_full_fast_targets` **追加全部快速目标的相同无默认 feature 组合**。默认 feature 的 full 不能抵扣仅在无 Wasmtime 下存在的行为。补充构建、Clippy 和测试均执行，产物按 feature 变体区分；验证补充后仍独立验证原库存，不能用补充 harness 顶替原 required。旧 BASE 缺此能力时仍使用旧入口。
+
+该机制和本地测试不证明 hosted 十分钟/P95 达标。仍按完整排队、准备、编译、Clippy、测试和汇总的真实时长验收；本 CI 控制 PR 自身接受旧可信规则，候选不能先减测使自己通过。
+
 baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。快速 baseline 不再附加 `--full-corpus` 历史内容报告，完整 profile 仍运行，原告警级别不变。
 
-`oasis7_required` 从可信 26 包库存选择受影响 package，对所选包执行 strict Clippy 和全部非 ignored `--tests`；便携 WASM 编译从原四包库存取实际受影响闭包。Viewer 子进程与默认 feature snapshot 变体只在对应真实消费者被选中时构建。support 的普通 profile 可能只执行 library 或指定 binary，不能据 Cargo target 存在就认定普通入口会执行它；测试政策变化时保留原 profile，并追加所选包的 `--all-targets` 及适用 full features。扩展 feature 集合为空仍执行这些 target，省略空的 `--features` 参数；空 feature 不表示没有新增用例。未知映射或保守 scope 恢复旧库存，不以空 package 列表通过选中的 ordinary 组。
+未命中独立快速 target 合同时，`oasis7_required` 从可信 26 包库存选择受影响 package，对所选包执行 strict Clippy 和全部非 ignored `--tests`；便携 WASM 编译从原四包库存取实际受影响闭包。Viewer 子进程与默认 feature snapshot 变体只在对应真实消费者被选中时构建。support 的普通 profile 可能只执行 library 或指定 binary，不能据 Cargo target 存在就认定普通入口会执行它；测试政策变化时保留原 profile，并追加所选包的 `--all-targets` 及适用 full features。扩展 feature 集合为空仍执行这些 target，省略空的 `--features` 参数；空 feature 不表示没有新增用例。未知映射或保守 scope 恢复旧库存，不以空 package 列表通过选中的 ordinary 组。
 
 Formal 只在风险规则要求时构建其既有共用依赖闭包，再执行选中逻辑 suite 的全部 case；当前没有声称按任意单 case 继续收窄这份共用编译。逻辑 suite 按可信 `case_shards` 映射物理 shard，跨 shard 的完整 case 必须保留。artifact 把可信 BASE 最低库存与候选新增项合并，既有 case 身份、ignored filters、环境 batch、shell tests 与依赖不能由候选删除；缺预期 case 或新增所需 shard 不在可信计划内均失败。build、pack、run 绑定同一 authority 摘要、同一计划和实际 tested source。
 
@@ -576,7 +599,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 
-承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)。`ci-test-artifacts.py` 从 Cargo JSON 的 executable 字段收集可执行文件，并区分 formal、ordinary 与兼容本地入口的 all 构建范围。正式最小 producer 仅构建 required-feature 的 oasis7 library / chain-runtime binary harness、production runtime、release endpoint 及 default-feature distfs library harness；`oasis7-test-build` 保留普通 required 全包、Viewer 和 default-feature snapshot 的原变体。两个构建范围独立依赖 select，正式矩阵不等待普通 producer 完成。
+承接[共享产物要求](ci-tiered-execution.prd.md#ci-formal-process)。`ci-test-artifacts.py` 从 Cargo JSON 的 executable 字段收集可执行文件，并区分 formal、ordinary 与兼容本地入口的 all 构建范围。正式最小 producer 仅构建 required-feature 的 oasis7 library / chain-runtime binary harness、production runtime、release endpoint 及 default-feature distfs library harness；`oasis7-test-build` 按可信计划选择包级或独立 target 库存，完整 profile 保留原全包、Viewer、default-feature snapshot 并追加快速 feature 组合。两个构建范围独立依赖 select，正式矩阵不等待普通 producer 完成。
 
 正式 harness 的最小构建显式启用 `oasis7/ci_formal_required_features`，通过 native target 与 host build 的 optional dependency aliases 保留完整 required 根包共同构建时的依赖 feature 集合。该标记不参与业务 `cfg`，不自动启用，也不加入 production runtime、ordinary 或 default-feature snapshot 的原命令；依赖版本复用现有锁文件。验证比较完整构建与正式最小构建保留的完整依赖子树，并分别核对 host/build 与 target context 的实际 feature 组合，不能只比较根包上的 `test_tier_required` 字符串或把同包不同 context 合并后判断等价。
 
