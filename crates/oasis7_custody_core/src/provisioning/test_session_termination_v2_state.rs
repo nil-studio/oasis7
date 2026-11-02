@@ -97,6 +97,8 @@ pub struct TerminationStopAllocationV2 {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TerminationCloseAllocationV2 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::provisioning) signature_claim: Option<TerminationCloseVaultClaimV2>,
     pub(in crate::provisioning) payload: GameTaskRevokeAndCloseV2,
     pub(in crate::provisioning) allocated_at: UnixMillis,
     pub(in crate::provisioning) allocation_record_digest: String,
@@ -192,6 +194,11 @@ impl TestSessionTerminationStateV2 {
         self.close
             .iter()
             .map(|c| &c.native_lifetime)
+            .chain(self.close.iter().filter_map(|c| {
+                c.signature_claim
+                    .as_ref()
+                    .map(|claim| &claim.native_lifetime)
+            }))
             .chain(self.guarded_stop.iter().map(|s| &s.native_lifetime))
             .chain(
                 self.guarded_stop
@@ -227,6 +234,13 @@ impl TestSessionTerminationStateV2 {
                     self.guarded_stop
                         .as_ref()
                         .is_some_and(|s| s.signature_claim.is_some()),
+                ))
+            })
+            .and_then(|n| {
+                n.checked_add(u64::from(
+                    self.close
+                        .as_ref()
+                        .is_some_and(|c| c.signature_claim.is_some()),
                 ))
             })
             .and_then(|n| {
@@ -286,10 +300,15 @@ impl TestSessionTerminationStateV2 {
         Ok(())
     }
     pub(in crate::provisioning) fn transport_id_in_use(&self, id: &str) -> bool {
-        self.guarded_stop
+        self.close
             .as_ref()
-            .and_then(|s| s.signature_claim.as_ref())
+            .and_then(|c| c.signature_claim.as_ref())
             .is_some_and(|c| c.attempt_id == id)
+            || self
+                .guarded_stop
+                .as_ref()
+                .and_then(|s| s.signature_claim.as_ref())
+                .is_some_and(|c| c.attempt_id == id)
             || self.stop.as_ref().is_some_and(|s| {
                 [&s.recovery.submit_claim, &s.recovery.lookup_claim]
                     .into_iter()
@@ -460,6 +479,9 @@ impl TestSessionTerminationStateV2 {
             stop.validate_shape()?;
         }
         if let Some(close) = &self.close {
+            if let Some(claim) = &close.signature_claim {
+                claim.validate(close)?;
+            }
             close
                 .payload
                 .validate()
@@ -507,6 +529,13 @@ impl TestSessionTerminationStateV2 {
         }
         let mut indexes = BTreeSet::new();
         let mut transport_ids = BTreeSet::new();
+        if let Some(claim) = self.close.as_ref().and_then(|c| c.signature_claim.as_ref()) {
+            if !indexes.insert(u64::from(claim.paid_index))
+                || !transport_ids.insert(claim.attempt_id.as_str())
+            {
+                return Err(invalid());
+            }
+        }
         if let Some(stop) = &self.stop {
             for c in [&stop.recovery.submit_claim, &stop.recovery.lookup_claim]
                 .into_iter()
