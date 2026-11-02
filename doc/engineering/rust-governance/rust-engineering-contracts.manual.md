@@ -51,7 +51,7 @@ cargo tree --offline --locked --package ROOT --target TARGET --edges normal,buil
 开发期入口为 `python3 scripts/cargo-dev-architecture.py`（Python 3.11+；按仓库方式先准备 Cargo target）。
 规则来自 `scripts/cargo-dev-architecture.json`，根身份固定为 path package 的名称、版本和 `source=null`。
 工具先用固定工具链的离线、锁定 metadata 归一声明；metadata 的 all-features **只用于身份解析**，
-不作为生产图。随后逐根、逐配置执行显式 kind/target/features 的 `cargo tree` 与同配置 `cargo check`；
+不作为生产图。随后逐根、逐配置执行显式 kind/target/features 的 `cargo tree`，按可信编译选择执行同配置 `cargo check`；
 测试配置用 `--tests`，生产配置使用实际 lib 或 bins。完整 JSON 输出到 stdout，进度到 stderr；
 任一 violation、inspection_error 或 coverage_gap 都返回非零。
 
@@ -87,12 +87,14 @@ CI 在检查前显式运行 `cargo fetch --locked` 准备依赖；检查器本�
 <a id="architecture-scope"></a>
 ## RG-A03 / RG-A04：不完整检查与 CI 选择
 
-可信局部执行合同见[局部架构核查](rust-engineering-contracts.design.md#trusted-local-architecture)。CI 只消费可信 BASE 产生的 architecture 计划；无计划或旧计划执行 full。全部图始终检查，编译按实际图与输入交集选择，输出 not_required 不算已执行。对比耗时须固定 toolchain、host/target、features、jobs 与缓存条件，同时记录图/编译项数与两阶段耗时。
+可信局部执行合同见[局部架构核查](rust-engineering-contracts.design.md#trusted-local-architecture)。CI 只消费可信 BASE 产生的 architecture 计划；无计划或旧计划执行 full。全部图始终检查，编译默认按实际图与输入交集选择，输出 not_required 不算已执行。已知且有效的 `ordinary-targets` 能力只在所有直接输入由完整快速目标承接时，将额外 profile 编译记为 `deferred_to_full`；实际快速构建、Clippy 和测试仍是当轮必需检查，完整 profile 的原矩阵由周期 full 执行。对比耗时须固定 toolchain、host/target、features、jobs 与缓存条件，同时记录图/编译项数、延期项及两阶段耗时。
 
 1. 注入缺失 lock/root、损坏元数据、离线依赖不足、工具链不可用与规则解析错误，确认返回非零 `inspection_error`，没有伪造 `pass` 或静默换配置。
 2. 对规则要求而尚未注册/未执行的组合验证 `coverage_gap`；只有正式启用的必需检查按设计阻断，未启用范围明确报告，不用扩大 N/A 消除缺口。
 3. 分别改变规则、检查器、反例、相关 Cargo/lock/toolchain、profile、受管产物与 TS 消费样例，使用既有 [scope 规划测试](../../../scripts/plan-rust-required-scope.test.py) 和实际候选 CI 核对选择及 required 汇总。首次新增独立路径时核对[可信基线登记规则](../../testing/ci/ci-tiered-execution.design.md#ci-unknown-inputs-design)：旧基线须拒绝未知路径，登记合入后的基线须选中实际验证；已被 Cargo owner/可信规则覆盖的路径不强制另拆登记 PR。生成工具首次接入同样适用。
 4. 核对普通文档改动仍按原 scope 处理；共享控制变化保留原扩大覆盖策略。选择器 fixture 通过不能替代实际运行的依赖检查。
+5. 对快速编译分层验证完整目标与必需组、source/tested、脏工作区、未知/非法版本及混合 ordinary/custody 输入；缺少能力保留原选择，已知非法输入不能延期。延期 profile 内的违规依赖、缺失 profile 和诊断模式仍必须失败；快速目标的编译或 Clippy 失败继续阻断 required gate。
+6. 用真实最小 Cargo workspace 在仅 full feature 或上层消费者中注入编译错误，确认普通快速报告如实延期，而完整入口实际编译并失败；完整矩阵不得被目标总数或其他 feature 的成功替代。
 
 通过条件：失败和缺口分类准确、既有选择与汇总正确消费新检查结果；不新增同名成功状态、跳过必要任务或自行改变合入权限。
 

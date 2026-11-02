@@ -6,6 +6,7 @@ root's graph; cargo check cross-checks compilation units including host tools.
 """
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,52 @@ KINDS = {None: 'normal', 'build': 'build', 'dev': 'dev'}
 
 class InspectionError(Exception):
     pass
+
+
+def ordinary_target_build_policy(root, plan, architecture):
+    """Validate the BASE-owned contract before deferring any profile build."""
+    if 'build_policy_version' not in architecture:
+        return False
+    version = architecture['build_policy_version']
+    if type(version) is not int:
+        raise InspectionError('invalid architecture build policy version')
+    if version != 1:
+        return False
+    if (architecture.get('build_policy') != 'ordinary-targets'
+            or type(architecture.get('version')) is not int or architecture['version'] != 1
+            or architecture.get('mode') != 'targeted'):
+        raise InspectionError('invalid ordinary-targets architecture policy')
+    try:
+        spec = importlib.util.spec_from_file_location('architecture_test_artifacts',
+                                                      Path(__file__).with_name('ci-test-artifacts.py'))
+        artifacts = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(artifacts)
+        artifacts.ROOT = root
+        selected = artifacts.fast_plan(plan)
+        if (selected is None or selected.get('fast_execution_version') != 1
+                or selected.get('ordinary_execution') != 'inline'
+                or set(selected['groups']) != {'baseline', 'rust_baseline', 'oasis7_required'}
+                or selected.get('test_policy_changed') is not False
+                or any(selected.get(key) != [] for key in
+                       ('fast_plan_exceptions', 'formal_suites', 'oasis7_required_wasm_packages'))):
+            raise ValueError('ordinary-targets requires the complete bounded fast plan without extra matrices')
+        for key in ('source', 'tested'):
+            value = selected.get(key + '_sha')
+            if not isinstance(value, str) or architecture.get(key) != value:
+                raise ValueError('architecture and execution plan disagree on ' + key)
+        artifacts.validate_plan_identity(selected)
+        targets = artifacts.ordinary_fast_targets(selected)
+        if not targets:
+            raise ValueError('ordinary-targets requires a complete fast target inventory')
+        inputs = architecture.get('packages')
+        if (not isinstance(inputs, list) or not inputs
+                or any(not isinstance(package, str) or not package for package in inputs)
+                or len(inputs) != len(set(inputs))
+                or not set(inputs) <= {target['package'] for target in targets}):
+            raise ValueError('ordinary fast target owners do not cover every direct architecture input')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError) as error:
+        raise InspectionError('invalid ordinary-targets execution plan: ' + str(error)) from error
+    return True
 
 
 def run(root, command):
@@ -244,7 +291,7 @@ def inspect(root, config, builds=True, selected=None, plan=None):
             and root == Path(os.environ['GITHUB_WORKSPACE']).resolve()):
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
     pull_request = event.get('pull_request', {})
-    evidence = {'source_sha': pull_request.get('head', {}).get('sha', tested_head),
+    evidence = {'source_sha': os.environ.get('SOURCE_SHA', pull_request.get('head', {}).get('sha', tested_head)),
                 'tested_head': tested_head,
                 'tested_tree': run(root, ['git', 'rev-parse', 'HEAD^{tree}']).strip(),
                 'base_sha': pull_request.get('base', {}).get('sha'),
@@ -254,6 +301,9 @@ def inspect(root, config, builds=True, selected=None, plan=None):
                 'rules_sha256': hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest(),
                 'toolchain': toolchain, 'host': host}
     architecture = (plan or {}).get('architecture', {})
+    if not isinstance(architecture, dict):
+        raise InspectionError('invalid architecture plan')
+    ordinary_targets = ordinary_target_build_policy(root, plan, architecture)
     targeted = architecture.get('version') == 1 and architecture.get('mode') == 'targeted'
     if targeted:
         if (not isinstance(architecture.get('packages'), list) or
@@ -267,10 +317,13 @@ def inspect(root, config, builds=True, selected=None, plan=None):
         if evidence['tracked_changes']:
             targeted = False  # worktree experiments cannot borrow committed-input scope
     inputs = set(architecture.get('packages', [])) if targeted else set()
+    ordinary_targets = ordinary_targets and targeted
     evidence['selection'] = {'mode': 'targeted' if targeted else 'full',
                              'inputs': sorted(inputs), 'plan': architecture,
+                             'build_policy': 'ordinary-targets' if ordinary_targets else 'profile-matrix',
                              'reason': 'trusted input/profile graph intersection' if targeted else 'full or no compatible trusted plan'}
-    timings = {'graph_seconds': 0.0, 'build_seconds': 0.0, 'graph_profiles': 0, 'build_profiles': 0}
+    timings = {'graph_seconds': 0.0, 'build_seconds': 0.0, 'graph_profiles': 0, 'build_profiles': 0,
+               'deferred_build_profiles': 0}
     results = []
     for rule in config['rules']:
         upstream_path, anchor = rule['upstream'].split('#')
@@ -362,15 +415,24 @@ def inspect(root, config, builds=True, selected=None, plan=None):
                     required = not targeted or bool(affected)
                     results.append(dict(scope, status='pass' if graph_ok else 'violation', view='closure',
                                         build_required=required, changed_inputs=affected))
+                    build_command = ['cargo', 'check', *flags, '--tests' if profile['mode'] == 'test' else '--lib']
+                    # The launcher is binary-only.
+                    if profile['mode'] == 'production' and not any('lib' in t['kind'] for t in package['targets']):
+                        build_command[-1] = '--bins'
                     if not builds:
                         results.append(dict(scope, status='coverage_gap', reason='graph inspected; target build not executed'))
                     elif not required:
                         results.append(dict(scope, status='not_required', view='build', reason='no changed input in profile graph'))
+                    elif ordinary_targets:
+                        timings['deferred_build_profiles'] += 1
+                        results.append(dict(scope, status='deferred_to_full', view='build',
+                                            reason='validated ordinary fast targets cover every direct input; extra profile compilation remains in full',
+                                            build_policy='ordinary-targets',
+                                            deferred_command=build_command,
+                                            required_groups=['rust_baseline', 'oasis7_required'],
+                                            deferred_profiles=['periodic-full', 'candidate-full']))
                     else:
-                        command = ['cargo', 'check', *flags, '--tests' if profile['mode'] == 'test' else '--lib']
-                        # The launcher is binary-only.
-                        if profile['mode'] == 'production' and not any('lib' in t['kind'] for t in package['targets']):
-                            command[-1] = '--bins'
+                        command = build_command
                         commands.append(command)
                         print(f'{rule["key"]}/{package["name"]}/{profile["id"]}: target build ({affected or "full"})', file=sys.stderr)
                         started = time.monotonic()
@@ -400,7 +462,7 @@ def main():
     except (InspectionError, OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
         report = {'results': [{'status': 'inspection_error', 'reason': str(error)}]}
     print(json.dumps(report, indent=2))
-    return int(any(r['status'] not in ('pass', 'not_required') for r in report['results']))
+    return int(any(r['status'] not in ('pass', 'not_required', 'deferred_to_full') for r in report['results']))
 
 
 if __name__ == '__main__':

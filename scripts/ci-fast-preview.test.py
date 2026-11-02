@@ -45,6 +45,9 @@ def valid_plan(source):
             'rust_baseline_checks': [], 'oasis7_required_wasm_packages': [],
             'groups': sorted(PREVIEW.EXPECTED_GROUPS),
             'source_sha': source, 'tested_sha': source, 'policy_sha': source,
+            'architecture': dict(version=1, mode='targeted', source=source, tested=source,
+                                 packages=['oasis7_runtime', 'oasis7_world_state'],
+                                 build_policy_version=1, build_policy='ordinary-targets'),
             'ordinary_fast_targets': [dict(package=package, target_kind=kind, target_name=name,
                                           default_features=False, features=['test_tier_required'])
                 for package, kind, name in sorted(PREVIEW.EXPECTED_TARGETS)]}
@@ -114,6 +117,7 @@ assert a.base_ref != a.head_ref
 assert a.head_ref == a.test_ref == a.policy_ref
 plan=PLAN
 for key in ('source_sha','tested_sha','policy_sha'): plan[key]=a.head_ref
+for key in ('source','tested'): plan['architecture'][key]=a.head_ref
 pathlib.Path(a.output).write_text(json.dumps(plan))
 """.replace('PLAN', repr(valid_plan('unused')))
             (repo / 'scripts/plan-rust-required-scope.py').write_text(planner)
@@ -158,6 +162,14 @@ pathlib.Path(a.output).write_text(json.dumps(plan))
                              ('features', []), ('features', ['test_tier_full'])):
             plan = copy.deepcopy(original)
             plan['ordinary_fast_targets'][0][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(plan, source)
+        for field, value in (('build_policy_version', None), ('build_policy_version', True),
+                             ('build_policy_version', 2), ('build_policy', 'unknown'),
+                             ('mode', 'full'), ('packages', ['oasis7_custody_core']),
+                             ('source', 'b' * 40), ('tested', 'b' * 40)):
+            plan = copy.deepcopy(original)
+            plan['architecture'][field] = value
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 PREVIEW.validate_plan(plan, source)
 

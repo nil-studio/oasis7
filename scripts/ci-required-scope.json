@@ -2,6 +2,7 @@
   "fast_scope_version": 1,
   "fast_test_inventory_version": 1,
   "fast_execution_version": 1,
+  "architecture_build_policy_version": 1,
   "ordinary_fast_targets": {
     "runtime-basic": {
       "package": "oasis7_runtime",

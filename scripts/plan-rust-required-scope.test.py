@@ -1715,7 +1715,8 @@ class Selection(unittest.TestCase):
         config['groups'].append('launcher_web')
         config['resources']['launcher_web'] = []
         config['package_groups']['core'].append('launcher_web')
-        config.update(fast_execution_version=1, ordinary_fast_component_rules=[{
+        config.update(fast_execution_version=1, architecture_build_policy_version=1,
+                      ordinary_fast_component_rules=[{
             'match': ['crates/core/src/**'], 'exclude': ['crates/core/src/bin/**'],
             'targets': ['core-lib'], 'reason': 'whole component behavior'}])
         return config
@@ -1743,9 +1744,87 @@ class Selection(unittest.TestCase):
             self.assertEqual(plan['rust_baseline_checks'], [])
             self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['core-lib']])
             self.assertEqual(plan['affected_packages'], ['consumer', 'core'])
+            self.assertEqual(plan['architecture']['packages'], ['core'])
+            self.assertEqual(plan['architecture']['build_policy_version'], 1)
+            self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
             self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
             self.assertEqual(plan['oasis7_required_wasm_packages'], [])
             self.assertNotIn('launcher_web', plan['groups'])
+
+    def test_component_architecture_policy_requires_independent_trusted_capability(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        for version in (None, 2):
+            old = dict(config)
+            if version is None:
+                del old['architecture_build_policy_version']
+            else:
+                old['architecture_build_policy_version'] = version
+            with self.subTest(version=version):
+                plan = selector.select(old, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['architecture']['mode'], 'targeted')
+                self.assertNotIn('build_policy_version', plan['architecture'])
+                self.assertNotIn('build_policy', plan['architecture'])
+        for version in (True, False, None, '1', []):
+            with self.subTest(invalid=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, architecture_build_policy_version=version))
+        with self.assertRaises(ValueError):
+            selector.validate_config(dict(self.bounded_config(), architecture_build_policy_version=1))
+
+    def test_component_architecture_policy_preserves_mixed_support_owner_compilation(self):
+        config = self.component_config()
+        support = 'oasis7_custody_core'
+        self.write('crates/other/Cargo.toml',
+                   f'[package]\nname="{support}"\nversion="0.1.0"\n')
+        self.write('crates/other/src/lib.rs', 'pub fn capability() -> u8 { 1 }\n')
+        base, _ = self.component_fixture()
+        self.write('crates/other/src/lib.rs', 'pub fn capability() -> u8 { 2 }\n')
+        head = self.commit()
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        for group in ('workspace_support', 'rust_baseline'):
+            config['package_groups'][support] = [group]
+            with self.subTest(group=group):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+                self.assertEqual(plan['architecture']['packages'], ['core', support])
+                self.assertEqual({t['package'] for t in plan['ordinary_fast_targets']}, {'core'})
+                if group == 'rust_baseline':
+                    self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+                else:
+                    self.assertEqual(plan['workspace_support_profiles'], [support])
+                self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_architecture_policy_preserves_additional_required_groups(self):
+        config = self.component_config()
+        config['rules'].append({'match': ['web/**'], 'groups': ['launcher_web'], 'reason': 'web source'})
+        base, head = self.component_fixture()
+        explicit = selector.select(config, base, head, additions=('rust_baseline',), profile='pr-fast')
+        self.assertEqual(explicit['ordinary_execution'], 'inline')
+        self.assertEqual(explicit['architecture']['mode'], 'full')
+        self.assertNotIn('build_policy_version', explicit['architecture'])
+        self.write('web/style.css', 'body { color: black; }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_architecture_policy_cannot_borrow_scoped_control_exceptions(self):
+        config = self.component_config()
+        path = '.github/scoped-metadata.yml'
+        config['scoped_control_paths'] = {path: []}
+        base, _ = self.component_fixture()
+        self.write(path, '# independently scoped CI metadata\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertNotIn('build_policy_version', plan['architecture'])
 
     def test_component_portable_and_alternate_library_mounts_keep_wasm_and_launcher(self):
         config = self.component_config()
@@ -1755,6 +1834,7 @@ class Selection(unittest.TestCase):
                 plan = selector.select(config, base, head, profile='pr-fast')
                 self.assertEqual(plan['ordinary_execution'], 'inline')
                 self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertNotIn('build_policy_version', plan['architecture'])
                 self.assertIn('launcher_web', plan['groups'])
 
     def test_component_portable_binary_mounts_keep_launcher_build(self):
@@ -1981,6 +2061,7 @@ class Selection(unittest.TestCase):
                 self.assertNotIn('ordinary_execution', plan)
                 self.assertNotIn('ordinary_fast_targets', plan)
                 self.assertNotIn('ordinary_clippy_group', plan)
+                self.assertNotIn('build_policy_version', plan['architecture'])
 
     def test_component_unavailable_feature_keeps_expanded_execution(self):
         config = self.component_config()
@@ -1992,6 +2073,7 @@ class Selection(unittest.TestCase):
         self.assertTrue(plan['test_policy_changed'])
         self.assertNotIn('ordinary_execution', plan)
         self.assertNotIn('ordinary_clippy_group', plan)
+        self.assertNotIn('build_policy_version', plan['architecture'])
 
     def test_component_cannot_override_exact_wiring_or_explicit_risk(self):
         config = self.component_config()
@@ -2008,6 +2090,7 @@ class Selection(unittest.TestCase):
         self.assertEqual(plan['ordinary_execution'], 'inline')
         self.assertEqual(plan['formal_suites'], ['world-history'])
         self.assertIn('formal_process', plan['groups'])
+        self.assertNotIn('build_policy_version', plan['architecture'])
 
     def test_component_direct_web_rules_and_explicit_additions_keep_launcher(self):
         config = self.component_config()
@@ -2032,6 +2115,7 @@ class Selection(unittest.TestCase):
             self.assertNotIn('ordinary_execution', plan)
             self.assertNotIn('rust_baseline_checks', plan)
             self.assertNotIn('ordinary_clippy_group', plan)
+            self.assertNotIn('build_policy_version', plan['architecture'])
             self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
             self.assertEqual(plan['oasis7_required_wasm_packages'], ['core', 'other'])
         for key, value in (('fast_execution_version', True), ('fast_execution_version', 2),
@@ -2051,6 +2135,7 @@ class Selection(unittest.TestCase):
         self.assertEqual(plan['scope'], 'full')
         self.assertNotIn('ordinary_execution', plan)
         self.assertNotIn('ordinary_clippy_group', plan)
+        self.assertNotIn('build_policy_version', plan['architecture'])
 
     def test_component_keeps_baseline_checks_for_affected_inputs(self):
         config = self.component_config()

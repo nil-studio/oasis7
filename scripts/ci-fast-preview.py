@@ -14,6 +14,7 @@ POLICY_INPUTS = frozenset((
     '.github/workflows/rust.yml', 'scripts/ci-required-scope.json',
     'scripts/plan-rust-required-scope.py', 'scripts/ci-tests.sh',
     'scripts/ci-test-artifacts.py', 'scripts/ci-fast-preview.py',
+    'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json',
 ))
 SAMPLE_PATHS = (
     'crates/oasis7_runtime/src/world/incremental_commit.rs',
@@ -76,9 +77,20 @@ def validate_plan(plan, source):
     groups = plan.get('groups')
     if not isinstance(groups, list) or len(groups) != len(EXPECTED_GROUPS) or set(groups) != EXPECTED_GROUPS:
         raise ValueError('preview selected unexpected groups; do not silently omit work')
+    architecture = plan.get('architecture')
+    if (not isinstance(architecture, dict)
+            or type(architecture.get('build_policy_version')) is not int
+            or architecture['build_policy_version'] != 1
+            or architecture.get('build_policy') != 'ordinary-targets'
+            or architecture.get('mode') != 'targeted'
+            or architecture.get('packages') != ['oasis7_runtime', 'oasis7_world_state']):
+        raise ValueError('preview did not select the expected architecture compile policy')
     for key in ('source_sha', 'tested_sha', 'policy_sha'):
         if plan.get(key) != source:
             raise ValueError('preview source/tested/policy identity mismatch: ' + key)
+    for key in ('source', 'tested'):
+        if architecture.get(key) != source:
+            raise ValueError('preview architecture identity mismatch: ' + key)
     targets = plan.get('ordinary_fast_targets')
     if not isinstance(targets, list) or not targets:
         raise ValueError('preview has no executable target inventory')

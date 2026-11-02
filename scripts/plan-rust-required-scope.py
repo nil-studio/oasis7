@@ -18,6 +18,7 @@ EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
 FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
+ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
@@ -697,6 +698,11 @@ def validate_config(config):
                 not isinstance(pattern, str) or not pattern.startswith('tools/oasis7-command-center/')
                 or '..' in pattern.split('/') or '\\' in pattern for pattern in fast_paths)):
             raise ValueError('invalid command center fast paths')
+    if 'architecture_build_policy_version' in config:
+        version = config['architecture_build_policy_version']
+        if (type(version) is not int or version == ARCHITECTURE_BUILD_POLICY_VERSION
+                and config.get('fast_execution_version') != FAST_EXECUTION_VERSION):
+            raise ValueError('invalid architecture build policy capability')
     validate_fast_test_inventory(config)
     return config
 
@@ -1733,6 +1739,25 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                 command_center_package=center_package,
                 test_policy_changed=bool(policy_paths), test_policy_paths=policy_paths,
                 fast_plan_exceptions=exceptions)
+    # Architecture graphs remain complete. Only a final, exception-free ordinary
+    # plan may defer their extra profile builds to full; a mixed support input
+    # cannot borrow an unrelated component's fast target contract.
+    architecture = plan['architecture']
+    inputs = set(architecture['packages'])
+    owners = {target['package'] for target in plan.get('ordinary_fast_targets', ())}
+    if (config.get('architecture_build_policy_version') == ARCHITECTURE_BUILD_POLICY_VERSION
+            and plan.get('fast_execution_version') == FAST_EXECUTION_VERSION
+            and plan.get('ordinary_execution') == 'inline' and plan['scope'] == 'targeted'
+            and architecture['mode'] == 'targeted' and not additions
+            and set(plan['groups']) == {'baseline', 'rust_baseline', 'oasis7_required'}
+            and not plan['test_policy_changed'] and not plan['fast_plan_exceptions']
+            and not plan['formal_suites'] and not plan['oasis7_required_wasm_packages']
+            and not any(fnmatch.fnmatchcase(path, pattern) for path in paths for pattern in CONTROL)
+            and inputs and inputs.issubset(owners)):
+        architecture.update(build_policy_version=ARCHITECTURE_BUILD_POLICY_VERSION,
+                            build_policy='ordinary-targets')
+        plan['reasons'].append('all architecture inputs have mandatory fast targets; '
+                               'extra profile compilation stays in full, all dependency graphs remain required')
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     return plan
 
