@@ -1,11 +1,11 @@
 //! Borrowed authorization records and separately owned causal receipts.
 use super::Ledger;
 use oasis7_formal_protocol::incremental_state::StateNamespaceV1;
+use oasis7_world_state::incremental_cognition_fields::COGNITION_DELEGATION_FIELDS as KEYS;
 use oasis7_world_state::incremental_projection::{
     FieldDescriptor, FieldDestination, FieldOwner, FieldShape, GenesisFieldVisitor, ProjectionError,
 };
 use serde_json::Value;
-const KEYS: &[&str] = &["grants", "spent", "decisions", "receipts", "controls"];
 const _: fn(&Ledger) = |ledger| {
     let Ledger {
         grants: _,

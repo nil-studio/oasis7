@@ -153,6 +153,35 @@ mod genesis;
 pub use genesis::prepare_json_subtree_v1;
 #[path = "incremental_json_records_read.rs"]
 mod read;
+pub(crate) use read::qualify_records as qualify_json_subtree_records_v1;
 pub use read::{JsonReadWorkV1, JsonSubtreeQualificationV1, qualify_json_subtree_v1};
 #[path = "incremental_json_records_cursor.rs"]
 pub(crate) mod cursor;
+
+#[path = "incremental_json_records_point.rs"]
+mod point;
+pub use point::{
+    JsonPathSegmentV1, JsonPointWriteV1, JsonScalarPointWriteV1, JsonScalarRefV1,
+    JsonSubtreeEditV1, prepare_json_scalar_path_change_v1, prepare_json_subtree_change_v1,
+    qualify_json_path_v1,
+};
+
+#[path = "incremental_json_records_change.rs"]
+mod change;
+pub use change::{
+    JsonChangeWorkV1, JsonScalarChangeWorkV1, advance_json_scalar_subtree_v1,
+    advance_json_subtree_v1,
+};
+
+pub(crate) use point::prepare_json_scalar_path_change_records_v1;
+pub(crate) use point::{prepare_json_subtree_change_records_v1, qualify_json_path_records_v1};
+
+pub(crate) use point::check_json_scalar_path_expected_records_v1;
+pub use point::{JsonScalarPathReadWorkV1, check_json_scalar_path_expected_v1};
+
+pub(crate) use change::require_json_container_records_v1;
+
+pub(crate) use change::{
+    JsonImmediateShapeV1, advance_json_scalar_subtree_records_constrained_v1,
+    advance_json_subtree_records_v1, require_json_immediate_records_v1,
+};
