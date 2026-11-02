@@ -783,3 +783,10 @@ scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 bef
 固定增量验证分别记录逻辑节点调用/编码字节和真实 state/value/writer 会话读写操作/字节，不能把逻辑节点数等同物理 IO。content-addressed pack 的索引位置会改变有界查找探针；这种开销须从实际原索引独立核对并按物理 profile 上界解释，不能把归因后的相等数字表述为原物理 IO 完全相同。页 mark/transfer 只提供本 current-state scope 与顶层六树依赖，其他 owner 和独立 side ledger 的闭包仍需联合。
 
 完整资格必须从认证 RootSet、全部当前状态 cohort 与各独立 side owner 的真实证明组合，校验 required/optional 关系与未知/孤儿；普通事务只沿目标路径和必要关系访问，不能扫描未变大文本/集合。精确 expected、guard/live、同池 Ordinary、连续有限 key/逻辑/物理/heap 额度、NoOp/最后实际 put/finish 的组合取消、所有失败 poison 前缀合同继续适用。接收端先 generic replay，再从已资格父与完整 changed-path 写集推导新闭包；新记录全量资格，未变子树仅继承原已认证闭包。typed pages 跟随全部子 State/Value 引用并等待实际 sink finish，冷恢复不能依赖旧 Snapshot、缓存或旧内存池。本节不新增 cognition 调度、授权、投票或业务规则，不能代签 accepted history 或全 World GC。
+
+
+### 12.56 绑定最终状态根的末尾原 fact
+
+需要引用本次 after RootSet 的原 Result（例如 Cognition History view）在同一 ExecutionTransaction 冻结真实写集、计算并校验 after roots 后生成，不预测根、不重新创建事务，也不修改已 seal 的不可变 prepared 结构。唯一末尾 fact 的额度和完整临时内存须在调用生产者前准入；callback 只读实际 after RootSet，不能改 roots、写集或原 fact 顺序。生成失败保留原错误类型；取消在生产前后及返回 prepared 前均检查，任一错误消费并丢弃该 overlay，不返回可 seal 的成功前缀。已经写出的原件仍为 provisional，沿既有 pending/保留与正式接受规则处理，不因本 hook 授予业务或耐久权限。
+
+ordered_fact_count 仅给出当前追加位置，不能用作接受历史证明。原无末尾 fact 的 seal 复用同一冻结路径并保持原 wire 与结果；正式 fact 原件、签名候选、完整 typed closure 和最终接受仍分别验证。RootSet 不引用本次 fact/history/body，因此末尾原件绑定 roots 不形成回填循环。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
