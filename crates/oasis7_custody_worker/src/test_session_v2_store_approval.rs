@@ -175,6 +175,15 @@ impl OwnerProvisionApprovalStore {
                 s.claim_test_session_v2_source(id, operation, c, UnixMillis::new(t))
                     .map_err(|error| {
                         use oasis7_custody_core::provisioning::ProvisionApprovalError;
+                        let flags = s.test_session_v2_source_claim_diagnostics(
+                            id,
+                            operation,
+                            c,
+                            UnixMillis::new(t),
+                        );
+                        if let Ok(flags) = serde_json::to_string(&flags) {
+                            worker::console_error!("{{\"session_source_predicates\":{}}}", flags);
+                        }
                         diagnostic.fail(match error {
                             ProvisionApprovalError::Admission(_) => "source.core.admission",
                             ProvisionApprovalError::Provision(_) => "source.core.provision",
