@@ -1,6 +1,8 @@
 {
   "fast_scope_version": 1,
   "fast_test_inventory_version": 1,
+  "fast_execution_version": 1,
+  "architecture_build_policy_version": 1,
   "ordinary_fast_targets": {
     "runtime-basic": {
       "package": "oasis7_runtime",
@@ -113,6 +115,113 @@
         "world::incremental_allocators::tests::final_allocator_cancellation_poison_keeps_no_successful_prefix",
         "world::incremental_clock::tests::missing_stale_or_old_private_clock_never_preserves_a_typed_body_prefix"
       ]
+    },
+    "world-state-lib": {
+      "package": "oasis7_world_state",
+      "target_kind": "lib",
+      "target_name": "oasis7_world_state",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "codec::tests::json_path_wrappers_preserve_atomic_replacement_file_bytes_and_errors",
+        "codec::tests::concrete_hashes_and_non_atomic_writer_preserve_existing_semantics",
+        "cognition_receipt_binding::tests::receipt_binding_rejects_every_parent_authority_axis_change"
+      ]
+    },
+    "simulator-lib": {
+      "package": "oasis7_simulator",
+      "target_kind": "lib",
+      "target_name": "oasis7_simulator",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::basics::resource_stock_add_remove",
+        "tests::basics::resource_stock_add_rejects_overflow",
+        "chain_resource::tests::chain_resource_delta_requires_world_resource_schema_and_commit_hashes"
+      ]
+    },
+    "world-service-lib": {
+      "package": "oasis7_world_service",
+      "target_kind": "lib",
+      "target_name": "oasis7_world_service",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "gameplay::qualification_tests::collect_data_qualification_is_unique_subject_bound_and_read_only",
+        "formal_read_error::tests::native_absence_is_distinct_from_invalid_diagnostics",
+        "formal_recovery_lineage::tests::formal_recovery_lineage_rejects_missing_discontinuous_fork_and_authority_mismatch"
+      ]
+    },
+    "world-projection-lib": {
+      "package": "oasis7_world_projection",
+      "target_kind": "lib",
+      "target_name": "oasis7_world_projection",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "codec_tests::concrete_codecs_preserve_legacy_bytes_and_optional_field_defaults",
+        "codec_tests::concrete_codecs_preserve_duplicate_missing_and_malformed_errors",
+        "codec_tests::pre_split_projection_and_response_fixtures_reencode_without_wire_drift"
+      ]
+    },
+    "oasis7-lib": {
+      "package": "oasis7",
+      "target_kind": "lib",
+      "target_name": "oasis7",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "industry_types::tests::material_ledger_wire_strings_preserve_validation",
+        "industry_types::tests::starter_settled_outcome_wire_shape_is_platform_neutral"
+      ]
+    },
+    "viewer-codec-lib": {
+      "package": "oasis7_viewer_codec",
+      "target_kind": "lib",
+      "target_name": "oasis7_viewer_codec",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "tests::concrete_writer_and_string_preserve_legacy_compact_bytes",
+        "tests::request_parser_preserves_success_and_original_errors",
+        "tests::writer_errors_propagate_without_flush_or_full_response_buffer"
+      ]
+    },
+    "observability-lib": {
+      "package": "oasis7_observability",
+      "target_kind": "lib",
+      "target_name": "oasis7_observability",
+      "default_features": false,
+      "features": [],
+      "cases": [
+        "tests::init_tracing_is_idempotent",
+        "tests::emit_stderr_or_event_allows_tracing_path_after_init",
+        "tests::resolve_trace_session_id_is_stable_within_process"
+      ]
+    },
+    "launcher-config-lib": {
+      "package": "oasis7_launcher_config",
+      "target_kind": "lib",
+      "target_name": "oasis7_launcher_config",
+      "default_features": false,
+      "features": [],
+      "cases": [
+        "tests::default_chain_replication_bootstrap_peers_match_official_anchor_domains",
+        "tests::parse_chain_replication_bootstrap_peer_accepts_valid_multiaddr",
+        "tests::parse_chain_replication_bootstrap_peer_rejects_non_multiaddr"
+      ]
     }
   },
   "ordinary_fast_rules": [
@@ -221,6 +330,129 @@
       ]
     }
   ],
+  "ordinary_fast_component_rules": [
+    {
+      "match": [
+        "crates/oasis7_runtime/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_runtime/src/bin/**"
+      ],
+      "targets": [
+        "runtime-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_runtime"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_state/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_world_state/src/bin/**"
+      ],
+      "targets": [
+        "world-state-lib",
+        "runtime-lib",
+        "world-reducers"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_world_state"
+    },
+    {
+      "match": [
+        "crates/oasis7_simulator/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_simulator/src/bin/**"
+      ],
+      "targets": [
+        "simulator-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_simulator"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_service/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_world_service/src/bin/**"
+      ],
+      "targets": [
+        "world-service-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_world_service"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_projection/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_world_projection/src/bin/**"
+      ],
+      "targets": [
+        "world-projection-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_world_projection"
+    },
+    {
+      "match": [
+        "crates/oasis7/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7/src/bin/**"
+      ],
+      "targets": [
+        "oasis7-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7"
+    },
+    {
+      "match": [
+        "crates/oasis7_viewer_codec/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_viewer_codec/src/bin/**"
+      ],
+      "targets": [
+        "viewer-codec-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_viewer_codec"
+    },
+    {
+      "match": [
+        "crates/oasis7_observability/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_observability/src/bin/**"
+      ],
+      "targets": [
+        "observability-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_observability"
+    },
+    {
+      "match": [
+        "crates/oasis7_launcher_config/src/**"
+      ],
+      "exclude": [
+        "crates/oasis7_launcher_config/src/bin/**"
+      ],
+      "targets": [
+        "launcher-config-lib"
+      ],
+      "reason": "whole_component_lib_and_registered_behavior_owners_oasis7_launcher_config"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/incremental_*.rs",
+        "crates/oasis7_world_state/src/incremental_*.rs"
+      ],
+      "exclude": [],
+      "targets": [
+        "runtime-incremental"
+      ],
+      "reason": "physical_incremental_commit_reopen_and_parent_material"
+    }
+  ],
   "oasis7_required_packages": [
     "oasis7", "oasis7_simulator", "oasis7_runtime", "oasis7_world_state",
     "oasis7_world_projection", "oasis7_world_service", "scenario_test_runner",
@@ -243,55 +475,172 @@
   ],
   "formal_risk_rules": [
     {
-      "match": ["crates/oasis7_viewer_codec/src/**", "crates/oasis7_viewer_codec/tests/**",
-                "crates/oasis7_observability/src/**", "crates/oasis7_observability/tests/**",
-                "crates/oasis7/src/geometry.rs", "crates/oasis7_simulator/src/fragment_physics.rs",
-                "crates/oasis7_simulator/src/asteroid_fragment.rs", "crates/oasis7_simulator/src/frag_spawn.rs"],
+      "match": [
+        "crates/oasis7_viewer_codec/src/**",
+        "crates/oasis7_viewer_codec/tests/**",
+        "crates/oasis7_observability/src/**",
+        "crates/oasis7_observability/tests/**",
+        "crates/oasis7/src/geometry.rs",
+        "crates/oasis7_simulator/src/fragment_physics.rs",
+        "crates/oasis7_simulator/src/asteroid_fragment.rs",
+        "crates/oasis7_simulator/src/frag_spawn.rs"
+      ],
       "suites": [],
       "reason": "codec_observability_and_geometry_behavior_in_affected_tests"
     },
     {
-      "match": ["crates/oasis7_world_projection/src/**", "crates/oasis7_world_projection/tests/**"],
-      "suites": ["runtime-protocol", "world-history"],
+      "match": [
+        "crates/oasis7_world_projection/src/**",
+        "crates/oasis7_world_projection/tests/**"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history"
+      ],
       "reason": "formal_read_projection_and_retained_history_encoding"
     },
     {
-      "match": ["crates/oasis7_world_state/src/formal_retained_history*",
-                "crates/oasis7_chain_runtime/src/host/formal_live_protected_long_history_tests.rs"],
-      "suites": ["world-history"],
+      "match": [
+        "crates/oasis7_world_state/src/formal_retained_history*",
+        "crates/oasis7_chain_runtime/src/host/formal_live_protected_long_history_tests.rs"
+      ],
+      "suites": [
+        "world-history"
+      ],
       "reason": "retained_world_history_prune_reopen_original"
     },
     {
-      "match": ["crates/oasis7_consensus/src/**", "crates/oasis7_consensus/tests/**"],
-      "suites": ["runtime-protocol", "healthy-set", "lifecycle-cli"],
+      "match": [
+        "crates/oasis7_consensus/src/**",
+        "crates/oasis7_consensus/tests/**"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "healthy-set",
+        "lifecycle-cli"
+      ],
       "reason": "consensus_identity_membership_and_publication"
     },
     {
-      "match": ["crates/oasis7_distfs/src/**", "crates/oasis7_distfs/tests/**",
-                "crates/oasis7_cas/src/**", "crates/oasis7_cas/tests/**",
-                "crates/oasis7_formal_protocol/src/**", "crates/oasis7_formal_protocol/tests/**"],
-      "suites": ["runtime-protocol", "world-history", "healthy-set", "storage-recovery", "lifecycle-cli"],
+      "match": [
+        "crates/oasis7_distfs/src/**",
+        "crates/oasis7_distfs/tests/**",
+        "crates/oasis7_cas/src/**",
+        "crates/oasis7_cas/tests/**",
+        "crates/oasis7_formal_protocol/src/**",
+        "crates/oasis7_formal_protocol/tests/**"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history",
+        "healthy-set",
+        "storage-recovery",
+        "lifecycle-cli"
+      ],
       "reason": "shared_storage_and_wire_contracts_retain_all_process_consumers"
     },
     {
-      "match": ["crates/oasis7_chain_runtime/src/host/node_lifecycle*",
-                "crates/oasis7_chain_runtime/src/host/world_initialization*",
-                "crates/oasis7_chain_runtime/src/host/formal_full_state_sync*",
-                "scripts/local-node-lifecycle.test.sh", "scripts/legacy-observer-migration.test.sh"],
-      "suites": ["lifecycle-cli"],
+      "match": [
+        "crates/oasis7_chain_runtime/src/host/node_lifecycle*",
+        "crates/oasis7_chain_runtime/src/host/world_initialization*",
+        "crates/oasis7_chain_runtime/src/host/formal_full_state_sync*",
+        "scripts/local-node-lifecycle.test.sh",
+        "scripts/legacy-observer-migration.test.sh"
+      ],
+      "suites": [
+        "lifecycle-cli"
+      ],
       "reason": "node_cli_initialization_sync_and_migration"
     },
     {
-      "match": ["crates/oasis7_chain_runtime/src/host/formal_live_protected_crash_tests.rs",
-                "crates/oasis7_chain_runtime/src/host/formal_effect*"],
-      "suites": ["runtime-protocol"],
+      "match": [
+        "crates/oasis7_chain_runtime/src/host/formal_live_protected_crash_tests.rs",
+        "crates/oasis7_chain_runtime/src/host/formal_effect*"
+      ],
+      "suites": [
+        "runtime-protocol"
+      ],
       "reason": "durable_effect_crash_retry_and_original_result"
     },
     {
-      "match": ["crates/oasis7_chain_runtime/src/host/formal_live_healthy*",
-                "crates/oasis7_chain_runtime/src/host/formal_live_protected_durable_set*"],
-      "suites": ["healthy-set"],
+      "match": [
+        "crates/oasis7_chain_runtime/src/host/formal_live_healthy*",
+        "crates/oasis7_chain_runtime/src/host/formal_live_protected_durable_set*"
+      ],
+      "suites": [
+        "healthy-set"
+      ],
       "reason": "healthy_replica_set_operation_and_owner_transfer"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/formal_retention*.rs",
+        "crates/oasis7_world_state/src/state/formal_retention_projection.rs"
+      ],
+      "suites": [
+        "world-history"
+      ],
+      "reason": "qualified_retained_history_publication_and_reopen"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/persistence*.rs",
+        "crates/oasis7_runtime/src/world/authoritative_recovery_generation*.rs",
+        "crates/oasis7_runtime/src/world/observer_load*.rs",
+        "crates/oasis7_runtime/src/world/snapshot.rs",
+        "crates/oasis7_world_state/src/snapshot*.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history"
+      ],
+      "reason": "runtime_snapshot_durability_and_recovery_generation"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/observer_load*.rs",
+        "crates/oasis7_runtime/src/world/authoritative_recovery_generation*.rs",
+        "crates/oasis7_world_service/src/formal_recovery_lineage*.rs"
+      ],
+      "suites": [
+        "lifecycle-cli"
+      ],
+      "reason": "node_recovery_initialization_and_exact_predecessor_lineage"
+    },
+    {
+      "match": [
+        "crates/oasis7_runtime/src/world/formal_tick_consensus*.rs",
+        "crates/oasis7_runtime/src/world/formal_execution_tick*.rs",
+        "crates/oasis7_runtime/src/world/tick_consensus*.rs",
+        "crates/oasis7_world_state/src/consensus.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "healthy-set"
+      ],
+      "reason": "formal_tick_quorum_authority_and_publication"
+    },
+    {
+      "match": [
+        "crates/oasis7_world_service/src/formal_*.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "world-history"
+      ],
+      "reason": "signed_formal_read_replay_and_recovery_contract"
+    },
+    {
+      "match": [
+        "crates/oasis7/src/runtime_host.rs",
+        "crates/oasis7/src/runtime_host/**",
+        "crates/oasis7/src/consensus_action_payload*.rs"
+      ],
+      "suites": [
+        "runtime-protocol",
+        "lifecycle-cli"
+      ],
+      "reason": "native_host_and_consensus_submission_wire_contract"
     }
   ],
   "groups": [

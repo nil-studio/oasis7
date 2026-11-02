@@ -183,7 +183,8 @@ impl World {
         Ok(())
     }
 
-    /// Trusted authenticated host entrypoint; never provider supplied.
+    /// Test bootstrap transaction; authenticated production issuance uses authorization below.
+    #[cfg(any(test, feature = "test_tier_required", feature = "test_tier_full"))]
     pub(crate) fn install_agent_delegation_grant(
         &mut self,
         grant: AgentDelegationGrantV1,

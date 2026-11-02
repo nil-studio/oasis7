@@ -1704,11 +1704,454 @@ class Selection(unittest.TestCase):
         config = self.bounded_config(('crates/core/src/history.rs',))
         self.write('crates/core/src/history.rs', 'pub fn changed() {}\n')
         head = self.commit()
-        self.assertEqual(selector.select(config, self.base, head, profile='pr-fast')['formal_suites'], [])
+        self.assertEqual(selector.select(config, self.base, head, profile='pr-fast')['formal_suites'], ['world-history'])
         self.write('crates/core/src/other.rs', 'pub fn additional() {}\n')
         plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
         self.assertNotIn('ordinary_fast_targets', plan)
         self.assertEqual(plan['formal_suites'], ['world-history'])
+
+    def component_config(self):
+        config = self.bounded_config()
+        config['groups'].append('launcher_web')
+        config['resources']['launcher_web'] = []
+        config['package_groups']['core'].append('launcher_web')
+        config.update(fast_execution_version=1, architecture_build_policy_version=1,
+                      ordinary_fast_component_rules=[{
+            'match': ['crates/core/src/**'], 'exclude': ['crates/core/src/bin/**'],
+            'targets': ['core-lib'], 'reason': 'whole component behavior'}])
+        return config
+
+    def component_fixture(self, *, native=True, shared=False):
+        gate = '#[cfg(not(target_arch="wasm32"))]\n' if native else ''
+        self.write('crates/core/src/lib.rs', gate + 'mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        if shared:
+            self.write('crates/consumer/src/lib.rs',
+                       '#[path="../../core/src/behavior.rs"] mod shared;\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        return base, self.commit()
+
+    def test_component_inventory_executes_owner_and_preserves_affected_evidence(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        for profile in ('pr-fast', 'main-fast'):
+            plan = selector.select(config, base, head, profile=profile)
+            self.assertEqual(plan['ordinary_execution'], 'inline')
+            self.assertEqual(plan['fast_execution_version'], 1)
+            self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+            self.assertTrue({'rust_baseline', 'oasis7_required'}.issubset(plan['groups']))
+            self.assertEqual(plan['rust_baseline_checks'], [])
+            self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['core-lib']])
+            self.assertEqual(plan['affected_packages'], ['consumer', 'core'])
+            self.assertEqual(plan['architecture']['packages'], ['core'])
+            self.assertEqual(plan['architecture']['build_policy_version'], 1)
+            self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+            self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+            self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+            self.assertNotIn('launcher_web', plan['groups'])
+
+    def test_component_architecture_policy_requires_independent_trusted_capability(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        for version in (None, 2):
+            old = dict(config)
+            if version is None:
+                del old['architecture_build_policy_version']
+            else:
+                old['architecture_build_policy_version'] = version
+            with self.subTest(version=version):
+                plan = selector.select(old, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['architecture']['mode'], 'targeted')
+                self.assertNotIn('build_policy_version', plan['architecture'])
+                self.assertNotIn('build_policy', plan['architecture'])
+        for version in (True, False, None, '1', []):
+            with self.subTest(invalid=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, architecture_build_policy_version=version))
+        with self.assertRaises(ValueError):
+            selector.validate_config(dict(self.bounded_config(), architecture_build_policy_version=1))
+
+    def test_component_architecture_policy_preserves_mixed_support_owner_compilation(self):
+        config = self.component_config()
+        support = 'oasis7_custody_core'
+        self.write('crates/other/Cargo.toml',
+                   f'[package]\nname="{support}"\nversion="0.1.0"\n')
+        self.write('crates/other/src/lib.rs', 'pub fn capability() -> u8 { 1 }\n')
+        base, _ = self.component_fixture()
+        self.write('crates/other/src/lib.rs', 'pub fn capability() -> u8 { 2 }\n')
+        head = self.commit()
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        for group in ('workspace_support', 'rust_baseline'):
+            config['package_groups'][support] = [group]
+            with self.subTest(group=group):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+                self.assertEqual(plan['architecture']['packages'], ['core', support])
+                self.assertEqual({t['package'] for t in plan['ordinary_fast_targets']}, {'core'})
+                if group == 'rust_baseline':
+                    self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+                else:
+                    self.assertEqual(plan['workspace_support_profiles'], [support])
+                self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_architecture_policy_preserves_additional_required_groups(self):
+        config = self.component_config()
+        config['rules'].append({'match': ['web/**'], 'groups': ['launcher_web'], 'reason': 'web source'})
+        base, head = self.component_fixture()
+        explicit = selector.select(config, base, head, additions=('rust_baseline',), profile='pr-fast')
+        self.assertEqual(explicit['ordinary_execution'], 'inline')
+        self.assertEqual(explicit['architecture']['mode'], 'full')
+        self.assertNotIn('build_policy_version', explicit['architecture'])
+        self.write('web/style.css', 'body { color: black; }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_architecture_policy_cannot_borrow_scoped_control_exceptions(self):
+        config = self.component_config()
+        path = '.github/scoped-metadata.yml'
+        config['scoped_control_paths'] = {path: []}
+        base, _ = self.component_fixture()
+        self.write(path, '# independently scoped CI metadata\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_portable_and_alternate_library_mounts_keep_wasm_and_launcher(self):
+        config = self.component_config()
+        for native, shared in ((False, False), (True, True)):
+            base, head = self.component_fixture(native=native, shared=shared)
+            with self.subTest(native=native, shared=shared):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertNotIn('build_policy_version', plan['architecture'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_portable_binary_mounts_keep_launcher_build(self):
+        config = self.component_config()
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for path, declaration in (
+                ('crates/consumer/src/main.rs', ''),
+                ('crates/consumer/entry.rs', '\n[[bin]]\nname="portable"\npath="entry.rs"\ntest=false\n'),
+                ('crates/consumer/src/bin/portable.rs', '\n[[bin]]\nname="portable"\ntest=false\n')):
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            relative = os.path.relpath('crates/core/src/behavior.rs', Path(path).parent)
+            self.write(path, f'#[path="{relative}"] mod shared;\nfn main() {{ shared::value(); }}\n')
+            self.write('crates/consumer/Cargo.toml', consumer_manifest + declaration)
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(path=path):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertIn('launcher_web', plan['groups'])
+            Path(path).unlink()
+
+    def test_component_portable_data_readers_keep_wasm_and_launcher(self):
+        config = self.component_config()
+        for macro in ('include_str', 'include_bytes'):
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            value_type = '&str' if macro == 'include_str' else '&[u8]'
+            self.write('crates/consumer/src/lib.rs',
+                       f'const SOURCE: {value_type} = {macro}!("../../core/src/behavior.rs");\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(macro=macro):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_custom_production_root_resolves_implicit_child_modules(self):
+        config = self.component_config()
+        original_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for kind in ('bin', 'lib'):
+            declaration = ('\n[[bin]]\nname="portable"\n' if kind == 'bin' else '\n[lib]\n')
+            self.write('crates/consumer/Cargo.toml', original_manifest + declaration + 'path="entry.rs"\ntest=false\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            self.write('crates/consumer/entry.rs', 'mod shared;\npub fn main() { shared::value(); }\n')
+            self.write('crates/consumer/shared.rs',
+                       '#[path="../core/src/behavior.rs"] mod original;\npub use original::value;\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(kind=kind):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_data_reader_never_proves_executable_source_ownership(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', 'const SOURCE: &str = include_str!("behavior.rs");\n')
+        self.write('crates/core/src/behavior.rs', '#[test] fn not_executed() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_component_native_test_data_reader_does_not_require_web_packaging(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        self.write('crates/consumer/src/lib.rs', '#[cfg(test)] mod tests;\n')
+        self.write('crates/consumer/src/tests.rs', 'const SOURCE: &str = include_str!("../../core/src/behavior.rs");\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+        self.assertNotIn('launcher_web', plan['groups'])
+
+    def test_component_unknown_portable_data_input_cannot_authorize_deferral(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        self.write('crates/consumer/src/lib.rs', 'const SOURCE: &str = include_str!(env!("SOURCE_PATH"));\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_build_script_literal_reader_keeps_portable_consumers(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        self.write('crates/consumer/build.rs',
+                   'fn main() { let value = std::fs::read_to_string("../core/src/behavior.rs").unwrap();\n'
+                   'println!("cargo:rustc-env=SOURCE_BODY={value}"); }\n')
+        self.write('crates/consumer/src/lib.rs', 'const SOURCE: &str = env!("SOURCE_BODY");\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_native_host_build_dependencies_keep_generated_portable_consumers(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        other_manifest = Path('crates/other/Cargo.toml').read_text()
+        workspace_manifest = Path('Cargo.toml').read_text()
+        for kind in ('direct', 'transitive', 'target-renamed-workspace'):
+            self.write('Cargo.toml', workspace_manifest + 'generator={path="crates/other",package="other"}\n')
+            self.write('crates/other/Cargo.toml', other_manifest + '[dependencies]\ncore={workspace=true}\n')
+            self.write('crates/other/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] pub use core::value;\n')
+            if kind == 'direct':
+                dependency = '\n[build-dependencies]\ncore={workspace=true}\n'
+                generator = 'core'
+            elif kind == 'transitive':
+                dependency = '\n[build-dependencies]\ngenerator={path="../other",package="other"}\n'
+                generator = 'generator'
+            else:
+                dependency = '\n[target.\'cfg(unix)\'.build-dependencies]\ngenerator={workspace=true}\n'
+                generator = 'generator'
+            self.write('crates/consumer/Cargo.toml', consumer_manifest + dependency)
+            self.write('crates/consumer/build.rs',
+                       f'fn main() {{ println!("cargo:rustc-env=VALUE={{}}", {generator}::value()); }}\n')
+            self.write('crates/consumer/src/lib.rs', 'pub const VALUE: &str = env!("VALUE");\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n'
+                       '#[cfg(not(target_arch="wasm32"))] pub use behavior::value;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(kind=kind):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_native_proc_macro_dependencies_keep_generated_portable_consumers(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        macro_manifest = Path('crates/other/Cargo.toml').read_text()
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for declaration in ('proc-macro=true', 'proc_macro=true',
+                            'crate-type=["proc-macro"]', 'crate_type=["proc-macro"]'):
+            self.write('crates/other/Cargo.toml', macro_manifest
+                       + '\n[lib]\n' + declaration + '\n[dependencies]\ncore={workspace=true}\n')
+            self.write('crates/other/src/lib.rs', 'extern crate proc_macro;\n#[proc_macro]\n'
+                       'pub fn generated(_: proc_macro::TokenStream) -> proc_macro::TokenStream {\n'
+                       'format!("pub const VALUE: u8 = {};", core::value()).parse().unwrap() }\n')
+            self.write('crates/consumer/Cargo.toml', consumer_manifest
+                       + '\n[dependencies]\nother={path="../other"}\n')
+            self.write('crates/consumer/src/lib.rs', 'other::generated!();\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n'
+                       '#[cfg(not(target_arch="wasm32"))] pub use behavior::value;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(declaration=declaration):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_native_source_mounted_by_build_script_keeps_portable_consumers(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        for build_path in ('build.rs', 'src/build.rs'):
+            self.write('crates/core/Cargo.toml', manifest.replace('[package]', '[package]\nbuild="' + build_path + '"'))
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n'
+                       'pub const VALUE: &str = env!("VALUE");\n')
+            root = ('#[path="src/behavior.rs"] mod behavior;\n' if build_path == 'build.rs' else 'mod behavior;\n')
+            self.write('crates/core/' + build_path, root
+                       + 'fn main() { println!("cargo:rustc-env=VALUE={}", behavior::value()); }\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            self.write('crates/consumer/src/lib.rs', 'pub use core::VALUE;\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(build_path=build_path):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+            Path('crates/core/' + build_path).unlink()
+
+    def test_component_unparsed_explicit_cargo_root_cannot_prove_portable_exclusion(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for kind in ('build', 'lib', 'bin'):
+            if kind == 'build':
+                declaration = manifest.replace('[package]', '[package]\nbuild="entry.source"')
+            else:
+                table = '\n[lib]\n' if kind == 'lib' else '\n[[bin]]\nname="portable"\n'
+                declaration = manifest + table + 'path="entry.source"\n'
+            self.write('crates/consumer/Cargo.toml', declaration)
+            self.write('crates/consumer/entry.source',
+                       '#[path="../core/src/behavior.rs"] mod behavior;\nfn main() { behavior::value(); }\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(kind=kind):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_new_module_case_has_actual_selected_library_route(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', 'mod added;\n')
+        self.write('crates/core/src/added.rs', '#[test] fn positive() {}\n#[test] fn rejection() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+
+    def test_component_orphan_binary_and_unselected_integration_cannot_use_lib_inventory(self):
+        config = self.component_config()
+        for path in ('crates/core/src/orphan.rs', 'crates/core/src/bin/tool.rs',
+                     'crates/core/tests/new_integration.rs'):
+            base = self.git('rev-parse', 'HEAD')
+            self.write(path, '#[test] fn behavior() {}\n')
+            with self.subTest(path=path):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertNotIn('ordinary_execution', plan)
+                self.assertNotIn('ordinary_fast_targets', plan)
+                self.assertNotIn('ordinary_clippy_group', plan)
+                self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_unavailable_feature_keeps_expanded_execution(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(feature="test_tier_full")] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', '#[test] fn contract() {}\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', '#[test] fn contract() { assert!(true); }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_clippy_group', plan)
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_cannot_override_exact_wiring_or_explicit_risk(self):
+        config = self.component_config()
+        config['ordinary_fast_rules'][0]['added_declarations'] = ['mod allowed;']
+        self.write('crates/core/src/lib.rs', 'pub fn unrelated_change() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_execution', plan)
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', 'mod history;\n')
+        self.write('crates/core/src/history.rs', 'pub fn revision() -> u8 { 1 }\n')
+        base = self.commit()
+        self.write('crates/core/src/history.rs', 'pub fn revision() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+        self.assertIn('formal_process', plan['groups'])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_direct_web_rules_and_explicit_additions_keep_launcher(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        plan = selector.select(config, base, head, additions=('launcher_web',), profile='pr-fast')
+        self.assertIn('launcher_web', plan['groups'])
+        config['rules'].append({'match': ['web/**'], 'groups': ['launcher_web'], 'reason': 'web source'})
+        self.write('web/style.css', 'body { color: black; }')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_capability_requires_trusted_inventory_and_full_stays_complete(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        old = self.bounded_config()
+        old_plan = selector.select(old, base, head, profile='pr-fast')
+        self.assertNotIn('ordinary_execution', old_plan)
+        self.assertNotIn('ordinary_clippy_group', old_plan)
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, head, policy_ref=base)
+            self.assertNotIn('ordinary_execution', plan)
+            self.assertNotIn('rust_baseline_checks', plan)
+            self.assertNotIn('ordinary_clippy_group', plan)
+            self.assertNotIn('build_policy_version', plan['architecture'])
+            self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+            self.assertEqual(plan['oasis7_required_wasm_packages'], ['core', 'other'])
+        for key, value in (('fast_execution_version', True), ('fast_execution_version', 2),
+                           ('ordinary_fast_component_rules', [])):
+            invalid = dict(config, **{key: value})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                selector.validate_config(invalid)
+        del config['fast_execution_version']
+        with self.assertRaises(ValueError):
+            selector.validate_config(config)
+
+    def test_component_clippy_owner_transfer_is_absent_for_shared_controls(self):
+        config = self.component_config()
+        base, _ = self.component_fixture()
+        self.write('Cargo.lock', '# shared dependency input\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_clippy_group', plan)
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_keeps_baseline_checks_for_affected_inputs(self):
+        config = self.component_config()
+        config['rules'].append({'match': ['tools/standalone/**'], 'groups': [], 'reason': 'standalone tool'})
+        base, _ = self.component_fixture()
+        self.write('tools/standalone/source.py', '# changed standalone input\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['rust_baseline_checks'], ['standalone_tool_lockfiles'])
+
+    def test_registered_components_keep_cross_crate_behavior_owners(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        state = next(rule for rule in config['ordinary_fast_component_rules']
+                     if 'crates/oasis7_world_state/src/**' in rule['match'])
+        self.assertEqual(set(state['targets']), {'world-state-lib', 'runtime-lib', 'world-reducers'})
+        for target in config['ordinary_fast_targets'].values():
+            self.assertTrue(target['cases'])
 
     def test_bounded_inventory_unmapped_reverse_consumer_retains_full_formal(self):
         config = self.bounded_config()

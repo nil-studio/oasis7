@@ -90,7 +90,13 @@ Trace ID: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29
 
 分配到周期层的检查必须有真实执行入口，`full` 包含快速集合及所有迁出的适用检查。单一 Linux job 不能代替原生 Windows/macOS 行为。付费模型、生产环境和专用硬件验证仍按既有授权与环境合同执行，不因周期调度自动扩大范围；未执行的范围明确列出。
 
-当前 ordinary Rust 默认按受影响 package 执行 `--tests`。可信规则完整覆盖本次输入时，以独立 target 收窄构建、Clippy 和全部非 ignored 行为测试；已登记的增量候选准备/查询保留 Runtime owner 全部原生 unit 及真实物理重开 integration，把无关上层回归交给 full。最低 case 清单保留关键拒绝/取消保护，新增回归仍由实际目标执行；未映射输入、不可达 feature gate 或 host/共享协议/存储变化恢复原必要范围。支持包仍按 profile，Formal 按逻辑 suite；精确路径与命令见配对设计和 scope 配置。十分钟/P95 仍以真实 hosted 数据验收。
+ordinary Rust 的快速范围由可信组件合同决定，不再只对白名单中的少量文件生效。Runtime、World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability 和 Launcher Config 的已登记源码，在证明改动可达所选 Cargo target/features 后，执行所属组件完整非 ignored library 测试及必要的独立 integration；已登记的增量候选准备/查询仍执行 Runtime 全部原生 unit 和真实物理重开 integration。最低 case 清单保护正常、拒绝、边界与取消行为，不是用例数量上限。修改 integration、fixture、生成输入、未映射源码、不可达 feature gate 及共享控制时，继续执行能覆盖真实输入的原必要范围，不能仅因位于组件目录就忽略。
+
+反向消费者图继续用于识别影响、直接平台需求与明确风险，但不再把每次有界内部改动都升级为全部上层长回归。明确 Formal 风险规则优先于组件快速合同；持久化、恢复、历史裁剪、共识、身份、host 和共享协议的必要定向加测保留。Launcher 完整 release 构建可以由真实直接输入触发，并由周期 full 覆盖其余组合；适用的 WASM 编译仍保留，只有证明改动在 WASM source 路由上不可达时才移除无关检查。
+
+快速执行应在同一 runner 完成目标构建与测试，避免为了传递本轮刚编译的产物串行分配两台 runner。strict Clippy 使用相同可信 target/features 清单，在已有 Rust baseline 任务中并行执行；必须明确唯一执行组，不能因迁移而漏跑或放宽失败门禁。Rust baseline 保留格式、架构、依赖与必要治理；NewAPI accounting、独立工具锁文件等专项按真实影响触发，完整 profile 继续执行原全集。新执行能力须由可信 BASE 启用，旧 BASE、关键风险及周期完整计划保留兼容入口。十分钟/P95 仍以包含排队与准备的真实 hosted 数据验收；候选策略的只读性能预览不得替代本 PR 的可信 required 检查或发布证明。
+
+架构检查保留全部声明与登记配置的依赖图。只有全部直接输入已由可信普通快速目标承接时，额外的 feature、平台及上层消费者编译矩阵才安排到周期 full；当轮仍实际编译、检查和测试快速目标。延期项明确记录，混合安全或未覆盖输入保留原矩阵；完整层负责发现仅在这些额外组合中暴露的兼容编译错误。
 
 ### 关键改动的定向加测
 
