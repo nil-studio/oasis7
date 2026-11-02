@@ -460,3 +460,7 @@ pub use guarded_v2::TerminationGuardedStopAllocationV2;
 #[path = "test_session_termination_v2_guarded_vault.rs"]
 mod guarded_vault_v2;
 pub use guarded_vault_v2::{PreparedGuardedStopSignatureV2, TerminationGuardedVaultClaimV2};
+
+#[path = "test_session_termination_v2_close_vault.rs"]
+mod close_vault_v2;
+pub use close_vault_v2::{PreparedTermCloseSignatureV2, TerminationCloseVaultClaimV2};
