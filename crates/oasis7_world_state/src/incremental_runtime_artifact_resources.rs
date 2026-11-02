@@ -8,6 +8,13 @@ use std::collections::BTreeMap;
 mod schema;
 pub use schema::{RuntimeArtifactFieldV1, RuntimeArtifactRecordV1};
 
+#[path = "incremental_runtime_artifact_resources_read.rs"]
+mod read;
+pub use read::{
+    RuntimeArtifactMemberProfileV1, inspect_runtime_artifact_record_root_v1,
+    read_runtime_artifact_member_v1, read_runtime_artifact_record_reference_v1,
+};
+
 #[path = "incremental_runtime_artifact_resources_genesis.rs"]
 mod genesis;
 pub use genesis::{RuntimeArtifactResourcesWorkV1, prepare_runtime_artifact_resources_genesis_v1};
