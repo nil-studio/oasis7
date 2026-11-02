@@ -19,6 +19,9 @@ use oasis7_runtime::incremental_runtime_artifact_resources::{
     BuiltinReleaseEntryRefV1, BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1,
     RuntimeArtifactResourcesReadContextV1, qualify_runtime_artifact_resources_v1,
 };
+use oasis7_runtime::incremental_runtime_controls::{
+    RuntimeControlsRefV1, prepare_runtime_controls_genesis_v1,
+};
 use std::collections::BTreeMap;
 
 const QUALIFICATION_STATE_READS: u64 = 1_000_000;
@@ -166,6 +169,231 @@ fn qualify(
         );
     }
     result
+}
+
+fn install_governance_control_roots(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    roots: &mut RootSetV1,
+) {
+    let mut values = store.value_session(generation_physical());
+    let row_capacity = 6;
+    let rows_charge = memory
+        .reserve(
+            row_capacity * std::mem::size_of::<ReservedValue<ExecutionWriteV1>>(),
+            MemoryClass::Ordinary,
+        )
+        .unwrap();
+    let mut rows = Vec::with_capacity(row_capacity);
+    let mut records_remaining = row_capacity as u64;
+    {
+        let mut context = MemberRecordWriteContext {
+            sink: &mut values,
+            memory,
+            io: &mut logical(),
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            },
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 1 << 20,
+                record_bytes: 2 << 20,
+            },
+            cancelled: || false,
+        };
+        prepare_runtime_controls_genesis_v1(
+            &RuntimeControlsRefV1 {
+                tick_consensus_authority_source: "authority.resources-qualification",
+                next_governance_identity_penalty_id: 17,
+                governance_emergency_brake_until_tick: Some(0),
+            },
+            &mut context,
+            &mut records_remaining,
+            &mut |row| {
+                rows.push(row);
+                Ok(())
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(records_remaining, 0);
+    assert_eq!(rows.len(), row_capacity);
+    let _rows_charge = rows_charge;
+
+    for namespace in [StateNamespaceV1::Allocator, StateNamespaceV1::Authorization] {
+        let mut writes: Vec<_> = rows
+            .iter()
+            .filter(|row| row.namespace == namespace)
+            .map(|row| row.mutation.clone())
+            .collect();
+        writes.sort_by(|left, right| left.key.cmp(&right.key));
+        assert!(writes.windows(2).all(|pair| pair[0].key != pair[1].key));
+        assert!(!writes.is_empty());
+        let state = store
+            .state_session(generation_physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let delta_charge = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
+        let delta = delta_charge.retain(
+            StateDeltaV1::build(
+                StateRootV1::empty(namespace).unwrap(),
+                writes,
+                &state,
+                1 << 20,
+            )
+            .unwrap(),
+        );
+        values.put_state_pages(&delta, memory).unwrap();
+        *roots
+            .state
+            .iter_mut()
+            .find(|root| root.namespace == namespace)
+            .unwrap() = delta.after.clone();
+    }
+}
+
+fn install_wrong_namespace_artifact_alias(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    roots: &mut RootSetV1,
+    namespace: StateNamespaceV1,
+) {
+    let field = FieldDescriptor {
+        owner: FieldOwner::Runtime,
+        name: RuntimeArtifactFieldV1::ChainResourceManifest.name(),
+        destination: FieldDestination::State(namespace),
+        shape: FieldShape::Value,
+    };
+    let mut values = store.value_session(generation_physical());
+    let mut io = logical();
+    let mut key_work = SemanticKeyBudget {
+        bytes_remaining: 4096,
+    };
+    let metadata = write_field_metadata_v1(
+        field,
+        &mut PresenceRecordWriteContext {
+            sink: &mut values,
+            memory,
+            io: &mut io,
+            key_work: &mut key_work,
+            limits: PresenceRecordLimitsV1 {
+                semantic_bytes: 4096,
+                record_bytes: 8192,
+            },
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    let entry = write_member_record_v1(
+        field,
+        WorldFieldRecordKindV1::Entry,
+        &(),
+        MemberPayloadRefV1::Unit,
+        &mut MemberRecordWriteContext {
+            sink: &mut values,
+            memory,
+            io: &mut io,
+            key_work: &mut key_work,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 0,
+                record_bytes: 8192,
+            },
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    assert!(values.remaining_io().unwrap().writes_remaining < 1_000_000);
+
+    let namespace_root = roots
+        .state
+        .iter()
+        .find(|root| root.namespace == namespace)
+        .unwrap()
+        .clone();
+    let replacement = persist_delta(
+        store,
+        memory,
+        namespace_root,
+        vec![
+            StateWriteV1 {
+                key: metadata.field_key.as_bytes().to_vec(),
+                before: None,
+                after: Some(metadata.value_root),
+            },
+            StateWriteV1 {
+                key: entry.field_key.as_bytes().to_vec(),
+                before: None,
+                after: Some(entry.value_root),
+            },
+        ],
+    );
+    let auth_root = roots
+        .state
+        .iter_mut()
+        .find(|root| root.namespace == namespace)
+        .unwrap();
+    *auth_root = replacement;
+
+    // Confirm this is a generic-valid field-member pair before asking the
+    // Artifact owner to reject its cross-namespace registration.
+    let state = store
+        .state_session(generation_physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let namespace_root = roots.state_root(namespace);
+    let metadata_value = namespace_root
+        .get(metadata.field_key.as_bytes(), &state)
+        .unwrap()
+        .unwrap();
+    let entry_value = namespace_root
+        .get(entry.field_key.as_bytes(), &state)
+        .unwrap()
+        .unwrap();
+    let reader = store.value_session(physical());
+    let mut read_io = logical();
+    let mut context = ValueReadContext {
+        source: &reader,
+        memory,
+        class: MemoryClass::Ordinary,
+        io: &mut read_io,
+    };
+    oasis7_runtime::incremental_field_presence::read_field_presence_v1(
+        &metadata_value,
+        &metadata.field_key,
+        &mut context,
+        PresenceRecordLimitsV1 {
+            semantic_bytes: 4096,
+            record_bytes: 8192,
+        },
+        &mut std::io::sink(),
+        || false,
+    )
+    .unwrap();
+    let info = read_member_record_profile_v1(
+        &entry_value,
+        &entry.field_key,
+        &mut context,
+        MemberReadProfileV1 {
+            codec: MemberPayloadCodecV1::Unit,
+            semantic_bytes: entry.info.semantic_bytes,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 0,
+                record_bytes: 8192,
+            },
+        },
+        &mut std::io::sink(),
+        &mut std::io::sink(),
+        || false,
+    )
+    .unwrap();
+    assert_eq!(info.codec, MemberPayloadCodecV1::Unit);
+    assert_eq!(info.payload_bytes, 0);
+    assert_eq!(
+        WorldFieldKeyV1::from_bytes(entry.field_key.as_bytes())
+            .unwrap()
+            .namespace,
+        namespace
+    );
 }
 
 fn persist_sources<B: BuiltinReleaseManifestSourceV1>(
@@ -448,6 +676,31 @@ fn rich_sources() -> (
 }
 
 #[test]
+fn artifact_qualification_rejects_generic_valid_same_name_in_wrong_root_namespace() {
+    let directory = Directory::new();
+    let path = directory.0.join("pages");
+    let (canonical, _producer_memory) = roots(&path, PageCompression::Raw, None);
+    let memory = MemoryBudget::new(64 << 20, 16 << 20).unwrap();
+    let store = IncrementalPageStore::open(
+        &path,
+        memory.clone(),
+        PageCompression::Raw,
+        MemoryClass::Ordinary,
+    )
+    .unwrap();
+    let mut base_roots = bounded_root_set(StateRootV1::from_canonical_bytes(&canonical).unwrap());
+    install_governance_control_roots(&store, &memory, &mut base_roots);
+    for namespace in [StateNamespaceV1::Authorization, StateNamespaceV1::Allocator] {
+        let mut root_set = base_roots.clone();
+        install_wrong_namespace_artifact_alias(&store, &memory, &mut root_set, namespace);
+        assert!(matches!(
+            qualify(&store, &memory, &root_set),
+            Err(ValueTreeError::Invalid(_))
+        ));
+    }
+}
+
+#[test]
 fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let (manifest, delta, builtin_entries) = rich_sources();
@@ -465,7 +718,8 @@ fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
             IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
                 .unwrap();
         let artifact_root = StateRootV1::from_canonical_bytes(&canonical).unwrap();
-        let roots = bounded_root_set(artifact_root);
+        let mut roots = bounded_root_set(artifact_root);
+        install_governance_control_roots(&store, &memory, &mut roots);
         let proof = qualify(&store, &memory, &roots).expect("complete typed family");
         assert_eq!(proof.record_counts(), [1, 1, 1]);
         let digest = roots.digest().unwrap();
@@ -481,7 +735,12 @@ fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
         let other_memory = MemoryBudget::new(64 << 20, 16 << 20).unwrap();
         assert!(!proof.uses_budget(&other_memory));
         let mut other_roots = roots.clone();
-        other_roots.height += 1;
+        other_roots
+            .state
+            .iter_mut()
+            .find(|root| root.namespace == StateNamespaceV1::Authorization)
+            .unwrap()
+            .clone_from(&StateRootV1::empty(StateNamespaceV1::Authorization).unwrap());
         assert!(
             proof
                 .validate_binding(&other_roots.digest().unwrap(), MemoryClass::Ordinary)

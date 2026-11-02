@@ -261,7 +261,6 @@ pub fn qualify_runtime_artifact_resources_v1<
         ));
     }
     let digest = roots.digest().map_err(|_| invalid())?;
-    let artifact_root = roots.state_root(StateNamespaceV1::Artifacts).clone();
     let mut metadata = [false; 3];
     let mut entries = [false; 3];
     let mut counts = [0u64; 3];
@@ -292,79 +291,86 @@ pub fn qualify_runtime_artifact_resources_v1<
     };
     let source = verifier.state;
     let cancel_ref = verifier.cancelled;
-    let field_scan_result = StateScanContext {
-        source,
-        memory,
-        class,
-        io: field_scan,
-    }
-    .visit_entries(
-        &artifact_root,
-        |entry| {
-            verifier.spend_cell()?;
-            let Some(binding) = field_binding(entry)? else {
-                return Ok(());
-            };
-            let Some(index) = field_index(binding.name) else {
-                return Ok(());
-            };
-            let field = Field::ALL[index];
-            if binding.owner != FieldOwner::Runtime
-                || binding.namespace != StateNamespaceV1::Artifacts
-                || binding.shape != FieldShape::Value
-                || entry.namespace != StateNamespaceV1::Artifacts
-            {
-                return Err(invalid());
-            }
-            let key = WorldFieldKeyV1::new(field.descriptor(), binding.kind, binding.semantic_key)
-                .map_err(ValueTreeError::Invalid)?;
-            if key.as_bytes() != entry.key {
-                return Err(invalid());
-            }
-            match binding.kind {
-                WorldFieldRecordKindV1::Metadata => {
-                    if metadata[index] {
-                        return Err(invalid());
-                    }
-                    verifier.read_presence(&entry.value, &key, 0)?;
-                    metadata[index] = true;
+    for root in &roots.state {
+        let field_scan_result = StateScanContext {
+            source,
+            memory,
+            class,
+            io: field_scan,
+        }
+        .visit_entries(
+            root,
+            |entry| {
+                verifier.spend_cell()?;
+                let Some(binding) = field_binding(entry)? else {
+                    return Ok(());
+                };
+                let Some(index) = field_index(binding.name) else {
+                    return Ok(());
+                };
+                let field = Field::ALL[index];
+                // A recognized descriptor name belongs to one exact Runtime
+                // namespace. Looking only at Artifacts would let a generic
+                // same-name field in another RootSet root sit beside the
+                // canonical field and escape this family's closure check.
+                if root.namespace != StateNamespaceV1::Artifacts
+                    || binding.owner != FieldOwner::Runtime
+                    || binding.namespace != StateNamespaceV1::Artifacts
+                    || binding.shape != FieldShape::Value
+                    || entry.namespace != root.namespace
+                {
+                    return Err(invalid());
                 }
-                WorldFieldRecordKindV1::Entry => {
-                    if entries[index] {
-                        return Err(invalid());
-                    }
-                    let (expected, semantic) =
-                        verifier.key(field.descriptor(), WorldFieldRecordKindV1::Entry, &())?;
-                    if expected != key {
-                        return Err(invalid());
-                    }
-                    if semantic > verifier.semantic_bytes {
-                        return Err(ValueTreeError::ResourceLimited(
-                            "runtime artifact semantic key",
-                        ));
-                    }
-                    let root = verifier.read_outer_root(field, &entry.value, &key)?;
-                    match root {
-                        None if field == Field::LatestChainResourceDelta => counts[index] = 0,
-                        Some(root) => {
-                            verifier.verify_record(field_record(field), &root, nested_scans)?;
-                            counts[index] = 1;
+                let key =
+                    WorldFieldKeyV1::new(field.descriptor(), binding.kind, binding.semantic_key)
+                        .map_err(ValueTreeError::Invalid)?;
+                if key.as_bytes() != entry.key {
+                    return Err(invalid());
+                }
+                match binding.kind {
+                    WorldFieldRecordKindV1::Metadata => {
+                        if metadata[index] {
+                            return Err(invalid());
                         }
-                        None => return Err(invalid()),
+                        verifier.read_presence(&entry.value, &key, 0)?;
+                        metadata[index] = true;
                     }
-                    entries[index] = true;
+                    WorldFieldRecordKindV1::Entry => {
+                        if entries[index] {
+                            return Err(invalid());
+                        }
+                        let (expected, semantic) =
+                            verifier.key(field.descriptor(), WorldFieldRecordKindV1::Entry, &())?;
+                        if expected != key {
+                            return Err(invalid());
+                        }
+                        if semantic > verifier.semantic_bytes {
+                            return Err(ValueTreeError::ResourceLimited(
+                                "runtime artifact semantic key",
+                            ));
+                        }
+                        let root = verifier.read_outer_root(field, &entry.value, &key)?;
+                        match root {
+                            None if field == Field::LatestChainResourceDelta => counts[index] = 0,
+                            Some(root) => {
+                                verifier.verify_record(field_record(field), &root, nested_scans)?;
+                                counts[index] = 1;
+                            }
+                            None => return Err(invalid()),
+                        }
+                        entries[index] = true;
+                    }
+                    _ => return Err(invalid()),
                 }
-                _ => return Err(invalid()),
-            }
-            Ok(())
-        },
-        || (cancel_ref.borrow_mut())(),
-    );
-    let state_error = (verifier.take_state_error)();
-    if let Some(error) = state_error {
-        return Err(error);
+                Ok(())
+            },
+            || (cancel_ref.borrow_mut())(),
+        );
+        if let Some(error) = (verifier.take_state_error)() {
+            return Err(error);
+        }
+        map_scan_result(field_scan_result)?;
     }
-    map_scan_result(field_scan_result)?;
     if verifier.cancelled() {
         return Err(ValueTreeError::Cancelled);
     }
