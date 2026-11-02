@@ -4,6 +4,8 @@ use super::*;
 mod http;
 #[path = "test_session_v2_control_ops.rs"]
 mod ops;
+pub(in crate::provisioning) use ops::TermOwnedInvocationRecordV2;
+pub use ops::TermOwnedInvocationV2;
 #[path = "test_session_v2_control_restore.rs"]
 mod restore;
 #[path = "test_session_v2_control_source.rs"]

@@ -1235,6 +1235,22 @@ AccountGate 仅是已命名未发业务叶与 Account Finish/Abort 的 SQL 线�
 
 每个业务 receiver 的强核失败仍永久保费/once，返回仅错误或历史；没有新 Current/下一叶 token。F/A/revoked/freeze/generation 反例须分别在 gate 前、gate 后但业务 sender 当前核前、以及业务 IO 后执行，区分未 claim 拒绝、已 claim 可完成历史、后续未 claim 必拒三种实际结果。
 
+##### 专用首接收者的 durable once 与实际对象绑定
+
+本 pending-start 新 profile 的 RF 首跳不能继续使用无持久状态的 service，然后在去重前发送 Account 回入。first opaque/noRetry 只约束正式 caller，不能机械阻止持有原强签 proof 的 sender 重放；receiver 在任何后续 callback 前必须永久消费本次 ingress。Native45 的 Account→Identity service 首跳有相同约束，不能只修 RF 后称139闭合。以下是新 profile 的必要部署与接收合同；旧 service/旧 grant/历史记录不自动升级，也不据此开放现有139实现。
+
+RF 使用独立只读 ExecutionFenceDispatcher Actor class，正式 caller 只绑定该专用 namespace，不暴露原 FENCES/control namespace。真实直达 Dispatcher Actor1 替换该新 profile 原 RF service1，而不是 service→自有 Actor 两跳藏作一费。Dispatcher 首个本地 SQL 永久消费 ingress 后，才沿已列 Account service+Actor2 对唯一 FENCES 业务叶申请 causal claim；收到强签 exact receipt 后，原 authoritative FENCES Actor1 才可发送。它不能先读 FENCES 再补 gate，不递归调用 C3/Native，也不把本地 gate 当新 RF/Directory/Native Current；父 handler 仍使用实际 RF 回包复核完整私有 Current tuple 和原窗口。
+
+Native45 的新 profile 同样使用独立 Identity ExecutionPrepareDispatcher Actor 作为真实首跳1，替换原 stateless Identity service1。它先持久消费原 ingress，再为原 manifest Actor 取得已付 Account2 gate，然后只发送该固定 manifest 请求。Dispatcher 不解密 SID/CSRF、不加载 KEK、不读取 private context、不生成私观察；原 manifest/cipher/Native/World/PUT 的全部后续强验、逐叶 gate 和 once 均保留。Native→Identity 的两个 World callback 五边不因首跳替换而改变。旧 Native10/45 缺新 receiver/profile 绑定的 proof 对本 profile 保持 unsupported，不把旧 enum 字面或相同签名重新解释成新能力。
+
+两个 Dispatcher 的 grant 均以独立 closed purpose/domain 强绑实际固定 issuer、完整 session/input/master/source/phase/body digest、原 accepted ordinal/physical attempt/绝对 until、compiled Dispatcher kind 和实际 receiver object ID。唯一 typed issuer 从实际部署 namespace 的 idFromName 纯计算期望对象 ID；name 仅由稳定 issuer namespace/service/environment、Dispatcher kind 与原 physical attempt 的完整承诺派生，不含可轮换 key/cert/config epoch。接收者在任何 SQL/出站前把已签 ID 与自身 state.id 强等；同 proof 投到另一个空对象、另一 namespace 或另一 compiled role 必须0后续出站。namespace 的迁移/重建不能重置 once lineage，不能由 caller 指定 URL、对象或 route。
+
+每个原 physical attempt 使用一个固定最多1次 claim 的对象，不采用 caller row limit。有效新 profile 的真实首次 RPC 可在同一已付接收中，以一个本地 SQL 原子初始化固定 schema/header 并永久写 once；没有额外免费安装 RPC。只有真实 Core first-commit opaque 经唯一 typed issuer 得到的首派发 proof 可进入此路径；普通/旧 proof 不可安装。后续 header 与 once 必须同时存在且精确符合固定 scope/receiver/schema；缺一、partial、未知表或不一致一律拒绝，不修复、不轮换、不按 expiry 删除、不通过 alarm 重试。claim 后 crash/unknown 永久保费和占用，cold history 不恢复出站句柄。全对象完全删除或完整旧快照回滚若没有独立外部锚，不能仅凭本地 header 区分全新对象；此机制不声称覆盖该威胁，若部署合同要求覆盖，必须另设计并计费外部锚/安装协议后才可启用。
+
+以上十次 RF（六次 Source/LF Account C3、三次 Identity RF、一次 Prepare-prefix C3）逐次 Actor1 替换 service1，不删第二个 RF Actor，Account RF pair仍4、Identity pair仍6。Native45 首跳也仅1替1，所以这两类替换本身不改变候选 startup139（首5+134）及独立 NonceFive 后局部144。若实现仍先经过 service 再发 Dispatcher，必须真实另加该 hop；十次 RF会使 startup149，不能继续写139。拒绝重放的入口传输事实也不得说成从网络消失；此处硬约束是首 durable receiver 拒绝前不产生后续 callback/业务 IO。
+
+完整139资格还须逐一审 Source verify、LF、Complete attestation、private observation 和 RKV initialize/sign 等首接收者是否也在任何 Account 回入前真实持久 once；本段不替未审完的 receiver 声明资格。任何实际新增安装/锚/转发请求都另列真实 leaf，仍只有原 Execution400，不借 Native160/Control。验收必须包含真实 namespace/object-ID 反例、first/replay/cold/partial/crash 后计数、Account gate 拒绝保占用、F/A 前后线性化、freeze/epoch/generation 原窗口与实际合法大消息；静态图和签名 fixture 不能代 actual receiver/逐物理计数。
+
 ##### 图的边界与总数
 
 原45是 factory2+C3(3)+private2+RKV4+Native10+callback24，原图从未包含新 Source/LF，也未包含 Host/abuse3。新首5代原 factory2，Source/LF43+其逐叶回入40 为新增83，原 prefix child 的新回入另8。故本专用启动图已知局部总数为45−2+5+43+40+8=139；不是完整400图，ToolMetadata challenge 自身正式首次请求及历史/unknown lookup 没有藏入139。任何额外 lookup 都须先列具体实际叶并预付，不沿用已消费139免费查询。已付 prefix 精确引用原 receipt，不重复收费。139只有真实逐叶 receiver 与 counter 全闭合后才成为验收结果。
