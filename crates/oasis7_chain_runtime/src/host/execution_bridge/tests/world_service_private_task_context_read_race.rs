@@ -31,11 +31,53 @@ fn active_context_read_fixture_with_setup(
     native: bool,
     setup: impl FnOnce(&mut NodeRuntimeExecutionDriver, &WorldIdentity),
 ) -> ActiveContextReadFixture {
-    let (dir, mut driver, world, owner, owner_public) = if native {
+    let driver = if native {
         super::canonical_agent_chat::driver_fixture_without_provider()
     } else {
         super::canonical_agent_chat::driver_fixture_with_verified_authority()
     };
+    active_context_read_fixture_from_driver(native, driver, setup)
+}
+fn active_context_read_fixture_with_business_history(
+    history: impl FnOnce(&mut NodeRuntimeExecutionDriver, &WorldIdentity, &str, &str),
+) -> ActiveContextReadFixture {
+    active_context_read_fixture_from_driver_with_history(
+        true,
+        super::canonical_agent_chat::driver_fixture_without_provider(),
+        |_, _| {},
+        history,
+    )
+}
+fn active_context_read_fixture_from_driver(
+    native: bool,
+    (dir, driver, world, owner, owner_public): (
+        std::path::PathBuf,
+        NodeRuntimeExecutionDriver,
+        WorldIdentity,
+        String,
+        String,
+    ),
+    setup: impl FnOnce(&mut NodeRuntimeExecutionDriver, &WorldIdentity),
+) -> ActiveContextReadFixture {
+    active_context_read_fixture_from_driver_with_history(
+        native,
+        (dir, driver, world, owner, owner_public),
+        setup,
+        |_, _, _, _| {},
+    )
+}
+fn active_context_read_fixture_from_driver_with_history(
+    native: bool,
+    (dir, mut driver, world, owner, owner_public): (
+        std::path::PathBuf,
+        NodeRuntimeExecutionDriver,
+        WorldIdentity,
+        String,
+        String,
+    ),
+    setup: impl FnOnce(&mut NodeRuntimeExecutionDriver, &WorldIdentity),
+    history: impl FnOnce(&mut NodeRuntimeExecutionDriver, &WorldIdentity, &str, &str),
+) -> ActiveContextReadFixture {
     if native {
         assert!(
             driver
@@ -159,6 +201,7 @@ fn active_context_read_fixture_with_setup(
         .unwrap()
         .unwrap();
     let fence = GameTaskFenceV1::from_control(&control);
+    history(&mut driver, &world, &owner, &owner_public);
     let signer = crate::feedback_submit_api::FeedbackSubmitSigner {
         private_key_hex: owner.clone(),
         public_key_hex: owner_public,
@@ -188,7 +231,14 @@ fn active_context_read_fixture_with_setup(
             sign_read_request("scheduler", public_prefix(&prepared).unwrap(), &delegate).unwrap(),
         ),
     );
-    commit(&mut driver, 7, prefix.clone());
+    // Default fixture is still exactly height7. Only the new genuine business
+    // history path advances this durable driver before its actual prefix.
+    let prefix_height = driver
+        .state
+        .last_applied_committed_height
+        .checked_add(1)
+        .unwrap();
+    commit(&mut driver, prefix_height, prefix.clone());
     assert!(
         game_task_tests::recorded(&driver, &prefix)
             .rejected
