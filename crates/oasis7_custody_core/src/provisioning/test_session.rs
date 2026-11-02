@@ -578,3 +578,9 @@ pub use execution_pending_start_v2::{
 pub(in crate::provisioning) use execution_pending_start_v2::{
     ExecutionPendingIngressV2, ExecutionPendingStartV2,
 };
+
+#[path = "test_session_v2_read_history.rs"]
+mod v2_read_history;
+pub use v2_read_history::{
+    ReadPrepareHistoryFeeV2, ReadPrepareHistoryPaidV2, ReadPrepareHistoryReplyV2,
+};

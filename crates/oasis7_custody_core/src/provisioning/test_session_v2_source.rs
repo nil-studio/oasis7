@@ -295,6 +295,13 @@ impl AccountProvisionApprovalState {
         }
         let mut next = self.clone();
         let s = next.test_session_v2_record_mut(id)?;
+        // Pending observations use their mandatory paid protocol, never this legacy eight-ticket API.
+        if matches!(
+            s.source_funding.get(source_id),
+            Some(SessionSourceFundingV1::ExecutionPendingStartV2 { .. })
+        ) {
+            return Err(invalid());
+        }
         let wrapper = s.sources.get(source_id).ok_or_else(invalid)?;
         if wrapper.api_version != 2
             || wrapper.approved_input_digest != s.input_digest()?
@@ -433,6 +440,14 @@ impl AccountProvisionApprovalState {
     ) -> Result<crate::approval::ApprovalVerifyRequestV1> {
         let mut next = self.clone();
         let s = next.test_session_v2_record_mut(id)?;
+        // No generic Native request may be derived from a paid Pending source.
+        // Its dedicated service/Native grant consumers must be implemented first.
+        if matches!(
+            s.source_funding.get(source_id),
+            Some(SessionSourceFundingV1::ExecutionPendingStartV2 { .. })
+        ) {
+            return Err(invalid());
+        }
         let r = s.book.original(id).ok_or_else(invalid)?;
         r.check_recorded_context(current.approval)?;
         let expected = s.input_digest()?;

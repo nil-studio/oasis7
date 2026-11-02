@@ -47,6 +47,7 @@ fn attempts(session: &str, ingress: &str) -> Result<(String, String)> {
 enum ToolNonceFundingV2 {
     LegacyThree,
     ExecutionFive,
+    ReadFive,
 }
 fn funding_class(
     s: &TestSessionAuthorityV2,
@@ -62,21 +63,47 @@ fn funding_class(
             account_attempt,
         });
     }
-    if record.request.purpose != SessionPurposeV1::Execution {
+    let (purpose, domain, prefix) = match funding {
+        ToolNonceFundingV2::ExecutionFive => (
+            SessionPurposeV1::Execution,
+            "oasis7.custody.execution-nonce-five.v2",
+            "execution-nonce",
+        ),
+        ToolNonceFundingV2::ReadFive => (
+            SessionPurposeV1::ReconcileRead,
+            "oasis7.custody.read-nonce-five.v2",
+            "read-nonce",
+        ),
+        ToolNonceFundingV2::LegacyThree => return Err(invalid()),
+    };
+    if record.request.purpose != purpose {
         return Err(invalid());
     }
     let stem = digest(&(
-        "oasis7.custody.execution-nonce-five.v2",
+        domain,
         s.input_digest()?,
         &s.input.operation_id,
         ingress,
         &record.signed_attempt_digest,
     ))?;
-    Ok(SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 {
-        provider_abuse_attempt: format!("execution-nonce-provider-{stem}"),
-        realm_abuse_attempt: format!("execution-nonce-realm-{stem}"),
-        owner_attempt,
-        account_attempt,
+    let provider_abuse_attempt = format!("{prefix}-provider-{stem}");
+    let realm_abuse_attempt = format!("{prefix}-realm-{stem}");
+    Ok(match funding {
+        ToolNonceFundingV2::ExecutionFive => {
+            SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 {
+                provider_abuse_attempt,
+                realm_abuse_attempt,
+                owner_attempt,
+                account_attempt,
+            }
+        }
+        ToolNonceFundingV2::ReadFive => SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 {
+            provider_abuse_attempt,
+            realm_abuse_attempt,
+            owner_attempt,
+            account_attempt,
+        },
+        ToolNonceFundingV2::LegacyThree => return Err(invalid()),
     })
 }
 fn class_attempts(class: &SessionPurposeHttpAdmissionClassV1) -> Result<Vec<&String>> {
@@ -86,6 +113,12 @@ fn class_attempts(class: &SessionPurposeHttpAdmissionClassV1) -> Result<Vec<&Str
             account_attempt,
         } => Ok(vec![owner_attempt, account_attempt]),
         SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 {
+            provider_abuse_attempt,
+            realm_abuse_attempt,
+            owner_attempt,
+            account_attempt,
+        }
+        | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 {
             provider_abuse_attempt,
             realm_abuse_attempt,
             owner_attempt,
@@ -181,6 +214,13 @@ impl AccountProvisionApprovalState {
     ) -> Result<SessionToolNonceIngressV1> {
         self.charge_tool_nonce_v2(proof, now, ToolNonceFundingV2::ExecutionFive)
     }
+    pub fn charge_test_session_v2_read_nonce_five(
+        &mut self,
+        proof: SessionProofRequest<'_>,
+        now: UnixMillis,
+    ) -> Result<SessionToolNonceIngressV1> {
+        self.charge_tool_nonce_v2(proof, now, ToolNonceFundingV2::ReadFive)
+    }
     fn charge_tool_nonce_v2(
         &mut self,
         proof: SessionProofRequest<'_>,
@@ -223,11 +263,16 @@ impl AccountProvisionApprovalState {
             .ok_or_else(invalid)?
             .budgets
             .transport
-            .charge(if funding == ToolNonceFundingV2::ExecutionFive {
-                5
-            } else {
-                3
-            })
+            .charge(
+                if matches!(
+                    funding,
+                    ToolNonceFundingV2::ExecutionFive | ToolNonceFundingV2::ReadFive
+                ) {
+                    5
+                } else {
+                    3
+                },
+            )
             .map_err(|_| invalid())?;
         session.purpose_http_admissions.insert(
             ingress.into(),
@@ -287,6 +332,14 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<SessionChallengeV1> {
         self.issue_tool_nonce_v2(proof, service_nonce, now, ToolNonceFundingV2::ExecutionFive)
+    }
+    pub fn issue_test_session_v2_read_nonce_five(
+        &mut self,
+        proof: SessionProofRequest<'_>,
+        service_nonce: &str,
+        now: UnixMillis,
+    ) -> Result<SessionChallengeV1> {
+        self.issue_tool_nonce_v2(proof, service_nonce, now, ToolNonceFundingV2::ReadFive)
     }
     fn issue_tool_nonce_v2(
         &mut self,

@@ -77,8 +77,11 @@ impl AccountProvisionApprovalState {
             return Err(ProvisionApprovalError::Conflict);
         }
         if let Some(old) = s.purpose_http_admissions.get(ingress) {
-            return if old.class == SessionPurposeHttpAdmissionClassV1::GenericOne
-                && old.purpose == purpose
+            return if matches!(
+                old.class,
+                SessionPurposeHttpAdmissionClassV1::GenericOne
+                    | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. }
+            ) && old.purpose == purpose
                 && old.hop == SessionControlHopV1::Host
                 && old.signed_attempt_digest == signature
             {
@@ -149,9 +152,11 @@ pub(in crate::provisioning) fn validate_purpose_http_v2(s: &TestSessionAuthority
             || (!matches!(
                 paid.class,
                 SessionPurposeHttpAdmissionClassV1::GenericOne
+                    | SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { .. }
                     | SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
                     | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
                     | SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
             ))
             || paid.hop != SessionControlHopV1::Host
             || paid.charged_at.get() < s.approved_at.ok_or_else(invalid)?.get()
@@ -168,6 +173,7 @@ pub(in crate::provisioning) fn validate_purpose_http_v2(s: &TestSessionAuthority
                     paid.class,
                     SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
                         | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                        | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
                 ),
             )
         {

@@ -559,6 +559,29 @@ fn guarded_current_window_case_mode(earlier: bool, unpaid_close_publish: bool) {
 }
 
 #[test]
+fn term_inherited_signed_legacy_capture_missing_pending_schema_is_strictly_rejected() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "test_session_v2_term_signed_legacy_fixture.json"
+    ))
+    .unwrap();
+    let id = fixture["session_id"].as_str().unwrap();
+    let raw = fixture["state"].clone();
+    assert!(
+        !raw["test_sessions_v2"][id]
+            .as_object()
+            .unwrap()
+            .contains_key("execution_pending_ingresses")
+    );
+    assert!(
+        !raw["test_sessions_v2"][id]
+            .as_object()
+            .unwrap()
+            .contains_key("execution_pending_start")
+    );
+    assert!(serde_json::from_value::<AccountProvisionApprovalState>(raw).is_err());
+}
+
+#[test]
 fn term_inherited_signed_legacy_publish_is_history_only_not_live_write() {
     inherited_legacy_write(false);
 }
@@ -577,7 +600,25 @@ fn inherited_legacy_write(submit: bool) {
     .unwrap();
     assert_eq!(fixture["api_version"], 1);
     let id = fixture["session_id"].as_str().unwrap();
-    let raw = fixture["state"].clone();
+    let original_capture = fixture["state"].clone();
+    assert!(
+        serde_json::from_value::<AccountProvisionApprovalState>(original_capture.clone()).is_err(),
+        "the original export predates mandatory Pending schema; production must not infer empty state"
+    );
+    let mut raw = original_capture.clone();
+    // Test-only adapter for this immutable, genuine pre-Pending API export.
+    // This is not a production migration. Preserve every signed/original/ledger
+    // byte and add only the two known then-unimplemented empty metadata slots.
+    let captured = raw["test_sessions_v2"][id].as_object_mut().unwrap();
+    assert!(!captured.contains_key("execution_pending_ingresses"));
+    assert!(!captured.contains_key("execution_pending_start"));
+    captured.insert("execution_pending_ingresses".into(), serde_json::json!({}));
+    captured.insert("execution_pending_start".into(), serde_json::Value::Null);
+    let mut preserved = raw.clone();
+    let row = preserved["test_sessions_v2"][id].as_object_mut().unwrap();
+    row.remove("execution_pending_ingresses");
+    row.remove("execution_pending_start");
+    assert_eq!(preserved, original_capture);
     let mut state: AccountProvisionApprovalState = serde_json::from_value(raw.clone()).unwrap();
     let mut expected_migration = raw.clone();
     expected_migration["test_sessions_v2"][id]["termination_state"]
@@ -587,7 +628,7 @@ fn inherited_legacy_write(submit: bool) {
     assert_eq!(
         serde_json::to_value(&state).unwrap(),
         expected_migration,
-        "only the documented new nullable slot may be added; all original legacy bytes/data stay fixed"
+        "only guarded_stop is migrated after explicit test-only schema adaptation; original signed legacy data stay fixed"
     );
     let context: ApprovalAdmissionContext =
         serde_json::from_value(fixture["context"].clone()).unwrap();
