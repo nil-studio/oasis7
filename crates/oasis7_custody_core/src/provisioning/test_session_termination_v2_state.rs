@@ -30,6 +30,8 @@ pub struct TestSessionTerminationStateV2 {
     pub(in crate::provisioning) owned_invocation: Option<TermOwnedInvocationRecordV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::provisioning) qualification_read: Option<TermOwnerSlotReadRecordV2>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(in crate::provisioning) term_six_funding: Vec<TermSixFundingRecordV2>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -52,6 +54,8 @@ struct RawTestSessionTerminationStateV2 {
     owned_invocation: Option<TermOwnedInvocationRecordV2>,
     #[serde(default)]
     qualification_read: Option<TermOwnerSlotReadRecordV2>,
+    #[serde(default)]
+    term_six_funding: Vec<TermSixFundingRecordV2>,
 }
 fn present_guarded_stop<'de, D>(
     d: D,
@@ -83,6 +87,7 @@ impl TryFrom<RawTestSessionTerminationStateV2> for TestSessionTerminationStateV2
             archived_fact: raw.archived_fact,
             owned_invocation: raw.owned_invocation,
             qualification_read: raw.qualification_read,
+            term_six_funding: raw.term_six_funding,
             guarded_stop,
         };
         state.validate_shape()?;
@@ -239,6 +244,13 @@ impl TestSessionTerminationStateV2 {
         u64::try_from(self.transports.len())
             .ok()
             .and_then(|n| n.checked_mul(2))
+            .and_then(|n| {
+                n.checked_add(
+                    u64::try_from(self.term_six_funding.len())
+                        .ok()?
+                        .checked_mul(6)?,
+                )
+            })
             .and_then(|n| n.checked_add(u64::from(self.qualification_read.is_some())))
             .and_then(|n| {
                 n.checked_add(u64::from(
@@ -311,9 +323,11 @@ impl TestSessionTerminationStateV2 {
         Ok(())
     }
     pub(in crate::provisioning) fn transport_id_in_use(&self, id: &str) -> bool {
-        self.owned_invocation
-            .as_ref()
-            .is_some_and(|v| v.invocation_id() == id)
+        self.term_six_funding.iter().any(|r| r.id_in_use(id))
+            || self
+                .owned_invocation
+                .as_ref()
+                .is_some_and(|v| v.invocation_id() == id)
             || self
                 .qualification_read
                 .as_ref()
@@ -368,6 +382,7 @@ impl TestSessionTerminationStateV2 {
             archived_fact: None,
             owned_invocation: None,
             qualification_read: None,
+            term_six_funding: Vec::new(),
         };
         state.validate_shape()?;
         Ok(state)
@@ -554,6 +569,21 @@ impl TestSessionTerminationStateV2 {
         }
         let mut indexes = BTreeSet::new();
         let mut transport_ids = BTreeSet::new();
+        if self.term_six_funding.len() > 2 {
+            return Err(invalid());
+        }
+        for r in &self.term_six_funding {
+            for index in r.paid_indices() {
+                if index >= 24 || !indexes.insert(index) {
+                    return Err(invalid());
+                }
+            }
+            for id in r.physical_ids() {
+                if !transport_ids.insert(id) {
+                    return Err(invalid());
+                }
+            }
+        }
         if let Some(read) = &self.qualification_read {
             if !indexes.insert(u64::from(read.paid_index))
                 || !transport_ids.insert(read.attempt_id.as_str())
@@ -621,6 +651,13 @@ impl TestSessionTerminationStateV2 {
             {
                 return Err(ProvisionApprovalError::InvalidPersistence);
             }
+        }
+        // TermSix forbids generic Term Source funding: its complete fixed ledger
+        // therefore has no unrecorded paid indices or holes to borrow later.
+        if !self.term_six_funding.is_empty()
+            && indexes != (0..self.paid_transport_count()?).collect()
+        {
+            return Err(invalid());
         }
         Ok(())
     }

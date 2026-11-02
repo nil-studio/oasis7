@@ -75,6 +75,8 @@ pub(super) struct Replay<'a> {
     lease: Option<UnixMillis>,
     heartbeat: Option<UnixMillis>,
     closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
+    term_six_reserved: BTreeSet<String>,
+    term_six_claims: BTreeSet<String>,
 }
 impl<'a> Replay<'a> {
     fn new(s: &'a TestSessionAuthorityV2) -> Result<Self> {
@@ -147,6 +149,8 @@ impl<'a> Replay<'a> {
             lease: None,
             heartbeat: None,
             closing: None,
+            term_six_reserved: BTreeSet::new(),
+            term_six_claims: BTreeSet::new(),
         })
     }
     fn unique(set: &mut BTreeSet<String>, id: &str) -> Result<()> {
@@ -445,6 +449,16 @@ impl<'a> Replay<'a> {
         {
             return Err(invalid());
         }
+        if self.term_six_reserved.len() != s.termination_state.term_six_funding.len()
+            || self.term_six_claims.len()
+                != s.termination_state
+                    .term_six_funding
+                    .iter()
+                    .map(TermSixFundingRecordV2::claim_count)
+                    .sum::<usize>()
+        {
+            return Err(invalid());
+        }
         if self.active {
             for purpose in [
                 SessionPurposeV1::Execution,
@@ -486,3 +500,6 @@ pub(super) fn validate(s: &TestSessionAuthorityV2) -> Result<()> {
     }
     replay.finish()
 }
+
+#[path = "test_session_v2_journal_replay_term_six.rs"]
+mod term_six;
