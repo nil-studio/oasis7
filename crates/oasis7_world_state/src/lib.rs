@@ -300,3 +300,6 @@ pub mod incremental_agent_mutation;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_groups;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_controls;
