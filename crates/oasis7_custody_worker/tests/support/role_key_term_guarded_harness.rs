@@ -102,7 +102,12 @@ fn permit(
         signature_hex,
     })
 }
+#[path = "role_key_term_guarded_dual_harness.rs"]
+mod dual;
 pub(super) async fn run(state: JsValue, path: &str) -> Result<Value> {
+    if path.contains("/dual-") {
+        return dual::run(state, path).await;
+    }
     let (key, issuer, config) = configuration()?;
     let expected = scope()?;
     let authority = || {

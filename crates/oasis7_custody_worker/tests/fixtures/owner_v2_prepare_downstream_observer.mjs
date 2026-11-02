@@ -67,7 +67,11 @@ export class AccountAuthority extends RealAccountAuthority {
     return state.test_sessions_v2?.[session]?.sources??{};
   }
   async fetch(request){
-    let session=null,before=null;
+    let session=null,before=null,observeSession=null;
+    if(request.method==='POST'&&new URL(request.url).pathname==='/internal/test-session-v2-credential-challenge'){
+      let rpc;try{rpc=await request.clone().json();}catch{}
+      if(rpc?.api_version===2&&rpc?.action?.stage==='observe')observeSession=rpc?.admission?.http?.selector?.session_id;
+    }
     if(request.method==='POST'&&new URL(request.url).pathname==='/internal/test-session-client-challenge'){
       let rpc;try{rpc=await request.clone().json();}catch{}
       if(rpc?.action?.kind==='admit'&&rpc?.admission?.http?.selector?.api_version===1){
@@ -86,6 +90,19 @@ export class AccountAuthority extends RealAccountAuthority {
           console.warn('fixture.credential_profile.'+(!Object.hasOwn(source,'observation_profile')?'missing':source.observation_profile==='client_credential_five_oracle_v2'?'credential_five':'wrong'));
         }else console.warn('fixture.credential_profile.no_unique_source');
       }catch{console.warn('fixture.credential_profile.inspection_error');}
+    }
+    if(typeof observeSession==='string'&&response.status===200){
+      try{
+        // Clone only the real reply and read the exact already persisted Source.
+        // No authority, SQL record, response, HTTP, or clock is substituted.
+        const observed=await response.clone().json();
+        const source=this.fixtureSources(observeSession)[observed?.descriptor?.source_operation_id];
+        const signed=source?.source?.verification;
+        const decimal=v=>(typeof v==='string'&&/^[0-9]+$/.test(v))?BigInt(v):typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?BigInt(v):null;
+        const until=decimal(observed?.expires_at),at=decimal(signed?.verification?.observed_at);
+        if(until===null||at===null)console.warn('fixture.source_window.missing');
+        else {console.warn('fixture.source_window.checked');console.warn('fixture.source_window.'+(until<=at+5000n?'bounded':'exceeded'));}
+      }catch{console.warn('fixture.source_window.missing');}
     }
     return response;
   }

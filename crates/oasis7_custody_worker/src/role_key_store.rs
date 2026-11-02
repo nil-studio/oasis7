@@ -41,7 +41,9 @@ pub(crate) use setup_reconcile_signing::{SetupReconcileSigningCurrent, reconcile
 #[path = "role_key_term_guarded_signer_v2.rs"]
 mod term_guarded_signer_v2;
 #[cfg(feature = "owner")]
-pub(crate) use term_guarded_signer_v2::TermGuardedSignerConfigurationV2;
+pub(crate) use term_guarded_signer_v2::{
+    TermGuardedSignerConfigurationV2, TermOwnerSlotQualificationRequestV2,
+};
 
 #[cfg(feature = "identity")]
 const COMPILED_ROLE: Role = Role::Identity;
@@ -157,6 +159,7 @@ fn inventory_value(inventory: &Inventory) -> Result<()> {
                         name.as_str(),
                         "table:custody_term_guarded_signer_state_v2"
                             | "table:custody_term_guarded_signer_once_v2"
+                            | "table:custody_term_guarded_qualification_once_v2"
                     )))
         })
     {

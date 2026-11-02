@@ -17,7 +17,7 @@ pub(super) async fn current(
     let ticket = store
         .reserve_test_session_v2_source_read(id, source)
         .map_err(|_| denied())?;
-    if ticket != 4 {
+    if ticket != 5 {
         return Err(denied());
     }
     let started = clock()?;
@@ -69,6 +69,14 @@ pub(super) fn observation(
         .ok_or_else(denied)?
         .min(descriptor.deadline.get())
         .min(source.source.expires_at.0)
+        .min(
+            signed
+                .verification
+                .observed_at
+                .0
+                .checked_add(5000)
+                .ok_or_else(denied)?,
+        )
         .min(native.provision.approval.handoff_until.0);
     if clock()? >= expires {
         return Err(denied());
