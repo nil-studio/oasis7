@@ -10,10 +10,12 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parent.parent
+# Product benchmarks follow execution configuration and actual build drivers.
+# Planner/preview Python-only changes have their own control contracts; do not
+# turn them into an unrelated Runtime/World State compilation sample.
 POLICY_INPUTS = frozenset((
     '.github/workflows/rust.yml', 'scripts/ci-required-scope.json',
-    'scripts/plan-rust-required-scope.py', 'scripts/ci-tests.sh',
-    'scripts/ci-test-artifacts.py', 'scripts/ci-fast-preview.py',
+    'scripts/ci-tests.sh', 'scripts/ci-test-artifacts.py',
     'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json',
 ))
 SAMPLE_PATHS = (
@@ -120,7 +122,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None):
     changed = set(git(repo, 'diff', '--name-only', '-z', base, source).decode().split('\0'))
     if not changed.intersection(POLICY_INPUTS):
         write_outputs(github_output, {'enabled': 'false'})
-        print('No CI policy change: candidate fast preview is not selected.')
+        print('No product Rust preview input changed: candidate fast preview is not selected.')
         return None
     synthetic, tree = synthetic_baseline(repo, source)
     output = Path(output).resolve()
