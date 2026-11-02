@@ -113,31 +113,37 @@ pub(super) fn record_manifest<
         work,
     )?;
     for (ledger_id, materials) in material_ledgers {
-        group(
-            &mut root,
-            kind,
-            &("material_ledgers", ledger_id),
-            context,
-            work,
-        )?;
+        let ledger_kind = RuntimeArtifactRecordV1::MaterialLedger;
+        let mut ledger = child_root()?;
+        metadata(&mut ledger, ledger_kind, context, work)?;
+        group(&mut ledger, ledger_kind, &("materials", ()), context, work)?;
         member(
-            &mut root,
-            kind,
-            &("material_ledgers.count", ledger_id),
+            &mut ledger,
+            ledger_kind,
+            &"materials.count",
             MemberPayloadRefV1::U64(materials.len() as u64),
             context,
             work,
         )?;
         for (material, amount) in materials {
             member(
-                &mut root,
-                kind,
-                &("material_ledgers", (ledger_id, material)),
+                &mut ledger,
+                ledger_kind,
+                &("materials", material),
                 MemberPayloadRefV1::I64(*amount),
                 context,
                 work,
             )?;
         }
+        root_member(
+            &mut root,
+            kind,
+            &("material_ledgers", ledger_id),
+            ledger_kind,
+            ledger,
+            context,
+            work,
+        )?;
     }
 
     group(&mut root, kind, &("generated_chunks", ()), context, work)?;

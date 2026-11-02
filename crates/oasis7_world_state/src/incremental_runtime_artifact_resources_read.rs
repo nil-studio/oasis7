@@ -241,8 +241,10 @@ pub fn read_runtime_artifact_member_v1<
     Ok(Some(decoded))
 }
 
-/// Read a required nested RecordRoot reference from a typed Artifact record.
-/// The caller must still qualify the referenced child before relying on it.
+/// Read a required nested RecordRoot reference from a typed Artifact parent.
+/// The parent field and child record are explicit because the RootRef binds
+/// the child schema while its lookup key belongs to the parent schema. The
+/// caller must still qualify the referenced child before relying on it.
 pub fn read_runtime_artifact_record_reference_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -250,7 +252,8 @@ pub fn read_runtime_artifact_record_reference_v1<
     C: FnMut() -> bool,
     K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized,
 >(
-    record: RuntimeArtifactRecordV1,
+    parent_record: RuntimeArtifactRecordV1,
+    child_record: RuntimeArtifactRecordV1,
     parent: &ReservedValue<RuntimeArtifactChildRootV1>,
     key: &K,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
@@ -260,12 +263,15 @@ pub fn read_runtime_artifact_record_reference_v1<
         || context.root != &parent.root
         || context.values.class != parent.class
         || !parent.uses_budget(context.values.memory)
-        || !parent.binding.permits(record)
+        || !parent.binding.permits(parent_record)
     {
         return Err(invalid());
     }
-    let (key, semantic_bytes) =
-        context.key(record.descriptor(), WorldFieldRecordKindV1::Entry, key)?;
+    let (key, semantic_bytes) = context.key(
+        parent_record.descriptor(),
+        WorldFieldRecordKindV1::Entry,
+        key,
+    )?;
     let Some(value_root) = context.lookup_raw(&parent.root, key.as_bytes())? else {
         return Ok(None);
     };
@@ -295,7 +301,7 @@ pub fn read_runtime_artifact_record_reference_v1<
         .semantic_key
         .ok_or_else(invalid)?;
     let root = reference
-        .validate_binding(&record.schema(), &owner, StateNamespaceV1::Artifacts)
+        .validate_binding(&child_record.schema(), &owner, StateNamespaceV1::Artifacts)
         .map_err(|_| invalid())?
         .clone();
     let charge = context.values.memory.reserve(
@@ -306,7 +312,7 @@ pub fn read_runtime_artifact_record_reference_v1<
         return Err(ValueTreeError::Cancelled);
     }
     Ok(Some(charge.retain(RuntimeArtifactChildRootV1 {
-        binding: RuntimeArtifactRootBindingV1::Record(record),
+        binding: RuntimeArtifactRootBindingV1::Record(child_record),
         root,
         class: context.values.class,
     })))

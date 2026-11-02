@@ -10,6 +10,8 @@ pub use schema::{RuntimeArtifactFieldV1, RuntimeArtifactRecordV1};
 
 #[path = "incremental_runtime_artifact_resources_read.rs"]
 mod read;
+/// Decoded value returned by the typed Runtime Artifacts point readers.
+pub use crate::incremental_record_value_read::RecordValueV1 as RuntimeArtifactValueV1;
 pub use read::{
     RuntimeArtifactChildRootV1, RuntimeArtifactMemberProfileV1, RuntimeArtifactRootBindingV1,
     inspect_runtime_artifact_record_root_v1, read_runtime_artifact_member_v1,
