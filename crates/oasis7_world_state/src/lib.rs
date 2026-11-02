@@ -195,6 +195,24 @@ mod task_terminal_v2;
 pub use task_terminal_v2::*;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_control_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_fields;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_genesis;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_json;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_json_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_json_read;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_json_receiver;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_read;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_u64;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -279,3 +297,6 @@ pub mod incremental_value_mutation;
 pub mod incremental_agent_genesis;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_agent_mutation;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_groups;
