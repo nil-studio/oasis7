@@ -213,7 +213,7 @@ fn fixture_with_controller_preload(
     .unwrap();
     (dir, driver, identity, owner, public)
 }
-fn owner_chat(
+pub(super) fn owner_chat(
     owner: &str,
     public: &str,
     nonce: u64,
