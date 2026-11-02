@@ -470,3 +470,157 @@ fn put_attempt(
     }
     events
 }
+
+pub fn group_noop_final_cancel(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    parent: &ExecutionParent,
+    family: &ReservedValue<CognitionCurrentStateQualificationV1>,
+) {
+    use oasis7_runtime::incremental_cognition_groups::*;
+    for channel in 0..2 {
+        let state = store
+            .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let values = store.value_session(physical());
+        let mut writer = store.value_session(physical());
+        let mut tx = ExecutionTransaction::begin(
+            parent.clone(),
+            [0x83; 32],
+            &state,
+            memory,
+            TransactionLimits {
+                max_reads: 8,
+                max_writes: 2,
+                max_facts: 0,
+                max_pending_node_bytes: 2 << 20,
+            },
+        )
+        .unwrap();
+        let live = parent.fence().unwrap();
+        let mut io = fixture::logical();
+        let mut write_io = fixture::logical();
+        let mut keys = SemanticKeyBudget {
+            bytes_remaining: 16 << 20,
+        };
+        let mut write_keys = SemanticKeyBudget {
+            bytes_remaining: 16 << 20,
+        };
+        let stage = Cell::new(0);
+        let read_polls = Cell::new(0u64);
+        let write_polls = Cell::new(0u64);
+        let target = Cell::new(u64::MAX);
+        {
+            let mut context = WorldFieldOverlayContextV1 {
+                transaction: &mut tx,
+                values: ValueReadContext {
+                    source: &values,
+                    memory,
+                    class: MemoryClass::Ordinary,
+                    io: &mut io,
+                },
+                key_work: &mut keys,
+                semantic_bytes: 4096,
+                record_bytes: 8192,
+                take_state_error: || state.take_read_error().map(state_error),
+                cancelled: || {
+                    if stage.get() == 1 || (stage.get() == 2 && channel == 0) {
+                        let n = read_polls.get() + 1;
+                        read_polls.set(n);
+                        stage.get() == 2 && n == target.get()
+                    } else {
+                        false
+                    }
+                },
+            };
+            let mut write = MemberRecordWriteContext {
+                sink: &mut writer,
+                memory,
+                io: &mut write_io,
+                key_work: &mut write_keys,
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 4096,
+                    payload_bytes: 4096,
+                    record_bytes: 8192,
+                },
+                cancelled: || {
+                    if stage.get() == 2 && channel == 1 {
+                        let n = write_polls.get() + 1;
+                        write_polls.set(n);
+                        n == target.get()
+                    } else {
+                        false
+                    }
+                },
+            };
+            let guard = context.transaction.guard();
+            assert!(
+                change_cognition_control_v1(
+                    CognitionControlFieldV1::JournalHeadSeq,
+                    (
+                        CognitionControlValueV1::Unsigned(u64::MAX),
+                        CognitionControlValueV1::Unsigned(0)
+                    ),
+                    &mut context,
+                    &mut write,
+                    &guard,
+                    &live
+                )
+                .unwrap()
+            );
+            stage.set(1);
+            let expected = read_cognition_group_overlay_v1(
+                CognitionOptionalGroupV1::ContinuationEvaluations,
+                family,
+                &mut context,
+            )
+            .unwrap();
+            assert!(!expected.present());
+            let n = read_polls.get();
+            assert!(n > 0);
+            assert_eq!(write_polls.get(), 0);
+            read_polls.set(0);
+            target.set(n + 1);
+            stage.set(2);
+            let guard = context.transaction.guard();
+            let mut work = CognitionGroupWriteWorkV1 {
+                records_remaining: 0,
+                json: JsonWriteWorkV1 {
+                    cells_remaining: 0,
+                    json_nodes_remaining: 0,
+                    max_json_depth: 0,
+                    max_pending_node_bytes: 0,
+                },
+            };
+            assert!(matches!(
+                change_cognition_group_v1(
+                    &expected,
+                    None,
+                    &mut context,
+                    &mut write,
+                    &mut work,
+                    &guard,
+                    &live
+                ),
+                Err(WorldFieldOverlayErrorV1::Value(ValueTreeError::Cancelled))
+            ));
+            assert_eq!(
+                if channel == 0 {
+                    read_polls.get()
+                } else {
+                    write_polls.get()
+                },
+                n + 1
+            );
+            eprintln!(
+                "Cognition optional group independent getter N={n}, absent-delete NoOp N+1={}, channel={channel}",
+                n + 1
+            );
+        }
+        let guard = tx.guard();
+        assert!(matches!(
+            tx.seal(&guard, &live, 1),
+            Err(ExecutionError::Aborted)
+        ));
+    }
+}
