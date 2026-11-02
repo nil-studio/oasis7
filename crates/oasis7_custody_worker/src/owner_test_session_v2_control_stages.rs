@@ -59,6 +59,12 @@ pub(crate) async fn dispatch(
         .await
         .map_err(|_| denied())?;
     let source = source_id(admission)?;
+    store
+        .snapshot()
+        .map_err(|_| denied())?
+        .state
+        .require_test_session_v2_control_five_source(id, &source)
+        .map_err(|_| denied())?;
     match rpc.action {
         TestSessionControlActionV2::ClaimSource => {
             // Source creation already paid its Native transport. Persist the
@@ -98,8 +104,8 @@ pub(crate) async fn dispatch(
         }
         TestSessionControlActionV2::Observe { index } => {
             let expected = match index {
-                TestSessionCredentialObservationV2::PreDecrypt => 1,
-                TestSessionCredentialObservationV2::PostDecrypt => 2,
+                TestSessionCredentialObservationV2::PreDecrypt => 2,
+                TestSessionCredentialObservationV2::PostDecrypt => 3,
             };
             observe(
                 state, env, &store, admission, operation, &source, expected, false,
@@ -107,7 +113,7 @@ pub(crate) async fn dispatch(
             .await
         }
         TestSessionControlActionV2::ClaimLifetime => {
-            observe(state, env, &store, admission, operation, &source, 3, true).await
+            observe(state, env, &store, admission, operation, &source, 4, true).await
         }
         TestSessionControlActionV2::Complete { lifetime } => {
             let current =

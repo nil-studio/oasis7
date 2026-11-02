@@ -107,7 +107,13 @@ fn observation(
     now: UnixMillis,
 ) -> Result<ControlObservationV2> {
     if s.source_funding.get(current.source_operation_id) != Some(&SessionSourceFundingV1::Control)
-        || current.source_ticket != 4
+        || current.source_ticket
+            != client_source_tickets_v2(
+                s,
+                current.source_operation_id,
+                SessionJournalProfileV2::Control,
+            )?
+            .1
     {
         return Err(invalid());
     }
