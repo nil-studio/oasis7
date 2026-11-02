@@ -57,6 +57,8 @@ pub struct FormalAuthenticatedChangesV1 {
 }
 #[path = "world_service_client_changes.rs"]
 mod changes;
+#[path = "world_service_client_lookup_page.rs"]
+mod lookup_page;
 #[path = "world_service_client_operations.rs"]
 mod operations;
 pub trait WorldServicePort<H: ClientWorldProfile> {
