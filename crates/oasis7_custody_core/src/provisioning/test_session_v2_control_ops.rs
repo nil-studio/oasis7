@@ -348,6 +348,9 @@ impl TermOwnedInvocationRecordV2 {
             || request.session_id != self.session_id
             || request.request_id != self.request_id
             || !closing_kind(request.kind)
+            || (s.header()?.0.termination.cleanup_transport_policy
+                == CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
+                && request.kind != SessionControlKindV1::Finish)
             || s.closing.is_none()
             || s.input_digest()? != self.input_digest
             || self.invocation_id
@@ -441,6 +444,9 @@ impl AccountProvisionApprovalState {
         };
         let term = &s.header()?.0.termination;
         if term.stop_policy != WorldTaskStopPolicyV2::GuardedCommittedUtcStopV2
+            || (term.cleanup_transport_policy
+                == CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
+                && q.kind != SessionControlKindV1::Finish)
             || !matches!(
                 term.cleanup_transport_policy,
                 CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
