@@ -305,6 +305,6 @@ pub mod incremental_cognition_groups;
 pub mod incremental_runtime_controls;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_runtime_artifact_content;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_reward_budget_records;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_artifact_content;
