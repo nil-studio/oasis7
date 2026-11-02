@@ -731,3 +731,20 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 完整 root-only family 资格只凭认证 RootSet、schema 与有限 reader 检查四个外部绑定、六根错位、全部必需 child 列、primitive 完整 framing 与未知/孤儿拒绝；不依赖原 World snapshot。普通点读和单列精确 expected 更新只访问目标及必需身份关系，支持同事务连续后继；单列值类型必须匹配字段，guard/live、同池 Ordinary、独立 key/read/write/node/heap 计费、NoOp 与成功返回前组合取消、失败后全事务 poison 均不得省略。不得从局部读成功签发完整 family 资格。
 
 正常 receiver 先独立验证 generic 转移，再按真实四字段外写及 child changed Merkle 路径验证原 schema、身份、primitive 和完整固定列关系；仅继承已 qualified 父的未变闭包，禁止移除或引入非本格式外叶。page mark/transfer 复用完整本组资格，追随所有 child state/value 页，有限集合在分配前计费；包括 buffered finish 在内的全部输出成功前保持暂态。此组不授予经济业务权限、协议接受或全 World GC；仍须组合其他 owner、历史/lease、未决和回滚保护。独立字面原值、Raw/Zstd 冷根/合法后继、generic-valid 但 typed-invalid、真实 put 故障、精确预算及原子失败分别验证；末次取消的独立边界回归须有独立前序基线，不能用被测函数自身总回调自校准替代。
+
+
+### 12.46 Runtime effect intent 的有界原件与执行存储
+
+<a id="iws-runtime-effect-intent-records-v1"></a>
+
+本组以原 Runtime pending_effects（Ordered VecDeque）和 inflight_effects（String Map）为完整 owner 目的，共用 EffectIntent 的 birth_era/intent_id/kind/params/cap_ref/origin 借用 profile。原 pending ordinal 与记录内 intent_id、inflight map key 与 identity_key 分别保留，不重排、不规范化或从彼此补造身份；None/Some(0) 及 origin 的四个原变体严格区分。正常队列操作须覆盖 append、pop_front 及原 receipt retain 所需的中间成员删除。pending 外层仍为 Ordered，以不复用的绝对 ordinal 标识存储成员；该 ordinal 与业务 intent_id 独立。认证控制列为 head/tail（各为 Unit 或 U64）、count 与 next_ordinal；空队列两端均为 Unit 且 count 为零，next_ordinal 不因清空而回退。每个 pending 成员使用独立小型 membership root，固定包含 metadata、Unit marker、body RootRef、prev 与 next（各为 Unit 或 U64）；prev < 本 ordinal < next，非空相邻指针必须互相匹配，唯一无 prev/next 成员分别等于 head/tail，实际成员数等于 count，所有 ordinal 小于 next_ordinal。严格递增关系排除环，完整相邻关系与唯一端点排除断开的链。普通删除仅改相邻 membership、控制列与外引用，不重写后续 ordinal 或未变 Intent/params。GEN 按原 VecDeque 顺序分配初始 ordinal；保留顺序而非承诺每次恢复连续下标。 两集合外层 descriptor/原 key 不变，但 Intent body 与 params JSON 内部使用同一中性 scoped descriptor/schema。已资格的 pending→inflight handoff 必须能只更新外引用、保留相同 immutable body/params 根，不能因内部地址含家族名重编码未变 payload。此为尚未发布 profile 的内部寻址修订，旧家族相对地址证据只证明旧版本；外调 identity_key/payload_digest 与原内容不变。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+params 须保留 JSON 原节点类型、对象原 key、数组原 ordinal、原字符串和数值表示；容器及成员独立闭包，不可把整 JSON/Intent/队列或 Map 聚合到影子 Blob。JSON Text 作为单个原字符串值可流写大 payload；固定列普通更新必须继承未变 params 子树，不扫描无关长内容。容器长度、成员完整关系和 typed changed-path 验证分别由 owner 校验，不能用叶数或 generic replay 代替。
+
+JSON 结构算法由 Effects 与 Cognition 真实消费者共用；各 owner 固定选择 descriptor/schema/namespace，并在自己的 RootRef 与完整关系 gate 中绑定。共享 JSON receipt 仅包含该 profile 与精确子根的结构证明，不是 owner/RootSet/Runtime/World 资格。通用入口接受显式 profile 不意味着调用者自报 schema 可授跨 owner 权限；Effects wrapper 始终使用本节既定 profile，抽取不改变原 Member/RootRef 或 JSON 字节。恢复遍历必须支持该 owner 的实际 State namespace，typed page collector 通过完整资格遍历的跟踪 reader 收集全部递归依赖。
+
+原 World 的 emit、take_next_effect 与 receipt 清理路径以新增、删除及移交原 Intent 为业务操作；专用 World GEN 直接借用其两集合，不 clone 整队列、Map 或 params。存储 profile 不新增改变已派发请求身份或权限的业务入口。显式 PutInflight 完整原件替换需产生并验证新 body，其成本为 O(new body/params)，不能把它表述为普通单列或 handoff 的固定 Δ 证明。handoff 则仅改 membership、frontier 与 inflight 外引用，继承精确已资格旧 body。
+
+原 effect:v2 identity_key 与 payload_digest 的唯一既有 wire 保持不变。后者是 serde_cbor 对 tuple("oasis7.effect.intent-payload.v2", EffectIntent) 的原编码，不是 canonical-CBOR 新排序。本组可使用穷尽原字段与 JSON 类型的借用流式编码，必须逐 byte 对照原 encoder；所有输出、计费节点/bytes/depth 和临时工作区均有界，源 DTO/输出 sink 各自持有其分配责任。未知字段或自定义 Serialize 不属于该具体 DTO 接口。失败、取消和最终输出边界必须使连续 context 失效，不能把部分 hash/bytes 当完成原件。
+
+完整 owner 仍须覆盖 GEN、root-only 资格/冷读、同 ExecutionTxn 普通贡献、独立 generic+typed receiver、typed 页闭包/finish 与恢复后合法后继；单个 codec/borrowed visitor 的完成不表示这两族已经 ready。Chain 已有正式 outbox/obligation、accepted World/continuation 与 provider 幂等合同不嫁接为这两个 World descriptor；外调 unknown 必须保留原身份且不因存储重试重派。此组不改变业务 capability 检查、effect dispatch 策略、nonce 分配或 history/World 激活权限。
