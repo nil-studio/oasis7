@@ -41,11 +41,11 @@ function classifyNativeStartup(chunk){
   const line=nativeStderr.match(/custody_browser_uv_fixture\.rs:(\d+):\d+/);
   if(line&&Number.isSafeInteger(Number(line[1])))nativeStartupDiagnostic.fixture_panic_line=Number(line[1]);
 }
-let moduleDiagnostic=null;let nonceFiveDiagnostic=null;
+let nonceFailureStage=null;let nonceCounterDiagnostic=null;let moduleDiagnostic=null;let nonceFiveDiagnostic=null;
 const directory=mkdtempSync(join(tmpdir(),'oasis7-browser-uv-'));chmodSync(directory,0o700);
 let world,https,native,mf,browser,context,page,hostDriver,world3;let stage='startup';let exited=false;let ownerContinueDiagnostic=null;let sessionContinueDiagnostic=null;const enrollmentDiagnostics={};const enrollmentActorStages=Object.fromEntries(['received','host_absent','host_ambiguous','host_expected','host_unexpected','transfer_encoding_present','content_encoding_present','trailer_present','length_expected','length_unexpected','status_200','status_409','status_other','status_threw'].map(k=>[k,0]));const enrollmentProofStages=Object.fromEntries(['read','decode','physical','prepare','precrypto','finalinventory','finalprepare','verifyReceipt','stateProve','update'].map(k=>[k,0]));const enrollmentPopErrors=Object.fromEntries(['Bounds','Target','Header','Binding','Digest','Time','Signature','Crypto'].map(k=>[k,0]));
 const world3Ready=faultCase==='session-v2-world3-ready';
-const credentialProfileStages=Object.fromEntries(['first_commit','missing','credential_five','wrong','inspection_error','no_unique_source'].map(key=>[key,0]));const credentialSourceStages=Object.fromEntries(['admit','claim_source','record_source','observe','claim_lifetime','complete'].flatMap(action=>['entered','returned','threw'].map(stage=>[action+'.'+stage,0])));const nonceFive=faultCase==='session-v2-execution-nonce-five';const noncePorts={public:0,provider:0,realm:0,owner:0,account:0};const sessionInspectionStages=Object.fromEntries(['entered','status_200','status_409','status_other','threw'].map(key=>[key,0]));const sessionPreflightStages=Object.fromEntries(['describe_preflight','claim_source','record_source','get_permit','claim_step','reserve_source_read','record_access','record_lifetime','publish_owner_read','activate'].flatMap(action=>['entered','returned','threw'].map(stage=>[action+'.'+stage,0])));const ownerPrepareStages={received_v2:0,returned_text:0,returned_nontext:0,closed_v2:0,exact_original:0,valid_context:0,rpc_failed:0};
+const sourceWindowStages={checked:0,bounded:0,exceeded:0,missing:0};const credentialProfileStages=Object.fromEntries(['first_commit','missing','credential_five','wrong','inspection_error','no_unique_source'].map(key=>[key,0]));const credentialSourceStages=Object.fromEntries(['admit','claim_source','record_source','observe','claim_lifetime','complete'].flatMap(action=>['entered','returned','threw'].map(stage=>[action+'.'+stage,0])));const nonceFive=faultCase==='session-v2-execution-nonce-five';const noncePorts={public:0,provider:0,realm:0,owner:0,account:0};const sessionInspectionStages=Object.fromEntries(['entered','status_200','status_409','status_other','threw'].map(key=>[key,0]));const sessionPreflightStages=Object.fromEntries(['describe_preflight','claim_source','record_source','get_permit','claim_step','reserve_source_read','record_access','record_lifetime','publish_owner_read','activate'].flatMap(action=>['entered','returned','threw'].map(stage=>[action+'.'+stage,0])));const ownerPrepareStages={received_v2:0,returned_text:0,returned_nontext:0,closed_v2:0,exact_original:0,valid_context:0,rpc_failed:0};
 const sessionV2=['session-v2-activation','session-v2-claim','session-v2-claim-lost-reply','session-v2-host-control','session-v2-execution-nonce-five','session-v2-world3-ready'].includes(faultCase);
 const recovering=faultCase==='cancel-expiry-recover', cancelling=faultCase==='cancel-get'||recovering;let recoveryFacts=null;
 const ready=resolve(directory,'native-ready.json'),stop=resolve(directory,'native-stop');
@@ -85,7 +85,7 @@ try {
     if(sessionV2)sessionV2BrowserOptions(raw,root,origin);
     if(actualHostDescriptor)withActualHostDescriptor(raw,actualHostDescriptor);
     if(nonceFive){
-      raw.handleStructuredLogs=record=>{const name=Object.keys(noncePorts).find(n=>record.message.trim()===`fixture.tool_nonce.${n}`);if(name)noncePorts[name]++;};
+      raw.handleStructuredLogs=record=>{const message=typeof record?.message==='string'?record.message.trim():'';const stages=['selected','prepare','signature','sql_selected','sql_prepare','possession','core_fee','core_issue','transaction'];const failed=stages.find(stage=>message===`nonce_five_failure.nonce.${stage}`);if(failed&&nonceFailureStage===null)nonceFailureStage=failed;const name=Object.keys(noncePorts).find(n=>message===`fixture.tool_nonce.${n}`);if(name)noncePorts[name]++;};
       for(const w of Object.values(roles)){
         w.bindings={...w.bindings,CUSTODY_EXECUTION_PREPARE_DISPATCH_V2_ENABLED:'true'};
         const file=w.name==='identity'?'execution_nonce_five_browser_identity.mjs':'tool_nonce_owner_runtime.mjs';
@@ -94,7 +94,7 @@ try {
     }
     if(sessionV2){
       const previous=raw.handleStructuredLogs;
-      raw.handleStructuredLogs=record=>{classifyRuntime(record?.message);previous?.(record);const message=typeof record?.message==='string'?record.message.trim():'';for(const [prefix,counts] of [['fixture.credential_profile.',credentialProfileStages],['fixture.credential_source.',credentialSourceStages],['fixture.session_inspection.',sessionInspectionStages],['fixture.session_preflight.',sessionPreflightStages],['fixture.enrollment_actor.',enrollmentActorStages],['enrollment.prove.',enrollmentProofStages],['enrollment.prove.http_pop.',enrollmentPopErrors]]){const key=Object.keys(counts).find(k=>message===prefix+k);if(key)counts[key]++;}const name=Object.keys(ownerPrepareStages).find(n=>record.message.trim()===`fixture.owner_v2_prepare.${n}`);if(name)ownerPrepareStages[name]++;};
+      raw.handleStructuredLogs=record=>{classifyRuntime(record?.message);previous?.(record);const message=typeof record?.message==='string'?record.message.trim():'';for(const [prefix,counts] of [['fixture.source_window.',sourceWindowStages],['fixture.credential_profile.',credentialProfileStages],['fixture.credential_source.',credentialSourceStages],['fixture.session_inspection.',sessionInspectionStages],['fixture.session_preflight.',sessionPreflightStages],['fixture.enrollment_actor.',enrollmentActorStages],['enrollment.prove.',enrollmentProofStages],['enrollment.prove.http_pop.',enrollmentPopErrors]]){const key=Object.keys(counts).find(k=>message===prefix+k);if(key)counts[key]++;}const name=Object.keys(ownerPrepareStages).find(n=>record.message.trim()===`fixture.owner_v2_prepare.${n}`);if(name)ownerPrepareStages[name]++;};
       // The observer imports this wrapper for every Session case, not only
       // NonceFive. Register its dependency once without selecting a new entry.
       const nonceWrapper=resolve(root,'tests/fixtures/tool_nonce_owner_runtime.mjs');
@@ -256,6 +256,8 @@ try {
 
   const credentialRaw=error?.custodyCredentialDiagnostic;
   const credentialDiagnostic=credentialRaw&&['challenge','claim'].includes(credentialRaw.kind)?{kind:credentialRaw.kind,...Object.fromEntries(['http_status','native_verify_delta','native_lifetime_delta','native_total_delta'].filter(k=>Number.isSafeInteger(credentialRaw[k])&&credentialRaw[k]>=0&&credentialRaw[k]<=9999).map(k=>[k,credentialRaw[k]]))}:null;
+  const nonceRaw=error?.custodyNonceMetadataDiagnostic;
+  const nonceMetadataDiagnostic=nonceRaw?{fields:Object.fromEntries(['response_object','kind_metadata','purpose_execution','logical_match','digest_match'].filter(k=>typeof nonceRaw[k]==='boolean').map(k=>[k,nonceRaw[k]])),numbers:Object.fromEntries(['http_status','nonce_length','native_delta'].filter(k=>Number.isSafeInteger(nonceRaw[k])&&nonceRaw[k]>=0&&nonceRaw[k]<=9999).map(k=>[k,nonceRaw[k]]))}:null;
   const raw=error?.custodyPrepareDiagnostic;
   const knownCodes=['custody_original_pending','custody_plan_invalid','custody_parent_invalid','custody_session_changed','custody_configuration_changed','custody_csrf_unavailable','custody_outcome_unknown','custody_response_invalid','custody_request_rejected','custody_prepare_invalid','custody_scope_unavailable','custody_disposed'];
   const booleanFields=['response_json_object','request_id_match','context_present','account_match','environment_match','audience_match','policy_positive','security_positive','security_is_zero','service_epoch_positive','intent_kind_match','plan_structurally_equal','scope_structurally_equal'];
@@ -263,7 +265,7 @@ try {
     phase:raw.phase,code:knownCodes.includes(raw.code)?raw.code:'unclassified',http_status:Number.isInteger(raw.http_status)&&raw.http_status>=100&&raw.http_status<=599?raw.http_status:null,
     fields:Object.fromEntries(booleanFields.filter(k=>typeof raw[k]==='boolean').map(k=>[k,raw[k]])),
   }:null;
-  console.error(JSON.stringify({status:'failed',case:faultCase,stage,error_kind:kind,evidence_directory:directory,native_startup_diagnostic:stage==='native'?nativeStartupDiagnostic:null,nonce_five_diagnostic:nonceFiveDiagnostic,credential_diagnostic:credentialDiagnostic,nonce_ports:{...noncePorts},credential_source_stages:credentialSourceStages,credential_profile_stages:credentialProfileStages,prepare_diagnostic:diagnostic,owner_continue_diagnostic:ownerContinueDiagnostic,session_continue_diagnostic:sessionContinueDiagnostic,enrollment_diagnostic:enrollmentDiagnostics,enrollment_actor_stages:enrollmentActorStages,enrollment_proof_stages:enrollmentProofStages,enrollment_pop_errors:enrollmentPopErrors,owner_prepare_stages:ownerPrepareStages,session_preflight_stages:sessionPreflightStages,session_inspection_stages:sessionInspectionStages,...(stage==='workerd'?{startup:{code:startupCode,classes:runtimeDiagnostic,modules:moduleDiagnostic}}:{}),http_phase_statuses:https?.facts().phase_statuses??{},
+  console.error(JSON.stringify({status:'failed',case:faultCase,stage,error_kind:kind,evidence_directory:directory,native_startup_diagnostic:stage==='native'?nativeStartupDiagnostic:null,nonce_five_diagnostic:nonceFiveDiagnostic,nonce_metadata_diagnostic:nonceMetadataDiagnostic,nonce_failure_stage:nonceFailureStage,nonce_counter_diagnostic:nonceCounterDiagnostic,credential_diagnostic:credentialDiagnostic,nonce_ports:{...noncePorts},credential_source_stages:credentialSourceStages,credential_profile_stages:credentialProfileStages,source_window_stages:sourceWindowStages,prepare_diagnostic:diagnostic,owner_continue_diagnostic:ownerContinueDiagnostic,session_continue_diagnostic:sessionContinueDiagnostic,enrollment_diagnostic:enrollmentDiagnostics,enrollment_actor_stages:enrollmentActorStages,enrollment_proof_stages:enrollmentProofStages,enrollment_pop_errors:enrollmentPopErrors,owner_prepare_stages:ownerPrepareStages,session_preflight_stages:sessionPreflightStages,session_inspection_stages:sessionInspectionStages,...(stage==='workerd'?{startup:{code:startupCode,classes:runtimeDiagnostic,modules:moduleDiagnostic}}:{}),http_phase_statuses:https?.facts().phase_statuses??{},
     phase_counts:{options:sum('/custody/approvals/options'),complete:sum('/custody/approvals/complete'),prepare:sum('/owner-setups/prepare'),approve:sum('/owner-setups/approve')}}));process.exitCode=1;
 }
 finally {await hostDriver?.close();await context?.close();await browser?.close();await mf?.dispose();if(native&&!exited){writeFileSync(stop,'stop');for(let i=0;!exited&&i<250;i++)await delay(20);if(!exited)native.kill('SIGTERM');}await https?.close();await world3?.close();await world?.close();}
@@ -281,6 +283,12 @@ async function exerciseExecutionNonceFive({cycle,counters,setStage},ports){
   assert.equal(credentialProfileStages.no_unique_source,0,'actual paid first Admit must create exactly one Source');
   assert.equal(credentialProfileStages.first_commit,1,'actual paid first Admit commit is the prerequisite');
   assert.equal(credentialProfileStages.credential_five,1,'new fixed Credential receiver requires its Core factory five-oracle profile');
+  const observedUntil=Date.now()+2000;
+  while(sourceWindowStages.checked===0&&sourceWindowStages.missing===0&&Date.now()<observedUntil)await delay(10);
+  setStage('nonce-five-signed-source-original-window');
+  assert.equal(sourceWindowStages.missing,0,'actual Observe reply and SQL signed Source must be available');
+  assert.ok(sourceWindowStages.checked>0,'genuine Observe reply must precede the original-window target');
+  assert.equal(sourceWindowStages.exceeded,0,'actual Owner Observe Until must not outlive original signed Source observed_at plus five seconds');
   if(cycleError)throw cycleError;
   setStage('nonce-five-claim-status');
   nonceFiveDiagnostic={status_claimed:first.reply?.status==='claimed',api2:first.reply?.api_version===2,credentials_array:Array.isArray(first.reply?.credentials),credential_count:Array.isArray(first.reply?.credentials)?first.reply.credentials.length:null};
@@ -298,14 +306,16 @@ async function exerciseExecutionNonceFive({cycle,counters,setStage},ports){
   assert.deepEqual(ports,{public:0,provider:2,realm:2,owner:0,account:0},'genuine claim limiter prefix must be observed before nonce measurement');
   setStage('nonce-five-claim-no-book');
   const before=counters(),previous={...ports};assert.equal(before.execution_book_absent,true);
-  setStage('nonce-five-actual-public');await cycle.executionNonce(credential.token);
-  const after=counters();assert.equal(after.purposes.execution.transport,before.purposes.execution.transport-5);
-  assert.deepEqual(after.purposes.reconcile_read,before.purposes.reconcile_read);
-  for(const k of ['host','native','requests','sources','claims'])assert.equal(after[k],before[k]);
-  assert.equal(after.execution_book_absent,true);
+  setStage('nonce-five-actual-public');await cycle.executionNonce(credential.token,phase=>setStage('nonce-five-'+phase));
+  const after=counters();
+  nonceCounterDiagnostic={execution_transport_spent:before.purposes.execution.transport-after.purposes.execution.transport,read_transport_spent:before.purposes.reconcile_read.transport-after.purposes.reconcile_read.transport,read_business_spent:before.purposes.reconcile_read.business-after.purposes.reconcile_read.business,read_unchanged:['transport','business','history','generation'].every(k=>after.purposes.reconcile_read[k]===before.purposes.reconcile_read[k]),book_absent:after.execution_book_absent===true,...Object.fromEntries(['host','native','requests','sources','claims'].map(k=>[k+'_delta',after[k]-before[k]]))};
+  setStage('nonce-five-counter-execution');assert.equal(after.purposes.execution.transport,before.purposes.execution.transport-5);
+  setStage('nonce-five-counter-read');assert.deepEqual(after.purposes.reconcile_read,before.purposes.reconcile_read);
+  for(const k of ['host','native','requests','sources','claims']){setStage('nonce-five-counter-'+k);assert.equal(after[k],before[k]);}
+  setStage('nonce-five-counter-no-book');assert.equal(after.execution_book_absent,true);
   // Wait for structured counter delivery only, never retry business HTTP.
   const until=Date.now()+2000;
   while(Object.keys(ports).some(k=>ports[k]-previous[k]!==1)&&Date.now()<until)await delay(10);
-  for(const k of Object.keys(ports))assert.equal(ports[k]-previous[k],1,`actual ${k} physical leaf exactly once`);
+  for(const k of Object.keys(ports)){setStage('nonce-five-physical-'+k);assert.equal(ports[k]-previous[k],1,`actual ${k} physical leaf exactly once`);}
   return {actual_execution_nonce_five:true,actual_five_physical_hops:true,no_book_seed:true,no_source_native_world_io:true,no_control_or_read_borrow:true};
 }

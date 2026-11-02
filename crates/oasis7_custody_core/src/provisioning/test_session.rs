@@ -446,8 +446,14 @@ pub use state_v2::*;
 mod admission_v2;
 pub use admission_v2::TestSessionAdmissionV2;
 
+#[path = "test_session_v2_source_observation_profile.rs"]
+mod source_observation_v2;
 #[path = "test_session_v2_source.rs"]
 mod source_v2;
+pub(in crate::provisioning) use source_observation_v2::{
+    ClientSourceAdmissionV2, ClientSourceObservationProfileV2, client_source_tickets_v2,
+    validate_client_source_profile_v2,
+};
 
 #[path = "test_session_v2_live.rs"]
 mod live_v2;

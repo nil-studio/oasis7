@@ -158,7 +158,13 @@ pub(in crate::provisioning) fn validate(
                 .source
                 .verified_at
                 .is_none_or(|t| t.0 > claim.claimed_at.get())
-            || claim.source_ticket != 4
+            || claim.source_ticket
+                != client_source_tickets_v2(
+                    s,
+                    &claim.source_operation_id,
+                    SessionJournalProfileV2::Credential,
+                )?
+                .1
             || claim.source_ticket
                 > *s.source_oracle_reads
                     .get(&claim.source_operation_id)
