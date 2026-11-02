@@ -16,8 +16,9 @@ pub use request::{OwnerSetupResourceCandidateV2, PreparedOwnerSetupResourceReadV
 mod dispatch;
 use dispatch::ResourceFinalDispatchRecordV2;
 pub use dispatch::{
-    OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceFinalHttpV2, OwnerSetupResourceWorldBodyV2,
-    PreparedOwnerSetupResourceDispatchV2, RESOURCE_READ_PROOF_HEADER, ResourceFinalIssueContextV2,
+    OwnerSetupPaidResourceResultV2, OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceFinalHttpV2,
+    OwnerSetupResourceWorldBodyV2, PreparedOwnerSetupResourceDispatchV2,
+    RESOURCE_READ_PROOF_HEADER, ResourceFinalIssueContextV2,
 };
 #[path = "owner_setup_resource_final_result_v2.rs"]
 mod result;
@@ -32,6 +33,8 @@ pub(super) struct OwnerSetupResourceFinalProofV2 {
     plan_digest: String,
     original_bytes: Vec<u8>,
     response_bytes: Vec<u8>,
+    #[serde(deserialize_with = "required_final_original")]
+    paid_result_bytes: Option<Vec<u8>>,
 }
 impl core::fmt::Debug for OwnerSetupResourceFinalProofV2 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -69,6 +72,7 @@ impl OwnerSetupResourceFinalProofV2 {
         response: resource::SignedResourceResponseV1<
             resource::OwnerSetupFinalResourceObservationV2,
         >,
+        paid_result: OwnerSetupPaidResourceResultV2,
     ) -> Result<Self> {
         if serde_json::to_vec(&original).map_err(|_| invalid())?.len()
             > resource::MAX_RESOURCE_ENVELOPE_BYTES
@@ -77,13 +81,23 @@ impl OwnerSetupResourceFinalProofV2 {
         }
         // Measure the actual complete Native response wrapper, not a partial
         // quote or a guessed reserve for signature/envelope overhead.
-        resource::encode_native_resource_envelope(response.clone()).map_err(|_| invalid())?;
+        paid_result.encode()?;
+        if encode(
+            paid_result
+                .world_evidence
+                .world_response()
+                .map_err(|_| invalid())?,
+        )? != encode(&response)?
+        {
+            return Err(invalid());
+        }
         let value = Self {
             api_version: 2,
             setup_id: plan.setup_id.clone(),
             plan_digest: plan.digest().map_err(|_| invalid())?,
             original_bytes: encode(&original)?,
             response_bytes: encode(&response)?,
+            paid_result_bytes: Some(encode(&paid_result)?),
         };
         value.typed(plan)?;
         Ok(value)
@@ -106,6 +120,29 @@ impl OwnerSetupResourceFinalProofV2 {
         let response: resource::SignedResourceResponseV1<
             resource::OwnerSetupFinalResourceObservationV2,
         > = decode(&self.response_bytes)?;
+        let paid_result: OwnerSetupPaidResourceResultV2 =
+            decode(self.paid_result_bytes.as_ref().ok_or_else(invalid)?)?;
+        paid_result.encode()?;
+        if encode(
+            paid_result
+                .world_evidence
+                .world_response()
+                .map_err(|_| invalid())?,
+        )? != self.response_bytes
+        {
+            return Err(invalid());
+        }
+        // This proves the actual fixed Node signed both retained originals.
+        // State-level prefix validation separately reconstructs exact bindings
+        // from the recorded paid dispatch and verifies its issuer signature.
+        paid_result
+            .world_evidence
+            .verify(
+                paid_result.world_evidence.preflight.payload.binding(),
+                paid_result.world_evidence.resource_final.payload.binding(),
+                &plan.world_identity.service_public_key,
+            )
+            .map_err(|_| invalid())?;
         let q = &original.request;
         if q.setup_id != plan.setup_id
             || q.provision_id != plan.provision_id
@@ -124,7 +161,7 @@ impl OwnerSetupResourceFinalProofV2 {
             &plan.world_identity.service_public_key,
         )
         .map_err(|_| invalid())?;
-        resource::encode_native_resource_envelope(response.clone()).map_err(|_| invalid())?;
+        paid_result.encode()?;
         Ok((original, response))
     }
     pub(super) fn prepared(&self, plan: &OwnerSetupPlanV2) -> Result<PreparedResourceBasisV1> {

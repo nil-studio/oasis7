@@ -136,6 +136,8 @@ fn owner_resource_v2_dispatch_is_prepaid_once_and_preserves_the_original_on_unkn
 
 #[path = "owner_setup_resource_final_fact_fixture.rs"]
 mod fact_fixture;
+#[path = "owner_setup_resource_paid_evidence_fixture.rs"]
+mod paid_evidence_fixture;
 
 #[test]
 fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() {
@@ -192,6 +194,7 @@ fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() 
                 .service_public_key,
         )
         .unwrap();
+        let paid_result = paid_evidence_fixture::result(&s, dispatched, &key, response.clone());
         let session = fixture::root_session(
             &s,
             s.owner_setup_outbox("setup-one", OwnerSetupStageV1::FinalObservation)
@@ -279,7 +282,8 @@ fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() 
                 "setup-one",
                 CompleteOwnerSetupResourceFinalV2 {
                     response: bad,
-                    session: session.clone()
+                    session: session.clone(),
+                    paid_result: paid_result.clone()
                 },
                 &trusted,
                 2112,
@@ -290,7 +294,11 @@ fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() 
         assert_eq!(serde_json::to_value(&s).unwrap(), before);
         s.complete_owner_setup_resource_final_v2(
             "setup-one",
-            CompleteOwnerSetupResourceFinalV2 { response, session },
+            CompleteOwnerSetupResourceFinalV2 {
+                response,
+                session,
+                paid_result,
+            },
             &trusted,
             2112,
             &mut StrictCrypto,
@@ -300,6 +308,95 @@ fn owner_resource_v2_strong_final_result_produces_only_historical_ready_basis() 
         let restored: AccountProvisionApprovalState =
             serde_json::from_value(saved.clone()).unwrap();
         assert_eq!(serde_json::to_value(&restored).unwrap(), saved);
+        for remove in [false, true] {
+            let mut legacy = saved.clone();
+            let proof = legacy["owner_setup_v2"]["resource_final"]["result"]
+                .as_object_mut()
+                .unwrap();
+            if remove {
+                proof.remove("paid_result_bytes").unwrap();
+            } else {
+                proof.insert("paid_result_bytes".into(), serde_json::Value::Null);
+            }
+            assert!(
+                serde_json::from_value::<AccountProvisionApprovalState>(legacy).is_err(),
+                "old captured inner-only result may not acquire new paid qualification"
+            );
+        }
+        let mut wrong = saved.clone();
+        let bytes: Vec<u8> = serde_json::from_value(
+            wrong["owner_setup_v2"]["resource_final"]["result"]["paid_result_bytes"].clone(),
+        )
+        .unwrap();
+        let mut evidence: OwnerSetupPaidResourceResultV2 = serde_cbor::from_slice(&bytes).unwrap();
+        evidence.world_evidence.preflight.signature_hex = "00".repeat(64);
+        wrong["owner_setup_v2"]["resource_final"]["result"]["paid_result_bytes"] =
+            serde_json::to_value(oasis7_wasm_abi::encode_canonical_cbor(&evidence).unwrap())
+                .unwrap();
+        assert!(
+            serde_json::from_value::<AccountProvisionApprovalState>(wrong).is_err(),
+            "cold restore must verify retained paid Node signature, not its field presence"
+        );
+        let mut cross = saved.clone();
+        let bytes: Vec<u8> = serde_json::from_value(
+            cross["owner_setup_v2"]["resource_final"]["result"]["paid_result_bytes"].clone(),
+        )
+        .unwrap();
+        let mut evidence: OwnerSetupPaidResourceResultV2 = serde_cbor::from_slice(&bytes).unwrap();
+        evidence
+            .paid_proof
+            .payload
+            .paid_attempt_id
+            .push_str("-other");
+        use ed25519_dalek::Signer;
+        evidence.paid_proof.signature_hex = key
+            .sign(&evidence.paid_proof.payload.signing_bytes().unwrap())
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let digest = ws::request_digest(
+            resource::RESOURCE_PAID_PROOF_DIGEST_DOMAIN,
+            &evidence.paid_proof,
+        )
+        .unwrap();
+        for reply in [
+            &mut evidence.world_evidence.preflight,
+            &mut evidence.world_evidence.resource_final,
+        ] {
+            let binding = match &mut reply.payload {
+                resource::ResourcePaidWorldReplyV1::OwnerPreflight { binding, .. }
+                | resource::ResourcePaidWorldReplyV1::ResourceFinal { binding, .. } => binding,
+            };
+            binding.proof_digest = digest.clone();
+            let request_digest = binding.request_digest().unwrap();
+            let payload = reply.payload.clone();
+            *reply = ws::sign_service_response(
+                resource::RESOURCE_PAID_WORLD_REPLY_DOMAIN,
+                request_digest,
+                payload,
+                &"3f".repeat(32),
+            )
+            .unwrap();
+        }
+        evidence
+            .world_evidence
+            .verify(
+                evidence.world_evidence.preflight.payload.binding(),
+                evidence.world_evidence.resource_final.payload.binding(),
+                &s.owner_setup_v2_plan()
+                    .unwrap()
+                    .world_identity
+                    .service_public_key,
+            )
+            .unwrap();
+        cross["owner_setup_v2"]["resource_final"]["result"]["paid_result_bytes"] =
+            serde_json::to_value(oasis7_wasm_abi::encode_canonical_cbor(&evidence).unwrap())
+                .unwrap();
+        assert!(
+            serde_json::from_value::<AccountProvisionApprovalState>(cross).is_err(),
+            "even genuine issuer and Node signatures cannot replace the actual paid dispatch attempt"
+        );
         let mut missing = saved.clone();
         missing["owner_setup_v2"]["resource_final"]
             .as_object_mut()
