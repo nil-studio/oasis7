@@ -468,3 +468,10 @@ pub use close_vault_v2::{PreparedTermCloseSignatureV2, TerminationCloseVaultClai
 #[path = "test_session_termination_v2_owner_slot_read.rs"]
 mod owner_slot_read_v2;
 pub use owner_slot_read_v2::{PreparedTermOwnerSlotReadV2, TermOwnerSlotReadRecordV2};
+
+#[path = "test_session_term_six_funding_v2.rs"]
+mod term_six_funding_v2;
+pub use term_six_funding_v2::{
+    PreparedTermObservationPortV2, PreparedTermSixFundingV2, TermObservationPortV2,
+    TermObservationRoundV2, TermSixFundingRecordV2,
+};
