@@ -212,7 +212,9 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
                 cognition_groups::exercise(&store, &memory, &parent, &family);
             } else {
                 cognition_source_faults::exercise(&store, &memory, &parent, &family);
-                cognition_source_faults::real_put_cancellation(&store, &memory, &parent, &family);
+                cognition_source_faults::real_put_cancellation(
+                    &store, &memory, &parent, &family, &path,
+                );
                 cognition_source_faults::group_noop_final_cancel(&store, &memory, &parent, &family);
             }
             return;

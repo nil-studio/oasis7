@@ -228,6 +228,7 @@ pub fn exercise(
 }
 
 struct CancelWriter<'a> {
+    root: &'a std::path::Path,
     session: ValuePageSession<'a>,
     armed: &'a Cell<bool>,
     cancelled: &'a Cell<bool>,
@@ -235,7 +236,7 @@ struct CancelWriter<'a> {
     target: u64,
 }
 impl CancelWriter<'_> {
-    fn after(&self, before: &PageIoBudget) {
+    fn after(&self, before: &PageIoBudget, recipes: Option<usize>) {
         if !self.armed.get() {
             return;
         }
@@ -246,6 +247,13 @@ impl CancelWriter<'_> {
             assert!(
                 after.writes_remaining < before.writes_remaining,
                 "cancellation must follow actual physical publication"
+            );
+            assert!(
+                std::fs::read_dir(self.root.join("recipes"))
+                    .unwrap()
+                    .count()
+                    > recipes.unwrap(),
+                "selected cancellation must follow a newly published recipe"
             );
             self.cancelled.set(true);
         }
@@ -268,9 +276,14 @@ impl ValueNodeWriter for CancelWriter<'_> {
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
     ) -> Result<(), ValueTreeError> {
+        let recipes = (self.armed.get() && self.events.get() + 1 == self.target).then(|| {
+            std::fs::read_dir(self.root.join("recipes"))
+                .unwrap()
+                .count()
+        });
         let before = self.session.remaining_io().unwrap();
         self.session.put_node(id, bytes)?;
-        self.after(&before);
+        self.after(&before, recipes);
         Ok(())
     }
 }
@@ -281,10 +294,15 @@ impl StatePageWriter for CancelWriter<'_> {
         memory: &MemoryBudget,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(), ValueTreeError> {
+        let recipes = (self.armed.get() && self.events.get() + 1 == self.target).then(|| {
+            std::fs::read_dir(self.root.join("recipes"))
+                .unwrap()
+                .count()
+        });
         let before = self.session.remaining_io().unwrap();
         self.session
             .put_state_pages_cancelled(delta, memory, cancelled)?;
-        self.after(&before);
+        self.after(&before, recipes);
         Ok(())
     }
 }
@@ -293,8 +311,9 @@ pub fn real_put_cancellation(
     memory: &MemoryBudget,
     parent: &ExecutionParent,
     family: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    root: &std::path::Path,
 ) {
-    let n = put_attempt(store, memory, parent, family, 0, u64::MAX, 1);
+    let n = put_attempt(store, memory, parent, family, root, (0, u64::MAX, 1));
     assert!(n > 1);
     for channel in 0..2 {
         for target in [1, n] {
@@ -304,9 +323,12 @@ pub fn real_put_cancellation(
                     memory,
                     parent,
                     family,
-                    channel,
-                    target,
-                    2 + channel as u64 * 2 + u64::from(target == n)
+                    root,
+                    (
+                        channel,
+                        target,
+                        2 + channel as u64 * 2 + u64::from(target == n)
+                    )
                 ),
                 target
             );
@@ -318,10 +340,10 @@ fn put_attempt(
     memory: &MemoryBudget,
     parent: &ExecutionParent,
     family: &ReservedValue<CognitionCurrentStateQualificationV1>,
-    channel: u8,
-    target: u64,
-    after: u64,
+    root: &std::path::Path,
+    scenario: (u8, u64, u64),
 ) -> u64 {
+    let (channel, target, after) = scenario;
     let field = CognitionJsonFieldV1::FeedbackOutbox;
     let entry = family
         .json_entry(field, &parent.roots.digest().unwrap())
@@ -334,6 +356,7 @@ fn put_attempt(
     let armed = Cell::new(false);
     let cancelled = Cell::new(false);
     let mut writer = CancelWriter {
+        root,
         session: store.value_session(physical()),
         armed: &armed,
         cancelled: &cancelled,
