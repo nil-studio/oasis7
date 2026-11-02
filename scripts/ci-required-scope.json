@@ -211,6 +211,21 @@
         "tests::resolve_trace_session_id_is_stable_within_process"
       ]
     },
+    "viewer-runtime-lib": {
+      "package": "oasis7_viewer_runtime",
+      "target_kind": "lib",
+      "target_name": "oasis7_viewer_runtime",
+      "default_features": false,
+      "features": [
+        "test_tier_required"
+      ],
+      "cases": [
+        "viewer::runtime_live::control_plane::llm_sidecar::hosted_identity_tests::deferred_identity_same_phase_dispatches_once_with_exact_identity",
+        "viewer::runtime_live::control_plane::llm_sidecar::hosted_identity_tests::deferred_identity_config_or_full_phase_changes_release_no_job",
+        "viewer::runtime_live::control_plane::llm_sidecar::hosted_identity_tests::deferred_identity_queue_failure_keeps_exact_original_and_lookup_recovery",
+        "viewer::runtime_live::stream_budget_diagnostics::tests::numeric_ring_is_bounded_and_disabled_after_snapshot"
+      ]
+    },
     "launcher-config-lib": {
       "package": "oasis7_launcher_config",
       "target_kind": "lib",
@@ -298,6 +313,7 @@
         "runtime-incremental"
       ],
       "reason": "additive_registered_incremental_module_wiring",
+      "static_module_additions": true,
       "added_declarations": [
         "pub mod incremental_body;",
         "pub mod incremental_body_event;",
@@ -328,9 +344,30 @@
         "pub use world::incremental_commit::{CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,};",
         "pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};"
       ]
+    },
+    {
+      "paths": [
+        "crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs"
+      ],
+      "targets": [
+        "viewer-runtime-lib"
+      ],
+      "reason": "additive_native_viewer_service_module_wiring",
+      "static_module_additions": true
     }
   ],
   "ordinary_fast_component_rules": [
+    {
+      "match": [
+        "crates/oasis7_viewer_runtime/src/viewer/runtime_live/agent_service_*.rs",
+        "crates/oasis7_viewer_runtime/src/viewer/runtime_live/stream_budget_diagnostics.rs"
+      ],
+      "exclude": [],
+      "targets": [
+        "viewer-runtime-lib"
+      ],
+      "reason": "native_viewer_agent_io_phase_and_stream_diagnostics_with_complete_library_tests"
+    },
     {
       "match": [
         "crates/oasis7_runtime/src/**"
