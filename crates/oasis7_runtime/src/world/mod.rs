@@ -1190,6 +1190,7 @@ mod incremental_agent_move;
 pub mod incremental_commit;
 
 pub mod incremental_allocators;
+pub mod incremental_controls;
 
 pub(super) mod incremental_clock;
 

@@ -790,3 +790,10 @@ scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 bef
 需要引用本次 after RootSet 的原 Result（例如 Cognition History view）在同一 ExecutionTransaction 冻结真实写集、计算并校验 after roots 后生成，不预测根、不重新创建事务，也不修改已 seal 的不可变 prepared 结构。唯一末尾 fact 的额度和完整临时内存须在调用生产者前准入；callback 只读实际 after RootSet，不能改 roots、写集或原 fact 顺序。生成失败保留原错误类型；取消在生产前后及返回 prepared 前均检查，任一错误消费并丢弃该 overlay，不返回可 seal 的成功前缀。已经写出的原件仍为 provisional，沿既有 pending/保留与正式接受规则处理，不因本 hook 授予业务或耐久权限。
 
 ordered_fact_count 仅给出当前追加位置，不能用作接受历史证明。原无末尾 fact 的 seal 复用同一冻结路径并保持原 wire 与结果；正式 fact 原件、签名候选、完整 typed closure 和最终接受仍分别验证。RootSet 不引用本次 fact/history/body，因此末尾原件绑定 roots 不形成回填循环。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+### 12.53 Runtime 治理控制字段
+
+原 Runtime 的 tick_consensus_authority_source（Text）、next_governance_identity_penalty_id（U64）和 governance_emergency_brake_until_tick（Unit/U64）各保留独立 Value 记录。原名称、owner、namespace 和内容不规范化，None 与 Some(0) 严格区分。Scheduler cursor、内存限制、回压计数及确定性 routing 继续使用 §12.43 的既有专用 owner，不建立第二套平行 producer/资格。
+
+此三字段组须具备借用原 World 的 GEN、完整根资格、同 ExecutionTxn 当前值读取与 expected 更新、失败 poison、双取消终检、generic replay 后的实际变更验证和页闭包。资格绑定精确 RootSet，仅证明本组结构，不授予 Runtime/World 接受、业务权限或全局 GC；完整 Runtime 还须闭合其他 owner。普通点操作不得序列化原 World 或扫描不相关记录；恢复完整资格使用调用者连续有限预算。
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
