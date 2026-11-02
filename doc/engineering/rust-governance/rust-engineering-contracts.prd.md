@@ -58,7 +58,7 @@ Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84；对应 [REQ-RUST-002](
 
 1. 每条规则包含上游条款、受检查根、禁入对象、依赖 kind 和支持组合；重命名依赖、workspace 继承、间接边与 build 边不能绕过检查。
 2. Game Client/Harness 隔离、Runtime/State/Projection 边界和 Launcher/协议工具轻量边界按[方向矩阵](rust-engineering-contracts.design.md#boundary-matrix)分别表达。Projection/Service 复用 Game Client、Provider bridge 消费 Simulator DTO，以及协议工具 dev 互操作不得误报。
-3. 默认生产、无默认 feature 的轻量配置、显式生产能力、required/full 测试能力分别验证；只报告实际支持和执行的组合，不能以 `--all-features` 代替生产证明。
+3. 默认生产、无默认 feature 的轻量配置、显式生产能力、required/full 测试能力分别验证；只报告实际支持和执行的组合，不能以 `--all-features` 代替生产证明。可信普通快速合同可由当轮必需的精确 target 编译、Clippy 和真实测试承接有界源码改动，额外编译矩阵交给周期 full；全部声明与登记配置的依赖图仍逐轮核查，延期项单独报告。混合未覆盖输入、共享控制与必要加测保留原编译要求，不能将快速变体称为完整矩阵等价验证。
 4. 输出至少区分 `pass`、`violation`、`inspection_error`、`coverage_gap`，包含规则、root、host/target、features、可定位依赖路径和上游依据；解析失败不得返回通过。
 5. 启用检查前验证真实正例、违规反例及 CI 接线；结构通过不替代运行时权限、持久化、世界结果或跨入口恢复验收。
 

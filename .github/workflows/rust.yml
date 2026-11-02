@@ -289,6 +289,152 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  pr-fast-preview-plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.preview.outputs.enabled }}
+      synthetic_base_sha: ${{ steps.preview.outputs.synthetic_base_sha }}
+      source_sha: ${{ steps.preview.outputs.source_sha }}
+      tested_sha: ${{ steps.preview.outputs.tested_sha }}
+      artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Plan diagnostic ordinary source benchmark
+        id: preview
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          python3 scripts/ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA" \
+            --output "$RUNNER_TEMP/selection.json" --github-output "$GITHUB_OUTPUT"
+      - name: Record diagnostic-only plan
+        if: steps.preview.outputs.enabled == 'true'
+        run: |
+          printf '%s\n' '## Candidate fast-profile preview' \
+            'Diagnostic only: candidate policy and a synthetic Rust-only diff; the trusted-BASE required gate remains independent.' \
+            'The three real groups run in parallel without restoring caches. This single sample does not establish a ten-minute P95.' \
+            'End-to-end preview latency runs from workflow creation to the last preview group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/selection.json.metadata.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.preview.outputs.enabled == 'true'
+        with:
+          name: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/selection.json
+            ${{ runner.temp }}/selection.json.metadata.json
+          retention-days: 14
+          if-no-files-found: error
+
+  pr-fast-preview:
+    needs: pr-fast-preview-plan
+    if: needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [baseline, rust_baseline, oasis7_required]
+    steps:
+      - name: Start cold runner measurement
+        run: echo "PREVIEW_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Restore diagnostic synthetic baseline
+        run: python3 scripts/ci-fast-preview.py restore --metadata "$RUNNER_TEMP/selection.json.metadata.json"
+      - name: Install Markdown runtime
+        if: matrix.group == 'baseline'
+        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+      - name: Install pinned Rust toolchains
+        if: matrix.group != 'baseline'
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
+          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
+          rustup target add wasm32-unknown-unknown
+      - name: Stabilize Rust toolchains for ordinary execution
+        if: matrix.group != 'baseline'
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+        if: matrix.group == 'rust_baseline'
+        with:
+          tool: cargo-deny@0.19.9
+      - name: Install native libraries
+        if: matrix.group != 'baseline'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Execute actual preview group
+        id: execute
+        shell: bash
+        env:
+          PREVIEW_GROUP: ${{ matrix.group }}
+          SOURCE_SHA: ${{ needs.pr-fast-preview-plan.outputs.source_sha }}
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.pr-fast-preview-plan.outputs.synthetic_base_sha }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}
+          OASIS7_CI_PROFILE: pr-fast
+          CI_VERBOSE: "1"
+        run: |
+          set -euo pipefail
+          export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$RUNNER_TEMP/selection.json")"
+          plan_args=()
+          if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required ]]; then
+            plan_args=(--plan "$RUNNER_TEMP/selection.json")
+          fi
+          bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
+            --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
+      - name: Record preview group timing and outcome
+        if: always()
+        env:
+          PREVIEW_GROUP: ${{ matrix.group }}
+          PREVIEW_OUTCOME: ${{ steps.execute.outcome }}
+          PREVIEW_TESTED_SHA: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, time
+          ended = int(time.time())
+          report = {'diagnostic_only': True, 'cache_restored': False,
+                    'group': os.environ['PREVIEW_GROUP'], 'outcome': os.environ['PREVIEW_OUTCOME'],
+                    'tested_sha': os.environ['PREVIEW_TESTED_SHA'],
+                    'runner_started_at': int(os.environ['PREVIEW_STARTED_AT']), 'ended_at': ended}
+          report['runner_seconds'] = ended - report['runner_started_at']
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'pr-fast-preview-timing.json').write_text(json.dumps(report, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write('Diagnostic cold group: ' + json.dumps(report) + '\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: pr-fast-preview-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/pr-fast-preview.log
+            ${{ runner.temp }}/pr-fast-preview-timing.json
+          retention-days: 14
+          if-no-files-found: error
+
   command-center:
     needs: select
     if: >-
@@ -355,6 +501,10 @@ jobs:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
@@ -388,9 +538,10 @@ jobs:
         env:
           CI_VERBOSE: "1"
           OASIS7_CI_ARCHITECTURE_PLAN: ${{ needs.select.outputs.plan }}
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --repo-root "$GITHUB_WORKSPACE"
+        run: bash ./scripts/ci-tests.sh required --group "rust_baseline" --plan "$RUNNER_TEMP/selection.json" --repo-root "$GITHUB_WORKSPACE"
 
   cache-bootstrap-maintenance:
     cache-mode: none
@@ -434,6 +585,8 @@ jobs:
     needs: select
     if: >-
       needs.select.result == 'success' &&
+      !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+        fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
        fromJSON(needs.select.outputs.plan).scope == 'full') &&
@@ -569,6 +722,8 @@ jobs:
       cache_confirmed: ${{ steps.ordinary-cache-observe.outputs.saved_confirmed }}
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+        fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
        fromJSON(needs.select.outputs.plan).scope == 'full') &&
@@ -586,6 +741,8 @@ jobs:
     needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
     if: >-
       always() && needs.select.result == 'success' &&
+      !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+        fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
@@ -842,8 +999,13 @@ jobs:
   oasis7-required:
     needs: [select, oasis7-test-build]
     if: >-
-      always() && !cancelled() && needs.oasis7-test-build.result == 'success' &&
-      needs.select.result == 'success' &&
+      always() && !cancelled() && needs.select.result == 'success' &&
+      (((fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+         fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
+        needs.oasis7-test-build.result == 'skipped') ||
+       (!(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
+          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
+        needs.oasis7-test-build.result == 'success')) &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -878,22 +1040,46 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Identify inline ordinary workspace cache
+        id: ordinary-cache-identity
+        if: fromJSON(needs.select.outputs.plan).fast_execution_version == 1 && fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline'
+        run: python3 scripts/ci-workspace-cache.py identity --scope ordinary
+      - name: Restore compatible inline ordinary workspace cache
+        id: ordinary-workspace-cache
+        if: steps.ordinary-cache-identity.outputs.key != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ordinary-workspace-cache/workspace-units.tar.zst
+          key: ${{ steps.ordinary-cache-identity.outputs.key }}
+          restore-keys: ${{ steps.ordinary-cache-identity.outputs.prefix }}
+      - name: Validate and restore inline ordinary workspace units
+        if: fromJSON(needs.select.outputs.plan).fast_execution_version == 1 && fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline'
+        env:
+          REQUESTED_KEY: ${{ steps.ordinary-cache-identity.outputs.key }}
+          MATCHED_KEY: ${{ steps.ordinary-workspace-cache.outputs.cache-matched-key }}
+          CACHE_HIT: ${{ steps.ordinary-workspace-cache.outputs.cache-hit }}
+        run: |
+          python3 scripts/ci-workspace-cache.py restore --scope ordinary --cache "$RUNNER_TEMP/ordinary-workspace-cache" \
+            --requested-key "$REQUESTED_KEY" --matched-key "$MATCHED_KEY" --cache-hit "$CACHE_HIT" \
+            --report "$RUNNER_TEMP/ordinary-cache-restore.json"
       - name: Install native libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline'
         with:
           name: native-tests-${{ github.sha }}
           path: ${{ runner.temp }}
       - name: Unpack native executables preserving modes
+        if: fromJSON(needs.select.outputs.plan).fast_execution_version != 1 || fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline'
         run: |
           mkdir -p "$RUNNER_TEMP/native-tests"
           tar -C "$RUNNER_TEMP/native-tests" -xzf "$RUNNER_TEMP/native-tests.tar.gz"
       - name: Execute selected group
         shell: bash
         env:
-          OASIS7_CI_TEST_BUNDLE: ${{ runner.temp }}/native-tests
+          OASIS7_CI_TEST_BUNDLE: ${{ !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 && fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') && format('{0}/native-tests', runner.temp) || '' }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}

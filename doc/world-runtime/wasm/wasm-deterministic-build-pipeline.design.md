@@ -411,6 +411,7 @@ canonical packaged wasm
 
 - `m1/m4/m5` 的 canonical binary 经 sync/check 与 SHA-256 manifest 对账后，由 `hydrate_builtin_wasm` 写入按 SHA-256 配置的 `LocalCasStore`。
 - materializer 读取 DistFS candidate 后复算 SHA-256；本地候选不可用时，当前实现仍会继续 fetch 与 builtin source-compile fallback。materializer 不接收 identity、receipt 或 release policy。
+- fetcher、外部 compiler 和默认构建脚本的每次调用须独占 `repo_root/.tmp` 下的工作目录，保持 Docker 挂载可达；通过原子创建取得目录所有权，名称碰撞时重选，其他创建错误直接返回。时间戳不作为唯一性保证；调用只清理自己取得的目录，不复用或删除其他并发调用及已有目录的产物。
 - DistFS 只承载 binary materialization/cache，不改变 canonical build/identity 的权威关系。identity/receipt/signature/release policy 由外围 artifact selection / release-gated pipeline 校验；`Action::CompileModuleArtifactFromSource` 的 production policy gate 不覆盖 builtin materializer fallback，不能据此声明生产入口已经关闭后者。
 
 <a id="build-image-detail"></a>

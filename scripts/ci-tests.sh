@@ -233,6 +233,21 @@ for command in commands:
   run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
 }
 
+run_oasis7_required_clippy_for_group() {
+  local selected_group=oasis7_required
+  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+    selected_group=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase clippy-group) || return
+  fi
+  case "$selected_group" in
+    oasis7_required|rust_baseline) ;;
+    *) echo "Unknown ordinary Clippy group: $selected_group" >&2; return 2 ;;
+  esac
+  if [[ "$selected_group" == "$1" ]]; then
+    run_oasis7_required_tier_clippy
+  fi
+}
+
 run_oasis7_full_tier_tests() {
   run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
 }
@@ -506,6 +521,7 @@ run_workflow_governance_baseline_contract_tests() {
   run python3 ./scripts/ci-required-result.test.py
   run python3 ./scripts/ci-full-result.test.py
   run python3 ./scripts/ci-workflow.test.py
+  run python3 ./scripts/ci-fast-preview.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
   run python3 ./scripts/ci-cache-policy.test.py
   run python3 ./scripts/ci-cache-archive.test.py
@@ -917,6 +933,11 @@ run_full_extended_tier_tests() {
 }
 
 run_rust_baseline() {
+  local extra_checks=$'newapi_accounting\nstandalone_tool_lockfiles' check
+  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+    extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase baseline-checks) || return
+  fi
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
@@ -929,15 +950,22 @@ run_rust_baseline() {
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
-  run_newapi_bridge_service_accounting_tests
-  run_standalone_tool_lockfiles_checks
+  run_oasis7_required_clippy_for_group rust_baseline
+  while IFS= read -r check; do
+    case "$check" in
+      newapi_accounting) run_newapi_bridge_service_accounting_tests ;;
+      standalone_tool_lockfiles) run_standalone_tool_lockfiles_checks ;;
+      '') ;;
+      *) echo "Unknown Rust baseline check: $check" >&2; return 2 ;;
+    esac
+  done <<< "$extra_checks"
 }
 
 run_group() {
   case "$1" in
     baseline) run_required_gate_checks ;;
     rust_baseline) run_rust_baseline ;;
-    oasis7_required) run_oasis7_required_tier_clippy; run_oasis7_required_tier_tests; if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::; run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields; fi ;;
+    oasis7_required) run_oasis7_required_clippy_for_group oasis7_required; run_oasis7_required_tier_tests; if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::; run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields; fi ;;
     formal_process) run bash "$driver_dir/formal-live-local-tests.sh" "$repo_root" ;;
     consensus) run_oasis7_consensus_clippy; run_oasis7_consensus_tests ;;
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
@@ -966,8 +994,8 @@ if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_s
   echo '--support-profiles requires required --group workspace_support' >&2
   exit 2
 fi
-if [[ -n "$required_plan" && ( "$tier" != required || "$group" != oasis7_required ) ]]; then
-  echo '--plan requires required --group oasis7_required' >&2
+if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline ) ) ]]; then
+  echo '--plan requires required --group oasis7_required or rust_baseline' >&2
   exit 2
 fi
 if [[ -n "$group" ]]; then

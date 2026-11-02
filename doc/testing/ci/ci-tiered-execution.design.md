@@ -113,6 +113,8 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
+| `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
+| `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
@@ -167,7 +169,7 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 #### 独立快速 target 库存
 
-可信 `ci-required-scope.json` 登记精确输入、目标及非空最低 case 清单。仅 `pr-fast/main-fast` 的 targeted 计划、没有测试政策迁移且每个相关 native/Formal 输入均命中可信合同，才以 `ordinary_fast_targets` 替代包级 `--tests`。旧 BASE 缺 capability、共享控制、未知或未映射输入、混合风险变化均保留原必要范围，其他组与便携 WASM 闭包不随 native 精简而删除。
+可信 `ci-required-scope.json` 同时登记精确输入合同和组件源码合同，均绑定实际 Cargo 目标及非空最低 case 清单。仅 `pr-fast/main-fast` 的 targeted 计划、没有测试政策迁移且每个相关 native/Formal 输入均命中可信合同，才以 `ordinary_fast_targets` 替代包级 `--tests`。组件路径匹配只是候选条件，必须再证明改动源码沿真实 module/include 路由在所选 target/features 中可达；`src/bin`、未接线模块和所选 lib 之外的 integration 不能借目录匹配进入快速计划。旧 BASE 缺 capability、共享控制、未知或未映射输入、混合风险变化均保留原必要范围。
 
 | 目标 | 完整原始用例 | 选择依据 |
 | --- | --- | --- |
@@ -175,8 +177,13 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 | World State `pr_fast_reducers` | Runtime `src/tests/apply_domain_event_guards.rs` 的 11 个用例 | 已登记归约测试源，保留幂等、篡改重复、legacy 格式、错误 service 合约及缺失角色的拒绝与状态不变 |
 | Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
 | Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
+| 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
 
-目标使用 `--no-default-features --features test_tier_required`。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。这批增量候选准备/查询接口尚未承接 host canonical acceptance；host、共享协议、磁盘存储实现、WASM 及未登记模块变化仍保留原专项和消费者。不能将整个 `src/**` 或 `incremental_*` 目录作为快速白名单。
+目标使用配置中明确登记的无默认 feature 组合；声明 `test_tier_required` 的目标启用该 feature。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
+
+完整反向消费者集合继续写入计划作为影响证据。已证明的组件合同承接普通行为，上层完整集成回归放入 periodic-full；直接规则、手动必要加测、未覆盖输入及平台风险仍取并集。Formal 显式风险规则先于组件合同应用，例如 retained history 仍选 world-history，projection 仍选 runtime-protocol 与 world-history；只有没有显式风险且行为已由快速目标承接的输入才取消默认五套长回归。Launcher release 构建只在其真实输入或必要风险要求时加入快速图。WASM 保留适用消费者编译；仅当源码路由与 cfg 可证明输入不进入 WASM 构建时，才排除纯传递依赖带来的无关 WASM 检查，解析不确定时保留。
+
+不可达证明同时核对实际 library、binary 与 build script 入口、静态模块挂载和嵌入数据消费者。原生源码可能经直接或传递的 Cargo build-dependency、proc-macro 或 build script 在 host 上生成便携目标的输入；这种路线必须保留平台验证，不能仅凭 native cfg 排除。自定义或无法解析的入口同样保守处理；包里存在 build script 本身不等于所有 library 源码都作为 host 生成器执行。
 
 构建前直接生成 `cargo test -p <package> --lib` 或 `--test <name>`；strict Clippy 使用同一命令列表。独立模式不隐式追加 Viewer/snapshot harness。artifact 核对 package/target、请求及实际 features、默认 feature、最低 case 存在且非 ignored、计划与 source/tested 身份；缺目标、空执行、错误变体或遗漏最低用例均失败。最低名单不限制执行，所选目标的全部非 ignored 用例包括后续新增回归都实际运行。
 
@@ -185,6 +192,20 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、扩展 features 和平台组合，并通过独立 `ordinary_full_fast_targets` **追加全部快速目标的相同无默认 feature 组合**。默认 feature 的 full 不能抵扣仅在无 Wasmtime 下存在的行为。补充构建、Clippy 和测试均执行，产物按 feature 变体区分；验证补充后仍独立验证原库存，不能用补充 harness 顶替原 required。旧 BASE 缺此能力时仍使用旧入口。
 
 该机制和本地测试不证明 hosted 十分钟/P95 达标。仍按完整排队、准备、编译、Clippy、测试和汇总的真实时长验收；本 CI 控制 PR 自身接受旧可信规则，候选不能先减测使自己通过。
+
+#### 快速执行链路与专项 baseline
+
+可信计划为已选中的组件快速目标声明单 runner 执行能力。`oasis7-required` 保持固定 job 身份，在同一 checkout/工具链中完成必要 WASM 编译、真实测试构建与执行，复用现有 build manifest、最低 case、features 和非空执行核验；不再为这些目标启动 ordinary artifact producer，再上传下载到第二台 runner。旧计划缺少能力字段、包级回退和完整 profile 继续使用原 producer/consumer 路径。汇总仍核对实际选中的执行模式，不能将 selected job 的 skipped、cancelled、missing 或失败视为成功。
+
+有界 inline 计划通过 `ordinary_clippy_group=rust_baseline` 将 strict Clippy 移到已有并行任务，缩短 native 构建和测试前的串行路径；不新增 job，也不改变 target、features 或 lint 参数。两个执行组都读取同一可信计划，核对 source/tested 身份后再判断唯一执行方；迁移要求计划同时选择 `rust_baseline` 与 `oasis7_required`，任一组失败仍由原 required gate 阻断。已知能力中的非法执行组、缺失所需组或不适用 profile 必须失败；缺少该字段时保留 ordinary 组内 Clippy，未知整数能力与旧计划继续使用原执行路径，不能让两个组都跳过。full 保留原 Clippy 全集及精确快速变体补充。
+
+`rust-baseline` 的格式、架构、RustSec 与文件约束继续执行。NewAPI accounting 仅在其真实 package/依赖输入受影响时执行；独立工具锁文件检查在相应 manifest/lock、检查器或共享构建输入变化时执行。选择来自可信计划及完整差异，不靠候选环境变量自由关闭；没有新能力的旧计划和完整 profile 保留原检查。周期 full 仍执行这些专项全部原命令。
+
+架构编译分层遵循[主责合同](../../engineering/rust-governance/rust-engineering-contracts.design.md#trusted-local-architecture)，Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。可信配置的 `architecture_build_policy_version=1` 仅对完整符合普通快速合同的直接输入启用 `ordinary-targets`；消费者重核目标 owner、source/tested、必需组和干净 checkout。全部登记 profile 的声明/依赖图持续阻断违规，额外编译以 `deferred_to_full` 记录，快速目标的真实构建、Clippy 与测试继续由当轮两个必需组执行。混合非普通输入、必要加测、共享控制、旧能力或 full 保留相应原矩阵，不通过诊断 `--graphs-only` 放行。周期 full 承担额外 feature/平台及上层组合的实际兼容编译。
+
+候选策略可通过独立、只读的性能预览取得合入前数据。现有 Rust workflow 对 CI 策略修改启动 `pr-fast-preview-plan`，以实际候选 tree 的两个固定 Rust 输入构造仅注释不同的 baseline，source/tested checkout 保持实际候选不变。`ci-fast-preview.py` 记录 candidate policy/source/tested、原 PR BASE、合成 BASE/tree 和固定输入，下游 runner 按确定性 Git 身份重建比较对象。规划必须恰好选中 baseline、rust-baseline 和 ordinary 三组及 Runtime lib、World State lib、reducers、物理 incremental 四个 target；额外需求、缺项或错误 feature 策略均不能被静默省略。
+
+三组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；从 workflow 创建到最后预览结束的时长仍包含排队与规划。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 
 baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。快速 baseline 不再附加 `--full-corpus` 历史内容报告，完整 profile 仍运行，原告警级别不变。
 
