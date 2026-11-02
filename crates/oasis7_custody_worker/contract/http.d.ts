@@ -122,7 +122,7 @@ export type ApprovedWorldV1 = {
   "service_public_key": string;
   "world_id": string;
 };
-export type CleanupTransportPolicyV2 = ("term_wide_five_second_owned_v2" | "term_wide_five_second_owned_world3_v2");
+export type CleanupTransportPolicyV2 = ("term_wide_five_second_owned_v2" | "term_wide_five_second_owned_world3_v2" | "term_wide_five_second_owned_direct_current5_v3");
 export type ClientPairingBindingV1 = {
   "api_version": number;
   "client_key_id": string;

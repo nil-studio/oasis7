@@ -70,10 +70,7 @@ impl AccountPreflightAccessV2 {
             || d.approved_input_digest != expected_input
             || d.session_id != self.input.operation_id
             || d.session_id != scope.session_id
-            || d.cleanup_transport_policy
-                != Some(
-                    crate::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2,
-                )
+            || d.cleanup_transport_policy != Some(plan.termination.cleanup_transport_policy)
             || d.world != plan.termination.world
             || self.issuer.environment != self.input.request.context.environment
             || d.native_binding.environment != self.input.request.context.environment
@@ -95,8 +92,10 @@ impl AccountPreflightAccessV2 {
             || self.issued_at.0 >= self.expires_at.0
             || self.expires_at.0 > d.expires_at.get()
             || self.expires_at.0 > self.issued_at.0.checked_add(5000).ok_or_else(invalid)?
-            || plan.termination.cleanup_transport_policy
-                != crate::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            || !plan
+                .termination
+                .cleanup_transport_policy
+                .requires_fixed_world3()
         {
             return Err(invalid());
         }

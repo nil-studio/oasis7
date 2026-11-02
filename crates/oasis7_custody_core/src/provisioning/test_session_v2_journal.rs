@@ -183,6 +183,13 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     TermSixNativePaidRecorded {
         round_id: String,
     },
+    TermFiveReserved {
+        round_id: String,
+    },
+    TermFivePortClaimed {
+        round_id: String,
+        port: TermObservationPortV3,
+    },
     TermSixReserved {
         round_id: String,
     },
@@ -306,6 +313,7 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         s.challenges.len(),
         s.credential_claims.len(),
         s.controls.len(),
+        s.termination_state.term_five_funding.iter().flatten().map(TermFiveFundingRecordV3::event_count).sum(),
         s.termination_state
             .term_six_funding
             .iter()

@@ -32,6 +32,9 @@ pub struct TestSessionTerminationStateV2 {
     pub(in crate::provisioning) qualification_read: Option<TermOwnerSlotReadRecordV2>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(in crate::provisioning) term_six_funding: Vec<TermSixFundingRecordV2>,
+    /// Absent only for old signed profiles. V3 must be born with this slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::provisioning) term_five_funding: Option<Vec<TermFiveFundingRecordV3>>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,6 +59,8 @@ struct RawTestSessionTerminationStateV2 {
     qualification_read: Option<TermOwnerSlotReadRecordV2>,
     #[serde(default)]
     term_six_funding: Vec<TermSixFundingRecordV2>,
+    #[serde(default)]
+    term_five_funding: Option<Vec<TermFiveFundingRecordV3>>,
 }
 fn present_guarded_stop<'de, D>(
     d: D,
@@ -88,6 +93,7 @@ impl TryFrom<RawTestSessionTerminationStateV2> for TestSessionTerminationStateV2
             owned_invocation: raw.owned_invocation,
             qualification_read: raw.qualification_read,
             term_six_funding: raw.term_six_funding,
+            term_five_funding: raw.term_five_funding,
             guarded_stop,
         };
         state.validate_shape()?;
@@ -251,6 +257,13 @@ impl TestSessionTerminationStateV2 {
                         .checked_mul(6)?,
                 )
             })
+            .and_then(|n| {
+                n.checked_add(
+                    u64::try_from(self.term_five_funding.as_ref().map_or(0, Vec::len))
+                        .ok()?
+                        .checked_mul(5)?,
+                )
+            })
             .and_then(|n| n.checked_add(u64::from(self.qualification_read.is_some())))
             .and_then(|n| {
                 n.checked_add(u64::from(
@@ -325,6 +338,11 @@ impl TestSessionTerminationStateV2 {
     pub(in crate::provisioning) fn transport_id_in_use(&self, id: &str) -> bool {
         self.term_six_funding.iter().any(|r| r.id_in_use(id))
             || self
+                .term_five_funding
+                .iter()
+                .flatten()
+                .any(|r| r.id_in_use(id))
+            || self
                 .owned_invocation
                 .as_ref()
                 .is_some_and(|v| v.invocation_id() == id)
@@ -383,6 +401,9 @@ impl TestSessionTerminationStateV2 {
             owned_invocation: None,
             qualification_read: None,
             term_six_funding: Vec::new(),
+            term_five_funding: (plan.termination.cleanup_transport_policy
+                == CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3)
+                .then(Vec::new),
         };
         state.validate_shape()?;
         Ok(state)
@@ -403,6 +424,13 @@ impl TestSessionTerminationStateV2 {
             return Err(ProvisionApprovalError::InvalidPersistence);
         };
         let term = &plan.termination;
+        let v3 = term.cleanup_transport_policy
+            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3;
+        if self.term_five_funding.is_some() != v3
+            || v3 && (!self.term_six_funding.is_empty() || self.qualification_read.is_some())
+        {
+            return Err(ProvisionApprovalError::InvalidPersistence);
+        }
         if let Some(stop) = &self.guarded_stop {
             stop.validate_input(
                 term,
@@ -584,6 +612,21 @@ impl TestSessionTerminationStateV2 {
                 }
             }
         }
+        if self.term_five_funding.as_ref().is_some_and(|v| v.len() > 2) {
+            return Err(invalid());
+        }
+        for r in self.term_five_funding.iter().flatten() {
+            for index in r.paid_indices() {
+                if index >= 24 || !indexes.insert(index) {
+                    return Err(invalid());
+                }
+            }
+            for id in r.physical_ids() {
+                if !transport_ids.insert(id) {
+                    return Err(invalid());
+                }
+            }
+        }
         if let Some(read) = &self.qualification_read {
             if !indexes.insert(u64::from(read.paid_index))
                 || !transport_ids.insert(read.attempt_id.as_str())
@@ -654,7 +697,11 @@ impl TestSessionTerminationStateV2 {
         }
         // TermSix forbids generic Term Source funding: its complete fixed ledger
         // therefore has no unrecorded paid indices or holes to borrow later.
-        if !self.term_six_funding.is_empty()
+        if (!self.term_six_funding.is_empty()
+            || self
+                .term_five_funding
+                .as_ref()
+                .is_some_and(|v| !v.is_empty()))
             && indexes != (0..self.paid_transport_count()?).collect()
         {
             return Err(invalid());

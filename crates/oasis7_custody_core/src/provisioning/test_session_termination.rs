@@ -475,3 +475,10 @@ pub use term_six_funding_v2::{
     PreparedTermNativePaidV2, PreparedTermObservationPortV2, PreparedTermSixFundingV2,
     TermNativeDispatchV2, TermObservationPortV2, TermObservationRoundV2, TermSixFundingRecordV2,
 };
+
+#[path = "test_session_term_five_funding_v3.rs"]
+mod term_five_funding_v3;
+pub use term_five_funding_v3::{
+    PreparedTermFiveFundingV3, PreparedTermObservationPortV3, TermFiveFundingRecordV3,
+    TermObservationPortV3, TermObservationRoundV3,
+};

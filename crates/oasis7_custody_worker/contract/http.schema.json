@@ -4240,6 +4240,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -6067,6 +6072,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]
@@ -8742,6 +8752,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -11121,6 +11136,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -13432,6 +13452,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]
@@ -17131,6 +17156,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -19134,6 +19164,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]
@@ -21627,6 +21662,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]
@@ -24159,6 +24199,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]
@@ -27694,6 +27739,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -29973,6 +30023,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -31899,6 +31954,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -31927,7 +31987,7 @@
               "type": "null"
             }
           ],
-          "description": "Only explicit World3 selects the new metadata basis, never an authority."
+          "description": "Explicit new closed metadata selects its exact signed basis, never authority."
         },
         "cleanup_until": {
           "$ref": "#/$defs/DecimalU64"
@@ -33097,6 +33157,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -33835,6 +33900,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]
@@ -35282,6 +35352,11 @@
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
               "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
+              "type": "string"
             }
           ]
         },
@@ -36582,6 +36657,11 @@
             {
               "const": "term_wide_five_second_owned_world3_v2",
               "description": "New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.\nThis is not a spendable HTTP allowance or an upgrade of the old variant.",
+              "type": "string"
+            },
+            {
+              "const": "term_wide_five_second_owned_direct_current5_v3",
+              "description": "Explicit new approval: Direct Current5, two lookups, integrated Vault checks.\nExisting Term6 records and signatures never upgrade into this profile.",
               "type": "string"
             }
           ]

@@ -72,13 +72,13 @@ impl AccountProvisionApprovalState {
         native: &NativeStageScope<'_>,
         now: UnixMillis,
     ) -> Result<PreparedNativePreflightAccessV2> {
-        if self
+        if !self
             .test_session_v2_record(id)?
             .header()?
             .0
             .termination
             .cleanup_transport_policy
-            != CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            .requires_fixed_world3()
         {
             return Err(invalid());
         }
@@ -118,8 +118,10 @@ impl AccountProvisionApprovalState {
             || s.preflight_world_access.is_some()
             || s.preflight_oracle_reads != 2
             || claimed != now
-            || plan.termination.cleanup_transport_policy
-                != CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+            || !plan
+                .termination
+                .cleanup_transport_policy
+                .requires_fixed_world3()
             || pin.native_audience_origin != native.http_origin
             || s.input.request.context.security_version != self.provision.security_epoch()
         {

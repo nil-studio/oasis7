@@ -230,6 +230,7 @@ impl AccountProvisionApprovalState {
             }
         }
         self.validate_term_six_funding_v2(s)?;
+        self.validate_term_five_funding_v3(s)?;
         Ok(())
     }
 }
