@@ -313,6 +313,7 @@ impl Data {
                     api_version: 2,
                     owner: self.state.clone(),
                     current_goal: wire::ResourceCurrentGoalV2 {
+                        activation_profile: None,
                         schema_revision: 1,
                         control: self.state.control.clone(),
                         read_commit: self.state.read_commit.clone(),

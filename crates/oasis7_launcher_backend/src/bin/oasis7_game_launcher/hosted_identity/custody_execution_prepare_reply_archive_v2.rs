@@ -5,10 +5,11 @@ use oasis7_client_api::world_service::task_context_projection::{
     public_projection_digest_v2, verify_prepared_delivery_v2,
 };
 use oasis7_custody_core::native_execution_prepare_v2::{
-    NativeExecutionPrepareGatedReplyV2, prepared_response_digest_v2,
+    MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2, NativeExecutionPrepareGatedReplyV2,
+    prepared_response_digest_v2,
 };
 const REPLY_KIND: &str = "custody_execution_prepare_reply_observation_v2";
-const MAX_ARCHIVE_BYTES: usize = 64 * 1024;
+const MAX_ARCHIVE_BYTES: usize = MAX_NATIVE_EXECUTION_PREPARE_REPLY_BYTES_V2;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,7 +33,7 @@ fn bounded<T: Serialize>(value: &T) -> Result<Vec<u8>, StoreError> {
 }
 fn archive_bytes(observation: &PreparedReplyObservation) -> Result<Vec<u8>, StoreError> {
     // Metadata is fixed and bounded; the already persisted claim owns the full
-    // original. Do not subtract wrapper overhead from a legal 64 KiB reply.
+    // original. Do not subtract wrapper overhead from a legal Native reply.
     if observation.api_version != 2
         || observation.claim_digest.len() != 64
         || observation.configuration_digest.len() != 64

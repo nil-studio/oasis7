@@ -893,6 +893,8 @@ pub(super) fn run_execution_bridge_incremental_retention_maintenance_after_task_
 pub(super) fn begin_execution_bridge_retention_transaction(
     execution_records_dir: &Path,
 ) -> Result<(), String> {
+    #[cfg(all(test, unix))]
+    super::formal_retention_route_test_support::observe_native_begin(execution_records_dir);
     write_bytes_atomic(
         execution_records_dir
             .join(EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER)
