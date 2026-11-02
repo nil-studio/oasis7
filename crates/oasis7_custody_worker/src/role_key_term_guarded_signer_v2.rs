@@ -17,7 +17,9 @@ const MAX_DUAL_ROWS: usize = MAX_TEST_SESSION_AUTHORITIES_V2 * 2;
 mod close;
 #[path = "role_key_term_guarded_qualification_v2.rs"]
 mod qualification;
-pub(crate) use qualification::TermOwnerSlotQualificationRequestV2;
+pub(crate) use qualification::{
+    TermOwnerSlotQualificationReplyV2, TermOwnerSlotQualificationRequestV2,
+};
 const ROW_BYTES: usize = 32768;
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TermGuardedSignerConfigurationV2 {
