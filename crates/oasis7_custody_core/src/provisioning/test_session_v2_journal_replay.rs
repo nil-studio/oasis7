@@ -25,6 +25,11 @@ pub(super) struct Replay<'a> {
     source_verified: BTreeSet<String>,
     fees: BTreeSet<String>,
     purpose_fees: BTreeSet<String>,
+    execution_pending_reserved: bool,
+    execution_pending_claims: usize,
+    execution_pending_directory_signed: bool,
+    execution_pending_fence_signed: bool,
+    execution_pending_fence_read_signed: bool,
     model_fees: BTreeSet<String>,
     model_reservations: BTreeSet<String>,
     execution_requests: BudgetLedger,
@@ -90,6 +95,11 @@ impl<'a> Replay<'a> {
             source_verified: BTreeSet::new(),
             fees: BTreeSet::new(),
             purpose_fees: BTreeSet::new(),
+            execution_pending_reserved: false,
+            execution_pending_claims: 0,
+            execution_pending_directory_signed: false,
+            execution_pending_fence_signed: false,
+            execution_pending_fence_read_signed: false,
             model_fees: BTreeSet::new(),
             model_reservations: BTreeSet::new(),
             execution_requests: BudgetLedger::new(p.request_limit.0),
@@ -380,6 +390,23 @@ impl<'a> Replay<'a> {
                     .count()
             || self.fees.len() != s.client_http_admissions.len()
             || self.purpose_fees.len() != s.purpose_http_admissions.len()
+            || self.execution_pending_reserved != s.execution_pending_start.is_some()
+            || self.execution_pending_claims
+                != s.execution_pending_start
+                    .as_ref()
+                    .map_or(0, |p| p.claimed_leaf_count())
+            || self.execution_pending_fence_signed
+                != s.execution_pending_start
+                    .as_ref()
+                    .is_some_and(|p| p.has_fence_dispatch())
+            || self.execution_pending_fence_read_signed
+                != s.execution_pending_start
+                    .as_ref()
+                    .is_some_and(|p| p.has_fence_read())
+            || self.execution_pending_directory_signed
+                != s.execution_pending_start
+                    .as_ref()
+                    .is_some_and(|p| p.has_directory_signature())
             || self.model_fees.len()
                 != s.native_model_budget
                     .as_ref()

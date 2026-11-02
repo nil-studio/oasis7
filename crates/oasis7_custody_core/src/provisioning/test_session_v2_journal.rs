@@ -80,6 +80,22 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     },
     // Closed consumers remain unsupported until their actual records, bounds
     // and replay delegation are composed; these variants confer no authority.
+    ExecutionPendingFenceDispatchRecorded {
+        request_id: String,
+    },
+    ExecutionPendingFenceReadRecorded {
+        request_id: String,
+    },
+    ExecutionPendingDirectorySignatureRecorded {
+        request_id: String,
+    },
+    ExecutionPendingLeafClaimed {
+        request_id: String,
+        leaf: super::execution_pending_start_v2::ExecutionPendingLeafV2,
+    },
+    ExecutionPendingReserved {
+        request_id: String,
+    },
     PurposeHttpCharged {
         ingress_attempt_id: String,
     },
@@ -186,6 +202,25 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         s.sources.len(),
         s.client_http_admissions.len(),
         s.purpose_http_admissions.len(),
+        usize::from(s.execution_pending_start.is_some()),
+        s.execution_pending_start
+            .as_ref()
+            .map_or(0, |p| p.claimed_leaf_count()),
+        usize::from(
+            s.execution_pending_start
+                .as_ref()
+                .is_some_and(|p| p.has_directory_signature()),
+        ),
+        usize::from(
+            s.execution_pending_start
+                .as_ref()
+                .is_some_and(|p| p.has_fence_dispatch()),
+        ),
+        usize::from(
+            s.execution_pending_start
+                .as_ref()
+                .is_some_and(|p| p.has_fence_read()),
+        ),
         s.native_model_budget
             .as_ref()
             .map_or(0, |m| m.http_admissions.len()),

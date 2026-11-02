@@ -88,12 +88,14 @@ impl AccountProvisionApprovalState {
             super::v2_purpose_http::validate_purpose_http_v2(s)?;
             self.validate_session_v2_tool_nonce_persistence(s)?;
             self.validate_execution_book_v2(s)?;
+            super::execution_pending_start_v2::validate_pending_start_v2(s)?;
             super::v2_journal::validate(s)?;
             // These old V1 execution/control formats never become V2 execution authority.
             if s.context.is_some()
                 || !s.actions.is_empty()
                 || s.purpose_transports.keys().any(|key| {
-                    !Self::tool_nonce_v2_internal_attempt(s, key)
+                    !super::execution_pending_start_v2::pending_owns_fee_port_v2(s, key)
+                        && !Self::tool_nonce_v2_internal_attempt(s, key)
                         && !s.execution_book.as_ref().is_some_and(|book| {
                             book.owns_lifetime_transport(key)
                                 || book.owns_prepare_factory_transport(s, key)
@@ -194,8 +196,13 @@ impl AccountProvisionApprovalState {
                     };
                     let sources = s
                         .source_funding
-                        .values()
-                        .filter(|f| f.purpose() == Some(purpose))
+                        .iter()
+                        .filter(|(key, f)| {
+                            f.purpose() == Some(purpose)
+                                && !super::execution_pending_start_v2::pending_funds_source_v2(
+                                    s, key,
+                                )
+                        })
                         .count() as u64;
                     expected.transport.charge(sources).map_err(|_| invalid())?;
                     expected
@@ -219,6 +226,14 @@ impl AccountProvisionApprovalState {
                         )
                         .map_err(|_| invalid())?;
                     if purpose == SessionPurposeV1::Execution {
+                        expected
+                            .transport
+                            .charge(
+                                s.execution_pending_start
+                                    .as_ref()
+                                    .map_or(0, |p| p.reserved_units()),
+                            )
+                            .map_err(|_| invalid())?;
                         if let Some(model) = &s.native_model_budget {
                             expected
                                 .transport
@@ -292,6 +307,12 @@ impl AccountProvisionApprovalState {
                             || book.owns_prepare_private_transport(s, &source.verify_nonce)
                             || book.owns_native_gate_transport(s, &source.verify_nonce)
                     })
+                    || (super::execution_pending_start_v2::pending_transport_id_in_use_v2(s, key)
+                        && !super::execution_pending_start_v2::pending_funds_source_v2(s, key))
+                    || (super::execution_pending_start_v2::pending_transport_id_in_use_v2(
+                        s,
+                        &source.verify_nonce,
+                    ) && !super::execution_pending_start_v2::pending_funds_source_v2(s, key))
                     || source.created_at.0 < s.consumed_at.ok_or_else(invalid)?.get()
                     || source.expires_at.0 <= source.created_at.0
                     || source.expires_at.0
