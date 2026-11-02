@@ -172,6 +172,7 @@ impl AccountProvisionApprovalState {
         if matches!(
             reservation.funding,
             SessionSourceFundingV1::ExecutionFactoryV2 { .. }
+                | SessionSourceFundingV1::ExecutionPendingStartV2 { .. }
         ) {
             return Err(invalid());
         }
@@ -570,9 +571,10 @@ pub(in crate::provisioning) fn transport_id_in_non_machine_state_v2(
     s: &TestSessionAuthorityV2,
     attempt: &str,
 ) -> bool {
-    s.preflight_world_access
-        .as_ref()
-        .is_some_and(|w| w.transport_id_in_use(attempt))
+    super::execution_pending_start_v2::pending_transport_id_in_use_v2(s, attempt)
+        || s.preflight_world_access
+            .as_ref()
+            .is_some_and(|w| w.transport_id_in_use(attempt))
         || transport_id_in_non_world2_state_v2(s, attempt)
 }
 pub(in crate::provisioning) fn transport_id_in_non_world2_state_v2(

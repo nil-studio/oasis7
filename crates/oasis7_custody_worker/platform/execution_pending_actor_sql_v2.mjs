@@ -1,24 +1,36 @@
-// Dedicated bounded physical-once rows; old Directory/Fence storage is intact.
-// No caller-visible HTTP or arbitrary query reaches these exports.
-const LIMIT=65536;
-const U64=(1n<<64n)-1n;
-function integer(s){if(typeof s!=="string"||!/^([1-9][0-9]*)$/.test(s))throw Error('pending Current once unavailable');const n=BigInt(s);if(n>U64)throw Error('pending Current once unavailable');return n;}
-function text(s){return typeof s==='string'&&s.length>0&&s.length<=256&&!/[\u0000-\u001f\u007f]/.test(s);}
-export function claimExecutionPendingActorV2(state,raw){
- if(typeof raw!=='string'||raw.length>8192)throw Error('pending Current once unavailable');
- const q=JSON.parse(raw),keys=['namespace','service_id','environment','physical_attempt_id','proof_digest','issuer_epoch','config_generation'];
- if(!q||Array.isArray(q)||Object.keys(q).length!==keys.length||keys.some(k=>!Object.hasOwn(q,k))||keys.slice(0,4).some(k=>!text(q[k]))||typeof q.proof_digest!=='string'||!/^([0-9a-f]{64})$/.test(q.proof_digest))throw Error('pending Current once unavailable');
- const epoch=integer(q.issuer_epoch),generation=integer(q.config_generation),storage=state.storage,sql=storage.sql;
- storage.transactionSync(()=>{
-  sql.exec('CREATE TABLE IF NOT EXISTS custody_pending_current_floor_v2(namespace TEXT NOT NULL,service_id TEXT NOT NULL,environment TEXT NOT NULL,issuer_epoch TEXT NOT NULL,config_generation TEXT NOT NULL,PRIMARY KEY(namespace,service_id,environment))');
-  sql.exec('CREATE TABLE IF NOT EXISTS custody_pending_current_once_v2(namespace TEXT NOT NULL,service_id TEXT NOT NULL,environment TEXT NOT NULL,attempt TEXT NOT NULL,proof_digest TEXT NOT NULL,PRIMARY KEY(namespace,service_id,environment,attempt))');
-  const scope=[q.namespace,q.service_id,q.environment];
-  const old=sql.exec('SELECT issuer_epoch,config_generation FROM custody_pending_current_floor_v2 WHERE namespace=? AND service_id=? AND environment=?',...scope).toArray();
-  if(old.length>1||old.length===1&&(epoch<integer(old[0].issuer_epoch)||generation<integer(old[0].config_generation)))throw Error('pending Current once unavailable');
-  if(sql.exec('SELECT attempt FROM custody_pending_current_once_v2 WHERE namespace=? AND service_id=? AND environment=? AND attempt=?',...scope,q.physical_attempt_id).toArray().length!==0)throw Error('pending Current once unavailable');
-  const rows=sql.exec('SELECT COUNT(*) AS n FROM custody_pending_current_once_v2').toArray();
-  if(rows.length!==1||!Number.isSafeInteger(rows[0].n)||rows[0].n>=LIMIT)throw Error('pending Current once unavailable');
-  sql.exec('INSERT INTO custody_pending_current_once_v2(namespace,service_id,environment,attempt,proof_digest) VALUES(?,?,?,?,?)',...scope,q.physical_attempt_id,q.proof_digest);
-  sql.exec('INSERT INTO custody_pending_current_floor_v2(namespace,service_id,environment,issuer_epoch,config_generation) VALUES(?,?,?,?,?) ON CONFLICT(namespace,service_id,environment) DO UPDATE SET issuer_epoch=excluded.issuer_epoch,config_generation=excluded.config_generation',...scope,q.issuer_epoch,q.config_generation);
+// New paid Directory profile only. Existing ordinary record bytes stay untouched.
+const header='custody_pending_current_floor_v2',once='custody_pending_current_once_v2';
+const birthKey='manager-directory-pending-birth-v2',ordinaryKey='manager-directory-v1';
+function inventory(state,capacity){
+ if(!Number.isInteger(capacity)||capacity<=0||capacity>4294967295)throw Error('directory capacity unavailable');
+ const sql=state.storage.sql,tables=sql.exec("SELECT type,name FROM sqlite_master WHERE type IN ('table','view','trigger') LIMIT 16").toArray().map(r=>`${r.type}:${r.name}`),has=n=>tables.includes(`table:${n}`);
+ const records=has('custody_records')?sql.exec('SELECT id FROM custody_records LIMIT 3').toArray():null;
+ const birth=has('custody_records')?sql.exec('SELECT id,substr(payload,1,32769) AS payload FROM custody_records WHERE id=? LIMIT 2',birthKey).toArray():null;
+ const count=has(once)?sql.exec(`SELECT CAST(COUNT(*) AS TEXT) AS count FROM ${once}`).one().count:null;
+ if(count!==null&&(!/^(0|[1-9][0-9]*)$/.test(count)||BigInt(count)>BigInt(capacity)))throw Error('directory inventory unavailable');
+ return {tables,records,birth,metadata:has(header)?sql.exec(`SELECT id,substr(payload,1,32769) AS payload FROM ${header} LIMIT 2`).toArray():null,count,claims:has(once)?sql.exec(`SELECT id,substr(payload,1,32769) AS payload FROM ${once} ORDER BY id LIMIT ?`,capacity+1).toArray():null};
+}
+export function claimExecutionPendingActorV2(state,capacity,transition){
+ return state.storage.transactionSync(()=>{
+  const before=inventory(state,capacity);
+  if(!Array.isArray(before.records)||!before.records.some(v=>v.id===ordinaryKey)||before.records.some(v=>v.id!==ordinaryKey&&v.id!==birthKey)||!Array.isArray(before.birth)||before.birth.length>1)throw Error('directory ordinary or birth inventory unavailable');
+  const installing=before.birth.length===0&&before.metadata===null&&before.claims===null;
+  if(!installing&&(before.birth.length!==1||before.metadata===null||before.claims===null))throw Error('directory partial unavailable');
+  const next=transition(JSON.stringify(before));
+  if(!Array.isArray(next)||next.length!==4||next.some(v=>typeof v!=='string'))throw Error('directory transition unavailable');
+  const [metadata,id,claim,birth]=next;
+  if(!/^[0-9a-f]{64}$/.test(id)||[metadata,claim,birth].some(v=>new TextEncoder().encode(v).byteLength>32768))throw Error('directory row bound');
+  const sql=state.storage.sql;
+  if(installing){
+   sql.exec(`CREATE TABLE ${header}(id TEXT PRIMARY KEY,payload TEXT NOT NULL)`);
+   sql.exec(`CREATE TABLE ${once}(id TEXT PRIMARY KEY,payload TEXT NOT NULL)`);
+   sql.exec(`INSERT INTO ${header}(id,payload) VALUES('singleton',?)`,metadata);
+   sql.exec('INSERT INTO custody_records(id,payload) VALUES(?,?)',birthKey,birth);
+  }else{
+   if(before.birth[0].payload!==birth)throw Error('directory birth immutable');
+   sql.exec(`UPDATE ${header} SET payload=? WHERE id='singleton'`,metadata);
+  }
+  sql.exec(`INSERT INTO ${once}(id,payload) VALUES(?,?)`,id,claim);
+  return claim;
  });
 }

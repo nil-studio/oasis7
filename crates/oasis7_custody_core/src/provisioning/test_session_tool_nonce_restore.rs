@@ -8,6 +8,7 @@ impl AccountProvisionApprovalState {
             matches!(
                 p.class,
                 SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ExecutionStartFiveV2 { .. }
             )
         }) {
             return Err(invalid());
