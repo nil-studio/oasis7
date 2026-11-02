@@ -135,6 +135,13 @@ fn setup_instances(memory: &MemoryBudget) -> (World, ExecutionParent, Pages, Val
 fn authenticated_instance_fields_survive_cache_changes_and_support_one_field_overlay_reads() {
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let (mut world, parent, pages, mut values) = setup_instances(&memory);
+    let qualification = recovery::qualify(
+        &parent.roots,
+        &pages,
+        &values,
+        &memory,
+        MemoryClass::Ordinary,
+    );
     world.state.module_instances.clear();
     world.state.module_states.clear();
     let source = values.clone();
@@ -143,6 +150,7 @@ fn authenticated_instance_fields_survive_cache_changes_and_support_one_field_ove
     let mut txn = ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, limits()).unwrap();
     let mut quota = io();
     let row = ModuleReadContext {
+        qualification: &qualification,
         values: &source,
         memory: &memory,
         io: &mut quota,
@@ -182,6 +190,7 @@ fn authenticated_instance_fields_survive_cache_changes_and_support_one_field_ove
         .unwrap();
     source.reads.set(0);
     let value = ModuleReadContext {
+        qualification: &qualification,
         values: &source,
         memory: &memory,
         io: &mut quota,
@@ -208,6 +217,13 @@ fn authenticated_instance_fields_survive_cache_changes_and_support_one_field_ove
 fn instance_counts_follow_inactive_creation_module_move_and_last_deletion_in_one_overlay() {
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let (mut world, parent, pages, mut values) = setup_instances(&memory);
+    let qualification = recovery::qualify(
+        &parent.roots,
+        &pages,
+        &values,
+        &memory,
+        MemoryClass::Ordinary,
+    );
     world.state.module_instances.clear();
     let source = values.clone();
     let live = parent.fence().unwrap();
@@ -218,6 +234,7 @@ fn instance_counts_follow_inactive_creation_module_move_and_last_deletion_in_one
     let mut quota = genesis_io();
     let count = |id: &str, txn: &mut ExecutionTransaction<'_, Pages>, quota: &mut _| {
         ModuleReadContext {
+            qualification: &qualification,
             values: &source,
             memory: &memory,
             io: quota,
@@ -247,6 +264,7 @@ fn instance_counts_follow_inactive_creation_module_move_and_last_deletion_in_one
         ("map-key", None, 0, 0),
     ] {
         crate::contribute_module_instance_change(
+            &qualification,
             key,
             after.as_ref(),
             &mut txn,
@@ -273,6 +291,13 @@ fn instance_counts_follow_inactive_creation_module_move_and_last_deletion_in_one
 fn instance_change_output_failure_poison_includes_prior_outer_write() {
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let (_, parent, pages, mut values) = setup_instances(&memory);
+    let qualification = recovery::qualify(
+        &parent.roots,
+        &pages,
+        &values,
+        &memory,
+        MemoryClass::Ordinary,
+    );
     let source = values.clone();
     let live = parent.fence().unwrap();
     let mut txn = ExecutionTransaction::begin(parent, [4; 32], &pages, &memory, limits()).unwrap();
@@ -283,6 +308,7 @@ fn instance_change_output_failure_poison_includes_prior_outer_write() {
     let mut quota = genesis_io();
     assert!(
         crate::contribute_module_instance_change(
+            &qualification,
             "map-key",
             Some(&changed),
             &mut txn,

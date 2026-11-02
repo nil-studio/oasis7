@@ -15,6 +15,9 @@ use oasis7_world_state::{
 };
 
 pub struct ModuleReadContext<'a, V, C> {
+    pub qualification: &'a ReservedValue<
+        super::incremental_module_instance_family::ModuleInstanceFamilyQualificationV1,
+    >,
     pub values: &'a V,
     pub memory: &'a MemoryBudget,
     pub io: &'a mut ValueIoBudget,
@@ -43,6 +46,7 @@ impl<V: ValueNodeReader, C: FnMut() -> bool> ModuleReadContext<'_, V, C> {
         if (self.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
+        super::incremental_module_instance_family::binding(self.qualification, txn, self.memory)?;
         Ok(())
     }
     pub(super) fn load(

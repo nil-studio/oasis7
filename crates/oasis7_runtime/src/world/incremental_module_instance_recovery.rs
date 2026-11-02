@@ -287,7 +287,7 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
             }))
     }
 }
-fn load<V: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn load<V: ValueNodeReader, C: FnMut() -> bool>(
     id: &[u8; 32],
     values: &V,
     memory: &MemoryBudget,
@@ -317,7 +317,7 @@ fn load<V: ValueNodeReader, C: FnMut() -> bool>(
     })?;
     Ok(charge.retain(bytes))
 }
-fn scan_error(error: StateScanError<BodyMutationError>) -> BodyMutationError {
+pub(super) fn scan_error(error: StateScanError<BodyMutationError>) -> BodyMutationError {
     match error {
         StateScanError::Visitor(error) => error,
         StateScanError::Memory(error) => ValueTreeError::Memory(error).into(),
@@ -330,7 +330,7 @@ fn scan_error(error: StateScanError<BodyMutationError>) -> BodyMutationError {
     }
 }
 // Extra row-completeness proofs share the finite scratch/read allowance.
-fn point<R: MerkleNodeReader, C: FnMut() -> bool>(
+pub(super) fn point<R: MerkleNodeReader, C: FnMut() -> bool>(
     root: &StateRootV1,
     key: &[u8],
     source: &R,

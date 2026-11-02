@@ -72,6 +72,40 @@ fn scratch_io() -> InstanceScratchBudget {
         write_bytes: 128 << 20,
     }
 }
+pub(super) fn qualify(
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    pages: &Pages,
+    values: &Values,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+) -> ReservedValue<crate::ModuleInstanceFamilyQualificationV1> {
+    let state = Store {
+        memory,
+        class,
+        pages: RefCell::new(pages.0.clone()),
+        fail_write: false,
+    };
+    let scratch = Store {
+        memory,
+        class,
+        pages: RefCell::new(BTreeMap::new()),
+        fail_write: false,
+    };
+    ModuleInstanceRecoveryContext {
+        root: roots.state_root(Ns::Business),
+        state: &state,
+        values,
+        scratch: &scratch,
+        memory,
+        class,
+        state_io: &mut state_io(),
+        value_io: &mut genesis_io(),
+        scratch_io: &mut scratch_io(),
+        max_scalar_bytes: 4096,
+    }
+    .qualify_family(roots, || false)
+    .unwrap()
+}
 fn verify<S: CounterScratchStore>(
     root: &oasis7_formal_protocol::incremental_state::StateRootV1,
     state: &S,

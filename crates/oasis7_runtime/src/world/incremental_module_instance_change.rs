@@ -20,6 +20,9 @@ use oasis7_world_state::{
 };
 
 pub fn contribute_module_instance_change<R, V, W, C>(
+    qualification: &oasis7_proto::memory_budget::ReservedValue<
+        super::incremental_module_instance_family::ModuleInstanceFamilyQualificationV1,
+    >,
     map_key: &str,
     after: Option<&ModuleInstanceState>,
     txn: &mut ExecutionTransaction<'_, R>,
@@ -35,6 +38,7 @@ where
 {
     txn.contribute(|txn| {
         let mut read = ModuleReadContext {
+            qualification,
             values,
             memory: context.memory,
             io: context.io,
@@ -144,4 +148,91 @@ fn put_count<R: MerkleNodeReader, W: ValueNodeWriter, C: FnMut() -> bool>(
     };
     txn.write(Ns::Business, &module_instance_count_key(module_id), value)?;
     Ok(())
+}
+
+/// Exact single-column update of an existing qualified row. Unchanged columns
+/// are not loaded. Whole-record replacement above deliberately validates its
+/// complete old projection; this path is the ordinary fixed-delta operation.
+pub fn change_module_instance_field_v1<R, V, W, C>(
+    qualification: &oasis7_proto::memory_budget::ReservedValue<
+        super::incremental_module_instance_family::ModuleInstanceFamilyQualificationV1,
+    >,
+    map_key: &str,
+    field: Field,
+    expected: Scalar<'_>,
+    after: Scalar<'_>,
+    txn: &mut ExecutionTransaction<'_, R>,
+    values: &V,
+    context: &mut BodyMutationContext<'_, W, C>,
+    max_scalar_bytes: u64,
+) -> Result<bool, BodyMutationError>
+where
+    R: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+{
+    txn.contribute(|txn| {
+        let mut read = ModuleReadContext {
+            qualification,
+            values,
+            memory: context.memory,
+            io: context.io,
+            max_value_bytes: max_scalar_bytes,
+            cancelled: &mut context.cancelled,
+        };
+        let before =
+            read.read_instance_field(map_key, field, txn)?
+                .ok_or(BodyMutationError::Invalid(
+                    "module instance point row absent",
+                ))?;
+        let old =
+            Scalar::from_canonical_bytes(&before, field).map_err(BodyMutationError::Invalid)?;
+        if old != expected {
+            return Err(BodyMutationError::Invalid("module instance exact expected"));
+        }
+        // Validate the requested original scalar type even on NoOp.
+        after
+            .encoded_len(field)
+            .map_err(BodyMutationError::Invalid)?;
+        let unchanged = old == after;
+        if (read.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if unchanged {
+            return Ok(false);
+        }
+        let mut counts = None;
+        if field == Field::ModuleId {
+            let (Scalar::Text(old_module), Scalar::Text(new_module)) = (old, after) else {
+                unreachable!()
+            };
+            let old_count = read.module_instance_count(old_module, txn)?;
+            if old_count == 0 {
+                return Err(BodyMutationError::Invalid(
+                    "module instance old count absent",
+                ));
+            }
+            let new_count = read.module_instance_count(new_module, txn)?;
+            counts = Some((
+                old_module,
+                old_count - 1,
+                new_module,
+                new_count
+                    .checked_add(1)
+                    .ok_or(BodyMutationError::Invalid("module count overflow"))?,
+            ));
+        }
+        let id = write_module_instance_scalar(field, after, context, max_scalar_bytes)?;
+        let key = ModuleInstanceKeyV1::new(map_key, field).map_err(BodyMutationError::Invalid)?;
+        txn.write(Ns::Business, key.as_bytes(), Some(id))?;
+        if let Some((old, old_count, new, new_count)) = counts {
+            put_count(old, old_count, txn, context)?;
+            put_count(new, new_count, txn, context)?;
+        }
+        if (context.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        Ok(true)
+    })
 }

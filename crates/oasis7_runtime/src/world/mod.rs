@@ -1192,6 +1192,10 @@ mod incremental_capability_records;
 pub mod incremental_module_instance_genesis;
 mod incremental_module_instance_genesis_state;
 pub mod incremental_module_instance_change;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_receiver;
 pub mod incremental_module_instance_recovery;
 pub mod incremental_module_read;
 
