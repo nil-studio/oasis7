@@ -131,8 +131,22 @@ impl AccountProvisionApprovalState {
                 .values()
                 .any(|old| old.source_operation_id == current.source_operation_id)
             || current.private_sid_generation.0 == 0
-            || current.source_ticket != 4
-            || s.source_oracle_reads.get(current.source_operation_id) != Some(&4)
+            || current.source_ticket
+                != client_source_tickets_v2(
+                    s,
+                    current.source_operation_id,
+                    SessionJournalProfileV2::Credential,
+                )?
+                .1
+            || s.source_oracle_reads.get(current.source_operation_id)
+                != Some(
+                    &client_source_tickets_v2(
+                        s,
+                        current.source_operation_id,
+                        SessionJournalProfileV2::Credential,
+                    )?
+                    .1,
+                )
             || s.control_transports
                 .get(&super::v2_credential_source::lifetime_attempt_v2(
                     s,

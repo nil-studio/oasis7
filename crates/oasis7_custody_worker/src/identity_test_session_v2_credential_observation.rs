@@ -29,7 +29,7 @@ impl Observation {
         paid: TestSessionCredentialObservedV2,
         expected_ticket: u8,
     ) -> Result<Self> {
-        if paid.source_ticket != expected_ticket || !matches!(expected_ticket, 1..=3) {
+        if paid.source_ticket != expected_ticket || !matches!(expected_ticket, 2..=4) {
             return Err(js_denied());
         }
         let fence_started = clock()?;

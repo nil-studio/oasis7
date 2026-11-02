@@ -218,29 +218,39 @@ function credentialCycle({identity,origin,scope,enrollment,plan,prefix,nativeCou
   };
   // Only fixed Execution metadata, same origin/session/key/actual approved Move.
   // No raw signing/URL/profile API; key stays lexical, tokens never persisted.
-  cycle.executionNonce=async token=>{
+  cycle.executionNonce=async (token,onPhase)=>{
+    onPhase?.('metadata-token-shape');
     assert.equal(typeof token,'string');assert.equal(token.length,43);
     assert.equal(Buffer.from(token,'base64url').length,32);
     assert.ok(Buffer.from(token,'base64url').toString('base64url')===token,'canonical token shape');
     const action={api_version:2,session_id:scope.session_id,request_id:`${prefix}-five-action`,action:{kind:'execute',request:plan.actions[0]}};
     const body={api_version:1,session_id:scope.session_id,request_id:`${prefix}-five-metadata`,purpose:'execution',kind:{kind:'tool'},logical_request_id:action.request_id,operation_request_digest:digest('oasis7.custody.test-session-action-request.v2',action)};
     const raw=JSON.stringify(body),target=targetPrefix+'proof-challenges';
+    onPhase?.('metadata-signed-window');
     const created=Math.floor(Date.now()/1000),expires=Math.min(created+20,Number(BigInt(plan.write_deadline)/1000n));
     assert.ok(expires*1000>Date.now());
     const sha=v=>createHash('sha256').update(v).digest('base64');
     const fields=['@method','@target-uri','content-type','content-digest','oasis7-token-digest','oasis7-test-session','oasis7-request-id'];
     const params=`(${fields.map(n=>JSON.stringify(n)).join(' ')});created=${created};expires=${expires};alg="ed25519";keyid="${enrollment.key_id}";tag="oasis7-custody-challenge-v1"`;
-    const headers={'content-type':'application/json','content-digest':`sha-256=:${sha(raw)}:`,'oasis7-token-digest':`:${sha(token)}:`,'oasis7-test-session':scope.session_id,'oasis7-request-id':body.request_id,Host:new URL(origin).host};
+    const headers={'content-type':'application/json','content-digest':`sha-256=:${sha(raw)}:`,'oasis7-token-digest':`:${sha(token)}:`,'oasis7-capability':token,'oasis7-test-session':scope.session_id,'oasis7-request-id':body.request_id,Host:new URL(origin).host};
     const values={'@method':'POST','@target-uri':target,...headers};
     const message=fields.map(n=>`"${n}": ${values[n]}`).concat(`"@signature-params": ${params}`).join('\n');
     headers['signature-input']=`oasis7=${params}`;headers.signature=`oasis7=:${sign(null,Buffer.from(message),client.privateKey).toString('base64')}:`;
+    onPhase?.('metadata-public-http');
     const before=total();const response=await identity.fetch(target,{method:'POST',headers,body:raw});
-    assert.equal(response.status,200,'actual V2 fixed nonce producer must succeed');
-    const reply=await response.json();
-    assert.equal(reply.kind.kind,'tool_metadata');assert.equal(reply.purpose,'execution');
-    assert.equal(reply.logical_request_id,action.request_id);assert.equal(reply.body_digest,body.operation_request_digest);
-    assert.equal(reply.nonce.length,43);assert.equal(total(),before,'metadata must perform zero Native HTTP');
-    return reply;
+    const diagnostic={http_status:response.status,response_object:false,kind_metadata:false,purpose_execution:false,logical_match:false,digest_match:false,nonce_length:null,native_delta:total()-before};
+    try{
+      onPhase?.('metadata-http-status');assert.equal(response.status,200,'actual V2 fixed nonce producer must succeed');
+      onPhase?.('metadata-json');const reply=await response.json();
+      Object.assign(diagnostic,{response_object:reply!==null&&typeof reply==='object'&&!Array.isArray(reply),kind_metadata:reply?.kind?.kind==='tool_metadata',purpose_execution:reply?.purpose==='execution',logical_match:reply?.logical_request_id===action.request_id,digest_match:reply?.body_digest===body.operation_request_digest,nonce_length:typeof reply?.nonce==='string'?reply.nonce.length:null,native_delta:total()-before});
+      onPhase?.('metadata-kind');assert.equal(reply.kind.kind,'tool_metadata');
+      onPhase?.('metadata-purpose');assert.equal(reply.purpose,'execution');
+      onPhase?.('metadata-logical');assert.equal(reply.logical_request_id,action.request_id);
+      onPhase?.('metadata-digest');assert.equal(reply.body_digest,body.operation_request_digest);
+      onPhase?.('metadata-nonce-shape');assert.equal(reply.nonce.length,43);
+      onPhase?.('metadata-no-native');assert.equal(total(),before,'metadata must perform zero Native HTTP');
+      return reply;
+    }catch(error){error.custodyNonceMetadataDiagnostic=diagnostic;throw error;}
   };
   return cycle;
 }
