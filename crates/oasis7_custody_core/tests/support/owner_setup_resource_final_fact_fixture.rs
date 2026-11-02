@@ -187,6 +187,7 @@ pub(super) fn response(
         panic!("actual committed publish")
     };
     let current_goal = ResourceCurrentGoalV2 {
+        activation_profile: None,
         schema_revision: 1,
         control: c.task.clone().unwrap(),
         read_commit: (&c.commit).into(),

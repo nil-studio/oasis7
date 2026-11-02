@@ -198,6 +198,11 @@ pub fn verify_resource_goal_response(
     verify_resource_goal_request(q)?;
     service(RESOURCE_GOAL_PATH_V2, q, r, key)?;
     let p = &r.payload;
+    // Codec prerequisite only. The new factual profile is deliberately not
+    // accepted until its complete Resource-specific proof consumer is added.
+    if p.current_goal.activation_profile.is_some() {
+        return Err(no());
+    }
     p.owner.validate(
         &q.request.expected_fence,
         &q.subject_public_key,

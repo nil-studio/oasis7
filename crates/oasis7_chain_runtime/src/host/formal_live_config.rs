@@ -61,7 +61,13 @@ pub(super) struct FormalLiveConfigV1 {
     pub recovery_origin_history_directory: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_delivery: Option<FormalEffectDeliveryConfigV1>,
-    #[serde(default, skip_serializing_if = "FullSyncProviderReadAuthorizationModeV1::is_legacy")]
+    /// Capture existing verified publication bytes only; not a permission or a cold lineage assertion.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub capture_qualified_mutation_material: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "FullSyncProviderReadAuthorizationModeV1::is_legacy"
+    )]
     pub full_sync_provider_read_authorization: FullSyncProviderReadAuthorizationModeV1,
 }
 
