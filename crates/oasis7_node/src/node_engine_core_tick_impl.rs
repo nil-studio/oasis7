@@ -243,7 +243,9 @@ impl PosNodeEngine {
                 with_execution_hook(&mut execution_hook, |hook| {
                     self.discard_invalid_governance_actions(hook.map(|hook| &*hook));
                 });
-                self.propose_next_head(node_id, world_id, now_ms)?
+                with_execution_hook(&mut execution_hook, |hook| {
+                    self.propose_next_head(node_id, world_id, now_ms, hook.map(|hook| &*hook))
+                })?
             } else {
                 self.idle_pending_decision()?
             };
