@@ -119,3 +119,6 @@ fn first_actual_closing_control_owns_one_paid_installation_read_and_history_cann
     assert!(recreated.is_none());
     assert_eq!(cold, exact);
 }
+
+#[path = "test_session_v2_term_six_funding_tests.rs"]
+mod term_six_tests;

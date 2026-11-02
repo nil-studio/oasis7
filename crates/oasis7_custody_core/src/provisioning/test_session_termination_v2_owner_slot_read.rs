@@ -71,6 +71,9 @@ fn request_digest(r: &TermOwnerSlotReadRecordV2) -> Result<String> {
     ))
 }
 impl TermOwnerSlotReadRecordV2 {
+    pub(super) fn paid_at(&self) -> UnixMillis {
+        self.claimed_at
+    }
     pub(super) fn validate_shape(&self, owned: &TermOwnedInvocationRecordV2) -> Result<()> {
         if self.attempt_id.is_empty()
             || self.attempt_id.len() > 256
@@ -226,6 +229,7 @@ impl AccountProvisionApprovalState {
                 return Err(invalid());
             }
         }
+        self.validate_term_six_funding_v2(s)?;
         Ok(())
     }
 }

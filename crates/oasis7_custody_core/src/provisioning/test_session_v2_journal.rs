@@ -161,6 +161,13 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
         request_id: String,
         source_operation_id: String,
     },
+    TermSixReserved {
+        round_id: String,
+    },
+    TermSixPortClaimed {
+        round_id: String,
+        port: TermObservationPortV2,
+    },
 }
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -273,6 +280,11 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
         s.challenges.len(),
         s.credential_claims.len(),
         s.controls.len(),
+        s.termination_state
+            .term_six_funding
+            .iter()
+            .map(TermSixFundingRecordV2::event_count)
+            .sum(),
         usize::from(s.closing.is_some_and(|(r, _)| {
             matches!(
                 r,
