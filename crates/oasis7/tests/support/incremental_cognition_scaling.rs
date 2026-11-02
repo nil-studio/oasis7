@@ -63,7 +63,10 @@ impl<S: MerkleNodeReader> MerkleNodeReader for CountState<'_, S> {
     }
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
         let result = self.source.read_node(id, max)?;
-        if result.is_some() { self.trace.push(0, *blake3::Hash::from_hex(id).unwrap().as_bytes()); }
+        if result.is_some() {
+            self.trace
+                .push(0, *blake3::Hash::from_hex(id).unwrap().as_bytes());
+        }
         let (calls, bytes) = self.count.get();
         self.count.set((
             calls + 1,
