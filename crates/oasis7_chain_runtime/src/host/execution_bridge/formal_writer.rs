@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 #[path = "formal_writer_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[path = "formal_writer_attempts.rs"]
 mod attempts;
