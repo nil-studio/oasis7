@@ -265,8 +265,12 @@ fn unit_semantic_digest() -> [u8; 32] {
     *blake3::hash(&bytes).as_bytes()
 }
 
-fn agent_ledger_semantic_digest(agent_id: &str) -> [u8; 32] {
+fn material_ledger_outer_semantic_digest(agent_id: &str) -> [u8; 32] {
     let mut bytes = b"oasis7.iws.semantic-key.v1\0".to_vec();
+    bytes.push(5); // tuple: original "material_ledgers" map key + ledger ID
+    bytes.push(1);
+    bytes.extend_from_slice(&("material_ledgers".len() as u64).to_be_bytes());
+    bytes.extend_from_slice(b"material_ledgers");
     bytes.extend_from_slice(&[4, 1, 1]); // MaterialLedgerId::Agent + text key
     bytes.extend_from_slice(&(agent_id.len() as u64).to_be_bytes());
     bytes.extend_from_slice(agent_id.as_bytes());
@@ -751,8 +755,8 @@ fn material_ledger_orphan_and_same_count_substitution_remain_distinct() {
     let substitute_child = record_root(&store, &memory, &manifest_root, &substitute);
     let expected_child = record_root(&store, &memory, &manifest_root, &expected);
     assert_ne!(
-        agent_ledger_semantic_digest("expected"),
-        agent_ledger_semantic_digest("substitute")
+        material_ledger_outer_semantic_digest("expected"),
+        material_ledger_outer_semantic_digest("substitute")
     );
     assert_eq!(
         unsigned_cell(
@@ -809,7 +813,7 @@ fn material_ledger_orphan_and_same_count_substitution_remain_distinct() {
         Some((
             &expected,
             substitute_child.root(),
-            agent_ledger_semantic_digest("substitute"),
+            material_ledger_outer_semantic_digest("substitute"),
         )),
     );
     let substituted_top = wrap_manifest_child(&store, &memory, &substituted_manifest);
