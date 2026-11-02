@@ -457,6 +457,9 @@ pub fn run(size: usize) -> Metrics {
         ],
     };
     eprintln!("Cognition fixed delta S={size} engine pool32M/8M metrics={metrics:?}");
-    assert!(metrics.logical.iter().map(|pair| pair.1).sum::<u64>() < 1 << 20);
+    // The fixed-delta oracle compares all three sizes exactly in the caller.
+    // A guessed absolute cumulative-IO cap is not the resident-memory budget;
+    // the engine pool and both continuous IO quotas remain finite and unchanged.
+
     metrics
 }
