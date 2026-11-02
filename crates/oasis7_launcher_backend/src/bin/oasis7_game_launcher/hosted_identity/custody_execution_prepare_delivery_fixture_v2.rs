@@ -50,6 +50,12 @@ pub(super) fn response(
     snapshot.captured_base_binding.reorg_epoch = fence.reorg_epoch.0;
     snapshot.captured_base_binding.base_tick = data.state.logical_tick.0;
     snapshot.actor_observation = json!({"agent_id":fence.agent_id,"position_cm":[0,0,0]});
+    if std::env::var_os("OASIS7_NATIVE_ARCHIVE_RUNTIME_OBSERVATION").is_some() {
+        let (tick, observation) = super::super::runtime_observation::build(data);
+        assert_eq!(tick, data.state.logical_tick.0);
+        snapshot.actor_observation = observation;
+    }
+
     let until = data.state.logical_tick.0 + TASK_CONTEXT_LEASE_TICKS;
     let native = snapshot.native_authority.as_mut().unwrap();
     native.fence = fence.clone();
