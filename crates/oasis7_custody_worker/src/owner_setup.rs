@@ -2,6 +2,7 @@
 use super::*;
 #[path = "owner_setup_approval.rs"]
 mod setup_approval;
+pub(crate) use setup_approval::OwnerSetupApproveOutput;
 #[path = "owner_setup_authority.rs"]
 mod setup_authority;
 #[path = "owner_setup_dispatch.rs"]
@@ -11,7 +12,7 @@ pub(crate) async fn approve_owner_setup(
     state: &JsValue,
     env: &Env,
     rpc: crate::owner_setup_rpc::OwnerSetupApproveRpc,
-) -> Result<oasis7_custody_core::provisioning::OwnerSetupProgressV1> {
+) -> Result<OwnerSetupApproveOutput> {
     setup_approval::approve(state, env, rpc).await
 }
 

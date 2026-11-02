@@ -1,5 +1,6 @@
 //! Actual Native HTTP handler and SQLite; upstream is a signed synthetic transport fixture.
 //! No test here claims real World quotes, custody MFA consumption or paid-once authority.
+use super::super::resource_fixture as fixture;
 use super::*;
 use oasis7_client_api::world_service::{entry_control::*, resource_basis as wire};
 use std::{
@@ -12,8 +13,6 @@ use std::{
     thread,
     time::Duration,
 };
-#[path = "resource_component_fixture.rs"]
-mod fixture;
 type Fixture = crate::hosted_identity::model_session::model_session_tests::Fixture;
 fn service(endpoint: String, data: &fixture::Data) -> Fixture {
     let mut f = IdentityService::model_executor_test_fixture();
