@@ -589,3 +589,19 @@ fn domain_semantics_can_use_recovery_reserve_without_ordinary_headroom() {
     drop(proof);
     drop(ordinary);
 }
+
+#[test]
+fn ordinary_mailbox_refuses_a_recovery_domain_witness() {
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let event = event();
+    let raw = provenance(&event, &memory);
+    let mut recovery = DomainEventProofContextV1::new(&memory, MemoryClass::Recovery, work(), || false);
+    let proof = verify_domain_event_occurrence_v1(&request(&event, &raw), &mut recovery).unwrap();
+    let mut ordinary = DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    let result = verified_mailbox_domain_original_v1(&MailboxDomainProofRequestV1 {
+        domain: proof.domain(), proof: &proof, expected_original: raw.location().original,
+        expected_head_record: raw.head_record_id(), expected_roots: raw.roots_id(),
+    }, &mut ordinary);
+    assert!(matches!(result, Err(CanonicalCborStreamError::Invalid(_))), "a Recovery-paid Domain witness must not authorize the Ordinary mailbox consumer");
+    assert!(ordinary.is_poisoned());
+}
