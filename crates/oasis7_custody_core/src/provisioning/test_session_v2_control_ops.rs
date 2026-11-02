@@ -445,6 +445,7 @@ impl AccountProvisionApprovalState {
                 term.cleanup_transport_policy,
                 CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
                     | CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+                    | CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
             )
         {
             *self = next;

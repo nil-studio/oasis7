@@ -86,11 +86,34 @@ fn world3_final_registered_machine_rechecks_native_physical_receipt_signatures_a
 pub(super) fn ready_world3(start: u64) -> SessionFixture {
     exercise_registered_machine(true, start)
 }
+pub(super) fn ready_v3(start: u64) -> SessionFixture {
+    exercise_registered_machine_profile(
+        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3),
+        start,
+    )
+}
 fn exercise_registered_machine(world3: bool, start: u64) -> SessionFixture {
-    let (mut f, d, life) = if world3 {
-        activation_tests::preactivated_world3(start)
-    } else {
-        activation_tests::preactivated(start)
+    exercise_registered_machine_profile(
+        world3.then_some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2),
+        start,
+    )
+}
+fn exercise_registered_machine_profile(
+    profile: Option<CleanupTransportPolicyV2>,
+    start: u64,
+) -> SessionFixture {
+    let world3 = profile.is_some();
+    let (mut f, d, life) = match profile {
+        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3) => {
+            activation_tests::preactivated_v3(start)
+        }
+        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2) => {
+            activation_tests::preactivated_world3(start)
+        }
+        None => activation_tests::preactivated(start),
+        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2) => {
+            panic!("redundant old fixture selector")
+        }
     };
     let policy = Policy::new(f.state.draft());
     let c = policy.current(&f.context);

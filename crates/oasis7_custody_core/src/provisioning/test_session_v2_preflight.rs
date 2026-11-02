@@ -94,6 +94,9 @@ impl AccountProvisionApprovalState {
                 CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2 => {
                     Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
                 }
+                CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3 => {
+                    Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3)
+                }
             },
         })
     }
@@ -249,8 +252,12 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
     ) -> Result<TestSessionPreflightDescriptorV2> {
         let session = self.test_session_v2_record(id)?;
-        if session.header()?.0.termination.cleanup_transport_policy
-            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+        if session
+            .header()?
+            .0
+            .termination
+            .cleanup_transport_policy
+            .requires_fixed_world3()
             && (step == SessionPreflightStepV1::FreshAccessPair
                 || !session
                     .preflight_world_access
@@ -315,8 +322,11 @@ impl AccountProvisionApprovalState {
     ) -> Result<ExactSignatureChecks> {
         let checks = self.test_session_v2_preflight_checks(id, current, now)?;
         let s = self.test_sessions_v2.get(id).ok_or_else(invalid)?;
-        if s.header()?.0.termination.cleanup_transport_policy
-            == CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+        if s.header()?
+            .0
+            .termination
+            .cleanup_transport_policy
+            .requires_fixed_world3()
             && !s
                 .preflight_world_access
                 .as_ref()

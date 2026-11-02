@@ -24,6 +24,17 @@ pub enum CleanupTransportPolicyV2 {
     /// New FullMFA profile: fixed PolicyOriginal1 + AuthorizePolicy1 + OwnerRead1.
     /// This is not a spendable HTTP allowance or an upgrade of the old variant.
     TermWideFiveSecondOwnedWorld3V2,
+    /// Explicit new approval: Direct Current5, two lookups, integrated Vault checks.
+    /// Existing Term6 records and signatures never upgrade into this profile.
+    TermWideFiveSecondOwnedDirectCurrent5V3,
+}
+impl CleanupTransportPolicyV2 {
+    pub(crate) fn requires_fixed_world3(self) -> bool {
+        matches!(
+            self,
+            Self::TermWideFiveSecondOwnedWorld3V2 | Self::TermWideFiveSecondOwnedDirectCurrent5V3
+        )
+    }
 }
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

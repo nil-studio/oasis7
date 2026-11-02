@@ -190,7 +190,13 @@ fn pending_fixture_with_model_budget_profile_transport(
     input.approval.proof.nonce = "v2-session-new-MFA-nonce".into();
     input.approval.proof.approval_id = "v2-session-proof".into();
     input.approval.proof.approval_request_id = input.request.approval_request_id.clone();
-    if cleanup_transport_policy == Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2) {
+    if matches!(
+        cleanup_transport_policy,
+        Some(
+            CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+                | CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
+        )
+    ) {
         // The new profile uses one actual Native root for consent and managed
         // facts. Configure the public pin before issuing this new ceremony;
         // never relabel or re-sign an already-consumed approval.
@@ -446,3 +452,6 @@ mod preflight_world_tests;
 
 #[path = "test_session_v2_term_guarded_feature_tests.rs"]
 mod term_guarded_feature;
+
+#[path = "test_session_v3_approved_profile_tests.rs"]
+mod approved_v3_profile_tests;

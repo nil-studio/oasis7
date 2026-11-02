@@ -9,7 +9,7 @@ pub struct TestSessionBasisRequestV2 {
     pub enrollment_id: String,
     pub setup_id: String,
     pub cleanup_until: UnixMillis,
-    /// Only explicit World3 selects the new metadata basis, never an authority.
+    /// Explicit new closed metadata selects its exact signed basis, never authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleanup_transport_policy: Option<CleanupTransportPolicyV2>,
 }
@@ -20,9 +20,13 @@ impl TestSessionBasisRequestV2 {
             || !id(&self.enrollment_id)
             || !id(&self.setup_id)
             || self.cleanup_until.get() == 0
-            || self
-                .cleanup_transport_policy
-                .is_some_and(|p| p != CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+            || self.cleanup_transport_policy.is_some_and(|p| {
+                !matches!(
+                    p,
+                    CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
+                        | CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3
+                )
+            })
         {
             return Err(invalid());
         }
@@ -197,6 +201,9 @@ impl AccountProvisionApprovalState {
                     CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2 => None,
                     CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2 => {
                         Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+                    }
+                    CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3 => {
+                        Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3)
                     }
                 },
             },

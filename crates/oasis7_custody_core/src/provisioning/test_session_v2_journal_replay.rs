@@ -78,6 +78,8 @@ pub(super) struct Replay<'a> {
     lease: Option<UnixMillis>,
     heartbeat: Option<UnixMillis>,
     closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
+    term_five_reserved: BTreeSet<String>,
+    term_five_claims: BTreeSet<String>,
     term_six_reserved: BTreeSet<String>,
     term_six_claims: BTreeSet<String>,
     term_six_native_paid: BTreeSet<String>,
@@ -156,6 +158,8 @@ impl<'a> Replay<'a> {
             lease: None,
             heartbeat: None,
             closing: None,
+            term_five_reserved: BTreeSet::new(),
+            term_five_claims: BTreeSet::new(),
             term_six_reserved: BTreeSet::new(),
             term_six_claims: BTreeSet::new(),
             term_six_native_paid: BTreeSet::new(),
@@ -459,6 +463,21 @@ impl<'a> Replay<'a> {
         {
             return Err(invalid());
         }
+        if self.term_five_reserved.len()
+            != s.termination_state
+                .term_five_funding
+                .as_ref()
+                .map_or(0, Vec::len)
+            || self.term_five_claims.len()
+                != s.termination_state
+                    .term_five_funding
+                    .iter()
+                    .flatten()
+                    .map(TermFiveFundingRecordV3::claim_count)
+                    .sum::<usize>()
+        {
+            return Err(invalid());
+        }
         if self.term_six_native_paid.len()
             != s.termination_state
                 .term_six_funding
@@ -519,3 +538,6 @@ pub(super) fn validate(s: &TestSessionAuthorityV2) -> Result<()> {
 
 #[path = "test_session_v2_journal_replay_term_six.rs"]
 mod term_six;
+
+#[path = "test_session_v2_journal_replay_term_five.rs"]
+mod term_five;
