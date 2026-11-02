@@ -9,6 +9,9 @@ const CAPABILITY: &[u8] = b"oasis7.iws.object-aliases.v1\n";
 const LOCATOR: &[u8] = b"oasis7.iws.object-locator.v1\0";
 const LOCATOR_BOUND: usize = 256;
 const WORKSPACE: usize = 64 * 1024;
+#[path = "incremental_object_stream_writer.rs"]
+mod stream_writer;
+pub use stream_writer::ObjectStreamWriteError;
 
 pub struct IncrementalObjectStore<'a> {
     pages: &'a IncrementalPageStore,
@@ -81,6 +84,11 @@ impl<'a> IncrementalObjectStore<'a> {
 }
 
 impl IncrementalObjectStore<'_> {
+    /// Check producer admission against the actual physical page pool.
+    pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        self.pages.memory.same_pool(memory)
+    }
+
     /// Store the actual protocol producer's history material, one original at
     /// a time. RootSets, state pages, facts' content, artifacts and original
     /// certificates still have to be supplied/verified by their owners. This
@@ -182,13 +190,17 @@ impl IncrementalObjectStore<'_> {
         }
         session.flush()?;
         drop(session); // all page barriers precede locator publication
-        let locator = encode_locator(
-            &id,
-            &ObjectLocator {
-                length,
-                value_root: root.digest().map_err(from_value)?,
-            },
-        );
+        self.publish_original(id, length, root.digest().map_err(from_value)?, io)
+    }
+
+    fn publish_original(
+        &self,
+        id: [u8; 32],
+        length: u64,
+        value_root: [u8; 32],
+        io: &mut ObjectIo<'_>,
+    ) -> Result<[u8; 32]> {
+        let locator = encode_locator(&id, &ObjectLocator { length, value_root });
         check_cancelled(io.cancelled)?;
         files::publish(
             &self.pages.root,

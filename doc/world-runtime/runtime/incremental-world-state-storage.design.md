@@ -797,3 +797,11 @@ ordered_fact_count 仅给出当前追加位置，不能用作接受历史证明�
 此三字段组须具备借用原 World 的 GEN、完整根资格、同 ExecutionTxn 当前值读取与 expected 更新、失败 poison、双取消终检、generic replay 后的实际变更验证和页闭包。资格绑定精确 RootSet，仅证明本组结构，不授予 Runtime/World 接受、业务权限或全局 GC；完整 Runtime 还须闭合其他 owner。普通点操作不得序列化原 World 或扫描不相关记录；恢复完整资格使用调用者连续有限预算。
 
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+### 12.55 Runtime 原工件登记与内容
+
+module_artifacts（Set）与 module_artifact_bytes（ByteMap）属于 Runtime/Artifacts 两个独立 descriptor。原 String 键完整保留，不能由存储层强制转成 SHA-256、裁剪或规范化，也不要求两集合必然同时存在。业务部署原有 SHA-256/manifest 校验仍由原 owner 负责；原字节的 flat BLAKE3 ID 和长度是 OriginalArtifactRef，不以原 String 键代替。借用 GEN 不 clone 完整字节，使用唯一 world-field-key 的 Metadata、原键 Entry/Unit 或 Bytes/Bytes 原件引用；完整引用使用独立 domain 固定 ID/长度，不能把三十二字节名字当已验证原件。
+
+此组须闭合 root-only 结构资格、同 ExecutionTxn expected 更新及错误 poison、独立 generic+typed receiver、状态页与外部原件的不同 typed 闭包。原件验证共享明确 pool/class、条目/bytes/时间及取消预算，流式核对原 bytes/hash/实际长度，拒绝 source 吞掉输出错误、截断、错误长度、错误 ID 和最终取消；source 成功并不授予接受历史、业务执行或独立持久保障。实际持久消费者须完成对象 finish/locator/原件回读。未变原件复用精确已资格父的闭包，普通增删只访问实际 changed paths；全量 bootstrap/审计按其实际范围另计。两集合成员可独立新增和删除，必须保留原权限与保留要求，不把登记删除等同于历史原件可回收。
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。本节是完整 owner 的实现合同；单独原件 codec/流验证不代表 Runtime、World 或 GC 已就绪。
