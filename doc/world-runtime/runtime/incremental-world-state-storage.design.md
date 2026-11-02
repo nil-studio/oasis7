@@ -764,6 +764,12 @@ JSON schema 固定为对应单字节重复三十二次：feedback_outbox、idemp
 
 CurrentStateQualification 只证明认证 RootSet 中这些当前状态地址与完整 JSON 图闭合：必需 cohort 存在，economy 十四个当前状态 cohort 同时有或同时无，delegation 四个当前状态 cohort 同时有或同时无；所有 Metadata/Unit 必须成对，未知地址拒绝。它不替代原 Runtime 恢复/业务解析，也不授 History、ProofLedger、RetentionLedger、权限或完整 CognitionReady。原 Snapshot.cognition 本身仍是 serde_json::Value。
 
-scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 before RootSet，先 generic replay，再逐 changed 地址检查；未变 JSON 子树按原资格继承，变化子树必须认证实际旧/新路径并保持结构、长度与成员集合。控制字段新值按原 Text/u64 与 schema 常量验证，Metadata、必需列与可选组存在性不能由 scalar API 增删。结构 CRUD 须使用独立完整关系证明路径，不能借 scalar token 或完整 JSON 原始读取来冒称已实现；页 mark/transfer 只提供本 current-state scope 与顶层六树依赖，其他 owner 和独立 side ledger 的闭包仍需联合。
+scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 before RootSet，先 generic replay，再逐 changed 地址检查；未变 JSON 子树按原资格继承，变化子树必须认证实际旧/新路径并保持结构、长度与成员集合。控制字段新值按原 Text/u64 与 schema 常量验证，Metadata、必需列与可选组存在性不能由 scalar API 增删。
+
+独立结构路径覆盖 object 单成员创建、替换与删除，array 原尾部 append/truncate，以及调用者明确要求的整子树 Replace。array 净数量与实际新增、删除 ordinal 范围共同证明密度，不能接受 count-only 或非尾部删除；新子树必须完整资格，删除旧已资格子树不扫描其未变 payload。整 Replace 的工作量包含完整 new 子树，不把它当作小字段点改。根类型切换仍须重新施加 Cognition 目标根形状和即时成员约束。JSON 原始资格的节点出现数为 Exact；结构变更不能精确扣除旧子树时只保留显式 UpperBound，scalar 变更继承精度，不得将该诊断上界作为实际工作额度或闭包关系证明。
+
+可选组生命周期以 economy 十四 cohort、delegation 四 cohort、continuation_contexts、continuation_evaluations 和 reorg_invalidation_epoch 为边界。expected 只绑定同池、parent 根和当前 overlay 全组 Metadata/Unit 行，不授组结构资格；缺失创建仅借用过滤后的原 GEN，完成全部组写入，删除完整移除组行。接收端在 generic replay 后重新检查 Metadata/Unit 配对、全部必需列、组的全有或全无、新 JSON 完整资格及已有 JSON 实际 changed paths。创建后的同事务点改须先对实际新 Entry RootRef 完整验证目标 JSON，并仅取得该 Entry 的私有资格，不能从 opaque expected IDs 推出整 family 就绪。NoOp 同样在最后成功返回前检查读写组合取消。
+
+固定增量验证分别记录逻辑节点调用/编码字节和真实 state/value/writer 会话读写操作/字节，不能把逻辑节点数等同物理 IO。content-addressed pack 的索引位置会改变有界查找探针；这种开销须从实际原索引独立核对并按物理 profile 上界解释，不能把归因后的相等数字表述为原物理 IO 完全相同。页 mark/transfer 只提供本 current-state scope 与顶层六树依赖，其他 owner 和独立 side ledger 的闭包仍需联合。
 
 完整资格必须从认证 RootSet、全部当前状态 cohort 与各独立 side owner 的真实证明组合，校验 required/optional 关系与未知/孤儿；普通事务只沿目标路径和必要关系访问，不能扫描未变大文本/集合。精确 expected、guard/live、同池 Ordinary、连续有限 key/逻辑/物理/heap 额度、NoOp/最后实际 put/finish 的组合取消、所有失败 poison 前缀合同继续适用。接收端先 generic replay，再从已资格父与完整 changed-path 写集推导新闭包；新记录全量资格，未变子树仅继承原已认证闭包。typed pages 跟随全部子 State/Value 引用并等待实际 sink finish，冷恢复不能依赖旧 Snapshot、缓存或旧内存池。本节不新增 cognition 调度、授权、投票或业务规则，不能代签 accepted history 或全 World GC。
