@@ -498,3 +498,6 @@ mod book_tests;
 
 #[path = "test_session_v2_execution_nonce_five_tests.rs"]
 mod execution_nonce_five_tests;
+
+#[path = "test_session_v2_execution_pending_start_tests.rs"]
+mod pending_start_tests;
