@@ -1008,6 +1008,8 @@ class Selection(unittest.TestCase):
                 self.assertEqual(self.plan()['scope'], 'full')
                 self.base = self.git('rev-parse', 'HEAD')
         self.config.pop('scoped_control_paths', None)
+        self.config.pop('python_control_contract_version', None)
+        self.config.pop('python_control_contracts', None)
         self.write('.github/pull_request_template.md', 'old trusted baseline remains conservative')
         self.assertEqual(self.plan()['scope'], 'full')
 
@@ -3135,6 +3137,253 @@ class Selection(unittest.TestCase):
 
 
 
+class PythonControlContracts(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    def trusted(self):
+        return json.loads((HERE / 'ci-required-scope.json').read_text())
+
+    def change(self, path, content='# changed Python input\n'):
+        self.write(path, content)
+        return self.commit()
+
+    def test_registered_control_uses_owned_contract_without_native_groups(self):
+        config = self.trusted()
+        path = 'scripts/plan-rust-required-scope.py'
+        plan = selector.select(config, self.base, self.change(path), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+        self.assertEqual(plan['python_control_contract_version'], 1)
+        self.assertEqual(plan['python_control_paths'], [path])
+        self.assertIn('scripts/plan-rust-required-scope.test.py',
+                      plan['python_control_tests']['workflow_governance'])
+        self.assertIn('rust_toolchain', plan['resources'])
+        self.assertEqual(plan['oasis7_required_packages'], [])
+        self.assertEqual(plan['formal_suites'], [])
+
+    def test_document_control_keeps_its_own_contract_and_trusted_runner(self):
+        path = 'scripts/document_corpus.py'
+        plan = selector.select(self.trusted(), self.base, self.change(path))
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']),
+                         {'baseline', 'doc_checker_contracts', 'workflow_governance'})
+        self.assertIn('scripts/document-corpus-inventory-check.test.py',
+                      plan['python_control_tests']['doc_checker_contracts'])
+
+    def test_minimum_document_test_only_removal_keeps_base_contracts(self):
+        config = self.trusted()
+        tests = config['python_control_contracts']['scripts/document_corpus.py']['tests']
+        for path in tests:
+            with self.subTest(path=path):
+                self.assertNotIn(path, config['python_control_contracts'])
+                self.write(path, 'def test_minimum_contract():\n    assert True\n')
+                self.base = self.commit()
+                head = self.change(path, '')
+                plan = selector.select(config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']),
+                                 {'baseline', 'doc_checker_contracts', 'workflow_governance'})
+                self.assertEqual(plan['python_control_paths'], [path])
+                self.assertEqual(plan['python_control_tests'], {'doc_checker_contracts': tests})
+                self.assertEqual(plan['oasis7_required_packages'], [])
+                self.base = head
+
+    def test_minimum_test_changes_union_with_other_contracts_and_shared_inputs(self):
+        config = self.trusted()
+        config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        document_test = 'scripts/document-corpus-inventory-check.test.py'
+        cache_source = 'scripts/ci-ecs-cache.py'
+        self.write(document_test, '# removed candidate assertions\n')
+        self.write('crates/core/src/lib.rs', '// mixed native change\n')
+        head = self.change(cache_source)
+        plan = selector.select(config, self.base, head)
+        self.assertTrue({'doc_checker_contracts', 'compile_metrics', 'workflow_governance',
+                         'rust_baseline', 'oasis7_required', 'node'}.issubset(plan['groups']))
+        self.assertEqual(plan['python_control_paths'], sorted([document_test, cache_source]))
+        self.assertIn(document_test, plan['python_control_tests']['doc_checker_contracts'])
+        self.assertIn('scripts/ci-ecs-cache.test.py', plan['python_control_tests']['compile_metrics'])
+        self.write('Cargo.lock', '# shared dependency change\n')
+        full = selector.select(config, self.base, self.commit())
+        self.assertEqual(full['scope'], 'full')
+        self.assertEqual(full['python_control_paths'], plan['python_control_paths'])
+        self.assertEqual(full['python_control_tests'], plan['python_control_tests'])
+
+    def test_only_exact_trusted_minimum_tests_register_reverse_inputs(self):
+        config = self.trusted()
+        path = 'scripts/registered-minimum.test.py'
+        config['python_control_contracts']['scripts/document_corpus.py']['tests'].append(path)
+        head = self.change(path)
+        plan = selector.select(config, self.base, head)
+        self.assertEqual(set(plan['groups']),
+                         {'baseline', 'doc_checker_contracts', 'workflow_governance'})
+        self.assertEqual(plan['python_control_paths'], [path])
+        self.assertIn(path, plan['python_control_tests']['doc_checker_contracts'])
+        self.base = head
+        neighbor = 'scripts/document-corpus-inventory-check-future.test.py'
+        head = self.change(neighbor)
+        plan = selector.select(config, self.base, head)
+        self.assertEqual(set(plan['groups']), {'baseline', 'doc_checker_contracts'})
+        self.assertEqual(plan['python_control_paths'], [])
+        self.assertEqual(plan['python_control_tests'], {})
+        self.base = head
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(config, self.base, self.change('scripts/registered-minimum-future.test.py'))
+
+    def test_contract_sources_and_tests_are_selected_as_one_trusted_union(self):
+        config = self.trusted()
+        source = 'scripts/ci-required-result.py'
+        test = 'scripts/ci-required-result.test.py'
+        self.write(source, '# changed gate implementation\n')
+        plan = selector.select(config, self.base, self.change(test, '# removed all candidate assertions\n'))
+        self.assertEqual(plan['python_control_paths'], sorted([source, test]))
+        tests = plan['python_control_tests']['workflow_governance']
+        self.assertIn(test, tests)
+        self.assertEqual(tests, sorted(set(tests)))
+
+    def test_old_baseline_cannot_borrow_candidate_control_registration(self):
+        old = self.trusted()
+        old.pop('python_control_contract_version', None)
+        old.pop('python_control_contracts', None)
+        old['scoped_control_paths'] = {path: groups for path, groups in old['scoped_control_paths'].items()
+                                       if not path.endswith('.py')}
+        path = 'scripts/plan-rust-required-scope.py'
+        self.write('scripts/ci-required-scope.json', json.dumps(self.trusted()))
+        plan = selector.select(old, self.base, self.change(path), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assertNotIn('python_control_contract_version', plan)
+        self.assertIn('shared build or CI control changed: ' + path, plan['reasons'])
+
+    def test_deleted_and_renamed_registered_controls_keep_both_contracts(self):
+        config = self.trusted()
+        first = 'scripts/ci-cache-archive.py'
+        second = 'scripts/ci-cache-policy.py'
+        self.write(first, '# distinctive existing implementation\n')
+        self.base = self.commit()
+        self.git('mv', first, second)
+        plan = selector.select(config, self.base, self.commit())
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['python_control_paths'], sorted([first, second]))
+        self.base = self.git('rev-parse', 'HEAD')
+        Path(second).unlink()
+        plan = selector.select(config, self.base, self.commit())
+        self.assertEqual(plan['python_control_paths'], [second])
+        self.assertIn('scripts/ci-cache-policy.test.py',
+                      plan['python_control_tests']['workflow_governance'])
+
+    def test_unknown_control_and_shared_build_inputs_keep_full_coverage(self):
+        config = self.trusted()
+        for path in ('scripts/ci-new-unregistered.py', 'scripts/ci-tests.sh',
+                     'scripts/ci-python-control-contracts.py', 'scripts/ci-verify-m1-wasm-summaries.py',
+                     'scripts/ci-compile-metrics-gate.py', '.github/workflows/rust.yml',
+                     'Cargo.lock', 'rust-toolchain.toml'):
+            with self.subTest(path=path):
+                head = self.change(path)
+                self.assertEqual(selector.select(config, self.base, head)['scope'], 'full')
+                self.base = head
+
+    def test_unknown_ordinary_python_is_not_registered_by_extension(self):
+        config = self.trusted()
+        for path in ('scripts/new-helper.py', 'scripts/doc_content_warnings_future.py',
+                     'tools/future_utility/main.py'):
+            with self.subTest(path=path):
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, self.base, self.change(path))
+                Path(path).unlink()
+                self.base = self.commit()
+
+    def test_embedded_rust_and_reverse_consumers_are_not_subtracted(self):
+        config = self.trusted()
+        config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        path = 'scripts/ci-cache-policy.py'
+        self.write(path, '# embedded Python contract\n')
+        self.write('crates/core/src/lib.rs',
+                   'const SCRIPT: &str = include_str!("../../../' + path + '");\n')
+        self.base = self.commit()
+        plan = selector.select(config, self.base, self.change(path))
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertTrue({'workflow_governance', 'rust_baseline', 'oasis7_required', 'node'}
+                        .issubset(plan['groups']))
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+
+    def test_control_contracts_union_with_rust_other_rules_and_shared_inputs(self):
+        config = self.trusted()
+        config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        path = 'scripts/document_corpus.py'
+        config['rules'].append({'match': [path], 'groups': ['net'], 'reason': 'additional actual consumer'})
+        self.write('crates/core/src/lib.rs', '// mixed native change\n')
+        head = self.change(path)
+        plan = selector.select(config, self.base, head)
+        self.assertTrue({'doc_checker_contracts', 'workflow_governance', 'rust_baseline',
+                         'oasis7_required', 'node', 'net'}.issubset(plan['groups']))
+        self.write('Cargo.lock', '# same change also changes shared dependencies\n')
+        plan = selector.select(config, self.base, self.commit())
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(plan['python_control_paths'], [path])
+
+    def test_native_signer_runner_keeps_real_platform_consumers(self):
+        path = 'scripts/ci-local-signer-tests.py'
+        plan = selector.select(self.trusted(), self.base, self.change(path))
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertTrue({'workflow_governance', 'packaging_contracts', 'fleet_health'}
+                        .issubset(plan['groups']))
+
+    def test_registered_existing_helpers_use_actual_contract_groups(self):
+        config = self.trusted()
+        cases = {
+            'scripts/ci_process_runner.py': {'workflow_governance'},
+            'scripts/doc_content_warnings.py': {'doc_checker_contracts'},
+            'scripts/pr-review-threads.py': {'workflow_governance'},
+            'scripts/pr-review-threads.test.py': {'workflow_governance'},
+            'scripts/runtime-module-routing-perf-harness.test.py': {'cargo_tooling_contracts'},
+            'scripts/safe_git_archive.py': {'workflow_governance', 'packaging_contracts'},
+            'scripts/safe-git-archive.test.py': {'workflow_governance', 'packaging_contracts'},
+            'scripts/release-web-fixture-process.py': {'launcher_web', 'operational_contracts'},
+            'scripts/release-web-startup.test.py': {'launcher_web', 'operational_contracts'},
+        }
+        for path, groups in cases.items():
+            with self.subTest(path=path):
+                head = self.change(path)
+                plan = selector.select(config, self.base, head)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertTrue(groups.issubset(plan['groups']))
+                self.assertNotIn('oasis7_required', plan['groups'])
+                self.base = head
+
+    def test_full_profile_keeps_the_complete_control_contract_inventory(self):
+        config = self.trusted()
+        plan = selector.full_plan(config, 'periodic-full', self.base)
+        self.assertEqual(plan['python_control_paths'], sorted(config['python_control_contracts']))
+        for contract in config['python_control_contracts'].values():
+            self.assertTrue(set(contract['tests']).issubset(plan['python_control_tests'][contract['group']]))
+
+    def test_invalid_or_unproved_python_scopes_are_rejected(self):
+        trusted = self.trusted()
+        path = 'scripts/plan-rust-required-scope.py'
+        for label, change in (
+            ('boolean version', lambda c: c.update(python_control_contract_version=True)),
+            ('unsupported version', lambda c: c.update(python_control_contract_version=2)),
+            ('no version', lambda c: c.pop('python_control_contract_version', None)),
+            ('no contracts', lambda c: c.update(python_control_contracts={})),
+            ('no tests', lambda c: c['python_control_contracts'][path].update(tests=[])),
+            ('wrong owner group', lambda c: c['python_control_contracts'][path].update(group='node')),
+            ('unknown test group', lambda c: c['python_control_contracts'][path].update(group='future')),
+            ('duplicate tests', lambda c: c['python_control_contracts'][path].update(tests=['scripts/one.test.py'] * 2)),
+            ('test path traversal', lambda c: c['python_control_contracts'][path].update(tests=['scripts/../outside.py'])),
+            ('test glob', lambda c: c['python_control_contracts'][path].update(tests=['scripts/*.test.py'])),
+            ('implementation is not a test', lambda c: c['python_control_contracts'][path].update(tests=[path])),
+            ('untrusted shell', lambda c: c['python_control_contracts'][path].update(tests=['scripts/ci-tests.sh'])),
+        ):
+            with self.subTest(label=label):
+                config = json.loads(json.dumps(trusted))
+                change(config)
+                with self.assertRaises(ValueError):
+                    selector.validate_config(config)
+
+
 class LocalStatementCfgOwners(unittest.TestCase):
     PATH = 'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/qa_conformance/application_stream_boundaries.rs'
     BEFORE = ('#[test] fn existing() {}\n'
@@ -3188,6 +3437,119 @@ class LocalStatementCfgOwners(unittest.TestCase):
         with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
             self.policy(self.BEFORE, moved)
 
+
+
+class EnclosingFunctionCfgOwners(unittest.TestCase):
+    PATH = 'crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs'
+    BEFORE = textwrap.dedent('''\
+        mod agent_service_pump;
+        struct Server {
+            #[cfg(any(test, feature = "test_tier_required"))]
+            diagnostics: usize,
+            pending: Option<usize>,
+            #[cfg(test)]
+            recovery: Option<usize>,
+        }
+        impl Server {
+            fn new() -> Self {
+                let server = Self {
+                    #[cfg(any(test, feature = "test_tier_required"))]
+                    diagnostics: 0,
+                    pending: Some(1).map(|generation| { generation + 1 }),
+                    #[cfg(test)]
+                    recovery: None,
+                };
+                server
+            }
+        }
+    ''')
+
+    def policy(self, before, after):
+        def source(*args):
+            self.assertEqual(args[0], 'show')
+            ref, path = args[1].split(':', 1)
+            self.assertEqual(path, self.PATH)
+            return {'base': before, 'source': after}[ref].encode()
+        with patch.object(selector, 'git', side_effect=source):
+            return selector.changed_test_policy(
+                'base', 'source', [self.PATH], {self.PATH: {'oasis7_viewer_runtime'}},
+                {'oasis7_viewer_runtime'},
+                {'oasis7_viewer_runtime': {'test_tier_required', 'test_tier_full'}})
+
+    def assert_expanded(self, before, after):
+        paths, ignored, production = self.policy(before, after)
+        self.assertFalse(ignored)
+        self.assertIn(self.PATH, paths + production)
+
+    def test_added_module_does_not_change_existing_initializer_cfg_policy(self):
+        after = self.BEFORE.replace('mod agent_service_pump;',
+                                   'mod agent_service_pump;\nmod agent_service_result;')
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_unrelated_items_do_not_change_existing_method_cfg_policy(self):
+        variants = [
+            'struct Unrelated;\n' + self.BEFORE,
+            self.BEFORE.replace('impl Server {', 'impl Server { fn unrelated() {}'),
+            'impl Other { fn new() -> Self { Self } }\n' + self.BEFORE,
+            'mod unrelated { pub fn new() {} }\n' + self.BEFORE,
+        ]
+        for after in variants:
+            with self.subTest(after=after):
+                self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_method_local_cfg_is_stable_only_outside_its_complete_body(self):
+        before = ('impl Server { fn read() { '
+                  '#[cfg(any(test, feature="test_tier_required"))] let value = input(); } }')
+        self.assertEqual(self.policy(before, 'mod unrelated;\n' + before), ([], False, []))
+        self.assert_expanded(before, before.replace('input()', 'other_input()'))
+        self.assert_expanded(before, before.replace('fn read() {', 'fn read() { extra!();'))
+        self.assert_expanded(before, before.replace('fn read() {', 'fn read() { fn nested() {}'))
+
+    def test_comments_and_whitespace_do_not_change_initializer_cfg_policy(self):
+        after = self.BEFORE.replace('diagnostics: 0,', 'diagnostics /* unchanged */ :  0,')
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_initializer_expression_or_gate_changes_keep_expanded_coverage(self):
+        variants = [
+            self.BEFORE.replace('diagnostics: 0,', 'diagnostics: 1,'),
+            self.BEFORE.replace('generation + 1', 'generation + 2'),
+            self.BEFORE.replace('feature = "test_tier_required"', 'feature = "test_tier_full"'),
+            self.BEFORE.replace('fn new() -> Self {', 'fn new() -> Self { extra!();'),
+        ]
+        for after in variants:
+            with self.subTest(after=after):
+                self.assert_expanded(self.BEFORE, after)
+
+    def test_function_impl_and_module_moves_do_not_cancel_cfg_changes(self):
+        variants = [
+            self.BEFORE.replace('fn new()', 'fn create()'),
+            self.BEFORE.replace('impl Server', 'impl Other'),
+            'mod nested {\n' + self.BEFORE + '\n}',
+        ]
+        for after in variants:
+            with self.subTest(after=after):
+                self.assert_expanded(self.BEFORE, after)
+
+    def test_nested_scope_moves_keep_expanded_coverage(self):
+        before = ('impl Server { fn read() { if first { '
+                  '#[cfg(any(test, feature="test_tier_required"))] let value = input(); '
+                  '} else { other(); } } }')
+        after = ('impl Server { fn read() { if first { other(); } else { '
+                 '#[cfg(any(test, feature="test_tier_required"))] let value = input(); } } }')
+        self.assert_expanded(before, after)
+
+    def test_macro_and_unknown_parent_contexts_keep_conservative_handling(self):
+        variants = [
+            'fn read() { opaque! { #[cfg(test)] let value = input(); } }',
+            'opaque! { impl Server { fn read() { #[cfg(test)] let value = input(); } } }',
+            'fn outer() { fn nested() { #[cfg(test)] let value = input(); } }',
+            'trait Reader { fn read() { #[cfg(test)] let value = input(); } }',
+            'impl Reader for Server { fn read() { #[cfg(test)] let value = input(); } }',
+            'impl<T> Server<T> { fn read() { #[cfg(test)] let value = input(); } }',
+        ]
+        for before in variants:
+            with self.subTest(before=before):
+                self.assert_expanded(before, 'mod unrelated;\n' + before)
 
 
 class AlternativeModuleMounts(unittest.TestCase):

@@ -21,6 +21,7 @@ FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
+PYTHON_CONTROL_CONTRACT_VERSION = 1
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
@@ -618,7 +619,9 @@ def validate_config(config):
     if not isinstance(scoped, dict):
         raise ValueError('invalid scoped control inventory')
     for path, selected in scoped.items():
-        if (not isinstance(path, str) or not path.startswith('.github/')
+        python_control = (exact_python_script(path)
+                          and any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL))
+        if (not isinstance(path, str) or not (path.startswith('.github/') or python_control)
                 or path.endswith('/') or posixpath.normpath(path) != path
                 or any(character in path for character in ('\\', '*', '?', '[', ']'))
                 or '..' in path.split('/') or any(ord(character) < 32 for character in path)
@@ -626,6 +629,7 @@ def validate_config(config):
                 or any(not isinstance(group, str) or group not in groups for group in selected)
                 or len(selected) != len(set(selected))):
             raise ValueError('invalid scoped control path or groups')
+    validate_python_control_contracts(config)
     for selected in config['package_groups'].values():
         if not selected or not set(selected).issubset(groups):
             raise ValueError('invalid package groups')
@@ -706,6 +710,64 @@ def validate_config(config):
             raise ValueError('invalid architecture build policy capability')
     validate_fast_test_inventory(config)
     return config
+
+
+def exact_python_script(path):
+    return (isinstance(path, str) and path.startswith('scripts/') and path.endswith('.py')
+            and posixpath.normpath(path) == path and '..' not in path.split('/')
+            and not any(character in path for character in ('\\', '*', '?', '[', ']'))
+            and not any(ord(character) < 32 for character in path))
+
+
+def validate_python_control_contracts(config):
+    scoped = config.get('scoped_control_paths', {})
+    python_paths = {path for path in scoped if path.endswith('.py')}
+    fields = {'python_control_contract_version', 'python_control_contracts'}
+    if not python_paths and not fields.intersection(config):
+        return
+    contracts = config.get('python_control_contracts')
+    version = config.get('python_control_contract_version')
+    if (type(version) is not int or version != PYTHON_CONTROL_CONTRACT_VERSION
+            or 'workflow_governance' not in config['groups']
+            or not isinstance(contracts, dict) or not contracts or set(contracts) != python_paths):
+        raise ValueError('invalid Python control contract capability or inventory')
+    for path, contract in contracts.items():
+        if (not exact_python_script(path) or not isinstance(contract, dict)
+                or set(contract) != {'group', 'tests'}
+                or not isinstance(contract['group'], str)
+                or contract['group'] not in scoped[path]
+                or not isinstance(contract['tests'], list) or not contract['tests']
+                or any(not exact_python_script(test) or not test.endswith('.test.py')
+                       for test in contract['tests'])
+                or len(set(contract['tests'])) != len(contract['tests'])):
+            raise ValueError('invalid Python control contract path, group or tests')
+
+
+def python_control_inputs(config):
+    """A minimum test must protect its own edits as well as its source edits."""
+    inputs = {}
+    if config.get('python_control_contract_version') != PYTHON_CONTROL_CONTRACT_VERSION:
+        return inputs
+    for path, contract in config['python_control_contracts'].items():
+        for entry in [path, *contract['tests']]:
+            inputs.setdefault(entry, {}).setdefault(contract['group'], set()).update(contract['tests'])
+    return inputs
+
+
+def python_control_plan(config, paths=None):
+    """Only the supplied trusted inventory can select immutable control tests."""
+    inputs = python_control_inputs(config)
+    if not inputs:
+        return {}
+    contracts = config['python_control_contracts']
+    selected = sorted(contracts if paths is None else set(paths).intersection(inputs))
+    tests = {}
+    for path in selected:
+        for group, contract_tests in inputs[path].items():
+            tests.setdefault(group, set()).update(contract_tests)
+    return {'python_control_contract_version': PYTHON_CONTROL_CONTRACT_VERSION,
+            'python_control_paths': selected,
+            'python_control_tests': {group: sorted(paths) for group, paths in sorted(tests.items())}}
 
 
 def valid_fast_declaration(item):
@@ -1034,7 +1096,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # statement tokens and their enclosing qualified function as identity.
         # Changed expressions/initializers, new statements and moved scopes
         # remain additions and go through the existing validated-driver check.
-        function_bodies = []
+        function_bodies, function_starts = [], {}
         for start, owner in item_owners.items():
             if owner[0] != 'fn':
                 continue
@@ -1046,6 +1108,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     cursor += 1
             if cursor in closing and tokens[cursor][1] == '{':
                 function_bodies.append((cursor, closing[cursor], owner))
+                function_starts[cursor] = start
         statement_owners, statement_occurrences = {}, {}
         for start, (_, value, _) in enumerate(tokens):
             if value != 'let':
@@ -1077,6 +1140,83 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             statement_occurrences[key] = occurrence + 1
             statement_owners[start] = ('statement', f'{function[1]}#{function[2]}::let:{identity}', occurrence)
 
+        # An unresolved field/statement inside an unchanged method must not get
+        # a new identity merely because an earlier module or item was inserted.
+        # Bind it to the complete function tokens, lexical owner and relative
+        # position. Any body/initializer/scope edit still requires expanded
+        # coverage; this does not prove that an unknown gate is executable.
+        reverse_closing = {end: start for start, end in closing.items()}
+
+        def declaration_start(start):
+            while start:
+                previous = tokens[start - 1][1]
+                if previous in ('pub', 'async', 'const', 'unsafe', 'extern', 'default'):
+                    start -= 1
+                elif (tokens[start - 1][0] == 'string' and start > 1
+                      and tokens[start - 2][1] == 'extern'):
+                    start -= 2
+                elif previous in (']', ')') and start - 1 in reverse_closing:
+                    opening = reverse_closing[start - 1]
+                    prefix = '#' if previous == ']' else 'pub'
+                    if opening == 0 or tokens[opening - 1][1] != prefix:
+                        break
+                    start = opening - 1
+                else:
+                    break
+            return start
+
+        plain_impls, impl_occurrences = {}, {}
+        for start, owner in item_owners.items():
+            if owner[0] != 'impl':
+                continue
+            end = start + 1
+            while end < len(tokens) and tokens[end][1] not in ('{', ';'):
+                end += 1
+            header = tokens[start + 1:end]
+            if (end not in closing or tokens[end][1] != '{'
+                    or len(header) % 3 != 1
+                    or any(kind != 'identifier' if offset % 3 == 0 else value != ':'
+                           for offset, (kind, value, _) in enumerate(header))):
+                continue  # Generic/trait/opaque impl contexts stay conservative.
+            key = (module_path(start), tuple(value for _, value, _ in tokens[declaration_start(start):end]))
+            occurrence = impl_occurrences.get(key, 0)
+            impl_occurrences[key] = occurrence + 1
+            plain_impls[end] = key, occurrence
+
+        stable_functions, function_occurrences = {}, {}
+        for left, right, _ in function_bodies:
+            start = function_starts[left]
+            parents = [opening for opening, stop in closing.items()
+                       if opening < start < right < stop and opening not in module_braces]
+            if len(parents) > 1 or parents and parents[0] not in plain_impls:
+                continue  # Nested functions, traits and macro token trees.
+            start = declaration_start(start)
+            modules_here = tuple(item_owners[opening - 2] for opening, stop, _ in modules
+                                 if opening < start < stop)
+            context = (modules_here, plain_impls.get(parents[0]) if parents else None,
+                       tuple(value for _, value, _ in tokens[start:left]))
+            occurrence = function_occurrences.get(context, 0)
+            function_occurrences[context] = occurrence + 1
+            identity = hashlib.sha256(json.dumps(
+                (context, occurrence, [value for _, value, _ in tokens[left:right + 1]]),
+                ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+            stable_functions[left] = start, right, identity
+
+        macro_ranges = [(opening, stop) for opening, stop in closing.items()
+                        if (opening and tokens[opening - 1][1] == '!')
+                        or (opening > 1 and tokens[opening - 2][1] == '!'
+                            and tokens[opening - 1][0] == 'identifier')]
+
+        def enclosing_function_owner(index, fallback):
+            bodies = [left for left, right, _ in function_bodies if left < index < right]
+            if not bodies or any(left < index < right for left, right in macro_ranges):
+                return fallback
+            scope = stable_functions.get(max(bodies))
+            if scope is None:
+                return fallback
+            start, _, identity = scope
+            return 'body', identity, index - start
+
         for index, (_, token, _) in enumerate(tokens):
             inner = index + 1 < len(tokens) and tokens[index + 1][1] == '!'
             opening = index + 2 if inner else index + 1
@@ -1099,7 +1239,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 target = end + 1
                 while target < len(tokens) and tokens[target][1] == '#' and target + 1 in closing:
                     target = closing[target + 1] + 1
-                owner = statement_owners.get(target, owner)
+                owner = statement_owners.get(target, enclosing_function_owner(index, owner))
             annotations.add((values, owner))
             if values[0] not in ('cfg', 'cfg_attr', 'ignore') and 'test' not in values:
                 continue
@@ -1650,6 +1790,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['full_fast_test_inventory_version'] = FAST_TEST_INVENTORY_VERSION
         plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
                                                for key in sorted(config['ordinary_fast_targets'])]
+    plan.update(python_control_plan(config))
     return plan
 
 
@@ -1838,6 +1979,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
 def select(config, base, source_head, test_head=None, additions=(), profile=None,
            formal_inventory=None, policy_ref=None):
     validate_config(config)
+    python_inputs = python_control_inputs(config)
     groups = set(config['groups'])
     chosen = {'baseline'}
     reasons = ['baseline always runs']
@@ -1937,7 +2079,13 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
-            matched = controlled
+            contract_groups = python_inputs.get(path, {})
+            if contract_groups:
+                chosen.update(contract_groups)
+                path_rules[path].update(contract_groups)
+                support_rule |= 'workspace_support' in contract_groups
+                reasons.append('trusted Python control contract input changed: ' + path)
+            matched = controlled or bool(contract_groups)
             for manifests, reverse, embedded in graphs:
                 owners = {name for name, (directory, _) in manifests.items()
                           if directory and path.startswith(directory + '/')}
@@ -2005,6 +2153,10 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
         reasons.append('uncertain Git/dependency inputs: ' + str(error))
     if unknown_paths:
         raise UnknownInputsError(unknown_paths)
+    python_controls = python_control_plan(config, paths)
+    if python_controls.get('python_control_paths'):
+        chosen.add('workflow_governance')
+        reasons.append('trusted Python control contracts run in workflow_governance')
     if full:
         chosen = set(groups)
         reasons.append('ordinary required fallback')
@@ -2038,6 +2190,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             'workspace_support_profiles': support_profiles,
             'workspace_support_profile_version': 1,
             'reasons': list(dict.fromkeys(reasons)), 'scope': 'full' if full else 'targeted'}
+    plan.update(python_controls)
     if profile is not None:
         if profile not in ('pr-fast', 'main-fast'):
             raise ValueError('select requires a fast execution profile')

@@ -103,12 +103,27 @@ class Preview(unittest.TestCase):
             self.assertEqual(output.read_text(), 'enabled=false\n')
             self.assertFalse((Path(directory) / 'plan.json').exists())
 
+    def test_python_control_changes_do_not_start_product_rust_preview(self):
+        for script in ('plan-rust-required-scope', 'ci-fast-preview',
+                       'ci-required-result', 'document_corpus'):
+            for suffix in ('.py', '.test.py'):
+                with self.subTest(path=script + suffix), tempfile.TemporaryDirectory() as directory:
+                    repo, base = fixture(directory)
+                    path = repo / 'scripts' / (script + suffix)
+                    path.write_text('raise SystemExit("Python contracts must not start a product preview")\n')
+                    command(repo, 'add', '.')
+                    command(repo, 'commit', '-qm', 'Python contract change')
+                    output = Path(directory) / 'github-output'
+                    plan = Path(directory) / 'plan.json'
+                    self.assertIsNone(PREVIEW.plan_preview(repo, base, 'HEAD', plan, output))
+                    self.assertEqual(output.read_text(), 'enabled=false\n')
+                    self.assertFalse(plan.exists())
+                    self.assertFalse(Path(str(plan) + '.metadata.json').exists())
+
     def test_real_cli_runs_candidate_planner_but_keeps_distinct_authority(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo, base = fixture(directory)
-            # The actual subprocess parses and reports the identities received
-            # by the candidate planner; it never receives the real PR base.
-            planner = """import argparse,json,pathlib
+        # The actual subprocess parses and reports the identities received
+        # by the candidate planner; it never receives the real PR base.
+        planner = """import argparse,json,pathlib
 p=argparse.ArgumentParser()
 for key in ('profile','base-ref','head-ref','test-ref','policy-ref','config','formal-config','output'):
  p.add_argument('--'+key,required=True)
@@ -120,22 +135,30 @@ for key in ('source_sha','tested_sha','policy_sha'): plan[key]=a.head_ref
 for key in ('source','tested'): plan['architecture'][key]=a.head_ref
 pathlib.Path(a.output).write_text(json.dumps(plan))
 """.replace('PLAN', repr(valid_plan('unused')))
-            (repo / 'scripts/plan-rust-required-scope.py').write_text(planner)
-            command(repo, 'add', '.')
-            command(repo, 'commit', '-qm', 'candidate policy')
-            source = command(repo, 'rev-parse', 'HEAD')
-            output = Path(directory) / 'plan.json'
-            github_output = Path(directory) / 'github-output'
-            metadata = PREVIEW.plan_preview(repo, base, source, output, github_output)
-            self.assertEqual(metadata['authority'], 'diagnostic-only')
-            self.assertEqual(metadata['source_sha'], source)
-            self.assertEqual(metadata['actual_pr_base_sha'], base)
-            self.assertNotEqual(metadata['synthetic_base_sha'], base)
-            self.assertEqual(json.loads(Path(str(output) + '.metadata.json').read_text()), metadata)
-            self.assertIn('enabled=true\n', github_output.read_text())
-            self.assertEqual(command(repo, 'status', '--porcelain'), '')
-            with self.assertRaises(ValueError):
-                PREVIEW.plan_preview(repo, base, base, output, github_output)
+        for policy_path in ('.github/workflows/rust.yml', 'scripts/ci-required-scope.json',
+                            'scripts/ci-tests.sh', 'scripts/ci-test-artifacts.py',
+                            'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json'):
+            with self.subTest(path=policy_path), tempfile.TemporaryDirectory() as directory:
+                repo, base = fixture(directory)
+                (repo / 'scripts/plan-rust-required-scope.py').write_text(planner)
+                execution_input = repo / policy_path
+                execution_input.parent.mkdir(parents=True, exist_ok=True)
+                execution_input.write_text('{"candidate": true}\n')
+                command(repo, 'add', '.')
+                command(repo, 'commit', '-qm', 'candidate policy and execution input')
+                source = command(repo, 'rev-parse', 'HEAD')
+                output = Path(directory) / 'plan.json'
+                github_output = Path(directory) / 'github-output'
+                metadata = PREVIEW.plan_preview(repo, base, source, output, github_output)
+                self.assertEqual(metadata['authority'], 'diagnostic-only')
+                self.assertEqual(metadata['source_sha'], source)
+                self.assertEqual(metadata['actual_pr_base_sha'], base)
+                self.assertNotEqual(metadata['synthetic_base_sha'], base)
+                self.assertEqual(json.loads(Path(str(output) + '.metadata.json').read_text()), metadata)
+                self.assertIn('enabled=true\n', github_output.read_text())
+                self.assertEqual(command(repo, 'status', '--porcelain'), '')
+                with self.assertRaises(ValueError):
+                    PREVIEW.plan_preview(repo, base, base, output, github_output)
 
     def test_missing_extra_or_changed_work_never_becomes_a_smaller_benchmark(self):
         source = 'a' * 40
