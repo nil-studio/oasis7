@@ -180,6 +180,9 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
         request_id: String,
         source_operation_id: String,
     },
+    TermSixNativePaidRecorded {
+        round_id: String,
+    },
     TermSixReserved {
         round_id: String,
     },

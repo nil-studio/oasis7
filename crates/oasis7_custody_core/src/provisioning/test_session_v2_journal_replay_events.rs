@@ -561,7 +561,9 @@ impl Replay<'_> {
                 }
                 self.closing = Some((*reason, at));
             }
-            E::TermSixReserved { .. } | E::TermSixPortClaimed { .. } => {
+            E::TermSixReserved { .. }
+            | E::TermSixPortClaimed { .. }
+            | E::TermSixNativePaidRecorded { .. } => {
                 return self.apply_term_six(event, at, ordinal);
             }
             // Their actual independent consumers must extend this closed replay
