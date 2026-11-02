@@ -15,6 +15,9 @@ pub(crate) struct IdentityReply {
     pub cookies: Vec<String>,
 }
 pub(crate) struct IdentityService {
+    pub(super) model_proxy_basis:
+        Option<std::sync::Arc<dyn super::custody::model_proxy_basis::ModelProxyBasisAuthority>>,
+
     pub(super) custody: Option<super::custody::CustodyConfig>,
     pub(super) custody_management_enabled: bool,
     pub config: IdentityConfig,
@@ -169,6 +172,9 @@ impl IdentityService {
             )
         }
         .map_err(|e| e.to_string())?;
+        store
+            .attach_machine_restore_guard_from_env(&config.sqlite_path)
+            .map_err(|e| e.to_string())?;
         let email = super::email::EmailAdapter::from_env(&config.session_key)?;
         email
             .verify_key_binding(&mut store)
@@ -209,6 +215,7 @@ impl IdentityService {
             .require_revocation_configuration_if_registered()
             .map_err(|e| e.to_string())?;
         Ok(Self {
+            model_proxy_basis: None,
             custody,
             custody_management_enabled: std::env::var("OASIS7_CUSTODY_MANAGEMENT_UI_ENABLED")
                 .ok()
@@ -422,7 +429,7 @@ impl IdentityService {
             return token_reply(result);
         }
         let result:Result<Value,StoreError>=match (method,relative) {
-            ("GET","/capabilities")=>Ok(json!({"api_version":2,"ok":true,"csrf_token":csrf,"registration_enabled":self.config.registration_enabled,"custody_management":self.custody_management_capability(),"passkey":{"available":true},"email":{"available":self.email.available()},"email_recovery":{"available":self.email.recovery_available()},"machine_registration":{"available":self.config.registration_enabled && self.config.machine_registration_enabled,"algorithm":"Ed25519","options_path":format!("{PREFIX}/machine-registration/options"),"complete_path":format!("{PREFIX}/machine-registration/complete")},"native_key":{"available":true,"mode":"import_only","algorithm":"Ed25519","identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id}})),
+            ("GET","/capabilities")=>Ok(json!({"api_version":2,"ok":true,"csrf_token":csrf,"registration_enabled":self.config.registration_enabled,"custody_management":self.custody_management_capability(),"model_proxy":self.model_proxy_capability(),"passkey":{"available":true},"email":{"available":self.email.available()},"email_recovery":{"available":self.email.recovery_available()},"machine_registration":{"available":self.config.registration_enabled && self.config.machine_registration_enabled,"algorithm":"Ed25519","options_path":format!("{PREFIX}/machine-registration/options"),"complete_path":format!("{PREFIX}/machine-registration/complete")},"native_key":{"available":true,"mode":"import_only","algorithm":"Ed25519","identity_service_id":self.config.namespace.identity_service_id,"environment_id":self.config.namespace.environment_id}})),
             ("GET","/session")=>self.session(sid.as_deref(),now).map(|(a,s)|json!({"api_version":2,"ok":true,"csrf_token":csrf,"account":{"account_id":a.account_id,"display_name":a.display_name},"authentication":{"state":"authenticated","method":s.auth_method},"world":{"state":"not_requested"}})),
             ("POST","/passkeys/registration/options")=>self.registration_options(&owner,sid.as_deref(),&payload,source,now),
             ("POST","/passkeys/authentication/options")=>self.authentication_options(&owner,&payload,source,now),

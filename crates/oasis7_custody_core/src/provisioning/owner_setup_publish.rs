@@ -38,9 +38,9 @@ impl AccountProvisionApprovalState {
             .verify(&self.owner_setup_publish_checks(id, read.stage, &candidate, current, now)?)?;
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&read.stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&read.stage)
             .ok_or_else(invalid)?;
         read.validate_role(Role::Owner)?;
         if read.ticket != OWNER_SETUP_MAX_ORACLE_READS || read.ticket > o.oracle_reads {
@@ -132,9 +132,9 @@ impl AccountProvisionApprovalState {
         verifier.verify(&self.owner_setup_stored_admission_checks(id, stage, current, now)?)?;
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?;
         if o.original.is_none() || o.result.is_some() {
             return Err(invalid());
@@ -167,9 +167,9 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         let mut next = self.clone();
-        next.owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+        next.owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?
             .lookup_reserved_at = Some(DecimalU64(now));
         next.validate_persistence()?;
@@ -197,9 +197,9 @@ impl AccountProvisionApprovalState {
         }
         let mut next = self.clone();
         let o = next
-            .owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+            .owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?;
         o.lookup_claimed_at = Some(DecimalU64(now));
         let result = o.clone();
@@ -209,9 +209,9 @@ impl AccountProvisionApprovalState {
     }
     pub fn mark_owner_setup_unknown(&mut self, id: &str, stage: OwnerSetupStageV1) -> Result<()> {
         let mut next = self.clone();
-        next.owner_setups
-            .get_mut(id)
-            .and_then(|v| v.stages.get_mut(&stage))
+        next.owner_setup_engine_record_mut(id)?
+            .stages
+            .get_mut(&stage)
             .ok_or_else(invalid)?
             .operation
             .mark_unknown()
@@ -227,7 +227,7 @@ impl AccountProvisionApprovalState {
         expected: &OwnerSetupSigningRequestV1,
         signature_scope: Option<&mut RestoreSignatureScope>,
     ) -> Result<()> {
-        let v = self.owner_setups.get(id).ok_or_else(invalid)?;
+        let v = self.owner_setup_engine_record(id)?;
         let key = &self
             .provision
             .role_key(Role::Owner)
@@ -323,8 +323,8 @@ impl AccountProvisionApprovalState {
         stage: OwnerSetupStageV1,
     ) -> Result<&OwnerSetupOutboxV1> {
         let o = self
-            .owner_setups
-            .get(id)
+            .owner_setup_engine_record(id)
+            .ok()
             .and_then(|v| v.stages.get(&stage))
             .ok_or_else(invalid)?;
         if !matches!(

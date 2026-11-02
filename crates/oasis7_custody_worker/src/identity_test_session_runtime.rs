@@ -53,6 +53,13 @@ pub(super) async fn response(
     env: &Env,
     raw: &str,
 ) -> worker::Result<worker::Response> {
+    if serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+        == Some(2)
+    {
+        return super::test_session_v2::response(state, env, raw).await;
+    }
     let selector: Selector = serde_json::from_str(raw).map_err(|_| super::denied())?;
     let result = execute(state, env, &selector)
         .await
@@ -177,6 +184,13 @@ async fn execute(state: JsValue, env: &Env, selector: &Selector) -> JResult<serd
 }
 
 pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
+    if serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+        == Some(2)
+    {
+        return super::test_session_v2::run(env, raw).await;
+    }
     if raw.len() > 4096 {
         return Err(super::denied());
     }

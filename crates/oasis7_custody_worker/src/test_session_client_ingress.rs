@@ -117,6 +117,41 @@ pub(crate) async fn capture(env: &Env, request: &Request) -> Result<CapturedClie
             (inner, SessionClientOperation::Control(kind), q.session_id)
         }
     };
+    let admission = capture_canonical(
+        env,
+        request,
+        CapturedRoute {
+            selected,
+            inner,
+            session_id,
+            api_version: 1,
+        },
+        &body,
+    )?;
+    Ok(CapturedClientHttp {
+        operation,
+        admission,
+    })
+}
+struct CapturedRoute {
+    selected: crate::test_session_client_route::ClientTarget,
+    inner: HttpPopRoute,
+    session_id: String,
+    api_version: u8,
+}
+fn capture_canonical(
+    env: &Env,
+    request: &Request,
+    route: CapturedRoute,
+    body: &str,
+) -> Result<TestSessionClientAdmissionRpc, JsValue> {
+    let CapturedRoute {
+        selected,
+        inner,
+        session_id,
+        api_version,
+    } = route;
+    let url = request.url().map_err(|_| rejected())?;
     let origin = env
         .var("CUSTODY_PUBLIC_ORIGIN")
         .map_err(|_| rejected())?
@@ -148,26 +183,72 @@ pub(crate) async fn capture(env: &Env, request: &Request) -> Result<CapturedClie
     let nonce_hint =
         http_pop_nonce_hint(&borrowed, HttpHeaderRepresentation::WorkerMergedSingletons)
             .map_err(|_| rejected())?;
-    Ok(CapturedClientHttp {
-        operation,
-        admission: TestSessionClientAdmissionRpc {
-            ingress_attempt_id: crate::client_enrollment_authority::nonce()?,
-            http: TestSessionClientHttpRpc {
-                selector: TestSessionSelectorV1 {
-                    api_version: 1,
-                    custody_account_id: selected.account_id,
-                    provision_id: selected.provision_id,
-                    session_id: session_id.clone(),
-                },
-                original: SessionClientHttpRequestV1 {
-                    session_id,
-                    method: "POST".into(),
-                    target_uri: url.into(),
-                    headers,
-                    body: body.to_string(),
-                    nonce_hint,
-                },
+    Ok(TestSessionClientAdmissionRpc {
+        ingress_attempt_id: crate::client_enrollment_authority::nonce()?,
+        http: TestSessionClientHttpRpc {
+            selector: TestSessionSelectorV1 {
+                api_version,
+                custody_account_id: selected.account_id,
+                provision_id: selected.provision_id,
+                session_id: session_id.clone(),
+            },
+            original: SessionClientHttpRequestV1 {
+                session_id,
+                method: "POST".into(),
+                target_uri: url.into(),
+                headers,
+                body: body.into(),
+                nonce_hint,
             },
         },
     })
+}
+/// New closed N profile. This captures raw bytes; Account alone validates N and H.
+pub(crate) async fn capture_native_model(
+    env: &Env,
+    request: &Request,
+) -> Result<TestSessionClientAdmissionRpc, JsValue> {
+    if request.method() != Method::Post
+        || [
+            "CUSTODY_TEST_SESSION_ENABLED",
+            "CUSTODY_TEST_SESSION_V2_ENABLED",
+        ]
+        .into_iter()
+        .any(|key| env.var(key).ok().map(|v| v.to_string()).as_deref() != Some("true"))
+    {
+        return Err(rejected());
+    }
+    let url = request.url().map_err(|_| rejected())?;
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(rejected());
+    }
+    let selected = parse(url.path()).ok_or_else(rejected)?;
+    let ClientRoute::ModelReservation { session_id } = &selected.route else {
+        return Err(rejected());
+    };
+    let session_id = session_id.clone();
+    let body = zeroize::Zeroizing::new(
+        bounded(request.inner().as_ref(), 32768)
+            .await?
+            .as_string()
+            .ok_or_else(rejected)?,
+    );
+    let query:oasis7_custody_core::native_model_proxy_query_v2::SignedNativeModelReservationQueryV2=serde_json::from_str(&body).map_err(|_|rejected())?;
+    if query.query.session_id != session_id
+        || query.query.provision_id != selected.provision_id
+        || query.query.custody_account_id != selected.account_id
+    {
+        return Err(rejected());
+    }
+    capture_canonical(
+        env,
+        request,
+        CapturedRoute {
+            selected,
+            inner: HttpPopRoute::ModelReservations(session_id.clone()),
+            session_id,
+            api_version: 2,
+        },
+        &body,
+    )
 }
