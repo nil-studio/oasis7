@@ -407,9 +407,19 @@ impl AccountProvisionApprovalState {
         &self,
         id: &str,
     ) -> Result<(&str, String)> {
-        let s = self.test_session_v2_record(id)?;
-        let machine = s.native_machine_registration.as_ref().ok_or_else(invalid)?;
-        machine.validate_session(s)?;
+        self.test_session_v2_record(id)?
+            .stored_native_ready_identity()
+    }
+}
+
+impl TestSessionAuthorityV2 {
+    // Same existing metadata kernel for strict pending cold reverse; no Current or transport grant.
+    pub(in crate::provisioning) fn stored_native_ready_identity(&self) -> Result<(&str, String)> {
+        let machine = self
+            .native_machine_registration
+            .as_ref()
+            .ok_or_else(invalid)?;
+        machine.validate_session(self)?;
         let active = machine.active.as_ref().ok_or_else(invalid)?;
         if active.ready.is_none() || machine.registered.is_none() {
             return Err(invalid());

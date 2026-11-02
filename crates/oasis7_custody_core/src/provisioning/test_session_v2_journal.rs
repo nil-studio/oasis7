@@ -86,6 +86,15 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     ExecutionPendingFenceReadRecorded {
         request_id: String,
     },
+    ExecutionPendingSourceDispatchRecorded {
+        request_id: String,
+    },
+    ExecutionPendingSourceNativeLeafRecorded {
+        request_id: String,
+    },
+    ExecutionPendingSourceResultRecorded {
+        request_id: String,
+    },
     ExecutionPendingDirectorySignatureRecorded {
         request_id: String,
     },
@@ -234,6 +243,9 @@ fn inventory_count(s: &TestSessionAuthorityV2) -> Result<usize> {
                 .as_ref()
                 .is_some_and(|p| p.has_fence_read()),
         ),
+        usize::from(s.execution_pending_start.as_ref().is_some_and(|p| p.source_dispatch_recorded_at().is_some())),
+        usize::from(s.execution_pending_start.as_ref().is_some_and(|p| p.source_native_leaf_recorded_at().is_some())),
+        usize::from(s.execution_pending_start.as_ref().is_some_and(|p| p.source_result_recorded_at().is_some())),
         super::v2_read_history::read_fee_count(s) as usize,
         s.purpose_http_admissions.values().filter(|a| matches!(&a.class,
             SessionPurposeHttpAdmissionClassV1::ReadPrepareHistoryV2 { fee } if fee.outcome.is_some())).count(),
