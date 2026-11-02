@@ -198,11 +198,6 @@ pub fn verify_resource_goal_response(
     verify_resource_goal_request(q)?;
     service(RESOURCE_GOAL_PATH_V2, q, r, key)?;
     let p = &r.payload;
-    // Codec prerequisite only. The new factual profile is deliberately not
-    // accepted until its complete Resource-specific proof consumer is added.
-    if p.current_goal.activation_profile.is_some() {
-        return Err(no());
-    }
     p.owner.validate(
         &q.request.expected_fence,
         &q.subject_public_key,
@@ -216,16 +211,37 @@ pub fn verify_resource_goal_response(
         return Err(no());
     }
     let current: ws::private_goal_read::CurrentGoalResponse = p.current_goal.clone().into();
-    ws::private_goal_read::verify_current_payload(
-        &ws::private_goal_read::CurrentGoalRequest {
-            schema_revision: 1,
-            world: q.request.world.clone().into(),
-            agent_id: q.request.expected_fence.agent_id.clone(),
-            task_id: q.request.expected_fence.task_id.clone(),
-        },
-        &q.subject_public_key,
-        &current,
-    )?;
+    let request = ws::private_goal_read::CurrentGoalRequest {
+        schema_revision: 1,
+        world: q.request.world.clone().into(),
+        agent_id: q.request.expected_fence.agent_id.clone(),
+        task_id: q.request.expected_fence.task_id.clone(),
+    };
+    match &p.current_goal.activation_profile {
+        None => ws::private_goal_read::verify_current_payload(
+            &request,
+            &q.subject_public_key,
+            &current,
+        )?,
+        Some(ResourceGoalActivationProfileV2::FormalQualifiedV2 {
+            committed_runtime_height,
+        }) => {
+            let activation = current.activation_commit.as_ref().ok_or_else(no)?;
+            if !current
+                .read_commit
+                .satisfies_minimum(activation)
+                .map_err(|e| e.to_string())?
+            {
+                return Err(no());
+            }
+            ws::private_goal_read::verify_resource_formal_current_payload(
+                &request,
+                &q.subject_public_key,
+                &current,
+                committed_runtime_height.0,
+            )?;
+        }
+    }
     if current
         .active_goal
         .as_ref()
