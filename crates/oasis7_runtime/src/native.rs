@@ -500,6 +500,7 @@ pub use world::incremental_commit::{
 
 pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
 pub use oasis7_world_state::incremental_world_text_maps;
+pub use oasis7_world_state::incremental_factory_authority_records;
 pub use oasis7_world_state::incremental_factory_records;
 pub use oasis7_world_state::incremental_industry_jobs;
 pub use oasis7_world_state::incremental_material_records;
@@ -518,3 +519,8 @@ pub use oasis7_world_state::incremental_json_records;
 pub use oasis7_world_state::incremental_agent_subtree;
 
 pub use oasis7_world_state::incremental_runtime_artifact_content;
+pub use oasis7_world_state::incremental_reward_budget_records;
+
+pub use oasis7_world_state::incremental_governance_records;
+
+pub use oasis7_world_state::incremental_main_token_policy_records;

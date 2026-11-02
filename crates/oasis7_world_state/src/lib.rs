@@ -241,6 +241,8 @@ pub mod incremental_authorization_mapsets;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_expected_bytes;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_authority_records;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_factory_records;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_identity_amounts;
@@ -305,4 +307,12 @@ pub mod incremental_cognition_groups;
 pub mod incremental_runtime_controls;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_reward_budget_records;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_artifact_content;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_governance_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_main_token_policy_records;

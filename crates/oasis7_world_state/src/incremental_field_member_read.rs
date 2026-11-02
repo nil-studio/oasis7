@@ -72,6 +72,26 @@ pub(crate) fn read_member_record_header_v1<R: ValueNodeReader>(
         cancelled,
     )
 }
+/// Authenticated original key output without reading the payload. Only callers
+/// inheriting an already-qualified old value may skip that value's semantics.
+pub(crate) fn read_member_record_key_v1<R: ValueNodeReader>(
+    expected_root: &[u8; 32],
+    expected_key: &WorldFieldKeyV1,
+    context: &mut ValueReadContext<'_, R>,
+    limits: MemberRecordLimitsV1,
+    key_output: &mut impl Write,
+    cancelled: impl FnMut() -> bool,
+) -> Result<MemberRecordInfoV1, ValueTreeError> {
+    read_record(
+        expected_root,
+        expected_key,
+        context,
+        (limits, None, false),
+        key_output,
+        &mut std::io::sink(),
+        cancelled,
+    )
+}
 fn read_record<R: ValueNodeReader>(
     expected_root: &[u8; 32],
     expected_key: &WorldFieldKeyV1,
