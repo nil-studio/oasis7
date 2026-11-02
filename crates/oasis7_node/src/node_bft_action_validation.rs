@@ -32,6 +32,17 @@ impl NodeRuntime {
         &self,
         payload: &[u8],
     ) -> Result<(), NodeError> {
+        // Closed task mutations require the actual non-BFT Formal begun Tick.
+        // Reject unsupported selected profiles before any execution-hook lock.
+        if crate::node_runtime_core::is_closed_task_catalog(payload)
+            && (self.bft_config.is_some()
+                || self.bft_v2_config.is_some()
+                || self.bft_v3_config.is_some())
+        {
+            return Err(NodeError::Consensus {
+                reason: "closed task mutation requires non-BFT Formal profile; not queued".into(),
+            });
+        }
         if self.bft_config.is_some() {
             self.validate_bft_payload_admission(payload)?;
         }

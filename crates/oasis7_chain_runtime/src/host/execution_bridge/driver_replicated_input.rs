@@ -27,9 +27,7 @@ pub(super) fn decode_committed_actions(
         Option<Vec<ProviderBackedBootstrapAuthorityV1>>,
         Vec<(
             u64,
-            oasis7::world_service::SubmitIntentRequest<
-                oasis7::world_service::WorldServicePayloadV1,
-            >,
+            super::world_service_cleanup_v2::RegisteredServiceIntent,
         )>,
     ),
     String,
@@ -77,6 +75,13 @@ pub(super) fn decode_committed_actions(
         }
         match decode_consensus_action_payload_envelope(action.payload_cbor.as_slice()) {
             Ok(envelope) => {
+                if matches!(
+                    &envelope.body,
+                    ConsensusActionPayloadBody::WorldGuardedStopV2 { .. }
+                ) && (envelope.auth.is_some() || envelope.gameplay_submission_origin.is_some())
+                {
+                    return Err("guarded Stop V2 rejects external auth/origin wrappers".into());
+                }
                 let governance_authorization = match envelope.auth {
                     Some(ConsensusActionAuthEnvelope::GovernanceAction(proof)) => Some(proof),
                     _ => None,
@@ -103,15 +108,43 @@ pub(super) fn decode_committed_actions(
                     }
                 }
                 match envelope.body {
+                    ConsensusActionPayloadBody::WorldGuardedStopV2 { request } => {
+                        request.verify_owner_signature()?;
+                        service_intents.push((
+                            action.action_id,
+                            super::world_service_cleanup_v2::RegisteredServiceIntent::GuardedStopV2(
+                                request,
+                            ),
+                        ));
+                    }
+                    ConsensusActionPayloadBody::WorldCleanupV2 { request } => {
+                        request.validate()?;
+                        service_intents.push((
+                            action.action_id,
+                            super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(
+                                Box::new(request),
+                            ),
+                        ));
+                    }
                     ConsensusActionPayloadBody::WorldServiceIntent { request } => {
-                        service_intents.push((action.action_id, request));
+                        service_intents.push((
+                            action.action_id,
+                            super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(
+                                Box::new(request),
+                            ),
+                        ));
                     }
                     ConsensusActionPayloadBody::RuntimeAction { action: decoded } => {
                         if let RuntimeAction::WorldServiceIntent { request } = decoded {
                             let request = serde_json::from_value(request).map_err(|error| {
                                 format!("invalid registered world-service intent: {error}")
                             })?;
-                            service_intents.push((action.action_id, request));
+                            service_intents.push((
+                                action.action_id,
+                                super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(
+                                    Box::new(request),
+                                ),
+                            ));
                         } else {
                             let origin = envelope.gameplay_submission_origin.map(|submission| {
                                 oasis7_runtime::CommittedRecipeOrigin {
