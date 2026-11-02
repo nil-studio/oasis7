@@ -285,6 +285,9 @@ pub mod incremental_effect_intent_cbor;
 pub mod incremental_runtime_effect_records;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_artifact_resources;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_json_records;
 
 #[cfg(not(target_arch = "wasm32"))]
