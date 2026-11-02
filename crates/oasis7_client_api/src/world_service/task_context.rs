@@ -45,6 +45,23 @@ pub struct TaskContextGetV1 {
     pub context: TaskContextIdentityV1,
     pub prepare_operation_id: String,
 }
+/// Fixed output of the actual successful Runtime task-prefix producer.
+/// This data is not a canonical-commit proof or permission. Runtime constructs
+/// it only after preparing the prefix and dispatching the cognition request.
+/// Its two-field V1 wire is unchanged; private context contents are absent.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct TaskProviderPrefixReceiptV1 {
+    captured: bool,
+    request_commitment: String,
+}
+impl TaskProviderPrefixReceiptV1 {
+    pub fn from_context(context: &TaskContextIdentityV1) -> Self {
+        Self {
+            captured: true,
+            request_commitment: context.request_commitment.clone(),
+        }
+    }
+}
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TaskGoalSnapshotRequestV1 {

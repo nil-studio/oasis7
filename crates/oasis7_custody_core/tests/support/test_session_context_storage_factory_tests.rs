@@ -405,3 +405,6 @@ fn context_storage_factory_strong_wrong_domain_and_oversized_body_reject() {
         ))
     );
 }
+
+#[path = "test_session_fullsigned_storage_v2_tests.rs"]
+mod fullsigned_v2;

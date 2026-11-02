@@ -1,11 +1,24 @@
 //! Signed synthetic World transport fixture, never MFA/prepayment or real World evidence.
-use super::*;
+use oasis7_agent_api::game::{
+    DecimalU64, GAME_PARTICIPANT_ADMISSION_DOMAIN, GAME_PARTICIPANT_REGISTER_DOMAIN,
+    GameExecutorBindingV1, GameGoalPrepareV1, GameGoalReferenceV1, GameIdentityNamespaceV1,
+    GameParticipantAdmissionV1, GameParticipantRegisterV1, GameTaskControlV1, GameTaskFenceV1,
+    GameTaskStatusV1, GoalContentV1, game_goal_version_digest,
+};
 use oasis7_client_api::world_service::private_goal::{
     PreparedGoalReceiptV1, prepared_goal_commitment, sign_goal_prepare,
 };
 use oasis7_client_api::world_service::resource_basis as wire;
 use oasis7_client_api::world_service::*;
-pub(super) struct Data {
+use oasis7_client_api::world_service::{
+    entry_control::{EntryOwnerControlRequestV1, EntryOwnerOperationV1},
+    participant_discovery::{
+        OwnerSetupObservationV1, PARTICIPANT_OWNER_VIEW_PATH, ParticipantOwnerControlResponseV1,
+        ParticipantOwnerControlViewV1, ParticipantOwnerViewProfileV1,
+        ParticipantOwnerViewRequestV1,
+    },
+};
+pub(in super::super) struct Data {
     pub owner: String,
     pub issuer: String,
     pub world_key: String,

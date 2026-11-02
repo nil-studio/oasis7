@@ -14,7 +14,7 @@ impl AccountProvisionApprovalState {
         if self.owner_setups.len() > 1 {
             return Err(ProvisionApprovalError::InvalidPersistence);
         }
-        for (id, v) in &self.owner_setups {
+        for (id, v) in self.owner_setup_engine_records() {
             v.plan.validate()?;
             if v.book.records().count() != 1 {
                 return Err(ProvisionApprovalError::InvalidPersistence);
@@ -53,7 +53,7 @@ impl AccountProvisionApprovalState {
                     .is_none_or(|result| {
                         digest(result).ok().as_ref() != Some(&v.plan.participant_receipt_digest)
                     })
-                || r.input().request.intent != v.plan.intent()?
+                || r.input().request.intent != self.owner_setup_engine_intent(id)?
                 || v.plan.provision_id != self.draft.entry.provision_id
                 || v.plan.world_identity != self.draft.world_identity
             {
@@ -103,8 +103,7 @@ impl AccountProvisionApprovalState {
                         .min(signed.verification.source_session_expires_at.0)
                         .min(signed.verification.source_session_idle_expires_at.0)
                         .min(i.created_at.0.checked_add(30_000).ok_or_else(invalid)?)
-                || i.operation_id
-                    != digest(&("oasis7.custody.owner-setup-source.v1", id, &v.plan.setup_id))?
+                || i.operation_id != self.owner_setup_source_operation_id(id)?
                 || i.claimed_at.is_some() != i.request_bytes.is_some()
                 || i.verification.is_some() != i.verified_at.is_some()
             {
@@ -145,6 +144,17 @@ impl AccountProvisionApprovalState {
                 }
                 self.validate_owner_setup_outbox(id, *stage, o, r, signature_scope)?;
             }
+            if let Some(final_common) = self.owner_setup_resource_final_common_v2(id)? {
+                if v.stages.contains_key(&OwnerSetupStageV1::FinalObservation)
+                    || !nonces.insert(final_common.session_nonce.clone())
+                {
+                    return Err(invalid());
+                }
+                budget
+                    .charge(OWNER_SETUP_STAGE_TRANSPORT_COST)
+                    .map_err(|_| invalid())?;
+                self.validate_owner_setup_resource_final_common_restore_v2(id, r, signature_scope)?;
+            }
             if v.transport.as_ref() != Some(&budget) {
                 return Err(invalid());
             }
@@ -163,5 +173,11 @@ impl AccountProvisionApprovalState {
                     .flat_map(|v| v.book.records()),
             )
             .chain(self.test_sessions.values().flat_map(|v| v.book.records()))
+            .chain(
+                self.test_sessions_v2
+                    .values()
+                    .flat_map(|v| v.book.records()),
+            )
+            .chain(self.owner_setup_v2.iter().flat_map(|v| v.book.records()))
     }
 }

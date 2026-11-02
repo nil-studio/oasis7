@@ -175,3 +175,38 @@ impl AccountProvisionApprovalState {
         Ok(options)
     }
 }
+
+impl AccountProvisionApprovalState {
+    /// Uses actual management Current and the existing bound participant basis.
+    /// The request cannot select a manager, Native account, role key or World.
+    pub fn owner_setup_prepare_request_v2(
+        &self,
+        request: &OwnerSetupPrepareRequestV2,
+        current: &OwnerSetupManagementCurrent<'_>,
+        now: u64,
+    ) -> Result<OwnerSetupPrepareResponseV1> {
+        request.validate().map_err(|_| invalid())?;
+        let basis = self.owner_setup_basis(current, now)?;
+        let p = &request.plan;
+        if p.provision_id != basis.provision_id
+            || p.participant_receipt_digest != basis.participant_receipt_digest
+            || p.world_identity != basis.world_identity
+            || p.owner_key_ref != basis.owner_key.key_id
+            || p.executor_key_ref != basis.executor_key.key_id
+            || p.executor_public_key != basis.executor_key.public_key
+            || p.bootstrap_config_version != basis.bootstrap_config_version
+            || p.model_budget.as_ref().is_some_and(|b| b.native_account_id != basis.native_account_id)
+            // A V1 setup cannot be silently replaced/upgraded through V2 prepare.
+            || !self.owner_setups.is_empty()
+        {
+            return Err(invalid());
+        }
+        let options = crate::approval::ApprovalOptionsRequestV1 {
+            approval_request_id: request.approval_request_id.clone(),
+            context: current.authority.clone(),
+            intent: p.intent().map_err(|_| invalid())?,
+        };
+        options.validate(now).map_err(|_| invalid())?;
+        Ok(options)
+    }
+}

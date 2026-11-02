@@ -23,6 +23,9 @@ pub use participant::*;
 #[path = "owner_setup.rs"]
 mod owner_setup;
 pub use owner_setup::*;
+#[path = "owner_setup_v2_approval.rs"]
+mod owner_setup_v2_approval;
+pub use owner_setup_v2_approval::*;
 #[path = "pairing_invites.rs"]
 mod pairing_invites;
 pub use pairing_invites::*;
@@ -120,10 +123,16 @@ pub struct AccountProvisionApprovalState {
     session_recovery_activation: Option<String>,
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    owner_setup_v2: Option<OwnerSetupApprovalV2>,
     owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
     pairing_invites: BTreeMap<String, PairingInviteRecordV1>,
     session_inventory: SessionInventoryV1,
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    test_sessions_v2: BTreeMap<String, TestSessionAuthorityV2>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    native_machine_floor_v2: Option<crate::native_cleanup_v2::AccountNativeFloorStoreV2>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -158,6 +167,7 @@ struct RawAccountProvisionApprovalState {
     participant_provisions: BTreeMap<String, ParticipantOriginalV1>,
     #[serde(default)]
     owner_setups: BTreeMap<String, OwnerSetupApprovalV1>,
+    owner_setup_v2: Option<OwnerSetupApprovalV2>,
     #[serde(default)]
     owner_setup_reconciles: BTreeMap<String, OwnerSetupReconcileApprovalV1>,
     #[serde(default)]
@@ -166,6 +176,9 @@ struct RawAccountProvisionApprovalState {
     session_inventory: SessionInventoryV1,
     #[serde(default)]
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
+    #[serde(default)]
+    test_sessions_v2: BTreeMap<String, TestSessionAuthorityV2>,
+    native_machine_floor_v2: Option<crate::native_cleanup_v2::AccountNativeFloorStoreV2>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -188,10 +201,13 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             session_recovery_activation: raw.session_recovery_activation,
             participant_provisions: raw.participant_provisions,
             owner_setups: raw.owner_setups,
+            owner_setup_v2: raw.owner_setup_v2,
             owner_setup_reconciles: raw.owner_setup_reconciles,
             pairing_invites: raw.pairing_invites,
             session_inventory: raw.session_inventory,
             test_sessions: raw.test_sessions,
+            test_sessions_v2: raw.test_sessions_v2,
+            native_machine_floor_v2: raw.native_machine_floor_v2,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -219,10 +235,13 @@ impl AccountProvisionApprovalState {
             session_recovery_activation: None,
             participant_provisions: BTreeMap::new(),
             owner_setups: BTreeMap::new(),
+            owner_setup_v2: None,
             owner_setup_reconciles: BTreeMap::new(),
             pairing_invites: BTreeMap::new(),
             session_inventory: SessionInventoryV1::Known,
             test_sessions: BTreeMap::new(),
+            test_sessions_v2: BTreeMap::new(),
+            native_machine_floor_v2: None,
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -559,10 +578,16 @@ impl AccountProvisionApprovalState {
     }
     fn validate_persistence(&self) -> Result<()> {
         validate_draft(&self.draft)?;
+        if let Some(floor) = &self.native_machine_floor_v2 {
+            floor
+                .validate_structure()
+                .map_err(|_| ProvisionApprovalError::InvalidPersistence)?;
+        }
         self.validate_managed_login_persistence()?;
         // Stack-local pure-crypto scope: never stored, returned or held over await.
         let mut setup_signatures = RestoreSignatureScope::default();
         self.validate_owner_setup_persistence_scoped(&mut setup_signatures)?;
+        self.validate_owner_setup_v2_persistence()?;
         self.validate_owner_setup_reconcile_persistence()?;
         self.validate_pairing_invite_persistence()?;
         self.validate_test_session_persistence()?;
@@ -729,3 +754,6 @@ fn tasks(
     }
     Ok(tasks)
 }
+
+#[path = "native_machine_floor.rs"]
+mod native_machine_floor;

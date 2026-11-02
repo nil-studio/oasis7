@@ -25,6 +25,7 @@ fn service(config: IdentityConfig) -> IdentityService {
     .unwrap();
     let email = EmailAdapter::from_env(&config.session_key).unwrap();
     IdentityService {
+        model_proxy_basis: None,
         custody: None,
         custody_management_enabled: false,
         participant_entry: None,
