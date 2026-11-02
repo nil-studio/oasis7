@@ -13,8 +13,7 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_world_state::{
     incremental_module_instance_fields::{
-        ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key,
-        ModuleInstanceScalarRefV1 as Scalar,
+        ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key, ModuleInstanceScalarStreamV1,
     },
     incremental_module_instance_index::*,
 };
@@ -134,7 +133,7 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
                 } else if Key::is_instance_key(&entry.key) {
                     let (map_key, field) =
                         Key::from_bytes(&entry.key).map_err(BodyMutationError::Invalid)?;
-                    let bytes = load(
+                    let count_key = validate_scalar(
                         &entry.value,
                         self.values,
                         self.memory,
@@ -142,9 +141,8 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
                         self.value_io,
                         self.max_scalar_bytes,
                         &cancelled,
+                        field,
                     )?;
-                    let scalar = Scalar::from_canonical_bytes(&bytes, field)
-                        .map_err(BodyMutationError::Invalid)?;
                     fields = fields
                         .checked_add(1)
                         .ok_or(BodyMutationError::Invalid("instance field count overflow"))?;
@@ -170,10 +168,8 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
                             }
                         }
                     } else if field == Field::ModuleId {
-                        let Scalar::Text(module_id) = scalar else {
-                            unreachable!("validated text")
-                        };
-                        let key = module_instance_count_key(module_id);
+                        let key =
+                            count_key.ok_or(BodyMutationError::Invalid("module count identity"))?;
                         let mut pending = self
                             .memory
                             .reserve(1 << 20, self.class)
@@ -286,6 +282,39 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
                 modules: count_leaves,
             }))
     }
+}
+pub(super) fn validate_scalar<V: ValueNodeReader, C: FnMut() -> bool>(
+    id: &[u8; 32],
+    values: &V,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    io: &mut ValueIoBudget,
+    max: u64,
+    cancelled: &RefCell<C>,
+    field: Field,
+) -> Result<Option<[u8; MODULE_INSTANCE_COUNT_KEY_BYTES]>, BodyMutationError> {
+    let _workspace = memory
+        .reserve(8192, class)
+        .map_err(ValueTreeError::Memory)?;
+    let mut read = ValueReadContext {
+        source: values,
+        memory,
+        class,
+        io,
+    };
+    let root = read.load_root(id)?;
+    if root.0.logical_len > max {
+        return Err(ValueTreeError::ResourceLimited("instance recovery scalar").into());
+    }
+    let mut sink = ModuleInstanceScalarStreamV1::new(field, root.0.logical_len);
+    read.read_range(&root, 0, root.0.logical_len, &mut sink, || {
+        (cancelled.borrow_mut())()
+    })?;
+    let result = sink.finish().map_err(BodyMutationError::Invalid)?;
+    if (cancelled.borrow_mut())() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    Ok(result)
 }
 pub(super) fn load<V: ValueNodeReader, C: FnMut() -> bool>(
     id: &[u8; 32],

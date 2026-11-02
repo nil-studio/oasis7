@@ -14,7 +14,6 @@ use oasis7_proto::memory_budget::ReservedValue;
 use oasis7_world_state::{
     incremental_module_instance_fields::{
         ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key,
-        ModuleInstanceScalarRefV1 as Scalar,
     },
     incremental_module_instance_index::*,
 };
@@ -67,6 +66,23 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore, C: FnMut()
         let bytes = self.load(&id)?;
         module_instance_count_from_bytes(&bytes).map_err(BodyMutationError::Invalid)
     }
+    fn scalar(
+        &mut self,
+        id: &[u8; 32],
+        field: Field,
+    ) -> Result<Option<[u8; MODULE_INSTANCE_COUNT_KEY_BYTES]>, BodyMutationError> {
+        step(self.work)?;
+        recovery::validate_scalar(
+            id,
+            self.ctx.values,
+            self.ctx.memory,
+            self.ctx.class,
+            self.ctx.value_io,
+            self.ctx.max_scalar_bytes,
+            &self.cancelled,
+            field,
+        )
+    }
     // Bounded by changed writes, never by the unchanged family size. This
     // no-growing-map implementation explicitly charges the O(delta^2) joins.
     fn net(&mut self, record: &TransitionRecordV1, key: &[u8]) -> Result<i128, BodyMutationError> {
@@ -83,13 +99,8 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore, C: FnMut()
             }
             for (id, sign) in [(write.mutation.before, -1i128), (write.mutation.after, 1)] {
                 if let Some(id) = id {
-                    let bytes = self.load(&id)?;
-                    let Scalar::Text(module) = Scalar::from_canonical_bytes(&bytes, field)
-                        .map_err(BodyMutationError::Invalid)?
-                    else {
-                        unreachable!()
-                    };
-                    if module_instance_count_key(module).as_slice() == key {
+                    let module_key = self.scalar(&id, field)?.ok_or_else(family::invalid)?;
+                    if module_key.as_slice() == key {
                         net += sign;
                     }
                 }
@@ -174,8 +185,7 @@ where
             let (map_key, field) =
                 Key::from_bytes(&mutation.key).map_err(BodyMutationError::Invalid)?;
             if let Some(id) = mutation.after {
-                let bytes = check.load(&id)?;
-                Scalar::from_canonical_bytes(&bytes, field).map_err(BodyMutationError::Invalid)?;
+                check.scalar(&id, field)?;
             }
             let marker =
                 Key::new(map_key, Field::InstanceId).map_err(BodyMutationError::Invalid)?;
@@ -192,13 +202,8 @@ where
             }
             if field == Field::ModuleId {
                 for id in [mutation.before, mutation.after].into_iter().flatten() {
-                    let bytes = check.load(&id)?;
-                    let Scalar::Text(module) = Scalar::from_canonical_bytes(&bytes, field)
-                        .map_err(BodyMutationError::Invalid)?
-                    else {
-                        unreachable!()
-                    };
-                    check.count_relation(record, &module_instance_count_key(module))?;
+                    let module_key = check.scalar(&id, field)?.ok_or_else(family::invalid)?;
+                    check.count_relation(record, &module_key)?;
                 }
             }
         } else {
