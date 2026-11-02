@@ -73,14 +73,13 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore, C: FnMut()
     ) -> Result<Option<[u8; MODULE_INSTANCE_COUNT_KEY_BYTES]>, BodyMutationError> {
         step(self.work)?;
         recovery::validate_scalar(
-            id,
+            (id, field),
             self.ctx.values,
             self.ctx.memory,
             self.ctx.class,
             self.ctx.value_io,
             self.ctx.max_scalar_bytes,
             &self.cancelled,
-            field,
         )
     }
     // Bounded by changed writes, never by the unchanged family size. This

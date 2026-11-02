@@ -134,14 +134,13 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
                     let (map_key, field) =
                         Key::from_bytes(&entry.key).map_err(BodyMutationError::Invalid)?;
                     let count_key = validate_scalar(
-                        &entry.value,
+                        (&entry.value, field),
                         self.values,
                         self.memory,
                         self.class,
                         self.value_io,
                         self.max_scalar_bytes,
                         &cancelled,
-                        field,
                     )?;
                     fields = fields
                         .checked_add(1)
@@ -284,15 +283,15 @@ impl<R: MerkleNodeReader, V: ValueNodeReader, S: CounterScratchStore>
     }
 }
 pub(super) fn validate_scalar<V: ValueNodeReader, C: FnMut() -> bool>(
-    id: &[u8; 32],
+    input: (&[u8; 32], Field),
     values: &V,
     memory: &MemoryBudget,
     class: MemoryClass,
     io: &mut ValueIoBudget,
     max: u64,
     cancelled: &RefCell<C>,
-    field: Field,
 ) -> Result<Option<[u8; MODULE_INSTANCE_COUNT_KEY_BYTES]>, BodyMutationError> {
+    let (id, field) = input;
     let _workspace = memory
         .reserve(8192, class)
         .map_err(ValueTreeError::Memory)?;
@@ -307,9 +306,11 @@ pub(super) fn validate_scalar<V: ValueNodeReader, C: FnMut() -> bool>(
         return Err(ValueTreeError::ResourceLimited("instance recovery scalar").into());
     }
     let mut sink = ModuleInstanceScalarStreamV1::new(field, root.0.logical_len);
-    read.read_range(&root, 0, root.0.logical_len, &mut sink, || {
+    let read_result = read.read_range(&root, 0, root.0.logical_len, &mut sink, || {
         (cancelled.borrow_mut())()
-    })?;
+    });
+    if sink.is_failed() { return Err(BodyMutationError::Invalid("module instance scalar stream")); }
+    read_result?;
     let result = sink.finish().map_err(BodyMutationError::Invalid)?;
     if (cancelled.borrow_mut())() {
         return Err(ValueTreeError::Cancelled.into());
