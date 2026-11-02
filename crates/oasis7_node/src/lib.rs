@@ -1176,6 +1176,7 @@ struct PosNodeEngine {
     recent_finality_latency_ms: VecDeque<i64>,
     execution_bindings: BTreeMap<u64, (String, String)>,
     pending_consensus_actions: BTreeMap<u64, NodeConsensusAction>,
+    closed_v2_parked: BTreeMap<u64, node_engine_core::closed_catalog::ParkedV2>,
     max_pending_consensus_actions: usize,
     max_consensus_action_payload_bytes: usize,
     pending_consensus_action_queue_bytes: Arc<AtomicUsize>,

@@ -1,3 +1,5 @@
+#[path = "node_engine_closed_catalog_v2.rs"]
+pub(super) mod closed_catalog;
 #[path = "node_engine_governance_auth.rs"]
 mod governance_auth;
 use super::*;
@@ -200,6 +202,7 @@ impl PosNodeEngine {
             recent_finality_latency_ms: VecDeque::new(),
             execution_bindings: BTreeMap::new(),
             pending_consensus_actions: BTreeMap::new(),
+            closed_v2_parked: BTreeMap::new(),
             max_pending_consensus_actions: config.max_engine_pending_consensus_actions,
             max_consensus_action_payload_bytes: config.max_consensus_action_payload_bytes,
             pending_consensus_action_queue_bytes,
@@ -353,6 +356,7 @@ impl PosNodeEngine {
         node_id: &str,
         world_id: &str,
         now_ms: i64,
+        hook: Option<&dyn NodeExecutionHook>,
     ) -> Result<PosDecision, NodeError> {
         let slot = self.next_slot;
         let epoch = self.slot_epoch(slot);
@@ -364,15 +368,17 @@ impl PosNodeEngine {
         if proposer_id != node_id {
             return self.idle_pending_decision();
         }
-        let committed_actions = self.drain_proposable_consensus_actions(now_ms)?;
+        let committed_actions = self.drain_proposable_consensus_actions(now_ms, hook)?;
         let committed_action_bytes = total_action_payload_bytes(committed_actions.iter());
+        let retry_closed = committed_actions
+            .iter()
+            .filter(|action| crate::node_runtime_core::is_closed_task_catalog(&action.payload_cbor))
+            .cloned()
+            .collect::<Vec<_>>();
         let action_root = match compute_consensus_action_root(committed_actions.as_slice()) {
             Ok(action_root) => action_root,
             Err(err) => {
-                release_action_payload_bytes(
-                    &self.pending_consensus_action_queue_bytes,
-                    committed_action_bytes,
-                );
+                self.retain_failed_closed_selection(&retry_closed, committed_action_bytes);
                 return Err(err);
             }
         };
@@ -391,10 +397,7 @@ impl PosNodeEngine {
         ) {
             Ok(block_hash) => block_hash,
             Err(err) => {
-                release_action_payload_bytes(
-                    &self.pending_consensus_action_queue_bytes,
-                    committed_action_bytes,
-                );
+                self.retain_failed_closed_selection(&retry_closed, committed_action_bytes);
                 return Err(err);
             }
         };
@@ -428,10 +431,7 @@ impl PosNodeEngine {
             }
             Err(err) => {
                 if self.pending.is_none() {
-                    release_action_payload_bytes(
-                        &self.pending_consensus_action_queue_bytes,
-                        committed_action_bytes,
-                    );
+                    self.retain_failed_closed_selection(&retry_closed, committed_action_bytes);
                 } else {
                     self.set_pending_action_reservation(committed_action_bytes);
                 }
@@ -443,8 +443,26 @@ impl PosNodeEngine {
     fn drain_proposable_consensus_actions(
         &mut self,
         now_ms: i64,
+        hook: Option<&dyn NodeExecutionHook>,
     ) -> Result<Vec<NodeConsensusAction>, NodeError> {
-        let queued = drain_ordered_consensus_actions(&mut self.pending_consensus_actions);
+        let incoming = drain_ordered_consensus_actions(&mut self.pending_consensus_actions);
+        let mut queued = Vec::new();
+        let mut closed_ids = Vec::new();
+        for action in incoming {
+            if crate::node_runtime_core::is_closed_task_catalog(&action.payload_cbor) {
+                closed_ids.push(action.action_id);
+                self.closed_v2_parked.insert(
+                    action.action_id,
+                    closed_catalog::ParkedV2::OrdinaryBatchPending,
+                );
+                self.pending_consensus_actions
+                    .insert(action.action_id, action);
+            } else {
+                queued.push(action);
+            }
+        }
+        // Existing ordinary validation/error releases concern ordinary bytes
+        // only. Closed originals remain in the pool even on that error path.
         let queued_payload_bytes = queued.iter().fold(0usize, |total, action| {
             total.saturating_add(action.payload_cbor.len())
         });
@@ -514,7 +532,24 @@ impl PosNodeEngine {
             self.pending_consensus_actions
                 .insert(action.action_id, action);
         }
-        Ok(filtered)
+        for id in closed_ids {
+            if let Some(action) = self.pending_consensus_actions.remove(&id) {
+                filtered.push(action);
+            }
+        }
+        let selection = closed_catalog::select(filtered, now_ms, hook);
+        if self.closed_v2_parked != selection.parked {
+            eprintln!(
+                "closed task catalogs pending: {}; not canonical disposition",
+                selection.parked.len()
+            );
+        }
+        self.closed_v2_parked = selection.parked;
+        for action in selection.deferred {
+            self.pending_consensus_actions
+                .insert(action.action_id, action);
+        }
+        Ok(selection.selected)
     }
 
     pub(super) fn advance_pending_attestations(
