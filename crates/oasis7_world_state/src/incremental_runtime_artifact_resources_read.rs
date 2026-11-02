@@ -14,8 +14,52 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateRootV1},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::io;
+
+/// A RootRef after its fixed field schema, original Unit-key digest and
+/// Artifacts namespace have been checked. The contained root is still only a
+/// field-local child view; it does not prove complete family closure.
+#[derive(Debug)]
+pub struct RuntimeArtifactChildRootV1 {
+    binding: RuntimeArtifactRootBindingV1,
+    root: StateRootV1,
+    class: MemoryClass,
+}
+impl RuntimeArtifactChildRootV1 {
+    pub fn binding(&self) -> RuntimeArtifactRootBindingV1 {
+        self.binding
+    }
+    pub fn root(&self) -> &StateRootV1 {
+        &self.root
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeArtifactRootBindingV1 {
+    Field(RuntimeArtifactFieldV1),
+    Record(RuntimeArtifactRecordV1),
+}
+impl RuntimeArtifactRootBindingV1 {
+    fn permits(self, record: RuntimeArtifactRecordV1) -> bool {
+        match self {
+            Self::Record(bound) => bound == record,
+            Self::Field(field) => matches!(
+                (field, record),
+                (
+                    RuntimeArtifactFieldV1::ChainResourceManifest,
+                    RuntimeArtifactRecordV1::ChainResourceManifest
+                ) | (
+                    RuntimeArtifactFieldV1::LatestChainResourceDelta,
+                    RuntimeArtifactRecordV1::ChainResourceDelta
+                ) | (
+                    RuntimeArtifactFieldV1::BuiltinReleaseManifest,
+                    RuntimeArtifactRecordV1::BuiltinReleaseManifest
+                )
+            ),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeArtifactMemberProfileV1 {
@@ -74,7 +118,7 @@ pub fn inspect_runtime_artifact_record_root_v1<
 >(
     field: RuntimeArtifactFieldV1,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-) -> Result<Option<ReservedValue<RecordRootRefV1>>, ValueTreeError> {
+) -> Result<Option<ReservedValue<RuntimeArtifactChildRootV1>>, ValueTreeError> {
     context.check()?;
     let descriptor = field.descriptor();
     if descriptor.destination
@@ -126,17 +170,22 @@ pub fn inspect_runtime_artifact_record_root_v1<
         .map_err(ValueTreeError::Invalid)?
         .semantic_key
         .ok_or_else(invalid)?;
-    reference
+    let root = reference
         .validate_binding(&field.schema(), &owner, StateNamespaceV1::Artifacts)
-        .map_err(|_| invalid())?;
-    let charge = context
-        .values
-        .memory
-        .reserve(std::mem::size_of::<RecordRootRefV1>(), context.values.class)?;
+        .map_err(|_| invalid())?
+        .clone();
+    let charge = context.values.memory.reserve(
+        std::mem::size_of::<RuntimeArtifactChildRootV1>(),
+        context.values.class,
+    )?;
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(Some(charge.retain(reference)))
+    Ok(Some(charge.retain(RuntimeArtifactChildRootV1 {
+        binding: RuntimeArtifactRootBindingV1::Field(field),
+        root,
+        class: context.values.class,
+    })))
 }
 
 /// Read one typed cell from a registered Artifact child record. The caller
@@ -150,7 +199,7 @@ pub fn read_runtime_artifact_member_v1<
     K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized,
 >(
     record: RuntimeArtifactRecordV1,
-    root: &StateRootV1,
+    child: &ReservedValue<RuntimeArtifactChildRootV1>,
     key: &K,
     profile: RuntimeArtifactMemberProfileV1,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
@@ -158,12 +207,17 @@ pub fn read_runtime_artifact_member_v1<
     output: &mut impl io::Write,
 ) -> Result<Option<RecordValueV1>, ValueTreeError> {
     context.check()?;
-    if root.namespace != StateNamespaceV1::Artifacts {
+    if child.root.namespace != StateNamespaceV1::Artifacts
+        || context.root != &child.root
+        || context.values.class != child.class
+        || !child.uses_budget(context.values.memory)
+        || !child.binding.permits(record)
+    {
         return Err(invalid());
     }
     let (key, semantic_bytes) =
         context.key(record.descriptor(), WorldFieldRecordKindV1::Entry, key)?;
-    let Some(value_root) = context.lookup_raw(root, key.as_bytes())? else {
+    let Some(value_root) = context.lookup_raw(&child.root, key.as_bytes())? else {
         return Ok(None);
     };
     let mut values = InventoryValueReader {
@@ -197,17 +251,22 @@ pub fn read_runtime_artifact_record_reference_v1<
     K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized,
 >(
     record: RuntimeArtifactRecordV1,
-    root: &StateRootV1,
+    parent: &ReservedValue<RuntimeArtifactChildRootV1>,
     key: &K,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-) -> Result<Option<ReservedValue<RecordRootRefV1>>, ValueTreeError> {
+) -> Result<Option<ReservedValue<RuntimeArtifactChildRootV1>>, ValueTreeError> {
     context.check()?;
-    if root.namespace != StateNamespaceV1::Artifacts {
+    if parent.root.namespace != StateNamespaceV1::Artifacts
+        || context.root != &parent.root
+        || context.values.class != parent.class
+        || !parent.uses_budget(context.values.memory)
+        || !parent.binding.permits(record)
+    {
         return Err(invalid());
     }
     let (key, semantic_bytes) =
         context.key(record.descriptor(), WorldFieldRecordKindV1::Entry, key)?;
-    let Some(value_root) = context.lookup_raw(root, key.as_bytes())? else {
+    let Some(value_root) = context.lookup_raw(&parent.root, key.as_bytes())? else {
         return Ok(None);
     };
     let mut bytes = [0; RECORD_ROOT_BYTES];
@@ -235,15 +294,20 @@ pub fn read_runtime_artifact_record_reference_v1<
         .map_err(ValueTreeError::Invalid)?
         .semantic_key
         .ok_or_else(invalid)?;
-    reference
+    let root = reference
         .validate_binding(&record.schema(), &owner, StateNamespaceV1::Artifacts)
-        .map_err(|_| invalid())?;
-    let charge = context
-        .values
-        .memory
-        .reserve(std::mem::size_of::<RecordRootRefV1>(), context.values.class)?;
+        .map_err(|_| invalid())?
+        .clone();
+    let charge = context.values.memory.reserve(
+        std::mem::size_of::<RuntimeArtifactChildRootV1>(),
+        context.values.class,
+    )?;
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(Some(charge.retain(reference)))
+    Ok(Some(charge.retain(RuntimeArtifactChildRootV1 {
+        binding: RuntimeArtifactRootBindingV1::Record(record),
+        root,
+        class: context.values.class,
+    })))
 }

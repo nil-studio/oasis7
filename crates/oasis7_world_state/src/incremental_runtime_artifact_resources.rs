@@ -11,8 +11,9 @@ pub use schema::{RuntimeArtifactFieldV1, RuntimeArtifactRecordV1};
 #[path = "incremental_runtime_artifact_resources_read.rs"]
 mod read;
 pub use read::{
-    RuntimeArtifactMemberProfileV1, inspect_runtime_artifact_record_root_v1,
-    read_runtime_artifact_member_v1, read_runtime_artifact_record_reference_v1,
+    RuntimeArtifactChildRootV1, RuntimeArtifactMemberProfileV1, RuntimeArtifactRootBindingV1,
+    inspect_runtime_artifact_record_root_v1, read_runtime_artifact_member_v1,
+    read_runtime_artifact_record_reference_v1,
 };
 
 #[path = "incremental_runtime_artifact_resources_genesis.rs"]
