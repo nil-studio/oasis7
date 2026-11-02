@@ -1196,3 +1196,5 @@ pub(super) mod incremental_clock;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_effect_records;
+
+pub mod incremental_artifact_content;
