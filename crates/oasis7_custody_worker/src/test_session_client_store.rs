@@ -28,7 +28,10 @@ pub(crate) struct ClientReservation {
     pub descriptor: Option<TestSessionLiveDescriptorV1>,
 }
 impl ClientLiveCurrent {
-    fn with_core<R>(&self, read: impl FnOnce(&TestSessionLiveCurrent<'_, '_>) -> R) -> R {
+    pub(super) fn with_core<R>(
+        &self,
+        read: impl FnOnce(&TestSessionLiveCurrent<'_, '_>) -> R,
+    ) -> R {
         let provision = self.native.provision.as_core();
         let native_scope = self.native.scope.as_core();
         read(&TestSessionLiveCurrent {
@@ -487,3 +490,6 @@ fn client_diagnostic(stage: &'static str, error: JsValue) -> JsValue {
     let _ = stage;
     error
 }
+
+#[path = "test_session_execution_nonce_five_store_v2.rs"]
+mod execution_nonce_five;

@@ -718,3 +718,6 @@ fn tool_execution_rechecks_authority_and_lease_without_reserving_a_call() {
     assert_eq!(snapshot.active_version, None);
     assert_eq!(snapshot.budget.calls, active.budget.calls);
 }
+
+#[path = "connection_custody_metadata_tests.rs"]
+mod custody_metadata;

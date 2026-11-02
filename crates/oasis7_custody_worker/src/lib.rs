@@ -183,3 +183,67 @@ mod management_metadata;
 mod management_metadata_abuse;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod management_metadata_policy;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_v2_credential_entry;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod test_session_v2_credential_rpc;
+
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "identity",
+    feature = "native-runtime-harness"
+))]
+#[path = "../tests/support/context_fullsigned_v2_harness.rs"]
+mod context_fullsigned_v2_harness;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_test_session_v2_control_entry;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod test_session_v2_control_rpc;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod account_service_issuer;
+
+#[cfg(all(feature = "execution-signer-harness", not(feature = "executor")))]
+compile_error!("execution-signer-harness requires executor and is not a deployment profile");
+#[cfg(all(
+    target_arch = "wasm32",
+    feature = "executor",
+    feature = "execution-signer-harness"
+))]
+pub use role_key_store::ExecutionPrepareSignerHarness;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod native_http_bounded;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod native_machine_activation_transport;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "executor")))]
+mod execution_prepare_rpc_v2;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod execution_context_issuer_pin_v2;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod execution_context_stage_store_v2;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod identity_native_model_runtime_v2;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_execution_prepare_context_v2;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_native_model_entry_v2;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod execution_dispatch_native_pins_v2;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod execution_dispatch_rpc_v2;
+#[cfg(all(target_arch = "wasm32", feature = "identity"))]
+mod identity_execution_dispatch_client_v2;
+
+#[cfg(feature = "owner")]
+mod owner_execution_dispatch_v2;
+
+#[cfg(feature = "identity")]
+mod identity_execution_native_callback_v2;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod term_guarded_signer_runtime_v2;

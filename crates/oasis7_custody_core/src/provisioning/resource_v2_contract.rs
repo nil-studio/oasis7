@@ -3,6 +3,12 @@ use crate::DecimalU64;
 use crate::approval::*;
 use oasis7_client_api::world_service::resource_basis as wire;
 use serde::{Deserialize, Serialize};
+#[path = "action_selection_v2.rs"]
+mod action_selection;
+pub use action_selection::*;
+#[path = "model_inference_budget.rs"]
+mod model_budget;
+pub use model_budget::*;
 #[path = "owner_setup_v2_plan.rs"]
 mod owner_plan;
 pub use owner_plan::*;

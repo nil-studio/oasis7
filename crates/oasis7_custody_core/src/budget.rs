@@ -44,6 +44,10 @@ impl TryFrom<RawBudgetLedger> for BudgetLedger {
 }
 
 impl BudgetLedger {
+    /// Immutable approved limit; remaining/spent are deliberately excluded from birth receipts.
+    pub(crate) fn approved_limit(&self) -> u64 {
+        self.limit.0
+    }
     pub fn new(limit: u64) -> Self {
         Self {
             limit: DecimalU64(limit),

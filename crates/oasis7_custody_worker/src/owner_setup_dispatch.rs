@@ -13,7 +13,10 @@ fn source(
     oasis7_custody_core::approval_admission::ApprovalAdmissionInput,
     oasis7_custody_core::approval::SignedApprovalVerificationV1,
 )> {
-    let approved = saved.state.owner_setup_original(id).ok_or_else(denied)?;
+    let approved = saved
+        .state
+        .owner_setup_phase_original(id)
+        .map_err(|_| denied())?;
     let inspection = if let Some(stage) = stage {
         &saved
             .state
@@ -21,7 +24,10 @@ fn source(
             .ok_or_else(denied)?
             .source
     } else {
-        saved.state.owner_setup_source(id).ok_or_else(denied)?
+        saved
+            .state
+            .owner_setup_phase_source(id)
+            .map_err(|_| denied())?
     };
     let signed = inspection
         .verification
@@ -29,7 +35,8 @@ fn source(
         .or_else(|| {
             saved
                 .state
-                .owner_setup_source(id)
+                .owner_setup_phase_source(id)
+                .ok()
                 .and_then(|v| v.verification.clone())
         })
         .or_else(|| approved.verification().cloned())
@@ -63,7 +70,10 @@ pub(super) async fn prepare_source(
             .ok_or_else(denied)?
             .source
     } else {
-        saved.state.owner_setup_source(id).ok_or_else(denied)?
+        saved
+            .state
+            .owner_setup_phase_source(id)
+            .map_err(|_| denied())?
     };
     if inspection.verification.is_some() {
         return observe(state, env, id, stage, false).await;
@@ -118,7 +128,8 @@ fn role_allowed(action: &OwnerSetupRuntimeAction, role: Role) -> bool {
             purpose: OwnerSetupReadPurposeV1::Sign,
             ..
         }
-        | OwnerSetupRuntimeAction::PublishCandidate { .. } => role == Role::Owner,
+        | OwnerSetupRuntimeAction::PublishCandidate { .. }
+        | OwnerSetupRuntimeAction::PublishResourceCandidate { .. } => role == Role::Owner,
         _ => role == Role::Identity,
     }
 }
@@ -128,12 +139,28 @@ pub(super) async fn dispatch(
     rpc: OwnerSetupRuntimeRpc,
     static_role: Role,
 ) -> Result<String> {
-    rpc.request.validate().map_err(|_| denied())?;
+    rpc.request.validate_sdk_selector().map_err(|_| denied())?;
     if !role_allowed(&rpc.action, static_role) {
         return Err(denied());
     }
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let saved = store.snapshot().map_err(|_| denied())?;
+    if saved
+        .state
+        .owner_setup_engine_version(&rpc.request.setup_id)
+        .map_err(|_| denied())?
+        != rpc.request.api_version
+        || rpc.request.api_version == 2
+            && env
+                .var("CUSTODY_OWNER_SETUP_V2_ENABLED")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref()
+                != Some("true")
+    {
+        return Err(denied());
+    }
+
     let draft = saved.state.draft();
     if rpc.request.custody_account_id != draft.entry.custody_account_id
         || rpc.request.provision_id != draft.entry.provision_id
@@ -192,6 +219,21 @@ pub(super) async fn dispatch(
                 .reserve_owner_setup_read(id, stage, purpose, static_role)
                 .map_err(|_| denied())?;
             let observed = observe(state, env, id, Some(stage), false).await?;
+            if purpose == OwnerSetupReadPurposeV1::Sign
+                && stage == OwnerSetupStageV1::FinalObservation
+                && saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_some_and(|p| p.setup_id == *id && p.selection.resource().is_some())
+            {
+                let permit = store
+                    .owner_resource_signing_permit_v2(id, read, access.map(|v| *v), || {
+                        setup_authority::current(state, env, &observed, true)
+                    })
+                    .await
+                    .map_err(|_| denied())?;
+                return Ok(serde_json::to_string(&permit)?);
+            }
             if purpose == OwnerSetupReadPurposeV1::Sign {
                 let (permit, signing) = store
                     .owner_setup_signing_permit(id, read, access.map(|v| *v), || {
@@ -229,7 +271,39 @@ pub(super) async fn dispatch(
                 candidate: *candidate,
             })?)
         }
+        OwnerSetupRuntimeAction::PublishResourceCandidate { candidate } => {
+            if stage != OwnerSetupStageV1::FinalObservation
+                || saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_none_or(|p| p.setup_id != *id || p.selection.resource().is_none())
+            {
+                return Err(denied());
+            }
+            let read = store
+                .reserve_owner_setup_read(id, stage, OwnerSetupReadPurposeV1::Sign, static_role)
+                .map_err(|_| denied())?;
+            let observed = observe(state, env, id, Some(stage), false).await?;
+            let published = store
+                .publish_owner_resource_original_v2(id, read, *candidate, || {
+                    setup_authority::current(state, env, &observed, true)
+                })
+                .await
+                .map_err(|_| denied())?;
+            Ok(serde_json::to_string(&published)?)
+        }
         OwnerSetupRuntimeAction::Admit { evidence } => {
+            let resource_final = stage == OwnerSetupStageV1::FinalObservation
+                && saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_some_and(|p| p.setup_id == *id && p.selection.resource().is_some());
+            if resource_final {
+                store
+                    .reserve_owner_resource_admission_callback_v2(id)
+                    .map_err(|_| denied())?;
+                return resource_final_v2::admit(state, env, &store, id, *evidence).await;
+            }
             store
                 .reserve_owner_setup_admission_callback(id, stage)
                 .map_err(|_| denied())?;
@@ -315,6 +389,35 @@ pub(super) async fn dispatch(
                 .map_err(|_| denied())?;
             Ok(serde_json::to_string(&progress)?)
         }
+        OwnerSetupRuntimeAction::RecordResourceResult { completed } => {
+            if stage != OwnerSetupStageV1::FinalObservation
+                || saved
+                    .state
+                    .owner_setup_v2_plan()
+                    .is_none_or(|p| p.setup_id != *id || p.selection.resource().is_none())
+            {
+                return Err(denied());
+            }
+            store
+                .reserve_owner_resource_result_callback_v2(id)
+                .map_err(|_| denied())?;
+            let paid = store.snapshot().map_err(|_| denied())?;
+            let observed = setup_authority::observe_paid_resource_result_v2(env, &paid, id).await?;
+            store
+                .complete_owner_resource_result_v2(id, *completed, || {
+                    setup_authority::current(state, env, &observed, true)
+                })
+                .await
+                .map_err(|_| denied())?;
+            Ok(serde_json::to_string(
+                &store
+                    .snapshot()
+                    .map_err(|_| denied())?
+                    .state
+                    .owner_setup_progress(id)
+                    .map_err(|_| denied())?,
+            )?)
+        }
         OwnerSetupRuntimeAction::MarkUnknown => {
             store
                 .mark_owner_setup_unknown(id, stage)
@@ -329,3 +432,6 @@ pub(super) async fn dispatch(
         }
     }
 }
+
+#[path = "owner_setup_resource_dispatch_v2.rs"]
+mod resource_final_v2;
