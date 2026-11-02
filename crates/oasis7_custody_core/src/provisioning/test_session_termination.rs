@@ -472,6 +472,6 @@ pub use owner_slot_read_v2::{PreparedTermOwnerSlotReadV2, TermOwnerSlotReadRecor
 #[path = "test_session_term_six_funding_v2.rs"]
 mod term_six_funding_v2;
 pub use term_six_funding_v2::{
-    PreparedTermObservationPortV2, PreparedTermSixFundingV2, TermObservationPortV2,
-    TermObservationRoundV2, TermSixFundingRecordV2,
+    PreparedTermNativePaidV2, PreparedTermObservationPortV2, PreparedTermSixFundingV2,
+    TermNativeDispatchV2, TermObservationPortV2, TermObservationRoundV2, TermSixFundingRecordV2,
 };
