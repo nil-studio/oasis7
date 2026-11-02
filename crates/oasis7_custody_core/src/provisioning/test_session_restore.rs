@@ -335,10 +335,13 @@ impl AccountProvisionApprovalState {
                 }
             }
             self.validate_session_control_persistence(s)?;
-            if s.source_funding
-                .values()
-                .any(|funding| matches!(funding, SessionSourceFundingV1::ExecutionFactoryV2 { .. }))
-                || s.source_funding.len() != s.sources.len()
+            if s.source_funding.values().any(|funding| {
+                matches!(
+                    funding,
+                    SessionSourceFundingV1::ExecutionFactoryV2 { .. }
+                        | SessionSourceFundingV1::ExecutionPendingStartV2 { .. }
+                )
+            }) || s.source_funding.len() != s.sources.len()
                 || s.source_funding.keys().any(|k| !s.sources.contains_key(k))
                 || !Self::live_context_transport_keys_valid(s)
             {
