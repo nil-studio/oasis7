@@ -196,6 +196,7 @@ pub(in crate::provisioning) fn validate_pending_start_v2(s: &TestSessionAuthorit
         }
         if let Some(ordinal) = port.claimed_ordinal {
             if !fence::first_rf_sequence().contains(&port.leaf)
+                && !source_inspect::source_sequence().contains(&port.leaf)
                 || ordinal <= p.accepted_ordinal
                 || port.claimed_at.is_none_or(|at| {
                     at.get() < p.accepted_at.get() || at.get() >= p.absolute_until.get()
@@ -249,5 +250,6 @@ pub(in crate::provisioning) fn validate_pending_start_v2(s: &TestSessionAuthorit
     }
     source_observation::validate(s)?;
     fence::validate_records(s)?;
+    source_inspect::validate_records(s)?;
     Ok(())
 }

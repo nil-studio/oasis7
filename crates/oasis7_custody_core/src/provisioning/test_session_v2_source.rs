@@ -526,6 +526,12 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<()> {
+        if super::execution_pending_start_v2::pending_funds_source_v2(
+            self.test_session_v2_record(id)?,
+            source_id,
+        ) {
+            return Err(invalid());
+        }
         if let Some(saved) = self
             .test_session_v2_record(id)?
             .sources

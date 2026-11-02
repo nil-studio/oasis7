@@ -341,3 +341,6 @@ fn session_v2_pending_fence_signed_receiver_object_purpose_and_absolute_window_a
             .is_err()
     );
 }
+
+#[path = "test_session_v2_pending_source_inspect_tests.rs"]
+mod source_inspect_tests;
