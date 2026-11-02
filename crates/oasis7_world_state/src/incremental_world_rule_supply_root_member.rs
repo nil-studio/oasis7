@@ -198,7 +198,9 @@ pub fn read_qualified_supply_member_v1<
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<SupplyMemberValueV1>, ValueTreeError> {
     context.check()?;
-    if !request.qualification.uses_budget(context.values.memory) {
+    if !request.qualification.uses_budget(context.values.memory)
+        || !request.qualification.permits_class(context.values.class)
+    {
         return Err(ValueTreeError::Invalid("supply member read pool"));
     }
     let outer = request

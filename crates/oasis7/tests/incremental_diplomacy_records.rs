@@ -328,3 +328,147 @@ mod cold_delta;
 
 #[path = "support/incremental_diplomacy_point_scalars.rs"]
 mod point_scalars;
+
+#[test]
+fn recovery_diplomacy_qualifications_require_ordinary_readmission() {
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    let store = IncrementalPageStore::create(
+        &directory.0.join("qualification-class"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let rows = produce(&store, &memory, &source());
+    let roots = roots(&build(&store, &memory, &rows));
+    let business_root = roots
+        .state
+        .iter()
+        .find(|root| root.namespace == Ns::Business)
+        .unwrap();
+    let values = store.value_session(physical());
+    let recovery_state = store
+        .state_session(physical(), MemoryClass::Recovery)
+        .unwrap();
+    let mut recovery_io = logical();
+    let mut recovery_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut recovery = WorldFieldReadContextV1 {
+        root: business_root,
+        state: &recovery_state,
+        values: ValueReadContext {
+            source: &values,
+            memory: &memory,
+            class: MemoryClass::Recovery,
+            io: &mut recovery_io,
+        },
+        key_work: &mut recovery_keys,
+        semantic_bytes: 1024,
+        record_bytes: 8192,
+        take_state_error: || recovery_state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    let recovery_family = qualify_diplomacy_family_v1(
+        &roots,
+        &mut recovery,
+        &mut scan(),
+        &mut scan(),
+        &mut 8192,
+        165,
+    )
+    .unwrap();
+    let recovery_record = open_qualified_diplomacy_record_v1(
+        DiplomacyFieldV1::Alliances,
+        KEY,
+        &roots,
+        &recovery_family,
+        &mut recovery,
+    )
+    .unwrap()
+    .unwrap();
+
+    let ordinary_state = store
+        .state_session(physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut ordinary_io = logical();
+    let mut ordinary_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut ordinary = fixed!(
+        business_root,
+        &ordinary_state,
+        &values,
+        &memory,
+        &mut ordinary_io,
+        &mut ordinary_keys
+    );
+    assert!(matches!(
+        open_qualified_diplomacy_record_v1(
+            DiplomacyFieldV1::Alliances,
+            KEY,
+            &roots,
+            &recovery_family,
+            &mut ordinary,
+        ),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    assert!(matches!(
+        read_qualified_diplomacy_scalar_v1(
+            KEY,
+            DiplomacyFieldV1::Alliances,
+            DiplomacyScalarV1::Alliance(AllianceScalarV1::AllianceId),
+            &recovery_record,
+            &mut ordinary,
+            165,
+            &mut std::io::sink(),
+        ),
+        Err(ValueTreeError::Invalid(_))
+    ));
+
+    let ordinary_family = readmit_diplomacy_family_ordinary_v1(&recovery_family, &memory).unwrap();
+    let ordinary_record = open_qualified_diplomacy_record_v1(
+        DiplomacyFieldV1::Alliances,
+        KEY,
+        &roots,
+        &ordinary_family,
+        &mut ordinary,
+    )
+    .unwrap()
+    .unwrap();
+    ordinary.root = ordinary_record.root();
+    let mut output = Vec::new();
+    assert_eq!(
+        read_qualified_diplomacy_scalar_v1(
+            KEY,
+            DiplomacyFieldV1::Alliances,
+            DiplomacyScalarV1::Alliance(AllianceScalarV1::AllianceId),
+            &ordinary_record,
+            &mut ordinary,
+            165,
+            &mut output,
+        )
+        .unwrap(),
+        Some(DiplomacyValueV1::Text { utf8_bytes: 17 })
+    );
+    assert_eq!(output, b"internal-alliance");
+
+    let readmitted_record =
+        readmit_diplomacy_record_ordinary_v1(&recovery_record, &memory).unwrap();
+    ordinary.root = readmitted_record.root();
+    let mut output = Vec::new();
+    assert_eq!(
+        read_qualified_diplomacy_scalar_v1(
+            KEY,
+            DiplomacyFieldV1::Alliances,
+            DiplomacyScalarV1::Alliance(AllianceScalarV1::AllianceId),
+            &readmitted_record,
+            &mut ordinary,
+            165,
+            &mut output,
+        )
+        .unwrap(),
+        Some(DiplomacyValueV1::Text { utf8_bytes: 17 })
+    );
+    assert_eq!(output, b"internal-alliance");
+}

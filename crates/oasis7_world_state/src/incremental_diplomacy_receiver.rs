@@ -157,6 +157,7 @@ pub fn accept_diplomacy_transition_v1<
 ) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
+        || !parent.permits_class(ctx.values.class)
         || !verifier.memory.same_pool(ctx.values.memory)
         || verifier.class != ctx.values.class
     {
@@ -250,6 +251,7 @@ pub fn accept_diplomacy_transition_v1<
         .retain(DiplomacyFamilyQualificationV1 {
             roots: verified.record.after.digest().map_err(|_| invalid())?,
             counts,
+            class: ctx.values.class,
         });
     ctx.check()?;
     Ok(proof)

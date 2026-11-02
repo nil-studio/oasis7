@@ -113,7 +113,9 @@ pub fn read_qualified_supply_scalar_v1<
     mut output: &mut dyn std::io::Write,
 ) -> Result<Option<SupplyScalarValueV1>, ValueTreeError> {
     context.check()?;
-    if !request.qualification.uses_budget(context.values.memory) {
+    if !request.qualification.uses_budget(context.values.memory)
+        || !request.qualification.permits_class(context.values.class)
+    {
         return Err(ValueTreeError::Invalid("supply scalar read pool"));
     }
     let outer = request

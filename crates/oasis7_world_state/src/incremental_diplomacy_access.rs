@@ -17,6 +17,7 @@ pub(super) fn mint(
             field,
             owner,
             root: root.clone(),
+            class,
         }))
 }
 pub(super) fn digest(key: &WorldFieldKeyV1) -> Result<[u8; 32], ValueTreeError> {
@@ -38,7 +39,7 @@ pub fn open_qualified_diplomacy_record_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<ReservedValue<DiplomacyRecordQualificationV1>>, ValueTreeError> {
     ctx.check()?;
-    if !family.uses_budget(ctx.values.memory) {
+    if !family.uses_budget(ctx.values.memory) || !family.permits_class(ctx.values.class) {
         return Err(closure::invalid());
     }
     family.validate_binding(&roots.digest().map_err(|_| closure::invalid())?)?;
@@ -82,6 +83,7 @@ pub(super) fn current<
     if records.values.class != MemoryClass::Ordinary
         || !tx.uses_budget(records.values.memory)
         || !proof.uses_budget(records.values.memory)
+        || !proof.permits_class(records.values.class)
     {
         return Err(closure::invalid().into());
     }
@@ -154,7 +156,7 @@ pub fn read_qualified_diplomacy_scalar_v1<
     output: &mut dyn std::io::Write,
 ) -> Result<Option<RecordValueV1>, ValueTreeError> {
     ctx.check()?;
-    if !proof.uses_budget(ctx.values.memory) {
+    if !proof.uses_budget(ctx.values.memory) || !proof.permits_class(ctx.values.class) {
         return Err(closure::invalid());
     }
     let outer = ctx.key(field.descriptor()?, WorldFieldRecordKindV1::Entry, id)?;

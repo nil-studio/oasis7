@@ -8,6 +8,7 @@ use std::cell::RefCell;
 pub struct DiplomacyFamilyQualificationV1 {
     pub(super) roots: [u8; 32],
     pub(super) counts: [u64; 4],
+    pub(super) class: MemoryClass,
 }
 impl DiplomacyFamilyQualificationV1 {
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
@@ -20,6 +21,29 @@ impl DiplomacyFamilyQualificationV1 {
     pub fn record_counts(&self) -> [u64; 4] {
         self.counts
     }
+
+    pub(super) fn permits_class(&self, requested: MemoryClass) -> bool {
+        crate::incremental_qualification_class::allows(self.class, requested)
+    }
+}
+
+/// Re-admits an unchanged Recovery family proof for Ordinary use in the same
+/// pool. It changes only resource admission, not the roots or record counts.
+pub fn readmit_diplomacy_family_ordinary_v1(
+    source: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, ValueTreeError> {
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(ValueTreeError::Invalid(
+            "diplomacy family ordinary readmission",
+        ));
+    }
+    let retained = memory.reserve(512, MemoryClass::Ordinary)?;
+    Ok(retained.retain(DiplomacyFamilyQualificationV1 {
+        roots: source.roots,
+        counts: source.counts,
+        class: MemoryClass::Ordinary,
+    }))
 }
 type Outer = (DiplomacyFieldV1, [u8; 32], ReservedValue<StateRootV1>);
 pub(super) fn outer<
@@ -217,5 +241,6 @@ pub fn qualify_diplomacy_family_v1<
     Ok(retained.retain(DiplomacyFamilyQualificationV1 {
         roots: digest,
         counts,
+        class: ctx.values.class,
     }))
 }

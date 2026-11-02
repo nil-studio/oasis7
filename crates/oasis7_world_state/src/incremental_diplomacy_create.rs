@@ -42,6 +42,7 @@ pub fn create_qualified_diplomacy_empty_v1<
             || !tx.uses_budget(context.values.memory)
             || !tx.uses_budget(write.memory)
             || !change.family.uses_budget(write.memory)
+            || !change.family.permits_class(context.values.class)
         {
             return Err(closure::invalid().into());
         }

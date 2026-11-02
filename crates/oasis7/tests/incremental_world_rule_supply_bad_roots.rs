@@ -569,4 +569,109 @@ fn recovery_family_qualification_cannot_be_used_by_an_ordinary_context() {
         matches!(opened, Err(ValueTreeError::Invalid(_))),
         "Recovery family qualification was accepted by an Ordinary reader: {opened:?}"
     );
+
+    let recovery_record = open_qualified_supply_record_v1(
+        SupplyRootKeyV1::Authorization(KEY),
+        &roots,
+        &recovery_family,
+        &mut recovery,
+    )
+    .unwrap()
+    .unwrap();
+    let cross_class_member = read_qualified_supply_member_v1(
+        SupplyMemberRequestV1 {
+            owner: SupplyRootKeyV1::Authorization(KEY),
+            member: SupplyMemberKeyV1::Request(OLD),
+            qualification: &recovery_record,
+        },
+        &mut ordinary,
+    );
+    assert!(
+        matches!(cross_class_member, Err(ValueTreeError::Invalid(_))),
+        "Recovery record qualification was accepted by an Ordinary reader: {cross_class_member:?}"
+    );
+
+    let ordinary_family = readmit_supply_family_ordinary_v1(&recovery_family, &memory).unwrap();
+    let other_pool = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
+    assert!(matches!(
+        readmit_supply_family_ordinary_v1(&recovery_family, &other_pool),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let ordinary_record = open_qualified_supply_record_v1(
+        SupplyRootKeyV1::Authorization(KEY),
+        &roots,
+        &ordinary_family,
+        &mut ordinary,
+    )
+    .unwrap()
+    .unwrap();
+    let ordinary_member = {
+        let mut point_io = logical();
+        let mut point_keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut point = WorldFieldReadContextV1 {
+            root: ordinary_record.root(),
+            state: &ordinary_state,
+            values: ValueReadContext {
+                source: &values,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut point_io,
+            },
+            key_work: &mut point_keys,
+            semantic_bytes: 1024,
+            record_bytes: 8192,
+            take_state_error: || ordinary_state.take_read_error().map(state_error),
+            cancelled: || false,
+        };
+        read_qualified_supply_member_v1(
+            SupplyMemberRequestV1 {
+                owner: SupplyRootKeyV1::Authorization(KEY),
+                member: SupplyMemberKeyV1::Request(OLD),
+                qualification: &ordinary_record,
+            },
+            &mut point,
+        )
+        .unwrap()
+    };
+    assert_eq!(ordinary_member, Some(SupplyMemberValueV1::I64(i64::MIN)));
+
+    assert!(matches!(
+        readmit_supply_record_ordinary_v1(&recovery_record, &other_pool),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let ordinary_record = readmit_supply_record_ordinary_v1(&recovery_record, &memory).unwrap();
+    let mut point_io = logical();
+    let mut point_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut point = WorldFieldReadContextV1 {
+        root: ordinary_record.root(),
+        state: &ordinary_state,
+        values: ValueReadContext {
+            source: &values,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut point_io,
+        },
+        key_work: &mut point_keys,
+        semantic_bytes: 1024,
+        record_bytes: 8192,
+        take_state_error: || ordinary_state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    let record_readmitted_member = read_qualified_supply_member_v1(
+        SupplyMemberRequestV1 {
+            owner: SupplyRootKeyV1::Authorization(KEY),
+            member: SupplyMemberKeyV1::Request(OLD),
+            qualification: &ordinary_record,
+        },
+        &mut point,
+    )
+    .unwrap();
+    assert_eq!(
+        record_readmitted_member,
+        Some(SupplyMemberValueV1::I64(i64::MIN))
+    );
 }

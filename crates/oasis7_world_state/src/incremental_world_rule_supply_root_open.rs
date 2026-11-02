@@ -16,7 +16,7 @@ pub fn open_qualified_supply_record_v1<
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<ReservedValue<SupplyRecordQualificationV1>>, ValueTreeError> {
     context.check()?;
-    if !parent.uses_budget(context.values.memory) {
+    if !parent.uses_budget(context.values.memory) || !parent.permits_class(context.values.class) {
         return Err(ValueTreeError::Invalid("supply open family pool"));
     }
     parent.validate_binding(

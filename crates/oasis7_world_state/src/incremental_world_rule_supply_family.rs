@@ -13,6 +13,7 @@ pub struct SupplyFamilyQualificationV1 {
     roots: [u8; 32],
     records: [u64; 2],
     present: bool,
+    class: MemoryClass,
 }
 impl SupplyFamilyQualificationV1 {
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
@@ -27,6 +28,33 @@ impl SupplyFamilyQualificationV1 {
     pub fn rules_present(&self) -> bool {
         self.present
     }
+
+    pub(super) fn permits_class(&self, requested: MemoryClass) -> bool {
+        crate::incremental_qualification_class::allows(self.class, requested)
+    }
+}
+
+/// Retains the same semantic family proof under Ordinary admission without
+/// rescanning or changing its root binding. This only changes resource class.
+pub fn readmit_supply_family_ordinary_v1(
+    source: &ReservedValue<SupplyFamilyQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+) -> Result<ReservedValue<SupplyFamilyQualificationV1>, ValueTreeError> {
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(ValueTreeError::Invalid(
+            "supply family ordinary readmission",
+        ));
+    }
+    let retained = memory.reserve(
+        std::mem::size_of::<SupplyFamilyQualificationV1>(),
+        MemoryClass::Ordinary,
+    )?;
+    Ok(retained.retain(SupplyFamilyQualificationV1 {
+        roots: source.roots,
+        records: source.records,
+        present: source.present,
+        class: MemoryClass::Ordinary,
+    }))
 }
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("supply family closure")
@@ -249,6 +277,7 @@ pub fn qualify_supply_family_v1<
         roots: digest,
         records,
         present,
+        class,
     }))
 }
 
@@ -265,5 +294,6 @@ pub(super) fn advanced(
             roots,
             records,
             present,
+            class,
         }))
 }

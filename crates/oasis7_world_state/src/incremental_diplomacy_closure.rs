@@ -18,6 +18,7 @@ pub struct DiplomacyRecordQualificationV1 {
     pub(super) field: DiplomacyFieldV1,
     pub(super) owner: [u8; 32],
     pub(super) root: StateRootV1,
+    pub(super) class: MemoryClass,
 }
 impl DiplomacyRecordQualificationV1 {
     pub fn root(&self) -> &StateRootV1 {
@@ -35,6 +36,30 @@ impl DiplomacyRecordQualificationV1 {
             Ok(())
         }
     }
+
+    pub(super) fn permits_class(&self, requested: MemoryClass) -> bool {
+        crate::incremental_qualification_class::allows(self.class, requested)
+    }
+}
+
+/// Re-admits an unchanged Recovery record proof for Ordinary use in the same
+/// pool without re-reading its owner data.
+pub fn readmit_diplomacy_record_ordinary_v1(
+    source: &ReservedValue<DiplomacyRecordQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+) -> Result<ReservedValue<DiplomacyRecordQualificationV1>, ValueTreeError> {
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(ValueTreeError::Invalid(
+            "diplomacy record ordinary readmission",
+        ));
+    }
+    let retained = memory.reserve(512, MemoryClass::Ordinary)?;
+    Ok(retained.retain(DiplomacyRecordQualificationV1 {
+        field: source.field,
+        owner: source.owner,
+        root: source.root.clone(),
+        class: MemoryClass::Ordinary,
+    }))
 }
 pub(super) fn primitive<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: Kind,
@@ -362,5 +387,6 @@ pub fn qualify_diplomacy_body_v1<
         field,
         owner: digest,
         root: ctx.root.clone(),
+        class: ctx.values.class,
     }))
 }

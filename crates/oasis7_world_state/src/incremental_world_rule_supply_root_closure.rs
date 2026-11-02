@@ -7,6 +7,7 @@ pub struct SupplyRecordQualificationV1 {
     pub(super) schema: [u8; 32],
     pub(super) owner: [u8; 32],
     pub(super) root: StateRootV1,
+    pub(super) class: MemoryClass,
 }
 impl SupplyRecordQualificationV1 {
     pub fn root(&self) -> &StateRootV1 {
@@ -24,6 +25,31 @@ impl SupplyRecordQualificationV1 {
             Ok(())
         }
     }
+
+    pub(super) fn permits_class(&self, requested: MemoryClass) -> bool {
+        crate::incremental_qualification_class::allows(self.class, requested)
+    }
+}
+
+/// Retains the same record proof under Ordinary admission. The source must be
+/// a Recovery proof from the same pool; no owner data or binding is changed.
+pub fn readmit_supply_record_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<SupplyRecordQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+) -> Result<oasis7_proto::memory_budget::ReservedValue<SupplyRecordQualificationV1>, ValueTreeError>
+{
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(ValueTreeError::Invalid(
+            "supply record ordinary readmission",
+        ));
+    }
+    let retained = memory.reserve(512, MemoryClass::Ordinary)?;
+    Ok(retained.retain(SupplyRecordQualificationV1 {
+        schema: source.schema,
+        owner: source.owner,
+        root: source.root.clone(),
+        class: MemoryClass::Ordinary,
+    }))
 }
 pub(super) fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("supply record closure")
@@ -310,6 +336,7 @@ pub fn qualify_supply_body_v1<
         schema: owner.schema(),
         owner: digest,
         root: ctx.root.clone(),
+        class: ctx.values.class,
     }))
 }
 
@@ -325,6 +352,7 @@ pub(super) fn from_typed(
             schema: owner.schema(),
             owner: digest,
             root: root.clone(),
+            class: MemoryClass::Ordinary,
         }))
 }
 
@@ -341,6 +369,7 @@ pub(super) fn from_family(
             schema: owner.schema(),
             owner: digest,
             root: root.clone(),
+            class,
         }))
 }
 

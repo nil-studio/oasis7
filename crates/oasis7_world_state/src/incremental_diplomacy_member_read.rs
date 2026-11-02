@@ -22,6 +22,7 @@ fn bind<
     ctx.check()?;
     if !matches!(field, DiplomacyFieldV1::Alliances | DiplomacyFieldV1::Wars)
         || !proof.uses_budget(ctx.values.memory)
+        || !proof.permits_class(ctx.values.class)
     {
         return Err(closure::invalid());
     }

@@ -202,6 +202,7 @@ pub fn accept_supply_transition_v1<
 ) -> Result<ReservedValue<SupplyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     context.check()?;
     if !parent.uses_budget(context.values.memory)
+        || !parent.permits_class(context.values.class)
         || !verifier.memory.same_pool(context.values.memory)
         || verifier.class != context.values.class
     {

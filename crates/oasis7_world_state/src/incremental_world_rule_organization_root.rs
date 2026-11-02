@@ -251,11 +251,17 @@ mod tests;
 
 #[path = "incremental_world_rule_organization_closure.rs"]
 pub(crate) mod closure;
-pub use closure::{OrganizationRecordQualificationV1, qualify_organization_body_v1};
+pub use closure::{
+    OrganizationRecordQualificationV1, qualify_organization_body_v1,
+    readmit_organization_record_ordinary_v1,
+};
 
 #[path = "incremental_world_rule_organization_family.rs"]
 mod family;
-pub use family::{OrganizationFamilyQualificationV1, qualify_organization_family_v1};
+pub use family::{
+    OrganizationFamilyQualificationV1, qualify_organization_family_v1,
+    readmit_organization_family_ordinary_v1,
+};
 
 #[path = "incremental_world_rule_organization_root_create.rs"]
 mod create;

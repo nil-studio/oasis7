@@ -10,6 +10,7 @@ pub struct OrganizationRecordQualificationV1 {
     schema: [u8; 32],
     owner: [u8; 32],
     root: StateRootV1,
+    class: MemoryClass,
 }
 impl OrganizationRecordQualificationV1 {
     pub fn root(&self) -> &StateRootV1 {
@@ -28,6 +29,30 @@ impl OrganizationRecordQualificationV1 {
         }
         Ok(())
     }
+
+    pub(super) fn permits_class(&self, requested: MemoryClass) -> bool {
+        crate::incremental_qualification_class::allows(self.class, requested)
+    }
+}
+
+/// Re-admits an unchanged Recovery record proof for Ordinary use in the same
+/// pool. The schema, owner digest and nested root are copied exactly.
+pub fn readmit_organization_record_ordinary_v1(
+    source: &ReservedValue<OrganizationRecordQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+) -> Result<ReservedValue<OrganizationRecordQualificationV1>, ValueTreeError> {
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(ValueTreeError::Invalid(
+            "organization record ordinary readmission",
+        ));
+    }
+    let retained = memory.reserve(512, MemoryClass::Ordinary)?;
+    Ok(retained.retain(OrganizationRecordQualificationV1 {
+        schema: source.schema,
+        owner: source.owner,
+        root: source.root.clone(),
+        class: MemoryClass::Ordinary,
+    }))
 }
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("organization owner closure")
@@ -384,6 +409,7 @@ pub fn qualify_organization_body_v1<
         schema: owner.schema(),
         owner: owner_digest,
         root: root.clone(),
+        class,
     }))
 }
 
@@ -398,6 +424,7 @@ pub(super) fn from_typed(
         schema: owner.schema(),
         owner: owner_digest,
         root: root.clone(),
+        class: MemoryClass::Ordinary,
     }))
 }
 
@@ -464,6 +491,7 @@ pub(super) fn from_family(
         schema: owner.schema(),
         owner: owner_digest,
         root: root.clone(),
+        class,
     }))
 }
 

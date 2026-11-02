@@ -106,14 +106,19 @@ pub use genesis::prepare_diplomacy_genesis_v1;
 mod closure;
 #[path = "incremental_diplomacy_schema.rs"]
 mod schema;
-pub use closure::{DiplomacyRecordQualificationV1, qualify_diplomacy_body_v1};
+pub use closure::{
+    DiplomacyRecordQualificationV1, qualify_diplomacy_body_v1, readmit_diplomacy_record_ordinary_v1,
+};
 pub use profile::{
     AllianceScalarV1, ContractScalarV1, CrisisScalarV1, DiplomacyScalarV1, WarScalarV1,
 };
 
 #[path = "incremental_diplomacy_family.rs"]
 mod family;
-pub use family::{DiplomacyFamilyQualificationV1, qualify_diplomacy_family_v1};
+pub use family::{
+    DiplomacyFamilyQualificationV1, qualify_diplomacy_family_v1,
+    readmit_diplomacy_family_ordinary_v1,
+};
 
 #[path = "incremental_diplomacy_access.rs"]
 mod access;

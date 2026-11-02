@@ -968,6 +968,8 @@ world_rules.supply_shipments 仍属于原 world_rules Value/Authorization 登记
 
 SupplyAuthorizationV1 的十四原字段与内嵌 CrisisState 十一原字段全部显式分解，不以任意 Serialize 保存结构体。继续使用 world_rules Value/Authorization 登记与同一可选父；原 String map key 和内部 id、provider_id、crisis_id、crisis_evidence.crisis_id 等原字符串独立保留，不规范化或替换。授权存在使用 (supply_authorizations, 原 key) 的 Entry/Unit；普通标量列使用 (授权键, 原字段名)，Crisis 列使用 ((授权键, crisis_evidence), 原字段名)；全是 Entry，不将 Value 改为 Group。Text、I64、U64、Bool 使用已有 codec。policy_version、severity 的原 u32 以 U64 无损保存并拒绝大于 u32::MAX 的存储值；CrisisStatus 显式闭合为原 snake_case Text active/resolved/timed_out，不接受未知值，不新增 codec。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
+授权与记录资格同时绑定创建它们的内存类别。Ordinary 资格可供 Ordinary 或 Recovery 使用；Recovery 资格即使来自同一内存池，也不能直接供 Ordinary 使用。显式 Ordinary readmission 在原池另取 Ordinary reservation，并保留相同 roots、键、记录身份及计数，不重读、不重新资格化数据；这只改变后续读取的资源准入，不改变语义资格。
+
 Crisis 的 resolver_agent_id、strategy、success、resolved_at 各用 ((Crisis父, 原字段名), Unit) 的 Bool 记录 Option 存在，((Crisis父, 原字段名), value) 为 Some 时的原 Text/Bool/U64；None 必须没有 value，Some 空字符串、false、0 不能视作 None。固定记录含二十九个路径，其中四个 Option value 路径可以缺失，其余在授权存在时必需。固定读取共同认证父两项与全部二十九项；父/授权缺失但当前列存在、必需列缺失、Option 前后矛盾、错 codec/长度/Bool/UTF-8/枚举/整数域都拒绝，不补默认。九个 Text 输出由调用者准入并流式接收，只有全调用与最终取消成功后可采用。
 
 beneficiaries 与 requests 分别在 ((授权键, 原集合名), Unit) 保存 Entry/Unit 的集合存在，空集合也保留该元标记；原 String 成员键使用 ((授权键, 原集合名), 原成员键)。beneficiaries 成员为 Entry/Unit，requests 成员为 Entry/I64，原键/原 signed 位完整保留。这些 Unit 元标记不认证成员数量，不据单点缺失推断全空，也不能在删除最后一个已查询成员时删除集合或授权。成员点读/写共同认证父两项、授权存在、集合元标记与目标成员五条路径；缺失授权/父但当前集合或成员存在均拒绝，授权存在却缺集合标记亦拒绝。
@@ -980,6 +982,8 @@ beneficiaries 与 requests 分别在 ((授权键, 原集合名), Unit) 保存 En
 <a id="iws-world-rule-supply-batches-v1"></a>
 
 SupplyBatchV1 的九个原字段显式分解，沿用 world_rules Value/Authorization 唯一登记与同一可选父，不保存聚合 Serialize。原 String map key 与内部 id、authorization_id 独立保留；批次存在以 (supply_batches, 原 key) 的 Entry/Unit 表示。六个固定标量以 (批次键, 原字段名) 保存：id、authorization_id 使用 Text，frozen_at、authorization_revision 使用 U64，frozen_escrow 使用 I64，allocated 使用 Bool。三项动态集合 frozen_lineages、demands、allocation 在 ((批次键, 原集合名), Unit) 保存独立 Entry/Unit，空集合仍保留元标记。固定标量读取认证父两项、记录存在、六列和三项集合元标记共十二条路径；不存在、完整零值与空 Text 分开，不允许孤儿列、缺列、错误 codec/长度/Bool/UTF-8 或补默认。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+批次 family/record 资格遵循 §12.25 的内存类别边界：Ordinary 资格可用于 Recovery，Recovery 资格不能仅凭同池关系进入 Ordinary 操作。需要 Ordinary 使用时，调用者显式在同一池取得 Ordinary readmission；readmission 保留原根、键和计数，不重读数据。
 
 demands 与 allocation 的原 String 成员键分别使用 ((批次键, 原集合名), 原成员键) 的 Entry/I64。frozen_lineages 的原 String 成员键在同一位置保存 Entry/Unit 存在；其 target、fulfilled、reserved 在 (冻结成员键, 原字段名) 保存三项独立 Entry/I64，复用供应谱系的闭合字段名和原值投影，保留全部 signed 位。普通数量点查询认证父、批次、集合、成员五条路径；冻结谱系点查询认证父、批次、集合、成员及三列八条路径。父/批次缺失而当前后继存在、集合元标记缺失、冻结成员缺列或孤儿列全部拒绝。冻结成员删除必须已认证完整三列与成员存在，删除此闭合四叶；不得据成员缺失或最后一次点删除移除集合或批次，集合标记不认证全成员关系或数量。
 
@@ -1004,6 +1008,8 @@ demands 与 allocation 的原 String 成员键分别使用 ((批次键, 原集�
 <a id="iws-world-rule-organization-owner-v1"></a>
 
 organization_cases 与 organization_estate 沿用 world_rules Value/Authorization 的唯一登记和同一可选父，原 String map key 与每个记录内部 id 独立保存，不规范化。记录存在分别使用 (organization_cases, 原 key)、(organization_estate, 原 key) 的 Entry/Unit，原字段使用 (记录键, 原字段名)。OrganizationCaseV1 十三个原字段、OrganizationEstateDepositV1 八个原字段、可达 OrganizationGrantV1 七个原字段和 OrganizationRecoveryRequestV1 四个原字段全部使用封闭 schema 与穷尽原类型匹配，禁止 Serialize 聚合 Blob 和整 Case 克隆。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+Family 与记录资格绑定其创建时的内存类别。Ordinary 资格可用于 Recovery；Recovery 资格不能因共用 memory pool 就直接用于 Ordinary。显式 Ordinary readmission 在同一池新取 Ordinary reservation，并保留相同 roots、原键、记录身份和闭包计数，不重新扫描或重资格化数据。
 
 Case 的 id、organization_id、founder_id 为 Text，policy_version 原 u32 以 U64 无损保存并拒绝超过 u32::MAX 的值，revision 为 U64；phase 的闭合 Text 标签为 active/notice/protected/limited/resolved，disposition 为 none/frozen/obligations/business/residual/complete。notified_at、protected_at 各在 ((记录键, 原字段名), Unit) 保存 Bool 存在，在 ((记录键, 原字段名), value) 保存 Some 时的 U64；None 与 Some(0) 分开。members、grants、requests、stage_receipts 均保留独立 Entry/Unit 集合元标记；stage_receipts 另有 ((Case键, stage_receipts), length) 的 Entry/U64 认证长度。Case 固定投影包含十七项，与可选父合计十九条路径；标量更新只比较和修改固定标量，不以来源 Vec 长度替换当前认证长度，也不扫描任何动态集合。
 
@@ -1050,6 +1056,8 @@ Organization Case/Estate 的 RootRef 是实际子 StateRoot 出边，不能只�
 <a id="iws-diplomacy-contract-records-v1"></a>
 
 alliances、wars、crises、economic_contracts 保留各自 WorldState/Map/Business 唯一登记。每字段必需原 Metadata；原 String map key 的 Entry/RecordRoot 保留完整原键前像，165 字节引用绑定字段专属封闭 schema、原键 digest 和 Business namespace。每原记录有独立 Business StateRoot，内层以 Unit 相对寻址；不把业务内部 ID 与 map key 归一，不改业务治理、战争结算或经济合同权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+Family 与记录资格同时绑定其内存类别。Ordinary 资格可用于 Recovery；Recovery 资格即使使用同一 memory pool，也须先显式 readmit 到 Ordinary，且新 reservation 必须来自该池。readmission 只复制相同 roots、字段、原键及记录身份，不重新扫描或授予额外业务资格。
 
 AllianceState 五字段、WarState 十八字段及 WarParticipantOutcome 四字段、CrisisState 十一字段、EconomicContractState 十六字段均穷尽原 DTO 显式生产。Text/U64/I64/Bool 使用既有 primitive；u32 以 U64 无损保存并拒越界；CrisisStatus、EconomicContractStatus、FulfillmentKind、ResourceKind 保留闭合原标签。所有 Option 分为原名 Bool 存在及独立 value，None 与 Some(false/0/空字符串) 不同。members Vec<String> 与 participant_outcomes Vec<Outcome> 独立保存 Unit 集合标记和 U64 length，成员保原零基 ordinal、重复和顺序；每个 Outcome 原 ordinal 对应 Unit 加 agent_id/electricity_delta/data_delta/reputation_delta 四列，不能聚合 Serialize 叶或 clone 整记录。
 

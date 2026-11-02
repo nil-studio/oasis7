@@ -141,11 +141,15 @@ pub use profile::SupplyRootSourceV1;
 mod closure;
 #[path = "incremental_world_rule_supply_root_schema.rs"]
 mod schema;
-pub use closure::{SupplyRecordQualificationV1, qualify_supply_body_v1};
+pub use closure::{
+    SupplyRecordQualificationV1, qualify_supply_body_v1, readmit_supply_record_ordinary_v1,
+};
 
 #[path = "incremental_world_rule_supply_family.rs"]
 mod family;
-pub use family::{SupplyFamilyQualificationV1, qualify_supply_family_v1};
+pub use family::{
+    SupplyFamilyQualificationV1, qualify_supply_family_v1, readmit_supply_family_ordinary_v1,
+};
 
 #[path = "incremental_world_rule_supply_root_create.rs"]
 mod create;

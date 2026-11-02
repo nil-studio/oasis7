@@ -22,7 +22,9 @@ pub(super) fn check_request<
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<(), ValueTreeError> {
     context.check()?;
-    if !request.qualification.uses_budget(context.values.memory) {
+    if !request.qualification.uses_budget(context.values.memory)
+        || !request.qualification.permits_class(context.values.class)
+    {
         return Err(ValueTreeError::Invalid(
             "organization field qualification pool",
         ));

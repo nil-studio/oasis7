@@ -56,6 +56,7 @@ pub fn create_qualified_supply_empty_v1<
             || !tx.uses_budget(context.values.memory)
             || !tx.uses_budget(write.memory)
             || !change.parent.uses_budget(context.values.memory)
+            || !change.parent.permits_class(context.values.class)
         {
             return Err(ValueTreeError::Invalid("supply create pool/class").into());
         }

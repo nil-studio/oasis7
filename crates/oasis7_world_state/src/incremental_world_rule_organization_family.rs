@@ -13,6 +13,7 @@ pub struct OrganizationFamilyQualificationV1 {
     roots: [u8; 32],
     records: [u64; 2],
     present: bool,
+    class: MemoryClass,
 }
 impl OrganizationFamilyQualificationV1 {
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
@@ -27,6 +28,33 @@ impl OrganizationFamilyQualificationV1 {
     pub fn rules_present(&self) -> bool {
         self.present
     }
+
+    pub(super) fn permits_class(&self, requested: MemoryClass) -> bool {
+        crate::incremental_qualification_class::allows(self.class, requested)
+    }
+}
+
+/// Re-admits an unchanged Recovery family proof for Ordinary use in the same
+/// pool. It performs no state reads and does not broaden the root binding.
+pub fn readmit_organization_family_ordinary_v1(
+    source: &ReservedValue<OrganizationFamilyQualificationV1>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+) -> Result<ReservedValue<OrganizationFamilyQualificationV1>, ValueTreeError> {
+    if !source.uses_budget(memory) || source.class != MemoryClass::Recovery {
+        return Err(ValueTreeError::Invalid(
+            "organization family ordinary readmission",
+        ));
+    }
+    let retained = memory.reserve(
+        std::mem::size_of::<OrganizationFamilyQualificationV1>(),
+        MemoryClass::Ordinary,
+    )?;
+    Ok(retained.retain(OrganizationFamilyQualificationV1 {
+        roots: source.roots,
+        records: source.records,
+        present: source.present,
+        class: MemoryClass::Ordinary,
+    }))
 }
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("organization family closure")
@@ -252,6 +280,7 @@ pub fn qualify_organization_family_v1<
         roots: digest,
         records,
         present,
+        class,
     }))
 }
 
@@ -270,5 +299,6 @@ pub(super) fn advanced(
         roots,
         records,
         present,
+        class,
     }))
 }

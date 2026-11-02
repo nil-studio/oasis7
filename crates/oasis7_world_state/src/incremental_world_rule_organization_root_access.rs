@@ -22,6 +22,7 @@ pub(super) fn current<
     if records.values.class != MemoryClass::Ordinary
         || !tx.uses_budget(records.values.memory)
         || !proof.uses_budget(records.values.memory)
+        || !proof.permits_class(records.values.class)
     {
         return Err(ValueTreeError::Invalid("organization successor pool/class").into());
     }
