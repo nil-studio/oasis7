@@ -9,6 +9,10 @@ use oasis7_wasm_abi::{
 };
 use std::io::{self, Write};
 
+#[path = "incremental_candidate_domain_event_proof.rs"]
+mod candidate;
+pub use candidate::*;
+
 struct Allocator<'a> {
     memory: &'a MemoryBudget,
     class: MemoryClass,
@@ -139,26 +143,13 @@ pub fn verify_domain_event_occurrence_v1<'a, C: FnMut() -> bool>(
     if !matches!(&request.event.body, WorldEventBody::Domain(_)) {
         return Err(Error::Invalid("Event original is not Domain"));
     }
-    let allocator = Allocator {
-        memory: context.memory,
-        class: context.class,
-    };
-    let _scratch = allocator.reserve(8 << 10)?;
-    let charge = allocator.reserve(std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'a>>())?;
-    let work = context.work.take().ok_or(Error::Poisoned)?;
-    let mut encoding = CanonicalCborStreamContextV1::new(&allocator, work, &mut context.cancelled);
-    let mut sink = HashSink(blake3::Hasher::new());
-    let result = stream_canonical_cbor_v1(request.event, &mut encoding, &mut sink);
-    context.work = Some(encoding.work);
-    let summary = result?;
-    if summary.encoded_bytes != request.occurrence.original_bytes()
-        || sink.0.finalize().as_bytes() != &request.occurrence.location().original
-    {
-        return Err(Error::Invalid("Domain canonical original mismatch"));
-    }
-    if (context.cancelled)() {
-        return Err(Error::Cancelled);
-    }
+    let charge = check_domain_canonical(
+        request.event,
+        request.occurrence.location().original,
+        request.occurrence.original_bytes(),
+        std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'a>>(),
+        context,
+    )?;
     let witness = charge.retain(VerifiedDomainEventOccurrenceV1 {
         event: request.event,
         occurrence: request.occurrence,
@@ -167,12 +158,104 @@ pub fn verify_domain_event_occurrence_v1<'a, C: FnMut() -> bool>(
     Ok(witness)
 }
 
+fn check_domain_canonical<C: FnMut() -> bool>(
+    event: &WorldEvent,
+    original: [u8; 32],
+    original_bytes: u64,
+    retained_bytes: usize,
+    context: &mut DomainEventProofContextV1<'_, C>,
+) -> Result<MemoryReservation, CanonicalCborStreamError> {
+    use CanonicalCborStreamError as Error;
+    let allocator = Allocator {
+        memory: context.memory,
+        class: context.class,
+    };
+    let _scratch = allocator.reserve(8 << 10)?;
+    let charge = allocator.reserve(retained_bytes)?;
+    let work = context.work.take().ok_or(Error::Poisoned)?;
+    let mut encoding = CanonicalCborStreamContextV1::new(&allocator, work, &mut context.cancelled);
+    let mut sink = HashSink(blake3::Hasher::new());
+    let result = stream_canonical_cbor_v1(event, &mut encoding, &mut sink);
+    context.work = Some(encoding.work);
+    let summary = result?;
+    if summary.encoded_bytes != original_bytes || sink.0.finalize().as_bytes() != &original {
+        return Err(Error::Invalid("Domain canonical original mismatch"));
+    }
+    if (context.cancelled)() {
+        return Err(Error::Cancelled);
+    }
+    Ok(charge)
+}
+
 pub struct MailboxDomainProofRequestV1<'a, 'event> {
     pub domain: &'a DomainEvent,
     pub proof: &'a ReservedValue<VerifiedDomainEventOccurrenceV1<'event>>,
     pub expected_original: [u8; 32],
     pub expected_head_record: [u8; 32],
     pub expected_roots: [u8; 32],
+}
+
+pub struct DomainEventInheritanceRequestV1<'a, 'event> {
+    pub previous: &'a ReservedValue<VerifiedDomainEventOccurrenceV1<'event>>,
+    pub occurrence: &'a ReservedValue<VerifiedEventFactOccurrenceV1>,
+    pub expected_head_record: [u8; 32],
+    pub expected_roots: [u8; 32],
+}
+
+/// Reuse the already authenticated immutable event borrow with an independently
+/// authenticated occurrence of that same original body and exact position.
+/// The new raw proof must come from accepted history verification or a verified
+/// history extension; this function cannot manufacture or retarget provenance.
+/// No serializer, original reader or catalog reader runs here.
+pub fn inherit_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -> bool>(
+    request: &DomainEventInheritanceRequestV1<'a, 'event>,
+    context: &mut DomainEventProofContextV1<'_, C>,
+) -> Result<ReservedValue<VerifiedDomainEventOccurrenceV1<'a>>, CanonicalCborStreamError> {
+    use CanonicalCborStreamError as Error;
+    if context.poisoned {
+        return Err(Error::Poisoned);
+    }
+    context.poisoned = true;
+    if (context.cancelled)() {
+        return Err(Error::Cancelled);
+    }
+    let old = request.previous;
+    let raw = request.occurrence;
+    if !old.uses_budget(context.memory)
+        || old.reserved_bytes() < std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'_>>()
+        || !old.occurrence.uses_budget(context.memory)
+        || old.occurrence.reserved_bytes() < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()
+        || !raw.uses_budget(context.memory)
+        || raw.reserved_bytes() < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()
+    {
+        return Err(Error::Invalid("Domain inheritance pool/charge"));
+    }
+    if raw.head_record_id() != request.expected_head_record
+        || raw.roots_id() != request.expected_roots
+        || raw.event_body_id() != old.occurrence.event_body_id()
+        || raw.location() != old.occurrence.location()
+        || raw.original_bytes() != old.occurrence.original_bytes()
+    {
+        return Err(Error::Invalid("Domain inheritance exact occurrence"));
+    }
+    let work = context.work.as_mut().ok_or(Error::Poisoned)?;
+    work.visits_remaining = work
+        .visits_remaining
+        .checked_sub(1)
+        .ok_or(Error::ResourceLimited("Domain inheritance work"))?;
+    let charge = Allocator {
+        memory: context.memory,
+        class: context.class,
+    }
+    .reserve(std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'a>>())?;
+    if (context.cancelled)() {
+        return Err(Error::Cancelled);
+    }
+    context.poisoned = false;
+    Ok(charge.retain(VerifiedDomainEventOccurrenceV1 {
+        event: old.event,
+        occurrence: raw,
+    }))
 }
 
 /// Match a mailbox's actual Domain value and authenticated original reference.

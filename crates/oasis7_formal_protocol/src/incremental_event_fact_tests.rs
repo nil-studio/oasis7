@@ -2,6 +2,57 @@ use super::*;
 use crate::incremental_execution::ExecutionFactRefV1;
 use std::io::Write;
 
+fn observed_current_event(
+    s: &Setup,
+) -> (
+    VerifiedFormalCommitV1,
+    ReservedValue<CheckedCommitCore>,
+    ReservedValue<CheckedFactOriginals>,
+) {
+    observed_current_events(s, 1)
+}
+fn observed_current_events(
+    s: &Setup,
+    repetitions: usize,
+) -> (
+    VerifiedFormalCommitV1,
+    ReservedValue<CheckedCommitCore>,
+    ReservedValue<CheckedFactOriginals>,
+) {
+    let id = *blake3::hash(b"original Event fact bytes").as_bytes();
+    let history = event_history_repeated(s, id, repetitions);
+    let head = accepted(s, &history);
+    let candidate = candidate(s, head.record().clone());
+    let (mut objects, pages) = event_sources(s, &history, id);
+    let core = verify_commit_core(
+        &request(s, &candidate),
+        &mut objects,
+        &pages,
+        &s.memory,
+        &mut budget(),
+        || false,
+    )
+    .unwrap();
+    let cancelled = Cell::new(false);
+    let originals = verify_fact_originals(
+        &core,
+        &mut EventStream {
+            objects: &mut objects,
+            mode: 0,
+            final_cancel: &cancelled,
+        },
+        &s.memory,
+        &mut FactBudget {
+            facts_remaining: 8,
+            original_bytes_remaining: 1 << 20,
+            max_fact_bytes: 1 << 20,
+        },
+        || false,
+    )
+    .unwrap();
+    (head, core, originals)
+}
+
 struct EventStream<'a> {
     objects: &'a mut Objects,
     mode: u8,
@@ -62,13 +113,23 @@ impl OriginalObjectStreamReader for EventStream<'_> {
         }
     }
 }
+
 fn event_history(s: &Setup, id: [u8; 32]) -> ReservedValue<PreparedHistoryV1> {
+    event_history_repeated(s, id, 1)
+}
+fn event_history_repeated(
+    s: &Setup,
+    id: [u8; 32],
+    repetitions: usize,
+) -> ReservedValue<PreparedHistoryV1> {
     let _fixture = s.memory.reserve(64 << 10, MemoryClass::Ordinary).unwrap();
     let mut facts = s.history.facts.facts.clone();
-    facts.push(ExecutionFactRefV1 {
-        kind: ExecutionFactKindV1::Event,
-        id,
-    });
+    for _ in 0..repetitions {
+        facts.push(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Event,
+            id,
+        });
+    }
     HeaderPreparation {
         config: &s.config,
         catalog: &CatalogRootV1::empty(s.config.scope().unwrap()).unwrap(),
@@ -278,6 +339,35 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
     let old = event_history(&s, id);
     s.commit = accepted(&s, &old);
     let (mut objects, mut pages) = event_sources(&s, &old, id);
+    let old_occurrence = {
+        let stopped = Cell::new(false);
+        let mut source = EventStream {
+            objects: &mut objects,
+            mode: 0,
+            final_cancel: &stopped,
+        };
+        verify_event_fact_occurrence_v1(
+            &EventFactRequestV1 {
+                head: &s.commit,
+                roots: &s.roots,
+                location: EventFactLocationV1 {
+                    height: 0,
+                    ordinal: 1,
+                    original: id,
+                },
+            },
+            &mut EventFactReadContextV1 {
+                originals: &mut source,
+                catalog_pages: &pages,
+                memory: &s.memory,
+                class: MemoryClass::Ordinary,
+                core_budget: &mut budget(),
+                fact_budget: &mut event_budget(),
+                cancelled: || false,
+            },
+        )
+        .unwrap()
+    };
     let catalog = old
         .body
         .catalog_before
@@ -308,6 +398,12 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
         .append_fact(ExecutionFactRefV1 {
             kind: ExecutionFactKindV1::Input,
             id: input,
+        })
+        .unwrap();
+    transaction
+        .append_fact(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Event,
+            id,
         })
         .unwrap();
     let guard = transaction.guard();
@@ -422,6 +518,215 @@ fn historical_event_uses_authenticated_catalog_path_without_replaying_ancestors(
     assert_eq!(result.head_body_id(), next.body.digest().unwrap());
     assert_eq!(result.event_body_id(), old.body.digest().unwrap());
     assert!(pages.reads.get() > 0 && pages.reads.get() <= 257);
+
+    // The same raw Event can occur again in the genuinely signed Normal
+    // successor. Current binding must identify this occurrence at height one,
+    // not silently reuse its older occurrence at height zero.
+    let signed = formal::SignedCanonicalCandidateV1 {
+        record: proof.decision.record.clone(),
+        writer_signature_hex: proof.decision.writer_signature_hex.clone(),
+    };
+    let candidate = formal::verify_formal_candidate(
+        &signed,
+        proof.decision.frozen.as_ref(),
+        &s.authority,
+        Some(&s.commit),
+        None,
+        formal::FormalCompletionBranchV1::Normal,
+    )
+    .unwrap();
+    let next_catalog = next
+        .body
+        .catalog_before
+        .extend(&next.body, &pages, &s.memory, 4 << 20)
+        .unwrap();
+    for node in &next_catalog.new_nodes {
+        let charge = s
+            .memory
+            .reserve(node.bytes.capacity() + 128, MemoryClass::Ordinary)
+            .unwrap();
+        pages.values.insert(
+            node.digest.clone(),
+            Arc::new(charge.retain(node.bytes.clone())),
+        );
+    }
+    for bytes in [
+        sealed.record.after.canonical_bytes().unwrap(),
+        next.transition_bytes.as_ref().unwrap().to_vec(),
+        next_catalog.after.canonical_bytes().unwrap(),
+        b"next original input".to_vec(),
+    ] {
+        let id = *blake3::hash(&bytes).as_bytes();
+        let charge = s
+            .memory
+            .reserve(bytes.capacity(), MemoryClass::Ordinary)
+            .unwrap();
+        stream
+            .objects
+            .values
+            .insert(id, Arc::new(charge.retain(bytes)));
+    }
+    let checked = verify_commit_core(
+        &CoreRequest {
+            candidate: &candidate,
+            original_authority: &s.authority,
+            parent: Some(&s.commit),
+            max_pending_node_bytes: 4 << 20,
+        },
+        &mut stream,
+        &pages,
+        &s.memory,
+        &mut budget(),
+        || false,
+    )
+    .unwrap();
+    let observed = verify_fact_originals(
+        &checked,
+        &mut stream,
+        &s.memory,
+        &mut FactBudget {
+            facts_remaining: 2,
+            original_bytes_remaining: 1 << 20,
+            max_fact_bytes: 1 << 20,
+        },
+        || false,
+    )
+    .unwrap();
+    let current = bind_checked_current_event_fact_v1(
+        &CurrentEventFactRequestV1 {
+            head: &head,
+            core: &checked,
+            originals: &observed,
+            ordinal: 1,
+        },
+        &s.memory,
+        || false,
+    )
+    .unwrap();
+    assert_eq!(
+        current.location(),
+        EventFactLocationV1 {
+            height: 1,
+            ordinal: 1,
+            original: id
+        }
+    );
+    assert_eq!(current.event_body_id(), next.body.digest().unwrap());
+    assert_eq!(current.original_bytes(), 25);
+    assert_ne!(current.event_body_id(), result.event_body_id());
+
+    // A real direct accepted extension inherits the original occurrence,
+    // without looking up its old catalog entry or reading its original again.
+    let reads = (stream.objects.reads, pages.reads.get());
+    let extension_request = EventHistoryExtensionRequestV1 {
+        parent: &s.commit,
+        head: &head,
+        core: &checked,
+    };
+    let extension =
+        verify_event_history_extension_v1(&extension_request, &s.memory, || false).unwrap();
+    let inherited =
+        inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &s.memory, || false).unwrap();
+    assert_eq!(inherited.head_record_id(), current.head_record_id());
+    assert_eq!(inherited.roots_id(), current.roots_id());
+    assert_eq!(inherited.head_body_id(), current.head_body_id());
+    assert_eq!(inherited.event_body_id(), old_occurrence.event_body_id());
+    assert_eq!(inherited.location(), old_occurrence.location());
+    assert_eq!(inherited.original_bytes(), old_occurrence.original_bytes());
+    assert_eq!((stream.objects.reads, pages.reads.get()), reads);
+    let other_history = event_history(&s, [77; 32]);
+    let sibling = accepted(&s, &other_history);
+    assert_eq!(sibling.record().position, s.commit.record().position);
+    assert_ne!(sibling.head().record_id, s.commit.head().record_id);
+    assert!(matches!(
+        verify_event_history_extension_v1(
+            &EventHistoryExtensionRequestV1 {
+                parent: &sibling,
+                ..extension_request
+            },
+            &s.memory,
+            || false,
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    // The successor's own occurrence is not a predecessor witness.
+    assert!(matches!(
+        inherit_event_fact_occurrence_v1(&current, &extension, &s.memory, || false,),
+        Err(CoreError::Invalid(_))
+    ));
+    let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    assert!(matches!(
+        verify_event_history_extension_v1(&extension_request, &foreign, || false,),
+        Err(CoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &foreign, || false,),
+        Err(CoreError::Invalid(_))
+    ));
+    for final_boundary in [false, true] {
+        let used = s.memory.used();
+        let mut calls = 0;
+        let mut cancel = || {
+            calls += 1;
+            calls == if final_boundary { 2 } else { 1 }
+        };
+        assert!(matches!(
+            verify_event_history_extension_v1(&extension_request, &s.memory, &mut cancel,),
+            Err(CoreError::Cancelled)
+        ));
+        let mut calls = 0;
+        assert!(matches!(
+            inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &s.memory, || {
+                calls += 1;
+                calls == if final_boundary { 2 } else { 1 }
+            },),
+            Err(CoreError::Cancelled)
+        ));
+        assert_eq!(s.memory.used(), used);
+    }
+    assert!(matches!(
+        verify_event_history_extension_v1(
+            &EventHistoryExtensionRequestV1 {
+                parent: &head,
+                ..extension_request
+            },
+            &s.memory,
+            || false,
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    assert!(matches!(
+        verify_event_history_extension_v1(
+            &EventHistoryExtensionRequestV1 {
+                head: &s.commit,
+                ..extension_request
+            },
+            &s.memory,
+            || false,
+        ),
+        Err(CoreError::Invalid(_))
+    ));
+    // Neither binding nor inheritance may borrow Recovery's reserved capacity.
+    let ordinary_limit = s
+        .memory
+        .reserve(usize::MAX, MemoryClass::Ordinary)
+        .err()
+        .unwrap()
+        .admission_limit;
+    let held = s
+        .memory
+        .reserve(ordinary_limit - s.memory.used(), MemoryClass::Ordinary)
+        .unwrap();
+    assert!(matches!(
+        verify_event_history_extension_v1(&extension_request, &s.memory, || false,),
+        Err(CoreError::Execution(ExecutionError::Memory(_)))
+    ));
+    assert!(matches!(
+        inherit_event_fact_occurrence_v1(&old_occurrence, &extension, &s.memory, || false,),
+        Err(CoreError::Execution(ExecutionError::Memory(_)))
+    ));
+    drop(held);
+
     let mut exhausted = budget();
     exhausted.merkle_reads_remaining = 0;
     let result = verify_event_fact_occurrence_v1(
@@ -574,7 +879,16 @@ impl OriginalObjectStreamReader for PatternStream<'_> {
         _: &MemoryBudget,
         output: &mut dyn Write,
     ) -> std::io::Result<u64> {
-        assert_eq!(*id, self.original);
+        if *id != self.original {
+            let bytes = self
+                .objects
+                .values
+                .get(id)
+                .ok_or(std::io::ErrorKind::NotFound)?;
+            assert!(bytes.len() as u64 <= max);
+            output.write_all(bytes)?;
+            return Ok(bytes.len() as u64);
+        }
         assert!(self.length as u64 <= max);
         let mut remaining = self.length;
         while remaining != 0 {
@@ -587,6 +901,7 @@ impl OriginalObjectStreamReader for PatternStream<'_> {
         Ok(self.length as u64)
     }
 }
+
 #[test]
 fn event_fact_raw_stream_crosses_32_and_64mib_without_whole_event_reads() {
     let mut observed = Vec::new();
@@ -726,3 +1041,6 @@ fn event_fact_source_contract_and_returned_original_credit_are_checked() {
         }
     }
 }
+
+#[path = "incremental_current_event_fact_tests.rs"]
+mod current_tests;

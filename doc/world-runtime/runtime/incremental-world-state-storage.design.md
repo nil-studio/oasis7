@@ -749,3 +749,26 @@ canonical 流式消费者保留既有编码器及其键排序语义作为独立 
 已接受历史来源的 Agent GEN lowering 复用原字段 visitor 与写入编码器；mailbox 来源提供上述私有 Domain 证明后，消费者继续核对精确 head、RootSet、原件 ID 及实际 mailbox Domain 的完整 canonical 内容。原件证明与 mailbox 匹配使用调用者连续额度，普通写入与语义验证的两个取消通道在流式匹配、写入、emit 和最终返回边界均生效；任一失败使本次验证上下文失效，已输出字段仍是不可激活的暂态前缀。此入口不能验证同一事务中新准备但尚未被接受的 Event，也不能把旧根证明直接迁移成新根资格；新事件的候选验证、正式 head 绑定及未变引用的合法继承仍须由完整提交/owner 链路接通。
 
 上述语义入口接收调用者已有的具体 WorldEvent 借用值；流式编码节省的是验证阶段新增的 owned Value/输出 Vec，不证明输入 DTO 自身的常驻工作集。它不提供从冷原件直接取得任意大小 WorldEvent 的完整语义流式解码，不能据此宣称完整冷恢复或全链路 C<T 已验收。
+
+当前提交的 Fact 原件完整流验可保留本次 FactSet 内每次出现的种类、原 ID 和实际流验长度，按原顺序保留重复项。此私有观测只占本次 Δ 的有限元数据，完整 Vec capacity 在分配前准入并随证明持有至释放；不保留原件正文，不重置失败已消耗的额度。已验证的 core、这些观测与精确正式接受 head 的 body/roots/history/operation 绑定一致后，才可产生当前高度的原件出现证明；仅有 prepared body、调用者长度或另一 head 的观测均不足。该绑定不重读原件、不变更线格式，也不授予业务、GC 或独立持久保障资格。
+
+<a id="iws-event-history-inheritance"></a>
+
+### 12.47 已接受历史扩展下的原件出现继承
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。普通后继不得重新扫描所有既有 mailbox 原件。继承必须先绑定两个真实正式接受 head 的直接父子关系，以及已完整认证的后继 core：精确 parent record、相同世界、相邻 position、before/after roots、原 parent CommitBody、HistoryPrefix.previous 与计数均一致。仅凭两个高度或新根摘要不能构造扩展资格。
+
+私有扩展证明只授权把精确父 head/roots/body 下的既有原件出现证明迁移到该后继；原 event body、高度、ordinal、原 ID 和实际流验长度保持不变。绑定与继承均提前准入元数据、核对同池收费并在最后检查取消，不读取原件或扫描 catalog。多个后继须逐次提供真实扩展证明，分叉、跳高、错父、异池或不足计费不得成功。
+
+这不证明物理副本仍可用，也不单独授予完整 Agent/World 资格、业务权限、GC 或持久回执；owner 仍须认证其实际结构变化与引用增删，并对新增引用提供当前或历史出现及 Domain 语义证明。该接口保留原件的逻辑历史资格，不能冒充冷语义解码或整条恢复链已接通。
+
+已有 Domain 语义证明可与独立认证的新出现证明组合：必须保持相同 event body、高度、ordinal、原 ID 和流验长度，并核对消费者预期的新 head 与 RootSet。消费者只能复用旧证明持续借用的同一不可变具体事件，不能替换 DTO 或借调用者 digest 省略首次语义认证。该元数据组合消耗连续工作额度、计费新证明并保留最终取消检查；不重新编码已验证的大事件。新出现证明仍必须由历史认证或上述真实扩展产生，不能由 Domain 消费者自行重绑定。
+
+
+<a id="iws-candidate-event-semantics"></a>
+
+### 12.49 候选事件原件与接受后的精确提升
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。候选 owner 的完整性检查发生在正式接受之前；不能要求它先取得已接受原件出现证明，形成循环资格。候选出现证明必须由真实签名候选、其已核对的精确 record ID/core，以及本次已流验的 Fact 原件观察构造，保持 Event 种类、ordinal、原 ID 和实际长度；prepared 内容或另一份同 body 的签名记录不能替代该候选。
+
+候选类型与已接受历史类型分开，不提供可替代接受资格的转换或公共构造器。只有真正 VerifiedFormalCommit 的精确 record ID 与候选一致时，才能在同池收费及最终取消检查后提升原出现证明；不重读原件，不改原 body、位置或 bytes。候选 Domain 验证仍须核对具体借用 WorldEvent 的唯一 canonical 原件身份，并只能形成候选语义，不能在接受前被当作已接受 mailbox 历史。owner/endpoint 的业务、完整闭包和持久保障仍各自验证，本接口不能单独签发这些资格。
