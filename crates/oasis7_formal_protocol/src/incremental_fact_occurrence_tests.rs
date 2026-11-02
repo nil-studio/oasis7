@@ -642,3 +642,88 @@ fn generic_result_catalog_seek_and_direct_prefix_inheritance_preserve_kind() {
     assert_eq!(cold.fact_body_id(), inherited.fact_body_id());
     assert_eq!(cold.head_record_id(), inherited.head_record_id());
 }
+
+#[test]
+fn raw_recovery_fact_and_legacy_event_cannot_implicitly_become_ordinary() {
+    let mut f = current();
+    f.s.commit = formal::verify_formal_qualified(&f.proof, &f.s.authority, None, None).unwrap();
+    let (head, core, _) = normal_extension(&mut f);
+    let extension = verify_fact_history_extension_v1(
+        &FactHistoryExtensionRequestV1 {
+            parent: &f.s.commit,
+            head: &head,
+            core: &core,
+        },
+        &f.s.memory,
+        || false,
+    )
+    .unwrap();
+    // The real raw verifier must succeed exclusively from Recovery credits.
+    let hold =
+        f.s.memory
+            .reserve((28 << 20) - f.s.memory.used(), MemoryClass::Ordinary)
+            .unwrap();
+    assert!(f.s.memory.reserve(1, MemoryClass::Ordinary).is_err());
+    f.objects.class = MemoryClass::Recovery;
+    f.pages.class = MemoryClass::Recovery;
+    let stopped = Cell::new(false);
+    let mut source = EventStream {
+        objects: &mut f.objects,
+        mode: 0,
+        final_cancel: &stopped,
+    };
+    let location = FactLocationV1 {
+        height: 0,
+        ordinal: 1,
+        original: *blake3::hash(RESULT).as_bytes(),
+    };
+    let generic = verify_fact_occurrence_v1(
+        &FactRequestV1 {
+            kind: ExecutionFactKindV1::Result,
+            head: &f.s.commit,
+            roots: &f.s.roots,
+            location,
+        },
+        &mut FactReadContextV1 {
+            originals: &mut source,
+            catalog_pages: &f.pages,
+            memory: &f.s.memory,
+            class: MemoryClass::Recovery,
+            core_budget: &mut budget(),
+            fact_budget: &mut event_budget(),
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    let legacy = verify_event_fact_occurrence_v1(
+        &EventFactRequestV1 {
+            head: &f.s.commit,
+            roots: &f.s.roots,
+            location: FactLocationV1 {
+                ordinal: 2,
+                ..location
+            },
+        },
+        &mut FactReadContextV1 {
+            originals: &mut source,
+            catalog_pages: &f.pages,
+            memory: &f.s.memory,
+            class: MemoryClass::Recovery,
+            core_budget: &mut budget(),
+            fact_budget: &mut event_budget(),
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    // Free ordinary space: failure must be the class boundary, not a lucky
+    // allocation failure. Both paths are observed before the final assertion.
+    drop(hold);
+    let generic_result = inherit_fact_occurrence_v1(&generic, &extension, &f.s.memory, || false);
+    let legacy_result =
+        inherit_event_fact_occurrence_v1(&legacy, &extension, &f.s.memory, || false);
+    assert!(
+        matches!(generic_result, Err(CoreError::Invalid(_)))
+            && matches!(legacy_result, Err(CoreError::Invalid(_))),
+        "Recovery inheritance: generic={generic_result:?}, legacy={legacy_result:?}"
+    );
+}
