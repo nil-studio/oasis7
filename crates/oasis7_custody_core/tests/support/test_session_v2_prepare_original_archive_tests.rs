@@ -186,3 +186,6 @@ fn session_v2_prepare_original_late_result_after_freeze_is_history_only() {
             .is_err()
     );
 }
+
+#[path = "test_session_v2_read_history_tests.rs"]
+mod read_history_tests;

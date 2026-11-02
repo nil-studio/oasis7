@@ -10,20 +10,20 @@ use crate::{
 fn dispatcher_leaf() -> ExecutionPendingLeafV2 {
     ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
         phase: inventory::StartCurrentPhaseV2::PreInspect,
-        port: inventory::StartCurrentPortV2::RecoveryFenceDispatcherActor,
+        port: inventory::StartCurrentPortV2::RecoveryFenceDispatcher,
     })
 }
 fn fence_leaf() -> ExecutionPendingLeafV2 {
     ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
         phase: inventory::StartCurrentPhaseV2::PreInspect,
-        port: inventory::StartCurrentPortV2::RecoveryFenceActor,
+        port: inventory::StartCurrentPortV2::RecoveryFence,
     })
 }
 pub(super) fn first_rf_sequence() -> [ExecutionPendingLeafV2; 5] {
     [
         ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
             phase: inventory::StartCurrentPhaseV2::PreInspect,
-            port: inventory::StartCurrentPortV2::ManagerAssociationsActor,
+            port: inventory::StartCurrentPortV2::ManagerAssociations,
         }),
         dispatcher_leaf(),
         ExecutionPendingLeafV2::AccountReentry {

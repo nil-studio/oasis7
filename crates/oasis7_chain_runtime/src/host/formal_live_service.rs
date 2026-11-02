@@ -195,14 +195,14 @@ impl PublishedReadState {
                 full,
             )
             .map_err(|e| e.to_string())?;
-        if let (Some(queue), Some(original)) = (&self.resource_archive, material.as_ref()) {
-            if let Ok(input) = local.qualified_cut().capture_original_material(
+        if let (Some(queue), Some(original)) = (&self.resource_archive, material.as_ref())
+            && let Ok(input) = local.qualified_cut().capture_original_material(
                 original.before().cloned(),
                 original.after().clone(),
                 Arc::clone(original.original_bytes()),
-            ) {
-                let _ = queue.offer_original(input);
-            }
+            )
+        {
+            let _ = queue.offer_original(input);
         }
         let stop_publication = Some(Arc::new(Mutex::new(local)));
         let mut current = self

@@ -15,6 +15,7 @@ impl AccountProvisionApprovalState {
                     h.class,
                     SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
                         | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                        | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
                 )
             })
         {
@@ -39,6 +40,9 @@ impl AccountProvisionApprovalState {
                 }
                 SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. } => {
                     ToolNonceFundingV2::ExecutionFive
+                }
+                SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. } => {
+                    ToolNonceFundingV2::ReadFive
                 }
                 _ => return Err(invalid()),
             };
@@ -92,6 +96,7 @@ impl AccountProvisionApprovalState {
                 record.class,
                 SessionPurposeHttpAdmissionClassV1::ToolNonceThree { .. }
                     | SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                    | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
             ) && !s.tool_nonce_ingresses.contains_key(ingress)
             {
                 return Err(invalid());
@@ -126,6 +131,9 @@ impl AccountProvisionApprovalState {
                     !s.execution_book
                         .as_ref()
                         .is_some_and(|book| book.consumed_nonce_is_exact(request, key))
+                        && !super::super::v2_read_history::read_nonce_consumed_exact(
+                            s, request, key,
+                        )
                 })
                 || bytes.len() != 32
                 || URL_SAFE_NO_PAD.encode(bytes) != link.nonce
@@ -163,6 +171,7 @@ impl AccountProvisionApprovalState {
                         || matches!(
                             paid.class,
                             SessionPurposeHttpAdmissionClassV1::ExecutionNonceFiveV2 { .. }
+                                | SessionPurposeHttpAdmissionClassV1::ReadNonceFiveV2 { .. }
                         ))
             })
         })

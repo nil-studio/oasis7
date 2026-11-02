@@ -74,6 +74,8 @@ pub struct SessionPurposeHttpAdmissionV1 {
 pub enum SessionPurposeHttpAdmissionClassV1 {
     #[default]
     GenericOne,
+    /// Fixed Read-only Host1 plus actual Owner-service/Account2 settlement.
+    ReadPrepareHistoryV2 { fee: Box<ReadPrepareHistoryFeeV2> },
     ToolNonceThree {
         owner_attempt: String,
         account_attempt: String,
@@ -88,6 +90,12 @@ pub enum SessionPurposeHttpAdmissionClassV1 {
     },
     /// Distinct first-five ingress of fixed139; not nonce metadata.
     ExecutionStartFiveV2 {
+        provider_abuse_attempt: String,
+        realm_abuse_attempt: String,
+        owner_attempt: String,
+        account_attempt: String,
+    },
+    ReadNonceFiveV2 {
         provider_abuse_attempt: String,
         realm_abuse_attempt: String,
         owner_attempt: String,
