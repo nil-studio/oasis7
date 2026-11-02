@@ -167,3 +167,23 @@ pub(crate) fn qualify_body<
     }
     mint(field, body, context.values.memory, context.values.class)
 }
+
+/// A changed-path proof already validates immediate rows. This fixed root
+/// shape check must not rescan unchanged members to repeat that obligation.
+pub(crate) fn require_root_shape<R: ValueNodeReader, C: FnMut() -> bool>(
+    field: CognitionJsonFieldV1,
+    body: &ReservedValue<JsonSubtreeQualificationV1>,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    if field != CognitionJsonFieldV1::SchedulerState {
+        crate::incremental_json_records::require_json_container_records_v1(
+            field.profile(),
+            body,
+            field == CognitionJsonFieldV1::Continuations,
+            records,
+            work,
+        )?;
+    }
+    Ok(())
+}

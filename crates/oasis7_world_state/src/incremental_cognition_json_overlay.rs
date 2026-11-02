@@ -222,3 +222,178 @@ fn current<
     }
     Ok(key.0)
 }
+
+/// Scope is one current JSON field, not the complete Cognition/side ledgers.
+pub struct CognitionJsonSubtreeChangeV1<'a> {
+    pub field: CognitionJsonFieldV1,
+    pub qualification: &'a ReservedValue<CognitionJsonEntryQualificationV1>,
+    pub path: &'a [JsonPathSegmentV1<'a>],
+    pub edit: crate::incremental_json_records::JsonSubtreeEditV1<'a>,
+}
+pub fn change_cognition_json_subtree_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: StatePageWriter + ValueNodeReader,
+    CW: FnMut() -> bool,
+>(
+    change: CognitionJsonSubtreeChangeV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    work: &mut CognitionJsonPointWorkV1,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<Option<ReservedValue<CognitionJsonEntryQualificationV1>>, WorldFieldOverlayErrorV1> {
+    let cancel = &mut context.cancelled;
+    let error = &mut context.take_state_error;
+    context.transaction.contribute(|tx| {
+        tx.validate_guard(guard, live)?;
+        if context.values.class != MemoryClass::Ordinary
+            || !tx.uses_budget(context.values.memory)
+            || !tx.uses_budget(write.memory)
+            || !change.qualification.uses_budget(context.values.memory)
+        {
+            return Err(ValueTreeError::Invalid("cognition JSON subtree pool/class").into());
+        }
+        let _operation = write
+            .memory
+            .reserve(32 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let outer = {
+            let mut combined = || cancel() || (write.cancelled)();
+            current(
+                change.field,
+                change.qualification,
+                tx,
+                &mut InventoryValueReader {
+                    values: &mut context.values,
+                    key_work: &mut *context.key_work,
+                    semantic_bytes: context.semantic_bytes,
+                    record_bytes: context.record_bytes,
+                    cancelled: &mut combined,
+                },
+                error,
+            )?
+        };
+        let prepared = crate::incremental_json_records::prepare_json_subtree_change_records_v1(
+            change.field.profile(),
+            change.qualification.json(),
+            change.path,
+            change.edit,
+            &mut InventoryValueReader {
+                values: &mut context.values,
+                key_work: &mut *context.key_work,
+                semantic_bytes: context.semantic_bytes,
+                record_bytes: context.record_bytes,
+                cancelled: cancel,
+            },
+            write,
+            &mut work.point,
+        )?;
+        if cancel() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if !prepared.changed() {
+            return Ok(None);
+        }
+        let body = {
+            let mut combined = || cancel() || (write.cancelled)();
+            let mut records = InventoryValueReader {
+                values: &mut context.values,
+                key_work: &mut *context.key_work,
+                semantic_bytes: context.semantic_bytes,
+                record_bytes: context.record_bytes,
+                cancelled: &mut combined,
+            };
+            let body = crate::incremental_json_records::advance_json_subtree_records_v1(
+                change.field.profile(),
+                change.qualification.json(),
+                prepared.after(),
+                &mut records,
+                &mut work.changed,
+                change.field.immediate(),
+            )?;
+            read::require_root_shape(change.field, &body, &mut records, &mut work.changed.json)?;
+            body
+        };
+        let row = write_root(
+            change.field,
+            prepared.after().clone(),
+            &mut MemberRecordWriteContext {
+                sink: &mut *write.sink,
+                memory: write.memory,
+                io: &mut *write.io,
+                key_work: &mut *write.key_work,
+                limits: write.limits,
+                cancelled: || cancel() || (write.cancelled)(),
+            },
+        )?;
+        if row.field_key != outer {
+            return Err(ValueTreeError::Invalid("cognition JSON subtree output key").into());
+        }
+        if cancel() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let ns = WorldFieldKeyV1::from_bytes(outer.as_bytes())
+            .map_err(ValueTreeError::Invalid)?
+            .namespace;
+        tx.write(ns, outer.as_bytes(), Some(row.value_root))?;
+        let output = read::mint(change.field, body, write.memory, MemoryClass::Ordinary)?;
+        if cancel() || (write.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        Ok(Some(output))
+    })
+}
+pub struct CognitionJsonPathReadV1<'a> {
+    pub field: CognitionJsonFieldV1,
+    pub qualification: &'a ReservedValue<CognitionJsonEntryQualificationV1>,
+    pub path: &'a [JsonPathSegmentV1<'a>],
+}
+pub fn qualify_cognition_json_path_overlay_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    request: CognitionJsonPathReadV1<'_>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut crate::incremental_json_records::JsonScalarPathReadWorkV1,
+) -> Result<
+    ReservedValue<crate::incremental_json_records::JsonSubtreeQualificationV1>,
+    WorldFieldOverlayErrorV1,
+> {
+    context.transaction.contribute(|tx| {
+        let _operation = context
+            .values
+            .memory
+            .reserve(32 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let mut records = InventoryValueReader {
+            values: &mut context.values,
+            key_work: &mut *context.key_work,
+            semantic_bytes: context.semantic_bytes,
+            record_bytes: context.record_bytes,
+            cancelled: &mut context.cancelled,
+        };
+        current(
+            request.field,
+            request.qualification,
+            tx,
+            &mut records,
+            &mut context.take_state_error,
+        )?;
+        let proof = crate::incremental_json_records::qualify_json_path_records_v1(
+            request.field.profile(),
+            request.qualification.json(),
+            request.path,
+            &mut records,
+            work,
+        )?;
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        Ok(proof)
+    })
+}

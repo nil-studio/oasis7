@@ -663,7 +663,19 @@ pub fn qualify_json_path_v1<
 ) -> Result<oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>, MemberRecordError>
 {
     context.check()?;
-    let mut records = context.records();
+    qualify_json_path_records_v1(profile, parent, path, &mut context.records(), work)
+}
+pub(crate) fn qualify_json_path_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    parent: &oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>,
+    path: &[JsonPathSegmentV1<'_>],
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonScalarPathReadWorkV1,
+) -> Result<oasis7_proto::memory_budget::ReservedValue<JsonSubtreeQualificationV1>, MemberRecordError>
+{
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
     if !parent.uses_budget(records.values.memory) {
         return Err(ValueTreeError::Invalid("JSON path parent pool").into());
     }
@@ -685,7 +697,7 @@ pub fn qualify_json_path_v1<
         nodes: &mut work.json_nodes_remaining,
         max_depth: work.max_depth,
     };
-    resolved.walk(profile, path, &mut records, &mut path_work)?;
+    resolved.walk(profile, path, records, &mut path_work)?;
     path_work.node()?;
     let output = retained.retain(JsonSubtreeQualificationV1 {
         root: resolved.root,

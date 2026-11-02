@@ -22,6 +22,36 @@ pub fn accept_cognition_current_scalar_transition_v1<
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut JsonScalarChangeWorkV1,
 ) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
+    accept_current(parent, verifier, record, context, work, false)
+}
+/// Existing field membership is fixed; JSON member/array relations may change.
+pub fn accept_cognition_current_transition_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    verifier: &TransitionVerifier<'_, M>,
+    record: &TransitionRecordV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonScalarChangeWorkV1,
+) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
+    accept_current(parent, verifier, record, context, work, true)
+}
+fn accept_current<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    verifier: &TransitionVerifier<'_, M>,
+    record: &TransitionRecordV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonScalarChangeWorkV1,
+    structural: bool,
+) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
     context.check()?;
     if context.values.class != MemoryClass::Ordinary
         || verifier.class != MemoryClass::Ordinary
@@ -137,14 +167,32 @@ pub fn accept_cognition_current_scalar_transition_v1<
                 let old = json_read::outer(field, &key, &before, &mut local.records())?;
                 original.validate_binding(field, &old)?;
                 let child = json_read::outer(field, &key, &after, &mut local.records())?;
-                let body = advance_json_scalar_subtree_records_constrained_v1(
-                    field.profile(),
-                    original.json(),
-                    &child,
-                    &mut local.records(),
-                    work,
-                    field.scalar_constraint_depth(),
-                )?;
+                let body = if structural {
+                    let body = crate::incremental_json_records::advance_json_subtree_records_v1(
+                        field.profile(),
+                        original.json(),
+                        &child,
+                        &mut local.records(),
+                        work,
+                        field.immediate(),
+                    )?;
+                    json_read::require_root_shape(
+                        field,
+                        &body,
+                        &mut local.records(),
+                        &mut work.json,
+                    )?;
+                    body
+                } else {
+                    advance_json_scalar_subtree_records_constrained_v1(
+                        field.profile(),
+                        original.json(),
+                        &child,
+                        &mut local.records(),
+                        work,
+                        field.scalar_constraint_depth(),
+                    )?
+                };
                 entries[index] = Some(Arc::new(json_read::mint(
                     field,
                     body,
