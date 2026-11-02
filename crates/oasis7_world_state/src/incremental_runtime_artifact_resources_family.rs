@@ -29,7 +29,8 @@ use std::{cell::RefCell, io, io::Write};
 #[path = "incremental_runtime_artifact_resources_family_schema.rs"]
 mod schema;
 
-const MAX_DEPTH: usize = 5;
+pub const RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1: usize = 5;
+const MAX_DEPTH: usize = RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1;
 const WORLD_FIELD_DOMAIN: &[u8] = b"oasis7.iws.world-field-key.v1\0";
 const RECORD_LABELS: RecordReadLabelsV1 = RecordReadLabelsV1 {
     utf8: "runtime artifact family UTF-8",
@@ -85,6 +86,12 @@ impl RuntimeArtifactResourcesQualificationV1 {
         self.counts
     }
 }
+
+#[path = "incremental_runtime_artifact_resources_receiver.rs"]
+mod receiver;
+pub use receiver::{
+    RuntimeArtifactResourcesPreparedTransitionV1, verify_runtime_artifact_resources_transition_v1,
+};
 
 #[derive(Clone, Copy)]
 enum Decoded {

@@ -11,13 +11,19 @@ use oasis7_agent_api::{
 };
 use oasis7_distfs::incremental_page_store::PageIoBudget;
 use oasis7_formal_protocol::{
-    incremental_execution::RootSetV1,
+    incremental_execution::{
+        AuthorityBinding, ExecutionParent, ExecutionTransaction, RootSetV1, TransactionLimits,
+        TransitionVerifier,
+    },
     incremental_state::{StateScanBudget, StateWriteV1},
 };
 use oasis7_runtime::BuiltinReleaseManifestEntry;
+use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
 use oasis7_runtime::incremental_runtime_artifact_resources::{
     BuiltinReleaseEntryRefV1, BuiltinReleaseManifestSourceV1, BuiltinReleaseModuleSetSourceV1,
-    RuntimeArtifactResourcesReadContextV1, qualify_runtime_artifact_resources_v1,
+    RuntimeArtifactDeltaTickChangeV1, RuntimeArtifactResourcesReadContextV1,
+    change_runtime_artifact_delta_tick_overlay_v1, qualify_runtime_artifact_resources_v1,
+    verify_runtime_artifact_resources_transition_v1,
 };
 use oasis7_runtime::incremental_runtime_controls::{
     RuntimeControlsRefV1, prepare_runtime_controls_genesis_v1,
@@ -880,3 +886,273 @@ fn full_qualification_rejects_orphan_count_and_wrong_owner_child_binding() {
         Err(ValueTreeError::Invalid(_))
     ));
 }
+
+#[test]
+fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let directory = Directory::new();
+        let path = directory.0.join("pages");
+        let (manifest, delta, builtins) = rich_sources();
+        let initial_tick = delta.tick;
+        let builtin_source = BuiltinSource(&builtins);
+        let source = RuntimeArtifactResourcesRefV1 {
+            chain_resource_manifest: &manifest,
+            latest_chain_resource_delta: Some(&delta),
+            builtin_release_manifest: &builtin_source,
+        };
+        let (canonical, memory) = persist_sources(&path, compression, &source);
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
+                .unwrap();
+        let artifact_root = StateRootV1::from_canonical_bytes(&canonical).unwrap();
+        let roots = bounded_root_set(artifact_root);
+        let qualified = qualify(&store, &memory, &roots).unwrap();
+        assert_eq!(qualified.record_counts()[1], 1);
+
+        let parent = ExecutionParent {
+            commit: [0x6b; 32],
+            roots: roots.clone(),
+            authority: AuthorityBinding {
+                token: [0x9c; 32],
+                epoch: 4,
+            },
+        };
+        let live = parent.fence().unwrap();
+        let state = store
+            .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let mut transaction = ExecutionTransaction::begin(
+            parent.clone(),
+            [0x71; 32],
+            &state,
+            &memory,
+            TransactionLimits {
+                max_reads: 16,
+                max_writes: 4,
+                max_facts: 0,
+                max_pending_node_bytes: 2 << 20,
+            },
+        )
+        .unwrap();
+        let reader = store.value_session(physical());
+        let mut reader_io = logical();
+        let mut key_work = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut writer = store.value_session(physical());
+        let mut writer_io = logical();
+        let mut writer_key_work = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut write = MemberRecordWriteContext {
+            sink: &mut writer,
+            memory: &memory,
+            io: &mut writer_io,
+            key_work: &mut writer_key_work,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 1 << 20,
+                payload_bytes: 8 << 20,
+                record_bytes: 16 << 20,
+            },
+            cancelled: || false,
+        };
+        let mut work = RuntimeArtifactResourcesWorkV1 {
+            cells_remaining: 4096,
+            max_pending_node_bytes: 2 << 20,
+        };
+        let initial_guard = transaction.guard();
+        let after_tick = initial_tick + 7;
+        let mut context = WorldFieldOverlayContextV1 {
+            transaction: &mut transaction,
+            values: ValueReadContext {
+                source: &reader,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut reader_io,
+            },
+            key_work: &mut key_work,
+            semantic_bytes: 1 << 20,
+            record_bytes: 16 << 20,
+            take_state_error: || state.take_read_error().map(super::typed),
+            cancelled: || false,
+        };
+        assert!(
+            change_runtime_artifact_delta_tick_overlay_v1(
+                RuntimeArtifactDeltaTickChangeV1 {
+                    expected: initial_tick,
+                    after: after_tick,
+                },
+                &qualified,
+                &mut context,
+                &mut write,
+                &mut work,
+                &initial_guard,
+                &live,
+            )
+            .unwrap()
+        );
+        let second_guard = context.transaction.guard();
+        assert!(
+            !change_runtime_artifact_delta_tick_overlay_v1(
+                RuntimeArtifactDeltaTickChangeV1 {
+                    expected: after_tick,
+                    after: after_tick,
+                },
+                &qualified,
+                &mut context,
+                &mut write,
+                &mut work,
+                &second_guard,
+                &live,
+            )
+            .unwrap()
+        );
+        let final_guard = transaction.guard();
+        let sealed = transaction.seal(&final_guard, &live, 0).unwrap();
+        assert_eq!(sealed.record.reads.len(), 2);
+        assert_eq!(sealed.record.writes.len(), 1);
+        let expected_outer = WorldFieldKeyV1::new(
+            RuntimeArtifactFieldV1::LatestChainResourceDelta.descriptor(),
+            WorldFieldRecordKindV1::Entry,
+            Some(unit_semantic_digest()),
+        )
+        .unwrap();
+        assert_eq!(
+            sealed.record.writes[0].mutation.key,
+            expected_outer.as_bytes()
+        );
+        assert_eq!(
+            sealed.record.writes[0].namespace,
+            StateNamespaceV1::Artifacts
+        );
+
+        let verifier_state = store
+            .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let verified = TransitionVerifier {
+            parent: &parent,
+            operation: [0x71; 32],
+            source: &verifier_state,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: 2 << 20,
+        }
+        .verify(&sealed.record)
+        .unwrap();
+        assert_eq!(verified.record.after, sealed.record.after);
+        let outer_mutations = verified
+            .record
+            .writes
+            .iter()
+            .filter(|write| write.namespace == StateNamespaceV1::Artifacts)
+            .map(|write| write.mutation.clone())
+            .collect();
+        let delta_charge = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
+        let top_delta = delta_charge.retain(
+            StateDeltaV1::build(
+                parent.roots.state_root(StateNamespaceV1::Artifacts).clone(),
+                outer_mutations,
+                &verifier_state,
+                2 << 20,
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            top_delta.after,
+            *verified
+                .record
+                .after
+                .state_root(StateNamespaceV1::Artifacts)
+        );
+        writer.put_state_pages(&top_delta, &memory).unwrap();
+        let after_roots = verified.record.after.clone();
+        let receiver_state = store
+            .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap();
+        let receiver_values = store.value_session(physical());
+        let mut receiver_io = logical();
+        let mut receiver_key_work = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut receiver_context = WorldFieldReadContextV1 {
+            root: after_roots.state_root(StateNamespaceV1::Artifacts),
+            state: &receiver_state,
+            values: ValueReadContext {
+                source: &receiver_values,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                io: &mut receiver_io,
+            },
+            key_work: &mut receiver_key_work,
+            semantic_bytes: 1 << 20,
+            record_bytes: 16 << 20,
+            take_state_error: || receiver_state.take_read_error().map(super::typed),
+            cancelled: || false,
+        };
+        let prepared = verify_runtime_artifact_resources_transition_v1(
+            Some(RuntimeArtifactDeltaTickChangeV1 {
+                expected: initial_tick,
+                after: after_tick,
+            }),
+            &qualified,
+            &TransitionVerifier {
+                parent: &parent,
+                operation: [0x71; 32],
+                source: &receiver_state,
+                memory: &memory,
+                class: MemoryClass::Ordinary,
+                max_pending_node_bytes: 2 << 20,
+            },
+            &sealed.record,
+            &mut receiver_context,
+            &mut work,
+        )
+        .unwrap();
+        assert_eq!(prepared.transition().record, sealed.record);
+        prepared
+            .qualification()
+            .validate_binding(&after_roots.digest().unwrap(), MemoryClass::Ordinary)
+            .unwrap();
+        drop(prepared);
+        drop(receiver_values);
+        drop(receiver_state);
+        drop(writer);
+        drop(reader);
+        drop(state);
+        drop(store);
+        drop(qualified);
+
+        let cold_memory = MemoryBudget::new(16 << 20, 2 << 20).unwrap();
+        let cold_store = IncrementalPageStore::open(
+            &path,
+            cold_memory.clone(),
+            compression,
+            MemoryClass::Ordinary,
+        )
+        .unwrap();
+        let requalified = qualify(&cold_store, &cold_memory, &after_roots).unwrap();
+        assert_eq!(requalified.record_counts()[1], 1);
+        let delta_root = field_root(
+            &cold_store,
+            &cold_memory,
+            after_roots.state_root(StateNamespaceV1::Artifacts),
+            RuntimeArtifactFieldV1::LatestChainResourceDelta,
+        )
+        .unwrap();
+        assert_eq!(
+            unsigned_cell(
+                &cold_store,
+                &cold_memory,
+                &delta_root,
+                RuntimeArtifactRecordV1::ChainResourceDelta,
+                "tick",
+            ),
+            oasis7_runtime::incremental_runtime_artifact_resources::RuntimeArtifactValueV1::Unsigned(
+                after_tick
+            )
+        );
+    }
+}
+
+#[path = "incremental_runtime_artifact_resources_pages.rs"]
+mod pages;

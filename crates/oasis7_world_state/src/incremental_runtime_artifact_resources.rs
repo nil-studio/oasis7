@@ -22,13 +22,26 @@ mod family;
 #[path = "incremental_runtime_artifact_resources_key.rs"]
 mod key;
 pub use family::{
+    RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1, RuntimeArtifactResourcesPreparedTransitionV1,
     RuntimeArtifactResourcesQualificationV1, RuntimeArtifactResourcesReadContextV1,
-    qualify_runtime_artifact_resources_v1,
+    qualify_runtime_artifact_resources_v1, verify_runtime_artifact_resources_transition_v1,
+};
+#[path = "incremental_runtime_artifact_resources_overlay.rs"]
+mod overlay;
+pub use overlay::{
+    RuntimeArtifactDeltaTickChangeV1, change_runtime_artifact_delta_tick_overlay_v1,
 };
 
 #[path = "incremental_runtime_artifact_resources_genesis.rs"]
 mod genesis;
 pub use genesis::{RuntimeArtifactResourcesWorkV1, prepare_runtime_artifact_resources_genesis_v1};
+
+#[path = "incremental_runtime_artifact_resources_pages.rs"]
+mod pages;
+pub use pages::{
+    RuntimeArtifactResourcesPagesV1, RuntimeArtifactResourcesPagesWorkV1,
+    mark_runtime_artifact_resources_pages_v1, transfer_runtime_artifact_resources_pages_v1,
+};
 
 /// A borrowed view of one builtin manifest entry. Strings and maps remain
 /// owned by Runtime and are traversed without cloning.
