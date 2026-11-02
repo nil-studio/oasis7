@@ -215,9 +215,6 @@ impl IdentityService {
             configuration_digest: &fingerprint,
             now,
         };
-        self.store.transaction(|tx| {
-            execution_identity::finish_execution_prepare(tx, &scope, completed.stage)
-        })?;
         let c = &request.proof.certificate;
         let receipt = NativeExecutionPrepareReceiptV2 {
             api_version: 2,
@@ -252,7 +249,13 @@ impl IdentityService {
             world_claims: completed.world_claims,
         };
         reply.wire_bytes().map_err(|_| unavailable())?;
-        serde_json::to_value(reply).map_err(|_| unavailable())
+        // Signing/codec work grants no Current. The transaction below rechecks
+        // the original first-claim token and archives the exact strong reply
+        // atomically before this successful HTTP response can leave Native.
+        self.store.require_guarded_machine_storage()?;
+        self.store.transaction(|tx| {
+            execution_identity::finish_execution_prepare(tx, &scope, completed.stage, reply)
+        })
     }
 }
 
