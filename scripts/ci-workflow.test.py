@@ -592,7 +592,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('fail-fast: false', preview)
         self.assertIn('ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}', preview)
         self.assertIn('ci-fast-preview.py restore --metadata', preview)
-        self.assertIn('scripts/ci-tests.sh required --group "$PREVIEW_GROUP" --plan', preview)
+        self.assertIn('scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}"', preview)
         self.assertIn('--requirement scripts/doc-governance-requirements.txt', preview)
         self.assertIn('OASIS7_CI_PROFILE: pr-fast', preview)
         self.assertIn('set -euo pipefail', preview)
@@ -610,6 +610,31 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('name: ${{ needs.select.outputs.selection_artifact }}', baseline)
         self.assertIn('--plan "$RUNNER_TEMP/selection.json"', baseline)
         self.assertIn('SOURCE_SHA: ${{ needs.select.outputs.source_sha }}', baseline)
+
+    def test_preview_invocation_passes_plan_only_to_its_actual_consumers(self):
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
+                                                JOBS['pr-fast-preview'], re.M | re.S)
+                    if 'name: Execute actual preview group' in step)
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\nexit "$DRIVER_EXIT"\n')
+            (root / 'selection.json').write_text('{}')
+            for group in ('baseline', 'rust_baseline', 'oasis7_required'):
+                for code in (0, 19):
+                    result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                        env=dict(os.environ, PREVIEW_GROUP=group, RUNNER_TEMP=str(root),
+                                 GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'), DRIVER_EXIT=str(code)))
+                    args = (root / 'args').read_text().strip('\0').split('\0')
+                    expected = ['required', '--group', group]
+                    if group != 'baseline':
+                        expected.extend(['--plan', str(root / 'selection.json')])
+                    expected.extend(['--repo-root', str(root)])
+                    with self.subTest(group=group, driver_exit=code):
+                        self.assertEqual(args, expected)
+                        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
 
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
@@ -1866,8 +1891,13 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
 
     def test_clippy_precedes_heavy_group_tests(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        for group, prefix in [('oasis7_required', 'required_tier'), ('consensus', 'consensus'),
-                              ('distfs', 'distfs'), ('node', 'node'), ('net', 'net')]:
+        ordinary = re.search(r'^    oasis7_required\).*?;;', driver, re.M).group()
+        self.assertLess(ordinary.index('run_oasis7_required_clippy_for_group oasis7_required'),
+                        ordinary.index('run_oasis7_required_tier_tests'))
+        baseline = driver.split('run_rust_baseline() {', 1)[1].split('\n}', 1)[0]
+        self.assertIn('run_oasis7_required_clippy_for_group rust_baseline', baseline)
+        for group, prefix in [('consensus', 'consensus'), ('distfs', 'distfs'),
+                              ('node', 'node'), ('net', 'net')]:
             case = re.search(r'^    ' + group + r'\).*?;;', driver, re.M).group()
             self.assertLess(case.index('run_oasis7_' + prefix + '_clippy'),
                             case.index('run_oasis7_' + prefix + '_tests'))

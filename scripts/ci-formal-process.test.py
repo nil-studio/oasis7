@@ -523,7 +523,7 @@ class InlineExecutionSelection(unittest.TestCase):
                    ('rust_baseline_checks', ['unknown']),
                    ('rust_baseline_checks', ['newapi_accounting', 'newapi_accounting'])]
         for key, value in invalid:
-            for phase in ('baseline-checks', 'native', 'wasm'):
+            for phase in ('baseline-checks', 'native', 'wasm', 'clippy-group'):
                 with self.subTest(field=key, phase=phase), self.assertRaises(ValueError):
                     artifacts.required_arguments(self.selection() | {key: value}, phase)
         for key in ('fast_plan_version', 'fast_test_inventory_version', 'ordinary_execution',
@@ -537,8 +537,137 @@ class InlineExecutionSelection(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.required_arguments(selected, 'baseline-checks')
 
+    def test_clippy_owner_requires_the_complete_known_inline_plan(self):
+        selected = self.selection() | {'ordinary_clippy_group': 'rust_baseline',
+                                      'groups': ['baseline', 'rust_baseline', 'oasis7_required']}
+        self.assertEqual(artifacts.required_arguments(selected, 'clippy-group'), ['rust_baseline'])
+        for legacy in (None, {}, self.selection(), selected | {'fast_execution_version': 2},
+                       FastTargetInventory().selection(full=True)):
+            with self.subTest(legacy=legacy):
+                self.assertEqual(artifacts.required_arguments(legacy, 'clippy-group'), ['oasis7_required'])
+        invalid = [('ordinary_clippy_group', None), ('ordinary_clippy_group', ['rust_baseline']),
+                   ('ordinary_clippy_group', 'other'), ('groups', ['baseline', 'oasis7_required']),
+                   ('groups', ['baseline', 'rust_baseline']), ('ordinary_execution', 'artifact'),
+                   ('execution_profile', 'periodic-full'), ('scope', 'full')]
+        for key, value in invalid:
+            for phase in ('clippy-group', 'native', 'baseline-checks'):
+                with self.subTest(field=key, value=value, phase=phase), self.assertRaises(ValueError):
+                    artifacts.required_arguments(selected | {key: value}, phase)
+        checker = module('ci-required-result')
+        jobs = {group: group.replace('_', '-') for group in selected['groups']}
+        successful = {name: {'result': 'success'} for name in ['select', *jobs.values()]}
+        self.assertTrue(checker.validate(selected, successful, jobs))
+        for failed in ('failure', 'cancelled', 'skipped', None):
+            with self.subTest(clippy_owner_status=failed), self.assertRaisesRegex(ValueError, 'rust_baseline'):
+                checker.validate(selected, successful | {'rust-baseline': {'result': failed}}, jobs)
+
 
 class DriverCoverage(unittest.TestCase):
+    def test_whole_cli_assigns_exact_strict_clippy_commands_once_and_preserves_failures(self):
+        # Keep the actual entrypoint, trusted-plan parser and command builder.
+        # Stub only unrelated baseline executables and the expensive Cargo process.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo, binary = root / 'repo', root / 'bin'
+            scripts = repo / 'scripts'
+            scripts.mkdir(parents=True)
+            binary.mkdir()
+            (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
+                         'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh',
+                         'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'):
+                path = scripts / name
+                path.write_text('#!/usr/bin/env bash\nexit 0\n')
+                path.chmod(0o755)
+            cargo = binary / 'cargo'
+            cargo.write_text('''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['CARGO_LOG'], 'a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY_PACKAGE']:
+    sys.exit(19)
+''')
+            cargo.chmod(0o755)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'user.name=CI fixture', '-c',
+                            'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+            sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+            selected = InlineExecutionSelection().selection() | {
+                'source_sha': sha, 'tested_sha': sha, 'architecture': {'source': sha, 'tested': sha},
+                'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+                'ordinary_clippy_group': 'rust_baseline', 'oasis7_required_wasm_packages': [],
+                'ordinary_fast_targets': [FastTargetInventory().target(),
+                    FastTargetInventory().target(package='oasis7_runtime', target_kind='lib', target_name='oasis7_runtime')]}
+            path = root / 'selection.json'
+            log = root / 'cargo.jsonl'
+            expected = [['clippy', *command, '--', '-D', 'warnings', '-D', 'clippy::correctness',
+                         '-D', 'clippy::suspicious'] for command in artifacts.required_native_commands(selected)]
+            for mode, failed in (('parallel', ''), ('legacy-inline', ''), ('unknown-version', ''),
+                                 ('parallel', 'oasis7_viewer_codec'), ('parallel', 'oasis7_runtime')):
+                current = dict(selected)
+                if mode == 'legacy-inline':
+                    del current['ordinary_clippy_group']
+                elif mode == 'unknown-version':
+                    current['fast_execution_version'] = 2
+                path.write_text(json.dumps(current))
+                lint_calls = {}
+                for group in ('rust_baseline', 'oasis7_required'):
+                    log.unlink(missing_ok=True)
+                    result = subprocess.run(['bash', str(HERE / 'ci-tests.sh'), 'required', '--group', group,
+                                             '--plan', str(path), '--repo-root', str(repo)], text=True, capture_output=True,
+                        env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                                 SOURCE_SHA=sha, CI_VERBOSE='', CARGO_LOG=str(log), FAIL_CLIPPY_PACKAGE=failed,
+                                 OASIS7_CI_TEST_BUNDLE=str(root / 'missing-native-bundle'),
+                                 OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false', OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                    commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+                    lint_calls[group] = [args for args in commands if args[0] == 'clippy']
+                    with self.subTest(mode=mode, failed=failed, group=group):
+                        if group == 'rust_baseline':
+                            self.assertEqual(result.returncode, 19 if failed else 0, result.stdout + result.stderr)
+                        else:
+                            # Reaching the real artifact reader proves lint deferral
+                            # never skips the test consumer or accepts absent tests.
+                            self.assertNotEqual(result.returncode, 0)
+                            self.assertIn('missing-native-bundle/manifest.json', result.stderr)
+                owner = 'rust_baseline' if mode == 'parallel' else 'oasis7_required'
+                expected_calls = expected[:1] if failed == 'oasis7_viewer_codec' else expected
+                self.assertEqual(lint_calls[owner], expected_calls, (mode, failed, lint_calls))
+                self.assertEqual(lint_calls['oasis7_required' if owner == 'rust_baseline' else 'rust_baseline'], [])
+
+    def test_whole_driver_cli_accepts_baseline_plan_and_rejects_invalid_inputs_before_cargo(self):
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cargo = root / 'cargo'
+            cargo.write_text('#!/usr/bin/env bash\nprintf "cargo-sentinel:%s\\n" "$*"\nexit 73\n')
+            cargo.chmod(0o755)
+            selected = InlineExecutionSelection().selection() | {
+                'source_sha': sha, 'tested_sha': sha, 'architecture': {'source': sha, 'tested': sha}}
+            legacy = dict(selected)
+            del legacy['fast_execution_version']
+            cases = [('required', 'rust_baseline', selected, 73, 'cargo-sentinel:fetch --locked'),
+                     ('required', 'rust_baseline', legacy, 73, 'cargo-sentinel:fetch --locked'),
+                     ('required', 'rust_baseline', selected | {'rust_baseline_checks': ['unknown']},
+                      1, 'invalid execution selection: rust_baseline_checks'),
+                     ('required', 'rust_baseline', selected | {'tested_sha': '0' * 40},
+                      1, 'execution plan identity mismatch: tested'),
+                     ('required', 'baseline', selected, 2, '--plan requires required --group'),
+                     ('full', 'rust_baseline', selected, 2, '--plan requires required --group')]
+            path = root / 'selection.json'
+            for tier, group, plan, code, diagnostic in cases:
+                path.write_text(json.dumps(plan))
+                result = subprocess.run(['bash', str(HERE / 'ci-tests.sh'), tier, '--group', group,
+                                         '--plan', str(path), '--repo-root', str(artifacts.ROOT)],
+                                        text=True, capture_output=True,
+                                        env=dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                                                 SOURCE_SHA=sha, CI_VERBOSE='', OASIS7_CI_TEST_BUNDLE=''))
+                with self.subTest(tier=tier, group=group, expected=diagnostic):
+                    self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                    self.assertIn(diagnostic, result.stdout + result.stderr)
+                    self.assertEqual('cargo-sentinel:' in result.stdout, code == 73)
+
     def test_inline_driver_builds_once_runs_manifest_and_propagates_each_failure(self):
         driver = (HERE / 'ci-tests.sh').read_text()
         body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_oasis7_required_tier_tests']
@@ -576,7 +705,8 @@ if os.environ['FAILED'] == action:
 
     def test_baseline_executes_selected_real_extra_commands_and_propagates_failure(self):
         driver = (HERE / 'ci-tests.sh').read_text()
-        body = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))['run_rust_baseline']
+        bodies = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))
+        body = bodies['run_rust_baseline']
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'selection.json'
@@ -595,6 +725,7 @@ if os.environ['FAILED'] == action:
                 script += 'run_rustsec_advisory_check() { echo advisories; }\n'
                 script += 'run_newapi_bridge_service_accounting_tests() { echo newapi_accounting; [[ "$FAILED" != newapi_accounting ]] || return 19; }\n'
                 script += 'run_standalone_tool_lockfiles_checks() { echo standalone_tool_lockfiles; [[ "$FAILED" != standalone_tool_lockfiles ]] || return 19; }\n'
+                script += 'run_oasis7_required_clippy_for_group() {\n' + bodies['run_oasis7_required_clippy_for_group'] + '}\n'
                 script += 'run_rust_baseline() {\n' + body + '}\nrun_rust_baseline\n'
                 result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(HERE),
                                          str(artifacts.ROOT), str(path)], text=True, capture_output=True,
@@ -631,14 +762,14 @@ if os.environ['FAILED'] == action:
         driver = (HERE / 'ci-tests.sh').read_text()
         functions = dict(re.findall(r'^(\w+)\(\) \{\n(.*?)^\}', driver, re.M | re.S))
         retained = {'run_group', 'run_full_required_superset', 'run_all_required_gate_capability_contract_tests',
-                    'run_selected_workspace_support'}
+                    'run_selected_workspace_support', 'run_oasis7_required_clippy_for_group'}
         definitions = []
         for name, body in functions.items():
             if name in retained:
                 definitions.append(name + '() {\n' + body + '}\n')
             elif name not in ('run', 'run_cargo'):
                 definitions.append(name + '() { printf "%s\\n" ' + name + '; }\n')
-        script = 'set -euo pipefail\nsupport_profiles=""; required_plan=""\n'
+        script = 'set -euo pipefail\ntier=required; support_profiles=""; required_plan=""\n'
         script += '\n'.join(definitions)
         script += 'run_cargo() { printf "cargo:%s\\n" "$*"; }\n'
         script += 'run() { printf "command:%s\\n" "$*"; [[ "${FAIL_BROWSER:-}" != 1 || "$*" != *viewer-auth-browser-security-smoke.mjs* ]] || return 17; }\n'

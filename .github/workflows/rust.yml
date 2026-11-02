@@ -400,7 +400,11 @@ jobs:
         run: |
           set -euo pipefail
           export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$RUNNER_TEMP/selection.json")"
-          bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" --plan "$RUNNER_TEMP/selection.json" \
+          plan_args=()
+          if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required ]]; then
+            plan_args=(--plan "$RUNNER_TEMP/selection.json")
+          fi
+          bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
             --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
       - name: Record preview group timing and outcome
         if: always()

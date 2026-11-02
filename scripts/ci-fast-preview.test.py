@@ -40,11 +40,13 @@ def fixture(directory):
 def valid_plan(source):
     return {'scope': 'targeted', 'execution_profile': 'pr-fast',
             'fast_execution_version': 1, 'ordinary_execution': 'inline',
+            'ordinary_clippy_group': 'rust_baseline',
             'test_policy_changed': False, 'fast_plan_exceptions': [],
             'rust_baseline_checks': [], 'oasis7_required_wasm_packages': [],
             'groups': sorted(PREVIEW.EXPECTED_GROUPS),
             'source_sha': source, 'tested_sha': source, 'policy_sha': source,
-            'ordinary_fast_targets': [dict(package=package, target_kind=kind, target_name=name)
+            'ordinary_fast_targets': [dict(package=package, target_kind=kind, target_name=name,
+                                          default_features=False, features=['test_tier_required'])
                 for package, kind, name in sorted(PREVIEW.EXPECTED_TARGETS)]}
 
 
@@ -138,6 +140,7 @@ pathlib.Path(a.output).write_text(json.dumps(plan))
         mutations = (
             ('scope', 'full'), ('execution_profile', 'candidate-full'),
             ('ordinary_execution', 'artifacts'), ('fast_execution_version', True),
+            ('ordinary_clippy_group', None), ('ordinary_clippy_group', 'oasis7_required'),
             ('test_policy_changed', True), ('fast_plan_exceptions', ['risk']),
             ('rust_baseline_checks', ['newapi_accounting']),
             ('oasis7_required_wasm_packages', ['oasis7_viewer_codec']),
@@ -150,6 +153,12 @@ pathlib.Path(a.output).write_text(json.dumps(plan))
             plan = copy.deepcopy(original)
             plan[key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(plan, source)
+        for field, value in (('default_features', True), ('default_features', 0),
+                             ('features', []), ('features', ['test_tier_full'])):
+            plan = copy.deepcopy(original)
+            plan['ordinary_fast_targets'][0][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 PREVIEW.validate_plan(plan, source)
 
 

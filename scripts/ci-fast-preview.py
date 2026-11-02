@@ -67,6 +67,7 @@ def validate_plan(plan, source):
             or type(plan.get('fast_execution_version')) is not int
             or plan['fast_execution_version'] != 1
             or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
             or plan.get('test_policy_changed') is not False
             or plan.get('fast_plan_exceptions') != []
             or plan.get('rust_baseline_checks') != []
@@ -85,6 +86,9 @@ def validate_plan(plan, source):
                   for item in targets if isinstance(item, dict)}
     if len(targets) != len(EXPECTED_TARGETS) or identities != EXPECTED_TARGETS:
         raise ValueError('preview must execute the complete expected behavioral-owner inventory')
+    if any(item.get('default_features') is not False
+           or item.get('features') != ['test_tier_required'] for item in targets):
+        raise ValueError('preview must keep the exact required no-default-feature variants')
 
 
 def write_outputs(path, values):

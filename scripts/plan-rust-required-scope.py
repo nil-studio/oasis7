@@ -110,25 +110,47 @@ def known_test_target_root(path, directory, manifest):
 
 def production_target_roots(sources, directories, manifests):
     """Actual lib/bin roots, independently of test harness and feature settings."""
-    roots = set()
+    roots, explicit = set(), set()
     for package, manifest in manifests.items():
         if package not in directories:
             continue
         directory = directories[package]
         metadata = manifest.get('package', {})
         if 'lib' in manifest or metadata.get('autolib', True):
-            roots.add(posixpath.normpath(posixpath.join(directory,
-                      manifest.get('lib', {}).get('path', 'src/lib.rs'))))
+            root = posixpath.normpath(posixpath.join(directory,
+                                     manifest.get('lib', {}).get('path', 'src/lib.rs')))
+            roots.add(root)
+            if 'path' in manifest.get('lib', {}):
+                explicit.add(root)
         for target in manifest.get('bin', []):
             candidates = ([target['path']] if 'path' in target else
                           ['src/main.rs', 'src/bin/' + target['name'] + '.rs',
                            'src/bin/' + target['name'] + '/main.rs'])
             roots.update(posixpath.normpath(posixpath.join(directory, candidate)) for candidate in candidates)
+            if 'path' in target:
+                explicit.add(posixpath.normpath(posixpath.join(directory, target['path'])))
         if metadata.get('autobins', True):
             prefix = directory + '/' if directory else ''
             roots.update(candidate for candidate in sources if candidate.startswith(prefix) and re.fullmatch(
                 r'src/(?:main\.rs|bin/[^/.][^/]*(?:\.rs|/main\.rs))', candidate[len(prefix):]))
-    return roots.intersection(sources)
+    # An explicit non-.rs or otherwise unparsed root is still a possible
+    # production reader. Its absence must not prove portable exclusion.
+    return roots.intersection(sources) | explicit
+
+
+def build_script_roots(sources, directories, manifests):
+    roots = set()
+    for package, manifest in manifests.items():
+        if package not in directories:
+            continue
+        build = manifest.get('package', {}).get('build', 'build.rs')
+        if build is False:
+            continue
+        root = posixpath.normpath(posixpath.join(directories[package],
+                                 build if isinstance(build, str) else 'build.rs'))
+        if root in sources or isinstance(manifest.get('package', {}).get('build'), str):
+            roots.add(root)
+    return roots
 
 
 def default_feature_closure(manifest):
@@ -409,6 +431,11 @@ def cargo_graph(ref, generated_inputs=()):
         generated_outputs[entry['package']] = set(entry['outputs'])
     by_directory = {directory: name for name, (directory, _) in manifests.items()}
     reverse = {name: set() for name in manifests}
+    host_execution_targets = {name for name, (_, manifest) in manifests.items()
+                              if manifest.get('lib', {}).get('proc-macro') is True
+                              or manifest.get('lib', {}).get('proc_macro') is True
+                              or 'proc-macro' in manifest.get('lib', {}).get('crate-type', [])
+                              or 'proc-macro' in manifest.get('lib', {}).get('crate_type', [])}
     workspace_dependencies = workspace.get('dependencies', {})
     for name, (directory, manifest) in manifests.items():
         tables = [manifest, *manifest.get('target', {}).values()]
@@ -432,6 +459,8 @@ def cargo_graph(ref, generated_inputs=()):
                     if dependency.get('package', target) != target:
                         raise ValueError('path dependency identity mismatch')
                     reverse[target].add(name)
+                    if kind == 'build-dependencies':
+                        host_execution_targets.add(target)
     # A library may explicitly import a nominally independent target source.
     # Widen the whole referenced directory, including implicit child modules.
     library_directories = set()
@@ -550,6 +579,11 @@ def cargo_graph(ref, generated_inputs=()):
     embedded['__library_directories__'] = library_directories
     embedded['__library_readers__'] = library_readers
     embedded['__library_embeds__'] = library_embeds
+    # A native-only library can still run on the host as a code generator for
+    # a portable consumer. Proc macros also execute on the host through normal
+    # dependency edges. Preserve both kinds of transitive generator provenance.
+    embedded['__host_execution_inputs__'] = ({package for package in manifests
+        if reverse_consumers({package}, reverse) & host_execution_targets} if host_execution_targets else set())
     embedded['__rust_data_readers__'] = data_readers
     embedded['__unresolved_rust_data_readers__'] = unresolved_data_readers
     # Reuse the exact Git blobs for bounded module-context proofs in fast mode.
@@ -1101,6 +1135,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     sources = source_inputs.get('sources', {})
     directories = source_inputs.get('directories', {})
     production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
+    host_roots = build_script_roots(sources, directories, source_inputs.get('manifests', {}))
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
 
     def source_owners(path):
@@ -1135,7 +1170,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             info = parsed(parent, native)
             annotations, tokens, closing, items, modules, context = info[6:]
             directory = posixpath.dirname(parent)
-            module_directory = (directory if parent in ordinary_roots or parent in production_roots
+            module_directory = (directory if parent in ordinary_roots or parent in production_roots or parent in host_roots
                                 or posixpath.basename(parent) in ('lib.rs', 'main.rs', 'mod.rs')
                                 or parent in source_inputs.get('includes', ())
                                 else parent.removesuffix('.rs'))
@@ -1333,7 +1368,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         itself because production cfg edits expand the plan below.
         """
         if (path not in sources or source_inputs.get('uncertain_modules')
-                or source_owners(path) & set(source_inputs.get('unresolved_includes', ()))):
+                or (production_roots | host_roots) - sources.keys()
+                or source_owners(path) & set(source_inputs.get('unresolved_includes', ()))
+                or (source_owners(path) | set(feature_owners.get(path, ())))
+                & set(source_inputs.get('host_execution_inputs', ()))):
             return False
         excluded = {
             ('cfg', '(', 'not', '(', 'target_arch', '=', '"wasm32"', ')', ')'),
@@ -1342,13 +1380,19 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 
         def excluded_mounts(current, visiting=frozenset()):
             if (current in visiting or current not in sources
-                    or source_owners(current) & set(source_inputs.get('unresolved_includes', ()))):
+                    or source_owners(current) & set(source_inputs.get('unresolved_includes', ()))
+                    or source_owners(current) & set(source_inputs.get('host_execution_inputs', ()))):
+                return False
+            # A build script is a host executable, including when it imports
+            # another target's native module directly instead of through Cargo.
+            if inherited_paths(current, True, roots=host_roots):
                 return False
             routes = inherited_paths(current, True, roots=production_roots)
             # An independent integration target is absent from production builds.
             # This is separate from, and cannot replace, executable source proof.
-            absent = (all(proven and not opaque and any(gate in excluded for gate in gates)
-                          for gates, proven, opaque, _ in routes) if routes else
+            absent = (all(proven and not opaque and not packages & set(source_inputs.get('host_execution_inputs', ()))
+                          and any(gate in excluded for gate in gates)
+                          for gates, proven, opaque, packages in routes) if routes else
                       current in ordinary_roots and current not in production_roots)
             # include_str!/include_bytes! are dependency edges only. They never
             # authorize Rust execution, but portable readers prohibit deferral.
@@ -1614,6 +1658,8 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     if native_fast is not None and execution_capable:
         plan['fast_execution_version'] = FAST_EXECUTION_VERSION
         plan['ordinary_execution'] = 'inline'
+        if {'rust_baseline', 'oasis7_required'}.issubset(chosen):
+            plan['ordinary_clippy_group'] = 'rust_baseline'
         baseline_checks = []
         if 'oasis7_newapi_bridge_service' in affected:
             baseline_checks.append('newapi_accounting')
@@ -1771,6 +1817,7 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         'uncertain_modules': graph[2].get('__uncertain_module_sources__', ()),
                         'data_readers': graph[2].get('__rust_data_readers__', {}),
                         'unresolved_data_readers': graph[2].get('__unresolved_rust_data_readers__', ()),
+                        'host_execution_inputs': graph[2].get('__host_execution_inputs__', ()),
                     }
             except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
                 # Keep usable graphs to establish ownership even when another

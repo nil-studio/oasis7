@@ -113,7 +113,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
-| `fast_execution_version=1`、`ordinary_execution=inline`、`rust_baseline_checks` | 可信组件快速计划使用单 runner；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
+| `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
 | `full_fast_test_inventory_version=1`、`ordinary_full_fast_targets` | 完整 profile 在原全集上追加全部快速 target 的精确 feature 组合，不替代原 required 库存 |
 | `formal_suites`、`formal_shards`、`command_center_package` | 完整逻辑 case、实际物理分片及 App 打包选择；host Clippy 不随打包开关省略 |
 | `test_policy_changed`、`test_policy_paths`、`fast_plan_exceptions`、`reasons` | 测试选择属性变化、必要扩测与运行前原因；不按实测超时事后改变普通/例外分类 |
@@ -182,6 +182,8 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 完整反向消费者集合继续写入计划作为影响证据。已证明的组件合同承接普通行为，上层完整集成回归放入 periodic-full；直接规则、手动必要加测、未覆盖输入及平台风险仍取并集。Formal 显式风险规则先于组件合同应用，例如 retained history 仍选 world-history，projection 仍选 runtime-protocol 与 world-history；只有没有显式风险且行为已由快速目标承接的输入才取消默认五套长回归。Launcher release 构建只在其真实输入或必要风险要求时加入快速图。WASM 保留适用消费者编译；仅当源码路由与 cfg 可证明输入不进入 WASM 构建时，才排除纯传递依赖带来的无关 WASM 检查，解析不确定时保留。
 
+不可达证明同时核对实际 library、binary 与 build script 入口、静态模块挂载和嵌入数据消费者。原生源码可能经直接或传递的 Cargo build-dependency、proc-macro 或 build script 在 host 上生成便携目标的输入；这种路线必须保留平台验证，不能仅凭 native cfg 排除。自定义或无法解析的入口同样保守处理；包里存在 build script 本身不等于所有 library 源码都作为 host 生成器执行。
+
 构建前直接生成 `cargo test -p <package> --lib` 或 `--test <name>`；strict Clippy 使用同一命令列表。独立模式不隐式追加 Viewer/snapshot harness。artifact 核对 package/target、请求及实际 features、默认 feature、最低 case 存在且非 ignored、计划与 source/tested 身份；缺目标、空执行、错误变体或遗漏最低用例均失败。最低名单不限制执行，所选目标的全部非 ignored 用例包括后续新增回归都实际运行。
 
 修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 的例外只允许新增完整匹配的已登记声明/导出；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码及未知模块均回退。
@@ -192,7 +194,9 @@ periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、�
 
 #### 快速执行链路与专项 baseline
 
-可信计划为已选中的组件快速目标声明单 runner 执行能力。`oasis7-required` 保持固定 job 身份，在同一 checkout/工具链中完成 strict Clippy、必要 WASM 编译、真实测试构建与执行，复用现有 build manifest、最低 case、features 和非空执行核验；不再为这些目标启动 ordinary artifact producer，再上传下载到第二台 runner。旧计划缺少能力字段、包级回退和完整 profile 继续使用原 producer/consumer 路径。汇总仍核对实际选中的执行模式，不能将 selected job 的 skipped、cancelled、missing 或失败视为成功。
+可信计划为已选中的组件快速目标声明单 runner 执行能力。`oasis7-required` 保持固定 job 身份，在同一 checkout/工具链中完成必要 WASM 编译、真实测试构建与执行，复用现有 build manifest、最低 case、features 和非空执行核验；不再为这些目标启动 ordinary artifact producer，再上传下载到第二台 runner。旧计划缺少能力字段、包级回退和完整 profile 继续使用原 producer/consumer 路径。汇总仍核对实际选中的执行模式，不能将 selected job 的 skipped、cancelled、missing 或失败视为成功。
+
+有界 inline 计划通过 `ordinary_clippy_group=rust_baseline` 将 strict Clippy 移到已有并行任务，缩短 native 构建和测试前的串行路径；不新增 job，也不改变 target、features 或 lint 参数。两个执行组都读取同一可信计划，核对 source/tested 身份后再判断唯一执行方；迁移要求计划同时选择 `rust_baseline` 与 `oasis7_required`，任一组失败仍由原 required gate 阻断。已知能力中的非法执行组、缺失所需组或不适用 profile 必须失败；缺少该字段时保留 ordinary 组内 Clippy，未知整数能力与旧计划继续使用原执行路径，不能让两个组都跳过。full 保留原 Clippy 全集及精确快速变体补充。
 
 `rust-baseline` 的格式、架构、RustSec 与文件约束继续执行。NewAPI accounting 仅在其真实 package/依赖输入受影响时执行；独立工具锁文件检查在相应 manifest/lock、检查器或共享构建输入变化时执行。选择来自可信计划及完整差异，不靠候选环境变量自由关闭；没有新能力的旧计划和完整 profile 保留原检查。周期 full 仍执行这些专项全部原命令。
 

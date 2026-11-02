@@ -64,6 +64,11 @@ def fast_plan(plan):
                     or not plan['ordinary_fast_targets']):
                 raise ValueError('inline execution requires a bounded ordinary fast inventory')
             plan_list(plan, 'rust_baseline_checks', RUST_BASELINE_CHECKS, nonempty=False)
+            clippy_group = plan.get('ordinary_clippy_group', 'oasis7_required')
+            if clippy_group not in ('oasis7_required', 'rust_baseline'):
+                raise ValueError('invalid ordinary Clippy group')
+            if clippy_group == 'rust_baseline' and 'rust_baseline' not in plan['groups']:
+                raise ValueError('ordinary Clippy owner is not a selected required group')
     return plan
 
 
@@ -124,6 +129,12 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
+    if phase == 'clippy-group':
+        selected = fast_plan(plan)
+        if selected is not None and selected.get('fast_execution_version') == 1:
+            ordinary_fast_targets(selected)
+            return [selected.get('ordinary_clippy_group', 'oasis7_required')]
+        return ['oasis7_required']
     if phase == 'baseline-checks':
         selected = fast_plan(plan)
         if selected is not None and selected.get('fast_execution_version') == 1:
@@ -1491,7 +1502,7 @@ def main():
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
