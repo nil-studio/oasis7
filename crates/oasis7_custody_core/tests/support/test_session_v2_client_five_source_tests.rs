@@ -619,3 +619,181 @@ fn session_v2_five_source_paid_birth_cold_cannot_drop_both_profile_fields() {
         .remove(marker);
     assert!(serde_json::from_value::<AccountProvisionApprovalState>(wrong).is_err());
 }
+
+#[test]
+fn session_v2_five_source_finish_challenge_actual_paid_factory_is_supported() {
+    closing_challenge(SessionControlKindV1::Finish, 91);
+}
+#[test]
+fn session_v2_five_source_abort_challenge_actual_paid_factory_is_supported() {
+    closing_challenge(SessionControlKindV1::Abort, 92);
+}
+fn closing_challenge(kind: SessionControlKindV1, salt: u8) {
+    let mut f = activation_tests::activated(9000);
+    let mut root = request(&f, "five-closing-root", None);
+    root.purposes = vec![TestSessionPurposeV1::Execute, TestSessionPurposeV1::Read];
+    let mut read = allocation(32);
+    read.purpose = SessionPurposeV1::ReconcileRead;
+    assert!(
+        claim(&mut f, &root, &[allocation(31), read], 93, 12_000)
+            .unwrap()
+            .newly_claimed
+    );
+    let q = SessionControlRequestV1 {
+        api_version: 1,
+        session_id: f.session_id.clone(),
+        request_id: "five-closing-logical".into(),
+        kind,
+    };
+    let now = 14_000;
+    // The existing genuine None/4 protocol proves this very closing challenge
+    // is approved and issuer-valid, not a new permission or a fabricated nonce.
+    let mut legacy = SessionFixture {
+        session_id: f.session_id.clone(),
+        state: f.state.clone(),
+        context: f.context.clone(),
+        pin: f.pin.clone(),
+        fact: f.fact.clone(),
+        deployments: HostDeploymentAllowlist::from_fixed_config(vec![
+            f.deployments
+                .configured_metadata(&f.fact.registration.request.descriptor)
+                .unwrap()
+                .unwrap()
+                .clone(),
+        ])
+        .unwrap(),
+    };
+    let nonce =
+        control_tests::challenge(&mut legacy, &q, SessionPurposeV1::ReconcileRead, salt, now);
+    assert_eq!(nonce.kind, SessionChallengeKindV1::Control(kind));
+    cold(&legacy.state);
+    let final_body = serde_json::to_vec(&q).unwrap();
+    let route = match kind {
+        SessionControlKindV1::Finish => HttpPopRoute::Finish(f.session_id.clone()),
+        SessionControlKindV1::Abort => HttpPopRoute::Abort(f.session_id.clone()),
+        _ => unreachable!(),
+    };
+    let final_pop = control_tests::control_pop(
+        &legacy,
+        &final_body,
+        (route, HttpPopProfileV1::Custody),
+        &q.request_id,
+        Some(&nonce),
+        SessionPurposeV1::ReconcileRead,
+        now + 3,
+    );
+    let final_ingress = "five-pure-closing-http";
+    control_tests::control_paid(&mut legacy, &final_pop, final_ingress, now + 3);
+    let final_source = source_id(&legacy, final_ingress, true);
+    let final_nonce = oasis7_custody_core::approval::bytes_digest(final_source.as_bytes());
+    let exact = legacy.state.clone();
+    assert!(
+        legacy
+            .state
+            .reserve_test_session_v2_control_five_source(
+                &legacy.session_id,
+                SessionSourceReservation {
+                    operation_id: &final_source,
+                    nonce: &final_nonce,
+                    funding: SessionSourceFundingV1::Control
+                },
+                SessionProofRequest {
+                    ingress_attempt_id: final_ingress,
+                    original_bytes: &final_body,
+                    possession: &final_pop
+                },
+                UnixMillis::new(now + 3)
+            )
+            .is_err(),
+        "final pure closing must not create a Source"
+    );
+    assert_eq!(legacy.state, exact);
+    let sources = serde_json::to_value(&legacy.state).unwrap()["test_sessions_v2"]
+        [&legacy.session_id]["sources"]
+        .clone();
+    let ack = legacy
+        .state
+        .control_test_session_v2(
+            SessionProofRequest {
+                ingress_attempt_id: final_ingress,
+                original_bytes: &final_body,
+                possession: &final_pop,
+            },
+            None,
+            UnixMillis::new(now + 5),
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    assert_eq!(ack.kind, kind);
+    assert_eq!(
+        serde_json::to_value(&legacy.state).unwrap()["test_sessions_v2"][&legacy.session_id]["sources"],
+        sources,
+        "pure closing added no Source or Native observation"
+    );
+    let challenge = SessionChallengeRequestV1 {
+        api_version: 1,
+        session_id: f.session_id.clone(),
+        request_id: "five-closing-challenge".into(),
+        purpose: SessionPurposeV1::ReconcileRead,
+        kind: SessionChallengeKindV1::Control(kind),
+        logical_request_id: q.request_id.clone(),
+        operation_request_digest: q.digest().unwrap(),
+    };
+    let body = serde_json::to_vec(&challenge).unwrap();
+    let pop = control_tests::control_pop(
+        &f,
+        &body,
+        (
+            HttpPopRoute::ProofChallenges,
+            HttpPopProfileV1::CustodyChallenge,
+        ),
+        &challenge.request_id,
+        None,
+        SessionPurposeV1::ReconcileRead,
+        now,
+    );
+    assert_eq!(
+        f.state
+            .test_session_v2_control_purpose(&f.session_id, &pop, UnixMillis::new(now))
+            .unwrap(),
+        SessionPurposeV1::ReconcileRead
+    );
+    let ingress = "five-closing-challenge-http";
+    control_tests::control_paid(&mut f, &pop, ingress, now);
+    cold(&f.state);
+    let paid = serde_json::to_value(&f.state).unwrap();
+    assert_eq!(
+        paid["test_sessions_v2"][&f.session_id]["client_http_admissions"][ingress]["signed_attempt_digest"],
+        pop.transport_attempt_digest()
+    );
+    let source = source_id(&f, ingress, true);
+    let nonce = oasis7_custody_core::approval::bytes_digest(source.as_bytes());
+    let result = f.state.reserve_test_session_v2_control_five_source(
+        &f.session_id,
+        SessionSourceReservation {
+            operation_id: &source,
+            nonce: &nonce,
+            funding: SessionSourceFundingV1::Control,
+        },
+        SessionProofRequest {
+            ingress_attempt_id: ingress,
+            original_bytes: &body,
+            possession: &pop,
+        },
+        UnixMillis::new(now),
+    );
+    assert!(
+        result.is_ok(),
+        "an actual authenticated and paid closing challenge must create the fixed Some5 Source"
+    );
+    f.state
+        .require_test_session_v2_control_five_source(&f.session_id, &source)
+        .unwrap();
+    assert_eq!(
+        f.state
+            .test_session_v2_credential_source_ticket(&f.session_id, &source)
+            .unwrap(),
+        0
+    );
+    cold(&f.state);
+}
