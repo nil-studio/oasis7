@@ -453,3 +453,120 @@ fn raw_and_incremental_supply_closure_reject_missing_columns_unknowns_and_partia
         }
     }
 }
+
+#[test]
+fn recovery_family_qualification_cannot_be_used_by_an_ordinary_context() {
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
+    let _fixture = memory.reserve(1 << 20, MemoryClass::Ordinary).unwrap();
+    let store = IncrementalPageStore::create(
+        &directory.0.join("recovery-class"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let source = WorldState {
+        world_rules: Some(WorldRulesStateV1 {
+            governance_effects: [("p".into(), "original".into())].into(),
+            supply_authorizations: [(KEY.into(), authorization())].into(),
+            supply_batches: [(KEY.into(), batch())].into(),
+            ..WorldRulesStateV1::default()
+        }),
+        ..WorldState::default()
+    };
+    let mut rows = produce(&store, &memory, &source);
+    {
+        let mut writer = store.value_session(physical());
+        let mut write = MemberRecordWriteContext {
+            sink: &mut writer,
+            memory: &memory,
+            io: &mut logical(),
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            },
+            limits: MemberRecordLimitsV1 {
+                payload_bytes: 165,
+                ..limits()
+            },
+            cancelled: || false,
+        };
+        prepare_supply_root_genesis_v1(&source, &mut write, &mut 128, 4 << 20, &mut |row| {
+            rows.push((row.mutation.key.clone(), row.mutation.after.unwrap()));
+            Ok(())
+        })
+        .unwrap();
+    }
+    let root = build(&store, &memory, &rows);
+    let roots = roots(&root);
+    let auth_root = roots
+        .state
+        .iter()
+        .find(|candidate| candidate.namespace == Ns::Authorization)
+        .unwrap();
+    let values = store.value_session(physical());
+
+    let recovery_state = store
+        .state_session(physical(), MemoryClass::Recovery)
+        .unwrap();
+    let mut recovery_io = logical();
+    let mut recovery_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut recovery = WorldFieldReadContextV1 {
+        root: auth_root,
+        state: &recovery_state,
+        values: ValueReadContext {
+            source: &values,
+            memory: &memory,
+            class: MemoryClass::Recovery,
+            io: &mut recovery_io,
+        },
+        key_work: &mut recovery_keys,
+        semantic_bytes: 1024,
+        record_bytes: 8192,
+        take_state_error: || recovery_state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    let recovery_family = qualify_supply_family_v1(
+        &roots,
+        &mut recovery,
+        &mut scan(),
+        &mut scan(),
+        &mut 4096,
+        165,
+    )
+    .unwrap();
+
+    let ordinary_state = store
+        .state_session(physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut ordinary_io = logical();
+    let mut ordinary_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut ordinary = WorldFieldReadContextV1 {
+        root: auth_root,
+        state: &ordinary_state,
+        values: ValueReadContext {
+            source: &values,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut ordinary_io,
+        },
+        key_work: &mut ordinary_keys,
+        semantic_bytes: 1024,
+        record_bytes: 8192,
+        take_state_error: || ordinary_state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    let opened = open_qualified_supply_record_v1(
+        SupplyRootKeyV1::Authorization(KEY),
+        &roots,
+        &recovery_family,
+        &mut ordinary,
+    );
+    assert!(
+        matches!(opened, Err(ValueTreeError::Invalid(_))),
+        "Recovery family qualification was accepted by an Ordinary reader: {opened:?}"
+    );
+}
