@@ -86,6 +86,13 @@ pub enum SessionPurposeHttpAdmissionClassV1 {
         owner_attempt: String,
         account_attempt: String,
     },
+    /// Distinct first-five ingress of fixed139; not nonce metadata.
+    ExecutionStartFiveV2 {
+        provider_abuse_attempt: String,
+        realm_abuse_attempt: String,
+        owner_attempt: String,
+        account_attempt: String,
+    },
 }
 impl AccountProvisionApprovalState {
     /// Pure preparation from actual Account originals. This neither charges nor grants authority.

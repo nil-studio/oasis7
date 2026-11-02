@@ -48,6 +48,7 @@ impl AccountProvisionApprovalState {
             || paid.signed_attempt_digest != proof.possession.transport_attempt_digest()
             || paid.charged_at.get() > now.get()
             || s.execution_book.is_some()
+            || s.execution_pending_start.is_some()
             || s.source_oracle_reads.get(source_id) != Some(&3)
         {
             return Err(invalid());

@@ -238,6 +238,8 @@ impl AccountProvisionApprovalState {
                 purpose_http_admissions: BTreeMap::new(),
                 tool_nonce_ingresses: BTreeMap::new(),
                 tool_nonce_links: BTreeMap::new(),
+                execution_pending_ingresses: BTreeMap::new(),
+                execution_pending_start: None,
                 context: None,
                 roots: BTreeMap::new(),
                 credential_claims: BTreeMap::new(),

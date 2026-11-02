@@ -79,7 +79,11 @@ impl Replay<'_> {
                 Self::unique(&mut self.sources, id)?;
                 self.reads.insert(id.clone(), 0);
                 let funding = self.s.source_funding.get(id).ok_or_else(invalid)?;
-                if let Some(p) = funding.purpose() {
+                if super::super::super::execution_pending_start_v2::pending_funds_source_v2(
+                    self.s, id,
+                ) {
+                    self.pending_local(at)?;
+                } else if let Some(p) = funding.purpose() {
                     self.live(p, at)?;
                     self.root_transport
                         .get_mut(&p)
