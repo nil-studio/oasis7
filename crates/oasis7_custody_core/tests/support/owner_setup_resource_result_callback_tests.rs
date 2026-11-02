@@ -55,6 +55,7 @@ fn owner_resource_v2_complete_requires_independent_result_callback_before_accept
             .service_public_key,
     )
     .unwrap();
+    let paid_result = paid_evidence_fixture::result(&s, opaque, &key, response.clone());
     let outbox = s
         .owner_setup_outbox("setup-one", OwnerSetupStageV1::FinalObservation)
         .unwrap();
@@ -106,7 +107,11 @@ fn owner_resource_v2_complete_requires_independent_result_callback_before_accept
     assert!(
         s.complete_owner_setup_resource_final_v2(
             "setup-one",
-            CompleteOwnerSetupResourceFinalV2 { response, session },
+            CompleteOwnerSetupResourceFinalV2 {
+                response,
+                session,
+                paid_result
+            },
             &trusted,
             2112,
             &mut StrictCrypto
