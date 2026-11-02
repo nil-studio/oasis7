@@ -1,5 +1,3432 @@
 #!/usr/bin/env python3
 import contextlib
+import fnmatch
+import inspect
+import hashlib
+import io
+import sys
+from unittest.mock import patch
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import textwrap
+import unittest
+
+HERE = Path(__file__).resolve().parent
+spec = importlib.util.spec_from_file_location('selector', HERE / 'plan-rust-required-scope.py')
+selector = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(selector)
+
+PR4889_DOC_PATHS = (
+    'doc/engineering/command-center/README.md',
+    'doc/engineering/command-center/architecture/README.md',
+    'doc/engineering/command-center/command-center.prd.md',
+    'doc/engineering/command-center/command-center.design.md',
+    'tools/oasis7-command-center/README.md',
+    'doc/.governance/document-corpus/objects/6f/6fd2250a1448d193b624ebdd961f4460b39a0d006bb30ef14d5cb6345a203049.json',
+    'doc/.governance/document-corpus/objects/c1/c148881578bf66447a9b6256b32cee7cea9b032d6c58f7ecece08285796b074f.json',
+    'doc/.governance/document-corpus/objects/d2/d2970f104b5996a9da0e9ac9c3b6494bfe0ffb20419f0d60f9c77bb97ee5d772.json',
+    'doc/.governance/document-corpus/objects/fd/fd8aef2ec18a5cd959fe1a23c9ae1a1d6dd95c63b6de435b6eb1472a5717b1ec.json',
+)
+
+
+class Selection(unittest.TestCase):
+    def test_product_doc_ci_range_exact_ownership_uses_trusted_config(self):
+        paths = ('scripts/resolve-product-doc-ci-range.py', 'scripts/resolve-product-doc-ci-range.test.py')
+        trusted = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = json.loads(json.dumps(trusted))
+        rule = next(rule for rule in old['rules'] if rule['reason'] == 'document_checker')
+        rule['match'] = [pattern for pattern in rule['match'] if pattern not in paths]
+        for path in paths:
+            self.write(path, '# existing resolver input\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.base = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '# changed resolver input\n')
+                    head = self.commit()
+                    plan = selector.select(trusted, self.base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(set(plan['groups']), {'baseline', 'doc_checker_contracts'})
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(old, self.base, head)
+                    self.base = head
+            # Candidate configuration, even a shared-control full fallback,
+            # cannot enrol this same change against the old trusted policy.
+            self.write('scripts/ci-required-scope.json', json.dumps(trusted))
+            self.write(paths[1], '# candidate also changes its own test\n')
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, head)
+            self.base = head
+            self.write('scripts/resolve-product-doc-ci-range-extra.py', '# unregistered neighbor\n')
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(trusted, self.base, self.commit())
+
+    def test_dot_todo_exact_registration_and_old_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'dot_todo_contracts'])
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in ('scripts/dot-todo.py', 'scripts/dot-todo.test.py'):
+                with self.subTest(path=path):
+                    self.write(path, '# synthetic input')
+                    head = self.commit()
+                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
+                                     {'baseline', 'workflow_governance'})
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(old, self.base, head)
+                    self.base = head
+                    self.git('rm', path)
+                    head = self.commit()
+                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
+                                     {'baseline', 'workflow_governance'})
+                    self.base = head
+            self.write('scripts/dot-todo-extra.py', '# unregistered neighbor')
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
+    def test_m1_storage_source_has_explicit_runtime_and_builder_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
+        self.write(path, '// existing standalone WASM source\n')
+        head = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            plan = selector.select(config, self.base, head)
+            self.assertEqual(set(plan['groups']), {
+                'baseline', 'rust_baseline', 'oasis7_required', 'formal_process',
+                'launcher_web', 'workspace_support',
+            })
+            self.assertEqual(plan['workspace_support_profiles'], ['wasm_build_suite'])
+            trusted_before_registration = dict(config, rules=[
+                rule for rule in config['rules']
+                if rule['reason'] != 'm1_storage_wasm_consumers'
+            ])
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(trusted_before_registration, self.base, head)
+            self.base = head
+            self.git('rm', path)
+            deleted = self.commit()
+            self.assertIn('oasis7_required', selector.select(config, self.base, deleted)['groups'])
+
+    def test_m1_storage_registration_does_not_admit_neighboring_or_renamed_unknown_sources(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        source = 'crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs'
+        unknown = 'crates/oasis7_builtin_wasm_modules/m1_future/src/lib.rs'
+        self.write(source, '// registered source\n')
+        self.base = self.commit()
+        self.write(unknown, '// not registered\n')
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+            self.git('rm', unknown)
+            self.base = self.commit()
+            Path(unknown).parent.mkdir(parents=True, exist_ok=True)
+            self.git('mv', source, unknown)
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
+    def test_wasm_consumer_exact_paths_select_real_suite_and_domain_groups(self):
+        config = json.loads((HERE / "ci-required-scope.json").read_text())
+        graph = ({}, {}, {})
+        cases = {
+            "scripts/module-release-node-attestation-flow.sh": {"operational_contracts", "formal_process", "workspace_support"},
+            "scripts/stage-wasm-summary-imports.sh": {"packaging_contracts", "workspace_support"},
+            "scripts/wasm-release-evidence-report.sh": {"operational_contracts", "packaging_contracts", "workspace_support"},
+            "scripts/wasm-summary-bundle-smoke.sh": {"packaging_contracts", "workspace_support"},
+        }
+        with patch.object(selector, "cargo_graph", return_value=graph):
+            for path, required in cases.items():
+                self.write(path, "# exact existing consumer\n")
+                head = self.commit()
+                plan = selector.select(config, self.base, head)
+                self.assertTrue(required.issubset(plan["groups"]))
+                self.assertEqual(plan["workspace_support_profiles"], ["wasm_build_suite"])
+                self.base = head
+            for path in ("scripts/module-release-node-attestation-flow-future.sh", "scripts/stage-wasm-summary-imports-future.sh", "scripts/wasm-release-evidence-report-future.sh", "scripts/wasm-summary-bundle-smoke-future.sh"):
+                self.write(path, "# not registered\n")
+                head = self.commit()
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, self.base, head)
+                self.base = head
+
+    def test_architecture_inputs_have_trusted_owner_and_select_execution(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json',
+                     'scripts/cargo-dev-architecture.test.py'):
+            with self.subTest(path=path):
+                # The existing cargo-dev* owner is already trusted before this
+                # PR. It must recognize first introduction without self-enrolment.
+                trusted = copy_config = json.loads(json.dumps(config))
+                copy_config['rules'] = [r for r in config['rules']
+                                        if r['reason'] != 'cargo_architecture_boundaries']
+                self.write(path, '# input')
+                head = self.commit()
+                self.assertIn('cargo_tooling_contracts', selector.select(trusted, self.base, head)['groups'])
+                plan = selector.select(config, self.base, head)
+                self.assertTrue({'rust_baseline', 'cargo_tooling_contracts'}.issubset(plan['groups']))
+                self.base = head
+
+    def test_architecture_direct_inputs_do_not_flatten_reverse_profiles(self):
+        self.write('crates/core/src/lib.rs', '// ordinary source')
+        plan = selector.select(self.config, self.base, self.commit())
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+        self.assertIn('consumer', plan['groups'])  # ordinary CI stays conservative
+
+    def test_architecture_shared_and_checker_controls_build_full(self):
+        for path in ('Cargo.toml', 'Cargo.lock', 'crates/core/build.rs', 'rust-toolchain.toml',
+                     'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json'):
+            with self.subTest(path=path):
+                if path == 'Cargo.toml':
+                    self.write(path, Path(path).read_text() + '\n# changed\n')
+                else:
+                    self.write(path, '# control')
+                config = json.loads(json.dumps(self.config))
+                config['rules'].append({'match': ['scripts/cargo-dev*'], 'groups': ['rust_baseline'], 'reason': 'architecture'})
+                self.assertEqual(selector.select(config, self.base, self.commit())['architecture']['mode'], 'full')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = Path.cwd()
+        os.chdir(self.temp.name)
+        self.git('init', '-q')
+        self.git('config', 'user.email', 'ci@example.invalid')
+        self.git('config', 'user.name', 'CI fixture')
+        self.write('Cargo.toml', '[workspace]\nmembers=["crates/*"]\n[workspace.dependencies]\ncore={path="crates/core"}\n')
+        for package in ['core', 'consumer', 'other']:
+            manifest = f'[package]\nname="{package}"\nversion="0.1.0"\n'
+            if package == 'consumer':
+                manifest += '[target.\'cfg(unix)\'.dev-dependencies]\ncore={workspace=true,optional=true}\n'
+            manifest += '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n'
+            self.write(f'crates/{package}/Cargo.toml', manifest)
+            self.write(f'crates/{package}/src/lib.rs', '')
+        self.write('doc/readme.md', 'ordinary doc')
+        self.base = self.commit()
+        groups = ['baseline', 'rust_baseline', 'core', 'consumer', 'other', *selector.PLATFORM_GROUPS]
+        self.config = {'groups': groups, 'resources': {g: [] for g in groups},
+                       'package_groups': {p: [p] for p in ['core', 'consumer', 'other']},
+                       'rules': [{'match': ['doc/**'], 'groups': [], 'reason': 'doc'}]}
+
+    def tearDown(self):
+        os.chdir(self.previous)
+        self.temp.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(['git', *args], stderr=subprocess.DEVNULL).decode().strip()
+
+    def write(self, path, content):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(content)
+
+    def commit(self):
+        self.git('add', '-A')
+        self.git('commit', '-qm', 'fixture')
+        return self.git('rev-parse', 'HEAD')
+
+    def plan(self, head=None):
+        return selector.select(self.config, self.base, head or self.commit())
+
+    def test_libp2p_compatibility_packages_and_driver_select_network_tests(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('tests/libp2p-compat/common/src/protocol.rs',
+                     'tests/libp2p-compat/candidate/src/main.rs',
+                     'tests/libp2p-compat/legacy/src/main.rs',
+                     'scripts/libp2p-compat.test.py'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'compatibility input')
+                plan = selector.select(config, case_base, self.commit())
+                self.assertIn('net', plan['groups'])
+                self.assertEqual(plan['scope'], 'targeted')
+
+    def test_rendezvous_patch_inputs_select_network_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/src/client/tests.rs',
+                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'scripts/libp2p-security-source.test.py',
+                     '.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'network patch input')
+                plan = selector.select(config, case_base, self.commit())
+                expected = ({'net', 'node', 'rust_baseline'} if path.startswith('vendor-')
+                            else {'net'} if path.startswith('scripts/')
+                            else {'net', 'packaging_contracts'})
+                self.assertTrue(expected.issubset(plan['groups']))
+                self.assertEqual(plan['scope'], 'targeted')
+
+    def test_if_watch_patch_inputs_select_network_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-if-watch-3.2.2/src/linux.rs',
+                     'vendor-if-watch-3.2.2/upstream-source-sha256.json',
+                     'vendor-if-watch-3.2.2/Cargo.toml'):
+            with self.subTest(path=path):
+                case_base = self.git('rev-parse', 'HEAD')
+                content = ('[package]\nname="if-watch"\nversion="3.2.2"\n'
+                           if path.endswith('Cargo.toml') else 'network patch input')
+                self.write(path, content)
+                plan = selector.select(config, case_base, self.commit())
+                self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
+                # Manifest controls intentionally retain the existing full scope.
+                self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.toml') else 'targeted')
+
+    def test_removed_egui_winit_patch_selects_launcher_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-egui-winit-0.33.3/src/lib.rs',
+                     'vendor-egui-winit-0.33.3/Cargo.lock'):
+            with self.subTest(path=path):
+                self.write(path, 'old launcher patch input')
+                case_base = self.commit()
+                Path(path).unlink()
+                plan = selector.select(config, case_base, self.commit())
+                self.assertTrue({'rust_baseline', 'launcher_web'}.issubset(plan['groups']))
+                # Removing a lockfile remains a shared control change.
+                self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.lock') else 'targeted')
+
+    def native_generated_fixture(self, register=True):
+        # Retain the real producer and its three OUT_DIR consumers. A workspace
+        # without these sources failed to reproduce the docs-only over-selection.
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        package = 'oasis7_chain_runtime'
+        directory = 'crates/' + package
+        producer = directory + '/build.rs'
+        consumer = directory + '/src/host/native_environment_capture.rs'
+        self.write(directory + '/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        self.write(directory + '/src/lib.rs', '')
+        for path in (producer, consumer):
+            self.write(path, (HERE.parent / path).read_text())
+        self.write('Cargo.lock', '# existing workspace lock\n')
+        self.base = self.commit()
+        declaration = {
+            'package': package,
+            'producer': producer,
+            'producer_sha256': hashlib.sha256(selector.git('show', f'{self.base}:{producer}')).hexdigest(),
+            'outputs': ['native-build-metadata.txt', 'native-toolchain.txt', 'native-Cargo.lock'],
+        }
+        if register:
+            self.config['generated_inputs'] = [declaration]
+        return producer, consumer, declaration
+
+    def assert_unresolved_document(self, label):
+        self.write('doc/readme.md', label)
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(set(plan['groups']), set(self.config['groups']))
+        self.assertIn('unresolved embedded consumer input: doc/readme.md', plan['reasons'])
+        self.base = self.git('rev-parse', 'HEAD')
+
+    def test_chain_extraction_existing_script_inputs_are_registered(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        expected = {
+            'scripts/module-release-node-acceptance.sh': {'oasis7_required', 'formal_process', 'operational_contracts'},
+            'scripts/release-web-fixture-lib.sh': {'launcher_web', 'operational_contracts'},
+            'scripts/run-launcher-stack.sh': {'launcher_web', 'operational_contracts'},
+        }
+        for path, groups in expected.items():
+            with self.subTest(path=path):
+                self.write(path, '# changed existing chain caller')
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertTrue(groups.issubset(plan['groups']))
+                self.base = self.git('rev-parse', 'HEAD')
+
+    def test_hosted_passkey_browser_smoke_has_launcher_and_viewer_owners(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('scripts/hosted-passkey-virtual-authenticator-smoke.mjs', '// changed browser smoke')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertTrue({'launcher_web', 'viewer_js_required'}.issubset(plan['groups']))
+
+    def test_rustsec_baseline_inputs_are_registered(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('deny.toml', 'scripts/rustsec-ignore-direct-dependency-baseline.json',
+                     'scripts/check-rustsec-ignore-baseline.sh',
+                     'scripts/check-rustsec-ignore-baseline.test.sh'):
+            with self.subTest(path=path):
+                self.write(path, 'changed security baseline input')
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertTrue({'rust_baseline', 'operational_contracts'}.issubset(plan['groups']))
+                self.base = self.git('rev-parse', 'HEAD')
+
+    def test_independent_targets_do_not_change_library_consumers(self):
+        for path in ['src/bin/tool.rs', 'src/bin/tool/helpers.rs',
+                     'tests/integration.rs', 'examples/example.rs', 'benches/bench.rs']:
+            with self.subTest(path=path):
+                self.write('crates/core/' + path, '// independent target')
+                self.assertEqual(set(self.plan()['groups']), {'baseline', 'rust_baseline', 'core'})
+
+    def test_library_and_leaf_source_rename_keep_consumers(self):
+        self.write('crates/core/src/lib.rs', '// library changed')
+        self.assertIn('consumer', self.plan()['groups'])
+        self.base = self.git('rev-parse', 'HEAD')
+        Path('crates/core/tests').mkdir()
+        self.git('mv', 'crates/core/src/lib.rs', 'crates/core/tests/moved.rs')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_library_import_of_target_source_keeps_consumers(self):
+        self.write('crates/core/src/lib.rs', '#[path = "bin/shared.rs"] mod shared;')
+        self.write('crates/core/src/bin/shared.rs', '#[path = "nested/child.rs"] mod child;')
+        self.write('crates/core/src/bin/nested/child.rs', '// child')
+        self.base = self.commit()
+        self.write('crates/core/src/bin/nested/child.rs', '// changed')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_unresolved_library_include_keeps_target_consumers(self):
+        self.write('crates/core/src/lib.rs', 'include!(concat!(env!("UNRESOLVED"), "/shared.rs"));')
+        self.write('crates/core/tests/shared.rs', '// shared')
+        self.base = self.commit()
+        self.write('crates/core/tests/shared.rs', '// changed')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_manifest_relative_library_fixture_keeps_target_consumers(self):
+        self.write('crates/core/src/lib.rs', 'const X: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/shared.json"));')
+        self.write('crates/core/tests/shared.json', '{}')
+        self.base = self.commit()
+        self.write('crates/core/tests/shared.json', '{"changed":true}')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_cross_package_source_import_keeps_nested_library_readers(self):
+        self.write('crates/core/src/lib.rs', '#[path = "../../other/src/bin/shared.rs"] mod shared;')
+        self.write('crates/other/src/bin/shared.rs', 'mod nested;')
+        self.write('crates/other/src/bin/shared/nested.rs', '// shared child')
+        self.base = self.commit()
+        self.write('crates/other/src/bin/shared/nested.rs', '// changed shared child')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_cross_package_import_fixture_keeps_library_readers(self):
+        self.write('crates/core/src/lib.rs', '#[path = "../../other/src/bin/shared.rs"] mod shared;')
+        self.write('crates/other/src/bin/shared.rs', 'const FIXTURE: &str = include_str!("../../../../doc/readme.md");')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'imported fixture changed')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_root_source_import_keeps_registered_nested_readers(self):
+        self.config['rules'].append({'match': ['shared/**'], 'groups': ['other'], 'reason': 'shared fixture'})
+        self.write('crates/core/src/lib.rs', '#[path = "../../../shared.rs"] mod shared;')
+        self.write('shared.rs', 'mod nested;')
+        self.write('shared/nested.rs', '// shared child')
+        self.base = self.commit()
+        self.write('shared/nested.rs', '// changed shared child')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_root_import_does_not_register_unrelated_paths(self):
+        self.write('crates/core/src/lib.rs', '#[path = "../../../shared.rs"] mod shared;')
+        self.write('shared.rs', '// shared source')
+        self.base = self.commit()
+        self.write('scripts/unregistered.sh', '# unrelated new input')
+        with self.assertRaises(selector.UnknownInputsError):
+            self.plan()
+
+    def test_leaf_fixture_does_not_change_library_consumers(self):
+        self.write('crates/core/tests/integration.rs', 'const FIXTURE: &str = include_str!("../../../doc/readme.md");')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'fixture changed')
+        self.assertEqual(set(self.plan()['groups']), {'baseline', 'rust_baseline', 'core'})
+
+    def test_shared_library_and_leaf_fixture_keeps_consumers(self):
+        self.write('crates/core/tests/integration.rs', 'const FIXTURE: &str = include_str!("../../../doc/readme.md");')
+        self.write('crates/core/src/lib.rs', 'const FIXTURE: &str = include_str!("../../../doc/readme.md");')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'fixture changed')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_oasis7_library_reaches_formal_through_chain_runtime(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7/Cargo.toml', '[package]\nname="oasis7"\nversion="0.1.0"\n')
+        self.write('crates/oasis7/src/lib.rs', '')
+        self.write('crates/oasis7_chain_runtime/Cargo.toml', '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\n[dependencies]\noasis7={path="../oasis7",default-features=false}\n')
+        self.write('crates/oasis7_chain_runtime/src/main.rs', '')
+        self.base = self.commit()
+        self.write('crates/oasis7/src/bin/viewer.rs', '// viewer binary')
+        self.assertNotIn('formal_process', self.plan()['groups'])
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write('crates/oasis7/src/lib.rs', '// world state changed')
+        self.assertIn('formal_process', self.plan()['groups'])
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write('crates/oasis7_chain_runtime/src/main.rs', '// runtime changed')
+        self.assertIn('formal_process', self.plan()['groups'])
+
+    def test_independent_bin_callers_are_registered(self):
+        self.config = json.loads((HERE / "ci-required-scope.json").read_text())
+        for path in ['scripts/oasis7-pure-api-parity-smoke.sh', 'scripts/governance-registry-drill.sh', 'scripts/governed-rollback-v2-drill.sh', 'scripts/hosted-account-staging-smoke.sh', 'scripts/llm-baseline-fixture-smoke.sh', 'scripts/llm-longrun-stress.sh', 'scripts/public-testnet-faucet/package-public-testnet-faucet.sh', 'scripts/check-active-llm-provider.sh', 'scripts/governance-registry-live-drill.sh', 'scripts/run-local-letai-provider-bridge.sh', 'scripts/provider-parity-p0.sh', 'scripts/oasis7-liveops-grant.sh', 'scripts/newapi-bridge-service/package-newapi-bridge-service.sh', 'scripts/run-local-public-testnet-letai-test-environment.sh', 'scripts/runtime-module-routing-perf-harness.sh']:
+            with self.subTest(path=path):
+                self.write(path, "changed existing bin caller")
+                plan = self.plan()
+                self.assertEqual(plan["scope"], "targeted")
+                self.assertTrue({"oasis7_required", "operational_contracts"}.issubset(plan["groups"]))
+                self.base = self.git("rev-parse", "HEAD")
+
+    def test_command_center_pr4790_paths_are_targeted(self):
+        # Exact paths from 4f12acc; fixture stays usable without its Git object.
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = ['doc/.governance/document-corpus/objects/30/307677361b6dc1927f90fb3a6ff9960fbadaa3816a721dea819ab00c86f658c1.json', 'doc/.governance/document-corpus/objects/d2/d2970f104b5996a9da0e9ac9c3b6494bfe0ffb20419f0d60f9c77bb97ee5d772.json', 'doc/engineering/command-center/README.md', 'doc/engineering/command-center/document-tree.design.md', 'tools/oasis7-command-center/README.md', 'tools/oasis7-command-center/core/examples/export_types.rs', 'tools/oasis7-command-center/core/src/document_allocations.rs', 'tools/oasis7-command-center/core/src/document_inventory.rs', 'tools/oasis7-command-center/core/src/document_pairings.rs', 'tools/oasis7-command-center/core/src/index.rs', 'tools/oasis7-command-center/core/tests/document_allocations.rs', 'tools/oasis7-command-center/ui/src/DocumentAllocations.tsx', 'tools/oasis7-command-center/ui/src/DocumentInventory.test.tsx', 'tools/oasis7-command-center/ui/src/DocumentInventory.tsx', 'tools/oasis7-command-center/ui/src/DocumentRelations.tsx', 'tools/oasis7-command-center/ui/src/generated/core.ts']
+        self.assertEqual(len(paths), 16)
+        for path in paths:
+            self.write(path, 'changed allocation input')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'command_center'})
+        self.assertFalse(any('unknown input:' in reason for reason in plan['reasons']))
+
+    def test_existing_bridge_input_covers_modification_and_deletion(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        cases = {
+            'scripts/local-letai-provider-bridge.test.sh': {'oasis7_required', 'operational_contracts'},
+        }
+        for path, groups in cases.items():
+            with self.subTest(path=path):
+                self.write(path, 'existing input')
+                self.base = self.commit()
+                self.write(path, 'modified input')
+                self.assertTrue(groups.issubset(self.plan()['groups']))
+                Path(path).unlink()
+                self.assertTrue(groups.issubset(self.plan()['groups']))
+
+    def test_command_center_shared_tools_keep_dedicated_checks(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('scripts/cargo-dev.sh',
+                     'scripts/find-python-with-module.sh'):
+            with self.subTest(path=path):
+                self.write(path, 'shared tool changed')
+                self.assertIn('command_center', self.plan()['groups'])
+                Path(path).unlink()
+                self.commit()
+
+    def test_command_center_readme_only_keeps_baseline(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'tools/oasis7-command-center/README.md'
+        self.write(path, 'existing tool documentation')
+        self.base = self.commit()
+        self.write(path, 'updated tool documentation')
+
+        plan = self.plan()
+
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_command_center_pr4889_docs_with_native_generated_inputs_keep_baseline(self):
+        # Use the production registry, not a fixture-created exemption. Both the
+        # declaration and the narrow README rule must be present for this to pass.
+        self.native_generated_fixture(register=False)
+
+        def document(path, revision):
+            if path.endswith('.json'):
+                return json.dumps({'record': {'content_sha256': hashlib.sha256(revision.encode()).hexdigest()}})
+            return 'command center documentation: ' + revision
+
+        for path in PR4889_DOC_PATHS:
+            self.write(path, document(path, 'before'))
+        self.base = self.commit()
+        for index, path in enumerate(PR4889_DOC_PATHS):
+            self.write(path, document(path, f'one path {index}'))
+            head = self.commit()
+            with self.subTest(path=path):
+                plan = self.plan(head)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['groups'], ['baseline'])
+            self.base = head
+        for path in PR4889_DOC_PATHS:
+            self.write(path, document(path, 'all nine paths'))
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_unknown_generated_output_expressions_keep_full_fallback(self):
+        _, consumer, _ = self.native_generated_fixture()
+        expressions = {
+            'unknown environment': 'concat!(env!("UNKNOWN_DIR"), "/native-toolchain.txt")',
+            'unregistered output': 'concat!(env!("OUT_DIR"), "/new-output.txt")',
+            'computed output': 'concat!(env!("OUT_DIR"), env!("OUTPUT_NAME"))',
+            'parent escape': 'concat!(env!("OUT_DIR"), "/../native-toolchain.txt")',
+            'nested output': 'concat!(env!("OUT_DIR"), "/nested/native-toolchain.txt")',
+        }
+        for label, expression in expressions.items():
+            with self.subTest(expression=label):
+                self.write(consumer, f'const X: &[u8] = include_bytes!({expression});\n')
+                self.base = self.commit()
+                self.assert_unresolved_document(label)
+
+    def test_generated_input_binding_requires_actual_enabled_producer(self):
+        producer, _, declaration = self.native_generated_fixture()
+        manifest = 'crates/oasis7_chain_runtime/Cargo.toml'
+        original_manifest = Path(manifest).read_text()
+        alternate = 'crates/oasis7_chain_runtime/alternate-build.rs'
+        self.write(alternate, Path(producer).read_text())
+        cases = (
+            ('wrong digest', dict(declaration, producer_sha256='0' * 64), ''),
+            ('wrong owner', dict(declaration, package='core'), ''),
+            ('inactive producer', dict(declaration, producer=alternate), ''),
+            ('disabled build', declaration, 'build = false\n'),
+            ('redirected build', declaration, 'build = "alternate-build.rs"\n'),
+        )
+        for label, entry, build in cases:
+            with self.subTest(binding=label):
+                self.config['generated_inputs'] = [entry]
+                self.write(manifest, original_manifest + build + '# ' + label + '\n')
+                self.base = self.commit()
+                self.assert_unresolved_document(label)
+
+    def test_generated_producer_drift_is_checked_at_each_git_ref(self):
+        producer, _, declaration = self.native_generated_fixture()
+        original = self.base
+        self.write(producer, Path(producer).read_text() + '\n// producer changed\n')
+        changed = self.commit()
+        self.assertEqual(self.plan(changed)['scope'], 'full')
+        self.base = changed
+        self.assert_unresolved_document('docs after producer changed')
+
+        current = dict(declaration, producer_sha256=hashlib.sha256(
+            selector.git('show', f'{changed}:{producer}')).hexdigest())
+        for ref, entry, unresolved in (
+                (original, declaration, set()),
+                (changed, declaration, {'oasis7_chain_runtime'}),
+                (original, current, {'oasis7_chain_runtime'}),
+                (changed, current, set())):
+            with self.subTest(ref=ref, digest=entry['producer_sha256']):
+                graph = selector.cargo_graph(ref, [entry])
+                self.assertEqual(graph[2].get('__unresolved_embed__', set()), unresolved)
+
+    def test_generated_cross_package_reader_requires_every_owner_binding(self):
+        producer, _, declaration = self.native_generated_fixture()
+        self.write('crates/core/src/lib.rs',
+                   '#[path = "../../oasis7_chain_runtime/src/host/'
+                   'native_environment_capture.rs"] mod captured;\n')
+        self.base = self.commit()
+        self.assert_unresolved_document('only the physical source owner has a producer')
+        graph = selector.cargo_graph(self.base, self.config['generated_inputs'])
+        self.assertEqual(graph[2]['__unresolved_embed__'], {'core'})
+
+        # The importing crate has its own OUT_DIR. Register its actual producer
+        # separately before the same source becomes resolved for both readers.
+        importing_producer = 'crates/core/build.rs'
+        self.write(importing_producer, Path(producer).read_text())
+        self.config['generated_inputs'].append(dict(
+            declaration, package='core', producer=importing_producer))
+        self.base = self.commit()
+        self.write('doc/readme.md', 'each reader now has its own registered producer')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_generated_output_registration_rejects_non_leaf_names(self):
+        _, _, declaration = self.native_generated_fixture()
+        self.write('doc/readme.md', 'document change with invalid registration')
+        head = self.commit()
+        for outputs in ([], [''], ['.'], ['..'], ['nested/output.txt'],
+                        ['nested\\output.txt'], ['output.txt', 'output.txt']):
+            with self.subTest(outputs=outputs):
+                self.config['generated_inputs'] = [dict(declaration, outputs=outputs)]
+                with self.assertRaises(ValueError):
+                    self.plan(head)
+
+    def test_generated_producer_must_be_a_regular_git_blob(self):
+        producer, _, declaration = self.native_generated_fixture()
+        target = 'saved-producer.rs'
+        self.write('crates/oasis7_chain_runtime/' + target, Path(producer).read_text())
+        self.base = self.commit()
+        link_blob = subprocess.check_output(
+            ['git', 'hash-object', '-w', '--stdin'], input=target.encode()).decode().strip()
+        # Even a digest that matches the symlink's Git bytes must not qualify it.
+        self.config['generated_inputs'] = [dict(
+            declaration, producer_sha256=hashlib.sha256(target.encode()).hexdigest())]
+        for kind in ('symlink', 'missing'):
+            with self.subTest(producer=kind):
+                if kind == 'symlink':
+                    self.git('update-index', '--cacheinfo', '120000', link_blob, producer)
+                else:
+                    self.git('update-index', '--force-remove', '--', producer)
+                self.git('commit', '-qm', 'fixture producer ' + kind)
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write('doc/readme.md', kind + ' producer must stay unresolved')
+                # Preserve the synthetic index mode without requiring filesystem
+                # symlink privileges on Windows or restaging the regular file.
+                self.git('add', '--', 'doc/readme.md')
+                self.git('commit', '-qm', 'fixture document change')
+                plan = self.plan(self.git('rev-parse', 'HEAD'))
+                self.assertEqual(plan['scope'], 'full')
+                self.assertIn('unresolved embedded consumer input: doc/readme.md', plan['reasons'])
+
+    def test_rule_exclusion_keeps_real_embedded_readers_and_other_rules(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        path = 'tools/oasis7-command-center/README.md'
+        self.write(path, 'embedded tool documentation')
+        self.write('crates/core/src/lib.rs',
+                   'const README: &str = include_str!("../../../' + path + '");\n')
+        self.base = self.commit()
+        self.write(path, 'updated embedded tool documentation')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required', 'node'})
+
+        self.base = self.git('rev-parse', 'HEAD')
+        self.config['rules'].append({'match': [path], 'groups': ['workflow_governance'],
+                                     'reason': 'independent documentation contract'})
+        self.write(path, 'another updated embedded tool document')
+        self.assertEqual(set(self.plan()['groups']),
+                         {'baseline', 'rust_baseline', 'oasis7_required', 'node', 'workflow_governance'})
+
+    def test_known_generated_inputs_keep_control_and_unknown_input_gates(self):
+        producer, _, _ = self.native_generated_fixture()
+        controls = ('Cargo.lock', producer, 'rust-toolchain.toml', '.cargo/config.toml',
+                    'scripts/ci-required-scope.json')
+        for path in controls:
+            with self.subTest(control=path):
+                previous = Path(path).read_text() if Path(path).exists() else ''
+                self.write(path, previous + '\n# control changed\n')
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'full')
+                self.assertIn('shared build or CI control changed: ' + path, plan['reasons'])
+                self.base = self.git('rev-parse', 'HEAD')
+        self.write('unregistered.file', 'unregistered input despite full fallback')
+        self.config['rules'].append({'match': ['unregistered.file'], 'exclude': ['unregistered.file'],
+                                     'groups': ['command_center'], 'reason': 'excluded rule is not ownership'})
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unregistered.file'):
+            self.plan()
+
+    def test_hosted_local_mock_production_guard_is_owned_before_introduction(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'scripts/hosted-local-mock-production-guard.py'
+        self.assertNotIn(path, self.git('ls-tree', '-r', '--name-only', self.base).splitlines())
+        self.write(path, '# trusted-scope selector fixture')
+
+        plan = self.plan()
+
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+        self.assertTrue(any(path in reason for reason in plan['reasons']))
+
+    def test_command_center_control_stays_full(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('tools/oasis7-command-center/Cargo.lock',
+                     'tools/oasis7-command-center/core/build.rs'):
+            with self.subTest(path=path):
+                self.write(path, 'unknown or shared control')
+                self.assertEqual(self.plan()['scope'], 'full')
+                Path(path).unlink()
+                self.commit()
+
+    def test_unknown_inputs_block_even_with_full_control_or_extra_groups(self):
+        self.write('tools/new-tool/src/lib.rs', 'unregistered tool')
+        self.write('unknown.file', 'unregistered input')
+        self.write('Cargo.lock', 'known full control')
+        head = self.commit()
+        for additions in ((), tuple(self.config['groups'])):
+            with self.subTest(additions=additions), self.assertRaises(ValueError) as error:
+                selector.select(self.config, self.base, head, additions=additions)
+            self.assertIn('tools/new-tool/src/lib.rs', str(error.exception))
+            self.assertIn('unknown.file', str(error.exception))
+            self.assertNotIn('Cargo.lock', str(error.exception))
+
+    def test_invalid_merge_cannot_bypass_unknown_path(self):
+        self.write('unknown.file', 'unknown despite invalid merge topology')
+        head = self.commit()
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            selector.select(self.config, self.base, head, test_head=self.base)
+
+    def test_parse_uncertainty_cannot_register_unknown_path(self):
+        self.write('crates/core/Cargo.toml', 'broken manifest')
+        self.write('unknown.file', 'must remain unknown')
+        head = self.commit()
+        with self.assertRaisesRegex(selector.UnknownInputsError, 'unknown.file'):
+            selector.select(self.config, self.base, head)
+        Path('unknown.file').unlink()
+        plan = selector.select(self.config, self.base, self.commit())
+        self.assertEqual(plan['architecture']['mode'], 'full')
+        self.assertEqual(plan['scope'], 'full')
+
+    def test_unknown_deleted_and_renamed_endpoints_block(self):
+        self.write('unknown-old.file', 'unique unknown file content')
+        self.base = self.commit()
+        self.git('mv', 'unknown-old.file', 'doc/moved.md')
+        with self.assertRaisesRegex(ValueError, 'unknown-old.file'):
+            self.plan()
+        self.base = self.git('rev-parse', 'HEAD')
+        self.git('mv', 'doc/moved.md', 'unknown-new.file')
+        with self.assertRaisesRegex(ValueError, 'unknown-new.file'):
+            self.plan()
+        self.base = self.git('rev-parse', 'HEAD')
+        Path('unknown-new.file').unlink()
+        with self.assertRaisesRegex(ValueError, 'unknown-new.file'):
+            self.plan()
+
+    def test_unknown_input_cli_fails_without_success_outputs(self):
+        self.write('unknown.file', 'unregistered input')
+        head = self.commit()
+        config = Path('config.json')
+        config.write_text(json.dumps(self.config))
+        process = subprocess.run([sys.executable, str(HERE / 'plan-rust-required-scope.py'),
+                                  '--config', str(config), '--base-ref', self.base,
+                                  '--head-ref', head, '--github-output', 'github-output',
+                                  '--output', 'plan.json'], text=True, capture_output=True)
+        self.assertEqual(process.returncode, 2, process.stderr)
+        self.assertIn('unknown.file', process.stderr)
+        self.assertIn('trusted baseline', process.stderr)
+        self.assertEqual(process.stdout, '')
+        self.assertFalse(Path('github-output').exists())
+        self.assertFalse(Path('plan.json').exists())
+
+    def test_workflow_uses_trusted_rules_and_emits_no_success_on_unknown(self):
+        for name in ('plan-rust-required-scope.py', 'ci-required-result.py', 'ci-formal-plan.py',
+                     'ci-formal-process-suites.json'):
+            self.write('scripts/' + name, (HERE / name).read_text())
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config))
+        self.base = self.commit()
+        self.write('unknown.file', 'unregistered input')
+        candidate = dict(self.config, rules=[*self.config['rules'],
+                         {'match': ['unknown.file'], 'groups': [], 'reason': 'self exemption'}])
+        self.write('scripts/ci-required-scope.json', json.dumps(candidate))
+        head = self.commit()
+        workflow = (HERE.parent / '.github/workflows/rust.yml').read_text()
+        step = workflow.split('        name: Select using trusted baseline Git data', 1)[1]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1]
+                                .split('      - id: formal-select', 1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            runner = Path(temporary)
+            (runner / 'bin').mkdir()
+            (runner / 'bin/python3').symlink_to(sys.executable)
+            env = dict(os.environ, BASE_SHA=self.base, SOURCE_SHA=head, EVENT_NAME='pull_request',
+                       RUNNER_TEMP=str(runner), GITHUB_OUTPUT=str(runner / 'outputs'),
+                       GITHUB_STEP_SUMMARY=str(runner / 'summary'),
+                       PATH=str(runner / 'bin') + os.pathsep + os.environ['PATH'])
+            process = subprocess.run(['bash', '-c', script], env=env, text=True, capture_output=True)
+            self.assertNotEqual(process.returncode, 0)
+            self.assertIn('unknown.file', process.stderr)
+            self.assertFalse((runner / 'outputs').exists())
+            self.assertFalse((runner / 'selection.json').exists())
+
+    def test_docs_baseline_only(self):
+        self.write('doc/readme.md', 'changed')
+        self.assertEqual(self.plan()['groups'], ['baseline'])
+
+    def test_real_wasm_fixture_sources_do_not_expand_unrelated_documents(self):
+        # These production test strings caused the docs-only full fallback in #5177.
+        for name in ('source_inputs_tests.rs', 'producer_recipe.rs', 'producer_recipe_guard.rs'):
+            source = HERE.parent / 'crates/oasis7_wasm_build/src' / name
+            self.write('crates/core/src/' + name, source.read_text())
+        self.base = self.commit()
+        self.write('doc/readme.md', 'unrelated document with real fixture sources present')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_rust_quoted_examples_and_comments_are_not_embedded_inputs(self):
+        cases = {
+            'ordinary': r'const S: &str = "include_str!(\"missing.txt\"); include_bytes!(env!(\"NO\"));";',
+            'byte_and_c': r'const B: &[u8] = b"include_bytes!(\"missing.txt\")"; const C: &core::ffi::CStr = c"include_str!(\"missing.txt\")";',
+            'raw_delimiters': r'''const A: &str = r###"include_str!(env!("NO")); "# include_bytes!(env!("NO")); "##"###;
+                const B: &[u8] = br##"include_bytes!(env!("NO"))"#"##;
+                const C: &core::ffi::CStr = cr#"include_str!(env!("NO"))"#;''',
+            'nested_comments': '''/* outer include_str!(env!("NO"))
+                /* nested include_bytes!(env!("NO")) */ still outer */
+                // include_bytes!(env!("NO"))
+                /// include_str!(env!("NO"))
+                pub fn documented() {}''',
+            'characters_and_lifetimes': r'''fn example<'a>(value: &'a str) -> &'a str {
+                let _ = '"'; let _ = b'\''; let _ = '\u{22}';
+                let _ = "include_str!(\"missing.txt\")"; value
+            }''',
+            'identifier_boundary': 'not_include_str!(env!("NOT_AN_INCLUDE"));',
+            'unicode_identifier_boundary': 'e\u0301include_str!(env!("NOT_AN_INCLUDE"));',
+            'quoted_real_path': r'''const EXAMPLE: &str = r##"include_str!("../../../doc/readme.md")"##;''',
+            'literal_suffixes': r'''discard!("example"include_str!(env!("NO")));
+                discard!(r#"example"#include_bytes!(env!("NO")));
+                discard!(b'x'include_str!(env!("NO")));
+                discard!(1include_str!(env!("NO")));
+                discard!(1.0include_bytes!(env!("NO")));''',
+        }
+        for label, source in cases.items():
+            with self.subTest(case=label):
+                self.write('crates/core/src/lib.rs', source)
+                self.base = self.commit()
+                self.write('doc/readme.md', 'unrelated document: ' + label)
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_real_include_after_quoted_examples_keeps_document_consumers(self):
+        source = r'''fn sample<'a>(value: &'a str) -> &'a str {
+            let _ = '"'; let _ = b'\''; let _ = r##"include_str!(env!("NO"))"##;
+            value
+        }
+        const DOCUMENT: &str = include_str!("../../../doc/readme.md");'''
+        self.write('crates/core/src/lib.rs', source)
+        self.base = self.commit()
+        self.write('doc/readme.md', 'real embedded document still changes consumers')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_real_byte_and_raw_path_literals_keep_fixture_consumers(self):
+        for literal in ('b"doc/readme.md"', 'br#"doc/readme.md"#',
+                        'c"doc/readme.md"', 'cr#"doc/readme.md"#'):
+            with self.subTest(literal=literal):
+                self.write('crates/core/src/lib.rs', f'const PATH = {literal};')
+                self.base = self.commit()
+                self.write('doc/readme.md', 'fixture path: ' + literal)
+                self.assertEqual(set(self.plan()['groups']),
+                                 {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_include_after_field_colon_is_not_a_foreign_macro(self):
+        for source in ('const S = Holder { text: include_str!("data.txt") };',
+                       'json!({"value": include_str!("data.txt")});'):
+            with self.subTest(source=source):
+                self.write('crates/core/src/lib.rs', source)
+                self.write('crates/core/src/data.txt', 'actual embedded input')
+                self.base = self.commit()
+                self.write('doc/readme.md', 'unrelated document: ' + source)
+                self.assertEqual(self.plan()['groups'], ['baseline'])
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write('crates/core/src/data.txt', source)
+                self.assertEqual(set(self.plan()['groups']),
+                                 {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_unknown_embed_diagnostics_identify_source_and_owner(self):
+        self.write('crates/core/src/lib.rs', '\nconst D: &str = include_str!(env!("UNKNOWN"));')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'unrelated document')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'full')
+        self.assertIn('unresolved Rust embed: crates/core/src/lib.rs:2 (core): '
+                      'include_str!(env!("UNKNOWN"))', plan['reasons'])
+
+    def test_standard_library_include_paths_keep_precise_consumers(self):
+        for namespace in ('std::', 'core::', '::std::', '::core::'):
+            with self.subTest(namespace=namespace):
+                self.write('doc/embedded.md', 'actual embedded document')
+                self.write('crates/core/src/lib.rs',
+                           f'const D: &str = {namespace}include_str!("../../../doc/embedded.md");')
+                self.base = self.commit()
+                self.write('doc/readme.md', 'unrelated document: ' + namespace)
+                self.assertEqual(self.plan()['groups'], ['baseline'])
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write('doc/embedded.md', 'changed: ' + namespace)
+                self.assertEqual(set(self.plan()['groups']),
+                                 {'baseline', 'rust_baseline', 'core', 'consumer'})
+        self.write('crates/core/src/lib.rs',
+                   'const D: &str = foreign::std::include_str!("../../../doc/embedded.md");')
+        self.base = self.commit()
+        self.assert_unresolved_document('foreign macro is not a registered builtin')
+
+    def test_real_include_token_variants_never_skip_document_consumers(self):
+        sources = (
+            'const D: &str = include_str /* separator */ ! ("../../../doc/readme.md");',
+            'const D: &str = include_str!["../../../doc/readme.md"];',
+            'const D: &str = include_str!{"../../../doc/readme.md"};',
+            'const D: &str = std::include_str!(r"../../../doc/readme.md");',
+            'macro_rules! document { () => { include_str!("../../../doc/readme.md") }; }',
+        )
+        for index, source in enumerate(sources):
+            with self.subTest(source=source):
+                self.write('crates/core/src/lib.rs', source)
+                self.base = self.commit()
+                self.write('doc/readme.md', f'actual include variant {index}')
+                # Unsupported expression forms may stay conservative, but cannot skip readers.
+                self.assertTrue({'core', 'consumer'}.issubset(self.plan()['groups']))
+
+    def test_real_dynamic_include_survives_literal_and_comment_scanning(self):
+        sources = (
+            r'const EXAMPLE: &str = "include_str!(\"fixture\")"; const D: &str = include_str!(env!("UNKNOWN"));',
+            r'''fn f<'a>(value: &'a str) -> &'static str {
+                let _ = '"'; let _ = b'\''; let _ = value; include_str!(env!("UNKNOWN"))
+            }''',
+            'opaque!(include_bytes!(env!("UNKNOWN")));',
+            'macro_rules! dynamic { () => { include_str!(env!("UNKNOWN")) }; }',
+            'const D: &str = include_str /* separator */ ! [env!("UNKNOWN")];',
+        )
+        for index, source in enumerate(sources):
+            with self.subTest(source=source):
+                self.write('crates/core/src/lib.rs', source)
+                self.base = self.commit()
+                self.write('doc/readme.md', f'unrelated document with dynamic include {index}')
+                self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_registered_generated_inputs_ignore_fixture_strings_without_hiding_dynamic_calls(self):
+        _, consumer, _ = self.native_generated_fixture()
+        original = Path(consumer).read_text()
+        example = r'const EXAMPLE: &str = "include_str!(concat!(env!(\"OUT_DIR\"), \"/not-registered\"))";'
+        self.write(consumer, original + '\n' + example + '\n')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'registered real outputs plus a fixture string')
+        self.assertEqual(self.plan()['groups'], ['baseline'])
+        self.write(consumer, original + '\n' + example + '\nconst UNKNOWN: &str = include_str!(env!("OTHER_INPUT"));\n')
+        self.base = self.commit()
+        self.assert_unresolved_document('real dynamic call cannot be cancelled by registered outputs')
+
+    def test_macro_namespace_parameter_cannot_claim_registered_generated_output(self):
+        _, consumer, _ = self.native_generated_fixture()
+        original = Path(consumer).read_text()
+        for namespace in ('std', 'core'):
+            with self.subTest(namespace=namespace):
+                dynamic = ('macro_rules! input { ($' + namespace + ':ident) => { $' + namespace
+                           + '::include_str!(concat!(env!("OUT_DIR"), "/native-toolchain.txt")) }; }')
+                self.write(consumer, original + '\n' + dynamic + '\n')
+                self.base = self.commit()
+                self.assert_unresolved_document('namespace parameter: ' + namespace)
+
+    def test_scoped_github_controls_select_only_governance(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = (
+            '.github/ISSUE_TEMPLATE/code-development.yml',
+            '.github/ISSUE_TEMPLATE/config.yml',
+            '.github/ISSUE_TEMPLATE/decision.yml',
+            '.github/ISSUE_TEMPLATE/defect.yml',
+            '.github/ISSUE_TEMPLATE/document.yml',
+            '.github/ISSUE_TEMPLATE/test.yml',
+            '.github/instructions/pr-review.instructions.md',
+            '.github/pull_request_template.md',
+            '.github/workflows/codeql.yml',
+            '.github/workflows/codeql-rust-capacity.yml',
+            '.github/workflows/codeql-rust-cargo-check.yml',
+            '.github/workflows/codeql-rust-cfg-diagnostic.yml',
+        )
+        for path in paths:
+            self.write(path, '# original control\n')
+        self.base = self.commit()
+        for path in paths:
+            with self.subTest(path=path):
+                self.write(path, '# changed control\n')
+                plan = self.plan()
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+                self.base = self.git('rev-parse', 'HEAD')
+
+    def test_scoped_github_controls_do_not_exempt_unknown_or_shared_controls(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in (
+                '.github/ISSUE_TEMPLATE/future.yml', '.github/workflows/codeql-new.yml',
+                '.github/workflows/rust.yml', '.github/actions/shared/action.yml',
+                'scripts/ci-tests.sh', 'Cargo.lock'):
+            with self.subTest(path=path):
+                self.write(path, '# independent or shared control\n')
+                self.assertEqual(self.plan()['scope'], 'full')
+                self.base = self.git('rev-parse', 'HEAD')
+        self.config.pop('scoped_control_paths', None)
+        self.write('.github/pull_request_template.md', 'old trusted baseline remains conservative')
+        self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_scoped_github_controls_keep_mixed_changes_and_embedded_consumers(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        path = '.github/pull_request_template.md'
+        self.write(path, 'ordinary template')
+        self.write('crates/core/src/lib.rs', '// independent library change')
+        plan = self.plan()
+        expected = {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required', 'node'}
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), expected)
+
+        self.write('crates/core/src/lib.rs', 'const TEMPLATE: &str = include_str!("../../../' + path + '");')
+        self.base = self.commit()
+        self.write(path, 'real embedded template changed')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), expected)
+
+        self.base = self.git('rev-parse', 'HEAD')
+        self.write(path, 'template plus a shared control')
+        self.write('Cargo.lock', '# changed lock')
+        self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_scoped_github_controls_keep_deletions_and_both_rename_endpoints(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        first = '.github/ISSUE_TEMPLATE/document.yml'
+        second = '.github/ISSUE_TEMPLATE/test.yml'
+        self.write(first, 'unique existing metadata')
+        self.base = self.commit()
+        self.git('mv', first, second)
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+        self.base = self.git('rev-parse', 'HEAD')
+        Path(second).unlink()
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+
+        self.write(first, 'unique metadata renamed outside the approved paths')
+        self.base = self.commit()
+        self.git('mv', first, '.github/ISSUE_TEMPLATE/future.yml')
+        self.assertEqual(self.plan()['scope'], 'full')
+
+    def test_scoped_github_metadata_rename_does_not_lose_previous_source_owner(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.config['package_groups'].update(core=['oasis7_required'], consumer=['node'])
+        self.write('crates/core/src/lib.rs', '// source renamed into a metadata path')
+        self.base = self.commit()
+        Path('.github').mkdir()
+        self.git('mv', 'crates/core/src/lib.rs', '.github/pull_request_template.md')
+        plan = self.plan()
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']),
+                         {'baseline', 'workflow_governance', 'rust_baseline', 'oasis7_required', 'node'})
+
+    def test_scoped_control_configuration_rejects_ambiguous_or_unowned_paths(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        malformed = (
+            [],
+            {'.github/workflows/*.yml': ['workflow_governance']},
+            {'.github/../Cargo.toml': ['workflow_governance']},
+            {'.github//pull_request_template.md': ['workflow_governance']},
+            {'.github\\pull_request_template.md': ['workflow_governance']},
+            {'/.github/pull_request_template.md': ['workflow_governance']},
+            {'scripts/ci-tests.sh': ['workflow_governance']},
+            {'.github/pull_request_template.md': ['nonexistent_group']},
+            {'.github/pull_request_template.md': ['workflow_governance', 'workflow_governance']},
+            {'.github/pull_request_template.md': 'workflow_governance'},
+        )
+        for mapping in malformed:
+            with self.subTest(mapping=mapping):
+                candidate = dict(config, scoped_control_paths=mapping)
+                with self.assertRaises(ValueError):
+                    selector.select(candidate, self.base, self.base)
+
+    def test_optional_target_dev_reverse_consumer(self):
+        self.write('crates/core/src/lib.rs', '// changed')
+        self.assertEqual(set(self.plan()['groups']), {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_deleted_dependency_uses_old_graph(self):
+        self.write('crates/consumer/Cargo.toml', '[package]\nname="consumer"\nversion="0.1.0"\n')
+        self.write('crates/core/src/lib.rs', '// changed')
+        head = self.commit()
+        affected = selector.reverse_consumers({'core'}, selector.cargo_graph(self.base)[1])
+        self.assertIn('consumer', affected)
+        self.assertEqual(self.plan(head)['scope'], 'full')  # manifest changes always conservative
+
+    def test_new_reverse_consumer_and_renamed_dependency(self):
+        self.write('crates/other/Cargo.toml', '[package]\nname="other"\nversion="0.1.0"\n[dependencies]\nalias={package="core",path="../core"}\n')
+        head = self.commit()
+        self.assertIn('other', selector.reverse_consumers({'core'}, selector.cargo_graph(head)[1]))
+
+    def test_move_covers_both_packages(self):
+        self.write('crates/core/src/moved.rs', 'unique move contents')
+        self.base = self.commit()
+        self.git('mv', 'crates/core/src/moved.rs', 'crates/other/src/moved.rs')
+        self.assertTrue({'core', 'consumer', 'other'}.issubset(self.plan()['groups']))
+
+    def test_deleted_source_old_owner(self):
+        Path('crates/core/src/lib.rs').unlink()
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_unusual_path_nul_diff_json_safe(self):
+        path = 'crates/core/src/space;line\nname.rs'
+        self.write(path, 'contents')
+        head = self.commit()
+        self.assertIn(path, selector.changed_paths(self.base, head))
+        self.assertIn('consumer', self.plan(head)['groups'])
+        self.assertNotIn('\n', json.dumps(self.plan(head)))
+
+    def test_embedded_document_consumed(self):
+        self.write('crates/core/src/lib.rs', 'const D:&str=include_str!("../../../doc/readme.md");')
+        self.base = self.commit()
+        self.write('doc/readme.md', 'changed consumer input')
+        self.assertIn('consumer', self.plan()['groups'])
+
+    def test_build_lock_control_and_graph_failure_full(self):
+        for path in ['Cargo.lock', 'crates/core/build.rs', '.github/workflows/test.yml']:
+            with self.subTest(path=path):
+                self.write(path, 'change')
+                self.assertEqual(self.plan()['scope'], 'full')
+        self.assertEqual(self.plan('absent-object')['scope'], 'full')
+
+    def test_tested_merge_extra_paths(self):
+        self.write('doc/readme.md', 'source doc')
+        source = self.commit()
+        self.write('crates/other/src/lib.rs', '// actual merge')
+        tested = self.commit()
+        plan = selector.select(self.config, self.base, source, tested)
+        self.assertIn('other', plan['groups'])
+        self.assertEqual(plan['scope'], 'full')  # unverifiable merge topology
+
+    def merge_fixture(self, target_path='Cargo.lock', resolution=None, target_content='// target advance'):
+        self.git('checkout', '-qb', 'source', self.base)
+        self.write('doc/readme.md', 'source doc')
+        source = self.commit()
+        self.git('checkout', '-qb', 'target', self.base)
+        self.write(target_path, target_content)
+        target = self.commit()
+        self.git('merge', '--no-ff', '-qm', 'merge fixture', source)
+        if resolution:
+            self.write(*resolution)
+            self.git('add', '-A')
+            self.git('commit', '--amend', '-qm', 'merge resolution')
+        return source, target, self.git('rev-parse', 'HEAD')
+
+    def test_target_lock_advance_does_not_expand_docs_merge(self):
+        source, target, tested = self.merge_fixture()
+        for base in (self.base, target):
+            with self.subTest(base=base):
+                plan = selector.select(self.config, base, source, tested)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['groups'], ['baseline'])
+
+    def test_merge_resolution_keeps_extra_consumer(self):
+        source, target, tested = self.merge_fixture(
+            resolution=('crates/core/src/lib.rs', '// resolution'))
+        plan = selector.select(self.config, self.base, source, tested)
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_merge_resolution_lock_change_still_full(self):
+        source, target, tested = self.merge_fixture(resolution=('Cargo.lock', '// resolution'))
+        self.assertEqual(selector.select(self.config, self.base, source, tested)['scope'], 'full')
+
+    def test_wrong_merge_source_and_unrelated_base_fail_closed(self):
+        source, target, tested = self.merge_fixture()
+        self.assertEqual(selector.select(self.config, self.base, target, tested)['scope'], 'full')
+        self.git('checkout', '-qb', 'unrelated', self.base)
+        self.write('doc/unrelated.md', 'unrelated event base')
+        unrelated = self.commit()
+        self.assertEqual(selector.select(self.config, unrelated, source, tested)['scope'], 'full')
+
+    def test_target_graph_keeps_new_reverse_consumer(self):
+        source, target, tested = self.merge_fixture(
+            'crates/other/Cargo.toml', ('crates/core/src/lib.rs', '// resolution'),
+            '[package]\nname="other"\nversion="0.1.0"\n[dependencies]\ncore={path="../core"}\n')
+        plan = selector.select(self.config, self.base, source, tested)
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertIn('other', plan['groups'])
+
+    def test_source_lock_change_still_full_on_advanced_target(self):
+        source, target, tested = self.merge_fixture('crates/other/src/lib.rs')
+        self.git('checkout', 'source')
+        self.write('Cargo.lock', '// source lock')
+        source = self.commit()
+        self.git('checkout', 'target')
+        self.git('merge', '--no-ff', '-qm', 'merge fixture', source)
+        tested = self.git('rev-parse', 'HEAD')
+        self.assertEqual(selector.select(self.config, target, source, tested)['scope'], 'full')
+
+    def test_additions_only_expand_and_groups_only(self):
+        self.write('doc/readme.md', 'changed')
+        head = self.commit()
+        plan = selector.select(self.config, self.base, head, additions=['other'])
+        self.assertEqual(set(plan['groups']), {'baseline', 'other'})
+        self.assertNotIn('matrices', plan)
+        with self.assertRaises(ValueError):
+            selector.select(self.config, self.base, head, additions=['unknown'])
+
+    def test_github_output_contains_plan_and_flags_without_matrix_outputs(self):
+        self.write('doc/readme.md', 'changed')
+        head = self.commit()
+        Path('config.json').write_text(json.dumps(self.config))
+        arguments = ['selector', '--base-ref', self.base, '--head-ref', head,
+                     '--config', 'config.json', '--github-output', 'outputs.txt']
+        with patch.object(sys, 'argv', arguments), contextlib.redirect_stdout(io.StringIO()):
+            selector.main()
+        outputs = dict(line.split('=', 1) for line in Path('outputs.txt').read_text().splitlines())
+        plan = json.loads(outputs['plan'])
+        self.assertEqual(set(plan), {'groups', 'resources', 'reasons', 'scope', 'architecture',
+                                    'workspace_support_profiles', 'workspace_support_profile_version'})
+        self.assertEqual(outputs['run_baseline'], 'true')
+        self.assertEqual(outputs['run_other'], 'false')
+        self.assertFalse(any(name.startswith('matrix') for name in outputs))
+
+    def test_real_tool_rules_select_only_related_groups(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        cases = {
+            'resource-cleanup-executor.py': {'baseline', 'workflow_governance', 'fleet_health'},
+            'new-task-worktree.sh': {'baseline', 'cargo_tooling_contracts', 'fleet_health'},
+            'worktree-gc-report.sh': {'baseline', 'workflow_governance'},
+            'pr-review-thread-closeout.py': {'baseline', 'workflow_governance'},
+            'cargo-dev.sh': {'baseline', 'cargo_tooling_contracts', 'command_center'},
+        }
+        for filename, expected in cases.items():
+            with self.subTest(filename=filename):
+                self.write('scripts/' + filename, 'fixture')
+                head = self.commit()
+                plan = selector.select(config, self.base, head)
+                self.assertEqual(set(plan['groups']), expected)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.base = head
+
+
+    def test_local_signer_precise_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        common = {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health'}
+        cases = {
+            'scripts/local-signer/tests/test_future.py': common,
+            'doc/p2p/blockchain/local-file-signing-backend.runbook.md': common,
+            **{'scripts/local-signer/' + name: common | {'workspace_support'}
+               for name in ['installer.py', 'macos_host.py', 'install-release.py', 'package-release.py']},
+        }
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.write(path, 'fixture')
+                head = self.commit()
+                plan = selector.select(config, self.base, head)
+                self.assertEqual(set(plan['groups']), expected)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.base = head
+        self.write('scripts/local-signer/new-production.py', 'fixture')
+        with self.assertRaisesRegex(ValueError, 'scripts/local-signer/new-production.py'):
+            selector.select(config, self.base, self.commit())
+
+    def test_local_signer_deletion_and_rename(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('scripts/local-signer/installer.py', 'unique production fixture')
+        self.base = self.commit()
+        Path('scripts/local-signer/tests').mkdir()
+        self.git('mv', 'scripts/local-signer/installer.py', 'scripts/local-signer/tests/test_moved.py')
+        head = self.commit()
+        self.assertEqual(set(selector.select(config, self.base, head)['groups']),
+                         {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health', 'workspace_support'})
+        self.base = head
+        Path('scripts/local-signer/tests/test_moved.py').unlink()
+        self.assertEqual(set(selector.select(config, self.base, self.commit())['groups']),
+                         {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health'})
+
+    def test_local_signer_crate_keeps_reverse_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_local_signer/Cargo.toml', '[package]\nname="oasis7_local_signer"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_local_signer/src/lib.rs', '')
+        self.write('crates/consumer/Cargo.toml', '[package]\nname="consumer"\nversion="0.1.0"\n[dependencies]\noasis7_local_signer={path="../oasis7_local_signer"}\n')
+        config['package_groups']['consumer'] = ['node']
+        self.base = self.commit()
+        self.write('crates/oasis7_local_signer/src/lib.rs', '// changed')
+        plan = selector.select(config, self.base, self.commit())
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertTrue({'workspace_support', 'node', 'rust_baseline', 'packaging_contracts',
+                         'macos_package_contract', 'fleet_health'}.issubset(plan['groups']))
+
+    def test_local_signer_combination_and_security_overlay(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ['scripts/local-signer/installer.py', 'scripts/local-signer/tests/test_fixture.py',
+                     'doc/p2p/blockchain/local-file-signing-backend.runbook.md', 'scripts/security/fixture.py']:
+            self.write(path, 'fixture')
+        self.assertEqual(set(selector.select(config, self.base, self.commit())['groups']),
+                         {'baseline', 'packaging_contracts', 'macos_package_contract', 'fleet_health',
+                          'workspace_support', 'workflow_governance'})
+
+    def test_custody_inputs_select_worker_platform_proof_and_core_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        core, worker = 'oasis7_custody_core', 'oasis7_custody_worker'
+        for package in (core, worker):
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in (core, worker)},
+                 {core: {worker}, worker: set()}, {})
+        cases = [(core, 'src/lib.rs'), (core, 'schema/custody.schema.json'),
+                 (worker, 'src/lib.rs'), (worker, 'wrangler.identity.jsonc'),
+                 (worker, 'platform-tests/isolation.test.ts'),
+                 (worker, 'scripts/verify.sh'), (worker, 'package.json')]
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for package, path in cases:
+                with self.subTest(package=package, path=path):
+                    self.write(f'crates/{package}/{path}', '// changed')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(set(plan['groups']),
+                                     {'baseline', 'rust_baseline', 'workspace_support'})
+                    self.assertEqual(set(plan['workspace_support_profiles']),
+                                     {core, worker} if package == core else {worker})
+                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
+                    base = head
+
+    def test_native_custody_inputs_add_only_actual_worker_platform_profile(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        backend, worker = 'oasis7_launcher_backend', 'oasis7_custody_worker'
+        for package in (backend, worker):
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in (backend, worker)},
+                 {backend: set(), worker: set()}, {})
+        paths = [path for path in config['workspace_support_profile_paths'][worker]
+                 if path.startswith(f'crates/{backend}/')]
+        self.assertIn('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/service.rs', paths)
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '// authority input only')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn('workspace_support', plan['groups'])
+                    self.assertEqual(plan['workspace_support_profiles'], [worker])
+                    self.assertTrue({'node', 'wasm_target', 'system_deps'}.issubset(plan['resources']))
+                    self.assertIn(backend, plan['architecture']['packages'])
+                    base = head
+            self.write('crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/world.rs', '// unrelated identity world feature')
+            head = self.commit()
+            plan = selector.select(config, base, head)
+            self.assertNotIn(worker, plan['workspace_support_profiles'])
+            self.assertNotIn('workspace_support', plan['groups'])
+            base = head
+            self.git('mv', paths[0], paths[0] + '.retired')
+            head = self.commit()
+            self.assertEqual(selector.select(config, base, head)['workspace_support_profiles'], [worker])
+            base = head
+            Path(paths[1]).unlink()
+            self.assertEqual(selector.select(config, base, self.commit())['workspace_support_profiles'], [worker])
+
+    @staticmethod
+    def owner_setup_inputs():
+        return [
+            'crates/oasis7_agent_api/src/game/goal.rs',
+            'crates/oasis7_agent_api/src/game/task.rs',
+            'crates/oasis7_agent_api/src/game/goal_prepare.rs',
+            'crates/oasis7_agent_api/src/game/goal_publish.rs',
+            'crates/oasis7_agent_api/src/game/executor.rs',
+            'crates/oasis7_client_api/src/world_service/entry_control.rs',
+            'crates/oasis7_client_api/src/world_service/private_goal_read.rs',
+            'crates/oasis7_client_api/src/world_service/owner_setup_observation.rs',
+            'crates/oasis7_client_api/src/world_service_wire.rs',
+            'crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/entry_owner_control.rs',
+            'crates/oasis7_chain_runtime/src/host/world_service_private_goal.rs',
+        ]
+
+    def test_owner_setup_inputs_select_worker_profile_with_real_package_ownership(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        worker = 'oasis7_custody_worker'
+        paths = self.owner_setup_inputs()
+        packages = {path.split('/')[1] for path in paths} | {worker}
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in packages}, {p: set() for p in packages}, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '// fixed owner setup protocol input')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn(worker, plan['workspace_support_profiles'])
+                    self.assertIn(path.split('/')[1], plan['architecture']['packages'])
+                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
+                    base = head
+            self.git('mv', paths[0], paths[0] + '.retired')
+            head = self.commit()
+            self.assertIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
+            base = head
+            Path(paths[1]).unlink()
+            self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
+
+    def test_participant_sdk_and_world_inputs_add_actual_worker_platform_profile(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        worker = 'oasis7_custody_worker'
+        packages = ('oasis7_client_api', 'oasis7_chain_runtime', worker)
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({p: (f'crates/{p}', {}) for p in packages},
+                 {p: set() for p in packages}, {})
+        paths = [path for path in config['workspace_support_profile_paths'][worker]
+                 if path.startswith(('crates/oasis7_client_api/', 'crates/oasis7_chain_runtime/'))
+                 and path not in self.owner_setup_inputs()]
+        self.assertEqual(len(paths), 12)
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '// participant canonical protocol input')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn(worker, plan['workspace_support_profiles'])
+                    self.assertIn(path.split('/')[1], plan['architecture']['packages'])
+                    self.assertTrue({'node', 'wasm_target'}.issubset(plan['resources']))
+                    base = head
+            self.git('mv', paths[0], paths[0] + '.retired')
+            head = self.commit()
+            self.assertIn(worker, selector.select(config, base, head)['workspace_support_profiles'])
+            base = head
+            Path(paths[1]).unlink()
+            self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
+
+    def test_profile_path_mapping_is_additive_and_does_not_bypass_full_or_ownership(self):
+        config = json.loads(json.dumps(self.config))
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        profile = selector.SUPPORT_PROFILES[0]
+        config['workspace_support_profile_paths'] = {profile: ['crates/core/src/lib.rs', 'unknown/input.rs']}
+        self.write('crates/core/src/lib.rs', '// consumer input')
+        head = self.commit()
+        selected = selector.select(config, self.base, head)
+        self.assertEqual(selected['workspace_support_profiles'], [profile])
+        self.assertEqual(set(selector.select(config, self.base, head, additions=['workspace_support'])['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+        config['rules'].append({'match': ['crates/core/src/lib.rs'], 'groups': ['workspace_support'], 'reason': 'legacy group'})
+        self.assertEqual(set(selector.select(config, self.base, head)['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+        self.write('Cargo.lock', '# shared control')
+        self.assertEqual(set(selector.select(config, self.base, self.commit())['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+        self.write('unknown/input.rs', '// no owner')
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(config, self.base, self.commit())
+
+    def test_profile_path_mapping_rejects_unknown_profiles_and_malformed_paths(self):
+        for mapping in [[], {'unknown-profile': ['crates/core/src/lib.rs']},
+                        {selector.SUPPORT_PROFILES[0]: []},
+                        *[{selector.SUPPORT_PROFILES[0]: [path]} for path in
+                          ['', '/tmp/source.rs', '../source.rs', 'crates/../source.rs', 'crates\\source.rs', './source.rs', {}, None]],
+                        {selector.SUPPORT_PROFILES[0]: ['source.rs', 'source.rs']}]:
+            with self.subTest(mapping=mapping):
+                config = json.loads(json.dumps(self.config))
+                config['groups'].append('workspace_support')
+                config['resources']['workspace_support'] = []
+                config['workspace_support_profile_paths'] = mapping
+                with self.assertRaises(ValueError):
+                    selector.validate_config(config)
+
+    def test_agent_api_and_harness_route_through_support_and_oasis7_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+            self.write(f'crates/{package}/src/lib.rs', '')
+        base = self.commit()
+        manifests = {name: (f'crates/{name}', {}) for name in packages}
+        reverse = {
+            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7'},
+            'oasis7_agent_harness': {'oasis7'},
+            'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+        }
+        graph = (manifests, reverse, {})
+        expected = {'baseline', 'rust_baseline', 'workspace_support',
+                    'oasis7_required', 'launcher_web', 'formal_process'}
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for package in ('oasis7_agent_api', 'oasis7_agent_harness'):
+                with self.subTest(package=package):
+                    self.write(f'crates/{package}/src/lib.rs', '// changed')
+                    plan = selector.select(config, base, self.commit())
+                    self.assertEqual(plan['scope'], 'targeted')
+                    expected_profiles = {'oasis7_agent_harness'}
+                    if package == 'oasis7_agent_api':
+                        expected_profiles.add('oasis7_agent_api')
+                    self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
+                    self.assertEqual(set(plan['groups']), expected)
+                    base = self.git('rev-parse', 'HEAD')
+
+    def test_bootstrap_codegen_inputs_use_existing_cargo_owner(self):
+        # These paths are already owned in the trusted baseline; no candidate
+        # path rule or full-scope override is needed for first introduction.
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_agent_api/Cargo.toml',
+                   '[package]\nname="oasis7_agent_api"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({'oasis7_agent_api': ('crates/oasis7_agent_api', {})},
+                 {'oasis7_agent_api': set()}, {})
+        inputs = (
+            'src/game/read_bootstrap.openapi.json',
+            'protocol_codegen/generate.py', 'protocol_codegen/profile.json', 'protocol_codegen/toolchain.lock.json',
+            'protocol_codegen/test_generate.py',
+            'protocol_codegen/generated/types.ts',
+            'protocol_codegen/generated/schema.json',
+            'protocol_codegen/generated/manifest.json',
+            'protocol_conformance/package.json',
+            'protocol_conformance/package-lock.json',
+            'protocol_conformance/tsconfig.json',
+            'protocol_conformance/consumer.ts', 'protocol_conformance/check-generated.mjs',
+        )
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in inputs:
+                with self.subTest(path=path):
+                    self.write('crates/oasis7_agent_api/' + path, 'fixture')
+                    head = self.commit()
+                    plan = selector.select(config, base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertIn('workspace_support', plan['groups'])
+                    self.assertIn('oasis7_agent_api', plan['workspace_support_profiles'])
+                    base = head
+
+    def test_bootstrap_handler_and_fixtures_select_ts_conformance(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        self.write('crates/oasis7_viewer_runtime/Cargo.toml',
+                   '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\n')
+        base = self.commit()
+        graph = ({'oasis7_viewer_runtime': ('crates/oasis7_viewer_runtime', {})},
+                 {'oasis7_viewer_runtime': set()}, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for path in ('src/game_read_api.rs', 'src/game_read_api_tests.rs',
+                         'src/game_read_api_protocol_fixtures_tests.rs',
+                         'tests/fixtures/signed_read_bootstrap.json'):
+                self.write('crates/oasis7_viewer_runtime/' + path, 'fixture')
+                head = self.commit()
+                plan = selector.select(config, base, head)
+                self.assertIn('workspace_support', plan['groups'])
+                self.assertIn('oasis7_agent_api', plan['workspace_support_profiles'])
+                base = head
+
+    def test_game_client_routes_through_support_and_server_consumer(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        packages = ('oasis7_client_api', 'oasis7_game_client', 'oasis7', 'oasis7_chain_runtime')
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+            self.write(f'crates/{package}/src/lib.rs', '')
+        base = self.commit()
+        manifests = {name: (f'crates/{name}', {}) for name in packages}
+        graph = (manifests, {
+            'oasis7_client_api': {'oasis7_game_client', 'oasis7'},
+            'oasis7_game_client': {'oasis7'}, 'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+        }, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for package in ('oasis7_client_api', 'oasis7_game_client'):
+                with self.subTest(package=package):
+                    self.write(f'crates/{package}/src/lib.rs', '// changed')
+                    plan = selector.select(config, base, self.commit())
+                    self.assertEqual(plan['scope'], 'targeted')
+                    expected_profiles = {'oasis7_game_client'}
+                    if package == 'oasis7_client_api':
+                        expected_profiles.add('oasis7_client_api')
+                    self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
+                    self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline',
+                                     'workspace_support', 'oasis7_required', 'launcher_web', 'formal_process'})
+                    base = self.git('rev-parse', 'HEAD')
+
+    def test_provider_tests_are_local_and_library_changes_reach_server_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        packages = ('oasis7_agent_harness', 'oasis7_model_provider', 'oasis7', 'oasis7_chain_runtime')
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+            self.write(f'crates/{package}/src/lib.rs', '')
+            self.write(f'crates/{package}/tests/transport.rs', '')
+        base = self.commit()
+        manifests = {name: (f'crates/{name}', {}) for name in packages}
+        graph = (manifests, {
+            'oasis7_agent_harness': {'oasis7_model_provider', 'oasis7'},
+            'oasis7_model_provider': {'oasis7'}, 'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+        }, {})
+        with patch.object(selector, 'cargo_graph', return_value=graph):
+            for package, path in [('oasis7_model_provider', 'tests/transport.rs'),
+                                  ('oasis7_agent_harness', 'src/lib.rs')]:
+                with self.subTest(package=package):
+                    self.write(f'crates/{package}/{path}', '// changed')
+                    plan = selector.select(config, base, self.commit())
+                    self.assertEqual(plan['scope'], 'targeted')
+                    expected_profiles = {'oasis7_model_provider'}
+                    if package == 'oasis7_agent_harness':
+                        expected_profiles.add('oasis7_agent_harness')
+                    self.assertEqual(set(plan['workspace_support_profiles']), expected_profiles)
+                    expected = {'baseline', 'rust_baseline', 'workspace_support'}
+                    if package == 'oasis7_agent_harness':
+                        expected.update({'oasis7_required', 'launcher_web', 'formal_process'})
+                    self.assertEqual(set(plan['groups']), expected)
+                    base = self.git('rev-parse', 'HEAD')
+
+    def test_deleted_agent_harness_source_uses_base_consumer_graph(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        packages = ('oasis7_agent_api', 'oasis7_agent_harness', 'oasis7', 'oasis7_chain_runtime')
+        for package in packages:
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n')
+            self.write(f'crates/{package}/src/lib.rs', '')
+        base = self.commit()
+        old_manifests = {name: (f'crates/{name}', {}) for name in packages}
+        old_reverse = {
+            'oasis7_agent_api': {'oasis7_agent_harness', 'oasis7'},
+            'oasis7_agent_harness': {'oasis7'},
+            'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set(),
+        }
+        new_manifests = {'oasis7': ('crates/oasis7', {}), 'oasis7_chain_runtime': ('crates/oasis7_chain_runtime', {})}
+        new_reverse = {'oasis7': {'oasis7_chain_runtime'}, 'oasis7_chain_runtime': set()}
+        Path('crates/oasis7_agent_harness/src/lib.rs').unlink()
+        head = self.commit()
+
+        def graph_for(ref, generated_inputs=()):
+            return ((old_manifests, old_reverse, {}) if ref == base
+                    else (new_manifests, new_reverse, {}))
+
+        with patch.object(selector, 'cargo_graph', side_effect=graph_for):
+            plan = selector.select(config, base, head)
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'workspace_support',
+                                               'oasis7_required', 'launcher_web', 'formal_process'})
+
+
+    def fast_config(self):
+        config = json.loads(json.dumps(self.config))
+        for group in ('oasis7_required', 'formal_process', 'command_center'):
+            config['groups'].append(group)
+            config['resources'][group] = []
+        config.update(
+            fast_scope_version=1,
+            oasis7_required_packages=['core', 'consumer', 'other'],
+            oasis7_required_wasm_packages=['core', 'other'],
+            formal_risk_rules=[
+                {'match': ['crates/core/src/**', 'crates/core/tests/**'], 'suites': [],
+                 'reason': 'core behavior has ordinary contracts'},
+                {'match': ['crates/core/src/history.rs'], 'suites': ['world-history'],
+                 'reason': 'retained history'}],
+            command_center_fast_paths=['tools/oasis7-command-center/ui/src/**'])
+        config['package_groups'] = {name: ['oasis7_required', 'formal_process']
+                                    for name in ('core', 'consumer', 'other')}
+        config['rules'].append({'match': ['tools/oasis7-command-center/**'],
+                                'groups': ['command_center'], 'reason': 'desktop'})
+        return config
+
+    def test_fast_profile_preserves_actual_affected_package_and_wasm_closure(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', 'pub fn actual_changed_behavior() {}')
+        head = self.commit()
+        plan = selector.select(config, self.base, head, profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+        self.assertNotIn('formal_process', plan['groups'])
+        self.assertEqual(plan['formal_suites'], [])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertEqual(plan['source_sha'], head)
+        self.assertEqual(plan['policy_sha'], self.base)
+        self.assertIn('formal_process', selector.select(config, self.base, head)['groups'])
+
+    def bounded_config(self, paths=('crates/core/src/lib.rs',)):
+        config = self.fast_config()
+        config.update(fast_test_inventory_version=1, ordinary_fast_targets={
+            'core-lib': {'package': 'core', 'target_kind': 'lib', 'target_name': 'core',
+                         'default_features': False, 'features': ['test_tier_required'],
+                         'cases': ['existing']}}, ordinary_fast_rules=[
+                {'paths': list(paths), 'targets': ['core-lib'], 'reason': 'bounded contract'}])
+        return config
+
+    def test_bounded_inventory_keeps_reverse_package_and_wasm_closure(self):
+        config = self.bounded_config()
+        self.write('crates/core/src/lib.rs', 'pub fn changed() {}\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                plan = selector.select(config, self.base, head, profile=profile)
+                self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['core-lib']])
+                self.assertEqual(plan['fast_test_inventory_version'], 1)
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertEqual(plan['formal_suites'], [])
+
+    def test_bounded_inventory_defers_only_completely_mapped_formal_inputs(self):
+        config = self.bounded_config(('crates/core/src/history.rs',))
+        self.write('crates/core/src/history.rs', 'pub fn changed() {}\n')
+        head = self.commit()
+        self.assertEqual(selector.select(config, self.base, head, profile='pr-fast')['formal_suites'], ['world-history'])
+        self.write('crates/core/src/other.rs', 'pub fn additional() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+
+    def component_config(self):
+        config = self.bounded_config()
+        config['groups'].append('launcher_web')
+        config['resources']['launcher_web'] = []
+        config['package_groups']['core'].append('launcher_web')
+        config.update(fast_execution_version=1, architecture_build_policy_version=1,
+                      ordinary_fast_component_rules=[{
+            'match': ['crates/core/src/**'], 'exclude': ['crates/core/src/bin/**'],
+            'targets': ['core-lib'], 'reason': 'whole component behavior'}])
+        return config
+
+    def component_fixture(self, *, native=True, shared=False):
+        gate = '#[cfg(not(target_arch="wasm32"))]\n' if native else ''
+        self.write('crates/core/src/lib.rs', gate + 'mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        if shared:
+            self.write('crates/consumer/src/lib.rs',
+                       '#[path="../../core/src/behavior.rs"] mod shared;\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        return base, self.commit()
+
+    def test_component_inventory_executes_owner_and_preserves_affected_evidence(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        for profile in ('pr-fast', 'main-fast'):
+            plan = selector.select(config, base, head, profile=profile)
+            self.assertEqual(plan['ordinary_execution'], 'inline')
+            self.assertEqual(plan['fast_execution_version'], 1)
+            self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+            self.assertTrue({'rust_baseline', 'oasis7_required'}.issubset(plan['groups']))
+            self.assertEqual(plan['rust_baseline_checks'], [])
+            self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['core-lib']])
+            self.assertEqual(plan['affected_packages'], ['consumer', 'core'])
+            self.assertEqual(plan['architecture']['packages'], ['core'])
+            self.assertEqual(plan['architecture']['build_policy_version'], 1)
+            self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+            self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+            self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+            self.assertNotIn('launcher_web', plan['groups'])
+
+    def test_component_architecture_policy_requires_independent_trusted_capability(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        for version in (None, 2):
+            old = dict(config)
+            if version is None:
+                del old['architecture_build_policy_version']
+            else:
+                old['architecture_build_policy_version'] = version
+            with self.subTest(version=version):
+                plan = selector.select(old, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['architecture']['mode'], 'targeted')
+                self.assertNotIn('build_policy_version', plan['architecture'])
+                self.assertNotIn('build_policy', plan['architecture'])
+        for version in (True, False, None, '1', []):
+            with self.subTest(invalid=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, architecture_build_policy_version=version))
+        with self.assertRaises(ValueError):
+            selector.validate_config(dict(self.bounded_config(), architecture_build_policy_version=1))
+
+    def test_component_architecture_policy_preserves_mixed_support_owner_compilation(self):
+        config = self.component_config()
+        support = 'oasis7_custody_core'
+        self.write('crates/other/Cargo.toml',
+                   f'[package]\nname="{support}"\nversion="0.1.0"\n')
+        self.write('crates/other/src/lib.rs', 'pub fn capability() -> u8 { 1 }\n')
+        base, _ = self.component_fixture()
+        self.write('crates/other/src/lib.rs', 'pub fn capability() -> u8 { 2 }\n')
+        head = self.commit()
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        for group in ('workspace_support', 'rust_baseline'):
+            config['package_groups'][support] = [group]
+            with self.subTest(group=group):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+                self.assertEqual(plan['architecture']['packages'], ['core', support])
+                self.assertEqual({t['package'] for t in plan['ordinary_fast_targets']}, {'core'})
+                if group == 'rust_baseline':
+                    self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+                else:
+                    self.assertEqual(plan['workspace_support_profiles'], [support])
+                self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_architecture_policy_preserves_additional_required_groups(self):
+        config = self.component_config()
+        config['rules'].append({'match': ['web/**'], 'groups': ['launcher_web'], 'reason': 'web source'})
+        base, head = self.component_fixture()
+        explicit = selector.select(config, base, head, additions=('rust_baseline',), profile='pr-fast')
+        self.assertEqual(explicit['ordinary_execution'], 'inline')
+        self.assertEqual(explicit['architecture']['mode'], 'full')
+        self.assertNotIn('build_policy_version', explicit['architecture'])
+        self.write('web/style.css', 'body { color: black; }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_architecture_policy_cannot_borrow_scoped_control_exceptions(self):
+        config = self.component_config()
+        path = '.github/scoped-metadata.yml'
+        config['scoped_control_paths'] = {path: []}
+        base, _ = self.component_fixture()
+        self.write(path, '# independently scoped CI metadata\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['architecture']['mode'], 'targeted')
+        self.assertEqual(plan['fast_plan_exceptions'], [])
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_portable_and_alternate_library_mounts_keep_wasm_and_launcher(self):
+        config = self.component_config()
+        for native, shared in ((False, False), (True, True)):
+            base, head = self.component_fixture(native=native, shared=shared)
+            with self.subTest(native=native, shared=shared):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertNotIn('build_policy_version', plan['architecture'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_portable_binary_mounts_keep_launcher_build(self):
+        config = self.component_config()
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for path, declaration in (
+                ('crates/consumer/src/main.rs', ''),
+                ('crates/consumer/entry.rs', '\n[[bin]]\nname="portable"\npath="entry.rs"\ntest=false\n'),
+                ('crates/consumer/src/bin/portable.rs', '\n[[bin]]\nname="portable"\ntest=false\n')):
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            relative = os.path.relpath('crates/core/src/behavior.rs', Path(path).parent)
+            self.write(path, f'#[path="{relative}"] mod shared;\nfn main() {{ shared::value(); }}\n')
+            self.write('crates/consumer/Cargo.toml', consumer_manifest + declaration)
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(path=path):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertIn('launcher_web', plan['groups'])
+            Path(path).unlink()
+
+    def test_component_portable_data_readers_keep_wasm_and_launcher(self):
+        config = self.component_config()
+        for macro in ('include_str', 'include_bytes'):
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            value_type = '&str' if macro == 'include_str' else '&[u8]'
+            self.write('crates/consumer/src/lib.rs',
+                       f'const SOURCE: {value_type} = {macro}!("../../core/src/behavior.rs");\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(macro=macro):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_custom_production_root_resolves_implicit_child_modules(self):
+        config = self.component_config()
+        original_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for kind in ('bin', 'lib'):
+            declaration = ('\n[[bin]]\nname="portable"\n' if kind == 'bin' else '\n[lib]\n')
+            self.write('crates/consumer/Cargo.toml', original_manifest + declaration + 'path="entry.rs"\ntest=false\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            self.write('crates/consumer/entry.rs', 'mod shared;\npub fn main() { shared::value(); }\n')
+            self.write('crates/consumer/shared.rs',
+                       '#[path="../core/src/behavior.rs"] mod original;\npub use original::value;\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(kind=kind):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_data_reader_never_proves_executable_source_ownership(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', 'const SOURCE: &str = include_str!("behavior.rs");\n')
+        self.write('crates/core/src/behavior.rs', '#[test] fn not_executed() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_component_native_test_data_reader_does_not_require_web_packaging(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        self.write('crates/consumer/src/lib.rs', '#[cfg(test)] mod tests;\n')
+        self.write('crates/consumer/src/tests.rs', 'const SOURCE: &str = include_str!("../../core/src/behavior.rs");\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+        self.assertNotIn('launcher_web', plan['groups'])
+
+    def test_component_unknown_portable_data_input_cannot_authorize_deferral(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        self.write('crates/consumer/src/lib.rs', 'const SOURCE: &str = include_str!(env!("SOURCE_PATH"));\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_build_script_literal_reader_keeps_portable_consumers(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+        self.write('crates/consumer/build.rs',
+                   'fn main() { let value = std::fs::read_to_string("../core/src/behavior.rs").unwrap();\n'
+                   'println!("cargo:rustc-env=SOURCE_BODY={value}"); }\n')
+        self.write('crates/consumer/src/lib.rs', 'const SOURCE: &str = env!("SOURCE_BODY");\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core'])
+        self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_native_host_build_dependencies_keep_generated_portable_consumers(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        other_manifest = Path('crates/other/Cargo.toml').read_text()
+        workspace_manifest = Path('Cargo.toml').read_text()
+        for kind in ('direct', 'transitive', 'target-renamed-workspace'):
+            self.write('Cargo.toml', workspace_manifest + 'generator={path="crates/other",package="other"}\n')
+            self.write('crates/other/Cargo.toml', other_manifest + '[dependencies]\ncore={workspace=true}\n')
+            self.write('crates/other/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] pub use core::value;\n')
+            if kind == 'direct':
+                dependency = '\n[build-dependencies]\ncore={workspace=true}\n'
+                generator = 'core'
+            elif kind == 'transitive':
+                dependency = '\n[build-dependencies]\ngenerator={path="../other",package="other"}\n'
+                generator = 'generator'
+            else:
+                dependency = '\n[target.\'cfg(unix)\'.build-dependencies]\ngenerator={workspace=true}\n'
+                generator = 'generator'
+            self.write('crates/consumer/Cargo.toml', consumer_manifest + dependency)
+            self.write('crates/consumer/build.rs',
+                       f'fn main() {{ println!("cargo:rustc-env=VALUE={{}}", {generator}::value()); }}\n')
+            self.write('crates/consumer/src/lib.rs', 'pub const VALUE: &str = env!("VALUE");\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n'
+                       '#[cfg(not(target_arch="wasm32"))] pub use behavior::value;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(kind=kind):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_native_proc_macro_dependencies_keep_generated_portable_consumers(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        macro_manifest = Path('crates/other/Cargo.toml').read_text()
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for declaration in ('proc-macro=true', 'proc_macro=true',
+                            'crate-type=["proc-macro"]', 'crate_type=["proc-macro"]'):
+            self.write('crates/other/Cargo.toml', macro_manifest
+                       + '\n[lib]\n' + declaration + '\n[dependencies]\ncore={workspace=true}\n')
+            self.write('crates/other/src/lib.rs', 'extern crate proc_macro;\n#[proc_macro]\n'
+                       'pub fn generated(_: proc_macro::TokenStream) -> proc_macro::TokenStream {\n'
+                       'format!("pub const VALUE: u8 = {};", core::value()).parse().unwrap() }\n')
+            self.write('crates/consumer/Cargo.toml', consumer_manifest
+                       + '\n[dependencies]\nother={path="../other"}\n')
+            self.write('crates/consumer/src/lib.rs', 'other::generated!();\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n'
+                       '#[cfg(not(target_arch="wasm32"))] pub use behavior::value;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(declaration=declaration):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_native_source_mounted_by_build_script_keeps_portable_consumers(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        for build_path in ('build.rs', 'src/build.rs'):
+            self.write('crates/core/Cargo.toml', manifest.replace('[package]', '[package]\nbuild="' + build_path + '"'))
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n'
+                       'pub const VALUE: &str = env!("VALUE");\n')
+            root = ('#[path="src/behavior.rs"] mod behavior;\n' if build_path == 'build.rs' else 'mod behavior;\n')
+            self.write('crates/core/' + build_path, root
+                       + 'fn main() { println!("cargo:rustc-env=VALUE={}", behavior::value()); }\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            self.write('crates/consumer/src/lib.rs', 'pub use core::VALUE;\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(build_path=build_path):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+            Path('crates/core/' + build_path).unlink()
+
+    def test_component_unparsed_explicit_cargo_root_cannot_prove_portable_exclusion(self):
+        config = self.component_config()
+        config['oasis7_required_wasm_packages'] = ['consumer']
+        manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for kind in ('build', 'lib', 'bin'):
+            if kind == 'build':
+                declaration = manifest.replace('[package]', '[package]\nbuild="entry.source"')
+            else:
+                table = '\n[lib]\n' if kind == 'lib' else '\n[[bin]]\nname="portable"\n'
+                declaration = manifest + table + 'path="entry.source"\n'
+            self.write('crates/consumer/Cargo.toml', declaration)
+            self.write('crates/consumer/entry.source',
+                       '#[path="../core/src/behavior.rs"] mod behavior;\nfn main() { behavior::value(); }\n')
+            self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod behavior;\n')
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 1 }\n')
+            base = self.commit()
+            self.write('crates/core/src/behavior.rs', 'pub fn value() -> u8 { 2 }\n')
+            with self.subTest(kind=kind):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['consumer'])
+                self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_new_module_case_has_actual_selected_library_route(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', 'mod added;\n')
+        self.write('crates/core/src/added.rs', '#[test] fn positive() {}\n#[test] fn rejection() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+
+    def test_component_orphan_binary_and_unselected_integration_cannot_use_lib_inventory(self):
+        config = self.component_config()
+        for path in ('crates/core/src/orphan.rs', 'crates/core/src/bin/tool.rs',
+                     'crates/core/tests/new_integration.rs'):
+            base = self.git('rev-parse', 'HEAD')
+            self.write(path, '#[test] fn behavior() {}\n')
+            with self.subTest(path=path):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertNotIn('ordinary_execution', plan)
+                self.assertNotIn('ordinary_fast_targets', plan)
+                self.assertNotIn('ordinary_clippy_group', plan)
+                self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_unavailable_feature_keeps_expanded_execution(self):
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(feature="test_tier_full")] mod behavior;\n')
+        self.write('crates/core/src/behavior.rs', '#[test] fn contract() {}\n')
+        base = self.commit()
+        self.write('crates/core/src/behavior.rs', '#[test] fn contract() { assert!(true); }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_clippy_group', plan)
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_cannot_override_exact_wiring_or_explicit_risk(self):
+        config = self.component_config()
+        config['ordinary_fast_rules'][0]['added_declarations'] = ['mod allowed;']
+        self.write('crates/core/src/lib.rs', 'pub fn unrelated_change() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_execution', plan)
+        config = self.component_config()
+        self.write('crates/core/src/lib.rs', 'mod history;\n')
+        self.write('crates/core/src/history.rs', 'pub fn revision() -> u8 { 1 }\n')
+        base = self.commit()
+        self.write('crates/core/src/history.rs', 'pub fn revision() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+        self.assertIn('formal_process', plan['groups'])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_direct_web_rules_and_explicit_additions_keep_launcher(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        plan = selector.select(config, base, head, additions=('launcher_web',), profile='pr-fast')
+        self.assertIn('launcher_web', plan['groups'])
+        config['rules'].append({'match': ['web/**'], 'groups': ['launcher_web'], 'reason': 'web source'})
+        self.write('web/style.css', 'body { color: black; }')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertIn('launcher_web', plan['groups'])
+
+    def test_component_capability_requires_trusted_inventory_and_full_stays_complete(self):
+        config = self.component_config()
+        base, head = self.component_fixture()
+        old = self.bounded_config()
+        old_plan = selector.select(old, base, head, profile='pr-fast')
+        self.assertNotIn('ordinary_execution', old_plan)
+        self.assertNotIn('ordinary_clippy_group', old_plan)
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, head, policy_ref=base)
+            self.assertNotIn('ordinary_execution', plan)
+            self.assertNotIn('rust_baseline_checks', plan)
+            self.assertNotIn('ordinary_clippy_group', plan)
+            self.assertNotIn('build_policy_version', plan['architecture'])
+            self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+            self.assertEqual(plan['oasis7_required_wasm_packages'], ['core', 'other'])
+        for key, value in (('fast_execution_version', True), ('fast_execution_version', 2),
+                           ('ordinary_fast_component_rules', [])):
+            invalid = dict(config, **{key: value})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                selector.validate_config(invalid)
+        del config['fast_execution_version']
+        with self.assertRaises(ValueError):
+            selector.validate_config(config)
+
+    def test_component_clippy_owner_transfer_is_absent_for_shared_controls(self):
+        config = self.component_config()
+        base, _ = self.component_fixture()
+        self.write('Cargo.lock', '# shared dependency input\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertNotIn('ordinary_clippy_group', plan)
+        self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def test_component_keeps_baseline_checks_for_affected_inputs(self):
+        config = self.component_config()
+        config['rules'].append({'match': ['tools/standalone/**'], 'groups': [], 'reason': 'standalone tool'})
+        base, _ = self.component_fixture()
+        self.write('tools/standalone/source.py', '# changed standalone input\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['rust_baseline_checks'], ['standalone_tool_lockfiles'])
+
+    def test_registered_components_keep_cross_crate_behavior_owners(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        state = next(rule for rule in config['ordinary_fast_component_rules']
+                     if 'crates/oasis7_world_state/src/**' in rule['match'])
+        self.assertEqual(set(state['targets']), {'world-state-lib', 'runtime-lib', 'world-reducers'})
+        for target in config['ordinary_fast_targets'].values():
+            self.assertTrue(target['cases'])
+
+    def test_bounded_inventory_unmapped_reverse_consumer_retains_full_formal(self):
+        config = self.bounded_config()
+        self.write('crates/core/src/lib.rs', 'pub fn changed() {}\n')
+        self.write('crates/consumer/src/lib.rs', 'pub fn changed() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+
+    def test_bounded_inventory_unrelated_docs_do_not_expand_targets(self):
+        config = self.bounded_config()
+        self.write('crates/core/src/lib.rs', 'pub fn changed() {}\n')
+        self.write('doc/readme.md', 'updated documentation')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['fast_test_inventory_version'], 1)
+
+    def test_bounded_inventory_never_adds_unaffected_target_packages(self):
+        config = self.bounded_config()
+        config['ordinary_fast_targets']['core-lib']['package'] = 'other'
+        config['ordinary_fast_targets']['core-lib']['target_name'] = 'other'
+        self.write('crates/core/src/lib.rs', 'pub fn changed() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+
+    def test_bounded_inventory_controls_keep_original_full_scope(self):
+        config = self.bounded_config()
+        self.write('crates/core/src/lib.rs', 'pub fn changed() {}\n')
+        self.write('Cargo.lock', '# shared dependency update')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core', 'other'])
+
+    def test_bounded_inventory_old_policy_cannot_self_enrol_from_candidate(self):
+        config = self.bounded_config()
+        self.write('crates/core/src/lib.rs', 'pub fn changed() {}\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        plan = selector.select(self.fast_config(), self.base, self.commit(), profile='pr-fast')
+        self.assertNotIn('fast_test_inventory_version', plan)
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_full_profiles_supplement_every_target_without_reducing_inventory(self):
+        config = self.bounded_config()
+        config['ordinary_fast_targets']['other-test'] = {
+            'package': 'other', 'target_kind': 'test', 'target_name': 'fast',
+            'default_features': False, 'features': [], 'cases': ['contract']}
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile):
+                plan = selector.full_plan(config, profile, self.base, policy_ref=self.base)
+                self.assertEqual(plan['full_fast_test_inventory_version'], 1)
+                self.assertEqual(plan['ordinary_full_fast_targets'],
+                                 [config['ordinary_fast_targets'][key]
+                                  for key in sorted(config['ordinary_fast_targets'])])
+                self.assertEqual(set(plan['groups']), set(config['groups']))
+                self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core', 'other'])
+                self.assertEqual(plan['oasis7_required_wasm_packages'], ['core', 'other'])
+                self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_inventory_schema_rejects_invalid_capabilities_and_targets(self):
+        for field, value in (('fast_test_inventory_version', True), ('fast_test_inventory_version', 2),
+                             ('ordinary_fast_targets', []), ('ordinary_fast_rules', [])):
+            config = self.bounded_config()
+            config[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                selector.validate_config(config)
+        for field, value in (('package', 'unknown'), ('target_kind', 'bin'), ('target_name', '--all'),
+                             ('default_features', 'false'), ('features', ['default']),
+                             ('features', ['x', 'x']), ('features', ['dep/feature']),
+                             ('cases', []), ('cases', ['existing', 'existing']), ('cases', ['a b'])):
+            config = self.bounded_config()
+            config['ordinary_fast_targets']['core-lib'][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                selector.validate_config(config)
+        config = self.bounded_config()
+        config['ordinary_fast_targets']['duplicate'] = dict(config['ordinary_fast_targets']['core-lib'])
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            selector.validate_config(config)
+
+    def test_bounded_inventory_schema_rejects_nonexact_and_duplicate_rules(self):
+        for path in ('/crates/core/src/lib.rs', 'crates/core/src/../lib.rs', './crates/core/src/lib.rs',
+                     'crates/core/src//lib.rs', 'crates/core/src/*.rs', 'crates/core/src/[a].rs'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                selector.validate_config(self.bounded_config((path,)))
+        config = self.bounded_config()
+        config['ordinary_fast_rules'].append(dict(config['ordinary_fast_rules'][0]))
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            selector.validate_config(config)
+        for targets in (['absent'], ['core-lib', 'core-lib']):
+            config = self.bounded_config()
+            config['ordinary_fast_rules'][0]['targets'] = targets
+            with self.subTest(targets=targets), self.assertRaises(ValueError):
+                selector.validate_config(config)
+
+    def test_bounded_declaration_rules_accept_only_one_exact_wiring_item(self):
+        valid = ('pub mod incremental;', 'mod incremental;', 'pub(super) mod clock;',
+                 'pub use world::incremental::{Commit, Parent,};',
+                 '#[cfg(not(target_arch = "wasm32"))] pub mod incremental;')
+        invalid = ('pub mod incremental; fn bypass() {}', 'pub mod incremental {}',
+                   '#[cfg(feature="full")] pub mod incremental;',
+                   'pub use world::incremental::*;', 'pub use world::incremental::Commit as Other;')
+        for declaration in valid + invalid:
+            with self.subTest(declaration=declaration):
+                config = self.bounded_config()
+                config['ordinary_fast_rules'][0]['added_declarations'] = [declaration]
+                if declaration in valid:
+                    selector.validate_config(config)
+                else:
+                    with self.assertRaises(ValueError):
+                        selector.validate_config(config)
+
+    def test_bounded_declarations_allow_additions_and_multiline_exports(self):
+        config = self.bounded_config()
+        allowed = ['pub mod incremental;', 'pub use incremental::{Commit, Parent,};']
+        config['ordinary_fast_rules'][0]['added_declarations'] = allowed
+        self.write('crates/core/src/lib.rs', 'pub mod incremental;\npub use incremental::{\nCommit,\nParent,\n};\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['fast_test_inventory_version'], 1)
+
+    def test_bounded_declarations_reject_removed_replaced_or_extra_statements(self):
+        config = self.bounded_config()
+        config['ordinary_fast_rules'][0]['added_declarations'] = ['pub mod incremental;']
+        path = 'crates/core/src/lib.rs'
+        self.write(path, 'pub mod original;\n')
+        base = self.commit()
+        for after in ('pub mod incremental;\n', 'pub mod original;\npub mod incremental;\nfn hidden() {}\n', ''):
+            self.write(path, after)
+            with self.subTest(after=after):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_declarations_check_the_tested_merge_diff(self):
+        config = self.bounded_config()
+        config['ordinary_fast_rules'][0]['added_declarations'] = ['pub mod incremental;']
+        source, target, tested = self.merge_fixture(
+            resolution=('crates/core/src/lib.rs', 'pub mod incremental;\nfn hidden() {}\n'))
+        plan = selector.select(config, self.base, source, tested, profile='pr-fast')
+        self.assertNotIn('ordinary_fast_targets', plan)
+        self.assertEqual(plan['scope'], 'targeted')
+
+    def test_bounded_existing_gated_test_body_keeps_expanded_features(self):
+        config = self.bounded_config()
+        path = 'crates/core/src/lib.rs'
+        for gate in ('feature="test_tier_full"', 'all(test, feature="test_tier_full")'):
+            self.write(path, f'#[cfg({gate})] #[test] fn existing() {{ assert!(true); }}\n')
+            base = self.commit()
+            self.write(path, f'#[cfg({gate})] #[test] fn existing() {{ assert!(false); }}\n')
+            with self.subTest(gate=gate):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_existing_gated_production_body_keeps_expanded_features(self):
+        config = self.bounded_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[cfg(feature="test_tier_full")] pub fn production() -> u8 { 1 }\n')
+        base = self.commit()
+        self.write(path, '#[cfg(feature="test_tier_full")] pub fn production() -> u8 { 2 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_existing_inherited_gate_keeps_expanded_features(self):
+        path = 'crates/core/src/child.rs'
+        config = self.bounded_config((path,))
+        self.write('crates/core/src/lib.rs', '#[cfg(feature="test_tier_full")] mod child;\n')
+        self.write(path, '#[test] fn existing() { assert!(true); }\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() { assert!(false); }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_existing_enabled_gate_body_stays_fast(self):
+        config = self.bounded_config()
+        path = 'crates/core/src/lib.rs'
+        for gate in ('feature="test_tier_required"', 'test', 'unix', 'not(target_arch="wasm32")'):
+            self.write(path, f'#[cfg({gate})] #[test] fn existing() {{ assert!(true); }}\n')
+            base = self.commit()
+            self.write(path, f'#[cfg({gate})] #[test] fn existing() {{ assert!(false); }}\n')
+            with self.subTest(gate=gate):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertFalse(plan['test_policy_changed'])
+                self.assertEqual(plan['fast_test_inventory_version'], 1)
+
+    def test_bounded_new_lib_case_uses_actual_selected_target_root(self):
+        config = self.bounded_config()
+        self.write('crates/core/src/lib.rs', '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write('crates/core/src/lib.rs', '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['fast_test_inventory_version'], 1)
+
+    def bounded_shared_fixture(self, cross_owner=False, root_contents=None):
+        child = ('crates/consumer/tests/shared.rs' if cross_owner else 'crates/core/src/shared.rs')
+        root = 'crates/core/tests/fast.rs'
+        relative = '../../consumer/tests/shared.rs' if cross_owner else '../src/shared.rs'
+        self.write('crates/core/src/lib.rs', 'mod shared;\n' if not cross_owner else '')
+        self.write(root, root_contents if root_contents is not None else
+                   f'mod contract {{ include!("{relative}"); }}\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        base = self.commit()
+        config = self.bounded_config((child,))
+        config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name='fast')
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        return config, base, self.commit(), child
+
+    def test_bounded_shared_mod_and_include_new_case_has_selected_root_proof(self):
+        config, base, head, _ = self.bounded_shared_fixture()
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['fast_test_inventory_version'], 1)
+        legacy = selector.select(self.fast_config(), base, head, profile='pr-fast')
+        self.assertTrue(legacy['test_policy_changed'])
+
+    def test_bounded_cross_package_literal_path_new_case_has_selected_root_proof(self):
+        config, base, head, _ = self.bounded_shared_fixture(
+            cross_owner=True, root_contents='#[path="../../consumer/tests/shared.rs"] mod contract;\n')
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['fast_test_inventory_version'], 1)
+
+    def test_bounded_shared_case_wrong_or_disabled_selected_root_expands(self):
+        for root_contents in ('#[test] fn unrelated() {}\n',
+                              '#![cfg(feature="test_tier_full")]\n'
+                              'mod contract { include!("../src/shared.rs"); }\n'):
+            config, base, head, _ = self.bounded_shared_fixture(root_contents=root_contents)
+            with self.subTest(root_contents=root_contents):
+                plan = selector.select(config, base, head, profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertNotIn('ordinary_fast_targets', plan)
+        config['ordinary_fast_targets']['core-lib']['target_name'] = 'missing'
+        self.assertNotIn('ordinary_fast_targets', selector.select(config, base, head, profile='pr-fast'))
+
+    def test_bounded_shared_case_unselected_manifest_harness_does_not_prove_execution(self):
+        self.write('crates/core/Cargo.toml', Path('crates/core/Cargo.toml').read_text() +
+                   '\n[[test]]\nname="fast"\nharness=false\n')
+        config, base, head, _ = self.bounded_shared_fixture()
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_bounded_shared_new_case_mixed_unmapped_input_keeps_legacy_proof(self):
+        config, base, _, _ = self.bounded_shared_fixture()
+        self.write('crates/core/src/unmapped.rs', 'pub fn changed() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_fast_history_risk_selects_logical_suite_and_cross_shard_dependencies(self):
+        config = self.fast_config()
+        inventory = json.loads((HERE / 'ci-formal-process-suites.json').read_text())
+        self.write('crates/core/src/history.rs', 'pub fn prune() {}')
+        head = self.commit()
+        plan = selector.select(config, self.base, head, profile='pr-fast', formal_inventory=inventory)
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+        self.assertEqual(plan['formal_shards'], ['world-history'])
+        self.assertIn('formal_process', plan['groups'])
+        self.assertEqual(selector.formal_shards(['healthy-set'], inventory),
+                         ['healthy-set', 'lifecycle-cli', 'storage-recovery'])
+
+    def test_fast_unknown_formal_mapping_and_controls_preserve_old_coverage(self):
+        config = self.fast_config()
+        self.write('crates/consumer/src/lib.rs', 'pub fn new_protocol_behavior() {}')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer'])
+        self.write('Cargo.lock', '# shared dependency update')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core', 'other'])
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core', 'other'])
+        self.assertEqual(set(plan['groups']), set(config['groups']))
+
+    def test_fast_directory_rule_without_package_graph_keeps_complete_required_inventory(self):
+        config = self.fast_config()
+        config['rules'].append({'match': ['data/runtime-input.json'],
+                                'groups': ['oasis7_required'], 'reason': 'external fixture'})
+        self.write('data/runtime-input.json', '{}')
+        plan = selector.select(config, self.base, self.commit(), profile='main-fast')
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core', 'other'])
+        self.assertEqual(plan['oasis7_required_wasm_packages'], ['core', 'other'])
+
+    def test_fast_added_plain_and_tokio_tests_keep_the_ordinary_feature_plan(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        before = ('#[test] fn existing() {}\n'
+                  '#[cfg(test)] mod tests { #[test] fn existing_nested() {} }\n')
+        self.write(path, before)
+        base = self.commit()
+        candidates = [
+            before + '#[test] fn added() {}\n',
+            before + '#[tokio::test] async fn added() {}\n',
+            before + '#[tokio::test(flavor = "current_thread")] async fn added() {}\n',
+            before.replace('fn existing_nested() {}', 'fn existing_nested() {} #[test] fn added() {}'),
+            before + '#[cfg(test)] mod additional_tests { #[test] fn added() {} }\n',
+        ]
+        for after in candidates:
+            with self.subTest(after=after):
+                self.write(path, after)
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertFalse(plan['test_policy_changed'])
+                self.assertEqual(plan['test_policy_paths'], [])
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+
+    def test_fast_test_support_helper_does_not_change_test_execution(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'test-support=[]\n')
+        self.write('crates/core/src/lib.rs', '#[cfg(test)] mod tests { #[test] fn existing() {} }\n')
+        base = self.commit()
+        self.write('crates/core/src/lib.rs', '#[cfg(test)] mod tests { #[test] fn existing() {} }\n'
+                   '#[cfg(any(test, feature="test-support"))] pub mod measurement_counts;\n')
+        self.write('crates/core/src/measurement_counts.rs', 'pub fn count() -> usize { 0 }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+        # A known --lib driver needs no expanded-feature support when `test`
+        # proves this helper's condition independently of the extra feature.
+        config['oasis7_required_packages'].remove('core')
+        config['package_groups']['core'] = ['consensus']
+        config['groups'].append('consensus')
+        config['resources']['consensus'] = []
+        plan = selector.select(config, base, self.git('rev-parse', 'HEAD'), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_fast_test_support_boolean_proof_preserves_declaration_and_gate_checks(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() {}\n'
+                   '#[cfg(any(test, feature="undeclared"))] mod helper {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'not declared by its executing package'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'test-support=[]\n')
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        for gate in ('all(test, feature="test-support")', 'not(test)',
+                     'all(any(test, feature="test-support"), any())'):
+            self.write(path, f'#[cfg({gate})] #[test] fn existing() {{}}\n')
+            with self.subTest(gate=gate), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_new_native_items_keep_affected_packages_and_formal_risks(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, 'pub fn existing() {}\n')
+        base = self.commit()
+        for addition in ('#[cfg(not(target_arch="wasm32"))] pub fn added() {}\n',
+                         '#[cfg(all(unix, not(target_arch="wasm32")))] mod native;\n'):
+            self.write(path, 'pub fn existing() {}\n' + addition)
+            self.write('crates/core/src/native.rs', 'pub fn behavior() {}\n')
+            with self.subTest(addition=addition):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+                self.assertEqual(plan['formal_suites'], [])
+                self.assertFalse(plan['test_policy_changed'])
+        self.write(path, 'pub fn existing() {}\nmod history;\n')
+        self.write('crates/core/src/history.rs', '#[cfg(unix)] pub fn added_history() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+
+    def test_fast_new_native_items_do_not_hide_existing_or_unknown_gates(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, 'pub fn existing() {}\n')
+        base = self.commit()
+        for after in ('#[cfg(unix)] pub fn existing() {}\n',
+                      'pub fn existing() {}\n#[cfg(windows)] pub fn added() {}\n',
+                      'pub fn existing() {}\n#[cfg(unknown_target)] pub fn added() {}\n',
+                      'pub fn existing() {}\ngenerate! { #[cfg(unix)] pub fn added() {} }\n'):
+            self.write(path, after)
+            with self.subTest(after=after):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'full')
+
+    def test_fast_native_integration_file_and_literal_child_use_ordinary_driver(self):
+        config = self.fast_config()
+        parent = 'crates/core/tests/behavior.rs'
+        child = 'crates/core/tests/support/behavior.rs'
+        base = self.git('rev-parse', 'HEAD')
+        self.write(parent, '#![cfg(all(unix, not(target_arch="wasm32")))]\n'
+                   '#[path="support/behavior.rs"] mod support;\n')
+        self.write(child, '#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertEqual(plan['oasis7_required_packages'], ['core'])
+        base = self.git('rev-parse', 'HEAD')
+        self.write(child, '#[test] fn added() {}\n#[test] fn another() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_fast_external_module_requires_every_parent_and_real_harness(self):
+        config = self.fast_config()
+        parent = 'crates/core/tests/behavior.rs'
+        child = 'crates/core/tests/support/behavior.rs'
+        self.write(parent, '#[path="support/behavior.rs"] mod support;\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        self.write('crates/core/tests/full.rs', '#![cfg(feature="test_tier_full")]\n'
+                   '#[path="support/behavior.rs"] mod full_support;\n')
+        base = self.commit()
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+
+        self.assertIn(child, plan['test_policy_paths'])
+        self.write('crates/core/tests/full.rs', '')
+        self.write('crates/core/Cargo.toml', Path('crates/core/Cargo.toml').read_text()
+                   + '\n[[test]]\nname="behavior"\npath="tests/behavior.rs"\nharness=false\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_raw_path_cannot_hide_a_full_parent_of_a_shared_test_file(self):
+        config = self.fast_config()
+        child = 'crates/core/tests/support/cases.rs'
+        self.write('crates/core/tests/ordinary.rs', '#[path="support/cases.rs"] mod ordinary;\n')
+        self.write(child, '#[test] fn existing() {}\n')
+        for spelling in ('r"support/cases.rs"', 'r#"support/cases.rs"#'):
+            self.write('crates/core/tests/full.rs', '#![cfg(feature="test_tier_full")]\n'
+                       f'#[path={spelling}] mod expanded;\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(spelling=spelling):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_cross_package_path_and_include_cannot_authorize_shared_tests(self):
+        config = self.fast_config()
+        child = 'crates/core/src/lib.rs'
+        for reference in ('#[path="../../core/src/lib.rs"] mod shared;',
+                          'include!("../../core/src/lib.rs");'):
+            self.write(child, '#[test] fn existing() {}\n')
+            self.write('crates/other/src/lib.rs', '#[cfg(feature="test_tier_full")]\n' + reference + '\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(reference=reference):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertIn('other', plan['oasis7_required_packages'])
+
+    def test_fast_new_production_helper_excluded_from_harness_is_conservative(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(test))] pub fn production_helper() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['scope'], 'full')
+
+    def test_fast_escaped_module_paths_preserve_all_consumers_and_feature_checks(self):
+        config = self.fast_config()
+        cases = [
+            ('crates/core/tests/support/cases.rs', 'crates/core/tests/full.rs',
+             r'#[path="support/ca\x73es.rs"] mod expanded;'),
+            ('crates/core/src/lib.rs', 'crates/other/src/lib.rs',
+             r'#[path="../../core/src/li\x62.rs"] mod expanded;'),
+        ]
+        for child, parent, link in cases:
+            self.write('crates/core/tests/ordinary.rs', '#[path="support/cases.rs"] mod ordinary;\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            self.write(parent, '#[cfg(feature="test_tier_full")]\n' + link + '\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(link=link):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'full')
+                self.assertEqual(set(plan['groups']), set(config['groups']))
+                self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core', 'other'])
+                self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_inline_raw_identifier_preserves_full_parent_context(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[path="type/cases.rs"] mod ordinary;\n'
+                   'mod r#type { #[cfg(feature="test_tier_full")] mod cases; }\n')
+        child = 'crates/core/src/type/cases.rs'
+        self.write(child, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_known_include_chain_keeps_native_module_additions_ordinary(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] include!("native.rs");\n')
+        self.write('crates/core/src/native.rs', 'mod world;\n')
+        self.write('crates/core/src/world.rs', 'pub fn existing() {}\n')
+        base = self.commit()
+        self.write('crates/core/src/world.rs', 'pub fn existing() {}\n'
+                   '#[cfg(not(target_arch="wasm32"))] pub fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['oasis7_required_packages'], ['consumer', 'core'])
+
+    def test_fast_new_external_case_cannot_inherit_a_disabled_parent(self):
+        config = self.fast_config()
+        child = 'crates/core/src/checks.rs'
+        for gate in ('windows', 'all(test, feature="unexecuted")'):
+            self.write('crates/core/src/lib.rs', f'#[cfg({gate})] mod checks;\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(gate=gate), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_escaped_unknown_parent_gate_cannot_hide_new_cases_in_full_scope(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'custom_off=[]\n')
+        child = 'crates/core/src/cases.rs'
+        for reference in (r'#[path="ca\x73es.rs"] mod child;',
+                          r'#[cfg_attr(test, path="ca\x73es.rs")] mod child;',
+                          r'include!("ca\x73es.rs");'):
+            self.write('crates/core/src/lib.rs', '#[cfg(feature="custom_off")]\n' + reference + '\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(reference=reference), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_inline_include_keeps_every_parent_gate(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'custom_off=[]\n')
+        child = 'crates/core/src/cases.rs'
+        for feature in ('test_tier_full', 'custom_off'):
+            self.write('crates/core/src/lib.rs', '#[path="cases.rs"] mod ordinary;\n'
+                       f'#[cfg(feature="{feature}")] mod expanded {{ include!("cases.rs"); }}\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(feature=feature):
+                if feature == 'custom_off':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                        selector.select(config, base, self.commit(), profile='pr-fast')
+                else:
+                    plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                    self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_inline_path_context_cannot_hide_an_additional_parent_gate(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + 'custom_off=[]\n')
+        child = 'crates/core/src/full/cases.rs'
+        for feature in ('test_tier_full', 'custom_off'):
+            self.write('crates/core/src/lib.rs', '#[path="full/cases.rs"] mod ordinary;\n'
+                       '#[path="full"] mod expanded {\n'
+                       f'    #[cfg(feature="{feature}")] mod cases;\n}}\n')
+            self.write(child, '#[test] fn existing() {}\n')
+            base = self.commit()
+            self.write(child, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+            with self.subTest(feature=feature):
+                if feature == 'custom_off':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                        selector.select(config, base, self.commit(), profile='pr-fast')
+                else:
+                    plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                    self.assertTrue(plan['test_policy_changed'])
+                    self.assertEqual(plan['scope'], 'full')
+
+    def test_fast_support_integration_addition_requires_expanded_target_execution(self):
+        config = self.fast_config()
+        package = 'oasis7_agent_harness'
+        config['groups'].append('workspace_support')
+        config['resources']['workspace_support'] = []
+        config['package_groups'][package] = ['workspace_support']
+        self.write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\n')
+        self.write(f'crates/{package}/src/lib.rs', '')
+        base = self.commit()
+        path = f'crates/{package}/tests/new.rs'
+        self.write(path, '#[test] fn integration_regression() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [path])
+        self.assertEqual(plan['workspace_support_profiles'], [package])
+
+    def test_fast_added_plain_case_does_not_mask_an_existing_tier_change(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[cfg(feature = "test_tier_required")] #[test] fn regression() {}\n')
+        base = self.commit()
+        self.write(path, '#[cfg(feature = "test_tier_full")] #[test] fn regression() {}\n'
+                         '#[test] fn additional_ordinary_case() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [path])
+        self.assertTrue(any('full features' in reason for reason in plan['fast_plan_exceptions']))
+
+    def test_fast_new_full_cases_keep_direct_module_and_file_gate_coverage(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        cases = [
+            ('#[test] fn existing() {}\n',
+             '#[test] fn existing() {}\n#[cfg(feature = "test_tier_full")] #[test] fn added() {}\n'),
+            ('#[cfg(feature = "test_tier_full")] mod tests {}\n',
+             '#[cfg(feature = "test_tier_full")] mod tests { #[test] fn added() {} }\n'),
+            ('#![cfg(feature = "test_tier_full")]\n',
+             '#![cfg(feature = "test_tier_full")]\n#[test] fn added() {}\n'),
+        ]
+        for before, after in cases:
+            with self.subTest(after=after):
+                self.write(path, before)
+                base = self.commit()
+                self.write(path, after)
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertEqual(plan['test_policy_paths'], [path])
+                self.assertTrue(any('full features' in reason for reason in plan['fast_plan_exceptions']))
+
+    def test_fast_new_file_level_test_gate_is_ordinary_but_full_still_expands(self):
+        config = self.fast_config()
+        for index, gate in enumerate(('test', 'feature = "test_tier_full"')):
+            path = f'crates/core/tests/added_{index}.rs'
+            base = self.git('rev-parse', 'HEAD')
+            self.write(path, f'#![cfg({gate})]\n#[test] fn added() {{}}\n')
+            plan = selector.select(config, base, self.commit(), profile='pr-fast')
+            expanded = gate != 'test'
+            self.assertEqual(plan['test_policy_changed'], expanded)
+            self.assertEqual(plan['test_policy_paths'], [path] if expanded else [])
+            self.assertEqual(plan['oasis7_required_packages'], ['core'])
+
+    def test_fast_plain_case_in_external_module_keeps_unresolved_parent_gate_coverage(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', '#[cfg(feature = "test_tier_full")] mod checks;\n')
+        path = 'crates/core/src/checks.rs'
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [path])
+
+    def test_fast_plain_integration_addition_keeps_cargo_target_gates_conservative(self):
+        config = self.fast_config()
+        path = 'crates/core/tests/behavior.rs'
+        self.write(path, '#[test] fn existing() {}\n')
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        base = self.commit()
+        self.write(path, '#[test] fn existing() {}\n#[test] fn ordinary_added() {}\n')
+        ordinary = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertFalse(ordinary['test_policy_changed'])
+        self.assertEqual(ordinary['oasis7_required_packages'], ['core'])
+        self.write('crates/core/Cargo.toml', manifest + '\n[[test]]\nname="behavior"\npath="tests/behavior.rs"\n'
+                   'required-features=["test_tier_full"]\n')
+        base = self.commit()
+        self.write(path, '#[test] fn existing() {}\n#[test] fn ordinary_added() {}\n#[test] fn full_added() {}\n')
+        gated = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(gated['test_policy_changed'])
+        self.assertEqual(gated['test_policy_paths'], [path])
+
+    def test_fast_unproven_new_case_gates_or_macro_context_are_not_ordinary_additions(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[cfg(feature = "unknown_gate")] mod tests {}\n')
+        base = self.commit()
+        self.write(path, '#[cfg(feature = "unknown_gate")] mod tests { #[test] fn added() {} }\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+        self.write(path, '#[test] fn existing() {}\n')
+        base = self.commit()
+        for addition in ('#[unknown_macro] #[test] fn added() {}\n',
+                         'unknown_macro! { #[test] fn added() {} }\n'):
+            with self.subTest(addition=addition):
+                self.write(path, '#[test] fn existing() {}\n' + addition)
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+
+    def test_fast_test_owner_deletion_or_rename_still_requires_review(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test] fn original() {}\n')
+        base = self.commit()
+        for after in ('', '#[test] fn renamed() {}\n'):
+            with self.subTest(after=after):
+                self.write(path, after)
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertEqual(plan['test_policy_paths'], [path])
+                self.assertTrue(any('independent retirement review' in reason for reason in plan['fast_plan_exceptions']))
+
+    def test_fast_item_macros_keep_full_coverage_for_every_delimiter(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        before = ('macro_rules! gated { ($($item:item)*) => { '
+                  '#[cfg(feature = "test_tier_full")] mod generated { $($item)* } }; }\n')
+        self.write(path, before)
+        base = self.commit()
+        for opening, closing in (('(', ')'), ('[', ']'), ('{', '}')):
+            with self.subTest(opening=opening):
+                self.write(path, before + 'gated!' + opening + '#[test] fn added() {}' + closing + ';\n')
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+                self.assertEqual(plan['test_policy_paths'], [path])
+
+    def test_fast_test_tier_downgrade_requires_full_feature_execution(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[cfg(feature = "test_tier_required")]\n#[test]\nfn regression() {}\n')
+        base = self.commit()
+        self.write(path, '#[cfg(feature = "test_tier_full")]\n#[test]\nfn regression() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [path])
+        self.assertIn('core', plan['oasis7_required_packages'])
+        self.assertTrue(any('full features' in reason for reason in plan['fast_plan_exceptions']))
+
+    def test_fast_unmapped_ignore_is_rejected_instead_of_silently_skipped(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test]\nfn regression() {}\n')
+        base = self.commit()
+        for annotation in ('#[ignore]', '#[cfg_attr(feature = "test_tier_full", ignore)]'):
+            with self.subTest(annotation=annotation):
+                self.write(path, f'#[test]\n{annotation}\nfn regression() {{}}\n')
+                with self.assertRaisesRegex(selector.TestPolicyError, 'trusted execution mapping'):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_multiline_cfg_and_existing_attribute_on_another_case_cannot_hide_move(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        before = ('#[cfg(feature = "test_tier_full")]\n#[test]\nfn slow() {}\n'
+                  '#[test]\nfn important_regression() {}\n')
+        self.write(path, before)
+        base = self.commit()
+        self.write(path, before.replace('#[test]\nfn important_regression',
+                                       '#[cfg(\nfeature = "test_tier_full"\n)]\n#[test]\nfn important_regression'))
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.write(path, '#[cfg(\nfeature = "never_enabled_in_ci"\n)]\n#[test]\nfn important_regression() {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+        for expression in ('any()', 'never_enabled', 'not(feature = "test_tier_full")'):
+            self.write(path, f'#[cfg({expression})]\n#[test]\nfn important_regression() {{}}\n')
+            with self.subTest(expression=expression), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_cfg_examples_in_comments_and_strings_are_not_selection_controls(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs',
+                   '// #[cfg(feature = "unknown")]\n// #[ignore]\n'
+                   'const EXAMPLE: &str = r#"#[ignore] fn fixture() {}"#;\npub fn behavior() {}\n')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_fast_nested_cfg_cannot_remove_case_in_expanded_feature_combination(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test]\nfn regression() {}\n')
+        base = self.commit()
+        for annotation in ('#[cfg_attr(feature = "test_tier_full", cfg(any()))]',
+                           '#[cfg(all(feature = "test_tier_full", any()))]',
+                           '#![cfg(any())]'):
+            with self.subTest(annotation=annotation):
+                self.write(path, f'{annotation}\n#[test]\nfn regression() {{}}\n')
+                with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_native_test_cfg_must_be_true_on_its_actual_linux_driver(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test]\nfn regression() {}\n')
+        base = self.commit()
+        for expression in ('unix', 'target_os = "linux"', 'not(target_arch = "wasm32")',
+                           'all(unix, feature = "test_tier_full")'):
+            with self.subTest(expression=expression):
+                self.write(path, f'#[cfg({expression})]\n#[test]\nfn regression() {{}}\n')
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertTrue(plan['test_policy_changed'])
+        self.write(path, '#[cfg(windows)]\n#[test]\nfn regression() {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_default_driver_inherits_unix_without_expanded_feature_permission(self):
+        config = self.fast_config()
+        package = 'oasis7_distfs'
+        config['groups'].append('distfs')
+        config['resources']['distfs'] = []
+        config['package_groups'][package] = ['distfs']
+        self.write(f'crates/{package}/Cargo.toml',
+                   '[package]\nname="oasis7_distfs"\nversion="0.1.0"\n'
+                   '[features]\ntest_tier_full=[]\noptional_lane=[]\n')
+        self.write(f'crates/{package}/src/lib.rs', '#[cfg(all(test, unix))] mod nested;\n')
+        path = f'crates/{package}/src/nested.rs'
+        self.write(path, '#[test] fn original() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertIn('distfs', plan['groups'])
+        for expression in ('windows', 'feature="optional_lane"',
+                           'all(unix, feature="test_tier_full")'):
+            with self.subTest(expression=expression):
+                self.write(path, '#[test] fn original() {}\n'
+                           + f'#[cfg({expression})] #[test] fn added() {{}}\n')
+                with self.assertRaises(selector.TestPolicyError):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+        # A shared source cannot borrow the known package's Linux mapping
+        # for another owner without a proven native/expanded test driver.
+        config['oasis7_required_packages'].remove('other')
+        self.write('crates/other/src/lib.rs',
+                   '#[path="../../oasis7_distfs/src/nested.rs"] mod shared;\n')
+        self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_storage_mapping_does_not_authorize_an_unexecuted_binary(self):
+        config = self.fast_config()
+        config['groups'].append('distfs')
+        config['resources']['distfs'] = []
+        config['package_groups']['oasis7_distfs'] = ['distfs']
+        self.write('crates/oasis7_distfs/Cargo.toml',
+                   '[package]\nname="oasis7_distfs"\nversion="0.1.0"\n')
+        self.write('crates/oasis7_distfs/src/lib.rs', '')
+        path = 'crates/oasis7_distfs/src/bin/unexecuted.rs'
+        self.write(path, 'fn main() {}\n')
+        base = self.commit()
+        self.write(path, 'fn main() {}\n#[cfg(unix)] #[test] fn unexecuted() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_inherited_default_feature_uses_owning_package_manifest(self):
+        config = self.fast_config()
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest + '\ndefault=["transport"]\ntransport=["node-libp2p"]\nnode-libp2p=[]\noptional_lane=[]\n')
+        self.write('crates/core/src/lib.rs', '#[cfg(all(unix, feature="node-libp2p"))] mod native;\n')
+        path = 'crates/core/src/native.rs'
+        self.write(path, '#[test] fn original() {}\n')
+        base = self.commit()
+        self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        for expression in ('feature="optional_lane"', 'not(feature="node-libp2p")'):
+            with self.subTest(expression=expression):
+                self.write(path, f'#[test] fn original() {{}}\n#[cfg({expression})] #[test] fn added() {{}}\n')
+                with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+                    selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_cross_module_same_function_name_cannot_hide_test_tier_move(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, 'mod first { #[cfg(feature = "test_tier_full")] #[test] fn regression() {} }\n'
+                         'mod second { #[test] fn regression() {} }\n')
+        base = self.commit()
+        self.write(path, 'mod first { #[test] fn regression() {} }\n'
+                         'mod second { #[cfg(feature = "test_tier_full")] #[test] fn regression() {} }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [path])
+
+    def test_fast_tier_feature_requires_actual_expanded_driver_for_owning_package(self):
+        config = self.fast_config()
+        # This package has its own necessary group but no ordinary/support
+        # runner that consumes test_policy_changed. Its dependent packages do
+        # not authorize a tier migration in this package's test harness.
+        config['oasis7_required_packages'].remove('other')
+        config['package_groups']['other'] = ['other']
+        path = 'crates/other/src/lib.rs'
+        self.write(path, '#[test]\nfn regression() {}\n')
+        manifest = Path('crates/other/Cargo.toml').read_text()
+        self.write('crates/other/Cargo.toml', manifest.replace('test_tier_full=["test_tier_required"]\n', ''))
+        base = self.commit()
+        self.write('crates/other/Cargo.toml', manifest)
+        self.write(path, '#[cfg(feature = "test_tier_full")]\n#[test]\nfn regression() {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'no expanded-feature driver'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_tier_feature_must_be_declared_by_the_actual_executing_package(self):
+        config = self.fast_config()
+        path = 'crates/core/src/lib.rs'
+        self.write(path, '#[test]\nfn regression() {}\n')
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest.replace('test_tier_full=["test_tier_required"]\n', ''))
+        base = self.commit()
+        self.write(path, '#[cfg(feature = "test_tier_full")]\n#[test]\nfn regression() {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'not declared by its executing package'):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_production_platform_cfg_expands_without_test_policy_rejection(self):
+        config = self.fast_config()
+        self.write('crates/core/src/lib.rs', 'pub fn product_path() {}\n')
+        base = self.commit()
+        self.write('crates/core/src/lib.rs', '#[cfg(unix)]\npub fn product_path() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assertEqual(set(plan['groups']), set(config['groups']))
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertTrue(any('production cfg changed' in reason for reason in plan['reasons']))
+
+    def test_fast_same_ignored_short_name_in_other_binary_does_not_authorize_skip(self):
+        config = self.fast_config()
+        inventory = {'suites': {name: [] for name in selector.FORMAL_SUITES}}
+        inventory['suites']['runtime-protocol'] = [
+            {'binary': 'unrelated-tests', 'name': 'unrelated::regression', 'ignored': True}]
+        self.write('crates/core/src/lib.rs', '#[test]\n#[ignore]\nfn regression() {}\n')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'trusted execution mapping'):
+            selector.select(config, self.base, self.commit(), profile='pr-fast', formal_inventory=inventory)
+
+    def test_fast_deleted_or_renamed_test_keeps_owner_and_review_reason(self):
+        config = self.fast_config()
+        path = 'crates/core/tests/old.rs'
+        self.write(path, '#[test]\nfn regression() {}\n')
+        base = self.commit()
+        self.git('mv', path, 'crates/core/tests/new.rs')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertEqual(plan['oasis7_required_packages'], ['core'])
+        self.assertEqual(plan['test_policy_paths'], ['crates/core/tests/new.rs', path])
+
+    def test_fast_docs_do_not_claim_rust_or_test_results(self):
+        config = self.fast_config()
+        self.write('doc/readme.md', 'documentation only')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['groups'], ['baseline'])
+        self.assertEqual(plan['oasis7_required_packages'], [])
+        self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+        self.assertEqual(plan['formal_suites'], [])
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_fast_command_center_ui_does_not_package_but_native_or_mixed_inputs_do(self):
+        config = self.fast_config()
+        self.write('tools/oasis7-command-center/ui/src/App.tsx', 'ui fixture')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertFalse(plan['command_center_package'])
+        self.write('tools/oasis7-command-center/native/src/main.rs', 'fn main() {}')
+        plan = selector.select(config, self.base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['command_center_package'])
+
+    def test_fast_capability_must_come_from_trusted_config(self):
+        self.write('crates/core/src/lib.rs', 'pub fn change() {}')
+        head = self.commit()
+        with self.assertRaisesRegex(ValueError, 'trusted baseline fast_scope_version'):
+            selector.select(self.config, self.base, head, profile='pr-fast')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.fast_config()))
+        with self.assertRaisesRegex(ValueError, 'trusted baseline fast_scope_version'):
+            selector.select(self.config, self.base, self.commit(), profile='pr-fast')
+
+    def test_full_profile_expands_inventory_without_diff_and_binds_fixed_identity(self):
+        config = self.fast_config()
+        for profile in ('periodic-full', 'candidate-full'):
+            with self.subTest(profile=profile), patch.object(selector, 'changed_paths',
+                                                           side_effect=AssertionError('must not diff')):
+                plan = selector.full_plan(config, profile, self.base, policy_ref=self.base)
+            self.assertEqual(plan['scope'], 'explicit-full')
+            self.assertEqual(set(plan['groups']), set(config['groups']))
+            self.assertEqual(plan['source_sha'], self.base)
+            self.assertEqual(plan['tested_sha'], self.base)
+            self.assertEqual(plan['policy_sha'], self.base)
+            self.assertEqual(plan['formal_suites'], sorted(selector.FORMAL_SUITES))
+            self.assertTrue(plan['command_center_package'])
+            self.assertEqual(plan['check_inventory_version'], selector.CHECK_INVENTORY_VERSION)
+
+    def test_full_cli_outputs_all_groups_and_actual_matrix_not_old_empty_plan(self):
+        config = self.fast_config()
+        self.write('config.json', json.dumps(config))
+        arguments = ['selector', '--profile', 'periodic-full', '--head-ref', self.base,
+                     '--policy-ref', self.base, '--config', 'config.json', '--github-output', 'outputs.txt']
+        with patch.object(sys, 'argv', arguments), contextlib.redirect_stdout(io.StringIO()):
+            selector.main()
+        outputs = dict(line.split('=', 1) for line in Path('outputs.txt').read_text().splitlines())
+        plan = json.loads(outputs['plan'])
+        self.assertEqual(set(plan['groups']), set(config['groups']))
+        self.assertTrue(all(outputs['run_' + group] == 'true' for group in config['groups']))
+        self.assertEqual(json.loads(outputs['formal_shards']), sorted(selector.FORMAL_SUITES))
+        self.assertEqual(outputs['command_center_package'], 'true')
+
+
+
+class LocalStatementCfgOwners(unittest.TestCase):
+    PATH = 'crates/oasis7_chain_runtime/src/host/execution_bridge/tests/qa_conformance/application_stream_boundaries.rs'
+    BEFORE = ('#[test] fn existing() {}\n'
+              '#[cfg(any(target_os = "macos", target_os = "linux"))]\n'
+              'fn small_buffers() {\n'
+              '  #[cfg(target_os = "macos")]\n'
+              '  let (level, send, receive) = (0xffff, 0x1001, 0x1002);\n'
+              '  #[cfg(target_os = "linux")]\n'
+              '  let (level, send, receive) = (1, 7, 8);\n}')
+
+    def policy(self, before, after):
+        def source(*args):
+            self.assertEqual(args[0], 'show')
+            ref, path = args[1].split(':', 1)
+            self.assertEqual(path, self.PATH)
+            return {'base': before, 'source': after}[ref].encode()
+        with patch.object(selector, 'git', side_effect=source):
+            return selector.changed_test_policy(
+                'base', 'source', [self.PATH], {self.PATH: {'oasis7_chain_runtime'}},
+                {'oasis7_chain_runtime'}, {'oasis7_chain_runtime': {'test_tier_required', 'test_tier_full'}})
+
+    def test_unchanged_local_cfg_is_stable_after_unrelated_tokens(self):
+        after = 'struct OrderedResponseProgress { complete: bool }\n' + self.BEFORE
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+        after = self.BEFORE.replace('fn small_buffers() {', 'fn small_buffers() { let unrelated = 7;')
+        self.assertEqual(self.policy(self.BEFORE, after), ([], False, []))
+
+    def test_changed_or_new_local_cfg_still_requires_validated_driver(self):
+        variants = [
+            self.BEFORE.replace('cfg(target_os = "macos")', 'cfg(target_os = "windows")'),
+            self.BEFORE.replace('fn small_buffers() {',
+                                'fn small_buffers() { #[cfg(target_os = "macos")] let extra = 1;'),
+            self.BEFORE.replace('(0xffff, 0x1001, 0x1002)', '(0xffff, 0x1001, 0x1003)'),
+        ]
+        for after in variants:
+            with self.subTest(after=after), self.assertRaisesRegex(
+                    selector.TestPolicyError, 'validated test feature combinations'):
+                self.policy(self.BEFORE, after)
+
+    def test_method_scopes_keep_conservative_handling(self):
+        body = self.BEFORE.split('fn small_buffers() ', 1)[1]
+        before = '#[test] fn existing() {}\nimpl First { fn small_buffers() ' + body + ' }'
+        after = 'struct NewItem;\n' + before.replace('impl First', 'impl Second')
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            self.policy(before, after)
+
+    def test_moving_local_cfg_to_another_function_is_not_unchanged(self):
+        moved = self.BEFORE.replace(
+            '  #[cfg(target_os = "macos")]\n  let (level, send, receive) = (0xffff, 0x1001, 0x1002);\n', '')
+        moved += '\nfn other() { #[cfg(target_os = "macos")] let (level, send, receive) = (0xffff, 0x1001, 0x1002); }'
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            self.policy(self.BEFORE, moved)
+
+
+
+class AlternativeModuleMounts(unittest.TestCase):
+    LEAF = 'crates/core/src/cases.rs'
+    ROOT = 'crates/core/src/lib.rs'
+
+    def policy(self, *, test_mount=True, extra=None, test_gate='', defaults=(), root_gate=''):
+        # Exact shape of host production mount versus its real test bridge.
+        source = {
+            self.ROOT: (root_gate + 'mod host;').encode(),
+            'crates/core/src/host.rs': (
+                '#[cfg(not(test))] #[path="shared/mod.rs"] mod production;\n'
+                + ('#[cfg(test)] #[path="real_tests.rs"] mod real;\n' if test_mount else '')
+            ).encode(),
+            'crates/core/src/real_tests.rs': (test_gate + '#[path="shared/mod.rs"] mod real_bridge;').encode(),
+            'crates/core/src/shared/mod.rs': b'#[cfg(test)] #[path="../cases.rs"] mod cases;',
+            self.LEAF: b'#[test] fn existing() {}\n#[test] fn added() {}',
+        }
+        uncertain = set()
+        if extra == 'expanded_include':
+            source[self.ROOT] += b'\n#[cfg(feature="test_tier_full")] mod extra;'
+            source['crates/core/src/extra.rs'] = b'include!("cases.rs");'
+        elif extra:
+            source[self.ROOT] += (b'\n#[cfg(test)] mod extra;' if extra.endswith('_plain')
+                                  else b'\n#[cfg(feature="custom_off")] mod extra;')
+            if extra in ('unknown_include', 'unknown_include_plain'):
+                source['crates/core/src/extra.rs'] = b'include!(concat!("ca", "ses.rs"));'
+                uncertain.add('crates/core/src/extra.rs')
+            elif extra in ('cycle', 'cycle_plain'):
+                source['crates/core/src/extra.rs'] = b'#[path="shared/mod.rs"] mod bridge; #[path="cycle.rs"] mod cycle;'
+                source['crates/core/src/cycle.rs'] = b'#[path="extra.rs"] mod back;'
+            else:
+                source['crates/core/src/extra.rs'] = b'#[path="shared/mod.rs"] mod bridge;'
+        before = '#[test] fn existing() {}'
+        after = source[self.LEAF].decode()
+        def read(*args):
+            self.assertEqual(args[0], 'show')
+            ref, path = args[1].split(':', 1)
+            self.assertEqual(path, self.LEAF)
+            return {'base': before, 'source': after}[ref].encode()
+        with patch.object(selector, 'git', side_effect=read):
+            return selector.changed_test_policy(
+                'base', 'source', [self.LEAF], {self.LEAF: {'core'}}, {'core'},
+                {'core': {'test_tier_required', 'test_tier_full', 'custom_off', 'native_driver', 'transport'}},
+                ordinary_roots={self.ROOT}, source_inputs={
+                    'sources': source, 'directories': {'core': 'crates/core'},
+                    'uncertain_modules': uncertain, 'unresolved_includes': (),
+                    'default_features': {'core': set(defaults)},
+                })
+
+    def test_production_and_test_mounts_are_alternative_paths(self):
+        paths, ignored, production = self.policy()
+        self.assertFalse(ignored)
+        self.assertFalse(production)
+        self.assertTrue(set(paths).issubset({self.LEAF}))
+
+    def test_alternative_paths_do_not_or_together_contradictory_same_path_gates(self):
+        with self.assertRaises(selector.TestPolicyError):
+            self.policy(test_gate='#![cfg(not(test))]\n')
+
+    def test_all_statically_disabled_paths_still_reject(self):
+        with self.assertRaises(selector.TestPolicyError):
+            self.policy(test_mount=False)
+
+    def test_known_test_path_cannot_hide_unknown_alternative_provenance(self):
+        for extra in ('unknown_feature', 'unknown_include', 'cycle'):
+            with self.subTest(extra=extra), self.assertRaises(selector.TestPolicyError):
+                self.policy(extra=extra)
+
+    def test_good_path_cannot_hide_plain_nonliteral_include_or_exact_cycle(self):
+        for extra in ('unknown_include_plain', 'cycle_plain'):
+            with self.subTest(extra=extra), self.assertRaises(selector.TestPolicyError):
+                self.policy(extra=extra)
+
+    def test_default_features_are_derived_transitively_from_manifest(self):
+        manifest = {'features': {'default': ['native_driver'],
+                                'native_driver': ['transport', 'dep:secret', 'foreign/feature'],
+                                'transport': []}}
+        defaults = selector.default_feature_closure(manifest)
+        self.assertEqual(defaults, {'default', 'native_driver', 'transport'})
+        paths, ignored, production = self.policy(
+            defaults=defaults, root_gate='#[cfg(feature="transport")] ')
+        self.assertFalse(ignored or production)
+        self.assertTrue(set(paths).issubset({self.LEAF}))
+        with self.assertRaises(selector.TestPolicyError):
+            self.policy(root_gate='#[cfg(feature="transport")] ')
+
+    def test_reachable_expanded_include_retains_feature_policy_coverage(self):
+        paths, ignored, production = self.policy(extra='expanded_include')
+        self.assertEqual(paths, [self.LEAF])
+        self.assertFalse(ignored)
+        self.assertFalse(production)
+
+class ExpandedNativeContracts(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    fast_config = Selection.fast_config
+    bounded_config = Selection.bounded_config
+    component_config = Selection.component_config
+
+    ROOT = 'crates/core/src/bounded.rs'
+    LEAF = 'crates/core/src/bounded/added.rs'
+
+    def fixture(self):
+        config = self.component_config()
+        config['ordinary_fast_rules'] = [{
+            'paths': [self.ROOT], 'targets': ['core-lib'], 'reason': 'static library wiring',
+            'added_declarations': ['mod registered;'], 'static_module_additions': True}]
+        self.write('crates/core/src/lib.rs', '#[cfg(not(target_arch="wasm32"))]\nmod bounded;\n')
+        self.write(self.ROOT, 'pub fn unchanged() {}\n')
+        return config, self.commit()
+
+    def test_static_new_module_and_actual_library_source_use_inline_execution(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn unchanged() {}\npub(super) mod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n#[test] fn rejection() {}\n')
+        head = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            plan = selector.select(config, base, head, profile=profile)
+            self.assertEqual(plan['ordinary_execution'], 'inline')
+            self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+            self.assertFalse(plan['test_policy_changed'])
+            self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+            legacy = json.loads(json.dumps(config))
+            del legacy['ordinary_fast_rules'][0]['static_module_additions']
+            self.assertNotIn('ordinary_execution', selector.select(legacy, base, head, profile=profile))
+
+    def test_static_root_requires_opt_in_complete_lib_and_no_other_edits(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn changed() {}\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        self.assertNotIn('ordinary_execution', selector.select(config, base, self.commit(), profile='pr-fast'))
+        for mutation in ('nonboolean', 'integration_only'):
+            invalid = json.loads(json.dumps(config))
+            if mutation == 'nonboolean':
+                invalid['ordinary_fast_rules'][0]['static_module_additions'] = 1
+            else:
+                invalid['ordinary_fast_targets']['core-lib']['target_kind'] = 'test'
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                selector.validate_config(invalid)
+
+    def test_static_only_rule_does_not_recheck_unchanged_full_feature_bodies(self):
+        config, base = self.fixture()
+        del config['ordinary_fast_rules'][0]['added_declarations']
+        body = '#[cfg(feature="test_tier_full")] pub fn existing_full() {}\n'
+        self.write(self.ROOT, body)
+        base = self.commit()
+        self.write(self.ROOT, body + 'mod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertFalse(plan['test_policy_changed'])
+
+    def test_static_module_helper_rejects_attributes_nested_code_and_existing_file(self):
+        config, base = self.fixture()
+        for statement in ('#[cfg(test)] mod added;', '#[path="bounded/added.rs"] mod added;',
+                          'mod added {}', 'fn inner() { mod added; }',
+                          'include!("bounded/added.rs");', 'pub use added::Value;'):
+            self.write(self.ROOT, 'pub fn unchanged() {}\n' + statement + '\n')
+            self.write(self.LEAF, '#[test] fn behavior() {}\n')
+            head = self.commit()
+            with self.subTest(statement=statement):
+                self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, head)]))
+            self.git('reset', '--hard', base)
+        self.write(self.LEAF, '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+
+    def test_static_module_requires_unique_regular_file_and_unchanged_prior_binding(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        self.write('crates/core/src/bounded/added/mod.rs', '#[test] fn ambiguous() {}\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+        self.git('reset', '--hard', base)
+        self.write(self.ROOT, '#[cfg(test)]\nmod existing;\n')
+        self.write('crates/core/src/bounded/existing.rs', '#[test] fn existing() {}\n')
+        base = self.commit()
+        self.write(self.ROOT, '#[cfg(test)]\nmod added;\nmod existing;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, self.commit())]))
+
+    def test_inserted_comments_cannot_hide_or_change_existing_rust_tokens(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, '/*\npub fn unchanged() {}\n*/\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        head = self.commit()
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, head)]))
+        self.assertNotIn('ordinary_execution', selector.select(config, base, head, profile='pr-fast'))
+
+    def test_static_module_keeps_formal_risk_and_unavailable_feature_expansion(self):
+        config, base = self.fixture()
+        config['formal_risk_rules'].append({'match': [self.LEAF], 'suites': ['world-history'],
+                                           'reason': 'explicit retained history'})
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+        self.assertNotIn('build_policy_version', plan['architecture'])
+        self.write(self.LEAF, '#![cfg(feature="test_tier_full")]\n#[test] fn behavior() {}\n')
+        self.assertNotIn('ordinary_execution', selector.select(config, base, self.commit(), profile='pr-fast'))
+
+    def test_static_module_proof_checks_every_source_and_tested_comparison(self):
+        config, base = self.fixture()
+        self.write(self.ROOT, 'pub fn unchanged() {}\nmod added;\n')
+        self.write(self.LEAF, '#[test] fn behavior() {}\n')
+        source = self.commit()
+        self.write(self.ROOT, 'pub fn replaced() {}\nmod added;\n')
+        tested = self.commit()
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, source), (source, tested)]))
+
+    def test_viewer_inventory_is_bounded_and_full_retains_exact_feature_variant(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        target = config['ordinary_fast_targets']['viewer-runtime-lib']
+        self.assertEqual((target['package'], target['target_kind'], target['target_name']),
+                         ('oasis7_viewer_runtime', 'lib', 'oasis7_viewer_runtime'))
+        self.assertFalse(target['default_features'])
+        self.assertEqual(target['features'], ['test_tier_required'])
+        viewer = [rule for rule in config['ordinary_fast_component_rules']
+                  if 'viewer-runtime-lib' in rule['targets']]
+        self.assertEqual(len(viewer), 1)
+        for path in ('crates/oasis7_viewer_runtime/src/viewer/auth.rs',
+                     'crates/oasis7_viewer_runtime/src/viewer/runtime_live/authoritative.rs',
+                     'crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs'):
+            self.assertFalse(any(fnmatch.fnmatchcase(path, pattern) for pattern in viewer[0]['match']))
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, self.base)
+            self.assertIn(target, plan['ordinary_full_fast_targets'])
+            self.assertIn('oasis7_viewer_runtime', plan['oasis7_required_packages'])
+
+
 class WorkerCompileProfiles(unittest.TestCase):
     package='oasis7_custody_worker'
     root='crates/oasis7_custody_worker/src/lib.rs'
@@ -207,3 +3634,7 @@ class WorkerActualLocalFeatureClosure(unittest.TestCase):
         manifest['dependencies']={'core':{'path':'../core'}}
         self.assertEqual(len(selector.worker_wasm_compile_features(manifest)),7)
         self.assertNotIn('execution-signer-harness',selector.worker_local_feature_closure(manifest,('owner',)))
+
+
+if __name__ == '__main__':
+    unittest.main()
