@@ -178,6 +178,7 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 | Runtime `pr_fast_incremental` | `oasis7/tests/incremental_runtime_commit.rs`、`incremental_runtime_allocators.rs`、`incremental_due_module_batch.rs` | Raw/Zstd 实际关闭重开、原始父材料、冷根续跑及有界调度批次；三个原 case 和全部断言不变 |
 | Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
 | 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
+| Viewer Runtime `--lib` | `runtime_live/agent_service_*.rs` 与 `stream_budget_diagnostics.rs` 的行为由全部非 ignored library tests 承接 | 无默认 feature、启用 `test_tier_required`；最低清单保留同阶段精确分派、身份变化拒绝、失败后原请求查询恢复和诊断有界性；其他 Viewer 源码继续使用原范围 |
 
 目标使用配置中明确登记的无默认 feature 组合；声明 `test_tier_required` 的目标启用该 feature。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
 
@@ -187,7 +188,9 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 构建前直接生成 `cargo test -p <package> --lib` 或 `--test <name>`；strict Clippy 使用同一命令列表。独立模式不隐式追加 Viewer/snapshot harness。artifact 核对 package/target、请求及实际 features、默认 feature、最低 case 存在且非 ignored、计划与 source/tested 身份；缺目标、空执行、错误变体或遗漏最低用例均失败。最低名单不限制执行，所选目标的全部非 ignored 用例包括后续新增回归都实际运行。
 
-修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 的例外只允许新增完整匹配的已登记声明/导出；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码及未知模块均回退。
+修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 保留已登记声明/导出的精确新增规则；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码仍回退。
+
+可信规则可为完整 library 目标登记 `static_module_additions`。它只接纳入口最外层新增的无属性 `mod name;` 及其可见性形式，要求源码实际新增于同一比较范围、使用唯一常规模块路径，且所选 target/features 能执行入口和新模块。此能力用于 Runtime `world/mod.rs` 与 Viewer `runtime_live.rs`，不放宽 `native.rs` 的导出合同。base/source/tested 的每一项实际差异均须通过；已有代码变更、模块删除/替换、`cfg/path` 属性、inline module、宏挂载或歧义路径不能借此准入。新模块内的门控和嵌入输入继续接受原有风险及可达性检查。
 
 periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、扩展 features 和平台组合，并通过独立 `ordinary_full_fast_targets` **追加全部快速目标的相同无默认 feature 组合**。默认 feature 的 full 不能抵扣仅在无 Wasmtime 下存在的行为。补充构建、Clippy 和测试均执行，产物按 feature 变体区分；验证补充后仍独立验证原库存，不能用补充 harness 顶替原 required。旧 BASE 缺此能力时仍使用旧入口。
 

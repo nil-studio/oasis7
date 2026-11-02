@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Select ordinary CI groups from Git data. No network, task state or candidate code execution."""
 import argparse
+from bisect import bisect_right
 import fnmatch
 import hashlib
 import json
@@ -764,7 +765,7 @@ def validate_fast_test_inventory(config):
             raise ValueError('invalid fast test features')
     seen_paths = set()
     for rule in rules:
-        if (not isinstance(rule, dict) or set(rule) - {'paths', 'targets', 'reason', 'added_declarations'}
+        if (not isinstance(rule, dict) or set(rule) - {'paths', 'targets', 'reason', 'added_declarations', 'static_module_additions'}
                 or not {'paths', 'targets', 'reason'}.issubset(rule)
                 or not isinstance(rule['paths'], list) or not rule['paths']
                 or not isinstance(rule['targets'], list) or not rule['targets']
@@ -785,6 +786,11 @@ def validate_fast_test_inventory(config):
                 or any(not valid_fast_declaration(item) for item in declarations)
                 or len(declarations) != len(set(declarations))):
             raise ValueError('invalid fast test declaration additions')
+        if 'static_module_additions' in rule and (
+                rule['static_module_additions'] is not True
+                or config.get('fast_execution_version') != FAST_EXECUTION_VERSION
+                or not any(targets[key]['target_kind'] == 'lib' for key in rule['targets'])):
+            raise ValueError('static module additions require a complete component library target')
     component_rules = config.get('ordinary_fast_component_rules')
     if 'fast_execution_version' not in config:
         if component_rules is not None:
@@ -830,6 +836,70 @@ def only_registered_declarations_added(path, comparisons, declarations):
     return True
 
 
+def only_static_modules_added(path, comparisons):
+    """Permit new root-level modules whose regular source is new in each diff."""
+    for before, after in comparisons:
+        patch = git('diff', '--no-ext-diff', '--unified=0', before, after, '--', path).decode()
+        added_lines, line = set(), 0
+        for change in patch.splitlines():
+            if change.startswith(('---', '+++')):
+                continue
+            hunk = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', change)
+            if hunk:
+                line = int(hunk[1])
+            elif change.startswith('-') and change[1:].strip():
+                return False
+            elif change.startswith('+'):
+                added_lines.add(line)
+                line += 1
+            elif change.startswith(' '):
+                line += 1
+        try:
+            source = git('show', after + ':' + path).decode()
+            tokens, closing = rust_source_inputs(source, return_tokens=True)
+            previous, _ = rust_source_inputs(git('show', before + ':' + path).decode(), return_tokens=True)
+        except (subprocess.CalledProcessError, UnicodeDecodeError, ValueError):
+            return False
+        starts = [0, *(match.end() for match in re.finditer('\n', source))]
+        additions = {index for index, (_, _, position) in enumerate(tokens)
+                     if bisect_right(starts, position) in added_lines}
+        inserted = set(additions)
+        modules, index = [], 0
+        while index < len(tokens):
+            cursor = index
+            # An existing attribute must not become attached to the new item.
+            boundary = index == 0 or tokens[index - 1][1] in (';', '}')
+            if boundary and tokens[cursor][1] == 'pub':
+                cursor += 1
+                if cursor + 2 < len(tokens) and tokens[cursor][1] == '(':
+                    if (tokens[cursor + 1][1] not in ('crate', 'self', 'super')
+                            or tokens[cursor + 2][1] != ')'):
+                        boundary = False
+                    cursor += 3
+            if (boundary and cursor + 2 < len(tokens) and tokens[cursor][1] == 'mod'
+                    and tokens[cursor + 1][0] == 'identifier' and tokens[cursor + 2][1] == ';'
+                    and set(range(index, cursor + 3)).issubset(additions)):
+                modules.append(tokens[cursor + 1][1].removeprefix('r#'))
+                additions.difference_update(range(index, cursor + 3))
+                index = cursor + 3
+            else:
+                # Skip complete nested bodies, attributes and macro arguments.
+                index = closing.get(index, index) + 1
+        if (additions or [(kind, value) for index, (kind, value, _) in enumerate(tokens) if index not in inserted]
+                != [(kind, value) for kind, value, _ in previous]):
+            return False
+        directory = (posixpath.dirname(path) if posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
+                     else path.removesuffix('.rs'))
+        for name in modules:
+            candidates = [directory + '/' + name + '.rs', directory + '/' + name + '/mod.rs']
+            if git('ls-tree', '-z', before, '--', *candidates):
+                return False  # Mounting old untested source needs the original expanded checks.
+            entries = [entry for entry in git('ls-tree', '-z', after, '--', *candidates).split(b'\0') if entry]
+            if len(entries) != 1 or entries[0].split(b'\t', 1)[0].split()[:2] != [b'100644', b'blob']:
+                return False
+    return True
+
+
 def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_core, comparisons):
     """Every affected native/Formal input needs a bounded, trusted contract."""
     if config.get('fast_test_inventory_version') != FAST_TEST_INVENTORY_VERSION:
@@ -845,10 +915,13 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
         if not groups.intersection({'oasis7_required', 'formal_process'}):
             continue
         rule = mappings.get(path)
-        # A wider component cannot bypass an existing exact API-wiring contract.
-        if (rule is not None and rule.get('added_declarations') is not None
-                and not only_registered_declarations_added(path, comparisons, rule['added_declarations'])):
-            return None
+        wiring = rule is not None and ('added_declarations' in rule or rule.get('static_module_additions'))
+        if wiring:
+            registered = ('added_declarations' in rule
+                          and only_registered_declarations_added(path, comparisons, rule['added_declarations']))
+            static = rule.get('static_module_additions') and only_static_modules_added(path, comparisons)
+            if not registered and not static:
+                return None  # A wider component cannot bypass an API-wiring contract.
         matches = ([rule] if rule is not None else []) + [candidate for candidate in component_rules
                    if path.endswith('.rs')
                    and any(fnmatch.fnmatchcase(path, pattern) for pattern in candidate['match'])
@@ -860,7 +933,7 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
         covered.add(path)
         # Exact additive wiring does not edit unrelated gated bodies elsewhere
         # in a root file. Keep its existing declaration-only proof intact.
-        if rule is None or 'added_declarations' not in rule:
+        if not wiring:
             path_features[path] = set.intersection(*(set(config['ordinary_fast_targets'][key]['features'])
                                                     for key in path_targets))
         reasons.extend('fast target contract ' + candidate['reason'] + ': ' + path for candidate in matches)
@@ -1603,7 +1676,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     portable_paths = set()
     if config.get('fast_test_inventory_version') == FAST_TEST_INVENTORY_VERSION:
         for rule in config['ordinary_fast_rules']:
-            if 'added_declarations' not in rule:
+            if 'added_declarations' not in rule and not rule.get('static_module_additions'):
                 features = set.intersection(*(set(config['ordinary_fast_targets'][key]['features'])
                                               for key in rule['targets']))
                 narrow_features_by_path.update((path, features) for path in rule['paths'])
