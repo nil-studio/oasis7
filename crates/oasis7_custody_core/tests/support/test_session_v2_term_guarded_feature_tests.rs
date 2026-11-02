@@ -398,6 +398,53 @@ fn guarded_current_window_case(earlier: bool) {
     let raw = serde_json::to_value(&f.state).unwrap();
     let restored: AccountProvisionApprovalState = serde_json::from_value(raw.clone()).unwrap();
     assert_eq!(serde_json::to_value(restored).unwrap(), raw);
+    // Independent second physical Actor claim. Source1 fixture remains a Core
+    // component and does not stand in for the installed Term6 caller.
+    let before_close = serde_json::to_value(&f.state).unwrap();
+    let close = f
+        .state
+        .allocate_test_session_close_v2(
+            &f.session_id,
+            &live,
+            UnixMillis::new(now + 4),
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    let close_first = f
+        .state
+        .claim_test_session_close_vault_v2(
+            &f.session_id,
+            "term-close-owner-vault-one",
+            &live,
+            UnixMillis::new(now + 4),
+            &mut StrictCrypto,
+        )
+        .unwrap();
+    assert_eq!(close_first.payload(), &close);
+    assert_ne!(close_first.paid_record_digest(), token.paid_record_digest());
+    let after_close = serde_json::to_value(&f.state).unwrap();
+    assert_eq!(spent(&after_close), spent(&before_close) + 1);
+    let repeat = f.state.claim_test_session_close_vault_v2(
+        &f.session_id,
+        "term-close-owner-vault-repeat",
+        &live,
+        UnixMillis::new(now + 4),
+        &mut StrictCrypto,
+    );
+    assert!(repeat.is_err());
+    assert_eq!(serde_json::to_value(&f.state).unwrap(), after_close);
+    let signed_close = ws::sign_read_request(
+        oasis7_agent_api::game::GAME_TASK_CLEANUP_DOMAIN_V2,
+        close,
+        &"3e".repeat(32),
+    )
+    .unwrap();
+    f.state
+        .record_test_session_close_v2_signature_history(&f.session_id, signed_close)
+        .unwrap();
+    let cold_close: AccountProvisionApprovalState =
+        serde_json::from_value(serde_json::to_value(&f.state).unwrap()).unwrap();
+    assert_eq!(cold_close, f.state);
     let mut corrupt = raw.clone();
     corrupt["test_sessions_v2"][&f.session_id]["termination_state"]["guarded_stop"]["signed"]["signature_hex"] =
         serde_json::json!("00".repeat(64));

@@ -13,6 +13,8 @@ pub const TERM_GUARDED_STOP_SIGNER_PATH_V2: &str = "/internal/role-key/term-guar
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TermGuardedStopSignerPermitV2 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_lineage: Option<crate::term_owner_slot_lineage_v2::TermOwnerSlotLineageV2>,
     pub api_version: u8,
     pub issuer: AccountMachineIssuerV2,
     pub recipient_role: Role,
@@ -43,6 +45,7 @@ impl PreparedGuardedStopSignatureV2 {
     /// shared issuer child can turn it into a configured Account signature.
     pub fn signer_permit(&self, issuer: AccountMachineIssuerV2) -> TermGuardedStopSignerPermitV2 {
         TermGuardedStopSignerPermitV2 {
+            account_lineage: Some(self.lineage().clone()),
             api_version: 2,
             issuer,
             recipient_role: Role::Owner,
@@ -64,6 +67,9 @@ impl PreparedGuardedStopSignatureV2 {
 impl TermGuardedStopSignerPermitV2 {
     pub fn validate(&self) -> Result<(), String> {
         self.owner_scope.validate().map_err(|_| denied())?;
+        if let Some(lineage) = &self.account_lineage {
+            lineage.validate_for(&self.owner_scope)?;
+        }
         self.original.validate()?;
         if self.api_version != 2
             || self.recipient_role != Role::Owner
