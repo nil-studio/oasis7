@@ -198,3 +198,93 @@ fn truncated_swallowed_overflow_wrong_length_hash_source_and_final_cancel_do_not
     );
     assert_eq!(source.calls, 0);
 }
+
+#[test]
+fn borrowed_genesis_preserves_independent_string_keys_and_byte_reference_kind() {
+    use crate::incremental_field_member::*;
+    use std::collections::{BTreeMap, BTreeSet};
+    struct Discard;
+    impl ValueNodeWriter for Discard {
+        fn put_node(
+            &mut self,
+            id: [u8; 32],
+            bytes: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            assert_eq!(blake3::hash(&bytes).as_bytes(), &id);
+            Ok(())
+        }
+    }
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let _fixture = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
+    let registered = BTreeSet::from(["".to_string(), " arbitrary 界 registered-only ".to_string()]);
+    let originals: BTreeMap<String, Arc<[u8]>> = BTreeMap::from([
+        ("".into(), Arc::from(&b""[..])),
+        ("bytes-only".into(), Arc::from(&b"original"[..])),
+    ]);
+    let mut io = oasis7_formal_protocol::incremental_value::ValueIoBudget {
+        nodes_remaining: 1000,
+        read_bytes_remaining: 1 << 20,
+        write_bytes_remaining: 1 << 20,
+    };
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut records = 6;
+    let mut work = work();
+    work.objects_remaining = 2;
+    let mut persisted = 0;
+    let mut metadata = 0;
+    let mut set_members = 0;
+    let mut byte_members = 0;
+    prepare_runtime_artifact_content_genesis_v1(
+        &registered,
+        &originals,
+        &mut MemberRecordWriteContext {
+            sink: &mut Discard,
+            memory: &memory,
+            io: &mut io,
+            key_work: &mut keys,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 4096,
+                record_bytes: 8192,
+            },
+            cancelled: || false,
+        },
+        &mut records,
+        &mut work,
+        &mut |original, bytes| {
+            assert_eq!(original.id, *blake3::hash(bytes).as_bytes());
+            assert_eq!(original.byte_len, bytes.len() as u64);
+            assert!(
+                originals
+                    .values()
+                    .any(|v| v.as_ptr() == bytes.as_ptr() && v.len() == bytes.len())
+            );
+            persisted += 1;
+            Ok(())
+        },
+        &mut |row| {
+            let binding = WorldFieldKeyV1::from_bytes(&row.mutation.key).unwrap();
+            assert_eq!(binding.owner, FieldOwner::Runtime);
+            match binding.kind {
+                WorldFieldRecordKindV1::Metadata => metadata += 1,
+                WorldFieldRecordKindV1::Entry => {
+                    assert_eq!(binding.name, "module_artifacts");
+                    set_members += 1;
+                }
+                WorldFieldRecordKindV1::Bytes => {
+                    assert_eq!(binding.name, "module_artifact_bytes");
+                    byte_members += 1;
+                }
+                _ => panic!("wrong artifact field kind"),
+            }
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (metadata, set_members, byte_members, persisted, records),
+        (2, 2, 2, 2, 0)
+    );
+}
