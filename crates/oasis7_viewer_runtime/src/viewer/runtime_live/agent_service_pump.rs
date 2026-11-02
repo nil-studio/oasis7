@@ -202,20 +202,45 @@ impl ViewerRuntimeLiveServer {
                             in_flight = false;
                             let original_phase = result.token.phase_digest.clone();
                             let unpublished_response = unpublished_response(&result);
+                            #[cfg(any(test, feature = "test_tier_required"))]
+                            diagnostics.consumed();
+                            let Some((guard, prepared)) =
+                                super::agent_service_result::prepare_result_phase(
+                                    &shared, server, &result,
+                                )
+                            else {
+                                break;
+                            };
+                            server = guard;
                             let apply_phase = stream_budget_diagnostics::phase(22);
                             #[cfg(any(test, feature = "test_tier_required"))]
-                            let applied = diagnostics.apply(&mut server, result);
+                            let applied = diagnostics.apply_prepared(&mut server, result, prepared);
                             #[cfg(not(any(test, feature = "test_tier_required")))]
-                            let applied = server.apply_agent_service_io(result);
+                            let applied = server.apply_prepared_agent_result(result, prepared);
                             drop(apply_phase);
                             let phase_identity = if applied.is_err() {
                                 None
                             } else {
-                                server
-                                    .llm_sidecar
-                                    .hosted_service_phase
-                                    .as_ref()
-                                    .map(|phase| phase.identity())
+                                let Some((guard, identity)) =
+                                    super::agent_service_result::prepare_retry_identity(
+                                        &shared, server,
+                                    )
+                                else {
+                                    break;
+                                };
+                                server = guard;
+                                match identity {
+                                    super::agent_service_result::RetryIdentity::Current(
+                                        identity,
+                                    ) => identity,
+                                    super::agent_service_result::RetryIdentity::Changed => {
+                                        // A control/reset replaced the phase while unlocked. Start
+                                        // again from its state without clearing its newer feedback.
+                                        drop(server);
+                                        drop(pump_phase);
+                                        continue;
+                                    }
+                                }
                             };
                             let phase_identity_unavailable =
                                 phase_identity.as_ref().is_some_and(Result::is_err);

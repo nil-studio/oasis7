@@ -278,3 +278,247 @@ fn deferred_identity_reservation_blocks_other_preparation_and_stale_finish() {
         Some(HostedServicePhase::Act { submit: false, .. })
     ));
 }
+
+fn completion_fixture() -> (
+    ViewerRuntimeLiveServer,
+    crate::viewer::runtime_live::agent_service_io::AgentServiceIoResult,
+) {
+    use crate::viewer::runtime_live::agent_service_io::{
+        AgentServiceIoResponse, AgentServiceIoResult,
+    };
+    use oasis7_client_api::world_service::{IntentOutcome, IntentResponse};
+    let (mut server, prepared) = capsule();
+    let job = server
+        .finish_hosted_identity(prepared.compute().unwrap())
+        .unwrap();
+    let HostedServicePhase::Act { pending, .. } =
+        server.llm_sidecar.hosted_service_phase.as_ref().unwrap()
+    else {
+        panic!("act fixture");
+    };
+    let result = AgentServiceIoResult {
+        token: job.token,
+        response: Ok(AgentServiceIoResponse::Intent(IntentResponse {
+            formal_profile: None,
+            execution_evidence_scope: None,
+            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+            correlation: pending.correlation.clone(),
+            outcome: IntentOutcome::Pending,
+        })),
+    };
+    (server, result)
+}
+
+#[test]
+fn completion_identity_computation_releases_viewer_mutex() {
+    const CHILD: &str = "OASIS7_COMPLETION_IDENTITY_LOCK_PROBE";
+    if std::env::var_os(CHILD).is_none() {
+        let name = format!(
+            "{}::completion_identity_computation_releases_viewer_mutex",
+            module_path!()
+        );
+        let name = name.split_once("::").unwrap().1;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", name, "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "isolated lock probe failed: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        return;
+    }
+    use crate::viewer::runtime_live::agent_service_result::prepare_result_phase;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    for mode in 0..5 {
+        let (server, result) = completion_fixture();
+        let shared = Arc::new(Mutex::new(server));
+        ViewerRuntimeLiveServer::test_arm_hosted_identity_barrier();
+        let worker_shared = shared.clone();
+        let worker = std::thread::spawn(move || {
+            let guard = worker_shared.lock().unwrap();
+            if (1..=3).contains(&mode) {
+                use crate::viewer::runtime_live::agent_service_result::{
+                    RetryIdentity, prepare_retry_identity,
+                };
+                let (_guard, identity) = prepare_retry_identity(&worker_shared, guard).unwrap();
+                if mode == 1 {
+                    assert!(matches!(identity, RetryIdentity::Current(Some(Ok(_)))));
+                } else {
+                    assert!(matches!(identity, RetryIdentity::Changed));
+                }
+            } else {
+                let (mut guard, prepared) =
+                    prepare_result_phase(&worker_shared, guard, &result).unwrap();
+                let applied = guard.apply_prepared_agent_result(result, prepared);
+                if mode == 4 {
+                    assert!(applied.is_err());
+                    assert!(guard.llm_sidecar.hosted_service_phase.is_none());
+                } else {
+                    assert!(matches!(applied.unwrap(), crate::viewer::runtime_live::agent_service_io::AgentServiceProgress::Advanced));
+                }
+            }
+        });
+        let entered =
+            ViewerRuntimeLiveServer::test_wait_hosted_identity_barrier(Duration::from_secs(2));
+        let observer_can_lock = match shared.try_lock() {
+            Ok(mut guard) => {
+                if mode == 2 || mode == 4 {
+                    guard.llm_sidecar.hosted_service_phase = None;
+                } else if mode == 3 {
+                    guard.llm_sidecar.hosted_service_generation += 1;
+                }
+                true
+            }
+            Err(_) => false,
+        };
+        ViewerRuntimeLiveServer::test_release_hosted_identity_barrier();
+        worker.join().unwrap();
+        assert!(
+            entered,
+            "actual identity must reach the computation barrier"
+        );
+        assert!(
+            observer_can_lock,
+            "observer must acquire Viewer while identity is blocked, mode={mode}"
+        );
+    }
+}
+
+#[test]
+fn prepared_completion_rejects_phase_generation_token_and_config_changes() {
+    use crate::viewer::runtime_live::agent_service_result::prepare_result_phase;
+    for changed in 0..7 {
+        let (server, mut result) = completion_fixture();
+        let shared = std::sync::Mutex::new(server);
+        let guard = shared.lock().unwrap();
+        let (mut guard, prepared) = prepare_result_phase(&shared, guard, &result).unwrap();
+        match changed {
+            0 => {
+                let Some(HostedServicePhase::Act { submit, .. }) =
+                    guard.llm_sidecar.hosted_service_phase.as_mut()
+                else {
+                    panic!("act");
+                };
+                *submit = true; // Excluded from the digest: full phase comparison must still reject it.
+            }
+            1 => {
+                guard.llm_sidecar.hosted_service_generation += 1;
+                guard
+                    .llm_sidecar
+                    .hosted_service_inflight
+                    .as_mut()
+                    .unwrap()
+                    .generation += 1;
+            }
+            2 => result.token.generation += 1,
+            3 => guard.config.world_service.as_mut().unwrap().scope_id = "new-scope".into(),
+            4 => guard.llm_sidecar.hosted_service_phase = None,
+            5 => guard.llm_sidecar.hosted_service_generation += 1,
+            6 => guard.llm_sidecar.hosted_service_inflight = None,
+            _ => unreachable!(),
+        }
+        let pending = guard.llm_sidecar.provider_service_pending.clone();
+        let phase = guard.llm_sidecar.hosted_service_phase.clone();
+        let inflight = guard.llm_sidecar.hosted_service_inflight.clone();
+        assert!(guard.apply_prepared_agent_result(result, prepared).is_err());
+        assert!(guard.llm_sidecar.provider_service_pending == pending);
+        assert!(guard.llm_sidecar.hosted_service_phase == phase);
+        if matches!(changed, 1 | 2 | 6) {
+            assert!(guard.llm_sidecar.hosted_service_inflight == inflight);
+        } else {
+            assert!(guard.llm_sidecar.hosted_service_inflight.is_none());
+        }
+    }
+}
+
+#[test]
+fn prepared_completion_preserves_pending_and_checks_original_phase_digest() {
+    use crate::viewer::runtime_live::agent_service_io::AgentServiceProgress;
+    use crate::viewer::runtime_live::agent_service_result::prepare_result_phase;
+    for invalid_digest in [false, true] {
+        let (mut server, mut result) = completion_fixture();
+        if invalid_digest {
+            result.token.phase_digest.push_str("-tampered");
+            server.llm_sidecar.hosted_service_inflight = Some(result.token.clone());
+        }
+        let shared = std::sync::Mutex::new(server);
+        let guard = shared.lock().unwrap();
+        let (mut guard, prepared) = prepare_result_phase(&shared, guard, &result).unwrap();
+        assert!(prepared.is_some());
+        let pending = guard.llm_sidecar.provider_service_pending.clone();
+        let phase = guard.llm_sidecar.hosted_service_phase.clone();
+        let applied = guard.apply_prepared_agent_result(result, prepared);
+        if invalid_digest {
+            assert!(
+                matches!(applied, Err(reason) if reason == "hosted service phase identity mismatch")
+            );
+        } else {
+            assert!(matches!(applied, Ok(AgentServiceProgress::Advanced)));
+        }
+        assert!(guard.llm_sidecar.hosted_service_inflight.is_none());
+        assert!(guard.llm_sidecar.hosted_service_phase == phase);
+        assert!(guard.llm_sidecar.provider_service_pending == pending);
+    }
+}
+
+#[test]
+fn prepared_completion_releases_consumed_marker_after_phase_change() {
+    use crate::viewer::runtime_live::agent_service_result::prepare_result_phase;
+    let (server, result) = completion_fixture();
+    let shared = std::sync::Mutex::new(server);
+    let guard = shared.lock().unwrap();
+    let (mut guard, prepared) = prepare_result_phase(&shared, guard, &result).unwrap();
+    guard.llm_sidecar.hosted_service_phase = None;
+    let pending = guard.llm_sidecar.provider_service_pending.clone();
+    assert!(guard.apply_prepared_agent_result(result, prepared).is_err());
+    assert!(guard.llm_sidecar.hosted_service_phase.is_none());
+    assert!(guard.llm_sidecar.provider_service_pending == pending);
+    assert!(
+        guard.llm_sidecar.hosted_service_inflight.is_none(),
+        "a consumed old completion must not leave a marker that blocks all future preparation"
+    );
+}
+
+#[test]
+fn stale_completion_allows_original_lookup_recovery_without_resubmit() {
+    use crate::viewer::runtime_live::agent_service_io::AgentServiceProgress;
+    use crate::viewer::runtime_live::agent_service_result::prepare_result_phase;
+    let (server, result) = completion_fixture();
+    let shared = std::sync::Mutex::new(server);
+    let guard = shared.lock().unwrap();
+    let (mut guard, prepared) = prepare_result_phase(&shared, guard, &result).unwrap();
+    let Some(HostedServicePhase::Act {
+        pending,
+        submit: false,
+    }) = guard.llm_sidecar.hosted_service_phase.clone()
+    else {
+        panic!("reserved original");
+    };
+    guard.llm_sidecar.hosted_service_generation += 1;
+    assert!(guard.apply_prepared_agent_result(result, prepared).is_err());
+    let progress = guard.prepare_agent_service_io_deferred(false).unwrap();
+    let AgentServiceProgress::NeedsIdentity(prepared) = progress else {
+        panic!("original lookup must be prepared again");
+    };
+    drop(guard);
+    let ready = prepared.compute().unwrap();
+    let mut guard = shared.lock().unwrap();
+    let job = guard.finish_hosted_identity(ready).unwrap();
+    match job.operation {
+        AgentServiceIoOperation::Lookup { request, original } => {
+            assert_eq!(request.key, pending.correlation.key);
+            assert_eq!(original, pending.payload);
+        }
+        _ => panic!("stale completion must not restore a Submit"),
+    }
+    assert!(matches!(
+        guard.llm_sidecar.hosted_service_phase,
+        Some(HostedServicePhase::Act { submit: false, .. })
+    ));
+}

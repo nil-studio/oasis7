@@ -95,15 +95,24 @@ impl IoDiagnostics {
         self.returned(result.response.is_err());
         result
     }
+    #[cfg(test)]
     pub(super) fn apply(
         &self,
         server: &mut super::ViewerRuntimeLiveServer,
         result: AgentServiceIoResult,
     ) -> Result<AgentServiceProgress, String> {
         self.consumed();
+        self.apply_prepared(server, result, None)
+    }
+    pub(super) fn apply_prepared(
+        &self,
+        server: &mut super::ViewerRuntimeLiveServer,
+        result: AgentServiceIoResult,
+        prepared: Option<super::agent_service_result::ReadyResultPhase>,
+    ) -> Result<AgentServiceProgress, String> {
         let execute_error = result.response.as_ref().err().cloned();
         let phase = phase_code(&result.token.phase_digest);
-        let applied = server.apply_agent_service_io(result);
+        let applied = server.apply_prepared_agent_result(result, prepared);
         self.last_apply_error.store(
             apply_error_class(
                 execute_error.as_deref(),
