@@ -6,6 +6,9 @@ use serde_json::{Value, json};
 use wasm_bindgen::JsValue;
 use worker::*;
 
+#[path = "role_key_term_guarded_harness.rs"]
+mod term_guarded;
+
 const KEY: &str = "custody-role-key-slot-v1";
 fn failure(_: impl std::fmt::Debug) -> Error {
     Error::RustError("role key fixture rejected".into())
@@ -42,6 +45,9 @@ pub async fn handle(state: JsValue, mut request: Request) -> Result<Response> {
 }
 async fn run(state: JsValue, request: &mut Request) -> Result<Value> {
     let path = request.path();
+    if path.starts_with("/role-key/term-guarded/") {
+        return term_guarded::run(state, &path).await;
+    }
     if path == "/role-key/counts" {
         let tables = super::rows(&state, "SELECT name FROM sqlite_master WHERE type='table'")?;
         let has = |name| {

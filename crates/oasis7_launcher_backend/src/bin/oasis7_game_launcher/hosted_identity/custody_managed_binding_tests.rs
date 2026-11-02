@@ -13,6 +13,8 @@ fn setup() -> (
     let owner = SigningKey::from_bytes(&[72; 32]);
     let environment = f.service.config.namespace.environment_id.clone();
     f.service.custody = Some(CustodyConfig {
+        model_budget_summary_contract_enabled: false,
+        full_session_v2_summary_contract_enabled: false,
         key: SigningKey::from_bytes(&[73; 32]),
         key_id: "native-root".into(),
         audience: "owner".into(),

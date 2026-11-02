@@ -180,6 +180,9 @@ fn published_exact(
     Ok(())
 }
 pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
+    if crate::owner_test_session_rpc::session_management_version(raw).ok() == Some(2) {
+        return v2::sign(env, raw).await;
+    }
     if raw.len() > 32768 {
         return Err(denied());
     }
@@ -233,6 +236,13 @@ pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
     })?)
 }
 pub(crate) async fn sign_in_vault(state: JsValue, env: &Env, raw: &str) -> Result<Response> {
+    if serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .and_then(|v| v.get("api_version").and_then(serde_json::Value::as_u64))
+        == Some(2)
+    {
+        return v2::sign_in_vault(state, env, raw).await;
+    }
     let request = selector(raw)?;
     let observed = observe(env, &request, None, 4)
         .await
@@ -278,3 +288,6 @@ pub(crate) async fn sign_in_vault(state: JsValue, env: &Env, raw: &str) -> Resul
         .map_err(|_| denied())?;
     Response::from_json(&published.into_inner().ok_or_else(denied)?)
 }
+
+#[path = "owner_test_session_v2_signing.rs"]
+mod v2;
