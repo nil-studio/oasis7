@@ -196,7 +196,7 @@ fn digest(root: &StateRootV1) -> [u8; 32] {
     clippy::too_many_arguments,
     reason = "The fixture binds the input transition to its independent expected changed/no-op outcome and its execution resources."
 )]
-fn execute_change(
+pub(super) fn execute_change(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
     roots: &RootSetV1,
