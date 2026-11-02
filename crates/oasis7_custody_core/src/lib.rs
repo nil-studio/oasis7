@@ -64,3 +64,6 @@ pub mod execution_pending_source_inspect_v2;
 pub mod execution_pending_source_result_v2;
 /// Independent read-only RF signed transport codecs; no Current grant.
 pub mod read_fence_dispatch_v3;
+
+/// Guarded dual-profile FENCES history inventory; never Current.
+pub mod read_fence_admission_v3;
