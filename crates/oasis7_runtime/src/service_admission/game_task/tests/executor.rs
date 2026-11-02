@@ -175,7 +175,7 @@ fn game_task_executor_staged_conflict_goal_change_and_revocation_are_fenced() {
         )
         .is_err()
     );
-    let active = reduce(collect(&world, [&first]).unwrap())
+    let active = reduce(&world, collect(&world, [&first]).unwrap())
         .unwrap()
         .into_values()
         .next()
