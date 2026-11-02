@@ -12,11 +12,18 @@ use oasis7_custody_core::{
 };
 use worker::Env;
 const MAX_ROWS: usize = MAX_TEST_SESSION_AUTHORITIES_V2;
+const MAX_DUAL_ROWS: usize = MAX_TEST_SESSION_AUTHORITIES_V2 * 2;
+#[path = "role_key_term_guarded_close_v2.rs"]
+mod close;
+#[path = "role_key_term_guarded_qualification_v2.rs"]
+mod qualification;
+pub(crate) use qualification::TermOwnerSlotQualificationRequestV2;
 const ROW_BYTES: usize = 32768;
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TermGuardedSignerConfigurationV2 {
     pin: AccountMachineIssuerPinV2,
     floor: AccountMachineIssuerFloorV2,
+    close: Option<(AccountMachineIssuerPinV2, AccountMachineIssuerFloorV2)>,
 }
 impl TermGuardedSignerConfigurationV2 {
     pub(crate) fn new(
@@ -42,7 +49,56 @@ impl TermGuardedSignerConfigurationV2 {
                 pin.not_before.0,
             )
             .map_err(|_| rejected())?;
-        Ok(Self { pin, floor })
+        Ok(Self {
+            pin,
+            floor,
+            close: None,
+        })
+    }
+    pub(crate) fn with_close(
+        mut self,
+        pin: AccountMachineIssuerPinV2,
+        floor: AccountMachineIssuerFloorV2,
+    ) -> Result<Self> {
+        let issuer = AccountMachineIssuerV2 {
+            namespace: pin.namespace.clone(),
+            service_id: pin.service_id.clone(),
+            environment: pin.environment.clone(),
+            key_id: pin.key_id.clone(),
+            issuer_epoch: pin.issuer_epoch,
+            config_generation: pin.config_generation,
+            native_audience_origin: pin.native_audience_origin.clone(),
+        };
+        issuer
+            .verify_pin(
+                &pin,
+                &floor,
+                AccountMachinePurposeV2::TermGuardedCloseSignerV2,
+                pin.not_before.0,
+                pin.not_after.0,
+                pin.not_before.0,
+            )
+            .map_err(|_| rejected())?;
+        if pin.namespace != self.pin.namespace
+            || pin.service_id != self.pin.service_id
+            || pin.environment != self.pin.environment
+            || pin.key_id != self.pin.key_id
+            || pin.public_key != self.pin.public_key
+            || pin.issuer_epoch != self.pin.issuer_epoch
+            || pin.config_generation != self.pin.config_generation
+            || pin.native_audience_origin != self.pin.native_audience_origin
+        {
+            return Err(rejected());
+        }
+        self.close = Some((pin, floor));
+        Ok(self)
+    }
+    fn maximum(&self) -> usize {
+        if self.close.is_some() {
+            MAX_DUAL_ROWS
+        } else {
+            MAX_ROWS
+        }
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -55,6 +111,10 @@ struct Metadata {
     floor: AccountMachineIssuerFloorV2,
     created_at: DecimalU64,
     maximum_claims: DecimalU64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    close_pin: Option<AccountMachineIssuerPinV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    close_floor: Option<AccountMachineIssuerFloorV2>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -87,11 +147,15 @@ struct TermInventory {
     tables: Vec<String>,
     metadata: Option<Vec<StoredRow>>,
     claims: Option<Vec<StoredRow>>,
+    qualifications: Option<Vec<StoredRow>>,
 }
 struct Checked {
     slot: RoleKeySlotV1,
     claims: Vec<Claim>,
+    qualifications: Vec<qualification::Claim>,
     clock_floor: u64,
+    close_claims: Vec<close::Claim>,
+    lineage: Option<oasis7_custody_core::term_owner_slot_lineage_v2::TermOwnerSlotLineageV2>,
 }
 fn clock() -> Result<u64> {
     let n = now()?;
@@ -153,7 +217,7 @@ fn check_original(c: &Claim) -> Result<()> {
 fn check_inventory(raw: &str, config: &TermGuardedSignerConfigurationV2) -> Result<Checked> {
     // SQL bounds each row and caps scan at existing Account max+1. Reject any
     // missing/partial state; never CREATE or infer an empty history here.
-    if raw.len() > (MAX_ROWS + 1) * (ROW_BYTES * 2 + 1024) {
+    if raw.len() > (MAX_DUAL_ROWS + MAX_ROWS + 1) * (ROW_BYTES * 2 + 1024) {
         return Err(rejected());
     }
     let v: TermInventory = serde_json::from_str(raw).map_err(|_| rejected())?;
@@ -172,26 +236,73 @@ fn check_inventory(raw: &str, config: &TermGuardedSignerConfigurationV2) -> Resu
         return Err(rejected());
     }
     let meta: Metadata = strict(&metadata[0].payload)?;
-    if meta.schema_version != 1
+    if meta.schema_version != if config.close.is_some() { 2 } else { 1 }
         || meta.scope != slot.scope
         || meta.public_key != slot.public_ref
         || meta.pin != config.pin
         || meta.floor != config.floor
         || meta.created_at.0 == 0
-        || meta.maximum_claims.0 != u64::try_from(MAX_ROWS).map_err(|_| rejected())?
+        || meta.maximum_claims.0 != u64::try_from(config.maximum()).map_err(|_| rejected())?
+        || meta.close_pin.as_ref() != config.close.as_ref().map(|v| &v.0)
+        || meta.close_floor.as_ref() != config.close.as_ref().map(|v| &v.1)
         || meta.pin.public_key == slot.public_ref.public_key
     {
         return Err(rejected());
     }
     let rows = v.claims.ok_or_else(rejected)?;
-    if rows.len() > MAX_ROWS {
+    if rows.len() > config.maximum() {
         return Err(rejected());
     }
     let mut ids = std::collections::BTreeSet::new();
     let mut claims = Vec::new();
+    let mut close_claims = Vec::new();
+    let mut qualifications = Vec::new();
+    let mut attempts = std::collections::BTreeSet::new();
+    let mut lineage = None;
     let mut floor = meta.created_at.0;
     for row in rows {
+        if let Ok(claim) = strict::<close::Claim>(&row.payload) {
+            let (pin, pinned_floor) = config.close.as_ref().ok_or_else(rejected)?;
+            close::check_claim(&claim, &slot, pin, pinned_floor)?;
+            if row.id != claim.id
+                || !ids.insert(claim.id.clone())
+                || !attempts.insert(claim.permit.payload.paid_attempt_id.clone())
+                || claim.claimed_at.0 < meta.created_at.0
+            {
+                return Err(rejected());
+            }
+            let observed = claim
+                .permit
+                .payload
+                .account_lineage
+                .as_ref()
+                .ok_or_else(rejected)?;
+            if lineage.as_ref().is_some_and(|v| v != observed) {
+                return Err(rejected());
+            }
+            lineage = Some(observed.clone());
+            floor = floor
+                .max(claim.claimed_at.0)
+                .max(claim.signed_at.map_or(0, |v| v.0));
+            close_claims.push(claim);
+            continue;
+        }
         let claim: Claim = strict(&row.payload)?;
+        if !attempts.insert(claim.permit.payload.paid_attempt_id.clone()) {
+            return Err(rejected());
+        }
+        if config.close.is_some() {
+            let observed = claim
+                .permit
+                .payload
+                .account_lineage
+                .as_ref()
+                .ok_or_else(rejected)?;
+            if lineage.as_ref().is_some_and(|v| v != observed) {
+                return Err(rejected());
+            }
+            lineage = Some(observed.clone());
+        }
         if row.id != claim.id
             || claim.id != id(&claim.permit)?
             || !ids.insert(claim.id.clone())
@@ -215,10 +326,32 @@ fn check_inventory(raw: &str, config: &TermGuardedSignerConfigurationV2) -> Resu
             .max(claim.signed_at.map_or(0, |v| v.0));
         claims.push(claim);
     }
+    match (config.close.as_ref(), v.qualifications) {
+        (None, None) => (),
+        (Some(_), Some(rows)) if rows.len() <= MAX_ROWS => {
+            for row in rows {
+                let c: qualification::Claim = strict(&row.payload)?;
+                qualification::check_claim(&c, &slot, config)?;
+                if row.id != c.id
+                    || !ids.insert(c.id.clone())
+                    || !attempts.insert(c.request.paid_attempt_id.clone())
+                    || c.claimed_at.0 < meta.created_at.0
+                {
+                    return Err(rejected());
+                }
+                floor = floor.max(c.claimed_at.0);
+                qualifications.push(c);
+            }
+        }
+        _ => return Err(rejected()),
+    }
     Ok(Checked {
         slot,
         claims,
         clock_floor: floor,
+        close_claims,
+        qualifications,
+        lineage,
     })
 }
 /// Only the real first slot creation transaction may install this metadata.
@@ -235,13 +368,15 @@ pub(super) fn new_metadata(
         return Err(rejected());
     }
     json(&Metadata {
-        schema_version: 1,
+        schema_version: if config.close.is_some() { 2 } else { 1 },
         scope: slot.scope.clone(),
         public_key: slot.public_ref.clone(),
         pin: config.pin.clone(),
         floor: config.floor.clone(),
         created_at: DecimalU64(clock()?),
-        maximum_claims: DecimalU64(u64::try_from(MAX_ROWS).map_err(|_| rejected())?),
+        maximum_claims: DecimalU64(u64::try_from(config.maximum()).map_err(|_| rejected())?),
+        close_pin: config.close.as_ref().map(|v| v.0.clone()),
+        close_floor: config.close.as_ref().map(|v| v.1.clone()),
     })
 }
 pub(super) fn check_existing(
@@ -340,8 +475,21 @@ impl RoleKeyStore {
             let checked = check_inventory(&raw, config)?;
             let at = clock()?;
             if at < checked.clock_floor
-                || checked.claims.len() >= MAX_ROWS
+                || checked.claims.len() + checked.close_claims.len() >= config.maximum()
+                || checked
+                    .close_claims
+                    .iter()
+                    .any(|c| c.permit.payload.paid_attempt_id == permit.payload.paid_attempt_id)
+                || (config.close.is_some() && permit.payload.account_lineage.is_none())
+                || checked
+                    .lineage
+                    .as_ref()
+                    .is_some_and(|v| Some(v) != permit.payload.account_lineage.as_ref())
                 || checked.claims.iter().any(|c| c.id == claim_id)
+                || checked
+                    .qualifications
+                    .iter()
+                    .any(|c| c.request.paid_attempt_id == permit.payload.paid_attempt_id)
             {
                 return Err(rejected());
             }

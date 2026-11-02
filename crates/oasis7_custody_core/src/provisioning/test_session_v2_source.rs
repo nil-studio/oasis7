@@ -229,6 +229,8 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         let wrapper = TestSessionSourceV2 {
+            observation_profile: None,
+            client_admission: None,
             api_version: 2,
             approved_input_digest: s.input_digest()?,
             source: ProvisionOriginInspectionV1 {
