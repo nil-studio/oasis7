@@ -26,7 +26,26 @@ pub fn prepare_cognition_controls_genesis_v1<
     records_remaining: &mut u64,
     sink: &mut S,
 ) -> Result<(), MemberRecordError> {
-    for field in CognitionControlFieldV1::ALL {
+    prepare_cognition_control_fields_v1(
+        source,
+        CognitionControlFieldV1::ALL,
+        context,
+        records_remaining,
+        sink,
+    )
+}
+pub(crate) fn prepare_cognition_control_fields_v1<
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+>(
+    source: CognitionEnvelopeRefV1<'_>,
+    fields: impl IntoIterator<Item = CognitionControlFieldV1>,
+    context: &mut MemberRecordWriteContext<'_, W, C>,
+    records_remaining: &mut u64,
+    sink: &mut S,
+) -> Result<(), MemberRecordError> {
+    for field in fields {
         let Some(value) = field.value(source) else {
             continue;
         };

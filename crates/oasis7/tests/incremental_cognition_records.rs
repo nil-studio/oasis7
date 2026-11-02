@@ -10,6 +10,8 @@ use oasis7_runtime::{
 };
 #[path = "support/incremental_cognition_controls.rs"]
 mod cognition_controls;
+#[path = "support/incremental_cognition_groups.rs"]
+mod cognition_groups;
 #[path = "support/incremental_cognition_json_lifecycle.rs"]
 mod cognition_json_lifecycle;
 #[path = "support/incremental_cognition_missing_child.rs"]
@@ -439,6 +441,7 @@ fn run_cognition(all_optional: bool) {
             };
             if let Some(parent_family) = &parent_family {
                 cognition_controls::exercise(&store, &memory, &execution_parent, parent_family);
+                cognition_groups::exercise(&store, &memory, &execution_parent, parent_family);
                 cognition_json_lifecycle::same_transaction(
                     &store,
                     &memory,

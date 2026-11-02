@@ -70,6 +70,7 @@ pub use oasis7_world_state::incremental_inventory_genesis;
 pub use oasis7_world_state::incremental_cognition_json_overlay;
 pub use oasis7_world_state::incremental_cognition_family;
 pub use oasis7_world_state::incremental_cognition_control_overlay;
+pub use oasis7_world_state::incremental_cognition_groups;
 pub use oasis7_world_state::incremental_cognition_json_receiver;
 pub use oasis7_world_state::{incremental_cognition_fields, incremental_cognition_genesis, incremental_cognition_read, incremental_cognition_json, incremental_cognition_json_read};
 pub use oasis7_world_state::incremental_inventory_read;

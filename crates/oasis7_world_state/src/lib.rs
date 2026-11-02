@@ -286,3 +286,6 @@ pub mod incremental_runtime_effect_records;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_json_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_groups;

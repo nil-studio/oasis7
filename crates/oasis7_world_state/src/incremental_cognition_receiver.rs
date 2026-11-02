@@ -52,24 +52,7 @@ fn accept_current<
     work: &mut JsonScalarChangeWorkV1,
     structural: bool,
 ) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
-    context.check()?;
-    if context.values.class != MemoryClass::Ordinary
-        || verifier.class != MemoryClass::Ordinary
-        || !parent.uses_budget(context.values.memory)
-        || !verifier.memory.same_pool(context.values.memory)
-        || !std::ptr::eq(verifier.source, context.state)
-        || !record.before.state.iter().any(|root| root == context.root)
-    {
-        return Err(invalid().into());
-    }
-    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let error = (context.take_state_error)();
-    context.check()?;
-    if let Some(error) = error {
-        return Err(error.into());
-    }
-    let verified = verified?;
+    let verified = verify_parent(parent, verifier, record, context)?;
     // Arc cloning shares admitted immutable proofs; this charge covers the new
     // token's metadata and all replacement Arc allocations until its last use.
     let retained = context
@@ -212,4 +195,38 @@ fn accept_current<
         controls: parent.controls,
         entries,
     }))
+}
+
+pub(super) fn verify_parent<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    verifier: &TransitionVerifier<'_, M>,
+    record: &TransitionRecordV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<
+    ReservedValue<oasis7_formal_protocol::incremental_execution::PreparedTransition>,
+    WorldFieldOverlayErrorV1,
+> {
+    context.check()?;
+    if context.values.class != MemoryClass::Ordinary
+        || verifier.class != MemoryClass::Ordinary
+        || !parent.uses_budget(context.values.memory)
+        || !verifier.memory.same_pool(context.values.memory)
+        || !std::ptr::eq(verifier.source, context.state)
+        || !record.before.state.iter().any(|root| root == context.root)
+    {
+        return Err(invalid().into());
+    }
+    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
+    let verified = verifier.verify(record);
+    let error = (context.take_state_error)();
+    context.check()?;
+    if let Some(error) = error {
+        return Err(error.into());
+    }
+    Ok(verified?)
 }

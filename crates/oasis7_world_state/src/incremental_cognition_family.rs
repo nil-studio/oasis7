@@ -269,42 +269,16 @@ pub fn qualify_cognition_current_state_v1<
             return Err(invalid());
         }
     }
-    let present_control = |field: CognitionControlFieldV1| {
-        CognitionControlFieldV1::ALL
-            .iter()
-            .position(|value| *value == field)
-            .is_some_and(|index| seen[index][1])
-    };
-    for field in CognitionControlFieldV1::REQUIRED {
-        if !present_control(field) {
-            return Err(invalid());
-        }
-    }
-    for (index, field) in CognitionJsonFieldV1::ALL.into_iter().enumerate() {
-        if !field.optional() && entries[index].is_none() {
-            return Err(invalid());
-        }
-    }
-    let economy = present_control(CognitionControlFieldV1::EconomySchema);
-    for field in CognitionControlFieldV1::ALL {
-        if field.descriptor().name.starts_with("economy.") && present_control(field) != economy {
-            return Err(invalid());
-        }
-    }
-    let delegation = entries[16].is_some();
-    for (index, field) in CognitionJsonFieldV1::ALL.into_iter().enumerate() {
-        if field.name().starts_with("economy.") && entries[index].is_some() != economy
-            || field.name().starts_with("delegation.") && entries[index].is_some() != delegation
-        {
-            return Err(invalid());
-        }
-    }
     let mut controls = 0u16;
     for (index, pair) in seen[..10].iter().enumerate() {
         if pair[1] {
             controls |= 1 << index;
         }
     }
+    check_layout(
+        controls,
+        &std::array::from_fn(|index| entries[index].is_some()),
+    )?;
     let roots = roots.digest().map_err(|_| invalid())?;
     if (cancel.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
@@ -325,3 +299,41 @@ pub use receiver::{
 #[path = "incremental_cognition_pages.rs"]
 mod pages;
 pub use pages::*;
+
+pub(super) fn check_layout(controls: u16, present: &[bool; 20]) -> Result<(), ValueTreeError> {
+    let present_control = |field: CognitionControlFieldV1| {
+        CognitionControlFieldV1::ALL
+            .iter()
+            .position(|value| *value == field)
+            .is_some_and(|index| controls & (1 << index) != 0)
+    };
+    for field in CognitionControlFieldV1::REQUIRED {
+        if !present_control(field) {
+            return Err(invalid());
+        }
+    }
+    for (index, field) in CognitionJsonFieldV1::ALL.into_iter().enumerate() {
+        if !field.optional() && !present[index] {
+            return Err(invalid());
+        }
+    }
+    let economy = present_control(CognitionControlFieldV1::EconomySchema);
+    for field in CognitionControlFieldV1::ALL {
+        if field.descriptor().name.starts_with("economy.") && present_control(field) != economy {
+            return Err(invalid());
+        }
+    }
+    let delegation = present[16];
+    for (index, field) in CognitionJsonFieldV1::ALL.into_iter().enumerate() {
+        if field.name().starts_with("economy.") && present[index] != economy
+            || field.name().starts_with("delegation.") && present[index] != delegation
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
+#[path = "incremental_cognition_group_receiver.rs"]
+mod group_receiver;
+pub use group_receiver::accept_cognition_current_lifecycle_transition_v1;

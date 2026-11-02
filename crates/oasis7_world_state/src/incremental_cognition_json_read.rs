@@ -148,23 +148,7 @@ pub(crate) fn qualify_body<
     work: &mut JsonReadWorkV1,
 ) -> Result<ReservedValue<CognitionJsonEntryQualificationV1>, ValueTreeError> {
     let body = qualify_json_subtree_v1(field.profile(), child, context, work)?;
-    if let Some(shape) = field.immediate() {
-        crate::incremental_json_records::require_json_immediate_records_v1(
-            field.profile(),
-            &body,
-            shape,
-            &mut context.records(),
-            work,
-        )?;
-    } else if field != CognitionJsonFieldV1::SchedulerState {
-        crate::incremental_json_records::require_json_container_records_v1(
-            field.profile(),
-            &body,
-            field == CognitionJsonFieldV1::Continuations,
-            &mut context.records(),
-            work,
-        )?;
-    }
+    require_owner_body(field, &body, &mut context.records(), work)?;
     mint(field, body, context.values.memory, context.values.class)
 }
 
@@ -177,6 +161,47 @@ pub(crate) fn require_root_shape<R: ValueNodeReader, C: FnMut() -> bool>(
     work: &mut JsonReadWorkV1,
 ) -> Result<(), ValueTreeError> {
     if field != CognitionJsonFieldV1::SchedulerState {
+        crate::incremental_json_records::require_json_container_records_v1(
+            field.profile(),
+            body,
+            field == CognitionJsonFieldV1::Continuations,
+            records,
+            work,
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn qualify_body_records<R: ValueNodeReader, C: FnMut() -> bool>(
+    field: CognitionJsonFieldV1,
+    child: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<ReservedValue<CognitionJsonEntryQualificationV1>, ValueTreeError> {
+    let body = crate::incremental_json_records::qualify_json_subtree_records_v1(
+        field.profile(),
+        child,
+        records,
+        work,
+    )?;
+    require_owner_body(field, &body, records, work)?;
+    mint(field, body, records.values.memory, records.values.class)
+}
+fn require_owner_body<R: ValueNodeReader, C: FnMut() -> bool>(
+    field: CognitionJsonFieldV1,
+    body: &ReservedValue<JsonSubtreeQualificationV1>,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    if let Some(shape) = field.immediate() {
+        crate::incremental_json_records::require_json_immediate_records_v1(
+            field.profile(),
+            body,
+            shape,
+            records,
+            work,
+        )?;
+    } else if field != CognitionJsonFieldV1::SchedulerState {
         crate::incremental_json_records::require_json_container_records_v1(
             field.profile(),
             body,

@@ -341,7 +341,28 @@ pub fn prepare_cognition_json_genesis_v1<
     work: &mut JsonWriteWorkV1,
     sink: &mut S,
 ) -> Result<(), MemberRecordError> {
-    for field in CognitionJsonFieldV1::ALL {
+    prepare_cognition_json_fields_v1(
+        source,
+        CognitionJsonFieldV1::ALL,
+        context,
+        records,
+        work,
+        sink,
+    )
+}
+pub(crate) fn prepare_cognition_json_fields_v1<
+    W: StatePageWriter + ValueNodeReader,
+    C: FnMut() -> bool,
+    S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+>(
+    source: CognitionEnvelopeRefV1<'_>,
+    fields: impl IntoIterator<Item = CognitionJsonFieldV1>,
+    context: &mut MemberRecordWriteContext<'_, W, C>,
+    records: &mut u64,
+    work: &mut JsonWriteWorkV1,
+    sink: &mut S,
+) -> Result<(), MemberRecordError> {
+    for field in fields {
         let Some(value) = field.value(source) else {
             if field.optional() {
                 continue;

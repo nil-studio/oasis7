@@ -454,7 +454,7 @@ pub fn qualify_json_subtree_v1<
 }
 /// The caller establishes the phase/source context; all JSON reads and work
 /// remain on the same borrowed continuous record context.
-pub(super) fn qualify_records<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(crate) fn qualify_records<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     root: &StateRootV1,
     records: &mut InventoryValueReader<'_, '_, R, C>,
