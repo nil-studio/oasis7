@@ -55,3 +55,7 @@ pub mod term_guarded_signer_v2;
 pub mod term_guarded_close_signer_v2;
 
 pub mod term_owner_slot_lineage_v2;
+
+pub mod execution_pending_current_v2;
+
+pub mod execution_fence_dispatch_v2;
