@@ -399,6 +399,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 
 `GenesisFieldVisitor` 是借用来源接口，不是 wire。Agent、body/mailbox、module instance 等已定义的专用 typed 键和值继续由其唯一 codec 负责；模块选择、状态和工件等字段在专用 codec 接入时也遵循同一边界。通用字段键不能替代它们或写一套影子状态。其他字段使用显式 `world-field-key.v1` 键族，消费者须将解析结果与受支持的字段描述符及该 namespace 中的实际键核对。解析一个结构正确的键，不授予字段归属、授权、执行或接受资格。
 
+<a id="iws-module-instance-qualified-family-v1"></a>
+
+module instance 继续使用原 `module-instance-key/value.v1`、模块计数及总数 index 专用 codec，保存 instance_id、module_id、module_version、wasm_hash、owner_agent_id、install_target、active、installed_at 八列；外层 map key 与 stored instance_id 分别保留，Text、Target、Bool、U64 不规范化。所有实例（包括 inactive）都计入原 module_id 的 count，用于保留有实例时抑制 global fallback 的原语义；不存在的模块 count 叶表示零，存在的零值、缺少总数 index、孤儿/缺列、计数错配和错误 namespace/专用键 framing 均拒绝。不能从点读成功或公开 counts 内容结果推导完整族资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+完整族资格由有限 root-only 验证取得，私有绑定精确 RootSet、Business 根、同池保留费用与真实 mint class；完整 GEN 输出在该资格及后续接受之前仍是暂态。恢复逐列验证原 wire、跨块 UTF-8 和精确长度，模块计数键使用原 domain/长度/字节的流式同一哈希核心，不为长 Text 构建整件 Vec。独立 recovery-counter scratch Merkle domain 只重建恢复计数，不转换成 StateRoot 或 serving 根；调用者在分配前预付有界 workspace/输出并管理连续读写额度，错误/取消不得返回部分资格。Recovery 资格用于 Ordinary 前须显式按原精确根重新准入、预付新 Ordinary metadata 费用并完成末次取消检查；该桥不读原件/历史、不升根或业务权限。
+
+普通读取、单列 exact expected 与完整记录 create/replace/delete 必须使用已资格父、同一个 ExecutionTransaction overlay 和 Ordinary 池；任何失败使先前成功贡献不可 seal。单列路径只访问目标和 module_id 变化必需的计数，NoOp 在比较后再次检查取消；显式完整记录替换核对旧完整记录并消费新输入，其 O(old/new record) 成本不得冒称单列固定增量。receiver 先独立 generic replay，再从真实写集验证新 scalar、八列 presence、总数和每个模块的净计数，并仅继承父的未变闭包。当前无增长 join map 的实现对 changed writes 做显式有限 O(Δ²) 关系工作，不扫描未变族 S 或历史 H；logical value、generic/typed State 和实际物理 I/O 分别计量，不把其中一条计费通道称完整 pipeline 成本。此族资格不授安装、WASM invocation、完整 Runtime owner、selected durable head、正式 driver 启用或全 World GC 权限。
+
 键的字节布局固定为：ASCII domain `oasis7.iws.world-field-key.v1` 加单个零字节；owner u8；namespace u16 大端；shape u8；record-kind u8；name-byte-length u16 大端；name ASCII bytes；semantic-key digest 32 bytes。owner 固定 WorldState=1、Runtime=2、Cognition=3；namespace 沿用状态树的 1..6 标签；shape 固定 Value=1、Map=2、NestedMap=3、Set=4、MapSet=5、Ordered=6、ByteMap=7。History、Process、Children 不是状态字段 wire shape。name 为 1..128 个 ASCII 字母、数字、下划线及点，首字符为字母，各点分段非空。这是固定字段名上限，不是实体 ID 或大字段内容上限。
 
 record-kind 固定 Metadata=1、Group=2、Entry=3、Bytes=4。Metadata 的 digest 必须全零；其他 kind 必须由调用者显式提供语义键摘要，全零摘要并不被擅自当成“没有成员”。Group 仅用于 NestedMap/MapSet 的外层存在标记，Bytes 仅用于 ByteMap；Entry 对应语义成员。不同 kind、owner、namespace、shape 或 name 均形成不同键，不用空 key 的特殊值模拟缺失。未知标签、错误 domain/长度、尾随 bytes 和不合法组合明确拒绝。
