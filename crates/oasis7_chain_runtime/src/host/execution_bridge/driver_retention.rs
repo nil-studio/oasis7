@@ -16,6 +16,12 @@ impl NodeRuntimeExecutionDriver {
         committed_height: u64,
         record: &ExecutionBridgeRecord,
     ) -> Duration {
+        // Formal profile two persists the verified parent/business/retained
+        // closure, not legacy Native historical records in its private attempt.
+        // Its fallible capture/validation ran before durable publication.
+        if self.formal_retention_enabled {
+            return Duration::ZERO;
+        }
         let retention_started_at = Instant::now();
         let reconcile_due = self.retention_reconcile_pending
             && self

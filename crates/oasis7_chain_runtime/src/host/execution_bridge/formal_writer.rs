@@ -23,6 +23,12 @@ use std::path::{Path, PathBuf};
 #[path = "formal_writer_tests.rs"]
 pub(crate) mod tests;
 
+#[path = "formal_writer_open.rs"]
+mod opening;
+#[path = "formal_writer_owned_material.rs"]
+mod owned_material;
+pub(crate) use owned_material::{OwnedVerifiedPublicationMaterialV1, PublicationMaterialCaptureV1};
+
 #[path = "formal_writer_attempts.rs"]
 mod attempts;
 #[path = "formal_writer_initial_history.rs"]
@@ -171,6 +177,8 @@ pub(crate) struct FormalWriter<P: FormalDurabilityEndpoint, R: FormalDurabilityE
     attempt_scan_blocked: Option<String>,
     maintenance_session_started: bool,
     attempt_reclaim_current: Option<PathBuf>,
+    capture_material: PublicationMaterialCaptureV1,
+    latest_material: Option<std::sync::Arc<OwnedVerifiedPublicationMaterialV1>>,
 }
 #[path = "formal_writer_published.rs"]
 mod published;
@@ -221,95 +229,6 @@ pub(crate) fn initial_business_nodes(
 }
 
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R> {
-    #[cfg(test)]
-    pub(crate) fn open(
-        root: PathBuf,
-        writer: SigningKey,
-        release: ReleaseSecurityPolicy,
-        world: World,
-        anchor: VerifiedFormalReadAnchorV1,
-        primary: P,
-        replica: R,
-    ) -> Result<Self, String> {
-        Self::open_inner(root, writer, release, world, anchor, primary, replica, None)
-    }
-    /// Both live endpoints must independently restore the same qualified head.
-    /// The supplied anchor remains the external origin of this read lineage.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Native opening binds independent trust, replica restores, endpoint handles, and an authenticated reader."
-    )]
-    pub(crate) fn open_native(
-        root: PathBuf,
-        writer: SigningKey,
-        release: ReleaseSecurityPolicy,
-        trusted: VerifiedFormalReadAnchorV1,
-        primary_restore: &VerifiedNativeCheckpointRestoreV1,
-        replica_restore: &VerifiedNativeCheckpointRestoreV1,
-        primary: P,
-        replica: R,
-        reader: std::sync::Arc<dyn business_index::BusinessIndexNodeReader + Send + Sync>,
-    ) -> Result<Self, String> {
-        Self::open_native_context(
-            root,
-            writer,
-            release,
-            trusted,
-            None,
-            primary_restore,
-            replica_restore,
-            primary,
-            replica,
-            reader,
-        )
-    }
-    #[cfg(test)]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The initialization fixture supplies the complete signed activation and endpoint pair explicitly."
-    )]
-    pub(crate) fn open_initial(
-        root: PathBuf,
-        writer: SigningKey,
-        release: ReleaseSecurityPolicy,
-        anchor: VerifiedFormalReadAnchorV1,
-        candidate: FormalCandidateMaterialV1,
-        proof: FormalQualifiedCommitProofV1,
-        primary: P,
-        replica: R,
-    ) -> Result<Self, String> {
-        if anchor.head().record().kind != FormalRecordKindV1::InitialActivation
-            || anchor.head().record().position != 1
-            || &candidate.candidate.record != anchor.head().record()
-            || proof.decision.record != candidate.candidate.record
-        {
-            return Err("formal initialization differs from externally verified activation".into());
-        }
-        let verified = verify_formal_qualified(&proof, anchor.authority(), None, None)
-            .map_err(|e| e.to_string())?;
-        if verified.head() != anchor.head().head() {
-            return Err("formal initialization proof differs from fixed activation".into());
-        }
-        let world = restore(&candidate, &release)?;
-        Self::open_inner(
-            root,
-            writer,
-            release,
-            world,
-            anchor,
-            primary,
-            replica,
-            Some(NativePublication {
-                publication: Published {
-                    schema_version: 1,
-                    candidate,
-                    proof,
-                },
-                pending: None,
-                recovery: None,
-            }),
-        )
-    }
     #[expect(
         clippy::too_many_arguments,
         reason = "Writer construction keeps key, policy, qualified anchor, endpoint pair, and optional publication distinct."
@@ -323,6 +242,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         primary: P,
         replica: R,
         native: Option<NativePublication>,
+        capture_material: PublicationMaterialCaptureV1,
     ) -> Result<Self, String> {
         let recovery = native.as_ref().and_then(|native| native.recovery.clone());
         if hex::encode(writer.verifying_key().to_bytes())
@@ -355,14 +275,22 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         }
         let published = root.join("published");
         super::controlled_live::private_directory(&published)?;
+        let mut latest_material = None;
         if let Some(native) = &native {
+            let bytes = to_cbor(&native.publication)?;
+            if capture_material.enabled() && bytes.len() > 64 * 1024 * 1024 {
+                return Err("captured native publication exceeds existing reader bound".into());
+            }
             durable_transaction::write_private_file_durable(
                 &published.join(format!(
                     "{:020}.cbor",
                     native.publication.candidate.candidate.record.position
                 )),
-                &to_cbor(&native.publication)?,
+                &bytes,
             )?;
+            if capture_material.enabled() {
+                latest_material = Some(owned_material::installed(None, anchor.clone(), bytes));
+            }
         }
         // History files contain independent complete steps, never recursive
         // embeddings of all prior records. No directory listing sets authority.
@@ -385,7 +313,8 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 }
                 Ok(_) => {}
             }
-            let stored: Published = read(&path)?;
+            let bytes = crate::controlled_history_cli::read_bounded(&path, 64 * 1024 * 1024)?;
+            let stored: Published = published::decode(&bytes)?;
             if stored.schema_version != 1
                 || stored.candidate.candidate.record != stored.proof.decision.record
             {
@@ -399,9 +328,17 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             )
             .map_err(|e| e.to_string())?;
             world = restore(&stored.candidate, &release)?;
+            let previous = anchor.clone();
             anchor = anchor
                 .after_verified_commit(anchor.authority().clone(), head)
                 .map_err(|e| e.to_string())?;
+            if capture_material.enabled() {
+                latest_material = Some(owned_material::installed(
+                    Some(previous),
+                    anchor.clone(),
+                    bytes,
+                ));
+            }
         }
         if native.is_none() {
             for entry in std::fs::read_dir(&published).map_err(|e| e.to_string())? {
@@ -564,6 +501,8 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             attempt_scan_blocked: None,
             maintenance_session_started: false,
             attempt_reclaim_current: None,
+            capture_material,
+            latest_material,
         };
         if let Some((candidate, proof)) =
             read_published_candidate_at(&instance.root, instance.anchor.head().record().position)?
@@ -575,6 +514,11 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
             });
         }
         Ok(instance)
+    }
+    pub(crate) fn take_publication_material(
+        &mut self,
+    ) -> Option<std::sync::Arc<OwnedVerifiedPublicationMaterialV1>> {
+        self.latest_material.take()
     }
     pub(crate) fn anchor(&self) -> &VerifiedFormalReadAnchorV1 {
         &self.anchor
@@ -1159,8 +1103,16 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         )?;
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("publication_saved")?;
+        let previous = self.capture_material.enabled().then(|| self.anchor.clone());
         self.anchor = next_anchor;
         self.world = world;
+        if let Some(previous) = previous {
+            self.latest_material = Some(owned_material::installed(
+                Some(previous),
+                self.anchor.clone(),
+                bytes,
+            ));
+        }
         self.reclaim_published_attempts(&stored);
         timing.mark("publication_saved");
         // Keep terminal original as an idempotency cache. `acknowledge` is a

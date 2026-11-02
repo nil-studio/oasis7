@@ -740,7 +740,7 @@ pub(crate) fn task_mutation_writer(
         checkpoint_digest: checkpoint.digest().unwrap(),
         checkpoint,
     };
-    let writer = FormalWriter::open_initial(
+    let writer = FormalWriter::open_initial_with_material(
         root,
         fixtures::key(4),
         policy,
@@ -749,6 +749,7 @@ pub(crate) fn task_mutation_writer(
         proof,
         primary,
         replica,
+        PublicationMaterialCaptureV1::LatestVerified,
     )
     .unwrap()
     .with_business_reader(nodes)

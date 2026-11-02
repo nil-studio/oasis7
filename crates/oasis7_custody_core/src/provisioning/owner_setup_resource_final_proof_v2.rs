@@ -17,8 +17,7 @@ mod dispatch;
 use dispatch::ResourceFinalDispatchRecordV2;
 pub use dispatch::{
     OwnerSetupPaidResourceResultV2, OwnerSetupResourceBodyDigestsV2, OwnerSetupResourceFinalHttpV2,
-    OwnerSetupResourceWorldBodyV2, PreparedOwnerSetupResourceDispatchV2,
-    RESOURCE_READ_PROOF_HEADER, ResourceFinalIssueContextV2,
+    PreparedOwnerSetupResourceDispatchV2, ResourceFinalIssueContextV2,
 };
 #[path = "owner_setup_resource_final_result_v2.rs"]
 mod result;
@@ -51,20 +50,7 @@ fn decode<T: serde::de::DeserializeOwned + Serialize>(bytes: &[u8]) -> Result<T>
     }
     Ok(value)
 }
-// The SDK serializes its typed request hash as `blake3:<64lowerhex>`;
-// the existing paid-proof wire stores the identical hash as 64 lower hex.
-fn paid_world_request_digest<T: Serialize>(path: &str, request: &T) -> Result<String> {
-    let sdk = ws::request_digest(path, request).map_err(|_| invalid())?;
-    let raw = sdk.strip_prefix("blake3:").ok_or_else(invalid)?;
-    if raw.len() != 64
-        || !raw
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(invalid());
-    }
-    Ok(raw.to_owned())
-}
+use crate::provisioning::resource_world_body_v2::paid_world_request_digest;
 impl OwnerSetupResourceFinalProofV2 {
     pub(super) fn from_typed(
         plan: &OwnerSetupPlanV2,

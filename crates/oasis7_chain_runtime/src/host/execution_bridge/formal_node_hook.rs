@@ -39,6 +39,11 @@ pub(crate) enum CurrentHeadEvidence {
 }
 
 pub(crate) trait FormalNodeWriter: Send {
+    fn take_publication_material(
+        &mut self,
+    ) -> Option<Arc<super::formal_writer::OwnedVerifiedPublicationMaterialV1>> {
+        None
+    }
     fn world(&self) -> &World;
     fn world_id(&self) -> &str;
     /// Return the current immutable World cut and its opaque verified formal
@@ -92,6 +97,11 @@ pub(crate) trait FormalNodeWriter: Send {
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
     for FormalWriter<P, R>
 {
+    fn take_publication_material(
+        &mut self,
+    ) -> Option<Arc<super::formal_writer::OwnedVerifiedPublicationMaterialV1>> {
+        FormalWriter::take_publication_material(self)
+    }
     fn world(&self) -> &World {
         FormalWriter::world(self)
     }
@@ -210,6 +220,14 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
 /// The implementation must swap the complete `(World, anchor)` pair atomically.
 pub(crate) trait FormalPublicationSink: Send + Sync {
     fn publish(&self, world: World, anchor: VerifiedFormalReadAnchorV1) -> Result<(), String>;
+    fn publish_with_material(
+        &self,
+        world: World,
+        anchor: VerifiedFormalReadAnchorV1,
+        _material: Option<Arc<super::formal_writer::OwnedVerifiedPublicationMaterialV1>>,
+    ) -> Result<(), String> {
+        self.publish(world, anchor)
+    }
     #[cfg(test)]
     fn test_boundary_control(
         &self,
@@ -281,7 +299,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
         sink: Arc<dyn FormalPublicationSink>,
     ) -> Result<Self, String> {
         let (world, anchor) = self.writer.committed_read_cut()?;
-        sink.publish(world, anchor)?;
+        sink.publish_with_material(world, anchor, self.writer.take_publication_material())?;
         self.publication_sink = Some(sink);
         Ok(self)
     }
@@ -319,7 +337,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             .map(|intent| intent.transition))
     }
 
-    fn publish_committed_read_cut(&self, expected_record_id: &str) -> Result<(), String> {
+    fn publish_committed_read_cut(&mut self, expected_record_id: &str) -> Result<(), String> {
         let Some(sink) = &self.publication_sink else {
             return Ok(());
         };
@@ -331,7 +349,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
                 "formal read publisher is not at the exact qualified execution head".into(),
             );
         }
-        sink.publish(world, anchor)
+        sink.publish_with_material(world, anchor, self.writer.take_publication_material())
     }
 
     pub(crate) fn bootstrap(&self) -> Result<NodeExecutionBootstrap, String> {

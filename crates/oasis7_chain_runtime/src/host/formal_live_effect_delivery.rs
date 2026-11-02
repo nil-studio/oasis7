@@ -42,9 +42,20 @@ pub(crate) struct QualifiedOutboxPublicationSink {
 
 impl FormalPublicationSink for QualifiedOutboxPublicationSink {
     fn publish(&self, world: World, anchor: VerifiedFormalReadAnchorV1) -> Result<(), String> {
+        self.publish_with_material(world, anchor, None)
+    }
+    fn publish_with_material(
+        &self,
+        world: World,
+        anchor: VerifiedFormalReadAnchorV1,
+        material: Option<
+            Arc<super::execution_bridge::formal_writer::OwnedVerifiedPublicationMaterialV1>,
+        >,
+    ) -> Result<(), String> {
         // The commit is already qualified: keep that fact readable even when
         // local delivery persistence fails and the hook fences further writes.
-        self.published.publish(world, anchor.clone())?;
+        self.published
+            .publish_with_material(world, anchor.clone(), material)?;
         let material = self
             .history
             .full_sync_material(&anchor)

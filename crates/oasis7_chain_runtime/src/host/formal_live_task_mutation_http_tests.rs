@@ -59,16 +59,39 @@ fn wait_cut(
 enum CloseReplyCase {
     Bare,
     Qualified,
+    RuntimeAdmissionHeld,
+    PublicationWaitHeld,
+    Archive,
+    #[cfg(unix)]
+    ResourcePreflight,
 }
 #[test]
 fn formal_http_guarded_stop_then_distinct_close_use_real_queue_and_qualified_commit() {
-    mutation_case(CloseReplyCase::Bare)
+    mutation_case(CloseReplyCase::Bare, false)
 }
 #[test]
 fn formal_http_qualified_mutation_reply_requires_the_actual_new_profile() {
-    mutation_case(CloseReplyCase::Qualified)
+    mutation_case(CloseReplyCase::Qualified, false)
 }
-fn mutation_case(reply_case: CloseReplyCase) {
+#[test]
+fn resource_activation_archive_uses_actual_http_goal_and_full_cold_proof_chain() {
+    mutation_case(CloseReplyCase::Archive, false)
+}
+#[test]
+fn formal_http_qualified_runtime_admission_is_bounded_without_holding_shared_gate() {
+    mutation_case(CloseReplyCase::RuntimeAdmissionHeld, false)
+}
+#[test]
+fn formal_http_qualified_wait_is_bounded_while_publication_is_held() {
+    mutation_case(CloseReplyCase::PublicationWaitHeld, false)
+}
+#[path = "formal_live_task_mutation_bounded_http_tests.rs"]
+mod bounded_http_tests;
+#[test]
+fn formal_http_profile_two_retains_verified_history_without_legacy_native_transaction() {
+    mutation_case(CloseReplyCase::Bare, true)
+}
+fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
     let (mut initial, owner) = actual_task_fixture::world_before_task();
     let delegate = sign_read_request("key", (), &"22".repeat(32))
         .unwrap()
@@ -93,23 +116,57 @@ fn mutation_case(reply_case: CloseReplyCase) {
             .unwrap(),
         )
         .unwrap();
+    #[cfg(unix)]
+    let paid_participant = matches!(reply_case, CloseReplyCase::ResourcePreflight)
+        .then(|| resource_preflight_http::participant(&mut initial));
     assert!(
         initial
             .capability_revocation_state()
             .world_service_results
             .is_empty()
     );
+    let label = match reply_case {
+        CloseReplyCase::Bare => "bare",
+        CloseReplyCase::Qualified => "qualified",
+        CloseReplyCase::RuntimeAdmissionHeld => "bounded-runtime",
+        CloseReplyCase::PublicationWaitHeld => "bounded-publication",
+        CloseReplyCase::Archive => "archive",
+        #[cfg(unix)]
+        CloseReplyCase::ResourcePreflight => "resource-preflight",
+    };
     let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
-        "guarded-mutation-node-{}-{}",
+        "guarded-mutation-node-{}-{}-{}",
+        label,
         std::process::id(),
         now_unix_ms()
     ));
+    let root = if inspect_retention {
+        root.with_extension("retention-profile-two")
+    } else {
+        root
+    };
+    let retention = inspect_retention.then(|| {
+        crate::execution_bridge_real_tests::real_execution_bridge::formal_retention_route_test_support::capture(root.join("attempts"))
+    });
     let (writer, trust) =
         crate::execution_bridge::formal_writer::tests::task_mutation_writer(initial, root.clone());
     let (world, anchor) = writer.committed_read_cut().unwrap();
     let world_id = identity(&anchor);
     let node_id = world.tick_consensus_authority_source().to_owned();
-    let publication = Arc::new(PublishedReadState::default());
+    let archive_directory = root.join("resource-activation-archive");
+    let publication = if matches!(reply_case, CloseReplyCase::Archive) {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&archive_directory)
+            .unwrap();
+        let queue=oasis7::world_service::formal_read_service::GoalActivationArchiveQueueV1::open_existing(
+            archive_directory.clone(),64*1024*1024,128*1024*1024,64).unwrap();
+        Arc::new(PublishedReadState::with_archive_for_test(queue))
+    } else {
+        Arc::new(PublishedReadState::default())
+    };
     let gate = Arc::new(Mutex::new(()));
     let arm = Arc::new(
         crate::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1::new(
@@ -155,7 +212,7 @@ fn mutation_case(reply_case: CloseReplyCase) {
     let state = FormalLiveState::default();
     state.ready.store(true, Ordering::Release);
     let signer = fixtures::key(91);
-    let service = Arc::new(FormalLiveService::new(
+    let service = FormalLiveService::new(
         node_id,
         world_id.clone(),
         signer.clone(),
@@ -165,9 +222,83 @@ fn mutation_case(reply_case: CloseReplyCase) {
         resolver,
         state,
         gate,
-    ));
+    );
+    let service = Arc::new(service);
+    #[cfg(unix)]
+    if let Some(participant) = paid_participant {
+        resource_preflight_http::run(service, node, publication, root, participant);
+        return;
+    }
     let initial_control =
         install_task_through_actual_http(&service, &publication, &owner, &delegate, &world_id);
+    if matches!(reply_case, CloseReplyCase::Archive) {
+        node.lock().unwrap().stop().unwrap();
+        publication.request_resource_archive_stop().unwrap();
+        let until = Instant::now() + Duration::from_secs(20);
+        loop {
+            if publication.finish_resource_archive_stop().is_ok() {
+                break;
+            }
+            assert!(
+                Instant::now() < until,
+                "actual archive worker failed to finish"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let cut = publication.current().unwrap();
+        let expected =
+            oasis7_runtime::service_admission::game_task::active_publish(&cut.world, "agent")
+                .unwrap()
+                .unwrap();
+        let key = oasis7_runtime::service_admission::correlation::key_digest(
+            &expected.request.correlation.key,
+        )
+        .unwrap();
+        let mut actual = None;
+        for entry in std::fs::read_dir(&archive_directory).unwrap() {
+            let entry = entry.unwrap();
+            if !entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".activation-v2.cbor")
+            {
+                continue;
+            }
+            let bytes = std::fs::read(entry.path()).unwrap();
+            let record=oasis7::world_service::formal_read_service::ResourceGoalArchiveRecordV2::decode_strict(&bytes,128*1024*1024).unwrap();
+            let verified = record.verify(&service.trust.initial_trust).unwrap();
+            if verified.exact_result(&key) == Some(&expected) {
+                actual = Some((bytes, verified));
+                break;
+            }
+        }
+        let (bytes, archived) =
+            actual.expect("actual Goal publication must produce complete cold-verifiable archive");
+        assert_ne!(
+            archived.activation_commit().execution_block_hash,
+            cut.anchor.head().head().record_id,
+            "Bind/current tip must not replace original Goal activation anchor"
+        );
+        assert!(archived.activation_commit().position < cut.anchor.head().record().position);
+        archive_signature_only_negative(&bytes, &service.trust.initial_trust);
+        let mut wrong = service.trust.initial_trust.clone();
+        wrong.issuer_public_key = fixtures::public(92);
+        let record =
+            oasis7::world_service::formal_read_service::ResourceGoalArchiveRecordV2::decode_strict(
+                &bytes,
+                128 * 1024 * 1024,
+            )
+            .unwrap();
+        assert!(
+            record.verify(&wrong).is_err(),
+            "archive's own certificate/digests cannot choose external origin trust"
+        );
+        drop(service);
+        drop(node);
+        drop(publication);
+        std::fs::remove_dir_all(root).unwrap();
+        return;
+    }
     let deadline = now_unix_ms() + 30_000;
     let mut close_body = GameTaskRevokeAndCloseV2 {
         api_revision: 2,
@@ -343,6 +474,11 @@ fn mutation_case(reply_case: CloseReplyCase) {
         .unwrap();
     let mut qualified_effect = None;
     let close_ack = match reply_case {
+        CloseReplyCase::Archive => unreachable!("archive case returned before Stop/Close"),
+        #[cfg(unix)]
+        CloseReplyCase::ResourcePreflight => {
+            unreachable!("resource case returned before Stop/Close")
+        }
         CloseReplyCase::Bare => {
             let (status, raw) = exchange(
                 &service,
@@ -353,6 +489,16 @@ fn mutation_case(reply_case: CloseReplyCase) {
             assert_eq!(status, 200);
             serde_json::from_slice::<SignedServiceResponse<TaskMutationAdmissionV2>>(&raw).unwrap()
         }
+        CloseReplyCase::RuntimeAdmissionHeld => {
+            bounded_http_tests::runtime_admission(&service, &node, &control, &close)
+        }
+        CloseReplyCase::PublicationWaitHeld => bounded_http_tests::publication_wait(
+            &service,
+            &publication,
+            &control,
+            &close,
+            wait_until,
+        ),
         CloseReplyCase::Qualified => {
             use oasis7_client_api::world_service::task_mutation_qualified_v2::*;
             close.verify_owner_signature().unwrap();
@@ -426,7 +572,7 @@ fn mutation_case(reply_case: CloseReplyCase) {
             let (status, raw) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
             worker.join().unwrap();
             assert_eq!(status, 200);
-            let reply: TaskMutationSubmitReplyV2 = serde_json::from_slice(&raw).unwrap();
+            let reply = TaskMutationSubmitReplyV2::decode_strict(&raw).unwrap();
             let TaskMutationSubmitReplyV2::Qualified { admission, effect } = reply else {
                 panic!("actual qualified Close fact required")
             };
@@ -607,6 +753,44 @@ fn mutation_case(reply_case: CloseReplyCase) {
     drop(node);
     drop(control);
     drop(publication);
+    if let Some(retention) = retention {
+        let report = retention.report();
+        assert!(
+            !report.overflow,
+            "bounded actual candidate observation overflow"
+        );
+        assert!(
+            report.candidates.len() >= 5,
+            "genuine Create/Goal/Bind/Stop/Close candidates required"
+        );
+        assert!(
+            report
+                .candidates
+                .iter()
+                .all(|c| c.strong_verified && c.profile_two),
+            "every actual captured candidate must fully verify under the real profile-two authority"
+        );
+        let fifth = report
+            .candidates
+            .iter()
+            .find(|c| c.height == 5)
+            .expect("actual Bind height five candidate required");
+        assert!(
+            !fifth.record_four_present,
+            "one-shot attempt must not be populated with a fake predecessor record four"
+        );
+        assert_eq!(
+            report.native_begins, 0,
+            "qualified Formal profile two must not invoke a legacy Native retention transaction"
+        );
+        assert!(
+            report
+                .candidates
+                .iter()
+                .all(|c| !c.degraded && !c.in_progress && !c.live_task_pin_scope),
+            "qualified Formal history must not depend on a failed legacy Native pin-set cache"
+        );
+    }
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -776,4 +960,76 @@ fn diagnose_not_queued(kind: &'static str, status: u16, raw: &[u8]) {
         message.contains("No such file or directory"),
         message.contains("execution bridge record")
     );
+}
+
+// Test-only balanced serialization: change only an actual endpoint signature,
+// preserving both existing raw Published codec and new archive codec exactly.
+fn archive_signature_only_negative(
+    bytes: &[u8],
+    trust: &oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1,
+) {
+    use oasis7_distfs::controlled_authority::formal::{
+        FormalQualifiedCommitProofV1, SignedInitialActivationV1,
+        endpoint::FormalCandidateMaterialV1,
+    };
+    #[derive(Serialize, Deserialize)]
+    struct Publication {
+        commit: CommitRef,
+        original: serde_cbor::Value,
+    }
+    #[derive(Serialize, Deserialize)]
+    struct Record {
+        api_version: u8,
+        initial_certificate: SignedInitialActivationV1,
+        publications: Vec<Publication>,
+        activation_commit: CommitRef,
+        canonical_results: std::collections::BTreeMap<
+            String,
+            oasis7_client_api::legacy_world_service::CanonicalIntentResultV1,
+        >,
+    }
+    #[derive(Serialize, Deserialize)]
+    struct Published {
+        schema_version: u32,
+        candidate: FormalCandidateMaterialV1,
+        proof: FormalQualifiedCommitProofV1,
+    }
+    let mut record: Record = serde_cbor::from_slice(bytes).unwrap();
+    assert_eq!(
+        serde_cbor::to_vec(&record).unwrap(),
+        bytes,
+        "genuine archive test codec must exactly match producer"
+    );
+    let serde_cbor::Value::Bytes(original) = &mut record.publications.last_mut().unwrap().original
+    else {
+        panic!("actual publication bytes required")
+    };
+    let mut published: Published = serde_cbor::from_slice(original).unwrap();
+    assert_eq!(
+        serde_cbor::to_vec(&published).unwrap(),
+        *original,
+        "actual Writer codec must match before mutation"
+    );
+    published.proof.decision.primary.signature_hex = "00".repeat(64);
+    *original = serde_cbor::to_vec(&published).unwrap();
+    let changed = serde_cbor::to_vec(&record).unwrap();
+    let changed =
+        oasis7::world_service::formal_read_service::ResourceGoalArchiveRecordV2::decode_strict(
+            &changed,
+            128 * 1024 * 1024,
+        )
+        .unwrap();
+    assert!(
+        changed.verify(trust).is_err(),
+        "same-shape endpoint signature corruption must fail full cold proof verification"
+    );
+}
+
+#[cfg(unix)]
+#[path = "resource_world_paid_preflight_http_tests.rs"]
+mod resource_preflight_http;
+#[cfg(unix)]
+#[test]
+fn resource_world_paid_preflight_real_http_claims_once_then_signs_exact_outer() {
+    mutation_case(CloseReplyCase::ResourcePreflight, false)
 }
