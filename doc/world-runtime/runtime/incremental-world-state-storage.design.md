@@ -805,3 +805,46 @@ module_artifacts（Set）与 module_artifact_bytes（ByteMap）属于 Runtime/Ar
 此组须闭合 root-only 结构资格、同 ExecutionTxn expected 更新及错误 poison、独立 generic+typed receiver、状态页与外部原件的不同 typed 闭包。原件验证共享明确 pool/class、条目/bytes/时间及取消预算，流式核对原 bytes/hash/实际长度，拒绝 source 吞掉输出错误、截断、错误长度、错误 ID 和最终取消；source 成功并不授予接受历史、业务执行或独立持久保障。实际持久消费者须完成对象 finish/locator/原件回读。未变原件复用精确已资格父的闭包，普通增删只访问实际 changed paths；全量 bootstrap/审计按其实际范围另计。两集合成员可独立新增和删除，必须保留原权限与保留要求，不把登记删除等同于历史原件可回收。
 
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。本节是完整 owner 的实现合同；单独原件 codec/流验证不代表 Runtime、World 或 GC 已就绪。
+
+<a id="iws-event-fact-provenance"></a>
+
+### 12.42 原事件引用的历史出现与原件认证
+
+Agent mailbox 沿用原32字节 WorldEvent 原件ID，不在通用字段或新索引中重造事件身份。完整引用资格须证明该ID是同一已接受head历史内的Event fact，并核对实际原件；只解析引用或接收调用者返回Ok的回调不能授予资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+历史出现验证以原VerifiedFormalCommit及精确RootSet为锚，读取并认证原CommitBody；目标为旧高度时，从该body绑定的前一catalog按高度seek，不扫描所有祖先或相信未认证locator。高度与fact ordinal可由调用者提供为不受信任查询提示，必须逐项核对已认证body、prefix/segment、FactSet scope/operation、Event种类与原ID。输出为绑定head身份、RootSet、目标body及原出现位置的不透明暂态证明；它只证明此Event fact与原bytes，不能代替WorldEvent类型/Domain内容匹配、完整Agent/World资格、写入权限或独立持久保障。
+
+元数据、来源carrier、catalog读取与原件流读共享调用者预算池和明确Ordinary/Recovery类别；对象、原bytes、catalog节点和fact额度连续消耗，失败与取消不重置。原件按原flat digest流验，保留最终取消检查和来源错误，不能用已输出前缀或预先声明的长度代签成功。WorldEvent语义消费者须继续使用既有唯一canonical编码和原类型核对，不能将原始事实字节身份提升为语义资格。
+
+Domain 语义验证接收具体的借用 WorldEvent 与上述不透明原件证明，核对消费者预期的精确 head/RootSet、Domain 变体、唯一 canonical 编码的完整长度及原 flat digest。输出持续借用原事件和原证明，不能分离原件计费，也不能以调用者返回 Ok 或自报 digest 构造语义资格。它仍不授予完整 Agent、业务授权或独立持久保障；mailbox 消费者还须核对自身原 Domain 内容和引用所属根。
+
+canonical 流式消费者保留既有编码器及其键排序语义作为独立 oracle。长值直接流向 digest，不先建立整个 owned Value 或编码 Vec；只为有限 map key、排序与重放元数据提前准入，ordinal 重放消耗连续工作预算。键的原 Tag 等类型不得因中间解码规范化而改变排序；取消、资源不足、输出失败或身份不匹配后整次验证上下文失效，不能用重试重置额度。
+
+已接受历史来源的 Agent GEN lowering 复用原字段 visitor 与写入编码器；mailbox 来源提供上述私有 Domain 证明后，消费者继续核对精确 head、RootSet、原件 ID 及实际 mailbox Domain 的完整 canonical 内容。原件证明与 mailbox 匹配使用调用者连续额度，普通写入与语义验证的两个取消通道在流式匹配、写入、emit 和最终返回边界均生效；任一失败使本次验证上下文失效，已输出字段仍是不可激活的暂态前缀。此入口不能验证同一事务中新准备但尚未被接受的 Event，也不能把旧根证明直接迁移成新根资格；新事件的候选验证、正式 head 绑定及未变引用的合法继承仍须由完整提交/owner 链路接通。
+
+上述语义入口接收调用者已有的具体 WorldEvent 借用值；流式编码节省的是验证阶段新增的 owned Value/输出 Vec，不证明输入 DTO 自身的常驻工作集。它不提供从冷原件直接取得任意大小 WorldEvent 的完整语义流式解码，不能据此宣称完整冷恢复或全链路 C<T 已验收。
+
+当前提交的 Fact 原件完整流验可保留本次 FactSet 内每次出现的种类、原 ID 和实际流验长度，按原顺序保留重复项。此私有观测只占本次 Δ 的有限元数据，完整 Vec capacity 在分配前准入并随证明持有至释放；不保留原件正文，不重置失败已消耗的额度。已验证的 core、这些观测与精确正式接受 head 的 body/roots/history/operation 绑定一致后，才可产生当前高度的原件出现证明；仅有 prepared body、调用者长度或另一 head 的观测均不足。该绑定不重读原件、不变更线格式，也不授予业务、GC 或独立持久保障资格。
+
+<a id="iws-event-history-inheritance"></a>
+
+### 12.47 已接受历史扩展下的原件出现继承
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。普通后继不得重新扫描所有既有 mailbox 原件。继承必须先绑定两个真实正式接受 head 的直接父子关系，以及已完整认证的后继 core：精确 parent record、相同世界、相邻 position、before/after roots、原 parent CommitBody、HistoryPrefix.previous 与计数均一致。仅凭两个高度或新根摘要不能构造扩展资格。
+
+私有扩展证明只授权把精确父 head/roots/body 下的既有原件出现证明迁移到该后继；原 event body、高度、ordinal、原 ID 和实际流验长度保持不变。绑定与继承均提前准入元数据、核对同池收费并在最后检查取消，不读取原件或扫描 catalog。多个后继须逐次提供真实扩展证明，分叉、跳高、错父、异池或不足计费不得成功。
+
+这不证明物理副本仍可用，也不单独授予完整 Agent/World 资格、业务权限、GC 或持久回执；owner 仍须认证其实际结构变化与引用增删，并对新增引用提供当前或历史出现及 Domain 语义证明。该接口保留原件的逻辑历史资格，不能冒充冷语义解码或整条恢复链已接通。
+
+已有 Domain 语义证明可与独立认证的新出现证明组合：必须保持相同 event body、高度、ordinal、原 ID 和流验长度，并核对消费者预期的新 head 与 RootSet。消费者只能复用旧证明持续借用的同一不可变具体事件，不能替换 DTO 或借调用者 digest 省略首次语义认证。该元数据组合消耗连续工作额度、计费新证明并保留最终取消检查；不重新编码已验证的大事件。新出现证明仍必须由历史认证或上述真实扩展产生，不能由 Domain 消费者自行重绑定。
+
+
+<a id="iws-candidate-event-semantics"></a>
+
+### 12.49 候选事件原件与接受后的精确提升
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。候选 owner 的完整性检查发生在正式接受之前；不能要求它先取得已接受原件出现证明，形成循环资格。候选出现证明必须由真实签名候选、其已核对的精确 record ID/core，以及本次已流验的 Fact 原件观察构造，保持 Event 种类、ordinal、原 ID 和实际长度；prepared 内容或另一份同 body 的签名记录不能替代该候选。
+
+候选类型与已接受历史类型分开，不提供可替代接受资格的转换或公共构造器。只有真正 VerifiedFormalCommit 的精确 record ID 与候选一致时，才能在同池收费及最终取消检查后提升原出现证明；不重读原件，不改原 body、位置或 bytes。候选 Domain 验证仍须核对具体借用 WorldEvent 的唯一 canonical 原件身份，并只能形成候选语义，不能在接受前被当作已接受 mailbox 历史。owner/endpoint 的业务、完整闭包和持久保障仍各自验证，本接口不能单独签发这些资格。
+
+Domain 语义证明同时保留实际 mint 的内存类别。Ordinary 的首次验证、继承、候选提升及 mailbox 消费不得直接使用 Recovery 类别的语义证明或已接受原件证明。候选原件 carrier 由原唯一 Formal 构造入口固定在 Ordinary 工作区中计费；Domain 候选语义自身的类别仍独立保留并在提升时校验。恢复后的资源转换须显式进行：先取得精确原 head/roots/出现位置与原 bytes 身份不变的 Ordinary 原件证明，再为新的固定 Domain 元数据支付 Ordinary 额度；转换不读原件、不重新编码事件、不重绑定 head，也不增加业务权限。新证明不得借用旧 Recovery 证明本身而阻止其释放，原不可变事件及新 Ordinary 原件证明的借用仍持续有效。

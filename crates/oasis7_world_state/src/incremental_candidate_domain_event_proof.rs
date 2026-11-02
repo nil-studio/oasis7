@@ -10,6 +10,7 @@ pub struct CandidateDomainEventProofRequestV1<'a> {
 }
 /// Deliberately distinct from accepted Domain provenance and not Clone.
 pub struct CheckedCandidateDomainEventOccurrenceV1<'a> {
+    class: MemoryClass,
     event: &'a WorldEvent,
     occurrence: &'a ReservedValue<CheckedCandidateEventFactOccurrenceV1>,
 }
@@ -63,6 +64,7 @@ pub fn check_candidate_domain_event_occurrence_v1<'a, C: FnMut() -> bool>(
     )?;
     context.poisoned = false;
     Ok(charge.retain(CheckedCandidateDomainEventOccurrenceV1 {
+        class: context.class,
         event: request.event,
         occurrence: raw,
     }))
@@ -91,7 +93,10 @@ pub fn promote_candidate_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -
     let checked = request.checked;
     let candidate = checked.occurrence;
     let raw = request.accepted_occurrence;
-    if !checked.uses_budget(context.memory)
+    if (context.class == MemoryClass::Ordinary
+        && (checked.class != MemoryClass::Ordinary
+            || raw.allocation_class() != MemoryClass::Ordinary))
+        || !checked.uses_budget(context.memory)
         || checked.reserved_bytes()
             < std::mem::size_of::<CheckedCandidateDomainEventOccurrenceV1<'_>>()
         || !candidate.uses_budget(context.memory)
@@ -129,6 +134,7 @@ pub fn promote_candidate_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -
     }
     context.poisoned = false;
     Ok(charge.retain(VerifiedDomainEventOccurrenceV1 {
+        class: context.class,
         event: checked.event,
         occurrence: raw,
     }))

@@ -84,10 +84,14 @@ pub struct DomainEventProofRequestV1<'a> {
 /// concrete event. Neither the event nor its original charge can detach while
 /// this witness is live. Construction requires the original canonical hash.
 pub struct VerifiedDomainEventOccurrenceV1<'a> {
+    class: MemoryClass,
     event: &'a WorldEvent,
     occurrence: &'a ReservedValue<VerifiedEventFactOccurrenceV1>,
 }
 impl VerifiedDomainEventOccurrenceV1<'_> {
+    pub fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
     pub fn event(&self) -> &WorldEvent {
         self.event
     }
@@ -129,7 +133,9 @@ pub fn verify_domain_event_occurrence_v1<'a, C: FnMut() -> bool>(
     if (context.cancelled)() {
         return Err(Error::Cancelled);
     }
-    if !request.occurrence.uses_budget(context.memory)
+    if (context.class == MemoryClass::Ordinary
+        && request.occurrence.allocation_class() != MemoryClass::Ordinary)
+        || !request.occurrence.uses_budget(context.memory)
         || request.occurrence.reserved_bytes()
             < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()
     {
@@ -151,6 +157,7 @@ pub fn verify_domain_event_occurrence_v1<'a, C: FnMut() -> bool>(
         context,
     )?;
     let witness = charge.retain(VerifiedDomainEventOccurrenceV1 {
+        class: context.class,
         event: request.event,
         occurrence: request.occurrence,
     });
@@ -211,6 +218,48 @@ pub fn inherit_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -> bool>(
     request: &DomainEventInheritanceRequestV1<'a, 'event>,
     context: &mut DomainEventProofContextV1<'_, C>,
 ) -> Result<ReservedValue<VerifiedDomainEventOccurrenceV1<'a>>, CanonicalCborStreamError> {
+    inherit_domain_impl(
+        request.previous,
+        request.occurrence,
+        request.expected_head_record,
+        request.expected_roots,
+        context,
+        false,
+    )
+}
+
+pub struct DomainEventReadmissionRequestV1<'source, 'event> {
+    pub previous: &'source ReservedValue<VerifiedDomainEventOccurrenceV1<'event>>,
+    pub occurrence: &'event ReservedValue<VerifiedEventFactOccurrenceV1>,
+    pub expected_head_record: [u8; 32],
+    pub expected_roots: [u8; 32],
+}
+
+/// Re-admit only fixed semantic metadata against an already Ordinary exact
+/// occurrence. The old Recovery witness can drop after this call; the event
+/// and new Ordinary provenance remain borrowed. No IO or head retargeting.
+pub fn readmit_domain_event_occurrence_ordinary_v1<'event, C: FnMut() -> bool>(
+    request: &DomainEventReadmissionRequestV1<'_, 'event>,
+    context: &mut DomainEventProofContextV1<'_, C>,
+) -> Result<ReservedValue<VerifiedDomainEventOccurrenceV1<'event>>, CanonicalCborStreamError> {
+    inherit_domain_impl(
+        request.previous,
+        request.occurrence,
+        request.expected_head_record,
+        request.expected_roots,
+        context,
+        true,
+    )
+}
+
+fn inherit_domain_impl<'a, C: FnMut() -> bool>(
+    old: &ReservedValue<VerifiedDomainEventOccurrenceV1<'a>>,
+    raw: &'a ReservedValue<VerifiedEventFactOccurrenceV1>,
+    expected_head_record: [u8; 32],
+    expected_roots: [u8; 32],
+    context: &mut DomainEventProofContextV1<'_, C>,
+    readmission: bool,
+) -> Result<ReservedValue<VerifiedDomainEventOccurrenceV1<'a>>, CanonicalCborStreamError> {
     use CanonicalCborStreamError as Error;
     if context.poisoned {
         return Err(Error::Poisoned);
@@ -219,9 +268,15 @@ pub fn inherit_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -> bool>(
     if (context.cancelled)() {
         return Err(Error::Cancelled);
     }
-    let old = request.previous;
-    let raw = request.occurrence;
-    if !old.uses_budget(context.memory)
+    if (readmission
+        && (context.class != MemoryClass::Ordinary
+            || old.class != MemoryClass::Recovery
+            || raw.head_record_id() != old.occurrence.head_record_id()
+            || raw.roots_id() != old.occurrence.roots_id()))
+        || (context.class == MemoryClass::Ordinary
+            && (raw.allocation_class() != MemoryClass::Ordinary
+                || (!readmission && old.class != MemoryClass::Ordinary)))
+        || !old.uses_budget(context.memory)
         || old.reserved_bytes() < std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'_>>()
         || !old.occurrence.uses_budget(context.memory)
         || old.occurrence.reserved_bytes() < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()
@@ -230,8 +285,8 @@ pub fn inherit_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -> bool>(
     {
         return Err(Error::Invalid("Domain inheritance pool/charge"));
     }
-    if raw.head_record_id() != request.expected_head_record
-        || raw.roots_id() != request.expected_roots
+    if raw.head_record_id() != expected_head_record
+        || raw.roots_id() != expected_roots
         || raw.event_body_id() != old.occurrence.event_body_id()
         || raw.location() != old.occurrence.location()
         || raw.original_bytes() != old.occurrence.original_bytes()
@@ -253,6 +308,7 @@ pub fn inherit_domain_event_occurrence_v1<'a, 'event: 'a, C: FnMut() -> bool>(
     }
     context.poisoned = false;
     Ok(charge.retain(VerifiedDomainEventOccurrenceV1 {
+        class: context.class,
         event: old.event,
         occurrence: raw,
     }))
@@ -285,7 +341,10 @@ pub fn verified_mailbox_domain_original_with_cancel_v1<C: FnMut() -> bool, D: Fn
         return Err(Error::Cancelled);
     }
     let proof = request.proof;
-    if !proof.uses_budget(context.memory)
+    if (context.class == MemoryClass::Ordinary
+        && (proof.class != MemoryClass::Ordinary
+            || proof.occurrence.allocation_class() != MemoryClass::Ordinary))
+        || !proof.uses_budget(context.memory)
         || !proof.occurrence.uses_budget(context.memory)
         || proof.reserved_bytes() < std::mem::size_of::<VerifiedDomainEventOccurrenceV1<'_>>()
         || proof.occurrence.reserved_bytes() < std::mem::size_of::<VerifiedEventFactOccurrenceV1>()

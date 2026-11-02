@@ -595,13 +595,127 @@ fn ordinary_mailbox_refuses_a_recovery_domain_witness() {
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
     let event = event();
     let raw = provenance(&event, &memory);
-    let mut recovery = DomainEventProofContextV1::new(&memory, MemoryClass::Recovery, work(), || false);
+    let mut recovery =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Recovery, work(), || false);
     let proof = verify_domain_event_occurrence_v1(&request(&event, &raw), &mut recovery).unwrap();
-    let mut ordinary = DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
-    let result = verified_mailbox_domain_original_v1(&MailboxDomainProofRequestV1 {
-        domain: proof.domain(), proof: &proof, expected_original: raw.location().original,
-        expected_head_record: raw.head_record_id(), expected_roots: raw.roots_id(),
-    }, &mut ordinary);
-    assert!(matches!(result, Err(CanonicalCborStreamError::Invalid(_))), "a Recovery-paid Domain witness must not authorize the Ordinary mailbox consumer");
+    let mut ordinary =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    let result = verified_mailbox_domain_original_v1(
+        &MailboxDomainProofRequestV1 {
+            domain: proof.domain(),
+            proof: &proof,
+            expected_original: raw.location().original,
+            expected_head_record: raw.head_record_id(),
+            expected_roots: raw.roots_id(),
+        },
+        &mut ordinary,
+    );
+    assert!(
+        matches!(result, Err(CanonicalCborStreamError::Invalid(_))),
+        "a Recovery-paid Domain witness must not authorize the Ordinary mailbox consumer"
+    );
     assert!(ordinary.is_poisoned());
+}
+
+#[test]
+fn recovery_domain_metadata_readmission_is_explicit_paid_and_keeps_exact_head() {
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let event = event();
+    let raw = provenance(&event, &memory);
+    let mut recovery =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Recovery, work(), || false);
+    let proof = verify_domain_event_occurrence_v1(&request(&event, &raw), &mut recovery).unwrap();
+    let req = DomainEventInheritanceRequestV1 {
+        previous: &proof,
+        occurrence: &raw,
+        expected_head_record: raw.head_record_id(),
+        expected_roots: raw.roots_id(),
+    };
+    let mut implicit =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        inherit_domain_event_occurrence_v1(&req, &mut implicit),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let req = DomainEventReadmissionRequestV1 {
+        previous: &proof,
+        occurrence: &raw,
+        expected_head_record: raw.head_record_id(),
+        expected_roots: raw.roots_id(),
+    };
+    let held = memory
+        .reserve((4 << 20) - memory.used(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut exhausted =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        readmit_domain_event_occurrence_ordinary_v1(&req, &mut exhausted),
+        Err(CanonicalCborStreamError::ResourceLimited(_))
+    ));
+    drop(held);
+    let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let mut wrong_pool =
+        DomainEventProofContextV1::new(&foreign, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        readmit_domain_event_occurrence_ordinary_v1(&req, &mut wrong_pool),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let bad = DomainEventReadmissionRequestV1 {
+        expected_roots: [0xff; 32],
+        ..req
+    };
+    let mut wrong_roots =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert!(matches!(
+        readmit_domain_event_occurrence_ordinary_v1(&bad, &mut wrong_roots),
+        Err(CanonicalCborStreamError::Invalid(_))
+    ));
+    let checks = Cell::new(0);
+    let baseline = memory.used();
+    let mut final_cancel =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || {
+            checks.set(checks.get() + 1);
+            checks.get() == 2
+        });
+    assert!(matches!(
+        readmit_domain_event_occurrence_ordinary_v1(&req, &mut final_cancel),
+        Err(CanonicalCborStreamError::Cancelled)
+    ));
+    assert_eq!(checks.get(), 2);
+    assert_eq!(memory.used(), baseline);
+    let mut zero = work();
+    zero.bytes_remaining = 0;
+    zero.visits_remaining = 1;
+    let mut ordinary =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, zero, || false);
+    let before = memory.used();
+    let admitted = readmit_domain_event_occurrence_ordinary_v1(&req, &mut ordinary).unwrap();
+    assert_eq!(admitted.allocation_class(), MemoryClass::Ordinary);
+    assert!(std::ptr::eq(admitted.event(), &event));
+    assert_eq!(ordinary.work.as_ref().unwrap().visits_remaining, 0);
+    assert_eq!(ordinary.work.as_ref().unwrap().bytes_remaining, 0);
+    assert_eq!(memory.used(), before + admitted.reserved_bytes());
+    let mut cancelled =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || true);
+    assert!(matches!(
+        readmit_domain_event_occurrence_ordinary_v1(&req, &mut cancelled),
+        Err(CanonicalCborStreamError::Cancelled)
+    ));
+    drop(proof);
+    let mut mailbox =
+        DomainEventProofContextV1::new(&memory, MemoryClass::Ordinary, work(), || false);
+    assert_eq!(
+        verified_mailbox_domain_original_v1(
+            &MailboxDomainProofRequestV1 {
+                domain: admitted.domain(),
+                proof: &admitted,
+                expected_original: raw.location().original,
+                expected_head_record: raw.head_record_id(),
+                expected_roots: raw.roots_id()
+            },
+            &mut mailbox
+        )
+        .unwrap(),
+        raw.location().original
+    );
 }
