@@ -195,11 +195,7 @@ pub(in crate::provisioning) fn validate_pending_start_v2(s: &TestSessionAuthorit
             return Err(invalid());
         }
         if let Some(ordinal) = port.claimed_ordinal {
-            let first = ExecutionPendingLeafV2::Business(inventory::StartBusinessLeafV2::Current {
-                phase: inventory::StartCurrentPhaseV2::PreInspect,
-                port: inventory::StartCurrentPortV2::ManagerAssociationsActor,
-            });
-            if port.leaf != first
+            if !fence::first_rf_sequence().contains(&port.leaf)
                 || ordinal <= p.accepted_ordinal
                 || port.claimed_at.is_none_or(|at| {
                     at.get() < p.accepted_at.get() || at.get() >= p.absolute_until.get()
