@@ -13,8 +13,8 @@ use oasis7_formal_protocol::{
 };
 use std::cell::RefCell;
 pub struct RuntimeArtifactContentQualificationV1 {
-    roots: [u8; 32],
-    class: MemoryClass,
+    pub(super) roots: [u8; 32],
+    pub(super) class: MemoryClass,
 }
 impl RuntimeArtifactContentQualificationV1 {
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {

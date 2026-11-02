@@ -34,10 +34,13 @@ pub(super) fn identify(
         .map_err(ValueTreeError::Invalid)?;
     if namespace != StateNamespaceV1::Artifacts
         || expected.as_bytes() != bytes
-        || !matches!(
-            binding.kind,
-            WorldFieldRecordKindV1::Metadata | WorldFieldRecordKindV1::Entry
-        )
+        || !(binding.kind == WorldFieldRecordKindV1::Metadata
+            || binding.kind
+                == if field == RuntimeArtifactContentFieldV1::Original {
+                    WorldFieldRecordKindV1::Bytes
+                } else {
+                    WorldFieldRecordKindV1::Entry
+                })
     {
         return Err(invalid());
     }

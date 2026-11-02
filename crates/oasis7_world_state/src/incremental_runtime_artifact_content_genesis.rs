@@ -104,35 +104,8 @@ where
             return Err(ValueTreeError::Cancelled.into());
         }
         spend_record(records_remaining)?;
-        let length = bytes.len() as u64;
-        if work.objects_remaining == 0
-            || length > work.max_object_bytes
-            || length > work.bytes_remaining
-        {
-            return Err(
-                ValueTreeError::ResourceLimited("Runtime artifact GEN original allowance").into(),
-            );
-        }
-        let _scratch = ctx
-            .memory
-            .reserve(512, MemoryClass::Ordinary)
-            .map_err(ValueTreeError::Memory)?;
-        work.objects_remaining -= 1;
-        work.bytes_remaining -= length;
-        let mut hash = blake3::Hasher::new();
-        for chunk in bytes.chunks(VALUE_CHUNK_BYTES) {
-            if (ctx.cancelled)() {
-                return Err(ValueTreeError::Cancelled.into());
-            }
-            hash.update(chunk);
-        }
-        if (ctx.cancelled)() {
-            return Err(ValueTreeError::Cancelled.into());
-        }
-        let original = OriginalArtifactRefV1 {
-            id: *hash.finalize().as_bytes(),
-            byte_len: length,
-        };
+        let original =
+            super::prepare_borrowed_original(bytes, ctx.memory, work, &mut ctx.cancelled)?;
         persist(original, bytes)?;
         if (ctx.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
@@ -140,7 +113,7 @@ where
         let binding = runtime_artifact_original_bytes_v1(original);
         let row = write_member_record_v1(
             RuntimeArtifactContentFieldV1::Original.descriptor(),
-            WorldFieldRecordKindV1::Entry,
+            WorldFieldRecordKindV1::Bytes,
             key.as_str(),
             MemberPayloadRefV1::Bytes(&binding),
             ctx,

@@ -39,12 +39,20 @@ pub struct RuntimeArtifactOriginalWorkV1 {
 }
 #[derive(Debug)]
 pub enum RuntimeArtifactOriginalErrorV1<E> {
+    Execution(oasis7_formal_protocol::incremental_execution::ExecutionError),
     Source(E),
     Value(ValueTreeError),
 }
 impl<E> From<ValueTreeError> for RuntimeArtifactOriginalErrorV1<E> {
     fn from(error: ValueTreeError) -> Self {
         Self::Value(error)
+    }
+}
+impl<E> From<oasis7_formal_protocol::incremental_execution::ExecutionError>
+    for RuntimeArtifactOriginalErrorV1<E>
+{
+    fn from(error: oasis7_formal_protocol::incremental_execution::ExecutionError) -> Self {
+        Self::Execution(error)
     }
 }
 /// Private construction proves only the exact raw original ID and length.
@@ -126,6 +134,9 @@ pub fn verify_runtime_artifact_original_v1<O: OriginalObjectStreamReader, C: FnM
         return Err(ValueTreeError::ResourceLimited("Runtime artifact original allowance").into());
     }
     let retained = memory.reserve(512, class).map_err(ValueTreeError::Memory)?;
+    let _scratch = memory
+        .reserve(8192, class)
+        .map_err(ValueTreeError::Memory)?;
     work.objects_remaining -= 1;
     work.bytes_remaining -= original.byte_len;
     let mut output = HashOutput {
@@ -165,3 +176,51 @@ mod family;
 #[path = "incremental_runtime_artifact_content_read.rs"]
 mod read;
 pub use family::*;
+
+#[cfg(test)]
+#[path = "incremental_runtime_artifact_content_family_tests.rs"]
+mod family_tests;
+
+#[path = "incremental_runtime_artifact_content_receiver.rs"]
+mod receiver;
+pub use receiver::*;
+
+fn prepare_borrowed_original<C: FnMut() -> bool>(
+    bytes: &[u8],
+    memory: &MemoryBudget,
+    work: &mut RuntimeArtifactOriginalWorkV1,
+    cancelled: &mut C,
+) -> Result<OriginalArtifactRefV1, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    let length = bytes.len() as u64;
+    if work.objects_remaining == 0
+        || length > work.max_object_bytes
+        || length > work.bytes_remaining
+    {
+        return Err(ValueTreeError::ResourceLimited(
+            "Runtime artifact new original allowance",
+        ));
+    }
+    let _scratch = memory.reserve(8192, MemoryClass::Ordinary)?;
+    work.objects_remaining -= 1;
+    work.bytes_remaining -= length;
+    let mut hash = blake3::Hasher::new();
+    for chunk in bytes.chunks(VALUE_CHUNK_BYTES) {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        hash.update(chunk);
+    }
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(OriginalArtifactRefV1 {
+        id: *hash.finalize().as_bytes(),
+        byte_len: length,
+    })
+}
+#[path = "incremental_runtime_artifact_content_overlay.rs"]
+mod overlay;
+pub use overlay::*;
