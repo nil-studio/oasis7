@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "02a88107dba2cd18a70cb39d689f40d2266075f39341315c016f903b5148e864",
+    "content_sha256": "cbf807f1873037e6973c94bb5838e893b2284dd121a0693da8413f8d29c0162c",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "Reviewed the merged workflow text for minimal complete changes and evidence-based review alongside the preserved language and writing requirements and five-type Issue lifecycle. Reuse respects responsibility boundaries; simplification preserves required behavior and validation. Writing guidance remains one incremental authority without style gates; non-blocking advice adds no approval or evidence chain. Classification remains separate from execution permission. Unchanged sections retain existing authority. This review covers the integrated workflow text and AGENTS navigation; it does not attest repository-wide semantics, live label configuration, historical Issue migration, scheduler activation, or runtime behavior. Bounded follow-up review covers section 3 CI layering aligned with the candidate planner, driver, workflow and publication consumers. The paragraph distinguishes wired candidate interfaces from effective trusted-BASE policy and hosted acceptance; old BASE retains its complete necessary scope, and bootstrap full is ineligible for publication. It preserves the existing source-identity, failure-propagation, read-only PR, independent-review and protection-setting rules, with no new approval chain or state ledger. This metadata update does not attest deployment, scheduler activation, real full-suite coverage, the ten-minute/P95 target, four-hour capacity, or a completed publication.",
+    "note": "已审读当前开发流程及本次任务拆分、并行开发和 TPM 交接修订。保留通用流程的唯一主责、最小完整改动、五类 Issue、现有授权、独立评审和完整交付边界；子任务按依赖与写入范围分派，父目标由明确负责人整合验收。没有 Issue/PR 时可先在任务会话保存安排；共享目录整体操作先确认受影响执行者停写。原语义分类和路由不变。本次为有界静态语义复核，不证明真实队列启用、并行效率收益、部署、CI 目标或运行验收。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

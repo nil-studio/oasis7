@@ -58,3 +58,8 @@ body:
       description: "写明已授权的交付终点、下一责任人或待承接；类型转换不授予合入、部署或付费执行权限。"
     validations:
       required: true
+  - type: textarea
+    id: parallel_plan
+    attributes:
+      label: "任务拆分（复杂任务适用）"
+      description: "复用原任务清单或链接：各项交付与验收、前置及输入版本、写入范围/共享接口、负责人、验证及集成去向；指定整体集成负责人。强耦合部分说明串行原因，简单任务无需填写。子任务不等于子 Issue 或独立 PR。"

@@ -9,6 +9,8 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 明确问题、范围、验收和用户限制。简单修改写入 PR，复杂任务使用已有设计，或按需使用 Issue checklist。同一授权范围内的实现取舍由负责人直接决定，必要时简要说明理由。
 
+具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[任务拆分与并行开发](../../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)和 [parallel-development](../parallel-development/SKILL.md)梳理剩余工作、依赖、写入负责人及整体验收。在条件具备时并行实施；强耦合部分按实际依赖串行。子任务可以汇入同一个 PR，父 Issue 的整体认领与已明确的子任务委派一并复用。
+
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。Task 可直接是 PR，不另领要求 ID，也不强制建 Issue；未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
 接手已有代码或文档 Issue 开始实施前，按[日常开发](../../../doc/engineering/workflow/source-of-truth.md#2-日常开发)检查已有认领和暂停，在原 Issue 发布开工 comment 并回读确认；已有执行或状态不明时先核对交接，避免重复认领。续做同一范围及已有 TPM 记录按通用规范复用，不重复留言。
@@ -34,6 +36,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 ## Related methods
 
 - [verification-before-completion](../verification-before-completion/SKILL.md)
+- [parallel-development](../parallel-development/SKILL.md)
 - [requesting-repo-owned-review](../requesting-repo-owned-review/SKILL.md)
 - [systematic-debugging](../systematic-debugging/SKILL.md)
 

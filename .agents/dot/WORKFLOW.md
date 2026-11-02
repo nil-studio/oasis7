@@ -26,9 +26,11 @@
 
 Rust/JS 代码开发通过 GitHub Issue 交给 Coding Agent，dot 不直接启动开发执行。先检索同目标的 Issue/PR；已有任务就补充原项。遵守[Issue 五类与转换合同](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)，只将唯一 `type:code` 且设计完善或明确实现 bug 的任务交给代码开发。使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文，写明代码类型、目标、来源与允许范围、验收、依赖、交付终点；来源引用真实设计、代码和失败版本，不把猜测写成已确认根因。
 
+复杂任务按[任务拆分与并行开发](../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)准备交付、依赖、写入边界及整体集成验收，引用 [parallel-development](../skills/parallel-development/SKILL.md) 的任务表即可，不机械创建大量子 Issue。由现任负责人分派已就绪子范围，父项保留完整目标；dot 的交接不直接启动外部开发会话。
+
 内容和授权满足[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)的交接要求后才添加 `implementation:ready`。依赖未满足保留阻塞，用户暂停使用 `implementation:paused`；不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和关联，启动状态以真实 Coding Agent 会话为准。普通 PR 仍可不使用 Issue，本入口不增加全仓准入条件。
 
-Coding Agent 承担实现、自测、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联整体任务，避免代码合入提前关闭仍待部署或真实验收的 Issue。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；确认需要代码修复时把反馈补回原 Issue，供同一 Coding Agent 会话继续。dot 不把普通 CI 通过当作环境已部署或体验已验收。
+Coding Agent 承担实现、自测、适用评审和 PR/CI 跟进。PR 用 `Refs #<issue>` 关联整体任务，避免代码合入提前关闭仍待部署或真实验收的 Issue。dot 在获准环境准备和执行部署、测试，记录实际版本、结果、复现步骤与未覆盖范围；确认需要代码修复时把反馈补回原 Issue，供对应子任务的原 Coding Agent 会话继续，跨任务问题由整体负责人协调。dot 不把普通 CI 通过当作环境已部署或体验已验收。
 
 合入后确认需代码修复时，用普通文字明确说明需要修复，附准确 source/build、环境、复现和证据，供 Coding Agent 继续处理；纯部署进度不当作新代码任务。原 Issue 的实质反馈按[轻量交付摘要](REPORTING.md#issue-delivery-summary)说明结果、验证与版本、仍未满足、下一步及依据。验收全部满足后记录确切受测版本、结果与未覆盖范围，再按已有权限关闭 Issue。不要求专用命令语法，也不把旧构建结果沿用到新候选。
 
