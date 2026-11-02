@@ -187,6 +187,8 @@ impl AccountProvisionApprovalState {
                             SessionControlKindV1::Initialize
                                 | SessionControlKindV1::ToolsList
                                 | SessionControlKindV1::Heartbeat
+                                | SessionControlKindV1::Finish
+                                | SessionControlKindV1::Abort
                         )
                     )
                     || q.request_id != proof.possession.request_id()
