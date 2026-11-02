@@ -385,3 +385,9 @@ impl TestSessionAuthorityV2 {
 
 /// Existing permanent Account V2 inventory bound; not a transport allowance.
 pub const MAX_TEST_SESSION_AUTHORITIES_V2: usize = 256;
+
+impl AccountProvisionApprovalState {
+    pub(crate) fn retained_test_session_authority_count_v2(&self) -> usize {
+        self.test_sessions_v2.len()
+    }
+}

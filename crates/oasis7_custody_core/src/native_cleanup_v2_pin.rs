@@ -3,6 +3,7 @@ use super::*;
 #[serde(rename_all = "snake_case")]
 pub enum AccountMachinePurposeV2 {
     TermGuardedStopSignerV2,
+    TermGuardedCloseSignerV2,
     NativeModelReservationV2,
     ConsumedPending,
     ActiveThreeRoots,
