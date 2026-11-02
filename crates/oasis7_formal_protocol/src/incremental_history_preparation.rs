@@ -38,8 +38,16 @@ impl FactSetV1 {
         bytes: &[u8],
         memory: &MemoryBudget,
     ) -> Result<ReservedValue<Self>, ExecutionError> {
+        Self::from_canonical_bytes_in_class(bytes, memory, MemoryClass::Ordinary)
+    }
+    /// Decode the same wire with the caller's explicit recovery admission.
+    pub fn from_canonical_bytes_in_class(
+        bytes: &[u8],
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<ReservedValue<Self>, ExecutionError> {
         let mut r = Reader::new(bytes, b"oasis7.iws.fact-set.v1\0", FACTS_MAX_BYTES)?;
-        let mut workspace = memory.reserve(64 * 1024 + 2 * bytes.len(), MemoryClass::Ordinary)?;
+        let mut workspace = memory.reserve(64 * 1024 + 2 * bytes.len(), class)?;
         let scope = r.scope()?;
         let operation = r.array()?;
         let count = usize::from(r.u16()?);
@@ -48,10 +56,7 @@ impl FactSetV1 {
         }
         let original = r.take(count * 33)?;
         r.finish()?;
-        let mut extra = memory.reserve(
-            count * std::mem::size_of::<ExecutionFactRefV1>(),
-            MemoryClass::Ordinary,
-        )?;
+        let mut extra = memory.reserve(count * std::mem::size_of::<ExecutionFactRefV1>(), class)?;
         workspace
             .merge(&mut extra)
             .map_err(|_| ExecutionError::Invalid("fact decode pool"))?;
