@@ -22,6 +22,8 @@ mod cognition_namespace;
 mod cognition_pages;
 #[path = "support/incremental_cognition_scaling.rs"]
 mod cognition_scaling;
+#[path = "support/incremental_cognition_source_faults.rs"]
+mod cognition_source_faults;
 #[path = "support/incremental_cognition_family_faults.rs"]
 mod family_faults;
 #[allow(dead_code)]
@@ -62,17 +64,21 @@ fn state_error(error: PageStoreError) -> ValueTreeError {
 }
 #[test]
 fn cognition_actual_gen_reopens_control_and_json_entries_without_snapshot_or_old_pool() {
-    run_cognition(false, false);
+    run_cognition(false, false, false);
 }
 #[test]
 fn cognition_optional_economy_and_delegation_keep_original_state_and_side_routing() {
-    run_cognition(true, false);
+    run_cognition(true, false, false);
 }
 #[test]
 fn cognition_optional_group_lifecycle_is_closed_in_the_shared_transaction() {
-    run_cognition(false, true);
+    run_cognition(false, true, false);
 }
-fn run_cognition(all_optional: bool, groups_only: bool) {
+#[test]
+fn cognition_source_failures_keep_exact_error_and_abort_real_prefix() {
+    run_cognition(false, false, true);
+}
+fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
     let directory = fixture::Directory::new();
     let path = directory.0.join("cognition");
     let namespaces = [
@@ -184,7 +190,7 @@ fn run_cognition(all_optional: bool, groups_only: bool) {
                 .unwrap();
             roots[index].copy_from_slice(&delta.after.canonical_bytes().unwrap());
         }
-        if groups_only {
+        if groups_only || faults_only {
             use oasis7_formal_protocol::incremental_execution::*;
             let mut top = RootSetV1::empty("cognition-test".into(), [0x52; 32]).unwrap();
             for (index, namespace) in namespaces.iter().enumerate() {
@@ -202,7 +208,11 @@ fn run_cognition(all_optional: bool, groups_only: bool) {
                     epoch: 7,
                 },
             };
-            cognition_groups::exercise(&store, &memory, &parent, &family);
+            if groups_only {
+                cognition_groups::exercise(&store, &memory, &parent, &family);
+            } else {
+                cognition_source_faults::exercise(&store, &memory, &parent, &family);
+            }
             return;
         }
         // The neutral point producer changes one scalar below a known qualified
