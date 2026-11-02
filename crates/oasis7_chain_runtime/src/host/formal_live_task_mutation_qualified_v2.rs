@@ -75,7 +75,7 @@ pub(super) fn handle(
     // retains the original signed ACK instead of claiming it never queued.
     let retained_ack = admission.clone();
     #[cfg(test)]
-    diagnostic::begin(service, &q);
+    diagnostic::begin(service, &q, started);
     let waited = wait(
         service,
         &q,
@@ -186,9 +186,10 @@ fn wait(
             let record_id = material.after().head().head().record_id.clone();
             if inspected.as_ref() != Some(&record_id) {
                 inspected = Some(record_id);
-                if let Ok(context) =
-                    material.exact_singleton_execution(raw, admission.payload.action_id.0)
-                {
+                let exact = material.exact_singleton_execution(raw, admission.payload.action_id.0);
+                #[cfg(test)]
+                diagnostic::material(service, q, &exact);
+                if let Ok(context) = exact {
                     let [action] = context.committed_actions.as_slice() else {
                         return Err("qualified mutation exact singleton absent".into());
                     };
@@ -226,6 +227,8 @@ fn wait(
                             &execution,
                         )
                     };
+                    #[cfg(test)]
+                    diagnostic::projection(service, q, &extracted);
                     if let Ok((commit, result)) = extracted {
                         if !ready(service)? || !same_current(service, material.after())? {
                             #[cfg(test)]
@@ -471,7 +474,7 @@ fn same_current(
 #[cfg(test)]
 mod diagnostic {
     use super::*;
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     pub(super) enum Reason {
         PollAbsoluteExpired,
         PollConnectionTimeout,
@@ -492,34 +495,40 @@ mod diagnostic {
         DeliveryBusy,
         OtherWaitError,
     }
-    impl Reason {
-        fn label(self) -> &'static str {
-            match self {
-                Self::PollAbsoluteExpired => "PollAbsoluteExpired",
-                Self::PollConnectionTimeout => "PollConnectionTimeout",
-                Self::NotReady => "NotReady",
-                Self::MissingMaterial => "MissingMaterial",
-                Self::MaterialHeadMismatch => "MaterialHeadMismatch",
-                Self::CommitClockMismatch => "CommitClockMismatch",
-                Self::FreshHeadUnavailable => "FreshHeadUnavailable",
-                Self::BeforeSigningExpired => "BeforeSigningExpired",
-                Self::ReplyBound => "ReplyBound",
-                Self::FinalDeliveryExpired => "FinalDeliveryExpired",
-                Self::FinalDeliveryUnavailable => "FinalDeliveryUnavailable",
-                Self::ClockBusy => "ClockBusy",
-                Self::RuntimeBusy => "RuntimeBusy",
-                Self::PublicationBusy => "PublicationBusy",
-                Self::ResidentBusy => "ResidentBusy",
-                Self::StatusBusy => "StatusBusy",
-                Self::DeliveryBusy => "DeliveryBusy",
-                Self::OtherWaitError => "OtherWaitError",
-            }
-        }
+    #[derive(Debug)]
+    enum MaterialStage {
+        ExactSingleton,
+        NoAdjacent,
+        NotExecutionProof,
+        FrozenMissing,
+        ManifestMismatch,
+        NotSingleton,
+        SingletonMismatch,
+        Other,
+    }
+    #[derive(Debug)]
+    enum ProjectionStage {
+        Matched,
+        CutMismatch,
+        HeaderMismatch,
+        RecordMismatch,
+        MissingRecord,
+        Other,
+    }
+    struct Record {
+        reason: Option<Reason>,
+        started: Instant,
+        materials: u64,
+        first_material_ms: Option<u128>,
+        singleton_ms: Option<u128>,
+        projection_ms: Option<u128>,
+        last_material: Option<MaterialStage>,
+        last_projection: Option<ProjectionStage>,
     }
     type Key = (usize, String);
-    static RECORDS: std::sync::OnceLock<Mutex<std::collections::BTreeMap<Key, Option<Reason>>>> =
+    static RECORDS: std::sync::OnceLock<Mutex<std::collections::BTreeMap<Key, Record>>> =
         std::sync::OnceLock::new();
-    fn records() -> &'static Mutex<std::collections::BTreeMap<Key, Option<Reason>>> {
+    fn records() -> &'static Mutex<std::collections::BTreeMap<Key, Record>> {
         RECORDS.get_or_init(|| Mutex::new(std::collections::BTreeMap::new()))
     }
     fn key(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2) -> Key {
@@ -528,13 +537,29 @@ mod diagnostic {
             q.digest().unwrap(),
         )
     }
-    pub(super) fn begin(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2) {
-        records().lock().unwrap().insert(key(service, q), None);
+    pub(super) fn begin(
+        service: &FormalLiveService,
+        q: &TaskMutationWaitSubmitV2,
+        started: Instant,
+    ) {
+        records().lock().unwrap().insert(
+            key(service, q),
+            Record {
+                reason: None,
+                started,
+                materials: 0,
+                first_material_ms: None,
+                singleton_ms: None,
+                projection_ms: None,
+                last_material: None,
+                last_projection: None,
+            },
+        );
     }
     pub(super) fn note(service: &FormalLiveService, q: &TaskMutationWaitSubmitV2, reason: Reason) {
         if let Some(slot) = records().lock().unwrap().get_mut(&key(service, q)) {
-            if slot.is_none() {
-                *slot = Some(reason);
+            if slot.reason.is_none() {
+                slot.reason = Some(reason);
             }
         }
     }
@@ -551,22 +576,90 @@ mod diagnostic {
         };
         note(service, q, reason);
     }
+    pub(super) fn material(
+        service: &FormalLiveService,
+        q: &TaskMutationWaitSubmitV2,
+        result: &Result<oasis7_node::NodeExecutionCommitContext, String>,
+    ) {
+        if let Some(slot) = records().lock().unwrap().get_mut(&key(service, q)) {
+            let at = slot.started.elapsed().as_millis();
+            slot.materials += 1;
+            slot.first_material_ms.get_or_insert(at);
+            let stage = match result {
+                Ok(_) => {
+                    slot.singleton_ms.get_or_insert(at);
+                    MaterialStage::ExactSingleton
+                }
+                Err(error) => match error.as_str() {
+                    "publication has no captured adjacent predecessor" => MaterialStage::NoAdjacent,
+                    "installed publication does not contain exact Execution proof" => {
+                        MaterialStage::NotExecutionProof
+                    }
+                    "Execution Frozen certificate missing"
+                    | "Execution Frozen material missing" => MaterialStage::FrozenMissing,
+                    "Execution manifest differs from installed adjacent lineage" => {
+                        MaterialStage::ManifestMismatch
+                    }
+                    "qualified mutation requires actual singleton action" => {
+                        MaterialStage::NotSingleton
+                    }
+                    "qualified mutation is not the exact committed singleton" => {
+                        MaterialStage::SingletonMismatch
+                    }
+                    _ => MaterialStage::Other,
+                },
+            };
+            slot.last_material = Some(stage);
+        }
+    }
+    pub(super) fn projection(
+        service: &FormalLiveService,
+        q: &TaskMutationWaitSubmitV2,
+        result: &Result<
+            (
+                oasis7_client_api::world_service::CommitRef,
+                TaskMutationQualifiedResultV2,
+            ),
+            String,
+        >,
+    ) {
+        if let Some(slot) = records().lock().unwrap().get_mut(&key(service, q)) {
+            slot.last_projection = Some(match result {
+                Ok(_) => {
+                    slot.projection_ms
+                        .get_or_insert(slot.started.elapsed().as_millis());
+                    ProjectionStage::Matched
+                }
+                Err(error) => match error.as_str() {
+                    "mutation result is not the exact qualified Runtime cut" => {
+                        ProjectionStage::CutMismatch
+                    }
+                    "mutation execution does not match qualified Runtime header" => {
+                        ProjectionStage::HeaderMismatch
+                    }
+                    "qualified Stop differs from exact committed original"
+                    | "qualified Closed differs from exact committed original" => {
+                        ProjectionStage::RecordMismatch
+                    }
+                    "qualified Stop record missing"
+                    | "qualified Closed record missing"
+                    | "qualified Closed state missing" => ProjectionStage::MissingRecord,
+                    _ => ProjectionStage::Other,
+                },
+            });
+        }
+    }
     pub(super) fn take(
         service: &FormalLiveService,
         q: &TaskMutationWaitSubmitV2,
-    ) -> Option<&'static str> {
-        records()
-            .lock()
-            .unwrap()
-            .remove(&key(service, q))
-            .flatten()
-            .map(Reason::label)
+    ) -> Option<String> {
+        records().lock().unwrap().remove(&key(service, q)).map(|r| format!("reason={:?} materials={} first_material_ms={:?} singleton_ms={:?} projection_ms={:?} last_material={:?} last_projection={:?}", r.reason, r.materials, r.first_material_ms, r.singleton_ms, r.projection_ms, r.last_material, r.last_projection))
     }
 }
 #[cfg(test)]
 pub(super) fn wait_diagnostic(
     service: &FormalLiveService,
     q: &TaskMutationWaitSubmitV2,
-) -> Option<&'static str> {
+) -> Option<String> {
     diagnostic::take(service, q)
 }

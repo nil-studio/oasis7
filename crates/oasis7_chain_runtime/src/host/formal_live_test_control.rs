@@ -40,6 +40,7 @@ struct State {
     cancelled: bool,
     last_observation: Option<Observation>,
     last_exact_action: Option<Observation>,
+    publication_observer: Option<(Vec<u8>, std::sync::mpsc::SyncSender<Instant>)>,
 }
 
 #[derive(Default)]
@@ -63,6 +64,18 @@ impl BoundaryControl {
 
     pub(crate) fn shared(&self) -> Arc<BoundaryState> {
         Arc::clone(&self.shared)
+    }
+
+    /// Nonblocking timestamp only; never pauses or supplies publication proof.
+    pub(crate) fn watch_exact_publication(
+        &self,
+        action: Vec<u8>,
+    ) -> std::sync::mpsc::Receiver<Instant> {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let mut state = self.shared.state.lock().unwrap();
+        assert!(state.publication_observer.is_none());
+        state.publication_observer = Some((action, tx));
+        rx
     }
 
     /// Also releases the currently paused boundary. Installing the next target
@@ -166,6 +179,21 @@ impl BoundaryState {
             .state
             .lock()
             .map_err(|_| "formal test boundary lock poisoned")?;
+        if observation.point == Point::Published
+            && state
+                .publication_observer
+                .as_ref()
+                .is_some_and(|(expected, _)| {
+                    context.is_some_and(|c| {
+                        c.committed_actions
+                            .iter()
+                            .any(|a| &a.payload_cbor == expected)
+                    })
+                })
+        {
+            let (_, tx) = state.publication_observer.take().unwrap();
+            let _ = tx.try_send(Instant::now());
+        }
         let Some(target) = &state.target else {
             return Ok(());
         };

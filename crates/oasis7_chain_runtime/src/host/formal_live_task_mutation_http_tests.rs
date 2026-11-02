@@ -598,6 +598,8 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
             let raw = serde_json::to_vec(&wrapper).unwrap();
             let cloned = Arc::clone(&service);
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
+            let actual_publication = control
+                .watch_exact_publication(correlation::encode_cleanup_consensus_v2(&close).unwrap());
             let observation_started = Instant::now();
             let delivery_budget_ms = wrapper.delivery_until_ms.0.saturating_sub(now_unix_ms());
             let close_budget_ms = close
@@ -663,11 +665,18 @@ fn mutation_case(reply_case: CloseReplyCase, inspect_retention: bool) {
             worker.join().unwrap();
             assert_eq!(status, 200);
             let reply = TaskMutationSubmitReplyV2::decode_strict(&raw).unwrap();
+            let reply_elapsed_ms = observation_started.elapsed().as_millis();
             let diagnostic = task_mutation_service::qualified_wait_diagnostic(&service, &wrapper);
             let TaskMutationSubmitReplyV2::Qualified { admission, effect } = reply else {
+                let actual_publication_ms = actual_publication
+                    .recv_timeout(wait_until.saturating_duration_since(Instant::now()))
+                    .ok()
+                    .map(|at| {
+                        at.saturating_duration_since(observation_started)
+                            .as_millis()
+                    });
                 panic!(
-                    "actual qualified Close fact required; wait={diagnostic:?} delivery_budget_ms={delivery_budget_ms} close_budget_ms={close_budget_ms} resume_reached_ms={resume_reached_ms} resume_release_ms={resume_release_ms} reply_ms={}",
-                    observation_started.elapsed().as_millis()
+                    "actual qualified Close fact required; wait={diagnostic:?} delivery_budget_ms={delivery_budget_ms} close_budget_ms={close_budget_ms} resume_reached_ms={resume_reached_ms} resume_release_ms={resume_release_ms} reply_ms={reply_elapsed_ms} exact_action_publication_ms={actual_publication_ms:?}"
                 )
             };
             verify_service_response(
