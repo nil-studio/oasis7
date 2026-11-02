@@ -155,9 +155,10 @@ def build_script_roots(sources, directories, manifests):
     return roots
 
 
-def default_feature_closure(manifest):
+def default_feature_closure(manifest, *, initial=None):
     features = manifest.get('features', {})
-    enabled, pending = set(), ['default'] if 'default' in features else []
+    enabled, pending = set(), (list(initial) if initial is not None else
+                               ['default'] if 'default' in features else [])
     while pending:
         name = pending.pop()
         if name in enabled or name not in features:
@@ -968,10 +969,143 @@ def formal_shards(suites, inventory):
     return sorted(result)
 
 
+# Successful wasm compile profiles already executed by main30ff verify.sh.
+# Each tuple is a separate --no-default-features invocation, never a union.
+WORKER_WASM_COMPILE_FEATURES = (
+    ('identity',), ('owner',), ('executor',), ('recovery-fence',),
+    ('owner', 'approval-harness'), ('identity', 'native-runtime-harness'),
+)
+
+
+WORKER_SIGNER_FEATURE = 'execution-signer-harness'
+WORKER_SIGNER_GUARD_MESSAGE = 'execution-signer-harness requires executor and is not a deployment profile'
+
+
+def worker_local_feature_closure(manifest, initial):
+    """Reuse the existing local fixed point, without injecting defaults.
+
+    Dependency forwarding cannot be guessed into a local cfg proof. A known
+    non-optional dependency's foreign feature has no local feature edge; optional
+    forwarding/implicit features require a richer Cargo model and stay rejected.
+    """
+    features = manifest.get('features', {})
+    if not isinstance(features, dict) or any(name not in features for name in initial):
+        raise TestPolicyError('Worker compile profile feature is not declared')
+    try:
+        enabled = default_feature_closure(manifest, initial=initial)
+    except (ValueError, TypeError):
+        raise TestPolicyError('invalid Worker local feature closure') from None
+    dependencies = {}
+    tables = [manifest]
+    targets = manifest.get('target', {})
+    if not isinstance(targets, dict):
+        raise TestPolicyError('unknown Worker target dependency closure')
+    tables.extend(targets.values())
+    for table in tables:
+        if not isinstance(table, dict):
+            raise TestPolicyError('unknown Worker dependency closure')
+        # Build/dev edges do not supply production package feature references.
+        entries = table.get('dependencies', {})
+        if not isinstance(entries, dict):
+            raise TestPolicyError('unknown Worker dependency closure')
+        for name, declaration in entries.items():
+            if not isinstance(declaration, (str, dict)):
+                raise TestPolicyError('unknown Worker dependency declaration')
+            optional = isinstance(declaration, dict) and declaration.get('optional', False)
+            if type(optional) is not bool:
+                raise TestPolicyError('unknown Worker dependency optionality')
+            dependencies.setdefault(name, set()).add(optional)
+    for name in enabled:
+        for edge in features[name]:
+            if edge in features:
+                continue
+            if edge.startswith('dep:'):
+                if dependencies.get(edge[4:]) != {True}:
+                    raise TestPolicyError('unmodeled Worker namespaced dependency feature')
+                continue  # dep: enables the dependency, not a local feature.
+            if '/' in edge:
+                dependency, foreign = edge.split('/', 1)
+                if (not foreign or '/' in foreign or dependency.endswith('?')
+                        or dependencies.get(dependency) != {False}):
+                    raise TestPolicyError('unmodeled Worker optional dependency feature forwarding')
+                continue  # Known non-optional foreign feature: no local cfg edge.
+            raise TestPolicyError('unmodeled Worker implicit local feature')
+    return enabled
+
+
+def worker_signer_profile_enabled(manifest):
+    features = manifest.get('features', {})
+    if WORKER_SIGNER_FEATURE not in features:
+        return False
+    defaults = (worker_local_feature_closure(manifest, ('default',))
+                if 'default' in features else set())
+    if features[WORKER_SIGNER_FEATURE] != [] or WORKER_SIGNER_FEATURE in defaults:
+        raise TestPolicyError('Worker signer compile feature must be empty and default-off')
+    if any(WORKER_SIGNER_FEATURE in worker_local_feature_closure(manifest, profile)
+           for profile in WORKER_WASM_COMPILE_FEATURES):
+        raise TestPolicyError('Worker signer compile feature requires explicit opt-in')
+    return True
+
+
+def worker_wasm_compile_features(manifest):
+    profiles = list(WORKER_WASM_COMPILE_FEATURES)
+    if worker_signer_profile_enabled(manifest):
+        profiles.append(('executor', WORKER_SIGNER_FEATURE))
+    return profiles
+
+
+def worker_wasm_compile_checks(manifest):
+    def command(features):
+        return ['env', '-u', 'RUSTC_WRAPPER', 'cargo', 'check', '-p',
+                'oasis7_custody_worker', '--target', 'wasm32-unknown-unknown',
+                '--no-default-features', '--features', ','.join(features), '--locked']
+    checks = [(command(features), None) for features in worker_wasm_compile_features(manifest)]
+    if worker_signer_profile_enabled(manifest):
+        checks.extend((command((role, WORKER_SIGNER_FEATURE)), WORKER_SIGNER_GUARD_MESSAGE)
+                      for role in ('identity', 'owner', 'recovery-fence'))
+    return checks
+
+
+def run_worker_wasm_compile_checks(manifest, runner=subprocess.run):
+    for profile in worker_wasm_compile_features(manifest):
+        worker_local_feature_closure(manifest, profile)
+    for command, expected_error in worker_wasm_compile_checks(manifest):
+        print('+ ' + ' '.join(command), flush=True)
+        if expected_error is None:
+            runner(command, check=True)
+        else:
+            result = runner(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            print(result.stdout, end='')
+            if result.returncode == 0 or expected_error not in result.stdout:
+                raise ValueError('Worker signer negative compile contract failed')
+
+
+def worker_exact_signer_guard(source, attribute, owner):
+    # Only this literal compile_error receives failed-build evidence. Nothing
+    # behind a rejected profile is treated as compiled production Rust.
+    if owner[0] != 'unresolved':
+        return False
+    guard = ('#[cfg(all(feature="execution-signer-harness",not(feature="executor")))] '
+             'compile_error!("' + WORKER_SIGNER_GUARD_MESSAGE + '");')
+    expected = [token[1] for token in rust_source_inputs(guard, return_tokens=True)[0]]
+    values = [token[1] for token in rust_source_inputs(source, return_tokens=True)[0]]
+    canonical_attribute = tuple(expected[2:expected.index(']')])
+    if attribute != canonical_attribute:
+        return False
+    occurrences = [i for i in range(len(values))
+                   if tuple(values[i:i + len(attribute)]) == attribute]
+    if len(occurrences) != 1:
+        return False
+    # The current attribute starts after exactly '# ['. Bind the complete item
+    # at that position; a legitimate guard elsewhere is never evidence here.
+    start = occurrences[0] - 2
+    return start >= 0 and values[start:start + len(expected)] == expected
+
+
 def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
                         ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
                         narrow_unavailable=None, selected_targets=None, required_source_paths=(),
-                        portable_paths=None):
+                        portable_paths=None, worker_wasm_compile=False):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -1144,7 +1278,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 or (owner[0] == 'mod'
                     and (short_name == 'tests' or short_name.startswith('test_') or short_name.endswith('_tests'))))
 
-    def gate_value(attribute, native_linux, enabled=None):
+    def gate_value(attribute, native_linux, enabled=None, wasm_compile=False):
         # Accept only a known expression that is actually true in the expanded
         # driver feature and native target combination. Mentioning an allowed
         # feature is insufficient: all(feature="test_tier_full", any()) is false.
@@ -1158,17 +1292,26 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 raise ValueError('missing cfg predicate')
             value = values[cursor]
             if value == 'test':
-                return True, cursor + 1
+                return not wasm_compile, cursor + 1
+            if wasm_compile and value in ('unix', 'windows'):
+                return False, cursor + 1
             if native_linux and value in ('unix', 'windows'):
                 return value == 'unix', cursor + 1
             if value == 'feature' and values[cursor + 1:cursor + 2] == ('=',):
                 if cursor + 2 >= len(values):
                     raise ValueError('missing cfg feature')
-                return (True if values[cursor + 2].strip('"') in actual_features else None), cursor + 3
+                name = values[cursor + 2].strip('"')
+                if wasm_compile and name in available_features.get('oasis7_custody_worker', ()):
+                    return name in actual_features, cursor + 3
+                return (True if name in actual_features else None), cursor + 3
             native_values = {'target_os': 'linux', 'target_family': 'unix',
                              'target_arch': 'x86_64', 'target_pointer_width': '64',
                              'target_endian': 'little', 'target_env': 'gnu'}
-            if native_linux and value in native_values and values[cursor + 1:cursor + 2] == ('=',):
+            if wasm_compile:
+                native_values = {'target_os': 'unknown', 'target_family': 'wasm',
+                                 'target_arch': 'wasm32', 'target_pointer_width': '32',
+                                 'target_endian': 'little', 'target_env': ''}
+            if (native_linux or wasm_compile) and value in native_values and values[cursor + 1:cursor + 2] == ('=',):
                 if cursor + 2 >= len(values):
                     raise ValueError('missing target cfg value')
                 return values[cursor + 2].strip('"') == native_values[value], cursor + 3
@@ -1518,6 +1661,29 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         return bool(owners and owners.issubset(feature_packages | NATIVE_DEFAULT_TEST_PACKAGES)
                     and ordinary_source_context(path, True))
 
+    def worker_compilation_proves(path, attribute, owner, test_owners):
+        # A successful compile is evidence only for production Rust. It cannot
+        # execute #[test], an ignored case, or a native/opaque module route.
+        package = 'oasis7_custody_worker'
+        if (not worker_wasm_compile or source_owners(path) != {package}
+                or attribute[0] != 'cfg' or owner[0] == 'unresolved'
+                or any(applies_to(owner, test) for test in test_owners)):
+            return False
+        routes = inherited_paths(path, True, roots=production_roots)
+        manifest = source_inputs.get('manifests', {}).get(package, {})
+        for features in worker_wasm_compile_features(manifest):
+            if not set(features).issubset(available_features.get(package, ())):
+                continue
+            enabled = worker_local_feature_closure(manifest, features)
+            if gate_value(attribute, False, enabled, True) is not True:
+                continue
+            if any(proven and not opaque and packages == {package}
+                   and all(gate_value(gate, False, enabled, True) is True
+                           for gate in gates)
+                   for gates, proven, opaque, packages in routes):
+                return True
+        return False
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
@@ -1600,7 +1766,19 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if conditional_ignore or newly_ignored:
             raise TestPolicyError('new ignored test lacks a trusted execution mapping: ' + path
                                   + '; keep it executable or register its actual ignored-test runner')
-        for attribute, _ in added_attrs:
+        for attribute, owner in added_attrs:
+            worker = 'oasis7_custody_worker'
+            manifest = source_inputs.get('manifests', {}).get(worker, {})
+            worker_root = posixpath.join(directories.get(worker, ''), 'src/lib.rs')
+            if (worker_wasm_compile and path == worker_root
+                    and source_owners(path) == {worker}
+                    and worker_signer_profile_enabled(manifest)
+                    and worker_exact_signer_guard(source_at(source, path), attribute, owner)):
+                production_cfg_paths.append(path)
+                continue
+            if worker_compilation_proves(path, attribute, owner, test_owners):
+                production_cfg_paths.append(path)
+                continue
             if attribute[0] not in ('cfg', 'cfg_attr'):
                 continue
             features = {attribute[index + 2].strip('"') for index, value in enumerate(attribute[:-2])
@@ -1692,7 +1870,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             narrow_features_by_path, narrow_unavailable,
             native_fast_candidate[0] if native_fast_candidate else None,
             native_fast_candidate[1] if execution_capable and native_fast_candidate else (),
-            portable_paths if execution_capable else None)
+            portable_paths if execution_capable else None,
+            worker_wasm_compile=(conservative or 'oasis7_custody_worker'
+                                 in plan.get('workspace_support_profiles', ())))
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
         production_cfg_paths.update(production_cfg)
