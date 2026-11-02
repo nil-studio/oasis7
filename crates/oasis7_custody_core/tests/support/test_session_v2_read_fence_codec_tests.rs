@@ -165,3 +165,6 @@ fn read_rf_codec_causal_read_binds_dispatch_exact_query_and_separate_pin() {
     request.query.expected_service_epoch = DecimalU64(b.expected_service_epoch.0 + 1);
     assert!(request.validate_binding().is_err());
 }
+
+#[path = "test_session_v2_read_fence_admission_tests.rs"]
+mod admission_tests;

@@ -62,6 +62,8 @@ pub mod envelope_crypto;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 pub mod provision_approval_store;
 #[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod read_fence_admission_v3;
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
 mod recovery_fence_control;
 #[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
 mod recovery_fence_store;
@@ -78,9 +80,6 @@ pub(crate) mod role_provision;
 
 #[cfg(target_arch = "wasm32")]
 mod platform;
-
-#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
-mod sql_store;
 
 #[cfg(all(
     target_arch = "wasm32",

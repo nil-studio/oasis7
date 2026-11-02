@@ -16,3 +16,18 @@ class_name = "RecoveryFence"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RecoveryFence"]
+
+# Read FENCES receipt acceptance defaults off. Do not enable until the independent
+# Read Dispatcher/Account paid issuer/Directory+Identity graph is implemented.
+# Deployment must supply an explicit canonical nonzero u32 lifecycle capacity:
+# CUSTODY_READ_FENCE_ADMISSION_CAPACITY (no sample operational value)
+# CUSTODY_READ_FENCE_ADMISSION_VERIFIER_HISTORY: fixed ReadFenceReadV3 pin+floor array
+# CUSTODY_READ_FENCE_ADMISSION_ACTIVE_VERIFIER: exact current member of that array
+# CUSTODY_READ_FENCE_ADMISSION_ENABLED remains absent/false by default.
+# Installed Exec profile history separately requires the corresponding
+# CUSTODY_EXECUTION_FENCE_ADMISSION_CAPACITY / VERIFIER_HISTORY; disabling new
+# acceptance never permits ordinary reads to bypass either historical inventory.
+# New Execution FENCES POST acceptance independently defaults off:
+# CUSTODY_EXECUTION_FENCE_ADMISSION_ENABLED
+# CUSTODY_EXECUTION_FENCE_ADMISSION_ACTIVE_VERIFIER (exact history member)
+# This provides only the FENCES leaf; it does not install an Account/Dispatcher sender.

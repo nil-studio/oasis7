@@ -211,3 +211,16 @@ rtk proxy bash crates/oasis7_custody_worker/scripts/verify.sh --platform
 部署后测试记录必须区分：实际四角色 IAM/binding/TLS 和 secret 隔离；真实 Native fresh-MFA、撤销、来源与固定 World pin；真实 host 的 OS 主体或远端隔离；实际工具调用、World receipt/业务效果、预算及到限收尾。沿设计 [§12.18 的 CT-008](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-selftest) 使用既有 RunInput/TesterInput/RunResult 和正式 `oasis7-play` Skill，保留 ST-02/03/04/06 证据。脚本 HTTP 成功、普通 WebAuthn ceremony、同 UID 的 0600 文件及本地 fixture 不代签这些项目。
 
 当前 ContextRef/LiveRead 协议、存储和桥接验证不构成完整 Execution/ReconcileRead 生产消费者；ResourceBasis、权威用量结算、完整 24-transport Stop/Revoke、真实隔离 Host/管理 UI 和正式实玩仍须按实现与实际结果逐项确认。无法在原预算内闭合的调用图保持 disabled，不增加上限或隐藏批量成本。dot 的独立 OAuth/MCP 双 PoP 仍单独 blocked，不能用 Native 或 Host 代签；未确认部署凭据、付费模型授权和测试资源前不执行相应外部动作。Issue #5076 保持 OPEN。
+
+
+## Read-purpose FENCES 接收组件（默认关闭）
+
+新 `/internal/read-fence-read-v3` 仅是私有 FENCES Actor 的只读 receipt 接收叶；不是公开 Actions、Read Current、Read55 或 Source 授权。独立 Read Dispatcher、Account paid causal signer 与 Directory/Identity producer 尚须闭合；不得提前部署启用或用预算 token/JSON观察代 Current。旧 Read-owned Source fallback 继续拒绝。
+
+两个固定 profile 各自保留 birth/header/floor/once。普通 GET、describe、activation/disable 的所有快照和事务也先经过共同强恢复 adapter，才进入旧业务 parse 或空对象初始化。business+birth 扫描固定2+2+1=5；每个 profile 的 header/floor/once 按其服务器 capacity 完整有界读取并保越界探针，不截5。旧业务记录仍保原524288字节上限与524289探针；包装合法64KiB receipt 的元数据上界由固定类型计算，不缩减旧上限。未知 schema/记录或 partial 不过滤、不修复。
+
+Read 新受理仅在 `CUSTODY_READ_FENCE_ADMISSION_ENABLED=true` 时考虑，缺省关闭。它要求独立 `CUSTODY_READ_FENCE_ADMISSION_CAPACITY`（规范十进制非零u32）、`CUSTODY_READ_FENCE_ADMISSION_VERIFIER_HISTORY`（有界JSON数组，元素为实际固定ReadFenceReadV3 purpose的pin+floor）、`CUSTODY_READ_FENCE_ADMISSION_ACTIVE_VERIFIER`（必须精确属于history）。Execution profile 仅读相应 `CUSTODY_EXECUTION_FENCE_ADMISSION_*` 配置和ExecutionFenceReadV2 purpose，不互借容量或凭据；本组件另提供现有 `ExecutionFenceReadRequestV2` 的私有 `/internal/execution-fence-read-v2` FENCES 接收叶，校验现有ExecutionFenceReadV2 purpose，受独立 `CUSTODY_EXECUTION_FENCE_ADMISSION_ENABLED`（缺省false）与 `ACTIVE_VERIFIER` 控制；没有新增Execution Account/Dispatcher发送入口，也没有借 ordinary RF2 完成RF4。完整结构见Core `FenceAdmissionVerifierV3`。现有独立Recovery policy仍用其原8KiB解析内核，profile历史pin的environment必须与该实际policy一致。不要从请求或数据库取公钥、容量或替代floor。
+
+已有profile即使受理开关关闭，ordinary全部路径仍须加载原capacity和固定历史verifier；移除active可停止新收，但不能移除仍用于历史库存的pin/floor或把capacity改变解释为迁移。新收只用active；cold按原claim时间和精确配置digest验证历史，不能用历史pin签发新当前许可。首次SQL只扫描完整record keys、已知birth及header/floor/once，不取FENCE/LEDGER/audit payload；Read/Exec各自once先本地SQL永久提交，再首次读取真实RF业务row；其后过期、epoch/disabled拒绝或crash保持unknown与占用，不退款、不重发。业务guard、两profile完整库存与初始化须在同一已付Actor内完成，不暗加RPC。
+
+逐profile完整birth/header/floor/once同时抹除或一致旧快照回滚无法本地辨别，即使另一family/business仍在也不提供存在锚。该边界不取得新安装、重领opaque或Current资格；任一残留证据的partial仍强拒。Root强签、配置/私钥保护、实际Dispatcher/Account收费因果与完整CF/Read300验收尚未由本组件证明。
