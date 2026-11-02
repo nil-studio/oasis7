@@ -109,6 +109,7 @@ impl AccountProvisionApprovalState {
             }
             self.validate_guarded_stop_owner_slot(s)?;
             self.validate_close_owner_slot(s)?;
+            self.validate_term_owned_qualification_v2(s)?;
             if let Some(close) = &s.termination_state.close {
                 if let Some(claim) = &close.signature_claim {
                     claim.validate_session(close, s)?;
