@@ -44,7 +44,7 @@ export async function browserHttps(directory,viewerRoot) {
       let decoded;try{decoded=new TextDecoder('utf-8',{fatal:true}).decode(body);}catch{res.writeHead(400,{'connection':'close'});res.end();return;}
       if(!Buffer.from(decoded,'utf8').equals(body)||lengths.length===1&&BigInt(body.length)!==BigInt(lengths[0])){res.writeHead(400,{'content-type':'application/json','connection':'close'});res.end('{"error_code":"local_fixture_framing"}');return;}
       const headers=new Headers();for(const [name,value]of Object.entries(req.headers)){
-        if(['cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type','accept','content-digest','oasis7-token-digest','oasis7-enrollment','oasis7-request-id','oasis7-test-session','oasis7-binding','signature-input','signature'].includes(name)&&typeof value==='string')headers.set(name,value);
+        if(['cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type','accept','content-digest','oasis7-token-digest','oasis7-capability','oasis7-enrollment','oasis7-request-id','oasis7-test-session','oasis7-binding','signature-input','signature'].includes(name)&&typeof value==='string')headers.set(name,value);
       }
       const countKey=req.method+' '+normalizeBrowserPath(path);counts[countKey]=(counts[countKey]??0)+1;
       const selected=fault && (fault.kind==='lost-owner-approve'?path.endsWith('/owner-setups/approve'):path.endsWith('/custody/approvals/complete'));

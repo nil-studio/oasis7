@@ -61,11 +61,14 @@ function accountTransitionInner(state, key, initial, transition, ownerTerm) {
       const names = new Set(table_names);
       const meta = names.has("table:custody_term_guarded_signer_state_v2");
       const once = names.has("table:custody_term_guarded_signer_once_v2");
+      const qualification = names.has("table:custody_term_guarded_qualification_once_v2");
       if (metadata !== "") {
-        if (old !== initial || next === old || meta || once || metadata.length > 32768)
+        if (old !== initial || next === old || meta || once || qualification || metadata.length > 32768)
           throw new Error("Owner Term profile cannot initialize an existing or partial slot");
         state.storage.sql.exec("CREATE TABLE custody_term_guarded_signer_state_v2 (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
         state.storage.sql.exec("CREATE TABLE custody_term_guarded_signer_once_v2 (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
+        if (JSON.parse(metadata).schema_version === 2)
+          state.storage.sql.exec("CREATE TABLE custody_term_guarded_qualification_once_v2 (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
         state.storage.sql.exec("INSERT INTO custody_term_guarded_signer_state_v2 (id,payload) VALUES ('singleton',?)", metadata);
       } else if (!meta || !once) {
         throw new Error("Owner Term profile unavailable");
