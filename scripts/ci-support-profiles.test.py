@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Execute the real profile dispatcher with recording Cargo functions."""
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -13,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DRIVER = (ROOT / 'scripts/ci-tests.sh').read_text()
 CONTRACT_FUNCTION = DRIVER.split('run_signed_read_protocol_contract_tests() {', 1)[1].split('\n}', 1)[0]
+WORKER_COMPILE_FUNCTION = re.search(r'^run_worker_wasm_compile_profiles\(\) \{\n.*?^\}',
+                                    DRIVER, re.M | re.S).group()
 FUNCTION = DRIVER.split('run_selected_workspace_support() {', 1)[1].split(
     '\nrun_rustsec_advisory_check()', 1)[0]
 
@@ -122,7 +125,7 @@ class Profiles(unittest.TestCase):
                 self.assertIn(prefix + name, paths)
 
     def invoke(self, profiles, fail=False, fail_protocol=False, fail_expanded=False, cwd=None,
-               real_cargo=False):
+               real_cargo=False, real_worker_compile=False, environment=None):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"
 run() { echo "contract $*"; }
@@ -130,6 +133,7 @@ run_cargo() { echo "cargo $*"; }
 run_cargo_clippy() { echo "clippy $*"; }
 run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
 '''
+        script += WORKER_COMPILE_FUNCTION + '\n'
         script += 'run_signed_read_protocol_contract_tests() {' + CONTRACT_FUNCTION + '\n}\n'
         if fail_protocol:
             script += 'run() { echo "contract $*"; return 19; }\n'
@@ -140,11 +144,13 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         if real_cargo:
             script += 'run_cargo() { echo "cargo $*"; env -u RUSTC_WRAPPER cargo "$@"; }\n'
             script += 'run_cargo_clippy() { env -u RUSTC_WRAPPER cargo clippy "$@" -- -D warnings; }\n'
+        if real_worker_compile:
+            script += 'run() { echo "contract $*"; if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }\n'
         script += 'run_selected_workspace_support() {' + FUNCTION
         script += '\nrun_selected_workspace_support\n'
         return subprocess.run(['bash', '-c', script, 'test', sys.executable,
                                str(ROOT / 'scripts'), profiles],
-                              text=True, capture_output=True, cwd=cwd)
+                              text=True, capture_output=True, cwd=cwd, env=environment)
 
     def test_new_support_tier_executes_before_merge_and_propagates_failure(self):
         plan = dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
@@ -281,6 +287,42 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         self.assertIn('contract bash crates/oasis7_custody_worker/scripts/verify.sh --platform', result.stdout)
         self.assertNotIn('cargo ', result.stdout)
         self.assertNotIn('full-inventory', result.stdout)
+
+    def test_selected_worker_profile_runs_real_compile_helper_and_propagates_failure(self):
+        profiles = ('identity', 'owner', 'executor', 'recovery-fence',
+                    'owner,approval-harness', 'identity,native-runtime-harness')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / 'crates/oasis7_custody_worker/Cargo.toml'
+            manifest.parent.mkdir(parents=True)
+            names = sorted({name for profile in profiles for name in profile.split(',')})
+            # Closed command-capture fixture, not actual Worker compile evidence.
+            manifest.write_text('[features]\ndefault = []\n'
+                                + ''.join(name + ' = []\n' for name in names))
+            binary = root / 'bin'
+            binary.mkdir()
+            capture = root / 'worker-compile-argv'
+            cargo = binary / 'cargo'
+            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\nexit "$WORKER_COMPILE_RESULT"\n')
+            cargo.chmod(0o755)
+            environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                               WORKER_COMPILE_CAPTURE=str(capture), WORKER_COMPILE_RESULT='0')
+            result = self.invoke('["oasis7_custody_worker"]', real_worker_compile=True,
+                                 cwd=root, environment=environment)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
+                        '--no-default-features --features ' + profile + ' --locked'
+                        for profile in profiles]
+            self.assertEqual(capture.read_text().splitlines(), expected)
+            self.assertIn('support profile completed: oasis7_custody_worker', result.stdout)
+            capture.unlink()
+            environment['WORKER_COMPILE_RESULT'] = '42'
+            failed = self.invoke('["oasis7_custody_worker"]', real_worker_compile=True,
+                                 cwd=root, environment=environment)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn('exit status 42', failed.stderr)
+            self.assertNotIn('support profile completed', failed.stdout)
+            self.assertEqual(capture.read_text().splitlines(), expected[:1])
 
     def test_custody_core_retains_all_target_schema_tests(self):
         result = self.invoke(json.dumps(['oasis7_custody_core']))

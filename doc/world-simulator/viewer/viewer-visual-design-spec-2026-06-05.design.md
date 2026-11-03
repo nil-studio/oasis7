@@ -124,6 +124,8 @@ First show state and whether the relevant action is possible; then cause/missing
 
 Preserve World/Targets/Command and optional Diagnostics without forcing the player to scroll past the whole world to find commands. Low-height/landscape, CJK, zoomed text and touch tooltips need explicit coverage. Layer/filter/selection changes do not alter task or original receipt identity.
 
+账号/准入/绑定、Targets/重入、浏览器模型连接、Command原件结果、Live/Playback与次级安全工具的整体交接见[页面模块§10.9](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)。它们复用现有三项主路由及专业authority，不引入新世界选择器、统一提交、设置中心或能力声明。
+
 ## 9. Pixel-World Layering
 
 Priority is decision context and original receipt/blocker, active/selected Agent, valid routes/relationships/hotspots/goal callouts, logical Location anchors, terrain/background, then diagnostics. This is reading priority, not a requirement that every item occupy a permanent panel.

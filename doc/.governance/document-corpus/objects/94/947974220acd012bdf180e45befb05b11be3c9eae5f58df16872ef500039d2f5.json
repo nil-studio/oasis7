@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-simulator/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "7f0be8d6f41e27ec155d507e800643d2c97a4623af1d245afc6fff2347a8d890",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "review_required",
+    "object_kind": "supporting_artifact",
+    "path": "doc/world-simulator/viewer/assets/ui-ux/full-function/governance-targets/frames/B20-SC32-budgetcommit.svg",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-simulator-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}
