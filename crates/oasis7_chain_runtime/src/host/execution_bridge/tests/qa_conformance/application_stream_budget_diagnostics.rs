@@ -156,14 +156,14 @@ fn numeric_relay_accepts_current_hosted_prepare_leaf_codes() {
     assert!(validated(encoded(3).as_bytes()).is_some());
     for stage in [
         24, 25, 26, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 72, 73, 74, 80, 81, 82, 83, 84, 85, 86,
-        87, 88,
+        87, 88, 89,
     ] {
         assert!(
             validated(encoded(stage).as_bytes()).is_some(),
             "current fixed producer stage must be accepted: {stage}"
         );
     }
-    for stage in [27, 59, 70, 71, 75, 79, 89, 999] {
+    for stage in [27, 59, 70, 71, 75, 79, 90, 999] {
         assert!(
             validated(encoded(stage).as_bytes()).is_none(),
             "unknown or unused stage must remain rejected: {stage}"
