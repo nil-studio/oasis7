@@ -6,7 +6,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
-use std::{cell::RefCell, collections::BTreeMap, io::Cursor};
+use std::{cell::RefCell, collections::{BTreeMap, BTreeSet}, io::Cursor};
 
 pub struct SelectedModuleManifestLimitsV1 {
     pub heap_bytes: usize,
@@ -43,6 +43,7 @@ struct Decoder<'a, 'b, M, R, E, C> {
     heap: usize,
     limit: &'a SelectedModuleManifestLimitsV1,
     json: Vec<MemoryReservation>,
+    known: BTreeSet<[u8;32]>,
 }
 fn address(
     section: &'static str,
@@ -72,6 +73,8 @@ impl<
         self.ctx.check()?;
         self.work.cell()?;
         let key = read::key(a, &mut self.ctx.records())?;
+        spend(&mut self.heap, 512)?;
+        self.known.insert(*blake3::hash(key.0.as_bytes()).as_bytes());
         let id = self.ctx.lookup(&key.0)?.ok_or_else(read::invalid)?;
         let info = read_member_record_header_v1(
             &id,
@@ -212,6 +215,13 @@ impl<
     ) -> Result<BTreeMap<String, String>, ValueTreeError> {
         let length = self.length("abi_contract.cap_slots", None, 512)?;
         let mut values = BTreeMap::new();
+        // These record metadata columns are not part of ModuleManifest. Never
+        // touch their value roots merely to enumerate unknown cap-slot keys.
+        for column in ["registered_at", "registered_by", "audit_event_id"] {
+            let key = read::key(address("record", None, None, column), &mut self.ctx.records())?;
+            spend(&mut self.heap, 512)?;
+            self.known.insert(*blake3::hash(key.0.as_bytes()).as_bytes());
+        }
         let meta = WorldFieldKeyV1::new(
             genesis::body_descriptor(),
             WorldFieldRecordKindV1::Metadata,
@@ -253,7 +263,8 @@ impl<
             self.ctx.root,
             |entry| {
                 self.work.cell()?;
-                if entry.key == meta.as_bytes() || entry.key == marker.as_bytes() {
+                if entry.key == meta.as_bytes() || entry.key == marker.as_bytes()
+                    || self.known.contains(blake3::hash(&entry.key).as_bytes()) {
                     return Ok(());
                 }
                 let binding =
@@ -286,17 +297,12 @@ impl<
                 )?;
                 let mut member = Vec::with_capacity(bound);
                 let mut probe = key_read::Probe::new(&mut member);
-                read_member_record_profile_v1(
+                read_member_record_key_v1(
                     &entry.value,
                     &key,
                     &mut local.values,
-                    MemberReadProfileV1 {
-                        codec: info.codec,
-                        semantic_bytes: info.semantic_bytes,
-                        limits,
-                    },
+                    limits,
                     &mut probe,
-                    &mut std::io::sink(),
                     &mut local.cancelled,
                 )?;
                 let a = probe.finish()?;
@@ -401,6 +407,7 @@ where
         heap: limits.heap_bytes,
         limit: limits,
         json: Vec::new(),
+        known: BTreeSet::new(),
     };
     spend(&mut d.heap, 2048)?;
     let module_id = d.text(address("manifest", None, None, "module_id"))?;
@@ -472,7 +479,6 @@ where
         .map_err(|_| read::invalid())?;
     let input_schema = d.optional_text(address("abi_contract", None, None, "input_schema"))?;
     let output_schema = d.optional_text(address("abi_contract", None, None, "output_schema"))?;
-    let cap_slots = d.cap_slots(scan)?;
     let policy_hooks = d.texts("abi_contract.policy_hooks", None)?;
     let gameplay = if d.boolean(address("abi_contract", None, None, "gameplay_present"))? {
         let kind = match d
@@ -580,6 +586,7 @@ where
         } else {
             None
         };
+    let cap_slots = d.cap_slots(scan)?;
     let manifest = ModuleManifest {
         module_id,
         name,
@@ -618,7 +625,23 @@ mod tests {
     use crate::{incremental_record_tree as tree, incremental_semantic_key::SemanticKeyBudget};
     use oasis7_formal_protocol::incremental_value::ValueReadContext;
     use oasis7_proto::memory_budget::MemoryBudget;
-    use std::{rc::Rc, sync::Arc};
+    use std::{cell::Cell, rc::Rc, sync::Arc};
+    struct Forbid<'a> {
+        pages: &'a body_tests::Pages,
+        root: Cell<Option<[u8; 32]>>,
+    }
+    impl ValueNodeReader for Forbid<'_> {
+        fn read_node(
+            &self,
+            id: &[u8; 32],
+            max: usize,
+            memory: &MemoryBudget,
+            class: MemoryClass,
+        ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+            assert_ne!(self.root.get().as_ref(), Some(id), "unused registered_by read");
+            self.pages.read_node(id, max, memory, class)
+        }
+    }
     #[test]
     fn selected_manifest_reconstructs_exact_original_fields_and_json_sha_identity() {
         let backing = MemoryBudget::new(96 << 20, 4 << 20).unwrap();
@@ -637,11 +660,12 @@ mod tests {
         let record = ModuleRecord {
             manifest: original,
             registered_at: u64::MAX,
-            registered_by: "opaque original owner".into(),
+            registered_by: "r".repeat(1 << 20),
             audit_event_id: Some(0),
         };
         let root = body_tests::produce(genesis::Body::Module(&record), &backing, &mut pages);
         drop(record);
+        let source = Forbid { pages: &pages, root: Cell::new(None) };
         let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
         let mut state_io = body_tests::io();
         let state_io = RefCell::new(&mut state_io);
@@ -649,7 +673,7 @@ mod tests {
         let cancel = RefCell::new(&mut stop);
         let error = RefCell::new(None);
         let state = tree::Source {
-            source: &pages,
+            source: &source,
             memory: &memory,
             class: MemoryClass::Ordinary,
             io: &state_io,
@@ -665,7 +689,7 @@ mod tests {
             root: &root,
             state: &state,
             values: ValueReadContext {
-                source: &pages,
+                source: &source,
                 memory: &memory,
                 class: MemoryClass::Ordinary,
                 io: &mut value_io,
@@ -698,6 +722,9 @@ mod tests {
             &mut work,
         )
         .unwrap();
+        let owner_key = read::key(address("record", None, None, "registered_by"), &mut ctx.records()).unwrap();
+        let owner_root = ctx.lookup(&owner_key.0).unwrap().unwrap();
+        source.root.set(Some(owner_root));
         let selected = read_selected_module_manifest_v1(
             &body,
             &mut ctx,
