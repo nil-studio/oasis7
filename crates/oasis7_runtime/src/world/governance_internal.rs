@@ -1,4 +1,5 @@
 use super::*;
+use crate::GovernanceValidatorAdmissionStatus;
 impl World {
     pub(crate) fn governance_finality_registry_epoch_snapshot(
         &self,
@@ -518,6 +519,39 @@ impl World {
                 ),
             });
         }
+        // Finality authority follows the certificate epoch and its retained
+        // admission/rotation history. Node identity remains the service binding.
+        let mut historical_admissions = self.state.governance_validator_admissions.clone();
+        for admission in historical_admissions.values_mut() {
+            if admission.status == GovernanceValidatorAdmissionStatus::Revoked {
+                let revoked = admission.revoked_at_epoch.ok_or_else(|| {
+                    WorldError::GovernanceFinalityInvalid {
+                        reason: format!(
+                            "historical admission {} lacks revocation epoch",
+                            admission.candidate_id
+                        ),
+                    }
+                })?;
+                if epoch_id < revoked {
+                    // A retained revoked record still carries its original key,
+                    // stake and activation boundary. Restore only authority that
+                    // was already active at the certificate epoch.
+                    admission.status = if admission
+                        .activation_epoch
+                        .is_some_and(|epoch| epoch <= epoch_id)
+                    {
+                        GovernanceValidatorAdmissionStatus::Active
+                    } else {
+                        GovernanceValidatorAdmissionStatus::Applied
+                    };
+                }
+            }
+        }
+        let epoch_registry = self
+            .resolve_governance_effective_finality_signer_registry_from_admissions_at_epoch(
+                &historical_admissions,
+                epoch_id,
+            )?;
         for (node_id, signature_with_prefix) in &certificate.signatures {
             if !epoch_signers.contains(node_id) {
                 return Err(WorldError::GovernanceFinalityInvalid {
@@ -527,10 +561,14 @@ impl World {
                     ),
                 });
             }
-            let signer_public_key = self.node_identity_public_key(node_id).ok_or_else(|| {
-                WorldError::GovernanceFinalityInvalid {
-                    reason: format!("untrusted signer node_id: {node_id}"),
-                }
+            let signer_public_key = match &epoch_registry {
+                Some(registry) => registry.signer_bindings.get(node_id).map(String::as_str),
+                // Preserve the explicit legacy local-signer contract when no
+                // registry is configured; never fall back for a missing member.
+                None => self.node_identity_public_key(node_id),
+            }
+            .ok_or_else(|| WorldError::GovernanceFinalityInvalid {
+                reason: format!("untrusted finality signer node_id: {node_id} epoch: {epoch_id}"),
             })?;
             let signature_hex = signature_with_prefix
                 .strip_prefix(GovernanceFinalityCertificate::SIGNATURE_PREFIX_ED25519_V1)
@@ -965,3 +1003,7 @@ impl World {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "governance_finality_certificate_rotation_tests.rs"]
+mod certificate_rotation_tests;

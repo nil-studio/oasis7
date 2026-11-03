@@ -162,7 +162,7 @@ impl World {
     pub(super) fn project_bootstrap_finality_key_rotations(
         &self,
         registry: &mut GovernanceFinalitySignerRegistry,
-        admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+        authority: &BTreeMap<String, &GovernanceValidatorAdmissionRecord>,
         epoch: u64,
     ) -> Result<(), WorldError> {
         validate_finality_key_rotation_history_capacity(
@@ -183,7 +183,6 @@ impl World {
             .as_ref()
             .ok_or_else(|| invalid("bootstrap rotation source registry missing"))?;
         let source_digest = bootstrap_finality_registry_digest_v1(raw).map_err(invalid)?;
-        let authority = Self::governance_validator_authority_records_at_epoch(admissions, epoch);
         let mut groups: BTreeMap<&str, Vec<&BootstrapFinalityKeyRotationRecordV1>> =
             BTreeMap::new();
         for (id, record) in &self.state.governance_bootstrap_finality_key_rotations {

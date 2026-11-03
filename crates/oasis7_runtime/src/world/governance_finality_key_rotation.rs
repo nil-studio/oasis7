@@ -58,6 +58,7 @@ impl World {
         &self,
         registry: &mut GovernanceFinalitySignerRegistry,
         admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+        selected: &BTreeMap<String, &GovernanceValidatorAdmissionRecord>,
         epoch: u64,
     ) -> Result<(), WorldError> {
         self.validate_retained_rotation_namespace(admissions)?;
@@ -65,7 +66,6 @@ impl World {
         {
             return Err(invalid("rotation history capacity exceeded"));
         }
-        let selected = Self::governance_validator_authority_records_at_epoch(admissions, epoch);
         let mut groups: BTreeMap<&str, Vec<&FinalityKeyRotationRecordV1>> = BTreeMap::new();
         for (id, record) in &self.state.governance_finality_key_rotations {
             record.validate().map_err(invalid)?;
