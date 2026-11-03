@@ -241,7 +241,7 @@ class AdmissionTests(unittest.TestCase):
 
     def test_raw_staging_single_upload_resident_and_rotation_are_distinct(self):
         for name, upload, raw in (('ordinary', 768 * 1024 ** 2, 6 * 1024 ** 3),
-                                  ('formal', 768 * 1024 ** 2, 8 * 1024 ** 3),
+                                  ('formal', 1024 ** 3, 8 * 1024 ** 3),
                                   ('ecs', 1024 ** 3, 6 * 1024 ** 3)):
             with self.subTest(name=name):
                 settings = policy.FAMILIES[name]
@@ -433,10 +433,10 @@ class InventoryLifecycleTests(unittest.TestCase):
             for _ in range(2):
                 number += 1
                 entries.append(entry(name, number, size_in_bytes=policy.FAMILIES[name]['max_upload_bytes']))
-        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 9_329_131_834)
+        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 9_866_002_746)
         before = json.dumps(entries, sort_keys=True)
         report = policy.save_policy(entries, key('ecs', 99), 1024 ** 3, REPOSITORY_LIMIT)
-        self.assertEqual(report['projected_repository_bytes'], 10_402_873_658)
+        self.assertEqual(report['projected_repository_bytes'], 10_939_744_570)
         self.assertFalse(report['capacity_allowed'])
         self.assertEqual(report['reason'], 'repository cache capacity gap')
         self.assertEqual(json.dumps(entries, sort_keys=True), before)
@@ -537,7 +537,7 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
         self.assertTrue(formal['capacity_allowed'], formal)
         self.assertEqual(formal['compatible_generations'], 0)
         self.assertEqual(formal['projected_repository_bytes'], 8_126_562_060)
-        self.assertEqual(formal['single_upload_limit_bytes'], 805_306_368)
+        self.assertEqual(formal['single_upload_limit_bytes'], 1024 ** 3)
         full = policy.save_policy(entries, key('formal', 21, 'd'), 741_897_320, REPOSITORY_LIMIT,
                                   reserved_repository_bytes=5 * 1024 ** 3 // 2)
         self.assertFalse(full['capacity_allowed'])
