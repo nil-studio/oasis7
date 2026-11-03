@@ -210,8 +210,7 @@ impl FileFormalEndpoint {
             #[cfg(test)]
             controlled,
         };
-        #[cfg(not(test))]
-        if controlled {
+        if controlled && !cfg!(test) {
             return Err(FormalError::FencingUnproven);
         }
         let _guard = endpoint.guard()?;
