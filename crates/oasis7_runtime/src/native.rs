@@ -526,3 +526,6 @@ pub use oasis7_world_state::incremental_reward_budget_records;
 pub use oasis7_world_state::incremental_governance_records;
 
 pub use oasis7_world_state::incremental_main_token_policy_records;
+
+pub use oasis7_world_state::incremental_runtime_scheduler_controls;
+pub use oasis7_world_state::incremental_runtime_capability_records;

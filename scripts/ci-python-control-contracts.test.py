@@ -116,7 +116,7 @@ if __name__ == '__main__':
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        directory = Path(self.temp.name)
+        directory = Path(self.temp.name).resolve()
         self.root, self.snapshot = directory / 'candidate', directory / 'baseline'
         self.write(self.root, 'scripts/probe.py', 'VALUE = 7\n')
         self.write(self.root, self.TEST, self.SOURCE)
@@ -400,7 +400,7 @@ class SelectionAndMigration(unittest.TestCase):
 
     def test_full_dispatch_executes_fixed_and_selected_baseline_contracts(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             def command(*args):
                 return subprocess.check_output(args, cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
             test = 'scripts/control.test.py'
