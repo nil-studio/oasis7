@@ -1,10 +1,11 @@
 // Narrow synchronous SQLite glue. Payload strings stay opaque; Rust owns policy.
 export function initializeTextRecord(state, key, initial) {
-  return state.storage.transactionSync(() => {
-    state.storage.sql.exec("CREATE TABLE IF NOT EXISTS custody_records (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
-    state.storage.sql.exec("INSERT OR IGNORE INTO custody_records (id, payload) VALUES (?, ?)", key, initial);
-    return state.storage.sql.exec("SELECT payload FROM custody_records WHERE id = ?", key).one().payload;
-  });
+  return state.storage.transactionSync(() => initializeTextRecordInsideTransaction(state, key, initial));
+}
+export function initializeTextRecordInsideTransaction(state, key, initial) {
+  state.storage.sql.exec("CREATE TABLE IF NOT EXISTS custody_records (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
+  state.storage.sql.exec("INSERT OR IGNORE INTO custody_records (id, payload) VALUES (?, ?)", key, initial);
+  return state.storage.sql.exec("SELECT payload FROM custody_records WHERE id = ?", key).one().payload;
 }
 
 // The synchronous Rust callback may throw; this must roll back all SQL writes.
@@ -24,7 +25,9 @@ export function readTextRecord(state, key) {
   return state.storage.sql.exec("SELECT payload FROM custody_records WHERE id = ?", key).one().payload;
 }
 export function updateAuditedTextRecord(state, key, transition) {
-  return state.storage.transactionSync(() => {
+  return state.storage.transactionSync(() => updateAuditedTextRecordInsideTransaction(state, key, transition));
+}
+export function updateAuditedTextRecordInsideTransaction(state, key, transition) {
     const old = readTextRecord(state, key);
     const result = transition(old);
     if (!Array.isArray(result) || result.length !== 3 || result.some(v => typeof v !== "string"))
@@ -36,7 +39,6 @@ export function updateAuditedTextRecord(state, key, transition) {
       state.storage.sql.exec("UPDATE custody_records SET payload = ? WHERE id = ?", next, key);
     }
     return next;
-  });
 }
 
 // No DTO parsing: Rust receives opaque rows and table names inside the same transaction.

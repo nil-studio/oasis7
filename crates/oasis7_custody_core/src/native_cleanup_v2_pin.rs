@@ -25,6 +25,8 @@ pub enum AccountMachinePurposeV2 {
     ExecutionPendingSourceNativeLeafV2,
     ReadFenceDispatchV3,
     ReadFenceReadV3,
+    ReadClaimSourceV3,
+    ReadDirectoryV3,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

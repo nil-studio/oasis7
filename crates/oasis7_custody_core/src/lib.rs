@@ -67,3 +67,7 @@ pub mod read_fence_dispatch_v3;
 
 /// Guarded dual-profile FENCES history inventory; never Current.
 pub mod read_fence_admission_v3;
+
+pub mod read_claim_source_v3;
+pub mod read_directory_admission_v3;
+pub mod read_directory_v3;

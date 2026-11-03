@@ -11,10 +11,21 @@ pub(crate) fn pin(
     env: &Env,
     purpose: AccountMachinePurposeV2,
 ) -> Result<(AccountMachineIssuerPinV2, AccountMachineIssuerFloorV2), JsValue> {
-    let value = |name| env.var(name).map(|v| v.to_string()).map_err(|_| rejected());
-    if value("CUSTODY_TEST_SESSION_V2_ENABLED")? != "true" {
+    if env
+        .var("CUSTODY_TEST_SESSION_V2_ENABLED")
+        .ok()
+        .is_none_or(|v| v.to_string() != "true")
+    {
         return Err(rejected());
     }
+    historical_pin(env, purpose)
+}
+/// External protected pins only; disabled admission must still verify saved rows.
+pub(crate) fn historical_pin(
+    env: &Env,
+    purpose: AccountMachinePurposeV2,
+) -> Result<(AccountMachineIssuerPinV2, AccountMachineIssuerFloorV2), JsValue> {
+    let value = |name| env.var(name).map(|v| v.to_string()).map_err(|_| rejected());
     let raw = value("CUSTODY_ACCOUNT_SERVICE_ISSUER_PINS")?;
     if raw.len() > 32768 {
         return Err(rejected());

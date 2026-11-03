@@ -592,3 +592,9 @@ pub use v2_read_current::{
 pub use v2_read_history::{
     ReadPrepareHistoryFeeV2, ReadPrepareHistoryPaidV2, ReadPrepareHistoryReplyV2,
 };
+
+pub use v2_read_current::{
+    ReadClaimSourceCallbackV3, ReadClaimSourceDirectoryClaimedV3, ReadClaimSourceRouteV3,
+    ReadClaimSourceSigningAuthorityV3, ReadDirectorySigningAuthorityV3,
+    ReadFenceDispatchSigningAuthorityV3, ReadFenceReadSigningAuthorityV3, ReadFenceRouteV3,
+};

@@ -168,3 +168,6 @@ fn read_rf_codec_causal_read_binds_dispatch_exact_query_and_separate_pin() {
 
 #[path = "test_session_v2_read_fence_admission_tests.rs"]
 mod admission_tests;
+
+#[path = "test_session_v2_read_directory_tests.rs"]
+mod read_directory_tests;
