@@ -383,6 +383,25 @@ Trace ID: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78
   - NFR-TST-13: 任何正式玩法结论都必须能在 30 秒内回答“这是 `L4A`、`L4B` 还是 `L5` 前的内部校准，以及为什么”。
 - Security & Privacy: 测试日志与产物需避免泄露凭据；外部 API 测试使用最小化数据并执行脱敏。
 
+<a id="compile-reuse-measurement"></a>
+### 跨入口构建复用测量
+
+Trace ID: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b
+
+QA 与构建维护者应能判断普通 PR、Formal/测试产物、ECS workspace cache 和本地开发之间重复编译的来源、兼容范围与总成本，再决定保留现状、调整已有机制或补充设计。[跨入口测量设计](performance/compile-metrics-v2-warm-check.design.md#cross-entry-build-reuse-measurement) 承接该要求；既有 cold/warm check、ECS 构建量测和本地 wrapper 继续保留各自的输入与证据边界。
+
+- **系统设计状态：已覆盖有界测量方法。** 入口/兼容矩阵、样本、命令、成本和退出判据由上述设计承接。
+- **执行状态：跨入口真实对照尚未执行。** 现有工具只覆盖其各自场景；本次文档不宣称净收益、P95 或优化已实施。
+
+验收要求：
+
+1. 固定源码、计划、工具链、runner、target/profile/features/flags、jobs 与缓存初态，输出实际配置/产物兼容矩阵；当前预算以配置及库存为准，未知库存显式保留。
+2. 优先复用已有工件，区分冷依赖、温依赖/workspace 冷、同源 no-op、普通源码/公共依赖失效和跨工作区样本；精确 Cargo argv 与 Fresh/rebuilt 单元证据须解释定向计划到实际编译目标的映射。
+3. 最多对照两个有明确收益假设的候选；不得预先决定 feature 统一、输入裁剪、Nix/Hakari、新缓存服务或扩容。真实依赖变化应拒绝旧产物，编译命中不替代测试执行或发布验证。
+4. 净收益覆盖恢复/下载、解压校验、构建/链接、打包保存及必要后验成本，说明 producer 分摊、存储、样本数量、环境与未测平台；失败、退化、不可比和未知数据全部保留，不以局部或单次样本代签 P95。
+5. 报告给出采用、不采用或补证及停止原因。环境/预算有限时交付已测范围与缺口；候选无收益时停止，行为或基础设施变化回到对应设计。原 ECS 缓存消费和 hosted 时延验收仍由各自任务负责，不新增默认 gate 或生产部署步骤。
+
+
 ## 5. Risks & Roadmap
 - Phased Rollout:
   - MVP (2026-03-03): 固化 testing 分层模型与证据标准。
