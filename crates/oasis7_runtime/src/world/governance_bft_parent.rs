@@ -23,6 +23,7 @@ mod header_parent;
 pub(super) struct BftGovernanceParentV2 {
     pub(super) schedule: BftGovernanceSchedule,
     pub(super) controller_registry: Option<GovernanceMainTokenControllerRegistry>,
+    pub(super) rotation_parent: super::governance_finality_key_rotation::FinalityKeyRotationParentV1,
     pub(super) formal_handoff: Option<FormalBftHandoffBinding>,
     execution: Option<(RuntimeCommittedTickContext, bool)>,
 }
@@ -306,6 +307,7 @@ impl World {
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
             schedule: BftGovernanceSchedule::V2(schedule.clone()),
             controller_registry: registry,
+            rotation_parent: self.capture_finality_key_rotation_parent()?,
             formal_handoff: None,
             execution: None,
         }));
@@ -455,6 +457,7 @@ impl World {
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
             schedule: BftGovernanceSchedule::V2(schedule.clone()),
             controller_registry: registry,
+            rotation_parent: self.capture_finality_key_rotation_parent()?,
             formal_handoff: Some(FormalBftHandoffBinding::V1(
                 FormalBftHandoffBindingV1::from_capability(capability),
             )),

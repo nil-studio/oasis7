@@ -255,6 +255,7 @@ fn event_authorization(
     event: &GovernanceEvent,
 ) -> Option<Option<&oasis7_agent_api::world_action::GovernanceAuthorizedActionV1>> {
     match event {
+        GovernanceEvent::ValidatorFinalityKeyRotated { authorization } => Some(Some(authorization)),
         GovernanceEvent::ValidatorAdmissionSubmitted { authorization, .. }
         | GovernanceEvent::ValidatorAdmissionApproved { authorization, .. }
         | GovernanceEvent::ValidatorAdmissionActivated { authorization, .. }

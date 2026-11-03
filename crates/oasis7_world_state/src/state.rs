@@ -88,52 +88,20 @@ pub use command_projection::{
 pub use logistics_path_authority::LogisticsPathAuthorityV1;
 pub use projection::{BodyOverlay, WorldStateProjection};
 
-fn default_world_material_ledger() -> MaterialLedgerId {
-    state_defaults::default_world_material_ledger()
-}
-fn default_logistics_route_available() -> bool {
-    state_defaults::default_logistics_route_available()
-}
-fn default_logistics_capacity_units() -> i64 {
-    state_defaults::default_logistics_capacity_units()
-}
-fn default_material_ledgers() -> BTreeMap<MaterialLedgerId, BTreeMap<String, i64>> {
-    state_defaults::default_material_ledgers()
-}
-fn default_material_transit_priority() -> MaterialTransitPriority {
-    state_defaults::default_material_transit_priority()
-}
-fn default_module_market_order_id() -> u64 {
-    state_defaults::default_module_market_order_id()
-}
-fn default_module_market_sale_id() -> u64 {
-    state_defaults::default_module_market_sale_id()
-}
-fn default_next_module_instance_id() -> u64 {
-    state_defaults::default_next_module_instance_id()
-}
-
-fn default_next_module_release_request_id() -> u64 {
-    state_defaults::default_next_module_release_request_id()
-}
-
-fn default_factory_durability_ppm() -> i64 {
-    state_defaults::default_factory_durability_ppm()
-}
-
-fn default_factory_production_state() -> FactoryProductionState {
-    state_defaults::default_factory_production_state()
-}
-
-fn default_module_release_required_roles() -> Vec<String> {
-    state_defaults::default_module_release_required_roles()
-}
 pub use self::industry_state::{
     AgentLocationAuthorityV1, FACTORY_BUILD_STARTED_MODERN_VERSION, FactoryBuildPowerObligationV1,
     FactoryConstructionPowerMode, FactoryConstructionPowerProfileV1, FactoryProductionSnapshot,
     FactoryProductionState, FactoryProductionStatus, FactoryRecycleReceiptV1,
     FactorySiteAuthorityV1, LocationAnchorV1, ProductValidationAttemptV1,
     ProductValidationReceiptV1, RecipeCompletionReceiptV1,
+};
+use self::state_defaults::{
+    default_factory_durability_ppm, default_factory_production_state,
+    default_logistics_capacity_units, default_logistics_route_available, default_material_ledgers,
+    default_material_transit_priority, default_module_market_order_id,
+    default_module_market_sale_id, default_module_release_required_roles,
+    default_next_module_instance_id, default_next_module_release_request_id,
+    default_world_material_ledger,
 };
 
 /// Persisted factory instance state.
@@ -508,7 +476,7 @@ pub struct ModuleReleaseManifestMappingState {
 }
 
 /// The mutable state of the world.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct WorldState {
     pub world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     pub time: WorldTime,
@@ -649,6 +617,8 @@ pub struct WorldState {
     pub node_main_token_account_bindings: BTreeMap<String, String>,
     pub governance_finality_signer_registry: Option<GovernanceFinalitySignerRegistry>,
     pub governance_validator_admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
+    pub governance_finality_key_rotations:
+        BTreeMap<String, super::governance::FinalityKeyRotationRecordV1>,
     pub governance_main_token_controller_registry: Option<GovernanceMainTokenControllerRegistry>,
     /// Successful controller nonces commit atomically with governance effects.
     pub governance_authorization_nonces: BTreeMap<String, u64>,
@@ -1089,3 +1059,6 @@ impl WorldState {
         }
     }
 }
+
+#[path = "state/world_state_debug.rs"]
+mod world_state_debug;

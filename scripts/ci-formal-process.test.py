@@ -30,6 +30,87 @@ plan = module('ci-formal-plan')
 from ci_process_runner import run, owned_processes, _Capture, READ_BYTES, SUMMARY_LINE_BYTES
 
 
+
+class ProviderArtifactContracts(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.bundle = self.root / 'bundle'
+        (self.bundle / artifacts.ProviderArtifact.DIRECTORY).mkdir(parents=True)
+        self.expected = dict(tested_sha='a' * 40, source_sha='b' * 40)
+        files = {}
+        for kind, name in [('wasm',artifacts.ProviderArtifact.MODULE+'.wasm'), ('metadata',artifacts.ProviderArtifact.MODULE+'.metadata.json'),
+                           ('receipt',artifacts.ProviderArtifact.MODULE+'.build-receipt.json'), ('checker','sync_builtin_wasm_identity'+('.exe' if os.name=='nt' else ''))]:
+            name = artifacts.ProviderArtifact.DIRECTORY + '/' + name
+            path = self.bundle / name
+            path.write_bytes(b'synthetic contract data; not a valid canonical artifact')
+            path.chmod(0o700 if kind == 'checker' else 0o600)
+            files[kind] = dict(path=name, sha256=artifacts.ProviderArtifact.digest(path))
+        self.record = dict(self.expected, checkout_tree_sha256='tree',files=files,libraries=[])
+        self.tree = patch.object(artifacts.ProviderArtifact,'tree_digest',return_value='tree')
+        self.tree.start()
+        self.addCleanup(self.tree.stop)
+        # An explicit mock of the official verifier, never synthetic provenance
+        # accepted in production. This contract checks invocation and fail-closed
+        # orchestration; real source/receipt validity is a separate Rust/build test.
+        self.invoke = patch.object(artifacts.ProviderArtifact.subprocess,'run')
+        self.native = self.invoke.start()
+        self.addCleanup(self.invoke.stop)
+
+    def validate(self, record=None):
+        return artifacts.ProviderArtifact.validate(self.root,self.bundle,self.record if record is None else record,self.expected)
+
+    def test_expanded_native_provider_material_follows_actual_full_consumer(self):
+        manifest = dict(selection={"suite": "ordinary"},
+                        execution_plan=dict(test_policy_changed=True),
+                        binaries={"runtime-tests": dict(package="oasis7_chain_runtime", test=True, features=["test_tier_full"])})
+        self.assertTrue(artifacts.preview_provider_required(manifest))
+        for key, value in [("package", "oasis7_viewer_codec"), ("test", False), ("features", ["test_tier_required"])]:
+            changed = copy.deepcopy(manifest)
+            changed["binaries"]["runtime-tests"][key] = value
+            self.assertFalse(artifacts.preview_provider_required(changed))
+        manifest["execution_plan"] = dict(scope="targeted", execution_profile="pr-fast")
+        self.assertFalse(artifacts.preview_provider_required(manifest))
+
+    def test_merge_dual_identity_and_exact_official_checker(self):
+        environment = self.validate()
+        self.assertEqual(set(environment),set(artifacts.ProviderArtifact.VARIABLES))
+        command = self.native.call_args.args[0]
+        self.assertEqual(command[1:3], ['--verify-provider-artifact',str(self.root)])
+        self.assertEqual(len(command),6)
+        self.assertNotIn('cargo', command)
+        self.assertNotEqual(self.record['tested_sha'],self.record['source_sha'])
+
+    def test_missing_pair_hash_and_source_fail_closed_before_checker(self):
+        mutations = [lambda r:r['files'].pop('wasm'),
+                     lambda r:r.update(source_sha='c'*40),
+                     lambda r:r.update(tested_sha='c'*40),
+                     lambda r:r.update(checkout_tree_sha256='other-tree'),
+                     lambda r:r['files']['metadata'].update(sha256='0'*64)]
+        for mutate in mutations:
+            record=copy.deepcopy(self.record)
+            mutate(record)
+            with self.subTest(record=record), self.assertRaises(ValueError): self.validate(record)
+        self.native.assert_not_called()
+
+    def test_bad_path_and_symlink_fail_closed(self):
+        record=copy.deepcopy(self.record)
+        record['files']['wasm']['path']='../foreign.wasm'
+        with self.assertRaises(ValueError): self.validate(record)
+        wasm=self.bundle/self.record['files']['wasm']['path']
+        foreign=self.root/'foreign'
+        foreign.write_bytes(wasm.read_bytes())
+        wasm.unlink()
+        wasm.symlink_to(foreign)
+        with self.assertRaises(ValueError): self.validate()
+        self.native.assert_not_called()
+
+    def test_official_checker_failure_cannot_inject_environment(self):
+        self.native.side_effect=subprocess.CalledProcessError(2,['official-checker'])
+        with self.assertRaises(subprocess.CalledProcessError): self.validate()
+
+
 class Transition(unittest.TestCase):
     def test_old_baseline_can_only_widen(self):
         self.assertTrue(plan.selected(dict(scope='full', groups=['baseline']), ['baseline']))

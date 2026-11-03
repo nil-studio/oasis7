@@ -98,6 +98,7 @@ pub(super) fn has_validator_set_change_action_v2(actions: &[ClosedRuntimeAction]
             action,
             oasis7_runtime::Action::ActivateGovernanceValidatorAdmission { .. }
                 | oasis7_runtime::Action::RevokeGovernanceValidatorAdmission { .. }
+                | oasis7_runtime::Action::RotateGovernanceValidatorFinalityKeyV1 { .. }
         )
     })
 }
@@ -191,6 +192,16 @@ pub(super) fn validate_validator_transition_action_schedule_v2(
                         "BFT V2 validator activation arrived after its exact scheduling height: current={} latest={scheduled_height}",
                         schedule.height()
                     ));
+                }
+            }
+            oasis7_runtime::Action::RotateGovernanceValidatorFinalityKeyV1 { body, .. } => {
+                has_membership_change = true;
+                if body.decision_height != schedule.height()
+                    || body.activation_height != schedule.height().checked_add(2)
+                        .ok_or("BFT rotation activation overflow")?
+                    || body.target_epoch.checked_mul(epoch_length) != Some(body.activation_height)
+                {
+                    return Err("BFT finality rotation is outside its exact h/h+2 epoch boundary".into());
                 }
             }
             oasis7_runtime::Action::RevokeGovernanceValidatorAdmission { .. } => {

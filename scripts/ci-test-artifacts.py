@@ -17,6 +17,148 @@ import tempfile
 import time
 import tomllib
 
+import shlex
+
+class ProviderArtifact:
+    subprocess = subprocess
+    MODULE = 'module.runtime.local-test-provider'
+    MANIFEST = 'crates/oasis7_builtin_wasm_modules/local_test_provider/Cargo.toml'
+    TARGET = 'wasm32-unknown-unknown'
+    DIRECTORY = 'preview-provider'
+    VARIABLES = ('OASIS7_PREVIEW_TEST_PROVIDER_WASM', 'OASIS7_PREVIEW_TEST_PROVIDER_METADATA')
+
+
+    @staticmethod
+    def digest(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+    @staticmethod
+    def checked(root, relative):
+        if not isinstance(relative, str) or not relative or Path(relative).is_absolute() or any(p in ('', '.', '..') for p in relative.split('/')):
+            raise ValueError('invalid provider artifact path')
+        path = root / relative
+        cursor = root
+        for part in relative.split('/'):
+            cursor /= part
+            if cursor.is_symlink():
+                raise ValueError('provider artifact symlink')
+        if not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
+            raise ValueError('provider material missing or outside root')
+        return path
+
+
+    @staticmethod
+    def verify_metadata(root, bundle, paths):
+        subprocess.run([str(paths['checker']), '--verify-provider-artifact', str(root),
+                        str(paths['wasm']), str(paths['metadata']), str(paths['receipt'])],
+                       cwd=root, check=True, env=dict(os.environ, LD_LIBRARY_PATH=str(bundle / ProviderArtifact.DIRECTORY / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', '')))
+
+
+    @staticmethod
+    def tree_digest(root):
+        hasher = hashlib.sha256(subprocess.check_output(['git', 'diff', '--binary', 'HEAD'], cwd=root))
+        hasher.update(subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=root))
+        for name in sorted(subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=root).decode().split('\0')):
+            if name:
+                hasher.update(name.encode() + b'\0')
+                hasher.update(ProviderArtifact.checked(root, name).read_bytes())
+        return hasher.hexdigest()
+
+
+    @staticmethod
+    def identity(root):
+        tested = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+        return {'tested_sha': tested, 'source_sha': os.environ.get('SOURCE_SHA', tested), 'checkout_tree_sha256': ProviderArtifact.tree_digest(root)}
+
+
+    @staticmethod
+    def build(root, bundle, expected):
+        directory = bundle / ProviderArtifact.DIRECTORY
+        directory.mkdir(parents=True, exist_ok=False)
+        before = ProviderArtifact.identity(root)
+        if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
+            raise ValueError('provider producer source differs from native identity')
+        (root / 'target').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='ci-preview-provider-', dir=root / 'target') as temporary:
+            subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                            '--manifest-path', ProviderArtifact.MANIFEST, '--out-dir', temporary,
+                            '--module-id', ProviderArtifact.MODULE, '--profile', 'release'], cwd=root, check=True)
+            for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
+        files = {kind: f'{ProviderArtifact.DIRECTORY}/{ProviderArtifact.MODULE}{suffix}' for kind, suffix in
+                 (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json'))}
+        subprocess.run(['cargo', 'build', '--locked', '-p', 'oasis7_distfs', '--features',
+                        'sync-builtin-wasm-identity', '--bin', 'sync_builtin_wasm_identity'],
+                       cwd=root, check=True, env={key:value for key,value in os.environ.items() if key != 'RUSTC_WRAPPER'})
+        checker = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
+        files['checker'] = f'{ProviderArtifact.DIRECTORY}/{checker}'
+        shutil.copy2(root / 'target/debug' / checker, bundle / files['checker'])
+        libraries = []
+        if sys.platform == 'linux':
+            linked = subprocess.run(['ldd', str(bundle / files['checker'])], text=True, capture_output=True, check=True)
+            for line in linked.stdout.splitlines():
+                fields = line.split()
+                if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(root / 'target') + '/'):
+                    library = Path(fields[2])
+                    relative = f'{ProviderArtifact.DIRECTORY}/lib/{library.name}'
+                    (directory / 'lib').mkdir(exist_ok=True)
+                    shutil.copy2(library, bundle / relative)
+                    libraries.append({'path': relative, 'sha256': ProviderArtifact.digest(bundle / relative)})
+        if ProviderArtifact.identity(root) != before:
+            raise ValueError('provider source changed during official build')
+        record = dict(before, libraries=libraries, files={kind: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
+                                       for kind, name in files.items()})
+        ProviderArtifact.validate(root, bundle, record, expected)
+        return record
+
+
+    @staticmethod
+    def validate(root, bundle, record, expected):
+        if not isinstance(record, dict) or any(record.get(key) != expected[key] for key in ('tested_sha', 'source_sha')):
+            raise ValueError('provider tested/source identity mismatch')
+        if record.get('checkout_tree_sha256') != ProviderArtifact.tree_digest(root):
+            raise ValueError('provider checkout tree differs')
+        if set(record.get('files', {})) != {'wasm', 'metadata', 'receipt', 'checker'}:
+            raise ValueError('provider artifact pair incomplete')
+        libraries = record.get('libraries')
+        if not isinstance(libraries, list):
+            raise ValueError('provider checker libraries missing')
+        seen = set()
+        for library in libraries:
+            name = library.get('path', '')
+            if not name.startswith(ProviderArtifact.DIRECTORY + '/lib/') or name in seen or ProviderArtifact.digest(ProviderArtifact.checked(bundle, name)) != library.get('sha256'):
+                raise ValueError('provider checker library identity mismatch')
+            seen.add(name)
+        paths = {}
+        for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json'), ('checker', '')):
+            entry = record['files'][kind]
+            name = ('sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')) if kind == 'checker' else ProviderArtifact.MODULE + suffix
+            if entry.get('path') != f'{ProviderArtifact.DIRECTORY}/{name}':
+                raise ValueError('provider artifact role/path mismatch')
+            paths[kind] = ProviderArtifact.checked(bundle, entry['path'])
+            if ProviderArtifact.digest(paths[kind]) != entry['sha256']:
+                raise ValueError('provider artifact hash mismatch')
+        if not os.access(paths['checker'], os.X_OK):
+            raise ValueError('provider checker is not executable')
+        ProviderArtifact.verify_metadata(root, bundle, paths)
+        return dict(zip(ProviderArtifact.VARIABLES, (str(paths[kind].resolve()) for kind in ('wasm', 'metadata'))))
+
+
+provider_artifact = ProviderArtifact
+
+def preview_provider_required(manifest):
+    plan = manifest.get('execution_plan') or {}
+    expanded = plan.get('test_policy_changed', False) or plan.get('scope') in ('full', 'explicit-full') or plan.get('execution_profile') in ('periodic-full', 'candidate-full')
+    selection = manifest.get('selection')
+    ordinary = selection == {'suite': 'ordinary'} or (selection is None and manifest.get('scope') == 'ordinary')
+    provider_consumer = any(binary.get("package") == "oasis7_chain_runtime"
+                            and binary.get("test")
+                            and "test_tier_full" in binary.get("features", [])
+                            for binary in manifest.get("binaries", {}).values())
+    return bool(expanded and ordinary and provider_consumer)
+
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 FORMAL_AUTHORITY = None
@@ -687,6 +829,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
+    if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
+        manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
@@ -781,6 +925,12 @@ def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     manifest['libraries'] = {name: manifest['libraries'][name] for name in sorted(libraries)}
     files = [(manifest['binaries'][name]['path'], manifest['binaries'][name]['sha256']) for name in sorted(included)]
     files += list(manifest['libraries'].items())
+    if preview_provider_required(manifest):
+        provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest)
+        files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['files'].values()]
+        files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['libraries']]
+    else:
+        manifest.pop('preview_provider', None)
     checked = [(name, sha, checked_file(bundle, name, sha)) for name, sha in files]
     manifest_bytes = (json.dumps(manifest, indent=2) + '\n').encode()
     archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1397,6 +1547,12 @@ def load(bundle, suite=None, shard=None, plan=None):
         if not path.resolve().is_relative_to(bundle.resolve()) or digest(path) != sha:
             raise ValueError('invalid dynamic library')
     env = dict(os.environ)
+    for variable in provider_artifact.VARIABLES:
+        env.pop(variable, None)
+    if preview_provider_required(manifest):
+        env.update(provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest))
+    elif 'preview_provider' in manifest:
+        raise ValueError('unexpected provider material outside expanded ordinary execution')
     env['LD_LIBRARY_PATH'] = str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', '')
     for variable, logical in {
         'PRE2_VIEWER_BINARY': 'viewer', 'OASIS7_CHAIN_RUNTIME_BIN': 'runtime',
@@ -1486,7 +1642,7 @@ def execute(bundle, suite, results, shard=None, plan=None):
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['build', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
+    parser.add_argument('action', choices=['prepare-provider', 'build', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
     parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
@@ -1551,7 +1707,17 @@ def main():
         return
     if not args.bundle:
         parser.error('--bundle is required for build, run and pack')
-    if args.action == 'build':
+    if args.action == 'prepare-provider':
+        if not args.output:
+            parser.error('prepare-provider requires --output for its environment file')
+        bundle = args.bundle.resolve()
+        bundle.mkdir(parents=True, exist_ok=True)
+        record = ProviderArtifact.build(ROOT, bundle, ProviderArtifact.identity(ROOT))
+        (bundle / 'preview-provider.json').write_text(json.dumps(record) + '\n')
+        environment = ProviderArtifact.validate(ROOT, bundle, record, ProviderArtifact.identity(ROOT))
+        args.output.write_text(''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in environment.items()))
+        args.output.chmod(0o600)
+    elif args.action == 'build':
         build(args.bundle.resolve(), args.scope, args.cache_state, plan)
     elif args.action == 'pack':
         if not args.output:
