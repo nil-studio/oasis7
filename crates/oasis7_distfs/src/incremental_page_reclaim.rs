@@ -137,6 +137,10 @@ fn retirement(root: &Path, io: &mut PageIoBudget, cancelled: &AtomicBool) -> Res
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
+    #[cfg(test)]
+    if FAIL_RETIRE_OPEN.with(|flag| flag.replace(false)) {
+        return Err(io::Error::from_raw_os_error(libc::ENOSPC).into());
+    }
     let mut file = options.open(&path)?;
     file.write_all(INTENT)?;
     file.sync_all()?;
@@ -318,3 +322,6 @@ pub fn reclaim_orphan_page_frames(
 #[cfg(all(test, unix))]
 #[path = "incremental_page_reclaim_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+thread_local! { static FAIL_RETIRE_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }

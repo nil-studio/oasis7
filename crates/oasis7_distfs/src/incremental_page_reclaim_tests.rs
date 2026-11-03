@@ -447,3 +447,40 @@ fn unknown_and_partial_object_capabilities_preserve_every_orphan() {
         assert!(first.exists() && second.exists());
     }
 }
+
+#[test]
+fn resumed_empty_inventory_reestablishes_frame_directory_barrier() {
+    let fixture = Fixture::new();
+    let root = fixture.store();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    drop(IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap());
+    let frame = orphan(&root, b"last orphan before interrupted sync");
+    let stop = AtomicBool::new(false);
+    files::fail_after_sync(root.join("frames"), 1);
+    assert!(matches!(reclaim_orphan_page_frames(&root, &memory, &mut work(), &mut physical_io(), &stop),
+        Err(PageReclaimFailure::Incomplete { report: PageReclaimReport { unlinked_frames: 1, directory_synced: false, .. }, .. })));
+    assert!(!frame.exists() && root.join(RETIRE).exists());
+    files::fail_after_sync(root.join("frames"), 1);
+    assert!(matches!(reclaim_orphan_page_frames(&root, &memory, &mut work(), &mut physical_io(), &stop),
+        Err(PageReclaimFailure::Incomplete { report: PageReclaimReport { unlinked_frames: 0, directory_synced: false, .. }, .. })));
+    assert!(root.join(RETIRE).exists());
+    let report = reclaim_orphan_page_frames(&root, &memory, &mut work(), &mut physical_io(), &stop).unwrap();
+    assert!(report.directory_synced && !root.join(RETIRE).exists());
+}
+
+#[test]
+fn marker_open_failure_does_not_claim_writer_fencing() {
+    let fixture = Fixture::new();
+    let root = fixture.store();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    drop(IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap());
+    let frame = orphan(&root, b"keep until retirement begins");
+    let stop = AtomicBool::new(false);
+    FAIL_RETIRE_OPEN.with(|flag| flag.set(true));
+    assert!(matches!(reclaim_orphan_page_frames(&root, &memory, &mut work(), &mut physical_io(), &stop),
+        Err(PageReclaimFailure::NotStarted(PageStoreError::Io(error))) if error.raw_os_error() == Some(libc::ENOSPC)));
+    assert!(frame.exists() && !root.join(RETIRE).exists());
+    let store = IncrementalPageStore::open(&root, memory.clone(), PageCompression::Raw, MemoryClass::Ordinary).unwrap();
+    let bytes = charged(&memory, b"allowed after no-marker failure".to_vec());
+    store.put_page(*blake3::hash(&bytes).as_bytes(), &bytes, &mut physical_io(), &stop).unwrap();
+}
