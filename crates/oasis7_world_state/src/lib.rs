@@ -358,12 +358,12 @@ pub mod incremental_world_rule_supply_root;
 pub mod incremental_diplomacy;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_runtime_module_authorization;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_cbor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history_hash_outboard;
 pub mod incremental_cognition_history_lifecycle;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_module_authorization;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_lifecycle_row_v2;
