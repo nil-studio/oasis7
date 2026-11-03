@@ -980,3 +980,21 @@ fn wire3_reserved_record_pins_fault_recovers_same_promise() {
 fn wire3_reserved_record_link_fault_recovers_same_promise() {
     reserved_record_crash_recovery("link");
 }
+
+#[test]
+fn wire3_publication_archive_coherent_owner_and_raw_migration_are_fail_closed() {
+    let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
+    let root = Scratch::new();
+    let store = cas(root.path());
+    let actual = driver(&h, root.path(), &store);
+    let binding = signer_binding(&actual);
+    let mut d = actual.lock().unwrap();
+    d.configure_bft_v3_execution(&binding).unwrap();
+    let context = d
+        .current_bft_v3_execution_context(binding.initial_schedule())
+        .unwrap();
+    let candidate = build(&mut d, &context, 14_301);
+    d.retain_bft_v3_reserved_candidate(&context, &candidate)
+        .unwrap();
+    d.check_archive_publication_owner_for_test().unwrap();
+}

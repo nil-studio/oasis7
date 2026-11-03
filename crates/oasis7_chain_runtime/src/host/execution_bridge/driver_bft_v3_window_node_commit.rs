@@ -46,7 +46,7 @@ impl ActiveNodeDriver {
         }
         let entry = PrivateHeaderEntryV3 {
             certificate: certificate.clone(),
-            actions_cbor: private.actions_cbor,
+            actions_cbor: private.actions_cbor.clone(),
         };
         let executed = self
             .window
@@ -70,34 +70,14 @@ impl ActiveNodeDriver {
             &executed,
             refs,
         )?;
-        let mut entries = self
-            .window
-            .ledger
-            .records()
-            .filter(|record| record.height() < height)
-            .map(|record| record.input().certificate)
-            .collect::<Vec<_>>();
-        entries.push(certificate.clone());
-        let prefix = FormalBftCertifiedHeaderPrefixV3 {
-            schema_version: 1,
-            entries,
-        };
-        self.window
-            .ledger
-            .charge_proof(prefix.canonical_bytes()?.len())?;
-        self.window.ledger.reserve_private_material(
-            self.window.private.usage()?,
-            self.window.private.publication_promises()?,
-            &self.window.store,
-        )?;
         live(deadline)?;
-        self.window.ledger.accept_prepared(
+        self.window.private.publish_actual(
+            &mut self.window.ledger,
             record,
-            &executed.snapshot_bytes,
-            &executed.journal_bytes,
+            &private,
+            &executed,
             &nodes,
-            &self.window.store,
-            true,
+            deadline,
         )?;
         self.window.reset_through(Some(height), deadline)?;
         if self

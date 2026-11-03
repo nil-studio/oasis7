@@ -1,8 +1,12 @@
 //! Immutable private closure exported from actual durable wire-3 execution.
 //! It is replay input, never a replacement for the protected minimum.
 use super::*;
+#[path = "driver_bft_v3_protected_retention_archive.rs"]
+pub(super) mod protected_retention;
+#[path = "driver_bft_v3_retention_cut.rs"]
+mod retention_cut;
 use oasis7_distfs::protected_bft_v3::{
-    BftSuccessorWindowArchiveEntryV1, BftSuccessorWindowArchiveKindV1,
+    BftSignerStateV3, BftSuccessorWindowArchiveEntryV1, BftSuccessorWindowArchiveKindV1,
     BftSuccessorWindowArchiveManifestV1, BftSuccessorWindowArchiveRefV1,
     BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowCutV1, BftSuccessorWindowSourceV1,
     LocalBftSuccessorArchiveStoreV1,
@@ -16,6 +20,9 @@ pub(super) const MAX_CLOSURE: usize = 512 * 1024 * 1024;
 pub(super) const MAX_REFS: usize = 4096;
 const DOMAIN: &str = "oasis7.formal.bft.successor-private-closure.v1";
 pub(super) const WINDOW_DOMAIN: &str = "oasis7.formal.bft.successor-private-closure.v2";
+pub(super) const PUBLICATION_DOMAIN: &str = "oasis7.formal.bft.successor-private-publication.v1";
+pub(super) const PUBLICATION_WINDOW_DOMAIN: &str =
+    "oasis7.formal.bft.successor-private-publication-window.v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,6 +34,8 @@ pub(super) enum PendingRoleV1 {
     BlockPrecommit,
     PendingProposal,
     PendingVote,
+    PendingCommit,
+    ProtectedOriginal,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,10 +92,76 @@ pub(super) fn required_pending(
     {
         add(block_id, PendingRoleV1::PendingVote);
     }
+    if let Some(certificate) = journal.pending_commit() {
+        add(
+            &certificate.header.block_id()?,
+            PendingRoleV1::PendingCommit,
+        );
+    }
     if ids.len() > 16 {
         return Err("successor T+1 private candidate capacity".into());
     }
     Ok(ids)
+}
+
+/// An actual applied cut may carry its original, already-certified next value.
+/// The next QC is never the cut: independently check it against the actual
+/// replayed schedule and retain its private package as an explicit role.
+pub(super) fn validate_original_pending_commit(
+    state: &BftSignerStateV3,
+    schedule: &BftHeaderHeightScheduleV3,
+    cut_height: u64,
+    cut_header_id: &str,
+    cut_install_digest: &str,
+) -> Result<(), String> {
+    let Some(journal) = state.journal.as_ref() else {
+        return Ok(());
+    };
+    let Some(certificate) = journal.pending_commit() else {
+        return Ok(());
+    };
+    if state.history.is_empty()
+        || state.pending_driver_apply.is_some()
+        || state.history.last().is_none_or(|cut| {
+            cut.execution_commitment.height != cut_height
+                || cut.header.block_id().as_deref() != Ok(cut_header_id)
+        })
+        || state.applied_installs.last().is_none_or(|applied| {
+            applied.height != cut_height
+                || applied.header_id != cut_header_id
+                || applied.driver_install_digest != cut_install_digest
+        })
+        || cut_height.checked_add(1) != Some(schedule.height())
+        || journal.height() != schedule.height()
+        || journal.parent_commit_ref() != cut_header_id
+        || journal.schedule_digest != schedule.digest()?
+    {
+        return Err("successor original pending commit lacks the actual applied cut".into());
+    }
+    oasis7_consensus::tendermint_v3::verify_commit_certificate_token_v3(schedule, certificate)?;
+    Ok(())
+}
+
+pub(super) fn validate_pending_commit_value(
+    state: &BftSignerStateV3,
+    roles: &BTreeSet<PendingRoleV1>,
+    value: &oasis7_consensus::tendermint_v3::BftHeaderValueV3,
+) -> Result<(), String> {
+    if roles.contains(&PendingRoleV1::PendingCommit) {
+        let certificate = state
+            .journal
+            .as_ref()
+            .and_then(|journal| journal.pending_commit())
+            .ok_or("successor PendingCommit role lacks original certificate")?;
+        if value.header != certificate.header
+            || value.execution_commitment != certificate.execution_commitment
+        {
+            return Err(
+                "successor pending commit private value differs from original certificate".into(),
+            );
+        }
+    }
+    Ok(())
 }
 fn bounded_pending<'de, D: serde::Deserializer<'de>>(
     de: D,
@@ -125,8 +200,52 @@ pub(super) struct PrivateWindowBaseV1 {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct ArchivedPublicationV1 {
+    pub data: BftSuccessorWindowArchiveRefV1,
+    pub original_data: Option<BftSuccessorWindowArchiveRefV1>,
+    pub reservation: BftSuccessorWindowArchiveRefV1,
+}
+impl ArchivedPublicationV1 {
+    pub(super) fn references(&self) -> impl Iterator<Item = &BftSuccessorWindowArchiveRefV1> {
+        std::iter::once(&self.data)
+            .chain(self.original_data.iter())
+            .chain(std::iter::once(&self.reservation))
+    }
+}
+fn bounded_publications<'de, D: serde::Deserializer<'de>>(
+    de: D,
+) -> Result<Vec<ArchivedPublicationV1>, D::Error> {
+    struct Items;
+    impl<'de> serde::de::Visitor<'de> for Items {
+        type Value = Vec<ArchivedPublicationV1>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("at most 256 original publication bindings")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            if seq.size_hint().is_some_and(|n| n > 256) {
+                return Err(serde::de::Error::custom("publication archive count"));
+            }
+            let mut items = Vec::new();
+            while let Some(item) = seq.next_element()? {
+                if items.len() == 256 {
+                    return Err(serde::de::Error::custom("publication archive count"));
+                }
+                items.push(item);
+            }
+            Ok(items)
+        }
+    }
+    de.deserialize_seq(Items)
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PrivateClosureV1 {
     pub domain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication_layout: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_base: Option<PrivateWindowBaseV1>,
     pub source: BftSuccessorWindowSourceV1,
@@ -147,6 +266,14 @@ pub(super) struct PrivateClosureV1 {
     pub records: Vec<BftSuccessorWindowArchiveRefV1>,
     #[serde(deserialize_with = "bounded_refs")]
     pub nodes: Vec<BftSuccessorWindowArchiveRefV1>,
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "bounded_publications"
+    )]
+    pub publications: Vec<ArchivedPublicationV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protected_retention: Option<BftSuccessorWindowArchiveRefV1>,
     pub cut: BftSuccessorWindowCutV1,
 }
 fn bounded_refs<'de, D: serde::Deserializer<'de>>(
@@ -185,12 +312,17 @@ impl PrivateClosureV1 {
     pub(super) fn validate(&self) -> Result<(), String> {
         self.source.validate().map_err(err)?;
         self.cut.validate().map_err(err)?;
-        if self.domain
-            != if self.active_base.is_some() {
-                WINDOW_DOMAIN
-            } else {
-                DOMAIN
-            }
+        let domain = match (self.publication_layout, self.active_base.is_some()) {
+            (None, false) => DOMAIN,
+            (None, true) => WINDOW_DOMAIN,
+            (Some(1), false) => PUBLICATION_DOMAIN,
+            (Some(1), true) => PUBLICATION_WINDOW_DOMAIN,
+            (Some(2), false) => protected_retention::PROTECTED_DOMAIN,
+            _ => return Err("unsupported private publication layout".into()),
+        };
+        if self.domain != domain
+            || (self.publication_layout.is_none() && !self.publications.is_empty())
+            || (self.protected_retention.is_some() != (self.publication_layout == Some(2)))
             || self.private_instance_id.is_empty()
             || self.private_instance_id.len() > 256
             || self.records.is_empty()
@@ -218,6 +350,7 @@ impl PrivateClosureV1 {
             .chain(std::iter::once(&self.origin))
             .chain(std::iter::once(&self.public_state))
             .chain(self.current_journal.iter())
+            .chain(self.protected_retention.iter())
             .chain(&self.records)
             .chain(&self.nodes)
             .chain(&self.snapshots)
@@ -229,6 +362,23 @@ impl PrivateClosureV1 {
                 .checked_add(reference.bytes)
                 .filter(|n| *n <= MAX_CLOSURE as u64)
                 .ok_or("successor private cumulative capacity")?;
+        }
+        if self.publications.len() > 256
+            || !self
+                .publications
+                .windows(2)
+                .all(|p| p[0].data.digest < p[1].data.digest)
+        {
+            return Err("publication archive order/count".into());
+        }
+        for publication in &self.publications {
+            for reference in publication.references() {
+                reference.validate().map_err(err)?;
+                total = total
+                    .checked_add(reference.bytes)
+                    .filter(|n| *n <= MAX_CLOSURE as u64)
+                    .ok_or("publication archive cumulative capacity")?;
+            }
         }
         if !self.nodes.windows(2).all(|p| p[0].digest < p[1].digest) {
             return Err("successor private index references not sorted unique".into());
@@ -251,6 +401,11 @@ impl PrivateClosureV1 {
             return Err("successor archive has multiple original local selections".into());
         }
         for candidate in &self.pending_candidates {
+            if candidate.roles.contains(&PendingRoleV1::ProtectedOriginal)
+                && self.publication_layout != Some(2)
+            {
+                return Err("protected original role in legacy private archive".into());
+            }
             candidate.value.validate_binding()?;
             if candidate.height
                 != self
@@ -303,6 +458,89 @@ impl ExportedBftSuccessorPrivateClosureV1 {
     pub(crate) fn cut(&self) -> &BftSuccessorWindowCutV1 {
         &self.cut
     }
+
+    /// Test-only caller-selected omission; never creates a verified capability.
+    #[cfg(test)]
+    pub(crate) fn omit_pending_publication_for_test(
+        &self,
+        archive: &LocalBftSuccessorArchiveStoreV1,
+        height: u64,
+    ) -> Result<(Vec<u8>, Vec<BftSuccessorWindowArchiveRefV1>), String> {
+        let original = archive
+            .load_object(&self.metadata_ref, MAX_METADATA)
+            .map_err(err)?;
+        let mut metadata: PrivateClosureV1 = decode(&original, MAX_METADATA)?;
+        if encode(&metadata, MAX_METADATA)? != original {
+            return Err("test fixture must use original typed metadata codec".into());
+        }
+        let mut omitted = Vec::new();
+        let mut kept = Vec::new();
+        for publication in metadata.publications {
+            let bytes = archive
+                .load_object(
+                    &publication.data,
+                    super::super::super::formal_ledger::MAX_RECORD,
+                )
+                .map_err(err)?;
+            let data: serde_cbor::Value = serde_cbor::from_slice(&bytes).map_err(err)?;
+            let serde_cbor::Value::Map(fields) = data else {
+                return Err("test original Data map missing".into());
+            };
+            if fields.get(&serde_cbor::Value::Text("height".into()))
+                == Some(&serde_cbor::Value::Integer(height.into()))
+            {
+                if !matches!(fields.get(&serde_cbor::Value::Text("publication_reservation_ref".into())), Some(serde_cbor::Value::Text(reference)) if reference == &publication.reservation.digest)
+                {
+                    return Err(
+                        "test target original Data must contain exact Some reservation".into(),
+                    );
+                }
+                omitted.push(publication);
+            } else {
+                kept.push(publication);
+            }
+        }
+        if omitted.len() != 1 {
+            return Err("test requires one original pending Some publication".into());
+        }
+        metadata.publications = kept;
+        let mut still_required = BTreeSet::new();
+        for reference in std::iter::once(&metadata.material)
+            .chain(std::iter::once(&metadata.origin))
+            .chain(std::iter::once(&metadata.public_state))
+            .chain(metadata.current_journal.iter())
+            .chain(&metadata.records)
+            .chain(&metadata.nodes)
+            .chain(&metadata.snapshots)
+            .chain(&metadata.journals)
+            .chain(&metadata.manifests)
+            .chain(metadata.publications.iter().flat_map(|p| p.references()))
+        {
+            still_required.insert(reference.digest.clone());
+        }
+        if let Some(base) = &metadata.active_base {
+            still_required.insert(base.window_origin.digest.clone());
+        }
+        for pending in &metadata.pending_candidates {
+            for reference in std::iter::once(&pending.actions).chain(&pending.dependencies) {
+                still_required.insert(reference.digest.clone());
+            }
+        }
+        let removed = omitted[0]
+            .references()
+            .filter(|reference| !still_required.contains(&reference.digest))
+            .cloned()
+            .collect();
+        metadata.validate()?;
+        Ok((encode(&metadata, MAX_METADATA)?, removed))
+    }
+}
+pub(super) fn publication_layout_reserve(layout: Option<u32>) -> Result<(u64, u64), String> {
+    match layout {
+        None => Ok((0, 0)),
+        Some(1 | 2) => node_execution::auto_prepare_reserve(),
+        _ => Err("unsupported private publication reserve layout".into()),
+    }
 }
 pub(super) fn metadata_identity() -> String {
     blake3_hex(DOMAIN.as_bytes())
@@ -346,6 +584,8 @@ pub(super) fn decode<T: serde::de::DeserializeOwned + Serialize>(
 }
 /// Permanent conservative reservation for the next segment's immutable init
 /// metadata and copied original candidate WAL/CAS records. It is not refunded.
+#[path = "driver_bft_v3_carry_initialization_plan.rs"]
+pub(super) mod carry_initialization;
 pub(super) fn window_init_reserve(pending: &[PendingCandidateV1]) -> Result<(u64, u64), String> {
     let mut bytes = 8 * MAX_METADATA as u64;
     let mut objects = 16u64;
@@ -412,6 +652,30 @@ impl FormalBftHeaderLedgerExecutionV3 {
             BTreeSet<PendingRoleV1>,
             oasis7_node::NodeBftPrivateCandidatePackageV3,
         )],
+        publication_materials: &[node_execution::PublicationArchiveMaterialV1],
+    ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
+        self.export_successor_private_closure_with_protected(
+            request,
+            private_instance_id,
+            pending_packages,
+            publication_materials,
+            None,
+        )
+    }
+
+    pub(super) fn export_successor_private_closure_with_protected(
+        &mut self,
+        request: SuccessorPrivateExportRequestV1<'_>,
+        private_instance_id: &str,
+        pending_packages: &[(
+            BTreeSet<PendingRoleV1>,
+            oasis7_node::NodeBftPrivateCandidatePackageV3,
+        )],
+        publication_materials: &[node_execution::PublicationArchiveMaterialV1],
+        protected: Option<(
+            &protected_retention::ValidatedProtectedRetentionArchiveV1,
+            &BftSuccessorWindowArchiveRefV1,
+        )>,
     ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
         let SuccessorPrivateExportRequestV1 {
             archive,
@@ -431,12 +695,35 @@ impl FormalBftHeaderLedgerExecutionV3 {
         if public_state.binding_digest != source.binding_digest
             || public_state.pending_driver_apply.is_some()
             || public_state.history.last() != Some(cut.proof().certificate().certified_header())
-            || public_state
-                .journal
-                .as_ref()
-                .is_some_and(|j| j.pending_commit().is_some())
         {
             return Err("successor private original S differs from installed cut".into());
+        }
+        validate_original_pending_commit(
+            public_state,
+            &self.origin.schedule,
+            height,
+            header_id,
+            &install_digest(
+                &source.material_identity,
+                cut.durable_record_digest(),
+                cut.proof().certificate().certified_header(),
+            )?,
+        )?;
+        for (roles, package) in pending_packages {
+            validate_pending_commit_value(public_state, roles, &package.candidate.public_value)?;
+        }
+        if public_state
+            .journal
+            .as_ref()
+            .and_then(|journal| journal.pending_commit())
+            .is_some()
+            && pending_packages
+                .iter()
+                .filter(|(roles, _)| roles.contains(&PendingRoleV1::PendingCommit))
+                .count()
+                != 1
+        {
+            return Err("successor original pending commit private package missing".into());
         }
         let h = &self.origin.handoff;
         if source.scope != h.target().scope
@@ -468,6 +755,21 @@ impl FormalBftHeaderLedgerExecutionV3 {
         let public_bytes = encode_protocol(public_state, MAX_CLOSURE)?;
         let mut objects = BTreeMap::<String, BftSuccessorWindowArchiveRefV1>::new();
         let mut total = 0u64;
+        if let Some((protected, index_ref)) = protected {
+            for reference in protected.objects.values().chain(std::iter::once(index_ref)) {
+                reference.validate().map_err(err)?;
+                if let Some(old) = objects.insert(reference.digest.clone(), reference.clone()) {
+                    if old != *reference {
+                        return Err("protected archive duplicate object length differs".into());
+                    }
+                } else {
+                    total = total
+                        .checked_add(reference.bytes)
+                        .filter(|n| *n <= MAX_CLOSURE as u64)
+                        .ok_or("protected archive segment capacity")?;
+                }
+            }
+        }
         let (metadata, metadata_ref, public_state, cut_body) = {
             let mut put =
                 |bytes: &[u8], max: usize| -> Result<BftSuccessorWindowArchiveRefV1, String> {
@@ -612,8 +914,34 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 });
             }
             pending_candidates.sort_by(|a, b| a.header_id.cmp(&b.header_id));
+            let mut publications = Vec::new();
+            for raw in publication_materials {
+                publications.push(ArchivedPublicationV1 {
+                    data: put(&raw.data, super::super::super::formal_ledger::MAX_RECORD)?,
+                    original_data: raw
+                        .original_data
+                        .as_ref()
+                        .map(|bytes| put(bytes, super::super::super::formal_ledger::MAX_RECORD))
+                        .transpose()?,
+                    reservation: put(
+                        &raw.reservation,
+                        super::super::super::formal_ledger::MAX_PUBLICATION_METADATA_BYTES,
+                    )?,
+                });
+            }
+            publications.sort_by(|a, b| a.data.digest.cmp(&b.data.digest));
             let metadata = PrivateClosureV1 {
-                domain: DOMAIN.into(),
+                domain: if protected.is_some() {
+                    protected_retention::PROTECTED_DOMAIN
+                } else {
+                    PUBLICATION_DOMAIN
+                }
+                .into(),
+                publication_layout: if protected.is_some() {
+                    Some(2)
+                } else {
+                    Some(1)
+                },
                 active_base: None,
                 source: source.clone(),
                 private_instance_id: private_instance_id.into(),
@@ -622,18 +950,28 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 public_state: public_state.clone(),
                 current_journal,
                 pending_candidates,
+                publications,
                 snapshots,
                 journals,
                 manifests,
                 records,
                 nodes,
+                protected_retention: protected.map(|(_, reference)| reference.clone()),
                 cut: cut_body.clone(),
             };
             metadata.validate()?;
             let metadata_ref = put(&encode(&metadata, MAX_METADATA)?, MAX_METADATA)?;
             (metadata, metadata_ref, public_state, cut_body)
         };
-        let (init_bytes, init_objects) = window_init_reserve(&metadata.pending_candidates)?;
+        let (init_bytes, init_objects) =
+            carry_initialization::from_raw(&metadata, publication_materials)?;
+        let (wal_bytes, wal_objects) = publication_layout_reserve(metadata.publication_layout)?;
+        let init_bytes = init_bytes
+            .checked_add(wal_bytes)
+            .ok_or("publication initializer reserve overflow")?;
+        let init_objects = init_objects
+            .checked_add(wal_objects)
+            .ok_or("publication initializer object reserve overflow")?;
         let segment_bytes = total
             .checked_add(init_bytes)
             .and_then(|n| n.checked_add(MAX_METADATA as u64))

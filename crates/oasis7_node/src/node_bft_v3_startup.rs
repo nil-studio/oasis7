@@ -44,6 +44,48 @@ pub(super) fn candidate(
     value: &BftHeaderValueV3,
     selected: &SelectedNodeBftConfigV3,
 ) -> Result<NodeBftPrivateCandidateV3, NodeError> {
+    let mut hook = lock_hook(hook)?;
+    let private = load_candidate_input(config, &mut **hook, schedule, value, selected)?;
+    validate_private_dynamic(&mut **hook, schedule, &private)?;
+    Ok(private)
+}
+
+/// Exact original material and static authenticated input only. Capacity
+/// recovery must precede any World preview that writes into the old layer.
+pub(super) fn candidate_input(
+    config: &crate::NodeConfig,
+    hook: &Hook,
+    schedule: &BftHeaderHeightScheduleV3,
+    value: &BftHeaderValueV3,
+    selected: &SelectedNodeBftConfigV3,
+) -> Result<NodeBftPrivateCandidateV3, NodeError> {
+    let mut hook = lock_hook(hook)?;
+    load_candidate_input(config, &mut **hook, schedule, value, selected)
+}
+
+fn load_candidate_input(
+    config: &crate::NodeConfig,
+    hook: &mut dyn NodeExecutionHook,
+    schedule: &BftHeaderHeightScheduleV3,
+    value: &BftHeaderValueV3,
+    selected: &SelectedNodeBftConfigV3,
+) -> Result<NodeBftPrivateCandidateV3, NodeError> {
+    validate_public_value(schedule, value, selected)?;
+    let private = hook
+        .load_bft_v3_private_candidate(value)
+        .map_err(|_| error("wire-3 original private candidate missing"))?;
+    if private.public_value != *value {
+        return Err(error("wire-3 loaded private value changed"));
+    }
+    validate_private_input(config, &private)?;
+    Ok(private)
+}
+
+fn validate_public_value(
+    schedule: &BftHeaderHeightScheduleV3,
+    value: &BftHeaderValueV3,
+    selected: &SelectedNodeBftConfigV3,
+) -> Result<(), NodeError> {
     validate_schedule(schedule, selected)?;
     value
         .validate_for_schedule(schedule)
@@ -54,15 +96,7 @@ pub(super) fn candidate(
     {
         return Err(error("wire-3 Node transition activation is not enabled"));
     }
-    let mut hook = lock_hook(hook)?;
-    let private = hook
-        .load_bft_v3_private_candidate(value)
-        .map_err(|_| error("wire-3 original private candidate missing"))?;
-    validate_private(config, &mut **hook, schedule, &private, selected)?;
-    if private.public_value != *value {
-        return Err(error("wire-3 loaded private value changed"));
-    }
-    Ok(private)
+    Ok(())
 }
 pub(super) fn validate_private(
     config: &crate::NodeConfig,
@@ -71,24 +105,15 @@ pub(super) fn validate_private(
     candidate: &NodeBftPrivateCandidateV3,
     selected: &SelectedNodeBftConfigV3,
 ) -> Result<(), NodeError> {
-    candidate
-        .public_value
-        .validate_for_schedule(schedule)
-        .map_err(|_| error("wire-3 private candidate schedule rejected"))?;
-    if !selected.membership_enabled
-        && (candidate
-            .public_value
-            .execution_commitment
-            .transition
-            .is_some()
-            || candidate
-                .public_value
-                .execution_commitment
-                .transition_ref
-                .is_some())
-    {
-        return Err(error("wire-3 Node transitions are not enabled"));
-    }
+    validate_public_value(schedule, &candidate.public_value, selected)?;
+    validate_private_input(config, candidate)?;
+    validate_private_dynamic(hook, schedule, candidate)
+}
+
+fn validate_private_input(
+    config: &crate::NodeConfig,
+    candidate: &NodeBftPrivateCandidateV3,
+) -> Result<(), NodeError> {
     let bound = candidate
         .public_value
         .validate_binding()
@@ -111,7 +136,18 @@ pub(super) fn validate_private(
             &action.payload_cbor,
         )?;
     }
-    hook.validate_bft_v3_action_batch(schedule, actions)
+    Ok(())
+}
+
+fn validate_private_dynamic(
+    hook: &mut dyn NodeExecutionHook,
+    schedule: &BftHeaderHeightScheduleV3,
+    candidate: &NodeBftPrivateCandidateV3,
+) -> Result<(), NodeError> {
+    let actions =
+        oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(&candidate.actions_cbor)
+            .map_err(|_| error("wire-3 private payload rejected"))?;
+    hook.validate_bft_v3_action_batch(schedule, &actions)
         .map_err(|_| error("wire-3 parent-policy admission rejected"))?;
     let expected = NodeBftExecutionContextV3::from_schedule(schedule);
     if hook
@@ -435,6 +471,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         schedule,
         machine,
         effects: effects.into(),
+        admitted_build: None,
         recovery_batches: runtime.bft_v3_recovery_batches.clone(),
         pending: runtime.pending_consensus_actions.clone(),
         pending_bytes: runtime.pending_consensus_action_queue_bytes.clone(),

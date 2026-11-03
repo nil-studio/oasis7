@@ -66,6 +66,9 @@ mod execution_role;
 mod explorer_p0_api;
 #[path = "host/feedback_submit_api.rs"]
 mod feedback_submit_api;
+#[cfg(feature = "node-libp2p")]
+#[path = "host/formal_bft_admission_grant.rs"]
+pub(crate) mod formal_bft_admission_grant;
 #[cfg(unix)]
 #[path = "host/formal_bft_header_cli.rs"]
 mod formal_bft_header_cli;
@@ -1159,3 +1162,6 @@ mod tests;
 
 #[cfg(test)]
 use crate::execution_config::EXECUTION_BRIDGE_RETENTION_IN_PROGRESS_MARKER;
+
+#[cfg(feature = "node-libp2p")]
+pub use formal_bft_admission_grant::provider_factory::{AdmissionProviderIssuerConfigV1, AdmissionProviderNetworkConfigV1, AdmissionProviderServiceInputsV1, OpenedAdmissionProviderV1, open_admission_provider_v1};

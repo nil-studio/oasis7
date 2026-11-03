@@ -675,6 +675,52 @@ pub trait NodeExecutionHook: Send {
         Ok(NodeBftCapacityAdmissionV3::Blocked)
     }
 
+    /// Complete the original successor transaction through actual installation
+    /// and protected Adopt. A partial or unknown transaction is not a new base.
+    fn roll_bft_v3_execution(
+        &mut self,
+        _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        _lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        _next: &NodeBftBuildContextV3,
+        _purpose: NodeBftRollPurposeV3<'_>,
+        _deadline: std::time::Instant,
+    ) -> Result<oasis7_distfs::protected_bft_v3::BftSignerCheckpointV3, String> {
+        Err("wire-3 automatic successor installation unsupported".into())
+    }
+
+    /// Pure plan, protected Reserved, exact durable material, then protected
+    /// Ready. There is no fallback to the legacy material-only retain API.
+    fn configure_bft_v3_admission_input_io(
+        &mut self,
+        _io: std::sync::Arc<dyn crate::NodeBftAdmissionInputPublicationIoV1>,
+    ) -> Result<(), String> {
+        Err("wire-3 original admission publication IO unsupported".into())
+    }
+
+    fn retain_bft_v3_protected_candidate(
+        &mut self,
+        _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        _lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        _context: &NodeBftExecutionContextV3,
+        _candidate: &NodeBftPrivateCandidateV3,
+        _deadline: std::time::Instant,
+    ) -> Result<String, String> {
+        Err("wire-3 protected candidate retention unsupported".into())
+    }
+
+    /// Apply the same protected ordering to an authenticated received package;
+    /// importing dependencies before Reserved would already publish material.
+    fn retain_received_bft_v3_protected_candidate(
+        &mut self,
+        _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        _lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        _context: &NodeBftExecutionContextV3,
+        _package: &crate::NodeBftPrivateCandidatePackageV3,
+        _deadline: std::time::Instant,
+    ) -> Result<NodeBftProtectedCandidateAdmissionV3, String> {
+        Err("wire-3 protected received candidate retention unsupported".into())
+    }
+
     fn prepare_bft_v3_execution(
         &mut self,
         _binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,

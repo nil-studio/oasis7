@@ -14,6 +14,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Component;
 use std::time::Instant;
 
+#[path = "driver_bft_v3_source_ledger_read.rs"]
+mod source_ledger_read;
+
 pub(super) struct InstallationRootV1 {
     path: PathBuf,
     root: File,
@@ -401,3 +404,6 @@ impl InstallationRootV1 {
         ))
     }
 }
+
+#[path = "driver_bft_v3_active_suffix_read.rs"]
+mod active_suffix_read;

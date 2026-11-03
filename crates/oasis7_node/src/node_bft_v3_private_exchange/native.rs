@@ -73,8 +73,14 @@ pub struct NodeBftLibp2pPrivateCandidateExchangeV3 {
     peers: BTreeSet<libp2p::PeerId>,
     workers: Mutex<Vec<JoinHandle<()>>>,
     registration: Option<AuthenticatedHandlerRegistration>,
+    buffers: Arc<crate::NodeBftPrivateTransportBuffersV1>,
+    scope: NodeBftPrivateTransportScopeV1,
 }
 impl NodeBftLibp2pPrivateCandidateExchangeV3 {
+    /// Share the existing directional buffers with confidential admission input.
+    pub fn transport_buffers(&self) -> Arc<crate::NodeBftPrivateTransportBuffersV1> {
+        self.buffers.clone()
+    }
     /// Narrows only resource admission for real-wire tests. It supplies no
     /// identity, permission, driver state or authenticated transport context.
     #[cfg(any(test, feature = "test-hooks"))]
@@ -120,6 +126,9 @@ impl NodeBftLibp2pPrivateCandidateExchangeV3 {
         let mut config = config;
         config.peers = peers.iter().map(ToString::to_string).collect();
         let alive = Arc::new(AtomicBool::new(true));
+        let scope =
+            NodeBftPrivateTransportScopeV1::new(config.peers.clone(), config.operation_timeout)?;
+        let buffers = scope.buffers();
         let server = Arc::new(server::Server::new(
             &config,
             network.peer_id().to_string(),
@@ -127,9 +136,11 @@ impl NodeBftLibp2pPrivateCandidateExchangeV3 {
             hook,
             gate,
             alive.clone(),
+            scope.clone(),
         ));
         let core = Arc::new(client::ClientCore {
             network: network.clone(),
+            buffers: buffers.clone(),
             binding: config.binding,
             policy: config.candidate_policy_digest,
             grant_generation: config.candidate_grant_generation,
@@ -145,6 +156,8 @@ impl NodeBftLibp2pPrivateCandidateExchangeV3 {
             peers: peers.clone(),
             workers: Mutex::new(Vec::new()),
             registration: None,
+            buffers,
+            scope,
         };
         owner.registration = Some(
             network
@@ -319,6 +332,7 @@ impl NodeBftLibp2pPrivateCandidateExchangeV3 {
 impl Drop for NodeBftLibp2pPrivateCandidateExchangeV3 {
     fn drop(&mut self) {
         self.core.alive.store(false, Ordering::Release);
+        self.scope.close();
         self.registration.take();
         self.server.clear();
         if let Ok(mut workers) = self.workers.lock() {
@@ -331,3 +345,16 @@ impl Drop for NodeBftLibp2pPrivateCandidateExchangeV3 {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[path = "admission_input.rs"]
+mod admission_input;
+pub use admission_input::*;
+
+#[path = "admission_input_transport_scope.rs"]
+mod transport_scope;
+pub use transport_scope::{NodeBftAdmissionInputTransportV1, NodeBftPrivateTransportScopeV1};
+impl NodeBftAdmissionInputTransportV1 for NodeBftLibp2pPrivateCandidateExchangeV3 {
+    fn admission_transport(&self) -> NodeBftPrivateTransportScopeV1 {
+        self.scope.clone()
+    }
+}

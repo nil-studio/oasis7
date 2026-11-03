@@ -294,7 +294,7 @@ pub(super) fn exercise(
     // An auto-generated WAL may continue only the exact authenticated reservation.
     // Tampering cannot pick a new request; restoring the original bytes is enough
     // for the normal Node.start production preparation path to finish it.
-    let identity = OriginalHeaderIdentityV1::open(
+    let mut identity = OriginalHeaderIdentityV1::open(
         &records,
         store.clone(),
         h.anchor.clone(),
@@ -303,6 +303,7 @@ pub(super) fn exercise(
         h.reader.clone(),
     )
     .unwrap();
+    let before_usage = identity.auto_prepare_accounting_for_test(&records).unwrap();
     identity
         .persist_auto_prepare_for_test(&records, binding, pin, body.clone(), manifest.clone())
         .unwrap();
@@ -311,7 +312,58 @@ pub(super) fn exercise(
         body.checkpoint.digest().unwrap()
     ));
     let bytes = fs::read(&wal).unwrap();
+    let after_usage = identity.auto_prepare_accounting_for_test(&records).unwrap();
+    assert!(after_usage.1 >= 4 * bytes.len());
+    assert_eq!(
+        after_usage.0 - before_usage.0,
+        after_usage.1 - before_usage.1,
+        "WAL shares the original ledger budget"
+    );
+    identity
+        .persist_auto_prepare_for_test(&records, binding, pin, body.clone(), manifest.clone())
+        .unwrap();
+    assert_eq!(
+        identity.auto_prepare_accounting_for_test(&records).unwrap(),
+        after_usage,
+        "same original WAL retry cannot double reserve or refund"
+    );
     drop(identity);
+    let open_material = || {
+        FormalBftHeaderNodeDriverV3::open_from_handoff(
+            &records,
+            store.clone(),
+            h.anchor.clone(),
+            h.target.clone(),
+            h.material.clone(),
+            h.reader.clone(),
+        )
+    };
+    let directory = records.join("successor-auto-prepares-v1");
+    let retained = records.join("held-original-auto-prepares-for-test");
+    fs::rename(&directory, &retained).unwrap();
+    assert!(
+        open_material().is_err(),
+        "missing WAL directory cannot reset the committed local usage to zero"
+    );
+    fs::rename(&retained, &directory).unwrap();
+    drop(
+        open_material()
+            .expect("exact original WAL directory restoration must recover same consumer"),
+    );
+    let cas_wal = store
+        .root()
+        .join("blobs")
+        .join(format!("{}.blob", oasis7_runtime::blake3_hex(&bytes)));
+    let cas_bytes = fs::read(&cas_wal).unwrap();
+    let cas_permissions = fs::metadata(&cas_wal).unwrap().permissions();
+    fs::remove_file(&cas_wal).unwrap();
+    assert!(
+        open_material().is_err(),
+        "retained WAL CAS original cannot be recreated from file to reset usage"
+    );
+    fs::write(&cas_wal, &cas_bytes).unwrap();
+    fs::set_permissions(&cas_wal, cas_permissions).unwrap();
+    drop(open_material().expect("exact WAL CAS restoration must recover same consumer"));
     let value: serde_cbor::Value = serde_cbor::from_slice(&bytes).unwrap();
     let alternate = oasis7_cas::to_canonical_cbor(&value).unwrap();
     assert_ne!(

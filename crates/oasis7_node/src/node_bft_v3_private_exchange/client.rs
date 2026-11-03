@@ -3,6 +3,7 @@ use super::*;
 use std::{sync::mpsc, thread, time::Duration};
 pub(super) struct ClientCore {
     pub network: Arc<Libp2pNetwork>,
+    pub buffers: Arc<crate::NodeBftPrivateTransportBuffersV1>,
     pub binding: BftSignerBindingV3,
     pub state: Arc<NodeBftPeerExecutionStateV3>,
     pub policy: String,
@@ -12,19 +13,27 @@ pub(super) struct ClientCore {
     pub credentials: Option<Arc<dyn NodeBftCommittedReadCredentialsV3>>,
     pub active: Arc<std::sync::atomic::AtomicUsize>,
 }
-pub(super) struct Reservation(Arc<std::sync::atomic::AtomicUsize>);
+pub(super) struct Reservation {
+    active: Arc<std::sync::atomic::AtomicUsize>,
+    _hold: crate::node_bft_v3_runtime::private_buffers::BufferHold,
+}
 impl Drop for Reservation {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.active.fetch_sub(1, Ordering::AcqRel);
     }
 }
 pub(super) fn reserve(core: &ClientCore) -> Result<Arc<Reservation>, String> {
+    // Encoded input and decoded package coexist until worker handoff.
+    let hold = core.buffers.inbound(2 * MAX_PACKAGE)?;
     core.active
         .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             if n < 2 { Some(n + 1) } else { None }
         })
         .map_err(|_| "private fetch global count/132MiB budget")?;
-    Ok(Arc::new(Reservation(core.active.clone())))
+    Ok(Arc::new(Reservation {
+        active: core.active.clone(),
+        _hold: hold,
+    }))
 }
 pub(super) struct Fetch {
     pub receiver: mpsc::Receiver<Result<NodeBftPrivateCandidatePackageV3, String>>,

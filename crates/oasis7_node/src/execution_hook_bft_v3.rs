@@ -138,3 +138,56 @@ pub enum NodeBftCapacityAdmissionV3 {
     NeedsRoll,
     Blocked,
 }
+
+/// Only a deterministic rejection before any mutation is peer input failure.
+/// Capacity, host faults and unknown/started transactions remain outer errors
+/// so the worker stops and recovers their original operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NodeBftProtectedCandidateAdmissionV3 {
+    Retained(String),
+    Rejected(String),
+    /// Complete pure validation succeeded, but this exact package needs a new
+    /// layer. No Reserved/CAS/import/pin or other durable effect has begun.
+    NeedsRoll,
+}
+
+/// Borrowed original input selects one independently verified roll route. This
+/// is not authority: the Runtime must compare it with the current leased State.
+#[derive(Debug, Clone, Copy)]
+pub enum NodeBftRollPurposeV3<'a> {
+    LocalBuild,
+    Received(&'a NodeBftPrivateCandidatePackageV3),
+    OriginalPendingCommit(&'a oasis7_consensus::tendermint_v3::FormalBftCertifiedHeaderV3),
+}
+
+/// A resource-owned original-input ingress, with no signing or read authority.
+pub trait NodeBftAdmissionInputPublicationSlotV1: Send {
+    fn publish(
+        self: Box<Self>,
+        input: oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputV1,
+    ) -> Result<oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputRefV1, String>;
+}
+pub trait NodeBftAdmissionInputPublicationIoV1: Send + Sync {
+    fn read_original(
+        &self,
+        _reference: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputRefV1,
+        _deadline: std::time::Instant,
+    ) -> Result<oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputReadV1, String>
+    {
+        Err("independently authorized original input recovery unavailable".into())
+    }
+
+    fn contains(
+        &self,
+        _reference: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputRefV1,
+        _deadline: std::time::Instant,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    fn reserve(&self) -> Result<Box<dyn NodeBftAdmissionInputPublicationSlotV1>, String>;
+    fn clear(
+        &self,
+        reference: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputRefV1,
+    ) -> Result<(), String>;
+}

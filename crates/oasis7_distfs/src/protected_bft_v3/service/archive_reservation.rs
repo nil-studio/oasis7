@@ -11,6 +11,7 @@ impl BftSignerServiceRuntimeV3 {
             self.observed_archive_transfer,
             snapshot,
         ) {
+            self.input_view_epoch.invalidate()?;
             self.poisoned = true;
             return Err(error);
         }
@@ -35,6 +36,7 @@ impl BftSignerServiceV3 {
             .as_ref()
             .is_none_or(|v| v.state != before.state)
         {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid(
                 "successor archive reserve differs from verified current State",
@@ -65,6 +67,7 @@ impl BftSignerServiceV3 {
         ) {
             Ok(value) => value,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "successor archive transfer outcome unknown; provider poisoned: {error}"
@@ -76,6 +79,7 @@ impl BftSignerServiceV3 {
             &after,
             reserved_response_bytes,
         ) {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(error);
         }

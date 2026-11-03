@@ -7,6 +7,9 @@ use std::sync::{Arc, atomic::Ordering};
 mod actions;
 #[path = "node_bft_v3_completions.rs"]
 mod completions;
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+#[path = "node_bft_v3_private_transport_buffers.rs"]
+pub(crate) mod private_buffers;
 #[path = "node_bft_v3_private_exchange.rs"]
 pub(crate) mod private_exchange;
 pub(super) fn validate_single_action(action: &crate::NodeConsensusAction) -> Result<(), NodeError> {

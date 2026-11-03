@@ -69,7 +69,43 @@ pub(crate) enum BftSignerCommandV3 {
     ReadSuccessorArchive {
         read: Box<super::archive_query::BftSuccessorArchiveReadV1>,
     },
+    ReadPrivateRetentionProof {
+        read: Box<super::retention_proof_query::RetentionProofReadV1>,
+    },
     Checkpoint,
+    ProvisionPrivateRetention {
+        expected_revision: u64,
+        expected_state_digest: String,
+    },
+    GetPrivateRetention,
+    SealPrivateRetention {
+        expected_revision: u64,
+        expected_state_digest: String,
+        cut: Box<super::successor_window::BftSuccessorWindowCutV1>,
+    },
+    ReservePrivateRetention {
+        expected_revision: u64,
+        expected_state_digest: String,
+        entry: Box<super::private_retention::BftPrivateRetentionEntryV1>,
+    },
+    ReservePrivateRetentionInput {
+        expected_revision: u64,
+        expected_state_digest: String,
+        reference: Box<super::private_retention_input::BftPrivateRetentionAdmissionInputRefV1>,
+    },
+    ReadyPrivateRetention {
+        expected_revision: u64,
+        expected_state_digest: String,
+        key: Box<super::private_retention::BftPrivateRetentionKeyV1>,
+    },
+    SelectPrivateRetention {
+        selection: Box<super::private_retention_selection::BftPrivateRetentionSelectRequestV1>,
+    },
+    ReadyPrivateRetentionOriginalLocal {
+        expected_revision: u64,
+        expected_state_digest: String,
+        key: Box<super::private_retention::BftPrivateRetentionKeyV1>,
+    },
     ProtectedTime,
     StartHeightTimer {
         expected_revision: u64,
@@ -171,6 +207,13 @@ impl SignedBftSignerRequestV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "body", deny_unknown_fields)]
 pub(crate) enum BftSignerReplyKindV3 {
+    PrivateRetention {
+        ledger: Box<super::private_retention_backend::BftPrivateRetentionLedgerV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        latest_seal:
+            Option<Box<super::private_retention_current_anchor::BftPrivateRetentionSealAnchorV1>>,
+        reserved_response_bytes: u64,
+    },
     Prepared {
         expected_generation: u64,
         prepare_nonce: String,
@@ -213,6 +256,9 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     ArchiveChunk {
         chunk: Box<super::archive_query::BftSuccessorArchiveChunkV1>,
+    },
+    PrivateRetentionProofChunk {
+        chunk: Box<super::retention_proof_query::RetentionProofChunkV1>,
     },
     CertificateAppended,
     AppliedConfirmed,

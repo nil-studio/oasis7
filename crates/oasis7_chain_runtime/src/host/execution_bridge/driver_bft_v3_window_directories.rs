@@ -11,11 +11,30 @@ pub(in super::super) struct DirectoryIdentity {
     pub(super) inode: u64,
 }
 impl DirectoryIdentity {
-    pub(super) fn read(path: &Path) -> Result<Self, String> {
+    pub(in super::super) fn read(path: &Path) -> Result<Self, String> {
         crate::controlled_live_config::require_private_owned(path, true)?;
         let metadata = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() || metadata.ino() == 0 {
             return Err("active private directory identity invalid".into());
+        }
+        Ok(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+    pub(in super::super) fn validate(&self) -> Result<(), String> {
+        if self.inode == 0 {
+            Err("private directory identity invalid".into())
+        } else {
+            Ok(())
+        }
+    }
+    pub(in super::super) fn from_descriptor(file: &File) -> Result<Self, String> {
+        let metadata = file
+            .metadata()
+            .map_err(|_| "inspect private directory descriptor")?;
+        if !metadata.is_dir() || metadata.ino() == 0 {
+            return Err("private directory descriptor identity invalid".into());
         }
         Ok(Self {
             device: metadata.dev(),

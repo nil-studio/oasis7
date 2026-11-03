@@ -5,8 +5,47 @@ use oasis7_proto::distributed_bft::v3::{
 };
 use std::collections::BTreeMap;
 
+pub(super) struct ActiveExerciseV1<'a> {
+    pub(super) h: &'a QualifiedH<BftProfileTargetV2>,
+    pub(super) root: &'a Scratch,
+    pub(super) store: LocalCasStore,
+    pub(super) binding: &'a BftSignerBindingV3,
+    pub(super) pin: &'a str,
+    pub(super) verifier: &'a ActualBftSuccessorWindowDriverVerifierV1,
+    pub(super) original: &'a ValidatedBftSuccessorOriginalStateV1,
+    pub(super) record: &'a BftSuccessorWindowStoredRequestV1,
+    pub(super) lease: &'a mut dyn BftSignerLeaseV3,
+    pub(super) pre_pin: bool,
+    pub(super) archive: Arc<LocalBftSuccessorArchiveStoreV1>,
+    pub(super) target_offset: u64,
+    pub(super) reserved_publication: bool,
+}
+#[path = "driver_bft_v3_reserved_active_tests.rs"]
+mod reserved;
+/// Mutually exclusive test profiles do not retain the legacy fault/alias
+/// exercise's large World frames while independently replaying a fresh base.
+pub(super) fn exercise(mut case: ActiveExerciseV1<'_>) {
+    if case.reserved_publication {
+        reserved::run(&mut case);
+    } else {
+        exercise_legacy(
+            case.h,
+            case.root,
+            case.store,
+            case.binding,
+            case.pin,
+            case.verifier,
+            case.original,
+            case.record,
+            case.lease,
+            case.pre_pin,
+            case.archive,
+            case.target_offset,
+        );
+    }
+}
 #[allow(clippy::too_many_arguments)]
-pub(super) fn exercise(
+fn exercise_legacy(
     h: &QualifiedH<BftProfileTargetV2>,
     root: &Scratch,
     store: LocalCasStore,
@@ -342,4 +381,118 @@ fn move_children_preserving_file_inodes(from: &std::path::Path, to: &std::path::
             fs::remove_file(entry.path()).unwrap();
         }
     }
+}
+
+struct ReservedNodeOutcomeV1 {
+    original: oasis7_consensus::tendermint_v3::VerifiedBftHeaderCertificateV3,
+    fresh: oasis7_consensus::tendermint_v3::VerifiedBftHeaderCertificateV3,
+    accounting: (usize, usize, usize, usize),
+    result: NodeBftExecutionCommitResultV3,
+}
+fn exercise_reserved_node_consumer(
+    window: Box<FormalBftHeaderActiveExecutionV1>,
+    binding: &BftSignerBindingV3,
+    lease: &mut dyn BftSignerLeaseV3,
+    original_t1: &FormalBftCertifiedHeaderV3,
+    base_schedule: &BftHeaderHeightScheduleV3,
+) -> ReservedNodeOutcomeV1 {
+    let schedule = window.schedule().clone();
+    let mut driver = window.into_node_hook_for_test(binding).unwrap();
+    driver.hook().configure_bft_v3_execution(binding).unwrap();
+    let token = oasis7_consensus::tendermint_v3::verify_commit_certificate_token_v3(
+        base_schedule,
+        original_t1,
+    )
+    .unwrap();
+    // Real Node cold replay preserves the original decided T+1; the new
+    // publication reservation belongs only to the following fresh operation.
+    driver
+        .hook()
+        .commit_bft_v3_certificate(token.clone())
+        .unwrap();
+    let original = token;
+    let expected = driver
+        .hook()
+        .current_bft_v3_execution_context(&schedule)
+        .unwrap();
+    let action = oasis7_node::NodeConsensusAction::from_payload(
+        93_002,
+        validator_id(0),
+        payload("active-node-reserved-business"),
+    )
+    .unwrap();
+    let candidate = driver
+        .hook()
+        .build_bft_v3_candidate(NodeBftBuildContextV3 {
+            execution: expected.clone(),
+            actions: vec![action],
+        })
+        .unwrap();
+    let receipt = driver.hook().retain_bft_v3_reserved_candidate(&expected, &candidate)
+        .expect("actual ActiveNodeDriver must durably reserve fresh publication after authenticated original T+1 replay");
+    assert_eq!(receipt.len(), 64);
+    let reserved = driver.accounting().unwrap();
+    let certificate = certify_one(&schedule, &candidate.public_value);
+    rolling::reserve_certificate(lease, &certificate);
+    let token = oasis7_consensus::tendermint_v3::verify_commit_certificate_token_v3(
+        &schedule,
+        &certificate,
+    )
+    .unwrap();
+    let result = driver
+        .hook()
+        .commit_bft_v3_certificate(token.clone())
+        .unwrap();
+    let fresh = token;
+    let before = lease.checkpoint().unwrap();
+    let after = lease
+        .confirm_applied(
+            before.state.revision,
+            &before.state.state_digest,
+            result.height,
+            &result.header_id,
+            &result.driver_install_digest,
+        )
+        .unwrap();
+    assert!(after.state.pending_driver_apply.is_none());
+    assert_eq!(
+        after
+            .state
+            .applied_installs
+            .last()
+            .unwrap()
+            .driver_install_digest,
+        result.driver_install_digest
+    );
+    let accounting = driver.accounting().unwrap();
+    assert_eq!(
+        reserved.0, accounting.0,
+        "Active actual consumes original promise without refund or double charge"
+    );
+    ReservedNodeOutcomeV1 {
+        original,
+        fresh,
+        accounting,
+        result,
+    }
+}
+
+/// Advance the real inherited candidate through the existing one-validator QC
+/// fixture and protected append/readback path. This is setup for cold tests;
+/// it does not claim service Local proposal signing coverage.
+pub(super) fn commit_original_carry_for_test(
+    window: &mut FormalBftHeaderActiveExecutionV1,
+    lease: &mut dyn BftSignerLeaseV3,
+    deadline: Instant,
+) {
+    let original = window
+        .pending_candidate()
+        .unwrap()
+        .expect("original carry must be selected");
+    let certificate = certify_one(window.schedule(), &original.public_value);
+    rolling::reserve_certificate(lease, &certificate);
+    window
+        .append_certified(certificate.clone(), deadline)
+        .unwrap();
+    rolling::confirm_applied(lease, window, &certificate);
 }

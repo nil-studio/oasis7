@@ -147,11 +147,27 @@ pub(super) fn validate_runtime(
         if network.transport.context() != &BftPeerContextV3::from_handoff(b.handoff()) {
             return Err(error("wire-3 peer transport differs from qualified H"));
         }
-        if network.transport.peers().is_empty() || network.transport.peers().len() > 256 {
+        if !peer_routes_allowed(
+            network.transport.peers().len(),
+            &b.local_validator_id,
+            b.initial_schedule()
+                .active_set()
+                .validators()
+                .keys()
+                .map(String::as_str),
+        ) {
             return Err(error("wire-3 peer routes missing or oversized"));
         }
         network.exchange.validate_binding(b).map_err(error)?;
-    } else if b.initial_schedule().active_set().validators().len() != 1 {
+    } else if !peer_routes_allowed(
+        0,
+        &b.local_validator_id,
+        b.initial_schedule()
+            .active_set()
+            .validators()
+            .keys()
+            .map(String::as_str),
+    ) {
         return Err(error(
             "wire-3 multiple validators require explicit public and private peer planes",
         ));
@@ -194,4 +210,42 @@ pub(super) fn validate_runtime(
         ));
     }
     Ok(())
+}
+
+fn peer_routes_allowed<'a>(
+    peer_count: usize,
+    local_validator: &str,
+    mut validators: impl Iterator<Item = &'a str>,
+) -> bool {
+    peer_count <= 256
+        && (peer_count > 0
+            || (validators.next() == Some(local_validator) && validators.next().is_none()))
+}
+
+#[cfg(test)]
+mod peer_route_tests {
+    use super::peer_routes_allowed;
+
+    #[test]
+    fn standalone_local_validator_can_use_private_admission_without_public_routes() {
+        assert!(peer_routes_allowed(0, "local", ["local"].into_iter()));
+    }
+
+    #[test]
+    fn empty_public_routes_do_not_admit_foreign_empty_or_multiple_validator_sets() {
+        assert!(!peer_routes_allowed(0, "local", ["foreign"].into_iter()));
+        assert!(!peer_routes_allowed(0, "local", std::iter::empty()));
+        assert!(!peer_routes_allowed(
+            0,
+            "local",
+            ["local", "peer"].into_iter()
+        ));
+        assert!(peer_routes_allowed(
+            1,
+            "local",
+            ["local", "peer"].into_iter()
+        ));
+        assert!(peer_routes_allowed(256, "local", ["local"].into_iter()));
+        assert!(!peer_routes_allowed(257, "local", ["local"].into_iter()));
+    }
 }

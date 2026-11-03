@@ -10,7 +10,7 @@ use oasis7_distfs::controlled_authority::formal::business_index::{
 };
 use oasis7_runtime::blake3_hex;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub(super) const BUSINESS_INDEX_MAX_NODE_BYTES: usize = BUSINESS_INDEX_MAX_LEAF_BYTES + 128;
 pub(super) const MAX_RETAINED_INDEX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
@@ -21,6 +21,9 @@ struct RecordedNodes {
     nodes: BTreeMap<String, Vec<u8>>,
     total_bytes: usize,
     accessed: BTreeSet<String>,
+    checked_out: bool,
+    checkout_conflict: bool,
+    retired: bool,
 }
 
 /// Exact current-layer union; no material is admitted by a capacity plan.
@@ -41,6 +44,25 @@ pub(super) struct RecordingBusinessIndexReaderV1 {
 }
 
 impl RecordingBusinessIndexReaderV1 {
+    fn lock_recorded(&self) -> Result<MutexGuard<'_, RecordedNodes>, String> {
+        let recorded = self
+            .recorded
+            .lock()
+            .map_err(|_| "formal BFT dependency recorder lock poisoned")?;
+        if recorded.retired {
+            return Err("formal BFT inventory moved to closed replay".into());
+        }
+        if recorded.checked_out {
+            return Err(
+                "formal BFT dependency originals checked out; retry after original operation"
+                    .into(),
+            );
+        }
+        if recorded.checkout_conflict {
+            return Err("formal BFT dependency checkout restoration conflicted".into());
+        }
+        Ok(recorded)
+    }
     /// Create a reader that serves seeded nodes first, then captures verified
     /// misses from the external reader.
     pub(super) fn new(
@@ -59,6 +81,67 @@ impl RecordingBusinessIndexReaderV1 {
         Self::with_mode(external, seed, true, None)
     }
 
+    /// Move the bounded captured inventory into a reader with no external
+    /// fallback. The caller must independently authenticate its H roots first;
+    /// this operation itself grants no parent authority. Capturing the H closure
+    /// does not become the subsequent replay's accessed baseline.
+    pub(super) fn take_closed_inventory(&self) -> Result<Arc<Self>, String> {
+        if self.closed_parent.is_some() {
+            return Err("complete H inventory cannot discard a layered parent".into());
+        }
+        let mut original = self.lock_recorded()?;
+        let mut closed = std::mem::take(&mut *original);
+        original.retired = true;
+        closed.accessed.clear();
+        Ok(Arc::new(Self {
+            external: Arc::new(NoAdditionalParentNodes),
+            strict_overlay: true,
+            closed_parent: None,
+            closed_depth: 0,
+            recorded: Mutex::new(closed),
+        }))
+    }
+
+    /// Called only after independent actual replay and its pending checks.
+    /// Move derived allocations without turning any external source into a parent.
+    pub(super) fn close_verified_derived_inventory(&self) -> Result<Arc<Self>, String> {
+        self.require_live_closed_parent()?;
+        let parent = self
+            .closed_parent
+            .clone()
+            .ok_or("verified derived parent absent")?;
+        let mut original = self.lock_recorded()?;
+        let closed = std::mem::take(&mut *original);
+        original.retired = true;
+        Ok(Arc::new(Self {
+            external: Arc::new(NoAdditionalParentNodes),
+            strict_overlay: true,
+            closed_parent: Some(parent),
+            closed_depth: self.closed_depth,
+            recorded: Mutex::new(closed),
+        }))
+    }
+
+    pub(super) fn require_strict_inventory(&self) -> Result<(), String> {
+        if !self.strict_overlay {
+            return Err("formal replay requires a closed inventory".into());
+        }
+        drop(self.lock_recorded()?);
+        Ok(())
+    }
+
+    pub(super) fn require_live_closed_parent(&self) -> Result<(), String> {
+        if self.strict_overlay {
+            return Err("live execution requires a derived closed layer".into());
+        }
+        self.closed_parent
+            .as_ref()
+            .ok_or("live execution lacks a closed parent")?
+            .require_strict_inventory()?;
+        drop(self.lock_recorded()?);
+        Ok(())
+    }
+
     /// A bounded current-segment reader over a previously closed parent.
     pub(super) fn new_closed_layer(
         parent: Arc<Self>,
@@ -68,6 +151,17 @@ impl RecordingBusinessIndexReaderV1 {
             return Err("closed dependency layer requires a strict verified parent".into());
         }
         Self::with_mode(parent.clone(), seed, true, Some(parent))
+    }
+
+    /// Execute over authenticated closed inputs while permitting only locally
+    /// derived cache writes. Missing reads stay inside the immutable parent;
+    /// this never reopens its external source or changes strict replay mode.
+    pub(super) fn new_live_closed_layer(
+        parent: Arc<Self>,
+        seed: Vec<(String, Vec<u8>)>,
+    ) -> Result<Arc<Self>, String> {
+        parent.require_strict_inventory()?;
+        Self::with_mode(parent.clone(), seed, false, Some(parent))
     }
 
     /// Derive local new nodes over the same closed parent without growing the
@@ -137,11 +231,7 @@ impl RecordingBusinessIndexReaderV1 {
     /// New preview writes remain local; a missing parent node never consults an
     /// old recorder or an external source. Failed previews cannot mutate either.
     pub(super) fn fork_live_preview(&self) -> Result<Arc<Self>, String> {
-        let recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?
-            .clone();
+        let recorded = self.lock_recorded()?.clone();
         Ok(Arc::new(Self {
             external: Arc::new(NoAdditionalParentNodes),
             strict_overlay: false,
@@ -157,10 +247,7 @@ impl RecordingBusinessIndexReaderV1 {
         &self,
         writes: &[(String, Vec<u8>)],
     ) -> Result<ContentNodeCapacityV1, String> {
-        let recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned")?;
+        let recorded = self.lock_recorded()?;
         let mut additional = BTreeMap::<&str, &[u8]>::new();
         let mut nodes = recorded.nodes.len();
         let mut bytes = recorded.total_bytes;
@@ -197,10 +284,7 @@ impl RecordingBusinessIndexReaderV1 {
     /// Return the seed plus every subsequently observed or locally cached node
     /// in canonical digest order.
     pub(super) fn recorded_nodes(&self) -> Result<Vec<(String, Vec<u8>)>, String> {
-        let recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let recorded = self.lock_recorded()?;
         Ok(recorded
             .nodes
             .iter()
@@ -209,20 +293,14 @@ impl RecordingBusinessIndexReaderV1 {
     }
 
     pub(super) fn recorded_refs(&self) -> Result<Vec<String>, String> {
-        let recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let recorded = self.lock_recorded()?;
         Ok(recorded.nodes.keys().cloned().collect())
     }
 
     /// Nodes actually read or produced by this replay. Unvisited preload
     /// entries (including a later historical suffix) do not become dependencies.
     pub(super) fn accessed_nodes(&self) -> Result<BTreeMap<String, Vec<u8>>, String> {
-        let recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let recorded = self.lock_recorded()?;
         Ok(recorded
             .accessed
             .iter()
@@ -230,11 +308,49 @@ impl RecordingBusinessIndexReaderV1 {
             .collect())
     }
 
+    /// Move the original allocations into a short-lived guard. The callback
+    /// holds no recorder mutex. Any same-recorder read fails before fallback or
+    /// allocation while the original set is checked out.
+    pub(super) fn with_accessed_nodes<T>(
+        &self,
+        check: impl FnOnce(&BTreeMap<String, Vec<u8>>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut recorded = self.lock_recorded()?;
+        if recorded
+            .accessed
+            .iter()
+            .any(|key| !recorded.nodes.contains_key(key))
+        {
+            return Err("formal BFT accessed original missing".into());
+        }
+        let accessed = std::mem::take(&mut recorded.accessed);
+        let mut nodes = BTreeMap::new();
+        for key in &accessed {
+            let bytes = recorded
+                .nodes
+                .remove(key)
+                .ok_or("formal BFT accessed original missing")?;
+            nodes.insert(key.clone(), bytes);
+        }
+        recorded.checked_out = true;
+        drop(recorded);
+        let mut guard = AccessedNodesCheckout {
+            reader: self,
+            nodes: Some(nodes),
+            accessed: Some(accessed),
+        };
+        let result = check(
+            guard
+                .nodes
+                .as_ref()
+                .ok_or("formal BFT original checkout absent")?,
+        );
+        guard.restore()?;
+        result
+    }
+
     fn local_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        let mut recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let mut recorded = self.lock_recorded()?;
         let bytes = recorded.nodes.get(digest).cloned();
         if bytes.is_some() {
             recorded.accessed.insert(digest.to_owned());
@@ -244,10 +360,7 @@ impl RecordingBusinessIndexReaderV1 {
 
     fn record_external_node(&self, digest: &str, bytes: Vec<u8>) -> Result<Vec<u8>, String> {
         validate_node(digest, bytes.as_slice())?;
-        let mut recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let mut recorded = self.lock_recorded()?;
         if let Some(existing) = recorded.nodes.get(digest) {
             if existing != &bytes {
                 return Err("external business-index reader changed bytes for one digest".into());
@@ -269,13 +382,7 @@ impl RecordingBusinessIndexReaderV1 {
         if !self.strict_overlay {
             return Err("closed dependency lookup reached an open reader".into());
         }
-        let local = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?
-            .nodes
-            .get(digest)
-            .cloned();
+        let local = self.lock_recorded()?.nodes.get(digest).cloned();
         match (local, &self.closed_parent) {
             (Some(bytes), _) => Ok(Some(bytes)),
             (None, Some(parent)) => parent.closed_node(digest),
@@ -315,6 +422,43 @@ impl RecordingBusinessIndexReaderV1 {
     }
 }
 
+/// Also restores during unwinding, without holding a mutex across user code.
+struct AccessedNodesCheckout<'a> {
+    reader: &'a RecordingBusinessIndexReaderV1,
+    nodes: Option<BTreeMap<String, Vec<u8>>>,
+    accessed: Option<BTreeSet<String>>,
+}
+impl AccessedNodesCheckout<'_> {
+    fn restore(&mut self) -> Result<(), String> {
+        let Some(mut nodes) = self.nodes.take() else {
+            return Ok(());
+        };
+        let mut recorded = self
+            .reader
+            .recorded
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let conflict = !recorded.checked_out
+            || !recorded.accessed.is_empty()
+            || nodes.keys().any(|key| recorded.nodes.contains_key(key));
+        // Preserve the exact original allocations even on an impossible direct
+        // mutation. The poisoned checkout remains unusable for later authority.
+        recorded.nodes.append(&mut nodes);
+        recorded.accessed = self.accessed.take().unwrap_or_default();
+        recorded.checked_out = false;
+        recorded.checkout_conflict |= conflict;
+        if recorded.checkout_conflict {
+            return Err("formal BFT original checkout restoration conflicted".into());
+        }
+        Ok(())
+    }
+}
+impl Drop for AccessedNodesCheckout<'_> {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
 // Every admitted parent node is already seeded in the fork. Missing content
 // must retain the historical strict-overlay refusal, without shared counters.
 struct NoAdditionalParentNodes;
@@ -326,6 +470,7 @@ impl BusinessIndexNodeReader for NoAdditionalParentNodes {
 
 impl BusinessIndexNodeReader for RecordingBusinessIndexReaderV1 {
     fn prefetch_path(&self, root: &BusinessIndexRootV1, key: &str) -> Result<(), String> {
+        drop(self.lock_recorded()?);
         if self.strict_overlay {
             return Ok(());
         }
@@ -342,10 +487,7 @@ impl BusinessIndexNodeReader for RecordingBusinessIndexReaderV1 {
 
     fn cache_content_node(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
         validate_node(digest, bytes)?;
-        let mut recorded = self
-            .recorded
-            .lock()
-            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        let mut recorded = self.lock_recorded()?;
         if let Some(existing) = recorded.nodes.get(digest) {
             if existing.as_slice() != bytes {
                 return Err("business-index cache bytes conflict with recorded digest".into());

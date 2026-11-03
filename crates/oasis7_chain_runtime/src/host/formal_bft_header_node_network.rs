@@ -13,7 +13,8 @@ use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
 };
 use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
 use oasis7_node::{
-    NodeBftCommittedReadCredentialsV3, NodeBftLibp2pPeerTransportV3,
+    NodeBftAdmissionInputServerConfigV2, NodeBftCommittedReadCredentialsV3,
+    NodeBftLibp2pAdmissionInputServerV2, NodeBftLibp2pPeerTransportV3,
     NodeBftLibp2pPrivateCandidateExchangeV3, NodeBftPeerExecutionStateV3,
     NodeBftPrivateExchangeConfigV3, NodeBftSharedExecutionHookV3,
 };
@@ -36,6 +37,13 @@ pub(super) struct Config {
     candidate_grant_generation: u64,
     private_operation_timeout_ms: u64,
     committed_reader: Option<ReaderConfig>,
+    /// Independent provider Noise identities permitted to request the new
+    /// issuer purpose. Route configuration itself grants no read permission.
+    #[serde(default)]
+    admission_reader_peers: Vec<String>,
+    #[serde(default)]
+    admission_recovery_reader:
+        Option<crate::formal_bft_admission_grant::recovery_reader::AdmissionRecoveryReaderConfigV1>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,10 +76,17 @@ pub(super) fn configure(
     provider: Arc<RemoteBftSignerProviderV3>,
     config: &Config,
     initial_trust: InitialActivationTrustV1,
-) -> Result<NodeRuntime, String> {
+    provider_public_key: String,
+) -> Result<(NodeRuntime, Option<NodeBftLibp2pAdmissionInputServerV2>), String> {
+    let standalone_local = binding.initial_schedule().active_set().validators().len() == 1
+        && binding
+            .initial_schedule()
+            .active_set()
+            .validator(&binding.local_validator_id)
+            .is_some();
     if config.listen_addrs.is_empty()
         || config.listen_addrs.len() > 8
-        || config.peers.is_empty()
+        || (config.peers.is_empty() && !standalone_local)
         || config.peers.len() > 256
         || config.bootstrap_peers.len() > 256
         || !(1..=600_000).contains(&config.private_operation_timeout_ms)
@@ -79,6 +94,10 @@ pub(super) fn configure(
     {
         return Err("invalid explicit header Node peer limits".into());
     }
+    if config.admission_recovery_reader.is_some() && config.admission_reader_peers.is_empty() {
+        return Err("admission recovery reader requires explicit provider admission routes".into());
+    }
+    let private_peers = private_routes(&config.peers, &config.admission_reader_peers)?;
     let listen_addrs = config
         .listen_addrs
         .iter()
@@ -134,7 +153,16 @@ pub(super) fn configure(
             },
         )
         .transpose()?;
-    let mut noise_secret = key(&config.noise_signing_key_path)?.to_bytes();
+    let noise_key = key(&config.noise_signing_key_path)?;
+    let mut forbidden_keys = vec![
+        provider_public_key,
+        hex::encode(read_provider_key.verifying_key().to_bytes()),
+        hex::encode(noise_key.verifying_key().to_bytes()),
+    ];
+    if let Some(reader) = &reader {
+        forbidden_keys.push(reader.grant().body.node_public_key);
+    }
+    let mut noise_secret = noise_key.to_bytes();
     let network_config = Libp2pNetworkConfig {
         listen_addrs,
         bootstrap_peers,
@@ -154,20 +182,48 @@ pub(super) fn configure(
     let state = Arc::new(NodeBftPeerExecutionStateV3::default());
     let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(driver));
     let private = Arc::new(NodeBftLibp2pPrivateCandidateExchangeV3::new(
-        net,
+        net.clone(),
         NodeBftPrivateExchangeConfigV3 {
             binding: binding.clone(),
             candidate_policy_digest: config.minimum_anchor.policy_digest.clone(),
             candidate_grant_generation: config.candidate_grant_generation,
-            peers: config.peers.clone(),
+            peers: private_peers,
             operation_timeout: Duration::from_millis(config.private_operation_timeout_ms),
         },
         state.clone(),
         hook.clone(),
-        gate,
+        gate.clone(),
         reader,
     )?);
-    runtime
+    let admission_input = if config.admission_reader_peers.is_empty() {
+        None
+    } else {
+        let publisher = Arc::new(
+            crate::formal_bft_admission_grant::recovery_reader::publisher(
+                config.admission_recovery_reader.as_ref(),
+                net.clone(),
+                &private,
+                &binding,
+                &config.admission_reader_peers,
+                &forbidden_keys,
+            )?,
+        );
+        hook.lock()
+            .map_err(|_| "header Node admission execution hook poisoned")?
+            .configure_bft_v3_admission_input_io(Arc::new(publisher.clone()))?;
+        Some(NodeBftLibp2pAdmissionInputServerV2::new(
+            net,
+            NodeBftAdmissionInputServerConfigV2 {
+                binding: binding.clone(),
+                peers: config.admission_reader_peers.clone(),
+            },
+            state.clone(),
+            private.clone(),
+            publisher,
+            gate,
+        )?)
+    };
+    let runtime = runtime
         .try_with_shared_execution_hook(hook)
         .and_then(|r| {
             if config.enable_membership {
@@ -176,5 +232,31 @@ pub(super) fn configure(
                 r.with_tendermint_v3_network(binding, provider, public, private, state)
             }
         })
-        .map_err(|_| "header Node peer runtime configuration rejected".into())
+        .map_err(|_| "header Node peer runtime configuration rejected".to_owned())?;
+    // The caller retains this owner until after Node shutdown. Dropping it
+    // revokes the registered encrypted endpoint and all outstanding replies.
+    Ok((runtime, admission_input))
+}
+
+fn private_routes(consensus: &[String], admission: &[String]) -> Result<Vec<String>, String> {
+    use std::collections::BTreeSet;
+    // The real private exchange and admission server independently parse every
+    // PeerId below. This union supplies the same bounded nonce ledger routes.
+    let mut routes = BTreeSet::new();
+    let mut readers = BTreeSet::new();
+    for peer in consensus {
+        if !routes.insert(peer.clone()) {
+            return Err("header Node consensus private routes duplicate".into());
+        }
+    }
+    for peer in admission {
+        if !readers.insert(peer.clone()) {
+            return Err("header Node admission reader routes duplicate".into());
+        }
+        routes.insert(peer.clone());
+    }
+    if routes.len() > 256 {
+        return Err("header Node shared private route capacity".into());
+    }
+    Ok(routes.into_iter().collect())
 }

@@ -16,14 +16,24 @@ pub(crate) use node_execution::OriginalHeaderIdentityV1;
 #[path = "driver_bft_v3_window_execution.rs"]
 mod window_execution;
 #[path = "driver_bft_v3_window_storage.rs"]
-mod window_storage;
+pub(super) mod window_storage;
+pub(super) fn window_record_domain() -> &'static str {
+    window_storage::RECORD_DOMAIN
+}
 #[cfg(test)]
 pub(crate) use window_execution::FormalBftHeaderActiveExecutionV1;
 
+#[path = "driver_bft_v3_source_creation.rs"]
+mod source_creation;
 #[path = "driver_bft_v3_successor_archive.rs"]
 mod successor_archive;
 #[path = "driver_bft_v3_successor_carriers.rs"]
 mod successor_carriers;
+#[cfg(test)]
+pub(crate) use source_creation::{
+    ActivateBftPrivateSourceV1, ActualBftPrivateSourceCreationVerifierV1,
+    FreshBftPrivateSourceInputsV1, PreparedBftPrivateSourceOriginV1,
+};
 #[path = "driver_bft_v3_successor_install.rs"]
 mod successor_install;
 #[path = "driver_bft_v3_successor_verifier.rs"]
@@ -107,6 +117,42 @@ impl FormalBftHeaderLedgerExecutionV3 {
         source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
         initialize: bool,
     ) -> Result<Self, String> {
+        Self::open_node_source(
+            records,
+            store,
+            Inputs {
+                anchor,
+                target,
+                material,
+                source,
+            },
+            initialize,
+            None,
+        )
+    }
+
+    fn open_for_fresh_node(
+        records: &Path,
+        store: LocalCasStore,
+        inputs: Inputs,
+        creation_identity: &str,
+    ) -> Result<Self, String> {
+        Self::open_node_source(records, store, inputs, true, Some(creation_identity))
+    }
+
+    fn open_node_source(
+        records: &Path,
+        store: LocalCasStore,
+        inputs: Inputs,
+        initialize: bool,
+        creation_identity: Option<&str>,
+    ) -> Result<Self, String> {
+        let Inputs {
+            anchor,
+            target,
+            material,
+            source,
+        } = inputs;
         validate_storage_paths(records, store.root())?;
         let handoff = verify_formal_bft_handoff_v2(&anchor, target.clone())?;
         validate_handoff_material_for_scope(&anchor, &target.scope, &material)?;
@@ -130,6 +176,12 @@ impl FormalBftHeaderLedgerExecutionV3 {
             .and_then(|n| n.checked_add(journal.bytes.len()))
             .ok_or("wire 3 H material capacity overflow")?;
         let mut ledger = storage::Ledger::open(records, initialize, h_bytes)?;
+        if let Some(identity) = creation_identity
+            && let Ok(existing) = ledger.origin()
+            && existing.source_creation_identity() != Some(identity)
+        {
+            return Err("fresh source cannot replace a legacy or foreign Origin".into());
+        }
         let seed = ledger.preload(&store, None)?;
         let origin = FormalBftHeaderExecutionV3::from_handoff(
             anchor.clone(),
@@ -140,9 +192,22 @@ impl FormalBftHeaderLedgerExecutionV3 {
             !initialize,
         )?;
         let pin = material_pin_digest(&origin, &material)?;
-        ledger.bind_retained(&pin, handoff.activation_height()?, |origin, pending| {
-            retain_origin_material(&store, &material, origin, pending)
-        })?;
+        if let Some(identity) = creation_identity {
+            ledger.bind_retained_with_origin(
+                &pin,
+                handoff.activation_height()?,
+                |origin, pending| {
+                    #[cfg(test)]
+                    source_creation::before_h_retention_for_test()?;
+                    retain_origin_material(&store, &material, origin, pending)
+                },
+                |origin| origin.with_source_creation(identity),
+            )?;
+        } else {
+            ledger.bind_retained(&pin, handoff.activation_height()?, |origin, pending| {
+                retain_origin_material(&store, &material, origin, pending)
+            })?;
+        }
         let owner = Self {
             origin,
             ledger,
@@ -521,4 +586,6 @@ fn retain_origin_material(
 #[cfg(test)]
 pub(crate) use successor_archive::SuccessorPrivateExportRequestV1;
 #[cfg(test)]
-pub(crate) use successor_install::SuccessorPrivateInstallRequestV1;
+pub(crate) use successor_install::{
+    ConfiguredRetentionInstallV1, SuccessorPrivateInstallRequestV1,
+};

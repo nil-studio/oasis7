@@ -115,6 +115,19 @@ pub(crate) fn read_http_request(
     stream: &mut TcpStream,
     deadline: std::time::Instant,
 ) -> Result<(String, String, Vec<u8>), String> {
+    read_http_request_with_body_limit(stream, deadline, MAX_REQUEST_BODY)
+}
+
+/// Narrow a dedicated typed protocol before reading or allocating its body.
+/// Existing service callers retain the original 256KiB bound through wrapper.
+pub(crate) fn read_http_request_with_body_limit(
+    stream: &mut TcpStream,
+    deadline: std::time::Instant,
+    body_limit: usize,
+) -> Result<(String, String, Vec<u8>), String> {
+    if body_limit == 0 || body_limit > MAX_REQUEST_BODY {
+        return Err("HTTP body limit outside existing bound".into());
+    }
     let mut bytes = Vec::with_capacity(4096);
     let mut chunk = [0u8; 4096];
     loop {
@@ -134,7 +147,7 @@ pub(crate) fn read_http_request(
             return Err("HTTP headers exceed bound".into());
         }
         let (method, path, content_length) = parse_http_headers(&bytes[..header_end])?;
-        if content_length > MAX_REQUEST_BODY {
+        if content_length > body_limit {
             return Err("HTTP body exceeds bound".into());
         }
         let body_start = header_end + 4;
@@ -144,16 +157,19 @@ pub(crate) fn read_http_request(
         if bytes.len() > total {
             return Err("HTTP pipelining is unsupported".into());
         }
+        bytes
+            .try_reserve_exact(total.saturating_sub(bytes.len()))
+            .map_err(|_| "HTTP bounded body allocation failed")?;
         while bytes.len() < total {
             let count = read_before_deadline(stream, &mut chunk, deadline)
                 .map_err(|error| format!("HTTP body read: {error}"))?;
             if count == 0 {
                 return Err("HTTP body truncated".into());
             }
-            bytes.extend_from_slice(&chunk[..count]);
-            if bytes.len() > total {
+            if count > total - bytes.len() {
                 return Err("HTTP pipelining is unsupported".into());
             }
+            bytes.extend_from_slice(&chunk[..count]);
         }
         return Ok((method, path, bytes[body_start..total].to_vec()));
     }

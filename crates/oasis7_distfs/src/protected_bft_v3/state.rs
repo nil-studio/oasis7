@@ -33,6 +33,8 @@ pub struct BftDriverAppliedReceiptV3 {
 #[serde(deny_unknown_fields)]
 pub struct BftSignerStateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_retention: Option<super::private_retention::BftPrivateRetentionHeadV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub successor_window: Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_window: Option<super::active_window::BftSignerActiveWindowV1>,
@@ -61,6 +63,8 @@ pub struct BftSignerStateV3 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftSignerCandidateV3 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_retention: Option<super::private_retention::BftPrivateRetentionHeadV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub successor_window: Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -91,6 +95,7 @@ impl BftSignerStateV3 {
             binding,
             0,
             BftSignerCandidateV3 {
+                private_retention: None,
                 successor_window: None,
                 active_window: None,
                 bootstrap_finality_rotation_proofs: None,
@@ -118,6 +123,7 @@ impl BftSignerStateV3 {
         context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
+            private_retention: candidate.private_retention,
             successor_window: candidate.successor_window,
             active_window: candidate.active_window,
             bootstrap_finality_rotation_proofs: candidate.bootstrap_finality_rotation_proofs,
@@ -176,6 +182,7 @@ impl BftSignerStateV3 {
     }
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
+            private_retention: self.private_retention.clone(),
             successor_window: self.successor_window.clone(),
             active_window: self.active_window.clone(),
             bootstrap_finality_rotation_proofs: self.bootstrap_finality_rotation_proofs.clone(),
@@ -187,6 +194,29 @@ impl BftSignerStateV3 {
             pending_driver_apply: self.pending_driver_apply.clone(),
             applied_installs: self.applied_installs.clone(),
         }
+    }
+    pub(crate) fn with_private_retention_head(
+        &self,
+        head: super::private_retention::BftPrivateRetentionHeadV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        head.validate()?;
+        if head.source.binding_digest != self.binding_digest {
+            return Err(invalid("private retention head binding mismatch"));
+        }
+        let mut next = self.clone();
+        next.revision = self
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| invalid("private retention state revision overflow"))?;
+        next.private_retention = Some(head);
+        next.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&next))?;
+        Ok(next)
+    }
+    pub(crate) fn validate_digest(&self) -> Result<(), BftSignerErrorV3> {
+        if digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(self))? != self.state_digest {
+            return Err(invalid("BFT V3 state digest mismatch"));
+        }
+        Ok(())
     }
     pub fn validate(
         &self,
@@ -319,6 +349,8 @@ pub(crate) struct CheckpointProofInputV3<'a> {
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
+    private_retention: &'a Option<super::private_retention::BftPrivateRetentionHeadV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     successor_window: &'a Option<super::successor_state::BftSuccessorWindowStateV1>,
     #[serde(skip_serializing_if = "Option::is_none")]
     active_window: &'a Option<super::active_window::BftSignerActiveWindowV1>,
@@ -341,6 +373,7 @@ struct StateDigestInput<'a> {
 impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
+            private_retention: &s.private_retention,
             successor_window: &s.successor_window,
             active_window: &s.active_window,
             bootstrap_finality_rotation_proofs: &s.bootstrap_finality_rotation_proofs,
@@ -381,6 +414,15 @@ pub(crate) fn validate_state_with_active_context(
     binding.validate()?;
     if state.schema_version != 3 || state.binding_digest != binding.digest()? {
         return Err(invalid("BFT V3 state schema or H binding mismatch"));
+    }
+    if let Some(head) = &state.private_retention {
+        head.validate()?;
+        if head.source.binding_digest != state.binding_digest
+            || head.source.handoff_digest != binding.handoff_record_id
+            || head.source.material_source_digest != binding.material_identity
+        {
+            return Err(invalid("private retention head binding mismatch"));
+        }
     }
     if state.history.len() > BFT_SIGNER_MAX_HISTORY_HEIGHTS_V3 {
         return Err(invalid("BFT V3 history height capacity"));
@@ -603,7 +645,8 @@ pub(crate) fn validate_candidate_transition(
     _provider: &str,
 ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
     let old = &previous.state;
-    if candidate.active_window != old.active_window
+    if candidate.private_retention != old.private_retention
+        || candidate.active_window != old.active_window
         || candidate.successor_window != old.successor_window
         || old
             .successor_window

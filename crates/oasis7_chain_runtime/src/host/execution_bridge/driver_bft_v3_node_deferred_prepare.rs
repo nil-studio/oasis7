@@ -81,11 +81,16 @@ impl Deferred {
                 return Err("pending install did not yield an authenticated active base".into());
             }
         }
-        let driver = if checkpoint.state.active_window.is_some() {
+        let mut driver = if checkpoint.state.active_window.is_some() {
             self.open_active_driver(binding, lease, deadline)?
         } else {
             self.open_legacy_driver(binding, deadline)?
         };
+        if let Some(io) = &self.admission_input_io {
+            driver
+                .hook()
+                .configure_bft_v3_admission_input_io(io.clone())?;
+        }
         self.delegate = Some(driver);
         Ok(())
     }

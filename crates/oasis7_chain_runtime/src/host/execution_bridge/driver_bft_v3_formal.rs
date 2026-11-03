@@ -59,6 +59,39 @@ impl FormalBftHeaderExecutionV3 {
         } else {
             formal_dependencies::RecordingBusinessIndexReaderV1::new(source, seed)?
         };
+        Self::restore_with_reader(anchor, handoff, material, retained_nodes)
+    }
+
+    pub(super) fn from_closed_handoff(
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: &ClosedRecord,
+        retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
+    ) -> Result<Self, String> {
+        retained_nodes.require_strict_inventory()?;
+        let handoff = verify_formal_bft_handoff_v2(&anchor, target)?;
+        validate_handoff_material_for_scope(&anchor, &handoff.target().scope, material)?;
+        Self::restore_with_reader(anchor, handoff, material, retained_nodes)
+    }
+
+    pub(super) fn from_live_closed_handoff(
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        material: &ClosedRecord,
+        retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
+    ) -> Result<Self, String> {
+        retained_nodes.require_live_closed_parent()?;
+        let handoff = verify_formal_bft_handoff_v2(&anchor, target)?;
+        validate_handoff_material_for_scope(&anchor, &handoff.target().scope, material)?;
+        Self::restore_with_reader(anchor, handoff, material, retained_nodes)
+    }
+
+    fn restore_with_reader(
+        anchor: VerifiedFormalReadAnchorV1,
+        handoff: VerifiedBftHandoffTargetV2,
+        material: &ClosedRecord,
+        retained_nodes: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
+    ) -> Result<Self, String> {
         let business_reader = formal_business_package::SharedBusinessReader(retained_nodes.clone());
         let restored = restore_handoff_world(&anchor, material, &business_reader)?;
         let semantic = restored
@@ -87,6 +120,17 @@ impl FormalBftHeaderExecutionV3 {
             retained_nodes,
             tip: None,
         })
+    }
+
+    fn close_verified_replay_inventory(&mut self) -> Result<(), String> {
+        let closed = self.retained_nodes.close_verified_derived_inventory()?;
+        let world = self
+            .parent_world
+            .clone_with_independent_formal_history_reader(closed.clone())?;
+        self.parent_world = world;
+        self.business_reader = formal_business_package::SharedBusinessReader(closed.clone());
+        self.retained_nodes = closed;
+        Ok(())
     }
 
     /// Independent strict overlay rooted in this already replayed exact parent.
@@ -444,6 +488,11 @@ mod storage;
 mod prefix;
 #[cfg(test)]
 pub(crate) use prefix::{
+    ActivateBftPrivateSourceV1, ActualBftPrivateSourceCreationVerifierV1,
+    FreshBftPrivateSourceInputsV1, PreparedBftPrivateSourceOriginV1,
+};
+#[cfg(test)]
+pub(crate) use prefix::{
     ActualBftSuccessorWindowDriverVerifierV1, FormalBftHeaderActiveExecutionV1,
     OriginalHeaderIdentityV1,
 };
@@ -452,4 +501,4 @@ pub(crate) use prefix::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDri
 #[cfg(test)]
 pub(crate) use prefix::SuccessorPrivateExportRequestV1;
 #[cfg(test)]
-pub(crate) use prefix::SuccessorPrivateInstallRequestV1;
+pub(crate) use prefix::{ConfiguredRetentionInstallV1, SuccessorPrivateInstallRequestV1};

@@ -19,6 +19,9 @@ use std::{
 #[path = "formal_bft_header_node_network.rs"]
 mod network;
 
+#[path = "formal_bft_header_node_receipts.rs"]
+mod receipts;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -72,6 +75,8 @@ struct Receipt {
 struct Report {
     schema_version: &'static str,
     receipts: Vec<Receipt>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    receipt_history: Option<receipts::Summary>,
 }
 
 pub(super) fn run<'a>(
@@ -194,7 +199,7 @@ fn from_paths(
             Duration::from_millis(config.provider_timeout_ms),
             binding.clone(),
             requester,
-            trust,
+            trust.clone(),
         )
         .map_err(|_| "header Node explicit remote signer trust rejected")?,
     );
@@ -211,14 +216,23 @@ fn from_paths(
     );
     let runtime = NodeRuntime::new(node_config).with_replication_network_consensus_enabled(false);
     #[cfg(feature = "node-libp2p")]
-    let mut runtime = if let Some(network) = &config.network {
-        network::configure(runtime, driver, binding, provider, network, initial_trust)?
+    let (mut runtime, _admission_input_server) = if let Some(network) = &config.network {
+        network::configure(
+            runtime,
+            driver,
+            binding,
+            provider,
+            network,
+            initial_trust,
+            trust.provider_public_key,
+        )?
     } else {
-        runtime
+        let runtime = runtime
             .try_with_shared_execution_hook(Arc::new(std::sync::Mutex::new(driver)))
             .map_err(|_| "header Node execution hook rejected")?
             .with_tendermint_v3(binding, provider)
-            .map_err(|_| "header Node runtime configuration rejected")?
+            .map_err(|_| "header Node runtime configuration rejected")?;
+        (runtime, None)
     };
     #[cfg(not(feature = "node-libp2p"))]
     let mut runtime = runtime
@@ -268,18 +282,15 @@ fn serve_until_shutdown(
             .map_err(|_| "header Node private action admission rejected")?;
     }
     let signal = runtime.committed_action_batches_handle();
-    let mut receipts = Vec::new();
+    let mut receipt_window = receipts::Window::default();
     loop {
         for batch in runtime.drain_committed_action_batches() {
-            if receipts.len() >= 64 {
-                return Err("header Node report history capacity reached".into());
-            }
-            receipts.push(Receipt {
+            receipt_window.push(Receipt {
                 height: batch.height,
                 header_id: batch.block_hash,
                 action_root: batch.action_root,
                 action_count: batch.actions.len(),
-            });
+            })?;
         }
         if runtime
             .bft_v3_status()
@@ -288,9 +299,11 @@ fn serve_until_shutdown(
             return Err("header Node blocked while serving".into());
         }
         if shutdown.load(Ordering::Acquire) {
+            let (receipts, receipt_history) = receipt_window.finish();
             return Ok(Report {
                 schema_version: "oasis7.formal_bft_header_node_receipt.v3",
                 receipts,
+                receipt_history,
             });
         }
         signal.wait_for_batches(Duration::from_millis(25));
@@ -379,6 +392,7 @@ fn submit_and_wait(
             return Ok(Report {
                 schema_version: "oasis7.formal_bft_header_node_receipt.v3",
                 receipts,
+                receipt_history: None,
             });
         }
         if shutdown.as_ref().is_some_and(|s| s.load(Ordering::Acquire)) {
@@ -465,6 +479,7 @@ mod tests {
                 action_root: "b".repeat(64),
                 action_count: 2,
             }],
+            receipt_history: None,
         };
         let value = serde_json::to_value(report).unwrap();
         assert_eq!(value["receipts"][0]["height"], 9);

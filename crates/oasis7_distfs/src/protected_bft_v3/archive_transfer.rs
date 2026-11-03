@@ -41,6 +41,14 @@ pub fn validate_successor_archive_budget(
         .successor_window
         .as_ref()
         .map_or(0, |w| w.usage.total_bytes);
+    let retention = state
+        .private_retention
+        .as_ref()
+        .and_then(|head| head.retained_material_bytes)
+        .unwrap_or(0);
+    let material = material
+        .checked_add(retention)
+        .ok_or_else(|| invalid("successor plus retention material capacity overflow"))?;
     let transfer = match ledger {
         Some(value) => {
             value.validate()?;

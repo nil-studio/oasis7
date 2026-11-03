@@ -1,9 +1,9 @@
 //! Original candidate reservation retention and exact material claims.
 use super::super::super::super::super::formal_ledger::PublicationPromiseInventoryV1;
 use super::*;
-pub(in super::super) struct ValidatedPrivatePublicationV1 {
-    pub(in super::super) reference: String,
-    pub(in super::super) claim:
+pub(in super::super::super) struct ValidatedPrivatePublicationV1 {
+    pub(in super::super::super) reference: String,
+    pub(in super::super::super) claim:
         Box<dyn super::super::super::super::super::formal_ledger::RetainedPublicationClaimV1>,
 }
 impl NodePrivateStore {
@@ -32,6 +32,9 @@ impl NodePrivateStore {
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
             publication_reservation_ref: None,
+            publication_original_data_ref: None,
+            source_activation: None,
+            protected_source_origin_ref: None,
         };
         let publication = PublicationReservationV1::from_plan(&publication_identity(&data)?, plan)?;
         let reference = publication.digest()?;
@@ -111,8 +114,9 @@ impl NodePrivateStore {
         let mut promises = PublicationPromiseInventoryV1::new();
         for slot in self.candidates.values().chain(self.values.values()) {
             if let Some(metadata) = read_publication(&self.store, &slot.data)? {
-                let identity = publication_identity(&slot.data)?;
-                let promise = metadata.promise_for_identity(&identity)?;
+                let identity = self.publication_identity_for_data(&slot.data)?;
+                let mut promise = metadata.promise_for_identity(&identity)?;
+                promise.origin = slot.data.ledger_origin_digest.clone();
                 promises.insert(metadata.digest()?, promise);
             }
         }
@@ -137,11 +141,12 @@ impl NodePrivateStore {
         // A staged Data alone is not a durable promise. The exact original
         // pin transaction must have completed before consuming capacity.
         verify_material(&self.store, &slot.data)?;
-        let identity = publication_identity(&slot.data)?;
+        let identity = self.publication_identity_for_data(&slot.data)?;
         Ok(Some(ValidatedPrivatePublicationV1 {
             reference: metadata.digest()?,
             claim: metadata.claim_for_actual(
                 &identity,
+                &slot.data.ledger_origin_digest,
                 &candidate.actions_cbor,
                 executed,
                 accounting,

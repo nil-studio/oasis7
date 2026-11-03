@@ -16,6 +16,7 @@ struct Deferred {
     auto_prepare_owner: super::auto_prepare::AutoPrepareOwnerV1,
     delegate: Option<Driver>,
     membership_enabled: bool,
+    admission_input_io: Option<Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>>,
 }
 enum Driver {
     Legacy(Box<FormalBftHeaderNodeDriverV3>),
@@ -91,6 +92,7 @@ impl FormalBftHeaderNodeDriverV3 {
                 auto_prepare_owner,
                 delegate: None,
                 membership_enabled: false,
+                admission_input_io: None,
             }),
             handoff,
             initial,
@@ -107,6 +109,41 @@ impl Deferred {
     }
 }
 impl NodeExecutionHook for Deferred {
+    fn configure_bft_v3_admission_input_io(
+        &mut self,
+        io: Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>,
+    ) -> Result<(), String> {
+        if let Some(driver) = self.delegate.as_mut() {
+            driver
+                .hook()
+                .configure_bft_v3_admission_input_io(io.clone())?;
+        }
+        self.admission_input_io = Some(io);
+        Ok(())
+    }
+    fn retain_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn BftSignerLeaseV3,
+        context: &NodeBftExecutionContextV3,
+        candidate: &NodeBftPrivateCandidateV3,
+        deadline: Instant,
+    ) -> Result<String, String> {
+        self.driver()?
+            .retain_bft_v3_protected_candidate(binding, lease, context, candidate, deadline)
+    }
+    fn retain_received_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn BftSignerLeaseV3,
+        context: &NodeBftExecutionContextV3,
+        package: &oasis7_node::NodeBftPrivateCandidatePackageV3,
+        deadline: Instant,
+    ) -> Result<oasis7_node::NodeBftProtectedCandidateAdmissionV3, String> {
+        self.driver()?
+            .retain_received_bft_v3_protected_candidate(binding, lease, context, package, deadline)
+    }
+
     fn on_commit(
         &mut self,
         _: oasis7_node::NodeExecutionCommitContext,

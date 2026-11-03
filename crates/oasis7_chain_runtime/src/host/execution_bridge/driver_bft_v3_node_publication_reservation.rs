@@ -209,9 +209,16 @@ impl PublicationReservationV1 {
             promised: self.promised_bytes()?,
         })
     }
+    #[cfg(test)]
+    pub(super) fn foreign_instance_for_test(&self) -> Self {
+        let mut foreign = self.clone();
+        foreign.instance_id = "fe".repeat(32);
+        foreign
+    }
     pub(super) fn claim_for_actual(
         &self,
         identity: &PublicationCandidateIdentityV1,
+        record_origin: &str,
         actions: &[u8],
         executed: &ExecutedFormalHeaderV3,
         accounting: &LedgerPublicationAccountingV1,
@@ -224,7 +231,7 @@ impl PublicationReservationV1 {
             actions_digest: self.actions_digest.clone(),
         };
         let consumed = accounting.consumed_for(
-            &identity.origin,
+            record_origin,
             identity.height,
             &binding,
             &self.snapshot_digest,
@@ -236,12 +243,14 @@ impl PublicationReservationV1 {
             .ok_or("actual storage exceeds publication promise")?;
         Ok(Box::new(RetainedClaim {
             metadata: self.clone(),
+            record_origin: record_origin.into(),
             remaining,
         }))
     }
 }
 struct RetainedClaim {
     metadata: PublicationReservationV1,
+    record_origin: String,
     remaining: usize,
 }
 impl RetainedPublicationClaimV1 for RetainedClaim {
@@ -262,7 +271,7 @@ impl RetainedPublicationClaimV1 for RetainedClaim {
         if binding.reservation_ref != metadata.digest()?
             || binding.header_id != metadata.header_id
             || binding.actions_digest != metadata.actions_digest
-            || origin != metadata.ledger_origin_digest
+            || origin != self.record_origin
             || height != metadata.height
             || snapshot != metadata.snapshot_digest
             || journal != metadata.journal_digest

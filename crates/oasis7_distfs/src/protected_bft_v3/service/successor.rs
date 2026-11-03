@@ -12,6 +12,31 @@ use std::time::{Duration, Instant};
 /// Implementations must independently reopen and verify the exact driver
 /// pointer/WAL/private closure and readback state, under the same deadline.
 pub trait BftSuccessorWindowDriverVerifierV1: Send + Sync {
+    /// Covered source validation borrows only this service's exact protected
+    /// originals. It must not call its own network endpoint under the runtime lock.
+    fn verify_prepared_with_retention_context(
+        &self,
+        _original: &BftSuccessorWindowStoredRequestV1,
+        _public_state: &BftSignerStateV3,
+        _context: &crate::protected_bft_v3::BftPrivateRetentionSealVerificationContextV1<'_>,
+        _deadline: Instant,
+    ) -> Result<(), BftSignerErrorV3> {
+        Err(invalid(
+            "covered successor protected original verifier unsupported",
+        ))
+    }
+    fn verify_adopted_with_retention_context(
+        &self,
+        _original: &BftSuccessorWindowStoredRequestV1,
+        _installed: &BftSignerStateV3,
+        _evidence: &BftSuccessorWindowAdoptedEvidenceV1,
+        _context: &crate::protected_bft_v3::BftPrivateRetentionSealVerificationContextV1<'_>,
+        _deadline: Instant,
+    ) -> Result<(), BftSignerErrorV3> {
+        Err(invalid(
+            "covered successor protected adoption verifier unsupported",
+        ))
+    }
     /// Independently validate the exact same-cut private closure before the
     /// protected minimum can advance. A caller DTO is not this capability.
     fn verify_prepared(
@@ -443,7 +468,43 @@ impl BftSignerServiceV3 {
                                     &public_state,
                                     BFT_SIGNER_MAX_FRAME_BYTES_V3,
                                 )?)?;
-                            verifier.verify_prepared(&original, &public_state, deadline)?;
+                            if snapshot.state.private_retention.is_some() {
+                                let retained =
+                                    match runtime.backend.read_private_retention_sealed_current(
+                                        snapshot.lease_generation,
+                                        &snapshot.lease_token_digest,
+                                    ) {
+                                        Ok(value) => value,
+                                        Err(error) => {
+                                            runtime.input_view_epoch.invalidate()?;
+                                            return Err(error);
+                                        }
+                                    };
+                                let role = &self
+                                    .private_retention_support
+                                    .as_ref()
+                                    .ok_or_else(|| {
+                                        invalid("covered successor original capability unavailable")
+                                    })?
+                                    .attestor;
+                                let context = match crate::protected_bft_v3::private_retention_seal_context::BftPrivateRetentionSealVerificationContextV1::from_backend_sealed_current_with_verified_state(
+                                    &self.binding, role, &retained, &snapshot, runtime.verified.as_ref(),
+                                ) {
+                                    Ok(value) => value,
+                                    Err(error) => {
+                                        runtime.input_view_epoch.invalidate()?;
+                                        return Err(error);
+                                    }
+                                };
+                                verifier.verify_prepared_with_retention_context(
+                                    &original,
+                                    &public_state,
+                                    &context,
+                                    deadline,
+                                )?;
+                            } else {
+                                verifier.verify_prepared(&original, &public_state, deadline)?;
+                            }
                             live(deadline)?;
                             let body = &original.request.intent.body.checkpoint;
                             let receipt = BftSuccessorWindowInstallReceiptV1::sign(
@@ -516,12 +577,49 @@ impl BftSignerServiceV3 {
                                 deadline,
                             )?;
                             live(deadline)?;
-                            verifier.verify_adopted(
-                                &original,
-                                &snapshot.state,
-                                evidence,
-                                deadline,
-                            )?;
+                            if snapshot.state.private_retention.is_some() {
+                                let retained =
+                                    match runtime.backend.read_private_retention_sealed_current(
+                                        snapshot.lease_generation,
+                                        &snapshot.lease_token_digest,
+                                    ) {
+                                        Ok(value) => value,
+                                        Err(error) => {
+                                            runtime.input_view_epoch.invalidate()?;
+                                            return Err(error);
+                                        }
+                                    };
+                                let role = &self
+                                    .private_retention_support
+                                    .as_ref()
+                                    .ok_or_else(|| {
+                                        invalid("covered successor original capability unavailable")
+                                    })?
+                                    .attestor;
+                                let context = match crate::protected_bft_v3::private_retention_seal_context::BftPrivateRetentionSealVerificationContextV1::from_backend_sealed_current_with_verified_state(
+                                    &self.binding, role, &retained, &snapshot, runtime.verified.as_ref(),
+                                ) {
+                                    Ok(value) => value,
+                                    Err(error) => {
+                                        runtime.input_view_epoch.invalidate()?;
+                                        return Err(error);
+                                    }
+                                };
+                                verifier.verify_adopted_with_retention_context(
+                                    &original,
+                                    &snapshot.state,
+                                    evidence,
+                                    &context,
+                                    deadline,
+                                )?;
+                            } else {
+                                verifier.verify_adopted(
+                                    &original,
+                                    &snapshot.state,
+                                    evidence,
+                                    deadline,
+                                )?;
+                            }
                             live(deadline)?;
                             extension.requests[index].request.status =
                                 BftSuccessorWindowStatusV1::Adopted;

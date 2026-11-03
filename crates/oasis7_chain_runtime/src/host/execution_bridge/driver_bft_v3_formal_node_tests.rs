@@ -35,6 +35,8 @@ mod node_multivalue_tests;
 mod node_publication_failure_tests;
 #[path = "driver_bft_v3_provider_retry_tests.rs"]
 mod provider_retry_tests;
+#[path = "driver_bft_v3_source_creation_tests.rs"]
+mod source_creation_tests;
 
 #[path = "driver_bft_v3_successor_archive_tests.rs"]
 mod successor_archive_tests;
@@ -257,7 +259,16 @@ impl BftSignerBackendV3 for MemoryTestSignerBackend {
     }
 }
 
-struct ActualHook(Arc<Mutex<FormalBftHeaderNodeDriverV3>>);
+#[derive(Clone, Copy)]
+enum CandidateRetentionProfile {
+    LegacyRecovery,
+    PublicationReserved,
+    ActivePublicationReserved,
+}
+struct ActualHook(
+    Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
+    CandidateRetentionProfile,
+);
 impl NodeExecutionHook for ActualHook {
     fn on_commit(
         &mut self,
@@ -277,6 +288,69 @@ impl NodeExecutionHook for ActualHook {
     ) -> Result<NodeBftExecutionContextV3, String> {
         self.0.lock().unwrap().current_bft_v3_execution_context(s)
     }
+    fn prepare_bft_v3_execution(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.0
+            .lock()
+            .unwrap()
+            .prepare_bft_v3_execution(binding, lease, deadline)
+    }
+    fn configure_bft_v3_admission_input_io(
+        &mut self,
+        io: Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>,
+    ) -> Result<(), String> {
+        self.0
+            .lock()
+            .unwrap()
+            .configure_bft_v3_admission_input_io(io)
+    }
+    fn preflight_bft_v3_capacity(
+        &mut self,
+        context: &NodeBftBuildContextV3,
+    ) -> Result<oasis7_node::NodeBftCapacityAdmissionV3, String> {
+        self.0.lock().unwrap().preflight_bft_v3_capacity(context)
+    }
+    fn retain_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        context: &NodeBftExecutionContextV3,
+        candidate: &NodeBftPrivateCandidateV3,
+        deadline: Instant,
+    ) -> Result<String, String> {
+        #[cfg(feature = "node-libp2p")]
+        if let Some(result) = successor_install_tests::intercept_received_alternative(
+            &self.0, binding, lease, context, candidate, deadline,
+        ) {
+            return result;
+        }
+        if let Some(result) = successor_install_tests::intercept_selected_archive(
+            &self.0, binding, lease, context, candidate, deadline,
+        ) {
+            return result;
+        }
+        self.0
+            .lock()
+            .unwrap()
+            .retain_bft_v3_protected_candidate(binding, lease, context, candidate, deadline)
+    }
+    fn retain_received_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        context: &NodeBftExecutionContextV3,
+        package: &oasis7_node::NodeBftPrivateCandidatePackageV3,
+        deadline: Instant,
+    ) -> Result<oasis7_node::NodeBftProtectedCandidateAdmissionV3, String> {
+        self.0
+            .lock()
+            .unwrap()
+            .retain_received_bft_v3_protected_candidate(binding, lease, context, package, deadline)
+    }
     fn build_bft_v3_candidate(
         &mut self,
         c: NodeBftBuildContextV3,
@@ -295,7 +369,17 @@ impl NodeExecutionHook for ActualHook {
         c: &NodeBftExecutionContextV3,
         p: &NodeBftPrivateCandidateV3,
     ) -> Result<String, String> {
-        self.0.lock().unwrap().retain_bft_v3_private_candidate(c, p)
+        match self.1 {
+            CandidateRetentionProfile::LegacyRecovery
+            | CandidateRetentionProfile::ActivePublicationReserved => {
+                self.0.lock().unwrap().retain_bft_v3_private_candidate(c, p)
+            }
+            CandidateRetentionProfile::PublicationReserved => self
+                .0
+                .lock()
+                .unwrap()
+                .retain_bft_v3_reserved_candidate(c, p),
+        }
     }
     fn pending_bft_v3_private_candidate(
         &mut self,
@@ -420,7 +504,7 @@ fn tcp(service: Arc<BftSignerServiceV3>) -> (SocketAddr, thread::JoinHandle<Resu
         };
         stream.set_nonblocking(false).unwrap();
         service
-            .serve_connection(&mut stream)
+            .serve_tcp_connection(&mut stream)
             .map_err(|e| e.to_string())
     });
     (address, join)
@@ -478,6 +562,21 @@ fn runtime(
     binding: &BftSignerBindingV3,
     address: SocketAddr,
 ) -> NodeRuntime {
+    runtime_with_retention(
+        root,
+        driver,
+        binding,
+        address,
+        CandidateRetentionProfile::LegacyRecovery,
+    )
+}
+fn runtime_with_retention(
+    root: &Path,
+    driver: Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
+    binding: &BftSignerBindingV3,
+    address: SocketAddr,
+    retention: CandidateRetentionProfile,
+) -> NodeRuntime {
     let provider = Arc::new(
         RemoteBftSignerProviderV3::new(
             address,
@@ -503,7 +602,7 @@ fn runtime(
     .with_replication(NodeReplicationConfig::new(root.join("replication")).unwrap());
     NodeRuntime::new(config)
         .with_replication_network_consensus_enabled(false)
-        .with_execution_hook(ActualHook(driver))
+        .with_execution_hook(ActualHook(driver, retention))
         .with_tendermint_v3(binding.clone(), provider)
         .unwrap()
 }

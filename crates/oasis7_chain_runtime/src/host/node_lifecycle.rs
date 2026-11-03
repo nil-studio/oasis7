@@ -7,7 +7,7 @@ use std::path::Path;
 #[path = "node_lifecycle/bootstrap.rs"]
 mod bootstrap;
 #[path = "node_lifecycle/formal_full_sync.rs"]
-mod formal_full_sync;
+pub(crate) mod formal_full_sync;
 #[path = "node_lifecycle/formal_observer.rs"]
 mod formal_observer;
 #[cfg(unix)]

@@ -476,22 +476,13 @@ impl<F: Format> GenericLedger<F> {
             let reservation = canonical_reservation
                 .as_ref()
                 .or(staged_reservation.as_ref());
-            if canonical_reservation
-                .as_ref()
-                .zip(staged_reservation.as_ref())
-                .is_some_and(|(a, b)| a != b)
-                || intent
-                    .as_ref()
-                    .zip(staged_intent.as_ref())
-                    .is_some_and(|(a, b)| a != b)
-                || (reservation.is_some()
-                    && (record.is_some() || intent.is_some() || staged_intent.is_some()))
-            {
-                return Err(
-                    "formal prefix original reservation/intent identities conflict; preserved"
-                        .into(),
-                );
-            }
+            select_original_slot(
+                record.as_ref(),
+                intent.as_ref(),
+                staged_intent.as_ref(),
+                canonical_reservation.as_ref(),
+                staged_reservation.as_ref(),
+            )?;
             if canonical_reservation.is_some() {
                 files::single_link(&reservation_path)?;
             }
@@ -517,22 +508,8 @@ impl<F: Format> GenericLedger<F> {
                     .ok_or("formal prefix slot disappeared during locked load")?,
             };
             let pin = self.pin.as_ref().ok_or("formal prefix origin missing")?;
-            value.validate(pin)?;
-            if value.origin_digest() != pin.digest()? {
-                return Err("formal prefix record origin identity mismatch".into());
-            }
-            let expected_height = pin
-                .first_height()
-                .checked_add(slots.len() as u64)
-                .ok_or("formal prefix height overflow")?;
-            if height != expected_height
-                || value.height() != height
-                || previous.as_deref() != Some(value.parent_record_digest())
-            {
-                return Err(
-                    "formal prefix immutable history has a gap or different parent digest".into(),
-                );
-            }
+            validate_record_chain(pin, value, slots.len(), height, previous.as_deref())?;
+
             if slots
                 .values()
                 .any(|slot: &Slot<F::Record>| slot.intent || slot.reserved || !slot.committed)
@@ -579,6 +556,16 @@ impl<F: Format> GenericLedger<F> {
         retain: impl FnOnce(&F::Origin, bool) -> Result<(), String>,
     ) -> Result<(), String> {
         self.bind_origin(material_pin_digest, first_height, retain)
+    }
+
+    pub(super) fn bind_retained_with_origin(
+        &mut self,
+        material_pin_digest: &str,
+        first_height: u64,
+        retain: impl FnOnce(&F::Origin, bool) -> Result<(), String>,
+        prepare: impl FnOnce(F::Origin) -> Result<F::Origin, String>,
+    ) -> Result<(), String> {
+        self.bind_origin_with(material_pin_digest, first_height, retain, prepare)
     }
 
     pub(super) fn bind(
@@ -691,6 +678,9 @@ impl<F: Format> GenericLedger<F> {
         self.pin
             .as_ref()
             .ok_or_else(|| "formal prefix origin missing".into())
+    }
+    pub(super) fn origin_reserved_bytes(&self) -> usize {
+        self.origin_bytes
     }
     /// Only an original durable reservation without its pin publication may
     /// reconstruct missing outputs. Committed/intent history stays read-only.
@@ -1142,3 +1132,86 @@ fn canonical_hash(value: &str) -> Result<(), String> {
 #[cfg(test)]
 #[path = "driver_bft_formal_capacity_tests.rs"]
 mod capacity_tests;
+
+/// Pure immutable-chain validation shared by locked loading and independent readers.
+pub(super) fn validate_record_chain<O: OriginContract, R: RecordContract<O>>(
+    origin: &O,
+    record: &R,
+    index: usize,
+    height: u64,
+    previous: Option<&str>,
+) -> Result<(), String> {
+    record.validate(origin)?;
+    if record.origin_digest() != origin.digest()? {
+        return Err("formal prefix record origin identity mismatch".into());
+    }
+    let expected = origin
+        .first_height()
+        .checked_add(index as u64)
+        .ok_or("formal prefix height overflow")?;
+    if height != expected
+        || record.height() != height
+        || previous != Some(record.parent_record_digest())
+    {
+        return Err("formal prefix immutable history has a gap or different parent digest".into());
+    }
+    Ok(())
+}
+
+/// Select the immutable original slot without repairing WAL or touching files.
+pub(super) fn select_original_slot<'a, R: PartialEq>(
+    record: Option<&'a R>,
+    intent: Option<&'a R>,
+    staged_intent: Option<&'a R>,
+    reservation: Option<&'a R>,
+    staged_reservation: Option<&'a R>,
+) -> Result<&'a R, String> {
+    if reservation
+        .zip(staged_reservation)
+        .is_some_and(|(a, b)| a != b)
+        || intent.zip(staged_intent).is_some_and(|(a, b)| a != b)
+        || ((reservation.is_some() || staged_reservation.is_some())
+            && (record.is_some() || intent.is_some() || staged_intent.is_some()))
+        || record.zip(intent).is_some_and(|(a, b)| a != b)
+        || record.zip(staged_intent).is_some_and(|(a, b)| a != b)
+    {
+        return Err(
+            "formal prefix original reservation/intent identities conflict; preserved".into(),
+        );
+    }
+    record
+        .or(intent)
+        .or(staged_intent)
+        .or(reservation)
+        .or(staged_reservation)
+        .ok_or_else(|| "formal prefix slot disappeared during immutable load".into())
+}
+
+#[cfg(test)]
+mod immutable_slot_tests {
+    use super::select_original_slot;
+    #[test]
+    fn wal_selection_preserves_original_and_rejects_conflicts() {
+        assert_eq!(
+            select_original_slot::<u8>(None, None, None, Some(&7), Some(&7)),
+            Ok(&7)
+        );
+        assert_eq!(
+            select_original_slot::<u8>(Some(&7), Some(&7), None, None, None),
+            Ok(&7)
+        );
+        assert!(select_original_slot::<u8>(Some(&7), None, None, Some(&7), None).is_err());
+        assert!(select_original_slot::<u8>(None, Some(&7), Some(&8), None, None).is_err());
+        assert!(select_original_slot::<u8>(None, None, None, Some(&7), Some(&8)).is_err());
+        assert!(select_original_slot::<u8>(None, None, None, None, None).is_err());
+        assert!(select_original_slot::<u8>(Some(&7), None, Some(&8), None, None).is_err());
+        assert_eq!(
+            select_original_slot::<u8>(None, None, Some(&7), None, None),
+            Ok(&7)
+        );
+        assert_eq!(
+            select_original_slot::<u8>(None, None, None, None, Some(&7)),
+            Ok(&7)
+        );
+    }
+}

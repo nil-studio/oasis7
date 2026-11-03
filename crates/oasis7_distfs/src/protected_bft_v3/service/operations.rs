@@ -83,6 +83,13 @@ impl BftSignerServiceV3 {
             return Err(invalid("BFT V3 proposal differs from its reserved intent"));
         }
         let key = self.signing_key_for_active_set(verified.schedule.active_set())?;
+        self.require_private_ready(
+            runtime,
+            &snapshot,
+            intent.header.height,
+            &intent.header.block_id,
+            BftPrivateRetentionSigningPurposeV1::LocalProposal,
+        )?;
         let header = BftProposalHeaderV3 {
             protocol_version: BFT_PROTOCOL_VERSION_V3,
             scope: intent.header.scope.clone(),
@@ -236,6 +243,16 @@ impl BftSignerServiceV3 {
         let preimage = vote
             .signing_payload()
             .map_err(|error| invalid(format!("BFT V3 vote signing preimage: {error}")))?;
+        if let oasis7_proto::distributed_bft::v3::BftVoteValueV3::Block { block_id } = &intent.value
+        {
+            self.require_private_ready(
+                runtime,
+                &snapshot,
+                intent.height,
+                block_id,
+                BftPrivateRetentionSigningPurposeV1::BlockVerification,
+            )?;
+        }
         vote.signature_hex = hex::encode(key.sign_preimage(&preimage)?);
         vote.verify_signature()
             .map_err(|error| invalid(format!("BFT V3 signed vote validation: {error}")))?;
@@ -284,6 +301,7 @@ impl BftSignerServiceV3 {
             .as_ref()
             .ok_or_else(|| invalid("BFT V3 verified state cache is unavailable"))?;
         if previous_verified.state != *previous {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid(
                 "BFT V3 mutation snapshot differs from verified cache",
@@ -296,6 +314,35 @@ impl BftSignerServiceV3 {
             &self.provider_key.public_key_hex(),
         )?;
         let now = self.sample_time(runtime, credential, token_digest)?;
+        if next_verified.state.history.len() > previous.history.len()
+            && (self.private_retention_support.is_some() || previous.private_retention.is_some())
+        {
+            let current = match runtime
+                .backend
+                .read_for_lease(credential.generation, token_digest)
+            {
+                Ok(current) => current,
+                Err(error) => {
+                    runtime.input_view_epoch.invalidate()?;
+                    runtime.poisoned = true;
+                    return Err(error);
+                }
+            };
+            if current.state != *previous {
+                runtime.input_view_epoch.invalidate()?;
+                runtime.poisoned = true;
+                return Err(invalid("private retention commit observation changed"));
+            }
+            for certificate in &next_verified.state.history[previous.history.len()..] {
+                self.require_private_ready(
+                    runtime,
+                    &current,
+                    certificate.execution_commitment.height,
+                    &certificate.header.block_id().map_err(invalid)?,
+                    BftPrivateRetentionSigningPurposeV1::BlockVerification,
+                )?;
+            }
+        }
         if minimum_event_time_ms.is_some_and(|time| time < 0 || time > now) {
             return Err(invalid("BFT V3 event timestamp exceeds protected time"));
         }
@@ -316,6 +363,7 @@ impl BftSignerServiceV3 {
             &next_state,
             runtime.observed_archive_transfer.as_ref(),
         )?;
+        runtime.input_view_epoch.invalidate()?;
         let response = runtime.backend.compare_and_swap(
             credential.generation,
             token_digest,
@@ -327,6 +375,7 @@ impl BftSignerServiceV3 {
         let snapshot = match response {
             Ok(snapshot) => snapshot,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 state CAS outcome is uncertain; provider poisoned: {error}"
@@ -339,6 +388,7 @@ impl BftSignerServiceV3 {
             || snapshot.state != next_verified.state
             || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
         {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid(
                 "BFT V3 state CAS returned an invalid snapshot; provider poisoned",
@@ -348,6 +398,7 @@ impl BftSignerServiceV3 {
             match self.validate_provider_state(&snapshot.state, runtime.successor_deadline) {
                 Ok(verified) => verified,
                 Err(error) => {
+                    runtime.input_view_epoch.invalidate()?;
                     runtime.poisoned = true;
                     return Err(invalid(format!(
                         "BFT V3 state CAS committed invalid state; provider poisoned: {error}"
@@ -372,6 +423,7 @@ impl BftSignerServiceV3 {
         {
             Ok(now) => now,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 protected clock is unavailable; provider poisoned: {error}"
@@ -379,6 +431,7 @@ impl BftSignerServiceV3 {
             }
         };
         if now < runtime.observed_time_floor_ms || now < 0 {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid("BFT V3 backend protected clock rollback"));
         }
@@ -468,12 +521,14 @@ impl BftSignerServiceV3 {
         if let Err(error) =
             validate_snapshot_shape(snapshot, Some(credential), expected_token_digest.as_deref())
         {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(error);
         }
         let verified = match self.verify_snapshot_against_cache(runtime, snapshot) {
             Ok(verified) => verified,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(error);
             }
@@ -481,6 +536,7 @@ impl BftSignerServiceV3 {
         if snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
             || snapshot.lease_generation < runtime.observed_generation
         {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid(
                 "BFT V3 backend monotonic floor or generation regressed",
@@ -555,12 +611,14 @@ impl BftSignerServiceV3 {
         if runtime.poisoned {
             return Err(invalid("BFT V3 provider is poisoned"));
         }
+        runtime.input_view_epoch.invalidate()?;
         let snapshot = match runtime
             .backend
             .release_lease(credential.generation, &token_digest)
         {
             Ok(snapshot) => snapshot,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 lease release is uncertain; provider poisoned: {error}"
@@ -568,6 +626,7 @@ impl BftSignerServiceV3 {
             }
         };
         if let Err(error) = validate_snapshot_shape(&snapshot, None, None) {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid(format!(
                 "BFT V3 lease release returned an invalid snapshot; provider poisoned: {error}"
@@ -576,6 +635,7 @@ impl BftSignerServiceV3 {
         let verified = match self.verify_snapshot_against_cache(&runtime, &snapshot) {
             Ok(verified) => verified,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 lease release snapshot is invalid; provider poisoned: {error}"
@@ -583,6 +643,7 @@ impl BftSignerServiceV3 {
             }
         };
         if snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid("BFT V3 lease release clock floor regressed"));
         }
@@ -608,6 +669,7 @@ impl BftSignerServiceV3 {
         {
             return Ok(());
         }
+        runtime.input_view_epoch.invalidate()?;
         runtime.poisoned = true;
         Err(invalid(
             "BFT V3 backend did not durably fence the released lease",

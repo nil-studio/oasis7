@@ -14,6 +14,25 @@ use oasis7_node::{
 #[path = "driver_bft_v3_node_private_store.rs"]
 mod private_store;
 use private_store::NodePrivateStore;
+#[path = "driver_bft_v3_source_node_activation.rs"]
+pub(super) mod source_activation;
+#[path = "driver_bft_v3_node_successor.rs"]
+mod successor;
+pub(super) use private_store::{
+    CarryCopyDescriptorV1, PublicationArchiveMaterialV1, PublicationArchiveOwnerV1,
+    VerifiedActiveAdmissionInputV1, VerifiedPublicationOriginalV1, active_admission_candidate,
+    carry_origin_usage, dependency_identity, read_source_origin,
+    source_admission_archive_reservation_bytes, source_admission_candidate,
+    source_admission_historical_reservation_bytes, source_admission_reservation_bytes,
+    source_selection_identity, validate_source_admission_input,
+    validate_source_admission_slot_kind, verify_active_admission_original,
+    verify_active_admission_ready, verify_active_selection_current, verify_source_admission_ready,
+    verify_source_input_context_role, verify_source_input_historical_role,
+    verify_source_seal_context_role, verify_source_selection_current,
+};
+pub(super) use private_store::{
+    VerifiedSourceArchiveActivationV1, verify_source_archive_activation,
+};
 #[path = "driver_bft_v3_parent_memo.rs"]
 mod parent_memo;
 use parent_memo::{ParentMemo, ParentMemoKey};
@@ -23,6 +42,9 @@ pub(super) use window_private::WindowPrivateStore;
 
 #[path = "driver_bft_v3_node_auto_prepare.rs"]
 mod auto_prepare;
+pub(super) fn auto_prepare_reserve() -> Result<(u64, u64), String> {
+    auto_prepare::max_publication_reserve()
+}
 
 #[cfg(test)]
 #[path = "driver_bft_v3_node_publication_test_support.rs"]
@@ -69,22 +91,6 @@ impl OriginalHeaderIdentityV1 {
             material_identity,
         })
     }
-    #[cfg(test)]
-    pub(crate) fn persist_auto_prepare_for_test(
-        &self,
-        records: &Path,
-        binding: &BftSignerBindingV3,
-        pin: &str,
-        body: oasis7_distfs::protected_bft_v3::BftSuccessorWindowInstallIntentBodyV1,
-        manifest: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveManifestV1,
-    ) -> Result<(), String> {
-        let owner = auto_prepare::AutoPrepareOwnerV1::from_identity(self, pin)?;
-        let intent = auto_prepare::AutoPrepareIntentV1::new(owner, binding, body, manifest)?;
-        self.verify_unchanged()?;
-        intent.persist(records)?;
-        self.verify_unchanged()
-    }
-
     pub(crate) fn handoff(&self) -> &VerifiedBftHandoffTargetV2 {
         &self.execution.origin.handoff
     }
@@ -116,6 +122,8 @@ pub(crate) struct FormalBftHeaderNodeDriverV3 {
     peer_network: bool,
     membership_enabled: bool,
     parent_memo: Option<ParentMemo>,
+    covered_source: Option<source_activation::CoveredSourceContextV1>,
+    admission_input_io: Option<Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>>,
 }
 impl FormalBftHeaderNodeDriverV3 {
     pub(crate) fn open_from_handoff(
@@ -162,6 +170,14 @@ impl FormalBftHeaderNodeDriverV3 {
             true,
         )?;
         let initial_schedule = execution.origin.schedule.clone();
+        if execution
+            .ledger
+            .origin()?
+            .source_creation_identity()
+            .is_some()
+        {
+            return Err("covered source requires original protected activation; legacy open cannot initialize it".into());
+        }
         if (!peer_network && initial_schedule.active_set().validators().len() != 1)
             || initial_schedule.pending_transition().is_some()
         {
@@ -204,6 +220,8 @@ impl FormalBftHeaderNodeDriverV3 {
             peer_network,
             membership_enabled: false,
             parent_memo: None,
+            covered_source: None,
+            admission_input_io: None,
             installed_world,
             execution,
             private,
@@ -213,112 +231,6 @@ impl FormalBftHeaderNodeDriverV3 {
             cursor_height,
         })
     }
-    /// Export only after actual durable H-to-cut replay; this does not adopt a
-    /// successor minimum or permit a new signing window.
-    pub(crate) fn export_successor_private_closure(
-        &mut self,
-        request: super::successor_archive::SuccessorPrivateExportRequestV1<'_>,
-    ) -> Result<ExportedBftSuccessorPrivateClosureV1, String> {
-        let super::successor_archive::SuccessorPrivateExportRequestV1 {
-            archive,
-            source,
-            public_state,
-            previous_usage,
-            height,
-            header_id,
-            sequence,
-            predecessor,
-            deadline,
-        } = request;
-        self.require_configured()?;
-        let archive_root = canonical_storage_path(archive.root())?;
-        crate::controlled_live_config::require_private_owned(&archive_root, true)?;
-        for live in [
-            &self.records_root,
-            &canonical_storage_path(self.execution.store.root())?,
-        ] {
-            if archive_root.starts_with(live) || live.starts_with(&archive_root) {
-                return Err("successor immutable archive overlaps live private storage".into());
-            }
-        }
-        if source.material_identity != self.material_identity
-            || source.binding_digest
-                != *self
-                    .configured_binding
-                    .as_ref()
-                    .ok_or("Node binding absent")?
-            || self.cursor_height != height
-        {
-            return Err("successor export differs from installed original Node".into());
-        }
-        let mut pending_packages = Vec::new();
-        let next_height = height
-            .checked_add(1)
-            .ok_or("successor pending height overflow")?;
-        let mut required =
-            super::successor_archive::required_pending(public_state.journal.as_ref())?;
-        if let Some(local) = self.private.candidate(next_height)? {
-            required
-                .entry(local.public_value.block_id()?)
-                .or_default()
-                .insert(super::successor_archive::PendingRoleV1::RetainedLocal);
-        }
-        for (id, roles) in required {
-            let value = self
-                .private
-                .public_value(next_height, &id)?
-                .ok_or("original T+1 private candidate unavailable")?;
-            pending_packages.push((roles, self.private.export(&value)?));
-        }
-        self.execution.export_successor_private_closure(
-            super::successor_archive::SuccessorPrivateExportRequestV1 {
-                archive,
-                source,
-                public_state,
-                previous_usage,
-                height,
-                header_id,
-                sequence,
-                predecessor,
-                deadline,
-            },
-            self.private.instance_id(),
-            &pending_packages,
-        )
-    }
-
-    pub(crate) fn install_successor_window(
-        &mut self,
-        request: super::successor_install::SuccessorPrivateInstallRequestV1<'_>,
-    ) -> Result<oasis7_distfs::protected_bft_v3::BftSuccessorWindowAdoptedEvidenceV1, String> {
-        let binding = request.binding;
-        let archive = &request.archive;
-        self.require_configured()?;
-        if self.check_binding(binding)?
-            != *self
-                .configured_binding
-                .as_ref()
-                .ok_or("Node binding absent")?
-        {
-            return Err("successor install binding changed".into());
-        }
-        let archive_root = canonical_storage_path(archive.root())?;
-        for live in [
-            &self.records_root,
-            &canonical_storage_path(self.execution.store.root())?,
-        ] {
-            if archive_root.starts_with(live) || live.starts_with(&archive_root) {
-                return Err("successor installation archive overlaps live storage".into());
-            }
-        }
-        self.execution.install_successor_window(
-            &self.records_root,
-            &self.material_identity,
-            self.cursor_height,
-            request,
-        )
-    }
-
     #[cfg(test)]
     pub(crate) fn inject_publication_failure(
         &mut self,
@@ -346,6 +258,9 @@ impl FormalBftHeaderNodeDriverV3 {
     }
 
     fn check_binding(&self, binding: &BftSignerBindingV3) -> Result<String, String> {
+        if let Some(source) = &self.covered_source {
+            source.verify()?;
+        }
         binding
             .validate()
             .map_err(|_| "Node signer binding rejected")?;
@@ -373,6 +288,9 @@ impl FormalBftHeaderNodeDriverV3 {
         Ok(digest)
     }
     fn require_configured(&self) -> Result<(), String> {
+        if let Some(source) = &self.covered_source {
+            source.verify()?;
+        }
         if self.configured_binding.is_none() {
             return Err("formal header Node driver is not configured".into());
         }
@@ -381,6 +299,9 @@ impl FormalBftHeaderNodeDriverV3 {
     /// Rebuild the exact parent before every preview. Failed or alternative
     /// previews cannot contaminate retained dependency observations.
     fn reset_parent(&mut self) -> Result<(), String> {
+        if let Some(source) = &self.covered_source {
+            source.verify()?;
+        }
         self.execution.ledger.reload()?;
         self.execution.ledger.reserve_private_material(
             self.private.usage()?,
@@ -564,6 +485,23 @@ impl FormalBftHeaderNodeDriverV3 {
 }
 
 impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
+    fn prepare_bft_v3_execution(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        deadline: std::time::Instant,
+    ) -> Result<(), String> {
+        self.prepare_source_original(binding, lease, deadline)
+    }
+
+    fn configure_bft_v3_admission_input_io(
+        &mut self,
+        io: Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>,
+    ) -> Result<(), String> {
+        self.admission_input_io = Some(io);
+        Ok(())
+    }
+
     fn enable_bft_v3_membership_execution(&mut self) -> Result<(), String> {
         if self.membership_enabled {
             return Ok(());
@@ -645,11 +583,64 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
     ) -> Result<(), String> {
         self.validate_candidate(expected, candidate)
     }
+    fn retain_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        expected: &NodeBftExecutionContextV3,
+        candidate: &NodeBftPrivateCandidateV3,
+        deadline: std::time::Instant,
+    ) -> Result<String, String> {
+        self.retain_source_input(binding, lease, expected, candidate, deadline)
+    }
+    fn retain_received_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        expected: &NodeBftExecutionContextV3,
+        package: &NodeBftPrivateCandidatePackageV3,
+        deadline: std::time::Instant,
+    ) -> Result<oasis7_node::NodeBftProtectedCandidateAdmissionV3, String> {
+        use oasis7_node::NodeBftProtectedCandidateAdmissionV3 as Admission;
+        if package.dependency_nodes.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES
+            || !package.dependency_nodes.windows(2).all(|w| w[0].0 < w[1].0)
+        {
+            return Ok(Admission::Rejected(
+                "received dependency order/count differs".into(),
+            ));
+        }
+        let supplied: std::collections::BTreeMap<_, _> =
+            package.dependency_nodes.iter().cloned().collect();
+        if formal_dependencies::validate_nodes(&supplied).is_err() {
+            return Ok(Admission::Rejected(
+                "received dependency bytes rejected".into(),
+            ));
+        }
+        if self
+            .validate_candidate(expected, &package.candidate)
+            .is_err()
+        {
+            return Ok(Admission::Rejected(
+                "received original candidate did not reproduce".into(),
+            ));
+        }
+        if self.execution.origin.retained_nodes.accessed_nodes()? != supplied {
+            return Ok(Admission::Rejected(
+                "received dependencies differ from actual transition".into(),
+            ));
+        }
+        self.retain_received_source_input(binding, lease, expected, &package.candidate, deadline)
+            .map(Admission::Retained)
+    }
+
     fn retain_bft_v3_reserved_candidate(
         &mut self,
         expected: &NodeBftExecutionContextV3,
         candidate: &NodeBftPrivateCandidateV3,
     ) -> Result<String, String> {
+        if self.covered_source.is_some() {
+            return Err("covered source requires atomic protected input admission".into());
+        }
         self.validate_candidate(expected, candidate)?;
         let executed = self.execution.origin.execute(&candidate.actions_cbor)?;
         let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
@@ -682,6 +673,9 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         expected: &NodeBftExecutionContextV3,
         candidate: &NodeBftPrivateCandidateV3,
     ) -> Result<String, String> {
+        if self.covered_source.is_some() {
+            return Err("covered source requires atomic protected input admission".into());
+        }
         self.validate_candidate(expected, candidate)?;
         let nodes = self.execution.origin.retained_nodes.accessed_nodes()?;
         let future = self.private.publication_promises()?;
@@ -705,6 +699,9 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         expected: &NodeBftExecutionContextV3,
         package: &NodeBftPrivateCandidatePackageV3,
     ) -> Result<String, String> {
+        if self.covered_source.is_some() {
+            return Err("covered source requires atomic protected input admission".into());
+        }
         if package.dependency_nodes.len() > formal_dependencies::MAX_RETAINED_INDEX_NODES
             || !package.dependency_nodes.windows(2).all(|w| w[0].0 < w[1].0)
         {
@@ -1074,7 +1071,7 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
 
 /// Retain the bounded complete H index before the first signing lease: future
 /// actions can touch branches no earlier proposal happened to observe.
-fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
+pub(super) fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
     use oasis7_distfs::controlled_authority::formal::business_index::{
         BUSINESS_INDEX_DEPTH, BusinessIndexNodeKindV1, BusinessIndexNodeV1, empty_subtree_hashes,
     };
@@ -1136,4 +1133,13 @@ fn commit_failure_category(reason: &str) -> &'static str {
     } else {
         "other"
     }
+}
+
+pub(super) fn carry_auxiliary_usage(
+    records: &Path,
+    store: &LocalCasStore,
+    material: &str,
+    instance: &str,
+) -> Result<usize, String> {
+    auto_prepare::retained_usage(records, store, material, instance)
 }

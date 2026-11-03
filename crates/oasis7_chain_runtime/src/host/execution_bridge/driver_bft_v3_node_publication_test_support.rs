@@ -1,6 +1,57 @@
 //! Narrow fixtures around actual production publication consumers.
 use super::*;
 impl FormalBftHeaderNodeDriverV3 {
+    /// Test-only failure metadata. Never print actions, World state or arbitrary
+    /// error text; known capacity classes and a digest identify opaque failures.
+    pub(crate) fn diagnose_candidate_capacity_for_test(
+        &mut self,
+        context: &NodeBftBuildContextV3,
+    ) -> String {
+        let preflight = match self.preflight_bft_v3_capacity(context) {
+            Ok(admission) => format!("{admission:?}"),
+            Err(reason) => diagnostic_error(&reason),
+        };
+        let plan = match self.exact_parent(&context.execution) {
+            Err(reason) => format!("parent:{}", diagnostic_error(&reason)),
+            Ok(()) => match serde_cbor::to_vec(&context.actions) {
+                Err(_) => "actions_encoding".into(),
+                Ok(actions) => match self.execution.origin.plan_candidate(&actions) {
+                    Ok((_, capacity)) => format!("{capacity:?}"),
+                    Err(reason) => diagnostic_error(&reason),
+                },
+            },
+        };
+        format!(
+            "cursor={} records={} preflight={preflight} plan={plan}",
+            self.cursor_height,
+            self.execution.ledger.records().count()
+        )
+    }
+
+    /// Actual preview material only: no candidate retention, CAS/pin publish,
+    /// protected reservation, signature or canonical append.
+    pub(crate) fn preview_actual_package_for_test(
+        &mut self,
+        context: NodeBftBuildContextV3,
+    ) -> Result<NodeBftPrivateCandidatePackageV3, String> {
+        let candidate = self.build_bft_v3_candidate(context)?;
+        let dependency_nodes = self
+            .execution
+            .origin
+            .retained_nodes
+            .accessed_nodes()?
+            .into_iter()
+            .collect();
+        Ok(NodeBftPrivateCandidatePackageV3 {
+            candidate,
+            dependency_nodes,
+        })
+    }
+
+    pub(crate) fn check_archive_publication_owner_for_test(&self) -> Result<(), String> {
+        self.private.check_archive_publication_owner_for_test()
+    }
+
     #[cfg(test)]
     pub(crate) fn retain_publication_integrity_fixture_for_test(
         &mut self,
@@ -157,5 +208,114 @@ impl FormalBftHeaderNodeDriverV3 {
             .replace_pin_scope_shard(storage::DIRECTORY, &shard, &foreign.references())
             .map_err(|e| format!("test foreign pin {e:?}"))?;
         Ok(())
+    }
+}
+
+fn diagnostic_error(reason: &str) -> String {
+    let class = if reason.contains("retained index node count exceeds bound") {
+        "retained_index_node_capacity"
+    } else if reason.contains("retained index bytes exceed bound") {
+        "retained_index_byte_capacity"
+    } else if reason.contains("requires another dependency window") {
+        "content_plan_exceeded"
+    } else if reason.starts_with("isolated BFT V2 World execution failed:") {
+        "world_execution"
+    } else if reason.contains("capacity") || reason.contains("exceeds bound") {
+        "other_capacity"
+    } else {
+        "other_execution"
+    };
+    format!(
+        "{class}(error_bytes={},error_hash={})",
+        reason.len(),
+        blake3_hex(reason.as_bytes())
+    )
+}
+
+impl OriginalHeaderIdentityV1 {
+    #[cfg(test)]
+    pub(crate) fn persist_auto_prepare_for_test(
+        &mut self,
+        records: &Path,
+        binding: &BftSignerBindingV3,
+        pin: &str,
+        body: oasis7_distfs::protected_bft_v3::BftSuccessorWindowInstallIntentBodyV1,
+        manifest: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveManifestV1,
+    ) -> Result<(), String> {
+        let owner = auto_prepare::AutoPrepareOwnerV1::from_identity(self, pin)?;
+        let intent = auto_prepare::AutoPrepareIntentV1::new(owner, binding, body, manifest)?;
+        self.verify_unchanged()?;
+        let store = self.execution.store.clone();
+        intent.persist(records, &store, &mut |prospective_wal| {
+            let usage = self
+                .private
+                .usage_without_auxiliary()?
+                .checked_add(prospective_wal)
+                .ok_or("auto Prepare same-ledger reserve overflow")?;
+            self.execution.ledger.reserve_private_material(
+                usage,
+                self.private.publication_promises()?,
+                &store,
+            )
+        })?;
+        self.verify_unchanged()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn auto_prepare_accounting_for_test(
+        &mut self,
+        records: &Path,
+    ) -> Result<(usize, usize), String> {
+        self.execution.ledger.reserve_private_material(
+            self.private.usage()?,
+            self.private.publication_promises()?,
+            &self.execution.store,
+        )?;
+        Ok((
+            self.execution.ledger.publication_usage_for_test().0,
+            auto_prepare::retained_usage(
+                records,
+                &self.execution.store,
+                &self.material_identity,
+                self.private.instance_id(),
+            )?,
+        ))
+    }
+}
+
+// Test-only remote package construction from the actual authenticated parent.
+// It neither selects a local proposal nor persists any received material.
+impl FormalBftHeaderNodeDriverV3 {
+    pub(crate) fn preview_received_package_for_test(
+        &mut self,
+        context: &NodeBftExecutionContextV3,
+        actions_cbor: &[u8],
+    ) -> Result<oasis7_node::NodeBftPrivateCandidatePackageV3, String> {
+        self.exact_parent(context)?;
+        let actual = self.execution.origin.build_candidate(actions_cbor)?;
+        let candidate = oasis7_node::NodeBftPrivateCandidateV3 {
+            public_value: oasis7_consensus::tendermint_v3::BftHeaderValueV3 {
+                header: actual.header,
+                execution_commitment: actual.commitment,
+            },
+            actions_cbor: actions_cbor.to_vec(),
+        };
+        // Restore/re-execute exactly as receiver preview does; do not reuse a
+        // preview from another candidate or make its nodes a parent authority.
+        self.validate_candidate(context, &candidate)?;
+        let dependency_nodes =
+            self.execution
+                .origin
+                .retained_nodes
+                .with_accessed_nodes(|nodes| {
+                    Ok(nodes
+                        .iter()
+                        .map(|(digest, bytes)| (digest.clone(), bytes.clone()))
+                        .collect())
+                })?;
+        Ok(oasis7_node::NodeBftPrivateCandidatePackageV3 {
+            candidate,
+            dependency_nodes,
+        })
     }
 }

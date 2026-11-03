@@ -248,12 +248,8 @@ fn restart_does_not_reuse_persisted_head_when_formal_history_is_unavailable() {
     let mut stale = status(&instance(1));
     stale.last_verified_commit = Some(commit_ref(
         &anchor,
-        &oasis7::world_service::projection::from_formal_committed_world(
-            &world,
-            None,
-            &public(8),
-        )
-        .unwrap(),
+        &oasis7::world_service::projection::from_formal_committed_world(&world, None, &public(8))
+            .unwrap(),
     ));
     io::write(&data.join(STATUS_FILE), &stale).unwrap();
     let mut restarted = Session::open(&config, &data, &instance(2)).unwrap();

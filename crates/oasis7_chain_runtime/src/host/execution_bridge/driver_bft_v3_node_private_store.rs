@@ -3,15 +3,58 @@
 use super::*;
 #[path = "driver_bft_v3_node_private_publication.rs"]
 mod publication;
+#[path = "driver_bft_v3_source_private_activation.rs"]
+mod source_activation;
+#[path = "driver_bft_v3_source_archive_activation.rs"]
+mod source_archive_activation;
+pub(in super::super) use source_archive_activation::{
+    VerifiedSourceArchiveActivationV1, verify_source_archive_activation,
+};
+#[path = "driver_bft_v3_source_private_input.rs"]
+pub(super) mod source_input;
+pub(super) use self::source_activation::OriginalSourcePublicationV1;
+use self::source_activation::SourceActivationBindingV1;
+pub(super) use source_input::{
+    ReservedSourceInputV1, SourceSlotKindV1, active_admission_slot_kind, source_admission_slot_kind,
+};
+pub(in super::super) use source_input::{
+    VerifiedActiveAdmissionInputV1, active_admission_candidate, read_source_origin,
+    source_admission_archive_reservation_bytes, source_admission_candidate,
+    source_admission_historical_reservation_bytes, source_admission_reservation_bytes,
+    source_selection_identity, validate_source_admission_input,
+    validate_source_admission_slot_kind, verify_active_admission_original,
+    verify_active_admission_ready, verify_active_selection_current, verify_source_admission_ready,
+    verify_source_input_context_role, verify_source_input_historical_role,
+    verify_source_seal_context_role, verify_source_selection_current,
+};
+#[path = "driver_bft_v3_node_private_publication_archive.rs"]
+mod publication_archive;
+pub(in super::super) use publication_archive::{
+    CarryCopyDescriptorV1, PublicationArchiveMaterialV1, PublicationArchiveOwnerV1,
+    VerifiedPublicationOriginalV1, carry_origin_usage, dependency_identity,
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+fn ensure_private_directory(path: &Path) -> Result<(), String> {
+    super::super::super::super::super::super::super::super::controlled_live::private_directory(path)
+}
+
 const MAX_RECORD: usize = 4 * 1024 * 1024;
 const SCOPE: &str = "formal-bft-header-node-private-v3";
 const MARKER: &[u8] = b"oasis7.formal.bft.node_private.required/v3\n";
+const COVERED_SOURCE_ORIGIN_DOMAIN: &str = "oasis7.formal.bft.node_private_covered_origin.v1";
+const PROTECTED_INPUT_DOMAIN: &str = "oasis7.formal.bft.node_private_protected_input.v1";
+const PROTECTED_RECEIVED_INPUT_DOMAIN: &str =
+    "oasis7.formal.bft.node_private_protected_received_input.v1";
+const ACTIVE_LOCAL_INPUT_DOMAIN: &str = "oasis7.formal.bft.node_private_active_input.v11";
+const ACTIVE_RECEIVED_INPUT_DOMAIN: &str =
+    "oasis7.formal.bft.node_private_active_received_input.v12";
+const ACTIVE_SELECTION_DOMAIN: &str = "oasis7.formal.bft.node_private_active_selection.v13";
 const DOMAIN: &str = "oasis7.formal.bft.node_private.v3";
+const MIGRATED_DOMAIN: &str = "oasis7.formal.bft.node_private_migrated.v1";
 const MULTI_DOMAIN: &str = "oasis7.formal.bft.node_private_candidate.v4";
 const SELECTION_DOMAIN: &str = "oasis7.formal.bft.node_private_selection.v5";
 const MAX_CANDIDATES_PER_HEIGHT: usize = 16;
@@ -22,129 +65,9 @@ use super::super::super::publication_reservation::{
     PublicationCandidateIdentityV1, PublicationReservationV1,
 };
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Data {
-    schema_version: u32,
-    domain: String,
-    origin: bool,
-    ledger_origin_digest: String,
-    material_identity: String,
-    instance_id: String,
-    height: u64,
-    value: Option<BftHeaderValueV3>,
-    #[serde(deserialize_with = "super::super::super::private::deserialize_actions")]
-    actions_cbor: Vec<u8>,
-    #[serde(deserialize_with = "bounded_references")]
-    references: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    publication_reservation_ref: Option<String>,
-}
-impl Data {
-    fn validate(&self) -> Result<(), String> {
-        if !matches!(
-            (self.schema_version, self.domain.as_str()),
-            (3, DOMAIN) | (4, MULTI_DOMAIN) | (5, SELECTION_DOMAIN)
-        ) || self.height == 0
-            || !canonical_hash(&self.ledger_origin_digest)
-            || !canonical_hash(&self.material_identity)
-            || !canonical_hash(&self.instance_id)
-            || self
-                .publication_reservation_ref
-                .as_ref()
-                .is_some_and(|id| !canonical_hash(id))
-            || ((self.origin || self.schema_version == 5)
-                && self.publication_reservation_ref.is_some())
-            || self.references.len()
-                > super::super::super::super::formal_dependencies::MAX_RETAINED_INDEX_NODES
-            || !self.references.windows(2).all(|pair| pair[0] < pair[1])
-            || self
-                .references
-                .iter()
-                .any(|reference| !canonical_hash(reference))
-        {
-            return Err("invalid original Node private record identity or capacity".into());
-        }
-        if self.schema_version == 5 {
-            if self.origin || !self.actions_cbor.is_empty() || self.references.len() != 1 {
-                return Err("invalid original local selection".into());
-            }
-            let value = self
-                .value
-                .as_ref()
-                .ok_or("local selection has no public value")?;
-            value.validate_binding()?;
-            if value.execution_commitment.height != self.height {
-                return Err("local selection height differs".into());
-            }
-        } else if self.origin {
-            if self.schema_version != 3 {
-                return Err("foreign Node origin schema".into());
-            }
-            if self.value.is_some() || !self.actions_cbor.is_empty() {
-                return Err("Node H retention record contains candidate data".into());
-            }
-        } else {
-            let value = self
-                .value
-                .as_ref()
-                .ok_or("Node candidate has no public value")?;
-            if value.execution_commitment.height != self.height {
-                return Err("Node private candidate height differs from commitment".into());
-            }
-            ValidatedBftPrivatePayloadV3::decode(value.validate_binding()?, &self.actions_cbor)
-                .map_err(|_| "original Node private candidate binding rejected")?;
-        }
-        Ok(())
-    }
-    fn bytes(&self) -> Result<Vec<u8>, String> {
-        self.validate()?;
-        let bytes = serde_cbor::to_vec(self).map_err(|_| "encode original private Node record")?;
-        if bytes.len() > MAX_RECORD {
-            return Err("private Node record byte capacity".into());
-        }
-        Ok(bytes)
-    }
-    fn digest(&self) -> Result<String, String> {
-        Ok(blake3_hex(&self.bytes()?))
-    }
-    fn retained(&self) -> Result<BTreeSet<String>, String> {
-        Ok(self
-            .references
-            .iter()
-            .cloned()
-            .chain(self.publication_reservation_ref.iter().cloned())
-            .chain([self.digest()?])
-            .collect())
-    }
-    fn shard(&self) -> String {
-        if self.schema_version == 5 {
-            format!(
-                "ledger-{}-selection-{:020}",
-                self.ledger_origin_digest, self.height
-            )
-        } else if self.schema_version == 4 {
-            format!(
-                "ledger-{}-height-{:020}-header-{}",
-                self.ledger_origin_digest,
-                self.height,
-                self.value
-                    .as_ref()
-                    .expect("validated candidate")
-                    .header
-                    .block_id()
-                    .expect("validated header")
-            )
-        } else if self.origin {
-            format!("ledger-{}-origin", self.ledger_origin_digest)
-        } else {
-            format!(
-                "ledger-{}-height-{:020}",
-                self.ledger_origin_digest, self.height
-            )
-        }
-    }
-}
+#[path = "driver_bft_v3_node_private_data.rs"]
+mod data_codec;
+use data_codec::Data;
 
 #[derive(Clone)]
 struct Slot {
@@ -154,12 +77,14 @@ struct Slot {
 
 pub(super) struct NodePrivateStore {
     instance_id: String,
+    auxiliary_root: Option<PathBuf>,
     dir: PathBuf,
     store: LocalCasStore,
     origin: Option<Slot>,
     candidates: BTreeMap<u64, Slot>,
     values: BTreeMap<(u64, String), Slot>,
     selections: BTreeMap<u64, Slot>,
+    publication_ancestors: BTreeMap<String, VerifiedPublicationOriginalV1>,
 }
 
 struct SeedReader {
@@ -194,7 +119,9 @@ impl NodePrivateStore {
         let dir = records
             .join(storage::DIRECTORY)
             .join(storage::NODE_PRIVATE_DIRECTORY);
-        Self::open_directory(dir, store, fallback, None)
+        let (mut owner, reader) = Self::open_directory(dir, store, fallback, None)?;
+        owner.auxiliary_root = Some(records.into());
+        Ok((owner, reader))
     }
     pub(super) fn open_window(
         dir: PathBuf,
@@ -235,6 +162,9 @@ impl NodePrivateStore {
         let mut nodes = BTreeMap::new();
         let pending_references = match &origin {
             Some(slot) => {
+                if let Some(activation) = &slot.data.source_activation {
+                    activation.verify_directory(&dir)?;
+                }
                 if !slot.data.origin {
                     return Err("Node origin has candidate schema".into());
                 }
@@ -300,12 +230,14 @@ impl NodePrivateStore {
         Ok((
             Self {
                 instance_id,
+                auxiliary_root: None,
                 dir,
                 store,
                 origin,
                 candidates: BTreeMap::new(),
                 values: BTreeMap::new(),
                 selections: BTreeMap::new(),
+                publication_ancestors: BTreeMap::new(),
             },
             source,
         ))
@@ -391,6 +323,9 @@ impl NodePrivateStore {
             actions_cbor: Vec::new(),
             references: nodes.keys().cloned().collect(),
             publication_reservation_ref: None,
+            publication_original_data_ref: None,
+            source_activation: None,
+            protected_source_origin_ref: None,
         };
         if self.origin.as_ref().is_some_and(|slot| slot.data != data) {
             return Err("Node private origin differs from its exact qualified H".into());
@@ -528,7 +463,7 @@ impl NodePrivateStore {
         for height in heights {
             let slot = read_slot(&self.candidate_path(height))?
                 .ok_or("private Node candidate identity is missing")?;
-            if slot.data.schema_version != 3
+            if !matches!(slot.data.schema_version, 3 | 6 | 9 | 11)
                 || slot.data.origin
                 || slot.data.height != height
                 || slot.data.ledger_origin_digest != origin
@@ -544,6 +479,11 @@ impl NodePrivateStore {
         }
         self.load_multivalue_inventory(origin, material, &multi, &selections)?;
         for slot in self.candidates.values().chain(self.values.values()) {
+            let path = self.source_slot_path(&slot.data)?;
+            if matches!(slot.data.schema_version, 9 | 10 | 11 | 12) && !retention_required(&path)? {
+                continue;
+            }
+            self.validate_publication_lineage(&slot.data)?;
             read_publication(&self.store, &slot.data)?;
         }
         self.check_counts(None)?;
@@ -642,11 +582,17 @@ impl NodePrivateStore {
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
             publication_reservation_ref: None,
+            publication_original_data_ref: None,
+            source_activation: None,
+            protected_source_origin_ref: None,
         };
         // Retries preserve the original Data bytes, including a new-format
         // reservation commitment; they never retrofit a legacy candidate.
         if let Some(old) = self.candidates.get(&height) {
             data.publication_reservation_ref = old.data.publication_reservation_ref.clone();
+            data.publication_original_data_ref = old.data.publication_original_data_ref.clone();
+            data.schema_version = old.data.schema_version;
+            data.domain = old.data.domain.clone();
         }
         data.validate()?;
         if self
@@ -687,15 +633,39 @@ impl NodePrivateStore {
         );
         data.digest()
     }
+    pub(super) fn set_auxiliary_root(&mut self, records: &Path) {
+        self.auxiliary_root = Some(records.into());
+    }
     pub(super) fn usage(&self) -> Result<usize, String> {
         self.usage_with(None, &BTreeMap::new())
+    }
+    pub(super) fn usage_without_auxiliary(&self) -> Result<usize, String> {
+        self.usage_with_auxiliary(None, &BTreeMap::new(), false)
     }
     fn usage_with(
         &self,
         additional: Option<&Data>,
         nodes: &BTreeMap<String, Vec<u8>>,
     ) -> Result<usize, String> {
-        let mut bytes = 0usize;
+        self.usage_with_auxiliary(additional, nodes, true)
+    }
+    fn usage_with_auxiliary(
+        &self,
+        additional: Option<&Data>,
+        nodes: &BTreeMap<String, Vec<u8>>,
+        include_auxiliary: bool,
+    ) -> Result<usize, String> {
+        let material = self
+            .origin
+            .as_ref()
+            .map(|s| s.data.material_identity.as_str())
+            .or_else(|| additional.map(|d| d.material_identity.as_str()));
+        let mut bytes = match (&self.auxiliary_root, material, include_auxiliary) {
+            (Some(root), Some(material), true) => {
+                super::auto_prepare::retained_usage(root, &self.store, material, &self.instance_id)?
+            }
+            _ => 0,
+        };
         let mut refs = BTreeSet::new();
         for data in self
             .origin
@@ -711,6 +681,21 @@ impl NodePrivateStore {
             )
             .chain(additional)
         {
+            if self.carry_selection_held(data)? {
+                continue;
+            }
+            if matches!(data.schema_version, 5 | 13) {
+                let value = data.value.as_ref().ok_or("source selection value absent")?;
+                if let Some(original) = self.values.get(&(data.height, value.block_id()?))
+                    && matches!(original.data.schema_version, 10 | 12)
+                {
+                    if source_input::source_selection_data(&original.data)? != *data {
+                        return Err("protected received selection original differs".into());
+                    }
+                    // Schema10 already holds the complete exact selection cost.
+                    continue;
+                }
+            }
             bytes = bytes
                 .checked_add(
                     data.bytes()?
@@ -720,13 +705,38 @@ impl NodePrivateStore {
                 )
                 .filter(|sum| *sum <= 512 * 1024 * 1024)
                 .ok_or("Node cumulative material capacity")?;
+            if matches!(data.schema_version, 9 | 10 | 11 | 12) {
+                bytes = bytes
+                    .checked_add(source_input::private_pin_bound(data)?)
+                    .and_then(|n| n.checked_add(source_input::source_selection_bound(data).ok()?))
+                    .filter(|n| *n <= 512 * 1024 * 1024)
+                    .ok_or("protected source pin material capacity")?;
+            }
+            if let Some(activation) = &data.source_activation {
+                bytes = bytes
+                    .checked_add(activation.accounted_bytes()?)
+                    .filter(|n| *n <= 512 * 1024 * 1024)
+                    .ok_or("source activation cumulative material capacity")?;
+            }
             if let Some(publication) = read_publication(&self.store, data)? {
                 bytes = bytes
                     .checked_add(publication.accounted_bytes()?)
                     .filter(|sum| *sum <= 512 * 1024 * 1024)
                     .ok_or("Node cumulative publication reservation capacity")?;
             }
-            if data.schema_version != 5 {
+            if let Some(reference) = &data.publication_original_data_ref {
+                bytes = bytes
+                    .checked_add(
+                        publication_archive::carry_initialization::original_and_carry_hold(
+                            &self.store,
+                            data,
+                            reference,
+                        )?,
+                    )
+                    .filter(|n| *n <= 512 * 1024 * 1024)
+                    .ok_or("original publication Data cumulative capacity")?;
+            }
+            if !matches!(data.schema_version, 5 | 13) {
                 refs.extend(data.references.iter().cloned());
             }
         }
@@ -831,7 +841,7 @@ fn verify_original_slot(store: &LocalCasStore, path: &Path, expected: &Slot) -> 
     Ok(())
 }
 fn publication_identity(data: &Data) -> Result<PublicationCandidateIdentityV1, String> {
-    if data.origin || data.schema_version == 5 {
+    if data.origin || matches!(data.schema_version, 5 | 13) {
         return Err("publication requires original candidate Data".into());
     }
     Ok(PublicationCandidateIdentityV1 {
@@ -856,7 +866,11 @@ fn read_publication(
         return Ok(None);
     };
     let value = PublicationReservationV1::read(store, reference)?;
-    value.validate_identity(&publication_identity(data)?)?;
+    let original = match &data.publication_original_data_ref {
+        Some(reference) => Some(publication_archive::read_original_data(store, reference)?),
+        None => None,
+    };
+    value.validate_identity(&publication_identity(original.as_ref().unwrap_or(data))?)?;
     Ok(Some(value))
 }
 fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
@@ -867,12 +881,14 @@ fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
         return Err("original private Node CAS record changed".into());
     }
     read_publication(store, data)?;
+    source_activation::verify_activation_material(store, data)?;
+    let reference_limit = if matches!(data.schema_version, 5 | 13) {
+        MAX_RECORD
+    } else {
+        formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES
+    };
     for reference in &data.references {
-        common_storage::read_cas_bounded(
-            store,
-            reference,
-            formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-        )?;
+        common_storage::read_cas_bounded(store, reference, reference_limit)?;
     }
     Ok(())
 }
@@ -892,6 +908,18 @@ fn publish(
     complete: bool,
     origin: bool,
 ) -> Result<(), String> {
+    publish_checked(store, path, data, nodes, complete, origin, &mut || Ok(()))
+}
+fn publish_checked(
+    store: &LocalCasStore,
+    path: &Path,
+    data: &Data,
+    nodes: &BTreeMap<String, Vec<u8>>,
+    complete: bool,
+    origin: bool,
+    guard: &mut impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    guard()?;
     if complete {
         return verify_material(store, data);
     }
@@ -908,6 +936,7 @@ fn publish(
     if common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_none()
         && common_storage::read_optional_bytes(path, MAX_RECORD)?.is_none()
     {
+        guard()?;
         files::publish(&reservation, &bytes)?;
     }
     let has_pins = store
@@ -920,25 +949,26 @@ fn publish(
         if already_retained {
             return Err("original Node retention receipt is missing".into());
         }
+        guard()?;
         common_storage::put_cas_durable(store, &bytes, MAX_RECORD)?;
+        guard()?;
+        let reference_limit = if matches!(data.schema_version, 5 | 13) {
+            MAX_RECORD
+        } else {
+            formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES
+        };
         for reference in &data.references {
             if let Some(bytes) = nodes.get(reference) {
                 if blake3_hex(bytes) != *reference {
                     return Err("Node retained dependency identity mismatch".into());
                 }
-                common_storage::put_cas_durable(
-                    store,
-                    bytes,
-                    formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-                )?;
+                guard()?;
+                common_storage::put_cas_durable(store, bytes, reference_limit)?;
             } else {
-                common_storage::read_cas_bounded(
-                    store,
-                    reference,
-                    formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-                )?;
+                common_storage::read_cas_bounded(store, reference, reference_limit)?;
             }
         }
+        guard()?;
         store
             .replace_pin_scope_shard(SCOPE, &data.shard(), &data.retained()?)
             .map_err(|_| "publish original Node pins")?;
@@ -950,11 +980,14 @@ fn publish(
         // Promotion already consumed the reservation in an intent-only crash.
         // Resume the retained original intent; never recreate its material.
         if common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_none() {
+            guard()?;
             files::promote(&reservation, &intent, &bytes)?;
         }
+        guard()?;
         files::link_record(path, &intent, &bytes)?;
     }
     if origin {
+        guard()?;
         files::publish(
             &path
                 .parent()
@@ -963,6 +996,7 @@ fn publish(
             MARKER,
         )?;
     }
+    guard()?;
     files::finish(path, &intent, &bytes)
 }
 fn canonical_hash(value: &str) -> bool {
@@ -1003,91 +1037,5 @@ fn bounded_references<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Stri
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::os::unix::fs::PermissionsExt;
-    struct Scratch(PathBuf);
-    impl Scratch {
-        fn new() -> Self {
-            let suffix = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().canonicalize().unwrap().join(format!(
-                "oasis7-node-private-{}-{suffix}",
-                std::process::id()
-            ));
-            fs::create_dir(&path).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-            Self(path)
-        }
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    fn data() -> Data {
-        Data {
-            schema_version: 3,
-            domain: DOMAIN.into(),
-            origin: true,
-            ledger_origin_digest: "a".repeat(64),
-            material_identity: "b".repeat(64),
-            instance_id: "c".repeat(64),
-            height: 3,
-            value: None,
-            actions_cbor: Vec::new(),
-            references: Vec::new(),
-            publication_reservation_ref: None,
-        }
-    }
-
-    #[test]
-    fn formal_read_node_private_intent_and_link_cannot_republish_lost_pins() {
-        for linked in [false, true] {
-            let root = Scratch::new();
-            let store = LocalCasStore::new(root.path().join("cas"));
-            let path = root.path().join("origin.cbor");
-            let intent = path.with_extension("intent.cbor");
-            let original = data();
-            let bytes = original.bytes().unwrap();
-            files::publish(&intent, &bytes).unwrap();
-            if linked {
-                files::link_record(&path, &intent, &bytes).unwrap();
-            }
-            common_storage::put_cas_durable(&store, &bytes, MAX_RECORD).unwrap();
-            store
-                .replace_pin_scope_shard(SCOPE, &original.shard(), &original.retained().unwrap())
-                .unwrap();
-            store
-                .remove_pin_scope_shard(SCOPE, &original.shard())
-                .unwrap();
-            assert!(publish(&store, &path, &original, &BTreeMap::new(), false, true).is_err());
-            assert_eq!(fs::read(&intent).unwrap(), bytes);
-            assert_eq!(path.exists(), linked);
-            assert!(!path.parent().unwrap().join("ready").exists());
-            assert!(store.list_pin_scope_shards(SCOPE).unwrap().is_empty());
-        }
-    }
-
-    #[test]
-    fn formal_read_node_private_live_metadata_loss_is_rejected() {
-        let root = Scratch::new();
-        let store = LocalCasStore::new(root.path().join("cas"));
-        let path = root.path().join("origin.cbor");
-        let original = data();
-        publish(&store, &path, &original, &BTreeMap::new(), false, true).unwrap();
-        let slot = read_slot(&path).unwrap().unwrap();
-        assert!(slot.complete);
-        verify_original_slot(&store, &path, &slot).unwrap();
-        fs::remove_file(&path).unwrap();
-        assert!(verify_original_slot(&store, &path, &slot).is_err());
-        assert!(!path.exists());
-        verify_material(&store, &original).unwrap();
-    }
-}
+#[path = "driver_bft_v3_node_private_store_tests.rs"]
+mod tests;

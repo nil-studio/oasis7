@@ -1105,3 +1105,6 @@ fn v3_migration_resume_rejects_a_replayed_v3_mode_response() {
 
     assert!(recover_migration_resume_v3(old, v3, &expected_query, replayed_response).is_err());
 }
+
+#[path = "admission_role_tests.rs"]
+mod admission_role_tests;

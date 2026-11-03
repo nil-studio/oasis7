@@ -41,6 +41,8 @@ pub enum FullSyncReadRoleV2 {
     FullReadOnly,
     /// Explicit V3 issuer purpose; never a legacy node-read grant.
     BftPendingCandidateV1,
+    /// Explicit V3-only original admission input purpose; never a legacy read role.
+    BftOriginalAdmissionInputV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,9 +90,13 @@ impl FullSyncIssuerPolicyBodyV2 {
         }
         if self.allowed_roles.is_empty()
             || self.allowed_roles.len() > 2
-            || self
-                .allowed_roles
-                .contains(&FullSyncReadRoleV2::BftPendingCandidateV1)
+            || self.allowed_roles.iter().any(|role| {
+                matches!(
+                    role,
+                    FullSyncReadRoleV2::BftPendingCandidateV1
+                        | FullSyncReadRoleV2::BftOriginalAdmissionInputV1
+                )
+            })
             || self.allowed_roles.windows(2).any(|pair| pair[0] >= pair[1])
         {
             return Err(invalid(
@@ -324,8 +330,14 @@ pub struct FullSyncIssuerCommandBodyV2 {
 
 impl FullSyncIssuerCommandBodyV2 {
     fn validate(&self) -> Result<(), FormalError> {
-        if self.target.role == FullSyncReadRoleV2::BftPendingCandidateV1 {
-            return Err(invalid("V2 issuer does not authorize pending candidates"));
+        if matches!(
+            self.target.role,
+            FullSyncReadRoleV2::BftPendingCandidateV1
+                | FullSyncReadRoleV2::BftOriginalAdmissionInputV1
+        ) {
+            return Err(invalid(
+                "V2 issuer does not authorize V3-only read purposes",
+            ));
         }
         self.world.validate()?;
         self.target.validate()?;
@@ -408,6 +420,15 @@ pub struct FullSyncIssuerTargetStateV2 {
 
 impl FullSyncIssuerTargetStateV2 {
     fn validate(&self) -> Result<(), FormalError> {
+        if matches!(
+            self.target.role,
+            FullSyncReadRoleV2::BftPendingCandidateV1
+                | FullSyncReadRoleV2::BftOriginalAdmissionInputV1
+        ) {
+            return Err(invalid(
+                "V2 issuer target state cannot carry V3-only purpose",
+            ));
+        }
         self.target.validate()?;
         if self.generation == 0 {
             return Err(invalid("full-sync target state generation"));

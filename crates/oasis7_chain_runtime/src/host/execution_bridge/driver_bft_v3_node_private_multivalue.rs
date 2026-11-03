@@ -72,7 +72,7 @@ impl NodePrivateStore {
         }
         Ok(Some(value.clone()))
     }
-    fn value_path(&self, height: u64, id: &str) -> PathBuf {
+    pub(super) fn value_path(&self, height: u64, id: &str) -> PathBuf {
         self.dir.join(format!("candidate-{height:020}-{id}.cbor"))
     }
     fn selection_path(&self, height: u64) -> PathBuf {
@@ -113,7 +113,10 @@ impl NodePrivateStore {
         for (height, id) in entries {
             let path = self.value_path(*height, id);
             let slot = read_slot(&path)?.ok_or("header-scoped Node original missing")?;
-            if slot.data.schema_version != 4
+            if !matches!(slot.data.schema_version, 10 | 12) || retention_required(&path)? {
+                self.validate_publication_lineage(&slot.data)?;
+            }
+            if !matches!(slot.data.schema_version, 4 | 7 | 10 | 12)
                 || slot.data.origin
                 || slot.data.height != *height
                 || slot.data.ledger_origin_digest != origin
@@ -137,7 +140,7 @@ impl NodePrivateStore {
         for height in selections {
             let path = self.selection_path(*height);
             let slot = read_slot(&path)?.ok_or("original Node selection missing")?;
-            if slot.data.schema_version != 5
+            if !matches!(slot.data.schema_version, 5 | 13)
                 || slot.data.height != *height
                 || slot.data.ledger_origin_digest != origin
                 || slot.data.material_identity != material
@@ -156,6 +159,13 @@ impl NodePrivateStore {
                 .values
                 .get(&(*height, id))
                 .ok_or("local selection lost its original candidate")?;
+            if (slot.data.schema_version == 13
+                && source_input::source_selection_data(&candidate.data)? != slot.data)
+                || (slot.data.schema_version == 5
+                    && matches!(candidate.data.schema_version, 11 | 12))
+            {
+                return Err("selection domain differs from original candidate family".into());
+            }
             if !candidate.complete
                 || slot.data.value != candidate.data.value
                 || slot.data.references != vec![candidate.data.digest()?]
@@ -285,12 +295,18 @@ impl NodePrivateStore {
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
             publication_reservation_ref: None,
+            publication_original_data_ref: None,
+            source_activation: None,
+            protected_source_origin_ref: None,
         };
         if let Some((old, path)) = self.exact_slot(&candidate.public_value)? {
             // Legacy originals keep their original schema, bytes and receipt digest.
             data.schema_version = old.data.schema_version;
             data.domain = old.data.domain.clone();
             data.publication_reservation_ref = old.data.publication_reservation_ref.clone();
+            data.publication_original_data_ref = old.data.publication_original_data_ref.clone();
+            data.schema_version = old.data.schema_version;
+            data.domain = old.data.domain.clone();
             if old.data != data {
                 return Err(
                     "Node received candidate changes original bytes or dependencies".into(),
@@ -300,7 +316,7 @@ impl NodePrivateStore {
             let complete = old.complete;
             reserve(self.usage_with(Some(&data), nodes)?)?;
             publish(&self.store, &path, &data, nodes, complete, false)?;
-            if data.schema_version == 3 {
+            if matches!(data.schema_version, 3 | 6) {
                 self.candidates.insert(
                     height,
                     Slot {
@@ -369,6 +385,9 @@ impl NodePrivateStore {
             actions_cbor: Vec::new(),
             references: vec![digest.clone()],
             publication_reservation_ref: None,
+            publication_original_data_ref: None,
+            source_activation: None,
+            protected_source_origin_ref: None,
         };
         if self
             .selections

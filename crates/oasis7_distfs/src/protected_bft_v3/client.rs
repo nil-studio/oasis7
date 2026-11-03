@@ -23,6 +23,9 @@ use super::successor_window::{
 
 mod active_window;
 mod archive_query;
+mod private_retention;
+mod provider;
+mod retention_proof;
 mod signed_result;
 mod successor;
 
@@ -37,6 +40,7 @@ pub struct RemoteBftSignerProviderV3 {
     binding: BftSignerBindingV3,
     requester_key: SigningKey,
     trust: BftSignerTrustV3,
+    private_retention_attestor: Option<super::private_retention::BftPrivateRetentionAttestorV1>,
 }
 
 pub trait BftSignerProviderV3: Send + Sync {
@@ -49,6 +53,82 @@ pub trait BftSignerProviderV3: Send + Sync {
 /// One connection-bound provider lease. The same TCP stream is retained for
 /// the lifetime of the lease, so copied request frames cannot move sessions.
 pub trait BftSignerLeaseV3: Send {
+    fn seal_private_retention(
+        &mut self,
+        _expected_revision: u64,
+        _expected_state_digest: String,
+        _cut: super::successor_window::BftSuccessorWindowCutV1,
+        _deadline: std::time::Instant,
+    ) -> Result<
+        super::private_retention_observation::ValidatedBftPrivateRetentionObservationV1,
+        BftSignerErrorV3,
+    > {
+        Err(invalid(
+            "original atomic private retention seal unsupported",
+        ))
+    }
+
+    fn observe_private_retention(
+        &mut self,
+        _deadline: std::time::Instant,
+    ) -> Result<
+        super::private_retention_observation::ValidatedBftPrivateRetentionObservationV1,
+        BftSignerErrorV3,
+    > {
+        Err(invalid("current private retention observation unsupported"))
+    }
+    fn provision_private_retention(
+        &mut self,
+        _deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        Err(invalid("private retention unsupported"))
+    }
+    fn reserve_private_retention(
+        &mut self,
+        _entry: super::private_retention::BftPrivateRetentionEntryV1,
+        _deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        Err(invalid("private retention unsupported"))
+    }
+    fn reserve_private_retention_input(
+        &mut self,
+        _reference: super::private_retention_input::BftPrivateRetentionAdmissionInputRefV1,
+        _deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        Err(invalid("private retention original input unsupported"))
+    }
+    fn select_private_retention(
+        &mut self,
+        _request: super::BftPrivateRetentionSelectRequestV1,
+        _deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionSelectionResultV1, BftSignerErrorV3> {
+        Err(invalid("protected selection unsupported"))
+    }
+    fn ready_private_retention_original_local(
+        &mut self,
+        _key: super::BftPrivateRetentionKeyV1,
+        _deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionLedgerV1, BftSignerErrorV3> {
+        Err(invalid("protected original-local Ready unsupported"))
+    }
+    fn ready_private_retention(
+        &mut self,
+        _key: super::private_retention::BftPrivateRetentionKeyV1,
+        _deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        Err(invalid("private retention unsupported"))
+    }
+    fn get_private_retention(
+        &mut self,
+        _deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        Err(invalid("private retention unsupported"))
+    }
     fn verified_active_window(
         &mut self,
     ) -> Result<Option<super::active_window::VerifiedBftSignerActiveWindowV1>, BftSignerErrorV3>
@@ -62,6 +142,30 @@ pub trait BftSignerLeaseV3: Send {
         Err(invalid("verified active schedule unsupported"))
     }
 
+    /// Read exact original public metadata with one absolute client deadline.
+    /// Missing fixed trust/unsupported backends fail closed; no layout fallback.
+    fn read_private_retention_selection_original(
+        &mut self,
+        _current: &super::BftPrivateRetentionLedgerV1,
+        _operation_digest: String,
+        _deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionOperationProofV1, BftSignerErrorV3> {
+        Err(invalid("original selection proof unsupported"))
+    }
+    fn read_private_retention_operation_proof(
+        &mut self,
+        _receipt_digest: String,
+        _deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionOperationProofV1, BftSignerErrorV3> {
+        Err(invalid("original retention operation proof unsupported"))
+    }
+    fn read_private_retention_seal_proof(
+        &mut self,
+        _seal_digest: String,
+        _deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionSealV1, BftSignerErrorV3> {
+        Err(invalid("original retention seal proof unsupported"))
+    }
     /// Requires the exact original record and predecessors in the authenticated
     /// cached checkpoint. Explicitly refresh control state before this attempt if
     /// unavailable; this operation performs only charged archive chunk RPCs.
@@ -243,212 +347,15 @@ pub trait BftSignerLeaseV3: Send {
     ) -> Result<BftSignerCheckpointV3, BftSignerErrorV3>;
 }
 
-impl RemoteBftSignerProviderV3 {
-    pub fn new(
-        address: SocketAddr,
-        timeout: Duration,
-        binding: BftSignerBindingV3,
-        requester_key: SigningKey,
-        trust: BftSignerTrustV3,
-    ) -> Result<Self, BftSignerErrorV3> {
-        binding.validate()?;
-        trust.validate_for(&binding)?;
-        if timeout.is_zero()
-            || hex::encode(requester_key.verifying_key().to_bytes())
-                != binding.requester_auth_public_key
-        {
-            return Err(invalid(
-                "BFT V3 requester key or timeout does not match binding",
-            ));
-        }
-        Ok(Self {
-            address,
-            timeout,
-            binding,
-            requester_key,
-            trust,
-        })
-    }
-
-    fn connect(&self) -> Result<TcpStream, BftSignerErrorV3> {
-        let stream = TcpStream::connect_timeout(&self.address, self.timeout)
-            .map_err(|error| invalid(format!("connect BFT V3 signer provider: {error}")))?;
-        stream
-            .set_read_timeout(Some(self.timeout))
-            .and_then(|_| stream.set_write_timeout(Some(self.timeout)))
-            .map_err(|error| invalid(format!("configure BFT V3 signer timeout: {error}")))?;
-        Ok(stream)
-    }
-
-    fn exchange(
-        &self,
-        stream: &mut TcpStream,
-        lease: Option<BftSignerLeaseCredentialV3>,
-        command: BftSignerCommandV3,
-    ) -> Result<(SignedBftSignerRequestV3, SignedBftSignerReplyV3), BftSignerErrorV3> {
-        let request = SignedBftSignerRequestV3::sign(
-            &self.binding,
-            &self.requester_key,
-            lease,
-            command,
-            random_nonce()?,
-        )?;
-        let frame = encode_frame(&request)?;
-        std::io::Write::write_all(stream, &frame)
-            .map_err(|error| invalid(format!("write BFT V3 signer request: {error}")))?;
-        let reply: SignedBftSignerReplyV3 = read_frame(stream)?;
-        validate_reply(&self.binding, &self.trust, &request, &reply)?;
-        Ok((request, reply))
-    }
-
-    fn checkpoint_from_reply(
-        &self,
-        request: &SignedBftSignerRequestV3,
-        reply: &SignedBftSignerReplyV3,
-        expected_generation: u64,
-    ) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
-        let checkpoint = reply
-            .body
-            .checkpoint
-            .as_ref()
-            .ok_or_else(|| invalid("BFT V3 provider omitted its signed checkpoint"))?;
-        let request_digest = super::wire::request_digest(request)?;
-        if checkpoint.state.active_window.is_none() {
-            checkpoint.validate(
-                &self.binding,
-                &request.body.challenge,
-                &request_digest,
-                expected_generation,
-                &self.trust.provider_public_key,
-            )?;
-        } else {
-            checkpoint.authenticate(
-                &self.binding,
-                &request.body.challenge,
-                &request_digest,
-                expected_generation,
-                &self.trust.provider_public_key,
-            )?;
-        }
-        if checkpoint.state.revision != reply.body.state_revision
-            || checkpoint.state.state_digest != reply.body.state_digest
-        {
-            return Err(invalid("BFT V3 reply and checkpoint state differ"));
-        }
-        Ok(checkpoint.as_ref().clone())
-    }
-
-    fn checked_result(
-        reply: &SignedBftSignerReplyV3,
-    ) -> Result<&BftSignerReplyKindV3, BftSignerErrorV3> {
-        if let BftSignerReplyKindV3::Rejected { message } = &reply.body.result {
-            return Err(invalid(format!(
-                "BFT V3 provider rejected request: {message}"
-            )));
-        }
-        Ok(&reply.body.result)
-    }
-}
-
-impl BftSignerProviderV3 for RemoteBftSignerProviderV3 {
-    fn acquire(
-        &self,
-        binding: &BftSignerBindingV3,
-    ) -> Result<Box<dyn BftSignerLeaseV3>, BftSignerErrorV3> {
-        if binding.digest()? != self.binding.digest()? {
-            return Err(invalid("BFT V3 acquire binding differs from provider pin"));
-        }
-        for attempt in 0..=MAX_ACQUIRE_CONFLICT_RETRIES {
-            let mut stream = self.connect()?;
-            let (_, prepare_reply) = self.exchange(
-                &mut stream,
-                None,
-                BftSignerCommandV3::PrepareAcquire {
-                    binding_digest: binding.digest()?,
-                },
-            )?;
-            let (expected_generation, prepare_nonce) = match Self::checked_result(&prepare_reply)? {
-                BftSignerReplyKindV3::Prepared {
-                    expected_generation,
-                    prepare_nonce,
-                } if prepare_reply.body.checkpoint.is_none()
-                    && prepare_reply.body.lease_token.is_none() =>
-                {
-                    (*expected_generation, prepare_nonce.clone())
-                }
-                _ => return Err(invalid("BFT V3 prepare response has the wrong shape")),
-            };
-            if prepare_reply.body.lease_generation != expected_generation {
-                return Err(invalid("BFT V3 prepare generation is inconsistent"));
-            }
-            let (request, reply) = self.exchange(
-                &mut stream,
-                None,
-                BftSignerCommandV3::Acquire {
-                    binding_digest: binding.digest()?,
-                    expected_generation,
-                    prepare_nonce,
-                },
-            )?;
-            match Self::checked_result(&reply)? {
-                BftSignerReplyKindV3::Acquired => {
-                    let expected_next = expected_generation
-                        .checked_add(1)
-                        .ok_or_else(|| invalid("BFT V3 lease generation overflow"))?;
-                    let token = reply
-                        .body
-                        .lease_token
-                        .as_ref()
-                        .ok_or_else(|| invalid("BFT V3 acquire omitted lease token"))?;
-                    validate_token(token)?;
-                    let checkpoint = self.checkpoint_from_reply(&request, &reply, expected_next)?;
-                    let mut lease = RemoteBftSignerLeaseV3 {
-                        stream,
-                        binding: self.binding.clone(),
-                        requester_key: self.requester_key.clone(),
-                        trust: self.trust.clone(),
-                        credential: BftSignerLeaseCredentialV3 {
-                            generation: expected_next,
-                            token: token.clone(),
-                        },
-                        checkpoint,
-                        archive_observation: None,
-                        active_context: None,
-                        archive_attempt_timeout: self.timeout.min(Duration::from_secs(120)),
-                        signing_result_deadline: None,
-                    };
-                    lease.validate_checkpoint_history(&lease.checkpoint.clone())?;
-                    lease.archive_checkpoint_floor(&lease.checkpoint)?;
-                    return Ok(Box::new(lease));
-                }
-                BftSignerReplyKindV3::AcquireConflict {
-                    current_generation,
-                    lease_active,
-                } if reply.body.checkpoint.is_none() && reply.body.lease_token.is_none() => {
-                    if *current_generation != reply.body.lease_generation
-                        || *current_generation < expected_generation
-                        || (*current_generation == expected_generation && !*lease_active)
-                    {
-                        return Err(invalid(
-                            "BFT V3 acquire conflict did not advance generation",
-                        ));
-                    }
-                    if *lease_active || attempt == MAX_ACQUIRE_CONFLICT_RETRIES {
-                        return Err(invalid("BFT V3 provider already has an active owner"));
-                    }
-                }
-                _ => return Err(invalid("BFT V3 acquire response has the wrong shape")),
-            }
-        }
-        Err(invalid("BFT V3 acquire retry bound exhausted"))
-    }
-}
-
 pub struct RemoteBftSignerLeaseV3 {
     stream: TcpStream,
     binding: BftSignerBindingV3,
     requester_key: SigningKey,
     trust: BftSignerTrustV3,
+    private_retention_attestor: Option<super::private_retention::BftPrivateRetentionAttestorV1>,
+    private_retention_transfer_floor: u64,
+    private_retention_latest_seal:
+        Option<super::private_retention_current_anchor::BftPrivateRetentionSealAnchorV1>,
     credential: BftSignerLeaseCredentialV3,
     checkpoint: BftSignerCheckpointV3,
     archive_observation: Option<archive_query::ArchiveObservation>,
@@ -525,6 +432,12 @@ impl RemoteBftSignerLeaseV3 {
             .as_ref()
             .ok_or_else(|| invalid("BFT V3 signer response omitted checkpoint"))?;
         let digest = super::wire::request_digest(request)?;
+        private_retention::validate_head_role(
+            &checkpoint.state,
+            self.private_retention_attestor.as_ref(),
+            &self.binding,
+            &self.trust.provider_public_key,
+        )?;
         let binding = self.binding.clone();
         let authenticated = checkpoint.authenticate(
             &binding,
@@ -548,6 +461,160 @@ impl RemoteBftSignerLeaseV3 {
 }
 
 impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
+    fn seal_private_retention(
+        &mut self,
+        expected_revision: u64,
+        expected_state_digest: String,
+        cut: super::successor_window::BftSuccessorWindowCutV1,
+        deadline: std::time::Instant,
+    ) -> Result<
+        super::private_retention_observation::ValidatedBftPrivateRetentionObservationV1,
+        BftSignerErrorV3,
+    > {
+        let role = self
+            .private_retention_attestor
+            .clone()
+            .ok_or_else(|| invalid("private retention explicit trust unavailable"))?;
+        let ledger = self.private_retention_result(
+            BftSignerCommandV3::SealPrivateRetention {
+                expected_revision,
+                expected_state_digest,
+                cut: Box::new(cut),
+            },
+            deadline,
+        )?;
+        super::private_retention_observation::ValidatedBftPrivateRetentionObservationV1::from_validated_reply(
+            &self.binding, &role, self.credential.generation, self.checkpoint.clone(), ledger,
+            self.private_retention_latest_seal.clone(), self.private_retention_transfer_floor,
+        )
+    }
+
+    fn observe_private_retention(
+        &mut self,
+        deadline: std::time::Instant,
+    ) -> Result<
+        super::private_retention_observation::ValidatedBftPrivateRetentionObservationV1,
+        BftSignerErrorV3,
+    > {
+        let role = self
+            .private_retention_attestor
+            .clone()
+            .ok_or_else(|| invalid("private retention explicit trust unavailable"))?;
+        let ledger =
+            self.private_retention_result(BftSignerCommandV3::GetPrivateRetention, deadline)?;
+        let observed = super::private_retention_observation::ValidatedBftPrivateRetentionObservationV1::from_validated_reply(&self.binding, &role, self.credential.generation, self.checkpoint.clone(), ledger, self.private_retention_latest_seal.clone(), self.private_retention_transfer_floor)?;
+        if std::time::Instant::now() >= deadline {
+            return Err(invalid("private retention observation expired"));
+        }
+        Ok(observed)
+    }
+    fn provision_private_retention(
+        &mut self,
+        deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        self.private_retention_result(
+            BftSignerCommandV3::ProvisionPrivateRetention {
+                expected_revision: self.checkpoint.state.revision,
+                expected_state_digest: self.checkpoint.state.state_digest.clone(),
+            },
+            deadline,
+        )
+    }
+    fn reserve_private_retention(
+        &mut self,
+        entry: super::private_retention::BftPrivateRetentionEntryV1,
+        deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        self.private_retention_result(
+            BftSignerCommandV3::ReservePrivateRetention {
+                expected_revision: self.checkpoint.state.revision,
+                expected_state_digest: self.checkpoint.state.state_digest.clone(),
+                entry: Box::new(entry),
+            },
+            deadline,
+        )
+    }
+    fn reserve_private_retention_input(
+        &mut self,
+        reference: super::private_retention_input::BftPrivateRetentionAdmissionInputRefV1,
+        deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        reference.validate()?;
+        let key = reference.key.clone();
+        let admission = reference.admission_digest.clone();
+        let ledger = self.private_retention_result(
+            BftSignerCommandV3::ReservePrivateRetentionInput {
+                expected_revision: self.checkpoint.state.revision,
+                expected_state_digest: self.checkpoint.state.state_digest.clone(),
+                reference: Box::new(reference),
+            },
+            deadline,
+        )?;
+        if !ledger.map.entries.iter().any(|entry| entry.key == key && matches!(&entry.fact, super::private_retention::BftPrivateRetentionFactV1::Some { admission_digest, .. } if admission_digest == &admission)) { return Err(invalid("retention reply changed original admission input")); }
+        Ok(ledger)
+    }
+    fn select_private_retention(
+        &mut self,
+        selection: super::BftPrivateRetentionSelectRequestV1,
+        deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionSelectionResultV1, BftSignerErrorV3> {
+        let operation = selection.digest()?;
+        let current = self.private_retention_result(
+            BftSignerCommandV3::SelectPrivateRetention {
+                selection: Box::new(selection),
+            },
+            deadline,
+        )?;
+        let original = self.selection_operation_proof(&current, operation, deadline)?;
+        Ok(super::BftPrivateRetentionSelectionResultV1 { current, original })
+    }
+    fn read_private_retention_selection_original(
+        &mut self,
+        current: &super::BftPrivateRetentionLedgerV1,
+        operation_digest: String,
+        deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionOperationProofV1, BftSignerErrorV3> {
+        self.selection_operation_proof(current, operation_digest, deadline)
+    }
+    fn ready_private_retention_original_local(
+        &mut self,
+        key: super::BftPrivateRetentionKeyV1,
+        deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionLedgerV1, BftSignerErrorV3> {
+        self.private_retention_result(
+            BftSignerCommandV3::ReadyPrivateRetentionOriginalLocal {
+                expected_revision: self.checkpoint.state.revision,
+                expected_state_digest: self.checkpoint.state.state_digest.clone(),
+                key: Box::new(key),
+            },
+            deadline,
+        )
+    }
+    fn ready_private_retention(
+        &mut self,
+        key: super::private_retention::BftPrivateRetentionKeyV1,
+        deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        self.private_retention_result(
+            BftSignerCommandV3::ReadyPrivateRetention {
+                expected_revision: self.checkpoint.state.revision,
+                expected_state_digest: self.checkpoint.state.state_digest.clone(),
+                key: Box::new(key),
+            },
+            deadline,
+        )
+    }
+    fn get_private_retention(
+        &mut self,
+        deadline: std::time::Instant,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionLedgerV1, BftSignerErrorV3>
+    {
+        self.private_retention_result(BftSignerCommandV3::GetPrivateRetention, deadline)
+    }
     fn verified_active_window(
         &mut self,
     ) -> Result<Option<super::active_window::VerifiedBftSignerActiveWindowV1>, BftSignerErrorV3>
@@ -578,6 +645,20 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
         .schedule)
     }
 
+    fn read_private_retention_operation_proof(
+        &mut self,
+        receipt_digest: String,
+        deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionOperationProofV1, BftSignerErrorV3> {
+        self.operation_proof(receipt_digest, deadline)
+    }
+    fn read_private_retention_seal_proof(
+        &mut self,
+        seal_digest: String,
+        deadline: std::time::Instant,
+    ) -> Result<super::BftPrivateRetentionSealV1, BftSignerErrorV3> {
+        self.seal_proof(seal_digest, deadline)
+    }
     fn read_successor_original_state(
         &mut self,
         request_id: &str,
@@ -1082,7 +1163,7 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
     }
 }
 
-fn random_nonce() -> Result<String, BftSignerErrorV3> {
+pub(super) fn random_nonce() -> Result<String, BftSignerErrorV3> {
     #[cfg(unix)]
     {
         use std::io::Read;

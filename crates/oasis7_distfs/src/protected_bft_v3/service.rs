@@ -33,10 +33,21 @@ mod archive_reservation;
 mod bootstrap_rotation;
 mod candidate_read;
 mod membership;
+mod observed_view;
+mod open;
 mod operations;
+mod private_retention;
+mod retention_proof;
 mod rotation;
 mod successor;
 pub use candidate_read::BftCandidateReadPolicyV3;
+pub use observed_view::{
+    ObservedBftOriginalInputServingViewV1, bft_original_input_network_response_bytes_v1,
+};
+pub use private_retention::{
+    BftPrivateRetentionMaterialVerifierV1, BftPrivateRetentionSigningPurposeV1,
+    BftPrivateRetentionSupportV1,
+};
 pub use successor::{BftSuccessorWindowDriverVerifierV1, BftSuccessorWindowSupportV1};
 
 pub(super) const BFT_SIGNER_CHECKPOINT_DOMAIN_V3: &str =
@@ -52,6 +63,7 @@ type DeadlinePolicy<'a, S> =
 pub struct BftSignerServiceV3 {
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     successor_support: Option<BftSuccessorWindowSupportV1>,
+    private_retention_support: Option<BftPrivateRetentionSupportV1>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
     pub(super) validator_keys: BTreeMap<String, Box<dyn BftSigningKeyHandleV3>>,
@@ -67,6 +79,7 @@ pub(super) struct BftSignerServiceRuntimeV3 {
     read_window: Option<(i64, u16)>,
     pub(super) backend: Box<dyn BftSignerBackendV3>,
     pub(super) poisoned: bool,
+    input_view_epoch: observed_view::OriginalInputViewEpochV1,
     pub(super) verified: Option<VerifiedBftSignerStateV3>,
     pub(super) active_lease: Option<ActiveLeaseV3>,
     pub(super) observed_time_floor_ms: i64,
@@ -105,118 +118,6 @@ pub(super) struct ReplyDataV3 {
 }
 
 impl BftSignerServiceV3 {
-    pub fn open(
-        binding: BftSignerBindingV3,
-        provider_key: Box<dyn BftSigningKeyHandleV3>,
-        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
-        backend: Box<dyn BftSignerBackendV3>,
-    ) -> Result<Self, BftSignerErrorV3> {
-        Self::open_internal(binding, provider_key, validator_keys, backend, None)
-    }
-    pub fn open_with_successor_window(
-        binding: BftSignerBindingV3,
-        provider_key: Box<dyn BftSigningKeyHandleV3>,
-        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
-        backend: Box<dyn BftSignerBackendV3>,
-        support: BftSuccessorWindowSupportV1,
-    ) -> Result<Self, BftSignerErrorV3> {
-        Self::open_internal(
-            binding,
-            provider_key,
-            validator_keys,
-            backend,
-            Some(support),
-        )
-    }
-    fn open_internal(
-        binding: BftSignerBindingV3,
-        provider_key: Box<dyn BftSigningKeyHandleV3>,
-        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
-        mut backend: Box<dyn BftSignerBackendV3>,
-        successor_support: Option<BftSuccessorWindowSupportV1>,
-    ) -> Result<Self, BftSignerErrorV3> {
-        binding.validate()?;
-        let provider_public_key = provider_key.public_key_hex();
-        decode_key(&provider_public_key)?;
-        if provider_public_key == binding.requester_auth_public_key
-            || binding
-                .provisioned_signing_keys
-                .iter()
-                .any(|identity| identity.public_key_hex == provider_public_key)
-        {
-            return Err(invalid(
-                "BFT V3 provider, requester, and validator identities must be distinct",
-            ));
-        }
-        let mut keys_by_public = BTreeMap::new();
-        for key in validator_keys {
-            let public_key = key.public_key_hex();
-            decode_key(&public_key)?;
-            if public_key == provider_public_key
-                || public_key == binding.requester_auth_public_key
-                || keys_by_public.insert(public_key, key).is_some()
-            {
-                return Err(invalid("BFT V3 provisioned signing key set is ambiguous"));
-            }
-        }
-        if binding
-            .provisioned_signing_keys
-            .iter()
-            .any(|identity| !keys_by_public.contains_key(&identity.public_key_hex))
-            || keys_by_public.len() != binding.provisioned_signing_keys.len()
-        {
-            return Err(invalid(
-                "BFT V3 provider keys differ from the pinned provisioned identities",
-            ));
-        }
-        let binding_digest = binding.digest()?;
-        let snapshot = backend.load_provisioned(&binding_digest)?;
-        validate_snapshot_shape(&snapshot, None, None)?;
-        let verified = if let Some(support) = &successor_support {
-            support.validate_backend_capability(&snapshot)?;
-            support.validate_public_state(
-                &binding,
-                &snapshot.state,
-                &provider_public_key,
-                support.deadline(std::time::Instant::now())?,
-            )?
-        } else {
-            if snapshot.state.successor_window.is_some() {
-                return Err(invalid(
-                    "nonempty successor state requires explicit support",
-                ));
-            }
-            validate_state(&binding, Some(&provider_public_key), &snapshot.state)?
-        };
-        if verified.schedule.height() < binding.initial_schedule().height()
-            || snapshot.lease_generation == 0
-            || snapshot.protected_time_floor_ms < 0
-        {
-            return Err(invalid("BFT V3 provisioned backend snapshot is invalid"));
-        }
-        Ok(Self {
-            candidate_read_policy: None,
-            successor_support,
-            binding,
-            provider_key,
-            validator_keys: keys_by_public,
-            runtime: Mutex::new(BftSignerServiceRuntimeV3 {
-                successor_deadline: None,
-                read_window: None,
-                backend,
-                poisoned: false,
-                verified: Some(verified),
-                active_lease: (!snapshot.lease_token_digest.is_empty()).then_some(ActiveLeaseV3 {
-                    generation: snapshot.lease_generation,
-                    token_digest: snapshot.lease_token_digest,
-                }),
-                observed_time_floor_ms: snapshot.protected_time_floor_ms,
-                observed_generation: snapshot.lease_generation,
-                observed_archive_transfer: snapshot.successor_archive_transfer,
-            }),
-        })
-    }
-
     /// Serves one connection-bound lease session. Any exit attempts a durable
     /// release; an uncertain release poisons this service instance.
     pub fn serve_connection<S: Read + Write>(
@@ -335,6 +236,14 @@ impl BftSignerServiceV3 {
             .as_ref()
             .map(|s| s.deadline(started))
             .transpose()?;
+        if let Some(support) = &self.private_retention_support {
+            let deadline = support.deadline(started)?;
+            runtime.successor_deadline = Some(
+                runtime
+                    .successor_deadline
+                    .map_or(deadline, |old| old.min(deadline)),
+            );
+        }
         let data = if runtime.poisoned {
             rejected_reply(
                 &runtime,
@@ -346,7 +255,12 @@ impl BftSignerServiceV3 {
                 Err(error) => rejected_reply(&runtime, error.0),
             }
         };
-        let archive_reply = matches!(&data.result, BftSignerReplyKindV3::ArchiveChunk { .. });
+        let archive_reply = matches!(
+            &data.result,
+            BftSignerReplyKindV3::ArchiveChunk { .. }
+                | BftSignerReplyKindV3::PrivateRetentionProofChunk { .. }
+                | BftSignerReplyKindV3::PrivateRetention { .. }
+        );
         let body = BftSignerReplyBodyV3 {
             schema_version: 3,
             binding_digest: self.binding.digest()?,
@@ -512,6 +426,7 @@ impl BftSignerServiceV3 {
         session.prepared = None;
         let raw_token = random_nonce()?;
         let token_digest = lease_digest(&raw_token)?;
+        runtime.input_view_epoch.invalidate()?;
         let outcome = runtime.backend.acquire_lease(
             &self.binding.digest()?,
             expected_generation,
@@ -520,6 +435,7 @@ impl BftSignerServiceV3 {
         let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 acquire outcome is uncertain; provider poisoned: {error}"
@@ -529,12 +445,14 @@ impl BftSignerServiceV3 {
         let snapshot = match outcome {
             BftSignerAcquireOutcomeV3::Conflict(snapshot) => {
                 if snapshot.lease_token_digest == token_digest {
+                    runtime.input_view_epoch.invalidate()?;
                     runtime.poisoned = true;
                     return Err(invalid(
                         "BFT V3 acquire conflict installed the attempted token; provider poisoned",
                     ));
                 }
                 if let Err(error) = validate_snapshot_shape(&snapshot, None, None) {
+                    runtime.input_view_epoch.invalidate()?;
                     runtime.poisoned = true;
                     return Err(invalid(format!(
                         "BFT V3 acquire conflict snapshot is invalid; provider poisoned: {error}"
@@ -543,6 +461,7 @@ impl BftSignerServiceV3 {
                 let verified = match self.verify_snapshot_against_cache(runtime, &snapshot) {
                     Ok(verified) => verified,
                     Err(error) => {
+                        runtime.input_view_epoch.invalidate()?;
                         runtime.poisoned = true;
                         return Err(invalid(format!(
                             "BFT V3 acquire conflict snapshot is invalid; provider poisoned: {error}"
@@ -555,6 +474,7 @@ impl BftSignerServiceV3 {
                     || snapshot.lease_generation < runtime.observed_generation
                     || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
                 {
+                    runtime.input_view_epoch.invalidate()?;
                     runtime.poisoned = true;
                     return Err(invalid("BFT V3 acquire conflict snapshot regressed"));
                 }
@@ -592,12 +512,14 @@ impl BftSignerServiceV3 {
             || snapshot.lease_token_digest != token_digest
             || snapshot.lease_token_digest.is_empty()
         {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid("BFT V3 acquire CAS returned an unexpected lease"));
         }
         if snapshot.lease_generation <= runtime.observed_generation
             || snapshot.protected_time_floor_ms < runtime.observed_time_floor_ms
         {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid(
                 "BFT V3 acquired snapshot regressed; provider poisoned",
@@ -606,6 +528,7 @@ impl BftSignerServiceV3 {
         let verified = match self.verify_snapshot_against_cache(runtime, &snapshot) {
             Ok(verified) => verified,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 acquire committed but returned an invalid snapshot; provider poisoned: {error}"
@@ -663,6 +586,7 @@ impl BftSignerServiceV3 {
         {
             Ok(now) => now,
             Err(error) => {
+                runtime.input_view_epoch.invalidate()?;
                 runtime.poisoned = true;
                 return Err(invalid(format!(
                     "BFT V3 protected clock is unavailable; provider poisoned: {error}"
@@ -670,6 +594,7 @@ impl BftSignerServiceV3 {
             }
         };
         if now < runtime.observed_time_floor_ms || now < 0 {
+            runtime.input_view_epoch.invalidate()?;
             runtime.poisoned = true;
             return Err(invalid("BFT V3 backend protected clock rollback"));
         }
@@ -703,19 +628,38 @@ impl BftSignerServiceV3 {
         if let BftSignerCommandV3::ReadSuccessorArchive { read } = command {
             return self.process_archive_query(runtime, request, request_digest, observed, read);
         }
+        if let BftSignerCommandV3::ReadPrivateRetentionProof { read } = command {
+            return self.process_retention_proof(runtime, request, request_digest, observed, read);
+        }
         let ObservedSnapshotV3(snapshot) = observed;
+        self.observe_private_retention(runtime, &snapshot)?;
         let cached_schedule = runtime
             .verified
             .as_ref()
             .map(|verified| verified.schedule.clone())
             .ok_or_else(|| invalid("BFT V3 verified state cache is unavailable"))?;
         let state = &snapshot.state;
+        if self.private_retention_support.is_some()
+            && state.private_retention.is_none()
+            && !matches!(
+                command,
+                BftSignerCommandV3::ProvisionPrivateRetention { .. }
+                    | BftSignerCommandV3::ReservePrivateRetention { .. }
+                    | BftSignerCommandV3::ReservePrivateRetentionInput { .. }
+                    | BftSignerCommandV3::Checkpoint
+            )
+        {
+            return Err(invalid(
+                "private retention requires explicit initial provision before generic operations",
+            ));
+        }
         if state.pending_driver_apply.is_some()
             && !matches!(
                 command,
                 BftSignerCommandV3::PrepareSuccessorWindow { .. }
                     | BftSignerCommandV3::CommitSuccessorWindow { .. }
                     | BftSignerCommandV3::GetSuccessorWindow { .. }
+                    | BftSignerCommandV3::GetPrivateRetention
                     | BftSignerCommandV3::ReadSuccessorArchive { .. }
                     | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. }
                     | BftSignerCommandV3::SignCandidateRead { .. }
@@ -740,6 +684,7 @@ impl BftSignerServiceV3 {
                 BftSignerCommandV3::PrepareSuccessorWindow { .. }
                     | BftSignerCommandV3::CommitSuccessorWindow { .. }
                     | BftSignerCommandV3::GetSuccessorWindow { .. }
+                    | BftSignerCommandV3::GetPrivateRetention
                     | BftSignerCommandV3::ReadSuccessorArchive { .. }
                     | BftSignerCommandV3::ConfirmSuccessorWindowAdopted { .. }
                     | BftSignerCommandV3::Checkpoint
@@ -757,6 +702,16 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
+            BftSignerCommandV3::ProvisionPrivateRetention { .. }
+            | BftSignerCommandV3::GetPrivateRetention
+            | BftSignerCommandV3::ReservePrivateRetention { .. }
+            | BftSignerCommandV3::ReservePrivateRetentionInput { .. }
+            | BftSignerCommandV3::ReadyPrivateRetention { .. }
+            | BftSignerCommandV3::ReadyPrivateRetentionOriginalLocal { .. }
+            | BftSignerCommandV3::SelectPrivateRetention { .. }
+            | BftSignerCommandV3::SealPrivateRetention { .. } => {
+                self.private_retention_command(runtime, snapshot, request, request_digest)
+            }
             BftSignerCommandV3::PrepareSuccessorWindow { .. }
             | BftSignerCommandV3::CommitSuccessorWindow { .. }
             | BftSignerCommandV3::GetSuccessorWindow { .. }
@@ -1169,6 +1124,16 @@ impl BftSignerServiceV3 {
         state: &BftSignerStateV3,
         deadline: Option<std::time::Instant>,
     ) -> Result<VerifiedBftSignerStateV3, BftSignerErrorV3> {
+        if let Some(head) = &state.private_retention {
+            let support = self.private_retention_support.as_ref().ok_or_else(|| {
+                invalid("private retention State requires explicit external capability")
+            })?;
+            if head.source != support.attestor.source
+                || head.capability_digest != support.attestor.digest()?
+            {
+                return Err(invalid("private retention State capability mismatch"));
+            }
+        }
         if let Some(support) = &self.successor_support {
             let deadline =
                 deadline.map_or_else(|| support.deadline(std::time::Instant::now()), Ok)?;

@@ -41,6 +41,7 @@ pub(in super::super) fn prepare(
     base: &VerifiedPrivateSuccessorBaseV1,
     deadline: Instant,
 ) -> Result<BftSuccessorWindowArchiveRefV1, String> {
+    base.verify_retention_continuity()?;
     let original = base.original.as_ref().ok_or("window original absent")?;
     if original.request.status != BftSuccessorWindowStatusV1::InstalledPending {
         return Err(
@@ -49,6 +50,7 @@ pub(in super::super) fn prepare(
     }
     live(deadline)?;
     let records = canonical_storage_path(records)?;
+    base.verify_carry_initializer_before_write(&records, &store)?;
     let directory = records.join("successor-active-v1");
     let segment = segment_path(&records, base)?;
     private_directory(&directory)?;
@@ -88,13 +90,18 @@ pub(in super::super) fn prepare(
             .join(storage::NODE_PRIVATE_DIRECTORY),
     )?;
     ledger.bind(&blake3_hex(&bytes), base.execution.schedule.height())?;
+    // bind authenticates this C0 base/height and exact carrier tokens before
+    // subordinate alias publication may use the resulting actual namespace.
+    ledger.verify_carriers()?;
     let private = node_execution::WindowPrivateStore::open(
         segment
             .join(DIRECTORY)
             .join(storage::NODE_PRIVATE_DIRECTORY),
+        &records,
         store,
         base,
         &mut ledger,
+        deadline,
     )?;
     ledger.require_completed()?;
     drop(private);
@@ -111,6 +118,7 @@ pub(in super::super) fn verify_ready(
     initial: bool,
     deadline: Instant,
 ) -> Result<(), String> {
+    base.verify_retention_continuity()?;
     let root = successor_carriers::InstallationRootV1::new(records.into())?;
     let (origin, reference) = root.read_window_origin(base, deadline)?;
     if &reference != expected {
@@ -120,6 +128,7 @@ pub(in super::super) fn verify_ready(
         segment_path(records, base)?
             .join(DIRECTORY)
             .join(storage::NODE_PRIVATE_DIRECTORY),
+        records,
         store,
         base,
         &origin,

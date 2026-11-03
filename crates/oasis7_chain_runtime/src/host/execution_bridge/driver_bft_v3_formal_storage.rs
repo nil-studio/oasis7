@@ -11,11 +11,14 @@ pub(super) const NODE_PRIVATE_DIRECTORY: &str = "node-private-v1";
 pub(super) const MARKER: &str = common_storage::FORMAL_HEADER_PREFIX_MARKER;
 pub(super) const DOWNGRADE_FENCE: &[u8] = common_storage::FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE;
 const ORIGIN_DOMAIN: &str = "oasis7.formal.bft.header_prefix.origin.v1";
+const COVERED_ORIGIN_DOMAIN: &str = "oasis7.formal.bft.header_prefix.covered_origin.v2";
 pub(super) const RECORD_DOMAIN: &str = "oasis7.formal.bft.header_prefix.record.v1";
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Origin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_creation_identity: Option<String>,
     schema_version: u32,
     domain: String,
     ledger_id: String,
@@ -23,6 +26,23 @@ pub(super) struct Origin {
     first_height: u64,
     format_lock: common_storage::LockCarrierIdentity,
     writer_lock: common_storage::LockCarrierIdentity,
+}
+impl Origin {
+    pub(super) fn source_creation_identity(&self) -> Option<&str> {
+        self.source_creation_identity.as_deref()
+    }
+
+    pub(super) fn with_source_creation(mut self, identity: &str) -> Result<Self, String> {
+        validate_hash(identity)?;
+        if self.source_creation_identity.is_some() {
+            return Err("source Origin already has a creation identity".into());
+        }
+        self.schema_version = 2;
+        self.domain = COVERED_ORIGIN_DOMAIN.into();
+        self.source_creation_identity = Some(identity.into());
+        self.validate()?;
+        Ok(self)
+    }
 }
 impl OriginContract for Origin {
     fn validate(&self) -> Result<(), String> {
@@ -34,14 +54,22 @@ impl OriginContract for Origin {
         ] {
             validate_hash(hash)?;
         }
-        if self.schema_version != 1
-            || self.domain != ORIGIN_DOMAIN
-            || self.first_height == 0
+        if !matches!(
+            (
+                self.schema_version,
+                self.domain.as_str(),
+                self.source_creation_identity.as_ref()
+            ),
+            (1, ORIGIN_DOMAIN, None) | (2, COVERED_ORIGIN_DOMAIN, Some(_))
+        ) || self.first_height == 0
             || self.first_height.checked_add(63).is_none()
             || self.format_lock.inode == 0
             || self.writer_lock.inode == 0
         {
             return Err("wire 3 ledger origin schema or carrier identity".into());
+        }
+        if let Some(identity) = &self.source_creation_identity {
+            validate_hash(identity)?;
         }
         Ok(())
     }
@@ -258,6 +286,7 @@ impl Format for HeaderFormat {
         writer_lock: common_storage::LockCarrierIdentity,
     ) -> Origin {
         Origin {
+            source_creation_identity: None,
             schema_version: 1,
             domain: ORIGIN_DOMAIN.into(),
             ledger_id,

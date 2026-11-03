@@ -80,10 +80,6 @@ impl FormalBftHeaderActiveExecutionV1 {
                 .map(|r| r.input().certificate)
                 .collect::<Vec<_>>()
                 .iter())
-            || public_state
-                .journal
-                .as_ref()
-                .is_some_and(|j| j.pending_commit().is_some())
         {
             return Err("active export original public history/cut differs".into());
         }
@@ -93,6 +89,13 @@ impl FormalBftHeaderActiveExecutionV1 {
             .last()
             .ok_or("active export record absent")?
             .digest()?;
+        validate_original_pending_commit(
+            public_state,
+            &self.execution.schedule,
+            height,
+            &header_id,
+            &install_digest(&source.material_identity, &record_digest, &certificate)?,
+        )?;
         let mut required = required_pending(public_state.journal.as_ref())?;
         if let Some(local) = self.private.candidate(self.execution.schedule.height())? {
             required
@@ -110,6 +113,9 @@ impl FormalBftHeaderActiveExecutionV1 {
                 ))
             })
             .collect::<Result<Vec<_>, String>>()?;
+        for (roles, package) in &pending_packages {
+            validate_pending_commit_value(public_state, roles, &package.candidate.public_value)?;
+        }
         let public_bytes = encode_protocol(public_state, MAX_CLOSURE)?;
         let mut objects = BTreeMap::<String, BftSuccessorWindowArchiveRefV1>::new();
         let mut total = 0u64;
@@ -254,8 +260,39 @@ impl FormalBftHeaderActiveExecutionV1 {
                 });
             }
             pending_candidates.sort_by(|a, b| a.header_id.cmp(&b.header_id));
+            let mut headers = self
+                .ledger
+                .records()
+                .map(|r| r.input().certificate.header.block_id())
+                .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+            for (_, package) in &pending_packages {
+                headers.insert(package.candidate.public_value.block_id()?);
+            }
+            let mut publications = Vec::new();
+            for raw in self.private.publication_archive_materials(&headers)? {
+                publications.push(successor_archive::ArchivedPublicationV1 {
+                    data: put(
+                        &raw.data,
+                        super::super::super::super::formal_ledger::MAX_RECORD,
+                    )?,
+                    original_data: raw
+                        .original_data
+                        .as_ref()
+                        .map(|bytes| {
+                            put(bytes, super::super::super::super::formal_ledger::MAX_RECORD)
+                        })
+                        .transpose()?,
+                    reservation: put(
+                        &raw.reservation,
+                        super::super::super::super::formal_ledger::MAX_PUBLICATION_METADATA_BYTES,
+                    )?,
+                });
+            }
+            publications.sort_by(|a, b| a.data.digest.cmp(&b.data.digest));
             let metadata = PrivateClosureV1 {
-                domain: WINDOW_DOMAIN.into(),
+                protected_retention: None,
+                domain: PUBLICATION_WINDOW_DOMAIN.into(),
+                publication_layout: Some(1),
                 active_base: Some(PrivateWindowBaseV1 {
                     checkpoint_digest: predecessor_checkpoint,
                     window_origin,
@@ -267,6 +304,7 @@ impl FormalBftHeaderActiveExecutionV1 {
                 public_state: public_state.clone(),
                 current_journal,
                 pending_candidates,
+                publications,
                 snapshots,
                 journals,
                 manifests,
@@ -279,6 +317,13 @@ impl FormalBftHeaderActiveExecutionV1 {
             (metadata, metadata_ref, public_state, cut_body)
         };
         let (init_bytes, init_objects) = window_init_reserve(&metadata.pending_candidates)?;
+        let (wal_bytes, wal_objects) = publication_layout_reserve(metadata.publication_layout)?;
+        let init_bytes = init_bytes
+            .checked_add(wal_bytes)
+            .ok_or("publication initializer reserve overflow")?;
+        let init_objects = init_objects
+            .checked_add(wal_objects)
+            .ok_or("publication initializer object reserve overflow")?;
         let segment_bytes = total
             .checked_add(init_bytes)
             .and_then(|n| n.checked_add(MAX_METADATA as u64))

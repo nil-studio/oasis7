@@ -1,5 +1,7 @@
 //! Actual Node cursor over an authenticated active base and bounded suffix.
 use super::*;
+#[path = "driver_bft_v3_window_node_admission.rs"]
+mod admission;
 use oasis7_consensus::tendermint_v3::{BftHeaderValueV3, VerifiedBftHeaderCertificateV3};
 use oasis7_distfs::protected_bft_v3::BftSignerBindingV3;
 use oasis7_node::{
@@ -14,6 +16,7 @@ pub(in super::super) struct ActiveNodeDriver {
     cursor: u64,
     configured: bool,
     membership: bool,
+    admission_input_io: Option<Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>>,
 }
 impl ActiveNodeDriver {
     pub(in super::super) fn new(
@@ -33,7 +36,14 @@ impl ActiveNodeDriver {
             cursor,
             configured: false,
             membership: false,
+            admission_input_io: None,
         })
+    }
+    #[cfg(test)]
+    pub(super) fn publication_accounting_for_test(
+        &self,
+    ) -> Result<(usize, usize, usize, usize), String> {
+        self.window.publication_accounting_for_test()
     }
     fn deadline() -> Result<Instant, String> {
         Instant::now()
@@ -100,6 +110,14 @@ impl ActiveNodeDriver {
     }
 }
 impl NodeExecutionHook for ActiveNodeDriver {
+    fn configure_bft_v3_admission_input_io(
+        &mut self,
+        io: Arc<dyn oasis7_node::NodeBftAdmissionInputPublicationIoV1>,
+    ) -> Result<(), String> {
+        self.admission_input_io = Some(io);
+        Ok(())
+    }
+
     fn preflight_bft_v3_capacity(
         &mut self,
         context: &NodeBftBuildContextV3,
@@ -139,6 +157,79 @@ impl NodeExecutionHook for ActiveNodeDriver {
         _: oasis7_node::NodeExecutionCommitContext,
     ) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
         Err("legacy commit unavailable in active wire-3 driver".into())
+    }
+    fn prepare_bft_v3_execution(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.check_binding(binding)?;
+        if self.configured {
+            return Err("already-open Active preparation was already configured".into());
+        }
+        live(deadline)?;
+        let before = Box::new(lease.checkpoint().map_err(err)?);
+        if before.provider_public_key != self.window.provider_pin
+            || before.lease_generation == 0
+            || before.state.pending_driver_apply.is_some()
+            || before.state.successor_window.as_ref().is_some_and(|window| {
+                window.reservation.is_some()
+                    || window.requests.iter().any(|record| matches!(record.request.status,
+                        oasis7_distfs::protected_bft_v3::BftSuccessorWindowStatusV1::Prepared
+                        | oasis7_distfs::protected_bft_v3::BftSuccessorWindowStatusV1::InstalledPending))
+            }) {
+            return Err("already-open Active cannot replace unresolved original recovery".into());
+        }
+        let active = lease
+            .verified_active_window()
+            .map_err(err)?
+            .ok_or("already-open Active requires authenticated adopted window")?;
+        let original = self
+            .window
+            .base
+            .original
+            .as_ref()
+            .ok_or("already-open Active original request absent")?;
+        if active.provider_public_key() != self.window.provider_pin
+            || active.binding_digest() != self.binding_digest
+            || active.original_request() != original
+            || active.base_schedule() != &self.window.base.execution.schedule
+            || active.minimum()
+                != &original
+                    .request
+                    .intent
+                    .body
+                    .checkpoint
+                    .minimum()
+                    .map_err(err)?
+            || active.active_segment_origin() != &self.window.protected_origin
+        {
+            return Err("already-open Active differs from authenticated current owner".into());
+        }
+        // Reuse the existing full actual suffix replay and pinned readonly
+        // carrier validation; do not open another generic-ledger writer.
+        self.window.reset(deadline)?;
+        if self
+            .window
+            .ledger
+            .records()
+            .map(|record| record.input().certificate)
+            .ne(before.state.history.iter().cloned())
+            || self.window.schedule() != &lease.current_verified_schedule().map_err(err)?
+        {
+            return Err("already-open Active history/schedule differs from current lease".into());
+        }
+        let after = lease.checkpoint().map_err(err)?;
+        if before.state != after.state
+            || before.lease_generation != after.lease_generation
+            || after.provider_public_key != self.window.provider_pin
+        {
+            return Err("already-open Active current lease changed during preparation".into());
+        }
+        live(deadline)?;
+        self.window.verify_base(deadline)?;
+        self.prepare_active_originals(binding, lease, deadline)
     }
     fn configure_bft_v3_execution(
         &mut self,
@@ -208,6 +299,45 @@ impl NodeExecutionHook for ActiveNodeDriver {
     ) -> Result<(), String> {
         self.preview(context, candidate)
     }
+    fn retain_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        context: &NodeBftExecutionContextV3,
+        candidate: &NodeBftPrivateCandidateV3,
+        deadline: Instant,
+    ) -> Result<String, String> {
+        self.retain_active_protected(
+            binding, lease, context, candidate, true, None, None, deadline,
+        )
+    }
+    fn retain_received_bft_v3_protected_candidate(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        lease: &mut dyn oasis7_distfs::protected_bft_v3::BftSignerLeaseV3,
+        context: &NodeBftExecutionContextV3,
+        package: &NodeBftPrivateCandidatePackageV3,
+        deadline: Instant,
+    ) -> Result<oasis7_node::NodeBftProtectedCandidateAdmissionV3, String> {
+        if !package
+            .dependency_nodes
+            .windows(2)
+            .all(|pair| pair[0].0 < pair[1].0)
+        {
+            return Err("active received dependency order differs".into());
+        }
+        self.retain_active_protected(
+            binding,
+            lease,
+            context,
+            &package.candidate,
+            false,
+            Some(&package.dependency_nodes),
+            None,
+            deadline,
+        )
+        .map(oasis7_node::NodeBftProtectedCandidateAdmissionV3::Retained)
+    }
     fn retain_bft_v3_private_candidate(
         &mut self,
         context: &NodeBftExecutionContextV3,
@@ -240,6 +370,39 @@ impl NodeExecutionHook for ActiveNodeDriver {
         self.window
             .private
             .retain(candidate, &nodes, &mut self.window.ledger)
+    }
+    fn retain_bft_v3_reserved_candidate(
+        &mut self,
+        context: &NodeBftExecutionContextV3,
+        candidate: &NodeBftPrivateCandidateV3,
+    ) -> Result<String, String> {
+        let deadline = Self::deadline()?;
+        self.preview_at(context, candidate, deadline)?;
+        let executed = Box::new(self.window.execution.execute(&candidate.actions_cbor)?);
+        let nodes = self.window.execution.retained_nodes.accessed_nodes()?;
+        let prefix = self
+            .window
+            .ledger
+            .records()
+            .filter(|r| r.height() < context.height)
+            .map(|r| r.input().certificate)
+            .collect::<Vec<_>>();
+        let plan = super::super::super::publication_plan::PublicationPlanV1::from_actual(
+            self.window.schedule(),
+            &executed,
+            &candidate.actions_cbor,
+            &nodes,
+            &prefix,
+            super::super::window_storage::RECORD_DOMAIN,
+        )?;
+        live(deadline)?;
+        self.window.private.retain_planned(
+            candidate,
+            &plan,
+            &nodes,
+            &mut self.window.ledger,
+            deadline,
+        )
     }
     fn retain_received_bft_v3_private_candidate(
         &mut self,
@@ -324,7 +487,12 @@ impl NodeExecutionHook for ActiveNodeDriver {
         validate_payload(payload)
     }
     fn validate_bft_v3_action_payload(&mut self, payload: &[u8]) -> Result<(), String> {
-        self.reset_cursor()?;
+        // Submission may precede authenticated Node startup. Only the closed
+        // payload shape is checked here; actual parent/batch admission remains
+        // in the configured execution hooks before retention or signing.
+        if self.configured {
+            self.reset_cursor()?;
+        }
         validate_payload(payload)
     }
     fn validate_bft_v3_action_batch(

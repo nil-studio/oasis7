@@ -50,6 +50,7 @@ impl InstalledPointerV1 {
             .minimum
             .as_ref()
             .ok_or("successor minimum absent")?;
+        validate_pending_install_binding(checkpoint, installed)?;
         if original.request.status != BftSuccessorWindowStatusV1::InstalledPending
             || minimum != &checkpoint.minimum().map_err(err)?
             || extension.active_request_id.as_deref() != Some(checkpoint.request_id.as_str())
@@ -57,10 +58,6 @@ impl InstalledPointerV1 {
             || receipt.body.committed_revision != installed.revision
             || installed.binding_digest != checkpoint.source.binding_digest
             || installed.pending_driver_apply.is_some()
-            || installed
-                .journal
-                .as_ref()
-                .is_some_and(|j| j.pending_commit().is_some())
         {
             return Err("successor install differs from exact committed minimum/original".into());
         }
@@ -85,6 +82,36 @@ impl InstalledPointerV1 {
             readback_state_digest: self.readback_state_digest.clone(),
         }
     }
+}
+
+/// Pointer matching consumes the original authenticated request; it does not
+/// replace full schedule/QC verification or the private replay below.
+fn validate_pending_install_binding(
+    checkpoint: &BftSuccessorWindowCheckpointBodyV1,
+    installed: &BftSignerStateV3,
+) -> Result<(), String> {
+    let Some(journal) = installed.journal.as_ref() else {
+        return Ok(());
+    };
+    let Some(certificate) = journal.pending_commit() else {
+        return Ok(());
+    };
+    certificate.validate_binding()?;
+    if installed.history.is_empty()
+        || journal.digest()? != checkpoint.current_journal_digest.as_deref().unwrap_or("")
+        || journal.schedule_digest != checkpoint.successor_schedule_digest
+        || checkpoint.cut.height.checked_add(1) != Some(certificate.execution_commitment.height)
+        || journal.height() != certificate.execution_commitment.height
+        || certificate.execution_commitment.parent_commit_ref != checkpoint.cut.header_id
+        || installed.applied_installs.last().is_none_or(|applied| {
+            applied.height != checkpoint.cut.height
+                || applied.header_id != checkpoint.cut.header_id
+                || applied.driver_install_digest != checkpoint.cut.driver_install_digest
+        })
+    {
+        return Err("successor install changed original pending commit or applied cut".into());
+    }
+    Ok(())
 }
 /// Capacity is checked before protected minimum CAS, including the largest
 /// encoded future generation/revision. This DTO is sizing only, never authority.
@@ -169,6 +196,49 @@ pub(super) fn read_installed(
     live(deadline)?;
     Ok(actual)
 }
+/// Explicit local trust configuration. Neither archive metadata nor a retained
+/// input descriptor can construct this configuration or authorize a read.
+pub(crate) struct ConfiguredRetentionInstallV1 {
+    binding: BftSignerBindingV3,
+    role: oasis7_distfs::protected_bft_v3::BftPrivateRetentionAttestorV1,
+    reader: Arc<dyn oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputReaderV1>,
+}
+impl ConfiguredRetentionInstallV1 {
+    pub(crate) fn new(
+        binding: &BftSignerBindingV3,
+        role: oasis7_distfs::protected_bft_v3::BftPrivateRetentionAttestorV1,
+        reader: Arc<dyn oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputReaderV1>,
+    ) -> Result<Self, String> {
+        role.digest().map_err(err)?;
+        if role.source.binding_digest != binding.digest().map_err(err)? {
+            return Err("configured retention install role/binding differs".into());
+        }
+        Ok(Self {
+            binding: binding.clone(),
+            role,
+            reader,
+        })
+    }
+    pub(super) fn validate_for(
+        &self,
+        request: &SuccessorPrivateInstallRequestV1<'_>,
+    ) -> Result<(), String> {
+        if self.binding.digest().map_err(err)? != request.binding.digest().map_err(err)?
+            || self.role.provider_public_key != request.provider_pin
+        {
+            return Err("configured retention install binding/provider differs".into());
+        }
+        Ok(())
+    }
+    fn configure(
+        &self,
+        verifier: ActualBftSuccessorWindowDriverVerifierV1,
+    ) -> Result<ActualBftSuccessorWindowDriverVerifierV1, String> {
+        verifier
+            .with_original_retention_reader(self.role.clone(), self.reader.clone())?
+            .with_original_retention_binding(self.binding.clone())
+    }
+}
 pub(crate) struct SuccessorPrivateInstallRequestV1<'a> {
     pub(crate) binding: &'a BftSignerBindingV3,
     pub(crate) provider_pin: &'a str,
@@ -185,7 +255,11 @@ impl FormalBftHeaderLedgerExecutionV3 {
         material_identity: &str,
         cursor_height: u64,
         request: SuccessorPrivateInstallRequestV1<'_>,
+        retention: Option<&ConfiguredRetentionInstallV1>,
     ) -> Result<BftSuccessorWindowAdoptedEvidenceV1, String> {
+        if let Some(retention) = retention {
+            retention.validate_for(&request)?;
+        }
         let SuccessorPrivateInstallRequestV1 {
             binding,
             provider_pin,
@@ -224,11 +298,22 @@ impl FormalBftHeaderLedgerExecutionV3 {
         {
             return Err("successor installation differs from actual durable World".into());
         }
+        super::successor_archive::validate_original_pending_commit(
+            &checkpoint.state,
+            &self.origin.schedule,
+            body.cut.height,
+            &body.cut.header_id,
+            &body.cut.driver_install_digest,
+        )?;
         let verifier = ActualBftSuccessorWindowDriverVerifierV1::new(
             self.inputs.anchor.clone(),
             self.inputs.target.clone(),
             archive,
         )?;
+        let verifier = match retention {
+            Some(retention) => retention.configure(verifier)?,
+            None => verifier,
+        };
         let base = verifier.verify_original_closure_with_origin(&original, deadline)?;
         let active_origin =
             super::window_execution::layout::prepare(records, self.store.clone(), &base, deadline)?;

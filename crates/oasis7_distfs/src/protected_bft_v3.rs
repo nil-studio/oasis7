@@ -12,6 +12,62 @@ mod client;
 mod crypto;
 mod install;
 mod membership;
+mod private_retention;
+mod private_retention_selection;
+pub use private_retention_selection::{
+    BftPrivateRetentionSelectRequestV1, BftPrivateRetentionSelectionCommitmentV1,
+    BftPrivateRetentionSelectionIndexV1, BftPrivateRetentionSelectionKindV1,
+    BftPrivateRetentionSelectionOperationV1, BftPrivateRetentionSelectionResultV1,
+    BftPrivateRetentionSelectionV1, VerifiedBftPrivateRetentionSelectionIdentityV1,
+};
+mod private_retention_input;
+mod private_retention_input_authorization;
+mod retention_proof_query;
+pub use private_retention_input::{
+    BFT_PRIVATE_RETENTION_INPUT_MAX_BYTES_V1, BftPrivateRetentionAdmissionInputReadV1,
+    BftPrivateRetentionAdmissionInputReaderV1, BftPrivateRetentionAdmissionInputRefV1,
+    BftPrivateRetentionAdmissionInputV1, BftPrivateRetentionEncodedArchiveReadV1,
+    BftPrivateRetentionInputObjectKindV1, BftPrivateRetentionInputObjectV1,
+};
+pub use private_retention_input_authorization::{
+    BftPrivateRetentionAdmissionReadGrantBodyV1, BftPrivateRetentionAdmissionReadGrantV1,
+    BftPrivateRetentionAdmissionReadPurposeV1,
+};
+mod private_retention_backend;
+mod private_retention_creation;
+mod private_retention_current_anchor;
+mod private_retention_history;
+mod private_retention_operation_proof;
+pub use crypto::BFT_SIGNER_MAX_FRAME_BYTES_V3;
+pub use private_retention_operation_proof::{
+    BftPrivateRetentionOperationAccountingV1, BftPrivateRetentionOperationProofV1,
+    private_retention_receipt_digest,
+};
+mod private_retention_memory;
+mod private_retention_observation;
+mod private_retention_seal;
+mod private_retention_seal_context;
+mod private_retention_sealed_current;
+mod private_retention_verification_context;
+pub use private_retention_current_anchor::{
+    BftPrivateRetentionSealAnchorBodyV1, BftPrivateRetentionSealAnchorV1,
+};
+pub use private_retention_history::BftPrivateRetentionHistoryV1;
+pub use private_retention_seal::{
+    BftPrivateRetentionSealBodyV1, BftPrivateRetentionSealCasV1, BftPrivateRetentionSealV1,
+    ValidatedBftPrivateRetentionSealChainV1,
+};
+pub use private_retention_seal_context::{
+    BftPrivateRetentionHistoricalInputContextV1, BftPrivateRetentionReservationInputContextV1,
+    BftPrivateRetentionSealVerificationContextV1,
+};
+pub use private_retention_sealed_current::BftPrivateRetentionSealedCurrentV1;
+pub use private_retention_verification_context::{
+    BftPrivateRetentionAuthenticatedAdmissionParentV1, BftPrivateRetentionHistoricalOwnedC0V1,
+    BftPrivateRetentionVerificationContextV1,
+};
+#[cfg(test)]
+mod private_retention_tests;
 mod rotation;
 mod service;
 mod state;
@@ -35,8 +91,9 @@ pub use client::{
     BftSignerLeaseV3, BftSignerProviderV3, RemoteBftSignerLeaseV3, RemoteBftSignerProviderV3,
 };
 pub use service::{
-    BftCandidateReadPolicyV3, BftSignerServiceV3, BftSuccessorWindowDriverVerifierV1,
-    BftSuccessorWindowSupportV1,
+    BftCandidateReadPolicyV3, BftPrivateRetentionMaterialVerifierV1,
+    BftPrivateRetentionSigningPurposeV1, BftPrivateRetentionSupportV1, BftSignerServiceV3,
+    BftSuccessorWindowDriverVerifierV1, BftSuccessorWindowSupportV1,
 };
 pub use state::{
     BftDriverAppliedReceiptV3, BftDriverApplyIntentV3, BftSignerCandidateV3, BftSignerCheckpointV3,
@@ -95,3 +152,26 @@ pub use archive_query::{
 pub use active_window::{BftSignerActiveWindowV1, VerifiedBftSignerActiveWindowV1};
 
 pub use active_window_reconstruction::ValidatedBftSuccessorInstalledStateV1;
+
+pub use private_retention::{
+    BFT_PRIVATE_RETENTION_MAX_ALTERNATIVES_V1, BFT_PRIVATE_RETENTION_MAX_ENTRIES_V1,
+    BFT_PRIVATE_RETENTION_MAX_MAP_BYTES_V1, BftPrivateRetentionAttestorV1,
+    BftPrivateRetentionEntryV1, BftPrivateRetentionFactV1, BftPrivateRetentionHeadV1,
+    BftPrivateRetentionKeyV1, BftPrivateRetentionLifecycleV1, BftPrivateRetentionMapV1,
+    BftPrivateRetentionReceiptBodyV1, BftPrivateRetentionReceiptV1, BftPrivateRetentionSourceV1,
+};
+pub use private_retention_backend::{
+    BftPrivateRetentionCasV1, BftPrivateRetentionCurrentV1, BftPrivateRetentionInputInventoryV1,
+    BftPrivateRetentionLedgerV1, BftPrivateRetentionSnapshotV1,
+};
+pub use private_retention_creation::{
+    BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionFreshNamespaceV1,
+    BftPrivateRetentionFreshRecoveryV1, BftPrivateRetentionFreshSeedV1,
+    ValidatedBftPrivateRetentionCreationV1,
+};
+pub use private_retention_memory::BftPrivateRetentionMemoryBackendV1;
+pub use private_retention_observation::ValidatedBftPrivateRetentionObservationV1;
+
+pub use service::{
+    ObservedBftOriginalInputServingViewV1, bft_original_input_network_response_bytes_v1,
+};

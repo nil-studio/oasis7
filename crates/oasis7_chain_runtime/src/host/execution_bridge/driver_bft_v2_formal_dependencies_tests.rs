@@ -53,6 +53,65 @@ fn seeded(bytes: &[u8]) -> (String, Vec<u8>) {
 }
 
 #[test]
+fn captured_h_inventory_moves_to_closed_replay_without_payload_copy_or_fallback() {
+    let external = Arc::new(MemoryReader::default());
+    let known = external.insert(b"authenticated H node".to_vec());
+    let outside = external.insert(b"outside the captured closure".to_vec());
+    let captured = RecordingBusinessIndexReaderV1::new(external.clone(), vec![]).unwrap();
+    captured.read_node(&known).unwrap().unwrap();
+    let pointer = captured.recorded.lock().unwrap().nodes[&known].as_ptr();
+    let closed = captured.take_closed_inventory().unwrap();
+    closed.require_strict_inventory().unwrap();
+    assert!(captured.read_node(&known).unwrap_err().contains("moved"));
+    assert!(closed.accessed_nodes().unwrap().is_empty());
+    assert_eq!(
+        closed.recorded.lock().unwrap().nodes[&known].as_ptr(),
+        pointer
+    );
+    assert!(closed.read_node(&known).unwrap().is_some());
+    assert_eq!(closed.read_node(&outside).unwrap(), None);
+    assert_eq!(external.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(external.cached_reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.prefetches.load(Ordering::SeqCst), 0);
+    assert_eq!(closed.recorded_refs().unwrap(), vec![known]);
+}
+
+#[test]
+fn accessed_readback_borrows_original_allocation_and_restores_on_error() {
+    let accessed = seeded(b"accessed original");
+    let unused = seeded(b"unvisited seed");
+    let reader = RecordingBusinessIndexReaderV1::new_strict(
+        Arc::new(MemoryReader::default()),
+        vec![accessed.clone(), unused],
+    )
+    .unwrap();
+    reader.read_node(&accessed.0).unwrap();
+    let pointer = reader.recorded.lock().unwrap().nodes[&accessed.0].as_ptr();
+    let result: Result<(), String> = reader.with_accessed_nodes(|nodes| {
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[&accessed.0].as_ptr(), pointer);
+        assert!(
+            reader
+                .read_node(&accessed.0)
+                .unwrap_err()
+                .contains("checked out")
+        );
+        assert!(
+            reader
+                .read_cached_node(&accessed.0)
+                .unwrap_err()
+                .contains("checked out")
+        );
+        assert!(reader.recorded_refs().unwrap_err().contains("checked out"));
+        Err("independent check rejected".into())
+    });
+    assert_eq!(result.unwrap_err(), "independent check rejected");
+    let recorded = reader.recorded.lock().unwrap();
+    assert_eq!(recorded.nodes.len(), 2);
+    assert_eq!(recorded.nodes[&accessed.0].as_ptr(), pointer);
+}
+
+#[test]
 fn strict_seeded_reader_works_without_external_nodes_or_prefetch() {
     let external = Arc::new(MemoryReader::default());
     let node = seeded(b"retained H node");
@@ -453,4 +512,83 @@ fn derived_write_capacity_plan_includes_unread_writes_without_partial_mutation()
         ordered
     });
     assert!(parent.accessed_nodes().unwrap().is_empty());
+}
+
+#[test]
+fn accessed_original_checkout_restores_on_panic_without_poisoning_mutex() {
+    let original = seeded(b"panic-safe checked out original");
+    let reader = RecordingBusinessIndexReaderV1::new_strict(
+        Arc::new(MemoryReader::default()),
+        vec![original.clone()],
+    )
+    .unwrap();
+    reader.read_node(&original.0).unwrap();
+    let pointer = reader.recorded.lock().unwrap().nodes[&original.0].as_ptr();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _: Result<(), String> = reader.with_accessed_nodes(|nodes| {
+            assert_eq!(nodes[&original.0].as_ptr(), pointer);
+            panic!("injected independent callback panic");
+        });
+    }));
+    assert!(result.is_err());
+    let recorded = reader.recorded.lock().unwrap();
+    assert_eq!(recorded.nodes[&original.0].as_ptr(), pointer);
+    assert!(recorded.accessed.contains(&original.0));
+    assert!(!recorded.checked_out);
+    drop(recorded);
+    assert_eq!(reader.read_node(&original.0).unwrap(), Some(original.1));
+}
+
+#[test]
+fn live_closed_execution_derives_nodes_without_external_fallback() {
+    let original = seeded(b"authenticated H node");
+    let derived = seeded(b"locally derived execution node");
+    let absent = seeded(b"outside authenticated inventory");
+    let external = Arc::new(MemoryReader::default());
+    external.set(absent.0.clone(), absent.1.clone());
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), vec![original.clone()])
+            .unwrap();
+    let strict =
+        RecordingBusinessIndexReaderV1::new_closed_layer(parent.clone(), Vec::new()).unwrap();
+    assert!(strict.cache_content_node(&derived.0, &derived.1).is_err());
+    let live =
+        RecordingBusinessIndexReaderV1::new_live_closed_layer(parent.clone(), Vec::new()).unwrap();
+    assert_eq!(live.read_node(&original.0).unwrap(), Some(original.1));
+    assert_eq!(live.read_node(&absent.0).unwrap(), None);
+    live.cache_content_node(&derived.0, &derived.1).unwrap();
+    assert_eq!(live.read_node(&derived.0).unwrap(), Some(derived.1));
+    assert_eq!(parent.read_node(&derived.0).unwrap(), None);
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cache_writes.load(Ordering::SeqCst), 0);
+    assert!(RecordingBusinessIndexReaderV1::new_live_closed_layer(live, Vec::new()).is_err());
+}
+
+#[test]
+fn completed_derived_inventory_moves_to_strict_and_retires_live_aliases() {
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(Arc::new(MemoryReader::default()), Vec::new())
+            .unwrap();
+    let live = RecordingBusinessIndexReaderV1::new_live_closed_layer(parent, Vec::new()).unwrap();
+    let bytes = b"derived verified node".to_vec();
+    let digest = blake3_hex(&bytes);
+    live.cache_content_node(&digest, &bytes).unwrap();
+    live.read_node(&digest).unwrap();
+    let pointer = live
+        .with_accessed_nodes(|nodes| Ok(nodes[&digest].as_ptr() as usize))
+        .unwrap();
+    assert!(RecordingBusinessIndexReaderV1::new_closed_layer(live.clone(), Vec::new()).is_err());
+    let closed = live.close_verified_derived_inventory().unwrap();
+    closed.require_strict_inventory().unwrap();
+    assert_eq!(
+        closed
+            .with_accessed_nodes(|nodes| Ok(nodes[&digest].as_ptr() as usize))
+            .unwrap(),
+        pointer
+    );
+    assert_eq!(closed.read_node(&digest).unwrap(), Some(bytes.clone()));
+    assert!(live.read_node(&digest).is_err());
+    assert!(live.cache_content_node(&digest, &bytes).is_err());
+    let child = RecordingBusinessIndexReaderV1::new_closed_layer(closed, Vec::new()).unwrap();
+    assert_eq!(child.read_node(&digest).unwrap(), Some(bytes));
 }

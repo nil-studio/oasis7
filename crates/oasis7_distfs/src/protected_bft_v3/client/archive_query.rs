@@ -6,7 +6,10 @@ use std::time::Instant;
 
 impl RemoteBftSignerLeaseV3 {
     pub(super) fn archive_reserved_response_bytes(&self) -> u64 {
-        self.archive_observation.as_ref().map_or(0, |o| o.counter)
+        self.archive_observation
+            .as_ref()
+            .map_or(0, |o| o.counter)
+            .max(self.private_retention_transfer_floor)
     }
 
     pub(super) fn archive_timeout(&self, deadline: Instant) -> Result<(), BftSignerErrorV3> {
@@ -92,7 +95,7 @@ impl RemoteBftSignerLeaseV3 {
         let mut chain = super::super::active_window::BftSuccessorArchiveChainVerifierV1::new();
         let mut result = None;
         let mut chunks = 0usize;
-        let mut counter = self.archive_observation.as_ref().map_or(0, |o| o.counter);
+        let mut counter = self.archive_reserved_response_bytes();
         for (n, entry) in window.requests[..=index].iter().enumerate() {
             let selected_identity = if n == index { identity } else { None };
             let original = self.archive_read_state(

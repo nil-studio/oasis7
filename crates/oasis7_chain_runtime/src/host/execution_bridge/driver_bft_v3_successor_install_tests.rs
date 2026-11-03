@@ -10,39 +10,33 @@ use super::super::super::super::formal_header::{
 };
 use super::*;
 
-struct StopNextPrecommit {
-    snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
-    calls: Arc<std::sync::atomic::AtomicUsize>,
-}
-impl BftSigningKeyHandleV3 for StopNextPrecommit {
-    fn public_key_hex(&self) -> String {
-        hex::encode(fixtures::key(120).verifying_key().to_bytes())
-    }
-    fn sign_preimage(&self, bytes: &[u8]) -> Result<[u8; 64], BftSignerErrorV3> {
-        if bytes
-            .windows(b"oasis7.bft.vote.v3.sign".len())
-            .any(|w| w == b"oasis7.bft.vote.v3.sign")
-            && bytes.windows(b"precommit".len()).any(|w| w == b"precommit")
-            && !self.snapshot.lock().unwrap().state.history.is_empty()
-        {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            return Err(BftSignerErrorV3(
-                "injected original T+1 PC interruption".into(),
-            ));
-        }
-        Ok(fixtures::key(120).sign(bytes).to_bytes())
-    }
-}
-struct ReadbackOnlyKey(Arc<std::sync::atomic::AtomicUsize>);
-impl BftSigningKeyHandleV3 for ReadbackOnlyKey {
-    fn public_key_hex(&self) -> String {
-        hex::encode(fixtures::key(120).verifying_key().to_bytes())
-    }
-    fn sign_preimage(&self, bytes: &[u8]) -> Result<[u8; 64], BftSignerErrorV3> {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(fixtures::key(120).sign(bytes).to_bytes())
-    }
-}
+#[path = "driver_bft_v3_pending_commit_archive_tests.rs"]
+mod pending_commit_archive_tests;
+
+#[path = "driver_bft_v3_successor_source_test_support.rs"]
+mod source_retention;
+use source_retention::{BackendState, SourceFixture};
+#[path = "driver_bft_v3_source_commit_actual_tests.rs"]
+mod source_commit_actual;
+#[path = "driver_bft_v3_source_continuity_tests.rs"]
+mod source_continuity;
+#[path = "driver_bft_v3_source_permission_order_tests.rs"]
+mod source_permission_order;
+#[path = "driver_bft_v3_source_seal_actual_tests.rs"]
+mod source_seal_actual;
+
+#[cfg(feature = "node-libp2p")]
+#[path = "driver_bft_v3_source_active_some_tests.rs"]
+mod source_active_some;
+#[path = "driver_bft_v3_source_selected_archive_tests.rs"]
+mod source_selected_archive;
+
+#[path = "driver_bft_v3_successor_install_keys_tests.rs"]
+mod install_keys;
+use install_keys::{ReadbackOnlyKey, StopNextPrecommit};
+#[cfg(feature = "node-libp2p")]
+#[path = "driver_bft_v3_source_batch_noise_tests.rs"]
+mod source_batch_noise;
 #[test]
 fn wire3_successor_actual_minimum_pointer_and_new_owner_adoption() {
     thread::Builder::new()
@@ -137,44 +131,83 @@ fn wire3_private_active_two_windows_replay_and_cold_open() {
         .unwrap();
 }
 fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, target_offset: u64) {
+    install_case_with_retention(
+        exercise_active,
+        pre_pin,
+        target_offset,
+        CandidateRetentionProfile::LegacyRecovery,
+    );
+}
+fn install_case_with_retention(
+    exercise_active: bool,
+    pre_pin: bool,
+    target_offset: u64,
+    retention: CandidateRetentionProfile,
+) {
     let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
     let root = Scratch::new();
     let store = cas(root.path());
-    let actual = driver(&h, root.path(), &store);
-    let binding = signer_binding(&actual);
+    let (actual, binding, snapshot, mut source_fixture) = if matches!(
+        retention,
+        CandidateRetentionProfile::PublicationReserved
+    ) {
+        let (actual, binding, state, source) = SourceFixture::prepare(&h, &root, &store);
+        (actual, binding, state, Some(source))
+    } else {
+        let actual = driver(&h, root.path(), &store);
+        let binding = signer_binding(&actual);
+        let state = BackendState::Legacy(Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+            successor_archive_transfer: Some(BftSuccessorArchiveTransferLedgerV1::provisioned()),
+            state: BftSignerStateV3::from_handoff(&binding).unwrap(),
+            lease_generation: 1,
+            lease_token_digest: String::new(),
+            protected_time_floor_ms: 100,
+        })));
+        (actual, binding, state, None)
+    };
     actual
         .lock()
         .unwrap()
         .configure_bft_v3_execution(&binding)
         .unwrap();
-    let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
-        successor_archive_transfer: Some(
-            oasis7_distfs::protected_bft_v3::BftSuccessorArchiveTransferLedgerV1::provisioned(),
-        ),
-        state: BftSignerStateV3::from_handoff(&binding).unwrap(),
-        lease_generation: 1,
-        lease_token_digest: String::new(),
-        protected_time_floor_ms: 100,
-    }));
+    let selected_signatures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let selected_probe = source_selected_archive::register(
+        &actual,
+        &binding,
+        &snapshot,
+        &root.path().join("ledger"),
+        selected_signatures.clone(),
+    );
     let interrupted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let first_service = Arc::new(
+    let keys: Vec<Box<dyn BftSigningKeyHandleV3>> = if selected_probe.is_some() {
+        vec![Box::new(ReadbackOnlyKey(selected_signatures.clone()))]
+    } else {
+        vec![Box::new(StopNextPrecommit {
+            snapshot: snapshot.clone(),
+            calls: interrupted.clone(),
+        })]
+    };
+    let first_service = Arc::new(if let Some(source) = &source_fixture {
+        source.service(&binding, keys, None)
+    } else {
         BftSignerServiceV3::open(
             binding.clone(),
             Box::new(MemoryTestSignerKey(fixtures::key(116))),
-            vec![Box::new(StopNextPrecommit {
-                snapshot: snapshot.clone(),
-                calls: interrupted.clone(),
-            })],
+            keys,
             Box::new(MemoryTestSignerBackend {
                 binding_digest: binding.digest().unwrap(),
                 fail_confirm_after_commit: None,
-                snapshot: snapshot.clone(),
+                snapshot: snapshot.legacy(),
             }),
         )
-        .unwrap(),
-    );
+        .unwrap()
+    });
     let (address, server) = tcp(first_service);
-    let mut node = runtime(root.path(), actual.clone(), &binding, address);
+    let mut node = if let Some(source) = &source_fixture {
+        source.runtime(root.path(), &binding, address)
+    } else {
+        runtime_with_retention(root.path(), actual.clone(), &binding, address, retention)
+    };
     node.submit_consensus_action_payload(34001, payload("successor-installed-original-action"))
         .unwrap();
     node.start().unwrap();
@@ -182,6 +215,12 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
     let deadline = Instant::now() + Duration::from_secs(90);
     loop {
         let state = snapshot.lock().unwrap().state.clone();
+        if selected_probe
+            .as_ref()
+            .is_some_and(|probe| probe.finished())
+        {
+            break;
+        }
         if interrupted.load(std::sync::atomic::Ordering::SeqCst) > 0 {
             let journal = state.journal.as_ref().unwrap();
             assert_eq!(
@@ -224,18 +263,30 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
     let public_root = Scratch::new();
     let public_archive =
         Arc::new(LocalBftSuccessorArchiveStoreV1::new(cas(public_root.path())).unwrap());
-    let verifier = Arc::new(
-        ActualBftSuccessorWindowDriverVerifierV1::new(
-            h.anchor.clone(),
-            h.target.clone(),
-            private_archive.clone(),
-        )
-        .unwrap()
-        .with_installation_root(root.path().join("ledger"))
-        .unwrap()
-        .with_active_private_store(store.clone())
-        .unwrap(),
-    );
+    let verifier = ActualBftSuccessorWindowDriverVerifierV1::new(
+        h.anchor.clone(),
+        h.target.clone(),
+        private_archive.clone(),
+    )
+    .unwrap()
+    .with_installation_root(root.path().join("ledger"))
+    .unwrap()
+    .with_active_private_store(store.clone())
+    .unwrap();
+    let verifier = Arc::new(if let Some(source) = &source_fixture {
+        verifier
+            .with_original_retention_reader(
+                source.fixed_attestor().clone(),
+                source.original_input_reader(),
+            )
+            .unwrap()
+            .with_original_retention_binding(binding.clone())
+            .unwrap()
+    } else {
+        verifier
+    });
+    #[cfg(feature = "node-libp2p")]
+    let active_public_material = public_archive.clone();
     let public_material: Arc<dyn oasis7_distfs::protected_bft_v3::BftSuccessorArchiveStoreV1> =
         if exercise_active && target_offset == u64::MAX - 3 {
             Arc::new(reservation_start::PauseFirstMaterial::new(public_archive))
@@ -247,20 +298,27 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         .with_active_window_rebase()
         .with_driver_verifier(verifier);
     let readback_signatures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let successor_service = Arc::new(
+    let keys: Vec<Box<dyn BftSigningKeyHandleV3>> =
+        vec![Box::new(ReadbackOnlyKey(readback_signatures.clone()))];
+    let successor_service = Arc::new(if let Some(source) = &source_fixture {
+        source.service(&binding, keys, Some(support))
+    } else {
         BftSignerServiceV3::open_with_successor_window(
             binding.clone(),
             Box::new(MemoryTestSignerKey(fixtures::key(116))),
-            vec![Box::new(ReadbackOnlyKey(readback_signatures.clone()))],
+            keys,
             Box::new(MemoryTestSignerBackend {
                 binding_digest: binding.digest().unwrap(),
                 fail_confirm_after_commit: None,
-                snapshot: snapshot.clone(),
+                snapshot: snapshot.legacy(),
             }),
             support,
         )
-        .unwrap(),
-    );
+        .unwrap()
+    });
+    let _provider_input_egress = source_fixture
+        .as_ref()
+        .map(|source| source.provider_input_egress(&binding, successor_service.clone()));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -280,6 +338,8 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
     // Its server lifetime is explicit; connection count is not a hidden budget.
     let server_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let server_stopping = server_stop.clone();
+    #[cfg(feature = "node-libp2p")]
+    let batch_noise_service = source_batch_noise::requested().then(|| successor_service.clone());
     let server = thread::spawn(move || {
         for _ in 0..connections {
             if server_stopping.load(std::sync::atomic::Ordering::SeqCst) {
@@ -306,6 +366,7 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             successor_service.serve_tcp_connection(&mut stream).unwrap();
         }
     });
+    let server = reserved_archive::ScopedArchiveServerV1::new(server_stop.clone(), server);
     let provider_pin = hex::encode(fixtures::key(116).verifying_key().to_bytes());
     let provider = RemoteBftSignerProviderV3::new(
         address,
@@ -319,28 +380,102 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         },
     )
     .unwrap();
+    let provider = if let Some(source) = &source_fixture {
+        source.provider(provider)
+    } else {
+        provider
+    };
     let mut lease = provider.acquire(&binding).unwrap();
-    let original = lease.checkpoint().unwrap();
+    let mut original = lease.checkpoint().unwrap();
     let certificate = original.state.history.last().unwrap();
     let height = certificate.execution_commitment.height;
     assert!(height >= receipt.height);
     let id = certificate.header.block_id().unwrap();
     let source = BftSuccessorWindowSourceV1::from_binding(&binding).unwrap();
-    let exported = actual
-        .lock()
-        .unwrap()
-        .export_successor_private_closure(SuccessorPrivateExportRequestV1 {
-            archive: &private_archive,
-            source: &source,
-            public_state: &original.state,
-            previous_usage: BftSuccessorWindowArchiveUsageV1::default(),
-            height,
-            header_id: &id,
-            sequence: 1,
-            predecessor: None,
-            deadline: Instant::now() + Duration::from_secs(120),
-        })
-        .unwrap();
+    if source_seal_actual::requested() {
+        let cut = actual
+            .lock()
+            .unwrap()
+            .verified_private_retention_cut(
+                &source,
+                height,
+                &id,
+                Instant::now() + Duration::from_secs(120),
+            )
+            .unwrap();
+        source_seal_actual::exercise(lease.as_mut(), &original.state, cut);
+        drop(lease);
+        server.join().unwrap();
+        return;
+    }
+    #[cfg(feature = "node-libp2p")]
+    if source_batch_noise::requested() {
+        source_batch_noise::exercise(
+            source_fixture.as_ref().unwrap(),
+            batch_noise_service.unwrap(),
+            &binding,
+        );
+        drop(lease);
+        server_stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        server.join().unwrap();
+        return;
+    }
+    if source_fixture.is_some() {
+        let cut = actual
+            .lock()
+            .unwrap()
+            .verified_private_retention_cut(
+                &source,
+                height,
+                &id,
+                Instant::now() + Duration::from_secs(120),
+            )
+            .unwrap();
+        original = lease
+            .seal_private_retention(
+                original.state.revision,
+                original.state.state_digest.clone(),
+                cut,
+                Instant::now() + Duration::from_secs(120),
+            )
+            .unwrap()
+            .checkpoint()
+            .clone();
+    }
+    let request = SuccessorPrivateExportRequestV1 {
+        archive: &private_archive,
+        source: &source,
+        public_state: &original.state,
+        previous_usage: BftSuccessorWindowArchiveUsageV1::default(),
+        height,
+        header_id: &id,
+        sequence: 1,
+        predecessor: None,
+        deadline: Instant::now() + Duration::from_secs(120),
+    };
+    let exported = if let Some(source) = &source_fixture {
+        actual
+            .lock()
+            .unwrap()
+            .export_successor_private_closure_with_retention(
+                request,
+                lease.as_mut(),
+                source.original_input_reader().as_ref(),
+            )
+    } else {
+        actual
+            .lock()
+            .unwrap()
+            .export_successor_private_closure(request)
+    }
+    .unwrap();
+    #[cfg(feature = "node-libp2p")]
+    if let Some(provider_inputs) = &_provider_input_egress {
+        provider_inputs.assert_material_released();
+    }
+    if matches!(retention, CandidateRetentionProfile::PublicationReserved) {
+        reserved_archive::assert_original_promises_exported(&root, &store, exported.manifest());
+    }
     let mut schedule = binding.initial_schedule().clone();
     for certificate in &original.state.history {
         schedule = oasis7_consensus::tendermint_v3::verify_commit_certificate_token_v3(
@@ -398,7 +533,9 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
     };
     assert_eq!(
         exported.pending_actions().len(),
-        1,
+        selected_probe
+            .as_ref()
+            .map_or(1, |probe| probe.expected_pending_count()),
         "the original T+1 Proposal/PV requires its retained package"
     );
     let pending_ref = &exported.pending_actions()[0];
@@ -413,6 +550,32 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         private_archive.clone(),
     )
     .unwrap();
+    let detached_verifier = if let Some(source) = &source_fixture {
+        detached_verifier
+            .with_original_retention_reader(
+                source.fixed_attestor().clone(),
+                source.original_input_reader(),
+            )
+            .unwrap()
+            .with_original_retention_binding(binding.clone())
+            .unwrap()
+    } else {
+        detached_verifier
+    };
+    if source_continuity::requested() {
+        detached_verifier
+            .verify_retention_continuity_mutations_for_test(
+                &body,
+                &original.state,
+                exported.public_state_ref(),
+                &store,
+                Instant::now() + Duration::from_secs(120),
+            )
+            .unwrap();
+        drop(lease);
+        server.join().unwrap();
+        return;
+    }
     detached_verifier
         .verify_closure(
             &body,
@@ -421,6 +584,68 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             Instant::now() + Duration::from_secs(120),
         )
         .unwrap();
+    if let Some(probe) = &selected_probe {
+        probe.assert_after_archive(&original.state, exported.manifest(), &readback_signatures);
+        probe.check_purposes(
+            &detached_verifier,
+            &body,
+            &original.state,
+            exported.public_state_ref(),
+            &readback_signatures,
+        );
+        drop(lease);
+        server.join().unwrap();
+        return;
+    }
+    if source_permission_order::requested() {
+        let source_fixture = source_fixture
+            .as_ref()
+            .expect("real protected source required");
+        let deny = Arc::new(source_permission_order::DenyReader::default());
+        let denied_verifier = ActualBftSuccessorWindowDriverVerifierV1::new(
+            h.anchor.clone(),
+            h.target.clone(),
+            private_archive.clone(),
+        )
+        .unwrap()
+        .with_original_retention_reader(source_fixture.fixed_attestor().clone(), deny.clone())
+        .unwrap()
+        .with_original_retention_binding(binding.clone())
+        .unwrap();
+        source_permission_order::exercise(source_permission_order::Check {
+            archive: &private_archive,
+            private_root: private_root.path(),
+            metadata: exported.metadata_ref(),
+            public_state_ref: exported.public_state_ref(),
+            body: &body,
+            state: &original.state,
+            verifier: &denied_verifier,
+            reader: &deny,
+        });
+        drop(lease);
+        server.join().unwrap();
+        return;
+    }
+    if reserved_completeness::requested() {
+        let omitted = exported
+            .omit_pending_publication_for_test(&private_archive, height + 1)
+            .unwrap();
+        reserved_completeness::exercise(
+            reserved_completeness::AttackInput {
+                verifier: &detached_verifier,
+                archive: &private_archive,
+                body: &body,
+                original_state: &original.state,
+                manifest: exported.manifest(),
+                public_manifest: &public_manifest,
+                public_ref: exported.public_state_ref(),
+                metadata_ref: exported.metadata_ref(),
+                signed_checkpoint: &oasis7_cas::to_canonical_cbor(&original).unwrap(),
+            },
+            omitted,
+        );
+        return;
+    }
     fs::remove_file(&pending_path).unwrap();
     assert!(
         detached_verifier
@@ -473,7 +698,7 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             &provider_pin,
             address,
             private_archive,
-            snapshot.clone(),
+            snapshot.legacy(),
             readback_signatures.clone(),
             prepare_body,
             public_manifest,
@@ -498,7 +723,7 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             &provider_pin,
             address,
             private_archive,
-            snapshot.clone(),
+            snapshot.legacy(),
             readback_signatures.clone(),
             false,
             false,
@@ -506,6 +731,9 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         server.join().unwrap();
         return;
     }
+    let original_input_reads_before_commit = source_fixture
+        .as_ref()
+        .map(|source| source.original_input_read_count());
     let (committed, installed) = lease
         .commit_successor_window(&request_id, &checkpoint_digest)
         .unwrap();
@@ -518,6 +746,30 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         installed.state.successor_window.as_ref().unwrap().minimum,
         Some(body.minimum().unwrap())
     );
+    if source_commit_actual::requested() {
+        let source_fixture = source_fixture
+            .as_ref()
+            .expect("real covered source required");
+        assert_eq!(
+            Some(source_fixture.original_input_read_count()),
+            original_input_reads_before_commit,
+            "provider Commit must borrow its own protected originals without calling its network reader"
+        );
+        assert_eq!(installed.state.history, original.state.history);
+        assert_eq!(installed.state.journal, original.state.journal);
+        assert_eq!(
+            installed.state.private_retention,
+            original.state.private_retention
+        );
+        assert_eq!(
+            readback_signatures.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "archive validation must not sign a new validator event"
+        );
+        drop(lease);
+        server.join().unwrap();
+        return;
+    }
     let premature = BftSuccessorWindowAdoptedEvidenceV1 {
         active_segment_origin: None,
         checkpoint_digest: checkpoint_digest.clone(),
@@ -542,10 +794,15 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
     assert_eq!(recovered, committed);
     assert_eq!(recovered.request.receipt.as_ref(), Some(&original_receipt));
     assert!(current.lease_generation > original_receipt.body.lease_generation);
-    let evidence = actual
-        .lock()
-        .unwrap()
-        .install_successor_window(SuccessorPrivateInstallRequestV1 {
+    #[cfg(feature = "node-libp2p")]
+    if source_active_some::requested() {
+        eprintln!(
+            "actual protected Active stage: installer must independently recover fixed Source continuity"
+        );
+    }
+    let evidence = source_retention::install(
+        &mut actual.lock().unwrap(),
+        SuccessorPrivateInstallRequestV1 {
             binding: &binding,
             provider_pin: &provider_pin,
             lease: lease.as_mut(),
@@ -553,8 +810,10 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             checkpoint_digest: &checkpoint_digest,
             archive: private_archive.clone(),
             deadline: Instant::now() + Duration::from_secs(120),
-        })
-        .unwrap();
+        },
+        source_fixture.as_ref(),
+    )
+    .unwrap();
     let signing_calls_before_reads = interrupted.load(std::sync::atomic::Ordering::SeqCst);
     let archived = lease
         .read_successor_original_state(
@@ -564,6 +823,23 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         )
         .unwrap();
     assert_eq!(archived.original_state(), &original.state);
+    if matches!(retention, CandidateRetentionProfile::PublicationReserved) {
+        reserved_archive::assert_archive_material_failure_and_exact_restore(
+            &root,
+            &private_archive,
+            exported.manifest(),
+            || {
+                detached_verifier
+                    .recover_private_base(
+                        &committed,
+                        &archived,
+                        Instant::now() + Duration::from_secs(120),
+                    )
+                    .map(|_| ())
+            },
+        );
+    }
+
     let vote = original
         .state
         .journal
@@ -646,10 +922,9 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             .is_err()
     );
     fs::write(&pointer, &bytes).unwrap();
-    let retried = actual
-        .lock()
-        .unwrap()
-        .install_successor_window(SuccessorPrivateInstallRequestV1 {
+    let retried = source_retention::install(
+        &mut actual.lock().unwrap(),
+        SuccessorPrivateInstallRequestV1 {
             binding: &binding,
             provider_pin: &provider_pin,
             lease: lease.as_mut(),
@@ -657,8 +932,10 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             checkpoint_digest: &checkpoint_digest,
             archive: private_archive.clone(),
             deadline: Instant::now() + Duration::from_secs(120),
-        })
-        .unwrap();
+        },
+        source_fixture.as_ref(),
+    )
+    .unwrap();
     assert_eq!(retried, evidence);
     assert_eq!(
         fs::read(&pointer).unwrap(),
@@ -747,7 +1024,7 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             &provider_pin,
             address,
             private_archive,
-            snapshot.clone(),
+            snapshot.legacy(),
             readback_signatures.clone(),
             false,
             false,
@@ -794,6 +1071,34 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
         0,
         "prepare/minimum/install/readback/adopt never sign a new T+1 proposal or vote"
     );
+    #[cfg(feature = "node-libp2p")]
+    if source_active_some::requested() {
+        let prepared = source_active_some::prepare(
+            &mut active_tests::ActiveExerciseV1 {
+                h: &h,
+                root: &root,
+                store: store.clone(),
+                binding: &binding,
+                pin: &provider_pin,
+                verifier: &detached_verifier,
+                original: &archived,
+                record: &adopted,
+                lease: lease.as_mut(),
+                pre_pin,
+                archive: private_archive.clone(),
+                target_offset,
+                reserved_publication: true,
+            },
+            actual,
+            source_fixture.take().unwrap(),
+            _provider_input_egress,
+            readback_signatures.clone(),
+        );
+        drop(lease);
+        server.join().unwrap();
+        prepared.run(&h, &root, &binding, private_archive, active_public_material);
+        return;
+    }
     if exercise_active && (target_offset == 0 || target_offset == u64::MAX - 2) {
         drop(actual);
         drop(lease);
@@ -805,7 +1110,7 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
             &provider_pin,
             address,
             private_archive,
-            snapshot.clone(),
+            snapshot.legacy(),
             readback_signatures.clone(),
             true,
             target_offset == u64::MAX - 2,
@@ -815,21 +1120,77 @@ fn install_case_with_active_and_pre_pin(exercise_active: bool, pre_pin: bool, ta
     }
     if exercise_active {
         drop(actual);
-        active_tests::exercise(
-            &h,
-            &root,
-            store.clone(),
-            &binding,
-            &provider_pin,
-            &detached_verifier,
-            &archived,
-            &adopted,
-            lease.as_mut(),
+        active_tests::exercise(active_tests::ActiveExerciseV1 {
+            h: &h,
+            root: &root,
+            store: store.clone(),
+            binding: &binding,
+            pin: &provider_pin,
+            verifier: &detached_verifier,
+            original: &archived,
+            record: &adopted,
+            lease: lease.as_mut(),
             pre_pin,
-            private_archive.clone(),
+            archive: private_archive.clone(),
             target_offset,
-        );
+            reserved_publication: matches!(
+                retention,
+                CandidateRetentionProfile::PublicationReserved
+                    | CandidateRetentionProfile::ActivePublicationReserved
+            ),
+        });
     }
     drop(lease);
     server.join().unwrap();
+}
+
+#[path = "driver_bft_v3_reserved_archive_tests.rs"]
+mod reserved_archive;
+#[test]
+fn wire3_reserved_original_record_and_t1_cross_actual_successor_archive() {
+    install_case_with_retention(
+        true,
+        false,
+        8,
+        CandidateRetentionProfile::PublicationReserved,
+    );
+}
+
+#[test]
+fn wire3_active_node_reserved_publication_uses_authenticated_base_and_original_qc() {
+    install_case_with_retention(
+        true,
+        false,
+        8,
+        CandidateRetentionProfile::ActivePublicationReserved,
+    );
+}
+
+#[path = "driver_bft_v3_reserved_completeness_tests.rs"]
+mod reserved_completeness;
+
+#[cfg(feature = "node-libp2p")]
+#[path = "driver_bft_v3_source_received_alternative_tests.rs"]
+mod source_received_alternative;
+#[cfg(feature = "node-libp2p")]
+pub(super) fn intercept_received_alternative(
+    actual: &Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
+    binding: &BftSignerBindingV3,
+    lease: &mut dyn BftSignerLeaseV3,
+    context: &NodeBftExecutionContextV3,
+    candidate: &NodeBftPrivateCandidateV3,
+    deadline: Instant,
+) -> Option<Result<String, String>> {
+    source_received_alternative::intercept(actual, binding, lease, context, candidate, deadline)
+}
+
+pub(super) fn intercept_selected_archive(
+    actual: &Arc<Mutex<FormalBftHeaderNodeDriverV3>>,
+    binding: &BftSignerBindingV3,
+    lease: &mut dyn BftSignerLeaseV3,
+    context: &NodeBftExecutionContextV3,
+    candidate: &NodeBftPrivateCandidateV3,
+    deadline: Instant,
+) -> Option<Result<String, String>> {
+    source_selected_archive::intercept(actual, binding, lease, context, candidate, deadline)
 }

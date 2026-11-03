@@ -44,6 +44,7 @@ pub use oasis7_proto::distributed_bft::{
 pub use crate::execution_hook::{
     NodeBftBuildContextV3, NodeBftCapacityAdmissionV3, NodeBftExecutionCommitResultV3,
     NodeBftExecutionContextV3, NodeBftExecutionHeadV3, NodeBftPrivateCandidateV3,
+    NodeBftProtectedCandidateAdmissionV3, NodeBftRollPurposeV3,
 };
 pub use crate::node_bft_v3_runtime::NodeBftStatusV3;
 
@@ -58,4 +59,38 @@ pub use crate::node_bft_v3_runtime::private_exchange::{
     NodeBftCommittedReadAuthorizationV3, NodeBftCommittedReadCredentialsV3,
     NodeBftLibp2pPrivateCandidateExchangeV3, NodeBftPrivateExchangeConfigV3,
     NodeBftPrivateReadAuthorizationV3, NodeBftPrivateReadGateV3, NodeBftPrivateReadScopeV3,
+};
+
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_buffers::NodeBftPrivateTransportBuffersV1;
+
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::{
+    NodeBftAdmissionInputAuthorizationV1, NodeBftAdmissionInputBytesV1,
+    NodeBftAdmissionInputCurrentViewV1, NodeBftAdmissionInputPublicationV1,
+    NodeBftAdmissionInputPublisherV1, NodeBftAdmissionInputReadCredentialsV1,
+    NodeBftAdmissionInputReadGateV1, NodeBftAdmissionInputReadRequestV1,
+    NodeBftAdmissionInputReadScopeV1, NodeBftAdmissionInputReadViewV1,
+    NodeBftAdmissionInputServerConfigV1, NodeBftAdmissionInputSourceV1,
+    NodeBftBackendAdmissionInputSourceV1, NodeBftLibp2pAdmissionInputReaderV1,
+    NodeBftLibp2pAdmissionInputServerV1,
+};
+
+pub use crate::execution_hook::{
+    NodeBftAdmissionInputPublicationIoV1, NodeBftAdmissionInputPublicationSlotV1,
+};
+
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::{
+    NodeBftAdmissionInputTransportV1, NodeBftPrivateTransportScopeV1,
+};
+
+#[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
+pub use crate::node_bft_v3_runtime::private_exchange::{
+    NodeBftAdmissionInputBatchOperationV2, NodeBftAdmissionInputBatchReadRequestV2,
+    NodeBftAdmissionInputBatchAuthorizationV2, NodeBftVerifiedAdmissionInputBatchSubjectV2,
+    NodeBftAdmissionInputBatchCredentialsV2, NodeBftAdmissionInputBatchReadGateV2,
+    NodeBftAdmissionInputBatchScopeV2, NodeBftAdmissionInputPartScopeV2,
+    NodeBftAdmissionInputServerConfigV2, NodeBftLibp2pAdmissionInputServerV2,
+    NodeBftLibp2pAdmissionInputReaderV2,
 };

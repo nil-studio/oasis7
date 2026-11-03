@@ -11,6 +11,10 @@ use oasis7_formal_protocol::bft::{
 };
 use oasis7_proto::distributed_bft::v3::*;
 use std::time::Instant;
+#[path = "private_retention_service_tests.rs"]
+mod private_retention_service_tests;
+#[path = "private_retention_unconfigured_tests.rs"]
+mod private_retention_unconfigured_tests;
 
 #[derive(Default)]
 struct Archive {

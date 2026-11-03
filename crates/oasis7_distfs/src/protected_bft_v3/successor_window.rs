@@ -144,9 +144,12 @@ impl BftSuccessorWindowArchiveRefV1 {
     }
     pub fn validate_bytes(&self, bytes: &[u8]) -> Result<(), BftSignerErrorV3> {
         self.validate()?;
-        if u64::try_from(bytes.len()).ok() != Some(self.bytes)
-            || blake3::hash(bytes).to_hex().as_str() != self.digest
-        {
+        if u64::try_from(bytes.len()).ok() != Some(self.bytes) || {
+            let computed = blake3::hash(bytes);
+            #[cfg(test)]
+            super::private_retention_memory::hash_probe::object_hash_completed(bytes.len());
+            computed.to_hex().as_str() != self.digest
+        } {
             return Err(invalid("successor archive object length/hash mismatch"));
         }
         Ok(())
@@ -486,10 +489,6 @@ impl BftSuccessorWindowCheckpointBodyV1 {
         let commitment = &certificate.execution_commitment;
         if current.binding_digest != self.source.binding_digest
             || current.pending_driver_apply.is_some()
-            || current
-                .journal
-                .as_ref()
-                .is_some_and(|j| j.pending_commit().is_some())
             || commitment.height != self.cut.height
             || certificate.header.block_id().map_err(invalid)? != self.cut.header_id
             || blake3::hash(&certificate.canonical_bytes().map_err(invalid)?)
@@ -520,6 +519,28 @@ impl BftSuccessorWindowCheckpointBodyV1 {
             return Err(invalid(
                 "successor checkpoint differs from actual applied provider cut/schedule",
             ));
+        }
+        if let Some(certificate) = current
+            .journal
+            .as_ref()
+            .and_then(|journal| journal.pending_commit())
+        {
+            if current.history.is_empty()
+                || current.applied_installs.last().is_none_or(|applied| {
+                    applied.height != self.cut.height
+                        || applied.header_id != self.cut.header_id
+                        || applied.driver_install_digest != self.cut.driver_install_digest
+                })
+            {
+                return Err(invalid(
+                    "successor pending commit requires the applied original cut",
+                ));
+            }
+            oasis7_formal_protocol::bft::verify_formal_bft_header_certificate_v3(
+                &state.schedule,
+                certificate,
+            )
+            .map_err(invalid)?;
         }
         match (
             &current.journal,

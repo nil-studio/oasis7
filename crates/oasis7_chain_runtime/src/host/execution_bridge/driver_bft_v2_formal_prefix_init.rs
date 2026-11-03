@@ -135,6 +135,16 @@ impl<F: Format> GenericLedger<F> {
         first_height: u64,
         retain: impl FnOnce(&F::Origin, bool) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.bind_origin_with(material_pin_digest, first_height, retain, Ok)
+    }
+
+    pub(super) fn bind_origin_with(
+        &mut self,
+        material_pin_digest: &str,
+        first_height: u64,
+        retain: impl FnOnce(&F::Origin, bool) -> Result<(), String>,
+        prepare: impl FnOnce(F::Origin) -> Result<F::Origin, String>,
+    ) -> Result<(), String> {
         self.verify_carriers()?;
         super::canonical_hash(material_pin_digest)?;
 
@@ -155,7 +165,7 @@ impl<F: Format> GenericLedger<F> {
             None if self.initialize => {
                 let mut random = [0u8; 32];
                 getrandom::fill(&mut random).map_err(|error| error.to_string())?;
-                let pin = F::new_origin_at(
+                let pin = prepare(F::new_origin_at(
                     material_pin_digest,
                     first_height,
                     hex::encode(random),
@@ -163,7 +173,7 @@ impl<F: Format> GenericLedger<F> {
                     common_storage::lock_carrier_identity(&self._lock)?,
                     &self.root,
                     &self.dir,
-                )?;
+                )?)?;
                 pin.validate()?;
                 // Retain this identity in memory even if publication returns
                 // an uncertain error and the same handle is retried.

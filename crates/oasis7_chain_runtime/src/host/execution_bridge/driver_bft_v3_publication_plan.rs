@@ -151,21 +151,30 @@ impl PublicationPlanV1 {
                 .filter(|total| *total <= formal_dependencies::MAX_RETAINED_INDEX_TOTAL_BYTES)
                 .ok_or("publication union index byte capacity")?;
         }
-        let record_upper_bytes = serde_cbor::to_vec(&RecordEnvelope {
-            schema_version: 1,
-            domain: record_domain,
-            origin_digest: &placeholder,
-            parent_record_digest: &placeholder,
-            height: schedule.height(),
-            certificate: &qc,
-            actions_cbor: actions,
-            snapshot_ref: &placeholder,
-            journal_ref: &placeholder,
-            business_index_refs: references.into_iter().collect(),
-            publication_reservation_ref: Some(&placeholder),
-        })
-        .map_err(|_| "encode publication record bound")?
-        .len();
+        // One original T+1 promise may be consumed after an authenticated
+        // window migration. Encode both actual Record domains; no padding or
+        // caller-selected domain can understate the successor envelope.
+        let references = references.into_iter().collect::<Vec<_>>();
+        let mut record_upper_bytes = 0usize;
+        for domain in [record_domain, super::prefix::window_record_domain()] {
+            record_upper_bytes = record_upper_bytes.max(
+                serde_cbor::to_vec(&RecordEnvelope {
+                    schema_version: 1,
+                    domain,
+                    origin_digest: &placeholder,
+                    parent_record_digest: &placeholder,
+                    height: schedule.height(),
+                    certificate: &qc,
+                    actions_cbor: actions,
+                    snapshot_ref: &placeholder,
+                    journal_ref: &placeholder,
+                    business_index_refs: references.clone(),
+                    publication_reservation_ref: Some(&placeholder),
+                })
+                .map_err(|_| "encode publication Record bound")?
+                .len(),
+            );
+        }
         if record_upper_bytes > super::super::formal_ledger::MAX_RECORD {
             return Err("publication single record capacity".into());
         }

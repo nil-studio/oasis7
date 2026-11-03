@@ -6,8 +6,12 @@ use crate::{
 };
 use oasis7_consensus::tendermint_v3::*;
 use oasis7_distfs::protected_bft_v3::{BftSignerCheckpointV3, BftSignerLeaseV3};
+#[path = "node_bft_v3_worker_capacity.rs"]
+mod capacity;
 #[path = "node_bft_v3_worker_peer.rs"]
 pub(super) mod peer;
+#[path = "node_bft_v3_received_admission.rs"]
+mod received_admission;
 use std::collections::VecDeque;
 use std::sync::{
     Arc, Condvar, Mutex,
@@ -26,6 +30,7 @@ pub(super) struct Worker {
     pub schedule: BftHeaderHeightScheduleV3,
     pub machine: BftConsensusMachineV3,
     pub effects: VecDeque<BftConsensusActionV3>,
+    pub admitted_build: Option<NodeBftBuildContextV3>,
     pub pending: Arc<Mutex<Vec<NodeConsensusAction>>>,
     pub pending_bytes: Arc<AtomicUsize>,
     pub state: Arc<Mutex<crate::node_runtime_core::RuntimeState>>,
@@ -42,9 +47,6 @@ impl Worker {
             match stop.try_recv() {
                 Ok(()) | Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
                 Err(mpsc::TryRecvError::Empty) => {}
-            }
-            if self.checkpoint.state.history.len() >= 64 {
-                return Err(error("wire-3 H prefix capacity exhausted"));
             }
             // Recover every original durable local decision before accepting
             // peer input that could select a different QC or signing slot.
@@ -84,11 +86,17 @@ impl Worker {
                 }
             }
             if self.checkpoint.state.history.len() >= 64 {
-                continue;
+                // Finish durable local work first, then install the next base
+                // before any peer input can create a new signing decision.
+                let mut next = self.select_next_build()?;
+                self.admit_build(&mut next)?;
+                self.admitted_build = Some(next);
             }
             self.process_rotation_request()?;
             self.poll_peers()?;
             if self.checkpoint.state.history.len() >= 64 {
+                // A peer QC may have filled this layer. Re-enter original
+                // recovery/capacity admission before another signing event.
                 continue;
             }
             if super::membership::active_key(&self.selected, &self.schedule).is_none() {
@@ -144,9 +152,18 @@ impl Worker {
     }
     fn publish_peer_view(&self) -> Result<(), NodeError> {
         if let Some(network) = &self.selected.network {
+            let active = self
+                .signer()?
+                .verified_active_window()
+                .map_err(|_| error("wire-3 authenticated peer execution base unavailable"))?;
             network
                 .execution
-                .publish(self.schedule.clone(), self.checkpoint.state.history.clone())
+                .publish_verified(
+                    &self.selected.binding,
+                    &self.checkpoint,
+                    self.schedule.clone(),
+                    active,
+                )
                 .map_err(error)?;
         }
         Ok(())
@@ -211,53 +228,7 @@ impl Worker {
                 })
                 .ok_or_else(|| error("wire-3 valid value lacks original public proposal"))?
         } else {
-            let mut hook = lock_hook(&self.hook)?;
-            let expected = NodeBftExecutionContextV3::from_schedule(&self.schedule);
-            if hook
-                .current_bft_v3_execution_context(&self.schedule)
-                .map_err(|_| error("wire-3 current parent unavailable"))?
-                != expected
-            {
-                return Err(error("wire-3 build parent mismatch"));
-            }
-            let private = match hook
-                .pending_bft_v3_private_candidate(&expected)
-                .map_err(|_| error("wire-3 original private reservation recovery failed"))?
-            {
-                Some(original) => original,
-                None => {
-                    let actions = super::actions::select_current(
-                        &mut *self
-                            .pending
-                            .lock()
-                            .map_err(|_| error("wire-3 pending queue poisoned"))?,
-                        &self.pending_bytes,
-                        &expected,
-                        self.config.max_engine_pending_consensus_actions,
-                    )?;
-                    hook.validate_bft_v3_action_batch(&self.schedule, &actions)
-                        .map_err(|_| error("wire-3 queued parent-policy admission rejected"))?;
-                    hook.build_bft_v3_candidate(NodeBftBuildContextV3 {
-                        execution: expected.clone(),
-                        actions,
-                    })
-                    .map_err(|_| error("wire-3 candidate construction failed"))?
-                }
-            };
-            startup::validate_private(
-                &self.config,
-                &mut **hook,
-                &self.schedule,
-                &private,
-                &self.selected,
-            )?;
-            let digest = hook
-                .retain_bft_v3_private_candidate(&expected, &private)
-                .map_err(|_| error("wire-3 original private candidate retention failed"))?;
-            if !canonical_digest(&digest) {
-                return Err(error("wire-3 private retention receipt malformed"));
-            }
-            private.public_value
+            self.build_protected_candidate()?.public_value
         };
         let intent = self
             .machine
@@ -399,7 +370,16 @@ impl Worker {
         let (vote, checkpoint) = self
             .signer()?
             .sign_vote(self.checkpoint.state.revision, &intent)
-            .map_err(|_| error("wire-3 protected vote signing failed"))?;
+            .map_err(|cause| {
+                #[cfg(feature = "test-hooks")]
+                eprintln!(
+                    "wire-3 protected vote diagnostic: {}",
+                    cause.0.chars().take(512).collect::<String>()
+                );
+                #[cfg(not(feature = "test-hooks"))]
+                let _ = cause;
+                error("wire-3 protected vote signing failed")
+            })?;
         if vote.height != intent.height
             || vote.round != intent.round
             || vote.phase != intent.phase
@@ -439,7 +419,7 @@ impl Worker {
             header: certificate.header.clone(),
             execution_commitment: certificate.execution_commitment.clone(),
         };
-        let private = startup::candidate(
+        let private = startup::candidate_input(
             &self.config,
             &self.hook,
             &self.schedule,
@@ -463,6 +443,19 @@ impl Worker {
                 journal.pending_commit = Some(certificate.clone());
                 self.advance(journal)?;
             }
+        }
+        self.admit_original_commit(&certificate, &actions)?;
+        let reproduced = startup::candidate(
+            &self.config,
+            &self.hook,
+            &self.schedule,
+            &value,
+            &self.selected,
+        )?;
+        if reproduced != private {
+            return Err(error(
+                "wire-3 original committed input changed during capacity recovery",
+            ));
         }
         let checkpoint = self
             .signer()?
@@ -536,6 +529,7 @@ impl Worker {
         self.broadcast(BftPublicPeerMessageV3::Commit(Box::new(committed)));
         self.peers.height_advanced();
         self.schedule = token.next_height_schedule().clone();
+        self.admitted_build = None;
         startup::validate_schedule(&self.schedule, &self.selected)?;
         {
             let lease = self.lease.clone();
@@ -550,10 +544,6 @@ impl Worker {
         }
         self.publish_peer_view()?;
         self.last_commit = Instant::now();
-        if self.checkpoint.state.history.len() >= 64 {
-            self.publish_status();
-            return Ok(());
-        }
         if super::membership::active_key(&self.selected, &self.schedule).is_none() {
             let (machine, _) = startup::restore(
                 &self.selected,

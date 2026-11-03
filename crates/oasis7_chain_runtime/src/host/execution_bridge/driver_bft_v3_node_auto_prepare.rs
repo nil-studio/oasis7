@@ -156,6 +156,7 @@ impl AutoPrepareIntentV1 {
             let target = files::stage_target(&name).unwrap_or(&name);
             let digest = target
                 .strip_suffix(".prepare.cbor")
+                .or_else(|| target.strip_suffix(".prepare-reservation.cbor"))
                 .ok_or("auto Prepare unknown entry")?;
             let value: Self = common_storage::read_optional_canonical(&entry.path(), MAX_INTENT)?
                 .ok_or("auto Prepare original entry missing")?;
@@ -189,7 +190,25 @@ impl AutoPrepareIntentV1 {
         Ok(())
     }
 
-    pub(super) fn persist(&self, records: &Path) -> Result<(), String> {
+    pub(super) fn persist(
+        &self,
+        records: &Path,
+        store: &LocalCasStore,
+        reserve: &mut impl FnMut(usize) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let bytes = self.bytes()?;
+        let digest = blake3_hex(&bytes);
+        let checkpoint = self
+            .body
+            .checkpoint
+            .digest()
+            .map_err(|_| "auto Prepare reservation digest")?;
+        let shard = accounting::shard(&checkpoint, &digest);
+        let indexed = store
+            .list_pin_scope_shards(accounting::SCOPE)
+            .map_err(|_| "inspect auto Prepare original pins")?;
+        let prospective = accounting::publication_plan(records, store, self)?;
+        reserve(prospective)?;
         let path = Self::path(records, &self.body.checkpoint)?;
         let parent = path.parent().ok_or("auto Prepare parent missing")?;
         if !parent.exists() {
@@ -206,8 +225,33 @@ impl AutoPrepareIntentV1 {
         }
         crate::controlled_live_config::require_private_owned(parent, true)?;
         self.verify_inventory(records)?;
-        files::publish(&path, &self.bytes()?)?;
-        self.verify_inventory(records)
+        let reservation = parent.join(format!("{checkpoint}.prepare-reservation.cbor"));
+        if common_storage::read_optional_bytes(&path, MAX_INTENT)?.is_none() {
+            files::publish(&reservation, &bytes)?;
+        }
+        common_storage::put_cas_durable(store, &bytes, MAX_INTENT)?;
+        let refs = std::collections::BTreeSet::from([digest]);
+        if !indexed.contains(&shard) {
+            store
+                .replace_pin_scope_shard(accounting::SCOPE, &shard, &refs)
+                .map_err(|_| "retain original auto Prepare pin")?;
+        }
+        store
+            .verify_pin_scope_shard(accounting::SCOPE, &shard, &refs)
+            .map_err(|_| "verify original auto Prepare pin")?;
+        if common_storage::read_optional_bytes(&path, MAX_INTENT)?.is_none() {
+            files::promote(&reservation, &path, &bytes)?;
+        } else {
+            files::publish(&path, &bytes)?;
+        }
+        self.verify_inventory(records)?;
+        retained_usage(
+            records,
+            store,
+            &self.owner.material_identity,
+            &self.owner.private_instance,
+        )?;
+        Ok(())
     }
     pub(super) fn load_reserved(
         records: &Path,
@@ -246,4 +290,28 @@ impl AutoPrepareIntentV1 {
         }
         Ok(())
     }
+}
+
+#[path = "driver_bft_v3_node_auto_prepare_accounting.rs"]
+mod accounting;
+pub(super) fn retained_usage(
+    records: &Path,
+    store: &LocalCasStore,
+    material: &str,
+    instance: &str,
+) -> Result<usize, String> {
+    accounting::retained_usage(records, store, material, instance)
+}
+
+pub(super) fn max_publication_reserve() -> Result<(u64, u64), String> {
+    Ok((
+        u64::try_from(accounting::publication_bytes(MAX_INTENT, &"00".repeat(32))?)
+            .map_err(|_| "auto Prepare max reserve conversion")?,
+        6,
+    ))
+}
+
+// Same existing auxiliary publication bound, shared by original source activation.
+pub(super) fn auxiliary_publication_bytes(length: usize, object: &str) -> Result<usize, String> {
+    accounting::publication_bytes(length, object)
 }

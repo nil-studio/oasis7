@@ -1001,6 +1001,9 @@ fn full_sync_gate_preserves_response_closure_failure_category() {
     }
 }
 
+#[path = "formal_full_sync_read_gate_nested_tests.rs"]
+mod nested_callbacks;
+
 #[path = "formal_bft_candidate_read_gate_tests.rs"]
 mod candidate_read_gate;
 
@@ -1016,3 +1019,80 @@ mod remote_lease;
 #[cfg(feature = "node-libp2p")]
 #[path = "formal_bft_network_gate_fixture.rs"]
 pub(crate) mod network_fixture;
+
+#[path = "formal_bft_admission_grant_tests.rs"]
+mod admission_grant_tests;
+
+/// Test bridge to the actual independently signed issuer policy/witness gate.
+/// Callers must supply the serving service identity and its actual BFT scope.
+pub(crate) fn admission_noise_gate_bridge(
+    scope: &oasis7_proto::distributed_bft::v2::BftScopeV2,
+    subject_seed: u8,
+    provider_seed: u8,
+    provider_public_key: &str,
+    incarnation_seed: u8,
+) -> (
+    Arc<FullSyncV3ReadGate>,
+    Arc<crate::formal_bft_admission_grant::endpoint::AdmissionGrantIssuerV1>,
+    crate::formal_bft_admission_grant::client::AdmissionGrantTargetV1,
+    String,
+) {
+    assert_eq!(public(provider_seed), provider_public_key);
+    let (_, trusted, _, _, _) = full_sync_fixture();
+    let mut trust = trusted.initial_trust.clone();
+    trust.world.world_id = scope.world_id.clone();
+    trust.world.chain_id = scope.chain_id.clone();
+    trust.world.genesis_digest = scope.genesis_hash.clone();
+    let base = now_ms();
+    let fixture = issue_lease_fixture_keys(
+        trust,
+        base,
+        FullSyncReadRoleV2::BftOriginalAdmissionInputV1,
+        subject_seed,
+        provider_seed,
+        incarnation_seed,
+        &[provider_seed],
+    );
+    eprintln!(
+        "batch-v2 issuer policy authority_epoch={}",
+        fixture.verified_v3.body().authority_epoch
+    );
+    let source = Arc::new(SignedEvidenceSource::new(&fixture, base + 2_000));
+    let gate = Arc::new(
+        FullSyncV3ReadGate::new(
+            fixture.trust.clone(),
+            fixture.signed_v2.clone(),
+            fixture.signed_v3.clone(),
+            fixture.minimum_v3.clone(),
+            provider_public_key.into(),
+            issuer_hash(incarnation_seed),
+            source,
+        )
+        .unwrap(),
+    );
+    struct BridgeIssuer;
+    impl oasis7_distfs::protected_bft_v3::BftSigningKeyHandleV3 for BridgeIssuer {
+        fn public_key_hex(&self) -> String {
+            public(9)
+        }
+        fn sign_preimage(
+            &self,
+            bytes: &[u8],
+        ) -> Result<[u8; 64], oasis7_distfs::protected_bft_v3::BftSignerErrorV3> {
+            use ed25519_dalek::Signer;
+            Ok(key(9).sign(bytes).to_bytes())
+        }
+    }
+    let issuer = Arc::new(
+        crate::formal_bft_admission_grant::endpoint::AdmissionGrantIssuerV1::new(
+            gate.clone(),
+            Arc::new(BridgeIssuer),
+        ),
+    );
+    let target = crate::formal_bft_admission_grant::client::AdmissionGrantTargetV1 {
+        grant_epoch: 1,
+        not_before_unix_ms: base.saturating_sub(1_000),
+        expires_unix_ms: base + 60_000,
+    };
+    (gate, issuer, target, public(9))
+}

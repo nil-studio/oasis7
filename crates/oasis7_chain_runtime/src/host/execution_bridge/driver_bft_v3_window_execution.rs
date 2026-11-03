@@ -23,6 +23,7 @@ pub(crate) struct FormalBftHeaderActiveExecutionV1 {
     carriers: successor_carriers::InstallationRootV1,
     _original_format: File,
     _original_writer: File,
+    provider_pin: String,
     protected_origin: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveRefV1,
     directory_pins: super::window_storage::directories::WindowDirectoryPins,
 }
@@ -39,6 +40,7 @@ impl FormalBftHeaderActiveExecutionV1 {
         deadline: Instant,
     ) -> Result<Self, String> {
         live(deadline)?;
+        base.verify_retention_continuity()?;
         validate_storage_paths(records, store.root())?;
         let original = base
             .original
@@ -112,9 +114,11 @@ impl FormalBftHeaderActiveExecutionV1 {
             segment
                 .join(DIRECTORY)
                 .join(storage::NODE_PRIVATE_DIRECTORY),
+            &records,
             store.clone(),
             &base,
             &mut ledger,
+            deadline,
         )?;
         let execution = base.execution.fork_strict()?;
         let mut owner = Self {
@@ -129,6 +133,7 @@ impl FormalBftHeaderActiveExecutionV1 {
             carriers,
             _original_format: original_format,
             _original_writer: original_writer,
+            provider_pin: provider_pin.to_owned(),
             protected_origin: active.active_segment_origin().clone(),
             directory_pins,
         };
@@ -136,6 +141,7 @@ impl FormalBftHeaderActiveExecutionV1 {
         Ok(owner)
     }
     fn verify_base(&self, deadline: Instant) -> Result<(), String> {
+        self.base.verify_retention_continuity()?;
         self.directory_pins.verify()?;
         live(deadline)?;
         let original = self
@@ -243,21 +249,22 @@ impl FormalBftHeaderActiveExecutionV1 {
                 &executed,
                 refs,
             )?;
-            let reproduced = if let Some(reference) = record.publication_reservation_ref() {
-                super::super::publication_reservation::PublicationReservationV1::read(
-                    &self.store,
-                    reference,
-                )?
-                .validate_execution(
-                    record.origin_digest(),
-                    record.height(),
-                    &input.actions_cbor,
-                    &executed,
-                )?;
-                reproduced.with_publication_reservation(Some(reference.to_owned()))?
-            } else {
-                reproduced
+            let candidate = oasis7_node::NodeBftPrivateCandidateV3 {
+                public_value: oasis7_consensus::tendermint_v3::BftHeaderValueV3 {
+                    header: input.certificate.header.clone(),
+                    execution_commitment: input.certificate.execution_commitment.clone(),
+                },
+                actions_cbor: input.actions_cbor.clone(),
             };
+            self.private.validate_record_publication(
+                &record,
+                &candidate,
+                &executed,
+                &self.ledger,
+            )?;
+            let reproduced = reproduced.with_publication_reservation(
+                record.publication_reservation_ref().map(str::to_owned),
+            )?;
             if reproduced != record {
                 return Err(
                     "active private record differs from actual archive-rooted replay".into(),
@@ -410,7 +417,7 @@ impl FormalBftHeaderActiveExecutionV1 {
             .ok_or("active private original candidate unavailable")?;
         let input = PrivateHeaderEntryV3 {
             certificate,
-            actions_cbor: candidate.actions_cbor,
+            actions_cbor: candidate.actions_cbor.clone(),
         };
         self.execution = self.execution.fork_live_closed()?;
         let executed = self
@@ -439,13 +446,13 @@ impl FormalBftHeaderActiveExecutionV1 {
             nodes.keys().cloned().collect(),
         )?;
         live(deadline)?;
-        let digest = self.ledger.accept_prepared(
+        let digest = self.private.publish_actual(
+            &mut self.ledger,
             record,
-            &executed.snapshot_bytes,
-            &executed.journal_bytes,
+            &candidate,
+            &executed,
             &nodes,
-            &self.store,
-            true,
+            deadline,
         )?;
         self.reset(deadline)?;
         if self
@@ -490,6 +497,50 @@ pub(super) fn base_identity(base: &VerifiedPrivateSuccessorBaseV1) -> Result<Vec
     )
 }
 
+#[cfg(test)]
+pub(crate) struct ActivePublicationTestDriverV1(Box<node_adapter::ActiveNodeDriver>);
+#[cfg(test)]
+impl ActivePublicationTestDriverV1 {
+    pub(crate) fn hook(&mut self) -> &mut dyn oasis7_node::NodeExecutionHook {
+        self.0.as_mut()
+    }
+    pub(crate) fn accounting(&self) -> Result<(usize, usize, usize, usize), String> {
+        self.0.publication_accounting_for_test()
+    }
+}
+#[cfg(test)]
+impl FormalBftHeaderActiveExecutionV1 {
+    pub(crate) fn into_shared_node_hook_for_test(
+        self: Box<Self>,
+        binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+    ) -> Result<oasis7_node::NodeBftSharedExecutionHookV3, String> {
+        Ok(std::sync::Arc::new(std::sync::Mutex::new(Box::new(
+            node_adapter::ActiveNodeDriver::new(self, binding)?,
+        ))))
+    }
+    pub(crate) fn into_node_hook_for_test(
+        self: Box<Self>,
+        binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+    ) -> Result<ActivePublicationTestDriverV1, String> {
+        Ok(ActivePublicationTestDriverV1(Box::new(
+            node_adapter::ActiveNodeDriver::new(self, binding)?,
+        )))
+    }
+    pub(crate) fn publication_accounting_for_test(
+        &self,
+    ) -> Result<(usize, usize, usize, usize), String> {
+        let (total, external, physical) = self.ledger.publication_usage_for_test();
+        Ok((
+            total,
+            external,
+            physical,
+            self.ledger
+                .publication_accounting(&self.store)?
+                .total_consumed()?,
+        ))
+    }
+}
+
 #[path = "driver_bft_v3_window_export.rs"]
 mod export;
 
@@ -503,3 +554,43 @@ mod install;
 pub(super) mod node_adapter;
 #[path = "driver_bft_v3_window_resume.rs"]
 pub(super) mod resume;
+
+#[cfg(test)]
+impl FormalBftHeaderActiveExecutionV1 {
+    /// Model another validator's actual candidate without selecting or retaining
+    /// it in this Node's fixed Local slot.
+    pub(crate) fn preview_external_package_for_test(
+        &mut self,
+        actions_cbor: Vec<u8>,
+        deadline: Instant,
+    ) -> Result<oasis7_node::NodeBftPrivateCandidatePackageV3, String> {
+        self.reset(deadline)?;
+        let execution = self.execution.fork_live_closed()?;
+        let executed = execution.execute(&actions_cbor)?;
+        let package = oasis7_node::NodeBftPrivateCandidatePackageV3 {
+            candidate: oasis7_node::NodeBftPrivateCandidateV3 {
+                public_value: oasis7_consensus::tendermint_v3::BftHeaderValueV3 {
+                    header: executed.candidate.header,
+                    execution_commitment: executed.candidate.commitment,
+                },
+                actions_cbor,
+            },
+            dependency_nodes: execution
+                .retained_nodes
+                .accessed_nodes()?
+                .into_iter()
+                .collect(),
+        };
+        self.verify_base(deadline)?;
+        Ok(package)
+    }
+}
+
+#[cfg(test)]
+impl FormalBftHeaderActiveExecutionV1 {
+    pub(crate) fn retained_baseline_refs_for_test(
+        &self,
+    ) -> Result<std::collections::BTreeSet<String>, String> {
+        self.base.retained_baseline_refs()
+    }
+}

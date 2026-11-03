@@ -480,3 +480,72 @@ fn authenticated_noise_routing_rejection_preserves_configured_peer_service() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn admission_input_namespace_uses_actual_noise_identity_and_reply_fence() {
+    // Transport evidence only. This callback supplies no private read grant.
+    let protocol = "/oasis7/bft/admission-input/1.0.0";
+    let s = server();
+    let c = client(&s);
+    let expected = c.peer_id();
+    assert!(
+        s.register_handler(protocol, Box::new(|_| Ok(Vec::new())))
+            .is_err()
+    );
+    let live = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let release = live.clone();
+    let _registration = s
+        .register_authenticated_context_handler_with_admission(
+            protocol,
+            64,
+            Box::new(move |peer, _| {
+                if *peer == expected {
+                    Ok(())
+                } else {
+                    Err(super::super::authenticated_requests::rejected(
+                        "wrong Noise peer",
+                    ))
+                }
+            }),
+            Box::new(move |context, payload| {
+                assert_eq!(context.peer_id(), expected);
+                context.restrict_reply_while(release.clone())?;
+                if payload == b"withdraw" {
+                    release.store(false, Ordering::Release);
+                }
+                Ok(payload.to_vec())
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        c.request_authenticated_to_peer_with_timeout(
+            protocol,
+            b"manifest",
+            s.peer_id(),
+            Duration::from_secs(2)
+        )
+        .unwrap(),
+        b"manifest"
+    );
+    assert_eq!(
+        c.request_authenticated_to_peer_with_timeout(
+            protocol,
+            b"original-chunk",
+            s.peer_id(),
+            Duration::from_secs(2)
+        )
+        .unwrap(),
+        b"original-chunk"
+    );
+    assert!(
+        c.request_authenticated_to_peer_with_timeout(
+            protocol,
+            b"withdraw",
+            s.peer_id(),
+            Duration::from_secs(2)
+        )
+        .is_err()
+    );
+    assert!(!live.load(Ordering::Acquire));
+    assert!(s.published().is_empty());
+}

@@ -1,5 +1,5 @@
 pub const BFT_SIGNER_BACKEND_NAMESPACE_V3: &str = "oasis7.bft.protected-signer.v3.backend";
-use super::binding::BftSignerErrorV3;
+use super::binding::{BftSignerErrorV3, invalid};
 use super::state::BftSignerStateV3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +33,116 @@ pub enum BftSignerAcquireOutcomeV3 {
 /// initialize the counter; an existing Some ledger must never be reset or removed.
 /// This interface alone does not establish hardware properties.
 pub trait BftSignerBackendV3: Send + Sync {
+    fn read_private_retention_creation(
+        &mut self,
+        _lease_generation: u64,
+        _lease_token_digest: &str,
+    ) -> Result<
+        super::private_retention_creation::ValidatedBftPrivateRetentionCreationV1,
+        BftSignerErrorV3,
+    > {
+        Err(super::binding::invalid(
+            "private retention original source creation unsupported",
+        ))
+    }
+    fn load_private_retention_current(
+        &mut self,
+        _binding_digest: &str,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionCurrentV1, BftSignerErrorV3>
+    {
+        Err(super::binding::invalid(
+            "private retention current snapshot unsupported",
+        ))
+    }
+
+    /// Load-only, same-backend atomic original sealed namespace. This does not
+    /// acquire a lease, initialize material, or grant network read authority.
+    fn load_private_retention_sealed_current(
+        &mut self,
+        _binding_digest: &str,
+    ) -> Result<
+        super::private_retention_sealed_current::BftPrivateRetentionSealedCurrentV1,
+        BftSignerErrorV3,
+    > {
+        Err(invalid("complete original retention load unsupported"))
+    }
+
+    fn read_private_retention_current(
+        &mut self,
+        _lease_generation: u64,
+        _lease_token_digest: &str,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionCurrentV1, BftSignerErrorV3>
+    {
+        Err(super::binding::invalid(
+            "private retention current snapshot unsupported",
+        ))
+    }
+
+    /// Local backend source only. Network release still requires the separate
+    /// encrypted original-input read purpose and a fresh independent grant.
+    /// Complete immutable original namespace, sampled atomically with its live
+    /// State/lease. Public Current replies must not serialize this inventory.
+    fn read_private_retention_sealed_current(
+        &mut self,
+        _generation: u64,
+        _token: &str,
+    ) -> Result<
+        super::private_retention_sealed_current::BftPrivateRetentionSealedCurrentV1,
+        BftSignerErrorV3,
+    > {
+        Err(invalid("complete original retention history unsupported"))
+    }
+    fn compare_and_swap_private_retention_seal(
+        &mut self,
+        _request: &super::private_retention_seal::BftPrivateRetentionSealCasV1,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionSnapshotV1, BftSignerErrorV3>
+    {
+        Err(invalid("atomic original retention seal unsupported"))
+    }
+
+    fn load_private_retention_input(
+        &mut self,
+        _binding: &str,
+        _reference: &super::private_retention_input::BftPrivateRetentionAdmissionInputRefV1,
+    ) -> Result<
+        std::sync::Arc<super::private_retention_input::BftPrivateRetentionAdmissionInputV1>,
+        BftSignerErrorV3,
+    > {
+        Err(super::binding::invalid(
+            "private retention atomic input source unsupported",
+        ))
+    }
+
+    /// Dedicated retention CAS. Must atomically compare the entire expected
+    /// State/lease/sideledger, persist next State + full map + original signed
+    /// receipt, and return those same three parts from one atomic snapshot.
+    /// Ordinary CAS/acquire/release must preserve an existing retention ledger.
+    /// This default never provisions a missing ledger or opens signing rights.
+    fn compare_and_swap_private_retention(
+        &mut self,
+        _request: &super::private_retention_backend::BftPrivateRetentionCasV1,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionSnapshotV1, BftSignerErrorV3>
+    {
+        Err(super::binding::invalid(
+            "private retention atomic ledger unsupported",
+        ))
+    }
+
+    /// Retrieves the exact original operation after an ambiguous result. The
+    /// current fenced owner must be verified atomically. No new receipt may be
+    /// signed here; unknown/missing operations remain errors, never empty maps.
+    fn read_private_retention_operation(
+        &mut self,
+        _lease_generation: u64,
+        _lease_token_digest: &str,
+        _operation_digest: &str,
+    ) -> Result<super::private_retention_backend::BftPrivateRetentionSnapshotV1, BftSignerErrorV3>
+    {
+        Err(super::binding::invalid(
+            "private retention operation readback unsupported",
+        ))
+    }
+
     /// Opens previously provisioned V3 state and never initializes or resets.
     fn load_provisioned(
         &mut self,

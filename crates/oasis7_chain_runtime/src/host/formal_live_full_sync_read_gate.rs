@@ -23,6 +23,9 @@ use std::{
 const MAX_HISTORY_BYTES: usize = 64 * 1024 * 1024;
 
 #[cfg(feature = "node-libp2p")]
+#[path = "formal_bft_admission_read_gate.rs"]
+mod admission_read_gate;
+#[cfg(feature = "node-libp2p")]
 #[path = "formal_bft_private_read_gate.rs"]
 mod bft_private_read_gate;
 
@@ -116,6 +119,16 @@ enum ReadPurpose<'a> {
         subject_public_key: &'a str,
     },
     Candidate(&'a BftCandidateReadSubjectV1),
+    AdmissionIssue {
+        body: &'a oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionReadGrantBodyV1,
+        scope: &'a BftCommittedReadScopeV1,
+        subject_public_key: &'a str,
+    },
+    Admission {
+        grant: &'a oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionReadGrantV1,
+        scope: &'a BftCommittedReadScopeV1,
+        subject_public_key: &'a str,
+    },
 }
 impl ReadPurpose<'_> {
     fn target(&self) -> FullSyncIssuerTargetV2 {
@@ -123,6 +136,14 @@ impl ReadPurpose<'_> {
             Self::Legacy { grant, .. } => FullSyncIssuerTargetV2 {
                 node_public_key: grant.body.node_public_key.clone(),
                 role: full_sync_role(&grant.body.role),
+            },
+            Self::AdmissionIssue { body, .. } => FullSyncIssuerTargetV2 {
+                node_public_key: body.subject_public_key.clone(),
+                role: FullSyncReadRoleV2::BftOriginalAdmissionInputV1,
+            },
+            Self::Admission { grant, .. } => FullSyncIssuerTargetV2 {
+                node_public_key: grant.body.subject_public_key.clone(),
+                role: FullSyncReadRoleV2::BftOriginalAdmissionInputV1,
             },
             Self::Candidate(subject) => FullSyncIssuerTargetV2 {
                 node_public_key: subject.node_public_key.clone(),
@@ -138,6 +159,9 @@ impl ReadPurpose<'_> {
                 requested_authority_epoch,
                 ..
             } => (requested_world, requested_chain, *requested_authority_epoch),
+            Self::AdmissionIssue { scope, .. } | Self::Admission { scope, .. } => {
+                (&scope.world, &scope.chain_id, scope.authority_epoch)
+            }
             Self::Candidate(subject) => {
                 (&subject.world, &subject.chain_id, subject.authority_epoch)
             }
@@ -147,6 +171,8 @@ impl ReadPurpose<'_> {
         match self {
             Self::Legacy { grant, .. } => grant.body.grant_epoch,
             Self::Candidate(subject) => subject.grant_generation,
+            Self::Admission { grant, .. } => grant.body.grant_epoch,
+            Self::AdmissionIssue { body, .. } => body.grant_epoch,
         }
     }
 }
@@ -279,6 +305,15 @@ impl FullSyncV3ReadGate {
         purpose: ReadPurpose<'_>,
         make_response: impl FnOnce(Instant) -> FormalReadResult<T>,
     ) -> FormalReadResult<T> {
+        self.authorize_target_with_response_until(purpose, None, make_response)
+    }
+
+    fn authorize_target_with_response_until<T>(
+        &self,
+        purpose: ReadPurpose<'_>,
+        outer_deadline: Option<Instant>,
+        make_response: impl FnOnce(Instant) -> FormalReadResult<T>,
+    ) -> FormalReadResult<T> {
         self.validate_purpose_identity(&purpose)?;
         let started_at = Instant::now();
         let deadline = started_at
@@ -288,6 +323,12 @@ impl FullSyncV3ReadGate {
             .ok_or_else(|| {
                 FormalReadError::Internal("full-sync V3 read deadline overflow".into())
             })?;
+        let deadline = outer_deadline.map_or(deadline, |outer| outer.min(deadline));
+        if started_at >= deadline {
+            return Err(FormalReadError::HistoryUnavailable(
+                "original issuer request deadline exhausted".into(),
+            ));
+        }
         let observation_nonce = fresh_nonce().map_err(FormalReadError::Internal)?;
         let target = purpose.target();
         let request = FullSyncIssuerReadEvidenceRequestV3 {
@@ -403,9 +444,50 @@ impl FullSyncV3ReadGate {
             .ok_or_else(|| {
                 FormalReadError::GrantRejected("V3 read release deadline exhausted".into())
             })?;
+        let release_deadline =
+            outer_deadline.map_or(release_deadline, |outer| outer.min(release_deadline));
         // The callback constructs immutable bytes and installs this narrowing
         // deadline on the transport. It must not send before the final check.
+        // Material callbacks may independently authorize bounded child parts on
+        // this same gate. Retain immutable authority, never its installation lock.
+        drop(installed);
         let reply = make_response(release_deadline)?;
+        if Instant::now() >= request.deadline {
+            return Err(FormalReadError::HistoryUnavailable(
+                "original issuer request deadline exhausted before release".into(),
+            ));
+        }
+        // A concurrent install cannot silently replace this response's authority.
+        // Stable nested checks reuse the original Arc; changed/forked/unknown
+        // installed history fails closed at the local release linearization point.
+        let installed = self.installed.lock().map_err(|_| {
+            FormalReadError::Internal("full-sync V3 provider read gate mutex poisoned".into())
+        })?;
+        if installed.poisoned {
+            return Err(FormalReadError::Integrity(
+                "full-sync V3 provider read gate is poisoned".into(),
+            ));
+        }
+        if installed
+            .state
+            .as_ref()
+            .is_none_or(|current| !Arc::ptr_eq(current, &selected))
+        {
+            return Err(FormalReadError::HistoryUnavailable(
+                "full-sync V3 installed authorization changed during response".into(),
+            ));
+        }
+        let confirmed_lease = self.authorize_current_lease(
+            &selected,
+            &purpose,
+            &evidence.observation,
+            request.started_at,
+        )?;
+        if confirmed_lease != lease {
+            return Err(FormalReadError::Integrity(
+                "full-sync V3 original response lease changed".into(),
+            ));
+        }
         self.check_time_bounds(
             &purpose,
             &selected,
@@ -456,6 +538,48 @@ impl FullSyncV3ReadGate {
                 .map_err(|error| {
                     FormalReadError::GrantRejected(format!("verify read grant identity: {error}"))
                 }),
+            ReadPurpose::AdmissionIssue {
+                body,
+                subject_public_key,
+                ..
+            } => {
+                body.validate().map_err(|_| {
+                    FormalReadError::GrantRejected("admission issuance body rejected".into())
+                })?;
+                if body.subject_public_key != *subject_public_key
+                    || body.scope.world_id != expected_world.world_id
+                    || body.scope.genesis_hash != expected_world.genesis_digest
+                    || body.scope.chain_id != policy.world.chain_id
+                {
+                    return Err(FormalReadError::GrantRejected(
+                        "admission issuance scope/subject differs".into(),
+                    ));
+                }
+                Ok(())
+            }
+            ReadPurpose::Admission {
+                grant,
+                subject_public_key,
+                ..
+            } => {
+                grant
+                    .verify_signature(&self.trust.issuer_public_key)
+                    .map_err(|_| {
+                        FormalReadError::GrantRejected(
+                            "admission original-input issuer signature rejected".into(),
+                        )
+                    })?;
+                if grant.body.subject_public_key != *subject_public_key
+                    || grant.body.scope.world_id != expected_world.world_id
+                    || grant.body.scope.genesis_hash != expected_world.genesis_digest
+                    || grant.body.scope.chain_id != policy.world.chain_id
+                {
+                    return Err(FormalReadError::GrantRejected(
+                        "admission read issuer target identity differs".into(),
+                    ));
+                }
+                Ok(())
+            }
             ReadPurpose::Candidate(subject) => {
                 if subject.policy_digest != self.v3_policy.policy_digest()
                     || subject.grant_generation == 0
@@ -585,6 +709,40 @@ impl FullSyncV3ReadGate {
                             "verify legacy grant at protected earliest: {error}"
                         ))
                     })?;
+            }
+            ReadPurpose::AdmissionIssue {
+                body,
+                subject_public_key,
+                ..
+            } => {
+                if body.subject_public_key != *subject_public_key
+                    || body.grant_epoch != target_state.generation
+                    || body.not_before_unix_ms != target_not_before
+                    || body.expires_unix_ms != target_expires
+                    || body.not_before_unix_ms > observation.body.protected_time.earliest_unix_ms
+                    || body.expires_unix_ms <= observation.body.protected_time.latest_unix_ms
+                {
+                    return Err(FormalReadError::GrantRejected(
+                        "admission issuance differs from current explicit issuer target/interval"
+                            .into(),
+                    ));
+                }
+            }
+            ReadPurpose::Admission {
+                grant,
+                subject_public_key,
+                ..
+            } => {
+                if grant.body.subject_public_key != *subject_public_key
+                    || grant.body.grant_epoch != target_state.generation
+                    || grant.body.not_before_unix_ms != target_not_before
+                    || grant.body.expires_unix_ms != target_expires
+                    || grant.body.not_before_unix_ms
+                        > observation.body.protected_time.earliest_unix_ms
+                    || grant.body.expires_unix_ms <= observation.body.protected_time.latest_unix_ms
+                {
+                    return Err(FormalReadError::GrantRejected("admission original-input grant differs from current explicit issuer target/interval".into()));
+                }
             }
             ReadPurpose::Candidate(subject) => {
                 if subject.authority_epoch != self.v3_policy.body().authority_epoch

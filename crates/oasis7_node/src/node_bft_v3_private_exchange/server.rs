@@ -1,7 +1,12 @@
 use super::wire::*;
 use super::*;
+use crate::node_bft_v3_runtime::private_buffers::{BufferHold, BufferedBytes};
 use std::collections::BTreeMap;
 use std::time::Duration;
+#[path = "server_admission_cache.rs"]
+mod admission_cache;
+use admission_cache::AdmissionCacheMetadata;
+
 const CACHE_BYTES: usize = 2 * MAX_PACKAGE;
 const NONCES_PER_PEER: usize = 1024;
 const NONCE_METADATA_BYTES: usize = 1024;
@@ -13,12 +18,13 @@ struct Seen {
     manifest: Option<Manifest>,
 }
 struct Cached {
-    bytes: Option<Arc<Vec<u8>>>,
+    bytes: Option<Arc<BufferedBytes>>,
     manifest: Option<Manifest>,
     reserved: usize,
+    admission: Option<AdmissionCacheMetadata>,
 }
 #[derive(Default)]
-struct Cache {
+pub(super) struct Cache {
     seen: BTreeMap<(String, String), Seen>,
     entries: BTreeMap<(String, String), Cached>,
     bytes: usize,
@@ -35,7 +41,8 @@ pub(super) struct Server {
     pub gate: Arc<dyn NodeBftPrivateReadGateV3>,
     pub alive: Arc<AtomicBool>,
     pub timeout: Duration,
-    cache: Mutex<Cache>,
+    cache: Arc<Mutex<Cache>>,
+    buffers: Arc<crate::NodeBftPrivateTransportBuffersV1>,
     verified_history: Mutex<Option<Arc<NodeBftPeerExecutionViewV3>>>,
 }
 impl Server {
@@ -46,6 +53,7 @@ impl Server {
         hook: NodeBftSharedExecutionHookV3,
         gate: Arc<dyn NodeBftPrivateReadGateV3>,
         alive: Arc<AtomicBool>,
+        scope: NodeBftPrivateTransportScopeV1,
     ) -> Self {
         Self {
             binding: config.binding.clone(),
@@ -55,7 +63,8 @@ impl Server {
             gate,
             alive,
             timeout: config.operation_timeout,
-            cache: Mutex::new(Cache::for_peers(config.peers.iter().cloned())),
+            buffers: scope.buffers(),
+            cache: scope.cache.clone(),
             verified_history: Mutex::new(None),
         }
     }
@@ -267,7 +276,7 @@ impl Server {
         if cached.as_ref().is_some_and(|old| Arc::ptr_eq(old, view)) {
             return Ok(());
         }
-        let mut schedule = self.binding.initial_schedule().clone();
+        let mut schedule = view.replay_base(&self.binding)?;
         if view.committed_history.len() > 64 {
             return Err("private committed history capacity".into());
         }
@@ -289,7 +298,7 @@ impl Server {
         &self,
         request: &Request,
         value: &BftHeaderValueV3,
-    ) -> Result<(Arc<Vec<u8>>, Manifest, Instant), String> {
+    ) -> Result<(Arc<BufferedBytes>, Manifest, Instant), String> {
         let t = &request.target;
         let key = (t.requester_peer_id.clone(), t.nonce.clone());
         let identity = match &request.authorization {
@@ -308,7 +317,7 @@ impl Server {
         };
         let base = t.base_digest()?;
         let now = Instant::now();
-        let deadline = {
+        let (deadline, hold) = {
             let mut c = self.cache.lock().map_err(|_| "private cache poisoned")?;
             if let Some(s) = c.seen.get(&key) {
                 if s.base != base || s.identity != identity || s.deadline <= now {
@@ -345,18 +354,20 @@ impl Server {
                 return Err("private package retry differs from original manifest".into());
             }
             c.make_room()?;
+            let hold = c.reserve_build(&self.buffers)?;
             c.bytes += MAX_PACKAGE;
             c.entries.insert(
                 key.clone(),
                 Cached {
+                    admission: None,
                     bytes: None,
                     manifest: None,
                     reserved: MAX_PACKAGE,
                 },
             );
-            deadline
+            (deadline, hold)
         };
-        let built: Result<(Arc<Vec<u8>>, Manifest), String> = (|| {
+        let built: Result<(Arc<BufferedBytes>, Manifest), String> = (|| {
             let package = self
                 .hook
                 .lock()
@@ -379,7 +390,8 @@ impl Server {
                 total_chunks,
             };
             manifest.operation().validate()?;
-            Ok((Arc::new(bytes), manifest))
+            drop(package);
+            Ok((Arc::new(BufferedBytes::new(bytes, hold)?), manifest))
         })();
         let mut c = self.cache.lock().map_err(|_| "private cache poisoned")?;
         let old = c
@@ -393,6 +405,7 @@ impl Server {
         c.entries.insert(
             key,
             Cached {
+                admission: None,
                 reserved: bytes.len(),
                 bytes: Some(bytes.clone()),
                 manifest: Some(manifest.clone()),
@@ -403,7 +416,39 @@ impl Server {
 }
 
 impl Cache {
-    fn for_peers(peers: impl Iterator<Item = String>) -> Self {
+    pub(super) fn admission_deadline(
+        &mut self,
+        peer: String,
+        nonce: String,
+        base: String,
+        identity: String,
+        manifest: bool,
+        timeout: Duration,
+        hint_nonce: Option<&str>,
+    ) -> Result<Instant, String> {
+        let key = (peer, nonce);
+        let now = Instant::now();
+        let inherited = hint_nonce
+            .and_then(|nonce| self.seen.get(&(key.0.clone(), nonce.to_owned())))
+            .map(|seen| seen.deadline);
+        if inherited.is_some_and(|deadline| deadline <= now) {
+            return Err("private original hint deadline expired".into());
+        }
+        if let Some(seen) = self.seen.get(&key) {
+            if seen.base != base || seen.identity != identity || seen.deadline <= now {
+                return Err("private original nonce identity/deadline differs".into());
+            }
+            return Ok(inherited.map_or(seen.deadline, |hint| hint.min(seen.deadline)));
+        }
+        if !manifest {
+            return Err("private original manifest is required".into());
+        }
+        let deadline = inherited.map_or(now + timeout, |hint| hint.min(now + timeout));
+        self.admit_nonce(key, base, identity, deadline)?;
+        Ok(deadline)
+    }
+
+    pub(super) fn for_peers(peers: impl Iterator<Item = String>) -> Self {
         let peer_nonces: BTreeMap<_, _> = peers.map(|p| (p, 0usize)).collect();
         let metadata_cap = peer_nonces
             .len()
@@ -462,20 +507,37 @@ impl Cache {
     /// Only idle encoded buffers are evicted. Immutable operation metadata and
     /// original deadlines remain, so cache misses can only replay strict
     /// original export and reproduce the first digest/layout exactly.
+    fn reserve_build(
+        &mut self,
+        buffers: &crate::NodeBftPrivateTransportBuffersV1,
+    ) -> Result<BufferHold, String> {
+        // Exported DTO and encoded bytes coexist during encoding. Reserve both
+        // existing package bounds before calling the hook, then shrink to bytes.
+        loop {
+            if let Ok(hold) = buffers.outbound(2 * MAX_PACKAGE) {
+                return Ok(hold);
+            }
+            self.evict_idle()?;
+        }
+    }
+    fn evict_idle(&mut self) -> Result<(), String> {
+        let idle = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.bytes.as_ref().is_some_and(|b| Arc::strong_count(b) == 1))
+            .min_by_key(|(key, _)| self.seen.get(*key).map(|s| s.deadline))
+            .map(|(key, _)| key.clone())
+            .ok_or("private global active package/cache capacity")?;
+        let old = self
+            .entries
+            .remove(&idle)
+            .ok_or("private idle cache disappeared")?;
+        self.bytes -= old.reserved;
+        Ok(())
+    }
     fn make_room(&mut self) -> Result<(), String> {
         while self.entries.len() >= 8 || MAX_PACKAGE > CACHE_BYTES.saturating_sub(self.bytes) {
-            let idle = self
-                .entries
-                .iter()
-                .filter(|(_, e)| e.bytes.as_ref().is_some_and(|b| Arc::strong_count(b) == 1))
-                .min_by_key(|(key, _)| self.seen.get(*key).map(|s| s.deadline))
-                .map(|(key, _)| key.clone())
-                .ok_or("private global active package/cache capacity")?;
-            let old = self
-                .entries
-                .remove(&idle)
-                .ok_or("private idle cache disappeared")?;
-            self.bytes -= old.reserved;
+            self.evict_idle()?;
         }
         Ok(())
     }
@@ -528,7 +590,8 @@ mod cache_tests {
             c.entries.insert(
                 key,
                 Cached {
-                    bytes: Some(Arc::new(vec![n])),
+                    admission: None,
+                    bytes: Some(Arc::new(BufferedBytes::fixture(vec![n]))),
                     manifest: Some(m),
                     reserved: 1,
                 },
@@ -601,7 +664,7 @@ mod cache_tests {
     #[test]
     fn expired_active_and_building_reservations_still_consume_capacity() {
         let mut c = Cache::default();
-        let held = Arc::new(vec![0]);
+        let held = Arc::new(BufferedBytes::fixture(vec![0]));
         let expired = Instant::now() - Duration::from_secs(1);
         for (key, bytes) in [("active", Some(held.clone())), ("building", None)] {
             let key = ("peer".into(), key.into());
@@ -617,6 +680,7 @@ mod cache_tests {
             c.entries.insert(
                 key,
                 Cached {
+                    admission: None,
                     bytes,
                     manifest: None,
                     reserved: MAX_PACKAGE,
@@ -635,11 +699,12 @@ mod cache_tests {
     #[test]
     fn active_package_buffers_cannot_be_evicted_to_hide_memory() {
         let mut c = Cache::default();
-        let held = Arc::new(vec![0]);
+        let held = Arc::new(BufferedBytes::fixture(vec![0]));
         c.bytes = CACHE_BYTES;
         c.entries.insert(
             ("p".into(), "n".into()),
             Cached {
+                admission: None,
                 bytes: Some(held.clone()),
                 manifest: Some(manifest(1)),
                 reserved: CACHE_BYTES,

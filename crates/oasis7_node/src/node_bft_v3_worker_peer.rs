@@ -106,21 +106,12 @@ impl Worker {
                         == message_value(&fetching.input.message)
                             .ok_or_else(|| error("wire-3 private fetch lost public value"))?
                     {
-                        let accepted = {
-                            let mut hook = lock_hook(&self.hook)?;
-                            hook.retain_received_bft_v3_private_candidate(
-                                &fetching.context,
-                                &package,
-                            )
-                            .and_then(|digest| {
-                                if canonical_digest(&digest) {
-                                    Ok(())
-                                } else {
-                                    Err("wire-3 received retention receipt malformed".into())
-                                }
-                            })
-                        };
-                        if accepted.is_ok() {
+                        let accepted = self.retain_received_protected(
+                            &fetching.context,
+                            &package,
+                            fetching.deadline,
+                        );
+                        if accepted? {
                             // A successful hook import is still checked through the
                             // same exact-parent actual candidate gate as local work.
                             let value = package.candidate.public_value;
@@ -142,6 +133,9 @@ impl Worker {
                 Ok(None) => self.peers.fetching = Some(fetching),
                 Err(_) => fetching.operation.cancel(),
             }
+        }
+        if self.checkpoint.state.history.len() >= 64 {
+            return Ok(());
         }
         // The adapter authenticates transport identities; protocol signatures
         // remain separately checked against the admitted current schedule.

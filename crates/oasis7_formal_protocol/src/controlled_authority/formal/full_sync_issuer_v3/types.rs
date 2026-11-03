@@ -57,7 +57,7 @@ impl FullSyncIssuerPolicyBodyV3 {
             || self.authority_epoch == 0
             || self.signer_generation == 0
             || self.allowed_roles.is_empty()
-            || self.allowed_roles.len() > 3
+            || self.allowed_roles.len() > 4
             || self.allowed_roles.windows(2).any(|pair| pair[0] >= pair[1])
             || self.provider_public_keys.len() > MAX_FULL_SYNC_PROVIDER_KEYS_V3
             || self
