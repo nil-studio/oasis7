@@ -1885,6 +1885,74 @@ class WorkspaceInputPaths(unittest.TestCase):
         self.assertEqual(state['input_owners'], {'a/Cargo.toml': ['a/build.rs']})
 
 
+class OutputBackpressure(unittest.TestCase):
+    def test_undrained_stdout_cannot_block_deadline_result_or_owned_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results, pids = root / 'results.jsonl', root / 'pids.json'
+            child = (
+                'import json,os,subprocess,sys,time; '
+                'other=subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); '
+                f'open({str(pids)!r},"w").write(json.dumps([os.getpid(),other.pid])); '
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True); '
+                '[os.write(1,b"x"*8191+b"\\n") for _ in range(1024)]; time.sleep(30)'
+            )
+            program = (
+                'import os,sys\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\n'
+                'from ci_process_runner import run\n'
+                f'run([sys.executable,"-c",{child!r}],Path({str(root)!r}),os.environ,'
+                f'"probe","blocked-output",Path({str(results)!r}),expected_count=1,'
+                'timeout_seconds=0.25,heartbeat_seconds=0.05)\n'
+            )
+            process = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            try:
+                # Deliberately never drain the live output until the runner has
+                # exited. Its deadline/result/cleanup must not need our reader.
+                process.wait(timeout=4)
+                timely = True
+            except subprocess.TimeoutExpired:
+                timely = False
+            finally:
+                # Also release an unfixed runner, so the red regression leaves
+                # no sleeping child or blocked pipe behind.
+                output, _ = process.communicate(timeout=10)
+            self.assertTrue(timely, 'live stdout prevented the deadline and runner exit')
+            self.assertEqual(process.returncode, 0, output[-4000:])
+            record = json.loads(results.read_text().splitlines()[-1])
+            self.assertTrue(record['timeout'])
+            self.assertFalse(record['passed'])
+            self.assertTrue(record['count_ok'], 'summary parsing must continue independently')
+            self.assertEqual(record['cleanup_result'], 'clean')
+            self.assertLess(record['elapsed_seconds'], 3)
+            self.assertGreater(record['output_suppressed_bytes'], 0)
+            for pid in json.loads(pids.read_text()):
+                state = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='],
+                                       capture_output=True, text=True).stdout.strip()
+                self.assertTrue(not state or state.startswith('Z'), (pid, state))
+
+    def test_child_exit_zero_observed_after_deadline_cannot_pass(self):
+        original_popen = subprocess.Popen
+        def delayed_observation(*args, **kwargs):
+            child = original_popen(*args, **kwargs)
+            # A real child completes successfully after the deadline while the
+            # supervisor cannot observe it yet (as with a stalled output call).
+            child.wait(timeout=2)
+            return child
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch('ci_process_runner.subprocess.Popen', side_effect=delayed_observation):
+                result = run([sys.executable, '-c',
+                              'import time; time.sleep(0.15); print("test result: ok. 1 passed; 0 failed; 0 ignored;")'],
+                             root, os.environ, 'probe', 'late-success', root / 'results.jsonl',
+                             expected_count=1, timeout_seconds=0.05, heartbeat_seconds=0.01)
+            self.assertEqual(result['exit_code'], 0)
+            self.assertTrue(result['count_ok'])
+            self.assertTrue(result['timeout'])
+            self.assertFalse(result['passed'])
+
+
 class Process(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
