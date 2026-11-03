@@ -152,7 +152,11 @@ def preview_provider_required(manifest):
     expanded = plan.get('test_policy_changed', False) or plan.get('scope') in ('full', 'explicit-full') or plan.get('execution_profile') in ('periodic-full', 'candidate-full')
     selection = manifest.get('selection')
     ordinary = selection == {'suite': 'ordinary'} or (selection is None and manifest.get('scope') == 'ordinary')
-    return bool(expanded and ordinary)
+    provider_consumer = any(binary.get("package") == "oasis7_chain_runtime"
+                            and binary.get("test")
+                            and "test_tier_full" in binary.get("features", [])
+                            for binary in manifest.get("binaries", {}).values())
+    return bool(expanded and ordinary and provider_consumer)
 
 
 ROOT = Path(__file__).resolve().parent.parent

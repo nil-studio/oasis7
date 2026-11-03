@@ -61,6 +61,18 @@ class ProviderArtifactContracts(unittest.TestCase):
     def validate(self, record=None):
         return artifacts.ProviderArtifact.validate(self.root,self.bundle,self.record if record is None else record,self.expected)
 
+    def test_expanded_native_provider_material_follows_actual_full_consumer(self):
+        manifest = dict(selection={"suite": "ordinary"},
+                        execution_plan=dict(test_policy_changed=True),
+                        binaries={"runtime-tests": dict(package="oasis7_chain_runtime", test=True, features=["test_tier_full"])})
+        self.assertTrue(artifacts.preview_provider_required(manifest))
+        for key, value in [("package", "oasis7_viewer_codec"), ("test", False), ("features", ["test_tier_required"])]:
+            changed = copy.deepcopy(manifest)
+            changed["binaries"]["runtime-tests"][key] = value
+            self.assertFalse(artifacts.preview_provider_required(changed))
+        manifest["execution_plan"] = dict(scope="targeted", execution_profile="pr-fast")
+        self.assertFalse(artifacts.preview_provider_required(manifest))
+
     def test_merge_dual_identity_and_exact_official_checker(self):
         environment = self.validate()
         self.assertEqual(set(environment),set(artifacts.ProviderArtifact.VARIABLES))
