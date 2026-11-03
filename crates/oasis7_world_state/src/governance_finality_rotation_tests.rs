@@ -280,7 +280,8 @@ fn world_rotation_manual_codec_roundtrips_and_bounds_history() {
         decoded.governance_finality_key_rotations,
         state.governance_finality_key_rotations
     );
-    for bytes in [serde_cbor::to_vec(&state).unwrap()] {
+    {
+        let bytes = serde_cbor::to_vec(&state).unwrap();
         let decoded: crate::WorldState = serde_cbor::from_slice(&bytes).unwrap();
         assert_eq!(
             decoded.governance_finality_key_rotations,
