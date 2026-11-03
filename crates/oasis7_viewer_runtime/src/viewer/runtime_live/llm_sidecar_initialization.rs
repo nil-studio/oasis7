@@ -22,6 +22,7 @@ impl RuntimeLlmSidecar {
             hosted_service_phase: None,
             hosted_service_inflight: None,
             hosted_service_generation: 0,
+            hosted_identity_reservation: None,
             hosted_service_config_binding: None,
             #[cfg(any(test, feature = "test_tier_required"))]
             hosted_service_memory_failure: None,

@@ -262,7 +262,7 @@ class ProfileTests(unittest.TestCase):
         full=(Path(__file__).parents[2]/'.github/workflows/codeql-rust-cfg-diagnostic.yml').read_text()
         self.assertIn('inputs.profile != true',full)
         self.assertIn('inputs.profile == true',full)
-        self.assertEqual(full.split('permissions:',1)[0].count('default: false'),2)
+        self.assertEqual(full.split('permissions:',1)[0].count('default: false'),3)
         for value in ('codeql-action/analyze@','upload-sarif','security-events:',"'query_check'",'steps.query_check'):
             self.assertNotIn(value,s)
 

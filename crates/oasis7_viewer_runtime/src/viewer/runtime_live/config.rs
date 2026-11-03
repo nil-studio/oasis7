@@ -56,6 +56,23 @@ pub struct ViewerRuntimeLiveServerConfig {
 }
 
 impl ViewerRuntimeLiveServerConfig {
+    fn validate_production_connection_mode(&self) -> Result<(), String> {
+        if self.chain_status_bind.is_some() && self.world_service.is_none() {
+            return Err(
+                "node-directory chain sync is closed; configure the authenticated world service"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+    #[cfg(not(test))]
+    pub(super) fn validate_connection_mode(&self) -> Result<(), String> {
+        self.validate_production_connection_mode()
+    }
+    #[cfg(test)]
+    pub(super) fn validate_connection_mode(&self) -> Result<(), String> {
+        Ok(())
+    }
     pub(super) fn validate_response_limits(&self) -> Result<(), String> {
         if self.response_frame_max_bytes == 0
             || self.response_turn_max_bytes < self.response_frame_max_bytes
@@ -119,6 +136,38 @@ impl From<RuntimeWorldError> for ViewerRuntimeLiveServerError {
 #[cfg(test)]
 mod response_limit_tests {
     use super::*;
+
+    #[test]
+    fn connection_mode_preserves_production_refusal_and_existing_unit_exemption() {
+        let mut config = ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal);
+        config.world_service = None;
+        config.chain_status_bind = Some("127.0.0.1:9".into());
+        assert_eq!(
+            config.validate_production_connection_mode().unwrap_err(),
+            "node-directory chain sync is closed; configure the authenticated world service"
+        );
+        assert!(
+            config.validate_connection_mode().is_ok(),
+            "the existing unit-only chain fixture exemption remains"
+        );
+        config.chain_status_bind = None;
+        assert!(config.validate_production_connection_mode().is_ok());
+        config.chain_status_bind = Some("127.0.0.1:9".into());
+        config.world_service = Some(crate::world_service::client::WorldServiceClientConfig {
+            formal_read_trust: None,
+            endpoint: "http://127.0.0.1:1".into(),
+            trusted_service_public_key: hex::encode([9; 32]),
+            expected_world: oasis7_client_api::world_service::WorldIdentity {
+                world_id: "world".into(),
+                genesis_digest: "genesis".into(),
+            },
+            scope_id: "public".into(),
+            read_private_key_hex: hex::encode([7; 32]),
+            timeout: Duration::from_millis(500),
+            max_response_bytes: 4096,
+        });
+        assert!(config.validate_production_connection_mode().is_ok());
+    }
 
     #[test]
     fn output_limits_reject_unbounded_or_inconsistent_configuration() {

@@ -19,7 +19,7 @@ pub(super) fn same_provider_context(
     })
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub(in crate::viewer::runtime_live) struct OrphanPhase {
     pub(in crate::viewer::runtime_live) agent: String,
     stage: String,

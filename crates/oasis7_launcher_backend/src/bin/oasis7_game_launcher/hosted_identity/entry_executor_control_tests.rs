@@ -567,3 +567,6 @@ fn stopped_current_owner_can_query_original_without_reenabling_executor() {
 
 #[path = "entry_executor_live_context_tests.rs"]
 mod live_context_tests;
+
+#[path = "entry_executor_projection_tests.rs"]
+mod projection_tests;

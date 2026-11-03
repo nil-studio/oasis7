@@ -8,12 +8,13 @@ tier="${1:-}"
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--support-plan JSON|--support-profiles JSON]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--support-plan JSON|--support-profiles JSON]
 
   commit        Run the lightweight local commit gate used by pre-commit.
   required      Run the explicit heavier required gate for local validation and PR gate.
   full          Run required checks plus all extended feature/integration tests.
   full-standard Run full checks excluding the independent formal-process suites.
+  full-extended Run only extensions; hosted full must also run every required group and platform.
   full-core     Run doc/fmt plus the heaviest `oasis7 --tests` full-tier shard.
   full-support  Run the remaining support crates/viewer shard plus `oasis7 --lib --bins`.
   cache-native  Compile missing shared-cache variants without running tests.
@@ -31,7 +32,7 @@ if [[ $# -eq 0 ]]; then
 fi
 
 case "$tier" in
-  commit|required|full|full-standard|full-core|full-support|cache-native) ;;
+  commit|required|full|full-standard|full-extended|full-core|full-support|cache-native) ;;
   *)
     usage
     exit 1
@@ -41,6 +42,7 @@ esac
 shift
 group=""
 support_profiles=""
+required_plan=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -61,6 +63,11 @@ while [[ $# -gt 0 ]]; do
     --support-plan)
       [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
       support_profiles="plan:$2"
+      shift 2
+      ;;
+    --plan)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      required_plan="$2"
       shift 2
       ;;
     *)
@@ -161,10 +168,31 @@ run_oasis7_test_tier_with_viewer() {
 }
 
 run_oasis7_required_tier_tests() {
-  run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
+  local plan_args=() wasm_args=() argument selected
+  if [[ -n "${required_plan:-}" ]]; then
+    plan_args=(--plan "$required_plan")
+    selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" "${plan_args[@]}" --phase wasm) || return
+    while IFS= read -r argument; do
+      [[ -z "$argument" ]] || wasm_args+=("$argument")
+    done <<< "$selected"
+    if [[ ${#wasm_args[@]} -gt 0 ]]; then run_cargo check "${wasm_args[@]}"; fi
+  else
+    run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
+  fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
-    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary
+    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}"
     return
+  fi
+  if [[ -n "${required_plan:-}" ]]; then
+    local temporary status=0
+    temporary=$(mktemp -d)
+    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}"; then
+      run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$temporary/bundle" --suite ordinary "${plan_args[@]}" || status=$?
+    else
+      status=$?
+    fi
+    rm -rf "$temporary"
+    return "$status"
   fi
   run_oasis7_test_tier_with_viewer test_tier_required
 }
@@ -174,7 +202,50 @@ run_scenario_regression_tests() {
 }
 
 run_oasis7_required_tier_clippy() {
+  if [[ -n "${required_plan:-}" ]]; then
+    local selected argument args=()
+    selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" --plan "$required_plan" --phase native-commands) || return
+    selected=$("$ci_python" -c '
+import json, sys
+commands = json.loads(sys.argv[1])
+if not isinstance(commands, list) or not commands:
+    raise ValueError("missing native commands")
+for command in commands:
+    if (not isinstance(command, list) or not command
+            or any(not isinstance(arg, str) or not arg or "\n" in arg or "\r" in arg for arg in command)):
+        raise ValueError("invalid native command")
+    print("\n".join(command))
+    print()
+' "$selected") || return
+    while IFS= read -r argument; do
+      if [[ -n "$argument" ]]; then
+        args+=("$argument")
+      elif [[ ${#args[@]} -gt 0 ]]; then
+        run_cargo_clippy "${args[@]}" || return
+        args=()
+      fi
+    done <<< "$selected"
+    if [[ ${#args[@]} -gt 0 ]]; then
+      run_cargo_clippy "${args[@]}"
+    fi
+    return
+  fi
   run_cargo_clippy -p oasis7 -p oasis7_simulator -p oasis7_runtime -p oasis7_world_state -p oasis7_world_projection -p oasis7_world_service -p scenario_test_runner -p oasis7_chain_runtime -p oasis7_client_cli -p oasis7_protocol_tools -p oasis7_launcher_backend -p oasis7_newapi_bridge_service -p oasis7_ops_tools -p oasis7_provider_local_bridge -p oasis7_provider_tools -p oasis7_viewer_runtime -p oasis7_viewer_codec -p oasis7_observability -p oasis7_hosted_access -p oasis7_letai_credit_adapter -p oasis7_launcher_config -p oasis7_wasm_materializer -p oasis7_game_client -p oasis7_browser_game_client -p oasis7_cas -p oasis7_formal_protocol --tests --features test_tier_required
+}
+
+run_oasis7_required_clippy_for_group() {
+  local selected_group=oasis7_required
+  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+    selected_group=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase clippy-group) || return
+  fi
+  case "$selected_group" in
+    oasis7_required|rust_baseline) ;;
+    *) echo "Unknown ordinary Clippy group: $selected_group" >&2; return 2 ;;
+  esac
+  if [[ "$selected_group" == "$1" ]]; then
+    run_oasis7_required_tier_clippy
+  fi
 }
 
 run_oasis7_full_tier_tests() {
@@ -266,10 +337,27 @@ run_signed_read_protocol_contract_tests() {
   run env PYTHON="$ci_python" npm test --prefix crates/oasis7_agent_api/protocol_conformance
 }
 
+run_worker_wasm_compile_profiles() {
+  # Run the trusted planner's exact compile tuples; candidate role flags do not
+  # become test-execution evidence and mutually exclusive roles stay separate.
+  run "$ci_python" - "$driver_dir/plan-rust-required-scope.py" <<'PY_WORKER_COMPILE'
+import importlib.util
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('scope', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+manifest = tomllib.loads(Path('crates/oasis7_custody_worker/Cargo.toml').read_text())
+module.run_worker_wasm_compile_checks(manifest)
+PY_WORKER_COMPILE
+}
+
 run_oasis7_workspace_support_crate_tests() {
   run_signed_read_protocol_contract_tests
   run_cargo test -p oasis7_custody_core --all-targets --locked
-  run bash crates/oasis7_custody_worker/scripts/verify.sh --platform
+  run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
   run_cargo_clippy -p oasis7_agent_api --all-targets
   run_cargo_clippy -p oasis7_agent_harness --all-targets
   run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
@@ -307,7 +395,8 @@ run_selected_workspace_support() {
     run_oasis7_workspace_support_crate_tests
     return
   fi
-  local selected profile
+  local selected profile expand_targets expanded_features complete_targets
+  local -a expanded_args
   selected=$("$ci_python" - "$support_profiles" "$driver_dir" <<'PY'
 import importlib.util, json, sys
 from pathlib import Path
@@ -338,25 +427,44 @@ if (not isinstance(profiles, list) or not profiles or
 # so an additive profile never narrows or breaks the full support job.
 if raw.startswith('plan:') and plan.get('scope') == 'full':
     profiles = list(module.SUPPORT_PROFILES)
-print('\n'.join(sorted(profiles)))
+expanded = raw.startswith('plan:') and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True
+if expanded:
+    spec = importlib.util.spec_from_file_location('artifacts', Path(sys.argv[2]) / 'ci-test-artifacts.py')
+    artifacts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(artifacts)
+    artifacts.ROOT = Path.cwd()
+for profile in sorted(profiles):
+    features = artifacts.package_features([profile], plan) if expanded else []
+    print(profile + '|' + ('true' if expanded else 'false') + '|' + ','.join(features))
 PY
   ) || return 2
-  while IFS= read -r profile; do
+  while IFS='|' read -r profile expand_targets expanded_features; do
     echo "+ support profile: $profile"
+    complete_targets=false
     case "$profile" in
       oasis7_agent_api) run_signed_read_protocol_contract_tests; run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
-      oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets ;;
+      oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets; complete_targets=true ;;
       oasis7_agent_harness|oasis7_game_client|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
-      oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked ;;
-      oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform ;;
+      oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
+      oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
-      oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked ;;
+      oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
       oasis7_client_launcher) run_cargo test -p "$profile" --bin oasis7_client_launcher ;;
       wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" ;;
       *) run_cargo test -p "$profile" --lib ;;
     esac
+    if [[ "$expand_targets" == true && ( -n "$expanded_features" || "$complete_targets" != true ) ]]; then
+      # A new target must run even when this package has no tier features.
+      # Reuse only actual same-combination all-targets tests, never Clippy.
+      expanded_args=()
+      if [[ -n "$expanded_features" ]]; then expanded_args=(--features "$expanded_features"); fi
+      case "$profile" in
+        wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" --all-targets "${expanded_args[@]}" ;;
+        *) run_cargo test -p "$profile" --all-targets "${expanded_args[@]}" ;;
+      esac
+    fi
     echo "+ support profile completed: $profile"
   done <<< "$selected"
 }
@@ -424,11 +532,14 @@ run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
+  run python3 ./scripts/ci-python-control-contracts.test.py
   run python3 ./scripts/ci-formal-process.test.py
   run python3 ./scripts/ci-storage-acceptance.test.py
   run python3 ./scripts/ci-storage-network.test.py
   run python3 ./scripts/ci-required-result.test.py
+  run python3 ./scripts/ci-full-result.test.py
   run python3 ./scripts/ci-workflow.test.py
+  run python3 ./scripts/ci-fast-preview.test.py
   run python3 ./scripts/ci-cache-maintenance.test.py
   run python3 ./scripts/ci-cache-policy.test.py
   run python3 ./scripts/ci-cache-archive.test.py
@@ -458,6 +569,7 @@ run_workflow_governance_operational_contract_tests() {
   run python3 ./scripts/security/codeql-rust-capacity-layout.test.py
   run python3 ./scripts/security/test_codeql_rust_evaluator_profile.py
   run python3 ./scripts/security/test_codeql_rust_cfg_graph.py
+  run python3 ./scripts/security/test_codeql_rust_callee_diagnostic.py
   run python3 ./scripts/security/codeql-rust-cfg-workflow.test.py
   run python3 ./scripts/security/codeql-health.test.py
   run python3 ./scripts/security/codeql-upload-association.test.py
@@ -698,8 +810,12 @@ run_product_doc_governance_check() {
       echo "product-doc-content: event did not provide explicit base/head" >&2
       return 1
     }
+    local corpus_args=()
+    if [[ "$tier" != required || "${OASIS7_CI_PROFILE:-}" == periodic-full || "${OASIS7_CI_PROFILE:-}" == candidate-full ]]; then
+      corpus_args=(--full-corpus)
+    fi
     OASIS7_PRODUCT_DOC_BASE="$base_oid" OASIS7_PRODUCT_DOC_HEAD="$head_oid" \
-      run ./scripts/doc-governance-check.sh --full-corpus
+      run ./scripts/doc-governance-check.sh "${corpus_args[@]}"
   else
     run ./scripts/doc-governance-check.sh --full-corpus
   fi
@@ -770,22 +886,76 @@ run_full_required_superset() {
   run_required_gate_checks
   run_all_required_gate_capability_contract_tests
   run_site_contract_tests
+  run_oasis7_required_tier_clippy
   run_oasis7_required_tier_tests
+  run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::
+  run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields
   run_scenario_regression_tests
+  run_oasis7_consensus_clippy
   run_oasis7_consensus_tests
+  run_oasis7_distfs_clippy
   run_oasis7_distfs_tests
+  run_oasis7_node_clippy
   run_oasis7_node_tests
+  run_oasis7_net_clippy
+  run_oasis7_net_libp2p_clippy
   run_oasis7_net_tests
   run_oasis7_net_libp2p_tests
   run_oasis7_viewer_software_safe_feedback_contract_tests
   run_oasis7_viewer_software_safe_build
+  run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs
+  run_oasis7_viewer_visual_test_build
+  run_oasis7_viewer_performance_smoke_report_only
   run_pixel_world_bridge_lib_tests
   run_pixel_world_bridge_wasm_check
   run_oasis7_client_launcher_web_build
   run_oasis7_workspace_support_crate_tests
 }
 
+run_workspace_support_full_feature_tests() {
+  local selected profile features
+  local -a feature_args
+  selected=$("$ci_python" - "$driver_dir" <<'PY'
+import importlib.util, sys
+from pathlib import Path
+modules = {}
+for name in ('plan-rust-required-scope', 'ci-test-artifacts'):
+    spec = importlib.util.spec_from_file_location(name, Path(sys.argv[1]) / (name + '.py'))
+    modules[name] = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modules[name])
+artifacts = modules['ci-test-artifacts']
+artifacts.ROOT = Path.cwd()
+for package in sorted(modules['plan-rust-required-scope'].SUPPORT_PROFILES):
+    features = artifacts.package_features([package], include_full=True)
+    print(package + '|' + ','.join(features))
+PY
+  ) || return 2
+  while IFS='|' read -r profile features; do
+    [[ -n "$profile" ]] || continue
+    echo "+ complete support features: $profile"
+    feature_args=()
+    if [[ -n "$features" ]]; then feature_args=(--features "$features"); fi
+    case "$profile" in
+      wasm_build_suite|wasm_module_observe) OASIS7_WASM_BUILD_STD=0 run_cargo test -p "$profile" --all-targets "${feature_args[@]}" ;;
+      *) run_cargo test -p "$profile" --all-targets "${feature_args[@]}" ;;
+    esac
+  done <<<"$selected"
+}
+
+run_full_extended_tier_tests() {
+  run_oasis7_full_tier_tests
+  run_workspace_support_full_feature_tests
+  run_oasis7_llm_baseline_fixture_smoke
+  run_oasis7_production_mock_guard
+  run_oasis7_test_tier_with_viewer "test_tier_required,wasmtime" --lib --bins
+}
+
 run_rust_baseline() {
+  local extra_checks=$'newapi_accounting\nstandalone_tool_lockfiles' check
+  if [[ "$tier" == required && -n "${required_plan:-}" ]]; then
+    extra_checks=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase baseline-checks) || return
+  fi
   # Explicit preparation for the locked offline architecture inspector. A
   # restored cache is optional and cannot stand in for dependency availability.
   run_cargo fetch --locked
@@ -798,15 +968,22 @@ run_rust_baseline() {
   run_rustsec_advisory_check
   run ./scripts/check-rust-file-size.test.sh
   run ./scripts/check-rust-file-size.sh
-  run_newapi_bridge_service_accounting_tests
-  run_standalone_tool_lockfiles_checks
+  run_oasis7_required_clippy_for_group rust_baseline
+  while IFS= read -r check; do
+    case "$check" in
+      newapi_accounting) run_newapi_bridge_service_accounting_tests ;;
+      standalone_tool_lockfiles) run_standalone_tool_lockfiles_checks ;;
+      '') ;;
+      *) echo "Unknown Rust baseline check: $check" >&2; return 2 ;;
+    esac
+  done <<< "$extra_checks"
 }
 
 run_group() {
   case "$1" in
     baseline) run_required_gate_checks ;;
     rust_baseline) run_rust_baseline ;;
-    oasis7_required) run_oasis7_required_tier_clippy; run_oasis7_required_tier_tests; if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::; run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields; fi ;;
+    oasis7_required) run_oasis7_required_clippy_for_group oasis7_required; run_oasis7_required_tier_tests; if [[ -z "${OASIS7_CI_TEST_BUNDLE:-}" && -z "${required_plan:-}" ]]; then run_cargo test -p oasis7_viewer_runtime --lib snapshot_progress::; run_cargo test -p oasis7 --lib snapshot_player_gameplay_execution_state_backfills_from_legacy_fields; fi ;;
     formal_process) run bash "$driver_dir/formal-live-local-tests.sh" "$repo_root" ;;
     consensus) run_oasis7_consensus_clippy; run_oasis7_consensus_tests ;;
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
@@ -835,6 +1012,10 @@ if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_s
   echo '--support-profiles requires required --group workspace_support' >&2
   exit 2
 fi
+if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline ) ) ]]; then
+  echo '--plan requires required --group oasis7_required or rust_baseline' >&2
+  exit 2
+fi
 if [[ -n "$group" ]]; then
   [[ "$tier" == required ]] || { echo '--group requires required tier' >&2; exit 2; }
   run_group "$group"
@@ -844,7 +1025,8 @@ else
     required)
       for group in baseline rust_baseline oasis7_required consensus distfs node net viewer_js_required pixel_world_bridge launcher_web workspace_support scenario_regression operational_contracts packaging_contracts workflow_governance codex_agent_config_validation compile_metrics site_quality doc_checker_contracts cargo_tooling_contracts; do run_group "$group"; done
       ;;
-    full|full-standard) run_full_required_superset; run_rust_baseline; run_oasis7_full_tier_tests; run_oasis7_llm_baseline_fixture_smoke; run_oasis7_production_mock_guard; run_oasis7_test_tier_with_viewer "test_tier_required,wasmtime" --lib --bins; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
+    full|full-standard) run_full_required_superset; run_rust_baseline; run_full_extended_tier_tests; if [[ "$tier" == full ]]; then run_group formal_process; fi ;;
+    full-extended) run_full_extended_tier_tests ;;
     full-core) run_full_core_tier_tests ;;
     full-support) run_full_support_tier_tests ;;
     cache-native) run_shared_native_cache_builds ;;

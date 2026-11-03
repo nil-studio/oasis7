@@ -325,3 +325,7 @@ mod tests {
         );
     }
 }
+
+#[path = "formal_projection_terminal_v2.rs"]
+mod terminal_v2;
+pub use terminal_v2::ClosedTaskFormalProjectionV2;

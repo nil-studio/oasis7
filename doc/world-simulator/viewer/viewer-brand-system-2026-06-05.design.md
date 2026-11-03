@@ -96,9 +96,19 @@ copy contract, not proof that the labels are currently shipped.
 | director entry | `Open operator diagnostics` | `打开操作员诊断` | server-validated capability-gated, ephemeral secondary action; unavailable is fail-closed |
 | director recovery | `Return to Player` / `Diagnostics access unavailable` | `返回玩家模式` / `诊断权限不可用` | fail closed and explain recovery |
 | renderer | `Renderer Unavailable` | `渲染器不可用` | visible near affected board |
+| account signed in | Signed in · world entry pending | 账号已登录，等待入场 | 不等于控制绑定完成 |
+| model checked | Tool check passed · Agent not started | 工具检查通过，尚未开始 Agent | 不等于世界动作完成 |
+| stop | Stop new decisions | 停止新决策 | 保留本站Key，不取消已受理世界作业 |
+| forget | Disconnect and forget | 断开并忘记 | 删除对应本站Key；不声称供应商Key撤销 |
+| unknown original | Original outcome unconfirmed | 原操作结果尚未确认 | 只读核对原件，不暗示可换身份重提 |
+| history lookup unavailable | Original history unavailable | 原件历史暂不可核对 | 查询失败不是原操作被拒绝 |
+| live | Live world | 实时世界 | no Seek，不与Feed追平混同 |
+| offline playback | Offline playback example | 离线回放示例 | 不代表正式共享世界可玩 |
 
 Copy must wrap before shrinking the board, preserve visible text equivalents for
 icons, and avoid raw enum/state identifiers in Player-facing surfaces.
+
+账号、模型与原结果标签的阶段语义见[整体旅程](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)及其链接的专业合同；本表不另设状态机。
 
 ## 3. Token Taxonomy
 Tokens are semantic roles. Implementation variables may alias existing CSS

@@ -42,6 +42,11 @@ pub(super) fn apply_service_authorization_event(
                 .insert(key.clone(), record.clone());
             world.install_safe_alternative_queue(None, &record);
         }
+        Event::TaskTerminalRecordedV2 { record } => {
+            let mut projection = world.capability_revocation_state.clone();
+            super::task_terminal_v2::project(world, &mut projection, record)?;
+            world.capability_revocation_state = projection;
+        }
         Event::WorldServiceIntentRecorded { key, record } => {
             crate::service_admission::correlation::validate_result(key, record).map_err(deny)?;
             super::participant::validate_service_receipt(&world.capability_revocation_state,record)?;

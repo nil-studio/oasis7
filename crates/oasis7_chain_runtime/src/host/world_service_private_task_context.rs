@@ -365,6 +365,8 @@ fn load_captured(
 mod context_read;
 #[path = "world_service_private_factory_quote.rs"]
 mod factory_quote;
+#[path = "world_service_private_task_context_projection.rs"]
+mod projection;
 #[path = "world_service_private_recipe_quote.rs"]
 mod recipe_quote;
 
@@ -375,6 +377,9 @@ pub(super) fn process(
     body: &[u8],
     before_delivery: impl FnOnce(),
 ) -> Result<Value, PrivateError> {
+    if projection::handles(path) {
+        return projection::process(service, store, path, body, before_delivery);
+    }
     if path == oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH {
         return recipe_quote::process(service, store, body, before_delivery);
     }

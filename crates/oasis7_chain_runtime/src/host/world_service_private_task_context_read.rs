@@ -1,7 +1,7 @@
 //! Shared fresh load and delivery checks for both context read protocols.
 use super::*;
 
-fn fresh_output(
+pub(super) fn fresh_output(
     service: &Service<'_>,
     store: &PrivateGoalStore,
     proof: &SignedReadRequest<TaskContextGetV1>,

@@ -16,3 +16,6 @@ mod approval;
 pub use approval::*;
 
 pub use crate::context_body::*;
+
+mod resource_v2_contract;
+pub use resource_v2_contract::*;

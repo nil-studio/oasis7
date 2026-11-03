@@ -9,6 +9,9 @@ const CAPABILITY: &[u8] = b"oasis7.iws.object-aliases.v1\n";
 const LOCATOR: &[u8] = b"oasis7.iws.object-locator.v1\0";
 const LOCATOR_BOUND: usize = 256;
 const WORKSPACE: usize = 64 * 1024;
+#[path = "incremental_object_stream_writer.rs"]
+mod stream_writer;
+pub use stream_writer::ObjectStreamWriteError;
 
 pub struct IncrementalObjectStore<'a> {
     pages: &'a IncrementalPageStore,
@@ -81,6 +84,11 @@ impl<'a> IncrementalObjectStore<'a> {
 }
 
 impl IncrementalObjectStore<'_> {
+    /// Check producer admission against the actual physical page pool.
+    pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
+        self.pages.memory.same_pool(memory)
+    }
+
     /// Store the actual protocol producer's history material, one original at
     /// a time. RootSets, state pages, facts' content, artifacts and original
     /// certificates still have to be supplied/verified by their owners. This
@@ -166,7 +174,7 @@ impl IncrementalObjectStore<'_> {
             input,
             hash: blake3::Hasher::new(),
         };
-        let mut session = BorrowedPageSession::new(self.pages, io.physical, io.cancelled)?;
+        let mut session = BufferedPageWriter::new(self.pages, io.physical, io.cancelled)?;
         let root = write_value(
             &mut input,
             length,
@@ -182,13 +190,17 @@ impl IncrementalObjectStore<'_> {
         }
         session.flush()?;
         drop(session); // all page barriers precede locator publication
-        let locator = encode_locator(
-            &id,
-            &ObjectLocator {
-                length,
-                value_root: root.digest().map_err(from_value)?,
-            },
-        );
+        self.publish_original(id, length, root.digest().map_err(from_value)?, io)
+    }
+
+    fn publish_original(
+        &self,
+        id: [u8; 32],
+        length: u64,
+        value_root: [u8; 32],
+        io: &mut ObjectIo<'_>,
+    ) -> Result<[u8; 32]> {
+        let locator = encode_locator(&id, &ObjectLocator { length, value_root });
         check_cancelled(io.cancelled)?;
         files::publish(
             &self.pages.root,
@@ -372,80 +384,6 @@ impl<W: Write> Write for DigestWriter<'_, W> {
     }
     fn flush(&mut self) -> io::Result<()> {
         self.output.flush()
-    }
-}
-struct BorrowedPageSession<'a> {
-    store: &'a IncrementalPageStore,
-    io: &'a mut PageIoBudget,
-    cancelled: &'a AtomicBool,
-    pending: Vec<([u8; 32], ReservedValue<Vec<u8>>)>,
-    pending_bytes: usize,
-    _metadata: oasis7_proto::memory_budget::MemoryReservation,
-}
-impl<'a> BorrowedPageSession<'a> {
-    fn new(
-        store: &'a IncrementalPageStore,
-        io: &'a mut PageIoBudget,
-        cancelled: &'a AtomicBool,
-    ) -> Result<Self> {
-        check_cancelled(cancelled)?;
-        let metadata = store.memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
-        Ok(Self {
-            store,
-            io,
-            cancelled,
-            pending: Vec::with_capacity(pack::MAX_ENTRIES),
-            pending_bytes: 0,
-            _metadata: metadata,
-        })
-    }
-    fn flush(&mut self) -> Result<()> {
-        check_cancelled(self.cancelled)?;
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-        let refs: Vec<_> = self
-            .pending
-            .iter()
-            .map(|(id, bytes)| (*id, bytes.as_slice()))
-            .collect();
-        self.store
-            .put_page_batch(&refs, MemoryClass::Ordinary, self.io, self.cancelled)?;
-        self.pending.clear();
-        self.pending_bytes = 0;
-        Ok(())
-    }
-}
-impl ValueNodeWriter for BorrowedPageSession<'_> {
-    fn put_node(
-        &mut self,
-        id: [u8; 32],
-        bytes: ReservedValue<Vec<u8>>,
-    ) -> std::result::Result<(), ValueTreeError> {
-        check_cancelled(self.cancelled).map_err(value_error)?;
-        if !bytes.uses_budget(&self.store.memory)
-            || bytes.capacity() > bytes.reserved_bytes()
-            || bytes.is_empty()
-            || bytes.len() > VALUE_MAX_NODE_BYTES
-            || blake3::hash(&bytes).as_bytes() != &id
-        {
-            return Err(ValueTreeError::Invalid(
-                "object batch page accounting/hash/bound",
-            ));
-        }
-        if let Some((_, old)) = self.pending.iter().find(|(old, _)| old == &id) {
-            if old.as_slice() != bytes.as_slice() {
-                return Err(ValueTreeError::Invalid("object batch page collision"));
-            }
-            return Ok(());
-        }
-        if self.pending.len() == pack::MAX_ENTRIES || self.pending_bytes + bytes.len() > 256 * 1024
-        {
-            self.flush().map_err(value_error)?;
-        }
-        self.pending_bytes += bytes.len();
-        self.pending.push((id, bytes));
-        Ok(())
     }
 }
 struct ReadPageSession<'a> {

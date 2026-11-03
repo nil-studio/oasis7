@@ -203,7 +203,7 @@ impl ViewerRuntimeLiveServer {
         ));
     }
 
-    fn observe_agent_pump_progress(&mut self, progress: &AgentServiceProgress) {
+    pub(super) fn observe_agent_pump_progress(&mut self, progress: &AgentServiceProgress) {
         if let AgentServiceProgress::Blocked(blocker) = progress {
             self.record_agent_pump_error(blocker.reason());
             return;
@@ -258,21 +258,20 @@ impl ViewerRuntimeLiveServer {
                 // Internal publication uses this same executor and capacity-1
                 // lane. Existing diagnostic counters describe remote service
                 // transport; file phases remain in the bounded numeric ring.
+                #[cfg(any(test, feature = "test_tier_required"))]
                 let publication = matches!(
                     &job.operation,
                     super::agent_service_io::AgentServiceIoOperation::PublishLineage(_)
                 );
                 #[cfg(any(test, feature = "test_tier_required"))]
-                let result = if publication {
-                    job.execute()
-                } else {
-                    executor_diagnostics.execute(job)
-                };
-                #[cfg(not(any(test, feature = "test_tier_required")))]
-                let result = {
-                    let _ = publication;
-                    job.execute()
-                };
+                if !publication {
+                    executor_diagnostics.executing();
+                }
+                let result = job.execute();
+                #[cfg(any(test, feature = "test_tier_required"))]
+                if !publication {
+                    executor_diagnostics.returned(result.response.is_err());
+                }
                 if completed.send(result).is_err() {
                     break;
                 }
@@ -314,20 +313,42 @@ impl ViewerRuntimeLiveServer {
                             in_flight = false;
                             let original_phase = result.token.phase_digest.clone();
                             let unpublished_response = unpublished_response(&result);
-                            let apply_phase = stream_budget_diagnostics::phase(22);
                             #[cfg(any(test, feature = "test_tier_required"))]
-                            let applied = diagnostics.apply(&mut server, result);
-                            #[cfg(not(any(test, feature = "test_tier_required")))]
-                            let applied = server.apply_agent_service_io(result);
+                            diagnostics.consumed();
+                            let Some((guard, prepared)) =
+                                super::agent_service_result::prepare_result_phase(
+                                    &shared, server, &result,
+                                )
+                            else {
+                                break;
+                            };
+                            server = guard;
+                            let apply_phase = stream_budget_diagnostics::phase(22);
+                            let applied = server.apply_agent_service_completion(result, prepared);
                             drop(apply_phase);
                             let phase_identity = if applied.is_err() {
                                 None
                             } else {
-                                server
-                                    .llm_sidecar
-                                    .hosted_service_phase
-                                    .as_ref()
-                                    .map(|phase| phase.identity())
+                                let Some((guard, identity)) =
+                                    super::agent_service_result::prepare_retry_identity(
+                                        &shared, server,
+                                    )
+                                else {
+                                    break;
+                                };
+                                server = guard;
+                                match identity {
+                                    super::agent_service_result::RetryIdentity::Current(
+                                        identity,
+                                    ) => identity,
+                                    super::agent_service_result::RetryIdentity::Changed => {
+                                        // A control/reset replaced the phase while unlocked. Start
+                                        // again from its state without clearing its newer feedback.
+                                        drop(server);
+                                        drop(pump_phase);
+                                        continue;
+                                    }
+                                }
                             };
                             let phase_identity_unavailable =
                                 phase_identity.as_ref().is_some_and(Result::is_err);
@@ -336,7 +357,6 @@ impl ViewerRuntimeLiveServer {
                                 || phase_identity_requires_retry(phase_identity, &original_phase);
                             match applied {
                                 Ok(value) => {
-                                    server.observe_agent_pump_progress(&value);
                                     progress = Some(value);
                                 }
                                 Err(_error) => {
@@ -376,7 +396,7 @@ impl ViewerRuntimeLiveServer {
                         )
                     {
                         let prepare_phase = stream_budget_diagnostics::phase(23);
-                        let prepared = server.prepare_agent_service_io(eligible);
+                        let prepared = server.prepare_agent_service_io_deferred(eligible);
                         drop(prepare_phase);
                         match prepared {
                             Ok(value) => {
@@ -392,6 +412,33 @@ impl ViewerRuntimeLiveServer {
                                 }
                                 progress = None;
                                 server.record_agent_pump_error("Agent service preparation is blocked; original work remains pending");
+                            }
+                        }
+                    }
+                    if matches!(progress, Some(AgentServiceProgress::NeedsIdentity(_))) {
+                        let Some(AgentServiceProgress::NeedsIdentity(prepared)) = progress.take()
+                        else {
+                            unreachable!()
+                        };
+                        let reservation = prepared.reservation();
+                        drop(server);
+                        // Only immutable identity serialization/hash runs here.
+                        // No executor queue or transport can observe this capsule.
+                        let ready = prepared.compute();
+                        server = match shared.lock() {
+                            Ok(server) => server,
+                            Err(_) => break,
+                        };
+                        let completed =
+                            ready.and_then(|ready| server.finish_hosted_identity(ready));
+                        match completed {
+                            Ok(job) => {
+                                progress = Some(AgentServiceProgress::NeedsIo(Box::new(job)))
+                            }
+                            Err(_) => {
+                                server.abandon_hosted_identity(&reservation);
+                                server.record_agent_pump_error("Hosted identity changed before dispatch; original work remains pending");
+                                progress = None;
                             }
                         }
                     }

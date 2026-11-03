@@ -49,35 +49,22 @@ class MarkdownHtml:
     content: str
 
 
-@lru_cache(maxsize=64)
-def parse_markdown_blocks(text: str) -> tuple[MarkdownBlock, ...]:
-    """Return parsed block spans with source-map line positions.
+@lru_cache(maxsize=128)
+def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[MarkdownHtml, ...], tuple[MarkdownLink, ...]]:
+    """Parse an exact content snapshot once and retain only immutable records.
 
-    The CommonMark parser owns recognition of fenced and indented code blocks,
-    including blocks nested in lists and blockquotes.  Consumers can use the
-    returned source spans to exclude code without maintaining a second fence
-    grammar.
+    Tokens are parser-owned mutable objects, so they are never cached or exposed.
+    Bounds apply to content snapshots, not paths: a changed file cannot reuse the
+    previous content's nodes. Every public adapter consumes the same parse.
     """
     blocks: list[MarkdownBlock] = []
-    for token in _MARKDOWN.parse(text):
-        if token.type not in {"fence", "code_block"} or not token.map:
-            continue
-        start, end = token.map
-        blocks.append(MarkdownBlock(token.type, start + 1, end))
-    return tuple(blocks)
-
-
-@lru_cache(maxsize=64)
-def parse_markdown_html(text: str) -> tuple[MarkdownHtml, ...]:
-    """Return HTML nodes while excluding code spans and code blocks.
-
-    CommonMark emits inline HTML as ``html_inline`` children and block HTML as
-    ``html_block`` tokens.  Code spans containing HTML are ``code_inline``
-    children, so consumers can safely inspect these nodes for real anchors.
-    """
     nodes: list[MarkdownHtml] = []
+    links: list[MarkdownLink] = []
     source_lines = text.splitlines()
     for token in _MARKDOWN.parse(text):
+        if token.type in {"fence", "code_block"} and token.map:
+            start, end = token.map
+            blocks.append(MarkdownBlock(token.type, start + 1, end))
         if token.type == "html_block" and token.map:
             start, _end = token.map
             nodes.append(MarkdownHtml(line=start + 1, content=token.content))
@@ -101,23 +88,8 @@ def parse_markdown_html(text: str) -> tuple[MarkdownHtml, ...]:
                 search_offset = position + len(child.content)
                 break
             nodes.append(MarkdownHtml(line=line, content=child.content))
-    return tuple(nodes)
-
-
-@lru_cache(maxsize=64)
-def parse_markdown_links(text: str) -> tuple[MarkdownLink, ...]:
-    """Return clickable Markdown link nodes, excluding images and code nodes.
-
-    ``token.map`` is the source block's zero-based line span.  A multi-line
-    destination is attributed to its first source line; the gates only use the
-    line for diagnostics and link-node association.
-    """
-    links: list[MarkdownLink] = []
-    source_lines = text.splitlines()
-    for token in _MARKDOWN.parse(text):
-        if token.type != "inline" or not token.children or not token.map:
-            continue
-        start, end = token.map
+        # Link and HTML source searches have independent positions, preserving
+        # the adapters' original source-map association for interleaved nodes.
         line = start + 1
         search_line = start
         search_offset = 0
@@ -137,4 +109,22 @@ def parse_markdown_links(text: str) -> tuple[MarkdownLink, ...]:
                     search_offset = position + len(target)
                     break
                 links.append(MarkdownLink(line=line, target=target))
-    return tuple(links)
+    return tuple(blocks), tuple(nodes), tuple(links)
+
+
+@lru_cache(maxsize=64)
+def parse_markdown_blocks(text: str) -> tuple[MarkdownBlock, ...]:
+    """Return actual CommonMark fenced/indented code spans, including nesting."""
+    return _parse_markdown(text)[0]
+
+
+@lru_cache(maxsize=64)
+def parse_markdown_html(text: str) -> tuple[MarkdownHtml, ...]:
+    """Return CommonMark HTML nodes, excluding code spans and code blocks."""
+    return _parse_markdown(text)[1]
+
+
+@lru_cache(maxsize=64)
+def parse_markdown_links(text: str) -> tuple[MarkdownLink, ...]:
+    """Return clickable links and first source lines, excluding images/code."""
+    return _parse_markdown(text)[2]

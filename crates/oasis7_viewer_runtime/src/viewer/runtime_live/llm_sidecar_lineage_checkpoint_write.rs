@@ -35,6 +35,10 @@ pub(in crate::viewer::runtime_live) struct PublicationSourceScope {
     reorg: u64,
     manifest: String,
 }
+
+#[path = "llm_sidecar_lineage_checkpoint_io.rs"]
+mod checkpoint_io;
+
 impl RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) fn publication_source_scope(
         &self,
@@ -219,6 +223,8 @@ impl RuntimeLlmSidecar {
             unique_id: next_temporary_id()?,
             temporary_written: std::sync::atomic::AtomicBool::new(false),
             temporary: std::sync::OnceLock::new(),
+            #[cfg(unix)]
+            directory_boundary: std::sync::OnceLock::new(),
             completed: std::sync::atomic::AtomicBool::new(false),
             blocked: std::sync::atomic::AtomicBool::new(false),
         };
@@ -275,6 +281,8 @@ pub(in crate::viewer::runtime_live) struct OwnedLineagePublication {
     unique_id: u64,
     temporary_written: std::sync::atomic::AtomicBool,
     temporary: std::sync::OnceLock<PathBuf>,
+    #[cfg(unix)]
+    directory_boundary: std::sync::OnceLock<PathBuf>,
     completed: std::sync::atomic::AtomicBool,
     blocked: std::sync::atomic::AtomicBool,
     #[cfg(any(test, feature = "test_tier_required"))]
@@ -317,7 +325,17 @@ impl OwnedLineagePublication {
         drop(encode_phase);
         let path = self.path.as_path();
         let directory_phase = crate::viewer::runtime_live::stream_budget_diagnostics::phase(45);
-        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        #[cfg(unix)]
+        if self.directory_boundary.get().is_none() {
+            let boundary = checkpoint_io::existing_parent(parent).map_err(|error| {
+                format!("provider lineage existing directory boundary failed: {error}")
+            })?;
+            let _ = self.directory_boundary.set(boundary);
+        }
         fs::create_dir_all(parent).map_err(|error| {
             format!(
                 "provider lineage checkpoint directory creation failed ({}): {error}",
@@ -356,6 +374,11 @@ impl OwnedLineagePublication {
                     .store(true, std::sync::atomic::Ordering::Release);
                 format!("provider lineage temporary write failed; original retained: {error}")
             })?;
+            file.sync_all().map_err(|error| {
+                self.blocked
+                    .store(true, std::sync::atomic::Ordering::Release);
+                format!("provider lineage temporary sync failed; original retained: {error}")
+            })?;
             self.temporary_written
                 .store(true, std::sync::atomic::Ordering::Release);
         }
@@ -382,6 +405,25 @@ impl OwnedLineagePublication {
         drop(rename_phase);
         #[cfg(any(test, feature = "test_tier_required"))]
         publication_gate::after_rename(path, temp_path);
+        // Rename has happened: any durability/readback uncertainty permanently
+        // fences this owned original; never retry with a new request or temporary.
+        let confirmed = (|| {
+            #[cfg(unix)]
+            checkpoint_io::sync_directories(
+                parent,
+                self.directory_boundary
+                    .get()
+                    .ok_or_else(|| std::io::Error::other("checkpoint directory boundary absent"))?,
+            )?;
+            checkpoint_io::verify_published(path, &encoded)
+        })();
+        if let Err(error) = confirmed {
+            self.blocked
+                .store(true, std::sync::atomic::Ordering::Release);
+            return Err(format!(
+                "provider lineage checkpoint durability/readback uncertain; original retained: {error}"
+            ));
+        }
         #[cfg(any(test, feature = "test_tier_required"))]
         publication_failure_probe::observe_published(path, &encoded)?;
         self.completed

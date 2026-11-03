@@ -306,7 +306,7 @@ Trace ID: O7-REQ-17af77d2-a02e-41ea-8185-cbc0650e69e3
 
 Trace ID: O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb
 
-实现必须交付实际模型可消费的可信工具宿主与版本化工具 profile，打通开户/原生会话、准备环境、一次批准、上下文、动作、原件查询、效果核对和收尾。执行窗口、只读核对窗口与 cleanup 权限分别有界；到期不能阻止已批准的安全收尾，也不能触发无限续期或自动新登录。自动 Stop/Revoke 只执行预批准策略并核验当前 owner/fence，未知结果保持可见。验收复用既有 Agent 自测 RunInput/TesterInput/RunResult 与真实 Runtime 证据，必须有真实 Agent 读取 Skill、选择动作、查询权威结果及故障后的接续记录；脚本或 UI smoke 不能代签。dot、其他 Runtime 与 cold-entry 分别按实际通过范围声明。
+实现必须交付实际模型可消费的可信工具宿主与版本化工具 profile，打通开户/原生会话、准备环境、一次批准、上下文、动作、原件查询、效果核对和收尾。执行窗口、只读核对窗口与 cleanup 权限分别有界；到期不能阻止已批准的安全收尾，也不能触发无限续期或自动新登录。自动 Stop/Revoke 只执行预批准策略并核验当前 owner/fence，未知结果保持可见。 对声明完整 TestSession 收尾的 V2 profile，最终还必须以当前 World 强签证明该获批 Task 已持久 Closed，不能用本地关闭、Stop 的 Suspended 或单独 delegation Revoke 替代。独立 fresh-MFA 必须明确批准永久关闭该任务；第二份原件可在同一获批任务/Owner/账户/签名者 lineage 的精确当前 Active 或获准对应 Suspended 下，原子撤销委托并关闭任务，不以 Stop 回执是否已收到作为硬前置。Stop unknown/历史不可用与 World Closed 分别呈现；Closed 后同任务 ID 不可恢复，迟到的旧写不能重新激活。该目标不追认旧 V1 批准为永久关闭授权，仍保持最多两份 canonical 写原件和原24次 transport；实际完整调用图未闭合时不得开放执行。验收复用既有 Agent 自测 RunInput/TesterInput/RunResult 与真实 Runtime 证据，必须有真实 Agent 读取 Skill、选择动作、查询权威结果及故障后的接续记录；脚本或 UI smoke 不能代签。dot、其他 Runtime 与 cold-entry 分别按实际通过范围声明。
 
 - 系统设计状态：已覆盖
 - 实现状态：未实现
@@ -330,7 +330,7 @@ Trace ID: O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb
 | AC-CLOUD-08 | REQ-CLOUD-CUSTODY-005/007 | 在固定候选、prepared-world 和已声明 Runtime/profile 下，真实 Agent 读 Skill、自主完成目标并核对世界效果，生成现有 RunResult 与收尾证据 | 固定脚本、人工代填工具结果、UI smoke 或 cloud accepted 不代替 Agent 行为/world committed；未实测 dot、cold-entry 或其他工具不标通过 |
 | AC-CLOUD-09 | REQ-CLOUD-CUSTODY-006 | 两个 Rust crate 职责可核对，四种角色分别构建/部署；原生/Wasm 共用协议，管理 UI 消费实际 HTTP 合同 | 禁止 native 依赖回流、混角色产物、手写第二套签名编码；全宽整数经 FFI/SQL 回读不失真；无模型 secret 读取或响应缓存替代原操作 |
 | AC-CLOUD-10 | REQ-CLOUD-CUSTODY-003/007 | 已登记工具宿主完成私有凭据交接、PoP、重启后的原件查询及首版工具映射 | 仅偷 token、改正文/URI、重复挑战、换客户端/会话、丢失 202 后重做动作、遗漏 native authority mode 均不能执行；dot 缺宿主证明扩展时阻断 |
-| AC-CLOUD-11 | REQ-CLOUD-CUSTODY-004/007 | 结束/到期/预算耗尽/失联后停新写，独立读取预算核对旧结果，Owner 按预批准策略有界 Stop/Revoke | 不能把 HTTP 到期当 canonical Revoke，不能恢复写权查询；身份撤销或下游未知保持 cleanup blocked/unknown，不能假报 closed |
+| AC-CLOUD-11 | REQ-CLOUD-CUSTODY-004/007 | 结束/到期/预算耗尽/失联后停新写，独立读取预算核对旧结果，Owner 按预批准策略有界 Stop/Revoke | 不能把 HTTP 到期当 canonical Revoke，不能恢复写权查询；完整 V2 收尾须有当前 World Task Closed 与撤销的强证据，Stop unknown 不占死独立第二安全槽；身份撤销、外部 fence 变化、库存缺失/溢出或下游未知保持 cleanup blocked/unknown，不能假报 closed |
 
 ### 6.4 风险、成本与推进边界
 

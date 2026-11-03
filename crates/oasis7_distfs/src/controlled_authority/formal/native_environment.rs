@@ -20,63 +20,41 @@ pub struct NativeEnvironmentVerificationProgressV1 {
     pub descriptor_digest: String,
     pub endpoint_instance: fencing::EndpointInstanceBindingV1,
 }
-pub(crate) struct VerificationJob {
-    pub descriptor: NativeExecutionEnvironmentV1,
-    pub component: usize,
-    pub chunk: usize,
-    pub hasher: blake3::Hasher,
-}
+pub(crate) struct VerificationJob(NativeVerificationCursor);
 impl VerificationJob {
-    pub fn new(descriptor: NativeExecutionEnvironmentV1) -> Self {
-        Self {
-            descriptor,
-            component: 0,
-            chunk: 0,
-            hasher: blake3::Hasher::new(),
-        }
+    pub fn new(descriptor: NativeExecutionEnvironmentV1) -> Result<Self, FormalError> {
+        NativeVerificationCursor::new(descriptor)
+            .map(Self)
+            .map_err(crypto::invalid)
     }
     pub fn complete(&self) -> bool {
-        self.component == self.descriptor.components.len()
+        self.0.complete()
+    }
+    pub fn verified_chunks(&self) -> u64 {
+        self.0.verified_chunks()
     }
     pub fn advance(
         &mut self,
-        mut read: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
+        read: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
     ) -> Result<(), FormalError> {
-        self.advance_with_visit(&mut read, |_, _| Ok(()))
+        self.advance_with_visit(read, |_, _| Ok(()))
     }
     pub fn advance_with_visit(
         &mut self,
-        mut read: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
-        mut visit: impl FnMut(&str, &[u8]) -> Result<(), FormalError>,
+        read: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
+        visit: impl FnMut(&str, &[u8]) -> Result<(), FormalError>,
     ) -> Result<(), FormalError> {
-        let mut budget = 8usize;
-        while !self.complete() && budget > 0 {
-            let component = &self.descriptor.components[self.component];
-            let chunk = &component.chunks[self.chunk];
-            let bytes = read(&chunk.digest)?;
-            if bytes.len() != chunk.byte_len as usize
-                || blake3::hash(&bytes).to_hex().as_str() != chunk.digest
-            {
-                return Err(crypto::invalid("native durable chunk length/hash"));
-            }
-            visit(&chunk.digest, &bytes)?;
-            let mut next_hasher = self.hasher.clone();
-            next_hasher.update(&bytes);
-            if self.chunk + 1 == component.chunks.len()
-                && next_hasher.finalize().to_hex().as_str() != component.content_digest
-            {
-                return Err(crypto::invalid("native durable component hash"));
-            }
-            self.hasher = next_hasher;
-            self.chunk += 1;
-            budget -= 1;
-            if self.chunk == component.chunks.len() {
-                self.component += 1;
-                self.chunk = 0;
-                self.hasher = blake3::Hasher::new();
-            }
-        }
-        Ok(())
+        self.0
+            .advance_with_visit(read, visit)
+            .map_err(|error| match error {
+                NativeVerifyError::Source(error) => error,
+                NativeVerifyError::ChunkIntegrity => {
+                    crypto::invalid("native durable chunk length/hash")
+                }
+                NativeVerifyError::ComponentIntegrity => {
+                    crypto::invalid("native durable component hash")
+                }
+            })
     }
 }
 
@@ -134,7 +112,7 @@ mod tests {
     #[test]
     fn native_verification_reads_exact_components_and_failed_retry_is_safe() {
         let bytes = b"original native bytes";
-        let mut job = VerificationJob::new(descriptor(bytes));
+        let mut job = VerificationJob::new(descriptor(bytes)).unwrap();
         let mut visited = 0;
         job.advance_with_visit(
             |_| Ok(bytes.to_vec()),
@@ -148,11 +126,11 @@ mod tests {
         assert_eq!(visited, 2);
         let mut wrong = descriptor(bytes);
         wrong.components[0].content_digest = "00".repeat(32);
-        let mut failed = VerificationJob::new(wrong);
+        let mut failed = VerificationJob::new(wrong).unwrap();
         for _ in 0..2 {
             assert!(failed.advance(|_| Ok(bytes.to_vec())).is_err());
         }
-        assert_eq!(failed.chunk, 0);
+        assert_eq!(failed.verified_chunks(), 0);
         assert!(!failed.complete());
     }
 }

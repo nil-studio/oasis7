@@ -40,7 +40,7 @@ impl RuntimeLlmSidecar {
 }
 
 /// Retain the exact signed intent across ambiguous transport outcomes.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub(in crate::viewer::runtime_live) struct PendingProviderServiceIntent {
     pub(in crate::viewer::runtime_live) correlation:
         oasis7_client_api::world_service::RequestCorrelation,

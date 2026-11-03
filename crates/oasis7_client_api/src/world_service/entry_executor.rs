@@ -43,4 +43,9 @@ pub enum EntryExecutorOperationV1 {
     RecipeQuote(SignedReadRequest<TaskRecipeQuoteRequestV1>),
     FactoryQuote(SignedReadRequest<TaskFactoryQuoteRequestV1>),
     ReadLiveContext(TaskContextLiveReadV1),
+    PrepareContextAttestedV2(
+        Box<super::task_context_projection::TaskContextPrepareAttestationRequestV2>,
+    ),
+    ReadContextAttestedV2(Box<super::task_context_projection::TaskContextGetAttestationRequestV2>),
+    ReadMoveProjectionV2(Box<super::task_context_projection::TaskContextMoveProjectionRequestV2>),
 }

@@ -10,7 +10,7 @@ fn private_page_buffer_is_charged_bounded_and_requires_an_explicit_flush() {
     let baseline = memory.used();
     let mut io = physical_io();
     let cancelled = AtomicBool::new(false);
-    let mut session = BorrowedPageSession::new(&store, &mut io, &cancelled).unwrap();
+    let mut session = BufferedPageWriter::new(&store, &mut io, &cancelled).unwrap();
     let mut ids = Vec::new();
     for n in 0..4 {
         let mut bytes = vec![17; 65536];
@@ -22,7 +22,7 @@ fn private_page_buffer_is_charged_bounded_and_requires_an_explicit_flush() {
             .unwrap()
             .retain(bytes);
         session.put_node(id, bytes).unwrap();
-        assert!(session.pending_bytes <= 256 * 1024);
+        assert!(session.pending_reserved_bytes() <= 256 * 1024);
     }
     // Four exact 64 KiB pages fill the buffer; the next one forces a batch.
     assert_eq!(
@@ -36,7 +36,7 @@ fn private_page_buffer_is_charged_bounded_and_requires_an_explicit_flush() {
         fs::read_dir(store.root().join("recipes")).unwrap().count(),
         4
     );
-    assert_eq!(session.pending_bytes, 100);
+    assert_eq!(session.pending_reserved_bytes(), 100);
     assert!(memory.used() >= baseline + 64 * 1024 + 100);
     session.flush().unwrap();
     drop(session);

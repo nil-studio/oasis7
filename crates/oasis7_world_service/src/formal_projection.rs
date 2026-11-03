@@ -50,18 +50,44 @@ pub fn commitments_for_world(
             .scope_id
             .strip_prefix("agent:")
             .expect("private audience");
-        let projection = super::projection::from_formal_committed_world(
-            world,
-            Some(agent),
-            audience
-                .reader_public_key
-                .as_deref()
-                .expect("private reader"),
-        )?;
-        let leaf = concrete_projection_leaf(&audience, &projection)?;
+        let leaf = private_audience_leaf(world, agent, &audience)?;
         leaves.push((audience, leaf));
     }
     ProjectionCommitmentsV1::from_leaves(leaves)
+}
+
+fn private_audience_leaf(
+    world: &oasis7_runtime::World,
+    agent: &str,
+    audience: &ProjectionAudienceV1,
+) -> Result<String, String> {
+    // Runtime terminal storage/consumer is a native-only protocol. The Wasm
+    // build retains its original V1 formatter; it does not claim V2 support.
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(oasis7_agent_api::game::GameTaskStateV2::Closed(closed)) =
+        world.current_game_task_state_v2(agent)?
+    {
+        let verified = world
+            .closed_game_task_v2(&closed.initial_fence.task_id)?
+            .ok_or("terminal projection record unavailable")?;
+        if verified != *closed {
+            return Err("terminal projection current/index mismatch".into());
+        }
+        return oasis7_client_api::formal_projection::ClosedTaskFormalProjectionV2 {
+            api_revision: 2,
+            closed,
+        }
+        .leaf(audience);
+    }
+    let projection = super::projection::from_formal_committed_world(
+        world,
+        Some(agent),
+        audience
+            .reader_public_key
+            .as_deref()
+            .expect("private reader"),
+    )?;
+    concrete_projection_leaf(audience, &projection)
 }
 
 #[cfg(test)]
