@@ -349,6 +349,8 @@ Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-4
 兼容性按原规则与显式新能力分开：没有轮换记录的旧 Snapshot/Action 编码保持原值；新记录进入规范状态根、投影及原 Journal，恢复使用原 parent/策略/proof，而不是按当前 key 重写旧决定。新动作及 Snapshot 中的非空轮换状态必须受明确的规则/格式能力准入约束；旧 reader 不得忽略字段后继续 serving/voting。旧 raw Admission 的身份匹配与拒绝换钥边界保持，不把它重解释为 Rotate。验收必须有同一真实 admitted Node ID 的成功轮换、h/h+1/h+2 与新 key 安装/冷恢复正例，并验证服务身份和账户等不变量；仅检查旧入口拒绝不同 key 不构成轮换成功。错误 parent/policy/nonce/generation、旧/新 proof、重复 key、bootstrap 无 Admission、边界过期、缺安装材料及容量耗尽均须拒绝且无部分效果。
 
 
+治理 finality certificate 的验证按 certificate epoch 从原 registry、Admission 与保留换钥历史投影 signer key；激活前仍用原 key，激活后拒绝旧 key。模块发布、capability 与 participant policy 共用此验证，不以 service identity key 替代 finality authority；没有 registry 的既有本地签名路径保持原约束。
+
 实现入口为 `Action::RotateGovernanceValidatorFinalityKeyV1`、`BftSignerLeaseV3::sign_finality_rotation_proof` 与 `NodeRuntime::request_bft_v3_finality_key_rotation_proofs`。Node 的专用有界队列将两份 proof 的持久 CAS 与原共识 worker 串行化，每次更新本机 checkpoint；已知的同 ID 不同 body 冲突直接拒绝，未知 RPC/CAS 结果停签。正常换钥不开放任意字节签名或新增公开 HTTP/CLI 端点。
 
 本地回归 `wire3_actual_node_typed_rotation_changes_only_finality_key_and_installs_new_key_before_decisive_qc` 覆盖真实 Node proof 入口、实际 World 的 h7/h8/h9 转换、新 key 安装后参与必要 quorum，以及原件冷恢复。错误 proof/generation 的负例执行同一 qualified parent 的实际 detached World 预演，不冒充已提交业务结果。该场景的其他 quorum 签名由受控 fixture 提供，witness、backend 与 clock 为内存替身；它不代表四个独立故障域持续运行或物理不可导出 custody 验收。后续 checkpoint、bootstrap 节点正常换钥与 issuer policy/key rotation 仍保留各自的实现及验收义务。
