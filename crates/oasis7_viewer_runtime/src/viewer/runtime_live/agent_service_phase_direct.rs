@@ -207,7 +207,7 @@ impl HostedServicePhase {
 }
 
 impl super::super::control_plane::llm_sidecar::RuntimeLlmSidecar {
-    pub(super) fn verify_hosted_original_disposition(
+    pub(in crate::viewer::runtime_live) fn verify_hosted_original_disposition(
         &self,
         pending: &PendingProviderServiceIntent,
         receipt: &ProviderServiceCognitionReceipt,

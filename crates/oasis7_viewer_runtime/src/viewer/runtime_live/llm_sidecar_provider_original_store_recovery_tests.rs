@@ -195,7 +195,9 @@ fn hosted_terminal_receipt_fence_precedes_projection_settlement_and_feedback() {
     matching.lineage.action_id = matching.commit_record.action_id.clone();
     matching.feedback.runtime_receipt_id = Some(matching.commit_record.receipt_id.clone());
     validate_provider_service_receipt(&pending, &matching).unwrap();
-    server.llm_sidecar.verify_hosted_original_disposition(&pending, &matching)
+    server
+        .llm_sidecar
+        .verify_hosted_original_disposition(&pending, &matching)
         .expect("the original matching receipt remains eligible for finalization");
     server.config.world_service = Some(crate::world_service::client::WorldServiceClientConfig {
         endpoint: "http://127.0.0.1:1".into(),
