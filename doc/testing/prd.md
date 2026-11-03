@@ -306,7 +306,7 @@ Trace ID: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78
 
 - BROWSER-AC-1：复用当前 JS-required/component、浏览器 fixture smoke 和 S6 分层，提供显式 fixture-functional profile。至少一条试点在真实浏览器中加载生产组件与状态逻辑，通过可见控件操作；测试只控制依赖边界，不能复制一套 UI/reducer 或直接写入期望的终态。不依赖真实 LLM 或完整后端栈。
 - BROWSER-AC-2：响应、事件与必要的时钟推进由有界 barrier 控制，记录请求关联和交付顺序；成功、拒绝、旧结果晚到、乱序/重复、断线恢复、卸载重挂及 loading/空态按场景适用性验证。不靠长 sleep 或反复重试把竞态变绿。
-- BROWSER-AC-3：首个试点采用 Viewer 的 Prompt Overrides 输入/提交/反馈。独立预期检查 accepted 与 applied、当前请求/身份、草稿与权威值及安全恢复；不把拒绝处理写成先显示 applied 再回滚。旧响应不得覆盖新请求，测试揭示的域缺陷仍交原 owner 修复。
+- BROWSER-AC-3：首个试点候选为 Viewer 的 Prompt Overrides 输入/提交/反馈；正式选定前由 QA 与对应 owner 对齐试点和具体 oracle。独立预期检查 accepted 与 applied、当前请求/身份、草稿与权威值及安全恢复；不把拒绝处理写成先显示 applied 再回滚。旧响应不得覆盖新请求，测试揭示的域缺陷仍交原 owner 修复。
 - BROWSER-AC-4：每场景隔离浏览器上下文、端口、存储、合成身份和产物，禁止意外访问真实服务；有共享构建/模块状态的场景按实际边界串行。结果绑定候选、构建、场景、实际浏览器/viewport、事件 trace、截图、console/network、断言与未覆盖项；缺依赖、零执行或缺产物不能报告通过。
 - BROWSER-AC-5：复用现有选测权威接入适用 CI 范围，保留 JS-required 和真实 S6/full 义务。fixture 通过只证明相应组件在已列合成输入下的功能，不证明真实认证、Runtime 应用、provider、世界效果、跨浏览器或实玩；首个实现片与真实集成承接可独立验收。
 

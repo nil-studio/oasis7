@@ -742,6 +742,33 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 每个全局值和 active 成员具有独立 child StateRoot。一个 registry record 的四个原列分别以原 descriptor/schema/外键的 RootRef165 指向同一个完整 record child；完整资格必须核对四列同键齐备且 child 相同，不得从只读某列成功授完整 registry 资格。child 保留 metadata、封闭 body-kind 标记和逐原名列。ModuleManifest 穷尽十三字段；Limits 保留六列及三个 u32 上界；Security 穷尽四 Bool。ModuleAbiContract 七字段、GameplayContract 四字段、ModuleArtifactIdentity 五字段与 CommandDeclaration 五字段分别穷尽。Vec 以原 ordinal/认证 length 保序并保留重复值，cap_slots 保留原 String 成员；Option 以 Unit/实际值或显式 presence 与完整子结构区分 None、Some(0/empty/null)。不调用 resolved_stage 补造默认值，不用完整 ModuleManifest CBOR DOM 或 DTO JSON 影子叶。仅实际 JsonValue 的 Manifest.content 与 subscription.filters 使用中性 JSON 子树 schema。
 
 新 profile 内部相对地址为 section/column、外 ordinal、内 ordinal、原 map member 的封闭 tuple；每个可缺组件有独立存在位，不以零或空串代替不存在。原 Unit、String 外键及业务 hash 字段原值不变。借用 GEN 仅产 provisional writes，所有 cell、JSON node/depth、key/IO/heap 预算连续有界。root-only 资格须凭认证 RootSet 与保存内容完整拒绝未知列、缺列、孤儿、Option/Vec 关系错误；不能要求原 World snapshot 作恢复 oracle。普通同事务点读/精确 expected 修改须复用已资格父，仅访问目标及必要关系，长比较、NoOp、末次 put 后均组合取消，任何失败 poison 整笔成功前缀。receiver 独立 generic replay 后仅检查实际 changed paths，继承未变闭包。typed pages 追随全部 child/JSON 页，buffered finish 前保持暂态。本节是此 owner 的实现合同；单独 visitor/GEN checkpoint 不登记 ready，不授部署、签名、政策、完整 Runtime/World 或 GC 权限。
+### 12.43 Runtime 调度确定性控制组
+
+<a id="iws-runtime-scheduler-controls-v1"></a>
+
+本 owner 只覆盖原 Runtime/Scheduler 的八个 Value descriptor：scheduler_cursor、runtime_memory_limits.max_pending_actions/max_pending_effects/max_inflight_effects、runtime_backpressure_stats.pending_actions_evicted/pending_effects_evicted/inflight_effects_evicted、module_tick_routing_metrics。游标为原 Option<String>，不是 Cognition 的 SchedulerCursorV1；三项容量为原 usize、三项驱逐计数为原 u64。路由只保存 ModuleTickRoutingDeterministicSnapshot 的 last_due_count/last_invoked_count/last_missing_invocation_count 三 usize、missing_invocation_count/routing_count 两 u64 和 oldest_overdue_ticks Option<u64>。usize 以 U64 保存并校验接收目标原 usize 域，不新增容量或调度业务上限。max_journal_events、inflight_effect_dispatch_blocked、journal_events_evicted、wall-clock duration/buckets 仍是已登记 Process 字段，不借此 owner 落盘或标 ready。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+七个 primitive 全局值各用原 descriptor 的 Metadata 与 Entry/Unit 语义键，payload 为原 U64 或 nullable Unit/Text。游标 None 与 Some(empty)、overdue None 与 Some(0) 必须区分，必需全局对象和列不能删除。路由原对象是独立 RootRef165 child，同 Scheduler namespace，绑定专属 schema 与原 Unit digest；child 有 Metadata、Unit marker 和六个原名列，不聚合 JSON/Serde blob。完整借用 GEN 从实际 World 控制值和既有 deterministic_snapshot 投影得到，穷尽 DTO 并明确排除 Process 部分，不 clone 完整 World 或长游标。
+
+根绑定 opaque 资格只在有限预算下验证此完整八字段组；固定根和 same-TX getter/单列 expected 更新不能冒称完整 Runtime 资格。普通贡献须使用同一 ExecutionTransaction、guard/live、同池 Ordinary、认证元数据与实际 pending 根，保留所有读写依赖；NoOp/长比较、输出重试和返回前取消、真实 put 失败均 poison 已成功贡献。receiver 先独立 generic replay，再由 qualified 父及实际 changed paths 验证本组，跳过未变长游标/无关 owner。冷恢复不能要求原 World snapshot，页闭包仍须本组完整验证及 sink finish 完成。
+
+已有 allocator/event sequence/module-wake/index 专用键与 wire 不得被本组 generic primitive 或 RootRef 影子替代；本组也不为 pending actions/effects、provider pending/result、nonce、idempotency、continuation、Cognition journal/history/receipt 关系发放 ready 或外调资格。原请求/attempt/nonce/continuation 身份、外调 unknown 不重派及业务调度次序继续由原 owner/driver 接线验证，不能从这八项控制值相等推出续跑或完整 World 激活/GC 成功。
+
+family 与 routing 私有资格须记录真实 mint class，所有使用入口同时核验同池与 class。Recovery 冷恢复资格不能直接供 Ordinary 消费；显式重新准入须先支付 Ordinary 临时与保留 metadata 费用，核对原精确根绑定、复制全部固定资格并在最终取消检查后返回。此桥不重扫旧长游标、不改变根或业务权限，也不证明持久可用性、完整驱动或 GC。
+
+### 12.45 Runtime capability 执行账本
+
+<a id="iws-runtime-capability-execution-records-v1"></a>
+
+本组只覆盖原 Runtime 的三个 Map descriptor：Authorization namespace 的 capability_nonce_records、capability_budget_accounts，以及 Effects namespace 的 capability_effect_receipt_links。原外层 String key 与记录内 request_hash/outcome_hash/grant_id/主体ID/authorization_receipt_id 分别保存，不能自动补全、重新生成 nonce、规范化或推导成相同身份。Nonce 原四字段的 state 仍是 String，不因注释列出 reserved/committed/aborted 就拒绝其他原内容。预算原 subject/grant_id/remaining_units/reserved_units/spent_units 五字段与 link 的原单字段穷尽借用，不调用任意 Serialize 或 clone 整账本。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每条记录为独立同 namespace RootRef165，绑定专属 schema 与原 String key digest；外层保留原 descriptor 和 key 前像，另有封闭 format marker。内部相对 Unit/原字段名列避免把长 ID 重复到每个子键。Nonce 四列、budget 十三列、link 一列全部存在；预算 subject.kind 保留原 CapabilitySubject 的 agent/module/system 三变体，八个变体 payload 列按原所属分支为原 Text/U64，其他分支显式 Unit。主体关联必须同时验证，不能只靠总叶数；None/Some(empty)、不适用 Unit 与有效空 String、u64/i64 原极值严格区分。三项预算 i64 不增加新的经济约束；存储类型资格也不把数据里的 subject/grant/state 当成授权信任或新执行权限。
+
+本组完整合同包括 borrowed GEN、有限 root-only 资格/冷读、同 ExecutionTransaction 的 guard/live/同池 Ordinary 点读写、完整新记录与闭合删除、精确 expected、NoOp 和长比较后的组合取消、真实写入故障后整事务 poison。subject 变体变化须成组更新，单列预算变化不得扫描未变的长主体或 grant Text；接收器先独立 generic replay，再验证真正 changed child 路径并继承未变资格。页 mark/transfer 须遍历此 owner 的全部根和值闭包，sink 与 buffered finish 前均保持暂态。编译或 GEN visitor 不能代签完整合同已经验证。
+
+真实生产来源是原 capability_authorization_command/events/publication 的 nonce/预算/link 准备结果及 effects receipt ingestion 的 link 删除，字段贡献须与原关联事件、账本和授权 root 一起进入既有事务/接受流程；本组不改变这些业务动作。pending_effects/inflight_effects 的顺序、birth_era、identity_key、专用 intent payload digest、正式 outbox/world/continuation gate，以及 audit receipts、Cognition 状态仍由原或后续 owner 证明；不能用本组三个结构资格代签它们 ready、重派 unknown 外调、World 激活或全局 GC。
+
+family 与单记录资格保留真实 mint class，读写、生命周期及 receiver 不得仅凭同池将 Recovery 资格转作 Ordinary。显式重新准入只在同池、原精确 RootSet 绑定和足够新 Ordinary 费用下复制固定 metadata；额度不足或取消不返回资格，不扫描旧 grant/主体长文本，不提升授权、身份或可用性。
 
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 

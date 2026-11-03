@@ -59,7 +59,7 @@ Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWS
 玩家输入通过真实键盘/点击、可见标签和已有 `data-prompt-action` 选择器完成；`__AW_TEST__` 如存在仅作只读观测，不能调用 send/apply 来替代交互。卸载/重挂是 runner 对真实 mount/dispose 的生命周期操作，单独记录。trace 按序保存 UI 动作、出站请求、连接代次、交付消息、时钟推进、DOM 断言与截止；同一场景应可据此重放，不要求真实网络延迟可预测。
 
 <a id="browser-functional-pilot"></a>
-**试点：Prompt Overrides 的 Apply/拒绝/恢复。** 预期沿 [PromptControl system contract](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract)、[客户端等待与结果相关性](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#viewer-client-request-lifecycle-design)和[产品交互](../../product/agents-world-simulation/agent-conversation-and-prompt-control.design.md#3-关键交互)。现有 `viewer_prompt_control_protocol.test.jsx` 提供低层补充，不能代签以下真实浏览器动作。所有场景目前 planned，表中断言是目标，不是当前已通过结论。
+**试点候选：Prompt Overrides 的 Apply/拒绝/恢复。** 正式选定前由 QA 与对应 owner 对齐试点和具体 oracle；当前未声称对齐已完成。 预期沿 [PromptControl system contract](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract)、[客户端等待与结果相关性](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#viewer-client-request-lifecycle-design)和[产品交互](../../product/agents-world-simulation/agent-conversation-and-prompt-control.design.md#3-关键交互)。现有 `viewer_prompt_control_protocol.test.jsx` 提供低层补充，不能代签以下真实浏览器动作。所有场景目前 planned，表中断言是目标，不是当前已通过结论。
 
 | 场景 | 控制顺序与正例 | 必须检出的反例/边界 |
 | --- | --- | --- |

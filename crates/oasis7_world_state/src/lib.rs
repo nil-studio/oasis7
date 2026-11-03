@@ -322,3 +322,7 @@ pub mod incremental_governance_records;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_main_token_policy_records;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_capability_records;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_scheduler_controls;

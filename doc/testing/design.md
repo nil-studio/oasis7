@@ -53,11 +53,11 @@ Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；承接 [AC-14C / BROWS
 
 现有 Vitest/jsdom 验证组件和协议处理，tooling smoke 验证浏览器驱动接线，`player-visual-feedback-browser-smoke.mjs` 已用真实 shell 与固定 bridge/feed 做浏览器采证。新增目标是把真实 `viewer_app.jsx`、`legacy_core.js` 及其 PromptControl/feedback 模块与可控 HTTP/WebSocket 事件调度连接，让相同交互在相同交付顺序下可重复验证。业务逻辑仍来自生产模块；初始合成身份、传输与非试点渲染依赖的替换范围逐项写入报告。
 
-数据流为场景声明→隔离浏览器与同候选测试构建→真实 UI 请求→受控传输交付→生产状态处理与 DOM→独立断言/原始产物。场景声明保留固定预期值和域合同链接，不能从被测状态函数生成预期。首个 Prompt Overrides 试点及事件、生命周期、只读探针和产物合同集中在[浏览器设计](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)，避免在总览复制场景矩阵。
+数据流为场景声明→隔离浏览器与同候选测试构建→真实 UI 请求→受控传输交付→生产状态处理与 DOM→独立断言/原始产物。场景声明保留固定预期值和域合同链接，不能从被测状态函数生成预期。候选 Prompt Overrides 试点及事件、生命周期、只读探针和产物合同集中在[浏览器设计](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)，避免在总览复制场景矩阵。
 
 CI 后续把该 profile 登记到现有 planner/Viewer driver，按真实组件、状态模块、共享传输/auth、测试装配与构建输入的影响选择；不另建一份路径选测表，也不删改 #5376 已有快速 contract。JS-required 仍先给低层反馈，fixture-functional 只提供所测浏览器的受控功能结果；影响可见表面的截图与模型视觉评审、真实集成和 JS-full 按原 S6 要求继续执行。当前尚未新增 runner 或 CI job，不能把此选择设计写成已经 blocking。
 
-实现沿 #5387 分片：先连通隔离 test entry、owned browser 生命周期与首个 pending/成功/拒绝用例，再补迟到/重连/重挂、失败产物与选择合同。#5167 保留命令反馈缺陷，#4966 保留网页绑定/恢复，#5116 保留能力与展示边界；实施试点时由 QA 与对应 owner 对齐具体 oracle，不能为测试通过改变这些合同。未来扩到网页入口或指挥中心须各自选择真实组件与适用 oracle，本次不声称已有覆盖。
+实现沿 #5387 分片：先连通隔离 test entry、owned browser 生命周期、首个 pending/成功/拒绝用例及失败产物，再补迟到/重连/重挂与选择合同。#5167 保留命令反馈缺陷，#4966 保留网页绑定/恢复，#5116 保留能力与展示边界；正式选定试点前由 QA 与对应 owner 对齐试点和具体 oracle，不能为测试通过改变这些合同。未来扩到网页入口或指挥中心须各自选择真实组件与适用 oracle，本次不声称已有覆盖。
 
 ### Release Web fixture 生命周期
 

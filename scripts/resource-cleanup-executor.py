@@ -423,6 +423,30 @@ def _module_config(gitdir):
         seen.add(key)
 
 
+def _git_template_roots():
+    """Stock catalogs from the active Git and the OS Git, never user templates."""
+    env = dict(os.environ)
+    # macOS's /usr/bin/git is an xcrun shim: a fixed executable path alone
+    # does not prevent an environment-selected developer/toolchain catalog.
+    for name in ('GIT_EXEC_PATH', 'GIT_TEMPLATE_DIR', 'DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT'):
+        env.pop(name, None)
+    roots = []
+    commands = ['git']
+    if pathlib.Path('/usr/bin/git').is_file():
+        commands.append('/usr/bin/git')
+    for command in commands:
+        result = _run([command, '--exec-path'], check=command == 'git', env=env)
+        if result.returncode:
+            continue  # An unavailable optional OS installation grants no exception.
+        executable_path = pathlib.Path(result.stdout.strip())
+        if not executable_path.is_absolute():
+            raise CleanupError('Git installation template path unavailable')
+        root = executable_path.parent.parent / 'share/git-core/templates'
+        if root not in roots:
+            roots.append(root)
+    return roots
+
+
 def _module_material(gitdir):
     """Keep nonstandard metadata, pending operations and unpublished objects."""
     _module_config(gitdir)
@@ -430,7 +454,7 @@ def _module_material(gitdir):
                    'diff-index', '--cached', '--quiet', 'HEAD', '--'], check=False)
     if cached.returncode:
         raise CleanupError('staged or unreadable submodule index retained')
-    templates = pathlib.Path(_run(['git', '--exec-path']).stdout.strip()).parent.parent / 'share/git-core/templates'
+    templates = _git_template_roots()
     defaults = {'description', 'info/exclude'}
     metadata = {'HEAD', 'config', 'index', 'packed-refs', 'shallow', 'FETCH_HEAD', 'ORIG_HEAD'}
     object_file = re.compile(r'objects/(?:[0-9a-f]{2}/[0-9a-f]{38,62}|pack/pack-[0-9a-f]{40,64}\.(?:pack|idx|rev|bitmap|mtimes|promisor))')
@@ -453,9 +477,10 @@ def _module_material(gitdir):
                     continue
                 raise CleanupError('unknown submodule Git directory retained: ' + relative)
             if relative in defaults or relative.startswith('hooks/'):
-                sample = templates / relative
-                if (not sample.is_file() or sample.is_symlink() or
-                        target.read_bytes() != sample.read_bytes()):
+                if not any((sample := root / relative).is_file()
+                           and not sample.is_symlink()
+                           and target.read_bytes() == sample.read_bytes()
+                           for root in templates):
                     raise CleanupError('custom submodule template/hook retained: ' + relative)
             elif relative == 'COMMIT_EDITMSG':
                 if target.read_bytes().strip() != _module_git(gitdir, 'log', '-1', '--format=%B').encode():
