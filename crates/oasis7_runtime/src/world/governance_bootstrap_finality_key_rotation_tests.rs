@@ -1,7 +1,7 @@
 //! Real World projection with cryptographic key proofs; these tests do not
 //! substitute synthetic parents for live wire-3 controller-authorized commits.
 use super::*;
-use crate::GovernanceEvent;
+use crate::{DomainEvent, GovernanceEvent, RejectReason, WorldEventBody};
 use crate::GovernanceValidatorAdmissionStatus as Status;
 use ed25519_dalek::{Signer, SigningKey};
 fn key(n: u8) -> SigningKey {
