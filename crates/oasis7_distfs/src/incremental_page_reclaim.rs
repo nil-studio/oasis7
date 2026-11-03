@@ -119,9 +119,15 @@ fn scope(root: &Path, work: &mut PageReclaimWork, cancelled: &AtomicBool) -> Res
     }
     Ok(())
 }
-fn retirement(root: &Path, io: &mut PageIoBudget, cancelled: &AtomicBool) -> Result<()> {
+fn retirement(
+    root: &Path,
+    io: &mut PageIoBudget,
+    cancelled: &AtomicBool,
+    fenced: &mut bool,
+) -> Result<()> {
     let path = root.join(RETIRE);
     if files::exists(&path)? {
+        *fenced = true;
         let bytes = files::read(&path, INTENT.len(), io, cancelled)?;
         if !INTENT.starts_with(&bytes) {
             return Err(PageStoreError::Corrupt("physical retirement domain"));
@@ -142,6 +148,7 @@ fn retirement(root: &Path, io: &mut PageIoBudget, cancelled: &AtomicBool) -> Res
         return Err(io::Error::from_raw_os_error(libc::ENOSPC).into());
     }
     let mut file = options.open(&path)?;
+    *fenced = true;
     file.write_all(INTENT)?;
     file.sync_all()?;
     files::sync(root)
@@ -262,13 +269,14 @@ pub fn reclaim_orphan_page_frames(
         }
         // Admission for the marker, all removals/syncs and final marker removal
         // occurs before retirement; no budget exhaustion starts a partial sweep.
+        let resuming = files::exists(&root.join(RETIRE))?;
         let writes = (orphans.len() as u64)
             .checked_mul(2)
-            .and_then(|n| n.checked_add(3))
+            .and_then(|n| n.checked_add(3 + u64::from(resuming)))
             .ok_or(PageStoreError::ResourceLimited(
                 "physical retirement writes",
             ))?;
-        let needs_retirement = !orphans.is_empty() || files::exists(&root.join(RETIRE))?;
+        let needs_retirement = !orphans.is_empty() || resuming;
         if needs_retirement
             && (io.writes_remaining < writes || io.write_bytes_remaining < INTENT.len() as u64)
         {
@@ -277,15 +285,23 @@ pub fn reclaim_orphan_page_frames(
             ));
         }
         check_cancelled(cancelled)?;
-        Ok((store, admission, orphans, needs_retirement))
+        Ok((store, admission, orphans, needs_retirement, resuming))
     })()
     .map_err(PageReclaimFailure::NotStarted)?;
-    let (store, _admission, orphans, needs_retirement) = preflight;
+    let (store, _admission, orphans, needs_retirement, resuming) = preflight;
     if !needs_retirement {
         return Ok(report);
     }
+    let mut fenced = resuming;
+    report.directory_synced = !resuming;
     let sweep = (|| -> Result<()> {
-        retirement(root, io, cancelled)?;
+        retirement(root, io, cancelled, &mut fenced)?;
+        if resuming {
+            report.directory_synced = false;
+            io.write(0)?;
+            files::sync(&root.join("frames"))?;
+            report.directory_synced = true;
+        }
         for (id, bytes) in orphans {
             check_cancelled(cancelled)?;
             io.write(0)?;
@@ -301,7 +317,11 @@ pub fn reclaim_orphan_page_frames(
         Ok(())
     })();
     if let Err(cause) = sweep {
-        return Err(PageReclaimFailure::Incomplete { report, cause });
+        return Err(if fenced {
+            PageReclaimFailure::Incomplete { report, cause }
+        } else {
+            PageReclaimFailure::NotStarted(cause)
+        });
     }
     let finalization = (|| -> Result<()> {
         io.write(0)?;
