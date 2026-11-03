@@ -34,6 +34,7 @@
 | 模块根入口 | 模块目标态、执行台账、设计总览与文件级精确检索 |
 
 ## 活跃补充文档
+- [世界叙事内容与交付](gameplay/world-narrative-content-delivery.design.md)与[验证手册](gameplay/world-narrative-content-delivery.manual.md)：把既有世界前提、事实摘要边界与实际展示来源落实为可编辑文案、状态组合和内容交接；复用官网、舞台、个人结果与 Agent 消息的原合同，小说不构成运行事实。
 - [native 工业内容目录与交付](gameplay/industrial-native-content-delivery.design.md)与[验证手册](gameplay/industrial-native-content-delivery.manual.md)：明确当前 native 配方/工厂的来源与内容关系、starter 与有效初态适用性、变更传播和制作测量方法；沿用原规则数值与准入合同，不把 native 子集当成全游戏目录。
 - `doc/game/gameplay/README.md`：`gameplay/` 热点子域 landing page，适合先做簇级分流，再决定进入玩法骨架、留存、agency、preview/beta gate 或 economy/claim 专题。
 - `doc/game/gameplay/gameplay-top-level-design.prd.md`：核心玩法骨架的专题入口；活跃基线与路由先看 `doc/game/prd.md`。
