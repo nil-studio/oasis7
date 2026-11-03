@@ -242,6 +242,8 @@ pub fn accept_agent_subtree_transition_v1<
 ) -> Result<ReservedValue<AgentSubtreeStructureQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
+        || parent.reserved_bytes() < 512
+        || !parent.permits_class(ctx.values.class)
         || !verifier.memory.same_pool(ctx.values.memory)
         || verifier.class != ctx.values.class
     {

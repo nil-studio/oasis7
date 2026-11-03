@@ -65,7 +65,7 @@ pub(super) fn start(root: PathBuf) -> thread::JoinHandle<Result<Vec<u8>, String>
             &root.join("wait-capture-release"),
             b"actual target directory",
         )?;
-        await_marker(&root, "wait-capture-failed")?;
+        await_marker(&root, "wait-capture-unpublished")?;
         if fs::read(&backup).map_err(|e| e.to_string())? != bytes {
             return Err("actual backup bytes changed".into());
         }
@@ -144,7 +144,7 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
                     .min(Duration::from_millis(25)),
             ),
         );
-        if crash && root.join("wait-capture-failed").exists() {
+        if crash && root.join("wait-capture-unpublished").exists() {
             let bytes = fs::read(root.join("wait-capture-checkpoint-backup.json")).unwrap();
             let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             let queue = value["provider_completed_decisions"].as_array().unwrap();
@@ -189,6 +189,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, crash: bool) {
             if let Ok(bytes) = fs::read(root.join("hosted-resumed-model.json")) {
                 let resumed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                 completed = summary["terminal_states"]["agent-a"]["status"] == "committed"
+                    && summary["publication_pending"] == false
+                    && summary["publication_capture_failed"] == false
                     && summary["pending_intent_count"] == 0
                     && summary["pending_action_count"] == 0
                     && summary["memory_store"]
@@ -318,7 +320,7 @@ fn secure_artifact(
         "wait-capture-live-readout.json",
         "wait-capture-before.json",
         "wait-capture-staged.json",
-        "wait-capture-after.json",
+        "wait-capture-publication-original.json",
         "wait-capture-original-checkpoint.json",
     ] {
         if let Ok(bytes) = fs::read(root.join(name)) {
@@ -354,18 +356,46 @@ pub(super) fn recover_parent(
         String::from_utf8_lossy(&crashed.stdout)
             .contains("hosted_wait_capture_real_crash_boundary=true")
     );
-    assert!(root.join("wait-capture-failed").exists());
+    assert!(root.join("wait-capture-unpublished").exists());
+    // The failure happened in the real asynchronous rename worker, after the
+    // prepared state was captured. Process death must preserve the old disk.
     assert!(
-        String::from_utf8_lossy(&crashed.stderr).contains("hosted_wait_capture_persistence_failed")
+        root.join("wait-capture-publication-original.json")
+            .is_file()
     );
     let before: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("wait-capture-before.json")).unwrap()).unwrap();
     let staged: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("wait-capture-staged.json")).unwrap()).unwrap();
-    let after: serde_json::Value =
-        serde_json::from_slice(&fs::read(root.join("wait-capture-after.json")).unwrap()).unwrap();
-    assert!(before != staged && staged == after);
-    for snapshot in [&before, &staged, &after] {
+    let after: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("wait-capture-publication-original.json")).unwrap(),
+    )
+    .unwrap();
+    assert_ne!(before, staged);
+    for (snapshot, persisted) in [
+        ("proposals", "provider_continuation_proposals"),
+        ("pending_wakes", "pending_runtime_wakes"),
+        ("wait", "hosted_wait"),
+        ("resume", "hosted_resume"),
+        ("admission", "hosted_admission"),
+        ("leases", "provider_cognition_leases"),
+        ("completed_queue", "provider_completed_decisions"),
+        ("service_pending", "provider_service_pending"),
+        ("scheduler_pending", "provider_scheduler_pending"),
+        ("active_turns", "provider_active_turns"),
+        ("contexts", "provider_contexts"),
+        ("retry_contexts", "provider_retry_contexts"),
+        ("held_decisions", "provider_held_decisions"),
+        ("session_ids", "provider_session_ids"),
+        ("context_seq", "provider_context_seq"),
+        ("memory", "provider_memory_store"),
+    ] {
+        assert!(
+            after[persisted] == before[snapshot] || after[persisted] == staged[snapshot],
+            "retained original must belong to this original queued Wait transaction: {snapshot}"
+        );
+    }
+    for snapshot in [&before, &staged] {
         let originals = snapshot["restored_queued_waits"]
             .as_object()
             .expect("actual decoded queued Wait provenance map");
@@ -435,8 +465,12 @@ pub(super) fn recover_parent(
         };
         let before = read("wait-cleanup-before.json");
         let staged = read("wait-cleanup-staged.json");
-        let after = read("wait-cleanup-after.json");
-        assert_eq!(before, after);
+        let captured = read("wait-cleanup-publication-original.json");
+        assert!(root.join("wait-cleanup-original-published").is_file());
+        assert!(
+            captured["provider_completed_decisions"] == before["completed_queue"]
+                || captured["provider_completed_decisions"] == staged["completed_queue"]
+        );
         let originals = before["restored_queued_waits"].as_object().unwrap();
         assert_eq!(originals.len(), 1);
         assert_eq!(
@@ -447,9 +481,15 @@ pub(super) fn recover_parent(
             staged["restored_queued_waits"].as_object().unwrap().len(),
             0
         );
-        assert_eq!(after["restored_queued_waits"].as_object().unwrap().len(), 1);
+        let final_checkpoint = read(STORE);
+        assert!(
+            final_checkpoint["provider_completed_decisions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
         println!(
-            "PRE2_NONEMPTY_QUEUED_WAIT_ROLLBACK_PASSED actual_provenance_counts=1,0,1 full_snapshot_equal=true"
+            "PRE2_NONEMPTY_QUEUED_WAIT_OWNED_RETRY_PASSED original_provenance_count=1 staged_provenance_count=0 same_original_published=true"
         );
     }
     let results=fixture.driver.lock().unwrap().execution_world.capability_revocation_state().world_service_results.values().filter_map(|v|serde_json::from_value::<wire::CanonicalIntentResultV1>(v.clone()).ok()).filter(|r|matches!(&r.request.signed_payload,WorldServicePayloadV1::Scheduler(s) if matches!(&s.request.operation,SchedulerOperationV1::AdmitContinuation(p) if p.origin_request_digest==original.request_digest.to_string()))).collect::<Vec<_>>();

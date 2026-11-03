@@ -3,7 +3,7 @@
 区域、治理与工业玩法阅读顺序：先从 `doc/product/README.md` 选择“世界规则与玩法系统”，再读对应产品专题；区域 charter、tenure 与公共融资下钻到 `PRD-GAME-017`，普通治理主体与 OC 权利边界下钻到 `PRD-GAME-019`，可编程区域设施下钻到 `PRD-GAME-016`，工业创建、跨区市场与结算下钻到 `PRD-GAME-018`。这些 game 专题分别拥有各自声明范围，不形成第五产品模块或并列产品入口。
 审计轮次: 12
 
-更新时间：2026-07-06
+更新时间：2026-11-03
 
 ## 入口
 - 模块 PRD：`doc/game/prd.md`
@@ -34,6 +34,7 @@
 | 模块根入口 | 模块目标态、执行台账、设计总览与文件级精确检索 |
 
 ## 活跃补充文档
+- [native 工业内容目录与交付](gameplay/industrial-native-content-delivery.design.md)与[验证手册](gameplay/industrial-native-content-delivery.manual.md)：明确当前 native 配方/工厂的来源与内容关系、starter 与有效初态适用性、变更传播和制作测量方法；沿用原规则数值与准入合同，不把 native 子集当成全游戏目录。
 - `doc/game/gameplay/README.md`：`gameplay/` 热点子域 landing page，适合先做簇级分流，再决定进入玩法骨架、留存、agency、preview/beta gate 或 economy/claim 专题。
 - `doc/game/gameplay/gameplay-top-level-design.prd.md`：核心玩法骨架的专题入口；活跃基线与路由先看 `doc/game/prd.md`。
 - `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`：首局、后引导、首次持续能力与失败恢复的产品承诺；专业玩法合同见 `doc/game/gameplay/gameplay-top-level-design.prd.md`，执行状态由对应 PR、实际验证记录与 `doc/testing/evidence/` 确认。

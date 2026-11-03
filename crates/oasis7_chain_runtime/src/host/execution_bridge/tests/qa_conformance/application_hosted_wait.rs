@@ -202,6 +202,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
                 let resumed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                 let digest = resumed["request_digest"].as_str().unwrap();
                 completed = summary["terminal_states"]["agent-a"]["status"] == "committed"
+                    && summary["publication_pending"] == false
+                    && summary["publication_capture_failed"] == false
                     && summary["pending_intent_count"] == 0
                     && summary["pending_action_count"] == 0
                     && summary["memory_store"].to_string().contains(digest);

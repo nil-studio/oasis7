@@ -5,7 +5,7 @@ use super::{
     World,
     incremental_body::{BodyMutationContext, BodyMutationError, write_field_bytes},
 };
-use crate::{CausedBy, DomainEvent, WorldEvent, WorldEventBody};
+use crate::{DomainEvent, WorldEvent, WorldEventBody};
 use oasis7_formal_protocol::{
     incremental_execution::{
         ExecutionError, ExecutionFactKindV1, ExecutionFactRefV1, ExecutionTransaction,
@@ -13,19 +13,25 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateNamespaceV1 as Ns},
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueReadContext},
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::MemoryClass;
+use oasis7_wasm_abi::CanonicalCborWorkV1;
+#[path = "incremental_agent_event_original.rs"]
+pub(super) mod original;
 use oasis7_world_state::incremental_agent_body::{
     AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1,
 };
 use oasis7_world_state::incremental_event_fields::*;
+pub use original::{AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1};
 
 pub struct AgentEventContext<'a, V, W, C, F> {
     pub values: &'a V,
     pub mutation: BodyMutationContext<'a, W, C>,
-    /// Persist exact original bytes under expected flat ID, or return failure.
-    /// Pages alone are provisional; this callback does not publish acceptance.
+    /// Consume the one-shot borrowed producer and finish its sink. Callback Ok
+    /// alone cannot append a fact; original persistence does not grant acceptance.
     pub persist_original: F,
     pub max_event_bytes: usize,
+    /// Both measurement and actual output consume this same continuous work.
+    pub original_work: CanonicalCborWorkV1,
 }
 
 pub(super) fn read_fixed<const N: usize, V: ValueNodeReader, R: MerkleNodeReader, W, C>(
@@ -71,9 +77,24 @@ impl World {
         V: ValueNodeReader,
         W: ValueNodeWriter,
         C: FnMut() -> bool,
-        F: FnMut(&ReservedValue<Vec<u8>>, [u8; 32]) -> Result<(), BodyMutationError>,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
     >(
         &self,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_at(self.state.time, event, txn, context)
+    }
+
+    pub(super) fn contribute_iws_agent_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    >(
+        now: u64,
         event: &WorldEvent,
         txn: &mut ExecutionTransaction<'_, R>,
         context: &mut AgentEventContext<'_, V, W, C, F>,
@@ -90,11 +111,9 @@ impl World {
                     "unsupported incremental agent event",
                 ));
             };
-            let (agent_id, reason) = match domain {
-                DomainEvent::BodyAttributesUpdated {
-                    agent_id, reason, ..
-                } => (agent_id, reason.as_str()),
-                DomainEvent::AgentMoved { agent_id, .. } => (agent_id, ""),
+            let agent_id = match domain {
+                DomainEvent::BodyAttributesUpdated { agent_id, .. }
+                | DomainEvent::AgentMoved { agent_id, .. } => agent_id,
                 _ => {
                     return Err(BodyMutationError::Invalid(
                         "unsupported incremental agent event",
@@ -104,13 +123,13 @@ impl World {
             if !txn.uses_budget(context.mutation.memory) {
                 return Err(BodyMutationError::Invalid("transaction memory pool"));
             }
-            if event.time != self.state.time {
+            if event.time != now {
                 return Err(BodyMutationError::Invalid(
                     "event time differs from reducer clock",
                 ));
             }
-            self.validate_agent_intent_receipt_reference(domain, Some(event.id))
-                .map_err(|_| BodyMutationError::Invalid("event receipt reference"))?;
+            // Both supported variants are independent of AgentIntent receipt
+            // validation. No journal/cache or borrowed World state is read.
             let sequence = EventSequenceV1::from_canonical_bytes(&read_fixed::<
                 EVENT_SEQUENCE_BYTES,
                 _,
@@ -157,45 +176,14 @@ impl World {
                 ));
             }
 
-            // Supported events contain only fixed scalars and these three strings.
-            // Admit the existing canonical ABI encoder's full temporary model,
-            // sorting scratch and growable output before it allocates anything.
-            let cause_bytes = match event.caused_by.as_ref() {
-                Some(CausedBy::Effect { intent_id }) => intent_id.len(),
-                Some(CausedBy::Action(_)) | None => 0,
-            };
-            let input_bytes = agent_id
-                .len()
-                .checked_add(reason.len())
-                .and_then(|n| n.checked_add(cause_bytes))
-                .ok_or(BodyMutationError::Invalid("event size overflow"))?;
-            if input_bytes > context.max_event_bytes {
-                return Err(BodyMutationError::Execution(
-                    ExecutionError::ResourceLimited("original event bytes"),
-                ));
-            }
-            let bound = input_bytes
-                .checked_mul(8)
-                .and_then(|n| n.checked_add(64 * 1024))
-                .ok_or(BodyMutationError::Invalid("event workspace overflow"))?;
-            let mut workspace = context
-                .mutation
-                .memory
-                .reserve(bound, MemoryClass::Ordinary)
-                .map_err(ExecutionError::Memory)?;
-            let bytes = oasis7_wasm_abi::encode_canonical_cbor(event)
-                .map_err(|_| BodyMutationError::Invalid("original event canonical encoding"))?;
-            if bytes.len() > context.max_event_bytes || bytes.capacity() > workspace.bytes() {
-                return Err(BodyMutationError::Execution(
-                    ExecutionError::ResourceLimited("original event bytes"),
-                ));
-            }
-            let charge = workspace
-                .split(bytes.capacity())
-                .map_err(BodyMutationError::Invalid)?;
-            let bytes = charge.retain(bytes);
-            drop(workspace);
-            let id = *blake3::hash(&bytes).as_bytes();
+            let original = original::measure(
+                event,
+                context.mutation.memory,
+                &mut context.original_work,
+                &mut context.mutation.cancelled,
+                context.max_event_bytes,
+            )?;
+            let id = original.id();
 
             match domain {
                 DomainEvent::BodyAttributesUpdated { view, .. } => {
@@ -259,11 +247,29 @@ impl World {
                 &mut context.mutation,
             )?;
             txn.write(Ns::Scheduler, frontier_key.as_bytes(), Some(frontier_ref))?;
-            (context.persist_original)(&bytes, id)?;
+            let mut producer = original::Producer::new(
+                original,
+                context.mutation.memory,
+                &mut context.original_work,
+                &mut context.mutation.cancelled,
+            );
+            (context.persist_original)(&mut producer)?;
+            producer.check_complete()?;
+            drop(producer);
+            if (context.mutation.cancelled)() {
+                return Err(
+                    oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled.into(),
+                );
+            }
             txn.append_fact(ExecutionFactRefV1 {
                 kind: ExecutionFactKindV1::Event,
                 id,
             })?;
+            if (context.mutation.cancelled)() {
+                return Err(
+                    oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled.into(),
+                );
+            }
             Ok(())
         })
     }

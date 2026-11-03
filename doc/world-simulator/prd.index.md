@@ -2,7 +2,7 @@
 
 审计轮次: 8
 
-更新时间：2026-07-25
+更新时间：2026-11-03
 
 ## 用途
 - 本页是 `world-simulator` 的文件级索引，优先用于按文件名精确检索、确认配对关系与维持互链可达性。
@@ -26,6 +26,8 @@
 - `doc/world-simulator/viewer/README.md`：`viewer/` 热点子域 landing page，适合先做簇级分流，再决定进入 `manual`、`viewer` canonical / `software_safe` compat alias 或 runtime live 专题。
 - `doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md`：Viewer / player-facing surface 的 canonical 视觉设计规范，覆盖视觉方向、层级、pixel-world 可读性、响应式/可访问性与视觉 review gate。
 - `doc/world-simulator/viewer/viewer-brand-system-2026-06-05.design.md`：Viewer 视觉规范 companion，覆盖 brand book、语义 token、icon/status vocabulary、资产语言、稳定 DOM hook 与扩展截图矩阵。
+- [首局内容与交付规格](viewer/first-session-content-delivery.design.md)与[配套验收方法](viewer/first-session-content-delivery.manual.md)：消费已采纳的首局与反馈产品要求，定义 `production_only` 首局内容单元、文案语义、实际素材入口及制作/验证交接；不另立玩法 PRD，不代替原页面布局与运行验收。
+- [Viewer 本地化与上下文帮助](viewer/viewer-localization-and-context-help.design.md)与[验证手册](viewer/viewer-localization-and-context-help.manual.md)：维护语言范围、实际字符串来源、领域术语、帮助正文、翻译更新与逐语言验收；复用品牌短标签和原页面布局，保留 Viewer、Launcher、Site 的各自语言规则。
 - `doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md`：Viewer 前端 `js/html/jsx` 结构治理标准，覆盖 source/generated/compat taxonomy、分层模型、拆分触发条件、组件/模块抽象边界与验证矩阵。
 - `doc/world-simulator/viewer/viewer-manual.manual.md`：Viewer / Web 闭环 / operator 手册，不在下方 PRD 三件套长表中展开。
 - `doc/world-simulator/viewer/viewer-pixel-world-player-leverage-production-readability-2026-05-28.brainstorm.md`：pixel-world 商业化下一轮 bounded brainstorming，聚焦玩家因果、行动反馈、生产可读性与后续 runtime/viewer 协议候选。

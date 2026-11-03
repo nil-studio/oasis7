@@ -1173,3 +1173,6 @@ fn provider_lineage_hydrates_sequences_and_session_from_runtime_projection() {
     assert_eq!(sidecar.provider_context_seq.get("agent-0"), Some(&2));
     assert_eq!(sidecar.provider_feedback_seq.get("agent-0"), Some(&8));
 }
+
+#[path = "llm_sidecar_service_orphan_recovery_tests.rs"]
+mod service_orphan_recovery_tests;

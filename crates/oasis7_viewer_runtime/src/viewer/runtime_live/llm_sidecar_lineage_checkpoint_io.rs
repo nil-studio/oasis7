@@ -2,22 +2,25 @@
 //! This file is also tested in isolation; it has no Runtime or provider dependency.
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::{self, Read},
     path::Path,
-    sync::atomic::{AtomicU64, Ordering},
 };
 
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[cfg(test)]
 pub(super) fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
     publish_observed(path, bytes, |_| Ok(()))
 }
 
+#[cfg(test)]
 fn publish_observed(
     path: &Path,
     bytes: &[u8],
     after_publication: impl FnOnce(&Path) -> io::Result<()>,
 ) -> io::Result<()> {
+    use std::{io::Write, sync::atomic::Ordering};
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -54,27 +57,7 @@ fn publish_observed(
         #[cfg(unix)]
         sync_directories(parent, &boundary)?;
         after_publication(&temp)?;
-        let mut published = fs::File::open(path)?;
-        if !published.metadata()?.is_file() || published.metadata()?.len() != bytes.len() as u64 {
-            return Err(io::Error::other(
-                "provider checkpoint readback length/type mismatch",
-            ));
-        }
-        let mut scratch = [0u8; 8192];
-        for expected in bytes.chunks(scratch.len()) {
-            let actual = &mut scratch[..expected.len()];
-            published.read_exact(actual)?;
-            if actual != expected {
-                return Err(io::Error::other(
-                    "provider checkpoint readback content mismatch",
-                ));
-            }
-        }
-        if published.read(&mut scratch[..1])? != 0 {
-            return Err(io::Error::other(
-                "provider checkpoint readback trailing bytes",
-            ));
-        }
+        verify_published(path, bytes)?;
         Ok(())
     })();
     if result.is_err() && owns_temp {
@@ -85,8 +68,33 @@ fn publish_observed(
     result
 }
 
+pub(super) fn verify_published(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut published = fs::File::open(path)?;
+    if !published.metadata()?.is_file() || published.metadata()?.len() != bytes.len() as u64 {
+        return Err(io::Error::other(
+            "provider checkpoint readback length/type mismatch",
+        ));
+    }
+    let mut scratch = [0u8; 8192];
+    for expected in bytes.chunks(scratch.len()) {
+        let actual = &mut scratch[..expected.len()];
+        published.read_exact(actual)?;
+        if actual != expected {
+            return Err(io::Error::other(
+                "provider checkpoint readback content mismatch",
+            ));
+        }
+    }
+    if published.read(&mut scratch[..1])? != 0 {
+        return Err(io::Error::other(
+            "provider checkpoint readback trailing bytes",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
-fn existing_parent(directory: &Path) -> io::Result<std::path::PathBuf> {
+pub(super) fn existing_parent(directory: &Path) -> io::Result<std::path::PathBuf> {
     let mut current = directory;
     loop {
         match fs::metadata(current) {
@@ -104,7 +112,7 @@ fn existing_parent(directory: &Path) -> io::Result<std::path::PathBuf> {
 }
 
 #[cfg(unix)]
-fn sync_directories(mut directory: &Path, boundary: &Path) -> io::Result<()> {
+pub(super) fn sync_directories(mut directory: &Path, boundary: &Path) -> io::Result<()> {
     loop {
         fs::File::open(directory)?.sync_all()?;
         if directory == boundary {
@@ -125,7 +133,10 @@ fn sync_directories(mut directory: &Path, boundary: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        sync::atomic::Ordering,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     struct Directory(std::path::PathBuf);
     impl Directory {
