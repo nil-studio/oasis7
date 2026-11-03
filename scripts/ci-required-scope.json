@@ -849,8 +849,6 @@
     "scripts/ci-storage-network.test.py": ["workflow_governance"],
     "scripts/ci-support-profiles.test.py": ["workflow_governance"],
     "scripts/ci-test-artifacts.py": ["workflow_governance"],
-    "scripts/ci_preview_provider_artifact.py": ["workflow_governance"],
-    "scripts/ci_preview_provider_artifact.test.py": ["workflow_governance"],
     "scripts/ci-workflow.test.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
@@ -1080,14 +1078,6 @@
       "tests": [
         "scripts/ci-support-profiles.test.py"
       ]
-    },
-    "scripts/ci_preview_provider_artifact.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci_preview_provider_artifact.test.py"]
-    },
-    "scripts/ci_preview_provider_artifact.test.py": {
-      "group": "workflow_governance",
-      "tests": ["scripts/ci_preview_provider_artifact.test.py"]
     },
     "scripts/ci-test-artifacts.py": {
       "group": "workflow_governance",
