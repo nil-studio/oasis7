@@ -27,6 +27,41 @@
 - `command-center/*`：开发指挥中心专题；[产品设计](command-center/command-center.prd.md) 拥有云端与本地的用户行为和验收，[系统设计](command-center/command-center.design.md) 拥有 Sites 网页、云端后端与个人数据、本地宿主及工具、来源身份、安全导航和恢复合同，通用流程仍由 workflow source of truth 主责。
 - 历史 PRD 审读/治理台账：保留在 Git history logs；当前新增/变更文档追踪由模块入口与 doc governance 规则承接。
 
+<a id="task-scoped-engineering-context-design"></a>
+#### 按任务进入规则与检查
+
+Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586；承接[工程知识与验收来源要求](prd.md#task-scoped-engineering-context)。本条属于工程导航和人工判断方法，产品层不适用，不提供自动加载器、独立检查权威或新的交付表单。
+
+| 载体 | 主责与读取时机 | 维护边界 |
+| --- | --- | --- |
+| 根 [AGENTS](../../AGENTS.md) 与 [workflow](workflow/source-of-truth.md) | AGENTS 是最短入口；workflow 拥有通用开发、授权与交付规则 | 根入口保留必要约束及链接，不展开全部领域要求 |
+| 领域 PRD/design/manual | 当修改其行为或消费其接口时读取；分别拥有要求、技术合同和操作方法 | 找到当前 authority 与适用条款后继续跟随直接消费者；历史状态不能替代当前设计 |
+| 模块 README、现有模块指南 | 按任务路径先找职责、Start here、上下游与非显然约束 | 沿已有入口补短导航；不为每个 crate 机械新增 AGENTS |
+| [.agents/roles](../../.agents/roles/) 与 .codex/agents | 角色卡提供专业关注点；工具配置只指向同一角色/主责入口 | 当前 Viewer Codex 配置已引用角色卡，修导航时无需复制规则到 TOML。不同客户端只假定其已明确支持的加载行为 |
+| [.agents/skills](../../.agents/skills/README.md) | 需要相应操作方法时加载；规则来源仍是主责文档 | 方法不能新增审批、固定角色或覆盖用户授权；本地可选工具资料缺失不成为通用前置 |
+| 路径规则与实际检查器 | 根据仓库已登记的路径、依赖、输入和风险选择检查 | 不假定任意规则目录自动加载；需在入口显式链接。实际命令和 required 选择归 [测试手册](../../testing-manual.md)及 CI 主责 |
+| Git、PR、CI 与按需 Issue | 核对本次版本、执行及评审事实 | 不把过程日志、成功标签或个人记忆复制为长期产品/工程真值 |
+
+执行者先阅读根入口，再按任务找到模块入口及具体 PRD/design；仅当触达跨层规则、共享接口、风险或外部消费者时补读其主责条款。缺少文档时沿索引和源码核查，能确定的事实继续推进；需要设计裁决或缺失资源才能完成的范围如实说明。上位要求与实现冲突时沿现有流程处理，不以源码现状静默覆盖要求。
+
+按变更收集检查时记录准确 Source（文档条款、清单或测试入口）与选择理由，然后按实际命令、候选/输入、平台、features、target 和证明义务合并重复项。包名相同但 feature、浏览器/进程层或权限边界不同的检查不能合并。普通文档、局部内部实现、CI 控制/安全/兼容等风险采用各自必要审读；独立性由实际作者和审读者决定，不由角色名称或固定五审保证。
+
+已有 PR 的验证段即可承载结果，例如“静态核对 pass，Source 为某设计锚点，Evidence 为固定提交和检查输出”；未执行的浏览器或跨平台范围写 skipped 与原因。命令返回 0 但选中项为空不能直接写覆盖通过；源文件存在仅证明可定位，不证明其测试已运行。实际命令语义由[本地与 CI 验证入口](../../testing-manual.md)拥有，本条不另定义 quick/affected/formal。
+
+#### Viewer 试点与有限走读
+
+首轮使用现有 [viewer_engineer 角色卡](../../.agents/roles/viewer_engineer.md)作为短导航，连接 Viewer landing、前端结构标准、真实代码入口、消费方与测试手册；[Codex 配置](../../.codex/agents/viewer_engineer.toml)继续引用同一角色卡。角色卡只保留便于起步的索引与命令条件，接口、状态、生成产物和视觉验收仍回到领域文档。
+
+| 代表任务 | 应读来源与选择 | 走读要核对的结果 |
+| --- | --- | --- |
+| 仅修正文档路径 | 根入口、被引用文档、文档治理检查范围 | 运行适用文档/链接检查，按需同步 corpus；没有业务变化时不要求 Rust/浏览器全量。检查成功仅证明其结构范围 |
+| 修改一个 Rust 包的内部函数 | 领域设计、实际调用方、Rust 工程合同、所属 target/feature 与现有回归 | 定向 canonical 测试及真实反向消费者，保留 CI planner 的必要范围；同包不同 tuple 不误去重，不从本地局部通过推断 required 全绿 |
+| 修改 Viewer 的跨边界交互 | Viewer 短导航、准确产品/控制面设计、真实前端与协议消费者、S6 | component/协议回归与适用真实浏览器分别选择；状态/权限/世界效果按领域承接，fixture 不代签真实世界 |
+
+以上是导航方案的静态验收，不执行所举业务修改，也不伪造 Rust 或浏览器运行结果。当前 PR 记录固定版本、失效链接的修复、三类来源走读及遗漏；需要量化阅读成本或漏测改善时，使用 [evaluating-development-methods](../../.agents/skills/evaluating-development-methods/SKILL.md)的同条件有限比较，缺少可比样本时只保留静态结论。
+
+风险是入口再次复制正文或调用方改变后导航失效；变更主责条款、代码路径或命令时由对应维护者同步直接引用。回退只恢复受影响导航和配对说明，不回退领域安全/验证合同；单次走读不足以证明全仓导航完整或开发效率提升。
+
 ### 3.2 工程治理执行链路
 - 规范定义：`doc/engineering/doc-governance/*`、`doc/engineering/rust-governance/*`、`doc/engineering/governance/*`
 - 项目追踪：按需使用 Issue/Project；结果查看 PR、实际 CI 与评审记录

@@ -1,10 +1,11 @@
 # `game/gameplay` 热点子域入口
 
-更新时间: 2026-10-15
+更新时间: 2026-11-03
 
 ## 从这里开始
 - 想快速理解核心玩法骨架：先在 `../prd.md` 确认活跃基线与路由，再读 `gameplay-top-level-design.prd.md` 的 bounded 专业合同
 - 想确认首局、前 10/30 分钟吸引力和持续游玩合同：先读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 由同候选 PR、实际验证记录与 `../../testing/evidence/` 确认。
+- 想定位当前 native 工业配方、工厂类别、首局配置与有效初态，或交接内容变更：读[工业内容目录与交付](industrial-native-content-delivery.design.md)及[验证手册](industrial-native-content-delivery.manual.md)。目录范围与世界实际安装、准入、库存和生产资格分别核对。
 - 想了解经营决策、目标委托和回访的体验与实现边界：先读[首局产品设计的范围与优先顺序](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#gameplay-experience-priorities)，再读[组合系统设计](gameplay-decision-delegation-return.design.md)；真实合作与策略复用保持后续范围，不增加当前首产物或邀请测试门槛。
 - 想确认间接控制为什么仍然应该让玩家感觉自己在控制：先读 `gameplay-indirect-control-agency-contract.prd.md`
 - 想确认成熟世界里小玩家/新玩家靠什么继续形成独立价值：先读 `../../product/world-rules-core-gameplay/mature-world-progression.prd.md`，再读 `gameplay-mature-world-progression-contract.prd.md` 的专业合同

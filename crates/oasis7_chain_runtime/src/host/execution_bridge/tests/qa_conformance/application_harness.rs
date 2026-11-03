@@ -382,10 +382,25 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
             original: &original,
             denied: &denied,
         });
+    let _checkpoint_publication_oracle = (matches!(
+        admission_mode,
+        "checkpoint-fairness" | "checkpoint-scope-fence" | "checkpoint-pause-resume"
+    ))
+    .then(|| {
+        http_fixture::observe_checkpoint_publication(
+            &fixture.lookup_digests,
+            app_dir.join("stream-boundary-private-lineage.json"),
+        )
+    });
     let observer_stop = Arc::new(AtomicBool::new(false));
     let pending_observer = (admission_mode == "pending-cadence")
         .then(|| application_hosted_unpublished_cadence::observe_parent(&fixture, &app_dir));
-    let observer = boundary_mode.then(|| {
+    let observer = (boundary_mode
+        || matches!(
+            admission_mode,
+            "checkpoint-fairness" | "checkpoint-scope-fence" | "checkpoint-pause-resume"
+        ))
+    .then(|| {
         application_admission_boundaries::observe_parent(
             &fixture,
             &app_dir,
@@ -422,7 +437,7 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     }
     let fs_worker = fs_handoff.then(|| {
         command.env("PRE2_RESUME_HANDOFF_FS_ROOT", &app_dir);
-        application_hosted_resume_write_failure::start(app_dir.clone())
+        application_hosted_resume_write_failure::start(app_dir.clone(), &fixture)
     });
     let wait_fs_worker = fs_wait.then(|| {
         command.env("PRE2_WAIT_CLEANUP_FS_ROOT", &app_dir);
@@ -440,7 +455,7 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         wait_rejected.then(|| application_hosted_wait_rejection::start(&fixture, app_dir.clone()));
     let rejection_fs_worker = rejection_fs.then(|| {
         command.env("PRE2_WAIT_REJECTION_FS_ROOT", &app_dir);
-        application_hosted_wait_rejection_write_failure::start(app_dir.clone())
+        application_hosted_wait_rejection_write_failure::start(app_dir.clone(), &fixture)
     });
     let rejection_selector = rejection_crash
         .then(|| application_hosted_wait_rejection_recovery::start_selector(&fixture));
@@ -450,14 +465,14 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
     });
     let resume_rejection_fs_worker = resume_rejection_fs.then(|| {
         command.env("PRE2_RESUME_REJECTION_FS_ROOT", &app_dir);
-        application_hosted_resume_rejection_write_failure::start(app_dir.clone())
+        application_hosted_resume_rejection_write_failure::start(app_dir.clone(), &fixture)
     });
     if resume_rejection_crash {
         command.env("PRE2_RESUME_REJECTION_FS_ROOT", &app_dir);
     }
     let final_budget_fs_worker = final_budget_fs.then(|| {
         command.env("PRE2_FINAL_BUDGET_FS_ROOT", &app_dir);
-        application_hosted_final_budget_write_failure::start(app_dir.clone())
+        application_hosted_final_budget_write_failure::start(app_dir.clone(), &fixture)
     });
     if final_budget_crash {
         command.env("PRE2_FINAL_BUDGET_FS_ROOT", &app_dir);
@@ -726,7 +741,14 @@ fn run_application_child_and_report(
     } else {
         command.output().unwrap()
     };
-    if admission_mode == "slow-consumer" {
+    if matches!(
+        admission_mode,
+        "slow-consumer"
+            | "periodic-fairness"
+            | "checkpoint-fairness"
+            | "checkpoint-scope-fence"
+            | "checkpoint-pause-resume"
+    ) {
         application_stream_budget_diagnostics::relay(&output);
     }
     if !output.status.success() {

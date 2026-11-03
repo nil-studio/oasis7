@@ -1079,11 +1079,22 @@ fn compat_snapshot_blocks_first_session_when_chain_sync_is_unavailable() {
             .as_deref()
             .is_some_and(|detail| detail.contains("execution world is not ready"))
     );
+    let pause = gameplay
+        .available_actions
+        .iter()
+        .find(|action| action.protocol_action == "live_control.pause")
+        .expect("global safety Pause must remain published during initial sync failure");
+    assert!(pause.disabled_reason.is_none());
     assert!(
         gameplay
             .available_actions
             .iter()
-            .filter(|action| action.protocol_action != "request_snapshot")
+            .filter(|action| {
+                !matches!(
+                    action.protocol_action.as_str(),
+                    "request_snapshot" | "live_control.pause"
+                )
+            })
             .all(|action| action.disabled_reason.is_some())
     );
 }

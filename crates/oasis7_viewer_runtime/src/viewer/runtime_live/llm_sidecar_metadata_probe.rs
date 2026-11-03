@@ -144,6 +144,10 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         _eligible: bool,
         deferred: bool,
     ) -> Result<AgentServiceProgress, String> {
+        self.llm_sidecar.ensure_lineage_published()?;
+        #[cfg(any(test, feature = "test_tier_required"))]
+        let _publication_scope =
+            super::lineage_persistence::checkpoint_write::publication_gate::prepare_scope();
         if self.llm_sidecar.hosted_identity_reservation.is_some() {
             return Ok(AgentServiceProgress::Idle);
         }
@@ -156,7 +160,9 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                 self.prepare_hosted_service_io(_eligible)?
             }
         };
-        if !matches!(service, AgentServiceProgress::Idle) {
+        if !matches!(service, AgentServiceProgress::Idle)
+            || self.llm_sidecar.publication_ticket() != 0
+        {
             return Ok(service);
         }
         let fresh = {

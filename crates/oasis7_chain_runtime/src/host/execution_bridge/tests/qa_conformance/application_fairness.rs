@@ -4,6 +4,7 @@ use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 struct Session {
     reader: BufReader<TcpStream>,
+    receive_frame: Vec<u8>,
     diagnostic: bool,
     last_receive_diagnostic: Option<ReceiveDiagnostic>,
     accepted_probe: TcpStream,
@@ -60,6 +61,7 @@ impl Session {
         });
         Self {
             reader: BufReader::new(socket),
+            receive_frame: Vec::new(),
             diagnostic,
             last_receive_diagnostic: None,
             accepted_probe,
@@ -81,7 +83,7 @@ impl Session {
         self.receive_snapshot(Duration::from_secs(3), false)
     }
     fn receive_snapshot(&mut self, budget: Duration, require_ack: bool) -> bool {
-        // Numeric diagnostics only; preserve every original read, branch and partial-line discard.
+        // A socket timeout ends this observation, not the current JSON frame.
         let sample_start = self
             .diagnostic
             .then(ViewerRuntimeLiveServer::test_stream_budget_timestamp);
@@ -107,17 +109,21 @@ impl Session {
                             .max(Duration::from_millis(1)),
                     ))
                     .unwrap();
-                let mut line = String::new();
-                match self.reader.read_line(&mut line) {
+                let prior_bytes = self.receive_frame.len();
+                match self.reader.read_until(b'\n', &mut self.receive_frame) {
                     Ok(0) => {
                         eof = true;
                         return false;
                     }
                     Ok(_) => {
-                        if self.diagnostic {
-                            lines += u64::from(line.ends_with('\n'));
+                        if !self.receive_frame.ends_with(b"\n") {
+                            continue;
                         }
-                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                        let line = std::mem::take(&mut self.receive_frame);
+                        if self.diagnostic {
+                            lines += u64::from(line.ends_with(b"\n"));
+                        }
+                        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) {
                             if value["type"] == "hello_ack" {
                                 ack = true;
                                 if self.diagnostic {
@@ -143,7 +149,7 @@ impl Session {
                     {
                         if self.diagnostic {
                             timeouts += 1;
-                            partial_bytes += line.len();
+                            partial_bytes += self.receive_frame.len().saturating_sub(prior_bytes);
                         }
                     }
                     Err(e) => {
@@ -231,7 +237,7 @@ impl Session {
         let deadline = Instant::now() + budget;
         let mut snapshots = 0;
         let mut hello_ack_seen = false;
-        let mut line = String::new();
+        let mut line = std::mem::take(&mut self.receive_frame);
         while Instant::now() < deadline {
             self.reader
                 .get_mut()
@@ -242,13 +248,13 @@ impl Session {
                         .max(Duration::from_millis(1)),
                 ))
                 .unwrap();
-            match self.reader.read_line(&mut line) {
+            match self.reader.read_until(b'\n', &mut line) {
                 Ok(0) => return (false, snapshots, hello_ack_seen),
                 Ok(_) => {
-                    if !line.ends_with('\n') {
+                    if !line.ends_with(b"\n") {
                         continue;
                     }
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) {
                         if value["type"] == "snapshot" {
                             snapshots += 1;
                         }
@@ -269,6 +275,7 @@ impl Session {
                 Err(_) => return (false, snapshots, hello_ack_seen),
             }
         }
+        self.receive_frame = line;
         (false, snapshots, hello_ack_seen)
     }
     fn shutdown(&mut self) {
@@ -446,11 +453,13 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
             "actual hosted token identity leaf must be reached before the observer sample"
         );
     }
+    let diagnostic_started = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
     observer.send(serde_json::json!({"type":"hello_v2","client":"PRE2 periodic in-flight observer","version":2,"capabilities":[]}));
     observer.send(serde_json::json!({"type":"request_snapshot"}));
     let began = Instant::now();
     let observer_responsive = observer.receive_snapshot(Duration::from_millis(150), true);
     let observer_elapsed = began.elapsed();
+    let diagnostic_finished = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
     let still_held_during_observer = !root.join("world-periodic-view-release").exists();
 
     drop(identity_release);
@@ -509,6 +518,19 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
         "periodic_observer_stages={stages}"
     );
     let periodic_arm_removed = fs::remove_file(root.join("world-periodic-view-arm")).is_ok();
+    // Dump after both serving workers finish, before outcome assertions. This
+    // retains the failing measurement too; no logging runs in the measured path.
+    application_stream_budget_diagnostics::dump_captured(
+        stages,
+        &[serde_json::json!({
+            "diagnostic_started_us": diagnostic_started,
+            "diagnostic_finished_us": diagnostic_finished,
+            "response_within_150ms": observer_responsive && observer_elapsed <= Duration::from_millis(150),
+            "original_response_complete": observer_responsive,
+            "under_pressure": kernel_pressure && gate_is_held && still_held_during_observer,
+            "useful_elapsed_us": observer_elapsed.as_micros().min(u64::MAX as u128) as u64,
+        })],
+    );
 
     println!(
         "hosted_periodic_view_fairness primed={observer_primed} gate_started={gate_started} signature_verified={} min_commit_position={:?} baseline_position={} gate_held={gate_is_held} slow_primed={slow_primed} slow_requests={requests} kernel_pressure={kernel_pressure} maximum_queued_bytes={maximum_queued} observer_snapshot_before_release={observer_responsive} observer_elapsed_ms={} gate_still_held={still_held_during_observer} gate_returned={gate_returned} handler_completed={handler_completed} drained_snapshots={snapshots_drained} drain_hello_ack_seen={drain_hello_ack_seen} drain_complete={slow_drained} observer_join={observer_join:?} slow_join={slow_join:?}",
@@ -768,8 +790,11 @@ pub(super) fn verify_service_fairness(client: &RemoteWorldServiceClient) {
     let root = std::path::PathBuf::from(std::env::var("PRE2_METADATA_DIR").unwrap());
     fs::write(root.join("world-submit-arm"), b"arm").unwrap();
     fs::write(root.join("world-concurrent-ready"), b"ready").unwrap();
+    // Numeric tracing only in this isolated case. Keep the original socket
+    // operations, 150ms budget and outcome assertions unchanged.
+    ViewerRuntimeLiveServer::test_begin_stream_budget_diagnostics();
     let mut driving = Session::start(&shared, false);
-    let mut observer = Session::start(&shared, false);
+    let mut observer = Session::start_diagnostic(&shared, false, true);
     let warmed = driving.warm() && observer.warm();
     println!("hosted_service_viewers_warmed={warmed}");
     if !warmed {
@@ -783,6 +808,7 @@ pub(super) fn verify_service_fairness(client: &RemoteWorldServiceClient) {
     driving
         .send(serde_json::json!({"type":"live_control","mode":{"mode":"play"},"request_id":801}));
     let mut evidence = Vec::new();
+    let mut receive_evidence = Vec::new();
     let mut retired = Vec::new();
     for (index, kind) in ["submit", "lookup", "view"].into_iter().enumerate() {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -795,6 +821,9 @@ pub(super) fn verify_service_fairness(client: &RemoteWorldServiceClient) {
         let began = Instant::now();
         let responsive = observer.receive_snapshot(Duration::from_millis(150), true);
         let elapsed = began.elapsed();
+        if let Some(received) = observer.last_receive_diagnostic.take() {
+            receive_evidence.push((kind, received));
+        }
         let held = !root.join(format!("world-{kind}-release")).exists();
         if let Some(next) = ["submit", "lookup", "view"].get(index + 1) {
             fs::write(root.join(format!("world-{next}-arm")), b"arm").unwrap();
@@ -832,6 +861,32 @@ pub(super) fn verify_service_fairness(client: &RemoteWorldServiceClient) {
     let driving_join = driving.finish();
     let observer_join = observer.finish();
     let retired_join = retired.iter_mut().map(Session::finish).collect::<Vec<_>>();
+    // Print only after every socket worker has joined; diagnostic output cannot
+    // consume the measured response budget or release the held service gate.
+    for (kind, r) in receive_evidence {
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "service_observer_receive phase={kind} start_us={:?} end_us={} budget_us={} result={} ack_seen={} complete_lines={} ack_count={} snapshot_count={} first_ack_us={:?} first_snapshot_us={:?} timeouts={} timeout_partial_bytes={} eof={} other_error_kind={:?}",
+            r.start_us,
+            r.end_us,
+            r.budget_us,
+            r.result,
+            r.ack_seen,
+            r.complete_lines,
+            r.ack_count,
+            r.snapshot_count,
+            r.first_ack_us,
+            r.first_snapshot_us,
+            r.timeouts,
+            r.timeout_partial_bytes,
+            r.eof,
+            r.other_error_kind
+        );
+    }
+    let stages = ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics();
+    let _ = writeln!(std::io::stderr().lock(), "service_observer_stages={stages}");
+    application_stream_budget_diagnostics::dump_captured(stages, &[]);
+
     assert!(
         warmed,
         "Viewer warmup must establish genuine verified snapshots"
@@ -970,3 +1025,6 @@ pub(super) fn validate_canonical_identity(fixture: &Fixture) {
         "hosted_reconnect_original_identity correlation_digest={key} submit_count={submit_count} lookup_count={lookup_count} canonical_result_count=1 exact_lease_settled=true"
     );
 }
+
+#[path = "application_fairness_receive_tests.rs"]
+mod receive_tests;

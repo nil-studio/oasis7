@@ -52,9 +52,24 @@ pub(super) struct FaultProof {
     original_bytes: Vec<u8>,
 }
 
-pub(super) fn start(root: PathBuf) -> thread::JoinHandle<Result<FaultProof, String>> {
+pub(super) fn start(
+    root: PathBuf,
+    fixture: &Fixture,
+) -> thread::JoinHandle<Result<FaultProof, String>> {
+    let trace = fixture.lookup_digests.clone();
+    let driver = fixture.driver.clone();
     thread::spawn(move || {
         await_marker(&root, "wait-rejection-before-persist")?;
+        let original_trace = trace.lock().unwrap().clone();
+        let original_economy = serde_json::to_value(
+            driver
+                .lock()
+                .unwrap()
+                .execution_world
+                .cognition_economy()
+                .unwrap(),
+        )
+        .unwrap();
         let target = root.join("hosted-wait-private-lineage.json");
         let backup = root.join("wait-rejection-checkpoint-backup.json");
         let original_bytes = fs::read(&target).map_err(|error| error.to_string())?;
@@ -80,8 +95,24 @@ pub(super) fn start(root: PathBuf) -> thread::JoinHandle<Result<FaultProof, Stri
                 &root.join("wait-rejection-release"),
                 b"actual target is a directory",
             )?;
-            await_marker(&root, "wait-rejection-rollback")?;
-            let after = read_json(&root, "wait-rejection-after.json")?;
+            await_marker(&root, "wait-rejection-unpublished")?;
+            let after = read_json(&root, "wait-rejection-publication-original.json")?;
+            if *trace.lock().unwrap() != original_trace {
+                return Err("unpublished rejected Wait dispatched new work".into());
+            }
+            if serde_json::to_value(
+                driver
+                    .lock()
+                    .unwrap()
+                    .execution_world
+                    .cognition_economy()
+                    .unwrap(),
+            )
+            .unwrap()
+                != original_economy
+            {
+                return Err("unpublished rejected Wait changed economy".into());
+            }
             if fs::read(&backup).map_err(|error| error.to_string())? != original_bytes {
                 return Err("actual original checkpoint backup changed".into());
             }
@@ -154,7 +185,7 @@ pub(super) fn finish(
     for name in [
         "wait-rejection-before.json",
         "wait-rejection-staged.json",
-        "wait-rejection-after.json",
+        "wait-rejection-publication-original.json",
         "wait-rejection-original-checkpoint.json",
         "hosted-wait-private-lineage.json",
     ] {
@@ -171,22 +202,21 @@ pub(super) fn finish(
     println!("{}", String::from_utf8_lossy(&output.stdout));
     println!("{}", String::from_utf8_lossy(&output.stderr));
     let proof = proof.expect("real atomic-rename failure and filesystem restoration");
-    let exact_rollback = proof.before == proof.after;
+    let original_preserved = root.join("wait-rejection-original-published").is_file();
     let staged_changed = proof.before != proof.staged;
-    let actual_failure = String::from_utf8_lossy(&output.stderr)
-        .contains("hosted_wait_rejection_persistence_failed");
+    let actual_failure = root.join("wait-rejection-unpublished").is_file();
     let snapshots = proof
         .before
         .as_object()
         .expect("actual transaction snapshot");
     println!(
-        "hosted_wait_actual_fs_failure marker={actual_failure} exact_rollback={exact_rollback} staged_changed={staged_changed} compared_fields={} original_checkpoint_blake3={} actual_worker_joined=true",
+        "hosted_wait_actual_fs_failure marker={actual_failure} original_preserved={original_preserved} staged_changed={staged_changed} compared_fields={} original_checkpoint_blake3={} actual_worker_joined=true",
         snapshots.len(),
         blake3::hash(&proof.original_bytes)
     );
     assert!(
-        actual_failure && exact_rollback && staged_changed,
-        "actual atomic failure must roll back the whole real transaction snapshot"
+        actual_failure && original_preserved && staged_changed,
+        "actual unpublished failure must retain and publish the same original after repair"
     );
     for field in [
         "proposals",
@@ -219,14 +249,36 @@ pub(super) fn finish(
         .as_array()
         .expect("actual five Runtime ledger digests");
     assert_eq!(ledgers.len(), 5);
-    assert_eq!(
-        proof.before["runtime_ledgers"],
-        proof.after["runtime_ledgers"]
-    );
+    assert_eq!(proof.staged["runtime_ledgers"].as_array().unwrap().len(), 5);
+    for (snapshot, persisted) in [
+        ("proposals", "provider_continuation_proposals"),
+        ("pending_wakes", "pending_runtime_wakes"),
+        ("wait", "hosted_wait"),
+        ("resume", "hosted_resume"),
+        ("admission", "hosted_admission"),
+        ("leases", "provider_cognition_leases"),
+        ("completed_queue", "provider_completed_decisions"),
+        ("service_pending", "provider_service_pending"),
+        ("scheduler_pending", "provider_scheduler_pending"),
+        ("active_turns", "provider_active_turns"),
+        ("contexts", "provider_contexts"),
+        ("retry_contexts", "provider_retry_contexts"),
+        ("held_decisions", "provider_held_decisions"),
+        ("session_ids", "provider_session_ids"),
+        ("context_seq", "provider_context_seq"),
+        ("memory", "provider_memory_store"),
+        ("terminal_states", "provider_terminal_states"),
+    ] {
+        assert!(
+            proof.after[persisted] == proof.before[snapshot]
+                || proof.after[persisted] == proof.staged[snapshot],
+            "captured rejected Wait cannot introduce another identity/value: {snapshot}"
+        );
+    }
     assert_ne!(
         proof.before["runtime_ledgers"],
         proof.staged["runtime_ledgers"]
     );
     application_hosted_wait_rejection_recovery::assert_original_terminal(fixture, root);
-    println!("PRE2_REJECTED_WAIT_RUNTIME_AND_SIDECAR_ROLLBACK_PASSED runtime_ledgers=5");
+    println!("PRE2_REJECTED_WAIT_RUNTIME_AND_SIDECAR_OWNED_RETRY_PASSED runtime_ledgers=5");
 }

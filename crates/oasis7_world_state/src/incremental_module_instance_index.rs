@@ -1,20 +1,50 @@
 //! Derived counts include every stored instance, even inactive ones. They
 //! reproduce legacy global-activation suppression, not invocation authority.
 const COUNT_KEY: &[u8] = b"oasis7.iws.module-instance-count-key.v1\0";
+pub const MODULE_INSTANCE_COUNT_KEY_BYTES: usize = COUNT_KEY.len() + 32;
 const COUNT: &[u8] = b"oasis7.iws.module-instance-count.v1\0";
 const INDEX: &[u8] = b"oasis7.iws.module-instance-count-index.v1\0";
 pub const MODULE_INSTANCE_INDEX_KEY_V1: &[u8] = b"oasis7.iws.module-instance-count-index-key.v1\0";
 pub const MODULE_INSTANCE_COUNT_BYTES: usize = COUNT.len() + 8;
 pub const MODULE_INSTANCE_INDEX_BYTES: usize = INDEX.len() + 8;
 pub fn module_instance_count_key(module_id: &str) -> [u8; COUNT_KEY.len() + 32] {
-    let mut h = blake3::Hasher::new();
-    h.update(b"oasis7.iws.module-instance-count-id.v1\0");
-    h.update(&(module_id.len() as u64).to_be_bytes());
-    h.update(module_id.as_bytes());
-    let mut bytes = [0; COUNT_KEY.len() + 32];
-    bytes[..COUNT_KEY.len()].copy_from_slice(COUNT_KEY);
-    bytes[COUNT_KEY.len()..].copy_from_slice(h.finalize().as_bytes());
-    bytes
+    let mut hash = ModuleInstanceCountKeyHashV1::new(module_id.len() as u64);
+    hash.update(module_id.as_bytes())
+        .expect("original string length");
+    hash.finish().expect("complete original string")
+}
+/// Same identity as the original string producer, without materializing text.
+pub struct ModuleInstanceCountKeyHashV1 {
+    hash: blake3::Hasher,
+    remaining: u64,
+}
+impl ModuleInstanceCountKeyHashV1 {
+    pub fn new(length: u64) -> Self {
+        let mut hash = blake3::Hasher::new();
+        hash.update(b"oasis7.iws.module-instance-count-id.v1\0");
+        hash.update(&length.to_be_bytes());
+        Self {
+            hash,
+            remaining: length,
+        }
+    }
+    pub fn update(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        self.remaining = self
+            .remaining
+            .checked_sub(bytes.len() as u64)
+            .ok_or("module ID excess bytes")?;
+        self.hash.update(bytes);
+        Ok(())
+    }
+    pub fn finish(self) -> Result<[u8; MODULE_INSTANCE_COUNT_KEY_BYTES], &'static str> {
+        if self.remaining != 0 {
+            return Err("module ID incomplete");
+        }
+        let mut bytes = [0; MODULE_INSTANCE_COUNT_KEY_BYTES];
+        bytes[..COUNT_KEY.len()].copy_from_slice(COUNT_KEY);
+        bytes[COUNT_KEY.len()..].copy_from_slice(self.hash.finalize().as_bytes());
+        Ok(bytes)
+    }
 }
 pub fn is_module_instance_count_key(bytes: &[u8]) -> bool {
     bytes.starts_with(COUNT_KEY)

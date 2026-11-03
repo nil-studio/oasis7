@@ -399,6 +399,14 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 
 `GenesisFieldVisitor` 是借用来源接口，不是 wire。Agent、body/mailbox、module instance 等已定义的专用 typed 键和值继续由其唯一 codec 负责；模块选择、状态和工件等字段在专用 codec 接入时也遵循同一边界。通用字段键不能替代它们或写一套影子状态。其他字段使用显式 `world-field-key.v1` 键族，消费者须将解析结果与受支持的字段描述符及该 namespace 中的实际键核对。解析一个结构正确的键，不授予字段归属、授权、执行或接受资格。
 
+<a id="iws-module-instance-qualified-family-v1"></a>
+
+module instance 继续使用原 `module-instance-key/value.v1`、模块计数及总数 index 专用 codec，保存 instance_id、module_id、module_version、wasm_hash、owner_agent_id、install_target、active、installed_at 八列；外层 map key 与 stored instance_id 分别保留，Text、Target、Bool、U64 不规范化。所有实例（包括 inactive）都计入原 module_id 的 count，用于保留有实例时抑制 global fallback 的原语义；不存在的模块 count 叶表示零，存在的零值、缺少总数 index、孤儿/缺列、计数错配和错误 namespace/专用键 framing 均拒绝。不能从点读成功或公开 counts 内容结果推导完整族资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+完整族资格由有限 root-only 验证取得，私有绑定精确 RootSet、Business 根、同池保留费用与真实 mint class；完整 GEN 输出在该资格及后续接受之前仍是暂态。恢复逐列验证原 wire、跨块 UTF-8 和精确长度，模块计数键使用原 domain/长度/字节的流式同一哈希核心，不为长 Text 构建整件 Vec。独立 recovery-counter scratch Merkle domain 只重建恢复计数，不转换成 StateRoot 或 serving 根；调用者在分配前预付有界 workspace/输出并管理连续读写额度，错误/取消不得返回部分资格。Recovery 资格用于 Ordinary 前须显式按原精确根重新准入、预付新 Ordinary metadata 费用并完成末次取消检查；该桥不读原件/历史、不升根或业务权限。
+
+普通读取、单列 exact expected 与完整记录 create/replace/delete 必须使用已资格父、同一个 ExecutionTransaction overlay 和 Ordinary 池；任何失败使先前成功贡献不可 seal。单列路径只访问目标和 module_id 变化必需的计数，NoOp 在比较后再次检查取消；显式完整记录替换核对旧完整记录并消费新输入，其 O(old/new record) 成本不得冒称单列固定增量。receiver 先独立 generic replay，再从真实写集验证新 scalar、八列 presence、总数和每个模块的净计数，并仅继承父的未变闭包。当前无增长 join map 的实现对 changed writes 做显式有限 O(Δ²) 关系工作，不扫描未变族 S 或历史 H；logical value、generic/typed State 和实际物理 I/O 分别计量，不把其中一条计费通道称完整 pipeline 成本。此族资格不授安装、WASM invocation、完整 Runtime owner、selected durable head、正式 driver 启用或全 World GC 权限。
+
 键的字节布局固定为：ASCII domain `oasis7.iws.world-field-key.v1` 加单个零字节；owner u8；namespace u16 大端；shape u8；record-kind u8；name-byte-length u16 大端；name ASCII bytes；semantic-key digest 32 bytes。owner 固定 WorldState=1、Runtime=2、Cognition=3；namespace 沿用状态树的 1..6 标签；shape 固定 Value=1、Map=2、NestedMap=3、Set=4、MapSet=5、Ordered=6、ByteMap=7。History、Process、Children 不是状态字段 wire shape。name 为 1..128 个 ASCII 字母、数字、下划线及点，首字符为字母，各点分段非空。这是固定字段名上限，不是实体 ID 或大字段内容上限。
 
 record-kind 固定 Metadata=1、Group=2、Entry=3、Bytes=4。Metadata 的 digest 必须全零；其他 kind 必须由调用者显式提供语义键摘要，全零摘要并不被擅自当成“没有成员”。Group 仅用于 NestedMap/MapSet 的外层存在标记，Bytes 仅用于 ByteMap；Entry 对应语义成员。不同 kind、owner、namespace、shape 或 name 均形成不同键，不用空 key 的特殊值模拟缺失。未知标签、错误 domain/长度、尾随 bytes 和不合法组合明确拒绝。
@@ -594,6 +602,10 @@ Runtime 组合入口将同一原 operation、parent、authority fence 和所有�
 
 局部分量测试分别核对原 parent 材料冲突、fence 各边界、同池预算、完整候选内容及 Raw/Zstd 原件/页持久后关闭重开与后继候选一致。该分量仍保留 fixture World 上下文，不能声称完整新世界激活、从认证根重建所有字段、C<T 非空 TransitionRecord 后缀恢复、J1/J2/provider oracle 或规模验收通过；这些整体交付要求继续适用。
 
+<a id="iws-runtime-root-backed-step-context-v1"></a>
+
+Runtime 的局部 step 上下文只借用外层唯一 Formal ExecutionTransaction，不创建、seal 或安装另一笔事务。入口核对 guard/live fence，在同一 overlay 验证已登记 Time 的 metadata/entry 与预期 T 后按原 U64 语义写 T+1；溢出或任一后继失败使整笔事务不可 seal。事件、分配器及模块唤醒/到期清除共用该事务、原 canonical codec 和连续额度。BodyAttributesUpdated、AgentMoved 的实际原件、分配序列、mailbox、body、位置和 last-active 均从输入或认证 overlay 获得，不借 World 缓存作前置条件；未支持事件明确拒绝。原件回调成功后仍须作末尾取消检查。该局部入口不提供业务授权、完整 tick、全部 step phase、候选接受或耐久选头资格，不为未接通阶段调用旧 clone/snapshot 路径兜底。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
 <a id="iws-runtime-rolling-allocators-v1"></a>
 ### Runtime 滚动分配器
 
@@ -781,6 +793,13 @@ family 与单记录资格保留真实 mint class，读写、生命周期及 rece
 现有 cell 的只读与精确 expected 贡献共用同一 overlay resolver：只接受绑定原 Txn parent 的完整 family 和与实际当前 child 相同的同池 Ordinary body 资格，guard/live 在入口检查。支持 Unit/U64/Text、Nullable/closed label 与已存在 effect_kinds ordinal；不扫描无关 grant.name 或其它规则。caller-owned expected/after 比较连续扣独立 byte allowance；NoOp 在比较后组合两取消通道，真实最后 put 后再次组合检查。任何错误使此前成功贡献整体 Aborted。list length 和 decision variant 不能通过单列改变制造半更新；完整 record 生命周期、Vec append/tail truncate、changed receiver、typed page transfer 与真实模块调用仍未由这些 cell 操作代签。
 
 该组件的私有资格只证明保存的数据结构，不是 capability/policy 的业务许可，也不授 Invocation、完整 Runtime/World 或 GC 权限；不因此快照与 cell 组件完成登记 owner ready。后续授权须保留 CapabilityGrant::is_expired/allows 的 now > expiry、全等/`*`/尾部 `.*` 语义，以及 PolicySet::decide 的原顺序首匹配/default_deny；不能用此结构 token 或调用者自报判断代替。
+<a id="iws-root-module-invocation-preparation-v1"></a>
+
+调用准备须复用原 `active_module_invocation_for_id` 的三路选择：原 instance map key 命中后先核 active，再使用其各自保存的 instance_id/module_id/version/target；未命中但对应 module_id 的实例计数非零（含 inactive）时禁止全局回退；否则查询 registry.active，并以原 record_key 规则定位记录。缺 active 返回不存在，active 指向缺记录则报错；全局安装目标缺失仍为 SelfAgent。不能以 embedded ID 或 manifest 内部版本替代原外键，不读取未参与选择的实例 owner/wasm_hash/installed_at。
+
+选中 manifest 由原逐字段/ordinal/Option/JSON 子树有界重建，SHA256 必须逐 byte 对照原 `hash_json` 的 serde_json 编码，不以 RootRef、BLAKE3 或 CBOR 替代。普通准备只继承已资格父或真实同事务 typed-after body，不因只需 manifest 而扫描无关 registered_by；新 body 无 scope 时仍须显式有界 bootstrap。selected DTO 的 JSON materialize 深度上限 64 是 ResourceLimited 资源档，不改变存储合法性。完整输出容量须在分配前准入，DTO 及其 JSON 子值持有全部对应 reservation 至释放。
+
+原 WASM bytes 从独立 content owner 的精确 OriginalArtifactRef 流验证后才进入现有 Arc ABI；set membership 与 bytes map 不新加强制联立。原 String artifact key 与 raw BLAKE3 ID 保持独立。Vec→Arc 峰值及保留体积均先付 Ordinary 费用，准备对象只借出 bytes，不能脱离 charge。一个借用唯一 ExecutionTxn 的准备入口检查原 guard/live、parent RootSet、三个 owner 的同池 Ordinary 资格，后续任何读取、编码、source 或末取消失败 poison 整笔前缀。私有准备对象只证明此次选择/来源/资源，不授业务 grant、policy、Invocation、selected-head 或完整 World 权限；真正 dispatch、费用、五类输出与 ModuleState 接线仍由实际调用目标闭合。
 
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 
@@ -1080,3 +1099,80 @@ GEN 借用全部原值并流写；空创建要求精确完整家族资格、guar
 页 mark/transfer 复用同一完整 owner 资格并追随所有内部根；sink 输出在包括 buffered finish 的全部步骤成功前保持暂态。本四字段资格不是完整 World、协议接受、业务权限或全局 GC live set；必须组合其他 owner/历史/lease/未决和回滚保护。独立字面 oracle、Raw/Zstd 冷恢复、合法后继、预算/取消/真实 put/poison 和缺页拒绝分别验证，不把 visitor/typecheck 当完整实现。
 
 `change_qualified_diplomacy_scalar_v1` 是这四个 owner 的普通单列更新入口：调用者显式选取封闭字段枚举及其 typed expected/after，仅校验该列的原值；Option 只额外校验并原子编辑同列旗标，不读无关标量、长 Text 或 Vec。`change_qualified_diplomacy_scalars_v1` 是显式完整 expected 投影核对，成本为 O(S)，不能用于证明普通单列更新的固定 Δ。单列更新须以未变 32 MiB charter、仅改 formed_at、receiver payload 上限165的公开冷根证据证明未扫描无关内容。
+<a id="iws-event-fact-provenance"></a>
+
+### 12.42 原事件引用的历史出现与原件认证
+
+Agent mailbox 沿用原32字节 WorldEvent 原件ID，不在通用字段或新索引中重造事件身份。完整引用资格须证明该ID是同一已接受head历史内的Event fact，并核对实际原件；只解析引用或接收调用者返回Ok的回调不能授予资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+历史出现验证以原VerifiedFormalCommit及精确RootSet为锚，读取并认证原CommitBody；目标为旧高度时，从该body绑定的前一catalog按高度seek，不扫描所有祖先或相信未认证locator。高度与fact ordinal可由调用者提供为不受信任查询提示，必须逐项核对已认证body、prefix/segment、FactSet scope/operation、Event种类与原ID。输出为绑定head身份、RootSet、目标body及原出现位置的不透明暂态证明；它只证明此Event fact与原bytes，不能代替WorldEvent类型/Domain内容匹配、完整Agent/World资格、写入权限或独立持久保障。
+
+元数据、来源carrier、catalog读取与原件流读共享调用者预算池和明确Ordinary/Recovery类别；对象、原bytes、catalog节点和fact额度连续消耗，失败与取消不重置。原件按原flat digest流验，保留最终取消检查和来源错误，不能用已输出前缀或预先声明的长度代签成功。WorldEvent语义消费者须继续使用既有唯一canonical编码和原类型核对，不能将原始事实字节身份提升为语义资格。
+
+Domain 语义验证接收具体的借用 WorldEvent 与上述不透明原件证明，核对消费者预期的精确 head/RootSet、Domain 变体、唯一 canonical 编码的完整长度及原 flat digest。输出持续借用原事件和原证明，不能分离原件计费，也不能以调用者返回 Ok 或自报 digest 构造语义资格。它仍不授予完整 Agent、业务授权或独立持久保障；mailbox 消费者还须核对自身原 Domain 内容和引用所属根。
+
+canonical 流式消费者保留既有编码器及其键排序语义作为独立 oracle。长值直接流向 digest，不先建立整个 owned Value 或编码 Vec；只为有限 map key、排序与重放元数据提前准入，ordinal 重放消耗连续工作预算。键的原 Tag 等类型不得因中间解码规范化而改变排序；取消、资源不足、输出失败或身份不匹配后整次验证上下文失效，不能用重试重置额度。
+
+已接受历史来源的 Agent GEN lowering 复用原字段 visitor 与写入编码器；mailbox 来源提供上述私有 Domain 证明后，消费者继续核对精确 head、RootSet、原件 ID 及实际 mailbox Domain 的完整 canonical 内容。原件证明与 mailbox 匹配使用调用者连续额度，普通写入与语义验证的两个取消通道在流式匹配、写入、emit 和最终返回边界均生效；任一失败使本次验证上下文失效，已输出字段仍是不可激活的暂态前缀。此入口不能验证同一事务中新准备但尚未被接受的 Event，也不能把旧根证明直接迁移成新根资格；新事件的候选验证、正式 head 绑定及未变引用的合法继承仍须由完整提交/owner 链路接通。
+
+上述语义入口接收调用者已有的具体 WorldEvent 借用值；流式编码节省的是验证阶段新增的 owned Value/输出 Vec，不证明输入 DTO 自身的常驻工作集。它不提供从冷原件直接取得任意大小 WorldEvent 的完整语义流式解码，不能据此宣称完整冷恢复或全链路 C<T 已验收。
+
+当前提交的 Fact 原件完整流验可保留本次 FactSet 内每次出现的种类、原 ID 和实际流验长度，按原顺序保留重复项。此私有观测只占本次 Δ 的有限元数据，完整 Vec capacity 在分配前准入并随证明持有至释放；不保留原件正文，不重置失败已消耗的额度。已验证的 core、这些观测与精确正式接受 head 的 body/roots/history/operation 绑定一致后，才可产生当前高度的原件出现证明；仅有 prepared body、调用者长度或另一 head 的观测均不足。该绑定不重读原件、不变更线格式，也不授予业务、GC 或独立持久保障资格。
+
+<a id="iws-event-history-inheritance"></a>
+
+### 12.47 已接受历史扩展下的原件出现继承
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。普通后继不得重新扫描所有既有 mailbox 原件。继承必须先绑定两个真实正式接受 head 的直接父子关系，以及已完整认证的后继 core：精确 parent record、相同世界、相邻 position、before/after roots、原 parent CommitBody、HistoryPrefix.previous 与计数均一致。仅凭两个高度或新根摘要不能构造扩展资格。
+
+私有扩展证明只授权把精确父 head/roots/body 下的既有原件出现证明迁移到该后继；原 event body、高度、ordinal、原 ID 和实际流验长度保持不变。绑定与继承均提前准入元数据、核对同池收费并在最后检查取消，不读取原件或扫描 catalog。多个后继须逐次提供真实扩展证明，分叉、跳高、错父、异池或不足计费不得成功。
+
+这不证明物理副本仍可用，也不单独授予完整 Agent/World 资格、业务权限、GC 或持久回执；owner 仍须认证其实际结构变化与引用增删，并对新增引用提供当前或历史出现及 Domain 语义证明。该接口保留原件的逻辑历史资格，不能冒充冷语义解码或整条恢复链已接通。
+
+已有 Domain 语义证明可与独立认证的新出现证明组合：必须保持相同 event body、高度、ordinal、原 ID 和流验长度，并核对消费者预期的新 head 与 RootSet。消费者只能复用旧证明持续借用的同一不可变具体事件，不能替换 DTO 或借调用者 digest 省略首次语义认证。该元数据组合消耗连续工作额度、计费新证明并保留最终取消检查；不重新编码已验证的大事件。新出现证明仍必须由历史认证或上述真实扩展产生，不能由 Domain 消费者自行重绑定。
+
+
+<a id="iws-candidate-event-semantics"></a>
+
+### 12.49 候选事件原件与接受后的精确提升
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。候选 owner 的完整性检查发生在正式接受之前；不能要求它先取得已接受原件出现证明，形成循环资格。候选出现证明必须由真实签名候选、其已核对的精确 record ID/core，以及本次已流验的 Fact 原件观察构造，保持 Event 种类、ordinal、原 ID 和实际长度；prepared 内容或另一份同 body 的签名记录不能替代该候选。
+
+候选类型与已接受历史类型分开，不提供可替代接受资格的转换或公共构造器。只有真正 VerifiedFormalCommit 的精确 record ID 与候选一致时，才能在同池收费及最终取消检查后提升原出现证明；不重读原件，不改原 body、位置或 bytes。候选 Domain 验证仍须核对具体借用 WorldEvent 的唯一 canonical 原件身份，并只能形成候选语义，不能在接受前被当作已接受 mailbox 历史。owner/endpoint 的业务、完整闭包和持久保障仍各自验证，本接口不能单独签发这些资格。
+
+Domain 语义证明同时保留实际 mint 的内存类别。Ordinary 的首次验证、继承、候选提升及 mailbox 消费不得直接使用 Recovery 类别的语义证明或已接受原件证明。候选原件 carrier 由原唯一 Formal 构造入口固定在 Ordinary 工作区中计费；Domain 候选语义自身的类别仍独立保留并在提升时校验。恢复后的资源转换须显式进行：先取得精确原 head/roots/出现位置与原 bytes 身份不变的 Ordinary 原件证明，再为新的固定 Domain 元数据支付 Ordinary 额度；转换不读原件、不重新编码事件、不重绑定 head，也不增加业务权限。新证明不得借用旧 Recovery 证明本身而阻止其释放，原不可变事件及新 Ordinary 原件证明的借用仍持续有效。
+
+<a id="iws-agent-event-original-stream-v1"></a>
+### 12.48 Agent body/move 原事件的借用流式生产
+
+`contribute_iws_agent_event` 必须直接复用唯一 canonical CBOR 流式 ABI，对不可变借用的原 `WorldEvent` 先计算 flat BLAKE3 与确切长度，再向实际 original sink 流写；两次编码消耗同一份调用者配置的连续 work，不重置 visits/bytes/depth/map/key 限额。原件长字符串不进入完整 encoded Vec、全文件桥或按输入八倍预留的 workspace。Hasher 与固定 scratch 先取得同池 Ordinary admission，canonical key/model 的独立暂存仍由 ABI 分次预收费。原始字节/ID 与既有 encoder 相同，不新增 WorldEvent wire 或接受权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+持久化回调接收不可自行构造完成状态的一次性 producer；返回 Ok 或只使用长度/ID 不能追加 fact。实际 sink 必须消费完整 canonical stream，核对第二次长度与 hash，并完成自己的 writer/flush/locator 屏障后才返回成功，producer 随后检查私有完成状态及最终取消。跳过 producer/stream、部分写、重复使用、IO/额度/finish 错误和最后实际 put/flush 后取消均使整个 ExecutionTxn 的既有成功前缀不可 seal。Canonical encoder 与真实页 writer 通过短借用共享同一 FnMut 取消源，ObjectIo 独立 AtomicBool 也保持贯穿物理路径；不能用成功物理前缀代表整个原件完成。
+
+ObjectStore push 路径复用现有 ValueStreamWriter、有限 BufferedPageWriter、原 locator 格式和获胜 locator 的完整原件回验，只有长度与原 flat ID 一致、各屏障成功才返回。body/move event 和 commit 的原公共消费者全部使用这条路径；测试仅可为小黄金向量收集已预收费 bytes，大 reason 必须以借用输入、有限小工作池与真实流式 sink 验证。本节证明原件生产/持久化与 fact 贡献边界，不代替 §12.42/§12.47 的真实接受历史/当前出现证明或完整 AgentReady。
+
+私有完成标记仅证明本次完整 canonical 消费及 sink 合同报告成功，不是任意自定义 Write/Sink 的外部耐久凭据。故意写入 io::sink 后自报成功仍可产生 provisional fact，但不能通过真实原件回读与 verify_fact_originals 门；不得据此 mint CheckedFactOriginals、Domain witness 或接受资格。具体生产 ObjectStore bridge 才实际完成发布与获胜原件全 hash 回读，后继 material/Fact 校验仍不可跳过。
+
+
+### ModuleState 专用存储与 step 原件接线
+
+ModuleState 使用既有 `module-state-key.v1` 专用键及原始不透明字节值；GEN 借用原 map，点读取只访问目标键和值闭包，空字节与缺失分开。普通点读必须同池且使用 Ordinary 额度；Recovery 读取上下文不能借 Ordinary 事务绕过配额。`ModuleStateUpdated` 使用同一 step 事务的时钟、事件 allocator、Value IO 与连续 canonical work，复用通用事件流式生产器并要求实际 sink 完成，再记录原件 fact；错误及末次取消使既有成功前缀不可 seal。
+
+恢复接口只扫描 Business 根内该专用族并核验完整 Value 闭包，返回计费的数量/字节统计，不返回六根 family 权限，不证明其他 namespace 没有错置专用键，也不授予完整 World owner、Invocation 或 selected-head 权限。全局 owner 与 changed typed receiver 闭包仍需后续实现。原件保留原 Vec 的 CBOR 数组语义及完整事件字段；流式 canonical map 排序可重复遍历大数组，调用者须提供真实连续 work，不将原件流式内存边界宣称为低 CPU 成本。
+
+
+ModuleState owner 资格在上述内容统计之上使用私有 `ModuleStateFamilyQualificationV1`：绑定完整 RootSet、来源 class 与同池保留费用。GEN/raw 恢复扫描六个 namespace，拒绝 Business 之外的专用键，并在 Business 完整验证原专用键及 Value 闭包。普通 getter 与 step 贡献必须持有精确事务父根的同池 Ordinary family；Recovery family 仅能经显式资源重新准入，重新支付 Ordinary 费用且保留原根绑定，不能直接用于普通事务。
+
+changed receiver 先独立 generic replay，再仅检查实际专用 writes 的 namespace、原键和新增 Value 闭包，继承合格父根的未变内容；旧/新长度分别计入连续 byte 额度，每个实际专用 write 消耗一个 states 额度，统计净增减使用有符号中间数并检查最终 u64 范围。receiver 不扫描未变 S/H；其结果仅证明该结构 owner 的六根闭包，不授 Module invocation、业务授权、selected head 或完整 World 执行权限。
+
+
+Agent 子树结构资格记录真实 mint class，普通 scalar/optional/row/create/delete/mailbox 消费链拒绝直接使用 Recovery 来源资格；changed receiver 可在 Recovery 验证中继承 Ordinary 父资格，但不得将 Recovery 父资格隐式 mint 为 Ordinary。显式 `readmit_agent_subtree_structure_ordinary_v1` 核同池、原 RootSet、Recovery 来源及固定保留费用，重新支付 Ordinary metadata，无 source/history IO，末次取消不保留输出。此桥只转换结构证明的资源准入，不补历史见证、业务授权或完整 World 权限；原键和值 wire 不变。
+
+
+<a id="iws-module-fee-selected-owner"></a>
+
+### 模块费用的选定 owner 接缝
+
+模块费用预检与贡献从同一 Ordinary ExecutionTxn 的认证字段读取工件 owner、Agent 身份、Data/Electricity 余额、全局 treasury 与活动时间；资格必须绑定精确父根、同池 Ordinary class，Recovery 结构资格须先显式重新准入。选定工件 owner 使用既有文本 map 的元数据、语义 key 与 UTF-8 校验，只证明当前选定项，不产生全 map 或全 World 资格。所有 free、拒绝和收费返回均须完成 guard/live、I/O 与取消检查；私有 prepared 费用绑定读取后的 guard、owner、payer、资源映射和金额，不能用新的调用者 guard 替换。
+
+收费计算复用原 World 算法与接受语义，包括饱和的计量单位、同资源种类按 compute 后 electricity 顺序扣费并累计 treasury、零费用仍更新活动时间及不创建缺失零条目。缺 owner 或缺 payer 保持免收费，合法余额不足返回原 ModuleCallFailure；存储、资格、I/O、取消或贡献失败使此前合法写入前缀所在事务 Aborted。该接缝只贡献余额、treasury 和活动字段；调用 owner 仍须在同一事务按原序贡献精确 ModuleRuntimeCharged 原件、事实和 allocator，完成模块授权、输出与后续事件，不得以 prepared 费用替代调用权限或 selected-head 权限。未变大字段不属于收费热路径扫描范围；局部读量测试不代替完整调用的 C<T、恢复续跑或全局 owner 验收。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。

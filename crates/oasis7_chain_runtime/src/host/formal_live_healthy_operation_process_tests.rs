@@ -11,6 +11,8 @@ mod fixed_lookup;
 mod raw_seed;
 #[path = "formal_live_healthy_operation_stop.rs"]
 mod stopping;
+#[path = "formal_live_healthy_operation_process_timing.rs"]
+mod timing;
 use super::durable_set_tests::{HealthySetCase, ManagedEndpointChild, stop_healthy_runtime};
 
 #[path = "formal_live_healthy_operation_process_phases.rs"]
@@ -143,7 +145,9 @@ pub(super) fn exercise_with_fault(
         File::create(case.root.join("shipping-owner.stdout")).map_err(|e| e.to_string())?;
     let stderr =
         File::create(case.root.join("shipping-owner.stderr")).map_err(|e| e.to_string())?;
+    let _timing = timing::OwnerTiming::new(case.root.join("shipping-owner.stderr"));
     let child = Command::new(&runtime_binary)
+        .env("OASIS7_FORMAL_EXECUTION_TIMING", "1")
         .args(["op", "formal-owner-worker", "--config"])
         .arg(&case.runtime_config_path)
         .args([

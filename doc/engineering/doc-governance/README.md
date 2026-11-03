@@ -24,6 +24,8 @@
 | 文档、Issue、PR、评审和交接文字如何表达 | [语言与写作要求](../workflow/source-of-truth.md#language-and-writing) | 统一表达原则与增量评审口径，正文在开发流程规范维护 |
 | 新文档应该放在哪里、承担什么职责 | `doc-structure-standard.design.md` | 顶层组织规范；定义模块、专题、分册、README、PRD/design/manual/runbook 边界，交付事实使用 Git/PR/实际 CI 与评审记录，Issue/Project 按需 |
 | 产品文档应该写什么、如何验收和追踪 | `product-documentation-standard.design.md` | 在现有四模块与专业 authority 上补充内容合同、REQ/AC 追踪、每功能点设计/实现状态摘要、证据边界和三类试点 |
+| 完整游戏的哪些设计领域必须考虑、何时算设计/内容或阶段完成 | [领域覆盖与阶段证据](product-documentation-standard.design.md#game-design-coverage) | 全领域导航、适用性、最低内容、实际素材和增量评审；继续复用四模块及原权威 |
+| 美术、音频、叙事、配置与素材如何写设计、组织和交付 | [非代码设计与交付物](doc-structure-standard.design.md#non-code-design-deliverables) | 内容设计、生产交接、实际候选、验证分配与规模化证据沿原专业合同承接；模板及真实入口示例见模板分册 §8～10 |
 | 产品文档如何套用结构、迁移代表性主题 | `product-documentation-standard.templates.md` | 提供根/专题/design 模板、需求/验收卡和 Prompt/首局/SC-31 迁移模式 |
 | 用同一全局 ID 查找要求、设计和项目执行记录 | `cross-layer-requirements-traceability.design.md` | 全长 UUID 的一次声明、多层引用与生命周期；已有只读查询/有界索引，结果仍需按来源范围人工核对 |
 | 已采纳规范如何覆盖全部存量产品文档 | `product-documentation-full-corpus-governance.design.md` | 定义 active/retired 内容闭合、外部语义迁移、配对 design 判定与全量检查 |

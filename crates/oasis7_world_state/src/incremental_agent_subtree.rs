@@ -21,7 +21,7 @@ mod closure;
 mod schema;
 pub use closure::{
     AgentMailboxReferenceV1, AgentSubtreeScanWorkV1, AgentSubtreeStructureQualificationV1,
-    qualify_agent_subtree_structure_v1,
+    qualify_agent_subtree_structure_v1, readmit_agent_subtree_structure_ordinary_v1,
 };
 
 #[path = "incremental_agent_subtree_point.rs"]

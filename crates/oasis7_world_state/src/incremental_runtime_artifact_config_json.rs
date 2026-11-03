@@ -34,6 +34,51 @@ impl ArtifactConfigJsonQualificationV1 {
         self.class
     }
 }
+/// Owner-class-checked selected DTO read. The retained result is data, not an
+/// invocation permission or a new parent/RootSet qualification.
+pub fn materialize_artifact_config_json_v1<M, R, E, C>(
+    proof: &ReservedValue<ArtifactConfigJsonQualificationV1>,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonReadWorkV1,
+    max_heap_bytes: usize,
+) -> Result<ReservedValue<serde_json::Value>, ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    let (value, charge) = materialize_parts(proof, &mut ctx.records(), work, max_heap_bytes)?;
+    ctx.check()?;
+    Ok(charge.retain(value))
+}
+pub(super) fn materialize_parts<R: ValueNodeReader, C: FnMut() -> bool>(
+    proof: &ReservedValue<ArtifactConfigJsonQualificationV1>,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+    max_heap_bytes: usize,
+) -> Result<
+    (
+        serde_json::Value,
+        oasis7_proto::memory_budget::MemoryReservation,
+    ),
+    ValueTreeError,
+> {
+    if !proof.uses_budget(records.values.memory)
+        || proof.reserved_bytes() < 512
+        || proof.class != records.values.class
+    {
+        return Err(read::invalid());
+    }
+    crate::incremental_json_records::materialize_records(
+        genesis::json_profile(),
+        &proof.inner,
+        records,
+        work,
+        max_heap_bytes,
+    )
+}
 fn retain_json(
     inner: ReservedValue<JsonSubtreeQualificationV1>,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
