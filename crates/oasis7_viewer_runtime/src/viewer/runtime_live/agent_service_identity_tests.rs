@@ -335,19 +335,36 @@ fn completion_identity_computation_releases_viewer_mutex() {
     use crate::viewer::runtime_live::agent_service_result::prepare_result_phase;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    for mode in 0..5 {
-        let (server, result) = completion_fixture();
+    for mode in 0..6 {
+        let (mut server, result) = completion_fixture();
+        if mode == 5 {
+            server.agent_service_pump_error =
+                Some("Agent service result could not be applied; original work remains pending");
+            let error = "Transport(previous lookup disconnect)".to_string();
+            server
+                .agent_service_io_diagnostics
+                .finish_apply((Some(error.clone()), 1), &Err(error));
+        }
         let shared = Arc::new(Mutex::new(server));
         ViewerRuntimeLiveServer::test_arm_hosted_identity_barrier();
         let worker_shared = shared.clone();
         let worker = std::thread::spawn(move || {
-            let guard = worker_shared.lock().unwrap();
-            if (1..=3).contains(&mode) {
+            let mut guard = worker_shared.lock().unwrap();
+            if (1..=3).contains(&mode) || mode == 5 {
+                if mode == 5 {
+                    assert!(guard.apply_agent_service_completion(result, None).is_ok());
+                }
                 use crate::viewer::runtime_live::agent_service_result::{
                     RetryIdentity, prepare_retry_identity,
                 };
-                let (_guard, identity) = prepare_retry_identity(&worker_shared, guard).unwrap();
-                if mode == 1 {
+                let (guard, identity) = prepare_retry_identity(&worker_shared, guard).unwrap();
+                if mode == 5 {
+                    assert_eq!(
+                        guard.agent_service_pump_error,
+                        Some("newer control failure")
+                    );
+                }
+                if mode == 1 || mode == 5 {
                     assert!(matches!(identity, RetryIdentity::Current(Some(Ok(_)))));
                 } else {
                     assert!(matches!(identity, RetryIdentity::Changed));
@@ -368,6 +385,17 @@ fn completion_identity_computation_releases_viewer_mutex() {
             ViewerRuntimeLiveServer::test_wait_hosted_identity_barrier(Duration::from_secs(2));
         let observer_can_lock = match shared.try_lock() {
             Ok(mut guard) => {
+                if mode == 5 {
+                    assert!(
+                        guard.agent_service_pump_error.is_none(),
+                        "successful completion must clear the old pump error before retry identity unlocks"
+                    );
+                    assert_eq!(
+                        guard.agent_service_io_diagnostics.snapshot()["last_apply_error_class"],
+                        "absent"
+                    );
+                    guard.agent_service_pump_error = Some("newer control failure");
+                }
                 if mode == 2 || mode == 4 {
                     guard.llm_sidecar.hosted_service_phase = None;
                 } else if mode == 3 {

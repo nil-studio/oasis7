@@ -124,7 +124,7 @@ impl ViewerRuntimeLiveServer {
         ));
     }
 
-    fn observe_agent_pump_progress(&mut self, progress: &AgentServiceProgress) {
+    pub(super) fn observe_agent_pump_progress(&mut self, progress: &AgentServiceProgress) {
         if matches!(progress, AgentServiceProgress::Advanced) {
             self.agent_service_pump_error = None;
             if self
@@ -205,8 +205,6 @@ impl ViewerRuntimeLiveServer {
                             let unpublished_response = unpublished_response(&result);
                             #[cfg(any(test, feature = "test_tier_required"))]
                             diagnostics.consumed();
-                            #[cfg(any(test, feature = "test_tier_required"))]
-                            let apply_diagnostic = diagnostics.prepare_apply(&result);
                             let Some((guard, prepared)) =
                                 super::agent_service_result::prepare_result_phase(
                                     &shared, server, &result,
@@ -216,9 +214,7 @@ impl ViewerRuntimeLiveServer {
                             };
                             server = guard;
                             let apply_phase = stream_budget_diagnostics::phase(22);
-                            let applied = server.apply_prepared_agent_result(result, prepared);
-                            #[cfg(any(test, feature = "test_tier_required"))]
-                            diagnostics.finish_apply(apply_diagnostic, &applied);
+                            let applied = server.apply_agent_service_completion(result, prepared);
                             drop(apply_phase);
                             let phase_identity = if applied.is_err() {
                                 None
@@ -251,7 +247,6 @@ impl ViewerRuntimeLiveServer {
                                 || phase_identity_requires_retry(phase_identity, &original_phase);
                             match applied {
                                 Ok(value) => {
-                                    server.observe_agent_pump_progress(&value);
                                     progress = Some(value);
                                 }
                                 Err(_error) => {

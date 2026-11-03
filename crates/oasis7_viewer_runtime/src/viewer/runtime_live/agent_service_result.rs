@@ -79,6 +79,25 @@ pub(super) fn prepare_retry_identity<'a>(
 }
 
 impl ViewerRuntimeLiveServer {
+    pub(super) fn apply_agent_service_completion(
+        &mut self,
+        result: AgentServiceIoResult,
+        prepared: Option<ReadyResultPhase>,
+    ) -> Result<AgentServiceProgress, String> {
+        #[cfg(any(test, feature = "test_tier_required"))]
+        let diagnostic = self.agent_service_io_diagnostics.prepare_apply(&result);
+        let applied = self.apply_prepared_agent_result(result, prepared);
+        #[cfg(any(test, feature = "test_tier_required"))]
+        self.agent_service_io_diagnostics
+            .finish_apply(diagnostic, &applied);
+        // Publish successful progress and diagnostics in the same critical section.
+        // Retry identity computation releases the lock, so no stale pump error may
+        // remain paired with the new successful application classification.
+        if let Ok(value) = &applied {
+            self.observe_agent_pump_progress(value);
+        }
+        applied
+    }
     pub(super) fn apply_prepared_agent_result(
         &mut self,
         result: AgentServiceIoResult,
