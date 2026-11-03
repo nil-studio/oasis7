@@ -27,7 +27,7 @@ def module(name):
 
 artifacts = module('ci-test-artifacts')
 plan = module('ci-formal-plan')
-from ci_process_runner import run, owned_processes
+from ci_process_runner import run, owned_processes, _Capture, READ_BYTES, SUMMARY_LINE_BYTES
 
 
 class Transition(unittest.TestCase):
@@ -1886,6 +1886,83 @@ class WorkspaceInputPaths(unittest.TestCase):
 
 
 class OutputBackpressure(unittest.TestCase):
+    def test_drained_live_output_preserves_heartbeat_and_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = root / 'results.jsonl'
+            program = (
+                'import os,sys\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\nfrom ci_process_runner import run\n'
+                'run([sys.executable,"-c",\'import time; time.sleep(0.15); '
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\'],'
+                f'Path({str(root)!r}),os.environ,"probe","healthy",Path({str(results)!r}),'
+                'expected_count=1,timeout_seconds=2,heartbeat_seconds=0.05)\n'
+            )
+            process = subprocess.run([sys.executable, '-c', program], capture_output=True, timeout=4)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertIn(b'suite=probe test=healthy', process.stdout)
+            self.assertIn(b'test result: ok. 1 passed;', process.stdout)
+            record = json.loads(results.read_text())
+            self.assertTrue(record['passed'])
+            self.assertEqual(record['output_suppressed_bytes'], 0)
+            self.assertEqual(record['output_pending_bytes'], 0)
+
+    def test_summary_parser_handles_chunk_boundaries_without_retaining_long_lines(self):
+        capture = _Capture()
+        for piece in [b'test result: o', b'k. 4 passed; 0 fail', b'ed; 2 ignored;\n']:
+            capture.feed(piece)
+        self.assertEqual(capture.summary, (4, 0, 2))
+        for _ in range(1024):
+            capture.feed(b'x' * READ_BYTES)
+            self.assertLessEqual(len(capture.line), SUMMARY_LINE_BYTES)
+        capture.feed(b'\ntest result: ok. 5 passed; 0 failed; 0 ignored;\n')
+        self.assertEqual(capture.summary, (5, 0, 0))
+        capture.feed(b'test result: ok. ' + b'9' * READ_BYTES)
+        self.assertIsNone(capture.summary, 'an oversized later summary cannot reuse an old count')
+
+    def test_repeated_runs_share_one_bounded_relay_when_stdout_is_not_drained(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results, observations = root / 'results.jsonl', root / 'observations.json'
+            child = ('import os; print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True); '
+                     '[os.write(1,b"x"*8191+b"\\n") for _ in range(512)]')
+            program = (
+                'import json,os,sys,threading\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\n'
+                'from ci_process_runner import run,live_output,READ_BYTES,LIVE_CHUNKS\n'
+                'before=threading.active_count()\n'
+                'for i in range(3):\n'
+                f' run([sys.executable,"-c",{child!r}],Path({str(root)!r}),os.environ,'
+                f'"probe",str(i),Path({str(results)!r}),expected_count=1,timeout_seconds=2,heartbeat_seconds=0.05)\n'
+                'relay=live_output()\n'
+                f'Path({str(observations)!r}).write_text(json.dumps(dict('
+                'threads=threading.active_count()-before,queued=relay.queue.qsize(),'
+                'max_chunks=LIVE_CHUNKS,max_packet=max(len(p[0]) for p in relay.queue.queue),'
+                'chunk_bytes=READ_BYTES)))\n'
+            )
+            process = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            try:
+                process.wait(timeout=6)
+                timely = True
+            except subprocess.TimeoutExpired:
+                timely = False
+            finally:
+                output, _ = process.communicate(timeout=10)
+            self.assertTrue(timely, 'repeated runs must not wait for blocked relay threads')
+            self.assertEqual(process.returncode, 0, output[-4000:])
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            self.assertEqual(len(records), 3)
+            self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+            self.assertTrue(all(record['output_suppressed_bytes'] > 0 for record in records))
+            self.assertTrue(all(record['output_bytes'] == 512 * 8192 + 48 for record in records))
+            self.assertTrue(all(record['output_suppressed_bytes'] + record['output_pending_bytes']
+                                <= record['output_bytes'] for record in records))
+            stats = json.loads(observations.read_text())
+            self.assertEqual(stats['threads'], 1, 'only one relay survives across all runs')
+            self.assertLessEqual(stats['queued'], stats['max_chunks'])
+            self.assertLessEqual(stats['max_packet'], stats['chunk_bytes'])
+
     def test_undrained_stdout_cannot_block_deadline_result_or_owned_cleanup(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -3,12 +3,146 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import queue
 import re
+import select
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
+
+READ_BYTES = 64 * 1024
+SUMMARY_LINE_BYTES = 4096
+LIVE_CHUNKS = 16
+
+
+class _Capture:
+    """Bounded summary parsing is independent of best-effort live output."""
+    def __init__(self):
+        self.line = bytearray()
+        self.discard_line = False
+        self.summary = None
+        self.complete = False
+        self.read_error = None
+        self.lock = threading.Lock()
+        self.idle = threading.Event()
+        self.idle.set()
+        self.output_bytes = self.pending = self.suppressed = 0
+
+    def parse_line(self):
+        if b'test result:' in self.line:
+            self.summary = None
+        match = re.search(rb'test result: ok\. ([0-9]{1,20}) passed; ([0-9]{1,20}) failed; ([0-9]{1,20}) ignored;', self.line)
+        if match:
+            self.summary = tuple(map(int, match.groups()))
+
+    def feed(self, data):
+        parts = data.split(b'\n')
+        for index, part in enumerate(parts):
+            if not self.discard_line and len(self.line) + len(part) <= SUMMARY_LINE_BYTES:
+                self.line.extend(part)
+            else:
+                if b'test result:' in self.line or b'test result:' in part:
+                    self.summary = None
+                self.line.clear()
+                self.discard_line = True
+            if index < len(parts) - 1:
+                if not self.discard_line:
+                    self.parse_line()
+                self.line.clear()
+                self.discard_line = False
+
+    def queued(self, size):
+        with self.lock:
+            self.output_bytes += size
+            self.pending += size
+            self.idle.clear()
+
+    def settled(self, size, suppressed=False):
+        with self.lock:
+            self.pending -= size
+            if suppressed:
+                self.suppressed += size
+            if not self.pending:
+                self.idle.set()
+
+    def output_state(self):
+        with self.lock:
+            return dict(output_bytes=self.output_bytes, output_suppressed_bytes=self.suppressed,
+                        output_pending_bytes=self.pending)
+
+
+class _LiveOutput:
+    """One daemon for the entire process; never change shared stdout flags."""
+    def __init__(self):
+        self.queue = queue.Queue(maxsize=LIVE_CHUNKS)
+        try:
+            self.fd = sys.stdout.fileno()
+        except (AttributeError, OSError, ValueError):
+            self.fd = None
+        self.failed = self.fd is None
+        threading.Thread(target=self.forward, daemon=True).start()
+
+    def emit(self, data, capture=None, completed=None):
+        accepted = True
+        for offset in range(0, len(data), READ_BYTES):
+            last = offset + READ_BYTES >= len(data)
+            accepted &= self.emit_chunk(data[offset:offset + READ_BYTES], capture,
+                                        completed if last else None)
+        return accepted
+
+    def emit_chunk(self, data, capture, completed):
+        if capture is not None:
+            capture.queued(len(data))
+        try:
+            if self.failed:
+                raise queue.Full
+            self.queue.put_nowait((data, capture, completed))
+            return True
+        except queue.Full:
+            if capture is not None:
+                capture.settled(len(data), suppressed=True)
+            return False
+
+    def forward(self):
+        while True:
+            data, capture, completed = self.queue.get()
+            offset = 0
+            try:
+                if self.failed:
+                    raise OSError('live output unavailable')
+                while offset < len(data):
+                    try:
+                        written = os.write(self.fd, data[offset:])
+                    except InterruptedError:
+                        continue
+                    if written <= 0:
+                        raise OSError('live output made no progress')
+                    offset += written
+                    if capture is not None:
+                        capture.settled(written)
+            except OSError:
+                self.failed = True
+                if capture is not None:
+                    capture.settled(len(data) - offset, suppressed=True)
+            finally:
+                if completed is not None:
+                    completed.set()
+                self.queue.task_done()
+
+
+_LIVE = None
+_LIVE_LOCK = threading.Lock()
+
+
+def live_output():
+    global _LIVE
+    with _LIVE_LOCK:
+        if _LIVE is None:
+            _LIVE = _LiveOutput()
+        return _LIVE
 
 
 def owned_processes(marker, group=None):
@@ -78,15 +212,28 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
     env = dict(env, OASIS7_CI_PROCESS_OWNER=marker)
     started = datetime.now(timezone.utc).isoformat()
     start = time.monotonic()
-    summaries = []
+    capture = _Capture()
+    live = live_output()
+    stop_reader = threading.Event()
     def consume(pipe):
-        for line in pipe:
-            print(line, end='', flush=True)
-            match = re.search(r'test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored;', line)
-            if match:
-                summaries.append(tuple(map(int, match.groups())))
+        try:
+            while not stop_reader.is_set():
+                if not select.select([pipe], [], [], 0.05)[0]:
+                    continue
+                data = os.read(pipe.fileno(), READ_BYTES)
+                if not data:
+                    if not capture.discard_line:
+                        capture.parse_line()
+                    capture.complete = True
+                    return
+                capture.feed(data)
+                live.emit(data, capture)
+        except (OSError, ValueError) as error:
+            # Missing output cannot establish a complete libtest count. Avoid
+            # an uncaught-thread traceback using the same stalled log channel.
+            capture.read_error = type(error).__name__
     process = subprocess.Popen(command, cwd=cwd, env=env, start_new_session=True,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
     reader = threading.Thread(target=consume, args=(process.stdout,), daemon=True)
     reader.start()
     timed_out = False
@@ -99,18 +246,23 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
             previous_handlers[signum] = signal.signal(signum, interrupt)
     next_heartbeat = start + heartbeat_seconds
     try:
-        while process.poll() is None:
+        while True:
             now = time.monotonic()
             if now - start >= timeout_seconds:
                 timed_out = True
                 break
+            if process.poll() is not None:
+                break
             if now >= next_heartbeat:
-                print(f'suite={suite} test={name} elapsed={int(now-start)}s state=running', flush=True)
+                live.emit(f'\nsuite={suite} test={name} elapsed={int(now-start)}s state=running\n'.encode())
                 next_heartbeat = now + heartbeat_seconds
-            time.sleep(min(0.2, heartbeat_seconds))
+            time.sleep(min(0.2, heartbeat_seconds, max(0, start + timeout_seconds - now)))
     except InterruptedError:
         cancelled = True
     finally:
+        # Observing an exit after the absolute deadline cannot turn it into a
+        # success, including a child that completed while supervision stalled.
+        timed_out |= time.monotonic() - start >= timeout_seconds
         try:
             cleanup_result, leaked = cleanup(process, marker)
         except (OSError, subprocess.SubprocessError):
@@ -120,16 +272,26 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
     if cleanup_result == 'clean':
         process.wait(timeout=10)
     reader.join(timeout=2)
+    if reader.is_alive():
+        stop_reader.set()
+        reader.join(timeout=0.2)
     if not reader.is_alive():
         process.stdout.close()
-    count_ok = expected_count is None or (expected_count > 0 and bool(summaries) and summaries[-1][0] == expected_count and summaries[-1][1] == 0)
+    capture.idle.wait(timeout=0.05)
+    count_ok = expected_count is None or (expected_count > 0 and capture.complete and capture.summary is not None and capture.summary[0] == expected_count and capture.summary[1] == 0)
     result = dict(suite=suite, test_name=name, started_at=started,
                   elapsed_seconds=round(time.monotonic()-start, 3), exit_code=process.returncode,
                   timeout=timed_out, cancelled=cancelled, cleanup_result=cleanup_result, leaked_processes=leaked,
                   expected_count=expected_count, count_ok=count_ok,
                   passed=process.returncode == 0 and not timed_out and not cancelled and count_ok and cleanup_result == 'clean' and not leaked)
+    # Suppressed means explicitly rejected/discarded by the bounded live queue;
+    # pending includes queued or blocked writes not yet confirmed at this point.
+    result.update(capture.output_state())
+    result['output_read_error'] = capture.read_error
     results.parent.mkdir(parents=True, exist_ok=True)
     with results.open('a') as stream:
         stream.write(json.dumps(result) + '\n')
-    print(json.dumps(result), flush=True)
+    completed = threading.Event()
+    if live.emit((json.dumps(result) + '\n').encode(), completed=completed):
+        completed.wait(timeout=0.05)
     return result
