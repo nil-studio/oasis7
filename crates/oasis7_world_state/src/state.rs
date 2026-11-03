@@ -476,7 +476,7 @@ pub struct ModuleReleaseManifestMappingState {
 }
 
 /// The mutable state of the world.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct WorldState {
     pub world_rules: Option<crate::world_rules::WorldRulesStateV1>,
     pub time: WorldTime,
@@ -617,14 +617,8 @@ pub struct WorldState {
     pub node_main_token_account_bindings: BTreeMap<String, String>,
     pub governance_finality_signer_registry: Option<GovernanceFinalitySignerRegistry>,
     pub governance_validator_admissions: BTreeMap<String, GovernanceValidatorAdmissionRecord>,
-    #[serde(
-        default,
-        skip_serializing_if = "BTreeMap::is_empty",
-        deserialize_with = "super::governance::deserialize_finality_key_rotations"
-    )]
     pub governance_finality_key_rotations:
         BTreeMap<String, super::governance::FinalityKeyRotationRecordV1>,
-    #[serde(default)]
     pub governance_main_token_controller_registry: Option<GovernanceMainTokenControllerRegistry>,
     /// Successful controller nonces commit atomically with governance effects.
     pub governance_authorization_nonces: BTreeMap<String, u64>,
@@ -1065,3 +1059,6 @@ impl WorldState {
         }
     }
 }
+
+#[path = "state/world_state_debug.rs"]
+mod world_state_debug;

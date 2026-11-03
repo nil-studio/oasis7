@@ -267,3 +267,55 @@ fn formal_snapshot_and_delta_keep_nonempty_history_and_reject_lossy_legacy_decod
         .is_err()
     );
 }
+
+#[test]
+fn world_rotation_manual_codec_roundtrips_and_bounds_history() {
+    let mut state = crate::WorldState::default();
+    state
+        .governance_finality_key_rotations
+        .insert("rotation-one".into(), record("rotation-one"));
+    let json = serde_json::to_vec(&state).unwrap();
+    let decoded: crate::WorldState = serde_json::from_slice(&json).unwrap();
+    assert_eq!(
+        decoded.governance_finality_key_rotations,
+        state.governance_finality_key_rotations
+    );
+    for bytes in [serde_cbor::to_vec(&state).unwrap()] {
+        let decoded: crate::WorldState = serde_cbor::from_slice(&bytes).unwrap();
+        assert_eq!(
+            decoded.governance_finality_key_rotations,
+            state.governance_finality_key_rotations
+        );
+    }
+    // Whole-WorldState packed serialization predates this extension and is
+    // not its legacy deserialize contract: packed field 0 is time, whereas
+    // the legacy decoder's field 0 is optional WorldRules. Keep rejection.
+    let legacy_packed = serde_cbor::ser::to_vec_packed(&crate::WorldState::default()).unwrap();
+    let legacy_error = serde_cbor::from_slice::<crate::WorldState>(&legacy_packed).unwrap_err();
+    assert!(
+        legacy_error
+            .to_string()
+            .contains("expected struct WorldRulesStateV1")
+    );
+    let packed = serde_cbor::ser::to_vec_packed(&state).unwrap();
+    let error = serde_cbor::from_slice::<crate::WorldState>(&packed).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("expected struct WorldRulesStateV1"),
+        "{error}"
+    );
+    let original = record("rotation-one");
+    let packed_record = serde_cbor::ser::to_vec_packed(&original).unwrap();
+    assert_eq!(
+        serde_cbor::from_slice::<FinalityKeyRotationRecordV1>(&packed_record).unwrap(),
+        original
+    );
+    // A declared 257-entry map is rejected before records can be allocated.
+    let field = b"governance_finality_key_rotations";
+    let mut overflow = vec![0xa1, 0x78, field.len() as u8];
+    overflow.extend_from_slice(field);
+    overflow.extend_from_slice(&[0xb9, 0x01, 0x01]);
+    let error = serde_cbor::from_slice::<crate::WorldState>(&overflow).unwrap_err();
+    assert!(error.to_string().contains("declared count"), "{error}");
+}

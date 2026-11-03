@@ -31,12 +31,6 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
         .map_or(&state.governance_finality_key_rotations, |overlay| {
             &overlay.rotations
         });
-    if !rotations.is_empty() {
-        output.serialize_field(
-            "governance_finality_key_rotations",
-            &crate::governance::FinalityKeyRotationHistoryRef(rotations),
-        )?;
-    }
     output.serialize_field(
         "governance_main_token_controller_registry",
         governance_registry_overlay.map_or(&state.governance_main_token_controller_registry, |o| {
@@ -54,5 +48,11 @@ pub(super) fn serialize_fields<S: serde::ser::SerializeStruct>(
         "reward_signature_governance_policy",
         &state.reward_signature_governance_policy,
     )?;
+    if !rotations.is_empty() {
+        output.serialize_field(
+            "governance_finality_key_rotations",
+            &crate::governance::FinalityKeyRotationHistoryRef(rotations),
+        )?;
+    }
     Ok(())
 }
