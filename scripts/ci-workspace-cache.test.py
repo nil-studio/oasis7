@@ -65,114 +65,6 @@ def fixture(directory, scope='ordinary'):
     return root, state_path, library
 
 
-class FormalUploadBudget(unittest.TestCase):
-    """Real upload-bound regression; no cache download/upload is performed."""
-    GIB = 1024 ** 3
-    LIMIT = 20_000_000_000
-    OBSERVED_UPLOAD = 817_681_480
-
-    @staticmethod
-    def formal_key(source='b'):
-        return 'formal-workspace-v3-' + 'a' * 64 + '-' + source * 40
-
-    def formal_entry(self, number, size, **changes):
-        return dict(dict(id=number, key=self.formal_key(f'{number:x}'),
-                         ref='refs/heads/main', size_in_bytes=size), **changes)
-
-    def admit(self, size=None, entries=(), limit=None, reserve=0):
-        return cache.policy.save_policy(list(entries), self.formal_key(),
-            self.OBSERVED_UPLOAD if size is None else size,
-            self.LIMIT if limit is None else limit,
-            reserved_repository_bytes=reserve)
-
-    def test_observed_formal_upload_fits_new_single_limit(self):
-        result = self.admit()
-        self.assertTrue(result['capacity_allowed'], result)
-        self.assertEqual(result['single_upload_limit_bytes'], self.GIB)
-
-    def test_formal_single_limit_is_exactly_one_gib(self):
-        self.assertEqual(cache.policy.FAMILIES['formal']['max_upload_bytes'], self.GIB)
-
-    def test_retention_and_rotation_are_derived_from_new_limit(self):
-        family = cache.policy.FAMILIES['formal']
-        self.assertEqual(family['keep_generations'], 2)
-        self.assertEqual(family['max_bytes'], 2 * self.GIB)
-        self.assertEqual(family['rotation_bytes'], 3 * self.GIB)
-
-    def test_exact_single_boundary_is_admitted(self):
-        self.assertTrue(self.admit(self.GIB)['capacity_allowed'])
-
-    def test_single_boundary_plus_one_is_rejected(self):
-        result = self.admit(self.GIB + 1)
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'formal single upload budget')
-
-    def test_two_full_generations_allow_a_temporary_third(self):
-        entries = [self.formal_entry(i, self.GIB) for i in (1, 2)]
-        result = self.admit(self.GIB, entries)
-        self.assertTrue(result['capacity_allowed'], result)
-        self.assertTrue(result['rotation_required'])
-        self.assertEqual(result['projected_family_bytes'], 3 * self.GIB)
-
-    def test_fourth_generation_still_exceeds_family_budget(self):
-        entries = [self.formal_entry(i, self.GIB) for i in (1, 2, 3)]
-        result = self.admit(1, entries)
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'formal main family rotation budget')
-
-    def test_all_family_repository_usage_still_blocks(self):
-        entry = self.formal_entry(1, self.LIMIT - self.OBSERVED_UPLOAD + 1,
-                                  key='release-and-ecs-and-dependencies')
-        result = self.admit(entries=[entry])
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'repository cache capacity gap')
-
-    def test_all_refs_still_count_against_repository_budget(self):
-        entry = self.formal_entry(1, self.LIMIT, ref='refs/pull/123/merge')
-        result = self.admit(entries=[entry])
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'repository cache capacity gap')
-
-    def test_dependency_rotation_reserve_still_blocks(self):
-        reserve = cache.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
-        entry = self.formal_entry(1, self.LIMIT - reserve - self.OBSERVED_UPLOAD + 1,
-                                  key='other-families')
-        result = self.admit(entries=[entry], reserve=reserve)
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'dependency rotation headroom')
-
-    def test_exact_repository_and_reserve_boundary_is_admitted(self):
-        reserve = cache.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
-        entry = self.formal_entry(1, self.LIMIT - reserve - self.OBSERVED_UPLOAD,
-                                  key='other-families')
-        result = self.admit(entries=[entry], reserve=reserve)
-        self.assertTrue(result['capacity_allowed'], result)
-        self.assertEqual(result['projected_repository_bytes_with_reserve'], self.LIMIT)
-
-    def test_existing_immutable_key_still_rejected(self):
-        result = self.admit(entries=[self.formal_entry(1, 100, key=self.formal_key())])
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'existing immutable key')
-
-    def test_invalid_repository_quota_still_rejected(self):
-        result = self.admit(limit=0)
-        self.assertFalse(result['capacity_allowed'])
-        self.assertEqual(result['reason'], 'repository cache quota unavailable or invalid')
-
-    def test_raw_staging_and_other_families_do_not_expand(self):
-        self.assertEqual(cache.policy.FAMILIES['formal']['staging_bytes'], 8 * self.GIB)
-        self.assertEqual(cache.policy.FAMILIES['ordinary']['staging_bytes'], 6 * self.GIB)
-        self.assertEqual(cache.policy.FAMILIES['ordinary']['max_upload_bytes'], 768 * 1024 ** 2)
-        self.assertEqual(cache.policy.FAMILIES['ecs']['max_upload_bytes'], self.GIB)
-        self.assertEqual(cache.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES, 5 * self.GIB // 2)
-
-    def test_existing_formal_namespace_is_preserved(self):
-        self.assertTrue(cache.policy.is_current_key(self.formal_key()))
-        self.assertEqual(cache.policy.family_for_key(self.formal_key()), 'formal')
-
-
-
-
 class Workspace(unittest.TestCase):
     def test_identity_is_scoped_and_tracks_configuration_but_not_source_contents(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -427,6 +319,223 @@ class Workspace(unittest.TestCase):
                 cache.measure_cache(args, {})
 
 
+class BoundedWorkspace(unittest.TestCase):
+    def make_state(self, directory, sizes=(600, 500, 400)):
+        root = directory / 'checkout'
+        root.mkdir()
+        (root / 'Cargo.toml').write_text('[workspace]\n')
+        target = root / 'target'
+        state = cache.units.cache_begin(root, selection='libraries')
+        for index, size in enumerate(sizes):
+            name, unit = f'unit{index}', f'{index + 1:016x}'
+            fingerprint = f'debug/.fingerprint/{name}-{unit}'
+            path = target / fingerprint
+            path.mkdir(parents=True)
+            (path / ('lib-' + name)).write_bytes(b'fingerprint')
+            for suffix in ('rlib', 'rmeta', 'd'):
+                output = f'debug/deps/{"" if suffix == "d" else "lib"}{name}-{unit}.{suffix}'
+                file = target / output
+                file.parent.mkdir(parents=True, exist_ok=True)
+                with file.open('wb') as stream:
+                    stream.truncate(size if suffix == 'rlib' else 10)
+                os.utime(file, ns=(1_000_000_000 + index, 1_000_000_000 + index))
+                state['files'].append(output)
+            os.utime(path / ('lib-' + name), ns=(1_000_000_000 + index, 1_000_000_000 + index))
+            state['directories'].append(fingerprint)
+            state['packages'][name] = name
+        cache.units.cache_finish(state)
+        return root, state
+
+    def test_retains_complete_recent_units_without_mutating_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, state = self.make_state(Path(directory))
+            original = json.loads(json.dumps(state))
+            report = {}
+            chosen = cache.bounded_library_state(state, 1000, report)
+            self.assertEqual(state, original)
+            self.assertEqual(len(chosen['directories']), 2)
+            self.assertEqual(len(chosen['files']), 6)
+            self.assertFalse(any('unit0-' in name for name in chosen['files'] + chosen['directories']))
+            self.assertEqual(chosen['inputs'], state['inputs'])
+            self.assertEqual(chosen['input_owners'], state['input_owners'])
+            self.assertEqual(report['omitted_unit_groups'], 1)
+            measured = cache.units.cache_stage(chosen, Path(directory) / 'unused', 1000, measure_only=True)
+            self.assertTrue(measured['eligible'], measured)
+            self.assertEqual(report['selection_retained_bytes'], measured['raw_bytes'])
+            reordered = dict(state, files=list(reversed(state['files'])), directories=list(reversed(state['directories'])))
+            self.assertEqual(cache.bounded_library_state(reordered, 1000, {}), chosen)
+            self.assertTrue(all((root / 'target' / name).exists() for name in state['files']))
+
+    def test_oversized_newest_unit_does_not_discard_smaller_complete_units(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, state = self.make_state(Path(directory), (100, 100, 2000))
+            chosen = cache.bounded_library_state(state, 300, {})
+            self.assertEqual(len(chosen['directories']), 2)
+            self.assertFalse(any('unit2-' in name for name in chosen['files']))
+
+    def test_malformed_capture_cannot_be_pruned_into_success(self):
+        for change in ('incomplete', 'selection', 'unsafe', 'missing', 'unbound', 'ambiguous'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root, state = self.make_state(Path(directory))
+                if change == 'incomplete':
+                    state['complete'] = False
+                elif change == 'selection':
+                    state['selection'] = 'all'
+                elif change == 'unsafe':
+                    state['files'].append('../outside')
+                elif change == 'missing':
+                    (root / 'target' / state['files'][0]).unlink()
+                elif change == 'unbound':
+                    path = root / 'target/debug/mystery.rlib'
+                    path.write_bytes(b'x')
+                    state['files'].append('debug/mystery.rlib')
+                else:
+                    state['directories'].append('debug/.fingerprint/other-0000000000000001')
+                with self.assertRaises((OSError, ValueError)):
+                    cache.bounded_library_state(state, 1000, {})
+
+    def test_generator_units_and_unhashed_libraries_are_pinned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, state = self.make_state(Path(directory))
+            target = root / 'target'
+            additions = ['debug/build/generator-1111111111111111',
+                         'debug/.fingerprint/generator-1111111111111111',
+                         'debug/build/generator-2222222222222222',
+                         'debug/.fingerprint/generator-2222222222222222',
+                         'debug/.fingerprint/mixed-3333333333333333']
+            for name in additions:
+                path = target / name
+                path.mkdir(parents=True)
+                (path / 'metadata').write_bytes(b'x')
+            state['directories'].extend(additions)
+            outputs = ['debug/build/generator-1111111111111111/build-script-build',
+                       'debug/deps/libmixed.so', 'debug/deps/libmixed.rlib', 'debug/deps/mixed.d']
+            for name in outputs:
+                (target / name).write_bytes(b'output')
+            state['files'].extend(outputs)
+            state['unhashed_libraries'] = {'debug/mixed': dict(profile='debug', package='mixed',
+                name='mixed', filenames=['debug/deps/libmixed.so', 'debug/deps/libmixed.rlib'])}
+            chosen = cache.bounded_library_state(state, 500, {})
+            self.assertTrue(set(additions) <= set(chosen['directories']))
+            self.assertTrue(set(outputs) <= set(chosen['files']))
+            with self.assertRaisesRegex(ValueError, 'mandatory'):
+                cache.bounded_library_state(state, 1, {})
+
+    def test_cross_unit_hardlinks_are_not_split(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, state = self.make_state(Path(directory), (100, 100, 200))
+            first, second = [root / 'target/debug/deps' / f'libunit{index}-{index + 1:016x}.rlib'
+                             for index in (0, 1)]
+            second.unlink()
+            os.link(first, second)
+            chosen = cache.bounded_library_state(state, 300, {})
+            self.assertEqual(len(chosen['directories']), 2)
+            self.assertFalse(any('unit2-' in name for name in chosen['files']))
+            with self.assertRaisesRegex(ValueError, 'mandatory'):
+                cache.bounded_library_state(state, 200, {})
+
+    def test_real_observed_raw_size_is_bounded_without_hash_or_copy(self):
+        # Sparse fixtures reproduce the 12,144,199,095-byte observed selection,
+        # not its compression ratio or its actual compiled output contents.
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            observed = 12_144_199_095
+            root, state = self.make_state(directory, (observed // 3 - 31,) * 3)
+            state_path = directory / 'state.json'
+            state_path.write_text(json.dumps(state))
+            args = SimpleNamespace(scope='ordinary', state=state_path, cache=directory / 'cache')
+            with patch.object(cache, 'ROOT', root), patch.object(cache.units, '_cache_file') as digest, \
+                 patch.object(cache.units, '_cache_copy') as copy, patch.object(cache, 'api_client') as remote:
+                report = {}
+                chosen = cache.measure_cache(args, report)
+            self.assertEqual(report['full_selection_raw_bytes'], observed)
+            self.assertTrue(report['eligible'], report)
+            self.assertLessEqual(report['raw_bytes'], 6 * 1024 ** 3)
+            self.assertLess(len(chosen['files']), len(state['files']))
+            digest.assert_not_called()
+            copy.assert_not_called()
+            remote.assert_not_called()
+            self.assertFalse(args.cache.exists())
+
+    def test_upload_miss_reselects_locally_and_rechecks_final_inventory(self):
+        for inventory_growth in (False, True):
+            with self.subTest(inventory_growth=inventory_growth), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                root, state = self.make_state(directory)
+                state_path = directory / 'state.json'
+                state_path.write_text(json.dumps(state))
+                args = SimpleNamespace(scope='ordinary', state=state_path, cache=directory / 'cache')
+                first, final = api(), api([entry(key='other', size_in_bytes=10_000_000_000)] if inventory_growth else [])
+                limit = cache.policy.FAMILIES['ordinary']['max_upload_bytes']
+                packed = []
+
+                def pack(staged, payload, maximum, **kwargs):
+                    manifest = json.loads((staged / 'manifest.json').read_text())
+                    packed.append(set(manifest['files']))
+                    payload.write_bytes(b'mock archive')
+                    return dict(archive_bytes=12)
+
+                with patch.object(cache, 'ROOT', root), patch.object(cache, 'identity', return_value={'key': key()}), \
+                     patch.object(cache, 'api_client', side_effect=[first, final]), \
+                     patch.object(cache.archive, 'pack_archive', side_effect=pack), \
+                     patch.object(cache.archive, 'upload_bound', side_effect=[{'upload_bound_bytes': limit * 2},
+                                                                            {'upload_bound_bytes': limit}]), \
+                     patch.dict(os.environ, environment(), clear=True):
+                    report = {}
+                    cache.stage_cache(args, 10_000_000_000, report)
+                self.assertEqual(len(packed), 2)
+                self.assertTrue(packed[1] < packed[0])
+                self.assertEqual(report['save'], not inventory_growth, report)
+                self.assertEqual((args.cache / cache.ARCHIVE_NAME).exists(), not inventory_growth)
+                first.list_caches.assert_called_once_with()
+                final.list_caches.assert_called_once_with()
+                self.assertEqual(len(report['pack_attempts']), 2)
+
+    def test_pack_retries_are_bounded_and_do_not_publish_an_oversized_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            root, state = self.make_state(directory, (100,) * 20)
+            state_path = directory / 'state.json'
+            state_path.write_text(json.dumps(state))
+            args = SimpleNamespace(scope='ordinary', state=state_path, cache=directory / 'cache')
+            limit = cache.policy.FAMILIES['ordinary']['max_upload_bytes']
+
+            def pack(staged, payload, maximum, **kwargs):
+                payload.write_bytes(b'mock archive')
+                return dict(archive_bytes=12)
+
+            with patch.object(cache, 'ROOT', root), patch.object(cache, 'identity', return_value={'key': key()}), \
+                 patch.object(cache, 'api_client', return_value=api()), \
+                 patch.object(cache.archive, 'pack_archive', side_effect=pack) as packing, \
+                 patch.object(cache.archive, 'upload_bound', return_value={'upload_bound_bytes': limit + 1}), \
+                 patch.dict(os.environ, environment(), clear=True):
+                report = {}
+                cache.stage_cache(args, 10_000_000_000, report)
+            self.assertEqual(packing.call_count, 3)
+            self.assertFalse(report['save'])
+            self.assertEqual(report['reason'], 'ordinary single upload budget')
+            self.assertFalse((args.cache / cache.ARCHIVE_NAME).exists())
+
+    def test_formal_budget_has_consistent_generation_and_repository_limits(self):
+        policy = cache.policy
+        spec = policy.FAMILIES['formal']
+        self.assertEqual((spec['max_upload_bytes'], spec['max_bytes'], spec['rotation_bytes']),
+                         (1024 ** 3, 2 * 1024 ** 3, 3 * 1024 ** 3))
+        observed = 817_681_480
+        self.assertTrue(policy.save_policy([], key('formal'), observed, 20_000_000_000)['capacity_allowed'])
+        retained = [entry(index, key=key('formal', f'{index:x}'), size_in_bytes=1024 ** 3) for index in (1, 2)]
+        self.assertTrue(policy.save_policy(retained, key('formal'), 1024 ** 3, 20_000_000_000)['capacity_allowed'])
+        self.assertEqual(policy.save_policy([], key('formal'), 1024 ** 3 + 1, 20_000_000_000)['reason'],
+                         'formal single upload budget')
+        crowded = [entry(key='other-families', size_in_bytes=20_000_000_000 - observed + 1)]
+        self.assertEqual(policy.save_policy(crowded, key('formal'), observed, 20_000_000_000)['reason'],
+                         'repository cache capacity gap')
+        occupied = [entry(key='other-families', size_in_bytes=20_000_000_000 - observed)]
+        self.assertEqual(policy.save_policy(occupied, key('formal'), observed, 20_000_000_000,
+                         reserved_repository_bytes=policy.DEPENDENCY_ROTATION_HEADROOM_BYTES)['reason'],
+                         'dependency rotation headroom')
+
+
 @unittest.skipUnless(all(shutil.which(tool) for tool in ('cargo', 'rustc', 'zstd')),
                      'compact workspace smoke requires Cargo, rustc and zstd')
 class RealCargoCompact(unittest.TestCase):
@@ -505,6 +614,67 @@ class RealCargoCompact(unittest.TestCase):
                             expected = not ((changed and unit['target']['name'] == 'compact_leaf')
                                             or (scope == 'ordinary' and 'bin' in unit['target']['kind']))
                             self.assertEqual(unit['fresh'], expected, unit)
+
+
+    def test_bounded_subset_rebuilds_omitted_units_and_changed_retained_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / 'checkout'
+            sources = {
+                'Cargo.toml': '[workspace]\nmembers=["a","b","app"]\nresolver="2"\n'
+                              '[profile.dev]\ndebug=0\nincremental=false\n',
+                'a/Cargo.toml': '[package]\nname="trim_a"\nversion="0.1.0"\nedition="2021"\n',
+                'b/Cargo.toml': '[package]\nname="trim_b"\nversion="0.1.0"\nedition="2021"\n',
+                'a/src/lib.rs': 'pub fn value() -> u32 { 7 }\n',
+                'b/src/lib.rs': 'pub fn value() -> u32 { 8 }\n',
+                'app/Cargo.toml': '[package]\nname="trim_app"\nversion="0.1.0"\nedition="2021"\n'
+                                  '[dependencies]\ntrim_a={path="../a"}\ntrim_b={path="../b"}\n',
+                'app/src/main.rs': 'fn main() { println!("{}", trim_a::value()+trim_b::value()); }\n',
+            }
+            for name, text in sources.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            env = dict(os.environ, CARGO_INCREMENTAL='0')
+            for name in ('CARGO_TARGET_DIR', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'):
+                env.pop(name, None)
+            subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, env=env,
+                           check=True, capture_output=True)
+
+            def build():
+                result = subprocess.run(['cargo', 'build', '--workspace', '--offline', '--locked',
+                                         '--message-format=json'], cwd=root, env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+
+            state = cache.units.cache_begin(root, selection='libraries')
+            for message in build():
+                cache.units.cache_record(state, message)
+            cache.units.cache_finish(state)
+            measured = cache.units.cache_stage(state, base / 'unused', measure_only=True)
+            budget = measured['raw_bytes'] - 1
+            chosen = cache.bounded_library_state(state, budget, {})
+            self.assertEqual(len(chosen['directories']), 1)
+            kept = Path(chosen['directories'][0]).name.rsplit('-', 1)[0]
+            staged = cache.units.cache_stage(chosen, base / 'saved', budget)
+            self.assertTrue(staged['save'], staged)
+            for changed in (False, True):
+                shutil.rmtree(root / 'target')
+                for name in (*sources, 'Cargo.lock'):
+                    os.utime(root / name, None)
+                if changed:
+                    file = root / ('a' if kept == 'trim_a' else 'b') / 'src/lib.rs'
+                    old = 7 if kept == 'trim_a' else 8
+                    file.write_text(f'pub fn value() -> u32 {{ {old + 1} }}\n')
+                    old_stamp = state['inputs'][file.relative_to(root).as_posix()]['mtime_ns']
+                    os.utime(file, ns=(old_stamp, old_stamp))
+                restored = cache.units.cache_restore(root, base / 'saved', budget)
+                self.assertTrue(restored['restored'], restored)
+                artifacts = [item for item in build() if item.get('reason') == 'compiler-artifact']
+                for item in artifacts:
+                    self.assertEqual(item['fresh'], item['target']['name'] == kept and not changed, item)
+                value = subprocess.check_output([str(root / 'target/debug/trim_app')], text=True).strip()
+                self.assertEqual(value, '16' if changed else '15')
 
 
 if __name__ == '__main__':

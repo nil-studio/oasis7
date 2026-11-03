@@ -113,10 +113,121 @@ def read_state(args):
     return state
 
 
+def bounded_library_state(state, maximum, report):
+    """Retain whole recorded units, never an arbitrary prefix of their files.
+
+    Ordinary full runs can collect many feature variants. Prefer the most
+    recently built units (the full-fast variants run last), then stable paths.
+    This is a packing heuristic, not an assertion about compilation savings.
+    Generators, unhashed outputs and cross-unit hard links stay together.
+    """
+    if (state.get('schema_version') != units.CACHE_SCHEMA or state.get('complete') is not True
+            or state.get('selection') != 'libraries' or type(maximum) is not int or maximum <= 0):
+        raise ValueError('bounded selection requires a complete library state and positive budget')
+    target = Path(state['target'])
+    files, directories = set(state['files']), set(state['directories'])
+    fingerprints, builds = {}, set()
+    for name in directories:
+        path = Path(name)
+        units._cache_path(target, name)
+        match = re.fullmatch(r'(.+)-([0-9a-f]{16})', path.name)
+        if not match or path.parent.name not in ('.fingerprint', 'build'):
+            raise ValueError('unsupported bounded Cargo unit directory: ' + name)
+        unit = (path.parent.parent.as_posix(), match[2])
+        if path.parent.name == 'build':
+            builds.add(name)
+        elif unit in fingerprints:
+            raise ValueError('ambiguous bounded Cargo unit hash: ' + name)
+        else:
+            fingerprints[unit] = name
+    # The existing recorder has already resolved the unique unhashed library
+    # fingerprint. Pin every observed unit of that package rather than guessing
+    # which public filename belongs to which feature variant.
+    unhashed, pinned_packages = set(), set()
+    for entry in state.get('unhashed_libraries', {}).values():
+        profile = Path(entry['profile'])
+        pinned_packages.add((profile.as_posix(), entry['package']))
+        for filename in entry['filenames']:
+            output = Path(filename)
+            unhashed.update((filename, (profile / 'deps' / output.name).as_posix()))
+            if output.parent.name != 'deps':
+                unhashed.add(output.with_suffix('.d').as_posix())
+        unhashed.add((profile / 'deps' / (entry['name'] + '.d')).as_posix())
+    groups = {name: dict(files=set(), directories={name}) for name in fingerprints.values()}
+    support = dict(files=set(), directories=set(builds))
+    build_units = {(Path(name).parent.parent.as_posix(), Path(name).name) for name in builds}
+    pinned = set()
+    for unit, name in fingerprints.items():
+        package = Path(name).name.rsplit('-', 1)[0]
+        if (unit[0], package) in pinned_packages or (unit[0], Path(name).name) in build_units:
+            pinned.add(name)
+    for name in files:
+        path = Path(name)
+        units._cache_path(target, name)
+        if any(path.is_relative_to(Path(directory)) for directory in builds) or name in unhashed:
+            support['files'].add(name)
+            continue
+        match = re.fullmatch(r'.+-([0-9a-f]{16})(?:\..+)?', path.name)
+        unit = (path.parent.parent.as_posix(), match[1]) if match else None
+        if path.parent.name != 'deps' or unit not in fingerprints:
+            raise ValueError('unbound bounded Cargo output: ' + name)
+        groups[fingerprints[unit]]['files'].add(name)
+    # An unassigned fingerprint is allowed only for a pinned generator or
+    # unhashed library, not as a fabricated complete unit without outputs.
+    if any(not group['files'] and name not in pinned for name, group in groups.items()):
+        raise ValueError('bounded Cargo fingerprint has no recorded output')
+    groups['support'] = support
+    pinned.add('support')
+    inodes = {}
+    for name, group in groups.items():
+        selected = {file: units._cache_path(target, file).stat() for file in group['files']}
+        for directory in group['directories']:
+            path = units._cache_path(target, directory)
+            children, _ = units._cache_walk(path)
+            selected.update({(Path(directory) / child).as_posix(): info for child, info in children.items()})
+        group['bytes'] = sum(info.st_size for info in selected.values())
+        group['stamp'] = max((info.st_mtime_ns for info in selected.values()), default=0)
+        for info in selected.values():
+            inodes.setdefault((info.st_dev, info.st_ino), set()).add(name)
+    # Do not break aliases crossing two otherwise separate fingerprint units.
+    for owners in inodes.values():
+        if len(owners) > 1:
+            pinned.update(owners)
+    retained = set(pinned)
+    used = sum(groups[name]['bytes'] for name in retained)
+    if used > maximum:
+        raise ValueError('mandatory Cargo support units exceed bounded staging budget')
+    ordered = sorted(set(groups) - pinned, key=lambda name: (-groups[name]['stamp'], name))
+    for name in ordered:
+        if used + groups[name]['bytes'] <= maximum:
+            retained.add(name)
+            used += groups[name]['bytes']
+    chosen_files = sorted({file for name in retained for file in groups[name]['files']})
+    chosen_dirs = sorted({directory for name in retained for directory in groups[name]['directories']})
+    if not chosen_files or not chosen_dirs:
+        raise ValueError('no complete Cargo library unit fits bounded staging budget')
+    omitted = sorted(set(groups) - retained)
+    report.update(selection_policy='whole-units-newest-v1', selection_budget_bytes=maximum,
+                  selection_candidate_bytes=sum(group['bytes'] for group in groups.values()),
+                  selection_retained_bytes=used, retained_unit_groups=len(retained - {'support'}),
+                  omitted_unit_groups=len(omitted), omitted_unit_samples=omitted[:50],
+                  omitted_unit_samples_truncated=len(omitted) > 50)
+    # Preserve the complete input snapshot and ownership map. An omitted unit
+    # has no restored fingerprint; Cargo remains responsible for rebuilding it
+    # and propagating its invalidation to all dependent units.
+    return dict(state, files=chosen_files, directories=chosen_dirs)
+
+
 def measure_cache(args, report):
     state = read_state(args)
     report.update(units.cache_stage(state, temporary(args.cache),
                   policy.FAMILIES[args.scope]['staging_bytes'], measure_only=True), save=False)
+    report['full_selection_raw_bytes'] = report.get('raw_bytes')
+    if (args.scope == 'ordinary' and not report.get('eligible')
+            and report.get('raw_bytes', 0) > policy.FAMILIES['ordinary']['staging_bytes']):
+        state = bounded_library_state(state, policy.FAMILIES['ordinary']['staging_bytes'], report)
+        report.update(units.cache_stage(state, temporary(args.cache),
+                      policy.FAMILIES['ordinary']['staging_bytes'], measure_only=True), save=False)
     return state
 
 
@@ -144,14 +255,28 @@ def stage_cache(args, budget, report):
         raise ValueError('workspace archive directory contains unexpected files')
     payload = cache / ARCHIVE_NAME
     payload.unlink(missing_ok=True)
-    with tempfile.TemporaryDirectory(prefix='workspace-stage-', dir=cache.parent) as directory:
-        staged = Path(directory) / 'units'
-        result = units.cache_stage(state, staged, maximum)
-        report.update(result, save=False)
-        if not result.get('save'):
-            return
-        report.update(archive.pack_archive(staged, payload, maximum, compact=True))
-    report.update(archive.upload_bound(payload, root=ROOT))
+    report['pack_attempts'] = []
+    selection_maximum = maximum
+    # At most three local packs; never retry remote writes or capacity failures.
+    # Raw bytes do not predict compression. A measured upload miss narrows the
+    # ordinary unit selection and is checked again by the same archive bounds.
+    for attempt in range(3 if args.scope == 'ordinary' else 1):
+        with tempfile.TemporaryDirectory(prefix='workspace-stage-', dir=cache.parent) as directory:
+            staged = Path(directory) / 'units'
+            result = units.cache_stage(state, staged, maximum)
+            report.update(result, save=False)
+            if not result.get('save'):
+                return
+            report.update(archive.pack_archive(staged, payload, maximum, compact=True))
+        report.update(archive.upload_bound(payload, root=ROOT))
+        bound = report['upload_bound_bytes']
+        limit = policy.FAMILIES[args.scope]['max_upload_bytes']
+        report['pack_attempts'].append(dict(raw_bytes=report['raw_bytes'], upload_bound_bytes=bound))
+        if bound <= limit or args.scope != 'ordinary' or attempt == 2:
+            break
+        selection_maximum = min(selection_maximum - 1, report['raw_bytes'] * limit * 9 // (bound * 10))
+        payload.unlink(missing_ok=True)
+        state = bounded_library_state(state, selection_maximum, report)
     # The preflight observation is not a reservation; staging can take minutes.
     entries = policy.capacity_context(maintenance, api_client(), budget, report)
     report.update(policy.save_policy(entries, key, report['upload_bound_bytes'],
