@@ -502,7 +502,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/failure-blocked.svg)；区域：named visible cards: 本次损失 / 恢复动作。
   - 已画状态：安全门提案 · 非现有行为。
   - 区域「本次损失」：Factory 示例 F · Recipe 示例 R；Blocker：validation failed；Consumed：iron_ore × 4 · Lost：× 1；Consumed power 2 · Lost power 1；电力单位源未指定
-  - 区域「恢复动作」：recoveryAction：示例已发布动作；disabledReason：等待权威条件；下一次复查：next committed snapshot；当前源码按钮缺少 disabled；本稿明确补门。
+  - 区域「恢复动作」：恢复动作已发布但当前暂不可用；原因：等待权威条件；下次复查：下一份已提交的权威快照；条件未满足前不执行，不自动重复恢复。recoveryAction / disabledReason 映射和禁用门交付说明放在独立设计注记，不混入玩家当前状态；静态稿不证明实现已修复。
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
 <a id="r-game-23"></a>
