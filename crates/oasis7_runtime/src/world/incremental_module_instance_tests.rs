@@ -1,4 +1,6 @@
 use super::incremental_body::write_field_bytes;
+#[path = "incremental_module_invocation_tests.rs"]
+mod invocation;
 use super::{
     World,
     incremental_body::{BodyMutationContext, BodyMutationError},
