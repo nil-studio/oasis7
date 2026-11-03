@@ -115,16 +115,19 @@ fn setup(memory: &MemoryBudget) -> (World, ExecutionParent, Pages, Values) {
     world.module_tick_schedule.insert("m#2".into(), u64::MAX);
     let mut values = Values::default();
     seed_schedules(&world, &mut parent, &mut pages, &mut values, memory);
-    write_field_bytes(
-        &oasis7_world_state::incremental_agent_body::world_time_bytes_v1(world.state.time),
-        &mut BodyMutationContext {
-            sink: &mut values,
-            memory,
-            io: &mut io(),
-            cancelled: || false,
-        },
-    )
-    .unwrap();
+    // The parent fixture already committed this clock's registered keys;
+    // materialize their identical values through the current unique writer.
+    world
+        .write_iws_clock_genesis(
+            &mut BodyMutationContext {
+                sink: &mut values,
+                memory,
+                io: &mut io(),
+                cancelled: || false,
+            },
+            |_, _| Ok(()),
+        )
+        .unwrap();
     (world, parent, pages, values)
 }
 fn replace(parent: &mut ExecutionParent, pages: &mut Pages, key: Vec<u8>, after: Option<[u8; 32]>) {

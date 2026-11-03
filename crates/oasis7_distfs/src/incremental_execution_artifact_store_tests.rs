@@ -11,6 +11,71 @@ use oasis7_formal_protocol::{
     },
 };
 use std::io::Read;
+
+#[test]
+fn artifact_page_preparation_rejects_foreign_and_undercharged_carriers_before_io() {
+    let dir = Fixture::new();
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&dir.store(), memory.clone(), PageCompression::Raw).unwrap();
+    let mut pages = store
+        .state_session(physical_io(), MemoryClass::Ordinary)
+        .unwrap();
+    let delta = ArtifactCatalogV1::empty(ArtifactKindV1::Wasm)
+        .unwrap()
+        .append(
+            &[ArtifactEntryV1 {
+                kind: ArtifactKindV1::Wasm,
+                original: OriginalArtifactRefV1 {
+                    id: [7; 32],
+                    byte_len: 8,
+                },
+            }],
+            &pages,
+            &memory,
+            4 << 20,
+        )
+        .unwrap();
+    // Admit actual cloned Vec/String capacities before intentionally giving
+    // the adversarial public carrier a wrong fee or a foreign pool.
+    let _clone_scratch = memory
+        .reserve(delta.reserved_bytes() * 2, MemoryClass::Ordinary)
+        .unwrap();
+    let undercharged = memory
+        .reserve(1, MemoryClass::Ordinary)
+        .unwrap()
+        .retain((*delta).clone());
+    let foreign_memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let foreign = foreign_memory
+        .reserve(delta.reserved_bytes(), MemoryClass::Ordinary)
+        .unwrap()
+        .retain((*delta).clone());
+    let before = pages.remaining_io().unwrap();
+    for bad in [&undercharged, &foreign] {
+        assert!(matches!(
+            pages.persist_artifact_pages(bad),
+            Err(PageStoreError::Corrupt("artifact producer admission"))
+        ));
+        let after = pages.remaining_io().unwrap();
+        assert_eq!(
+            (
+                after.reads_remaining,
+                after.read_bytes_remaining,
+                after.writes_remaining,
+                after.write_bytes_remaining
+            ),
+            (
+                before.reads_remaining,
+                before.read_bytes_remaining,
+                before.writes_remaining,
+                before.write_bytes_remaining
+            )
+        );
+    }
+    pages.persist_artifact_pages(&delta).unwrap();
+    assert!(pages.remaining_io().unwrap().writes_remaining < before.writes_remaining);
+}
+
 fn wasm() -> impl Read {
     // A core WASM module containing one large custom section with empty name.
     let mut bytes = b"\0asm\x01\0\0\0".to_vec();
