@@ -144,6 +144,11 @@ where
     if !parent.uses_budget(ctx.memory)
         || parent.reserved_bytes() < 1024
         || parent.allocation_class() != ctx.class
+        || !ctx
+            .state
+            .allocation_budget()
+            .is_some_and(|pool| pool.same_pool(ctx.memory))
+        || ctx.state.allocation_class() != Some(ctx.class)
         || verifier.class != ctx.class
         || !verifier.memory.same_pool(ctx.memory)
         || ctx.root != record.after.state_root(StateNamespaceV1::Business)

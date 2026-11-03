@@ -565,7 +565,11 @@ fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
         let foreign = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let typed_state = Store {
             memory: if case == 8 { &foreign } else { &memory },
-            class: if case == 7 { MemoryClass::Recovery } else { MemoryClass::Ordinary },
+            class: if case == 7 {
+                MemoryClass::Recovery
+            } else {
+                MemoryClass::Ordinary
+            },
             pages: RefCell::new(pages.0.clone()),
             fail_write: false,
         };
