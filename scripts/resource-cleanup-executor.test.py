@@ -960,4 +960,4 @@ if __name__ == '__main__':
         sys.argv.remove('--host-smoke')
         unittest.main(defaultTest='HostSmokeTests')
     else:
-        unittest.main(defaultTest=['SafetyTests', 'ProcessReadbackTests', 'DeliveryTests', 'SubmoduleSafetyTests'])
+        unittest.main(defaultTest=['SafetyTests', 'ProcessReadbackTests', 'DeliveryTests', 'GitTemplateTests', 'SubmoduleSafetyTests'])
