@@ -254,11 +254,12 @@ fn measure_grouped_middle_bid_delete(bid_count: u64, shared_group: bool) -> BidM
     };
     let mut remaining = 20_000;
     let ordinal = bid_count / 2;
-    let (expected_order_id, expected_bidder_agent_id) = if shared_group || matches!(ordinal, 0 | 4 | 8) {
-        (77, "duplicate/β".to_owned())
-    } else {
-        (100 + ordinal, format!("bidder/{ordinal}"))
-    };
+    let (expected_order_id, expected_bidder_agent_id) =
+        if shared_group || matches!(ordinal, 0 | 4 | 8) {
+            (77, "duplicate/β".to_owned())
+        } else {
+            (100 + ordinal, format!("bidder/{ordinal}"))
+        };
     let guard = transaction.guard();
     let nodes_before = read_io.nodes_remaining;
     let bytes_before = read_io.read_bytes_remaining;
@@ -293,12 +294,15 @@ fn measure_grouped_middle_bid_delete(bid_count: u64, shared_group: bool) -> BidM
         .into_iter()
         .filter(|ordinal| *ordinal < bid_count)
         .count() as u64;
-    let initial_group_count = if shared_group { 1 } else {
+    let initial_group_count = if shared_group {
+        1
+    } else {
         bid_count - duplicate_count + u64::from(duplicate_count != 0)
     };
-    let deleted_from_duplicate = shared_group || ([0u64, 4, 8].contains(&ordinal) && duplicate_count != 0);
-    let group_count =
-        initial_group_count - u64::from(!deleted_from_duplicate || (!shared_group && duplicate_count == 1));
+    let deleted_from_duplicate =
+        shared_group || ([0u64, 4, 8].contains(&ordinal) && duplicate_count != 0);
+    let group_count = initial_group_count
+        - u64::from(!deleted_from_duplicate || (!shared_group && duplicate_count == 1));
     assert_eq!(child.leaf_count, 3 + (bid_count - 1) * 7 + group_count);
     let operation_reads = values.read_counts();
     let metrics = BidMutatorMetrics {
@@ -310,6 +314,12 @@ fn measure_grouped_middle_bid_delete(bid_count: u64, shared_group: bool) -> BidM
     let mut expected_ids = (0..bid_count).collect::<Vec<_>>();
     expected_ids.remove(ordinal as usize);
     audit_bid_index_tree(child, &values, &memory, &expected_ids);
+    if shared_group {
+        let (group, _) =
+            membership_tests::literal_group_child(child, 77, "duplicate/β", &values, &memory)
+                .expect("remaining original pair must retain its membership group");
+        audit_bid_index_tree(&group, &values, &memory, &expected_ids);
+    }
     let guard = transaction.guard();
     let prepared = transaction.seal(&guard, &live, 0).unwrap();
     assert_eq!(prepared.record.reads.len(), 2);

@@ -364,13 +364,16 @@ where
                 cancelled,
                 remaining,
             )?;
-            let successor_fields = successor.node;
-            let successor = store_node(
+            // Removing the right minimum may shorten that subtree. After
+            // transplanting the successor, rebalance the new subtree root too.
+            let successor = rebalance(
                 root,
                 descriptor,
                 successor,
-                successor_fields,
                 values,
+                key_work,
+                semantic_limit,
+                record_limit,
                 write,
                 cancelled,
                 remaining,

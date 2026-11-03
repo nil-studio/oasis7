@@ -18,7 +18,7 @@ fn literal_pair_group_key(digest: &[u8; 32]) -> String {
     key
 }
 
-fn literal_group_child(
+pub(super) fn literal_group_child(
     bids: &StateRootV1,
     order_id: u64,
     bidder_agent_id: &str,
