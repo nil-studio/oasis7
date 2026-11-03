@@ -164,6 +164,12 @@ Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。
 
 完整声明检查及全部登记 profile 的依赖图始终执行。普通源码变化的必需编译集合为：可信 BASE 选择器从 base/source/tested（含实际 merge parents）归属及嵌入输入得到的直接受影响包，与每个 profile 的实际 Cargo 图相交的 root/profile；图包括 normal/build，测试配置另含 root dev，host build/proc-macro 与 target 条件及 features 由 Cargo 解析。编译选择使用未豁免的完整图，精确互操作允许关系只影响违规判定，不能使构建输入漏选。未选中编译明确报告 `not_required`，图通过与编译成功分别记录，不能声称执行过未选项。
 
+[普通快速合同](../../testing/ci/ci-tiered-execution.design.md#pr-快速反馈与周期完整回归设计)可以显式调整编译分层。可信 scope 配置声明 `architecture_build_policy_version=1`，且完整计划是有效的 targeted inline、恰好包含 baseline/Rust baseline/native 三组、没有额外 WASM/Formal、测试政策迁移或必要加测例外时，选择器才可输出 `architecture.build_policy_version=1`、`build_policy=ordinary-targets`。全部直接 architecture 输入必须非空，并完整包含于已验证快速 target 的 package owner 集合；不另维护一份覆盖名单。混有 custody、平台或其他未被快速目标承接的输入时，整份架构计划沿用原编译选择。
+
+消费者复用执行层对完整计划、精确目标及 source/tested 的校验。合法快速计划仍检查全部声明和全部登记 profile 的 Cargo 图；原本因输入交集要求编译的 profile 改记 `deferred_to_full`，由 periodic-full/candidate-full 执行原命令。当轮必需 native 构建与真实测试、strict Clippy 继续验证计划中的全部快速目标，任一失败由原 required gate 阻断。此分工允许仅在上层消费者或扩展 feature 中暴露的兼容编译错误由周期 full 发现，不声称无默认 feature 的 required 变体等价于 default/full/test-support/wasmtime/WASM 矩阵。
+
+缺少或未知整数版本的编译分层能力时沿用既有编译选择；已知版本的非法字段、缺失必需组、输入未覆盖或身份不符返回 `inspection_error`。脏工作区恢复完整编译矩阵，不能消费延期能力。full 与共享控制计划不产生该能力；完整入口实际执行全部原矩阵，不能以快速目标成功抵扣。`--graphs-only` 和 `--profile` 的原有缺口判定不受此能力影响。
+
 Cargo manifest/lock/build script/toolchain、检查器/规则/profile 或 CI 控制变化，显式 full，以及可信计划缺失、旧版或已登记输入解析不确定时，执行完整登记编译矩阵。未登记路径仍由可信 scope 明确拒绝；full 或候选配置不能用于自行登记。候选图解析失败返回 inspection_error，不借缩小集合规避失败。可信 BASE 旧选择器没有局部字段时完整执行，待登记合入后才启用局部收益。排障 `--profile`/`--graphs-only` 仍产生 coverage_gap，不能代替可信必需集合。
 
 报告包含可信输入集合、选择理由、实际图/编译项及两阶段耗时。profile 的整体状态汇总图违规与构建结果；构建成功不能覆盖闭包违规。协议 handler/fixture 的 workspace-support 保留原完整选择，因为同时承担 Rust handler 与其他消费者回归，不仅是 TS 输入。
@@ -181,6 +187,7 @@ Cargo manifest/lock/build script/toolchain、检查器/规则/profile 或 CI 控
 | `violation` | 已证明禁入关系可达或直接声明违规 | 定位规则、root、禁止对象及依赖路径，返回非零 |
 | `inspection_error` | 元数据、工具链、输入或缓存使检查未完成 | 不能变成 pass；修复环境/输入后重跑，返回非零 |
 | `coverage_gap` | 必需组合未注册、未检查或检查范围不足 | 明示缺口；正式启用后的必需检查返回非零 |
+| `deferred_to_full` | 可信普通快速合同明确将该 profile 的额外编译安排到完整层 | 仅用于 build 视图，记录 profile、分层依据与承接入口；不表示编译成功或平台不适用，图违规仍失败 |
 
 每项诊断包含 source HEAD、lockfile digest、规则/工具版本、实际命令、root、host/target、features、edge kind、声明位置、上游条款和采用的例外；违规给出最短或足以定位的具体路径。不把完整巨大 cargo tree 当唯一诊断，不在报告中写凭据。声明检查通过与解析闭包通过分别呈现。
 

@@ -21,7 +21,7 @@ impl ReadAuthorityId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct WorldServiceClientConfig {
     pub formal_read_trust: Option<FormalReadTrustConfigV1>,
     pub endpoint: String,
@@ -154,6 +154,32 @@ pub struct RemoteWorldServiceReader<P: FormalReadProjection> {
     pub(super) transport: crate::WorldServiceTransport,
 }
 impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
+    /// Reuse the authenticated connection while isolating mutable proof progress.
+    /// This copies only already verified local state; it cannot install a pin
+    /// or trust evidence supplied by a remote response.
+    pub fn independent_clone(&self) -> Result<Self, WorldServiceClientError> {
+        let formal_read = self
+            .formal_read
+            .as_ref()
+            .map(|cache| {
+                cache
+                    .lock()
+                    .map(|verifier| std::sync::Arc::new(std::sync::Mutex::new(verifier.clone())))
+                    .map_err(|_| {
+                        WorldServiceClientError::Assurance(
+                            "formal verifier cache is poisoned".into(),
+                        )
+                    })
+            })
+            .transpose()?;
+        Ok(Self {
+            formal_read,
+            formal_trust_identity: self.formal_trust_identity.clone(),
+            evidence_policy: self.evidence_policy,
+            config: self.config.clone(),
+            transport: self.transport.clone(),
+        })
+    }
     pub fn new(config: WorldServiceClientConfig) -> Result<Self, WorldServiceClientError> {
         if let Some(formal) = config.formal_read_trust.clone() {
             let anchor = formal

@@ -345,3 +345,25 @@ fn explicit_empty_bootstrap_history_preserves_legacy_bytes_and_state_root() {
         serde_json::to_value(WorldStateProjection::borrowed(&legacy.state)).unwrap()
     );
 }
+
+#[test]
+fn bootstrap_manual_decoder_rejects_duplicate_map_field_and_sequence_extension() {
+    let json = serde_json::to_string(&snapshot().state).unwrap();
+    let duplicate = format!(
+        "{},\"governance_bootstrap_finality_key_rotations\":{{}},\"governance_bootstrap_finality_key_rotations\":{{}}}}",
+        &json[..json.len() - 1]
+    );
+    let error = serde_json::from_str::<crate::WorldState>(&duplicate).unwrap_err();
+    assert!(error.to_string().contains("duplicate field"));
+    let mut legacy: serde_cbor::Value = serde_cbor::from_slice(include_bytes!(
+        "state/world_state_deserialize_enriched_sequence.cbor"
+    ))
+    .unwrap();
+    let serde_cbor::Value::Array(ref mut fields) = legacy else {
+        panic!("legacy sequence fixture")
+    };
+    fields.push(serde_cbor::Value::Map(Default::default()));
+    assert!(
+        serde_cbor::from_slice::<crate::WorldState>(&serde_cbor::to_vec(&legacy).unwrap()).is_err()
+    );
+}

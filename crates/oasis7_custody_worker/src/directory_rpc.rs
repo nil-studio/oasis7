@@ -9,6 +9,12 @@ use worker::Env;
 use worker::{Request, Result};
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ParentsQueryRpc {
+    pub manager_session: CustodySessionStatusV1,
+    pub request: oasis7_custody_core::management_metadata::ManagementParentsQueryV1,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ReserveRpc {
     pub manager_session: CustodySessionStatusV1,
     pub request: ProvisionDraftRequestV1,

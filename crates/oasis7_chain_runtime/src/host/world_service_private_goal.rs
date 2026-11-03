@@ -13,6 +13,11 @@ use oasis7::world_service::private_task_context::{
 };
 use oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
 use oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
+use oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH;
+use oasis7_client_api::world_service::task_context_projection::{
+    CONTEXT_MOVE_PROJECTION_PATH_V2, CONTEXT_PREPARE_ATTESTED_PATH_V2,
+    CONTEXT_READ_ATTESTED_PATH_V2,
+};
 
 use oasis7::world_service::private_goal_read::{
     CurrentGoalRequest, CurrentGoalResponse, GOAL_CURRENT_PATH as CURRENT_PATH,
@@ -91,6 +96,7 @@ enum PrivateError {
     ContextReadDeliveryDrift(Option<task_context::ReadConflictStage>),
     Recovery,
     Unavailable,
+    ContextTooLarge,
 }
 impl From<String> for PrivateError {
     fn from(_: String) -> Self {
@@ -173,6 +179,48 @@ fn prepare(
         .signed(PREPARE_PATH, &proof, receipt)
         .map_err(PrivateError::from)
 }
+fn current_goal_history(
+    service: &Service<'_>,
+    store: &PrivateGoalStore,
+    pinned: &PinnedWorld,
+    agent: &str,
+) -> Result<
+    (
+        Option<CommitRef>,
+        Option<oasis7::world_service::private_goal::PreparedGoalReceiptV1>,
+    ),
+    PrivateError,
+> {
+    Ok(
+        if let Some(result) = game_task::active_publish(&pinned.world, agent)? {
+            let WorldServicePayloadV1::GameGoalPublish(public) = &result.request.signed_payload
+            else {
+                return Err("invalid publication".into());
+            };
+            let historical = service
+                .pin_at_height(result.committed_height)
+                .map_err(|_| PrivateError::Recovery)?;
+            let digest = correlation::key_digest(&result.request.correlation.key)?;
+            let encoded = serde_json::to_value(&result).map_err(|_| "invalid publication")?;
+            if historical
+                .world
+                .capability_revocation_state()
+                .world_service_results
+                .get(&digest)
+                != Some(&encoded)
+            {
+                return Err("activation history unavailable".into());
+            }
+            let receipt = store
+                .get_prepared(&public.request)
+                .map_err(|_| PrivateError::Recovery)?;
+            (Some(historical.commit), Some(receipt))
+        } else {
+            (None, None)
+        },
+    )
+}
+
 fn read_current(
     service: &Service<'_>,
     store: &PrivateGoalStore,
@@ -195,33 +243,7 @@ fn read_current(
         &r.task_id,
         &request.subject_public_key,
     )?;
-    let (activation_commit, goal) = if let Some(result) =
-        game_task::active_publish(&pinned.world, &r.agent_id)?
-    {
-        let WorldServicePayloadV1::GameGoalPublish(public) = &result.request.signed_payload else {
-            return Err("invalid publication".into());
-        };
-        let historical = service
-            .pin_at_height(result.committed_height)
-            .map_err(|_| PrivateError::Recovery)?;
-        let digest = correlation::key_digest(&result.request.correlation.key)?;
-        let encoded = serde_json::to_value(&result).map_err(|_| "invalid publication")?;
-        if historical
-            .world
-            .capability_revocation_state()
-            .world_service_results
-            .get(&digest)
-            != Some(&encoded)
-        {
-            return Err("activation history unavailable".into());
-        }
-        let receipt = store
-            .get_prepared(&public.request)
-            .map_err(|_| PrivateError::Recovery)?;
-        (Some(historical.commit), Some(receipt))
-    } else {
-        (None, None)
-    };
+    let (activation_commit, goal) = current_goal_history(service, store, &pinned, &r.agent_id)?;
     before_delivery();
     let (fresh, after) = current(
         service,
@@ -412,6 +434,7 @@ fn private_route_tag(target: &str) -> &'static str {
         TASK_SNAPSHOT_PATH => "task_snapshot",
         TASK_CONTEXT_PREPARE_PATH => "task_context_prepare",
         TASK_CONTEXT_READ_PATH => "task_context_read",
+        TASK_CONTEXT_LIVE_READ_PATH => "task_context_read_live",
         TASK_RECIPE_QUOTE_PATH => "task_recipe_quote",
         TASK_FACTORY_QUOTE_PATH => "task_factory_quote",
         _ => "other",
@@ -477,16 +500,25 @@ fn maybe_handle_configured(
     mut on_read_conflict: impl FnMut(&'static str),
 ) -> Result<bool, String> {
     let path = target.split('?').next().unwrap_or(target);
+    #[cfg(not(test))]
+    let resource_component_path = false;
+    #[cfg(test)]
+    let resource_component_path = resource_component::handles(path);
     if ![
         PREPARE_PATH,
         CURRENT_PATH,
         TASK_SNAPSHOT_PATH,
         TASK_CONTEXT_PREPARE_PATH,
         TASK_CONTEXT_READ_PATH,
+        TASK_CONTEXT_LIVE_READ_PATH,
+        CONTEXT_PREPARE_ATTESTED_PATH_V2,
+        CONTEXT_READ_ATTESTED_PATH_V2,
+        CONTEXT_MOVE_PROJECTION_PATH_V2,
         TASK_RECIPE_QUOTE_PATH,
         TASK_FACTORY_QUOTE_PATH,
     ]
     .contains(&path)
+        && !resource_component_path
     {
         return Ok(false);
     }
@@ -511,7 +543,6 @@ fn maybe_handle_configured(
             return Err(PrivateError::Forbidden);
         }
         validate_private_headers(bytes)?;
-        let store = store.ok_or("private goals disabled")?;
         let body = super::super::feedback_submit_api::extract_http_json_body(bytes)?;
         let service = Service {
             restore_context: restore_context.clone(),
@@ -522,10 +553,26 @@ fn maybe_handle_configured(
             runtime,
             guarded: None,
         };
+        #[cfg(test)]
+        if resource_component_path {
+            return serde_json::to_value(resource_component::process(
+                &service,
+                store,
+                path,
+                body,
+                before_delivery,
+            )?)
+            .map_err(|_| PrivateError::Unavailable);
+        }
+        let store = store.ok_or("private goals disabled")?;
         if [
             TASK_SNAPSHOT_PATH,
             TASK_CONTEXT_PREPARE_PATH,
             TASK_CONTEXT_READ_PATH,
+            TASK_CONTEXT_LIVE_READ_PATH,
+            CONTEXT_PREPARE_ATTESTED_PATH_V2,
+            CONTEXT_READ_ATTESTED_PATH_V2,
+            CONTEXT_MOVE_PROJECTION_PATH_V2,
             TASK_RECIPE_QUOTE_PATH,
             TASK_FACTORY_QUOTE_PATH,
         ]
@@ -554,6 +601,7 @@ fn maybe_handle_configured(
         Err(error) => {
             let (status, code, stage) = match error {
                 PrivateError::Invalid => (400, "invalid_private_goal_request", None),
+                PrivateError::ContextTooLarge => (409, "context_too_large", None),
                 PrivateError::Forbidden => (403, "private_goal_forbidden", None),
                 PrivateError::Conflict => (409, "private_goal_conflict", None),
                 PrivateError::TaskContextReadConflict(stage) => {
@@ -787,3 +835,7 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "world_service_resource_component.rs"]
+pub(crate) mod resource_component;

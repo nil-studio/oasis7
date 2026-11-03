@@ -237,3 +237,59 @@ fn rejects_bad_boundaries_keys_proof_roles_and_noncanonical_wire() {
     );
     assert!(serde_json::from_str::<FinalityKeyRotationBodyV1>(&duplicated).is_err());
 }
+
+#[test]
+fn rotation_action_json_and_cbor_preserve_four_fields_and_appended_tag() {
+    let action = Action::RotateGovernanceValidatorFinalityKeyV1 {
+        controller_account_id: "controller".into(),
+        body: body(),
+        old_key_proof: proof(FinalityKeyRotationRoleV1::OldKeyAuthorization),
+        new_key_proof: proof(FinalityKeyRotationRoleV1::NewKeyPossession),
+    };
+    let json = serde_json::to_string(&action).unwrap();
+    assert!(json.starts_with(
+        "{\"type\":\"RotateGovernanceValidatorFinalityKeyV1\",\"data\":{\"controller_account_id\":"
+    ));
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let data = value["data"].as_object().unwrap();
+    assert_eq!(data.len(), 4);
+    for field in [
+        "controller_account_id",
+        "body",
+        "old_key_proof",
+        "new_key_proof",
+    ] {
+        assert!(data.contains_key(field));
+    }
+    let fields = [
+        "\"controller_account_id\":",
+        "\"body\":",
+        "\"old_key_proof\":",
+        "\"new_key_proof\":",
+    ];
+    let positions: Vec<_> = fields
+        .iter()
+        .map(|field| json.find(field).unwrap())
+        .collect();
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(serde_json::from_str::<Action>(&json).unwrap(), action);
+    let ordinary = serde_cbor::to_vec(&action).unwrap();
+    assert_eq!(serde_cbor::from_slice::<Action>(&ordinary).unwrap(), action);
+    let packed = serde_cbor::ser::to_vec_packed(&action).unwrap();
+    assert_eq!(serde_cbor::from_slice::<Action>(&packed).unwrap(), action);
+    let packed_value: serde_cbor::Value = serde_cbor::from_slice(&packed).unwrap();
+    let serde_cbor::Value::Map(envelope) = packed_value else {
+        panic!("action envelope")
+    };
+    assert_eq!(
+        envelope.get(&serde_cbor::Value::Integer(0)),
+        Some(&serde_cbor::Value::Integer(90))
+    );
+    let Some(serde_cbor::Value::Map(payload)) = envelope.get(&serde_cbor::Value::Integer(1)) else {
+        panic!("action payload")
+    };
+    assert_eq!(payload.len(), 4);
+    for index in 0..4 {
+        assert!(payload.contains_key(&serde_cbor::Value::Integer(index)));
+    }
+}

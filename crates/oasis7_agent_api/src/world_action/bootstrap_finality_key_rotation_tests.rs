@@ -295,3 +295,23 @@ fn bootstrap_source_and_initial_key_are_bound_and_admitted_domains_stay_separate
         b.authorization.signing_bytes(&action(b.clone())).unwrap()
     );
 }
+
+#[test]
+fn bootstrap_action_manual_serializer_preserves_envelope_and_packed_index() {
+    let action = action(body());
+    let json = serde_json::to_value(&action).unwrap();
+    assert_eq!(json["type"], "RotateGovernanceBootstrapFinalityKeyV1");
+    assert_eq!(serde_json::from_value::<Action>(json).unwrap(), action);
+    let ordinary = serde_cbor::to_vec(&action).unwrap();
+    assert_eq!(serde_cbor::from_slice::<Action>(&ordinary).unwrap(), action);
+    let packed = serde_cbor::ser::to_vec_packed(&action).unwrap();
+    assert_eq!(serde_cbor::from_slice::<Action>(&packed).unwrap(), action);
+    let value: serde_cbor::Value = serde_cbor::from_slice(&packed).unwrap();
+    let serde_cbor::Value::Map(fields) = value else {
+        panic!("packed Action envelope")
+    };
+    assert_eq!(
+        fields.get(&serde_cbor::Value::Integer(0)),
+        Some(&serde_cbor::Value::Integer(91))
+    );
+}

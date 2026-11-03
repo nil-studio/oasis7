@@ -46,8 +46,10 @@ def temporary(path):
 def identity(scope):
     metadata = json.loads(subprocess.check_output(
         ['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], cwd=ROOT, text=True))
-    files = {'Cargo.toml', 'Cargo.lock', WORKFLOW, 'scripts/ci-workspace-cache.py',
-             'scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py', 'scripts/ci-test-artifacts.py',
+    # Hash effective compiler inputs and restore semantics, not orchestration
+    # or capacity policy. Writer authorization still checks WORKFLOW separately.
+    files = {'Cargo.toml', 'Cargo.lock', 'scripts/ci-workspace-cache.py',
+             'scripts/ci-cache-archive.py', 'scripts/ci-test-artifacts.py',
              'scripts/ci-formal-process-suites.json', 'scripts/ci-rust-cache-toolchains.py'}
     files.update(str(Path(package['manifest_path']).relative_to(ROOT)) for package in metadata['packages'])
     files.update(str(path.relative_to(ROOT)) for path in (ROOT / '.cargo').rglob('*') if path.is_file())

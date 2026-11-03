@@ -27,4 +27,10 @@ pub enum EntryOwnerOperationV1 {
     LookupExecutor(AuthenticatedLookup),
     PrepareGoal(SignedGoalPrepareV1),
     ReadGoal(SignedReadRequest<CurrentGoalRequest>),
+    /// Component-only until actual V2 approval and prepaid once scope is implemented.
+    ReadResourceGoal(
+        super::resource_basis::SignedResourceReadV1<
+            super::resource_basis::OwnerSetupFinalResourceReadV2,
+        >,
+    ),
 }

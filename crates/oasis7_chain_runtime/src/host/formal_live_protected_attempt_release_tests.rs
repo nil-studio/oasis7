@@ -89,7 +89,7 @@ fn attempt_release_runtime_child() {
                 return Ok(());
             }
             runtime.start()?;
-            oracle_support::write_private(Path::new(&ready), b"ready")?;
+            oracle_support::publish_ready_marker(Path::new(&ready))?;
             loop {
                 thread::sleep(Duration::from_millis(20));
             }

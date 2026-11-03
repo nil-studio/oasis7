@@ -529,10 +529,14 @@ impl RuntimeLlmSidecar {
                     "wait-capture-after.json",
                     &serde_json::to_vec(&after).map_err(|_| "test Wait capture snapshot failed")?,
                 )?;
+                // The observer may exit the process as soon as this file is
+                // visible. Publish and flush the diagnostic before that signal.
+                eprintln!("hosted_wait_capture_persistence_failed");
+                std::io::Write::flush(&mut std::io::stderr())
+                    .map_err(|_| "test Wait capture diagnostic failed")?;
                 Self::test_write_wait_cleanup_file(root, "wait-capture-failed", b"persist failed")
             });
             if recorded.is_ok() {
-                eprintln!("hosted_wait_capture_persistence_failed");
                 let _ = Self::test_wait_wait_cleanup_file(root, "wait-capture-crash-release");
             }
         }
@@ -862,9 +866,10 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     .continuations
                     .iter()
                     .find(|entry| entry.continuation_id == admitted.continuation_id)
+                    .cloned()
                     .ok_or("hosted Wait admitted projection missing")?;
                 if wait.stage != "resumed_view"
-                    && serde_json::to_value(actual).map_err(|error| error.to_string())?
+                    && serde_json::to_value(&actual).map_err(|error| error.to_string())?
                         != serde_json::to_value(&admitted).map_err(|error| error.to_string())?
                 {
                     return Err("hosted Wait admitted receipt projection mismatch".into());
@@ -883,6 +888,10 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     .validate_proposal(&wait.proposal)
                     .map_err(|error| error.to_string())?;
                 let restored = self.llm_sidecar.hosted_restored_wait.is_some();
+                if restored && self.llm_sidecar.runner.is_none() {
+                    // Issued recovery completes under Pause without a fresh turn or lease.
+                    self.llm_sidecar.ensure_runner_initialized()?;
+                }
                 let runner = self
                     .llm_sidecar
                     .runner
@@ -897,7 +906,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                             .validate_active_continuation_with_authority(
                                 &request.agent_subject,
                                 &authority,
-                                actual,
+                                &actual,
                             )
                             .map_err(|error| error.to_string())?;
                     } else {

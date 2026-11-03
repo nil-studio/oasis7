@@ -141,6 +141,9 @@ pub enum CapabilityAuthorizationEvent {
         action_id: u64,
         event_id: u64,
     },
+    TaskTerminalRecordedV2 {
+        record: Box<crate::TaskTerminalRecordV2>,
+    },
     WorldServiceIntentRecorded {
         key: String,
         record: serde_json::Value,

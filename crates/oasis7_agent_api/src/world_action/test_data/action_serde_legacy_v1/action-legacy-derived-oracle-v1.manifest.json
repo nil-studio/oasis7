@@ -1,0 +1,168 @@
+{
+  "action_count": 90,
+  "baseline": "old_derived_serialize",
+  "coverage_note": "default-valued cases for all 90 variants plus targeted optional-present cases; values are serialization fixtures, not valid gameplay inputs",
+  "fixtures": {
+    "all_variants": {
+      "json": {
+        "byte_len": 15028,
+        "file": "action-all-variants-v1.json",
+        "sha256": "0e86a01132e40093efa71728d31793598a15ba0d25462f7a6174c86db9ba3066"
+      },
+      "ordinary_cbor": {
+        "byte_len": 12002,
+        "file": "action-all-variants-v1.cbor",
+        "sha256": "b09a9384a4b17152b6f9b486042c6624e871c34053a54687d191f1c19994eb8d"
+      },
+      "packed_cbor": {
+        "byte_len": 1829,
+        "file": "action-all-variants-v1.packed.cbor",
+        "sha256": "dc5d86961cb6a35239e60c39af46315e39959d4a96f21f706c7fcf0578ad60b8"
+      }
+    },
+    "all_variants_public_serde_trace": {
+      "byte_len": 107686,
+      "file": "action-all-variants-v1.trace.json",
+      "sha256": "0f0629b782dbb1f4d0463ba806c6a69445deed8b14e819fa61736d6ea8b2323a"
+    },
+    "optional_present": {
+      "json": {
+        "byte_len": 871,
+        "file": "action-optional-present-v1.json",
+        "sha256": "0a123605448703fb04cd03dd884bfddc31304f385db51d4dfeb2821c8451198a"
+      },
+      "ordinary_cbor": {
+        "byte_len": 711,
+        "file": "action-optional-present-v1.cbor",
+        "sha256": "8cf84c5a2b8c9afd0cdd09da523faed3ea3453475fa5955408a9bf92436c9c85"
+      },
+      "packed_cbor": {
+        "byte_len": 265,
+        "file": "action-optional-present-v1.packed.cbor",
+        "sha256": "579fd956ab171f66929e62de795213e151ac28283d3bc9d0e4b7d62739aa6a48"
+      }
+    },
+    "optional_present_public_serde_trace": {
+      "byte_len": 6138,
+      "file": "action-optional-present-v1.trace.json",
+      "sha256": "0baf08df64cfee8f4212302fec0087de5e416cd317895b3250f281ff80009f89"
+    }
+  },
+  "format_version": 1,
+  "optional_present_cases": [
+    "TransferMainToken:all_optional_present",
+    "ClaimStarterOc:public_key_present",
+    "TransferMaterial:priority_and_route_present",
+    "GrantMetaProgress:achievement_present"
+  ],
+  "roundtrip": {
+    "all_variants_json_cbor_packed_cbor": "pass",
+    "optional_present_json_cbor_packed_cbor": "pass"
+  },
+  "rustc_vv": "rustc 1.96.0 (ac68faa20 2026-05-25)\nbinary: rustc\ncommit-hash: ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96\ncommit-date: 2026-05-25\nhost: aarch64-apple-darwin\nrelease: 1.96.0\nLLVM version: 22.1.2",
+  "source": {
+    "commit": "163fffef9102121b04f0016652d14b05a15c79ec",
+    "relative_path": "crates/oasis7_agent_api/src/world_action/action.rs",
+    "sha256": "6b34890c7ea73ba8ce7d9b5ad4fb0ace017b8532db9572a3ad390b207b70af40",
+    "temporary_action_source_sha256": "a6feee2788fa576baa93ca52359297c9e038985141772d2201a6210da1c09f40",
+    "temporary_harness_delta_sha256": "2167f01d03c96df15230d9b4d5020b7052ad965e46e862d8dbe4b5f231c3389a"
+  },
+  "temporary_test_harness": {
+    "constructor_skeleton_sha256": "4a38fcba81ca941653214aa9c7bc7faa1b2838b94521b0a15ef92f3a20f2a65c",
+    "public_serde_trace_sha256": "817b6b3fa666426f5c498bd92713df74c27eeba4c04878a10c998028fabcde8b",
+    "sha256": "601ee91423ad4ea0f3652bc1aeb842fa63d3917792a701d5b1e80039bcaba315"
+  },
+  "variant_names_in_declaration_order": [
+    "WorldRule",
+    "WorldServiceIntent",
+    "RegisterAgent",
+    "MoveAgent",
+    "QueryObservation",
+    "EmitObservation",
+    "BodyAction",
+    "EmitBodyAttributes",
+    "ExpandBodyInterface",
+    "DeployModuleArtifact",
+    "CompileModuleArtifactFromSource",
+    "InstallModuleFromArtifact",
+    "InstallModuleFromArtifactWithFinality",
+    "InstallModuleToTargetFromArtifact",
+    "InstallModuleToTargetFromArtifactWithFinality",
+    "UpgradeModuleFromArtifact",
+    "UpgradeModuleFromArtifactWithFinality",
+    "ModuleReleaseSubmit",
+    "ModuleReleaseShadow",
+    "ModuleReleaseSubmitAttestation",
+    "ModuleReleaseApproveRole",
+    "ModuleReleaseBindRoles",
+    "ModuleReleaseReject",
+    "ModuleReleaseApply",
+    "ModuleReleaseApplyWithFinality",
+    "RollbackModuleInstance",
+    "RollbackModuleInstanceWithFinality",
+    "ListModuleArtifactForSale",
+    "BuyModuleArtifact",
+    "DelistModuleArtifact",
+    "DestroyModuleArtifact",
+    "PlaceModuleArtifactBid",
+    "CancelModuleArtifactBid",
+    "TransferResource",
+    "CollectData",
+    "CollectDataAuthenticated",
+    "GrantDataAccess",
+    "RevokeDataAccess",
+    "RedeemPower",
+    "RedeemPowerSigned",
+    "ApplyNodePointsSettlementSigned",
+    "InitializeMainTokenGenesis",
+    "ClaimMainTokenVesting",
+    "TransferMainToken",
+    "ApplyMainTokenEpochIssuance",
+    "SettleMainTokenFee",
+    "UpdateMainTokenPolicy",
+    "DistributeMainTokenTreasury",
+    "TopUpRestrictedStarterClaimLiveopsPool",
+    "IssueRestrictedStarterClaimGrant",
+    "RevokeRestrictedStarterClaimGrant",
+    "ClaimAgent",
+    "ClaimStarterOc",
+    "ReleaseAgentClaim",
+    "TransferMaterial",
+    "RegisterLogisticsRoute",
+    "SetLogisticsRouteAvailability",
+    "FormAlliance",
+    "JoinAlliance",
+    "LeaveAlliance",
+    "DissolveAlliance",
+    "DeclareWar",
+    "OpenGovernanceProposal",
+    "CastGovernanceVote",
+    "ResolveCrisis",
+    "GrantMetaProgress",
+    "UpdateGameplayPolicy",
+    "UpdateRestrictedStarterClaimAdminRegistry",
+    "SubmitGovernanceValidatorAdmission",
+    "ApproveGovernanceValidatorAdmission",
+    "ActivateGovernanceValidatorAdmission",
+    "RevokeGovernanceValidatorAdmission",
+    "OpenEconomicContract",
+    "AcceptEconomicContract",
+    "SettleEconomicContract",
+    "EmitResourceTransfer",
+    "BuildFactory",
+    "BuildFactoryWithModule",
+    "MaintainFactory",
+    "RecycleFactory",
+    "ScheduleEssentialRecipe",
+    "ScheduleRecipe",
+    "PauseFactoryProduction",
+    "ScheduleRecipeWithModule",
+    "ValidateProduct",
+    "ValidateProductWithModule",
+    "GovernMaterialProfile",
+    "GovernProductProfile",
+    "GovernRecipeProfile",
+    "GovernFactoryProfile"
+  ],
+  "workspace_lock_sha256": "6a6be01b217da6d07bcb4de82ec2d3be1697048e84eddcad6b6635553be7ef69"
+}

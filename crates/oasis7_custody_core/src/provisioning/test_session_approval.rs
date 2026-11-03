@@ -94,6 +94,7 @@ impl AccountProvisionApprovalState {
                 purpose_http_admissions: BTreeMap::new(),
                 tool_nonce_ingresses: BTreeMap::new(),
                 tool_nonce_links: BTreeMap::new(),
+                context: None,
                 roots: BTreeMap::new(),
                 control: None,
                 identity_transport: None,

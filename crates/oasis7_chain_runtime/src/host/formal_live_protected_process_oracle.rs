@@ -244,6 +244,10 @@ pub(crate) fn start_endpoint(
     Ok((endpoint, address))
 }
 
+#[path = "formal_live_child_ready_marker.rs"]
+mod child_ready_marker;
+pub(super) use child_ready_marker::publish_ready_marker;
+
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;

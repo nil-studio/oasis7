@@ -51,7 +51,7 @@ const privilegedComplete: ApprovalCompleteRequestV1 = { approval_id: 'a', ceremo
 import type { PairingInviteCreateRequestV1, PairingInviteOriginalV1, PairingInviteTargetRefV1,
   HostDeploymentDescriptorV1, ClientEnrollmentCreateRequestV1, ClientEnrollmentCreateResponseV1,
   ClientEnrollmentProofRequestV1, ClientEnrollmentProofResponseV1, TestSessionBasisRequestV1,
-  TestSessionBasisV1, TestSessionPrepareRequestV1, TestSessionPrepareResponseV1,
+  TestSessionBasisV1, TestSessionBasisResponseV1, TestSessionPrepareRequestV1, TestSessionPrepareResponseV1,
   TestSessionApproveRequestV1, TestSessionContinueRequestV1, TestSessionProgressV1 } from '../contract/http';
 export function inviteRequest(request_id: string): PairingInviteCreateRequestV1 {
   return { api_version: 1, request_id, transport_profile: 'native-broker-custody-v1', tool_profile: 'custody-native-v1' };
@@ -74,8 +74,12 @@ export function provedStatus(value: ClientEnrollmentProofResponseV1): 'proved' {
 export function sessionBasis(created: ClientEnrollmentCreateResponseV1, cleanup_until: string): TestSessionBasisRequestV1 {
   return { api_version: 1, request_id: 'session-plan', enrollment_id: created.enrollment_id, cleanup_until };
 }
-export function prepareSession(plan: TestSessionPrepareRequestV1['plan']): TestSessionPrepareRequestV1 {
-  return { api_version: 1, approval_request_id: 'fresh-session-approval', plan };
+export function prepareSession(response: TestSessionBasisResponseV1,
+  limits: Omit<TestSessionPrepareRequestV1['plan'], 'request_id' | 'enrollment_id' | 'basis_digest' | 'allowed_resource_refs'>): TestSessionPrepareRequestV1 {
+  const basis = response.basis;
+  return { api_version: 1, approval_request_id: 'fresh-session-approval', plan: { ...limits,
+    request_id: basis.request_id, enrollment_id: basis.client_pairing.enrollment_id,
+    basis_digest: response.basis_digest, allowed_resource_refs: basis.allowed_resource_refs } };
 }
 export function approveSession(request: TestSessionPrepareResponseV1, complete: ApprovalCompleteResponseV1,
   plan: TestSessionPrepareRequestV1['plan']): TestSessionApproveRequestV1 {

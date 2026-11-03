@@ -9,6 +9,9 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 #[path = "agent_delegation_controls.rs"]
 mod controls;
+#[path = "agent_delegation_projection.rs"]
+mod genesis_projection;
+pub(super) use genesis_projection::visit as visit_iws_delegation_projection;
 pub use controls::{AgentOwnerControlKindV1, AgentOwnerControlV1};
 
 pub use oasis7_agent_api::world_quote::AgentDelegationGrantV1;
@@ -180,7 +183,8 @@ impl World {
         Ok(())
     }
 
-    /// Trusted authenticated host entrypoint; never provider supplied.
+    /// Test bootstrap transaction; authenticated production issuance uses authorization below.
+    #[cfg(any(test, feature = "test_tier_required", feature = "test_tier_full"))]
     pub(crate) fn install_agent_delegation_grant(
         &mut self,
         grant: AgentDelegationGrantV1,

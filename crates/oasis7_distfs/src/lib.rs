@@ -19,6 +19,7 @@ use oasis7_cas::{to_canonical_cbor, validate_hash};
 pub mod controlled_authority;
 mod feedback;
 mod feedback_p2p;
+pub mod incremental_page_store;
 pub mod protected_bft;
 pub mod protected_bft_v2;
 pub mod protected_bft_v3;

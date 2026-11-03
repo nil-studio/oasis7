@@ -85,7 +85,7 @@ impl FileFormalEndpoint {
             self.native_environment_jobs.insert(
                 id.clone(),
                 EndpointVerificationJob {
-                    job: VerificationJob::new(descriptor.clone()),
+                    job: VerificationJob::new(descriptor.clone())?,
                     _pin: pin,
                     last_activity: std::time::Instant::now(),
                 },
@@ -108,14 +108,7 @@ impl FileFormalEndpoint {
         let job = &job.job;
         Ok(NativeEnvironmentVerificationProgressV1 {
             complete: job.complete(),
-            verified_chunks: job
-                .descriptor
-                .components
-                .iter()
-                .take(job.component)
-                .map(|component| component.chunks.len() as u64)
-                .sum::<u64>()
-                + job.chunk as u64,
+            verified_chunks: job.verified_chunks(),
             descriptor_digest: id,
             endpoint_instance: self.instance().clone(),
         })

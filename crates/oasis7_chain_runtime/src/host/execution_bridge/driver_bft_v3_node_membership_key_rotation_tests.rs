@@ -204,7 +204,7 @@ fn node_proofs(
         })
         .collect::<Vec<_>>();
     let state = Arc::new(NodeBftPeerExecutionStateV3::default());
-    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(actual))));
+    let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(actual, None))));
     let gates = crate::node_lifecycle::network_gates_for_count(h.trust.initial_trust.clone(), 4);
     let exchange = Arc::new(
         NodeBftLibp2pPrivateCandidateExchangeV3::new(

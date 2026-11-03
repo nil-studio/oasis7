@@ -63,6 +63,21 @@ pub use snapshot_delta::{
 };
 mod state;
 pub use oasis7_world_state::types;
+pub use oasis7_world_state::incremental_ledger_value;
+pub use oasis7_world_state::incremental_field_member;
+pub use oasis7_world_state::incremental_field_presence;
+pub use oasis7_world_state::incremental_inventory_genesis;
+pub use oasis7_world_state::incremental_cognition_json_overlay;
+pub use oasis7_world_state::incremental_cognition_family;
+pub use oasis7_world_state::incremental_cognition_control_overlay;
+pub use oasis7_world_state::incremental_cognition_groups;
+pub use oasis7_world_state::incremental_cognition_json_receiver;
+pub use oasis7_world_state::{incremental_cognition_fields, incremental_cognition_genesis, incremental_cognition_read, incremental_cognition_json, incremental_cognition_json_read};
+pub use oasis7_world_state::incremental_inventory_read;
+pub use oasis7_world_state::incremental_inventory_change;
+pub use oasis7_world_state::incremental_inventory_transaction;
+pub use oasis7_world_state::incremental_inventory_overlay_read;
+pub use oasis7_world_state::incremental_inventory_overlay_change;
 pub use oasis7_world_state::util;
 mod world;
 pub use oasis7_world_state::world_event;
@@ -124,6 +139,12 @@ pub(crate) use formal_retained_history::{
 pub use formal_retained_history::{
     FormalRetainedHistoryRootV1, RetainedHistoryReadError, VerifiedFormalRetainedHistoryParentV1,
 };
+pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields};
+pub use world::incremental_agent_genesis;
+pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
+pub use world::incremental_body_event::AgentEventContext;
+pub use oasis7_world_state::incremental_agent_body;
+pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
 };
@@ -309,9 +330,9 @@ pub use oasis7_wasm_store::{
     M1_POWER_HARVEST_DISTANCE_STEP_CM, M1_POWER_MODULE_VERSION, M1_POWER_STORAGE_CAPACITY,
     M1_POWER_STORAGE_INITIAL_LEVEL, M1_POWER_STORAGE_MOVE_COST_PER_KM,
     M1_RADIATION_POWER_MODULE_ID, M1_SENSOR_MODULE_ID, M1_STORAGE_CARGO_MODULE_ID,
-    M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION, M1_TRANSFER_RULE_MODULE_ID, M1_VISIBILITY_RULE_MODULE_ID,
-    M4_ECONOMY_MODULE_VERSION, M4_FACTORY_ASSEMBLER_MODULE_ID, M4_FACTORY_MINER_MODULE_ID,
-    M4_FACTORY_SMELTER_MODULE_ID, M4_PRODUCT_ALLOY_PLATE_MODULE_ID,
+    M1_STORAGE_POWER_MODULE_ID, M1_STORAGE_POWER_MODULE_VERSION, M1_TRANSFER_RULE_MODULE_ID,
+    M1_VISIBILITY_RULE_MODULE_ID, M4_ECONOMY_MODULE_VERSION, M4_FACTORY_ASSEMBLER_MODULE_ID,
+    M4_FACTORY_MINER_MODULE_ID, M4_FACTORY_SMELTER_MODULE_ID, M4_PRODUCT_ALLOY_PLATE_MODULE_ID,
     M4_PRODUCT_CONTROL_CHIP_MODULE_ID, M4_PRODUCT_FACTORY_CORE_MODULE_ID,
     M4_PRODUCT_IRON_INGOT_MODULE_ID, M4_PRODUCT_LOGISTICS_DRONE_MODULE_ID,
     M4_PRODUCT_MODULE_RACK_MODULE_ID, M4_PRODUCT_MOTOR_MODULE_ID, M4_PRODUCT_SENSOR_PACK_MODULE_ID,
@@ -444,6 +465,11 @@ pub use world::{ProviderCognitionCommitError, ProviderDecisionEvidenceV1};
 pub mod world_rules;
 
 pub use world::ResolvedAgentOwnerV1;
+pub use world::{
+    NativeResourceBasisFactV1, ResourceActorOwnerV1, ResourceBasisBlockerV1, ResourceBasisQuoteV1,
+    ResourceBasisRoutingV1, ResourceBasisSelectionV1, ResourceLedgerFactV1, ResourceLedgerOwnerV1,
+    ResourceMaterialBalanceV1, ResourceObjectFactV1, ResourceTransferQuoteV1,
+};
 
 pub use oasis7_agent_api::world_action::GovernanceAuthorizationV1;
 
@@ -453,3 +479,53 @@ pub use world::{
     DelegationControlDisposition, DelegationControlError, DelegationControlOperation,
     DelegationControlOutcome, DelegationControlStage, DelegationReplayMatch,
 };
+
+pub use oasis7_world_state::{incremental_field_read, incremental_world_u64};
+
+pub use oasis7_world_state::incremental_field_overlay;
+
+pub use oasis7_world_state::incremental_delivery_cursor;
+
+pub use oasis7_world_state::incremental_world_id_sets;
+
+pub use oasis7_world_state::incremental_world_number_maps;
+
+pub use oasis7_world_state::incremental_authenticated_nonces;
+
+pub use oasis7_world_state::incremental_authorization_mapsets;
+
+pub use world::incremental_commit::{
+    CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
+};
+
+pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
+pub use oasis7_world_state::incremental_world_text_maps;
+pub use oasis7_world_state::incremental_factory_authority_records;
+pub use oasis7_world_state::incremental_factory_records;
+pub use oasis7_world_state::incremental_industry_jobs;
+pub use oasis7_world_state::incremental_material_records;
+pub use oasis7_world_state::incremental_logistics_records;
+pub use oasis7_world_state::incremental_installed_module_targets;
+pub use oasis7_world_state::incremental_world_balances;
+
+pub use oasis7_world_state::incremental_fixed_economy_records;
+pub use oasis7_world_state::incremental_runtime_artifact_resources;
+
+pub use oasis7_world_state::incremental_agent_authority_records;
+pub use oasis7_world_state::incremental_runtime_effect_records;
+pub use oasis7_world_state::incremental_runtime_controls;
+
+pub use oasis7_world_state::incremental_json_records;
+pub use oasis7_world_state::incremental_runtime_artifact_config;
+
+pub use oasis7_world_state::incremental_agent_subtree;
+
+pub use oasis7_world_state::incremental_runtime_artifact_content;
+pub use oasis7_world_state::incremental_reward_budget_records;
+
+pub use oasis7_world_state::incremental_governance_records;
+
+pub use oasis7_world_state::incremental_main_token_policy_records;
+
+pub use oasis7_world_state::incremental_runtime_scheduler_controls;
+pub use oasis7_world_state::incremental_runtime_capability_records;

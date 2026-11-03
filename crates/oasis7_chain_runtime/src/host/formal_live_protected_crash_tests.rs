@@ -66,7 +66,7 @@ fn protected_runtime_crash_child() {
         .spawn(move || -> Result<(), String> {
             let mut runtime = FormalLiveRuntime::open_with_native_history(Path::new(&config))?;
             runtime.start()?;
-            oracle_support::write_private(Path::new(&ready), b"ready")?;
+            oracle_support::publish_ready_marker(Path::new(&ready))?;
             loop {
                 let snapshot = runtime
                     .runtime
