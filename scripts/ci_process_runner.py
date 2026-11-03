@@ -7,6 +7,7 @@ import queue
 import re
 import select
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -78,56 +79,65 @@ class _LiveOutput:
     """One daemon for the entire process; never change shared stdout flags."""
     def __init__(self):
         self.queue = queue.Queue(maxsize=LIVE_CHUNKS)
-        try:
-            self.fd = sys.stdout.fileno()
-        except (AttributeError, OSError, ValueError):
-            self.fd = None
-        self.failed = self.fd is None
         threading.Thread(target=self.forward, daemon=True).start()
 
-    def emit(self, data, capture=None, completed=None):
+    def emit(self, data, capture=None, completed=None, *, fd):
+        if stat.S_ISREG(os.fstat(fd).st_mode):
+            # Explicit file redirection is a durable consumer, not a lossy
+            # console. It must not wait behind a blocked console packet.
+            if capture is not None:
+                capture.queued(len(data))
+            offset = 0
+            try:
+                while offset < len(data):
+                    written = write_fd(fd, data[offset:])
+                    offset += written
+                    if capture is not None:
+                        capture.settled(written)
+            except OSError:
+                if capture is not None:
+                    capture.settled(len(data) - offset, suppressed=True)
+                raise
+            if completed is not None:
+                completed.set()
+            return True
         accepted = True
         for offset in range(0, len(data), READ_BYTES):
             last = offset + READ_BYTES >= len(data)
             accepted &= self.emit_chunk(data[offset:offset + READ_BYTES], capture,
-                                        completed if last else None)
+                                        completed if last else None, fd)
         return accepted
 
-    def emit_chunk(self, data, capture, completed):
+    def emit_chunk(self, data, capture, completed, fd):
         if capture is not None:
             capture.queued(len(data))
+        packet_fd = None
         try:
-            if self.failed:
-                raise queue.Full
-            self.queue.put_nowait((data, capture, completed))
+            packet_fd = os.dup(fd)
+            self.queue.put_nowait((data, capture, completed, packet_fd))
             return True
-        except queue.Full:
+        except (queue.Full, OSError):
+            if packet_fd is not None:
+                os.close(packet_fd)
             if capture is not None:
                 capture.settled(len(data), suppressed=True)
             return False
 
     def forward(self):
         while True:
-            data, capture, completed = self.queue.get()
+            data, capture, completed, fd = self.queue.get()
             offset = 0
             try:
-                if self.failed:
-                    raise OSError('live output unavailable')
                 while offset < len(data):
-                    try:
-                        written = os.write(self.fd, data[offset:])
-                    except InterruptedError:
-                        continue
-                    if written <= 0:
-                        raise OSError('live output made no progress')
+                    written = write_fd(fd, data[offset:])
                     offset += written
                     if capture is not None:
                         capture.settled(written)
             except OSError:
-                self.failed = True
                 if capture is not None:
                     capture.settled(len(data) - offset, suppressed=True)
             finally:
+                os.close(fd)
                 if completed is not None:
                     completed.set()
                 self.queue.task_done()
@@ -143,6 +153,31 @@ def live_output():
         if _LIVE is None:
             _LIVE = _LiveOutput()
         return _LIVE
+
+
+def write_fd(fd, data):
+    while True:
+        try:
+            written = os.write(fd, data)
+            if written <= 0:
+                raise OSError('output made no progress')
+            return written
+        except InterruptedError:
+            continue
+
+
+def snapshot_output(stream, *, regular=False):
+    fd = os.dup(stream.fileno())
+    try:
+        is_regular = stat.S_ISREG(os.fstat(fd).st_mode)
+        if regular and not is_regular:
+            raise ValueError('persistent process log must be a regular file')
+        if is_regular:
+            stream.flush()
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
 
 
 def owned_processes(marker, group=None):
@@ -207,14 +242,35 @@ def cleanup(process, marker):
     return ('unresolved' if members() else 'clean'), bool(initial)
 
 
-def run(command, cwd, env, suite, name, results, expected_count=None, timeout_seconds=2400, heartbeat_seconds=20):
-    marker = uuid.uuid4().hex
-    env = dict(env, OASIS7_CI_PROCESS_OWNER=marker)
+def run(command, cwd, env, suite, name, results, expected_count=None, timeout_seconds=2400, heartbeat_seconds=20, log_stream=None):
+    """Capture this call's stdout; an explicit file log receives every child byte."""
     started = datetime.now(timezone.utc).isoformat()
     start = time.monotonic()
+    stdout_fd = snapshot_output(sys.stdout)
+    log_fd = None
+    try:
+        if log_stream is not None:
+            log_fd = snapshot_output(log_stream, regular=True)
+            first, second = os.fstat(stdout_fd), os.fstat(log_fd)
+            if stat.S_ISREG(first.st_mode) and (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino):
+                os.close(log_fd)
+                log_fd = None
+        return _run(command, cwd, env, suite, name, results, expected_count, timeout_seconds,
+                    heartbeat_seconds, started, start, stdout_fd, log_fd, log_stream is not None)
+    finally:
+        os.close(stdout_fd)
+        if log_fd is not None:
+            os.close(log_fd)
+
+
+def _run(command, cwd, env, suite, name, results, expected_count, timeout_seconds,
+         heartbeat_seconds, started, start, stdout_fd, log_fd, log_requested):
+    marker = uuid.uuid4().hex
+    env = dict(env, OASIS7_CI_PROCESS_OWNER=marker)
     capture = _Capture()
     live = live_output()
     stop_reader = threading.Event()
+    reader_fds = []
     def consume(pipe):
         try:
             while not stop_reader.is_set():
@@ -227,15 +283,40 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
                     capture.complete = True
                     return
                 capture.feed(data)
-                live.emit(data, capture)
+                live.emit(data, capture, fd=reader_stdout_fd)
+                if reader_log_fd is not None:
+                    offset = 0
+                    while offset < len(data):
+                        offset += write_fd(reader_log_fd, data[offset:])
         except (OSError, ValueError) as error:
             # Missing output cannot establish a complete libtest count. Avoid
             # an uncaught-thread traceback using the same stalled log channel.
             capture.read_error = type(error).__name__
-    process = subprocess.Popen(command, cwd=cwd, env=env, start_new_session=True,
-                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
-    reader = threading.Thread(target=consume, args=(process.stdout,), daemon=True)
-    reader.start()
+        finally:
+            pipe.close()
+            for fd in reader_fds:
+                os.close(fd)
+    process = None
+    try:
+        # The reader and each queued packet own independent duplicates, so a
+        # closed/reused caller descriptor can never retarget old output.
+        reader_stdout_fd = os.dup(stdout_fd)
+        reader_fds.append(reader_stdout_fd)
+        reader_log_fd = os.dup(log_fd) if log_fd is not None else None
+        if reader_log_fd is not None:
+            reader_fds.append(reader_log_fd)
+        process = subprocess.Popen(command, cwd=cwd, env=env, start_new_session=True,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+        reader = threading.Thread(target=consume, args=(process.stdout,), daemon=True)
+        reader.start()
+    except BaseException:
+        for fd in reader_fds:
+            os.close(fd)
+        if process is not None:
+            cleanup(process, marker)
+            process.wait(timeout=10)
+            process.stdout.close()
+        raise
     timed_out = False
     cancelled = False
     previous_handlers = {}
@@ -254,7 +335,7 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
             if process.poll() is not None:
                 break
             if now >= next_heartbeat:
-                live.emit(f'\nsuite={suite} test={name} elapsed={int(now-start)}s state=running\n'.encode())
+                live.emit(f'\nsuite={suite} test={name} elapsed={int(now-start)}s state=running\n'.encode(), fd=stdout_fd)
                 next_heartbeat = now + heartbeat_seconds
             time.sleep(min(0.2, heartbeat_seconds, max(0, start + timeout_seconds - now)))
     except InterruptedError:
@@ -288,10 +369,13 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
     # pending includes queued or blocked writes not yet confirmed at this point.
     result.update(capture.output_state())
     result['output_read_error'] = capture.read_error
+    if log_requested:
+        result['log_complete'] = capture.complete and capture.read_error is None
+        result['passed'] &= result['log_complete']
     results.parent.mkdir(parents=True, exist_ok=True)
     with results.open('a') as stream:
         stream.write(json.dumps(result) + '\n')
     completed = threading.Event()
-    if live.emit((json.dumps(result) + '\n').encode(), completed=completed):
+    if live.emit((json.dumps(result) + '\n').encode(), completed=completed, fd=stdout_fd):
         completed.wait(timeout=0.05)
     return result

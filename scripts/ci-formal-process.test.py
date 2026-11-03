@@ -1886,6 +1886,109 @@ class WorkspaceInputPaths(unittest.TestCase):
 
 
 class OutputBackpressure(unittest.TestCase):
+    def test_queued_packets_keep_original_descriptor_after_caller_closes_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            program = ('import contextlib,os,stat,sys,time\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\nfrom ci_process_runner import run,live_output\n'
+                'read_fd,write_fd=os.pipe()\n'
+                'with os.fdopen(write_fd,"w") as destination, contextlib.redirect_stdout(destination):\n'
+                ' run([sys.executable,"-c",\'import os; [os.write(1,b"x"*8191+b"\\\\n") for _ in range(512)]; '
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\'],'
+                f'Path({str(root)!r}),os.environ,"probe","lifetime",Path({str(root / "results")!r}),'
+                'expected_count=1,timeout_seconds=3)\n'
+                f'with open({str(root / "sentinel")!r},"w") as sentinel:\n'
+                ' sentinel.write("untouched")\n'
+                ' relay=live_output()\n'
+                ' with relay.queue.mutex:\n'
+                '  assert relay.queue.queue\n'
+                '  assert all(stat.S_ISFIFO(os.fstat(packet[3]).st_mode) for packet in relay.queue.queue)\n'
+                ' os.close(read_fd)\n'
+                ' deadline=time.monotonic()+2\n'
+                ' while relay.queue.unfinished_tasks and time.monotonic()<deadline: time.sleep(0.01)\n'
+                ' assert not relay.queue.unfinished_tasks\n')
+            process = subprocess.run([sys.executable, '-c', program], capture_output=True, timeout=6)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertEqual((root / 'sentinel').read_text(), 'untouched')
+            self.assertTrue(json.loads((root / 'results').read_text())['passed'])
+
+    def test_explicit_log_write_failure_cannot_pass(self):
+        import contextlib
+        import ci_process_runner as runner
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (root / 'log').open('w') as log, (root / 'console').open('w') as console:
+                identity = os.fstat(log.fileno())
+                original = runner.write_fd
+                def fail_log(fd, data):
+                    current = os.fstat(fd)
+                    if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                        raise OSError('injected persistent log failure')
+                    return original(fd, data)
+                with contextlib.redirect_stdout(console), patch.object(runner, 'write_fd', side_effect=fail_log):
+                    result = runner.run([sys.executable, '-c',
+                        'print("test result: ok. 1 passed; 0 failed; 0 ignored;")'],
+                        root, os.environ, 'probe', 'log-failure', root / 'results',
+                        expected_count=1, timeout_seconds=3, log_stream=log)
+            self.assertFalse(result['passed'])
+            self.assertFalse(result['log_complete'])
+            self.assertFalse(result['count_ok'])
+            self.assertEqual(result['output_read_error'], 'OSError')
+            self.assertEqual(result['output_bytes'], 48)
+            self.assertEqual(result['cleanup_result'], 'clean')
+
+    def test_each_run_uses_current_redirected_file(self):
+        import contextlib
+        from ci_process_runner import run
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index in range(3):
+                destination = root / f'output-{index}'
+                with destination.open('w') as stream, contextlib.redirect_stdout(stream):
+                    result = run([sys.executable, '-c',
+                        f'print("destination-{index}"); print("test result: ok. 1 passed; 0 failed; 0 ignored;")'],
+                        root, os.environ, 'probe', str(index), root / 'results',
+                        expected_count=1, timeout_seconds=3)
+                self.assertTrue(result['passed'])
+                content = destination.read_text()
+                self.assertIn(f'destination-{index}', content)
+                self.assertIn('test result: ok.', content)
+                for other in range(index):
+                    self.assertNotIn(f'destination-{other}', content)
+
+    def test_explicit_log_is_complete_with_undrained_console(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            log, results = root / 'durable.log', root / 'results'
+            child = ('import os; [os.write(1,b"x"*8191+b"\\n") for _ in range(512)]; '
+                     'print(\'STORAGE_CAPACITY_REPORT={"status":"passed","executed_heights":10}\'); '
+                     'print(\'STORAGE_FULL_NODE_REPORT={"status":"passed"}\'); '
+                     'print("test result: ok. 1 passed; 0 failed; 0 ignored;")')
+            program = ('import os,sys\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\nfrom ci_process_runner import run\n'
+                f'with open({str(log)!r},"w") as stream:\n'
+                f' run([sys.executable,"-c",{child!r}],Path({str(root)!r}),os.environ,'
+                f'"probe","durable",Path({str(results)!r}),expected_count=1,timeout_seconds=3,log_stream=stream)\n')
+            process = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            try:
+                process.wait(timeout=5)
+                timely = True
+            except subprocess.TimeoutExpired:
+                timely = False
+            finally:
+                output, _ = process.communicate(timeout=5)
+            self.assertTrue(timely)
+            self.assertEqual(process.returncode, 0, output[-4000:])
+            result = json.loads(results.read_text())
+            self.assertTrue(result['passed'] and result['log_complete'] and result['count_ok'])
+            self.assertGreater(result['output_suppressed_bytes'], 0)
+            content = log.read_bytes()
+            self.assertEqual(len(content), result['output_bytes'])
+            self.assertIn(b'STORAGE_CAPACITY_REPORT={"status":"passed","executed_heights":10}', content)
+            self.assertIn(b'STORAGE_FULL_NODE_REPORT={"status":"passed"}', content)
+            self.assertTrue(content.endswith(b'test result: ok. 1 passed; 0 failed; 0 ignored;\n'))
+
     def test_drained_live_output_preserves_heartbeat_and_summary(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
