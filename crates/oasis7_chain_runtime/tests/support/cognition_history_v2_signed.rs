@@ -28,6 +28,13 @@ fn work() -> CognitionHeadHashWorkV1 {
 }
 #[test]
 fn accepted_v2_retains_cache_references_through_cold_normal_continuation() {
+    signed_v2(false);
+}
+#[test]
+fn unrelated_accepted_predecessor_cannot_inherit_empty_lifecycle() {
+    signed_v2(true);
+}
+fn signed_v2(adversarial: bool) {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let path = directory.0.join("v2");
@@ -206,6 +213,23 @@ fn accepted_v2_retains_cache_references_through_cold_normal_continuation() {
             let selected =
                 promote_cognition_history_view_v1(&checked, &accepted, &memory, || false).unwrap();
             assert_eq!(selected.derived(), Some(&refs));
+            if adversarial {
+                // Genuine separately accepted sibling: identical authenticated
+                // IWS body/roots, but a distinct signed Formal record identity.
+                let mut other_record = proof.decision.record.clone();
+                other_record.projection_root = hex::encode([91; 32]);
+                let other_proof = fixture::proof(other_record, &s.authority,
+                    formal::FormalCompletionBranchV1::Normal, None, None, 4, 5, 6);
+                let other = formal::verify_formal_qualified(&other_proof, &s.authority, None, None).unwrap();
+                assert_ne!(other.head().record_id, accepted.head().record_id);
+                normal::continue_view(normal::Source {
+                    memory: &memory, config: &s.config, roots: &s.roots,
+                    authority: &s.authority, reuse: None, alternate_parent: Some(&other),
+                }, (&history.body, &history.prefix), &catalog.after,
+                    (&accepted, &selected), &store, &objects, &mut io);
+                return;
+            }
+
             (
                 accepted,
                 s.roots.clone(),
@@ -405,6 +429,7 @@ fn accepted_v2_retains_cache_references_through_cold_normal_continuation() {
         io.class = MemoryClass::Ordinary;
         let advanced = normal::continue_from_cold(
             normal::Source {
+                    alternate_parent: None,
                 memory: &memory,
                 config: &config,
                 roots: &roots,
@@ -447,6 +472,7 @@ fn accepted_v2_retains_cache_references_through_cold_normal_continuation() {
         super::journal_normal::append_two_events(
             super::journal_normal::JournalFrame {
                 source: normal::Source {
+                    alternate_parent: None,
                     memory: &memory,
                     config: &config,
                     roots: &advanced.1,

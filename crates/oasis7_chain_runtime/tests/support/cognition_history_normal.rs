@@ -14,6 +14,7 @@ pub(super) struct Source<'a> {
     pub config: &'a GenesisConfigV1,
     pub roots: &'a RootSetV1,
     pub authority: &'a formal::VerifiedAuthorityV1,
+    pub alternate_parent: Option<&'a formal::VerifiedFormalCommitV1>,
     pub reuse: Option<&'a readmission::OrdinaryFixtureProofs>,
 }
 pub(super) fn continue_from_cold(
@@ -375,7 +376,7 @@ pub(super) fn continue_view(
     let (accepted, selected) = super::normal_accept::accept_normal_history(
         super::normal_accept::NormalHistoryFrame {
             authority: s.authority,
-            parent: parent.0,
+            parent: s.alternate_parent.unwrap_or(parent.0),
             after: &sealed.record.after,
             history: &history,
             input,
@@ -675,7 +676,12 @@ pub(super) fn continue_view(
             let continued=oasis7_world_state::incremental_cognition_lifecycle_qualification_v2::accept_cognition_lifecycle_appends_v2(
                 oasis7_world_state::incremental_cognition_lifecycle_qualification_v2::CognitionLifecycleReceiverV2{parent:life,before:parent.1,after:&selected,current:&binding,journal},std::iter::empty(),&mut read,&mut write,
                 &mut oasis7_world_state::incremental_cognition_lifecycle_index_v2::CognitionLifecycleWorkV2{key_bytes_remaining:0,cells_remaining:0,max_pending_node_bytes:1<<20},
-                &mut CognitionHistoryIndexWorkV1{cells_remaining:0,max_pending_node_bytes:1<<20}).unwrap();
+                &mut CognitionHistoryIndexWorkV1{cells_remaining:0,max_pending_node_bytes:1<<20});
+            if s.alternate_parent.is_some() {
+                assert!(continued.is_err(), "unrelated accepted parent must not inherit lifecycle qualification");
+                return (accepted, sealed.record.after.clone(), manifest_id.unwrap());
+            }
+            let continued = continued.unwrap();
             assert_eq!(continued.keys(), 0);
             assert_eq!(continued.journal_records(), 0);
             assert_eq!(continued.root(), life.root());
