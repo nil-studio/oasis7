@@ -111,6 +111,7 @@ pub fn read_cognition_group_overlay_v1<
 ) -> Result<ReservedValue<CognitionGroupExpectedV1>, WorldFieldOverlayErrorV1> {
     context.transaction.contribute(|tx| {
         if context.values.class != MemoryClass::Ordinary
+            || parent.class() != MemoryClass::Ordinary
             || !tx.uses_budget(context.values.memory)
             || !parent.uses_budget(context.values.memory)
         {

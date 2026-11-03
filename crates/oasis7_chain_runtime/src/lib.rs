@@ -9,3 +9,6 @@ pub mod execution_config;
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "node-libp2p"))]
 include!("host.rs");
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history_store;

@@ -326,6 +326,10 @@ pub mod incremental_runtime_artifact_content;
 pub mod incremental_governance_records;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_absence;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_main_token_policy_records;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_qualification_class;
@@ -355,3 +359,17 @@ pub mod incremental_diplomacy;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_module_authorization;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history_cbor;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history_hash_outboard;
+pub mod incremental_cognition_history_lifecycle;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_lifecycle_row_v2;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_lifecycle_index_v2;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_lifecycle_qualification_v2;
