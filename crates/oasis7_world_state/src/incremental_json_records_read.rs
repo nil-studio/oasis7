@@ -87,7 +87,7 @@ const READ_LABELS: RecordReadLabelsV1 = RecordReadLabelsV1 {
     profile: "effect JSON profile",
     integer: "effect JSON integer",
 };
-fn value<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn value<R: ValueNodeReader, C: FnMut() -> bool>(
     id: &[u8; 32],
     key: &(WorldFieldKeyV1, u64),
     codec: MemberPayloadCodecV1,
@@ -112,7 +112,7 @@ fn value<R: ValueNodeReader, C: FnMut() -> bool>(
         },
     )
 }
-fn cell_key<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn cell_key<R: ValueNodeReader, C: FnMut() -> bool>(
     profile: JsonRecordProfileV1,
     name: &str,
     records: &mut InventoryValueReader<'_, '_, R, C>,
@@ -272,16 +272,16 @@ pub(super) fn frame<R: ValueNodeReader, C: FnMut() -> bool>(
     })
 }
 const PREFIX: usize = SEMANTIC_KEY_DOMAIN.len() + 4 + 8 + 7 + 9;
-struct Probe<'a> {
+pub(super) struct Probe<'a, W: Write = std::io::Sink> {
     header: [u8; PREFIX],
     used: usize,
     remaining: Option<u64>,
     index: bool,
-    text: Utf8Output<'a, std::io::Sink>,
+    text: Utf8Output<'a, W>,
     bad: bool,
 }
-impl<'a> Probe<'a> {
-    fn new(index: bool, sink: &'a mut std::io::Sink) -> Self {
+impl<'a, W: Write> Probe<'a, W> {
+    pub(super) fn new(index: bool, sink: &'a mut W) -> Self {
         Self {
             header: [0; PREFIX],
             used: 0,
@@ -312,7 +312,7 @@ impl<'a> Probe<'a> {
         });
         Ok(())
     }
-    fn finish(&self) -> Result<Option<u64>, ValueTreeError> {
+    pub(super) fn finish(&self) -> Result<Option<u64>, ValueTreeError> {
         if self.bad
             || self.used != PREFIX
             || self.remaining != Some(0)
@@ -326,7 +326,7 @@ impl<'a> Probe<'a> {
             .then(|| u64::from_be_bytes(self.header[PREFIX - 8..].try_into().unwrap())))
     }
 }
-impl Write for Probe<'_> {
+impl<W: Write> Write for Probe<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.bad {
             return Err(self.fail());
