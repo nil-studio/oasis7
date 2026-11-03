@@ -137,7 +137,7 @@ pub(super) fn body<W: StatePageWriter + ValueNodeReader, C: FnMut() -> bool>(
     }
     Ok(root)
 }
-fn root_row<K: SemanticKeyV1 + ?Sized, W: ValueNodeWriter, C: FnMut() -> bool>(
+pub(super) fn root_row<K: SemanticKeyV1 + ?Sized, W: ValueNodeWriter, C: FnMut() -> bool>(
     field: ModuleAuthorizationFieldV1,
     key: &K,
     child: StateRootV1,

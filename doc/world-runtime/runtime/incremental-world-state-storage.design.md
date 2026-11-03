@@ -778,7 +778,9 @@ family 与单记录资格保留真实 mint class，读写、生命周期及 rece
 
 生产者借用原 DTO，不 clone Vec/map、不写整条 JSON/CBOR 影子叶。完整 family 资格仅凭认证六根及保存内容，拒绝未知列、缺列、孤儿、Option/decision 配对错误、越界 ordinal、实际数量不等于 length 与错误 namespace/key framing。固定根点读继承完整父，绑定精确 root、同池、最低 carrier charge 和真实 mint class；公开输出在成功前均暂态，外部 Write 的 partial/Interrupted 尝试连续扣有限工作，并在末边界检查取消。Recovery 资格不能隐式用于 Ordinary；显式 readmission 只复制固定已认证元数据并先支付新 Ordinary 费用，不读取原件或选择新 head。
 
-该组件的私有资格只证明保存的数据结构，不是 capability/policy 的业务许可，也不授 Invocation、完整 Runtime/World 或 GC 权限。普通事务更新、changed receiver、typed page transfer 与真实模块调用尚由后续接线完成，不因此快照组件完成登记 owner ready。后续授权须保留 CapabilityGrant::is_expired/allows 的 now > expiry、全等/`*`/尾部 `.*` 语义，以及 PolicySet::decide 的原顺序首匹配/default_deny；不能用此结构 token 或调用者自报判断代替。
+现有 cell 的只读与精确 expected 贡献共用同一 overlay resolver：只接受绑定原 Txn parent 的完整 family 和与实际当前 child 相同的同池 Ordinary body 资格，guard/live 在入口检查。支持 Unit/U64/Text、Nullable/closed label 与已存在 effect_kinds ordinal；不扫描无关 grant.name 或其它规则。caller-owned expected/after 比较连续扣独立 byte allowance；NoOp 在比较后组合两取消通道，真实最后 put 后再次组合检查。任何错误使此前成功贡献整体 Aborted。list length 和 decision variant 不能通过单列改变制造半更新；完整 record 生命周期、Vec append/tail truncate、changed receiver、typed page transfer 与真实模块调用仍未由这些 cell 操作代签。
+
+该组件的私有资格只证明保存的数据结构，不是 capability/policy 的业务许可，也不授 Invocation、完整 Runtime/World 或 GC 权限；不因此快照与 cell 组件完成登记 owner ready。后续授权须保留 CapabilityGrant::is_expired/allows 的 now > expiry、全等/`*`/尾部 `.*` 语义，以及 PolicySet::decide 的原顺序首匹配/default_deny；不能用此结构 token 或调用者自报判断代替。
 
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 

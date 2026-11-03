@@ -136,6 +136,7 @@ fn qualify(
         },
         &mut ModuleAuthorizationReadWorkV1 {
             cells_remaining: 10_000,
+            comparison_bytes_remaining: 4 << 20,
             max_payload_bytes: 2 << 20,
         },
     )

@@ -1,4 +1,6 @@
 use super::*;
+#[path = "incremental_runtime_module_authorization_overlay_tests.rs"]
+mod overlay_tests;
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionWriteV1, RootSetV1},
     incremental_state::{StateDeltaV1, StateWriteV1},
@@ -54,6 +56,7 @@ fn bootstrap(
         },
         &mut ModuleAuthorizationReadWorkV1 {
             cells_remaining: 10_000,
+            comparison_bytes_remaining: 4 << 20,
             max_payload_bytes: 2 << 20,
         },
     )

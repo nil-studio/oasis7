@@ -221,11 +221,14 @@ pub use closure::qualify_module_authorization_body_v1;
 
 #[path = "incremental_runtime_module_authorization_family.rs"]
 mod family;
+#[path = "incremental_runtime_module_authorization_overlay.rs"]
+mod overlay;
 pub use family::{
     ModuleAuthorizationFamilyQualificationV1, ModuleAuthorizationRecordKeyV1,
     open_qualified_module_authorization_body_v1, qualify_module_authorization_family_v1,
     readmit_module_authorization_family_ordinary_v1,
 };
+pub use overlay::*;
 
 #[cfg(test)]
 #[path = "incremental_runtime_module_authorization_closure_tests.rs"]

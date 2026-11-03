@@ -18,6 +18,8 @@ pub(super) fn invalid() -> ValueTreeError {
 pub struct ModuleAuthorizationReadWorkV1 {
     /// Cell visits and external output attempts share this finite allowance.
     pub cells_remaining: u64,
+    /// Continuous admission for expected/after byte comparisons in setters.
+    pub comparison_bytes_remaining: u64,
     pub max_payload_bytes: u64,
 }
 struct BudgetOutput<'a, W> {
@@ -125,6 +127,44 @@ pub(super) fn value<R: ValueNodeReader, C: FnMut() -> bool>(
         _ => Err(invalid()),
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Typed path and continuous output allowances remain separate from the shared value reader."
+)]
+pub(super) fn budget_value<R: ValueNodeReader, C: FnMut() -> bool>(
+    field: ModuleAuthorizationFieldV1,
+    address: ModuleAuthorizationAddressV1,
+    id: &[u8; 32],
+    key: &(WorldFieldKeyV1, u64),
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    work: &mut ModuleAuthorizationReadWorkV1,
+    max: u64,
+    output: &mut impl Write,
+) -> Result<ModuleAuthorizationValueV1, ValueTreeError> {
+    let (result, exhausted) = {
+        let mut bounded = BudgetOutput {
+            output,
+            remaining: &mut work.cells_remaining,
+            exhausted: false,
+        };
+        let result = value(
+            field,
+            address,
+            id,
+            key,
+            records,
+            max.min(work.max_payload_bytes),
+            &mut bounded,
+        );
+        (result, bounded.exhausted)
+    };
+    if exhausted {
+        return Err(ValueTreeError::ResourceLimited(
+            "module authorization output work",
+        ));
+    }
+    result
+}
 pub(super) fn cell<M, R, E, C>(
     field: ModuleAuthorizationFieldV1,
     address: ModuleAuthorizationAddressV1,
@@ -144,29 +184,17 @@ where
     let key = key(field, address, &mut ctx.records())?;
     let id = ctx.lookup(&key.0)?.ok_or_else(invalid)?;
     let max = work.max_payload_bytes;
-    let (result, exhausted) = {
-        let mut bounded = BudgetOutput {
-            output,
-            remaining: &mut work.cells_remaining,
-            exhausted: false,
-        };
-        let result = value(
-            field,
-            address,
-            &id,
-            &key,
-            &mut ctx.records(),
-            max,
-            &mut bounded,
-        );
-        (result, bounded.exhausted)
-    };
+    let result = budget_value(
+        field,
+        address,
+        &id,
+        &key,
+        &mut ctx.records(),
+        work,
+        max,
+        output,
+    );
     ctx.check()?;
-    if exhausted {
-        return Err(ValueTreeError::ResourceLimited(
-            "module authorization output work",
-        ));
-    }
     result
 }
 /// Root-bound fixed-size body metadata. This is data closure, not a permit.

@@ -96,6 +96,7 @@ fn qualified_snapshot_text_output_has_bounded_retries_and_exact_failure_boundari
             },
             &mut ModuleAuthorizationReadWorkV1 {
                 cells_remaining: 10_000,
+                comparison_bytes_remaining: 4 << 20,
                 max_payload_bytes: 2 << 20,
             },
         )
@@ -113,6 +114,7 @@ fn qualified_snapshot_text_output_has_bounded_retries_and_exact_failure_boundari
             &mut ctx,
             &mut ModuleAuthorizationReadWorkV1 {
                 cells_remaining: if mode == 1 { 2 } else { 100 },
+                comparison_bytes_remaining: 4 << 20,
                 max_payload_bytes: 128,
             },
             &mut output,

@@ -25,6 +25,9 @@ pub struct ModuleAuthorizationFamilyQualificationV1 {
     rules: u64,
 }
 impl ModuleAuthorizationFamilyQualificationV1 {
+    pub(super) fn parent_digest(&self) -> &[u8; 32] {
+        &self.roots
+    }
     pub fn allocation_class(&self) -> MemoryClass {
         self.class
     }
