@@ -65,6 +65,114 @@ def fixture(directory, scope='ordinary'):
     return root, state_path, library
 
 
+class FormalUploadBudget(unittest.TestCase):
+    """Real upload-bound regression; no cache download/upload is performed."""
+    GIB = 1024 ** 3
+    LIMIT = 20_000_000_000
+    OBSERVED_UPLOAD = 817_681_480
+
+    @staticmethod
+    def formal_key(source='b'):
+        return 'formal-workspace-v3-' + 'a' * 64 + '-' + source * 40
+
+    def formal_entry(self, number, size, **changes):
+        return dict(dict(id=number, key=self.formal_key(f'{number:x}'),
+                         ref='refs/heads/main', size_in_bytes=size), **changes)
+
+    def admit(self, size=None, entries=(), limit=None, reserve=0):
+        return cache.policy.save_policy(list(entries), self.formal_key(),
+            self.OBSERVED_UPLOAD if size is None else size,
+            self.LIMIT if limit is None else limit,
+            reserved_repository_bytes=reserve)
+
+    def test_observed_formal_upload_fits_new_single_limit(self):
+        result = self.admit()
+        self.assertTrue(result['capacity_allowed'], result)
+        self.assertEqual(result['single_upload_limit_bytes'], self.GIB)
+
+    def test_formal_single_limit_is_exactly_one_gib(self):
+        self.assertEqual(cache.policy.FAMILIES['formal']['max_upload_bytes'], self.GIB)
+
+    def test_retention_and_rotation_are_derived_from_new_limit(self):
+        family = cache.policy.FAMILIES['formal']
+        self.assertEqual(family['keep_generations'], 2)
+        self.assertEqual(family['max_bytes'], 2 * self.GIB)
+        self.assertEqual(family['rotation_bytes'], 3 * self.GIB)
+
+    def test_exact_single_boundary_is_admitted(self):
+        self.assertTrue(self.admit(self.GIB)['capacity_allowed'])
+
+    def test_single_boundary_plus_one_is_rejected(self):
+        result = self.admit(self.GIB + 1)
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'formal single upload budget')
+
+    def test_two_full_generations_allow_a_temporary_third(self):
+        entries = [self.formal_entry(i, self.GIB) for i in (1, 2)]
+        result = self.admit(self.GIB, entries)
+        self.assertTrue(result['capacity_allowed'], result)
+        self.assertTrue(result['rotation_required'])
+        self.assertEqual(result['projected_family_bytes'], 3 * self.GIB)
+
+    def test_fourth_generation_still_exceeds_family_budget(self):
+        entries = [self.formal_entry(i, self.GIB) for i in (1, 2, 3)]
+        result = self.admit(1, entries)
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'formal main family rotation budget')
+
+    def test_all_family_repository_usage_still_blocks(self):
+        entry = self.formal_entry(1, self.LIMIT - self.OBSERVED_UPLOAD + 1,
+                                  key='release-and-ecs-and-dependencies')
+        result = self.admit(entries=[entry])
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'repository cache capacity gap')
+
+    def test_all_refs_still_count_against_repository_budget(self):
+        entry = self.formal_entry(1, self.LIMIT, ref='refs/pull/123/merge')
+        result = self.admit(entries=[entry])
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'repository cache capacity gap')
+
+    def test_dependency_rotation_reserve_still_blocks(self):
+        reserve = cache.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
+        entry = self.formal_entry(1, self.LIMIT - reserve - self.OBSERVED_UPLOAD + 1,
+                                  key='other-families')
+        result = self.admit(entries=[entry], reserve=reserve)
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'dependency rotation headroom')
+
+    def test_exact_repository_and_reserve_boundary_is_admitted(self):
+        reserve = cache.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
+        entry = self.formal_entry(1, self.LIMIT - reserve - self.OBSERVED_UPLOAD,
+                                  key='other-families')
+        result = self.admit(entries=[entry], reserve=reserve)
+        self.assertTrue(result['capacity_allowed'], result)
+        self.assertEqual(result['projected_repository_bytes_with_reserve'], self.LIMIT)
+
+    def test_existing_immutable_key_still_rejected(self):
+        result = self.admit(entries=[self.formal_entry(1, 100, key=self.formal_key())])
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'existing immutable key')
+
+    def test_invalid_repository_quota_still_rejected(self):
+        result = self.admit(limit=0)
+        self.assertFalse(result['capacity_allowed'])
+        self.assertEqual(result['reason'], 'repository cache quota unavailable or invalid')
+
+    def test_raw_staging_and_other_families_do_not_expand(self):
+        self.assertEqual(cache.policy.FAMILIES['formal']['staging_bytes'], 8 * self.GIB)
+        self.assertEqual(cache.policy.FAMILIES['ordinary']['staging_bytes'], 6 * self.GIB)
+        self.assertEqual(cache.policy.FAMILIES['ordinary']['max_upload_bytes'], 768 * 1024 ** 2)
+        self.assertEqual(cache.policy.FAMILIES['ecs']['max_upload_bytes'], self.GIB)
+        self.assertEqual(cache.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES, 5 * self.GIB // 2)
+
+    def test_existing_formal_namespace_is_preserved(self):
+        self.assertTrue(cache.policy.is_current_key(self.formal_key()))
+        self.assertEqual(cache.policy.family_for_key(self.formal_key()), 'formal')
+
+
+
+
 class Workspace(unittest.TestCase):
     def test_identity_is_scoped_and_tracks_configuration_but_not_source_contents(self):
         with tempfile.TemporaryDirectory() as directory:
