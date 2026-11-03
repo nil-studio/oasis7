@@ -96,7 +96,7 @@ required/full、稳定 check context、changed-path 剪裁、launcher Web 构建
   - PRD-TESTING-011: As a UI / Viewer owner, I want screenshot-based model visual review to be the default routine visual reviewer, so that most manual visual review is replaced by reproducible evidence and humans only handle escalations.
   - PRD-TESTING-012: As a QA reviewer, I want an auditable source-to-scene receiver and per-object evidence-retention map, so that deterministic, integration, and full-environment evidence cannot be conflated or silently dropped.
 - Critical User Flows:
-  1. Flow-TST-001: `识别改动类型 -> 匹配 S0~S10 -> 日常提交先执行 commit baseline，再按风险升级到 required/full -> 输出结果`
+  1. Flow-TST-001: `识别改动类型 -> 匹配 S0~S10 -> 按需显式执行本地 commit 诊断或适用 required/full（普通提交 hook 为 no-op） -> 输出实际结果与未覆盖项`
   2. Flow-TST-002: `发布前执行 full 套件 -> 按 Viewer/launcher 选择正确驱动链路 -> 汇总命令/日志/截图 -> 生成证据包`
   3. Flow-TST-003: `线上问题复盘 -> 回填触发矩阵 -> 增加回归用例 -> 验证闭环`
   4. Flow-TST-004: `逐篇阅读 legacy 专题文档 -> 按 strict schema 人工重写 -> 按需求/设计/手册职责命名 -> 回归校验`
@@ -121,7 +121,7 @@ required/full、稳定 check context、changed-path 剪裁、launcher Web 构建
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| 分层测试触发 | 改动类型、测试层级、命令集合、changed-path scope | 依据矩阵选择最小必跑集合；PR `required-gate` 先规划 `minimal / targeted / full` 再执行命中的重型组件，必要时追加 launcher Web `trunk build` | `planned -> scoped -> running -> passed/failed` | 默认先 `commit`，按风险升级到 `required`，发布加跑 `full`；docs-only / 无关元数据 PR 允许在 stable context 下退化为 governance/fmt-only；`oasis7_client_launcher` / launcher shared runtime 命中时 required-gate 追加 launcher Web 构建覆盖 | 开发者可执行，发布者可放行 |
+| 分层测试触发 | 改动类型、测试层级、命令集合、changed-path scope | 依据矩阵选择最小必跑集合；PR `required-gate` 先规划 `minimal / targeted / full` 再执行命中的重型组件，必要时追加 launcher Web `trunk build` | `planned -> scoped -> running -> passed/failed` | 本地 `commit` 为按需显式诊断，普通提交 hook 为 no-op；按风险执行 `required`，发布加跑 `full`；docs-only / 无关元数据 PR 允许在 stable context 下退化为 governance/fmt-only；`oasis7_client_launcher` / launcher shared runtime 命中时 required-gate 追加 launcher Web 构建覆盖 | 开发者可执行，发布者可放行 |
 | Web UI 驱动分流 | `surface_type`、`driver`、`evidence_mode` | Viewer 页面通用闭环默认走 `agent-browser`；真实本地栈 + 玩家 UI 操作流程回归走 Playwright 实跑系列；`oasis7_web_launcher` 产品动作默认走 GUI Agent，页面仅做状态/字段校验 | `selected -> driven -> verified` | 先按 surface 分流，再决定是否补充 Canvas/页面采样；Playwright 实跑用例按 `PWT-###` 编号管理 | QA/发布与产品 owner 共同遵循 |
 | 模型视觉评审 | `visual_change_trigger`、`screenshot_set`、`expected_visual_contract`、`automated_evidence`、`verdict`、`confidence`、`human_escalation_needed` | 任何可视化相关代码、样式、资源或可见输出改动默认触发截图评审；对截图执行固定 rubric，输出 visual review card；`verdict=pass` 且 `confidence=high` 可替代 routine 人工视觉 review；`verdict=watch/block/human_escalation` 或 `confidence=medium/low` 必须升级人类 owner，并写明 owner action | `visual_change_detected -> captured -> model_reviewed -> pass/watch/block/escalated` | 先跑确定性测试，再让模型判断视觉；只有明确不影响任何可见 surface 的改动才能豁免且需记录理由；模型只替代截图/布局/可读性类人工 review，不替代 GitHub required review、发布放行、L5 真实玩家验证或对外 claim 审批 | `producer_system_designer` / `qa_engineer` 守边界，命中的 UI owner 处理 findings |
 | Viewer release 语义门禁 | `renderMode`、`lastControlFeedback.stage`、`deltaLogicalTime`、`deltaEventSeq` | `viewer` 下允许 `play/pause` 先返回 `queued`；formal progress 以后续 `step` 的 `completed_advanced` + 正向 world delta 判定；`software_safe` 仅作为 compat alias 覆盖 | `queued -> completed_advanced` 或 `queued -> blocked` | 主 Web 入口不再要求 `play` 立刻涨 tick，也不再强制 `selectedKind=agent`；若 `llm_required` 显式阻断则按 blocker 合约留痕 | QA/发布维护者维护 |
