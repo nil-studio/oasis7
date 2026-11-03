@@ -150,6 +150,8 @@ pub mod segmentation;
 pub mod incremental_agent_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_event_fields;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_fields;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_ledger_value;
@@ -280,6 +282,9 @@ mod incremental_intent_fields;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_agent_authority_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_domain_event_proof;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_effect_intent_cbor;

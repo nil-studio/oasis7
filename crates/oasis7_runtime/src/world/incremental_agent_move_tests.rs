@@ -99,7 +99,9 @@ fn successive_moves_use_overlay_positions_and_exact_originals_without_agent_clon
                         io: &mut io(),
                         cancelled: || false,
                     },
-                    persist_original: |bytes: &ReservedValue<Vec<u8>>, digest| {
+                    persist_original: |original: &mut dyn AgentEventOriginalV1| {
+                        let digest = original.original_id();
+                        let bytes = collect_original(original, &memory)?;
                         assert_eq!(
                             bytes.as_slice(),
                             oasis7_wasm_abi::encode_canonical_cbor(&event).unwrap()
@@ -108,6 +110,7 @@ fn successive_moves_use_overlay_positions_and_exact_originals_without_agent_clon
                         Ok(())
                     },
                     max_event_bytes: 4096,
+                    original_work: original_work(),
                 },
             )
             .unwrap();
@@ -241,7 +244,7 @@ fn move_failure_aborts_all_outer_writes_and_preserves_world() {
                     io: &mut quota,
                     cancelled: || failure == 2,
                 },
-                persist_original: |_: &ReservedValue<Vec<u8>>, _| {
+                persist_original: |_: &mut dyn AgentEventOriginalV1| {
                     if failure == 3 {
                         Err(BodyMutationError::Invalid("injected original failure"))
                     } else {
@@ -249,6 +252,7 @@ fn move_failure_aborts_all_outer_writes_and_preserves_world() {
                     }
                 },
                 max_event_bytes: 4096,
+                original_work: original_work(),
             },
         );
         assert!(result.is_err(), "failure {failure}");
