@@ -27,6 +27,17 @@ mod recovery_tests;
 const FIXTURE_PARENT_ROOT_SET: [u8; 32] = [0x22; 32];
 const FIXTURE_AUTHORITY_SNAPSHOT: [u8; 32] = [0x33; 32];
 
+// These fixtures perform real durable filesystem writes while their HTTP
+// peers retain deliberately short read deadlines. Serialize only this fixture
+// family, not production work or the test runner, so extra durability cases do
+// not consume each other's independent HTTP deadline before dispatch.
+fn durable_owner_fixture_guard() -> std::sync::MutexGuard<'static, ()> {
+    static OWNER_FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    OWNER_FIXTURE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 // Both receipts are authentic in this fixture: the owner must independently
 // fence the one actually recorded for this attempt, not trust authority alone.
 struct RecoveryFixtureAuthority {
@@ -250,6 +261,7 @@ fn store_captured_attempt_with_response(
 
 #[test]
 fn committed_originals_remain_verifiable_for_finalization_recovery() {
+    let _fixture = durable_owner_fixture_guard();
     let root = capture_root();
     let memory = MemoryBudget::new(128 * 1024 * 1024, 8 * 1024 * 1024).unwrap();
     let binding = ProviderMaterialOwnerBindingV1 {
@@ -379,6 +391,7 @@ fn committed_originals_remain_verifiable_for_finalization_recovery() {
 
 #[test]
 fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
+    let _fixture = durable_owner_fixture_guard();
     const OWNER_MEMORY_BYTES: usize = 128 * 1024 * 1024;
     const RECOVERY_RESERVE_BYTES: usize = 8 * 1024 * 1024;
     const VERIFY_ORDINARY_HEADROOM_BYTES: usize = 8 * 1024 * 1024;
@@ -474,6 +487,7 @@ fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
 
 #[test]
 fn configured_sidecar_owner_reopens_pending_refs_and_refuses_same_identity_dispatch() {
+    let _fixture = durable_owner_fixture_guard();
     let _env_guard = crate::viewer::runtime_live::canonical_runtime_provider_env_lock()
         .lock()
         .expect("provider environment lock");

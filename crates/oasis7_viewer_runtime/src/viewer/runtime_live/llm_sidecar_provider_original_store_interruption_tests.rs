@@ -405,6 +405,7 @@ impl Drop for LocalHttpEndpoint {
 
 #[test]
 fn durable_dispatch_cancellation_survives_reopen_and_blocks_same_identity_send() {
+    let _fixture = super::durable_owner_fixture_guard();
     let request = direct_capture_request("request-before-send-cancel");
     let request_bytes = serde_json::to_vec(&request).expect("encode exact request body");
     let request_id = *blake3::hash(&request_bytes).as_bytes();
@@ -528,6 +529,7 @@ fn durable_dispatch_cancellation_survives_reopen_and_blocks_same_identity_send()
 
 #[test]
 fn redirected_non_success_bodies_remain_pending_and_never_reach_second_endpoint() {
+    let _fixture = super::durable_owner_fixture_guard();
     for status in [307, 308] {
         let root = capture_root();
         let (binding, authority, owner) = fixture_owner(&root);

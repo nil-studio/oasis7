@@ -130,6 +130,7 @@ fn service_receipt(
 
 #[test]
 fn hosted_terminal_receipt_fence_precedes_projection_settlement_and_feedback() {
+    let _fixture = durable_owner_fixture_guard();
     let root = capture_root();
     let memory = MemoryBudget::new(128 * 1024 * 1024, 8 * 1024 * 1024).unwrap();
     let binding = ProviderMaterialOwnerBindingV1 {
