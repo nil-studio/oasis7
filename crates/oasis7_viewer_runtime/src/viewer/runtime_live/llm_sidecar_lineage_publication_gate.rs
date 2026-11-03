@@ -78,19 +78,17 @@ pub(super) fn after_rename(path: &Path, temporary: &Path) {
 }
 impl crate::viewer::ViewerRuntimeLiveServer {
     pub fn test_arm_lineage_publication_gate(path: &Path) {
-        assert!(
-            registry()
-                .lock()
-                .unwrap()
-                .insert(
-                    path.to_owned(),
-                    Arc::new(Gate {
-                        prepare_only: true,
-                        ..Gate::default()
-                    })
-                )
-                .is_none()
-        );
+        assert!(registry()
+            .lock()
+            .unwrap()
+            .insert(
+                path.to_owned(),
+                Arc::new(Gate {
+                    prepare_only: true,
+                    ..Gate::default()
+                })
+            )
+            .is_none());
     }
     pub fn test_arm_fresh_lineage_publication_gate(path: &Path) {
         let gate = Gate {
@@ -98,26 +96,22 @@ impl crate::viewer::ViewerRuntimeLiveServer {
             fresh_original_only: true,
             ..Gate::default()
         };
-        assert!(
-            registry()
-                .lock()
-                .unwrap()
-                .insert(path.to_owned(), Arc::new(gate))
-                .is_none()
-        );
+        assert!(registry()
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), Arc::new(gate))
+            .is_none());
     }
     pub fn test_arm_lineage_encoded_gate(path: &Path) {
         let gate = Gate {
             before_write: true,
             ..Gate::default()
         };
-        assert!(
-            registry()
-                .lock()
-                .unwrap()
-                .insert(path.to_owned(), Arc::new(gate))
-                .is_none()
-        );
+        assert!(registry()
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), Arc::new(gate))
+            .is_none());
     }
     pub fn test_wait_lineage_publication_gate(path: &Path, timeout: Duration) -> Option<PathBuf> {
         let gate = registry().lock().unwrap().get(path).cloned()?;

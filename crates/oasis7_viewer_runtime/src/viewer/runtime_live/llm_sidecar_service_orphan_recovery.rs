@@ -8,6 +8,7 @@ use crate::viewer::runtime_live::{
 };
 use oasis7_client_api::world_service::*;
 
+const KNOWN_FAILURE_REASON: &str = "executor_failed_after_dispatch:known_provider_failure";
 const ORPHAN_REASON: &str = "executor_lost_after_dispatch:model_outcome_unknown";
 
 pub(super) fn same_provider_context(
@@ -41,7 +42,17 @@ impl RuntimeLlmSidecar {
         // Process-local workers cannot survive this restore. Preserve the
         // exact marker and lease until canonical orphan reconciliation ends.
         for (agent, active) in self.provider_active_turns.clone() {
-            let retained = self
+            let retained = self.provider_raw_outcomes.iter().any(|outcome| {
+                outcome.agent_id == agent
+                    && outcome
+                        .prepared_request_context
+                        .as_ref()
+                        .is_none_or(|request| request == &active.request_context)
+                    && outcome
+                        .prepared_context
+                        .as_ref()
+                        .is_none_or(|context| context == &active.turn_context)
+            }) || self
                 .provider_held_decisions
                 .get(&agent)
                 .and_then(|d| d.cognition.as_ref())
@@ -79,11 +90,9 @@ impl RuntimeLlmSidecar {
     }
 
     pub(in crate::viewer::runtime_live) fn begin_hosted_orphan_recovery(&mut self) {
-        if let Some((agent, _)) = self
-            .provider_recovery_pending
-            .iter()
-            .find(|(_, p)| p.reason.starts_with(ORPHAN_REASON))
-        {
+        if let Some((agent, _)) = self.provider_recovery_pending.iter().find(|(_, p)| {
+            p.reason.starts_with(ORPHAN_REASON) || p.reason.starts_with(KNOWN_FAILURE_REASON)
+        }) {
             self.hosted_service_phase = Some(HostedServicePhase::Orphan(OrphanPhase {
                 agent: agent.clone(),
                 stage: "view".into(),
@@ -414,13 +423,47 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                 }
                 "failure_view" => phase.stage = "settle".into(),
                 "settled_view" => {
-                    self.llm_sidecar.retire_canonical_orphan(
-                        &phase.agent,
-                        phase
-                            .original_id
-                            .as_deref()
-                            .ok_or("orphan original ID missing")?,
-                    )?;
+                    let known_failure = self
+                        .llm_sidecar
+                        .provider_recovery_pending
+                        .get(&phase.agent)
+                        .is_some_and(|pending| pending.reason.starts_with(KNOWN_FAILURE_REASON));
+                    if known_failure {
+                        // The authenticated settled view above still precedes any
+                        // actor release. First capture its exact failed feedback;
+                        // a later loop under the publication ACK consumes it.
+                        let lease = self.llm_sidecar.validate_orphan_authority(&phase.agent)?;
+                        if lease.status != crate::runtime::CognitionLeaseStatusV1::Settled
+                            || lease.settled_amount != 1
+                            || lease.net_amount != 1
+                            || lease.released_amount != 0
+                            || lease.refunded_amount != 0
+                            || lease.compensated_amount != 0
+                        {
+                            return Err(
+                                "known provider failure lacks canonical settled readback".into()
+                            );
+                        }
+                        self.llm_sidecar
+                            .fail_provider_turn_with_feedback_after_publication(&phase.agent)?;
+                        if self
+                            .llm_sidecar
+                            .provider_active_turns
+                            .contains_key(&phase.agent)
+                        {
+                            self.llm_sidecar.hosted_service_phase =
+                                Some(HostedServicePhase::Orphan(phase));
+                            return Ok(AgentServiceProgress::Advanced);
+                        }
+                    } else {
+                        self.llm_sidecar.retire_canonical_orphan(
+                            &phase.agent,
+                            phase
+                                .original_id
+                                .as_deref()
+                                .ok_or("orphan original ID missing")?,
+                        )?;
+                    }
                     self.llm_sidecar.hosted_service_phase = None;
                     self.llm_sidecar.hosted_service_config_binding = None;
                     return Ok(AgentServiceProgress::Advanced);
@@ -542,7 +585,8 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     .provider_recovery_pending
                     .get_mut(&phase.agent)
                     .ok_or("orphan recovery missing")?
-                    .reason = format!("{ORPHAN_REASON};canonical_rejected:{id}");
+                    .reason
+                    .push_str(&format!(";canonical_rejected:{id}"));
                 self.llm_sidecar.persist_provider_lineage()?;
                 return Err(
                     "orphan original canonical operation rejected; immutable original retained"

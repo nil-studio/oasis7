@@ -849,6 +849,12 @@ impl AsyncAgentRunner {
         Ok(outcomes)
     }
 
+    /// Original actor completions awaiting authoritative Runtime disposition.
+    /// Reading these originals grants no execution or settlement permission.
+    pub fn awaiting_runtime_outcomes(&self) -> impl Iterator<Item = &AsyncAgentTurnOutcome> {
+        self.awaiting_outcomes.values()
+    }
+
     pub fn take_completed(&mut self) -> Vec<AsyncAgentTurnOutcome> {
         self.completed.drain(..).collect()
     }

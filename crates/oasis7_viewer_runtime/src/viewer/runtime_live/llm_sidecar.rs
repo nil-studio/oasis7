@@ -332,6 +332,9 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) hosted_native_dispatch:
         Option<(cognition_context::ProviderContextState, bool)>,
     hosted_outcome_checkpoint_pending: bool,
+    /// Exact feedback publication receipts: None denotes an original read from disk.
+    hosted_terminal_feedback_publications:
+        BTreeMap<String, lineage_persistence::checkpoint_write::LineagePublicationReceipt>,
     hosted_wake_checkpoint_pending: bool,
     pub(in crate::viewer::runtime_live) hosted_admission:
         Option<cognition_context::HostedAdmission>,
@@ -363,6 +366,8 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     provider_feedback_seq_by_session: BTreeMap<String, u64>,
     provider_memory_store: MemoryWriteStore,
     provider_completed_decisions: VecDeque<RuntimeLlmDecision>,
+    /// Restored escrow only; live raw originals remain owned by the runner awaiting map.
+    provider_raw_outcomes: Vec<crate::simulator::AsyncAgentTurnOutcome>,
     provider_stale_replans: BTreeMap<String, ProviderStaleReplanState>,
     provider_transport_exhausted: BTreeSet<String>,
     provider_terminal_states: BTreeMap<String, lineage_persistence::ProviderTerminalState>,

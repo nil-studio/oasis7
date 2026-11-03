@@ -7,60 +7,37 @@ impl RuntimeLlmSidecar {
         &mut self,
         world: &RuntimeWorld,
     ) -> Result<Option<async_support::RuntimeLlmDecision>, String> {
-        self.checkpoint_hosted_outcomes()?;
-        let Some(runner) = self
+        if let Some(runner) = self
             .runner
             .as_mut()
             .and_then(RuntimeDecisionRunner::async_runner_mut)
-        else {
-            return Ok(None);
-        };
-        let completed = runner.poll_completed().map_err(|error| error.to_string())?;
-        let _ = runner.take_completed();
-        for outcome in completed {
-            let request = outcome
-                .prepared_context
-                .zip(outcome.prepared_request_context)
-                .map(
-                    |(turn_context, request_context)| cognition_context::ProviderContextState {
-                        turn_context,
-                        request_context,
-                    },
-                )
-                .ok_or("hosted provider outcome missing original prepared context")?;
-            if self.provider_terminal_matches_request(&outcome.agent_id, &request.request_context) {
-                continue;
+        {
+            // Pump the real mailbox; its awaiting map owns every original until
+            // Runtime disposition. Never acknowledge its compatibility copy here.
+            let pumped = runner.poll_completed();
+            if pumped
+                .as_ref()
+                .map_or(true, |outcomes| !outcomes.is_empty())
+            {
+                self.hosted_outcome_checkpoint_pending = true;
             }
-            let lease = outcome
-                .cognition_lease
-                .ok_or("hosted provider outcome missing original lease")?;
-            self.validate_provider_cognition_lease_for_request(
-                world,
-                &outcome.agent_id,
-                &request.request_context,
-                &lease,
-                "outcome",
-            )?;
-            let cognition = RuntimeProviderActionContext {
-                request,
-                response: outcome
-                    .prepared_response_context
-                    .ok_or("hosted provider outcome missing response artifact")?,
-                cognition_lease: Some(lease),
-                memory_write_intents: outcome.memory_write_intents.clone(),
-            };
-            let decision = async_support::RuntimeLlmDecision {
-                agent_id: outcome.agent_id,
-                decision: outcome
-                    .decision
-                    .ok_or("hosted provider actor produced no decision")?,
-                decision_trace: outcome.decision_trace,
-                cognition: Some(cognition),
-                memory_write_intents: outcome.memory_write_intents,
-                continuation_admitted: false,
-            };
-            self.retain_hosted_outcome(decision);
+            if let Err(error) = pumped {
+                self.checkpoint_hosted_outcomes()?;
+                return Err(error.to_string());
+            }
         }
+        // Capture the whole raw batch before validating any individual member.
+        self.checkpoint_hosted_outcomes()?;
+        if let Some(runner) = self
+            .runner
+            .as_mut()
+            .and_then(RuntimeDecisionRunner::async_runner_mut)
+        {
+            // Only the compatibility delivery copy is acknowledged. The SDK's
+            // awaiting owner remains until canonical Runtime feedback ACK.
+            let _ = runner.take_completed();
+        }
+        self.capture_hosted_raw_outcomes(world)?;
         // An empty poll cannot renew the publication fence immediately after
         // its ACK. Newly captured original outcomes still publish before use.
         self.checkpoint_hosted_outcomes()?;
@@ -151,3 +128,6 @@ impl RuntimeLlmSidecar {
         Ok(())
     }
 }
+
+#[path = "llm_sidecar_hosted_raw_outcome.rs"]
+mod raw_outcome;
