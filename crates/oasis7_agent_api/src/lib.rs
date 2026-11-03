@@ -88,5 +88,5 @@ pub use model_provider::{
     ModelProviderTrace, ModelProviderTraceEntry, ModelProviderTurn, ModelProviderUsage,
 };
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
