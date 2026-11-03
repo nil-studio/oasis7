@@ -38,6 +38,33 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
+<a id="local-check-entry"></a>
+## 显式本地检查：当前入口与目标分层
+
+普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。其 help 中 “used by pre-commit” 是待实施修正的旧描述，应以脚本实际接线和本节为准。
+
+| 当前目的 | 当前可执行入口 | 结果证明范围 |
+| --- | --- | --- |
+| 文档改动反馈 | `./scripts/doc-governance-check.sh` | 实际检查的结构、引用和治理规则；不证明文档语义或功能实现 |
+| 最小 Rust 包反馈 | `./scripts/cargo-dev.sh check -p oasis7_proto`；测试示例 `./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>` | 指定包/过滤器和开发配置；测试过滤器须核对实际非零执行，不据此声明 required/full |
+| 显式本地诊断 | `./scripts/ci-tests.sh commit` | 当前 commit 清单；保留日志和未执行的 required/full 范围 |
+| 正式测试 | `./scripts/ci-tests.sh required` 或 `./scripts/ci-tests.sh full` | 当前手册定义的适用 tier、实际平台和执行结果；仍需按改动补 UI/真实环境验收 |
+
+`./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
+
+目标 `scripts/check-local.py` **尚未实现**。其 quick（现有 baseline 组）、affected（同 planner 的本地影响计划）和 formal（显式 required/full canonical）合同见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。当前 planner 仅支持 Git refs；它还不能把 dirty/untracked 文件纳入上述统一入口。需要今天检查未提交变更时，使用已存在的文档/按包/显式 tier 命令，并在 PR 记录真实输入、命令和局限；不要执行不存在的目标命令或将 HEAD 计划当成工作树覆盖。
+
+<a id="local-check-entry-validation"></a>
+### 本地入口核验（实施阶段）
+
+Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5](doc/testing/ci/ci-test-coverage.prd.md#local-check-entry-requirement)。本节是后续实现的验证方法，当前文档 PR 未执行这些目标入口场景。
+
+1. 在自有临时仓库准备可解析 base/HEAD，分别放入已提交、暂存、未暂存、未跟踪变更及删除/重命名；核对报告列出来源、old/new 路径、policy SHA、依赖影响与选择理由。同路径抵消改动和修改 Cargo 清单也不能漏选。将同样的干净提交输入原 planner，与 thin entry 的计划逐项比对，不能产生另一套选测结果。
+2. quick 核对只运行 baseline，明确显示未运行 Rust fmt/编译/业务测试；affected 让真实受影响组执行且核对 case/target/features；formal 记录显式 tier、干净 source 和 canonical 命令。使用一个有真实断言的小型消费者证明从计划到执行的接线，fake runner 仅验证调度/汇总，不能代签消费者覆盖。
+3. 注入不存在/歧义 base、未解决合并、未登记路径、不可读输入、缺工具、锁定依赖不可用、formal dirty、运行中改文件和禁止写用户文件的命令。检查 blocked/stale_input 的原因、非零退出及保留的局部结果；对照前后源码、未跟踪文件、index 与 Git ref 身份，确认没有格式化、暂存或自动回滚。
+4. 分别验证命令失败、测试零匹配、必要项 skipped、执行数 unknown、空计划、取消、超时和报告写失败；输出与退出码须遵守设计状态表。显式 dry-run 只有 planned/`validated=false`，全部 skipped 或零执行不能显示 passed。核对取消后仅清理自有进程。
+5. 对照 text/JSON 的相同 source/base/scope、命令与 pass/fail/skipped，保留报告和日志。指出未执行组/平台/真实环境；证据记录在实施 PR/实际 CI，不把本地结果变成 hosted required 或 full 的替代证明。
+
 ## 本地 Cargo 开发约定
 
 - 本地开发态 `cargo check/test/run/build` 优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。wrapper 只调整开发 profile 与可用的 sccache，target 沿用 Cargo 原生解析，默认在当前 worktree 的 `target/`；不建立外部缓存 namespace 或符号链接，也不需要预先准备 target。直接 Cargo 与 wrapper 使用相同的 target 解析规则。
@@ -308,7 +335,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - Viewer headed / GPU 真环境性能在被选择时必须采集，但在稳定可复现的环境特定采样阈值、原始复现与有时限 waiver 生命周期建立前仍是 report/watch，不是 blocking required gate。
 
 结论：
-- `commit` 是默认本地提交基线，目标是尽快暴露格式/治理/viewer-support 回归，但不承担 `oasis7 --tests` required shard；
+- `commit` 是显式本地诊断，覆盖当前治理/support/viewer 清单，不由普通提交触发；它不包含 Rust fmt，也不承担 `oasis7 --tests` required shard；
 - ordinary PR 的 `required-gate` 是 impact-scoped premerge 最小 blocking set：先拦截改动影响面的缺陷，再在不降低充分度的前提下优化速度；基础 required 含 `oasis7 + consensus + distfs + viewer`，GitHub 可按 planner 追加 `node + net/libp2p` support shard；
 - `full` 不是 ordinary PR 默认，只用于 release、高风险、历史缺陷升级、信号触发或 schedule 回归；planner 的 `scope=full` 仅表示 required tier 内 fail-closed 覆盖扩张，不等于选择 full tier；
 - `required-gate` 已补充 changed-path scope planner；
