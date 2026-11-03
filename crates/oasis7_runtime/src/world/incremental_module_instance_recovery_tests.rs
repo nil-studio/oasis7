@@ -389,7 +389,7 @@ fn late_cancellation_and_scratch_unwind_release_workspace_without_partial_conten
 #[test]
 fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
     use oasis7_formal_protocol::incremental_execution::TransitionVerifier;
-    for case in 0..7 {
+    for case in 0..9 {
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let (_, parent, mut pages, mut values) = setup_instances(&memory);
         let proof = qualify(
@@ -405,7 +405,7 @@ fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
             ExecutionTransaction::begin(parent.clone(), [4; 32], &pages, &memory, limits())
                 .unwrap();
         let mut quota = genesis_io();
-        if case == 0 {
+        if case == 0 || case >= 7 {
             assert!(
                 crate::change_module_instance_field_v1(
                     crate::ModuleInstanceFieldChangeV1 {
@@ -560,9 +560,18 @@ fn qualified_instance_point_and_changed_receiver_match_full_raw_oracle() {
         };
         // Every negative really passes independent generic replay first.
         drop(verifier.verify(&sealed.record).unwrap());
+        // Generic replay and owner validation deliberately use different readers.
+        // Identical authenticated bytes do not transfer admission between pools/classes.
+        let foreign = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+        let typed_state = Store {
+            memory: if case == 8 { &foreign } else { &memory },
+            class: if case == 7 { MemoryClass::Recovery } else { MemoryClass::Ordinary },
+            pages: RefCell::new(pages.0.clone()),
+            fail_write: false,
+        };
         let mut ctx = ModuleInstanceRecoveryContext {
             root: sealed.record.after.state_root(Ns::Business),
-            state: &state,
+            state: &typed_state,
             values: &values,
             scratch: &scratch,
             memory: &memory,
