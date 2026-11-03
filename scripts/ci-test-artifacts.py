@@ -17,6 +17,20 @@ import tempfile
 import time
 import tomllib
 
+import importlib.util
+_provider_spec = importlib.util.spec_from_file_location('ci_preview_provider_artifact', Path(__file__).with_name('ci_preview_provider_artifact.py'))
+provider_artifact = importlib.util.module_from_spec(_provider_spec)
+_provider_spec.loader.exec_module(provider_artifact)
+
+
+def preview_provider_required(manifest):
+    plan = manifest.get('execution_plan') or {}
+    expanded = plan.get('test_policy_changed', False) or plan.get('scope') in ('full', 'explicit-full') or plan.get('execution_profile') in ('periodic-full', 'candidate-full')
+    selection = manifest.get('selection')
+    ordinary = selection == {'suite': 'ordinary'} or (selection is None and manifest.get('scope') == 'ordinary')
+    return bool(expanded and ordinary)
+
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
 FORMAL_AUTHORITY = None
@@ -687,6 +701,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
+    if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
+        manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
@@ -781,6 +797,12 @@ def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     manifest['libraries'] = {name: manifest['libraries'][name] for name in sorted(libraries)}
     files = [(manifest['binaries'][name]['path'], manifest['binaries'][name]['sha256']) for name in sorted(included)]
     files += list(manifest['libraries'].items())
+    if preview_provider_required(manifest):
+        provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest)
+        files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['files'].values()]
+        files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['libraries']]
+    else:
+        manifest.pop('preview_provider', None)
     checked = [(name, sha, checked_file(bundle, name, sha)) for name, sha in files]
     manifest_bytes = (json.dumps(manifest, indent=2) + '\n').encode()
     archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1397,6 +1419,12 @@ def load(bundle, suite=None, shard=None, plan=None):
         if not path.resolve().is_relative_to(bundle.resolve()) or digest(path) != sha:
             raise ValueError('invalid dynamic library')
     env = dict(os.environ)
+    for variable in provider_artifact.VARIABLES:
+        env.pop(variable, None)
+    if preview_provider_required(manifest):
+        env.update(provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest))
+    elif 'preview_provider' in manifest:
+        raise ValueError('unexpected provider material outside expanded ordinary execution')
     env['LD_LIBRARY_PATH'] = str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', '')
     for variable, logical in {
         'PRE2_VIEWER_BINARY': 'viewer', 'OASIS7_CHAIN_RUNTIME_BIN': 'runtime',

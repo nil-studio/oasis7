@@ -533,6 +533,7 @@ run_workflow_governance_baseline_contract_tests() {
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
   run python3 ./scripts/ci-python-control-contracts.test.py
+  run "$ci_python" ./scripts/ci_preview_provider_artifact.test.py
   run python3 ./scripts/ci-formal-process.test.py
   run python3 ./scripts/ci-storage-acceptance.test.py
   run python3 ./scripts/ci-storage-network.test.py
@@ -943,6 +944,13 @@ PY
 }
 
 run_full_extended_tier_tests() {
+  local provider_bundle provider_env
+  mkdir -p "$repo_root/target"
+  provider_bundle=$(mktemp -d "$repo_root/target/ci-preview-provider.XXXXXX")
+  provider_env="$provider_bundle/environment.sh"
+  run "$ci_python" "$driver_dir/ci_preview_provider_artifact.py" --repo-root "$repo_root" \
+    --bundle "$provider_bundle" --env-file "$provider_env"
+  source "$provider_env"
   run_oasis7_full_tier_tests
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke
