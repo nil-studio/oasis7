@@ -8,11 +8,24 @@ import tempfile
 import textwrap
 from pathlib import Path
 import re
+import shlex
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = (ROOT / '.github/workflows/rust.yml').read_text()
 CONFIG = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+def workspace_support_fixture_functions(driver):
+    # Extract the real transitive shell dependency, rather than supplying a
+    # no-op helper that would hide a missing production dispatch.
+    names = ('run_worker_wasm_compile_profiles',
+             'run_oasis7_workspace_support_crate_tests')
+    functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}',
+                           driver, re.M | re.S).group() for name in names]
+    return ('ci_python=' + shlex.quote(sys.executable) + '\n'
+            + 'driver_dir=' + shlex.quote(str(ROOT / 'scripts')) + '\n'
+            + '\n'.join(functions))
+
+
 def workflow_jobs(workflow):
     jobs = dict(re.findall(r'^  ([a-z][a-z0-9-]*):\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)',
                           workflow.split('\njobs:\n', 1)[1], re.M | re.S))
@@ -1733,7 +1746,7 @@ run_cargo() {
 
     def test_native_tool_suite_does_not_inherit_nightly_build_std(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        function = re.search(r'^run_oasis7_workspace_support_crate_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+        function = workspace_support_fixture_functions(driver)
         script = """set -euo pipefail
 run_signed_read_protocol_contract_tests() { :; }
 run() { :; }
@@ -1750,7 +1763,7 @@ run_cargo_clippy() { printf '%s|clippy %s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
 
     def test_agent_contract_and_harness_checks_are_in_workspace_support(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        function = re.search(r'^run_oasis7_workspace_support_crate_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+        function = workspace_support_fixture_functions(driver)
         script = """set -euo pipefail
 run_signed_read_protocol_contract_tests() { :; }
 run() { :; }
@@ -1769,7 +1782,7 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
 
     def test_private_context_all_targets_and_caller_are_executed(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        function = re.search(r'^run_oasis7_workspace_support_crate_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+        function = workspace_support_fixture_functions(driver)
         script = "set -euo pipefail\nrun_signed_read_protocol_contract_tests() { :; }\nrun() { :; }\nrun_cargo() { printf '%s\\n' \"$*\"; }\nrun_cargo_clippy() { printf 'clippy %s\\n' \"$*\"; }\n" + function + "\nrun_oasis7_workspace_support_crate_tests\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1785,6 +1798,50 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
         for path in ('crates/oasis7_context/**', 'crates/oasis7_secure_envelope/**'):
             selected_groups = {group for rule in CONFIG['rules'] if path in rule['match'] for group in rule['groups']}
             self.assertIn('fleet_health', selected_groups)
+
+    def test_workspace_support_runs_real_worker_compile_helper_and_propagates_failure(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        functions = workspace_support_fixture_functions(driver)
+        script = """set -euo pipefail
+run_signed_read_protocol_contract_tests() { :; }
+run_cargo() { :; }
+run_cargo_clippy() { :; }
+run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
+""" + functions + "\nrun_oasis7_workspace_support_crate_tests\n"
+        features = ('identity', 'owner', 'executor', 'recovery-fence',
+                    'owner,approval-harness', 'identity,native-runtime-harness')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / 'crates/oasis7_custody_worker/Cargo.toml'
+            manifest.parent.mkdir(parents=True)
+            # A closed manifest fixture keeps this shell-consumer proof separate
+            # from the conditional future-profile contracts in the Python suite.
+            names = sorted({name for profile in features for name in profile.split(',')})
+            manifest.write_text('[features]\ndefault = []\n'
+                                + ''.join(name + ' = []\n' for name in names))
+            binary = root / 'bin'
+            binary.mkdir()
+            capture = root / 'cargo-command-capture'
+            cargo = binary / 'cargo'
+            # This executable captures argv only; no real Cargo or compiler runs.
+            cargo.write_text('#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$WORKER_COMPILE_CAPTURE"\nexit "$WORKER_COMPILE_RESULT"\n')
+            cargo.chmod(0o755)
+            environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                               WORKER_COMPILE_CAPTURE=str(capture), WORKER_COMPILE_RESULT='0')
+            result = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            expected = ['check -p oasis7_custody_worker --target wasm32-unknown-unknown '
+                        '--no-default-features --features ' + feature + ' --locked'
+                        for feature in features]
+            self.assertEqual(capture.read_text().splitlines(), expected)
+            capture.unlink()
+            environment['WORKER_COMPILE_RESULT'] = '42'
+            failed = subprocess.run(['bash', '-c', script], cwd=root, env=environment,
+                                    text=True, capture_output=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn('exit status 42', failed.stderr)
+            self.assertEqual(capture.read_text().splitlines(), expected[:1])
 
     def test_private_context_macos_uses_fixed_toolchain_and_declared_resource(self):
         fleet = JOBS['fleet-health']

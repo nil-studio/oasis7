@@ -337,10 +337,27 @@ run_signed_read_protocol_contract_tests() {
   run env PYTHON="$ci_python" npm test --prefix crates/oasis7_agent_api/protocol_conformance
 }
 
+run_worker_wasm_compile_profiles() {
+  # Run the trusted planner's exact compile tuples; candidate role flags do not
+  # become test-execution evidence and mutually exclusive roles stay separate.
+  run "$ci_python" - "$driver_dir/plan-rust-required-scope.py" <<'PY_WORKER_COMPILE'
+import importlib.util
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('scope', sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+manifest = tomllib.loads(Path('crates/oasis7_custody_worker/Cargo.toml').read_text())
+module.run_worker_wasm_compile_checks(manifest)
+PY_WORKER_COMPILE
+}
+
 run_oasis7_workspace_support_crate_tests() {
   run_signed_read_protocol_contract_tests
   run_cargo test -p oasis7_custody_core --all-targets --locked
-  run bash crates/oasis7_custody_worker/scripts/verify.sh --platform
+  run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles
   run_cargo_clippy -p oasis7_agent_api --all-targets
   run_cargo_clippy -p oasis7_agent_harness --all-targets
   run_cargo_clippy -p oasis7_client_storage -p oasis7_signer_protocol --all-targets
@@ -429,7 +446,7 @@ PY
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets; complete_targets=true ;;
       oasis7_agent_harness|oasis7_game_client|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
-      oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform ;;
+      oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;

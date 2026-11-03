@@ -1,0 +1,1828 @@
+{
+  "source_revision": "113868200d1f91bef1008babb689bd257f241428",
+  "rows": [
+    {
+      "catalog_id": "R-GAME-04",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-04",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/claim-ready.svg",
+              "region": "named visible cards: 目标 Agent / 认领前核对",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "可提交 · 示例数据",
+          "details": [
+            {
+              "title": "目标 Agent",
+              "contents": "候选 A ▾\n位置 120, 0, 40 cm\nBody / frame：已发布类型\n专长：以 canonical 路线理由为准",
+              "region": "right detail panel"
+            },
+            {
+              "title": "认领前核对",
+              "contents": "Slot 1 · Owned / cap 0 / 1\nEligible 20 OC · Upfront 12 OC\nActivation fee 4 OC · Bond 8 OC\nUpkeep 2 OC / epoch\n数字为设计示例，不是运行时事实",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 1815,
+              "anchor": "function AgentClaimPanel",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/claim-lifecycle.svg",
+              "region": "named visible cards: 费用构成 · OC / 时间与风险 / 释放动作未发布",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读生命周期",
+          "details": [
+            {
+              "title": "费用构成 · OC",
+              "contents": "Upfront 12 = Activation 4 + Bond 8\nEligible 20 · Liquid 8 · Restricted 12\nAuto starter 0\nBond locked：restricted 8 / liquid 0",
+              "region": "right detail panel"
+            },
+            {
+              "title": "时间与风险",
+              "contents": "Upkeep 2 OC / epoch · Paid through 20\nRelease ready in 2 epochs\nGrace 3 · Idle warning 5 epochs\nForced reclaim 10 epochs · Penalty 500 bps\nReclaim terms：以已发布条款为准",
+              "region": "right detail panel"
+            },
+            {
+              "title": "释放动作未发布",
+              "contents": "当前仅状态指导，不显示释放按钮。\n已发布但阻塞时，应从正式动作列表查看原因。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 185,
+              "anchor": "function claimQuoteRows",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-05",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-05",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/claim-ready.svg",
+              "region": "named visible cards: 目标 Agent / 认领前核对",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "可提交 · 示例数据",
+          "details": [
+            {
+              "title": "目标 Agent",
+              "contents": "候选 A ▾\n位置 120, 0, 40 cm\nBody / frame：已发布类型\n专长：以 canonical 路线理由为准",
+              "region": "right detail panel"
+            },
+            {
+              "title": "认领前核对",
+              "contents": "Slot 1 · Owned / cap 0 / 1\nEligible 20 OC · Upfront 12 OC\nActivation fee 4 OC · Bond 8 OC\nUpkeep 2 OC / epoch\n数字为设计示例，不是运行时事实",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 1815,
+              "anchor": "function AgentClaimPanel",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-03",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-03",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/claim-defer.svg",
+              "region": "named visible cards: 当前条件 / 现在不推荐任何候选",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "暂缓 · 无推荐理由",
+          "details": [
+            {
+              "title": "当前条件",
+              "contents": "Eligible = Upfront：12 OC\n认领后 upkeep runway：0 epochs\n候选路线理由尚未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "现在不推荐任何候选",
+              "contents": "补足资金不等于被推荐。\n等待 canonical 理由与额外 upkeep 余额。\n目标 Agent：候选 A ▾",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/agent_claim_choice_card.jsx",
+              "line": 3,
+              "anchor": "export function",
+              "sha256": "78f1c3f9ebc81d13a39fa86b130d5ac2d9b9e90d1cc0b34ca99a067875a94d00"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-01",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-01",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/first-oc-pending.svg",
+              "region": "named visible cards: 新手启动资金 / 等待 committed 快照",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "已发送 ≠ 已入账",
+          "details": [
+            {
+              "title": "新手启动资金",
+              "contents": "入账后解锁第一次 Agent 聊天\n和早期玩法操作。\n无需外部付费入场或模型充值。",
+              "region": "main stacked panel"
+            },
+            {
+              "title": "等待 committed 快照",
+              "contents": "Agent：示例 A\n反馈：queued\n余额尚未确认；不要重复领取。\n可先阅读：指挥 Agent 恢复产线",
+              "region": "main stacked panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 1394,
+              "anchor": "function StarterOcOnboardingPanel",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/first-oc-ready.svg",
+              "region": "named visible cards: 已入账 / 下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "启动资格已满足",
+          "details": [
+            {
+              "title": "已入账",
+              "contents": "第一笔 OC 已在当前 Agent 快照可见。\n可以进入第一次 Agent 聊天与早期操作。",
+              "region": "main stacked panel"
+            },
+            {
+              "title": "下一步",
+              "contents": "告诉 Agent 当前目标；观察 blocker。\n接受意图不等于世界效果完成。\n按钮只有正式动作发布后出现。",
+              "region": "main stacked panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 1394,
+              "anchor": "function StarterOcOnboardingPanel",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-ACTION-01",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-action-01",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/build-blocked.svg",
+              "region": "named visible cards: 动作身份 / 阻塞与下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "受阻 · 正式动作示例",
+          "details": [
+            {
+              "title": "动作身份",
+              "contents": "build_factory_smelter_mk1\n作用对象：示例 Agent A\nexecuteKind：gameplay_action",
+              "region": "right detail panel"
+            },
+            {
+              "title": "阻塞与下一步",
+              "contents": "材料条件尚未满足。\n按当前已发布 blocker 查看物料来源；\n不得从未知库存推断可建造。\n数量与用电若未发布则显示未发布。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2771,
+              "anchor": "可用玩法动作",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/build-pending.svg",
+              "region": "named visible cards: 原操作 / 等待权威结果",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "pending · 非建造成功",
+          "details": [
+            {
+              "title": "原操作",
+              "contents": "build_factory_smelter_mk1\n请求对象：Agent A\n当前观察对象：Agent B\n结果仍归原操作与 Agent A",
+              "region": "right detail panel"
+            },
+            {
+              "title": "等待权威结果",
+              "contents": "反馈：sent / accepted\n工厂创建尚未得到 committed 证据。\n保留操作身份，禁止重复点击。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2771,
+              "anchor": "可用玩法动作",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/actions-unpublished.svg",
+              "region": "named visible cards: 当前快照 / 可恢复路径",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "未知，不是无事可做",
+          "details": [
+            {
+              "title": "当前快照",
+              "contents": "available_actions：未发布\n下一步提示：未发布\n不要合成建造、转账、释放或重试动作。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "可恢复路径",
+              "contents": "保留 World / Targets / Command 导航。\n快照刷新仅在现有能力允许时提供。\n动态动作列表不是固定有限功能目录。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2771,
+              "anchor": "可用玩法动作",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-ACTION-02",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-action-02",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/build-blocked.svg",
+              "region": "named visible cards: 动作身份 / 阻塞与下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "受阻 · 正式动作示例",
+          "details": [
+            {
+              "title": "动作身份",
+              "contents": "build_factory_smelter_mk1\n作用对象：示例 Agent A\nexecuteKind：gameplay_action",
+              "region": "right detail panel"
+            },
+            {
+              "title": "阻塞与下一步",
+              "contents": "材料条件尚未满足。\n按当前已发布 blocker 查看物料来源；\n不得从未知库存推断可建造。\n数量与用电若未发布则显示未发布。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2771,
+              "anchor": "可用玩法动作",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/build-pending.svg",
+              "region": "named visible cards: 原操作 / 等待权威结果",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "pending · 非建造成功",
+          "details": [
+            {
+              "title": "原操作",
+              "contents": "build_factory_smelter_mk1\n请求对象：Agent A\n当前观察对象：Agent B\n结果仍归原操作与 Agent A",
+              "region": "right detail panel"
+            },
+            {
+              "title": "等待权威结果",
+              "contents": "反馈：sent / accepted\n工厂创建尚未得到 committed 证据。\n保留操作身份，禁止重复点击。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2771,
+              "anchor": "可用玩法动作",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/actions-unpublished.svg",
+              "region": "named visible cards: 当前快照 / 可恢复路径",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "未知，不是无事可做",
+          "details": [
+            {
+              "title": "当前快照",
+              "contents": "available_actions：未发布\n下一步提示：未发布\n不要合成建造、转账、释放或重试动作。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "可恢复路径",
+              "contents": "保留 World / Targets / Command 导航。\n快照刷新仅在现有能力允许时提供。\n动态动作列表不是固定有限功能目录。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2771,
+              "anchor": "可用玩法动作",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-18",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-18",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/industrial-settled.svg",
+              "region": "named visible cards: 已结算产出 / 下一候选",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "production_only",
+          "details": [
+            {
+              "title": "已结算产出",
+              "contents": "iron_ingot × 36\n投入：iron_ore × 48\n配方 powerRequired：24（源未指定单位）\nAccepted batches 12 · Job 5 · Tick 27\n产出归属：示例 Agent A",
+              "region": "right detail panel"
+            },
+            {
+              "title": "下一候选",
+              "contents": "Assembler MK1 候选资格已满足。\n建造仍需当前材料、电力与授权。\n稳定运行与交付必须分别验证。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/industrial_starter_outcome_card.jsx",
+              "line": 3,
+              "anchor": "export function",
+              "sha256": "985e187b35025e075f7d559c28934fc89cf0e4eaee0bea1964c1997668e18b96"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-19",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-19",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/depot-empty.svg",
+              "region": "named visible cards: 区域设施 / 服务能力 / 技术证据",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "库存为空 · upkeep 未付",
+          "details": [
+            {
+              "title": "区域设施",
+              "contents": "Depot 示例 D · Location 示例 L\nClaim 示例 C · Service radius 800 cm\nInventory revision 3\n库存：空，不显示虚构资源",
+              "region": "right detail panel"
+            },
+            {
+              "title": "服务能力",
+              "contents": "吞吐剩余 / 上限：0 / 20 units per epoch\nEpoch 7 · Upkeep：未付\n服务可用性可能受限。\n当前快照未发布可用 depot 动作。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "技术证据",
+              "contents": "Module / version / wasm hash：未发布\nReceipt / proposal：未发布",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/micro_depot_facilities_panel.jsx",
+              "line": 38,
+              "anchor": "export function",
+              "sha256": "3042688e534ea0161cd81d4434c8e5435f23ff70b80e015da4e581bfaf46ad2a"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-22",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-22",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/failure-blocked.svg",
+              "region": "named visible cards: 本次损失 / 恢复动作",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "安全门提案 · 非现有行为",
+          "details": [
+            {
+              "title": "本次损失",
+              "contents": "Factory 示例 F · Recipe 示例 R\nBlocker：validation failed\nConsumed：iron_ore × 4 · Lost：× 1\nConsumed power 2 · Lost power 1\n电力单位源未指定",
+              "region": "right detail panel"
+            },
+            {
+              "title": "恢复动作",
+              "contents": "recoveryAction：示例已发布动作\ndisabledReason：等待权威条件\n下一次复查：next committed snapshot\n当前源码按钮缺少 disabled；本稿明确补门。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/factory_production_failure_disposition_card.jsx",
+              "line": 17,
+              "anchor": "export function",
+              "sha256": "2dd324f159a06d9de5ad3b0fa17f46bca8458053ad8834c2aa6a3c3c243db40f"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-21",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-21",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/recipe-known.svg",
+              "region": "named visible cards: 同料换来源 / 显式异料替代 / 成本与风险 / 下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · 不扣料不加进度",
+          "details": [
+            {
+              "title": "同料换来源 / 显式异料替代",
+              "contents": "Slot input-1 · Legal candidates available\n来源 source-A → target-B\n投入 3 source units / 产出 2 target units\n比例 3 / 2 · Round up\nLoss 0 · Residual 0 / 1",
+              "region": "right detail panel"
+            },
+            {
+              "title": "成本与风险",
+              "contents": "Conversion power：未发布\nTerminal / logistics / buffer：未发布\nHeld / consumed / expected valuation：未发布\n风险：以已发布条款为准\n因果保持：决定本身不增加 work",
+              "region": "right detail panel"
+            },
+            {
+              "title": "下一步",
+              "contents": "明确确认所选候选：仅发布的说明文本。\n此只读面没有确认或转换按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/recipe_substitution_panel.jsx",
+              "line": 2,
+              "anchor": "export function",
+              "sha256": "d325f80d7d29c024c7331cdb1d8abb923f61309f96c645ce01e4ed1accf17eee"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/recipe-unknown.svg",
+              "region": "named visible cards: 缺少权威证据 / 无转换回执",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "unknown / blocked",
+          "details": [
+            {
+              "title": "缺少权威证据",
+              "contents": "兼容性未知不能作为安全选项。\nRecipe / work：未发布\nNext recheck：未发布\n补齐证据或资源后重新预览。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "无转换回执",
+              "contents": "decision_only：仅记录选择。\n没有 settlement，不能宣称已转换。\n超出读取上限时按准确 work identity 继续查询。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/recipe_substitution_panel.jsx",
+              "line": 2,
+              "anchor": "export function",
+              "sha256": "d325f80d7d29c024c7331cdb1d8abb923f61309f96c645ce01e4ed1accf17eee"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/recipe-settled.svg",
+              "region": "named visible cards: 已确认决定 / 实际转换已结算",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读回执对账",
+          "details": [
+            {
+              "title": "已确认决定",
+              "contents": "Decision 示例 D\nScope：conversion_authorized\n只授权精确转换，不等于已经发生。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "实际转换已结算",
+              "contents": "独立 settlement：示例 S\nConsumed 3 · Loss 0\n以独立回执核对实际效果。\n因果改变的候选必须从零 work 开始。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/recipe_substitution_panel.jsx",
+              "line": 2,
+              "anchor": "export function",
+              "sha256": "d325f80d7d29c024c7331cdb1d8abb923f61309f96c645ce01e4ed1accf17eee"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-06",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-06",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/expansion-incomplete.svg",
+              "region": "named visible cards: 路线 A / 动作未发布",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · 推荐信息不完整",
+          "details": [
+            {
+              "title": "路线 A",
+              "contents": "即时收益：已发布说明\n后续变化 1：已发布说明\n后续变化 2：未发布\n风险或锁定：未发布\n下次会话目标：未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "动作未发布",
+              "contents": "不根据动作文案补造收益或未来变化。\n完整推荐要求两项不同的后续变化。\n此卡不提供执行按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 370,
+              "anchor": "function ExpansionTradeoffCards",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-24",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-24",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/recovery-compare.svg",
+              "region": "named visible cards: 修复 Repair / 重建 Rebuild / 转向 Pivot",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读方案比较",
+          "details": [
+            {
+              "title": "修复 Repair",
+              "contents": "时间：短期\n资源：集中本地投入\n风险：低\n保留收益：已发布收益\n原因：运行时推荐理由",
+              "region": "right detail panel"
+            },
+            {
+              "title": "重建 Rebuild / 转向 Pivot",
+              "contents": "时间：中期 / 未发布\n资源：更广泛本地再投入 / 转向本地投入\n风险：中等 / 权衡\n保留收益与推荐原因分别读取。\n没有正式动作时不提供执行控件。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/recovery_option_comparison_panel.jsx",
+              "line": 47,
+              "anchor": "export function RecoveryOptionComparisonPanel",
+              "sha256": "b9e7e420fb6f1b7b9a728692b086908d4792d6d8943834b393ad2a55c4200a9d"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-23",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-23",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/proof-awaiting.svg",
+              "region": "named visible cards: 玩家意图 / 实际世界结果：未提供",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "等待权威回执",
+          "details": [
+            {
+              "title": "玩家意图",
+              "contents": "Intent 示例 I：恢复产线\nAgent 预测（未经验证）：产出可能增加\n利害说明与替代方案：未经验证",
+              "region": "right detail panel"
+            },
+            {
+              "title": "实际世界结果：未提供",
+              "contents": "等待 committed runtime receipt。\n身份不匹配的 receipt 不归属本意图。\n下一步：读取运行时发布的恢复提示。\n不以 accepted、聊天文本或预测代签成功。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/control_proof_panel.jsx",
+              "line": 79,
+              "anchor": "export function ControlProofPanel",
+              "sha256": "7af272969007095a15718d4d87a537f0604a67d3b9793c11c385c8267b070122"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/proof-applied.svg",
+              "region": "named visible cards: 实际回执 / 解释层分离",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · applied",
+          "details": [
+            {
+              "title": "实际回执",
+              "contents": "Receipt 示例 R · Commit 示例 C\nAction 19 · move agent\nDomain event refs：42\nActual：agent moved\nEffect intent ref：示例 I",
+              "region": "right detail panel"
+            },
+            {
+              "title": "解释层分离",
+              "contents": "预测（未经验证）：到达后可能生产\nActual 仅证明移动，不证明生产成功。\nEvidence / correction / interruption refs\nOwner-control refs：按原始来源读取\nDissent / override / hard boundary：未提供",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/control_proof_panel.jsx",
+              "line": 79,
+              "anchor": "export function ControlProofPanel",
+              "sha256": "7af272969007095a15718d4d87a537f0604a67d3b9793c11c385c8267b070122"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/proof-grant-revoked.svg",
+              "region": "named visible cards: 授权范围 / 电力额度 / 无撤销 UI",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · 已撤销",
+          "details": [
+            {
+              "title": "授权范围",
+              "contents": "Grant 示例 G · revision 1\nSource owner-grant · Issuer 示例 issuer\nObject Agent A · Action move_agent\nPeriod 示例 P · Tick 0–20",
+              "region": "right detail panel"
+            },
+            {
+              "title": "电力额度",
+              "contents": "Spent 2 / Remaining 8 / Limit 10\n单位：electricity units\n本回执成本：2 electricity units\n状态：已撤销\n额度余额不意味着撤销后仍可使用。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "无撤销 UI",
+              "contents": "这是授权证据，不是授权管理表单。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/control_proof_panel.jsx",
+              "line": 127,
+              "anchor": "model().authorizations",
+              "sha256": "7af272969007095a15718d4d87a537f0604a67d3b9793c11c385c8267b070122"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/proof-memory-prepared.svg",
+              "region": "named visible cards: 来源与新鲜度 / 纠正状态",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · accepted",
+          "details": [
+            {
+              "title": "来源与新鲜度",
+              "contents": "Scope session_private · Revision 3\nSource private_memory_retrieval_context\nOrigin receipt：示例 R\nFreshness：当前版本",
+              "region": "right detail panel"
+            },
+            {
+              "title": "纠正状态",
+              "contents": "Correction 示例 C：accepted\nEarliest prepared request / digest：示例 P / D\nCommitted request / digest：未提供\nRuntime receipt / action：未提供\n仅进入准备中的请求，不等于实际生效。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/control_proof_panel.jsx",
+              "line": 143,
+              "anchor": "control-proof-memory",
+              "sha256": "7af272969007095a15718d4d87a537f0604a67d3b9793c11c385c8267b070122"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/proof-memory-stale.svg",
+              "region": "named visible cards: 保持真实状态 / 不补造提交证据",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · stale / ignored",
+          "details": [
+            {
+              "title": "保持真实状态",
+              "contents": "Memory revision 2 · Stale\nCorrection：stale\n刷新后按当前版本处理纠正提示。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "不补造提交证据",
+              "contents": "Ignored：未用于提交结果\nApplied 才说明用于 committed decision。\n此面没有编辑记忆或提交纠正按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/control_proof_panel.jsx",
+              "line": 143,
+              "anchor": "control-proof-memory",
+              "sha256": "7af272969007095a15718d4d87a537f0604a67d3b9793c11c385c8267b070122"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-TARGET-05",
+      "design_anchor": "doc/world-simulator/viewer/viewer-world-navigation-uiux.design.md#r-target-05",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/selection-empty.svg",
+              "region": "named visible cards: 当前命令目标：未选择 / 渐进披露",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "空快照 / 未选择",
+          "details": [
+            {
+              "title": "当前命令目标：未选择",
+              "contents": "请先从 Targets 选择 Agent 或地点。\n无权限对象不泄露历史明细。\nruntime_snapshot_empty_entities：\n提供已发布恢复说明，不使用旧对象填空。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "渐进披露",
+              "contents": "原始对象 JSON 与快照诊断收在明细内。\n模块 anchor 与 cm 位置仅按源数据展示。\n不伪装为已实现的通用工厂 Inspector。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 3678,
+              "anchor": "function DetailsPanel",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-25",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-25",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/reprioritize-keyboard.svg",
+              "region": "named visible cards: 替代短期目标 * / 不会保证下一步必定执行",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "输入中 · 键盘安全区",
+          "details": [
+            {
+              "title": "替代短期目标 *",
+              "contents": "先恢复本地供电，\n再评估当前产线的材料缺口。",
+              "region": "main stacked panel"
+            },
+            {
+              "title": "不会保证下一步必定执行",
+              "contents": "空输入时“应用新目标”禁用。\nIME 组合输入未完成时不提交。",
+              "region": "main stacked panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/reprioritize_action_form.jsx",
+              "line": 5,
+              "anchor": "export function",
+              "sha256": "b0518724478c103e1b7c1ae9da71894df117555be2cb846a799143980642b16c"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/reprioritize-error.svg",
+              "region": "named visible cards: 替代短期目标 * / 提交失败",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "错误 · 保留草稿",
+          "details": [
+            {
+              "title": "替代短期目标 *",
+              "contents": "先恢复供电，再评估产线。",
+              "region": "main stacked panel"
+            },
+            {
+              "title": "提交失败",
+              "contents": "权限已过期。\n按当前页面授权恢复流程处理后重试。\n不自动重放；目标尚未替换。",
+              "region": "main stacked panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/reprioritize_action_form.jsx",
+              "line": 5,
+              "anchor": "export function",
+              "sha256": "b0518724478c103e1b7c1ae9da71894df117555be2cb846a799143980642b16c"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/reprioritize-pending.svg",
+              "region": "named visible cards: 替代短期目标 * / 正在认证并提交",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "signing / sent",
+          "details": [
+            {
+              "title": "替代短期目标 *",
+              "contents": "先恢复供电，再评估产线。",
+              "region": "main stacked panel"
+            },
+            {
+              "title": "正在认证并提交",
+              "contents": "等待 apply_ack。\n此时不代表 Agent 必定执行，\n也不代表世界结果已提交。",
+              "region": "main stacked panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/reprioritize_action_form.jsx",
+              "line": 5,
+              "anchor": "export function",
+              "sha256": "b0518724478c103e1b7c1ae9da71894df117555be2cb846a799143980642b16c"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-07",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-07",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/attraction-agency-unknown.svg",
+              "region": "named visible cards: 吸引力证明 · unverified / 玩家能动性",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "证据未验证，不编造玩家影响",
+          "details": [
+            {
+              "title": "吸引力证明 · unverified",
+              "contents": "What I caused：等待玩家导致的世界变化\nNew option：等待新选择\nWhy continue：等待下一分支\nWaiting cost：等待 / 未验证\nRecovery：等待恢复路径",
+              "region": "right detail panel"
+            },
+            {
+              "title": "玩家能动性",
+              "contents": "Interrupt：未验证\nReprioritize：未验证\nCorrection：等待替代意图\nHandoff：等待新旧意图交接\n此读面不新增打断或纠偏按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2434,
+              "anchor": "title={tr(locale(), \"吸引力证明\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-08",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-08",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/attraction-agency-unknown.svg",
+              "region": "named visible cards: 吸引力证明 · unverified / 玩家能动性",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "证据未验证，不编造玩家影响",
+          "details": [
+            {
+              "title": "吸引力证明 · unverified",
+              "contents": "What I caused：等待玩家导致的世界变化\nNew option：等待新选择\nWhy continue：等待下一分支\nWaiting cost：等待 / 未验证\nRecovery：等待恢复路径",
+              "region": "right detail panel"
+            },
+            {
+              "title": "玩家能动性",
+              "contents": "Interrupt：未验证\nReprioritize：未验证\nCorrection：等待替代意图\nHandoff：等待新旧意图交接\n此读面不新增打断或纠偏按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2434,
+              "anchor": "title={tr(locale(), \"吸引力证明\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-09",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-09",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/firstwin-continuation.svg",
+              "region": "named visible cards: 首胜与反刷 / 成熟世界承接",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "证据等待 / 成熟世界承接",
+          "details": [
+            {
+              "title": "首胜与反刷",
+              "contents": "First win goal：待发布\nPlayer action：待提交\nWorld change：待回执\nAnti-grind leverage：待验证\nLeverage verdict：未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "成熟世界承接",
+              "contents": "Dependency status：未验证\nRecovery path：等待运行时指引\nShare replay snippet：等待可复盘片段\nSummary：等待成熟世界承接证据\n修复 / 重建 / 转向比较仍需独立读取。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2497,
+              "anchor": "title={tr(locale(), \"首胜与反刷\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-10",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-10",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/firstwin-continuation.svg",
+              "region": "named visible cards: 首胜与反刷 / 成熟世界承接",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "证据等待 / 成熟世界承接",
+          "details": [
+            {
+              "title": "首胜与反刷",
+              "contents": "First win goal：待发布\nPlayer action：待提交\nWorld change：待回执\nAnti-grind leverage：待验证\nLeverage verdict：未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "成熟世界承接",
+              "contents": "Dependency status：未验证\nRecovery path：等待运行时指引\nShare replay snippet：等待可复盘片段\nSummary：等待成熟世界承接证据\n修复 / 重建 / 转向比较仍需独立读取。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2497,
+              "anchor": "title={tr(locale(), \"首胜与反刷\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-11",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-11",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg",
+              "region": "named visible cards: 已接受意图 / 目标执行状态 / 当前目标与下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "Accepted → Executing → Blocked",
+          "details": [
+            {
+              "title": "已接受意图",
+              "contents": "Scope：已发布范围\nTarget：示例 Agent A\nSummary / detail：以原意图为准\nResume anchor：未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "目标执行状态",
+              "contents": "当前：Blocked\n其他分支：Completed / Rejected\nCause label：已发布原因\nCause detail：等待资源条件，不重写目标",
+              "region": "right detail panel"
+            },
+            {
+              "title": "当前目标与下一步",
+              "contents": "Objective：恢复当前产线\nProgress：n/a（未知不是 0%）\nBlocker / supplemental detail：已发布说明\nNext step：等待下一次运行时指引\nBranch hint / agent-location counts：未发布",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2556,
+              "anchor": "title={tr(locale(), \"已接受意图\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-12",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-12",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg",
+              "region": "named visible cards: 已接受意图 / 目标执行状态 / 当前目标与下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "Accepted → Executing → Blocked",
+          "details": [
+            {
+              "title": "已接受意图",
+              "contents": "Scope：已发布范围\nTarget：示例 Agent A\nSummary / detail：以原意图为准\nResume anchor：未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "目标执行状态",
+              "contents": "当前：Blocked\n其他分支：Completed / Rejected\nCause label：已发布原因\nCause detail：等待资源条件，不重写目标",
+              "region": "right detail panel"
+            },
+            {
+              "title": "当前目标与下一步",
+              "contents": "Objective：恢复当前产线\nProgress：n/a（未知不是 0%）\nBlocker / supplemental detail：已发布说明\nNext step：等待下一次运行时指引\nBranch hint / agent-location counts：未发布",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2556,
+              "anchor": "title={tr(locale(), \"已接受意图\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-13",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-13",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg",
+              "region": "named visible cards: 已接受意图 / 目标执行状态 / 当前目标与下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "Accepted → Executing → Blocked",
+          "details": [
+            {
+              "title": "已接受意图",
+              "contents": "Scope：已发布范围\nTarget：示例 Agent A\nSummary / detail：以原意图为准\nResume anchor：未发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "目标执行状态",
+              "contents": "当前：Blocked\n其他分支：Completed / Rejected\nCause label：已发布原因\nCause detail：等待资源条件，不重写目标",
+              "region": "right detail panel"
+            },
+            {
+              "title": "当前目标与下一步",
+              "contents": "Objective：恢复当前产线\nProgress：n/a（未知不是 0%）\nBlocker / supplemental detail：已发布说明\nNext step：等待下一次运行时指引\nBranch hint / agent-location counts：未发布",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2556,
+              "anchor": "title={tr(locale(), \"已接受意图\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-17",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-17",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/capability-economics.svg",
+              "region": "named visible cards: 投入与产出 / 恢复指引与价值",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "能力经济 · 未发布保持未知",
+          "details": [
+            {
+              "title": "投入与产出",
+              "contents": "Input：待发布\nOutput：待发布\nNew use / unlockedValue：待发布",
+              "region": "right detail panel"
+            },
+            {
+              "title": "恢复指引与价值",
+              "contents": "Repair action：待发布\nBlocker class：待发布\nNext value：待发布\n说明文字不是报价，不授权执行。\n材料、电力与市场 quote 另行核对。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2663,
+              "anchor": "title={tr(locale(), \"能力经济可读性\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-02",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-02",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/first-chat-preview.svg",
+              "region": "named visible cards: 目的 / 即时帮助 / 先试试 / 资源边界 / 如果等待 / 建议操作",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读预览 · 绑定不等于经济认领",
+          "details": [
+            {
+              "title": "目的 / 即时帮助 / 先试试",
+              "contents": "与当前有控制权的 Agent 开始第一次对话。\n询问 Agent 为当前玩法目标下一步能做什么。\n试着问：我们第一步该做什么？",
+              "region": "right detail panel"
+            },
+            {
+              "title": "资源边界",
+              "contents": "初始 OC 提供初始可用 OC 与一次性首聊解锁。\n可用 OC > 0，或已有领取记录，即通过首聊 OC 门禁。\n已有领取记录时，余额用尽也保持这道门禁通过。\n它与经济 slot-1 认领及维护资金分开。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "如果等待 / 建议操作",
+              "contents": "经济认领义务未知：刷新权威状态。\n暂缓不会创建或清除义务，也不推断已有认领。\n建议操作：领取初始 OC（此组件只显示文字）。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/first_chat_unlock_preview.jsx",
+              "line": 58,
+              "anchor": "export function",
+              "sha256": "3ebe572a7014f05c7a7151a9041044a5674f891c81c4fdf4b599730010388557"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-14",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-14",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/wait-resolution-safe.svg",
+              "region": "named visible cards: 运行时等待判断 / 五项决定依据",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "可以等待 · safe_to_wait = true",
+          "details": [
+            {
+              "title": "运行时等待判断",
+              "contents": "运行时说明等待是安全的。\n到复查点仍需核实预期变化，不保证结果完成。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "五项决定依据",
+              "contents": "触发条件：等待指定输入抵达\n复查点：已发布事件或 tick\n预期变化：输入可供当前计划使用\n未解决风险：仍需核对后续容量\n替代解锁条件：以已发布条件为准",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/wait_resolution_quote_card.jsx",
+              "line": 15,
+              "anchor": "export function",
+              "sha256": "1012eef876cb8ff2ad6f5536831c365cb0e02bb695d5cf0b4f2a75a74ae07b9c"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/wait-resolution-unsafe.svg",
+              "region": "named visible cards: 先比较恢复选项 / 五项决定依据",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "不要等待 · 未明确 true 也走此分支",
+          "details": [
+            {
+              "title": "先比较恢复选项",
+              "contents": "safe_to_wait / safeToWait 未明确 true。\n当前组件采用保守“不要等待”显示。\n不提供“等待”执行按钮。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "五项决定依据",
+              "contents": "触发条件：—\n复查点：—\n预期变化：—\n未解决风险：资源条件未解决\n替代解锁条件：—\n缺少 quote 时整个组件不渲染。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/wait_resolution_quote_card.jsx",
+              "line": 15,
+              "anchor": "export function",
+              "sha256": "1012eef876cb8ff2ad6f5536831c365cb0e02bb695d5cf0b4f2a75a74ae07b9c"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-15",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-15",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg",
+              "region": "named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "只读 · 所有已发布选项保留",
+          "details": [
+            {
+              "title": "等待 safe_wait · 不可用",
+              "contents": "原因：当前条件不能安全等待\n保留：已提交进度\n成本：已发布成本\n机会成本：错过当前窗口",
+              "region": "right detail panel"
+            },
+            {
+              "title": "修复 repair_now · 可用 / 推荐",
+              "contents": "原因：运行时推荐的恢复路径\n保留：已发布保留进度\n成本：已发布本地投入\n机会成本：延后其他计划",
+              "region": "right detail panel"
+            },
+            {
+              "title": "改道 reroute_now · 可用",
+              "contents": "原因：运行时发布的替代路径\n保留 / 成本 / 机会成本：以各字段为准\n可用与推荐是标签；此组件没有执行按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/fallback_tradeoff_panel.jsx",
+              "line": 30,
+              "anchor": "export function FallbackTradeoffPanel",
+              "sha256": "d57425195f1a9f157c7a5ed5569459e7161e81abd9d7960b2bb8eb79c9df01e8"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/fallback-no-safe.svg",
+              "region": "named visible cards: 无安全方案交接 / 停在真实边界",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "需要新的决定",
+          "details": [
+            {
+              "title": "无安全方案交接",
+              "contents": "Reason：已发布阻塞原因\nRequired next decision：已发布 action ID 的可读名称\n若无 action ID，则读取 decision class\n两者缺失时不合成决定。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "停在真实边界",
+              "contents": "既无选项又无 handoff 时组件不显示。\n已有不可用选项仍保留比较信息。\n不自动等待、自动重试或伪造执行入口。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/fallback_tradeoff_panel.jsx",
+              "line": 30,
+              "anchor": "export function FallbackTradeoffPanel",
+              "sha256": "d57425195f1a9f157c7a5ed5569459e7161e81abd9d7960b2bb8eb79c9df01e8"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-16",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-16",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/validation-preview-available.svg",
+              "region": "named visible cards: 产品与角色 / 阶段与下一步",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "available · 只读能力说明",
+          "details": [
+            {
+              "title": "产品与角色",
+              "contents": "Product：示例 P\nRole：已发布角色\nTradable：可交易\nValue summary：已发布能力摘要",
+              "region": "right detail panel"
+            },
+            {
+              "title": "阶段与下一步",
+              "contents": "Current stage：已发布当前阶段\nRequired stage：已发布要求阶段\nNext step：已发布本地化提示\n这里只是解锁预览，不是验证提交表单。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2642,
+              "anchor": "when={gameplay().validationUnlockPreview}",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/validation-preview-unknown.svg",
+              "region": "named visible cards: 未发布值的当前回退 / 阶段",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "unknown · 无新增能力声明",
+          "details": [
+            {
+              "title": "未发布值的当前回退",
+              "contents": "Product：未知产品\nRole：未知\nTradable：不可交易（false / 缺失回退）\n验证结果未声明新的能力。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "阶段",
+              "contents": "Current stage：未知 / Required stage：未知\n缺少下一步提示时不渲染提示段。\n无 validationUnlockPreview 时整卡不显示。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2642,
+              "anchor": "when={gameplay().validationUnlockPreview}",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-20",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-20",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/first-delivery-preview.svg",
+              "region": "named visible cards: 需求与预计产出 / 价值与后续",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "扩张卡内嵌只读预览",
+          "details": [
+            {
+              "title": "需求与预计产出",
+              "contents": "Local need：已发布本地需求\nExpected output：已发布预计产出\nRequired inputs：逐条已发布输入\n输入 A：示例材料 × 示例数量\n输入 B：示例电力需求（单位依来源）",
+              "region": "right detail panel"
+            },
+            {
+              "title": "价值与后续",
+              "contents": "Value timing：已发布价值时机\nLeverage unlocked：已发布杠杆类别\nReturn visit hook：已发布回访钩子\n缺失可选字段不显示；空输入数组不显示输入段。\n预计产出不是交付结算，也没有执行按钮。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/first_delivery_preview.jsx",
+              "line": 3,
+              "anchor": "export function",
+              "sha256": "e811e5a17768ed16430e170a5bd4acf8d8c5137a237a3052f5a4adb805d36bc2"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-GAME-26",
+      "design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-26",
+      "mappings": [
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/gameplay-disclosure-closed.svg",
+              "region": "named visible cards: ▸ 玩法明细 / 摘要之外的世界上下文",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "当前 native details · closed",
+          "details": [
+            {
+              "title": "▸ 玩法明细",
+              "contents": "世界棋盘上方已保留目标、下一步和回执；\n这里展开看完整状态机与经济明细。\n当前收起：不展示内部状态机/经济卡。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "摘要之外的世界上下文",
+              "contents": "World：保留世界舞台。\n目标、下一步、原回执继续在舞台上方阅读。\n此展开动作不提交玩法，也不更换 Agent。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2395,
+              "anchor": "<details class=\"gameplay-details-surface\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/gameplay-disclosure-open.svg",
+              "region": "named visible cards: ▾ 玩法明细 / Formal Gameplay Summary / 展开后仍可能等待",
+              "selector_kind": "exact visible card titles; original SVG has no region ids"
+            }
+          ],
+          "state": "当前 native details · open",
+          "details": [
+            {
+              "title": "▾ 玩法明细",
+              "contents": "先读目标、阻塞与下一步，再决定是否进入 Command。\n正式玩法摘要已展开。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "Formal Gameplay Summary",
+              "contents": "Stage status：已发布阶段\nProgress：n/a\n内容继续包含配方/失败/ControlProof 与后续经济面。",
+              "region": "right detail panel"
+            },
+            {
+              "title": "展开后仍可能等待",
+              "contents": "尚无规范玩法摘要时：等待首条规范玩法快照…\n本稿只证明展开结构，不代签全部内嵌内容状态。",
+              "region": "right detail panel"
+            }
+          ],
+          "source_refs": [
+            {
+              "path": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx",
+              "line": 2395,
+              "anchor": "<details class=\"gameplay-details-surface\"",
+              "sha256": "a5e152e0a1e9ac7d73468706eebfcf8d287e66735cf8ab65d970bd7b297aea8e"
+            }
+          ],
+          "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        }
+      ]
+    }
+  ],
+  "limits": "Representative state/field mapping only, no complete-state or runtime claim."
+}

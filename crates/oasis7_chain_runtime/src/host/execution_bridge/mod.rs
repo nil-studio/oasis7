@@ -33,6 +33,7 @@ mod governance_authorization;
 pub(crate) mod governance_authorization_tests;
 mod product_validation_intent;
 mod provider_bootstrap;
+mod world_service_cleanup_v2;
 mod world_service_execution;
 pub(crate) mod world_service_read;
 
