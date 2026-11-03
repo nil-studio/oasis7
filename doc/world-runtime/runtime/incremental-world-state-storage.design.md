@@ -770,6 +770,16 @@ family 与 routing 私有资格须记录真实 mint class，所有使用入口�
 
 family 与单记录资格保留真实 mint class，读写、生命周期及 receiver 不得仅凭同池将 Recovery 资格转作 Ordinary。显式重新准入只在同池、原精确 RootSet 绑定和足够新 Ordinary 费用下复制固定 metadata；额度不足或取消不返回资格，不扫描旧 grant/主体长文本，不提升授权、身份或可用性。
 
+### 12.58 Runtime 原 grant 与 policy 的快照结构闭包
+
+<a id="iws-runtime-module-authorization-v1"></a>
+
+本节定义 Runtime/Authorization 的 `capabilities` 原 String Map 与 `policies.rules` 原 Ordered Vec 的借用 GEN、根恢复及只读结构资格，不把 CapabilityExecution nonce/budget/link 或 Agent authority 数据当成原业务 grant。cap_ref 外键与 CapabilityGrant.name 独立保存；effect_kinds 按原 ordinal、认证 length 保留重复/空串，expiry 区分 None/Some(0)。PolicyRule 保留原 ordinal、when.effect_kind/origin_kind/cap_name 三 Option，以及 Allow 或 Deny 的原 reason；OriginKind 穷尽 reducer/plan/module/system，不排序或合并规则。每条 grant/rule 使用原 descriptor/外键摘要/Auth namespace 绑定的 RootRef165 子根，内部相对列不重复大外键。两族 metadata 与 policy length 必须存在，空 Vec 不等于缺控制列。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+生产者借用原 DTO，不 clone Vec/map、不写整条 JSON/CBOR 影子叶。完整 family 资格仅凭认证六根及保存内容，拒绝未知列、缺列、孤儿、Option/decision 配对错误、越界 ordinal、实际数量不等于 length 与错误 namespace/key framing。固定根点读继承完整父，绑定精确 root、同池、最低 carrier charge 和真实 mint class；公开输出在成功前均暂态，外部 Write 的 partial/Interrupted 尝试连续扣有限工作，并在末边界检查取消。Recovery 资格不能隐式用于 Ordinary；显式 readmission 只复制固定已认证元数据并先支付新 Ordinary 费用，不读取原件或选择新 head。
+
+该组件的私有资格只证明保存的数据结构，不是 capability/policy 的业务许可，也不授 Invocation、完整 Runtime/World 或 GC 权限。普通事务更新、changed receiver、typed page transfer 与真实模块调用尚由后续接线完成，不因此快照组件完成登记 owner ready。后续授权须保留 CapabilityGrant::is_expired/allows 的 now > expiry、全等/`*`/尾部 `.*` 语义，以及 PolicySet::decide 的原顺序首匹配/default_deny；不能用此结构 token 或调用者自报判断代替。
+
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 
 <a id="iws-runtime-effect-intent-records-v1"></a>
