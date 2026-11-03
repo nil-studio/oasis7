@@ -290,3 +290,106 @@ fn missing_page_with_reduced_positive_admission_still_reports_tree_error() {
         Err(StateScanError::Tree(_))
     ));
 }
+
+#[test]
+fn fixed_root_pages_resume_after_authenticated_hash_path_without_duplicates() {
+    let keys: [&[u8]; 6] = [b"amber", b"blue", b"copper", b"dune", b"ember", b"frost"];
+    let (root, source) = source(&keys);
+    let mut expected = keys.iter().map(|key| key.to_vec()).collect::<Vec<_>>();
+    expected.sort_by_key(|key| key_digest(root.namespace, key).unwrap());
+
+    let mut after = None;
+    let mut actual = Vec::new();
+    let mut pages = 0;
+    loop {
+        let mut allowance = io();
+        let page = StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut allowance,
+        }
+        .visit_entries_page(
+            &root,
+            after,
+            2,
+            |entry| {
+                actual.push(entry.key.clone());
+                Ok::<_, ()>(())
+            },
+            || false,
+        )
+        .unwrap();
+        pages += 1;
+        after = page.last_key_digest;
+        if !page.has_more {
+            break;
+        }
+        assert_eq!(page.visited, 2);
+        assert!(after.is_some());
+        assert!(pages < 8, "page cursor must make forward progress");
+    }
+    assert_eq!(pages, 3);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn fixed_root_page_errors_and_cancel_never_return_partial_page_metadata() {
+    let (root, source) = source(&[b"a", b"b", b"c"]);
+    let mut allowance = io();
+    allowance.leaves_remaining = 1;
+    let mut visited = Vec::new();
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut allowance,
+        }
+        .visit_entries_page(
+            &root,
+            None,
+            2,
+            |entry| {
+                visited.push(entry.key.clone());
+                Ok::<_, ()>(())
+            },
+            || false,
+        ),
+        Err(StateScanError::ResourceLimited)
+    ));
+    assert_eq!(visited.len(), 1);
+
+    let mut allowance = io();
+    let mut calls = 0;
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut allowance,
+        }
+        .visit_entries_page(
+            &root,
+            None,
+            3,
+            |_| Ok::<_, ()>(()),
+            || {
+                calls += 1;
+                calls > 2
+            },
+        ),
+        Err(StateScanError::Cancelled)
+    ));
+    let mut invalid_allowance = io();
+    assert!(matches!(
+        StateScanContext {
+            source: &source,
+            memory: &source.memory,
+            class: MemoryClass::Ordinary,
+            io: &mut invalid_allowance,
+        }
+        .visit_entries_page(&root, None, 0, |_| Ok::<_, ()>(()), || false),
+        Err(StateScanError::Invalid(_))
+    ));
+}
