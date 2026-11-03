@@ -952,6 +952,7 @@ env -u RUSTC_WRAPPER cargo check -p pixel_world_bridge --target wasm32-unknown-u
 - JS-required（结构/反馈/Vitest/freshness/build）：触达 `crates/oasis7_viewer/**` 的 source、生成物边界或 bundle 时，执行 `npm --prefix crates/oasis7_viewer run test:frontend-structure`、`npm --prefix crates/oasis7_viewer run test:feedback-contract`、`npm --prefix crates/oasis7_viewer run test:ui`、`./scripts/agent-browser-viewer-dist-freshness-test.sh` 与 `./scripts/build-viewer-software-safe.sh`。
 - JS-browser（真实浏览器）：WASM bundle ready 后，以真实 browser 验证关键交互、console、desktop 与 narrow viewport；任何 player-visible 改动必须通过此层，不能只以 JS-required 替代。
 - JS-full（release/risk-triggered）：跨模式、恢复路径、长运行与性能验证；发布或风险触发时执行，包含适用的 raster/browser/performance 证据。
+- 受控浏览器功能回归使用显式 `fixture-functional` profile，目标是用真实组件/状态处理复现响应时序；当前仍待实现，详见[目标合同](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)与下方[实施核验](#browser-functional-regression-validation)。其合成依赖结论与真实栈/正式 S6 分开记录。
 - S6 详细执行步骤、agent-browser 命令、发布门禁与补充约定已拆分到：
   - `doc/testing/manual/web-ui-agent-browser-closure-manual.manual.md`
   - `doc/testing/manual/web-ui-playwright-closure-manual.manual.md`（Playwright 实跑系列入口，管理真实本地栈 + 真实 UI 操作流程矩阵）
@@ -1073,6 +1074,18 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
     若本地需要 builtin LLM 直连验证，`scripts/with-letai-llm-config.sh` 只适用于已经包含 chat-completions/Responses-compatible `token_key` / `api_key` 的配置；不要把只有 `Doc` 和平台管理 `Key` 的文件直接当 inference token 使用。platform-only 配置应先通过 `scripts/ensure-letai-local-token-config.sh` 或 `scripts/run-local-letai-game-test.sh` 规范化成临时 project token config；不得把 raw key、生成的 `letai-local-token.env`、或其它 token config 写入日志、仓库文件或 public evidence。
     LetAI provider bridge 参考装配走 `/chat/completions`，与 builtin LLM 的 Responses preflight 不是同一协议；`scripts/run-local-letai-provider-bridge.sh` 是 `run-local-letai-game-test.sh` 使用的底层 bridge 入口，也可用于专项排障，随后用 `provider-bridge-contract-smoke.sh` 验证真实 provider decision。普通本地试玩不要从这个底层入口开始；应回到 `run-local-letai-game-test.sh`，让 wrapper 统一处理 token config、auto-topup 和 launcher 参数。`scripts/check-letai-chat-completions.sh` 和 `--chat-probe-backend legacy-cli` 只保留给兼容排障或对比 Python legacy adapter，不作为普通本地试玩默认 gate。
     本地真实 Rust provider bridge 默认在上游返回 `insufficient_user_quota` 且同时存在 `OASIS7_REMOTE_LLM_PLATFORM_KEY` / `OASIS7_REMOTE_LLM_PLATFORM_USER_ID` 时按 `$0.1`（`quota=50000`）自动充值；这是 paid real-provider 行为。充值触发按 chat request 发生，随后使用有限次数延迟重试来等待 LetAI 余额更新可见，而不是全局每次运行只充值一次；没有这些管理面字段时不会自动充值，仍应把 quota error 作为失败证据。
+
+<a id="browser-functional-regression-validation"></a>
+#### 受控浏览器功能回归核验（实施阶段）
+
+Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](doc/testing/prd.md#browser-functional-regression)。现有 `npm --prefix crates/oasis7_viewer run test:ui` 是 Vitest/jsdom；`./scripts/viewer-software-safe-step-regression-smoke.sh` 是 tooling fixture 预检；`node crates/oasis7_viewer/scripts/player-visual-feedback-browser-smoke.mjs` 已使用真实 shell 和固定 bridge/feed 采证。三者各保留原证明范围，均不能单凭入口存在宣称[全部 BFR-P01–P07](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-pilot)已覆盖。新的统一 runner/场景选择入口尚未实现，不提供伪可执行命令。
+
+1. 在实施候选记录准确 source/tree、依赖锁定和测试构建身份，先运行适用 JS-required；确认服务的 bundle 来自当前真实 `viewer_app.jsx` 与 PromptControl/feedback 模块。核对 test entry、synthetic auth/bridge/feed/transport 的替换清单，release 加 query 不能开启控制器。只为本 profile 启动本地静态资源和受控依赖，不启动完整 worktree launcher/active LLM 栈。
+2. 为每 case 新建独立命名 context、loopback 端口、storage 和产物目录，先用一个非 allowlist HTTP/WebSocket/worker 请求确认网络在发送前被阻断；核对没有继承用户 session 或真实 provider 配置。共享构建先串行冻结，case 并行前检查实际隔离；失败/取消也只回收自己拥有的资源。
+3. 按 BFR-P01–P07 的输入/预期执行真实可见控件，先等出站请求和 pending 条件，再按 barrier 释放消息/时钟。至少保存 desktop 与 narrow 的声明视口结果；P04 在 B 的 signingEntered 后交付 A，再 releaseSigning 并确认 B 实际发送，另案覆盖 sent 期；记录 deferred signer 只延迟真实签名结果的替换边界与 P06 连接代次。控制器不得直接写期望 core state，`__AW_TEST__` 仅用于读回；用固定次序重放失败，不能自动重试取绿。
+4. 给每个已选 case 核对请求次数、关联字段、当前草稿/授权版本、反馈状态及安全下一步，保存实际截图、trace、console/network、准确未满足断言与清理结果。拒绝场景不提前显示 applied；只清理属于原等待的 pending，不能清新请求 timer。若出现生产缺陷，保留红色结果并路由原领域 Issue，不修改 fixture 使其通过。
+5. 分别验证缺浏览器/产物、空选择、未识别请求、超时/取消、日志写失败和跨 case 状态污染；必要 case 不能 skipped 后汇总为 pass。后续 CI 接线用受影响 Viewer/state/transport/测试装配输入的正例与无关文档改动反例核对同一 planner，选择与执行不一致直接失败。首片只运行 P01–P03 时如实报告剩余矩阵。
+6. 将产物与结果留在实施 PR/CI。fixture pass 只证明所测真实前端在合成输入下的行为；真实认证、绑定恢复、Runtime 应用、provider/world delta 仍按原 S6/PWT 及领域验收补证，不能换算成 release、跨浏览器或 L4B/L5 通过。本次文档 PR 未执行上述浏览器核验。
 
 ### S7：场景矩阵回归套件（L1 + L4）
 ```bash
