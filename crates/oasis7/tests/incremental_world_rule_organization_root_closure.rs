@@ -537,7 +537,6 @@ fn creation(
     let after_roots = prepared.record.after.clone();
     let after_record = prepared.record.clone();
     drop(writer);
-    drop(values);
     drop(state);
     drop(store);
     drop(prepared);
