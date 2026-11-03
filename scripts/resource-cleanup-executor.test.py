@@ -567,6 +567,20 @@ class DeliveryTests(SafetyTests):
         result = subprocess.run([sys.executable, str(pathlib.Path(cleanup.__file__)), '--worktree', str(self.path), '--branch', 'feature', '--expected-head', self.head, '--base-ref', 'refs/heads/feature'], capture_output=True)
         self.assertEqual(result.returncode, 2)
 
+class GitTemplateTests(unittest.TestCase):
+    def test_environment_cannot_redirect_installation_catalogs(self):
+        redirects = {name: '/user/catalog' for name in (
+            'GIT_EXEC_PATH', 'GIT_TEMPLATE_DIR', 'DEVELOPER_DIR', 'TOOLCHAINS', 'SDKROOT')}
+        result = subprocess.CompletedProcess([], 0, '/packaged/git/libexec/git-core\n', '')
+        with patch.dict(os.environ, redirects), patch.object(cleanup, '_run', return_value=result) as run:
+            roots = cleanup._git_template_roots()
+        self.assertEqual(roots, [pathlib.Path('/packaged/git/share/git-core/templates')])
+        for call in run.call_args_list:
+            self.assertEqual(call.args[0][1:], ['--exec-path'])
+            self.assertIn(call.args[0][0], ['git', '/usr/bin/git'])
+            self.assertFalse(set(redirects) & set(call.kwargs['env']))
+
+
 class SubmoduleSafetyTests(unittest.TestCase):
     """Exercise disposable real Git metadata; only host process census is stubbed."""
     git = SafetyTests.git
@@ -617,6 +631,42 @@ class SubmoduleSafetyTests(unittest.TestCase):
         self.command(self.path, 'submodule', 'deinit', '--all')
         self.assertTrue(self.module_gitdir.exists())
         self.remove()
+
+    def test_packaged_system_git_sample_survives_git_version_switch(self):
+        system_exec = self.root / 'system/libexec/git-core'
+        sample = self.root / 'system/share/git-core/templates/hooks/commit-msg.sample'
+        sample.parent.mkdir(parents=True)
+        sample.write_bytes(b'#!/bin/sh\n# Older packaged Git sample\nexit 0\n')
+        hook = self.module_gitdir / 'hooks/commit-msg.sample'
+        hook.write_bytes(sample.read_bytes())
+        original_run = cleanup._run
+
+        def run(args, **kwargs):
+            if args == ['/usr/bin/git', '--exec-path']:
+                return subprocess.CompletedProcess(args, 0, str(system_exec) + '\n', '')
+            return original_run(args, **kwargs)
+
+        with patch.object(cleanup, '_run', side_effect=run):
+            self.remove()
+
+    def test_modified_system_git_sample_is_retained(self):
+        system_exec = self.root / 'system/libexec/git-core'
+        sample = self.root / 'system/share/git-core/templates/hooks/commit-msg.sample'
+        sample.parent.mkdir(parents=True)
+        sample.write_bytes(b'#!/bin/sh\n# Older packaged Git sample\nexit 0\n')
+        hook = self.module_gitdir / 'hooks/commit-msg.sample'
+        hook.write_bytes(sample.read_bytes() + b'# User change\n')
+        original_run = cleanup._run
+
+        def run(args, **kwargs):
+            if args == ['/usr/bin/git', '--exec-path']:
+                return subprocess.CompletedProcess(args, 0, str(system_exec) + '\n', '')
+            return original_run(args, **kwargs)
+
+        with patch.object(cleanup, '_run', side_effect=run):
+            with self.assertRaisesRegex(cleanup.CleanupError, 'custom submodule template/hook'):
+                self.inspect()
+        self.assertTrue(hook.read_bytes().endswith(b'# User change\n'))
 
     def test_explicit_opt_in_required(self):
         with self.assertRaises(cleanup.CleanupError):
