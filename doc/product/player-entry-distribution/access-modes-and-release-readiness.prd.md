@@ -206,11 +206,10 @@ Trace ID: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270
 
 - Limited preview 是面向候选版本的受控、可纠偏、可撤回体验，不等于 public launch、广泛可用或阶段自动升级。
 - 每轮 preview 必须绑定同一候选版本、primary mode、受支持入口、claim envelope 与正式反馈入口；入口不可达或被迫 fallback 时必须如实标记 blocked，不能改写为成功。
-- 反馈按 `Blocking / Opportunity / Idea` 分类，并记录 owner、处置结论与下一步。可复现的 blocking 信号必须让同一候选重新进入受影响专业域与 QA gate，旧 gate pass 不能代签。
-- 正式反馈入口必须如实呈现当前可用性；可提交时，玩家能够确认提交结果；入口不可用或提交未完成时须明确说明，不得计作成功。只有当前专业 authority 与已验证入口表面支持时，才可向玩家给出恢复下一步；本分册不声称当前尚未实现的禁用 CTA 状态恢复引导。该承诺不包含公开反馈账本、必达交付、保存期限、审核或调解、人工支持或逐条答复。
+- 反馈入口与提交结果沿 [REQ-ENTRY-PREVIEW-FEEDBACK-001](#req-entry-preview-feedback-001)；分类、处置与 blocker 重验沿 [REQ-ENTRY-PREVIEW-FEEDBACK-002](#req-entry-preview-feedback-002)。两条保留本节既有受控范围和结果边界。
 - claim drift 必须在同轮纠正并留下记录；单次 callout、互动数量或无阻塞反馈都不能单独证明发行就绪。
 - QA 可以建议 pause、conditional 或 downgrade；producer 基于反馈与 QA 结论决定 continue / hold / reassess。渠道切换不改变阶段，公开状态仍只由根 `README.md` 拥有。
-- 收集反馈时只索取复现和分流所需的最小信息；不得把账号、私密渠道内容、敏感配置/凭据或其他不必要的个人信息写入公开证据。
+- 最小反馈信息与公开资料保护沿 [REQ-ENTRY-PREVIEW-FEEDBACK-003](#req-entry-preview-feedback-003)。
 
 - AR-1：所有入口和证据都能归一到 `viewer` 或 `pure_api`，不存在由 alias、provider、deployment 或 session context 派生的第三种模式。
 - AR-2：同一候选版本分别证明 `viewer` 与 `pure_api` 的阶段、目标、阻塞、下一步、核心动作、主要因果与重连恢复；两种模式证据不互相代签。
@@ -223,6 +222,85 @@ Trace ID: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270
 - LP-3：每条有效信号都有分类、owner、复现或处置结论和下一步；自动化 green 不能替代真实反馈 trace。
 - LP-4：可复现 blocker 会使对应 lane 失效并触发受影响专业域和当前候选 gate 重验，而不是继续复用旧 verdict。
 - LP-5：continue / hold / reassess 决策能追踪 QA、LiveOps、producer 与根 README；渠道故障或切换不会静默改变阶段。
+
+### 6.1.1 反馈要求与验收
+
+以下将本节既有反馈义务分别赋予稳定身份，供专业设计和验证准确承接；适用阶段、行为和原排除范围不变。
+
+<a id="req-entry-preview-feedback-001"></a>
+#### REQ-ENTRY-PREVIEW-FEEDBACK-001：反馈入口与提交结果必须真实
+
+Trace ID: O7-REQ-bafbce55-b1f3-414c-98e8-2cb5e70e6d1e
+
+- 功能点：正式反馈入口的可用性、提交结果和有依据的恢复说明。
+- 适用范围：受控 preview 当前声明的候选、primary mode 和正式反馈入口。
+- 要求：入口如实呈现当前可用性；可提交时玩家能够确认提交结果，入口不可用或提交未完成不得计作成功。恢复下一步仅限当前专业 authority 与已验证入口支持的操作；不声称尚未实现的禁用 CTA 修复引导。该承诺不包含公开反馈账本、必达交付、保存期限、审核或调解、人工支持或逐条答复。
+- 系统设计状态：已覆盖
+- 系统设计依据：[支持入口与结果](../../readme/governance/player-support-and-service-lifecycle.design.md#support-entry-results)承接实际路径、结果文案和说明的采用；Launcher 的传输、门控及回落沿原反馈专业合同。
+- 实现状态：部分实现
+- 实现与验证依据：[native 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window.rs)、[native 提交与本地回落](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)、[Web 反馈窗口](../../../crates/oasis7_client_launcher/src/feedback_window_web.rs)已有各自门控与结果消费；这是源码审读，不代表同候选 UI 或网络验收。
+- 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行运行、浏览器或真实反馈提交。
+- 剩余范围：支持正文的实际采用、当前声明入口的可用性、提交结果与恢复组合仍需按候选验证；本地文件和远端受理不等于人工已经接收处理。
+- 验收：[AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001)。
+
+<a id="ac-entry-preview-feedback-001"></a>
+#### AC-ENTRY-PREVIEW-FEEDBACK-001：反馈结果不会互相代签
+
+- 覆盖要求：[REQ-ENTRY-PREVIEW-FEEDBACK-001](#req-entry-preview-feedback-001)。
+- 给定：同一候选声明的反馈入口，以及其实际支持的可用、拒绝、远端结果或本地保存情形。
+- 当：玩家查看入口并提交，或提交未完成、结果尚不明确。
+- 则：说明与当前路径的权威结果一致；不可用、未完成不报成功；仅本地保存不写成远端送达；恢复建议确实受支持，不暗示人工接单或世界行动已完成。
+- 方法：[入口与结果核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-entry-check)分别记录来源审读与实际操作；桌面推演不能代签运行。
+
+<a id="req-entry-preview-feedback-002"></a>
+#### REQ-ENTRY-PREVIEW-FEEDBACK-002：有效反馈有处置和下一步
+
+Trace ID: O7-REQ-9bd3819f-e0fa-489c-9f36-6dd2f415f9ef
+
+- 功能点：受控 preview 的反馈分流、处置与可复现阻断重验。
+- 适用范围：本节 LP-3、LP-4 中的有效反馈信号，沿用既有运营与 QA 职责。
+- 要求：反馈按 `Blocking / Opportunity / Idea` 分类，并记录 owner、处置结论与下一步。可复现的 blocking 信号必须使同一候选重新进入受影响专业域与 QA gate，旧 gate pass 不能代签；分类和处置记录不形成逐条人工答复或响应时限承诺。
+- 系统设计状态：已覆盖
+- 系统设计依据：[分流、处置与复核](../../readme/governance/player-support-and-service-lifecycle.design.md#support-triage-review)承接真实分类、职责、处置理由、下一步和新证据复核；不新增自动工单协议或第六种 Issue 类型。
+- 实现状态：未核实
+- 实现与验证依据：已有[渠道升级方法](../../readme/governance/readme-moltbook-liveops-runbook.md#8-升级矩阵)和专业验证入口；本轮未取得当前 preview 的实际反馈、处置、重验与结果告知记录，不能由方法存在推定闭环已执行。
+- 核对日期与基线：2026-11-03；文档与源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；仅静态核对，不恢复历史邀请或轮次。
+- 剩余范围：当前候选的有效信号分流、owner 接收、受影响 gate 重验及实际处置结果须分别留证；其他渠道不能由单一渠道记录代签。
+- 验收：[AC-ENTRY-PREVIEW-FEEDBACK-002](#ac-entry-preview-feedback-002)。
+
+<a id="ac-entry-preview-feedback-002"></a>
+#### AC-ENTRY-PREVIEW-FEEDBACK-002：阻断反馈进入同候选复核
+
+- 覆盖要求：[REQ-ENTRY-PREVIEW-FEEDBACK-002](#req-entry-preview-feedback-002)。
+- 给定：同候选的有效阻断、体验摩擦或建议，以及可补充的新证据。
+- 当：运营与专业 owner 分流、确认影响或复核原结论。
+- 则：每条有效信号能定位分类、owner、处置理由与下一步；可复现 blocker 回到受影响专业域和当前候选 QA gate；处置或关闭记录不自动证明代码已修复、世界已恢复或公开阶段升级。
+- 方法：[分流与复核核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-triage-check)保留桌面案例与真实处置的不同结果。
+
+<a id="req-entry-preview-feedback-003"></a>
+#### REQ-ENTRY-PREVIEW-FEEDBACK-003：反馈只索取最小必要信息
+
+Trace ID: O7-REQ-eb290f7e-b49e-42dc-ba88-016ed9c87808
+
+- 功能点：反馈所需信息与公开资料的保护边界。
+- 适用范围：受控 preview 收集、分流和公开说明所用的反馈与证据。
+- 要求：只索取复现和分流所需的最小信息；不得把账号、私密渠道内容、敏感配置/凭据或其他不必要的个人信息写入公开证据。支持材料应依据实际渠道说明可见与保留边界，不由自动诊断清洗推定用户手写内容安全，也不承诺当前未提供的私密受理或删除能力。
+- 系统设计状态：已覆盖
+- 系统设计依据：[支持数据边界](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries)承接最小内容、各路径数据流、公开告知与误传处置；本地诊断和 DistFS 数据合同仍由原专业 authority 拥有。
+- 实现状态：部分实现
+- 实现与验证依据：[缺陷模板](../../../.github/ISSUE_TEMPLATE/defect.yml)提示不上传凭据/敏感日志；[本地反馈处理](../../../crates/oasis7_client_launcher/src/feedback_entry.rs)包含 allowlist 及有界诊断；[反馈公开读取](../../../crates/oasis7_distfs/src/feedback.rs)保留追加历史。上述源码与模板存在不证明所有输入均已脱敏或误传资料可删除。
+- 核对日期与基线：2026-11-03；源码 `d21019414c46d7e8ba61ab2c59b1f217b144ba88`；未执行隐私、复制或真实误传处置验证。
+- 剩余范围：本次告知的实际采用、各候选公开内容检查及误传处置仍待验证；统一保留/删除政策与未提供的私密入口不由本条虚构为已具备。
+- 验收：[AC-ENTRY-PREVIEW-FEEDBACK-003](#ac-entry-preview-feedback-003)。
+
+<a id="ac-entry-preview-feedback-003"></a>
+#### AC-ENTRY-PREVIEW-FEEDBACK-003：公开资料保持最小且不误述删除能力
+
+- 覆盖要求：[REQ-ENTRY-PREVIEW-FEEDBACK-003](#req-entry-preview-feedback-003)。
+- 给定：现有公开或本地反馈路径、普通复现材料及虚构的敏感信息反例。
+- 当：准备提交、提取运营摘要、公开说明或处理误传。
+- 则：只请求必要复现信息，公开材料使用脱敏摘要和可公开定位；说明符合实际保存/复制与访问范围；未执行或无法证明的隐藏、删除、全网撤回及私密受理不得标记成功。
+- 方法：[数据与误传核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-data-check)使用虚构输入做静态/桌面检查，真实数据操作另按权限和渠道能力执行。
 
 ### 6.2 验收追踪
 
@@ -260,3 +338,6 @@ Trace ID: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270
 | [REQ-ENTRY-MODE-002](#req-entry-mode-002) / [AC-ENTRY-MODE-002](#ac-entry-mode-002) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC 注入前置缺失、会话失效及后端不可用，核对 blocked/observer 和恢复下一步；待取得运行/表面记录；导航关系不等于通过证据 | `test_tier_required` |
 | [REQ-ENTRY-PERFORMANCE-001](#req-entry-performance-001) / [AC-ENTRY-PERFORMANCE-001](#ac-entry-performance-001) | `viewer_engineer` / `qa_engineer` | [显示投影与调度](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-render-projection) | 同候选多负载/多屏交互、数据新鲜度和转换次数；目标设计，运行验收待实施 | `test_tier_required`；真实浏览器 S6 |
 | [REQ-ENTRY-PERFORMANCE-002](#req-entry-performance-002) / [AC-ENTRY-PERFORMANCE-002](#ac-entry-performance-002) | `viewer_engineer` / `qa_engineer` | [资源交付与恢复](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-payload-delivery) | 冷/热加载、缓存淘汰、版本切换、损坏/离线和实部署压缩；目标设计，运行验收待实施 | `test_tier_required`；真实浏览器 S6 |
+| [REQ-ENTRY-PREVIEW-FEEDBACK-001](#req-entry-preview-feedback-001) / [AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001) | `liveops_community` / `viewer_engineer` / `qa_engineer` | [支持入口与结果](../../readme/governance/player-support-and-service-lifecycle.design.md#support-entry-results) | [入口核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-entry-check)；静态、桌面与实际提交分别留证，不由本地保存或受理推定人工处理 | `test_tier_required`；实际入口按原 S6/Launcher 方法 |
+| [REQ-ENTRY-PREVIEW-FEEDBACK-002](#req-entry-preview-feedback-002) / [AC-ENTRY-PREVIEW-FEEDBACK-002](#ac-entry-preview-feedback-002) | `liveops_community` / `qa_engineer` / `producer_system_designer` | [分流与复核](../../readme/governance/player-support-and-service-lifecycle.design.md#support-triage-review) | [分流核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-triage-check)；实际 owner、处置和同候选重验记录待取得 | `test_tier_required`；人工运营核对，受影响专业域沿原 test tier |
+| [REQ-ENTRY-PREVIEW-FEEDBACK-003](#req-entry-preview-feedback-003) / [AC-ENTRY-PREVIEW-FEEDBACK-003](#ac-entry-preview-feedback-003) | `liveops_community` / `qa_engineer` / 对应数据与安全 owner | [支持数据边界](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries) | [数据与误传方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-data-check)；虚构材料审读不代签真实隐私、复制或删除结果 | `test_tier_required`；真实数据操作另按授权与原方法 |
