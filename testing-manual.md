@@ -375,7 +375,7 @@ fake 的控制面限于本例所需的每次响应/错误队列及收到的完�
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api model_provider::tests
 env -u RUSTC_WRAPPER cargo test -p oasis7_model_provider --test transport --test physical_budget
-env -u RUSTC_WRAPPER cargo test -p oasis7_agent_harness native_task_tests
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_harness native_task::tests
 ```
 
 本地 HTTP 通过只证明生产适配器在受控传输中的映射行为；不需要外部模型密钥，也不证明供应商可用性、真实认证、费用、持久化、Stop/撤权或 Runtime 提交正确。重复调用在此接口上不承诺去重；请求身份不等于 exactly-once。需要上述能力的任务沿原设计补充真实边界验收，不因 fake、共用断言或文档合入而关闭。
