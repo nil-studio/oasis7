@@ -104,11 +104,11 @@ impl oasis7_node::NodeBftPeerTransportV3 for RotationGate {
 fn diagnostics(
     bindings: &[BftSignerBindingV3],
     snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
-    origin: &std::sync::OnceLock<Instant>,
+    origin: &membership_clock::ElapsedClock,
 ) -> String {
     let mut lines = vec![format!(
         "shared_elapsed_ms={}",
-        origin.get().map_or(0, |t| t.elapsed().as_millis())
+        origin.elapsed_ms().unwrap()
     )];
     for (index, (binding, snapshot)) in bindings.iter().zip(snapshots).enumerate() {
         // Release the backend lock before replaying any public proof. This
@@ -270,7 +270,7 @@ fn live_rotation() {
     network_wait("bootstrap live full Noise mesh", || {
         networks.iter().all(|n| n.connected_peers().len() == 3)
     });
-    let origin = Arc::new(std::sync::OnceLock::<Instant>::new());
+    let origin = Arc::new(membership_clock::ElapsedClock::new(100));
     let healed = Arc::new(AtomicBool::new(false));
     let old_calls = Arc::new(AtomicUsize::new(0));
     let new_calls = Arc::new(AtomicUsize::new(0));
@@ -406,7 +406,7 @@ fn live_rotation() {
     }
     // One continuous origin for every worker, including the deliberately
     // dropped decision-height proposal. Never freeze/reset it to retain parent.
-    origin.set(Instant::now()).unwrap();
+    origin.start().unwrap();
     for n in &mut nodes {
         n.start().unwrap();
     }
