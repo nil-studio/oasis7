@@ -62,6 +62,8 @@ pub struct TermFiveFundingRecordV3 {
     header: Header,
     reserved_ordinal: u64,
     claims: BTreeMap<TermObservationPortV3, Claim>,
+    #[serde(deserialize_with = "required_native_paid_v3")]
+    native_paid: Option<native_paid::TermDirectPaidRecordV3>,
 }
 /// Only first reservation returns this. History cannot reconstruct a caller.
 pub struct PreparedTermFiveFundingV3 {
@@ -274,6 +276,33 @@ impl TermFiveFundingRecordV3 {
         }
         Ok(())
     }
+    pub(in crate::provisioning) fn has_native_result(&self) -> bool {
+        self.native_paid.as_ref().is_some_and(|p| p.has_result())
+    }
+    pub(in crate::provisioning) fn replay_native_result(
+        &self,
+        at: UnixMillis,
+        ordinal: u64,
+    ) -> Result<()> {
+        self.native_paid
+            .as_ref()
+            .ok_or_else(invalid)?
+            .replay_result(at, ordinal)
+    }
+    pub(in crate::provisioning) fn has_native_paid(&self) -> bool {
+        self.native_paid.is_some()
+    }
+    pub(in crate::provisioning) fn replay_native_paid(
+        &self,
+        at: UnixMillis,
+        ordinal: u64,
+    ) -> Result<()> {
+        let p = self.native_paid.as_ref().ok_or_else(invalid)?;
+        if p.at() != at || p.ordinal() != ordinal {
+            return Err(invalid());
+        }
+        Ok(())
+    }
     pub(in crate::provisioning) fn claim_count(&self) -> usize {
         self.claims.len()
     }
@@ -282,6 +311,8 @@ impl TermFiveFundingRecordV3 {
     }
     pub(in crate::provisioning) fn event_count(&self) -> usize {
         1 + self.claims.len()
+            + usize::from(self.native_paid.is_some())
+            + usize::from(self.has_native_result())
     }
     pub(in crate::provisioning) fn paid_indices(&self) -> impl Iterator<Item = u64> + '_ {
         self.header.ports.iter().map(|p| u64::from(p.paid_index))
@@ -335,6 +366,7 @@ impl TermFiveFundingRecordV3 {
             last = c.ordinal;
         }
 
+        native_paid::validate_record(s, self)?;
         Ok(())
     }
 }
@@ -380,6 +412,7 @@ impl AccountProvisionApprovalState {
             header: header.clone(),
             reserved_ordinal: ordinal,
             claims: BTreeMap::new(),
+            native_paid: None,
         };
         let mut next = self.clone();
         let s = next.test_session_v2_record_mut(id)?;
@@ -532,3 +565,12 @@ impl AccountProvisionApprovalState {
         Ok(())
     }
 }
+
+fn required_native_paid_v3<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> core::result::Result<Option<native_paid::TermDirectPaidRecordV3>, D::Error> {
+    Option::deserialize(d)
+}
+#[path = "test_session_term_direct_native_paid_v3.rs"]
+mod native_paid;
+pub use native_paid::{PreparedTermDirectNativeV3, TermDirectIssuerV3, TermDirectNativeDispatchV3};

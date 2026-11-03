@@ -98,7 +98,14 @@ pub(super) fn require_supported_profile(
     if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
         if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3)
     {
-        return Err(unavailable());
+        if !term_direct_v3_fixture_enabled() || !config.full_session_v2_summary_contract_enabled {
+            return Err(unavailable());
+        }
+        let machine = super::cleanup_config::MachineConfig::from_env()?;
+        machine.preflight_access_pin()?;
+        if machine.term_direct_actor_pin.is_none() || machine.term_direct_native_pin.is_none() {
+            return Err(unavailable());
+        }
     }
     if matches!(&request.intent, CustodyIntentV1::TestSessionV2 { plan, .. }
         if plan.termination.cleanup_transport_policy == oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
@@ -130,7 +137,7 @@ pub(super) fn options_binding(
     let mut uses = Vec::new();
     let cleanup = matches!(&request.intent,
         CustodyIntentV1::TestSessionV2 { plan, .. }
-        if matches!(plan.termination.cleanup_transport_policy, oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2 | oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2))
+        if matches!(plan.termination.cleanup_transport_policy, oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2 | oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2) || (term_direct_v3_fixture_enabled() && plan.termination.cleanup_transport_policy==oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3))
         && std::env::var("OASIS7_CUSTODY_CLEANUP_MACHINE_V2_ENABLED")
             .ok()
             .as_deref()
@@ -340,4 +347,19 @@ pub(super) fn verify_existing_guarded_consent_v2(
         )?;
     }
     Ok(())
+}
+
+/// A child-process fixture mode only. Production cannot enable this predicate.
+pub(super) fn term_direct_v3_fixture_enabled() -> bool {
+    #[cfg(test)]
+    {
+        std::env::var("OASIS7_TERM_DIRECT_V3_FIXTURE")
+            .ok()
+            .as_deref()
+            == Some("genuine-before-uv-v3")
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
 }

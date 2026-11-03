@@ -93,3 +93,11 @@ pub use preflight_access::*;
 #[path = "native_cleanup_v2_preflight_receipt.rs"]
 mod preflight_receipt;
 pub use preflight_receipt::*;
+
+#[path = "native_term_direct_v3.rs"]
+mod term_direct_v3;
+pub use term_direct_v3::*;
+
+#[path = "native_term_direct_fact_v3.rs"]
+mod term_direct_fact_v3;
+pub use term_direct_fact_v3::*;

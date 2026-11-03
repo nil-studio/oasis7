@@ -142,10 +142,8 @@ impl NativeTermCurrentFactV2 {
         active: &SignedAccountActiveThreeRootsV2,
         ack: &SignedNativeRegistrationAckV2,
     ) -> Result<(), String> {
-        self.validate_shape()?;
-        active.validate_registration(pending, ack)?;
-        let c = &pending.certificate;
-        let crate::approval::CustodyIntentV1::TestSessionV2 { plan, .. } = &c.input.request.intent
+        let crate::approval::CustodyIntentV1::TestSessionV2 { plan, .. } =
+            &pending.certificate.input.request.intent
         else {
             return Err(invalid());
         };
@@ -153,7 +151,27 @@ impl NativeTermCurrentFactV2 {
             plan.termination.cleanup_transport_policy,
             crate::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedV2
                 | crate::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2
-        ) || self.stop_operation_id != plan.termination.stop_operation_id
+        ) {
+            return Err(invalid());
+        }
+        self.validate_approval_binding(pending, active, ack)
+    }
+    // Shared exact factual binding only. Callers must enforce their own closed
+    // profile and strong outer domain; this does not accept a signature.
+    pub(crate) fn validate_approval_binding(
+        &self,
+        pending: &SignedAccountConsumedPendingV2,
+        active: &SignedAccountActiveThreeRootsV2,
+        ack: &SignedNativeRegistrationAckV2,
+    ) -> Result<(), String> {
+        self.validate_shape()?;
+        active.validate_registration(pending, ack)?;
+        let c = &pending.certificate;
+        let crate::approval::CustodyIntentV1::TestSessionV2 { plan, .. } = &c.input.request.intent
+        else {
+            return Err(invalid());
+        };
+        if self.stop_operation_id != plan.termination.stop_operation_id
             || self.close_operation_id != plan.termination.close_operation_id
         {
             return Err(invalid());

@@ -256,7 +256,7 @@ pub(super) fn certificate(
             deadline_unix_ms: None,
         },
         expires_at: UnixMillis::new(plan.write_deadline.0),
-        cleanup_transport_policy: Some(CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2),
+        cleanup_transport_policy: Some(plan.termination.cleanup_transport_policy),
     };
     let ports = [
         NativePreflightWorldPortV2 {
