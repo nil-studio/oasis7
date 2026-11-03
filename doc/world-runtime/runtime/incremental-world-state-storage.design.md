@@ -260,6 +260,13 @@ mark、校验、sweep 和作业清理按有界页推进。最终重核 roots/lea
 
 checkpoint、height 索引增量更新，冷热按独立目标调度；后台压缩/打包/GC 只处理新变化或未完成作业，有吞吐、并发与空间预算，业务负载下退让。无变化时不反复重写同一历史；持续 blocked 记录具体 owner/root 与解除条件。逻辑小页可以物理合包以控制 inode 数量；一个 pack 含受保护成员时，先完整迁出并验证其替代表示再退休，实际释放以最后链接/持有者解除为准。
 
+<a id="iws-page-frame-reclamation"></a>
+#### 页面存储的保守物理回收
+
+Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。页面存储可先保留全部已存在 recipe，逐一验证原页完整 hash、全部 frame/pack 成员，再回收没有任何 recipe 引用的 frame 名称；已安装原件能力时另校验明确 objects-format 及每个原件 locator 的完整流/hash；不删除逻辑页、recipe、原件 locator、历史或未知 staging，不由此产生完整 owner/World GC 资格。所有页面访问与发布持有固定 lease 的共享锁，维护取得同一 inode 的独占锁；任何 reader/writer/transfer 仍持锁即拒绝回收。未知根目录成员、未知 recipe、缺页、坏 frame 或范围不明的 staging 阻止本池全部删除。
+
+枚举次数、成员/引用数、逻辑读取字节、内存和删除操作分别有显式上限；排序/集合仅在已预付的固定上界内执行。删除前完整预检，建立固定域的耐久 retire 标记后禁止新页面发布；中断重开允许读取原页，但新写继续受标记阻止。恢复重新验证全部当前 recipe/闭包，不复用旧删除列表。标记初始化的原 magic 真前缀可在独占锁下完成，其他内容明确拒绝；每次实际 unlink 后同步目录；恢复已有标记时，即使当前孤立库存为空，也须重新同步 frames 目录后才可解除隔离。标记 open 尚未成功的初始化失败返回 NotStarted，不声称 writer 已隔离；已创建或已有标记的失败保留 Incomplete。返回已执行数量与同步状态，取消/失败不得报成未改变。最终移除 retire 标记后，root 同步错误或末取消独立返回 Finalization：安全删除已结束，但最终化未正常回执，标记可能已经解除，不能再宣称 writer 仍隔离；重做须完整重验现闭包。原件能力创建、单页/批量页及原件 locator 发布均服从相同 retire fence。多轮继续后无引用 frame 名称收敛；pack 共享 inode 仍有其他名称时不宣称物理空间已释放。完整逻辑 GC、在线并行根保护和 staging 作业清理仍按本节总合同另行接通。
+
 <a id="iws-resource-budgets"></a>
 ### 8.2 页面、事务与操作预算
 
