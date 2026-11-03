@@ -216,6 +216,31 @@ class Contracts(unittest.TestCase):
             self.assertIn('test result: ok.', (args.results_dir / report['results'][0]['log']).read_text())
             self.assertTrue(acceptance.summarize(args.results_dir, ['units'])['passed'])
 
+    def test_real_capacity_harness_preserves_structured_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'bundle'
+            bundle.mkdir()
+            binary = bundle / 'test'
+            binary.write_text('#!' + sys.executable + '\nprint(\'STORAGE_CAPACITY_REPORT={"status":"passed","executed_heights":10}\')\nprint("test result: ok. 1 passed; 0 failed; 0 ignored;")\n')
+            binary.chmod(0o755)
+            manifest = dict(scope='storage', selection=None, tested_sha='abc', source_sha='abc',
+                producer_run_id='1', producer_attempt='1', runner_image='test', rustc_version='test',
+                binaries={'test': dict(path='test', cwd='.')})
+            args = argparse.Namespace(bundle=bundle, results_dir=root / 'results', group='capacity',
+                capacity_scale=10, repeat_faults=1, label='capacity', timeout_seconds=5)
+            with patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
+                 patch.object(acceptance, 'select', return_value=[dict(binary='test', batch=True, count=1)]), \
+                 patch.object(acceptance.shutil, 'disk_usage', return_value=argparse.Namespace(total=20*1024**3, used=1*1024**3, free=10 * 1024**3)):
+                acceptance.execute(args)
+            report = json.loads((args.results_dir / 'summary.json').read_text())
+            self.assertEqual(report['capacity_reports'], [dict(status='passed', executed_heights=10)])
+            self.assertTrue(report['results'][0]['log_complete'])
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['results'][0]['expected_count'], 1)
+            self.assertIn('test result: ok.', (args.results_dir / report['results'][0]['log']).read_text())
+            self.assertTrue(acceptance.summarize(args.results_dir, ['capacity'])['passed'])
+
     def test_optional_job_skip_is_exact(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

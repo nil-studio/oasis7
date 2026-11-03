@@ -27,7 +27,7 @@ def module(name):
 
 artifacts = module('ci-test-artifacts')
 plan = module('ci-formal-plan')
-from ci_process_runner import run, owned_processes
+from ci_process_runner import run, owned_processes, _Capture, READ_BYTES, SUMMARY_LINE_BYTES
 
 
 class Transition(unittest.TestCase):
@@ -1883,6 +1883,254 @@ class WorkspaceInputPaths(unittest.TestCase):
             target=dict(name='build-script-build', kind=['custom-build'], src_path=str(source)),
             profile=dict(test=False), filenames=[str(executable)]))
         self.assertEqual(state['input_owners'], {'a/Cargo.toml': ['a/build.rs']})
+
+
+class OutputBackpressure(unittest.TestCase):
+    def test_queued_packets_keep_original_descriptor_after_caller_closes_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            program = ('import contextlib,os,stat,sys,time\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\nfrom ci_process_runner import run,live_output\n'
+                'read_fd,write_fd=os.pipe()\n'
+                'with os.fdopen(write_fd,"w") as destination, contextlib.redirect_stdout(destination):\n'
+                ' run([sys.executable,"-c",\'import os; [os.write(1,b"x"*8191+b"\\\\n") for _ in range(512)]; '
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\'],'
+                f'Path({str(root)!r}),os.environ,"probe","lifetime",Path({str(root / "results")!r}),'
+                'expected_count=1,timeout_seconds=3)\n'
+                f'with open({str(root / "sentinel")!r},"w") as sentinel:\n'
+                ' sentinel.write("untouched")\n'
+                ' relay=live_output()\n'
+                ' with relay.queue.mutex:\n'
+                '  assert relay.queue.queue\n'
+                '  assert all(stat.S_ISFIFO(os.fstat(packet[3]).st_mode) for packet in relay.queue.queue)\n'
+                ' os.close(read_fd)\n'
+                ' deadline=time.monotonic()+2\n'
+                ' while relay.queue.unfinished_tasks and time.monotonic()<deadline: time.sleep(0.01)\n'
+                ' assert not relay.queue.unfinished_tasks\n')
+            process = subprocess.run([sys.executable, '-c', program], capture_output=True, timeout=6)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertEqual((root / 'sentinel').read_text(), 'untouched')
+            self.assertTrue(json.loads((root / 'results').read_text())['passed'])
+
+    def test_explicit_log_write_failure_cannot_pass(self):
+        import contextlib
+        import ci_process_runner as runner
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (root / 'log').open('w') as log, (root / 'console').open('w') as console:
+                identity = os.fstat(log.fileno())
+                original = runner.write_fd
+                def fail_log(fd, data):
+                    current = os.fstat(fd)
+                    if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+                        raise OSError('injected persistent log failure')
+                    return original(fd, data)
+                with contextlib.redirect_stdout(console), patch.object(runner, 'write_fd', side_effect=fail_log):
+                    result = runner.run([sys.executable, '-c',
+                        'print("test result: ok. 1 passed; 0 failed; 0 ignored;")'],
+                        root, os.environ, 'probe', 'log-failure', root / 'results',
+                        expected_count=1, timeout_seconds=3, log_stream=log)
+            self.assertFalse(result['passed'])
+            self.assertFalse(result['log_complete'])
+            self.assertFalse(result['count_ok'])
+            self.assertEqual(result['output_read_error'], 'OSError')
+            self.assertEqual(result['output_bytes'], 48)
+            self.assertEqual(result['cleanup_result'], 'clean')
+
+    def test_each_run_uses_current_redirected_file(self):
+        import contextlib
+        from ci_process_runner import run
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index in range(3):
+                destination = root / f'output-{index}'
+                with destination.open('w') as stream, contextlib.redirect_stdout(stream):
+                    result = run([sys.executable, '-c',
+                        f'print("destination-{index}"); print("test result: ok. 1 passed; 0 failed; 0 ignored;")'],
+                        root, os.environ, 'probe', str(index), root / 'results',
+                        expected_count=1, timeout_seconds=3)
+                self.assertTrue(result['passed'])
+                content = destination.read_text()
+                self.assertIn(f'destination-{index}', content)
+                self.assertIn('test result: ok.', content)
+                for other in range(index):
+                    self.assertNotIn(f'destination-{other}', content)
+
+    def test_explicit_log_is_complete_with_undrained_console(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            log, results = root / 'durable.log', root / 'results'
+            child = ('import os; [os.write(1,b"x"*8191+b"\\n") for _ in range(512)]; '
+                     'print(\'STORAGE_CAPACITY_REPORT={"status":"passed","executed_heights":10}\'); '
+                     'print(\'STORAGE_FULL_NODE_REPORT={"status":"passed"}\'); '
+                     'print("test result: ok. 1 passed; 0 failed; 0 ignored;")')
+            program = ('import os,sys\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\nfrom ci_process_runner import run\n'
+                f'with open({str(log)!r},"w") as stream:\n'
+                f' run([sys.executable,"-c",{child!r}],Path({str(root)!r}),os.environ,'
+                f'"probe","durable",Path({str(results)!r}),expected_count=1,timeout_seconds=3,log_stream=stream)\n')
+            process = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            try:
+                process.wait(timeout=5)
+                timely = True
+            except subprocess.TimeoutExpired:
+                timely = False
+            finally:
+                output, _ = process.communicate(timeout=5)
+            self.assertTrue(timely)
+            self.assertEqual(process.returncode, 0, output[-4000:])
+            result = json.loads(results.read_text())
+            self.assertTrue(result['passed'] and result['log_complete'] and result['count_ok'])
+            self.assertGreater(result['output_suppressed_bytes'], 0)
+            content = log.read_bytes()
+            self.assertEqual(len(content), result['output_bytes'])
+            self.assertIn(b'STORAGE_CAPACITY_REPORT={"status":"passed","executed_heights":10}', content)
+            self.assertIn(b'STORAGE_FULL_NODE_REPORT={"status":"passed"}', content)
+            self.assertTrue(content.endswith(b'test result: ok. 1 passed; 0 failed; 0 ignored;\n'))
+
+    def test_drained_live_output_preserves_heartbeat_and_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results = root / 'results.jsonl'
+            program = (
+                'import os,sys\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\nfrom ci_process_runner import run\n'
+                'run([sys.executable,"-c",\'import time; time.sleep(0.15); '
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\'],'
+                f'Path({str(root)!r}),os.environ,"probe","healthy",Path({str(results)!r}),'
+                'expected_count=1,timeout_seconds=2,heartbeat_seconds=0.05)\n'
+            )
+            process = subprocess.run([sys.executable, '-c', program], capture_output=True, timeout=4)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertIn(b'suite=probe test=healthy', process.stdout)
+            self.assertIn(b'test result: ok. 1 passed;', process.stdout)
+            record = json.loads(results.read_text())
+            self.assertTrue(record['passed'])
+            self.assertEqual(record['output_suppressed_bytes'], 0)
+            self.assertEqual(record['output_pending_bytes'], 0)
+
+    def test_summary_parser_handles_chunk_boundaries_without_retaining_long_lines(self):
+        capture = _Capture()
+        for piece in [b'test result: o', b'k. 4 passed; 0 fail', b'ed; 2 ignored;\n']:
+            capture.feed(piece)
+        self.assertEqual(capture.summary, (4, 0, 2))
+        for _ in range(1024):
+            capture.feed(b'x' * READ_BYTES)
+            self.assertLessEqual(len(capture.line), SUMMARY_LINE_BYTES)
+        capture.feed(b'\ntest result: ok. 5 passed; 0 failed; 0 ignored;\n')
+        self.assertEqual(capture.summary, (5, 0, 0))
+        capture.feed(b'test result: ok. ' + b'9' * READ_BYTES)
+        self.assertIsNone(capture.summary, 'an oversized later summary cannot reuse an old count')
+
+    def test_repeated_runs_share_one_bounded_relay_when_stdout_is_not_drained(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results, observations = root / 'results.jsonl', root / 'observations.json'
+            child = ('import os; print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True); '
+                     '[os.write(1,b"x"*8191+b"\\n") for _ in range(512)]')
+            program = (
+                'import json,os,sys,threading\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\n'
+                'from ci_process_runner import run,live_output,READ_BYTES,LIVE_CHUNKS\n'
+                'before=threading.active_count()\n'
+                'for i in range(3):\n'
+                f' run([sys.executable,"-c",{child!r}],Path({str(root)!r}),os.environ,'
+                f'"probe",str(i),Path({str(results)!r}),expected_count=1,timeout_seconds=2,heartbeat_seconds=0.05)\n'
+                'relay=live_output()\n'
+                f'Path({str(observations)!r}).write_text(json.dumps(dict('
+                'threads=threading.active_count()-before,queued=relay.queue.qsize(),'
+                'max_chunks=LIVE_CHUNKS,max_packet=max(len(p[0]) for p in relay.queue.queue),'
+                'chunk_bytes=READ_BYTES)))\n'
+            )
+            process = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            try:
+                process.wait(timeout=6)
+                timely = True
+            except subprocess.TimeoutExpired:
+                timely = False
+            finally:
+                output, _ = process.communicate(timeout=10)
+            self.assertTrue(timely, 'repeated runs must not wait for blocked relay threads')
+            self.assertEqual(process.returncode, 0, output[-4000:])
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            self.assertEqual(len(records), 3)
+            self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
+            self.assertTrue(all(record['output_suppressed_bytes'] > 0 for record in records))
+            self.assertTrue(all(record['output_bytes'] == 512 * 8192 + 48 for record in records))
+            self.assertTrue(all(record['output_suppressed_bytes'] + record['output_pending_bytes']
+                                <= record['output_bytes'] for record in records))
+            stats = json.loads(observations.read_text())
+            self.assertEqual(stats['threads'], 1, 'only one relay survives across all runs')
+            self.assertLessEqual(stats['queued'], stats['max_chunks'])
+            self.assertLessEqual(stats['max_packet'], stats['chunk_bytes'])
+
+    def test_undrained_stdout_cannot_block_deadline_result_or_owned_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            results, pids = root / 'results.jsonl', root / 'pids.json'
+            child = (
+                'import json,os,subprocess,sys,time; '
+                'other=subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); '
+                f'open({str(pids)!r},"w").write(json.dumps([os.getpid(),other.pid])); '
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True); '
+                '[os.write(1,b"x"*8191+b"\\n") for _ in range(1024)]; time.sleep(30)'
+            )
+            program = (
+                'import os,sys\nfrom pathlib import Path\n'
+                f'sys.path.insert(0,{str(HERE)!r})\n'
+                'from ci_process_runner import run\n'
+                f'run([sys.executable,"-c",{child!r}],Path({str(root)!r}),os.environ,'
+                f'"probe","blocked-output",Path({str(results)!r}),expected_count=1,'
+                'timeout_seconds=0.25,heartbeat_seconds=0.05)\n'
+            )
+            process = subprocess.Popen([sys.executable, '-c', program], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT)
+            try:
+                # Deliberately never drain the live output until the runner has
+                # exited. Its deadline/result/cleanup must not need our reader.
+                process.wait(timeout=4)
+                timely = True
+            except subprocess.TimeoutExpired:
+                timely = False
+            finally:
+                # Also release an unfixed runner, so the red regression leaves
+                # no sleeping child or blocked pipe behind.
+                output, _ = process.communicate(timeout=10)
+            self.assertTrue(timely, 'live stdout prevented the deadline and runner exit')
+            self.assertEqual(process.returncode, 0, output[-4000:])
+            record = json.loads(results.read_text().splitlines()[-1])
+            self.assertTrue(record['timeout'])
+            self.assertFalse(record['passed'])
+            self.assertTrue(record['count_ok'], 'summary parsing must continue independently')
+            self.assertEqual(record['cleanup_result'], 'clean')
+            self.assertLess(record['elapsed_seconds'], 3)
+            self.assertGreater(record['output_suppressed_bytes'], 0)
+            for pid in json.loads(pids.read_text()):
+                state = subprocess.run(['ps', '-p', str(pid), '-o', 'stat='],
+                                       capture_output=True, text=True).stdout.strip()
+                self.assertTrue(not state or state.startswith('Z'), (pid, state))
+
+    def test_child_exit_zero_observed_after_deadline_cannot_pass(self):
+        original_popen = subprocess.Popen
+        def delayed_observation(*args, **kwargs):
+            child = original_popen(*args, **kwargs)
+            # A real child completes successfully after the deadline while the
+            # supervisor cannot observe it yet (as with a stalled output call).
+            child.wait(timeout=2)
+            return child
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch('ci_process_runner.subprocess.Popen', side_effect=delayed_observation):
+                result = run([sys.executable, '-c',
+                              'import time; time.sleep(0.15); print("test result: ok. 1 passed; 0 failed; 0 ignored;")'],
+                             root, os.environ, 'probe', 'late-success', root / 'results.jsonl',
+                             expected_count=1, timeout_seconds=0.05, heartbeat_seconds=0.01)
+            self.assertEqual(result['exit_code'], 0)
+            self.assertTrue(result['count_ok'])
+            self.assertTrue(result['timeout'])
+            self.assertFalse(result['passed'])
 
 
 class Process(unittest.TestCase):
