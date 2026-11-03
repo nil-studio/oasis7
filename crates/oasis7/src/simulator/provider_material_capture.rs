@@ -4,14 +4,18 @@
 //! owner of the independent pending store supplies the durable implementation
 //! and must bind it to a verified new-format world before installing it.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
 
 use oasis7_formal_protocol::incremental_state::StateRootV1;
-use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+#[cfg(not(target_arch = "wasm32"))]
+use oasis7_proto::memory_budget::MemoryBudget;
+use oasis7_proto::memory_budget::ReservedValue;
 use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
 use super::{ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1};
 
 /// Immutable new-format owner scope for a provider pending ledger.
@@ -198,6 +202,7 @@ pub trait ProviderMaterialAuthority: Send + Sync {
 
 /// A finite allowance for on-disk request/response spools. Implementations
 /// retain this guard until the HTTP exchange and persistence complete.
+#[cfg(not(target_arch = "wasm32"))]
 pub trait ProviderSpoolReservation: Send {}
 
 /// Native owner injection for exact provider request/response body capture.
