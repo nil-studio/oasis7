@@ -169,9 +169,10 @@ impl ViewerRuntimeLiveServer {
         thread::spawn(move || {
             while let Ok(job) = incoming.recv() {
                 #[cfg(any(test, feature = "test_tier_required"))]
-                let result = executor_diagnostics.execute(job);
-                #[cfg(not(any(test, feature = "test_tier_required")))]
+                executor_diagnostics.executing();
                 let result = job.execute();
+                #[cfg(any(test, feature = "test_tier_required"))]
+                executor_diagnostics.returned(result.response.is_err());
                 if completed.send(result).is_err() {
                     break;
                 }

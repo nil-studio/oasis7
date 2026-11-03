@@ -89,6 +89,7 @@ impl Default for IoDiagnostics {
 }
 
 impl IoDiagnostics {
+    #[cfg(test)]
     pub(super) fn execute(&self, job: AgentServiceIoJob) -> AgentServiceIoResult {
         self.executing();
         let result = job.execute();
