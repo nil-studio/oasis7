@@ -45,6 +45,7 @@
 ## 活跃补充文档
 - [外部 Runtime 自主试玩与开发自测设计](governance/agent-runtime-self-playtest.design.md)：承接现有 L4B、真实 subagent、玩家 Skill、自主游玩、权威验真及修复回归，不新增通用门禁。
 - [开发 Agent 自测操作手册](manual/agent-runtime-self-playtest.manual.md)：唯一操作入口，集中维护预检、启动、派工、七组场景、反馈与清理；试玩者读取正式游戏 Skill。
+- [首局真人试玩手册](manual/first-session-human-playtest.manual.md)：复用现行证据层级与首局要求，提供受控目标玩家的筛选、两次会话、主持话术、提示规则、原始记录和复测方法；真实执行与结论在原 PR/证据入口分别留证。
 - [独立试玩任务模板](templates/agent-runtime-playtester-task.template.md)与[自测报告模板](templates/agent-runtime-playtest-report.template.md)：由手册引用的可复用格式，不是独立流程入口或已执行证据。
 - `doc/testing/governance/README.md`：`governance/` 热点子域 landing page，按质量门禁、playability 证据、L4 分层、role review 与 persona 问题分流读者。
 - `doc/testing/evidence/README.md`：`evidence/` 热点子域 landing page，按 release gate、hosted access、legacy p2p network rehearsal、governance drill 与 claim/audit 分流读者。
