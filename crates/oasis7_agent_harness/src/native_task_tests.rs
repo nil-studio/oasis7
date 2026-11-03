@@ -671,3 +671,44 @@ fn explicit_abort_is_not_a_successful_business_turn() {
     assert_eq!(report.turns_completed, 0);
     assert_eq!(report.model_calls_spent, 1);
 }
+
+#[test]
+fn native_runner_consumes_shared_scripted_provider() {
+    use oasis7_agent_api::test_support::{ScriptedProvider, Step};
+    let steps: Vec<Step> = vec![
+        Box::new(|r| Ok(response(r, vec![call("observe", json!({}))]))),
+        Box::new(|r| Ok(response(r, vec![call("move", json!({"to":[1,2,3]}))]))),
+    ];
+    let (provider, probe) = ScriptedProvider::new(steps);
+    let host = Arc::new(FakeHost::new());
+    let report = NativeTaskRunner::new(host.clone(), Box::new(provider), config())
+        .unwrap()
+        .run()
+        .unwrap();
+    assert_eq!(report.stop_reason, NativeTaskStopReason::Completed);
+    assert_eq!(report.model_calls_spent, 2);
+    let requests = probe.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[0]
+            .user_prompt
+            .contains(&"complete private goal ".repeat(80))
+    );
+    assert!(
+        requests[1]
+            .user_prompt
+            .contains("fresh observation sentinel")
+    );
+    assert_eq!(
+        host.events()
+            .iter()
+            .filter(|e| e.ends_with(":effect"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn shared_provider_contract_runs_in_harness_tests() {
+    oasis7_agent_api::test_support::assert_scripted_contract();
+}
