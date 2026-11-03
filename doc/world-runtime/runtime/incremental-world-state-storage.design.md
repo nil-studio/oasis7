@@ -442,7 +442,7 @@ pair 嵌套最多16层，这是逻辑 profile 上限；字节操作额度不改�
 
 固定布局为 ASCII `oasis7.iws.field-member.v1` 加单个零字节、field-key-byte-length u16 大端、payload-codec u8、semantic-key-byte-length u64 大端、payload-byte-length u64 大端、完整 world-field-key.v1 bytes、完整 semantic-key.v1 原 bytes、payload bytes。最后两段不加填充；总长度须 checked 相加且恰好等于值树 logical length。field key 必须是结构合法的 Entry/Bytes，原语义键的 BLAKE3 必须等于其中 semantic digest。Metadata/Group 不在本 profile 内，不用空成员冒充其独立存在性和计数合同。
 
-payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
+payload-codec 固定 Unit=1（零字节）、U64=2（8字节大端）、I64=3（8字节大端二补码）、Bool=4（单字节0/1）、Text=5（原UTF-8字节）、Ledger=6（§12.2 ledger-value.v1 完整字节）、Bytes=7（原字节）、DeliveryCursor=8（§12.14 的固定16字节 era/event ID）、IdentityU64Triple=9（§12.21 的原身份 UTF-8 与三个 u64）、RecordRoot=10（固定165字节 typed child root reference）、FixedU64x7=11（恰好七个大端 u64，共56字节）。tag 12 未分配；未发布原型的 whole-value market codecs 不属于本格式。Bytes key 只配 Bytes payload；Entry 可配其余封闭类型。写者接收封闭借用值枚举，不能用任意 Serialize 代替本 profile，也不将这些原语声称为全部聚合值 codec。
 
 写入前明确 key/payload/record 三项字节上限；语义 hash 使用有限工作额度、取消检查和已准入 workspace，再从同一封闭不可变源写入既有 ValueStreamWriter。输出 key 与 value 分段保留原内容，不构造整条编码缓冲。返回的 root 仍为 provisional，原 authority、事务、完整登记和发布合同独立适用。
 
@@ -860,6 +860,30 @@ scalar 接收端必须绑定同池保留的父 CurrentStateQualification 与 bef
 完整资格必须从认证 RootSet、全部当前状态 cohort 与各独立 side owner 的真实证明组合，校验 required/optional 关系与未知/孤儿；普通事务只沿目标路径和必要关系访问，不能扫描未变大文本/集合。精确 expected、guard/live、同池 Ordinary、连续有限 key/逻辑/物理/heap 额度、NoOp/最后实际 put/finish 的组合取消、所有失败 poison 前缀合同继续适用。接收端先 generic replay，再从已资格父与完整 changed-path 写集推导新闭包；新记录全量资格，未变子树仅继承原已认证闭包。typed pages 跟随全部子 State/Value 引用并等待实际 sink finish，冷恢复不能依赖旧 Snapshot、缓存或旧内存池。本节不新增 cognition 调度、授权、投票或业务规则，不能代签 accepted history 或全 World GC。
 
 
+### 12.52.1 Cognition History 原件与视图绑定
+
+<a id="iws-cognition-history-view-v1"></a>
+
+本组严格保留 journal.events、responses、economy.journal、economy.provision_journal 的 History 归属；delegation.receipts 仍属 ProofLedger。单记录原件以原 Snapshot Value 的完整 canonical CBOR 流保存，复用唯一 ABI encoder，保留 absent/null、未知的原附加字段与原数组 ordinal；不能先反序列化兼容 DTO 再序列化，避免跳过 Optional 字段改变原 wire。物理原件 flat BLAKE3 ID 与原 event_digest/response_digest 独立，原业务 ID 和已有 domain/preimage 不改写；event 自摘要的排除和 response_artifact 摘要均使用原 cognition_digest_v1 语义。缺少旧 identity/artifact 的只读兼容记录必须显式标识，不能由物理存储成功推出完整语义资格。
+
+原件写入须连续有界地完成原语义摘要、完整原件 hash/len 测量和实际输出；所有编码、key 排序、输出重试和工作区先计费，消费、sink finish、最终取消与正式事实 append 的边界明确。任何失败 poison 上下文/事务。输出消费完成只证明本次消费及 sink 合同报告，任意 callback 不构成外部耐久认证，仍须正式原件 readback。原件按 Event 或 Result 原 fact kind 接入既有 FactSet、HistoryPrefix 和 catalog，acceptance 保持原正式 authority。
+
+存储视图使用既有 Result fact 中唯一的 CognitionHistoryView profile manifest，绑定实际 RootSet digest、四族 detached typed index root/count 及原 head 值；不创建新 ledger/head 或扩展 RootSet 根。manifest 不引用其新 commit body ID，避免循环。候选 validator 必须检查同一 RootSet 恰好一份该 profile manifest；接受后的资格绑定当前 selected head 和其实际 manifest occurrence，不能从任意历史已接受 Result 选择当前视图。索引只定位完整视图，逐记录须验证原件可用性、原语义及同一 kind-bound occurrence，current30 的 journal headseq/headDigest 和完整页/原件依赖须另行交叉核验。
+
+原 cleanup 合法保留部分 responses、重排 retained events 并重新计算原 ID；新视图须单独 version 化，不能修改旧物理原件，view ordinal 也不是永久业务 ID。旧 journal-head 的 domain+全部 events canonical wire 保持；bootstrap/cleanup 可显式有界全 scope 验证，不能将此称为普通 append 固定增量。普通后继若需 hash cache/outboard，必须认证其与真实原件、chunk counter、有限 alignment 和原 flat digest 的关系，不能以新 digest 或平行链替代既有语义。原 Cognition=null/absent 的未启用状态须有明确兼容分支，不因本 profile 使合法原 World 不可读。
+
+三组原 head 格式的偏移由同一 canonical encoder 推导：Journal 的 array-count header 有五档；Economy 与 Provision 的 head-seq/count 两 header 长度组合各有十二档。派生缓存只保留首部、每档尾部和原绝对 chunk 区间 `[1,n)` 的对齐 dyadic frontier，重算可变 chunk0 和末尾，严格保留 BLAKE3 chunk counter、树形及 root flag。u64 字节范围下每档 frontier 最多以 128 个固定槽保守界定，所有实际容量先计费；这不是全 H 的 CV 列表。数学缓存、raw codec 或形状正确均不授 History/accepted 资格；父 index、原 locator、固定 last 语义 summary、原 head 与 accepted generation 的对应关系须由真实原件审计或已资格父上的 typed transition 证明。
+
+Journal 生命周期继续复用原 Runtime 的五 String tuple、稀疏身份跳过规则、transport-attempt 和 scalar transition/error。流式单原件投影须区分 missing/null/空 String，并保留超长原 ID，不新增 256 字节截断或规范化。长度与原 UTF8 摘要仅作内部索引定位；原字符串留在原件中，资格须核对其一一对应，不能将派生摘要当业务新 ID、成员或缺失证明。原 integrity 的单条可恢复 terminal suffix 与完整提交状态分开处理，不能用新的 count 等式消除原 marker/recovery 语义。
+
+HistoryView v1 的固定原件 magic 为 `oasis7.cognition.history-view.v1\0`，随后为 RootSet digest、enabled、storage revision、可选 previous-view FactLocation（原 flat ID、height 与 fact ordinal hint）、journal/economy/provision 三个原 head(seq、可选 digest)，以及按 journal.events/responses/economy.journal/economy.provision_journal 顺序的四个 index(present、record count、标准 StateRoot wire)。布尔只接受 0/1，可选 digest 缺失时固定零 padding；空 digest 与实际零 digest 不折叠。index 固定 Artifacts namespace，存在时 leaf_count=record_count+2（profile marker 与 count 两叶），缺失时标准空根与 count=0；enabled 要求前两族存在、economy 两族成对，disabled 全缺失且三 head 为空。该 shape 解码不验证引用页或业务关系。候选选择逐 actual Result 原件连续流验完整 flat hash/长度，查找唯一完整 magic profile，并通过原 kind-bound candidate occurrence 绑定 exact signed candidate/Core/RootSet；没有原件、重复 occurrence、错根、截断及额度/取消失败都不能返回 selection。selection 仅证明选择关系，不能当 History closure。只有将该私有唯一选择经原 candidate occurrence promotion 绑定 exact accepted signature，才能取得 accepted-view 选择证明；仍不授索引、原件语义或完整 History 资格。previous-view hint 必须经当前 selected accepted prefix 重新认证 kind、profile 与旧 RootSet，hint 本身不授权。当前启动和普通提交只按受认证根验证必要路径，不能递归扫描全部 previous 链；GC/显式完整历史审计可在有限预算下遍历保留边。
+
+四个 detached index 的 descriptor 为 Cognition owner、Artifacts namespace、ByteMap shape，name 依次为 `history.journal.events.index.v1`、`history.responses.index.v1`、`history.economy.journal.index.v1`、`history.economy.provision_journal.index.v1`。每根两固定叶为原标准 Metadata 与 Entry/Unit U64 count；每条 locator 使用 Bytes/原 U64 ordinal key，payload 固定 56 字节：original flat ID32、encoded length8、untrusted fact height8、fact ordinal8，整数均大端。重复 original ID、非单调 hint 与原 ordinal 保留；这些位置不授原件出现权。完整 index 资格逐已知 distinct key 验值和 Value closure，再遍历真实 sparse tree 核 namespace/path/key hash/actual leaf_count，排除未知叶、伪 count 与密度缺口；该私有证明只闭合索引，不等同原件、业务或接受历史证明。
+
+新格式只承诺新建世界的有界 GEN，不提供任意大 legacy journal 一次导入。单次 GEN 仍受原 4096 facts 容量约束，超限返回 ResourceLimited；普通 H 增长由许多合法增量提交完成，每次仅追加本次新原件 facts，旧 locator 复用真实已接受 occurrence，不重 append 全部旧记录。当前 selected-view 冷恢复只检查本次 accepted body 及其有限 Result 集，不能递归 previous-view 链或把完整 index 审计固定为每次启动、普通追加的前置步骤。
+
+enabled 的视图与同一 RootSet 下完整 current30 资格及三组原 head 值交叉绑定；disabled 必须有该 RootSet 六根的显式有界 absence 证明，未知、孤儿或错误 namespace 的 Cognition-owned cell 都不能略过。该绑定仍不证明 History 原件语义。私有资格记录真实 mint class；同池不等于 Recovery 资格可以直接用于 Ordinary 事务。显式 Ordinary 资源重新准入须先足额计费并独立复制全部固定 metadata，Formal occurrence 必须调用原 owner 的私有证明桥，保留 exact accepted record、RootSet、body、kind、location 与长度，不从公开 getters 重新制造权限。Current30 的嵌套证明也须逐实际 capacity 复制计费，不能共享 Recovery Arc 冒称迁移；重新准入不得重扫 H，且最终取消、原根与 accepted generation 绑定仍须检查。
+
 ### 12.56 绑定最终状态根的末尾原 fact
 
 需要引用本次 after RootSet 的原 Result（例如 Cognition History view）在同一 ExecutionTransaction 冻结真实写集、计算并校验 after roots 后生成，不预测根、不重新创建事务，也不修改已 seal 的不可变 prepared 结构。唯一末尾 fact 的额度和完整临时内存须在调用生产者前准入；callback 只读实际 after RootSet，不能改 roots、写集或原 fact 顺序。生成失败保留原错误类型；取消在生产前后及返回 prepared 前均检查，任一错误消费并丢弃该 overlay，不返回可 seal 的成功前缀。已经写出的原件仍为 provisional，沿既有 pending/保留与正式接受规则处理，不因本 hook 授予业务或耐久权限。
@@ -1183,3 +1207,64 @@ Agent 子树结构资格记录真实 mint class，普通 scalar/optional/row/cre
 模块费用预检与贡献从同一 Ordinary ExecutionTxn 的认证字段读取工件 owner、Agent 身份、Data/Electricity 余额、全局 treasury 与活动时间；资格必须绑定精确父根、同池 Ordinary class，Recovery 结构资格须先显式重新准入。选定工件 owner 使用既有文本 map 的元数据、语义 key 与 UTF-8 校验，只证明当前选定项，不产生全 map 或全 World 资格。所有 free、拒绝和收费返回均须完成 guard/live、I/O 与取消检查；私有 prepared 费用绑定读取后的 guard、owner、payer、资源映射和金额，不能用新的调用者 guard 替换。
 
 收费计算复用原 World 算法与接受语义，包括饱和的计量单位、同资源种类按 compute 后 electricity 顺序扣费并累计 treasury、零费用仍更新活动时间及不创建缺失零条目。缺 owner 或缺 payer 保持免收费，合法余额不足返回原 ModuleCallFailure；存储、资格、I/O、取消或贡献失败使此前合法写入前缀所在事务 Aborted。该接缝只贡献余额、treasury 和活动字段；调用 owner 仍须在同一事务按原序贡献精确 ModuleRuntimeCharged 原件、事实和 allocator，完成模块授权、输出与后续事件，不得以 prepared 费用替代调用权限或 selected-head 权限。未变大字段不属于收费热路径扫描范围；局部读量测试不代替完整调用的 C<T、恢复续跑或全局 owner 验收。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
+
+
+<a id="iws-cold-material-content-checks"></a>
+
+### 冷启动内容检查的局部输出
+
+原 native descriptor/chunk 与 IWS execution manifest/catalog 继续使用既有唯一格式，不新建原件身份或执行账本。冷内容检查从真实 CheckedCommitCore 的原角色引用出发：native 逐原 chunk 验 flat hash、长度与全部 component 的原拼接 digest；execution manifest 逐项绑定 scope、format、native/executable、WASM/rules catalogs、原协议 policy、parent roots/operation/input 与 continuation，并按有限对象/字节/树页额度流读 catalog 中全部原件。metadata/workspace 在解析前准入，来源同池 Ordinary，输出持续持有固定 Ordinary 费用；失败、取消、错误原件或预算不足不返回局部内容结果。
+
+Scheduler 冷一致性检查只对原 Scheduler root 做两次有限遍历，验证显式 schedule descriptor、每个原 module wake scalar 和完整专用 ScheduleIndex 之间的双射与精确数量；零成员也必须有显式空 index。原 key/绝对 tick 保持不变，复用原 IndexReader 和 source 错误/连续 IO 预算，恢复使用原 mint class 并在成功返回前检查取消。
+
+这些输出只证明此次内容或局部一致性，不是 accepted/selected head、环境等价、业务授权、全 owner 资格、耐久 lease、HistoryReady 或全 WorldReady。Scheduler 输出的公开 index/count 不能被当成普通贡献父资格；冷完整扫描不得用于每次普通 wake 变更或 due 选择。普通增量沿现有事务/owner 接口，完整接收、引用保留和回收仍由相应 owner/driver 负责。Trace refs: O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+<a id="iws-cognition-history-view-v2-derived-closure"></a>
+
+### HistoryView v2 派生闭包
+
+v1 原件保留原 magic、字节布局和物理 ID。v2 使用独立 `oasis7.cognition.history-view.v2\0`，不能以 v1 decoder 接受其新增尾部。v2 magic 后嵌入完整固定宽度 v1 canonical payload（含其原 magic，复用原唯一编解码；roots、enabled、revision、previous_view、三 head 和四 index），随后依次追加 Journal、Economy、Provision 的三个 ValueRoot descriptor ID，以及 lifecycle 的标准 RecordRootRef。引用缺失以独立 presence bit 及固定零 padding 表达；enabled 要求 Journal cache 与 lifecycle 存在，Economy/Provision cache 与对应 index 同组存在。disabled 全部引用缺失。
+
+cache 的 canonical wire 单独标记版本，固定编码原 absolute chunk counter、29 alignment 的首尾和 dyadic frontier；无 CV 列表随 H 增长。解码先准入完整固定容量，检查域、精确长度、padding、每档 frontier 连续覆盖与计数，重新计算原 head flat digest，核对真实 index count、head sequence、CurrentBinding、selected occurrence 和 roots。数学结构正确不证明内容来自索引原件；bootstrap 必须沿有界完整原件流 tee 构建并验证每条索引 occurrence 与 schema。ordinary append 从精确同父 private cache 出发，只 tee 新实际原件；changed receiver 独立重算新增贡献和新 cache root，再核 after manifest。response-only successor 保持三个 cache 引用及 head 不变。
+
+lifecycle 的外层定位符按下文 history.lifecycle.lookup.v2 的长度/原 UTF8 摘要规则派生；内层行的标准 MemberRecord semantic key 逐字保留五个原字符串。流读时计算每个字符串的长度和 UTF8 摘要以核对原件投影。固定 payload 保留最后原件 locator、view-local Journal ordinal、原 scalar state 和上次 transport_attempt。索引定位摘要不是业务 ID。bootstrap 流扫描每条原件并按原 sparse gate 跳过不完整身份，复用唯一 scalar transition；普通追加核新原件 projection 与完整原字符串对应，认证旧行的同 key/prefix/状态和attempt，仅改该行。缺行必须来自父 tree authenticated absence；不得因进程 map 未命中就当新请求。state、attempt与 last locator 均由原 transition导出，不接受调用者任意指定后状态。cleanup是显式新视图完整重建，不能普通增量冒称。
+
+v2 独立 closure 由真实 selected occurrence、CurrentBinding、四 index typed closure、三 cache original对应关系、lifecycle complete或qualified-parent delta关系组成；任何依赖缺失、错误class/pool、预算或取消失败不得mint HistoryReady。Rec→Ord显式重新计费，私有retained proof不能隐式换类。GC从selected v2 Result遍历四 indexes、全部原件、三cache value闭包和lifecycle tree及其last locators。v1已接受内容保持可读；v1→v2只允许显式有界bootstrap，普通恢复或append不能静默全H扫描。完整交付需真实canonical accepted candidate→receiver→落盘→丢DTO/proofs→cold恢复→第二次合法追加，不以新codec通过或mock替代。
+
+
+Lifecycle v2 的原文 tuple 键复用现有 semantic-key writer 的 `Pair(a, Pair(b, Pair(c, Pair(d, e))))`，顺序为原五 String tuple，不归一化、不截断。标准 MemberRecord 已把该原文 key 连同 payload 分块保存，冷验证用共享 UTF8 输出器按边界流验五字段，不能仅凭五 digest 冒充原 tuple。为从单原件固定投影定位原文键，外层 descriptor 为 Cognition/Artifacts/ByteMap 的 `history.lifecycle.lookup.v2`，内部 locator 是 domain `oasis7.cognition.lifecycle-lookup.v2\0` 加五组大端 UTF8 字节长度和原 UTF8 BLAKE3 的摘要，其小写 hex String 仅用作 Entry key。该派生位置不授业务身份、请求存在或缺失权限；指向的 typed child 必须重新核对五个原字符串与原件投影一一对应。
+
+外层空族是标准空 Artifacts root；非空族含一个 Metadata、一个 Entry/Unit U64 key-count 和每 key 一个 Entry/locator RecordRootRef。child schema 为 `BLAKE3("oasis7.cognition.lifecycle-tuple.v2")`，owner_key 是外层标准 semantic key digest。child 恰有 `history.lifecycle.tuple.v2` 的 Metadata 和一个 Bytes/原 nested Pair tuple 行。行 payload 为 magic `oasis7.cognition.lifecycle-row.v2\0`，随后原 scalar state tag 1..10、transport_attempt U64、Journal view ordinal U64、原件 flat ID32、fact height U64 和 fact ordinal U64，整数大端；零和 u64::MAX 不混同缺失。完整冷闭包须逐 Journal 原件审计并与全族最后行关系比对；点读完整两叶 child 仅证明该行及原 key，不提升为整个 lifecycle 就绪。
+
+
+普通 lifecycle 资格继承还必须消费 Formal 已认证的直接历史扩展：用父选中 occurrence 经 `inherit_fact_occurrence_v1` 迁移，并与后继选中 occurrence 的精确 head record、RootSet、head body 绑定；扩展自身由两个真实 accepted head 和后继 checked core 签发。manifest 的 `previous_view` 与连续高度仅是附加一致性检查，零 Journal 增量也不得绕过该来源证明。
+
+普通 lifecycle 接收端以有界 streaming receiver 逐 actual joined Journal 原件推进，不要求保留 Δ 条原件资格的 Vec。每次成功 push 只保留实际新根、计数及固定父/后继绑定；错误或取消 poison receiver，调用者吞错也不能 finish。最终验证实际新增数量、Journal index 独立重放结果、精确 v2 lifecycle 根和 after-current/head 才授该 owner 私有资格；该资格不代签完整 History、响应业务语义或真实 GC。
+
+
+<a id="iws-marketplace-owner-records-v2"></a>
+
+### 12.44 模块视觉实体与工件市场记录
+
+`module_visual_entities`、`module_artifact_listings` 与 `module_artifact_bids` 沿唯一 WorldState/Map/Business 登记；每个字段要求一个 Metadata，空 Map 有效。外层成员语义键保留源 BTreeMap 的完整 String key，不由嵌套值中的 entity/order ID 推导或替换。每个成员的值是固定165字节的 RecordRootRefV1（field-member.v1 tag 10），其 schema 区分视觉实体、上架与出价记录，其 owner key 等于该原 String 语义键的摘要，子 StateRoot 使用 Business namespace。出价记录使用新的 `bids-record.v2` schema；旧的 `bids-record.v1` 不得被新 reader 当成具有 membership closure 的记录。这里不定义旧原型 tag 10–12 的兼容导入。生产者逐字段借用源值，不 clone World、不序列化完整聚合值，也不授予显示、上架、出价、购买或安装权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+子根通过封闭的 SemanticKeyV1 文本/配对键保存彼此独立的字段值；每个叶子仍使用已定义的 Unit、U64、I64、Bool、Text、Bytes、FixedU64x7 或 RecordRoot codec。视觉实体保存 entity_id、module_id、kind、label presence、Some(label) 原文本以及 anchor 类型和对应原值；None 与 Some("") 不合并，Agent、Location、Absolute 的互斥字段组由 anchor 标签决定，坐标保留三个 i64。上架记录把 order_id、seller_agent_id、price_kind、price_amount、listed_at 分开保存。出价记录保存 Vec 长度、单调分配的内部 bid ID 上界，以及一个按 Vec 序位排列的持久 order-statistic AVL tree；每个 bid ID 对应一个固定 56-byte `index_node` Entry 叶，使用 FixedU64x7 codec 依次编码左右 child ID、左右子树 size/height 与 parent ID，缺子树使用固定 sentinel。子树 size 支持按 ordinal 的 O(log S) 选择，parent link 让回溯、稳定 bid ID→当前 ordinal 与旋转验证都沿已认证父子关系完成；不再将节点拆成六个独立 U64 Merkle 叶。每个 bid 的 Unit marker 与 order_id、bidder_agent_id、price_kind、price_amount、bid_at 五个独立叶子仍按稳定内部 ID 定位。原 bid 字段和 Vec 次序仍保留，重复 order_id 不合并；内部 ID 仅是存储定位符，不能替代业务 order_id。
+
+按 `(order_id, bidder_agent_id)` 查询和删除全部匹配项使用第二个认证 membership index，而不是扫描所有 bid payload。每个不同 pair 有一个独立的 Business 子 StateRoot，里面保存原 order_id、原 bidder_agent_id、成员数、membership AVL root，以及按稳定 bid ID 排序的固定 56-byte index_node。出价子根以固定 `bid_group/<lower-hex>` 文本键保存该组的 RecordRootRefV1；group digest 为 `blake3("oasis7.iws.market.bid-membership.v1\0" || order_id:u64be || bidder_agent_id:utf8)`，group RootRef 的 schema 固定为 `bid-membership-group.v1` 且 owner key 必须等于 digest。末尾 UTF-8 字节串是单一终端分量，原 pair 仍逐字节保存在组子根并由 verifier 重算 digest；相同 digest 的组引用只能有一个。
+
+每个 bid 恰好要能从其原 pair 找到一个 membership group，且该组 AVL 中含此稳定 ID；反向扫描组 AVL 时也须查验对应 bid 存在且其原 pair digest 等于组 digest。这样拒绝遗漏、重复归组、错误归组与 orphan 节点，不按 bid 数量分配集合。组 AVL 按稳定 ID 排序；ID 单调且不复用，故组内重复项可逐个枚举，primary 序列树再用 parent link 计算每个 ID 的当前 Vec ordinal。取消只访问目标 pair 的组及其匹配成员，并在一笔事务中删除匹配 bid 与两棵树中的节点；不重写其他 bidder 文本。普通 order/bidder 改值必须在同一事务中从旧组移除、加入新组并更新 bid 原字段。组为空时才删除该组 RootRef，空的 bids Map 仍保留 field Metadata。旧 bids schema 不包含该索引，不能靠加载旧根后局部补标记升级。
+
+完整 owner closure 必须核对外层 field Metadata、原 outer key、RecordRootRef schema/owner/namespace、每个类型必需字段及其 codec、anchor/Option/Vec 长度与成员关系，并拒绝缺字段、未知字段、错误类型、洞号及多余叶子。出价闭包对 bids child root 和每个 membership group child root 做有界有序扫描，逐项检查固定节点/成员 codec，并只保留固定大小的计数和摘要。对每个 primary 或 membership AVL node，它通过同一个 guarded state reader 点查其 parent/children 与所需 bid/group 字段；parent/child 双向链接、单一 sentinel root、root summary 和精确叶/节点计数，再加 parent→child 高度严格递减，证明每个节点只可达自唯一 root 且不存在环、共享子树或孤儿，不需要按 bid 数量分配数组。bid 与 group 双向引用检查必须共享同一连续 scan/value/key 预算，不得为每个 group 重置；点查不额外消耗 outer leaf allowance。该闭包验证的临时工作区为常量，但有界树点查数随 bid 数和树高增长；调用者必须为整个验证维持一个有限且连续的总预算。恢复可使用同池 Recovery class，普通创世/提交写入仍使用 Ordinary。成员点读只读取认证的外层根引用、目标 primary AVL 路径与目标 bid 子字段；pair 查询只读取该 group root、该 group membership path 和匹配 bid，不读取无关 bid 的长 payload 或全部 World。普通 price_amount 更新只改变该子叶；普通 order/bidder 改值还必须原子维护 membership group。按 Vec 序位排列的 order-statistic tree 使单次按 ordinal 的 insert/delete 只访问树高有界的路径；pair group index 按目标 pair 过滤操作，不扫描无关 bids。删除整个外层 Map 成员时才移除外层 Entry；record-root 与所有子树的完整引用/资格仍由 owner verifier 和后续 transfer/GC 接线负责。
+
+创世按原 BTreeMap 顺序建子树，再写原 field Metadata 与每个原 outer key 的根引用；原 bid Vec 使用 ordinal→稳定内部 ID 引用，业务 bid 字段按稳定 ID 单独编码，并对每个不同 pair 建一个 membership group。记录数、出价条目数、key/work、I/O、共享 Ordinary 内存池和取消预算由同一调用者持续提供；primary/group 子树批次及 outer member 必须共同保持暂态，任一步失败或取消均不得返回完整创世前缀或可发布根。普通变更先从当前认证根引用读取并验证请求字段的 exact before 值，在同一执行事务中绑定 outer key/rootref 依赖，只构造受影响的 bid 和 membership 路径；错误、冲突、预算耗尽或取消使整笔事务不可 seal。该 profile 仅保存和核验三类记录的原字段，不验证市场、WASM、安装、出价或购买业务规则，不代表完整 World qualification、普通提交全接线、恢复续跑、GC 闭包或新格式启用。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-0ca67e20-ffdf-4741-aa8f-b7d827a8f11c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+既有 tag 1–10 字节身份保持不变。
+
+Owner bootstrap/recovery 聚合从完整 RootSet 六根绑定 typed owner 诊断，保留各已资格 family carrier；未支持 WorldState、Runtime/Cognition owner 继续明确拒绝，报告不是完整 World、accepted 或 GC 资格。嵌套 child 扫描与相关点读通过 StateScanReader 共享同一 node/byte/leaf、pool/class 和 sticky cancellation 预算，不能按 child 重置额度。此完整覆盖不用于普通小增量更新。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
+
+Profile-3 endpoint 必须显式安装同一实际 PageStore/pool 的 capability，在有限 originals/core/state/value 配额和组合取消下运行原件与 bootstrap owner coverage。Normal candidate 继续通过现行 Formal verifier 核对真实 Frozen certificate；certificate/material 存在必须配对，Recovery 分支仍明确不支持。该入口在 owner registry 不完整时无条件阻止进入旧 profile receipt/persistence writer；普通转移只核 changed values 后明确拒绝尚未实现的 owner delta verifier，不全扫状态替代普通增量证明。取消在实际写 receipt 前仍须检查，已开始跨端点写入后的取消沿原 OutcomeUnknown/query-only 规则处理。本组件不授完整 World、普通续跑、原件物理可用性、独立故障域或 GC 资格。
+
+Endpoint 的 `max_pending_node_bytes` 是整次 Merkle 重放的有限暂存总额度，不能用单页 `STATE_MAX_PAGE_BYTES` 作为其最大值；单页 codec/reader/sink 继续执行原单页上限。暂存总额度必须非零，实际每次分配仍先从同一个有限 MemoryBudget/pool 的 Ordinary 配额取得准入，不因显式放宽 caller pending 总额度而免除内存、页数、I/O 或取消验证。
+
+本批 owner registry 对原 ModuleStates/Instances 的兼容解析与 descriptor 计数，不是后续专业 typed ModuleState/Instance 家族的完整资格；新格式不兼容时必须 fail closed，不能把诊断计数提升为完整 World 激活、正常续跑或兼容导入。
