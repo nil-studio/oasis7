@@ -71,6 +71,8 @@
 
 非代码设计与交付物的目录职责、内容模板及实际资产定位，同时按[非代码组织验收](doc-structure-standard.prd.md#non-code-organization-acceptance)核对；既有入口、存储规则与技术追踪合同继续有效，不以模板采纳代签业务设计或素材完成。
 
+规模化生产与组合验收按实际声明核对：相关内容类型的生产合同、候选实际消费版本、验证分配及[代表性生产证据](product-documentation-standard.design.md#content-scale-evidence)均可定位。规范采纳不要求本次完成各领域制作或量产，但后续能力声明必须保留其实际证据与剩余范围。
+
 验收证据由当前 PR、实际命令结果和适用专业评审共同提供，Issue 按跟踪需要使用；本 PRD 不复制可变执行日志。
 
 ## 6. Non-Goals

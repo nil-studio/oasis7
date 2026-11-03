@@ -318,6 +318,17 @@ Trace ID: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748
 
 “领域已登记”只表示没有在目录层遗漏；“本范围设计完成”要求所有适用设计义务有实质内容和验收办法；“内容可用”要求相应实际交付物可定位并符合规格；“体验已验证”要求实际证据。可以交付明确范围的设计或工程前置，但须保留后续内容与体验义务，不能在验收失败后缩小名称以改写原目标。
 
+组合验收和发行须按[实际候选的内容组合](doc-structure-standard.design.md#content-candidate-composition)关联被消费的技术、配置、内容与环境。各专业分别通过的结果不能自动证明这一组合通过；已有实际候选记录直接引用，尚未集成的内容如实保留。
+
+<a id="content-scale-evidence"></a>
+#### 13.3.1 规模化内容生产的证据
+
+声称具备批量或扩大范围的内容生产能力时，必须在原制作/验收记录中说明选定内容类型、目标数量/变体/品质与入口，样本为何能代表其复杂度和依赖，以及未覆盖范围。区分初次工具/流程建设与后续重复制作的成本，记录适用的制作、等待依赖、集成、验证和返工依据；实测结果、预算和外推估算分别表达，并给出扩大生产的剩余风险与范围取舍。
+
+单个精修切片或一次生成成功只能支持其实际范围。样本数量与验证强度按内容差异和生产风险决定，不固定要求每类做两件、每次变更重复切片或所有模块进入同一阶段。已有试产/生产记录足以覆盖本次范围时直接复用；没有代表性重复制作或相应风险依据时，保留能力未验证，不把估算改写为就绪。
+
+首次采用或实质改变生产流程时，应以实际需要的代表性内容批次检验“制作→转换/导入→集成→目标环境验证”，并核对一次适用的上游规格/依赖变化如何传播到产物和证据；已有变更与运行记录可以承接。记录维护成本、重复信息及未覆盖环节，用于修订原流程。该验证针对受影响生产能力，不是普通 PR 的额外放行材料；静态入口示例和文档模板检查不代签真实生产验收。
+
 <a id="game-design-maintenance-review"></a>
 ### 13.4 增量维护与评审执行
 
@@ -338,12 +349,18 @@ Trace ID: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748
 | --- | --- | --- |
 | [Hunicke / LeBlanc / Zubek：MDA](https://www.cs.northwestern.edu/~hunicke/MDA.pdf) | 从机制、运行行为与玩家体验之间的关系检查设计 | 不以功能目录或机械检查证明好玩 |
 | [Unity：The real-time production cycle](https://learn.unity.com/tutorial/the-real-time-production-cycle) | 覆盖设计、实际资产生产、验证与持续运营 | 测试持续开展，不要求顺序完成所有阶段后才能反馈 |
-| [Rami Ismail：Prototypes & Vertical Slice](https://ltpf.ramiismail.com/prototypes-and-vertical-slice/) | 原型验证设计疑问；切片验证代表性生产过程 | 不要求每个功能另做一次切片 |
+| [Rami Ismail：Prototypes & Vertical Slice](https://ltpf.ramiismail.com/prototypes-and-vertical-slice/) | 原型验证设计疑问；切片与后续同类制作区分流程建设、重复产能和估算依据 | 样本按实际风险选择，不要求每个功能另做切片或每类固定制作两件 |
 | [Epic：Asset Metadata](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-metadata-in-unreal-engine) | 用用途、作者/来源及制作状态使实际资产可查 | 借鉴资产元数据方式，不要求采用 Unreal；许可/署名是本项目补充义务 |
 | [Microsoft：Xbox Accessibility Guidelines](https://learn.microsoft.com/en-us/xbox/accessibility/guidelines) | 先判断适用性，再核对输入、显示、反馈与支持 | 不是法律认证，也不把 Xbox 专有项强加给所有入口 |
 | [Valve：Localization and Languages](https://partner.steamgames.com/doc/store/localization) | 分别声明界面、字幕、音频和发行材料的语言范围 | 不要求所有语言或一套入口代签全部本地化 |
 | [Valve：Graphical Assets](https://partner.steamgames.com/doc/store/assets) | 将渠道展示素材作为实际交付物 | 只对选定渠道适用；尺寸等易变细则引用渠道权威 |
 | [Valve：Release Process](https://partner.steamgames.com/doc/store/releasing) | 核对展示承诺与实际交付、区分商店资料和游戏内容 | 不把 Steam 流程引入普通 PR 或替代现有发行 authority |
+| [Guerrilla：Building Non-linear Narratives in Horizon Zero Dawn](https://www.guerrilla-games.com/media/News/Files/GDC2017_Szczepanski_BuildingNonLinearNarrativesInHorizonZeroDawn.pdf) | 共享内容模型、可复用制作单元、跨专业词汇及表达限制 | 借鉴内容生产合同，不要求采用 RPG 任务图 |
+| [Riot：The Legends Of Runeterra CI/CD Pipeline](https://www.riotgames.com/en/news/legends-runeterra-cicd-pipeline) | 组合候选、实际测试环境与按资产变化选择构建 | 复用本项目来源/发行机制，不照搬分支层级、任务工具或 CI 规模 |
+| [Epic：One File Per Actor](https://dev.epicgames.com/documentation/en-us/unreal-engine/one-file-per-actor-in-unreal-engine) | 共享内容的编辑边界、关联文件提交与悬空引用检查 | 不要求 Unreal、Perforce 或对所有素材加锁 |
+| [Epic：Data Validation](https://dev.epicgames.com/documentation/en-us/unreal-engine/data-validation-in-unreal-engine) | 资产/依赖/预算规则的验证分配与制作环节反馈 | 工具机制不证明语义、审美或许可，也不改变本项目当前 CI 能力 |
+| [Riot：TFT Bugs And Patches](https://www.riotgames.com/en/news/bug-blog-tft-bugs-and-patches) | 区分内容更新影响，核对同一文件变更的组合与覆盖风险 | 采用变更分析经验，不新增项目未承诺的热更新或移动平台范围 |
+| [Bungie：Triumphs Fix and Rollback](https://www.bungie.net/7/en/News/article/twab_01_26_2023) | 内容调整须考虑持久状态迁移、程序回退与玩家状态恢复的差别 | 具体恢复方式、损失与补偿仍由本项目原产品/专业合同决定 |
 
 ## 参考范围
 

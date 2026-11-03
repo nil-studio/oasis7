@@ -347,3 +347,6 @@ pub mod incremental_world_rule_supply_root;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_diplomacy;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_module_authorization;

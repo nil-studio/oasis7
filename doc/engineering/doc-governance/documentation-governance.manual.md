@@ -55,8 +55,12 @@ GitHub PR baseline CI 检查实际测试的合并快照时，先校验 checkout 
 1. 按[非代码组织规则](doc-structure-standard.design.md#non-code-design-deliverables)区分产品体验、专业技术、内容/表现设计、实际素材与制作/验证方法。确认原主责和消费者，优先补已有章节，独立长期专题才另建文档并接入原模块导航。
 2. 内容设计使用[专业内容模板](product-documentation-standard.templates.md#content-presentation-design-template)，保留五核心内容组及真实上游、设计条款和验证关系。接口、状态、加载、权限、性能等实际技术义务准确交给对应技术设计；无技术义务不虚写技术章节，有技术义务不能用内容分类省略。
 3. 在原内容/制作入口按[交付索引模板](product-documentation-standard.templates.md#non-code-deliverable-template)补用途、源文件/导出与版本、规格、依赖、来源/权利及证据。遵守原存储和提交规则，核实引用版本可取得，保留占位、缺失和未核实范围。
-4. 对受影响范围核对设计、实际内容、制作能力/成本假设和目标入口证据；手工验收引用具体手册与判据。参考[两个现有入口示例](product-documentation-standard.templates.md#non-code-organization-examples)区分静态设计稿、生成工具、实际成品和运行结果。
-5. 更新直接受影响的消费者、导航和适用 corpus 对象，沿 §4 运行既有检查；当前 CI 不检查全部原生素材、许可真实性或审美品质，评审按真实影响补核。普通修改不要求全领域迁移、全仓素材入库或新增状态台账。
+4. 批量制作、跨团队交接或共用工具时，在原专业设计/制作手册补齐[内容类型的生产流程](doc-structure-standard.design.md#content-production-pipeline)，核对可编辑真值、转换/导入、关联文件、交接和变更传播；制作方交付与消费方集成分别留有依据。首次采用或实质改变流程时，按[代表性生产验证](product-documentation-standard.design.md#content-scale-evidence)核对真实制作批次与适用的依赖变更，不以静态示例或模板检查代签生产。
+5. 组合验收或发行时，从原构建/资源/发布记录核对[该候选实际消费的内容](doc-structure-standard.design.md#content-candidate-composition)。外部素材和生成产物需有关联依据；同一源码或同一 seed 不自动证明实际内容一致。涉及旧消费者、进行中行动或持久状态时，继续沿原兼容与恢复合同处理。
+6. 按[验证分配](doc-structure-standard.design.md#content-validation-allocation)核对方法、判据、触发、覆盖和失败处理；手工验收引用具体手册，自动化尚未实施则保留替代方法和缺口。声称扩大生产时，另核初建与重复制作、集成/验证/返工及等待依据，区分实测、预算与估算。参考[现有入口示例](product-documentation-standard.templates.md#non-code-organization-examples)区分静态稿、生成工具、实际成品和运行结果。
+7. 更新直接受影响的消费者、导航和适用 corpus 对象，沿 §4 运行既有检查；当前 CI 不检查全部原生素材、许可真实性或审美品质，评审按真实影响补核。普通修改不要求全领域迁移、全仓素材入库或新增状态台账。
+
+最小核对路径是“适用要求 → 原生产/交付入口 → 实际候选 → 方法与结果”。具体误用包括：把资产目录当成实际加载证明、把检查器计划当成已通过结果、把一次精修样例当成稳定产能；分别回到候选关联、实际验证记录和代表性生产依据修正。此路径可在现有评审中完成，不要求每个 PR 另交一份报告。
 
 <a id="11-过程信息归位"></a>
 ### 1.3 过程信息归位

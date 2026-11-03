@@ -75,6 +75,65 @@ Trace refs: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df；承接[未登记路径
 
 所有重任务沿既有 `select` 成功条件启动；轻量 formal 汇总和最终 `required-gate` 保留 `always`。最终 gate 在下载规划产物前先确认 `select` 成功，失败时立即给出范围规划诊断，因此不依赖失败路径上未上传的 artifact。trusted baseline 来源保持不变；新独立目录先通过规则/验证入口登记 PR，再提交使用该目录的功能 PR。新增测试使用真实 Git diff/CLI 验证未知新增、删除、重命名两端、混合全量输入、无成功输出及失败汇总；已登记路径、共享输入和图解析全量回退保留正例。
 
+<a id="ci-generated-contract-jobs-design"></a>
+## 可生成工作流的首个试点
+
+Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；承接[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs)。设计已定义，生成器及接线尚未实现。产品适用性：N/A；reason=只集中现有 CI job 的结构定义；scope=下列两个 job 的源码生成、漂移检查及行为等价。
+
+### 试点选择与事实归属
+
+当前 [Rust workflow](../../../.github/workflows/rust.yml) 的 `operational-contracts`、`packaging-contracts` 是相邻的两个原生 job，checkout、Python 3.12 准备、文档范围环境和 driver 调用相同，仅 job ID、选择输出及执行组不同。它们均依赖 `select`，没有独立 matrix、缓存写入或平台准备步骤，适合作为最小试点。`workflow-governance` 的可信合同步骤、`compile-metrics` 的 Rust 准备、其余平台及产物 job 继续手工维护。
+
+| 事实 | 唯一维护处 | 生成器的使用方式 |
+| --- | --- | --- |
+| 两个 job 的公共结构、固定 action revision、Python 版本及 job 顺序 | 拟新增 `scripts/ci-contract-jobs.py` | Python 3.12 标准库的不可变 job 描述和公共渲染函数；首轮只登记 `operational_contracts`、`packaging_contracts` |
+| 组集合、输入影响、风险与 profile 选择 | 现有 `scripts/ci-required-scope.json` 和 `plan-rust-required-scope.py` | 只核对两个组已存在；job ID 由组名的下划线转连字符、选择输出由 `run_<group>` 推导，不复制选择策略 |
+| 测试命令及其行为 | 现有 `scripts/ci-tests.sh` 与所属合同 | 保留 `required --group <group> --repo-root "$GITHUB_WORKSPACE"` 调用，不把测试清单搬入生成器 |
+| GitHub 实际执行内容 | 提交的 `.github/workflows/rust.yml` | GitHub 直接执行 YAML；生成器只在开发与一致性验证时运行，不在 workflow 启动时动态改写 DAG |
+| 可信选择、必要结果与发布资格 | 事件 BASE 的 planner、结果汇总及完整结果合同 | 沿用既有来源和定义摘要，不以“生成一致”签认选测或发布 |
+
+选择 Python 是因为现有 planner、合同运行器及 CI 维护环境已使用它；首轮无需增加 Rust 构建前置或 YAML 序列化依赖。公共函数输出有限的固定 YAML 模板，只替换已验证的两个组标识，保留 GitHub `${{ ... }}` 表达式和 shell 原文。该结构不是通用工作流 DSL，不接受任意 step、权限或命令插件。
+
+### 受管区、接口与失败处理
+
+首次实施在两项现有 job 外加入唯一的 `  # BEGIN GENERATED contract-jobs-v1` / `  # END GENERATED contract-jobs-v1` 标记，并注明编辑入口。标记区位于 `jobs:` 内，正好包含两个完整 job；标记外的触发、并发、权限、select、其他 jobs 及最终 gates 仍为手写权威。首轮输出应与原两项 job 的正文逐字一致，允许的额外差异只有来源注释和边界标记。
+
+拟新增接口如下，当前不能当作已可用命令：
+
+```bash
+python3 scripts/ci-contract-jobs.py --check
+python3 scripts/ci-contract-jobs.py --write
+```
+
+两个模式必须显式二选一。入口从脚本位置定位仓库，仅接受固定的 `scripts/ci-required-scope.json` 输入和 `.github/workflows/rust.yml` 输出；不提供任意输出路径、网络输入或按环境扩展 job 的选项。结构描述、组集合、标记区及输出路径全部通过验证后才渲染。
+
+- **确定性：** 输入只取当前工作树中的版本化定义和指定清单；固定 job/step/字段顺序、UTF-8、LF 和结尾换行，不嵌入时间、绝对路径、随机值或机器环境。受管区外字节原样保留，不对整份 YAML 重新序列化。
+- **只读检查：** `--check` 在内存生成并比较，返回 `0` 表示一致、`1` 表示漂移、`2` 表示输入/结构/IO 错误。漂移输出限定受管区的 diff 和编辑入口；缺失、重复、逆序或嵌套标记、重复/缺失 job、未知组均返回 `2`。检查不创建临时文件、不触发 Git/GitHub 写入，也不自动运行 `--write`。
+- **路径与写入：** 输出及父路径须在真实仓库内且不是 symlink，文件是已有普通文件。`--write` 先完成所有校验，在相同目录写完整临时文件并保留原 mode；替换前重读原文件，若与初读字节不同则报告并发修改并退出，否则原子替换。失败清理自己的临时文件，原文件保持；生成操作由当前工作区的单一写入者执行，不能与其他编辑者并行覆盖。
+- **结构错误：** 不猜测缺失标记的位置，不把标记外的同名 job 当作可覆盖目标。修复源码或明确的边界标记后再执行；工具不得为了继续生成删除未知内容。
+
+当前 `validate_candidate_graph` 尚未逐项验证这两个 job 的选择输出和 driver group 映射；不能把现有测试描述为已经覆盖。实施前须先由可信 BASE 合同独立登记并验证这两项映射，再让候选生成器和 workflow 接入；若可信 BASE 尚未包含该合同，沿用可信侧的保守检查及独立前置交付，候选不能声称已完成该语义验收或为自身放宽 bootstrap。
+
+新增输入仍按现有 CI 控制归属执行，拟建 `scripts/ci-contract-jobs.test.py` 在已有 `workflow_governance` 入口运行，并由实施 PR 补齐其真实合同登记。`--check` 也放在该现有组，不增加 GitHub required-check 名称。首次迁移接受当时可信 BASE 的必要范围；新测试在合入并进入可信规则后才能按既有能力被消费，候选不能自行选择更窄的检查集。generator/check 失败向现有组返回非零，最终 gate 按原规则汇总。
+
+### 行为等价与验证
+
+| 必须保持的行为 | 首轮验证 |
+| --- | --- |
+| 两个 job ID、`needs: select`、成功 select 加原输出/full 条件、Ubuntu runner | 比较迁移前后 job 正文；沿用 `ci-workflow.test.py` 的 job/组对应和普通组非 matrix 断言 |
+| 固定 tested SHA、`fetch-depth: 0`、`persist-credentials: false`、Python 3.12、文档 base/head 环境及真实 driver 命令 | 逐字段/表达式核对；执行所属已有合同，不只检查模板变量存在 |
+| 顶层 triggers、concurrency、permissions、其他 job、required/explicit-full gate 的 needs 与结果解释 | 受管区外字节比较，并保留现有 DAG、取消、缺失、意外 skipped、空执行及完整库存反例 |
+| policy/source/tested 分离、可信 BASE 与候选 checkout 的职责 | 复用现有真实 Git fixture、BASE 合同和结果摘要验证；生成器无权改写计划或伪造结果 |
+| 生成一致与语义正确分离 | 实施时先扩展可信 BASE 侧语义合同，分别约束两个 job 的选择输出与 driver group 的精确对应；注入模板和产物同步改错选择输出、driver group 的负例，以及去掉 select 成功条件或改变失败传播的负例。`--check` 可一致，但可信合同必须拒绝；候选不得自行豁免或缩小 bootstrap 检查 |
+
+生成器自身还需覆盖两次生成字节一致、单独改 YAML 后检查只读失败、模板修改而未更新输出、标记损坏、重复 job、未知组、symlink/越界路径、只读文件及写入前并发变化；每个失败检查文件字节未变。测试 fixture 只证明本地生成与行为断言，迁移候选仍需实际 GitHub 必要检查，不能据此宣称 hosted 耗时或覆盖已达标。
+
+### 交付、收益与回退
+
+首个实施 PR 只包含两 job 的公共定义、受管区、生成检查及必要合同登记/回归；planner、业务测试、缓存策略和观测管线保持原职责。评审比较一次公共 checkout/Python/环境变更所需的权威编辑位置、自动产生的 YAML diff、诊断是否指向正确来源，以及工作流语义是否等价。减少手工重复是首轮目标，不能用删除合同测试或放宽检查换取文件变少。
+
+如试点增加维护成本，按一个完整回退提交保留当前正确的两项展开 YAML，删除其生成标记、生成器接线及仅属于该生成器的测试；确认原 job、真实合同、required 名称、DAG 和权限仍在，重新执行适用验证。不能先移除生成器留下必然失败的检查，也不能回退已有选测修复。扩展到其他 job 前分别证明其结构相同且收益明确，不因首轮成功自动生成全仓 CI。
+
 ## 调度和结果
 
 select 先产生明确的非空逻辑组列表，按资源组并行执行。普通组使用原生 job，fleet-health 使用固定 Linux/Windows/macOS 矩阵。最终唯一 `required-gate` 使用可靠的 always 汇总，并显式依赖 select 和所有组。选中组必须 success；未选中组可以 skipped 或 success；失败、取消、缺失、未知及意外 skipped 都必须阻断。fleet 矩阵不吞退出码，采用 fail-fast=false。
@@ -372,6 +431,7 @@ quick/affected 的输入是 base→HEAD 的已提交差异、暂存差异、未�
 
 | 上游要求 | 分配内容 | 本设计 | 负责范围 | 限制 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs) | 两个重复 job 的单一结构定义、确定性产物、只读校验及等价迁移 | [首轮生成试点](#ci-generated-contract-jobs-design) | CI 维护者；沿用 planner、driver、可信 BASE 和独立评审 | 产品适用性：N/A；reason=工程工作流定义治理；scope=两个合同 job；生成器尚未实现，不承接十分钟/P95、缓存或遥测验收 |
 | Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | 十分钟目标、快速准入/迁出、风险加测、四小时完整覆盖及同源发布 | [分层实施](#ci-fast-pr-periodic-full-design) | CI 维护者、QA 与发布消费者 | 产品适用性：N/A；reason=开发反馈与验证时点治理；scope=检查选择、构建、调度、汇总、发布消费及实施验收。候选已接线，旧 BASE 保守回退；hosted 覆盖、时延及容量待验证 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | 离线协议、full/wasmtime、降级目标及失败范围 | [覆盖专题](#ci-coverage-design) | CI 维护者与 QA | 不将未接线 snapshot 或文档合并计为覆盖 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | 三 profile、完整本地输入、只读接线和诚实结果 | [薄入口合同](#local-check-entry-design) | 本地工具维护者复用 planner/driver；QA 验证负例 | 产品适用性：N/A；reason=开发反馈工具；scope=本地选择与执行。当前只校准文档，薄入口未实现；不拥有 hosted 时延或发布准入 |
@@ -384,6 +444,7 @@ quick/affected 的输入是 base→HEAD 的已提交差异、暂存差异、未�
 | [缓存复用](ci-tiered-execution.prd.md#ci-install-cache-evidence) | 对齐归档身份、可信 main writer 与只读消费者，验证真实 scope | [缓存边界](#ci-install-cache-design) | GitHub cache 与 main full-regression | 静态 key 相同不证明跨 tag 恢复 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | 先量测；需要治理时约束总预算、有限重试及受控子进程清理 | [apt 评估](#ci-install-apt-design) | 临时 CI runner 的依赖准备 | 本次不实现未经数据确认的 apt 策略 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [量测与判定](ci-tiered-execution.prd.md#ci-install-measurement) | 分阶段、分冷暖记录可比较的准备成本与失败样本 | [耗时证据](#ci-install-measurement-design) | 实际 Actions 运行与维护者分析 | 不由 Cargo 指标或本地 fixture 推断发布提速 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
+| Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；[工程遥测](ci-tiered-execution.prd.md#engineering-telemetry) | 以准确身份关联已有数据，区分执行结论、采集覆盖和诊断 | [共享模型与诊断](#engineering-telemetry-design) | CI 维护者、QA；dot/指挥中心只读消费 | 产品适用性：N/A；reason=开发验证数据治理；scope=CI 与本地构建，不承接产品节点监控或合入审批。 |
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | full 包含适用 required；真实消费者、wrapper 结果和扫描证据可核对 | [执行清单与结果](#ci-real-coverage-design) | CI driver、构建 wrapper、QA；CodeQL 保持独立主责 | 不把 fake 工具、旧运行或文档当成实际执行 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | 完整 TOML 集合、真实日期、范围棘轮和逐项有界续验 | [例外检查](#ci-advisory-baseline-design) | repository_health_engineer 与安全/兼容审读 | 不修改当前有效期、批准列表或依赖范围 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | 普通/重型分离、一次构建、五分片及失败汇总 | [进程调度](#ci-formal-process-design) | CI 构建与原生进程运行器 | 产品 N/A；理由：CI 专业调度优化；范围：普通检查与真实进程验收，不改变玩家行为。 |
@@ -602,6 +663,71 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 样本不足时报告单次观测和环境差异；至少三次可比观察后可以报告样本数、中位数及范围，仍不外推稳定性能承诺。本节工具准备量测不另设性能门禁或预写提速比例；PR 反馈目标遵循[快速反馈设计](#ci-fast-pr-periodic-full-design)。实现接线正确、本地合同通过、hosted 构建成功与真实缓存收益是分别验证的结论。
 
+<a id="engineering-telemetry-design"></a>
+### 7.1 共享事件与诊断报告
+
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；承接[工程遥测要求](ci-tiered-execution.prd.md#engineering-telemetry)。owner 为 `repository_health_engineer`，计算与证据边界由 `qa_engineer` 独立审读。此节定义待实施的只读归一化与报告器，不改变 required、缓存保存或发布资格的判定。
+
+#### 当前输入与首版接缝
+
+固定审读基线为 `d4cdabe4c9011ebc66b6376b1dce96f0d8b2cc39`。已有来源各自拥有原始事实，共享层保留原格式，只做版本化适配：
+
+| 来源 | 已有事实 | 适配时的限制 |
+| --- | --- | --- |
+| Actions run、attempt jobs、steps 与准确 workflow 版本 | GitHub ID、状态、结论、服务端时间戳及 job 依赖定义 | 完整分页并区分 attempts；API 未返回的就绪时间不能推为真实 runner 排队 |
+| [受控进程 JSONL](../../../scripts/ci_process_runner.py) | suite/test、started_at、单调 elapsed_seconds、exit_code、timeout/cancelled、count_ok、cleanup_result、passed | 当前记录无 run/job/source 身份；从同一已核验 artifact 的外层绑定，不从测试名猜关联 |
+| [构建与产物记录](../../../scripts/ci-test-artifacts.py) | manifest 的 source_sha/tested_sha、producer_run_id/attempt、配置摘要、构建变体、Fresh/rebuilt；打包及恢复报告 | producer 身份不等于当前 consumer；features/profile 从对应 binary、计划与配置读取，缺项保留未知 |
+| [本地 compile metrics](../../../scripts/ci-compile-metrics.sh) | current/baseline.metrics.json、comparison.json、固定 commit、命令与日志 | 使用[既有量测设计](../performance/compile-metrics-v2-warm-check.design.md)的隔离 target/环境；不能代表开发 wrapper、远端缓存或全部构建入口 |
+
+首条 CI 链选择 PR 中实际命中的 `select → formal-test-build → formal-process-tests → formal-process → required-gate`；展开真实矩阵分片，保留互斥 `formal-test-build-trusted` 的 skipped 事实，并读取 gate 的其他必要上游。main writer 分支还依赖 `cache-bootstrap-maintenance`，不能套用 PR 子图。只采到子链时标 `coverage=partial`，不发布整条 required 的完整关键路径。首个本地入口读取一次 `ci-compile-metrics.sh` 的 `--check-only --measure-warm-check` 输出（实际 package/out-dir 以原命令为准）；适配器不自动执行新的构建。
+
+#### 版本化数据合同
+
+目标接口为一个 Python 标准库报告器的 `collect` 与 `report` 子命令：前者按显式仓库/run/attempt 或本地目录取得输入，后者离线消费该固定快照，输出 `report.json` 与简短 Markdown。实现时参数、schema 和适配器一起交付；本节的子命令尚不可运行。归一化 schema v1 包含以下字段，原始文件只通过证据引用关联：
+
+| 字段组 | 含义及真实来源 |
+| --- | --- |
+| `origin / collection_id / collected_at / schema_version` | origin 为 github 或 local；一次采集的 UUID、UTC 查询时间及明确 schema |
+| `repository / run_id / run_attempt / job_id / step_number` | GitHub API 原值；`GITHUB_JOB` 是符号键，不能代替数值 job ID。矩阵实例需从可信执行上下文或完整 API 记录精确对应 |
+| `source_sha / tested_sha / policy_sha / config_digest` | 从事件、可信计划与实际产物逐项核对；分别表示候选、实际 checkout、规则版本及实际配置。原来源缺 policy 时标 unknown，不能用 source 代填 |
+| `local_invocation_id / dirty_inputs_digest` | 本地调用 UUID、固定源码及测量时实际未提交/未跟踪输入的摘要；未取得完整输入清单时标身份不完整，事后工作区不能补签。GitHub 专属字段为不适用，本地结果不生成 GitHub check |
+| `scope / target / profile / features / toolchain / runner` | 实际执行命令、计划与 manifest；目标/默认 feature 模式明确，缺字段不根据 job 名反推 |
+| `kind / phase / parent_id / depends_on` | run/job/step/phase/test 层级；依赖来自该次运行的 workflow 与计划，parent 只表示包含关系。阶段为实际已有 build/restore/verify/test/pack/save 等 |
+| `started_at / completed_at / elapsed_seconds / clock` | API 墙钟或本进程单调计时，保留精度和来源；不能将不同进程单调时间相减。仅有开始加耗时得到的结束估计不作跨 job 的精确边界 |
+| `execution_result / collection_status / missing_reasons` | 原始结果和采集状态独立；缺失与 unknown 不等于 0，skipped 不等于 pass。退出码、清理失败与首次失败原样保留 |
+| `evidence / source_schema / coverage` | run/job/artifact 链接或本地相对路径、内容摘要、适配版本、完整/部分及缺失范围；每个派生指标可回查其输入与公式版本 |
+
+同一来源身份重复且内容相同可以去重，身份相同但值不同须报告冲突；不择取有利值。不同 attempt 独立存储，跨 attempt 复用产物按现有 producer/consumer 规则关联，不能把旧成功拼成新 attempt 的成功。报告只说明原系统的执行结论，不能签发验证资格。
+
+#### 时间、成本与样本计算
+
+1. workflow 反馈墙钟为创建至该次最终 gate 终态；job 墙钟为 completed_at 减 started_at。只对已终止且时间完整的记录计算；运行中给截至查询时刻的等待下界，缺终态给 unknown。
+2. 首次启动延迟是第一个 job 开始减 run 创建。依赖等待依据准确 needs/条件及依赖完成时刻；job 具备执行条件到实际开始之间仅能确认为“未归因等待”，除非有独立 runner 就绪/分配事实。审批、并发限制和服务调度不能默认归到 runner 排队。
+3. 完整 DAG 可计算执行时长的最长依赖链，并另列该链的观测等待；不把纯执行链称为完整墙钟。识别观测墙钟链时，给每个 job 增加从实际依赖就绪到启动的等待边，保留其未知成因。缺依赖、条件求值、时刻或必要上游时只报告已知子图，不输出完整关键路径结论。
+4. runner-minutes 汇总实际 job 执行区间，单独计资源；并行 job 相加不等于用户等待。共享准备只按实际所属节点计算一次。缓存对照使用同配置的总区间，恢复、校验、构建/链接、打包及保存均计成本；重叠阶段取时间区间并集，无法判断重叠时不伪造净收益。
+5. 样本遵循[现行 CI 回顾口径](../../../.agents/dot/tasks/ci-duration-review.md#耗时口径)：固定窗口、同 runner/范围、失败/取消及 carry-in 分开，至少 20 个可比完成样本才报告 P95，少于此数只给样本数、中位数及范围。成功反馈沿用 PRD 的普通成功 cohort；合入阻塞还需 PR 就绪、评审和合入时间线。
+
+可重算的合成例：select 在 0–2 秒，build 在 2–10 秒，两个分片在 10–16 与 12–20 秒，gate 在 20–21 秒。完整反馈为 21 秒；job 执行合计 25 秒；后一个分片有 2 秒未归因等待，执行最长链为 19 秒，含该等待的观测链为 21 秒。删掉该分片终态后，不再输出完整反馈或关键路径，只保留已知记录。此例只验证算法，不是实际性能数据。
+
+#### 采集、保留与故障隔离
+
+首版使用已有只读 API 权限（Actions/仓库内容读取），本地模式不需要 GitHub token。外部服务导出留作可选适配器；新权限、付费服务或产品运行追踪需要各自主责设计。受信任的采集程序不执行候选 artifact 中的脚本，读取归档时拒绝路径越界，并按内容大小限额处理。
+
+每次采集显式记录请求和字节预算。首版建议默认上限为 120 秒、100 次 API 请求、32 MiB 解码 JSON，任一耗尽即保留 partial 与原因，不无限重试；这些是报告器的初始资源限额，不是 CI 门禁或性能 SLO。未知 schema、后页失败、重复页、时间逆序和身份冲突均使相应指标 unavailable，保留可复核的已知输入。
+
+只收集允许字段；不采集 token、环境变量全集、原始命令参数中的密钥、个人绝对路径、世界目录或模型请求。已有产物保留期保持不变；新增 CI 归一化报告建议 7 天并遵守仓库更短上限，本地输出由调用者指定目录与保留策略。正文引用的原 artifact 过期时显式显示证据不可读取，不能凭报告摘要补出完整证明。
+
+采集器错误单独输出非零采集状态。接入现有诊断上传时由该步骤记录失败并保留原测试结果，不改写 gate、吞原测试退出码或让遥测控制测试清理；取消时也不要求重任务为上传继续运行。离线报告不读活动写入中的半份文件；生产者完成后原子发布，缺失/截断文件标 partial。
+
+<a id="engineering-telemetry-validation"></a>
+#### 最小交付与验证
+
+第一片交付版本化适配器、离线报告与合成输入测试，消费现有产物；第二片在上述一条 CI 链及本地入口核对真实报告，再让既有 dot 回顾和指挥中心只读消费。共享生成配置、缓存实现和产品节点监控分别留在原主责，报告器不新增日程或自动优化动作。
+
+具体验收按[报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)执行，包含并行计算、身份与重跑、缺失/取消、采集预算和原结论保留的正反例。每项预期具体到报告字段或失败分类，故意改变依赖/等待计算应使同一断言失败。
+
+真实核验对照 API 原值、命令、manifest、JSONL 和文件摘要，确认选中链完整程度及每个派生值。采集与报告的墙钟/字节另列，未测开销不宣称可忽略。无收益时可移除新增诊断接线并保留原产物和检查；schema 不兼容升级保留版本适配，未知版本拒绝完整聚合。输出不足以证明缓存净收益、十分钟/P95 或真实合入卡点时，由原任务继续取证。
+
 ## 8. 兼容、启用与回退
 
 实现随普通 PR 合入生效，实际 Release 使用哪个 workflow revision 和 source commit 由原有计划合同确定。计划源必须包含受支持的共享安装器；早于该安装器的历史 tag 在新 workflow 下会明确失败。需要重发历史版本时，先审读相应源码和工具兼容性，不能用移动 tag、任意 ref 脚本或源码安装回退绕过这一边界。
@@ -650,6 +776,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 
 | 上游要求 | 本设计 | 验收内容 | 验证来源 | 实际记录 | 限制 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs) | [首轮生成试点](#ci-generated-contract-jobs-design) | 确定性、漂移/标记/路径错误、只读失败、原子写入及 job/DAG/权限/身份/失败语义等价 | [workflow 合同](../../../scripts/ci-workflow.test.py) 为现有入口；实施时按本节正反例扩展生成器回归，并执行既有 `ci-required-result.test.py` | 实施 PR 记录固定 source/tested/policy、迁移 diff、实际命令与 CI；当前仅设计 | 模板与输出一致不能代替语义合同，不证明 hosted 性能或扩展范围 |
 | Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | [分层实施](#ci-fast-pr-periodic-full-design) | 准入/迁出、真实包与 feature 闭包、Formal 最低库存、完整组/平台、旧 BASE/候选 bootstrap、失败重跑及固定候选发布 | [分层验收](../../../testing-manual.md#ci-fast-pr-periodic-full-validation)、实际 workflow/driver、selector/result/receipt 与真实 Cargo 合同 | 实施 PR 的准确候选、计划、运行链接、观察窗口与耗时分布 | 当前候选已接线；本地合同不代签 hosted 完整覆盖、十分钟/P95 或四小时容量 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | [覆盖专题](#ci-coverage-design) | 同候选/环境/features 下离线消息链、full 包含关系、失败及未接线目标 | [测试手册](../../../testing-manual.md)、实际 driver/选中 job；按本节选择正反例 | 实际命令、参数、case、退出与缺口；本次未执行 | 不由 selector fixture、skip 或旧 PASS 代签真实覆盖 |
 | Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | [薄入口合同](#local-check-entry-design) | LOCAL-AC-1–5：当前入口一致、全输入选择、只读与非成功语义 | [本地入口核验](../../../testing-manual.md#local-check-entry-validation)，实施候选的真实 driver 与临时仓库正反例 | 实施 PR 的输入/命令、前后文件与 index 身份、报告和退出码 | 文档检查不证明 thin entry 已实现；本地通过不代签 PR/平台/真实环境 |
@@ -662,6 +789,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 | [缓存复用](ci-tiered-execution.prd.md#ci-install-cache-evidence) | [缓存边界](#ci-install-cache-design) | main writer 与不同 tag readers 的真实身份、恢复及验证 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | writer/reader run/job 链接与实际 key | 未 seed 或未执行 reader 时仍未证明跨 tag 命中 |
 | [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | [apt 评估](#ci-install-apt-design) | 量测后选定参数；实施时验证总预算、分类重试、超时/取消无受控遗留进程 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 实际 apt 观察及后续 helper 的 fixture 输出 | 当前未实现，不推断宿主或部署机适用性 |
 | [量测与判定](ci-tiered-execution.prd.md#ci-install-measurement) | [耗时证据](#ci-install-measurement-design) | 相同工具/平台下分冷暖计入准备与缓存成本，保留失败样本 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 原始耗时、样本窗口/数量和条件差异 | 不以本地测试宣称 hosted 性能收益 |
+| Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；[工程遥测](ci-tiered-execution.prd.md#engineering-telemetry) | [共享模型与诊断](#engineering-telemetry-design) | 身份精确关联、并行时间计算、缺失与执行结论分离、有界只读采集 | [报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)，固定合成快照与一条真实 CI 链、一个本地 compile metrics 输出 | 实施 PR 的 schema、输入摘要、实际报告、命令和独立复核 | 设计尚未接线；合成输入不证明性能收益、真实合入阻塞或产品节点健康 |
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | [执行清单与结果](#ci-real-coverage-design) | 漏项/错误传播、真实 WASM 消费者、wrapper 退出及 Windows 锁边界 | [测试手册](../../../testing-manual.md)；实际 CI driver、构建/wrapper 回归和原生平台运行 | source、计划清单、命令与真实结果 | fake 工具和计划存在不代签执行；CodeQL 启用另验 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | [例外检查](#ci-advisory-baseline-design) | 空 ignore、无条件禁止包和真实依赖图 | [基线回归](../../../scripts/check-rustsec-ignore-baseline.test.sh)及真实依赖查询 | 配置正反例、cargo-deny 真实依赖图 | fixture 不证明实际依赖已移除 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | [进程调度](#ci-formal-process-design) | 独立分片、精确清单、同源产物、旧基线扩大、错误与超时传播 | [分片核验](../../../testing-manual.md#ci-formal-process-validation) | 当前 PR 的真实 runner、测试与评审结果 | fixture 不代签完整产物消费；未完成 hosted 验证保持未证明 |
