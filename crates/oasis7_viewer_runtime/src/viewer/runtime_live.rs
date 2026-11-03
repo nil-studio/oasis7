@@ -47,6 +47,7 @@ mod agent_service_io;
 mod agent_service_io_diagnostics;
 mod agent_service_phase;
 mod agent_service_pump;
+mod agent_service_result;
 mod periodic_connection_diagnostic;
 mod periodic_service_io;
 mod response_outbox;

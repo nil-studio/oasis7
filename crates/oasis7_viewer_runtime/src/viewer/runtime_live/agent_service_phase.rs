@@ -541,6 +541,13 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         &mut self,
         result: AgentServiceIoResult,
     ) -> Result<AgentServiceProgress, String> {
+        self.apply_hosted_service_io_with_identity(result, None)
+    }
+    pub(super) fn apply_hosted_service_io_with_identity(
+        &mut self,
+        result: AgentServiceIoResult,
+        prepared_identity: Option<(HostedServicePhase, Result<String, String>)>,
+    ) -> Result<AgentServiceProgress, String> {
         if result.token.phase_digest.starts_with("wait:") {
             return self.apply_hosted_wait_io(result);
         }
@@ -556,12 +563,19 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         if result.token.config_digest != self.hosted_service_config_digest()? {
             return Err("hosted service configuration changed; original intent fenced".into());
         }
-        let phase = self
-            .llm_sidecar
-            .hosted_service_phase
-            .clone()
-            .ok_or("hosted service completion lacks original phase")?;
-        if result.token.phase_digest != phase.identity()? {
+        let (phase, identity) = match prepared_identity {
+            Some(prepared) => prepared,
+            None => {
+                let phase = self
+                    .llm_sidecar
+                    .hosted_service_phase
+                    .clone()
+                    .ok_or("hosted service completion lacks original phase")?;
+                let identity = phase.identity();
+                (phase, identity)
+            }
+        };
+        if result.token.phase_digest != identity? {
             return Err("hosted service phase identity mismatch".into());
         }
         let response = result.response?;
