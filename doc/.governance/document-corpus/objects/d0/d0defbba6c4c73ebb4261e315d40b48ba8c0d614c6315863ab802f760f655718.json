@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/game/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "f69e6f67b1e5e898d3ba0ff6f9d5e9da2460445ab93a0f377ebb63985e6d2527",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "design",
+    "path": "doc/game/gameplay/industrial-native-content-delivery.design.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "game-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "gameplay_designer",
+    "structural_owner": "gameplay_designer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

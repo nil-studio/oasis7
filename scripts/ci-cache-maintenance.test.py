@@ -754,12 +754,14 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(pressure['workspace_recovery']['recovery_ids'], [3])
 
     def test_family_pressure_reclaims_extras_even_when_repository_has_free_space(self):
-        entries = [self.entry(i, 'formal', compatibility=group, size=700_000_000)
+        # Keep two anchors below the policy budget and three generations above it.
+        entry_size = maintenance.FORMAL_MAX_BYTES * 7 // 16
+        entries = [self.entry(i, 'formal', compatibility=group, size=entry_size)
                    for i, group in ((1, 'a'), (2, 'a'), (3, 'b'), (4, 'b'))]
         plan = self.plan(entries)
         self.assertEqual([entry['id'] for entry in plan['delete']], [1, 3])
         self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2, 4])
-        self.assertEqual(plan['families']['formal']['projected_bytes'], 1_400_000_000)
+        self.assertEqual(plan['families']['formal']['projected_bytes'], 2 * entry_size)
         self.assertLess(plan['families']['formal']['projected_bytes'], maintenance.FORMAL_MAX_BYTES)
         remaining = [entries[1], entries[3]]
         admission = maintenance.policy.save_policy(remaining, self.entry(5, 'formal', compatibility='c')['key'],

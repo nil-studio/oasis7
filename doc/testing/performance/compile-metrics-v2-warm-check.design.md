@@ -42,6 +42,8 @@ The slice is intentionally bounded to:
 The existing cold metrics, launcher `wasmtime` invariant, required-gate
 planner, and default workflow behavior remain unchanged.
 
+§11.4 另定义普通 PR、Formal、ECS 与本地开发之间的构建复用测量方法。它复用本文件已有观察入口，并明确还未采集的场景；不扩展上述 V2 check schema 或默认阈值。
+
 ## 2. Current facts and evidence boundary
 
 These facts describe the current repository behavior. The warm option, manual
@@ -67,6 +69,7 @@ in Section 11.
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
 | [Testing technical specifications](../prd.md#4-technical-specifications) | Keep compile measurements scoped to their selected surface and distinguish manual performance evidence from required-gate or release claims. | [Warm measurement rollout](#9-rollout-and-rollback) | `qa_engineer`; compile-metrics workflow maintainers | No touched-source incremental claim, live hosted-runner baseline, or release-readiness claim follows from a warm/no-op sample. |
+| Trace refs: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b；[跨入口构建复用测量](../prd.md#compile-reuse-measurement) | 固定入口兼容身份、有限对照与真实 Cargo 单元，核算全部复用成本及退出结论 | [跨入口有界测量](#cross-entry-build-reuse-measurement) | QA 与构建维护者；引用既有 ECS 缓存和 hosted CI 验收 | 产品适用性：N/A；reason=工程编译成本诊断；scope=本节入口及样本。当前仅方法设计，跨入口数据与采用结论尚未取得 |
 
 ## 3. Non-goals and invariants
 
@@ -569,6 +572,7 @@ updating this authority.
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | [Testing technical specifications](../prd.md#4-technical-specifications) | [Warm measurement rollout](#9-rollout-and-rollback) | Verify that the default run records cold-only metrics, opt-in mode records a separate no-op warm check, and only an explicit supported threshold can evaluate a paired warm comparison. | Run `bash ./scripts/ci-compile-metrics-contract.test.sh` ([contract test](../../../scripts/ci-compile-metrics-contract.test.sh)); its fake-Cargo fixtures cover the disabled default, command/target identity, report-only output, selected threshold, and failure behavior on this candidate. | The implementation PR and actual checks for the tested source; Issue #4065 is historical provenance, not a required task or receipt. | Does not establish hosted-runner performance, platform noise bounds, or release readiness. |
+| Trace refs: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b；[跨入口构建复用测量](../prd.md#compile-reuse-measurement) | [跨入口有界测量](#cross-entry-build-reuse-measurement) | 配置/兼容矩阵、计划到实际编译单元、失效正反例、总成本与采用/不采用/补证结论 | 按 §11.4 的固定候选、缓存状态与成对协议人工核对真实工件；ECS 的既有执行入口见 [测试手册](../../../testing-manual.md#ecs-缓存与完整-native-构建测量)，其他场景保留确切 argv 与采集缺口 | 实际测量 PR/任务中的原始日志、单元/字节、样本条件与计算；本次文档没有运行数据 | 工具 fixture 不代签性能；ECS consumer、hosted 十分钟/P95 与发布验证仍须各自完成 |
 
 Warm/no-op is a prerequisite observation, not the final developer inner-loop
 metric. A later Compile Metrics V2 slice may add these independent scenarios:
@@ -641,6 +645,74 @@ The patch targets the compiled `world_view_source.rs` source at both revisions. 
 
 Report the actual state/projection freshness and all rebuilt downstream units for the Viewer sample. A comparison of different functional revisions is an observation of those revisions, not proof that extraction alone caused the difference. Single sequential samples retain runner/order variance; they do not establish a stable percentage gain. Local warm-target measurements, validated local overlays and hosted cross-run cache consumption remain separate evidence. Package identity and normal tests remain separate from timing success.
 
+<a id="cross-entry-build-reuse-measurement"></a>
+### 11.4 跨入口构建复用的有界测量
+
+Trace refs: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b；承接 [跨入口构建复用测量](../prd.md#compile-reuse-measurement)。本节是测量设计，跨入口对照尚未执行，不宣称新的缓存机制已实施或已有净收益。产品适用性：N/A；reason=开发和 CI 编译成本诊断；scope=普通 PR、Formal 测试产物、ECS 包与本地开发的配置、复用及失效对照。
+
+#### 入口与兼容矩阵
+
+执行前以固定候选的 [Rust workflow](../../../.github/workflows/rust.yml)、[测试产物入口](../../../scripts/ci-test-artifacts.py)、[ECS workflow](../../../.github/workflows/ecs-packages.yml)、[Cargo profiles](../../../Cargo.toml) 与 [本地 wrapper](../../../scripts/cargo-dev.sh) 重建下表；表述相同不等于实际编译单元相同。
+
+| 入口 | 当前命令与主要配置 | 已有复用及适用边界 |
+| --- | --- | --- |
+| 普通 PR | `ci-tests.sh required --group oasis7_required --plan ...`；fast inline 使用计划中的 package/target/features，回退由 `ci-test-artifacts.py` 产出 `--no-run` 测试与所需 Viewer/snapshot 变体；CI incremental=0、dev/test debug=0 | 已有依赖 cache 与 `ordinary` workspace overlay；非 inline 消费同候选测试包。定向计划是否约束实际 Cargo 目标须核对 argv 和单元清单，不能仅看选中的逻辑组 |
+| Formal 构建与消费者 | `ci-test-artifacts.py build --scope formal`；core 为 `oasis7`、`oasis7_chain_runtime` 的 `--lib --bins --features test_tier_required,ci_formal_required_features --no-run`，另含 runtime、release endpoint 与 distfs 变体 | `formal` overlay 与真实测试产物有独立身份；core 与普通测试的 features/cfg 不必相同。`storage` 才另设 dev/test opt-level=2，不把它当作整个 Formal 的 profile |
+| ECS native 包 | 三个生产 binary 的 `--profile ecs` 构建；profile 继承 release，opt-level=3、strip=symbols、lto=false、codegen-units=16；workflow native jobs 默认 2，测量 jobs 独立固定 | 已有依赖层及 ECS workspace overlay；与 dev/test 产物不能直接互换。ECS 的 producer/consumer 真实性与净收益由原缓存验收继续负责 |
+| 本地开发 | `cargo-dev.sh` 的 lean check/clippy 使用 debug=0、incremental=1；lean build/test/run 在有 sccache 时 incremental=0，否则为 1；debug 模式为 debug=2、incremental=1；显式非 dev/test profile 保留调用者设置 | 各 worktree 使用自己的 target。跨工作区仅观测既有 sccache 支持的编译复用，不共享 target，不预设最终链接或所有 proc-macro 可命中 |
+| Compile Metrics 观察面 | 既有 V2 harness 归一化为 incremental=0、dev/test debug=0、无 `RUSTC_WRAPPER`，同 checkout 内 cold 后接相同的 no-op `cargo check` | 证明该固定 check 的局部成本；不直接代表本地增量、Formal 测试构建或 ECS link 的复用 |
+
+分开登记 registry/source 数据、第三方依赖编译结果、workspace 编译单元、可执行测试包和交付 binary。编译复用身份至少核对 toolchain/host/target、package 与源码、manifest/lock、解析后的 features、cfg/test、profile 与 rustflags、build script/环境/生成输入、wrapper 及路径约束。相同 crate 版本、同一 commit 或 cache-hit 都不足以证明兼容；普通与 Formal 的同名单元仅在这些实际输入一致且原验证器接受时才是候选。测试包不能替代发布 binary，旧测试结果也不能由编译命中推导为新候选已测试。
+
+当前两个 workflow 的仓库预算均配置为 `20000000000` 字节（十进制 20 GB），这不是在线可用库存，也不是各 cache family 单独享有的额度。报告保存采样时实际配置、库存与 family 占用；缺少库存读取则写未知，不沿用旧任务中的容量数字，不通过扩容或清理缓存制造收益。
+
+#### 样本与现有执行入口
+
+先读取已有 CI artifact、构建日志和缓存报告，按 source/tested/policy、plan、toolchain、runner/平台、target/profile/features/flags、jobs、输入闭包和初始缓存状态筛出可比较样本。因果对照使用功能等价的固定 baseline/candidate；不同功能版本只作观测。先冻结至多两个候选假设、重复次数/顺序与运行预算，再补有限缺口；单次初筛可以决定不采用，不能据此宣称稳定收益。
+
+| 样本条件 | 必须记录的区分 |
+| --- | --- |
+| 冷编译依赖 | 编译 target 无种子；registry 已预取与网络冷启动分别说明，不混成一个 cold 数字 |
+| 依赖温、workspace 冷 | 恢复的依赖层与缺少的 workspace 输出；核对没有暗中恢复更高层产物 |
+| 同源 workspace no-op | 完成相同命令后重跑；记录 Fresh/rebuilt、检查与链接成本，不用 cache-hit 代签 |
+| 普通源码变更 | 隔离 fixture 中固定一个实际编译源文件的补丁及前后 digest，独立 seed 后运行相同 argv；不只改 mtime |
+| manifest/公共依赖失效 | 独立 fixture 的确切变更和解析后闭包；必要重编是正确失效，须解释额外或缺少的单元 |
+| 跨工作区/跨运行 | 本地 sccache 与 ECS 远端 overlay 分开；保存请求/命中 key、payload 校验、Fresh/rebuilt 与产物身份。ECS 已有 producer/consumer 对直接引用原验收记录 |
+
+测量只使用隔离、运行拥有的 fixture/target，输出放在扫描 checkout 外；不清空活跃开发 target，也不更换日常 `CARGO_TARGET_DIR` 绕过 Cargo 锁。每个源码场景独立 seed，不积累补丁。保留失败、超时、退化、无法比较和缺字段的样本，未知值不用零替代。
+
+以下均为已有命令，变量须替换为已固定的本地路径与完整 commit OID；命令列在此处不表示本次已执行：
+
+```bash
+python3 scripts/ci-test-artifacts.py required-args --phase native-commands --plan "$PLAN_PATH"
+./scripts/ci-compile-metrics.sh --package oasis7_viewer_runtime --check-only --no-default-features --measure-warm-check --baseline-ref "$BASELINE_SHA" --out-dir "$OUT_DIR/check"
+python3 scripts/ci-ecs-build-metrics.py --current-ref "$CANDIDATE_SHA" --baseline-ref "$BASELINE_SHA" --out-dir "$OUT_DIR/ecs" --jobs 1 --viewer-touch-samples 1
+```
+
+第一项只展开该计划的普通 native 命令，不执行构建，也不表示 Formal/ECS 命令。对其输出与实际 Cargo argv、package/target/kind/features/profile、Fresh/rebuilt 清单做对应；额外单元归属为传递依赖、build script/proc-macro、保留的测试/产物变体或待查异常。第二项是 no-default-features check 观察面，不能替代 PR 中不同 feature 的测试。第三项只实现 §11.3 的 seed/no-op/固定 Viewer 补丁，不覆盖任意 manifest 变化或远端缓存消费。其余场景使用原入口的准确命令与受控 fixture；若缺少可保留这些身份的采集入口，先列为未测缺口，并在有限实现中补采集，不能虚构已有一键工具。
+
+#### 两个候选假设与成本口径
+
+首轮最多评估下列两类候选；只有矩阵与单元证据支持时才进入对照，不预定采用 Nix、Hakari、缓存服务或新的 feature 策略。
+
+1. **去掉相同输入的重复构建：** 从实际重复单元定位一组输入、features/profile 与目标完全兼容的调用，比较复用现有产物或减少重复调用的总成本。若统一 features 会改变行为或扩大 closure，不能归为“相同输入”，应停止该候选或另补设计。
+2. **缩小过宽的失效输入：** 只对实际 consumer 编译闭包外的输入提出裁剪假设；保留 manifest/lock、build script、环境、生成输入和共享控制变化。必须同时验证无关输入保留复用及真实依赖变化拒绝旧产物，才可讨论采用。现有安全校验、可信 writer/reader 和结果身份不因实验放宽。
+
+每次调用的端到端时间按互斥阶段计算：`T_total = T_prepare + T_restore_verify + T_cargo + T_pack_save + T_postvalidate`。`T_cargo` 已含编译与链接，分项只用于归因，不能再相加一次；解压、传输、校验、打包和保存均不得从候选成本中省略。预取在既有纯编译指标的计时外时，单列其时长，并说明该指标不是完整端到端时间。
+
+同条件配对的净收益为 `T_baseline_total - T_candidate_total`；仅 baseline 大于零且身份可比时给百分比。若同一 producer 成本分摊给实际 `N` 个兼容消费者，则计算 `B_N = sum(T_without_cache_i - T_with_cache_i) - T_producer_extra`，其中 consumer 两侧包含各自恢复/校验/构建/必要后验成本，producer extra 包含新增 staging/打包/上传；说明实际 N 和未变的公共成本，不用假想复用次数摊薄。另报 raw/unique/compressed bytes、保存份数、占用与回收状态，缺少数据就保留缺口。
+
+并行 job 时长之和表示资源消耗，不是关键路径墙钟。完整 workflow 等待、队列、失败重试与并行边界按原 CI 量测合同记录；这些局部样本不代签十分钟或 P95。比较应列出样本数、顺序、平台/runner、原始值与可见波动；不足以区分噪声时结论为补证，不能只择最快一轮。
+
+#### 验收、退出与原任务边界
+
+验收报告存于实际 PR/任务及其工件，包含入口/兼容矩阵、精确 argv 与脱敏环境、单元与失效归因、原始成本及字节、配对计算、采用/不采用/补证结论和未测范围。编译成功、产物有效和测试实际执行分别记录；采集合同的 fixture 通过只证明工具行为，不证明真实性能。
+
+得到可复核的有界结论后结束测量；候选净收益不正、必要校验退化或风险超过其有限收益时停止该候选并保留负结果。预算耗尽或环境缺失时保留已测范围与具体阻塞，不为凑统计重复运行。需要 feature、架构或基础设施变化时回到对应设计，不在测试任务中扩展实施范围；未确认收益不改变现有默认配置和 gate。
+
+[#4992](https://github.com/nil-studio/oasis7/issues/4992) 继续拥有 ECS producer 保存、兼容 consumer Fresh 与总成本验收，本文引用相同运行，不另开一对重复验收；[#5374](https://github.com/nil-studio/oasis7/issues/5374) 继续拥有 hosted 十分钟/P95。[#5004](https://github.com/nil-studio/oasis7/issues/5004) 的本地 incremental/sccache 已有策略是对照基线；[#5012](https://github.com/nil-studio/oasis7/issues/5012) 是收益未证实而关闭的实验，不能计为成功优化，也不因本计划重启同一改造。本文档交付只完成测量方法，不完成这些真实运行义务。
+
+
 ## 12. Residual risk and deferred-debt trigger
 
 The warm signal still inherits hosted-runner CPU, filesystem, scheduler, and
@@ -670,4 +742,4 @@ slice in place.
 
 ## 范围、结构边界与风险
 
-本设计范围是 cold/warm/no-op 编译量测及其结果解释；结构、采样身份、缓存条件、rollout 与验证沿用下文各节。主要风险是把不同候选、缓存或 runner 条件的样本混比，或把 no-op 改善当作触源码增量、hosted 性能或发布就绪证明；必须保留原始测量及未证明范围。
+本设计范围是 cold/warm/no-op 编译量测、已有 ECS 原生构建实验及 §11.4 的跨入口复用测量方法；结构、采样身份、缓存条件、rollout 与验证沿用各节。主要风险是把不同候选、缓存或 runner 条件的样本混比，或把 no-op 改善当作触源码增量、hosted 性能或发布就绪证明；必须保留原始测量及未证明范围，跨入口方法不代表已经取得对照数据。
