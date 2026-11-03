@@ -414,3 +414,6 @@ fn scheduler_failures_poison_preceding_work_and_leave_cached_schedules_unchanged
 
 #[path = "incremental_scheduler_due_tests.rs"]
 mod due_order;
+
+#[path = "incremental_scheduler_consistency_tests.rs"]
+mod consistency;

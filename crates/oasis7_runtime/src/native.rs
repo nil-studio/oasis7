@@ -575,3 +575,6 @@ pub use world::incremental_module_fee_accounts::{
 pub use world::incremental_module_fee_contribution::{
     RootModuleFeeWriteContextV1, contribute_root_module_fee_v1,
 };
+pub use world::incremental_scheduler_recovery::{
+    ModuleScheduleReadContext, VerifiedModuleScheduleContent,
+};
