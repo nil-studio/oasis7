@@ -279,7 +279,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg)；区域：named visible cards: 已接受意图 / 目标执行状态 / 当前目标与下一步。
   - 已画状态：Accepted → Executing → Blocked。
   - 区域「已接受意图」：Scope：已发布范围；Target：示例 Agent A；Summary / detail：以原意图为准；Resume anchor：未发布
-  - 区域「目标执行状态」：当前：Blocked；其他分支：Completed / Rejected；Cause label：已发布原因；Cause detail：等待资源条件，不重写目标
+  - 区域「目标执行状态」：当前：受阻（Blocked）突出显示；原意图保持，当前不是完成或拒绝；原因以运行时已发布说明为准；等待资源条件，不重写目标。Completed / Rejected 仅在设计注记中说明为其他分支，不混作当前结果
   - 区域「当前目标与下一步」：Objective：恢复当前产线；Progress：n/a（未知不是 0%）；Blocker / supplemental detail：已发布说明；Next step：等待下一次运行时指引；Branch hint / agent-location counts：未发布
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
@@ -297,7 +297,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg)；区域：named visible cards: 已接受意图 / 目标执行状态 / 当前目标与下一步。
   - 已画状态：Accepted → Executing → Blocked。
   - 区域「已接受意图」：Scope：已发布范围；Target：示例 Agent A；Summary / detail：以原意图为准；Resume anchor：未发布
-  - 区域「目标执行状态」：当前：Blocked；其他分支：Completed / Rejected；Cause label：已发布原因；Cause detail：等待资源条件，不重写目标
+  - 区域「目标执行状态」：当前：受阻（Blocked）突出显示；原意图保持，当前不是完成或拒绝；原因以运行时已发布说明为准；等待资源条件，不重写目标。Completed / Rejected 仅在设计注记中说明为其他分支，不混作当前结果
   - 区域「当前目标与下一步」：Objective：恢复当前产线；Progress：n/a（未知不是 0%）；Blocker / supplemental detail：已发布说明；Next step：等待下一次运行时指引；Branch hint / agent-location counts：未发布
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
@@ -315,7 +315,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg)；区域：named visible cards: 已接受意图 / 目标执行状态 / 当前目标与下一步。
   - 已画状态：Accepted → Executing → Blocked。
   - 区域「已接受意图」：Scope：已发布范围；Target：示例 Agent A；Summary / detail：以原意图为准；Resume anchor：未发布
-  - 区域「目标执行状态」：当前：Blocked；其他分支：Completed / Rejected；Cause label：已发布原因；Cause detail：等待资源条件，不重写目标
+  - 区域「目标执行状态」：当前：受阻（Blocked）突出显示；原意图保持，当前不是完成或拒绝；原因以运行时已发布说明为准；等待资源条件，不重写目标。Completed / Rejected 仅在设计注记中说明为其他分支，不混作当前结果
   - 区域「当前目标与下一步」：Objective：恢复当前产线；Progress：n/a（未知不是 0%）；Blocker / supplemental detail：已发布说明；Next step：等待下一次运行时指引；Branch hint / agent-location counts：未发布
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
