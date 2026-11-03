@@ -543,3 +543,6 @@ mod execution_dispatch_adapter;
 
 #[path = "custody_pending_source_inspect_adapter_v2.rs"]
 mod pending_source_inspect_adapter;
+
+#[path = "custody_cleanup_v3_term_direct_adapter.rs"]
+mod term_direct_v3_adapter;

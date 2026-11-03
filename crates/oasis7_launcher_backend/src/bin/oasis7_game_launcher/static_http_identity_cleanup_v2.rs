@@ -5,6 +5,8 @@ use super::*;
 mod execution_prepare_v2;
 #[path = "static_http_identity_resource_final_v2.rs"]
 mod resource_final;
+#[path = "static_http_identity_term_direct_v3.rs"]
+mod term_direct_v3;
 fn unavailable() -> IdentityReply {
     IdentityReply::error(StoreError::Rejected(
         "cleanup_registration_unavailable".into(),
@@ -185,6 +187,9 @@ pub(super) fn handle(
         NATIVE_ACTIVATE_V2_PATH => activate(runtime, method, body),
         NATIVE_CURRENT_V2_PATH => current(runtime, method, body),
         NATIVE_TERM_CURRENT_V2_PATH => term_current(runtime, method, body),
+        oasis7_custody_core::native_cleanup_v2::NATIVE_TERM_DIRECT_PATH_V3 => {
+            term_direct_v3::handle(runtime, method, body)
+        }
         _ => return None,
     })
 }

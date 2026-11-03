@@ -183,6 +183,12 @@ pub(in crate::provisioning) enum SessionEventKindV2 {
     TermSixNativePaidRecorded {
         round_id: String,
     },
+    TermFiveNativePaidRecorded {
+        round_id: String,
+    },
+    TermFiveNativeResultRecorded {
+        round_id: String,
+    },
     TermFiveReserved {
         round_id: String,
     },

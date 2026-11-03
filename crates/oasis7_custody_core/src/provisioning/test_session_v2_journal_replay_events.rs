@@ -561,7 +561,10 @@ impl Replay<'_> {
                 }
                 self.closing = Some((*reason, at));
             }
-            E::TermFiveReserved { .. } | E::TermFivePortClaimed { .. } => {
+            E::TermFiveReserved { .. }
+            | E::TermFivePortClaimed { .. }
+            | E::TermFiveNativePaidRecorded { .. }
+            | E::TermFiveNativeResultRecorded { .. } => {
                 return self.apply_term_five(event, at, ordinal);
             }
             E::TermSixReserved { .. }

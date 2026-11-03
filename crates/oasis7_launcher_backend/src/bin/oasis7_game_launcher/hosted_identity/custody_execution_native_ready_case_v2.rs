@@ -31,6 +31,12 @@ fn child_for(test_name: &str, identity_origin: &str, extras: &[(&str, String)]) 
             pin("execution_pending_source_native_leaf_v2"),
         );
     }
+    if extras.iter().any(|(key, value)| {
+        *key == "OASIS7_TERM_DIRECT_V3_FIXTURE" && value == "genuine-before-uv-v3"
+    }) {
+        config["term_direct_actor_pin"] = pin("term_native_sessions_current_v3");
+        config["term_direct_native_pin"] = pin("native_term_current_attempt_v3");
+    }
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command.arg(test_name).arg("--nocapture").arg("--test-threads=1")
         .env("OASIS7_EXECUTION_READY_CHILD","true").env("OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED","true")
@@ -129,6 +135,9 @@ fn with_ready_registry(limit: usize, run: impl FnOnce(ReadyNativeRegistryV2, rea
     let CustodyIntentV1::TestSessionV2 { plan, scope } = &mut request.intent else {
         unreachable!()
     };
+    if identity::custody::guarded_consent::term_direct_v3_fixture_enabled() {
+        plan.termination.cleanup_transport_policy=oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3;
+    }
     plan.termination.initial_fence =
         oasis7_agent_api::game::GameTaskFenceV1::from_control(&data.state.control);
     let d = data.state.signer_delegation.as_ref().unwrap();
@@ -282,3 +291,6 @@ mod reply_archive_case;
 
 #[path = "custody_pending_source_inspect_tests_v2.rs"]
 mod pending_source_inspect_tests;
+
+#[path = "custody_term_direct_between_tx_tests_v3.rs"]
+mod term_direct_between_tx;

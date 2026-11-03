@@ -139,7 +139,7 @@ pub(super) fn claim(
         .validate_relative(&pending)
         .map_err(|_| unavailable())?;
     if matches!(&pending.certificate.input.request.intent,CustodyIntentV1::TestSessionV2 {plan,..}
-        if plan.termination.cleanup_transport_policy==oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2)
+        if plan.termination.cleanup_transport_policy==oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedWorld3V2 || (super::guarded_consent::term_direct_v3_fixture_enabled() && plan.termination.cleanup_transport_policy==oasis7_custody_core::provisioning::CleanupTransportPolicyV2::TermWideFiveSecondOwnedDirectCurrent5V3))
     {
         let machine = super::cleanup_config::MachineConfig::from_env()?;
         let preflight_pin = machine.preflight_access_pin()?;
@@ -479,3 +479,9 @@ pub(super) use model_signal::active_model_signal;
 
 #[path = "custody_pending_source_inspect_registry_v2.rs"]
 pub(in super::super) mod pending_source_inspect;
+
+#[path = "custody_cleanup_v3_registry_term_direct.rs"]
+mod term_direct_v3;
+pub(super) use term_direct_v3::{
+    claim_term_direct_registered_v3, observe_term_direct_registered_v3,
+};

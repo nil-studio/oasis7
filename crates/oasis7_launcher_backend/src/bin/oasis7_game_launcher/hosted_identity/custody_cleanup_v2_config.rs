@@ -21,6 +21,10 @@ pub(super) struct MachineConfig {
     execution_identity_origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_inspect_pin: Option<AccountMachineIssuerPinV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) term_direct_actor_pin: Option<AccountMachineIssuerPinV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) term_direct_native_pin: Option<AccountMachineIssuerPinV2>,
     native_origin: String,
 }
 fn unavailable() -> StoreError {
@@ -49,6 +53,9 @@ impl MachineConfig {
         if self.api_version != 2
             || CanonicalHttpTarget::new(&self.native_origin, HttpPopRoute::ProofChallenges).is_err()
         {
+            return Err(unavailable());
+        }
+        if self.term_direct_actor_pin.is_some() != self.term_direct_native_pin.is_some() {
             return Err(unavailable());
         }
         if self.execution_dispatch_pin.is_some() != self.execution_identity_origin.is_some() {
@@ -96,6 +103,16 @@ impl MachineConfig {
                     AccountMachinePurposeV2::ExecutionPendingSourceNativeLeafV2,
                 )
             }))
+            .chain(
+                self.term_direct_actor_pin
+                    .as_ref()
+                    .map(|pin| (pin, AccountMachinePurposeV2::TermNativeSessionsCurrentV3)),
+            )
+            .chain(
+                self.term_direct_native_pin
+                    .as_ref()
+                    .map(|pin| (pin, AccountMachinePurposeV2::NativeTermCurrentAttemptV3)),
+            )
         {
             let identity = AccountMachineIssuerV2 {
                 namespace: pin.namespace.clone(),
@@ -139,6 +156,8 @@ impl MachineConfig {
             .chain(self.execution_prepare_pin.iter())
             .chain(self.execution_dispatch_pin.iter())
             .chain(self.source_inspect_pin.iter())
+            .chain(self.term_direct_actor_pin.iter())
+            .chain(self.term_direct_native_pin.iter())
             .any(|other| {
                 other.namespace != p.namespace
                     || other.service_id != p.service_id

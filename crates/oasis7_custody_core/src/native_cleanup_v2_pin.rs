@@ -2,6 +2,8 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountMachinePurposeV2 {
+    TermNativeSessionsCurrentV3,
+    NativeTermCurrentAttemptV3,
     TermGuardedStopSignerV2,
     TermGuardedCloseSignerV2,
     NativeModelReservationV2,

@@ -479,6 +479,7 @@ pub use term_six_funding_v2::{
 #[path = "test_session_term_five_funding_v3.rs"]
 mod term_five_funding_v3;
 pub use term_five_funding_v3::{
-    PreparedTermFiveFundingV3, PreparedTermObservationPortV3, TermFiveFundingRecordV3,
-    TermObservationPortV3, TermObservationRoundV3,
+    PreparedTermDirectNativeV3, PreparedTermFiveFundingV3, PreparedTermObservationPortV3,
+    TermDirectIssuerV3, TermDirectNativeDispatchV3, TermFiveFundingRecordV3, TermObservationPortV3,
+    TermObservationRoundV3,
 };

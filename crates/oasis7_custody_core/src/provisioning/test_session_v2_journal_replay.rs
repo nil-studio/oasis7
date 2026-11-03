@@ -78,6 +78,8 @@ pub(super) struct Replay<'a> {
     lease: Option<UnixMillis>,
     heartbeat: Option<UnixMillis>,
     closing: Option<(TestSessionClosingReasonV1, UnixMillis)>,
+    term_five_native_paid: BTreeSet<String>,
+    term_five_native_result: BTreeSet<String>,
     term_five_reserved: BTreeSet<String>,
     term_five_claims: BTreeSet<String>,
     term_six_reserved: BTreeSet<String>,
@@ -158,6 +160,8 @@ impl<'a> Replay<'a> {
             lease: None,
             heartbeat: None,
             closing: None,
+            term_five_native_paid: BTreeSet::new(),
+            term_five_native_result: BTreeSet::new(),
             term_five_reserved: BTreeSet::new(),
             term_five_claims: BTreeSet::new(),
             term_six_reserved: BTreeSet::new(),
@@ -460,6 +464,26 @@ impl<'a> Replay<'a> {
             || self.lease != s.lease_until
             || self.heartbeat != s.last_heartbeat
             || self.closing != s.closing
+        {
+            return Err(invalid());
+        }
+        if self.term_five_native_result.len()
+            != self
+                .s
+                .termination_state
+                .term_five_funding
+                .as_ref()
+                .map_or(0, |rs| rs.iter().filter(|r| r.has_native_result()).count())
+        {
+            return Err(invalid());
+        }
+        if self.term_five_native_paid.len()
+            != s.termination_state
+                .term_five_funding
+                .iter()
+                .flatten()
+                .filter(|r| r.has_native_paid())
+                .count()
         {
             return Err(invalid());
         }
