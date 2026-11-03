@@ -110,6 +110,23 @@ class TelemetryTests(unittest.TestCase):
         self.assertFalse(record["identity_conflict"])
         t.report(result)
 
+    def test_job_step_number_is_rejected(self):
+        other = copy.deepcopy(self.input["sources"][0])
+        other["reference"] = "fixture/other.json"
+        other["records"][0]["step_number"] = 2
+        other["records"][0]["execution_result"] = "failure"
+        self.input["sources"].append(other)
+        result = t.collect(self.input)
+        self.assertEqual(len([r for r in result["records"] if r.get("job_id") == 10]), 1)
+        self.assertIn("invalid or unsafe record: fixture/other.json", result["missing_reasons"])
+
+    def test_report_rejects_orphan_or_empty_evidence(self):
+        result = t.collect(self.input)
+        for references in ([], ["fixture/missing.json"]):
+            bad = copy.deepcopy(result)
+            bad["records"][0]["evidence"] = references
+            with self.assertRaises(ValueError): t.report(bad)
+
     def test_unverified_identities_are_not_deduplicated(self):
         source = self.input["sources"][0]
         for record in source["records"]:

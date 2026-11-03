@@ -51,6 +51,8 @@ def valid_record(item):
         return False
     if not token(item.get("id")):
         return False
+    if item.get("kind") == "job" and "step_number" in item:
+        return False
     for key, value in item.items():
         if key in ENUMS:
             if not isinstance(value, str) or value not in ENUMS[key]:
@@ -217,8 +219,8 @@ def report(snapshot):
             raise ValueError("invalid snapshot record")
         body = {k: v for k, v in record.items() if k not in ("evidence", "identity_conflict", "aliases")}
         if (not valid_record(body) or type(record.get("identity_conflict")) is not bool
-                or not isinstance(record.get("evidence"), list)
-                or not all(token(x) for x in record["evidence"])
+                or not isinstance(record.get("evidence"), list) or not record["evidence"]
+                or not all(token(x) and x in evidence_by_reference for x in record["evidence"])
                 or not isinstance(record.get("aliases"), list) or not record["aliases"]
                 or not all(token(x) for x in record["aliases"])
                 or record["id"] not in record["aliases"]):
