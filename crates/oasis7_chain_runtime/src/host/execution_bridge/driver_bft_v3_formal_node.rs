@@ -312,8 +312,7 @@ impl FormalBftHeaderNodeDriverV3 {
         #[cfg(test)]
         hook_trace::Span::complete(stage, None);
         #[cfg(test)]
-        let stage =
-            hook_trace::Span::enter(hook_trace::Stage::PrivateAccounting, self.cursor_height);
+        let stage = hook_trace::Span::enter(hook_trace::Stage::UsageReserve, self.cursor_height);
         self.execution.ledger.reserve_private_material(
             self.private.usage()?,
             self.private.publication_promises()?,

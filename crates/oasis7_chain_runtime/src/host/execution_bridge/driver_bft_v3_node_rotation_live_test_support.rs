@@ -106,11 +106,11 @@ impl oasis7_node::NodeBftPeerTransportV3 for RotationGate {
 pub(super) fn diagnostics(
     bindings: &[BftSignerBindingV3],
     snapshots: &[Arc<Mutex<BftSignerBackendSnapshotV3>>],
-    origin: &std::sync::OnceLock<Instant>,
+    origin: &membership_clock::ElapsedClock,
 ) -> String {
     let mut lines = vec![format!(
         "shared_elapsed_ms={}",
-        origin.get().map_or(0, |t| t.elapsed().as_millis())
+        origin.elapsed_ms().unwrap()
     )];
     for (index, (binding, snapshot)) in bindings.iter().zip(snapshots).enumerate() {
         // Release the backend lock before replaying any public proof. This
@@ -183,7 +183,7 @@ pub(super) struct FourLiveRotationNodes {
     pub actual: Vec<Arc<Mutex<FormalBftHeaderNodeDriverV3>>>,
     pub bindings: Vec<BftSignerBindingV3>,
     pub snapshots: Vec<Arc<Mutex<BftSignerBackendSnapshotV3>>>,
-    pub origin: Arc<std::sync::OnceLock<Instant>>,
+    pub origin: Arc<membership_clock::ElapsedClock>,
     pub healed: Arc<AtomicBool>,
     pub old_calls: Arc<AtomicUsize>,
     pub new_calls: Arc<AtomicUsize>,
@@ -268,7 +268,7 @@ impl FourLiveRotationNodes {
         network_wait("bootstrap live full Noise mesh", || {
             networks.iter().all(|n| n.connected_peers().len() == 3)
         });
-        let origin = Arc::new(std::sync::OnceLock::<Instant>::new());
+        let origin = Arc::new(membership_clock::ElapsedClock::new(100));
         let healed = Arc::new(AtomicBool::new(false));
         let old_calls = Arc::new(AtomicUsize::new(0));
         let new_calls = Arc::new(AtomicUsize::new(0));
@@ -442,7 +442,7 @@ impl FourLiveRotationNodes {
         }
     }
     pub fn start(&mut self) {
-        self.origin.set(Instant::now()).unwrap();
+        self.origin.start().unwrap();
         for node in &mut self.nodes {
             node.start().unwrap();
         }

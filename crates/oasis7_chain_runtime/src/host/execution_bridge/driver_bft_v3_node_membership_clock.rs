@@ -113,7 +113,7 @@ fn recovery_budget_is_two_policy_rounds_and_exactly_one_private_operation() {
         Duration::from_secs(330)
     );
     assert_eq!(
-        recovery_action_budget(policy, PRIVATE_OPERATION_TIMEOUT),
+        recovery_action_budget(policy, Duration::from_secs(60)),
         Duration::from_secs(390)
     );
 }

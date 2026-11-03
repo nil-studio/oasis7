@@ -47,7 +47,7 @@ fn case() {
         .with_active_window_rebase()
         .with_driver_verifier(verifier.clone());
     // One elapsed origin is shared by every lease and never reset on stop/reopen.
-    let clock_start = Arc::new(std::sync::OnceLock::<Instant>::new());
+    let clock_start = Arc::new(elapsed_clock::ElapsedClock::new(100));
     let service = Arc::new(
         BftSignerServiceV3::open_with_successor_window(
             binding.clone(),
@@ -155,12 +155,12 @@ fn drive(
     node: &mut NodeRuntime,
     snapshot: &Arc<Mutex<BftSignerBackendSnapshotV3>>,
     records: &Path,
-    clock_start: &std::sync::OnceLock<Instant>,
+    clock_start: &elapsed_clock::ElapsedClock,
 ) -> Result<Vec<oasis7_node::NodeCommittedActionBatch>, String> {
     node.submit_consensus_action_payload(200_001, payload(&name(1)))
         .map_err(|e| e.to_string())?;
     clock_start
-        .set(Instant::now())
+        .start()
         .map_err(|_| "normal elapsed clock was already started")?;
     node.start()
         .map_err(|e| format!("normal fresh-H startup failed: {e}"))?;
