@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -225,15 +226,55 @@ fn four_node_runtime_commits_and_replays_through_real_execution_drivers() {
             "replaying the exact QC must not rewrite its historical execution record"
         );
     }
+    // A live snapshot does not freeze consensus: retain a genuine later QC before
+    // stopping, so cold recovery must use the final stopped observation.
+    let advanced_head = wait_for_same_head(
+        &nodes,
+        restarted_height.checked_add(1).expect("next BFT height"),
+    );
+    assert!(
+        advanced_head
+            .iter()
+            .all(|snapshot| snapshot.consensus.committed_height > restarted_height),
+        "real BFT must commit beyond the earlier restart observation"
+    );
+    let advanced_height = advanced_head[0].consensus.committed_height;
+    let advanced_block_id = advanced_head[0]
+        .consensus
+        .last_block_hash
+        .as_ref()
+        .expect("newer shared BFT block identity");
     for node in &mut nodes {
         node.stop().expect("stop restarted node");
+    }
+    // stop joins the worker; these observations cannot race later commits.
+    // Nodes may have different valid tails because shutdown is not an atomic
+    // network-wide barrier. Their overlapping certified blocks must still agree.
+    let stopped_heads = nodes.iter().map(NodeRuntime::snapshot).collect::<Vec<_>>();
+    for snapshot in &stopped_heads {
+        assert!(!snapshot.running, "cold recovery requires a stopped node");
+        assert!(
+            snapshot.consensus.committed_height >= advanced_height,
+            "shutdown must not lose the newer observed committed height"
+        );
+        assert!(
+            snapshot.last_error.is_none(),
+            "stopped node must not hide a runtime failure"
+        );
     }
     drop(nodes);
 
     // A fresh driver process re-verifies each raw QC and materializes the same
     // committed World; it cannot trust a serialized verified token.
     let config = oasis7_node::NodeBftExecutionConfigV1::from_validator_set(&set, AUTHORITY_EPOCH);
-    for index in 0..NODE_COUNT {
+    let mut certified_blocks = BTreeMap::<u64, String>::new();
+    for (index, stopped) in stopped_heads.iter().enumerate() {
+        let final_height = stopped.consensus.committed_height;
+        let final_block_id = stopped
+            .consensus
+            .last_block_hash
+            .as_ref()
+            .expect("stopped BFT committed block identity");
         let mut driver = driver_for_world(
             root.join(format!("driver-{index}")).as_path(),
             bft_genesis_world(&scope),
@@ -242,9 +283,15 @@ fn four_node_runtime_commits_and_replays_through_real_execution_drivers() {
             .configure_bft_execution(&config)
             .expect("reopen BFT driver with its exact pinned configuration")
             .expect("durable BFT head");
-        assert_eq!(head.height, restarted_height);
-        assert_eq!(head.block_id, restarted_block_id);
-        let mut history = Vec::with_capacity(restarted_height as usize);
+        assert_eq!(
+            head.height, final_height,
+            "cold driver must recover its exact stopped Node height"
+        );
+        assert!(
+            &head.block_id == final_block_id,
+            "cold driver must recover its exact stopped Node block"
+        );
+        let mut history = Vec::with_capacity(final_height as usize);
         let mut after_height = 0;
         loop {
             let page = driver
@@ -265,19 +312,64 @@ fn four_node_runtime_commits_and_replays_through_real_execution_drivers() {
                 .height;
             history.extend(page);
         }
-        assert_eq!(history.len() as u64, restarted_height);
+        assert_eq!(history.len() as u64, final_height);
         let mut schedule = oasis7_node::BftHeightProposerScheduleV1::genesis(&set, AUTHORITY_EPOCH)
             .expect("fixed genesis proposer schedule");
+        let mut retained_restart_checkpoint = false;
+        let mut retained_advanced_checkpoint = false;
+        let mut replayed_block_id = None;
         for certificate in history {
             let token =
                 oasis7_node::verify_commit_certificate_token_v1(&set, &schedule, &certificate)
                     .expect("independently verify raw QC from fixed-set schedule");
+            let height = token.certificate().proposal.block.height;
+            let block_id = token
+                .certificate()
+                .proposal
+                .block
+                .block_id()
+                .expect("verified QC block identity");
+            if height == restarted_height {
+                assert!(
+                    block_id == restarted_block_id,
+                    "cold history must retain the original shared restart checkpoint"
+                );
+                retained_restart_checkpoint = true;
+            }
+            if height == advanced_height {
+                assert!(
+                    &block_id == advanced_block_id,
+                    "cold history must retain the newer shared committed checkpoint"
+                );
+                retained_advanced_checkpoint = true;
+            }
+            if let Some(previous) = certified_blocks.get(&height) {
+                assert!(
+                    previous == &block_id,
+                    "all overlapping independently verified heights must agree"
+                );
+            } else {
+                certified_blocks.insert(height, block_id.clone());
+            }
+            replayed_block_id = Some(block_id);
             driver
                 .commit_bft_certificate(token.clone())
                 .expect("restore exact QC through the production driver hook");
             schedule = token.next_height_schedule().clone();
         }
-        assert_eq!(schedule.height(), restarted_height + 1);
+        assert!(
+            retained_restart_checkpoint,
+            "each cold history must contain the original common checkpoint"
+        );
+        assert!(
+            retained_advanced_checkpoint,
+            "each cold history must contain the newer common checkpoint"
+        );
+        assert!(
+            replayed_block_id.as_ref() == Some(final_block_id),
+            "independently verified history must end at the stopped Node block"
+        );
+        assert_eq!(schedule.height(), final_height + 1);
         assert!(
             driver
                 .execution_world
@@ -285,6 +377,16 @@ fn four_node_runtime_commits_and_replays_through_real_execution_drivers() {
                 .agents
                 .contains_key("node-runtime-bft-agent"),
             "the committed real action must materialize after cold QC replay"
+        );
+    }
+    for (index, original_record) in committed_records.iter().enumerate() {
+        let path = root.join(format!(
+            "driver-{index}/records/bft-execution-v1/height-{committed_height:020}.cbor"
+        ));
+        assert!(
+            &std::fs::read(path).expect("read original BFT evidence after cold replay")
+                == original_record,
+            "cold replay must not rewrite the original shared-height record"
         );
     }
     std::fs::remove_dir_all(root).expect("remove isolated BFT Node test state");

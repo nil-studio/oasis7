@@ -30,6 +30,8 @@ mod builtin_factory_quote;
 pub use builtin_factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactoryQuote};
 mod builtin_recipe_quote;
 pub use builtin_recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};
+mod native_resource_basis;
+pub use native_resource_basis::*;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;
@@ -71,6 +73,7 @@ mod formal_retention_candidate_restore;
 mod formal_retention_tick;
 mod formal_retention_tick_reads;
 mod runtime_support;
+mod rolling_sequence;
 pub use formal_retention::FormalWorldRetentionPlanV1;
 #[cfg(test)]
 use oasis7_wasm_router::PreparedSubscription;
@@ -182,6 +185,7 @@ mod rules;
 mod scheduling;
 mod snapshot;
 mod step;
+pub(crate) mod task_terminal_v2;
 mod tick_consensus;
 mod tick_consensus_state_root;
 #[cfg(test)]
@@ -1005,23 +1009,6 @@ impl World {
         Self::preview_rolling_sequence_id(next_id, era)
     }
 
-    fn allocate_rolling_sequence_id(next_id: &mut u64, era: &mut u64) -> u64 {
-        let (allocated, next_id_after, era_after) =
-            Self::preview_rolling_sequence_id(*next_id, *era);
-        *next_id = next_id_after;
-        *era = era_after;
-        allocated
-    }
-
-    fn preview_rolling_sequence_id(next_id: u64, era: u64) -> (u64, u64, u64) {
-        let allocated = next_id.max(1);
-        if allocated == u64::MAX {
-            (allocated, 1, era.saturating_add(1))
-        } else {
-            (allocated, allocated + 1, era)
-        }
-    }
-
     pub(super) fn enforce_pending_action_limit(&mut self) {
         let max_len = self.runtime_memory_limits.max_pending_actions.max(1);
         while self.pending_actions.len() > max_len {
@@ -1173,3 +1160,34 @@ mod participant_devlocal_tests;
 
 mod participant_devlocal;
 pub use participant_devlocal::DevLocalParticipantAuthority;
+
+pub mod incremental_body;
+pub mod incremental_body_event;
+
+pub mod incremental_agent_genesis;
+pub mod incremental_scheduler;
+mod incremental_scheduler_index;
+
+pub mod incremental_projection;
+
+mod incremental_agent_move;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_commit;
+
+pub mod incremental_allocators;
+pub mod incremental_controls;
+
+pub(super) mod incremental_clock;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_effect_records;
+mod incremental_artifact_config;
+pub mod incremental_artifact_content;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_artifact_resources;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_scheduler_controls;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_capability_records;

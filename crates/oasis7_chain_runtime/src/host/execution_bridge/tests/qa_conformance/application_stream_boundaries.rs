@@ -27,9 +27,17 @@ fn real_tcp_nonreading_viewer_preserves_second_primed_viewer() {
         "slow-consumer",
     );
 }
+#[derive(Default)]
+struct OrderedResponseProgress {
+    started: bool,
+    hello_seen: bool,
+    snapshot_seen: bool,
+    complete: bool,
+}
 pub(super) struct Session {
     reader: BufReader<TcpStream>,
     partial_line: String,
+    ordered_response: OrderedResponseProgress,
     diagnostic: bool,
     created: Instant,
     connection: u16,
@@ -61,6 +69,7 @@ impl Session {
         Self {
             reader: BufReader::new(socket),
             partial_line: String::new(),
+            ordered_response: OrderedResponseProgress::default(),
             diagnostic: !small,
             created: Instant::now(),
             connection,
@@ -72,6 +81,16 @@ impl Session {
         let mut bytes = serde_json::to_vec(&value).unwrap();
         bytes.push(b'\n');
         let result = self.reader.get_mut().write_all(&bytes);
+        if result.is_ok()
+            && matches!(
+                value["type"].as_str(),
+                Some("hello_v2" | "request_snapshot")
+            )
+        {
+            // Only a new successfully sent exchange resets ordering. Bounded
+            // late reads and final drain continue the original exchange.
+            self.ordered_response = OrderedResponseProgress::default();
+        }
         if self.diagnostic {
             println!(
                 "stream_observer_send connection={} type={} elapsed_us={} result={:?}",
@@ -89,8 +108,13 @@ impl Session {
     pub(super) fn snapshot_ordered(&mut self, budget: Duration, require_hello: bool) -> bool {
         let deadline = Instant::now() + budget;
         let read_started = Instant::now();
-        let mut hello_seen = !require_hello;
-        let mut snapshot_seen = false;
+        if !self.ordered_response.started {
+            self.ordered_response.started = true;
+            self.ordered_response.hello_seen = !require_hello;
+        }
+        if self.ordered_response.complete {
+            return true;
+        }
         while Instant::now() < deadline {
             self.reader
                 .get_mut()
@@ -120,16 +144,19 @@ impl Session {
                             );
                         }
                         if value["type"] == "hello_ack" {
-                            hello_seen = true;
+                            self.ordered_response.hello_seen = true;
                         }
-                        if hello_seen
+                        if self.ordered_response.hello_seen
                             && value["type"] == "snapshot"
                             && value["snapshot"]["runtime_snapshot"].is_object()
                         {
                             println!("actual_stream_snapshot_bytes={}", self.partial_line.len());
-                            snapshot_seen = true;
+                            self.ordered_response.snapshot_seen = true;
                         }
-                        if snapshot_seen && value["type"] == "authoritative_recovery_ack" {
+                        if self.ordered_response.snapshot_seen
+                            && value["type"] == "authoritative_recovery_ack"
+                        {
+                            self.ordered_response.complete = true;
                             self.partial_line.clear();
                             return true;
                         }
@@ -222,6 +249,7 @@ fn real_tcp_session_close_drains_responses_queued_before_eof() {
     let session = Session {
         reader: BufReader::new(socket),
         partial_line: String::new(),
+        ordered_response: OrderedResponseProgress::default(),
         diagnostic: false,
         created: Instant::now(),
         connection: 0,
@@ -778,4 +806,90 @@ fn kernel_queued_bytes(stream: &TcpStream) -> i32 {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn kernel_queued_bytes(_: &TcpStream) -> i32 {
     panic!("actual kernel queue probe unsupported: not_run");
+}
+
+#[test]
+fn real_tcp_ordered_response_progress_survives_split_read_windows() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (mut accepted, _) = listener.accept().unwrap();
+    accepted
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let accepted_probe = accepted.try_clone().unwrap();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        let mut input = BufReader::new(accepted.try_clone()?);
+        let mut line = String::new();
+        input.read_line(&mut line)?;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "hello_v2"
+        );
+        line.clear();
+        input.read_line(&mut line)?;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "request_snapshot"
+        );
+        accepted.write_all(b"{\"type\":\"hello_ack\"}\n{\"type\":\"snapshot\",\"snapshot\":{\"runtime_snapshot\":{}}}\n")?;
+        ready_tx.send(()).unwrap();
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        accepted.write_all(b"{\"type\":\"authoritative_recovery_ack\"}\n")?;
+        ack_tx.send(()).unwrap();
+        // A new actual request receives an Ack without any Snapshot. Prior
+        // completed progress must never make this new exchange look complete.
+        line.clear();
+        input.read_line(&mut line)?;
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["type"],
+            "request_snapshot"
+        );
+        accepted.write_all(b"{\"type\":\"authoritative_recovery_ack\"}\n")?;
+        ack_tx.send(()).unwrap();
+        std::io::copy(&mut input, &mut std::io::sink())?;
+        Ok(())
+    });
+    let mut session = Session {
+        reader: BufReader::new(socket),
+        partial_line: String::new(),
+        ordered_response: OrderedResponseProgress::default(),
+        diagnostic: true,
+        created: Instant::now(),
+        connection: 0,
+        accepted_probe,
+        worker,
+    };
+    session.send(serde_json::json!({"type":"hello_v2","client":"split-window","version":2,"capabilities":[]})).unwrap();
+    session
+        .send(serde_json::json!({"type":"request_snapshot"}))
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(!session.snapshot_ordered(Duration::from_millis(50), true));
+    assert!(session.partial_line.is_empty() && session.reader.buffer().is_empty());
+    let mut byte = [0u8; 1];
+    assert!(
+        session.reader.get_ref().peek(&mut byte).is_err(),
+        "first window must consume both complete actual frames before target"
+    );
+    release_tx.send(()).unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(
+        session.snapshot_ordered(Duration::from_millis(100), false),
+        "late Ack must complete the same actual exchange after its Snapshot was consumed in the first window"
+    );
+    session
+        .send(serde_json::json!({"type":"request_snapshot"}))
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(
+        !session.snapshot_ordered(Duration::from_millis(50), false),
+        "new actual exchange cannot inherit a prior completed Snapshot"
+    );
+    assert!(session.close().is_ok());
 }

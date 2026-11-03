@@ -6,7 +6,7 @@
 
 使用主 Agent 提供的计划日期 D、时区、实例键和规则提交。默认时区为 `Asia/Shanghai`，主统计窗口是 `[D-1 00:00, D 00:00)`；补跑也使用这个窗口，不取“现在之前 24 小时”。记录查询时刻和当前 GitHub 状态，窗口之后发生的完成/合入只作后续状态，不混入昨日指标。
 
-范围为 `eng-cc/oasis7` 的 PR 相关 CI，优先 required checks 及其必要上游；非必需 workflow 单列为资源开销或疑似共享资源竞争，不直接称为合入阻塞。读取当前规则用于导航，但没有历史证据时，不将当前分支保护设置冒充昨日配置。
+范围为 `nil-studio/oasis7` 的 PR 相关 CI，优先 required checks 及其必要上游；非必需 workflow 单列为资源开销或疑似共享资源竞争，不直接称为合入阻塞。读取当前规则用于导航，但没有历史证据时，不将当前分支保护设置冒充昨日配置。
 
 ## 读取实际来源
 
@@ -15,6 +15,20 @@
 按 `run_id + run_attempt` 区分尝试，按 job ID 去重，并保留 PR、source HEAD、测试对象/merge SHA、workflow、job 和最终检查的关联。读取全部必要分页和 attempts，不能只分析默认首页/最新 attempt；GitHub 查询返回达到上限时拆分时间窗口继续读取，仍无法完整取得则标记覆盖不足。无需下载无关产物或在当前环境编译项目。
 
 读取当时 workflow 的依赖关系、检查/作业时间戳、必要的脱敏日志和 PR 时间线，确定 required-gate 的必要上游。权限不足、日志过期、取消和仍在运行都单独记载；没有看到的结果不能计作成功或零耗时。API 字段和分页入口以 GitHub 的 [workflow runs](https://docs.github.com/en/rest/actions/workflow-runs) 与 [workflow jobs](https://docs.github.com/en/rest/actions/workflow-jobs) 文档为准。
+
+## 四小时完整回归健康
+
+读取可信规则版本的 `scripts/ci-full-result.py` 后，使用已有获准的只读 `GH_TOKEN`/`GITHUB_TOKEN` 调用：
+
+```bash
+GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
+```
+
+使用当前 canonical 仓库名；旧 `eng-cc` 别名可能产生重定向，该客户端不会把认证请求转发到另一个 API 地址。helper 查询最近两天 main schedule，结果包括最近运行、`last_successful_sha` 和 `commit_range`。这是查询时刻的健康快照，单独附在报告中，不回填昨日耗时 cohort；仍需保留本任务的 PR、历史 attempts 与关键路径分析。
+
+四小时 cadence 另留一小时观测余量，五小时未见新启动报告过期；任何未完成轮超过四小时、无最近成功、最近终态失败或数据不完整均按非零结果记录为失败/未知。新 pending/running 不清除上一终态失败，窗口内没有可核实绿色时不写“主线健康”。缺 helper、权限或完整数据时报告该检查未完成；不要临时改用候选策略或把错误吞为成功。
+
+健康查询不执行发布资格验证、不自动重跑/取消 CI，也不新建外部定时器。发布仍由准确 source、相同检查定义及实际 attempt 的完整 receipt 核验；本任务的定时执行是否生效以主 Agent 真实调度为准。发现有证据的问题时按下文既有问题闭环承接，不因单一阈值或数据缺失自动制造卡点 Issue。
 
 ## 耗时口径
 
@@ -50,7 +64,7 @@
 
 沿用 [WORKFLOW 的问题闭环](../WORKFLOW.md#confirmed-problem-followthrough)；以下保留本任务的卡点判据、证据字段与执行者分工，不扩大写入或持续执行授权。
 
-每个有证据的合入卡点都由本 subagent 在 `eng-cc/oasis7` 创建或关联 Issue，不能仅在报告中建议建单。已观测到阻塞但根因尚不明确时可以建立“待定位”的卡点 Issue，区分事实和假设；单独命中筛查阈值、数据不足或没有实际问题不制造 Issue。报告重点展示前 3 项，其余已确认卡点保留 Issue 索引，不因摘要上限丢失跟踪。
+每个有证据的合入卡点都由本 subagent 在 `nil-studio/oasis7` 创建或关联 Issue，不能仅在报告中建议建单。已观测到阻塞但根因尚不明确时可以建立“待定位”的卡点 Issue，区分事实和假设；单独命中筛查阈值、数据不足或没有实际问题不制造 Issue。报告重点展示前 3 项，其余已确认卡点保留 Issue 索引，不因摘要上限丢失跟踪。
 
 写入按 [HEARTBEAT.md](../HEARTBEAT.md) 的 Issue 协调与结果核实执行。先检索并读取相关 open/closed Issue，按必要检查、症状/根因和影响范围查重，不只按标题或当日日期判断。同一卡点跨日期复用同一未解决 Issue，只补充新的 PR/run 证据；只有关闭记录且存在新复发证据时新建关联复发项，不擅自重新打开历史 Issue。主 Agent 不代写。
 
@@ -64,6 +78,7 @@
 结论：有明显卡点 / 有疑似瓶颈 / 在已覆盖范围内未发现明显卡点 / 数据不足。
 统计：计划日期、主窗口与时区、查询时刻、覆盖的 PR/runs/attempts、缺失范围。
 耗时：必要 CI 和关键作业的样本数、P50/P95/最大值、可核实排队、失败和重跑情况。
+完整回归健康：查询时刻、最近运行/终态、最近成功 SHA 与提交区间、health 退出结果及未知范围；不代替发布 qualification。
 卡点：最多 3 项；每项含 PR/HEAD、run/job 链接、可证明的等待、根因证据及置信边界。
 建议：按收益排序的最小改动与验证办法；可合并处理的问题优先一个 PR，不直接实施。
 Issue：每个卡点的新建/复用链接、已补充证据，以及未完成或结果未知的写入。

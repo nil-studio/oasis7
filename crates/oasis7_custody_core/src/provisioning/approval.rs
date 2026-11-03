@@ -32,6 +32,7 @@ pub enum ProvisionApprovalError {
     Admission(ApprovalAdmissionError),
     Provision(ProvisionError),
     BindingMismatch,
+    ContextTooLarge,
     Conflict,
     InvalidPersistence,
 }

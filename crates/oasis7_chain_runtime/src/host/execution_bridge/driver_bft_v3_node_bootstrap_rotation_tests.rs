@@ -184,6 +184,7 @@ fn node_proofs(
     let state = Arc::new(NodeBftPeerExecutionStateV3::default());
     let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(
         actual,
+        None,
         CandidateRetentionProfile::LegacyRecovery,
     ))));
     let gates = crate::node_lifecycle::network_gates_for_count(h.trust.initial_trust.clone(), 4);

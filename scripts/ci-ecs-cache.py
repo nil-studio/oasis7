@@ -99,9 +99,13 @@ def identity():
     # deliberately separate from the compatible build-configuration identity.
     metadata = json.loads(subprocess.check_output(
         ['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], cwd=ROOT, text=True))
-    files = {'Cargo.lock', '.github/workflows/ecs-packages.yml', 'scripts/ci-ecs-cache.py',
+    # A virtual workspace's root manifest is absent from metadata.packages,
+    # but owns the ECS profile and workspace dependencies. Always hash it.
+    # Workflow orchestration and capacity policy do not change compiled units;
+    # actual compiler environment and build/restore helpers remain below.
+    files = {'Cargo.toml', 'Cargo.lock', 'scripts/ci-ecs-cache.py',
              'scripts/package-ecs.py', 'scripts/ci-test-artifacts.py',
-             'scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py'}
+             'scripts/ci-cache-archive.py'}
     files.update(str(Path(package['manifest_path']).relative_to(ROOT)) for package in metadata['packages'])
     files.update(str(path.relative_to(ROOT)) for path in (ROOT / '.cargo').rglob('*') if path.is_file())
     files.update(name for name in ('rust-toolchain', 'rust-toolchain.toml') if (ROOT / name).is_file())

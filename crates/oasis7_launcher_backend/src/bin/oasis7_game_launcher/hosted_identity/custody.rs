@@ -33,6 +33,9 @@ pub(super) struct CustodyConfig {
     pub(super) revocation: Option<revocation::RevocationConfig>,
 }
 impl CustodyConfig {
+    pub(super) fn management_audience(&self) -> &str {
+        &self.audience
+    }
     pub(super) fn attach_revocation(
         &self,
         store: &mut super::store::IdentityStore,
@@ -554,3 +557,7 @@ impl IdentityService {
 #[cfg(test)]
 #[path = "custody_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "custody_management_metadata_tests.rs"]
+mod metadata_tests;

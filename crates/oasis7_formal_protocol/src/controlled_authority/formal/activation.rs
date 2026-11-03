@@ -96,18 +96,45 @@ impl VerifiedAuthorityV1 {
 impl InitialActivationBodyV1 {
     pub fn validate(&self) -> Result<(), FormalError> {
         self.authority.verify_policy(&self.recovery_policy)?;
-        if !matches!(self.schema_version, 1 | 2)
+        if !matches!(self.schema_version, 1..=3)
             || self.authority.epoch != 1
             || self.authority.valid_from_position != 1
             || self.authority.predecessor_authority_id.is_some()
-            || self.artifact_roots.len() != if self.schema_version == 2 { 9 } else { 8 }
+            || self.artifact_roots.len()
+                != if self.schema_version == 3 {
+                    6
+                } else if self.schema_version == 2 {
+                    9
+                } else {
+                    8
+                }
             || self
                 .artifact_roots
                 .contains_key(&ArtifactRole::NativeExecutionEnvironment)
-                != (self.schema_version == 2)
+                != (self.schema_version >= 2)
             || self.artifact_roots.contains_key(&ArtifactRole::Input)
         {
             return Err(invalid("initial formal authorization boundary/roots"));
+        }
+        if (self.schema_version == 3) != (self.authority.profile_version == 3) {
+            return Err(invalid("initial authority incremental format mismatch"));
+        }
+        if self.schema_version == 3 {
+            super::incremental::validate_roots(
+                &self.artifact_roots,
+                true,
+                &self.authority.world,
+                &self.initial_state_root,
+                &self.runtime_manifest_digest,
+            )?;
+        } else if self
+            .artifact_roots
+            .keys()
+            .any(|role| super::incremental::is_iws_role(*role))
+        {
+            return Err(invalid(
+                "legacy initial authorization cannot carry incremental roots",
+            ));
         }
         for digest in [
             &self.initial_state_root,
@@ -120,7 +147,8 @@ impl InitialActivationBodyV1 {
         for digest in self.artifact_roots.values() {
             hash_hex(digest)?;
         }
-        if self.artifact_roots.get(&ArtifactRole::Snapshot) != Some(&self.initial_state_root)
+        if self.schema_version < 3
+            && self.artifact_roots.get(&ArtifactRole::Snapshot) != Some(&self.initial_state_root)
             || self.artifact_roots.get(&ArtifactRole::ExecutionManifest)
                 != Some(&self.runtime_manifest_digest)
         {

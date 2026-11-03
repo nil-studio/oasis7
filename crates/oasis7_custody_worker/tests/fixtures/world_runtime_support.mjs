@@ -6,12 +6,13 @@ import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-export async function worldAuthority(directory) {
+export async function worldAuthority(directory,{liveContext=false}={}) {
   const ready=resolve(directory,'world-ready.json'),stop=resolve(directory,'world-stop');
   const binary=readFileSync(resolve(root,'artifacts/world-test-binary.txt'),'utf8').trim();
-  const child=spawn(binary,['serve_custody_world_http_fixture','--ignored','--nocapture','--test-threads=1'],{
+  const child=spawn(binary,[liveContext?'serve_live_context_world_http_fixture':'serve_custody_world_http_fixture','--ignored','--nocapture','--test-threads=1'],{
     env:{...Object.fromEntries(Object.entries(process.env).filter(([key])=>!key.startsWith('OASIS7_'))),
-      OASIS7_CUSTODY_WORLD_HTTP_READY:ready,OASIS7_CUSTODY_WORLD_HTTP_STOP:stop},
+      OASIS7_CUSTODY_WORLD_HTTP_READY:ready,OASIS7_CUSTODY_WORLD_HTTP_STOP:stop,
+      ...(liveContext?{OASIS7_LIVE_CONTEXT_ADVANCE:resolve(directory,'advance'),OASIS7_LIVE_CONTEXT_NEXT:resolve(directory,'next.json'),OASIS7_LIVE_CONTEXT_STATS_REQUEST:resolve(directory,'stats-request'),OASIS7_LIVE_CONTEXT_STATS:resolve(directory,'stats.json')}: {})},
     stdio:['ignore','pipe','pipe']});
   let exited=false,output='';
   for(const stream of [child.stdout,child.stderr]) stream.on('data',chunk=>{output=(output+chunk.toString()).slice(-12000);});

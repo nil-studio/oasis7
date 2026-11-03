@@ -9,7 +9,11 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 #[path = "driver_bft_v3_formal_node.rs"]
+#[cfg(not(test))]
 mod node_execution;
+#[cfg(test)]
+#[path = "driver_bft_v3_formal_node.rs"]
+pub(crate) mod node_execution;
 pub(crate) use node_execution::FormalBftHeaderNodeDriverV3;
 #[cfg(test)]
 pub(crate) use node_execution::OriginalHeaderIdentityV1;

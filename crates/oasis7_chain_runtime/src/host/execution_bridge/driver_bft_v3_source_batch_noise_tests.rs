@@ -123,7 +123,13 @@ pub(super) fn read_actual_provider_original_v2(
         .unwrap(),
     );
     // The issuer/hint acquisition is deliberately outside the rejection fee window.
-    assert_wrong_pop_before_material(&networks, credentials.as_ref(), reference, deadline, &oracle);
+    assert_wrong_pop_before_material(
+        &networks,
+        credentials.as_ref(),
+        reference,
+        deadline,
+        &oracle,
+    );
     let hints_and_rejection_floor = oracle.counter();
     let reader_response_floor = oracle.responses.load(std::sync::atomic::Ordering::SeqCst);
     let reader = NodeBftLibp2pAdmissionInputReaderV2::new(
@@ -141,9 +147,18 @@ pub(super) fn read_actual_provider_original_v2(
     reference.validate_input(read.input()).unwrap();
     drop(read);
     let expected_reader_responses = 1 + reference.object.bytes.div_ceil(3 * 16 * 1024);
-    assert_eq!(u64::try_from(oracle.responses.load(std::sync::atomic::Ordering::SeqCst)
-        .checked_sub(reader_response_floor).unwrap()).unwrap(), expected_reader_responses,
-        "exact reader manifest plus batches; raw control and hints excluded");
+    assert_eq!(
+        u64::try_from(
+            oracle
+                .responses
+                .load(std::sync::atomic::Ordering::SeqCst)
+                .checked_sub(reader_response_floor)
+                .unwrap()
+        )
+        .unwrap(),
+        expected_reader_responses,
+        "exact reader manifest plus batches; raw control and hints excluded"
+    );
     assert!(oracle.counter() > hints_and_rejection_floor);
     issuer_server.stop().unwrap();
 }
@@ -250,11 +265,18 @@ impl oasis7_node::NodeBftAdmissionInputBatchReadGateV2 for GateProbe {
         );
         drop(wrapped);
         if let Ok(payload) = &result {
-            let outer = oasis7_proto::distributed_net::NetworkResponse { payload: payload.clone() };
+            let outer = oasis7_proto::distributed_net::NetworkResponse {
+                payload: payload.clone(),
+            };
             let expected = u64::try_from(serde_cbor::to_vec(&outer).unwrap().len()).unwrap();
-            assert_eq!(self.oracle.counter().checked_sub(counter_before), Some(expected),
-                "actual backend must reserve exactly the independently encoded outer response");
-            self.oracle.responses.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(
+                self.oracle.counter().checked_sub(counter_before),
+                Some(expected),
+                "actual backend must reserve exactly the independently encoded outer response"
+            );
+            self.oracle
+                .responses
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         if print {
             eprintln!(
@@ -305,7 +327,9 @@ impl oasis7_node::NodeBftAdmissionInputSourceV1 for SourceProbe {
         reference: &BftPrivateRetentionAdmissionInputRefV1,
         deadline: Instant,
     ) -> Result<Arc<oasis7_node::NodeBftAdmissionInputBytesV1>, String> {
-        self.oracle.lookups.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.oracle
+            .lookups
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let result = oasis7_node::NodeBftAdmissionInputSourceV1::original(
             self.inner.as_ref(),
             reference,
@@ -325,7 +349,9 @@ impl oasis7_node::NodeBftAdmissionInputSourceV1 for SourceProbe {
         original: &oasis7_node::NodeBftAdmissionInputBytesV1,
         deadline: Instant,
     ) -> Result<bool, String> {
-        self.oracle.checks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.oracle
+            .checks
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let result = oasis7_node::NodeBftAdmissionInputSourceV1::revalidate_original(
             self.inner.as_ref(),
             original,
@@ -345,7 +371,6 @@ impl oasis7_node::NodeBftAdmissionInputSourceV1 for SourceProbe {
     }
 }
 
-
 // Test-only observation of the exact same backend; no accepting authority stub.
 struct FeeOracle {
     backend: std::sync::Mutex<BftPrivateRetentionMemoryBackendV1>,
@@ -357,9 +382,14 @@ struct FeeOracle {
 impl FeeOracle {
     fn counter(&self) -> u64 {
         use oasis7_distfs::protected_bft_v3::BftSignerBackendV3;
-        self.backend.lock().unwrap()
-            .load_private_retention_current(&self.binding_digest).unwrap()
-            .signer.successor_archive_transfer.expect("actual transfer ledger")
+        self.backend
+            .lock()
+            .unwrap()
+            .load_private_retention_current(&self.binding_digest)
+            .unwrap()
+            .signer
+            .successor_archive_transfer
+            .expect("actual transfer ledger")
             .reserved_response_bytes
     }
 }
@@ -386,48 +416,104 @@ fn assert_wrong_pop_before_material(
     let mut authorization = credentials.authorize(&read, deadline).unwrap();
     // A valid actual-server control establishes this independently serialized wire shape/domain.
     let control = serde_cbor::to_vec(&Request {
-        domain: "oasis7.bft.admission-input.exchange.v2", read: &read,
+        domain: "oasis7.bft.admission-input.exchange.v2",
+        read: &read,
         authorization: authorization.clone(),
-    }).unwrap();
+    })
+    .unwrap();
     let control_counter = oracle.counter();
     let control_lookups = oracle.lookups.load(std::sync::atomic::Ordering::SeqCst);
     let control_responses = oracle.responses.load(std::sync::atomic::Ordering::SeqCst);
-    let control_reply = networks[0].request_authenticated_to_peer_with_timeout(
-        "/oasis7/bft/admission-input/2.0.0", &control, networks[1].peer_id(),
-        deadline.saturating_duration_since(Instant::now())).unwrap();
-    assert!(!control_reply.is_empty(), "valid same-wire manifest must succeed");
+    let control_reply = networks[0]
+        .request_authenticated_to_peer_with_timeout(
+            "/oasis7/bft/admission-input/2.0.0",
+            &control,
+            networks[1].peer_id(),
+            deadline.saturating_duration_since(Instant::now()),
+        )
+        .unwrap();
+    assert!(
+        !control_reply.is_empty(),
+        "valid same-wire manifest must succeed"
+    );
     assert!(oracle.counter() > control_counter);
     assert!(oracle.lookups.load(std::sync::atomic::Ordering::SeqCst) > control_lookups);
-    assert_eq!(oracle.responses.load(std::sync::atomic::Ordering::SeqCst), control_responses + 1);
+    assert_eq!(
+        oracle.responses.load(std::sync::atomic::Ordering::SeqCst),
+        control_responses + 1
+    );
     // Preserve shape, issuer signature, grant and coordinates; corrupt only subject PoP.
-    let replacement = if authorization.signature_hex.starts_with('0') { "1" } else { "0" };
+    let replacement = if authorization.signature_hex.starts_with('0') {
+        "1"
+    } else {
+        "0"
+    };
     authorization.signature_hex.replace_range(..1, replacement);
     let bytes = serde_cbor::to_vec(&Request {
-        domain: "oasis7.bft.admission-input.exchange.v2", read: &read, authorization,
-    }).unwrap();
+        domain: "oasis7.bft.admission-input.exchange.v2",
+        read: &read,
+        authorization,
+    })
+    .unwrap();
     // Decode both through the same representation and prove only signature_hex changed.
     let mut control_value: serde_cbor::Value = serde_cbor::from_slice(&control).unwrap();
     let bad_value: serde_cbor::Value = serde_cbor::from_slice(&bytes).unwrap();
     if let serde_cbor::Value::Map(fields) = &mut control_value {
-        let auth = fields.get_mut(&serde_cbor::Value::Text("authorization".into())).unwrap();
+        let auth = fields
+            .get_mut(&serde_cbor::Value::Text("authorization".into()))
+            .unwrap();
         if let serde_cbor::Value::Map(fields) = auth {
-            let bad_auth = match &bad_value { serde_cbor::Value::Map(fields) =>
-                fields.get(&serde_cbor::Value::Text("authorization".into())).unwrap(), _ => unreachable!() };
-            let bad_signature = match bad_auth { serde_cbor::Value::Map(fields) =>
-                fields.get(&serde_cbor::Value::Text("signature_hex".into())).unwrap().clone(), _ => unreachable!() };
-            fields.insert(serde_cbor::Value::Text("signature_hex".into()), bad_signature);
-        } else { panic!("authorization must be a map"); }
-    } else { panic!("request must be a map"); }
-    assert_eq!(control_value, bad_value, "negative changes only the subject PoP");
-    let before = (oracle.counter(), oracle.lookups.load(std::sync::atomic::Ordering::SeqCst),
+            let bad_auth = match &bad_value {
+                serde_cbor::Value::Map(fields) => fields
+                    .get(&serde_cbor::Value::Text("authorization".into()))
+                    .unwrap(),
+                _ => unreachable!(),
+            };
+            let bad_signature = match bad_auth {
+                serde_cbor::Value::Map(fields) => fields
+                    .get(&serde_cbor::Value::Text("signature_hex".into()))
+                    .unwrap()
+                    .clone(),
+                _ => unreachable!(),
+            };
+            fields.insert(
+                serde_cbor::Value::Text("signature_hex".into()),
+                bad_signature,
+            );
+        } else {
+            panic!("authorization must be a map");
+        }
+    } else {
+        panic!("request must be a map");
+    }
+    assert_eq!(
+        control_value, bad_value,
+        "negative changes only the subject PoP"
+    );
+    let before = (
+        oracle.counter(),
+        oracle.lookups.load(std::sync::atomic::Ordering::SeqCst),
         oracle.checks.load(std::sync::atomic::Ordering::SeqCst),
-        oracle.responses.load(std::sync::atomic::Ordering::SeqCst));
+        oracle.responses.load(std::sync::atomic::Ordering::SeqCst),
+    );
     let rejected = networks[0].request_authenticated_to_peer_with_timeout(
-        "/oasis7/bft/admission-input/2.0.0", &bytes, networks[1].peer_id(),
-        deadline.saturating_duration_since(Instant::now()));
-    assert!(rejected.is_err(), "actual server must reject corrupted subject PoP");
-    assert_eq!((oracle.counter(), oracle.lookups.load(std::sync::atomic::Ordering::SeqCst),
-        oracle.checks.load(std::sync::atomic::Ordering::SeqCst),
-        oracle.responses.load(std::sync::atomic::Ordering::SeqCst)), before,
-        "bad PoP must precede material lookup, recheck, response gate and transfer charge");
+        "/oasis7/bft/admission-input/2.0.0",
+        &bytes,
+        networks[1].peer_id(),
+        deadline.saturating_duration_since(Instant::now()),
+    );
+    assert!(
+        rejected.is_err(),
+        "actual server must reject corrupted subject PoP"
+    );
+    assert_eq!(
+        (
+            oracle.counter(),
+            oracle.lookups.load(std::sync::atomic::Ordering::SeqCst),
+            oracle.checks.load(std::sync::atomic::Ordering::SeqCst),
+            oracle.responses.load(std::sync::atomic::Ordering::SeqCst)
+        ),
+        before,
+        "bad PoP must precede material lookup, recheck, response gate and transfer charge"
+    );
 }

@@ -51,6 +51,7 @@ case "${1:-}" in
     bash crates/oasis7_custody_worker/scripts/build-native-fixture.sh
     bash crates/oasis7_custody_worker/scripts/build-world-fixture.sh
     node crates/oasis7_custody_worker/scripts/contract.mjs check
+    bash crates/oasis7_custody_worker/scripts/export-context-body-fixture.sh
     npm test --prefix crates/oasis7_custody_worker
     ;;
   *) echo 'usage: verify.sh [--platform]' >&2; exit 2 ;;

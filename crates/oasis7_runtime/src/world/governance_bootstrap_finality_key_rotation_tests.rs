@@ -1,7 +1,7 @@
 //! Real World projection with cryptographic key proofs; these tests do not
 //! substitute synthetic parents for live wire-3 controller-authorized commits.
 use super::*;
-use crate::GovernanceEvent;
+use crate::{DomainEvent, GovernanceEvent, RejectReason, WorldEventBody};
 use crate::GovernanceValidatorAdmissionStatus as Status;
 use ed25519_dalek::{Signer, SigningKey};
 fn key(n: u8) -> SigningKey {
@@ -552,5 +552,42 @@ fn later_admission_can_rotate_its_original_without_invalidating_earlier_bootstra
         world
             .validate_rotation_reservation(&parent, "fresh", &public(2))
             .is_err()
+    );
+}
+
+#[test]
+fn bootstrap_outer_dispatch_without_controller_rejects_without_history_mutation() {
+    let world = world();
+    let original = record(&world, "dispatch-unauthorized", 0, 1, 2, 120);
+    let before_history = world
+        .state
+        .governance_bootstrap_finality_key_rotations
+        .clone();
+    let before_nonces = world.state.governance_authorization_nonces.clone();
+    let before_registry = world.state.governance_finality_signer_registry.clone();
+    let event = world
+        .action_to_event_policy_contract(987, &original.authorized_action.action, None)
+        .expect("outer dispatch must reach the existing controller rejection guard");
+    let WorldEventBody::Domain(DomainEvent::ActionRejected {
+        action_id,
+        reason: RejectReason::RuleDenied { notes },
+    }) = event
+    else {
+        panic!("missing controller must reject bootstrap rotation")
+    };
+    assert_eq!(action_id, 987);
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("requires controller authorization"))
+    );
+    assert_eq!(
+        world.state.governance_bootstrap_finality_key_rotations,
+        before_history
+    );
+    assert_eq!(world.state.governance_authorization_nonces, before_nonces);
+    assert_eq!(
+        world.state.governance_finality_signer_registry,
+        before_registry
     );
 }

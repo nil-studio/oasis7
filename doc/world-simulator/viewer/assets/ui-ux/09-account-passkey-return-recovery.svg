@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc"><title id="title">先确认账号，再确认进入世界 · 设计目标 · 非运行截图</title><desc id="desc">账号入口 / 返回 / 恢复 · Passkey 优先示意；实际方式按能力显示。此页为静态设计说明，图中世界、身份、预算、报价和结果均为虚构示例。不是可执行 UI、实际截图或功能验收证明。</desc>
+<rect x="0" y="0" width="1600" height="1200" rx="0" fill="#0b100f" stroke="none" stroke-width="1"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text id="t1" x="48" y="42" font-size="16" fill="#9ca89a" font-weight="400">OASIS7  /  VIEWER DESIGN CONTRACT</text>
+<text id="t2" x="1230" y="42" font-size="18" fill="#d0a85b" font-weight="400">设计目标 · 非运行截图</text>
+<text id="t3" x="48" y="86" font-size="32" fill="#edf1e6" font-weight="600">先确认账号，再确认进入世界</text>
+<text id="t4" x="48" y="121" font-size="18" fill="#9ca89a" font-weight="400">09 / 账号入口 / 返回 / 恢复 · Passkey 优先示意；实际方式按能力显示</text>
+<rect x="64" y="165" width="960" height="750" rx="0" fill="#19251f" stroke="#405346" stroke-width="1"/>
+<text id="t5" x="88" y="204" font-size="22" fill="#edf1e6" font-weight="600">示例世界 · 北侧补给区</text>
+<rect x="804" y="180" width="196" height="32" rx="6" fill="#101412" stroke="#9ca89a" stroke-width="1"/>
+<text id="t6" x="816" y="203" font-size="16" fill="#9ca89a" font-weight="400">世界动态 · 收起</text>
+<rect x="82" y="240" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="219" y="329" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="356" y="418" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="493" y="507" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="630" y="596" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="767" y="685" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="904" y="774" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="141" y="303" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="278" y="392" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="415" y="481" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="552" y="570" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="689" y="659" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="826" y="748" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="963" y="277" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="200" y="366" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="337" y="455" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="474" y="544" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="611" y="633" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="748" y="722" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="885" y="251" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="122" y="340" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="259" y="429" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="396" y="518" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="533" y="607" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="670" y="696" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="807" y="785" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="944" y="314" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="181" y="403" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="318" y="492" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="455" y="581" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="592" y="670" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="729" y="759" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="866" y="288" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="103" y="377" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="240" y="466" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="377" y="555" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="514" y="644" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="651" y="733" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="128" y="374" width="246" height="146" rx="0" fill="#29372f" stroke="#35483a" stroke-width="1"/>
+<rect x="163" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="212" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="261" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="256" y="520" width="22" height="191" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="278" y="584" width="480" height="22" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="312" y="546" width="20" height="24" rx="3" fill="#8dc7aa" stroke="#0b100f" stroke-width="1"/>
+<rect x="336" y="845" width="416" height="54" rx="16" fill="#101412" stroke="#405346" stroke-width="1"/>
+<rect x="344" y="851" width="120" height="42" rx="10" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+<text id="t7" x="358" y="879" font-size="18" fill="#d0a85b" font-weight="600">World</text>
+<text id="t8" x="484" y="879" font-size="18" fill="#edf1e6" font-weight="600">Targets</text>
+<text id="t9" x="620" y="879" font-size="18" fill="#edf1e6" font-weight="600">Command</text>
+<rect x="908" y="850" width="92" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t10" x="924" y="879" font-size="18" fill="#edf1e6" font-weight="600">更多</text>
+<rect x="180" y="252" width="728" height="540" rx="16" fill="#101412" stroke="#405346" stroke-width="1"/>
+<rect x="208" y="276" width="160" height="32" rx="6" fill="#101412" stroke="#88cbd0" stroke-width="1"/>
+<text id="t11" x="220" y="299" font-size="16" fill="#88cbd0" font-weight="400">账号与安全</text>
+<text id="t12" x="208" y="346" font-size="28" fill="#edf1e6" font-weight="600">继续使用你的账号</text>
+<text id="t13" x="208" y="383" font-size="20" fill="#9ca89a" font-weight="400">登录只建立账号会话，不会自动接管世界中的 Agent。</text>
+<rect x="203" y="428" width="682" height="54" rx="14" fill="none" stroke="#d0a85b" stroke-width="2"/>
+<rect x="208" y="433" width="672" height="44" rx="10" fill="#d0a85b" stroke="#d0a85b" stroke-width="1"/>
+<text id="t14" x="224" y="462" font-size="18" fill="#0b100f" font-weight="600">使用 Passkey 登录</text>
+<rect x="208" y="496" width="672" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t15" x="224" y="525" font-size="18" fill="#edf1e6" font-weight="600">其他登录方式 · 按当前能力显示</text>
+<text id="t16" x="208" y="573" font-size="19" fill="#9ca89a" font-weight="400">可用时提供已有邮箱登录、已绑定密钥导入。</text>
+<text id="t17" x="208" y="602" font-size="19" fill="#9ca89a" font-weight="400">新注册默认关闭；不阻挡已有 Passkey 登录。</text>
+<path d="M208 638 L880 638" fill="none" stroke="#405346" stroke-width="1"/>
+<text id="t18" x="208" y="677" font-size="18" fill="#9ca89a" font-weight="400">未选择方式前不触发认证仪式。</text>
+<text id="t19" x="208" y="705" font-size="18" fill="#9ca89a" font-weight="400">认证器取消后回到入口，保留真实尝试状态。</text>
+<rect x="208" y="727" width="190" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t20" x="224" y="756" font-size="18" fill="#edf1e6" font-weight="600">返回世界</text>
+<rect x="1050" y="165" width="486" height="247" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t21" x="1074" y="196" font-size="16" fill="#d0a85b" font-weight="600">① 登录成功 → 核对环境与绑定</text>
+<text id="t22" x="1074" y="235" font-size="23" fill="#edf1e6" font-weight="600">账号就绪 ≠ 世界控制</text>
+<text id="t23" x="1074" y="274" font-size="18" fill="#9ca89a" font-weight="400">账号：用户-示例-A（虚构）</text>
+<text id="t24" x="1074" y="302" font-size="18" fill="#9ca89a" font-weight="400">当前世界：world-示例；绑定待核对。</text>
+<text id="t25" x="1074" y="330" font-size="18" fill="#9ca89a" font-weight="400">确认现有世界、Agent 与设备状态；</text>
+<text id="t26" x="1074" y="358" font-size="18" fill="#9ca89a" font-weight="400">其他设备在控制时，接管须再次确认。</text>
+<rect x="1050" y="433" width="486" height="219" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t27" x="1074" y="464" font-size="16" fill="#d0a85b" font-weight="600">② 返回时 → 只读核对原尝试</text>
+<text id="t28" x="1074" y="503" font-size="23" fill="#edf1e6" font-weight="600">结果未知，先核对</text>
+<text id="t29" x="1074" y="542" font-size="18" fill="#9ca89a" font-weight="400">连接中断不能推断登录 / join 失败。</text>
+<text id="t30" x="1074" y="570" font-size="18" fill="#9ca89a" font-weight="400">保留原尝试，不新建重复认证仪式。</text>
+<text id="t31" x="1074" y="598" font-size="18" fill="#9ca89a" font-weight="400">world.state=bound 才表示绑定；</text>
+<text id="t32" x="1074" y="626" font-size="18" fill="#9ca89a" font-weight="400">registration_pending 不等于控制成功。</text>
+<rect x="1050" y="673" width="486" height="242" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t33" x="1074" y="704" font-size="16" fill="#d0a85b" font-weight="600">③ 凭证不可用 → 合法恢复路径</text>
+<text id="t34" x="1074" y="743" font-size="23" fill="#edf1e6" font-weight="600">恢复不绕过既有凭证</text>
+<text id="t35" x="1074" y="782" font-size="18" fill="#9ca89a" font-weight="400">受限环境展示实际可用的替代方式。</text>
+<text id="t36" x="1074" y="810" font-size="18" fill="#9ca89a" font-weight="400">导入仅限已绑定密钥；不生成、不备份。</text>
+<text id="t37" x="1074" y="838" font-size="18" fill="#9ca89a" font-weight="400">恢复沿预登记候选、等待期和最终验证；</text>
+<text id="t38" x="1074" y="866" font-size="18" fill="#9ca89a" font-weight="400">不展示“邮箱一键重置所有权限”。</text>
+<rect x="64" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t39" x="72" y="979" font-size="17" fill="#d0a85b" font-weight="600">1</text>
+<text id="t40" x="108" y="980" font-size="21" fill="#edf1e6" font-weight="600">安全返回与未知状态</text>
+<text id="t41" x="108" y="1015" font-size="18" fill="#9ca89a" font-weight="400">登录 ≠ 世界准入 ≠ 绑定；不自动接管另一设备。</text>
+<text id="t42" x="108" y="1044" font-size="18" fill="#9ca89a" font-weight="400">capabilities 仅 HTTP 404 回退 legacy；其他错误明确保留。</text>
+<rect x="830" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t43" x="838" y="979" font-size="17" fill="#d0a85b" font-weight="600">2</text>
+<text id="t44" x="874" y="980" font-size="21" fill="#edf1e6" font-weight="600">输入与隐私</text>
+<text id="t45" x="874" y="1015" font-size="18" fill="#9ca89a" font-weight="400">表单不展示真实密钥 / OTP / Cookie。IME 组合态</text>
+<text id="t46" x="874" y="1044" font-size="18" fill="#9ca89a" font-weight="400">不触发 Enter 提交或 Esc 关闭；错误保留安全输入。</text>
+<path d="M48 1142 L1552 1142" fill="none" stroke="#405346" stroke-width="2"/>
+<text id="t47" x="48" y="1173" font-size="16" fill="#9ca89a" font-weight="400">基线 cd2ba63bf82a · 2026-10-30 · 示例身份 / 数值 / 状态非运行事实</text>
+<text id="t48" x="1415" y="1173" font-size="16" fill="#9ca89a" font-weight="400">UIUX / 09</text>
+</g></svg>

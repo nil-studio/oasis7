@@ -13,3 +13,6 @@ mkdir -p artifacts
 if [[ -e artifacts/native-harness ]]; then rm -rf artifacts/native-harness; fi
 cp -R build artifacts/native-harness
 cp platform/identity-entry.mjs artifacts/native-harness/entry.mjs
+cat >> artifacts/native-harness/entry.mjs <<'CONTEXT_FIXTURE_EXPORT'
+export { ContextBodyCryptoHarness, ContextBodyChecksHarness } from './index.js';
+CONTEXT_FIXTURE_EXPORT

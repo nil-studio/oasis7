@@ -294,9 +294,22 @@ impl ParticipantEntry {
                 let quote=path==oasis7_client_api::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH || path==oasis7_client_api::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
                 let allowed = (quote
                     && ["task_quote_base_drift", "task_quote_delivery_drift"].contains(&code))
-                    || (path
-                        == oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_PATH
+                    || (matches!(path,
+                        oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_PATH
+                        | oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH)
                         && code == "task_context_read_delivery_drift");
+                let projection = matches!(
+                    path,
+                    CONTEXT_PREPARE_ATTESTED_PATH_V2
+                        | CONTEXT_READ_ATTESTED_PATH_V2
+                        | CONTEXT_MOVE_PROJECTION_PATH_V2
+                );
+                let allowed = allowed
+                    || (projection
+                        && matches!(
+                            code,
+                            "context_too_large" | "task_context_read_delivery_drift"
+                        ));
                 if allowed {
                     return Ok(
                         json!({"api_version":2,"ok":true,"upstream_read_error":{"status":409,"code":code}}),
@@ -340,6 +353,7 @@ impl ParticipantEntry {
                 wire
             }};
         }
+        use oasis7_client_api::world_service::task_context_projection::*;
         use oasis7_client_api::world_service::{
             private_goal::*, private_goal_read::*, task_context::*, task_factory_quote::*,
             task_recipe_quote::*,
@@ -369,7 +383,12 @@ impl ParticipantEntry {
             GOAL_PREPARE_PATH => verified!(PreparedGoalReceiptV1),
             GOAL_CURRENT_PATH => verified!(CurrentGoalResponse),
             TASK_CONTEXT_PREPARE_PATH => verified!(PreparedTaskContextV1),
-            TASK_CONTEXT_READ_PATH => verified!(CapturedTaskContextV1),
+            TASK_CONTEXT_READ_PATH | TASK_CONTEXT_LIVE_READ_PATH => {
+                verified!(CapturedTaskContextV1)
+            }
+            CONTEXT_PREPARE_ATTESTED_PATH_V2 => verified!(TaskContextPreparedDeliveryV2),
+            CONTEXT_READ_ATTESTED_PATH_V2 => verified!(TaskContextCapturedDeliveryV2),
+            CONTEXT_MOVE_PROJECTION_PATH_V2 => verified!(TaskContextMoveProjectionV2),
             TASK_SNAPSHOT_PATH => verified!(GoalExecutionSnapshotV1),
             TASK_RECIPE_QUOTE_PATH => verified!(TaskRecipeQuoteV1),
             TASK_FACTORY_QUOTE_PATH => verified!(TaskFactoryQuoteV1),
@@ -425,6 +444,22 @@ impl IdentityService {
         payload: &Value,
         now: u64,
     ) -> Option<Result<Value, StoreError>> {
+        #[cfg(test)]
+        if path == "/_fixture/resource-basis/owner-view" {
+            return Some((|| {
+                if method != "POST" {
+                    return Err(reject("method_not_allowed"));
+                }
+                let q: oasis7_client_api::world_service::resource_basis::ParticipantOwnerResourceViewRequestV1 = parse_request(&serde_json::to_vec(payload).map_err(|_| reject("invalid_request"))?).map_err(|_| reject("invalid_request"))?;
+                let bytes = self.owner_resource_component(sid, &q, now)?;
+                let reply: oasis7_client_api::world_service::resource_basis::NativeResourceEnvelopeV1<oasis7_client_api::world_service::resource_basis::ParticipantOwnerResourceObservationV1> = parse_request(&bytes).map_err(|_| reject("invalid_request"))?;
+                serde_json::to_value(reply).map_err(|_| reject("invalid_request"))
+            })());
+        }
+        if path == "/participant/owner-resource-view" {
+            // No approved V2 scope/prepaid-once verifier: no environment-only enablement.
+            return Some(Err(reject("participant_unavailable")));
+        }
         if ![
             "/participant/policy-original",
             "/participant/authorize",
@@ -733,3 +768,7 @@ impl IdentityService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "participant_resource_component.rs"]
+mod resource_component;

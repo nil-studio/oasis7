@@ -22,7 +22,7 @@ fn validated(line: &[u8]) -> Option<Vec<u8>> {
         || evidence.parts > MAX_PARTS
         || evidence.part >= evidence.parts
         || evidence.rows.iter().any(|row| {
-            !matches!(row[0], 1..=7 | 10 | 20..=23 | 30..=35 | 40..=42 | 100..=101 | 200)
+            !matches!(row[0], 1..=7 | 10 | 20..=26 | 30..=35 | 40..=42 | 60..=69 | 72..=74 | 80..=88 | 100..=101 | 200)
                 || row[2] > row[3]
         })
     {
@@ -132,4 +132,36 @@ fn numeric_relay_survives_ordinary_libtest_capture() {
             .any(|line| validated(line.as_bytes()).is_some()),
         "numeric evidence must survive default libtest capture on PASS: {stdout}"
     );
+}
+
+#[test]
+fn numeric_relay_accepts_current_hosted_prepare_leaf_codes() {
+    // Exact codes present in Viewer producer metadata/phase/identity guards.
+    // This exercises the real relay validator, not a simulated business result.
+    let encoded = |stage| {
+        let evidence = Evidence {
+            rows: vec![[stage, 1, 10, 11, 0, 0]],
+            dropped: 0,
+            part: 0,
+            parts: 1,
+        };
+        format!("{PREFIX}{}", serde_json::to_string(&evidence).unwrap())
+    };
+    // Existing valid wire shape must pass before the new-code target assertions.
+    assert!(validated(encoded(3).as_bytes()).is_some());
+    for stage in [
+        24, 25, 26, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 72, 73, 74, 80, 81, 82, 83, 84, 85, 86,
+        87, 88,
+    ] {
+        assert!(
+            validated(encoded(stage).as_bytes()).is_some(),
+            "current fixed producer stage must be accepted: {stage}"
+        );
+    }
+    for stage in [27, 59, 70, 71, 75, 79, 89, 999] {
+        assert!(
+            validated(encoded(stage).as_bytes()).is_none(),
+            "unknown or unused stage must remain rejected: {stage}"
+        );
+    }
 }

@@ -1,7 +1,5 @@
 //! Test faults wrap an actual lease; no authority or observations are synthesized.
-use oasis7_consensus::tendermint_v3::{
-    BftProposalIntentV3, BftPublicProposalV3, BftVoteIntentV3,
-};
+use oasis7_consensus::tendermint_v3::{BftProposalIntentV3, BftPublicProposalV3, BftVoteIntentV3};
 use oasis7_distfs::protected_bft_v3::*;
 use oasis7_formal_protocol::bft::FormalBftCertifiedHeaderV3;
 use oasis7_proto::distributed_bft::v3::BftVoteV3;

@@ -183,6 +183,7 @@ impl NoiseFixture {
     ) -> Self {
         let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(
             actual,
+            None,
             CandidateRetentionProfile::PublicationReserved,
         ))));
         Self::new_with_hook(binding, hook)

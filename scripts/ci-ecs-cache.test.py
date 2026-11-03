@@ -81,36 +81,54 @@ def fixture(root):
 
 
 class EcsCacheTests(unittest.TestCase):
-    def test_shared_policy_and_archive_changes_invalidate_restore_identity(self):
+    def test_compilation_and_restore_inputs_control_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            files = ('Cargo.toml', 'Cargo.lock', '.github/workflows/ecs-packages.yml',
+            files = ('Cargo.toml', 'Cargo.lock', 'crates/leaf/Cargo.toml',
                      'scripts/ci-ecs-cache.py', 'scripts/package-ecs.py', 'scripts/ci-test-artifacts.py',
-                     'scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py')
-            for name in files:
+                     'scripts/ci-cache-archive.py', '.cargo/config.toml', 'rust-toolchain.toml')
+            operational = (ecs.WORKFLOW, 'scripts/ci-cache-policy.py')
+            for name in (*files, *operational, 'crates/leaf/src/lib.rs'):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('original')
+            source, version = ['b' * 40], ['fixed version']
 
             def command_output(command, **kwargs):
                 if command[:2] == ['cargo', 'metadata']:
-                    return json.dumps({'packages': [{'manifest_path': str(root / 'Cargo.toml')}]})
+                    # Virtual workspace roots own profiles but are not packages.
+                    return json.dumps({'packages': [{'manifest_path': str(root / 'crates/leaf/Cargo.toml')}]})
                 if command[0] in ('rustc', 'cargo'):
-                    return command[0] + ' fixed version'
+                    return command[0] + ' ' + version[0]
                 if command[:2] == ['git', 'rev-parse']:
-                    return 'b' * 40
+                    return source[0]
                 raise AssertionError(command)
 
             with patch.object(ecs, 'ROOT', root), patch.dict(os.environ, {}, clear=True), \
                     patch.object(ecs.subprocess, 'check_output', side_effect=command_output):
                 baseline = ecs.identity()
-                for helper in ('scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py'):
-                    with self.subTest(helper=helper):
-                        (root / helper).write_text('changed')
+                for name in (*files, *operational):
+                    with self.subTest(path=name):
+                        (root / name).write_text('changed')
                         changed = ecs.identity()
-                        self.assertNotEqual(changed['prefix'], baseline['prefix'])
+                        self.assertEqual(changed['prefix'] == baseline['prefix'], name in operational)
                         self.assertTrue(changed['key'].endswith('-' + 'b' * 40))
-                        (root / helper).write_text('original')
+                        (root / name).write_text('original')
+                source[0] = 'c' * 40
+                (root / 'crates/leaf/src/lib.rs').write_text('changed source')
+                self.assertEqual(ecs.identity()['prefix'], baseline['prefix'])
+                self.assertTrue(ecs.identity()['key'].endswith('-' + source[0]))
+                with patch.dict(os.environ, CARGO_BUILD_JOBS='1', CARGO_TERM_COLOR='never',
+                                ECS_CACHE_REPOSITORY_BUDGET_BYTES='20000000000'):
+                    self.assertEqual(ecs.identity()['prefix'], baseline['prefix'])
+                for variable in ('RUSTFLAGS', 'CARGO_PROFILE_ECS_OPT_LEVEL', 'PKG_CONFIG_PATH'):
+                    with self.subTest(variable=variable), patch.dict(os.environ, {variable: 'changed'}):
+                        self.assertNotEqual(ecs.identity()['prefix'], baseline['prefix'])
+                version[0] = 'different compiler'
+                self.assertNotEqual(ecs.identity()['prefix'], baseline['prefix'])
+                (root / 'Cargo.toml').unlink()
+                with self.assertRaises(FileNotFoundError):
+                    ecs.identity()
 
     def test_budget_generation_and_main_scope(self):
         self.assertTrue(ecs.save_allowed([entry()], KEY, 100, repository_limit_bytes=100 * 1024 ** 3))

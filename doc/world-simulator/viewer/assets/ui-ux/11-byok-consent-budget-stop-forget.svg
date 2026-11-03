@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc"><title id="title">模型连接、游戏授权、收费运行分开确认 · 设计目标 · 非运行截图</title><desc id="desc">Browser BYOK 条件化设计 · 不把旧托管路径当成浏览器已验收证据。此页为静态设计说明，图中世界、身份、预算、报价和结果均为虚构示例。不是可执行 UI、实际截图或功能验收证明。</desc>
+<rect x="0" y="0" width="1600" height="1200" rx="0" fill="#0b100f" stroke="none" stroke-width="1"/>
+<g font-family="Noto Sans CJK SC, Noto Sans, sans-serif">
+<text id="t1" x="48" y="42" font-size="16" fill="#9ca89a" font-weight="400">OASIS7  /  VIEWER DESIGN CONTRACT</text>
+<text id="t2" x="1230" y="42" font-size="18" fill="#d0a85b" font-weight="400">设计目标 · 非运行截图</text>
+<text id="t3" x="48" y="86" font-size="32" fill="#edf1e6" font-weight="600">模型连接、游戏授权、收费运行分开确认</text>
+<text id="t4" x="48" y="121" font-size="18" fill="#9ca89a" font-weight="400">11 / Browser BYOK 条件化设计 · 不把旧托管路径当成浏览器已验收证据</text>
+<rect x="64" y="165" width="960" height="750" rx="0" fill="#19251f" stroke="#405346" stroke-width="1"/>
+<text id="t5" x="88" y="204" font-size="22" fill="#edf1e6" font-weight="600">示例世界 · 北侧补给区</text>
+<rect x="804" y="180" width="196" height="32" rx="6" fill="#101412" stroke="#9ca89a" stroke-width="1"/>
+<text id="t6" x="816" y="203" font-size="16" fill="#9ca89a" font-weight="400">世界动态 · 收起</text>
+<rect x="82" y="240" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="219" y="329" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="356" y="418" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="493" y="507" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="630" y="596" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="767" y="685" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="904" y="774" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="141" y="303" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="278" y="392" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="415" y="481" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="552" y="570" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="689" y="659" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="826" y="748" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="963" y="277" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="200" y="366" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="337" y="455" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="474" y="544" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="611" y="633" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="748" y="722" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="885" y="251" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="122" y="340" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="259" y="429" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="396" y="518" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="533" y="607" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="670" y="696" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="807" y="785" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="944" y="314" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="181" y="403" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="318" y="492" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="455" y="581" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="592" y="670" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="729" y="759" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="866" y="288" width="32" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="103" y="377" width="18" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="240" y="466" width="25" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="377" y="555" width="32" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="514" y="644" width="18" height="12" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="651" y="733" width="25" height="20" rx="0" fill="#203128" stroke="none" stroke-width="1"/>
+<rect x="128" y="374" width="246" height="146" rx="0" fill="#29372f" stroke="#35483a" stroke-width="1"/>
+<rect x="163" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="212" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="261" y="402" width="35" height="35" rx="0" fill="#455548" stroke="none" stroke-width="1"/>
+<rect x="256" y="520" width="22" height="191" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="278" y="584" width="480" height="22" rx="0" fill="#3b4434" stroke="none" stroke-width="1"/>
+<rect x="312" y="546" width="20" height="24" rx="3" fill="#8dc7aa" stroke="#0b100f" stroke-width="1"/>
+<rect x="336" y="845" width="416" height="54" rx="16" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t7" x="358" y="879" font-size="18" fill="#edf1e6" font-weight="600">World</text>
+<text id="t8" x="484" y="879" font-size="18" fill="#edf1e6" font-weight="600">Targets</text>
+<rect x="606" y="851" width="142" height="42" rx="10" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+<text id="t9" x="620" y="879" font-size="18" fill="#d0a85b" font-weight="600">Command</text>
+<rect x="908" y="850" width="92" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t10" x="924" y="879" font-size="18" fill="#edf1e6" font-weight="600">更多</text>
+<rect x="154" y="225" width="846" height="601" rx="14" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t11" x="180" y="267" font-size="25" fill="#edf1e6" font-weight="600">Browser BYOK Agent</text>
+<rect x="820" y="240" width="154" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t12" x="836" y="269" font-size="18" fill="#edf1e6" font-weight="600">返回 Command</text>
+<rect x="180" y="289" width="790" height="32" rx="6" fill="#101412" stroke="#88cbd0" stroke-width="1"/>
+<text id="t13" x="192" y="312" font-size="16" fill="#88cbd0" font-weight="400">示意状态 · 仅部署启用且所需能力可核验时提供</text>
+<text id="t14" x="180" y="354" font-size="19" fill="#edf1e6" font-weight="400">世界 world-示例 · Agent A · Task T-示例</text>
+<text id="t15" x="180" y="383" font-size="19" fill="#edf1e6" font-weight="400">目标：恢复北侧补给（虚构） · 执行器授权已核对（示例）</text>
+<path d="M180 414 L974 414" fill="none" stroke="#405346" stroke-width="1"/>
+<text id="t16" x="180" y="452" font-size="18" fill="#9ca89a" font-weight="400">供应商 / 模型</text>
+<text id="t17" x="389" y="452" font-size="20" fill="#edf1e6" font-weight="600">DeepSeek / deepseek-flash（示例）</text>
+<text id="t18" x="180" y="490" font-size="18" fill="#9ca89a" font-weight="400">本地凭证 / 检查</text>
+<text id="t19" x="389" y="490" font-size="20" fill="#edf1e6" font-weight="400">示例：Key 已保存 · 工具检查通过</text>
+<text id="t20" x="180" y="533" font-size="18" fill="#9ca89a" font-weight="400">Key 存在本站 localStorage，同源脚本 / 扩展 / 主机访问者可读取。</text>
+<text id="t21" x="180" y="561" font-size="18" fill="#9ca89a" font-weight="400">刷新或关页不删除；仅发送给供应商，不上传 Oasis7。</text>
+<rect x="180" y="590" width="794" height="103" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t22" x="200" y="622" font-size="20" fill="#d0a85b" font-weight="600">配置预算示例：上限 8 次 · 剩余 6 次 · 金额未知</text>
+<text id="t23" x="200" y="653" font-size="17" fill="#9ca89a" font-weight="400">检查与运行共享调用 / token 预算；未知用量保留预留。</text>
+<text id="t24" x="200" y="679" font-size="17" fill="#9ca89a" font-weight="400">不是供应商账户费用硬封顶，刷新 / Stop 不重置。</text>
+<rect x="180" y="722" width="478" height="44" rx="10" fill="#d0a85b" stroke="#d0a85b" stroke-width="1"/>
+<text id="t25" x="196" y="751" font-size="18" fill="#0b100f" font-weight="600">确认 Agent 开始 · 费用与身份已核对</text>
+<rect x="678" y="722" width="296" height="44" rx="10" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t26" x="694" y="751" font-size="18" fill="#edf1e6" font-weight="600">返回，不开始运行</text>
+<text id="t27" x="180" y="797" font-size="17" fill="#9ca89a" font-weight="400">连接检查需另行确认 2 次请求，可能收费；OpenRouter 未支持。</text>
+<rect x="1050" y="165" width="486" height="274" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t28" x="1074" y="196" font-size="16" fill="#d0a85b" font-weight="600">① 准备 → ② 执行器 → ③ 明确开始</text>
+<text id="t29" x="1074" y="235" font-size="23" fill="#edf1e6" font-weight="600">三个确认，不合并授权</text>
+<text id="t30" x="1074" y="274" font-size="18" fill="#9ca89a" font-weight="400">准备 Player / Agent / Task：不调用模型。</text>
+<text id="t31" x="1074" y="302" font-size="18" fill="#9ca89a" font-weight="400">登记浏览器执行器：不自动运行。</text>
+<text id="t32" x="1074" y="330" font-size="18" fill="#9ca89a" font-weight="400">检查连接并核对实际目标、预算后开始。</text>
+<text id="t33" x="1074" y="358" font-size="18" fill="#9ca89a" font-weight="400">另一个执行器需明确替换许可；</text>
+<text id="t34" x="1074" y="386" font-size="18" fill="#9ca89a" font-weight="400">旧运行结果未知或政策不明时阻止开始。</text>
+<rect x="1050" y="460" width="486" height="225" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t35" x="1074" y="491" font-size="16" fill="#e58f76" font-weight="600">运行中 → 随时可达</text>
+<text id="t36" x="1074" y="530" font-size="23" fill="#edf1e6" font-weight="600">Stop 与 Forget 不同</text>
+<text id="t37" x="1074" y="569" font-size="18" fill="#9ca89a" font-weight="400">停止：停止新决策，保留本地 Key。</text>
+<text id="t38" x="1074" y="597" font-size="18" fill="#9ca89a" font-weight="400">忘记：先停止，再删除本站凭证。</text>
+<text id="t39" x="1074" y="625" font-size="18" fill="#9ca89a" font-weight="400">两者不撤销供应商 Key / 游戏委托，</text>
+<text id="t40" x="1074" y="653" font-size="18" fill="#9ca89a" font-weight="400">不保证退款，不取消已受理世界作业。</text>
+<rect x="1050" y="706" width="486" height="209" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+<text id="t41" x="1074" y="737" font-size="16" fill="#d0a85b" font-weight="600">重新进入 → 不自动续跑</text>
+<text id="t42" x="1074" y="776" font-size="23" fill="#edf1e6" font-weight="600">核对原件，保留原预算</text>
+<text id="t43" x="1074" y="815" font-size="18" fill="#9ca89a" font-weight="400">先只读核对原 operation / nonce。</text>
+<text id="t44" x="1074" y="843" font-size="18" fill="#9ca89a" font-weight="400">Unknown / 历史缺失：停止新效果。</text>
+<text id="t45" x="1074" y="871" font-size="18" fill="#9ca89a" font-weight="400">不换号重交、不清存储当重试；</text>
+<text id="t46" x="1074" y="899" font-size="18" fill="#9ca89a" font-weight="400">无合法查询能力时直接说明限制。</text>
+<rect x="64" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t47" x="72" y="979" font-size="17" fill="#d0a85b" font-weight="600">1</text>
+<text id="t48" x="108" y="980" font-size="21" fill="#edf1e6" font-weight="600">入口先检查能力，再收 Key</text>
+<text id="t49" x="108" y="1015" font-size="18" fill="#9ca89a" font-weight="400">未启用、缺 signer / 锁 / 游戏接口 / CSP 等能力时</text>
+<text id="t50" x="108" y="1044" font-size="18" fill="#9ca89a" font-weight="400">不先索取凭证。不静默回退托管、代理或公共 Key。</text>
+<rect x="830" y="957" width="30" height="30" rx="8" fill="#161d19" stroke="#405346" stroke-width="1"/>
+<text id="t51" x="838" y="979" font-size="17" fill="#d0a85b" font-weight="600">2</text>
+<text id="t52" x="874" y="980" font-size="21" fill="#edf1e6" font-weight="600">停止可达，费用不误导</text>
+<text id="t53" x="874" y="1015" font-size="18" fill="#9ca89a" font-weight="400">Stop / Forget 不被长任务锁住；删除失败应可见。</text>
+<text id="t54" x="874" y="1044" font-size="18" fill="#9ca89a" font-weight="400">更换账号先停止旧运行，不把旧账号 Key 自动带入。</text>
+<path d="M48 1142 L1552 1142" fill="none" stroke="#405346" stroke-width="2"/>
+<text id="t55" x="48" y="1173" font-size="16" fill="#9ca89a" font-weight="400">基线 cd2ba63bf82a · 2026-10-30 · 示例身份 / 数值 / 状态非运行事实</text>
+<text id="t56" x="1415" y="1173" font-size="16" fill="#9ca89a" font-weight="400">UIUX / 11</text>
+</g></svg>

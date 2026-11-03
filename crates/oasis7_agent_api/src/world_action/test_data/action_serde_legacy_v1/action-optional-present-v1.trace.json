@@ -1,0 +1,340 @@
+[
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "TransferMainToken"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 43,
+      "variant_name": "TransferMainToken"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "application_payload_hash": "hash-sentinel",
+        "asset_id": "asset-sentinel",
+        "chain_id": "chain-sentinel",
+        "client_request_id": "request-sentinel",
+        "fee_asset_id": "fee-sentinel",
+        "from_account_id": "",
+        "max_fee": 17,
+        "memo": "memo-sentinel",
+        "network_id": "network-sentinel",
+        "nonce": 0,
+        "to_account_id": "",
+        "tx_type": "type-sentinel",
+        "tx_version": 7,
+        "valid_until_unix_ms": 13
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "TransferMainToken",
+      "len": 15
+    },
+    {
+      "op": "field",
+      "name": "from_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "to_account_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "nonce",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "asset_id",
+      "value": "asset-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "memo",
+      "value": "memo-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "chain_id",
+      "value": "chain-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "network_id",
+      "value": "network-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "tx_version",
+      "value": 7
+    },
+    {
+      "op": "field",
+      "name": "tx_type",
+      "value": "type-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "valid_until_unix_ms",
+      "value": 13
+    },
+    {
+      "op": "field",
+      "name": "max_fee",
+      "value": 17
+    },
+    {
+      "op": "field",
+      "name": "fee_asset_id",
+      "value": "fee-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "application_payload_hash",
+      "value": "hash-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "client_request_id",
+      "value": "request-sentinel"
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "ClaimStarterOc"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 52,
+      "variant_name": "ClaimStarterOc"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "agent_id": "",
+        "player_id": "",
+        "public_key": "public-key-sentinel"
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "ClaimStarterOc",
+      "len": 3
+    },
+    {
+      "op": "field",
+      "name": "agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "player_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "public_key",
+      "value": "public-key-sentinel"
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "TransferMaterial"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 54,
+      "variant_name": "TransferMaterial"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "amount": 0,
+        "auto_reroute": false,
+        "distance_km": 0,
+        "from_ledger": "world",
+        "kind": "",
+        "priority": "standard",
+        "requester_agent_id": "",
+        "route_id": "route-sentinel",
+        "route_ids": [],
+        "to_ledger": "world"
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "TransferMaterial",
+      "len": 10
+    },
+    {
+      "op": "field",
+      "name": "requester_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "from_ledger",
+      "value": "world"
+    },
+    {
+      "op": "field",
+      "name": "to_ledger",
+      "value": "world"
+    },
+    {
+      "op": "field",
+      "name": "kind",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "amount",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "distance_km",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "priority",
+      "value": "standard"
+    },
+    {
+      "op": "field",
+      "name": "route_id",
+      "value": "route-sentinel"
+    },
+    {
+      "op": "field",
+      "name": "route_ids",
+      "value": []
+    },
+    {
+      "op": "field",
+      "name": "auto_reroute",
+      "value": false
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ],
+  [
+    {
+      "op": "struct_start",
+      "name": "Action",
+      "len": 2
+    },
+    {
+      "op": "field",
+      "name": "type",
+      "value": "GrantMetaProgress"
+    },
+    {
+      "op": "unit_variant",
+      "enum_name": "Action",
+      "variant_index": 65,
+      "variant_name": "GrantMetaProgress"
+    },
+    {
+      "op": "field",
+      "name": "data",
+      "value": {
+        "achievement_id": "achievement-sentinel",
+        "operator_agent_id": "",
+        "points": 0,
+        "target_agent_id": "",
+        "track": ""
+      }
+    },
+    {
+      "op": "struct_start",
+      "name": "GrantMetaProgress",
+      "len": 5
+    },
+    {
+      "op": "field",
+      "name": "operator_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "target_agent_id",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "track",
+      "value": ""
+    },
+    {
+      "op": "field",
+      "name": "points",
+      "value": 0
+    },
+    {
+      "op": "field",
+      "name": "achievement_id",
+      "value": "achievement-sentinel"
+    },
+    {
+      "op": "struct_end"
+    },
+    {
+      "op": "struct_end"
+    }
+  ]
+]

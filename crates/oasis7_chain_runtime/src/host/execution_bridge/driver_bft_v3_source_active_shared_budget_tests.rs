@@ -124,14 +124,16 @@ pub(super) fn reserve_a_then_ready_b(
     let before = backend
         .load_private_retention_current(&binding.digest().unwrap())
         .unwrap();
-    assert!(!before
-        .retention
-        .as_ref()
-        .unwrap()
-        .map
-        .entries
-        .iter()
-        .any(|v| v.key.ledger_origin_digest == namespace));
+    assert!(
+        !before
+            .retention
+            .as_ref()
+            .unwrap()
+            .map
+            .entries
+            .iter()
+            .any(|v| v.key.ledger_origin_digest == namespace)
+    );
     assert_ne!(
         a.public_value.block_id().unwrap(),
         b.candidate.public_value.block_id().unwrap()
@@ -233,8 +235,14 @@ pub(super) fn reserve_a_then_ready_b(
     let b_reference =
         BftPrivateRetentionAdmissionInputRefV1::from_entry(&ledger.map.source, b_entry).unwrap();
     let b_input = after.inputs.get(&b_reference.admission_digest).unwrap();
-    assert_eq!(b_input.publication_reservation_bytes.checked_add(shared_bytes).unwrap(), quote_without_previous_input(b_input, baseline),
-        "B must deduct exact already-charged Pending A dependencies, independently of Ready/WAL status");
+    assert_eq!(
+        b_input
+            .publication_reservation_bytes
+            .checked_add(shared_bytes)
+            .unwrap(),
+        quote_without_previous_input(b_input, baseline),
+        "B must deduct exact already-charged Pending A dependencies, independently of Ready/WAL status"
+    );
     PendingOriginal {
         reference,
         price: original.publication_reservation_bytes,

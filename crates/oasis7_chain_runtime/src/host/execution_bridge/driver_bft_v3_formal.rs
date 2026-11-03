@@ -485,7 +485,11 @@ mod publication_reservation;
 mod storage;
 
 #[path = "driver_bft_v3_formal_prefix.rs"]
+#[cfg(not(test))]
 mod prefix;
+#[cfg(test)]
+#[path = "driver_bft_v3_formal_prefix.rs"]
+pub(crate) mod prefix;
 #[cfg(test)]
 pub(crate) use prefix::{
     ActivateBftPrivateSourceV1, ActualBftPrivateSourceCreationVerifierV1,

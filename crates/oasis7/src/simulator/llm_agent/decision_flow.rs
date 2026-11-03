@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod action_parsers;
+mod llm_decision_payload_deserialize;
 
 use action_parsers::parse_market_or_social_action;
 
@@ -65,7 +66,7 @@ pub(super) fn summarize_trace_text(text: &str, max_chars: usize) -> String {
     truncated
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default)]
 struct LlmDecisionPayload {
     decision: String,
     action: Option<serde_json::Value>,
@@ -125,7 +126,6 @@ struct LlmDecisionPayload {
     fact_id: Option<u64>,
     reason: Option<String>,
     adjudicator: Option<String>,
-    #[serde(alias = "adjudication_decision", alias = "verdict")]
     adjudication: Option<String>,
     notes: Option<String>,
     relation_kind: Option<String>,

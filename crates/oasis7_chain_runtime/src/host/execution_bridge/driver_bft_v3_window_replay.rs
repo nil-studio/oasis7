@@ -22,11 +22,13 @@ impl BusinessIndexNodeReader for RequestedHArchiveNodesV1 {
             return Ok(None);
         };
         let reference = &self.references[index];
-        let bytes = self.archive.load_object(
-            reference,
-            super::super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
-        )
-        .map_err(err)?;
+        let bytes = self
+            .archive
+            .load_object(
+                reference,
+                super::super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
+            )
+            .map_err(err)?;
         reference.validate_bytes(&bytes).map_err(err)?;
         live(self.deadline)?;
         Ok(Some(bytes))
@@ -299,8 +301,10 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             MAX_METADATA,
         )?;
         origin.validate()?;
-        let reader =
-            RecordingBusinessIndexReaderV1::new_live_closed_layer(h_base.nodes.clone(), Vec::new())?;
+        let reader = RecordingBusinessIndexReaderV1::new_live_closed_layer(
+            h_base.nodes.clone(),
+            Vec::new(),
+        )?;
         let mut execution = Box::new(FormalBftHeaderExecutionV3::from_live_closed_handoff(
             self.anchor.clone(),
             self.target.clone(),
@@ -466,8 +470,10 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
                 }
                 let nodes = open.retained_nodes.take_closed_inventory()?;
                 drop(open);
-                let reader =
-                    RecordingBusinessIndexReaderV1::new_live_closed_layer(nodes.clone(), Vec::new())?;
+                let reader = RecordingBusinessIndexReaderV1::new_live_closed_layer(
+                    nodes.clone(),
+                    Vec::new(),
+                )?;
                 let execution = FormalBftHeaderExecutionV3::from_live_closed_handoff(
                     self.anchor.clone(),
                     self.target.clone(),

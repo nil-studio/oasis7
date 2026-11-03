@@ -1,5 +1,4 @@
 use super::*;
-use serde_json::json;
 
 fn event_kind_json(event: &WorldEvent) -> serde_json::Value {
     serde_json::to_value(&event.kind).expect("serialize event kind")
@@ -134,127 +133,10 @@ fn kernel_action_behavior_snapshot_stays_stable() {
         &kernel.step().expect("reject refine invalid amount"),
     ));
 
-    let expected = json!([
-        {
-            "type": "LocationRegistered",
-            "data": {
-                "location_id": "loc-a",
-                "name": "origin",
-                "pos": { "x_cm": 0, "y_cm": 0, "z_cm": 0 },
-                "profile": {
-                    "material": "silicate",
-                    "radius_cm": 100,
-                    "radiation_emission_per_tick": 20
-                }
-            }
-        },
-        {
-            "type": "LocationRegistered",
-            "data": {
-                "location_id": "loc-b",
-                "name": "target",
-                "pos": { "x_cm": 100000, "y_cm": 0, "z_cm": 0 },
-                "profile": {
-                    "material": "silicate",
-                    "radius_cm": 100,
-                    "radiation_emission_per_tick": 0
-                }
-            }
-        },
-        {
-            "type": "AgentRegistered",
-            "data": {
-                "agent_id": "agent-1",
-                "location_id": "loc-a",
-                "pos": { "x_cm": 0, "y_cm": 0, "z_cm": 0 }
-            }
-        },
-        {
-            "type": "RadiationHarvested",
-            "data": {
-                "agent_id": "agent-1",
-                "location_id": "loc-a",
-                "amount": 5,
-                "available": 20
-            }
-        },
-        {
-            "type": "ResourceTransferred",
-            "data": {
-                "from": {
-                    "type": "Agent",
-                    "data": { "agent_id": "agent-1" }
-                },
-                "to": {
-                    "type": "Location",
-                    "data": { "location_id": "loc-a" }
-                },
-                "kind": "data",
-                "amount": 3
-            }
-        },
-        {
-            "type": "CompoundRefined",
-            "data": {
-                "owner": {
-                    "type": "Agent",
-                    "data": { "agent_id": "agent-1" }
-                },
-                "compound_mass_g": 1000,
-                "electricity_cost": 2,
-                "hardware_output": 1
-            }
-        },
-        {
-            "type": "AgentMoved",
-            "data": {
-                "agent_id": "agent-1",
-                "from": "loc-a",
-                "to": "loc-b",
-                "distance_cm": 100000,
-                "electricity_cost": 0
-            }
-        },
-        {
-            "type": "ActionRejected",
-            "data": {
-                "reason": {
-                    "type": "AgentAlreadyAtLocation",
-                    "data": {
-                        "agent_id": "agent-1",
-                        "location_id": "loc-b"
-                    }
-                }
-            }
-        },
-        {
-            "type": "ActionRejected",
-            "data": {
-                "reason": {
-                    "type": "InvalidAmount",
-                    "data": { "amount": 0 }
-                }
-            }
-        },
-        {
-            "type": "ActionRejected",
-            "data": {
-                "reason": {
-                    "type": "InvalidAmount",
-                    "data": { "amount": 0 }
-                }
-            }
-        },
-        {
-            "type": "ActionRejected",
-            "data": {
-                "reason": {
-                    "type": "InvalidAmount",
-                    "data": { "amount": 0 }
-                }
-            }
-        }
-    ]);
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "fixtures/kernel_action_behavior_snapshot.json"
+    ))
+    .expect("parse fixed kernel behavior snapshot");
 
     let expected: Vec<serde_json::Value> = expected.as_array().expect("expected array").clone();
     assert_eq!(kinds, expected);

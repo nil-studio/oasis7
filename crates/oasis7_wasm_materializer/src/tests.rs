@@ -107,13 +107,102 @@ fn cached_expected_module_hash_ignores_stale_hashes() {
 
 #[test]
 fn temp_build_dir_stays_under_repo_tmp_root() {
-    let repo_root = Path::new("/tmp/workspace");
-    let temp_dir = temp_build_dir("m1.rule.move", repo_root);
+    let repo_root = temporary_repo("root");
+    let temp_dir = temp_build_dir("m1.rule.move", &repo_root).expect("reserve build directory");
     assert!(
         temp_dir.starts_with(repo_root.join(".tmp")),
         "temp build dir should stay under repo .tmp, got {}",
         temp_dir.display()
     );
+    assert!(temp_dir.is_dir());
+    fs::remove_dir_all(repo_root).expect("remove fixture");
+}
+
+#[test]
+fn same_clock_builds_keep_artifacts_when_another_call_cleans_up() {
+    let repo_root = temporary_repo("same-clock");
+    let sequence = AtomicU64::new(0);
+    let first = temp_build_dir_at("m4.recipe.smelter.polymer_resin", &repo_root, 42, &sequence)
+        .expect("reserve first build");
+    let second = temp_build_dir_at("m4.recipe.smelter.polymer_resin", &repo_root, 42, &sequence)
+        .expect("reserve second build with the same clock reading");
+
+    fs::write(first.join("module.wasm"), b"first").expect("write first build");
+    fs::write(second.join("module.wasm"), b"second").expect("write second build");
+    fs::remove_dir_all(first).expect("clean completed first build");
+    assert_eq!(
+        fs::read(second.join("module.wasm")).expect("other build still owns its artifact"),
+        b"second"
+    );
+    fs::remove_dir_all(repo_root).expect("remove fixture");
+}
+
+#[test]
+fn existing_build_directory_is_not_claimed_or_cleaned() {
+    let repo_root = temporary_repo("occupied");
+    let occupied = temp_build_dir_at("m1.rule.move", &repo_root, 42, &AtomicU64::new(0))
+        .expect("reserve existing build");
+    fs::write(occupied.join("sentinel"), b"existing owner").expect("write existing artifact");
+
+    let next = temp_build_dir_at("m1.rule.move", &repo_root, 42, &AtomicU64::new(0))
+        .expect("reserve build after a counter restart with an occupied candidate");
+    fs::write(next.join("module.wasm"), b"new build").expect("write new artifact");
+    fs::remove_dir_all(next).expect("clean new build");
+    assert_eq!(
+        fs::read(occupied.join("sentinel")).expect("existing owner keeps its artifact"),
+        b"existing owner"
+    );
+    fs::remove_dir_all(repo_root).expect("remove fixture");
+}
+
+#[test]
+fn allocation_errors_reach_fetcher_and_both_compiler_entry_points() {
+    let _env_lock = BUILTIN_WASM_ENV_LOCK.lock().expect("lock builtin wasm env");
+    let repo_root = temporary_repo("blocked");
+    fs::write(repo_root.join(".tmp"), b"not a directory").expect("block temporary root");
+    let unavailable_command = repo_root.join("must-not-run");
+    let fetcher_key = builtin_wasm_env_key("FETCHER");
+    let _fetcher_guard = TestEnvGuard::capture(&fetcher_key);
+    // SAFETY: All tests that change builtin WASM environment hold the same lock.
+    unsafe {
+        std::env::set_var(&fetcher_key, &unavailable_command);
+    }
+
+    assert!(matches!(
+        try_fetch_via_fetcher("m1.rule.move", &["expected"], &repo_root),
+        Err(MaterializeError::Io(_))
+    ));
+    assert!(matches!(
+        compile_via_command(
+            &unavailable_command,
+            "m1.rule.move",
+            &["expected"],
+            &repo_root
+        ),
+        Err(MaterializeError::Io(_))
+    ));
+    assert!(matches!(
+        compile_via_default_script("m1.rule.move", &["expected"], &repo_root),
+        Err(MaterializeError::Io(_))
+    ));
+    assert_eq!(
+        fs::read(repo_root.join(".tmp")).expect("preserve blocked root"),
+        b"not a directory"
+    );
+    fs::remove_dir_all(repo_root).expect("remove fixture");
+}
+
+fn temporary_repo(label: &str) -> PathBuf {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "oasis7-materializer-build-dir-{label}-{}-{now}",
+        std::process::id()
+    ));
+    fs::create_dir(&root).expect("create fixture repository");
+    root
 }
 
 #[test]

@@ -114,9 +114,11 @@ impl NodeBftPeerExecutionStateV3 {
         self.publish_verified(binding, &after, schedule, active)
     }
     /// These handles only narrow an already authorized transport response.
+    #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
     pub(super) fn serving_guard(&self) -> Arc<AtomicBool> {
         self.serving.clone()
     }
+    #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
     pub(super) fn generation_guard(&self) -> Arc<AtomicU64> {
         self.generation.clone()
     }

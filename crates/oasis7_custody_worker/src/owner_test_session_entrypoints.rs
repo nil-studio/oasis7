@@ -93,7 +93,7 @@ management!(
 management!(
     basis,
     TestSessionBasisRpc,
-    TestSessionBasisV1,
+    TestSessionBasisResponseV1,
     "/internal/test-session-basis"
 );
 management!(

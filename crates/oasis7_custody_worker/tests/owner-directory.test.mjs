@@ -33,7 +33,7 @@ function options(persist) {
   ], modulesRoot: root, compatibilityDate: '2026-10-25', cf: false,
     serviceBindings: { REVOCATIONS: { name: 'custody-owner-fixture', entrypoint: 'OwnerRevocations' }, MANAGEMENT: { name: 'custody-owner-fixture', entrypoint: 'OwnerManagement' }, DEFAULT_OWNER: { name: 'custody-owner-deployed' } },
     durableObjects: { ACCOUNTS: { className: 'AccountHarness', useSQLite: true }, MANAGER_ASSOCIATIONS: { className: 'ManagerAssociations', useSQLite: true } },
-    bindings: { CUSTODY_NATIVE_APPROVAL_KEY_ID: 'native-source-test', CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY: sourcePublic, CUSTODY_NATIVE_AUDIENCE: 'owner-test',
+    bindings: { CUSTODY_MANAGEMENT_METADATA_ENABLED: 'true', CUSTODY_MANAGEMENT_METADATA_REALM: 'management-component-test', CUSTODY_PUBLIC_ORIGIN: 'https://component.test', CUSTODY_NATIVE_ORIGIN: 'https://component.test', CUSTODY_NATIVE_APPROVAL_KEY_ID: 'native-source-test', CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY: sourcePublic, CUSTODY_NATIVE_AUDIENCE: 'owner-test',
       CUSTODY_REVOCATION_OWNER_KEY_ID: 'owner-source-test', CUSTODY_REVOCATION_OWNER_SIGNING_KEY: Buffer.alloc(32, 92).toString('hex'), CUSTODY_NATIVE_NAMESPACE: namespace, CUSTODY_NATIVE_INSTANCE_EPOCH: '3', CUSTODY_NATIVE_ENVIRONMENT: 'test',
       CUSTODY_BOOTSTRAP_MANAGERS: JSON.stringify([{ principal: manager, environments: ['test'] }]),
       CUSTODY_PROVISION_ROUTES: JSON.stringify(routes), CUSTODY_PROVISION_WORLD_IDENTITY: JSON.stringify(world), CUSTODY_POLICY_VERSION: '1' },
@@ -299,4 +299,37 @@ test('source-event retries rotate beyond eight unconfirmable accounts after rest
   mf = await restart();
   assert.equal(await ok(await call(mf, '/source-event', event)), null);
   assert.ok((await inspect(mf, healthy)).records.some(row => row.id.includes('freeze')), 'later healthy target must receive its freeze even while source closure stays pending');
+}));
+
+// Actual Owner RPC and SQLite component coverage; sessions remain synthetic trusted inputs.
+test('management parent pages preserve business state, exact cursor revision and manager ACL', { timeout: 90000 }, async () => fixture(async current => {
+  const mf=current();
+  const originals=[];
+  for(let i=0;i<3;i++) originals.push(await draft(mf,'metadata-'+i));
+  const query={api_version:1,limit:2,after_custody_account_id:null,directory_revision:null};
+  const before=await Promise.all(originals.map(async v=>ok(await call(mf,'/read',{manager_session:session(),provision_id:v.entry.provision_id}))));
+  const first=await ok(await call(mf,'/parents',{manager_session:session(),request:query}));
+  assert.equal(first.items.length,2);assert.equal(first.inventory_complete,true);assert.equal(first.frozen,false);
+  assert.deepEqual(first.items.map(i=>Object.keys(i).sort()),[0,1].map(()=>['custody_account_id','environment','provision_id','world_id']));
+  const next={...query,after_custody_account_id:first.next_after_custody_account_id,directory_revision:first.directory_revision};
+  const last=await ok(await call(mf,'/parents',{manager_session:session(),request:next}));
+  assert.equal(last.items.length,1);assert.equal(last.next_after_custody_account_id,null);
+  assert.equal(new Set([...first.items,...last.items].map(i=>i.custody_account_id)).size,3);
+  assert.equal((await call(mf,'/parents',{manager_session:session('foreign-manager'),request:query})).status,409);
+  assert.equal((await call(mf,'/parents',{manager_session:session(),request:{...query,limit:17}})).status,409);
+  assert.equal((await call(mf,'/parents',{manager_session:session(),request:{...query,manager:'foreign'}})).status,409);
+  await draft(mf,'metadata-revision-change');
+  assert.equal((await call(mf,'/parents',{manager_session:session(),request:next})).status,409);
+  const after=await Promise.all(originals.map(async v=>ok(await call(mf,'/read',{manager_session:session(),provision_id:v.entry.provision_id}))));
+  assert.deepEqual(after,before);
+}));
+test('management parent metadata has its own persistent sixteen-attempt manager bound', { timeout: 90000 }, async () => fixture(async (current,restart) => {
+  let mf=current();await draft(mf,'metadata-manager-limit');
+  const request={api_version:1,limit:16,after_custody_account_id:null,directory_revision:null};
+  // Select a full fixed minute; no test clock or production deadline is changed.
+  if(Date.now()%60000>10000) await delay(60000-Date.now()%60000+20);
+  for(let i=0;i<16;i++) assert.equal((await call(mf,'/parents',{manager_session:session(),request})).status,200);
+  assert.equal((await call(mf,'/parents',{manager_session:session(),request})).status,409);
+  mf=await restart();
+  assert.equal((await call(mf,'/parents',{manager_session:session(),request})).status,409);
 }));

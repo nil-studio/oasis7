@@ -33,3 +33,5 @@ pub use full_sync_issuer::*;
 pub mod test_fixtures;
 #[cfg(test)]
 mod tests;
+
+pub mod incremental;
