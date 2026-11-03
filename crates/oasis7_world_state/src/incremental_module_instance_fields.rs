@@ -3,7 +3,10 @@
 use oasis7_agent_api::world_action::ModuleInstallTarget;
 use std::io::{self, Write};
 const KEY: &[u8] = b"oasis7.iws.module-instance-key.v1\0";
-const VALUE: &[u8] = b"oasis7.iws.module-instance-value.v1\0";
+pub(super) const VALUE: &[u8] = b"oasis7.iws.module-instance-value.v1\0";
+#[path = "incremental_module_instance_scalar_stream.rs"]
+mod stream;
+pub use stream::ModuleInstanceScalarStreamV1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ModuleInstanceFieldV1 {
