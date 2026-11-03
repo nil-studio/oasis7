@@ -283,6 +283,7 @@ The receiver includes the GWSC `MIG-01` specimen with structurally valid declare
   - AC-14: `required-gate` 必须在命中 `crates/oasis7_client_launcher/**`、`crates/oasis7_launcher_ui/**`、`crates/oasis7_proto/**`、`crates/oasis7_wasm_abi/**` 或 `crates/oasis7/**` 的 launcher shared runtime 改动时按需执行 launcher Web `trunk build`，避免仅在 release `build-web-dist` 才暴露 wasm 编译错误。
   - AC-14A: 仓库必须提供轻量 Web/UI automation smoke，允许 `qa_engineer` 在不启动完整 runtime 栈的前提下，用 fixture 页面复用真 `agent-browser` 验证 `viewer-software-safe-step-regression.sh` 的最小浏览器链路与 summary/state 产物契约；该 smoke 只用于 tooling 预检，不替代正式 S6 证据。
   - AC-14B: 仓库必须维护 Playwright 实跑测试系列入口，记录 `PWT-###` 用例矩阵、真实本地栈/真实 provider/真实 UI 输入的覆盖边界、mock 禁用规则、证据产物要求和新增用例规则；首个用例为 `PWT-001 Real Agent Chat`，后续玩家操作流程必须从该入口扩展。
+  - [AC-14C：真实前端与可控时序浏览器回归](#browser-functional-regression)：在现有 JS-required、JS-browser 与真实闭环之间，明确受控依赖的浏览器功能证据和适用边界。
   - AC-15: 正式 gameplay/trust evidence 至少要有 1 条代表性样本明确记录 `player_action`、`world_change_due_to_player`、`player_leverage_score` 与 `world_activity_only`，否则不得宣称“玩家已有 meaningful participation”。
   - AC-16: durable root authority defines `L1/L2/L3/L4A/L4B/L5`, combination rules, current anchors, and that automation cannot prove fun alone.
   - AC-17: durable root authority defines standard roles, review packet/card contract, triggers, sequencing and stop conditions.
@@ -295,6 +296,23 @@ The receiver includes the GWSC `MIG-01` specimen with structurally valid declare
 - Non-Goals:
   - 不在本 PRD 中替代业务模块的功能设计。
   - 不承诺所有测试都进入 CI 默认路径。
+
+<a id="browser-functional-regression"></a>
+### AC-14C：真实前端与可控时序浏览器回归
+
+Trace ID: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78
+
+产品适用性：N/A；reason=确定性前端回归支撑，不新增玩家行为或权限；scope=真实组件加载、受控传输、浏览器执行、隔离与证据。试点的业务预期仍由对应 Viewer/Runtime 合同拥有。
+
+- BROWSER-AC-1：复用当前 JS-required/component、浏览器 fixture smoke 和 S6 分层，提供显式 fixture-functional profile。至少一条试点在真实浏览器中加载生产组件与状态逻辑，通过可见控件操作；测试只控制依赖边界，不能复制一套 UI/reducer 或直接写入期望的终态。不依赖真实 LLM 或完整后端栈。
+- BROWSER-AC-2：响应、事件与必要的时钟推进由有界 barrier 控制，记录请求关联和交付顺序；成功、拒绝、旧结果晚到、乱序/重复、断线恢复、卸载重挂及 loading/空态按场景适用性验证。不靠长 sleep 或反复重试把竞态变绿。
+- BROWSER-AC-3：首个试点采用 Viewer 的 Prompt Overrides 输入/提交/反馈。独立预期检查 accepted 与 applied、当前请求/身份、草稿与权威值及安全恢复；不把拒绝处理写成先显示 applied 再回滚。旧响应不得覆盖新请求，测试揭示的域缺陷仍交原 owner 修复。
+- BROWSER-AC-4：每场景隔离浏览器上下文、端口、存储、合成身份和产物，禁止意外访问真实服务；有共享构建/模块状态的场景按实际边界串行。结果绑定候选、构建、场景、实际浏览器/viewport、事件 trace、截图、console/network、断言与未覆盖项；缺依赖、零执行或缺产物不能报告通过。
+- BROWSER-AC-5：复用现有选测权威接入适用 CI 范围，保留 JS-required 和真实 S6/full 义务。fixture 通过只证明相应组件在已列合成输入下的功能，不证明真实认证、Runtime 应用、provider、世界效果、跨浏览器或实玩；首个实现片与真实集成承接可独立验收。
+
+系统设计状态：已覆盖；[测试层分配](design.md#browser-functional-layer)与[受控浏览器合同](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)承接 BROWSER-AC-1–5，验证方法见[手册入口](../../testing-manual.md#browser-functional-regression-validation)。
+
+实现状态：部分实现。2026-11-03 静态核查 `d4cdabe4c9011ebc66b6376b1dce96f0d8b2cc39`：已有 Vitest/jsdom 的 `viewer_prompt_control_protocol.test.jsx`、真实 Viewer shell 的 `player-visual-feedback-browser-smoke.mjs` 及 tooling fixture smoke；它们不是本条全时序矩阵已执行的证据。统一 fixture-functional runner、可控传输/时钟、隔离与完整产物/CI 接线仍待 [#5387](https://github.com/nil-studio/oasis7/issues/5387) 实现。本次仅交付设计，没有运行浏览器或补齐生产缺陷。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: `scripts/ci-tests.sh`、agent-browser 闭环工具、Playwright 实跑脚本、`oasis7_web_launcher` GUI Agent 接口、长跑脚本、结果汇总工具、`scripts/prepare-playability-l4-review.sh`。

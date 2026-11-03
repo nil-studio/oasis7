@@ -17,10 +17,11 @@
 
 ### 2.1 需求承接与分配表
 
-本表只承接 L4 工具链本次受影响条款；既有 QA infrastructure 方法、89 项依赖矩阵和各专业域义务继续保留。
+本表承接 L4 工具链与受控浏览器回归的有界条款；既有 QA infrastructure 方法、89 项依赖矩阵和各专业域义务继续保留。
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；[AC-14C](prd.md#browser-functional-regression) | 真实组件与可控依赖、确定性时序、隔离和分层证据。 | [浏览器功能回归层](#browser-functional-layer) | QA 维护 runner；Viewer 拥有状态/交互；CI owner 拥有选测接线。 | 产品适用性：N/A；reason=前端验证支撑；scope=fixture-functional。域正确性仍由原 owner 判定，不代签真实世界或 L4B/L5。 |
 | [L4 构建与驱动](prd.md#l4-build-driver) | 默认 release 通过正式 UI 驱动；显式测试构建与观测能力单独选择。 | [构建与驱动选择](design.md#l4-build-selection) | Viewer build/driver；producer bundle 入口。 | 测试产物或参数不能代签 release 体验。 |
 | [L4 Hosted 会话](prd.md#l4-hosted-session) | 实际执行 session 完成受支持登录/恢复，确认 player 关联并回收自有资源。 | [浏览器与玩家会话编排](design.md#l4-session-orchestration) | 既有 Hosted 登录、runtime session 与 agent-browser 生命周期合同。 | 不新增账户、认证、签名或跨会话凭据交接体系。 |
 | [L4 执行结果](prd.md#l4-execution-result) | 每个 attempt 保留实际执行模式、阶段、阻断、停止和清理结果。 | [执行记录与终态](design.md#l4-result-record) | 既有 RunInput/RunResult 与 QA receiver；runner 负责落盘。 | 有结果文件不表示已完成实玩或通过。 |
@@ -44,6 +45,19 @@
 - `doc/scripts/prd.md`
 - `scripts/prepare-playability-l4-review.sh`：在一个 worktree 固定 L4 packet、role/persona cards、L4B card、可选校准 notes、summary 与命令。
 - `scripts/run-playability-l4b-agent.sh`：现有 L4 driver 与采样入口；其构建、登录编排及结果判定缺口见 [L4 工具链设计](#l4-toolchain-design)，不能仅凭脚本名称认定已完成具身 agent 试玩。
+
+<a id="browser-functional-layer"></a>
+### 真实前端与可控依赖的浏览器功能层
+
+Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；承接 [AC-14C / BROWSER-AC-1–5](prd.md#browser-functional-regression)。这是 S6 中显式标记依赖为合成的功能回归 profile，不另建测试分层或替代现有真实栈。
+
+现有 Vitest/jsdom 验证组件和协议处理，tooling smoke 验证浏览器驱动接线，`player-visual-feedback-browser-smoke.mjs` 已用真实 shell 与固定 bridge/feed 做浏览器采证。新增目标是把真实 `viewer_app.jsx`、`legacy_core.js` 及其 PromptControl/feedback 模块与可控 HTTP/WebSocket 事件调度连接，让相同交互在相同交付顺序下可重复验证。业务逻辑仍来自生产模块；初始合成身份、传输与非试点渲染依赖的替换范围逐项写入报告。
+
+数据流为场景声明→隔离浏览器与同候选测试构建→真实 UI 请求→受控传输交付→生产状态处理与 DOM→独立断言/原始产物。场景声明保留固定预期值和域合同链接，不能从被测状态函数生成预期。首个 Prompt Overrides 试点及事件、生命周期、只读探针和产物合同集中在[浏览器设计](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)，避免在总览复制场景矩阵。
+
+CI 后续把该 profile 登记到现有 planner/Viewer driver，按真实组件、状态模块、共享传输/auth、测试装配与构建输入的影响选择；不另建一份路径选测表，也不删改 #5376 已有快速 contract。JS-required 仍先给低层反馈，fixture-functional 只提供所测浏览器的受控功能结果；影响可见表面的截图与模型视觉评审、真实集成和 JS-full 按原 S6 要求继续执行。当前尚未新增 runner 或 CI job，不能把此选择设计写成已经 blocking。
+
+实现沿 #5387 分片：先连通隔离 test entry、owned browser 生命周期与首个 pending/成功/拒绝用例，再补迟到/重连/重挂、失败产物与选择合同。#5167 保留命令反馈缺陷，#4966 保留网页绑定/恢复，#5116 保留能力与展示边界；实施试点时由 QA 与对应 owner 对齐具体 oracle，不能为测试通过改变这些合同。未来扩到网页入口或指挥中心须各自选择真实组件与适用 oracle，本次不声称已有覆盖。
 
 ### Release Web fixture 生命周期
 
@@ -251,6 +265,7 @@ This matrix is per frozen object, not a whole-file rewrite list. It preserves th
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；[AC-14C](prd.md#browser-functional-regression) | [浏览器功能回归层](#browser-functional-layer) | BROWSER-AC-1–5：真实 consumer、受控事件、独立预期、隔离与证据边界。 | [实施核验](../../testing-manual.md#browser-functional-regression-validation)执行 BFR-P01–P07：同候选明确 fixture-functional，真实浏览器与声明 viewport。 | 实施 PR 的命令、构建/模块身份、场景 trace、截图、console/network、准确断言和选择结果。 | 当前仅设计；不证明后端/provider、生产权限、世界结果、其他浏览器或试玩。 |
 | [L4 构建与驱动](prd.md#l4-build-driver) | [构建与驱动选择](design.md#l4-build-selection) | 默认 release/UI 与显式 test/API 分离，缺能力准确阻断。 | [主手册 L4-C01](../../testing-manual.md#l4-toolchain-validation)：固定同候选 release/test 产物，静态核对默认选择，再按实现执行所选 driver 与能力缺失负例。 | 两构建身份、driver 选择与能力判断的本次记录。 | 文档通过不证明默认 runner 已可用或浏览器已执行。 |
 | [L4 Hosted 会话](prd.md#l4-hosted-session) | [浏览器与玩家会话编排](design.md#l4-session-orchestration) | 干净 guest 登录及独立恢复路径分别验证，实际执行 player/session 一致。 | [主手册 L4-C02](../../testing-manual.md#l4-toolchain-validation)：受支持 Hosted 测试环境与同候选 driver，覆盖干净登录、恢复、失败前置和 owned cleanup。 | guest/登录/注册就绪、session/player 关联及清理证据。 | 不扩展认证体系；其他窗口或 DevLocal lane 不证明默认 Hosted 路径。 |
 | [L4 执行结果](prd.md#l4-execution-result) | [执行记录与终态](design.md#l4-result-record) | 各阶段结果、取消、失败、重试与清理均有可追溯记录。 | [主手册 L4-C03](../../testing-manual.md#l4-toolchain-validation)：离线可控 driver 验证各收口路径及报告失败；真实依赖另按所选场景执行。 | attempt/RunResult、停止与清理结果、保留的失败记录。 | fake driver 不证明已登录、已实玩或世界效果。 |
