@@ -574,6 +574,12 @@ pub enum Action {
         proposal_id: ProposalId,
         profile: FactoryProfileV1,
     },
+    RotateGovernanceValidatorFinalityKeyV1 {
+        controller_account_id: String,
+        body: FinalityKeyRotationBodyV1,
+        old_key_proof: FinalityKeyRotationProofV1,
+        new_key_proof: FinalityKeyRotationProofV1,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -834,6 +840,10 @@ impl Action {
                 ..
             }
             | Action::RevokeGovernanceValidatorAdmission {
+                controller_account_id,
+                ..
+            }
+            | Action::RotateGovernanceValidatorFinalityKeyV1 {
                 controller_account_id,
                 ..
             } => Some(controller_account_id.as_str()),

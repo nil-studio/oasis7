@@ -390,6 +390,10 @@ impl ActionTag {
         index: 89,
         name: "GovernFactoryProfile",
     };
+    const ROTATE_GOVERNANCE_VALIDATOR_FINALITY_KEY_V1: Self = Self {
+        index: 90,
+        name: "RotateGovernanceValidatorFinalityKeyV1",
+    };
 }
 
 impl serde::Serialize for ActionTag {
@@ -505,7 +509,8 @@ fn action_serialize_group(action: &Action) -> ActionSerializeGroup {
         | Action::SubmitGovernanceValidatorAdmission { .. }
         | Action::ApproveGovernanceValidatorAdmission { .. }
         | Action::ActivateGovernanceValidatorAdmission { .. }
-        | Action::RevokeGovernanceValidatorAdmission { .. } => ActionSerializeGroup::Governance,
+        | Action::RevokeGovernanceValidatorAdmission { .. }
+        | Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => ActionSerializeGroup::Governance,
         Action::OpenEconomicContract { .. }
         | Action::AcceptEconomicContract { .. }
         | Action::SettleEconomicContract { .. } => ActionSerializeGroup::EconomicContracts,
