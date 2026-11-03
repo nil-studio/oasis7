@@ -21,9 +21,57 @@ use std::time::{Duration, Instant};
 
 #[path = "llm_sidecar_provider_original_store_interruption_tests.rs"]
 mod interruption_tests;
+#[path = "llm_sidecar_provider_original_store_recovery_tests.rs"]
+mod recovery_tests;
 
 const FIXTURE_PARENT_ROOT_SET: [u8; 32] = [0x22; 32];
 const FIXTURE_AUTHORITY_SNAPSHOT: [u8; 32] = [0x33; 32];
+
+// Both receipts are authentic in this fixture: the owner must independently
+// fence the one actually recorded for this attempt, not trust authority alone.
+struct RecoveryFixtureAuthority {
+    base: FixtureProviderAuthority,
+    enabled: std::sync::atomic::AtomicBool,
+}
+
+impl ProviderMaterialAuthority for RecoveryFixtureAuthority {
+    fn verify_owner_scope(&self, owner: &ProviderMaterialOwnerBindingV1) -> Result<(), String> {
+        self.base.verify_owner_scope(owner)
+    }
+    fn request_binding(
+        &self,
+        owner: &ProviderMaterialOwnerBindingV1,
+        request: &ContinuousAgentRequestContextV1,
+    ) -> Result<ProviderAttemptAuthorityBindingV1, String> {
+        self.base.request_binding(owner, request)
+    }
+    fn verify_commit(
+        &self,
+        owner: &ProviderMaterialOwnerBindingV1,
+        materials: &ProviderOriginalMaterialRefsV1,
+        receipt: &str,
+        action: u64,
+    ) -> Result<(), String> {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return Err("receipt authority unavailable".into());
+        }
+        if !matches!(receipt, "fixture-runtime-receipt" | "different-receipt")
+            || !matches!(action, 7 | 8)
+        {
+            return Err("unrecognized fixture receipt".into());
+        }
+        self.base
+            .verify_commit(owner, materials, "fixture-runtime-receipt", 7)
+    }
+    fn verify_rejection(
+        &self,
+        owner: &ProviderMaterialOwnerBindingV1,
+        attempt: &ProviderMaterialAttemptV1,
+        evidence: ProviderDispositionEvidenceV1,
+    ) -> Result<(), String> {
+        self.base.verify_rejection(owner, attempt, evidence)
+    }
+}
 
 struct FixtureProviderAuthority {
     world_id: String,
@@ -204,32 +252,127 @@ fn store_captured_attempt_with_response(
 fn committed_originals_remain_verifiable_for_finalization_recovery() {
     let root = capture_root();
     let memory = MemoryBudget::new(128 * 1024 * 1024, 8 * 1024 * 1024).unwrap();
-    let (binding, owner) = interruption_tests::fixture_owner_with_memory(&root, memory);
+    let binding = ProviderMaterialOwnerBindingV1 {
+        world_id: "world".into(),
+        genesis_root: [0x71; 32],
+        owner_id: [0x72; 32],
+    };
+    let authority = Arc::new(RecoveryFixtureAuthority {
+        base: FixtureProviderAuthority {
+            world_id: binding.world_id.clone(),
+            owner_id: binding.owner_id,
+        },
+        enabled: std::sync::atomic::AtomicBool::new(true),
+    });
+    let owner = ProviderOriginalMaterialOwnerV1::create(
+        &root,
+        binding.clone(),
+        memory,
+        PageCompression::Raw,
+        authority.clone(),
+    )
+    .unwrap();
     let base = interruption_tests::direct_capture_request("committed-finalization");
     let (request, response, refs) = store_captured_attempt(&owner, &base, "-recovery");
-    owner.mark_committed(&refs, "fixture-runtime-receipt", 7).unwrap();
-    owner.verify_commit_materials(&refs, &request, &response)
+    let before = owner.pending_protection_root().unwrap();
+    owner
+        .verify_commit_disposition(&refs, "fixture-runtime-receipt", 7)
+        .unwrap();
+    assert_eq!(
+        owner.pending_protection_root().unwrap(),
+        before,
+        "read-only receipt fence must not commit captured material early"
+    );
+    assert_eq!(
+        owner.protected_roots_page(None, 1).unwrap().attempts[0].phase,
+        ProviderPendingAttemptPhaseV1::ResponseCaptured
+    );
+    owner
+        .mark_committed(&refs, "fixture-runtime-receipt", 7)
+        .unwrap();
+    owner
+        .verify_commit_materials(&refs, &request, &response)
         .expect("a failed later finalization may revalidate committed originals");
     drop(owner);
     let reopened = ProviderOriginalMaterialOwnerV1::open(
-        &root, &binding,
+        &root,
+        &binding,
         MemoryBudget::new(128 * 1024 * 1024, 8 * 1024 * 1024).unwrap(),
-        PageCompression::Raw, MemoryClass::Ordinary,
-        Arc::new(FixtureProviderAuthority { world_id: binding.world_id.clone(), owner_id: binding.owner_id }),
-    ).unwrap();
-    reopened.verify_commit_materials(&refs, &request, &response)
+        PageCompression::Raw,
+        MemoryClass::Ordinary,
+        authority.clone(),
+    )
+    .unwrap();
+    reopened
+        .verify_commit_materials(&refs, &request, &response)
         .expect("reopen preserves authenticated committed recovery");
-    reopened.mark_committed(&refs, "fixture-runtime-receipt", 7).unwrap();
-    assert!(reopened.mark_committed(&refs, "different-receipt", 7).is_err());
-    assert!(reopened.mark_committed(&refs, "fixture-runtime-receipt", 8).is_err());
+    reopened
+        .mark_committed(&refs, "fixture-runtime-receipt", 7)
+        .unwrap();
+    reopened
+        .verify_commit_disposition(&refs, "fixture-runtime-receipt", 7)
+        .unwrap();
+    assert!(
+        reopened
+            .verify_commit_disposition(&refs, "different-receipt", 7)
+            .is_err()
+    );
+    assert!(
+        reopened
+            .verify_commit_disposition(&refs, "fixture-runtime-receipt", 8)
+            .is_err()
+    );
+    assert!(
+        reopened
+            .mark_committed(&refs, "different-receipt", 7)
+            .is_err()
+    );
+    assert!(
+        reopened
+            .mark_committed(&refs, "fixture-runtime-receipt", 8)
+            .is_err()
+    );
     let mut forged = refs.clone();
     forged.response_object_id = [0xee; 32];
-    assert!(reopened.verify_commit_materials(&forged, &request, &response).is_err());
-    assert!(reopened.mark_committed(&forged, "fixture-runtime-receipt", 7).is_err());
-    assert!(reopened.persist_request(&request, refs.request_object_id,
-        &mut std::io::Cursor::new(serde_json::to_vec(&request).unwrap()),
-        serde_json::to_vec(&request).unwrap().len() as u64).is_err(),
-        "recovery must not redispatch the durable identity");
+    assert!(
+        reopened
+            .verify_commit_materials(&forged, &request, &response)
+            .is_err()
+    );
+    assert!(
+        reopened
+            .mark_committed(&forged, "fixture-runtime-receipt", 7)
+            .is_err()
+    );
+    assert!(
+        reopened
+            .verify_commit_disposition(&forged, "fixture-runtime-receipt", 7)
+            .is_err()
+    );
+    authority.enabled.store(false, Ordering::Relaxed);
+    assert!(
+        reopened
+            .verify_commit_materials(&refs, &request, &response)
+            .is_err(),
+        "Committed cannot bypass actual receipt authority after reopen"
+    );
+    assert!(
+        reopened
+            .verify_commit_disposition(&refs, "fixture-runtime-receipt", 7)
+            .is_err()
+    );
+    authority.enabled.store(true, Ordering::Relaxed);
+    assert!(
+        reopened
+            .persist_request(
+                &request,
+                refs.request_object_id,
+                &mut std::io::Cursor::new(serde_json::to_vec(&request).unwrap()),
+                serde_json::to_vec(&request).unwrap().len() as u64
+            )
+            .is_err(),
+        "recovery must not redispatch the durable identity"
+    );
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
 }

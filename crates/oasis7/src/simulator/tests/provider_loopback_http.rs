@@ -1034,6 +1034,15 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
         })
     }
 
+    fn verify_commit_disposition(
+        &self,
+        _materials: &ProviderOriginalMaterialRefsV1,
+        _receipt_id: &str,
+        _action_id: u64,
+    ) -> Result<(), String> {
+        Err("HTTP-only fixture has no authenticated Runtime receipt authority".into())
+    }
+
     fn verify_commit_materials(
         &self,
         materials: &ProviderOriginalMaterialRefsV1,

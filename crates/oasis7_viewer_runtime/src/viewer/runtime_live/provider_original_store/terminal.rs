@@ -21,12 +21,30 @@ impl ProviderOriginalMaterialOwnerV1 {
                 &mut physical,
             )?
             .ok_or("provider committed materials missing from seen index")?;
-        if record.phase != EventPhase::ResponseCaptured
-            || self.refs_from_event(&record)? != *materials
+        if !matches!(
+            record.phase,
+            EventPhase::ResponseCaptured | EventPhase::Committed
+        ) || self.refs_from_event(&record)? != *materials
         {
             return Err(
                 "provider committed material references are not the captured attempt".into(),
             );
+        }
+        // The authenticated terminal record is immutable. Do not hold the
+        // owner lock while calling the external receipt authority.
+        drop(inner);
+        if record.phase == EventPhase::Committed {
+            self.authority.verify_commit(
+                &self.owner,
+                materials,
+                record
+                    .terminal_receipt_id
+                    .as_deref()
+                    .ok_or("provider terminal receipt absent")?,
+                record
+                    .terminal_action_id
+                    .ok_or("provider terminal action absent")?,
+            )?;
         }
         let request_context = self.read_object_bytes(
             &record.request_context_object_id,
@@ -126,6 +144,11 @@ impl ProviderOriginalMaterialOwnerV1 {
             &self.attempt_from_materials_impl(materials),
             &mut physical,
         )?;
+        if self.refs_from_event(&record)? != *materials {
+            return Err(
+                "provider commit material references differ from captured originals".into(),
+            );
+        }
         if record.phase == EventPhase::Committed
             && record.terminal_receipt_id.as_deref() == Some(receipt_id)
             && record.terminal_action_id == Some(action_id)
@@ -146,6 +169,38 @@ impl ProviderOriginalMaterialOwnerV1 {
         if let Err(error) = self.append_event(&mut inner, terminal) {
             inner.poisoned = true;
             return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(super) fn verify_commit_disposition_impl(
+        &self,
+        materials: &ProviderOriginalMaterialRefsV1,
+        receipt_id: &str,
+        action_id: u64,
+    ) -> Result<(), String> {
+        self.authority
+            .verify_commit(&self.owner, materials, receipt_id, action_id)?;
+        let inner = self.lock_inner()?;
+        self.ensure_healthy(&inner)?;
+        let mut physical = finite_page_io();
+        let record = self.latest_for_attempt(
+            &inner,
+            &self.attempt_from_materials_impl(materials),
+            &mut physical,
+        )?;
+        if self.refs_from_event(&record)? != *materials
+            || receipt_id.is_empty()
+            || receipt_id.len() > 256
+            || !matches!(
+                record.phase,
+                EventPhase::ResponseCaptured | EventPhase::Committed
+            )
+            || (record.phase == EventPhase::Committed
+                && (record.terminal_receipt_id.as_deref() != Some(receipt_id)
+                    || record.terminal_action_id != Some(action_id)))
+        {
+            return Err("provider finalization receipt differs from captured disposition".into());
         }
         Ok(())
     }

@@ -293,6 +293,16 @@ pub trait ProviderOriginalMaterialStore: Send + Sync {
         response: &ContinuousAgentResponseContextV1,
     ) -> Result<(), String>;
 
+    /// Read-only receipt fence before any finalization side effects. A terminal
+    /// attempt must match its durable receipt/action; a captured attempt must
+    /// remain unresolved until the later explicit `mark_committed` call.
+    fn verify_commit_disposition(
+        &self,
+        materials: &ProviderOriginalMaterialRefsV1,
+        receipt_id: &str,
+        action_id: u64,
+    ) -> Result<(), String>;
+
     /// Append the Runtime receipt identity after the action commit succeeds.
     fn mark_committed(
         &self,

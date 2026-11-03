@@ -147,4 +147,36 @@ impl RuntimeLlmSidecar {
             }
         }
     }
+
+    /// Metadata-only fence for a read-back receipt, before projection,
+    /// settlement or feedback. This never changes captured to committed.
+    pub(in crate::viewer::runtime_live) fn verify_provider_original_disposition(
+        &self,
+        cognition: &RuntimeProviderActionContext,
+        receipt_id: &str,
+        action_id: u64,
+    ) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match (
+                self.provider_original_material_store.as_deref(),
+                cognition.provider_original_material_refs.as_ref(),
+            ) {
+                (None, None) => Ok(()),
+                (Some(store), Some(refs)) if refs.owner == *store.owner_binding() => {
+                    store.verify_commit_disposition(refs, receipt_id, action_id)
+                }
+                _ => Err("provider disposition has missing or mismatched original owner".into()),
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (receipt_id, action_id);
+            if cognition.provider_original_material_refs.is_some() {
+                Err("native provider original material refs cannot be committed on wasm".into())
+            } else {
+                Ok(())
+            }
+        }
+    }
 }

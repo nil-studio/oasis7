@@ -134,6 +134,15 @@ impl ProviderOriginalMaterialStore for CancelAfterDispatchStore<'_> {
     ) -> Result<(), String> {
         self.inner.mark_committed(materials, receipt_id, action_id)
     }
+    fn verify_commit_disposition(
+        &self,
+        materials: &ProviderOriginalMaterialRefsV1,
+        receipt_id: &str,
+        action_id: u64,
+    ) -> Result<(), String> {
+        self.inner
+            .verify_commit_disposition(materials, receipt_id, action_id)
+    }
 
     fn mark_rejected(
         &self,

@@ -794,6 +794,14 @@ impl ProviderOriginalMaterialStore for ProviderOriginalMaterialOwnerV1 {
     ) -> Result<(), String> {
         self.mark_committed_impl(materials, receipt_id, action_id)
     }
+    fn verify_commit_disposition(
+        &self,
+        materials: &ProviderOriginalMaterialRefsV1,
+        receipt_id: &str,
+        action_id: u64,
+    ) -> Result<(), String> {
+        self.verify_commit_disposition_impl(materials, receipt_id, action_id)
+    }
     fn mark_rejected(
         &self,
         attempt: &ProviderMaterialAttemptV1,

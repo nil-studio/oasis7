@@ -11,6 +11,7 @@ use oasis7_client_api::world_service::*;
 
 #[path = "agent_service_phase_direct.rs"]
 mod direct;
+use direct::original_settlement_requires_replay;
 
 #[cfg(any(test, feature = "test_tier_required"))]
 #[path = "agent_service_replay_probe.rs"]
@@ -274,6 +275,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         let Some(mut phase) = profiled!(67, self.llm_sidecar.hosted_service_phase.clone()) else {
             return Ok(AgentServiceProgress::Idle);
         };
+        phase.verify_original_disposition(&self.llm_sidecar)?;
         self.llm_sidecar
             .hosted_service_config_binding
             .get_or_insert(current_config);
@@ -588,6 +590,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         if result.token.phase_digest != identity? {
             return Err("hosted service phase identity mismatch".into());
         }
+        phase.verify_original_disposition(&self.llm_sidecar)?;
         let response = result.response?;
         match phase {
             HostedServicePhase::Orphan(orphan) => {
@@ -608,7 +611,8 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     IntentOutcome::Committed { commit, receipt } => {
                         let receipt: ProviderServiceCognitionReceipt =
                             decode_provider_service_receipt(receipt)?;
-                        validate_provider_service_receipt(&pending, &receipt)?;
+                        self.llm_sidecar
+                            .verify_hosted_original_disposition(&pending, &receipt)?;
                         self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::ActView {
                             pending,
                             receipt,
@@ -1060,7 +1064,8 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         pending: PendingProviderServiceIntent,
         receipt: ProviderServiceCognitionReceipt,
     ) -> Result<(), String> {
-        validate_provider_service_receipt(&pending, &receipt)?;
+        self.llm_sidecar
+            .verify_hosted_original_disposition(&pending, &receipt)?;
         let request = &pending.cognition.request.request_context;
         if self
             .llm_sidecar
@@ -1171,15 +1176,6 @@ pub(super) fn original_act_requires_replay(
     Ok(matches!(response.outcome, IntentOutcome::Unknown))
 }
 
-fn original_settlement_requires_replay(
-    response: &IntentResponse<serde_json::Value>,
-    original: &RequestCorrelation,
-) -> Result<bool, String> {
-    response
-        .validate(original)
-        .map_err(|error| error.to_string())?;
-    Ok(matches!(response.outcome, IntentOutcome::Unknown))
-}
 fn original_settlement_io(
     correlation: &RequestCorrelation,
     payload: &crate::world_service::WorldServicePayloadV1,
