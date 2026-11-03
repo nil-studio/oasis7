@@ -24,6 +24,7 @@ impl World {
             | Action::ApproveGovernanceValidatorAdmission { .. }
             | Action::ActivateGovernanceValidatorAdmission { .. }
             | Action::RevokeGovernanceValidatorAdmission { .. }
+            | Action::RotateGovernanceBootstrapFinalityKeyV1 { .. }
             | Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => {
                 self.action_to_event_policy_governance_admission(action_id, action, authorization)
             }

@@ -350,8 +350,10 @@ fn live_rotation() {
             .unwrap(),
         );
         let execution = Arc::new(NodeBftPeerExecutionStateV3::default());
-        let hook: NodeBftSharedExecutionHookV3 =
-            Arc::new(Mutex::new(Box::new(ActualHook(actual[index].clone()))));
+        let hook: NodeBftSharedExecutionHookV3 = Arc::new(Mutex::new(Box::new(ActualHook(
+            actual[index].clone(),
+            None,
+        ))));
         let exchange = Arc::new(
             NodeBftLibp2pPrivateCandidateExchangeV3::new(
                 networks[index].clone(),
