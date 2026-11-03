@@ -45,7 +45,7 @@ GitHub PR baseline CI 检查实际测试的合并快照时，先校验 checkout 
 
 1. 从[产品领域导航](../../product/README.md#game-design-coverage-map)和[完整目录](product-documentation-standard.design.md#game-design-domain-catalog)反查本次受影响领域、直接消费者及实际入口；全游戏或阶段评审逐项考虑完整目录，普通变更只核对本范围。
 2. 在原产品/专业条款写清适用、后续范围、不适用理由或待决问题；具体内容按领域最低要求核对，复用准确条款、内容表和素材目录，不创建对称空文档。
-3. 分开核对设计、实际内容/资产和验证。功能双状态沿用原规范；占位素材、历史证据和未验证范围如实标识，不能通过导航或目录计数升级结论。
+3. 分开核对设计、实际内容/资产和验证。涉及真人体验结论时核对[试玩方案](product-documentation-standard.design.md#player-playtest-plan)的参与者、样本限制、任务、信号、判据或探索问题及复测触发；多人、社区或持续服务按[玩家支持与服务边界](product-documentation-standard.design.md#player-support-service-boundaries)核对适用路径和责任。功能双状态沿用原规范；占位素材、历史证据和未验证范围如实标识，不能通过导航或目录计数升级结论。
 4. 仅同步变化的导航行，核对来源、归属和已审边界；一次初始盘点保留基线与读取范围，后续来源变动时更新受影响行的核对范围，不续写评审流水。排期与缺口实施继续使用原 PR/Task。
 5. 按[阶段证据](product-documentation-standard.design.md#game-design-stage-evidence)核对完成声明，并在当前 PR/Task 保留所审范围、结果与未知。现有 CI 只检查已实现的结构和引用；领域枚举、适用性及语义充分性由作者与适用评审判断。
 

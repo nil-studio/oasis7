@@ -73,6 +73,8 @@
 
 规模化生产与组合验收按实际声明核对：相关内容类型的生产合同、候选实际消费版本、验证分配及[代表性生产证据](product-documentation-standard.design.md#content-scale-evidence)均可定位。规范采纳不要求本次完成各领域制作或量产，但后续能力声明必须保留其实际证据与剩余范围。
 
+涉及真人体验结论及多人、社区或持续服务的主题，分别核对[试玩方案与结论范围](product-documentation-standard.design.md#player-playtest-plan)、[玩家支持与服务生命周期](product-documentation-standard.design.md#player-support-service-boundaries)；原样本、候选、授权和恢复边界继续有效。
+
 验收证据由当前 PR、实际命令结果和适用专业评审共同提供，Issue 按跟踪需要使用；本 PRD 不复制可变执行日志。
 
 ## 6. Non-Goals

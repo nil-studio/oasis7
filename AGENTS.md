@@ -1,8 +1,8 @@
-@/Users/scc/.codex/RTK.md
-
 # Oasis7 Agent Entry Point
 
 通用规则见 [开发流程规范](doc/engineering/workflow/source-of-truth.md)。主执行者负责分析、实现、自测和组织适用评审，并在满足规范、必要检查及用户授权后推进合入和交付；专业协作按复杂度与风险使用。
+
+按任务从[工程知识导航](doc/engineering/design.md#task-scoped-engineering-context-design)进入相应模块与检查来源。环境另行提供的 RTK 等个人工具说明只在明确配置且可读取时参考；缺失不阻塞仓库开发，也不覆盖仓库主责规范或当前用户授权。
 
 - 在独立分支修改；不在 main 或主 worktree 编辑。保留用户和其他执行者的工作。
 - 工作区先检查 `git worktree list --porcelain` 并优先复用干净、未占用的固定路径；确需新增使用 `./scripts/new-task-worktree.sh <module> <task> --base <ref>`，遵循 `oasis7.task-worktrees-root` 配置。除用户明确指定外，不用 App `create_worktree`、worktree fork 或 handoff 绕过仓库入口。

@@ -311,6 +311,8 @@ Prompt 主题必须保留：目标 Agent 与控制资格、对话/配置区分�
 
 组合验收按[候选内容组合](doc-structure-standard.design.md#content-candidate-composition)引用实际消费版本；声明扩大生产能力时按[规模化生产证据](product-documentation-standard.design.md#content-scale-evidence)核对代表性制作、集成与返工依据。阶段卡只引用原记录，不复制完整资源清单或制作流水。
 
+涉及真人体验结论时，验收方法引用[试玩方案](product-documentation-standard.design.md#player-playtest-plan)，明确参与者与样本限制、任务/提示、观察信号、判据或探索问题，以及复测触发。多人、社区或持续服务主题按[玩家支持与服务边界](product-documentation-standard.design.md#player-support-service-boundaries)定位反馈处置责任、数据使用和事故/服务结束的玩家路径；直接复用原方案与记录。
+
 <a id="content-presentation-design-template"></a>
 ## 8. 专业内容与表现设计模板
 
