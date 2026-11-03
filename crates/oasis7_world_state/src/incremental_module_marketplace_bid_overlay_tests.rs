@@ -5,7 +5,21 @@ fn bid_overlay_parent(
     memory: &MemoryBudget,
     bid_count: u64,
 ) -> (SharedValues, ExecutionParent, StatePages, RecordRootRefV1) {
-    let world = bid_overlay_world_with_count(bid_count);
+    bid_overlay_parent_grouped(memory, bid_count, false)
+}
+
+fn bid_overlay_parent_grouped(
+    memory: &MemoryBudget,
+    bid_count: u64,
+    shared_group: bool,
+) -> (SharedValues, ExecutionParent, StatePages, RecordRootRefV1) {
+    let mut world = bid_overlay_world_with_count(bid_count);
+    if shared_group {
+        for bid in world.module_artifact_bids.get_mut("bid-map-key").unwrap() {
+            bid.order_id = 77;
+            bid.bidder_agent_id = "duplicate/β".into();
+        }
+    }
     let mut values = SharedValues::new(memory.clone());
     let mut io = ValueIoBudget {
         nodes_remaining: 100_000u64.max(bid_count.saturating_mul(10_000)),
@@ -201,8 +215,13 @@ struct BidMutatorMetrics {
 }
 
 fn measure_middle_bid_delete(bid_count: u64) -> BidMutatorMetrics {
+    measure_grouped_middle_bid_delete(bid_count, false)
+}
+
+fn measure_grouped_middle_bid_delete(bid_count: u64, shared_group: bool) -> BidMutatorMetrics {
     let memory = MemoryBudget::new(256 << 20, 16 << 20).unwrap();
-    let (mut values, parent, state_pages, expected) = bid_overlay_parent(&memory, bid_count);
+    let (mut values, parent, state_pages, expected) =
+        bid_overlay_parent_grouped(&memory, bid_count, shared_group);
     let live = parent.fence().unwrap();
     let mut transaction = ExecutionTransaction::begin(
         parent.clone(),
@@ -235,7 +254,7 @@ fn measure_middle_bid_delete(bid_count: u64) -> BidMutatorMetrics {
     };
     let mut remaining = 20_000;
     let ordinal = bid_count / 2;
-    let (expected_order_id, expected_bidder_agent_id) = if matches!(ordinal, 0 | 4 | 8) {
+    let (expected_order_id, expected_bidder_agent_id) = if shared_group || matches!(ordinal, 0 | 4 | 8) {
         (77, "duplicate/β".to_owned())
     } else {
         (100 + ordinal, format!("bidder/{ordinal}"))
@@ -274,10 +293,12 @@ fn measure_middle_bid_delete(bid_count: u64) -> BidMutatorMetrics {
         .into_iter()
         .filter(|ordinal| *ordinal < bid_count)
         .count() as u64;
-    let initial_group_count = bid_count - duplicate_count + u64::from(duplicate_count != 0);
-    let deleted_from_duplicate = [0u64, 4, 8].contains(&ordinal) && duplicate_count != 0;
+    let initial_group_count = if shared_group { 1 } else {
+        bid_count - duplicate_count + u64::from(duplicate_count != 0)
+    };
+    let deleted_from_duplicate = shared_group || ([0u64, 4, 8].contains(&ordinal) && duplicate_count != 0);
     let group_count =
-        initial_group_count - u64::from(!deleted_from_duplicate || duplicate_count == 1);
+        initial_group_count - u64::from(!deleted_from_duplicate || (!shared_group && duplicate_count == 1));
     assert_eq!(child.leaf_count, 3 + (bid_count - 1) * 7 + group_count);
     let operation_reads = values.read_counts();
     let metrics = BidMutatorMetrics {
@@ -497,6 +518,18 @@ fn audit_bid_index_tree(
             "stable ID {bid_id} must resolve to its current Vec ordinal"
         );
     }
+}
+
+#[test]
+fn four_bid_primary_two_child_delete_matches_vec_and_node_oracles() {
+    let result = measure_grouped_middle_bid_delete(4, false);
+    assert_eq!(result.state_reads, 0);
+}
+
+#[test]
+fn four_bid_membership_two_child_delete_matches_vec_and_node_oracles() {
+    let result = measure_grouped_middle_bid_delete(4, true);
+    assert_eq!(result.state_reads, 0);
 }
 
 #[test]
