@@ -637,6 +637,7 @@ active turn，迟到 response 只能得到 `late_response_after_cancel`，不得
 14. crash 覆盖 `WorldCommitRecordV1` prepare、commit marker、world journal/state、idempotency
     record、receipt、CognitionJournal link 的每个 interleaving；任何 ambiguous prefix 都是
     `recovery_pending`，不重调 provider、不重执行 kernel/effect。
+    Hosted worker 在 RequestDispatched 后丢失且预算/outcome 无法恢复时，不得重调模型或猜测外部计费；按设计 §5.2.1 保留原身份与当前权限，通过原 canonical Lookup、明确的本地 cognition_failed 和保守原 lease settlement 收口。外部调用计数不回退，原 response/cost 仍未知；仅在精确 receipts 与受信 readback 确认后恢复正常新 turn eligibility。缺失证据、已知拒绝或迟到 response 冲突须保留原请求并阻断依赖动作。
 15. checkpoint/GC 在 retention horizon 前保留 terminal key tombstone、receipt link、response
     artifact 与 reorg window 引用；horizon 后的重复 key 只得到 expired/legacy rejection，绝不
     重新产生 effect。

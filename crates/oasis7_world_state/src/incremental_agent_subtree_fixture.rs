@@ -12,6 +12,7 @@ use std::cell::{Cell, RefCell};
 pub(super) struct State<'a> {
     pages: &'a Pages,
     memory: &'a MemoryBudget,
+    class: MemoryClass,
     error: RefCell<Option<ValueTreeError>>,
     reads: Cell<u64>,
     bytes: Cell<u64>,
@@ -21,6 +22,7 @@ impl<'a> State<'a> {
         Self {
             pages,
             memory,
+            class: MemoryClass::Ordinary,
             error: RefCell::new(None),
             reads: Cell::new(1_000_000),
             bytes: Cell::new(64 << 20),
@@ -39,7 +41,7 @@ impl AsRef<[u8]> for Node {
 impl MerkleNodeReader for State<'_> {
     type Node = Node;
     fn allocation_class(&self) -> Option<MemoryClass> {
-        Some(MemoryClass::Ordinary)
+        Some(self.class)
     }
     fn allocation_budget(&self) -> Option<&MemoryBudget> {
         Some(self.memory)
@@ -234,7 +236,17 @@ pub(super) fn qualify_max_agents(
     memory: &MemoryBudget,
     max_agents: usize,
 ) -> Result<ReservedValue<AgentSubtreeStructureQualificationV1>, ValueTreeError> {
-    let source = State::new(pages, memory);
+    qualify_class(roots, pages, memory, max_agents, MemoryClass::Ordinary)
+}
+pub(super) fn qualify_class(
+    roots: &RootSetV1,
+    pages: &Pages,
+    memory: &MemoryBudget,
+    max_agents: usize,
+    class: MemoryClass,
+) -> Result<ReservedValue<AgentSubtreeStructureQualificationV1>, ValueTreeError> {
+    let mut source = State::new(pages, memory);
+    source.class = class;
     qualify_agent_subtree_structure_v1(
         roots,
         &mut WorldFieldReadContextV1 {
@@ -243,7 +255,7 @@ pub(super) fn qualify_max_agents(
             values: ValueReadContext {
                 source: pages,
                 memory,
-                class: MemoryClass::Ordinary,
+                class,
                 io: &mut io(),
             },
             key_work: &mut SemanticKeyBudget {

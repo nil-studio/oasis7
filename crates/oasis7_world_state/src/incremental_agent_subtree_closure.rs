@@ -158,8 +158,17 @@ pub struct AgentSubtreeStructureQualificationV1 {
     roots: [u8; 32],
     agents: u64,
     mailbox_references: u64,
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl AgentSubtreeStructureQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    pub(super) fn permits_class(&self, class: oasis7_proto::memory_budget::MemoryClass) -> bool {
+        self.class == oasis7_proto::memory_budget::MemoryClass::Ordinary
+            || class == oasis7_proto::memory_budget::MemoryClass::Recovery
+    }
+
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {
         if roots.digest().map_err(|_| invalid())? != self.roots {
             return Err(invalid());
@@ -507,6 +516,7 @@ pub fn qualify_agent_subtree_structure_v1<
         roots: roots.digest().map_err(|_| invalid())?,
         agents: table.len() as u64,
         mailbox_references: references,
+        class: ctx.values.class,
     }))
 }
 
@@ -546,5 +556,39 @@ pub(super) fn inherit(
         roots: roots.digest().map_err(|_| invalid())?,
         agents,
         mailbox_references,
+        class,
     }))
+}
+
+/// Same binding, newly paid Ordinary metadata; no source/history IO or authority.
+pub fn readmit_agent_subtree_structure_ordinary_v1(
+    source: &ReservedValue<AgentSubtreeStructureQualificationV1>,
+    roots: &RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<AgentSubtreeStructureQualificationV1>, ValueTreeError> {
+    use oasis7_proto::memory_budget::MemoryClass;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < 512
+        || source.class != MemoryClass::Recovery
+    {
+        return Err(invalid());
+    }
+    let mut scratch = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    source.validate_binding(roots)?;
+    let output = scratch.split(512).map_err(ValueTreeError::Invalid)?.retain(
+        AgentSubtreeStructureQualificationV1 {
+            roots: source.roots,
+            agents: source.agents,
+            mailbox_references: source.mailbox_references,
+            class: MemoryClass::Ordinary,
+        },
+    );
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(output)
 }

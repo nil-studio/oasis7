@@ -17,8 +17,6 @@ impl PreparedModuleRuntimeCharge {
     }
 }
 
-const MODULE_RUNTIME_FEE_BYTES_PER_UNIT: u64 = 1_024;
-
 impl World {
     /// Check the worst-case deterministic runtime charge before entering a
     /// sandbox.  The actual charge is still appended after the returned
@@ -41,14 +39,9 @@ impl World {
             return Ok(());
         };
 
-        let compute_fee_amount = metering_units(input_bytes)
-            .saturating_add(metering_units(manifest.limits.max_output_bytes))
-            .saturating_add(i64::from(manifest.limits.max_effects).saturating_mul(2))
-            .saturating_add(i64::from(manifest.limits.max_emits));
-        let electricity_fee_amount = 1_i64
-            .saturating_add(i64::from(manifest.limits.max_effects))
-            .saturating_add(i64::from(manifest.limits.max_emits))
-            .saturating_add(1);
+        let amounts = super::incremental_module_fee::upper_bound(&manifest.limits, input_bytes);
+        let compute_fee_amount = amounts.compute;
+        let electricity_fee_amount = amounts.electricity;
         let available_compute = self
             .state
             .agents
@@ -95,14 +88,7 @@ impl World {
         charge: &ModuleRuntimeChargeEvent,
         now: super::super::WorldTime,
     ) -> Result<PreparedModuleRuntimeCharge, WorldError> {
-        if charge.compute_fee_amount < 0 || charge.electricity_fee_amount < 0 {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: format!(
-                    "module runtime fee must be >= 0: compute={} electricity={}",
-                    charge.compute_fee_amount, charge.electricity_fee_amount
-                ),
-            });
-        }
+        super::incremental_module_fee::validate_amounts(charge)?;
         let mut cell = self
             .state
             .agents
@@ -111,53 +97,11 @@ impl World {
                 agent_id: charge.payer_agent_id.clone(),
             })?
             .clone();
-        let mut resources = BTreeMap::new();
-        if charge.compute_fee_amount > 0 {
-            cell.state
-                .resources
-                .remove(charge.compute_fee_kind, charge.compute_fee_amount)
-                .map_err(|err| WorldError::ResourceBalanceInvalid {
-                    reason: format!(
-                        "module runtime compute fee debit failed: payer={} kind={:?} amount={} err={:?}",
-                        charge.payer_agent_id,
-                        charge.compute_fee_kind,
-                        charge.compute_fee_amount,
-                        err
-                    ),
-                })?;
-            let treasury = resources.entry(charge.compute_fee_kind).or_insert_with(|| {
-                self.state
-                    .resources
-                    .get(&charge.compute_fee_kind)
-                    .copied()
-                    .unwrap_or(0)
-            });
-            *treasury = treasury.saturating_add(charge.compute_fee_amount);
-        }
-        if charge.electricity_fee_amount > 0 {
-            cell.state
-                .resources
-                .remove(charge.electricity_fee_kind, charge.electricity_fee_amount)
-                .map_err(|err| WorldError::ResourceBalanceInvalid {
-                    reason: format!(
-                        "module runtime electricity fee debit failed: payer={} kind={:?} amount={} err={:?}",
-                        charge.payer_agent_id,
-                        charge.electricity_fee_kind,
-                        charge.electricity_fee_amount,
-                        err
-                    ),
-                })?;
-            let treasury = resources
-                .entry(charge.electricity_fee_kind)
-                .or_insert_with(|| {
-                    self.state
-                        .resources
-                        .get(&charge.electricity_fee_kind)
-                        .copied()
-                        .unwrap_or(0)
-                });
-            *treasury = treasury.saturating_add(charge.electricity_fee_amount);
-        }
+        let resources = super::incremental_module_fee::prepare_balances(
+            charge,
+            &mut cell.state.resources,
+            |kind| self.state.resources.get(&kind).copied(),
+        )?;
         cell.last_active = now;
         Ok(PreparedModuleRuntimeCharge {
             agents: BTreeMap::from([(charge.payer_agent_id.clone(), cell)]),
@@ -183,17 +127,9 @@ impl World {
             return Ok(());
         };
 
-        let effect_count = i64::try_from(output.effects.len()).unwrap_or(i64::MAX);
-        let emit_count = i64::try_from(output.emits.len()).unwrap_or(i64::MAX);
-        let has_new_state = i64::from(output.new_state.is_some());
-        let compute_fee_amount = metering_units(input_bytes)
-            .saturating_add(metering_units(output.output_bytes))
-            .saturating_add(effect_count.saturating_mul(2))
-            .saturating_add(emit_count);
-        let electricity_fee_amount = 1_i64
-            .saturating_add(effect_count)
-            .saturating_add(emit_count)
-            .saturating_add(has_new_state);
+        let amounts = super::incremental_module_fee::actual(input_bytes, output);
+        let compute_fee_amount = amounts.compute;
+        let electricity_fee_amount = amounts.electricity;
         let available_compute = self
             .state
             .agents
@@ -245,13 +181,4 @@ impl World {
             })?;
         Ok(())
     }
-}
-
-fn metering_units(bytes: u64) -> i64 {
-    if bytes == 0 {
-        return 0;
-    }
-    let units = bytes.saturating_add(MODULE_RUNTIME_FEE_BYTES_PER_UNIT - 1)
-        / MODULE_RUNTIME_FEE_BYTES_PER_UNIT;
-    units.min(i64::MAX as u64) as i64
 }

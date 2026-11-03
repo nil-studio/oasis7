@@ -22,6 +22,9 @@ maintenance = load('workspace_maintenance', 'ci-cache-maintenance.py')
 PREFIXES = {'formal': 'formal-workspace-v3', 'ordinary': 'ordinary-workspace-v1', 'ecs': 'ecs-workspace-v2'}
 REPOSITORY_LIMIT = 10_000_000_000
 OBSERVED_FIXED_BYTES = 3_960_422_714
+# Historical numerical oracles exercise the original capacity policy explicitly.
+LEGACY_FORMAL_LIMITS = dict(staging_bytes=8 * 1024 ** 3, max_upload_bytes=768 * 1024 ** 2,
+                            max_bytes=1536 * 1024 ** 2, rotation_bytes=2304 * 1024 ** 2)
 
 
 def key(name, number, compatibility='a'):
@@ -147,6 +150,14 @@ def release_growth_inventory():
 
 
 class SchemaTests(unittest.TestCase):
+    def test_formal_configured_budget_matches_a_supported_policy_version(self):
+        settings = policy.FAMILIES['formal']
+        upload = settings['max_upload_bytes']
+        self.assertIn(upload, (768 * 1024 ** 2, 1024 ** 3))
+        self.assertEqual(settings['staging_bytes'], 8 * 1024 ** 3)
+        self.assertEqual(settings['max_bytes'], 2 * upload)
+        self.assertEqual(settings['rotation_bytes'], 3 * upload)
+
     def test_current_and_managed_historical_schemas_are_distinct(self):
         legacy = {
             'formal': 'formal-workspace-v2-ubuntu24-X64-1.96.0-nightly-2025-12-11-' + 'a' * 64 + '-' + 'b' * 40,
@@ -239,9 +250,10 @@ class AdmissionTests(unittest.TestCase):
                 self.assertEqual(default, zero)
                 self.assertTrue(zero['capacity_allowed'])
 
+    @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
     def test_raw_staging_single_upload_resident_and_rotation_are_distinct(self):
         for name, upload, raw in (('ordinary', 768 * 1024 ** 2, 6 * 1024 ** 3),
-                                  ('formal', 1024 ** 3, 8 * 1024 ** 3),
+                                  ('formal', 768 * 1024 ** 2, 8 * 1024 ** 3),
                                   ('ecs', 1024 ** 3, 6 * 1024 ** 3)):
             with self.subTest(name=name):
                 settings = policy.FAMILIES[name]
@@ -425,6 +437,7 @@ class InventoryLifecycleTests(unittest.TestCase):
         self.assertLessEqual(peak, REPOSITORY_LIMIT)
         self.assertEqual(sum(item['size_in_bytes'] for item in entries), OBSERVED_FIXED_BYTES + 4_600_000_000)
 
+    @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
     def test_family_ceiling_entitlements_cannot_override_global_capacity(self):
         entries = [entry('ordinary', 100, key='unmanaged-observed-dependencies-and-tools',
                          size_in_bytes=OBSERVED_FIXED_BYTES)]
@@ -433,10 +446,10 @@ class InventoryLifecycleTests(unittest.TestCase):
             for _ in range(2):
                 number += 1
                 entries.append(entry(name, number, size_in_bytes=policy.FAMILIES[name]['max_upload_bytes']))
-        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 9_866_002_746)
+        self.assertEqual(sum(item['size_in_bytes'] for item in entries), 9_329_131_834)
         before = json.dumps(entries, sort_keys=True)
         report = policy.save_policy(entries, key('ecs', 99), 1024 ** 3, REPOSITORY_LIMIT)
-        self.assertEqual(report['projected_repository_bytes'], 10_939_744_570)
+        self.assertEqual(report['projected_repository_bytes'], 10_402_873_658)
         self.assertFalse(report['capacity_allowed'])
         self.assertEqual(report['reason'], 'repository cache capacity gap')
         self.assertEqual(json.dumps(entries, sort_keys=True), before)
@@ -522,6 +535,7 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
         self.assertEqual(json.dumps(entries, sort_keys=True), before)
         self.assertEqual(self.recover(remaining)['delete'], [])
 
+    @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
     def test_actual_native_archive_and_formal_push_fit_but_full_reserve_still_blocks(self):
         entries = release_growth_inventory()
         self.assertFalse(self.native_admission(entries)['allowed'])
@@ -537,7 +551,7 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
         self.assertTrue(formal['capacity_allowed'], formal)
         self.assertEqual(formal['compatible_generations'], 0)
         self.assertEqual(formal['projected_repository_bytes'], 8_126_562_060)
-        self.assertEqual(formal['single_upload_limit_bytes'], 1024 ** 3)
+        self.assertEqual(formal['single_upload_limit_bytes'], 805_306_368)
         full = policy.save_policy(entries, key('formal', 21, 'd'), 741_897_320, REPOSITORY_LIMIT,
                                   reserved_repository_bytes=5 * 1024 ** 3 // 2)
         self.assertFalse(full['capacity_allowed'])

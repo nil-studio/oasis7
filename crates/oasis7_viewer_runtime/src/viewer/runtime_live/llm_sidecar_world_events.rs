@@ -153,7 +153,10 @@ impl RuntimeLlmSidecar {
         }
     }
 
-    pub(super) fn flush_pending_provider_world_events(&mut self) {
+    pub(in crate::viewer::runtime_live) fn flush_pending_provider_world_events(&mut self) {
+        if self.ensure_lineage_published().is_err() {
+            return;
+        }
         let pending = self
             .pending_provider_world_events
             .iter()

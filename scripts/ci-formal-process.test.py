@@ -103,6 +103,26 @@ class Coverage(unittest.TestCase):
             with self.assertRaises(ValueError):
                 artifacts.resolve_suites(config, binaries)
 
+    def test_initial_lost_reply_runs_unconditionally_under_trusted_parent(self):
+        name = ('formal_live_runtime::tests::protected_process_tests::'
+                'protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin')
+        suites = artifacts.resolve_suites(self.config, self.binaries)
+        shards = artifacts.resolve_shards(self.config, suites)
+        selected = [(shard, entry) for shard, entries in shards.items()
+                    for entry in entries if entry.get('name') == name]
+        self.assertEqual(len(selected), 1)
+        shard, entry = selected[0]
+        self.assertEqual(shard, 'runtime-protocol')
+        self.assertEqual(entry['binary'], 'runtime-tests')
+        self.assertTrue(entry['ignored'])
+        self.assertIn('endpoint', self.config['binary_dependencies'][entry['binary']])
+        source = (HERE.parent / 'crates/oasis7_chain_runtime/src/host/formal_live_protected_process_tests.rs').read_text()
+        parent = re.search(r'fn protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin\(\) \{(.*?)\n\}', source, re.S).group(1)
+        self.assertRegex(parent, r'run_on_fixture_stack\(false\)\.unwrap\(\);\s*//[^\n]*\n\s*protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session\(\);')
+        helper = 'protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session'
+        self.assertNotIn(helper, [e.get('name', '').split('::')[-1] for values in suites.values() for e in values])
+        self.assertIn('FixtureCase::InitialLostResponse', source)
+
     def test_physical_shards_preserve_every_logical_case_once(self):
         suites = artifacts.resolve_suites(self.config, self.binaries)
         shards = artifacts.resolve_shards(self.config, suites)

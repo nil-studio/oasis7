@@ -155,16 +155,16 @@ fn head(bytes: &[u8]) -> Result<(ArtifactConfigAddressV1<'static>, u64), Parse> 
         length,
     ))
 }
-pub(super) struct Probe<'a> {
+pub(super) struct Probe<'a, W: Write = std::io::Sink> {
     prefix: [u8; 256],
     used: usize,
     address: Option<ArtifactConfigAddressV1<'static>>,
     remaining: u64,
-    text: Utf8Output<'a, std::io::Sink>,
+    text: Utf8Output<'a, W>,
     bad: bool,
 }
-impl<'a> Probe<'a> {
-    pub(super) fn new(sink: &'a mut std::io::Sink) -> Self {
+impl<'a, W: Write> Probe<'a, W> {
+    pub(super) fn new(sink: &'a mut W) -> Self {
         Self {
             prefix: [0; 256],
             used: 0,
@@ -188,7 +188,7 @@ impl<'a> Probe<'a> {
         self.address.ok_or_else(read::invalid)
     }
 }
-impl Write for Probe<'_> {
+impl<W: Write> Write for Probe<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if self.bad {
             return Err(self.fail());

@@ -432,3 +432,5 @@ fn register_runtime_session_with_options(
 mod recipe_substitution_read;
 
 mod gameplay_result_lookup;
+#[path = "tests/live_control_state.rs"]
+mod live_control_state;
