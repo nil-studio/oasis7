@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -51,6 +52,59 @@ def valid_plan(source):
             'ordinary_fast_targets': [dict(package=package, target_kind=kind, target_name=name,
                                           default_features=False, features=['test_tier_required'])
                 for package, kind, name in sorted(PREVIEW.EXPECTED_TARGETS)]}
+
+
+def fixture_planner(repo):
+    """Run a real planner subprocess without compiling a product workspace."""
+    (repo / 'scripts/plan-rust-required-scope.py').write_text("""import argparse,json,pathlib
+p=argparse.ArgumentParser()
+for key in ('profile','base-ref','head-ref','test-ref','policy-ref','config','formal-config','output'):
+ p.add_argument('--'+key,required=True)
+a=p.parse_args()
+assert a.base_ref != a.head_ref
+assert a.head_ref == a.test_ref == a.policy_ref
+plan=PLAN
+for key in ('source_sha','tested_sha','policy_sha'): plan[key]=a.head_ref
+for key in ('source','tested'): plan['architecture'][key]=a.head_ref
+pathlib.Path(a.output).write_text(json.dumps(plan))
+""".replace('PLAN', repr(valid_plan('unused'))))
+
+
+def commit(repo, message):
+    command(repo, 'add', '.')
+    command(repo, 'commit', '-qm', message)
+    return command(repo, 'rev-parse', 'HEAD')
+
+
+def write_files(repo, files):
+    for relative, contents in files.items():
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if contents is None:
+            path.unlink()
+        else:
+            path.write_text(contents)
+
+
+def merge_fixture(directory, source_changes=None, target_changes=None, merge_changes=None):
+    repo, _ = fixture(directory)
+    fixture_planner(repo)
+    (repo / 'scripts/ci-tests.sh').write_text('# baseline driver\n')
+    fork = commit(repo, 'fixture planner and driver')
+    command(repo, 'checkout', '-qb', 'candidate')
+    write_files(repo, {'README.md': 'candidate docs\n', **(source_changes or {})})
+    source = commit(repo, 'source change')
+    command(repo, 'checkout', '-q', 'main')
+    write_files(repo, {'target-doc.md': 'event target docs\n'})
+    base = commit(repo, 'event target')
+    target = base
+    if target_changes:
+        write_files(repo, target_changes)
+        target = commit(repo, 'advanced target')
+    command(repo, 'merge', '--no-ff', '--no-commit', source)
+    write_files(repo, merge_changes or {})
+    tested = commit(repo, 'tested merge')
+    return repo, base, source, target, tested, fork
 
 
 class Preview(unittest.TestCase):
@@ -120,27 +174,162 @@ class Preview(unittest.TestCase):
                     self.assertFalse(plan.exists())
                     self.assertFalse(Path(str(plan) + '.metadata.json').exists())
 
+    def test_advanced_target_policy_change_does_not_start_documentation_preview(self):
+        # The PR forks before the event base, then main alone changes a driver
+        # before GitHub creates its tested target/source merge (#5393).
+        with tempfile.TemporaryDirectory() as directory:
+            repo, _ = fixture(directory)
+            fixture_planner(repo)
+            commit(repo, 'fixture planner')
+            command(repo, 'checkout', '-qb', 'candidate')
+            (repo / 'README.md').write_text('candidate documentation\n')
+            source = commit(repo, 'candidate docs')
+            command(repo, 'checkout', '-q', 'main')
+            (repo / 'target-doc.md').write_text('target documentation\n')
+            base = commit(repo, 'event target')
+            (repo / 'scripts/ci-tests.sh').write_text('# target-only driver change\n')
+            target = commit(repo, 'main driver advances')
+            command(repo, 'merge', '--no-ff', '-qm', 'tested merge', source)
+            tested = command(repo, 'rev-parse', 'HEAD')
+            self.assertEqual(command(repo, 'show', '-s', '--format=%P', tested).split(),
+                             [target, source])
+            self.assertIn('scripts/ci-tests.sh',
+                          command(repo, 'diff', '--name-only', base, tested).splitlines())
+            self.assertEqual(command(repo, 'diff', '--name-only', target, tested), 'README.md')
+            output = Path(directory) / 'github-output'
+            plan = Path(directory) / 'plan.json'
+            self.assertIsNone(PREVIEW.plan_preview(repo, base, tested, plan, output, source_ref=source))
+            self.assertEqual(output.read_text(), 'enabled=false\n')
+            self.assertFalse(plan.exists())
+            self.assertFalse(Path(str(plan) + '.metadata.json').exists())
+
+    def test_real_pr_cli_preserves_source_input_and_records_actual_merge_ranges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base, source, target, tested, fork = merge_fixture(
+                directory, {'scripts/ci-tests.sh': '# candidate driver\n'},
+                {'scripts/ci-required-scope.json': '{"main_only":true}\n'})
+            output = Path(directory) / 'plan.json'
+            github_output = Path(directory) / 'github-output'
+            subprocess.run([sys.executable, str(ROOT / 'scripts/ci-fast-preview.py'),
+                            '--repo-root', str(repo), 'plan', '--base-ref', base,
+                            '--head-ref', tested, '--source-ref', source,
+                            '--output', str(output), '--github-output', str(github_output)],
+                           text=True, capture_output=True, check=True)
+            metadata = json.loads(Path(str(output) + '.metadata.json').read_text())
+            self.assertEqual(metadata['actual_pr_base_sha'], base)
+            self.assertEqual(metadata['actual_pr_source_sha'], source)
+            self.assertEqual(metadata['actual_target_sha'], target)
+            self.assertEqual(metadata['source_base_sha'], fork)
+            self.assertEqual(metadata['comparisons'],
+                             [{'base': fork, 'head': source}, {'base': target, 'head': tested}])
+            self.assertEqual(metadata['trigger_paths'], ['scripts/ci-tests.sh'])
+            for key in ('source_sha', 'tested_sha', 'policy_sha'):
+                self.assertEqual(metadata[key], tested)
+            self.assertEqual(metadata['authority'], 'diagnostic-only')
+            self.assertIn('enabled=true\n', github_output.read_text())
+            PREVIEW.validate_plan(json.loads(output.read_text()), tested)
+            PREVIEW.restore_baseline(repo, metadata)
+
+    def test_merge_only_driver_change_starts_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base, source, target, tested, fork = merge_fixture(
+                directory, target_changes={'target-doc.md': 'advanced target docs\n'},
+                merge_changes={'scripts/ci-tests.sh': '# merge resolution driver\n'})
+            self.assertNotIn('scripts/ci-tests.sh', PREVIEW.changed_paths(repo, fork, source))
+            metadata = PREVIEW.plan_preview(repo, base, tested, Path(directory) / 'plan.json',
+                                            source_ref=source)
+            self.assertEqual(metadata['trigger_paths'], ['scripts/ci-tests.sh'])
+            self.assertEqual(metadata['actual_target_sha'], target)
+
+    def test_source_driver_change_survives_merge_resolution_restoring_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base, source, target, tested, _ = merge_fixture(
+                directory, {'scripts/ci-tests.sh': '# candidate driver\n'},
+                {'target-doc.md': 'advanced target docs\n'},
+                {'scripts/ci-tests.sh': '# baseline driver\n'})
+            self.assertNotIn('scripts/ci-tests.sh', PREVIEW.changed_paths(repo, target, tested))
+            metadata = PREVIEW.plan_preview(repo, base, tested, Path(directory) / 'plan.json',
+                                            source_ref=source)
+            self.assertEqual(metadata['trigger_paths'], ['scripts/ci-tests.sh'])
+
+    def test_source_only_merge_retains_the_complete_event_range(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base, _, _, tested, _ = merge_fixture(
+                directory, target_changes={'scripts/ci-tests.sh': '# target driver\n'})
+            metadata = PREVIEW.plan_preview(repo, base, tested, Path(directory) / 'plan.json')
+            self.assertIsNone(metadata['actual_target_sha'])
+            self.assertEqual(metadata['actual_pr_source_sha'], tested)
+            self.assertEqual(metadata['comparisons'], [{'base': base, 'head': tested}])
+            self.assertEqual(metadata['trigger_paths'], ['scripts/ci-tests.sh'])
+
+    def test_deleted_and_both_renamed_policy_endpoints_still_start_preview(self):
+        for operation in ('delete', 'rename-away', 'rename-into'):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as directory:
+                repo, _ = fixture(directory)
+                fixture_planner(repo)
+                ordinary_path = 'scripts/ordinary\tname\nwith spaces.sh'
+                initial = ordinary_path if operation == 'rename-into' else 'scripts/ci-tests.sh'
+                (repo / initial).write_text('# execution driver\n')
+                base = commit(repo, 'original driver')
+                if operation == 'delete':
+                    (repo / initial).unlink()
+                else:
+                    destination = 'scripts/ci-tests.sh' if operation == 'rename-into' else ordinary_path
+                    command(repo, 'mv', initial, destination)
+                source = commit(repo, operation)
+                paths = PREVIEW.changed_paths(repo, base, source)
+                self.assertIn('scripts/ci-tests.sh', paths)
+                if operation != 'delete':
+                    self.assertIn(ordinary_path, paths)
+                metadata = PREVIEW.plan_preview(repo, base, source, Path(directory) / 'plan.json')
+                self.assertEqual(metadata['trigger_paths'], ['scripts/ci-tests.sh'])
+
+    def test_invalid_pr_identities_fail_before_a_skipped_or_enabled_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base, source, target, tested, fork = merge_fixture(directory)
+            tree = command(repo, 'rev-parse', tested + '^{tree}')
+            unrelated_base = command(repo, 'commit-tree', tree, '-p', fork, '-m', 'unrelated base')
+            octopus = command(repo, 'commit-tree', tree, '-p', target, '-p', source,
+                              '-p', unrelated_base, '-m', 'three parents')
+            cases = ((base, fork, tested), (base, source, target),
+                     (unrelated_base, source, tested), (base, source, octopus),
+                     (base, '0' * 40, tested), ('0' * 40, source, tested))
+            for index, (event_base, candidate, checkout) in enumerate(cases):
+                with self.subTest(case=index):
+                    command(repo, 'checkout', '-q', '--detach', checkout)
+                    output = Path(directory) / f'plan-{index}.json'
+                    github_output = Path(directory) / f'github-output-{index}'
+                    with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                        PREVIEW.plan_preview(repo, event_base, checkout, output, github_output,
+                                             source_ref=candidate)
+                    self.assertFalse(output.exists())
+                    self.assertFalse(github_output.exists())
+
+    def test_ambiguous_source_target_merge_base_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = fixture(directory)
+            tree = command(repo, 'rev-parse', base + '^{tree}')
+            left = command(repo, 'commit-tree', tree, '-p', base, '-m', 'left fork')
+            right = command(repo, 'commit-tree', tree, '-p', base, '-m', 'right fork')
+            target = command(repo, 'commit-tree', tree, '-p', left, '-p', right, '-m', 'target')
+            source = command(repo, 'commit-tree', tree, '-p', right, '-p', left, '-m', 'source')
+            tested = command(repo, 'commit-tree', tree, '-p', target, '-p', source, '-m', 'tested')
+            self.assertEqual(set(command(repo, 'merge-base', '--all', target, source).split()),
+                             {left, right})
+            command(repo, 'checkout', '-q', '--detach', tested)
+            with self.assertRaisesRegex(ValueError, 'ambiguous source/target merge base'):
+                PREVIEW.plan_preview(repo, base, tested, Path(directory) / 'plan.json',
+                                     source_ref=source)
+
     def test_real_cli_runs_candidate_planner_but_keeps_distinct_authority(self):
         # The actual subprocess parses and reports the identities received
         # by the candidate planner; it never receives the real PR base.
-        planner = """import argparse,json,pathlib
-p=argparse.ArgumentParser()
-for key in ('profile','base-ref','head-ref','test-ref','policy-ref','config','formal-config','output'):
- p.add_argument('--'+key,required=True)
-a=p.parse_args()
-assert a.base_ref != a.head_ref
-assert a.head_ref == a.test_ref == a.policy_ref
-plan=PLAN
-for key in ('source_sha','tested_sha','policy_sha'): plan[key]=a.head_ref
-for key in ('source','tested'): plan['architecture'][key]=a.head_ref
-pathlib.Path(a.output).write_text(json.dumps(plan))
-""".replace('PLAN', repr(valid_plan('unused')))
         for policy_path in ('.github/workflows/rust.yml', 'scripts/ci-required-scope.json',
                             'scripts/ci-tests.sh', 'scripts/ci-test-artifacts.py',
                             'scripts/cargo-dev-architecture.py', 'scripts/cargo-dev-architecture.json'):
             with self.subTest(path=policy_path), tempfile.TemporaryDirectory() as directory:
                 repo, base = fixture(directory)
-                (repo / 'scripts/plan-rust-required-scope.py').write_text(planner)
+                fixture_planner(repo)
                 execution_input = repo / policy_path
                 execution_input.parent.mkdir(parents=True, exist_ok=True)
                 execution_input.write_text('{"candidate": true}\n')

@@ -195,6 +195,8 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 workflow 从与选择器相同的 BASE 取得可信合同执行入口，在候选 driver 之外执行；测试源码也固定来自该 BASE，受测实现与路径绑定到候选 checkout。执行入口核对非空发现、真实执行、完成状态及失败传播，拒绝跳过与成功退出但未完成合同的情况。候选自身的完整回归仍由所属组运行，不能替代可信最低断言；最低用例身份的删除、空发现或意外跳过须在本轮被发现，不能随候选成为下一轮基线后才暴露。断言语义的保留仍由独立评审核对。可信入口及该固定 revision 配置登记的全部最低测试源码纳入完整 CI 结果的检查定义摘要，固定安全测试也必须属于这份登记；旧结果不能签认已改变的执行合同。
 
+隔离执行 shell dispatcher 时，夹具加载受测 driver 的完整函数定义，再覆盖 `run`、Cargo 等明确的记录边界；不手工维护一份易随 helper 演进而遗漏的函数名单。driver 的 source 接口只提供定义，不解析 CLI、不选择解释器、不切换目录或执行检查，也不改变调用方的参数与 shell 选项；正常执行仍经原 CLI 初始化和分派。可信入口仅对明确登记的 support dispatcher 夹具提供这份候选定义闭包，使旧 BASE 测试仍能执行原断言；注入只影响该夹具启动的 shell，不传播到其真实子命令。没有该接口的历史 driver 保留既有夹具路径。缺失 helper、命令失败、空执行及提前成功退出仍判失败，不能将这类兼容问题处理为跳过 BASE 合同；新增 helper、跨版本组合和失败传播须分别回归。
+
 可信合同本身的演进使用明确的完整验证迁移路径：可信入口核对共同祖先到 source 的分支差异与 BASE 到 tested 的实际合并差异，只有精确策略配置或可信入口变更且计划保留全组时，才允许迁移旧的全量策略断言。main 单独前进不构成候选迁移。迁移继续执行固定 BASE 安全断言、真实 Rust fixture 及候选完整回归，并接受独立评审；固定最低安全身份不能借迁移删除。日志列明迁移原因与实际范围，不宣称完成已迁出的全部旧合同。普通 Cargo/共享输入与 Python 的混合变化不因 `scope=full` 自动取得迁移资格，也不接受候选自报的迁移开关。
 
 planner 的可信最低合同固定验证必要的选择、未知输入和失败边界，另以离线微型 Cargo 项目实际编译并执行 cfg、features 和测试清单，覆盖词法归属及门控变化。该合同不冻结每个历史路径的全量策略断言，允许经过评审的职责细分进入新 BASE；候选完整 planner 回归仍验证新策略。它不构建产品 workspace，也不替代真正受影响的产品 Rust 验证。
@@ -260,6 +262,8 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 不可达证明同时核对实际 library、binary 与 build script 入口、静态模块挂载和嵌入数据消费者。原生源码可能经直接或传递的 Cargo build-dependency、proc-macro 或 build script 在 host 上生成便携目标的输入；这种路线必须保留平台验证，不能仅凭 native cfg 排除。自定义或无法解析的入口同样保守处理；包里存在 build script 本身不等于所有 library 源码都作为 host 生成器执行。
 
+已选完整 library 的实际入口可以按本次差异证明平台不可达：每个 base/source/tested 比较都只能新增顶层静态常规模块声明，逐条带精确的 `#[cfg(not(target_arch = "wasm32"))]`，既有 token 保持不变；被挂载模块必须在同一比较中新建、具有唯一常规路径，并在所选 native target/features 中真实可达。只有这些新增声明及模块的影响可排除，不能因入口既有代码可供 WASM 使用就误算整个文件，也不能凭 native 属性忽略其他改动。已有声明或属性改写、删除、重新挂载既有文件、混合便携改动、未知宏/动态路径，以及 host 生成或其他便携挂载/嵌入消费者均保留原验证。此证明沿用已有可信快速能力，不放宽下述无属性 `static_module_additions` 的独立准入规则。
+
 构建前直接生成 `cargo test -p <package> --lib` 或 `--test <name>`；strict Clippy 使用同一命令列表。独立模式不隐式追加 Viewer/snapshot harness。artifact 核对 package/target、请求及实际 features、默认 feature、最低 case 存在且非 ignored、计划与 source/tested 身份；缺目标、空执行、错误变体或遗漏最低用例均失败。最低名单不限制执行，所选目标的全部非 ignored 用例包括后续新增回归都实际运行。
 
 修改测试或生产源码时，即使已有 feature gate 没有变化，也核对快速组合可达性；无法执行则扩测。新增共享测试只有证明静态 `mod/include!` 路由实际到达被选 Cargo target 且全部门控成立，才继续精简，未知宏、动态路径和断开入口保守处理。`native.rs/world/mod.rs` 保留已登记声明/导出的精确新增规则；精确 native cfg 也是声明的一部分，删除或替换已有 API、其他代码仍回退。
@@ -280,7 +284,11 @@ periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、�
 
 架构编译分层遵循[主责合同](../../engineering/rust-governance/rust-engineering-contracts.design.md#trusted-local-architecture)，Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。可信配置的 `architecture_build_policy_version=1` 仅对完整符合普通快速合同的直接输入启用 `ordinary-targets`；消费者重核目标 owner、source/tested、必需组和干净 checkout。全部登记 profile 的声明/依赖图持续阻断违规，额外编译以 `deferred_to_full` 记录，快速目标的真实构建、Clippy 与测试继续由当轮两个必需组执行。混合非普通输入、必要加测、共享控制、旧能力或 full 保留相应原矩阵，不通过诊断 `--graphs-only` 放行。周期 full 承担额外 feature/平台及上层组合的实际兼容编译。
 
-候选策略可通过独立、只读的性能预览取得合入前数据。现有 Rust workflow 的 `pr-fast-preview-plan` 在 `rust.yml`、`ci-required-scope.json`、`ci-tests.sh`、`cargo-dev-architecture.json` 或实际构建驱动 `ci-test-artifacts.py`、`cargo-dev-architecture.py` 变化时启用产品预览；单独修改 planner 或 preview 编排的 Python 实现及测试时，执行其所属合同与实际 required 消费者，不额外构建产品性能样本。混合修改仍由执行配置或构建驱动启用预览。预览以实际候选 tree 的两个固定 Rust 输入构造仅注释不同的 baseline，source/tested checkout 保持实际候选不变。`ci-fast-preview.py` 记录 candidate policy/source/tested、原 PR BASE、合成 BASE/tree 和固定输入，下游 runner 按确定性 Git 身份重建比较对象。规划必须恰好选中 baseline、rust-baseline 和 ordinary 三组及 Runtime lib、World State lib、reducers、物理 incremental 四个 target；额外需求、缺项或错误 feature 策略均不能被静默省略。
+候选策略可通过独立、只读的性能预览取得合入前数据。现有 Rust workflow 的 `pr-fast-preview-plan` 在 `rust.yml`、`ci-required-scope.json`、`ci-tests.sh`、`cargo-dev-architecture.json` 或实际构建驱动 `ci-test-artifacts.py`、`cargo-dev-architecture.py` 变化时启用产品预览；单独修改 planner 或 preview 编排的 Python 实现及测试时，执行其所属合同与实际 required 消费者，不额外构建产品性能样本。混合修改仍由执行配置或构建驱动启用预览。
+
+预览的触发差异复用 required 选择器的 Git 身份与比较范围：workflow 显式传入事件 BASE、实际 PR source 和 tested commit；在验证真实 target 与 source 父节点、BASE 祖先关系及唯一共同祖先后，取共同祖先到 source、实际 target 到 tested 的差异并集，包含删除和重命名两端。main 单独前进不触发预览，真实 source 改动与 merge resolution 改动仍触发；身份或差异无法确认时报告失败，不能安静跳过。这个范围只决定是否运行诊断，不改变可信 required 计划。
+
+预览以实际 tested tree 的两个固定 Rust 输入构造仅注释不同的 baseline，benchmark 的 source/tested checkout 保持该 tested commit 不变。`ci-fast-preview.py` 分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree 和固定输入，下游 runner 按确定性 Git 身份重建比较对象。规划必须恰好选中 baseline、rust-baseline 和 ordinary 三组及 Runtime lib、World State lib、reducers、物理 incremental 四个 target；额外需求、缺项或错误 feature 策略均不能被静默省略。
 
 三组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；从 workflow 创建到最后预览结束的时长仍包含排队与规划。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 

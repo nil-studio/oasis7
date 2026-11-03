@@ -14,6 +14,7 @@ import linecache
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,9 @@ FIXED_TESTS = {
         'TrustedContracts.test_procedural_scenario_failure_caught_by_main_is_still_failure',
         'TrustedContracts.test_inline_procedural_scenarios_have_stable_required_identities',
         'TrustedContracts.test_baseline_test_helpers_cannot_be_replaced_by_candidate_noops',
+        'TrustedContracts.test_support_shell_uses_candidate_transitive_helpers_and_keeps_baseline_assertions',
+        'TrustedContracts.test_support_shell_injection_is_limited_to_its_independent_fixture',
+        'TrustedContracts.test_legacy_support_driver_keeps_the_original_fixture_path',
         'TrustedContracts.test_fixed_safety_inventory_exists_in_current_repository',
         'SelectionAndMigration.test_registered_test_path_alone_selects_the_complete_baseline_contract',
         'SelectionAndMigration.test_target_only_policy_advance_does_not_authorize_source_migration',
@@ -224,6 +228,43 @@ def without_main_guard(source, filename):
     return compile(tree, filename, 'exec')
 
 
+def support_fixture_subprocess(module, root, path, directory):
+    """Complete the old support fixture's candidate shell dependencies only.
+
+    The BASE test body and its recording boundaries stay authoritative. A new
+    candidate helper can be called by the old dispatcher without requiring the
+    BASE test to anticipate every transitive shell function. Drivers predating
+    the source interface keep their original extraction/dispatch behavior.
+    """
+    if path != 'scripts/ci-support-profiles.test.py':
+        return
+    driver = root / 'scripts/ci-tests.sh'
+    if '# ci-driver-library: functions-v1' not in driver.read_text().splitlines():
+        return
+    startup = directory / 'support-fixture-bash-env.sh'
+    startup.write_text('unset BASH_ENV\nsource ' + shlex.quote(str(driver)) + ' || exit $?\n')
+    original = module.subprocess
+
+    class SupportSubprocess:
+        def __getattr__(self, name):
+            return getattr(original, name)
+
+        def run(self, command, *args, **kwargs):
+            if (isinstance(command, (list, tuple)) and len(command) in (6, 7)
+                    and list(command[:2]) == ['bash', '-c']
+                    and (command[3], len(command)) in (('test', 7), ('full-support', 6))
+                    and command[4] == sys.executable
+                    and command[5] == str(root / 'scripts')):
+                environment = kwargs.get('env')
+                kwargs['env'] = dict(os.environ if environment is None else environment,
+                                     BASH_ENV=str(startup))
+            return original.run(command, *args, **kwargs)
+
+    # Do not monkey-patch subprocess itself: implementations imported by this
+    # test and unrelated Bash calls must retain their own execution environment.
+    module.subprocess = SupportSubprocess()
+
+
 def run_worker(request_path, witness_path):
     """Only the parent can accept completion; exit(0) is not completion."""
     request = json.loads(request_path.read_text())
@@ -256,6 +297,7 @@ def run_worker(request_path, witness_path):
     sys.modules['__main__'] = module
     linecache.cache[filename] = (len(source), None, source.splitlines(keepends=True), filename)
     exec(without_main_guard(source, filename), module.__dict__)
+    support_fixture_subprocess(module, root, path, request_path.parent)
     completed, successes = [], []
     if request['kind'] == 'unittest':
         class Result(unittest.TextTestResult):

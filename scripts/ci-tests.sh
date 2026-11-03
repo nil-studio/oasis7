@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-driver_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(cd "$driver_dir/.." && pwd)
-
-tier="${1:-}"
+# ci-driver-library: functions-v1
+# Sourcing loads definitions only; execute this file to initialize and dispatch CI.
 
 usage() {
   cat <<'USAGE'
@@ -25,62 +21,6 @@ The runner discovers a supported interpreter on PATH.
 Default: none (explicit tier required)
 USAGE
 }
-
-if [[ $# -eq 0 ]]; then
-  usage
-  exit 2
-fi
-
-case "$tier" in
-  commit|required|full|full-standard|full-extended|full-core|full-support|cache-native) ;;
-  *)
-    usage
-    exit 1
-    ;;
-esac
-
-shift
-group=""
-support_profiles=""
-required_plan=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --repo-root)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
-      repo_root=$(cd "$2" && pwd)
-      shift 2
-      ;;
-    --group)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
-      group="$2"
-      shift 2
-      ;;
-    --support-profiles)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
-      support_profiles="$2"
-      shift 2
-      ;;
-    --support-plan)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
-      support_profiles="plan:$2"
-      shift 2
-      ;;
-    --plan)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
-      required_plan="$2"
-      shift 2
-      ;;
-    *)
-      usage
-      exit 1
-      ;;
-  esac
-done
-
-ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
-cd "$repo_root"
-# Keep sourced driver definitions with the driver, even when the tested tree differs.
-source "$driver_dir/viewer-dependency-preflight.sh"
 
 run() {
   if [[ "$1" == python3 ]]; then
@@ -1006,6 +946,72 @@ run_group() {
     *) echo "Unknown CI group: $1" >&2; return 2 ;;
   esac
 }
+
+# Keep the source interface free of CLI setup and process-wide side effects.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
+
+set -euo pipefail
+
+driver_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$driver_dir/.." && pwd)
+
+tier="${1:-}"
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 2
+fi
+
+case "$tier" in
+  commit|required|full|full-standard|full-extended|full-core|full-support|cache-native) ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
+
+shift
+group=""
+support_profiles=""
+required_plan=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-root)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
+      repo_root=$(cd "$2" && pwd)
+      shift 2
+      ;;
+    --group)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
+      group="$2"
+      shift 2
+      ;;
+    --support-profiles)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_profiles="$2"
+      shift 2
+      ;;
+    --support-plan)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_profiles="plan:$2"
+      shift 2
+      ;;
+    --plan)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      required_plan="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+cd "$repo_root"
+# Keep sourced driver definitions with the driver, even when the tested tree differs.
+source "$driver_dir/viewer-dependency-preflight.sh"
 
 echo "+ ci test tier: $tier"
 if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_support ) ]]; then
