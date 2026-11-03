@@ -64,6 +64,34 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             return Err("Active C0 actual replay differs from authenticated original".into());
         }
         base.verify_retention_continuity()?;
+        self.recover_active_suffix(
+            binding,
+            context,
+            parent,
+            deadline,
+            &active,
+            &historical,
+            bytes,
+            base,
+        )
+    }
+
+    // Suffix owned temporaries must not occupy the native stack while C0 is
+    // independently replayed above. Authority inputs remain authenticated borrows;
+    // the owned byte buffer is released at its original post-reconstruction point.
+    #[inline(never)]
+    fn recover_active_suffix(
+        &self,
+        binding: &Binding,
+        context: &Current<'_>,
+        parent: &AdmissionParent<'_>,
+        deadline: Instant,
+        active: &oasis7_distfs::protected_bft_v3::VerifiedBftSignerActiveWindowV1,
+        historical: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionHistoricalOwnedC0V1<'_>,
+        bytes: Vec<u8>,
+        base: Arc<VerifiedPrivateSuccessorBaseV1>,
+    ) -> Result<VerifiedActiveAdmissionOwnerV1, String> {
+        let original = active.original_request();
         let installed = context
             .reconstruct_installed_original(binding, original, &bytes)
             .map_err(err)?;

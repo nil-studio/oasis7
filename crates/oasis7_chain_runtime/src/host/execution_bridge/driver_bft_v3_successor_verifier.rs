@@ -141,7 +141,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         deadline: Instant,
         predecessor: Option<&VerifiedPrivateSuccessorBaseV1>,
         access: &ProtectedInputAccessV1<'_, '_>,
-    ) -> Result<VerifiedPrivateSuccessorBaseV1, String> {
+    ) -> Result<Box<VerifiedPrivateSuccessorBaseV1>, String> {
         live(deadline)?;
         checkpoint.validate().map_err(err)?;
         let manifest_bytes =
@@ -396,7 +396,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             // now may this derived result become an immutable Active parent.
             execution.close_verified_replay_inventory()?;
         }
-        let base = VerifiedPrivateSuccessorBaseV1 {
+        let base = Box::new(VerifiedPrivateSuccessorBaseV1 {
             protected_continuity,
             verified_initializer,
             origin,
@@ -408,7 +408,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             public_state: public_state.clone(),
             publications,
             pending,
-        };
+        });
         base.verify_retention_continuity()?;
         Ok(base)
     }

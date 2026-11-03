@@ -60,15 +60,19 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         deadline: Instant,
         access: &ProtectedInputAccessV1<'_, '_>,
     ) -> Result<Box<VerifiedPrivateSuccessorBaseV1>, String> {
-        let base = self.verify_closure_with_origin_access(
+        self.verify_closure_boxed_with_origin_access(
             &original.request.intent.body.checkpoint,
             state,
             &original.original_public_state,
             deadline,
             access,
-        )?;
-        Ok(Box::new(base))
+        )
     }
+    #[inline(never)]
+    fn boxed_replay_state(state: &BftSignerStateV3) -> Box<BftSignerStateV3> {
+        Box::new(state.clone())
+    }
+
     #[inline(never)]
     fn attach_original_after_replay(
         mut base: Box<VerifiedPrivateSuccessorBaseV1>,
@@ -100,10 +104,29 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         deadline: Instant,
         access: &ProtectedInputAccessV1<'_, '_>,
     ) -> Result<VerifiedPrivateSuccessorBaseV1, String> {
+        self.verify_closure_boxed_with_origin_access(
+            checkpoint,
+            public_state,
+            expected_public_ref,
+            deadline,
+            access,
+        )
+        .map(|base| *base)
+    }
+
+    #[inline(never)]
+    fn verify_closure_boxed_with_origin_access(
+        &self,
+        checkpoint: &BftSuccessorWindowCheckpointBodyV1,
+        public_state: &BftSignerStateV3,
+        expected_public_ref: &BftSuccessorWindowArchiveRefV1,
+        deadline: Instant,
+        access: &ProtectedInputAccessV1<'_, '_>,
+    ) -> Result<Box<VerifiedPrivateSuccessorBaseV1>, String> {
         // Collect canonical original States before invoking any actual World
         // replay. No predecessor verification call is nested on the native stack.
         let mut chain = Vec::new();
-        let mut state = public_state.clone();
+        let mut state = Self::boxed_replay_state(public_state);
         let mut seen = BTreeSet::new();
         let mut bytes_read = 0usize;
         while let Some(active) = &state.active_window {
@@ -129,15 +152,15 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
                 .checked_add(bytes.len())
                 .filter(|n| *n <= MAX_CLOSURE)
                 .ok_or("private predecessor original State operation capacity")?;
-            let original: BftSignerStateV3 = serde_cbor::from_slice(&bytes).map_err(err)?;
-            if encode_protocol(&original, MAX_CLOSURE)? != bytes
+            let original: Box<BftSignerStateV3> = serde_cbor::from_slice(&bytes).map_err(err)?;
+            if encode_protocol(original.as_ref(), MAX_CLOSURE)? != bytes
                 || original.revision != body.expected_revision
                 || original.state_digest != body.expected_state_digest
             {
                 return Err("private predecessor original State differs".into());
             }
-            chain.push((record, original.clone()));
-            state = original;
+            state = original.clone();
+            chain.push((record, original));
         }
         let mut predecessor = None;
         for (record, state) in chain.into_iter().rev() {
@@ -146,7 +169,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
                 &state,
                 &record.original_public_state,
                 deadline,
-                predecessor.as_ref(),
+                predecessor.as_deref(),
                 access,
             )?;
             verified.original = Some(record);
@@ -157,7 +180,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             public_state,
             expected_public_ref,
             deadline,
-            predecessor.as_ref(),
+            predecessor.as_deref(),
             access,
         )
     }
