@@ -22,7 +22,7 @@ const MAIN_TOKEN_RESTRICTED_CLAIM_LIVEOPS_POOL_TOP_UP_AUTH_SIGNATURE_V1_PREFIX: 
 const MAIN_TOKEN_RESTRICTED_GRANT_ADMIN_REGISTRY_AUTH_SIGNATURE_V1_PREFIX: &str =
     "ocrestrictedgrantadminauth:v1:";
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ConsensusActionPayloadEnvelope {
     pub version: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,7 +60,7 @@ impl std::fmt::Display for MainTokenActionAuthError {
 
 impl std::error::Error for MainTokenActionAuthError {}
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[expect(
     clippy::large_enum_variant,
     reason = "RuntimeAction has a stable serialized shape; boxing would change the public payload API."
@@ -1082,3 +1082,6 @@ mod compatibility_tests {
 #[cfg(test)]
 #[path = "consensus_action_payload_origin_tests.rs"]
 mod origin_tests;
+
+#[path = "consensus_action_payload_decode.rs"]
+mod decode;
