@@ -167,6 +167,7 @@ pub(crate) fn verify_archived_initial_publication(
         identity,
         expected_commit,
         None,
+        None,
     )
 }
 
@@ -189,8 +190,40 @@ pub(crate) fn verify_archived_initial_publication_with_context(
         identity,
         expected_commit,
         Some(context),
+        None,
     )
 }
+/// Offline operator diagnostics observe the original restore failure only.
+/// The observer has no decision or replacement-state channel.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Exact archived materials, independent context and one read-only failure observer remain explicit."
+)]
+pub(crate) fn verify_archived_initial_publication_observed(
+    record_bytes: &[u8],
+    snapshot_bytes: &[u8],
+    journal_bytes: &[u8],
+    proof_bytes: &[u8],
+    identity: &WorldIdentity,
+    expected_commit: &CommitRef,
+    context: &RestoreContext,
+    observer: &dyn Fn(&oasis7_runtime::WorldError),
+) -> Result<(), String> {
+    verify_archived_initial_publication_inner(
+        record_bytes,
+        snapshot_bytes,
+        journal_bytes,
+        proof_bytes,
+        identity,
+        expected_commit,
+        Some(context),
+        Some(observer),
+    )
+}
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Archived authentication and optional failure observation share one unchanged restore implementation."
+)]
 fn verify_archived_initial_publication_inner(
     record_bytes: &[u8],
     snapshot_bytes: &[u8],
@@ -199,6 +232,7 @@ fn verify_archived_initial_publication_inner(
     identity: &WorldIdentity,
     expected_commit: &CommitRef,
     context: Option<&RestoreContext>,
+    observer: Option<&dyn Fn(&oasis7_runtime::WorldError)>,
 ) -> Result<(), String> {
     let record: ExecutionBridgeRecord =
         serde_json::from_slice(record_bytes).map_err(|_| "initial execution record invalid")?;
@@ -258,19 +292,24 @@ fn verify_archived_initial_publication_inner(
         Some(context) => context.restore(snapshot, journal),
         None => oasis7::runtime_host::world::from_snapshot(snapshot, journal),
     }
-    .map_err(|error| match (context, error) {
-        (None, _) => "pinned world snapshot could not be restored",
-        (Some(_), oasis7_runtime::WorldError::JournalMismatch) => {
-            "archived World restore rejected: journal_mismatch"
+    .map_err(|error| {
+        if let Some(observer) = observer {
+            observer(&error);
         }
-        (Some(_), oasis7_runtime::WorldError::DistributedValidationFailed { reason }) => {
-            if reason.contains("DevLocal participant authority") {
-                "archived World restore rejected: devlocal_participant_context"
-            } else {
-                "archived World restore rejected: distributed_validation"
+        match (context, error) {
+            (None, _) => "pinned world snapshot could not be restored",
+            (Some(_), oasis7_runtime::WorldError::JournalMismatch) => {
+                "archived World restore rejected: journal_mismatch"
             }
+            (Some(_), oasis7_runtime::WorldError::DistributedValidationFailed { reason }) => {
+                if reason.contains("DevLocal participant authority") {
+                    "archived World restore rejected: devlocal_participant_context"
+                } else {
+                    "archived World restore rejected: distributed_validation"
+                }
+            }
+            (Some(_), _) => "archived World restore rejected: runtime_validation",
         }
-        (Some(_), _) => "archived World restore rejected: runtime_validation",
     })?;
     let binding = world
         .current_cognition_runtime_binding()

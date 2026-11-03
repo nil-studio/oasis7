@@ -12,6 +12,9 @@ pub(crate) fn render_help() -> String {
         text.push_str(&format!("  {} {}\n", command.name, command.usage));
     }
     text.push_str(
+        "  verify-preview-history --storage-profile dev_local --root <original> --scratch <absent> ...\n    Explicit offline bounded verification only; no source CAS/pin publication, service or network. See verify-preview-history --help.\n",
+    );
+    text.push_str(
         "  rehydrate-preview-history --storage-profile dev_local --root <original> --scratch <absent> ...\n    Explicit offline bounded historical-material recovery; requires stopped writer and independent pins. See rehydrate-preview-history --help.\n",
     );
     text.push_str(

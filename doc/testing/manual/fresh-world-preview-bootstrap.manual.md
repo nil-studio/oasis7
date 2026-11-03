@@ -111,3 +111,32 @@ queries read the original proof, exact pin and CAS through the strict restore pa
 replay or repair pins. Missing closure remains `HistoryUnavailable`, and corruption fails closed.
 The history pin also protects its original record/proof from later cooperative retention. Retain the
 scratch until the result has been checked; no implicit cleanup or formal/network finality claim is made.
+
+
+## Verify an original historical cut without publication
+
+Trace refs: O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39. Stop/fence the original writer and keep
+its original identity, world, records, CAS and pins. This explicit operator command replaces the
+private preserved-world diagnostic test entry; ordinary self-contained history regressions remain.
+
+```sh
+oasis7_chain_runtime verify-preview-history \
+  --storage-profile dev_local --root /absolute/original-preview \
+  --scratch /absolute/absent-private-scratch --world-id exact-world --node-id exact-node \
+  --service-public-key INDEPENDENT_SERVICE_PIN --height 17 \
+  --max-replay-heights 13 --max-replay-bytes 67108864 --deadline-ms 60000
+```
+
+Use only the actual original inputs and finite budgets. An optional independently fixed
+`--operator-public-key` supplies the same explicit DevLocal participant authority as rehydration.
+This command verifies the exact requested world/height through the same authenticated reconstruction;
+it publishes no source CAS/pin, starts no service, and makes no network/model calls. Only the explicit
+absent scratch is written; transient writer lock files are separate from unchanged source business bytes.
+It does not renew grants, replay model dispatch, reset budgets or repair the original world.
+
+For raw local failure detail, add `--private-diagnostic /absolute/private-dir/new-error.txt`.
+The parent must be a canonical, non-symlink 0700 directory owned by the invoking user, outside the
+source root. The destination must not exist; creation uses 0600/no-follow and at most 16 KiB.
+Raw error details never enter standard output/error. Keep the private file and scratch private;
+public evidence should contain only the command's fixed outcome and verified numeric height.
+A failed diagnostic write never grants verification success. No second restore is performed for diagnostics.

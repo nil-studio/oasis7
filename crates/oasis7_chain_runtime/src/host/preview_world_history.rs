@@ -17,19 +17,22 @@ use std::{
     time::Instant,
 };
 
+pub(super) const ORIGIN_READ_RESERVATION: usize = 16 * 1024 * 1024 + 2 * 256 * 1024;
 const MAX_FILE: usize = 16 * 1024 * 1024;
 #[path = "preview_world_history_publish.rs"]
 mod publication;
 pub(super) use publication::run;
+#[path = "preview_world_history_verify.rs"]
+mod verification;
 #[cfg(test)]
 pub(super) use publication::{PublicationBudget, rehydrate};
+pub(super) use verification::run as verify_run;
 /// Trusted local configuration, never decoded from a remote request.
 pub(super) struct ReplayBudget {
     pub max_heights: u64,
     pub max_total_bytes: usize,
     pub deadline: Instant,
-    #[cfg(test)]
-    pub diagnostic_sink: Option<fn(&Path, &'static str, u64, &str)>,
+    pub diagnostic_sink: Option<verification::PrivateDiagnostic>,
 }
 
 #[derive(Deserialize)]
@@ -210,7 +213,7 @@ pub(super) fn reconstruct(
     let mut budget = Budget { bytes: 0, limits };
     // Origin verification has existing fixed bounded reads. Reserve their full
     // conservative bound before invoking that unchanged identity verifier.
-    budget.charge(16 * 1024 * 1024 + 2 * 256 * 1024)?;
+    budget.charge(ORIGIN_READ_RESERVATION)?;
     let identity =
         super::preview_world_init::verify_existing_origin(root, world, node, service_pin)?;
     let receipt: Value = serde_json::from_slice(
@@ -263,7 +266,17 @@ pub(super) fn reconstruct(
         ReleaseSecurityPolicy::production_hardened()
     };
     let restore = bridge::world_service_read::RestoreContext::new(policy, local)?;
-    bridge::world_service_read::verify_archived_initial_publication_with_context(
+    let observe_initial_restore = |error: &oasis7_runtime::WorldError| {
+        if let Some(sink) = &budget.limits.diagnostic_sink {
+            sink.record(
+                root,
+                "archived_initial_restore",
+                initial.position,
+                format_args!("{error:?}"),
+            );
+        }
+    };
+    bridge::world_service_read::verify_archived_initial_publication_observed(
         &archived[0],
         &archived[2],
         &archived[3],
@@ -271,6 +284,7 @@ pub(super) fn reconstruct(
         &identity,
         &initial,
         &restore,
+        &observe_initial_restore,
     )?;
     let initial_envelope: Envelope = serde_json::from_slice(&archived[1])
         .map_err(|_| "preview history initial envelope invalid")?;
@@ -360,9 +374,17 @@ pub(super) fn reconstruct(
         .map_err(|_| "preview history initial snapshot invalid")?;
     let journal = oasis7_world_state::codec::journal_from_cbor(&archived[3])
         .map_err(|_| "preview history initial journal invalid")?;
-    let runtime = restore
-        .restore(snapshot, journal)
-        .map_err(|_| "preview history initial World restore rejected")?;
+    let runtime = restore.restore(snapshot, journal).map_err(|error| {
+        if let Some(sink) = &budget.limits.diagnostic_sink {
+            sink.record(
+                root,
+                "initial_world_restore",
+                initial.position,
+                format_args!("{error:?}"),
+            );
+        }
+        "preview history initial World restore rejected"
+    })?;
     let executor = oasis7_wasm_executor::WasmExecutor::new_for_deterministic_replay(
         oasis7_wasm_executor::WasmExecutorConfig::default(),
     )
@@ -414,12 +436,9 @@ pub(super) fn reconstruct(
                 Some(&commit.execution_state_root),
             )
             .map_err(|error| {
-                #[cfg(test)]
-                if let Some(sink) = budget.limits.diagnostic_sink {
-                    sink(root, "deterministic_execution", replay_height, &error);
+                if let Some(sink) = &budget.limits.diagnostic_sink {
+                    sink.record(root, "deterministic_execution", replay_height, &error);
                 }
-                #[cfg(not(test))]
-                let _ = error;
                 format!("preview history deterministic execution rejected; height={replay_height}")
             })?;
         budget.check()?;
@@ -444,9 +463,8 @@ pub(super) fn reconstruct(
                 .ok_or("preview history replay effect absent")?,
         )?;
         if proof != fresh_proof || effect != fresh_effect {
-            #[cfg(test)]
-            if let Some(sink) = budget.limits.diagnostic_sink {
-                sink(
+            if let Some(sink) = &budget.limits.diagnostic_sink {
+                sink.record(
                     root,
                     "proof_effect_equality",
                     replay_height,

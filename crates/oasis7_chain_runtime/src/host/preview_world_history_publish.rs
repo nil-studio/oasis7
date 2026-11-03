@@ -351,7 +351,6 @@ pub(crate) fn run<'a>(args: impl Iterator<Item = &'a str>) -> Result<(), String>
         deadline: Instant::now()
             .checked_add(std::time::Duration::from_millis(number("--deadline-ms")?))
             .ok_or("history deadline invalid")?,
-        #[cfg(test)]
         diagnostic_sink: None,
     };
     let publication = PublicationBudget {

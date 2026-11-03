@@ -955,6 +955,15 @@ retention guard 发布缺失的 hash-identical snapshot/journal 原字节及独�
 current head、compact record、World 状态、nonce、模型 ledger、密钥和原创建 receipt 不变。
 失败可以留下尚未引用的已验证 CAS 字节，但没有完整 exact pin/闭包不得报告可读。
 
+同一 Trace `O7-REQ-0bb14512-622e-48fc-879f-bd9f00127b39` 的显式操作员命令
+`verify-preview-history` 复用唯一的认证 replay 路径及相同 writer 排他约束，只在调用者给定的
+独立 scratch 验证原 world、node、service pin 与精确高度；不发布原 source 的 CAS 或 pin，
+不启动服务、网络请求或模型调用。必须显式指定 replay 高度、累计字节和 deadline 预算。
+源业务 World、records、CAS、pins 和模型 ledger 保持原字节；writer 排他锁的瞬态文件不视为
+业务变化。可选原始错误只写调用者指定、source 外、当前用户拥有的 0700 canonical 父目录
+下全新 0600 私有文件，拒绝 symlink、覆盖和超界；公开输出仅固定错误类别与数字高度。
+诊断来自同一次 replay 的原失败点，不二次恢复或绕过原预算。
+
 历史 reader 只从原 record 绑定的原 world-head proof 推导缺失 refs，核对独立 scope 的
 exact pins、CAS hash/boundary，再复用严格 World restore；补 refs 仅在内存 record clone，
 不回写原 record，不在 query 中重放或修 pin。缺闭包仍是 `HistoryUnavailable`，冲突/损坏

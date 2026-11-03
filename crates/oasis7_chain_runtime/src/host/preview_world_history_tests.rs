@@ -186,6 +186,8 @@ fn preview_history_reconstructs_compacted_original_without_changing_source() {
         fs::read(options.root.join("initialization-receipt.json")).unwrap() == original_receipt
     );
 
+    exercise_verify_cli(&directory, &options, &receipt.service_public_key, target);
+
     // Source identity loss/substitution must never be repaired or replaced by
     // replay. These are fixture faults; each invocation leaves its input alone.
     let identity_path = options.root.join("world/world-service-identity.json");
@@ -471,65 +473,6 @@ fn preview_history_reconstructs_compacted_original_without_changing_source() {
     assert!(!directory.0.join("bounded").exists());
 }
 
-#[test]
-#[ignore = "Explicit source/pins/height required; never searches user directories or sends requests."]
-fn preview_history_explicit_preserved_world_diagnostic() {
-    let required =
-        |name| std::env::var(name).expect("explicit preview history diagnostic input missing");
-    let root = PathBuf::from(required("OASIS7_PREVIEW_HISTORY_ROOT"));
-    let scratch = PathBuf::from(required("OASIS7_PREVIEW_HISTORY_SCRATCH"));
-    let world = required("OASIS7_PREVIEW_HISTORY_WORLD");
-    let node = required("OASIS7_PREVIEW_HISTORY_NODE");
-    let pin = required("OASIS7_PREVIEW_HISTORY_SERVICE_PIN");
-    let target: u64 = required("OASIS7_PREVIEW_HISTORY_HEIGHT").parse().unwrap();
-    let heights: u64 = required("OASIS7_PREVIEW_HISTORY_MAX_HEIGHTS")
-        .parse()
-        .unwrap();
-    let local = std::env::var("OASIS7_PREVIEW_HISTORY_OPERATOR_PIN")
-        .ok()
-        .map(|operator| {
-            oasis7_runtime::DevLocalParticipantAuthority::new(
-                oasis7_proto::storage_profile::StorageProfile::DevLocal,
-                &oasis7_runtime::ReleaseSecurityPolicy::default(),
-                operator,
-            )
-            .expect("explicit diagnostic local authority invalid")
-        });
-    let mut diagnostic_budget = budget(heights);
-    #[cfg(unix)]
-    {
-        diagnostic_budget.diagnostic_sink = Some(record_private_driver_error);
-    }
-    let outcome = reconstruct(
-        &root,
-        &scratch,
-        &world,
-        &node,
-        &pin,
-        target,
-        diagnostic_budget,
-        local.clone(),
-    );
-    if outcome
-        .as_ref()
-        .err()
-        .is_some_and(|error| error == "archived World restore rejected: distributed_validation")
-    {
-        #[cfg(unix)]
-        capture_private_restore_reason(&root, local);
-    }
-    // Never let a raw Runtime error enter the test runner's panic output.
-    assert!(
-        outcome.is_ok(),
-        "preview history diagnostic rejected; inspect explicit private diagnostic if supplied"
-    );
-    let restored = outcome.ok().unwrap();
-    assert_eq!(restored.commit.position, target);
-    assert_eq!(restored.commit.world.world_id, world);
-    // Numeric progress only. No World, action, goal, key or receipt contents.
-    eprintln!("preview_history_verified_height={target}");
-}
-
 #[cfg(unix)]
 #[test]
 fn preview_history_scratch_rejects_source_and_ancestor_alias_without_writes() {
@@ -550,89 +493,6 @@ fn preview_history_scratch_rejects_source_and_ancestor_alias_without_writes() {
     assert!(!source.join("scratch").exists());
     assert_eq!(fs::read(source.join("original")).unwrap(), b"unchanged");
     assert_eq!(fs::read_dir(&source).unwrap().count(), 1);
-}
-
-#[cfg(unix)]
-fn capture_private_restore_reason(
-    root: &Path,
-    local: Option<oasis7_runtime::DevLocalParticipantAuthority>,
-) {
-    let receipt: Value =
-        serde_json::from_slice(&fs::read(root.join("initialization-receipt.json")).unwrap())
-            .unwrap();
-    let policy = if receipt
-        .get("provider")
-        .is_some_and(|value| !value.is_null())
-    {
-        oasis7_runtime::ReleaseSecurityPolicy::default()
-    } else {
-        oasis7_runtime::ReleaseSecurityPolicy::production_hardened()
-    };
-    let context = bridge::world_service_read::RestoreContext::new(policy, local).unwrap();
-    // This is reached only after reconstruct authenticated the original archive
-    // and returned the specific fixed restore class. No raw error is printed.
-    let archive = root.join("genesis/initial-publication");
-    let snapshot = oasis7_world_state::codec::snapshot_from_cbor(
-        &fs::read(archive.join("snapshot.cbor")).unwrap(),
-    )
-    .unwrap();
-    let journal = oasis7_world_state::codec::journal_from_cbor(
-        &fs::read(archive.join("journal.cbor")).unwrap(),
-    )
-    .unwrap();
-    let reason = match context.restore(snapshot, journal) {
-        Err(oasis7_runtime::WorldError::DistributedValidationFailed { reason }) => reason,
-        _ => panic!("private diagnostic restore class changed"),
-    };
-    let written = write_private_diagnostic(root, &reason).is_ok();
-    eprintln!("preview_history_private_restore_diagnostic_written={written}");
-}
-
-#[cfg(unix)]
-fn record_private_driver_error(root: &Path, stage: &'static str, height: u64, error: &str) {
-    let stage = match stage {
-        "deterministic_execution" => "deterministic_execution",
-        "proof_effect_equality" => "proof_effect_equality",
-        _ => "unclassified",
-    };
-    let written = write_private_diagnostic(root, error).is_ok();
-    eprintln!(
-        "preview_history_failure_stage={stage} failed_height={height} private_diagnostic_written={written}"
-    );
-}
-
-#[cfg(unix)]
-fn write_private_diagnostic(root: &Path, reason: &str) -> Result<(), ()> {
-    use std::io::Write;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-    let destination =
-        PathBuf::from(std::env::var_os("OASIS7_PREVIEW_HISTORY_PRIVATE_DIAGNOSTIC").ok_or(())?);
-    let parent = destination.parent().ok_or(())?;
-    let metadata = fs::symlink_metadata(parent).map_err(|_| ())?;
-    // SAFETY: geteuid has no arguments and no memory side effects.
-    let owner = unsafe { libc::geteuid() };
-    if !destination.is_absolute()
-        || !metadata.is_dir()
-        || metadata.file_type().is_symlink()
-        || metadata.permissions().mode() & 0o777 != 0o700
-        || metadata.uid() != owner
-    {
-        return Err(());
-    }
-    let canonical = parent.canonicalize().map_err(|_| ())?;
-    if canonical != parent || canonical.starts_with(root.canonicalize().map_err(|_| ())?) {
-        return Err(());
-    }
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(destination)
-        .map_err(|_| ())?;
-    output
-        .write_all(&reason.as_bytes()[..reason.len().min(16 * 1024)])
-        .map_err(|_| ())
 }
 
 #[cfg(unix)]
@@ -728,4 +588,129 @@ fn preview_history_pin_namespace_symlinks_refuse_reads_and_publication() {
             if alias_kind == "blobs" { 2 } else { 1 }
         );
     }
+}
+
+fn source_business_bytes(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>,
+    ) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            let metadata = fs::symlink_metadata(&path).unwrap();
+            if metadata.is_dir() {
+                visit(root, &path, out);
+            } else if metadata.is_file() {
+                // Existing writer exclusion may materialize transient lock files.
+                if matches!(
+                    path.file_name().and_then(|v| v.to_str()),
+                    Some("world.lock" | "world.lock.guard")
+                ) {
+                    continue;
+                }
+                out.insert(
+                    path.strip_prefix(root).unwrap().to_owned(),
+                    fs::read(path).unwrap(),
+                );
+            } else {
+                panic!("self-contained fixture contains a special file");
+            }
+        }
+    }
+    let mut bytes = std::collections::BTreeMap::new();
+    visit(root, root, &mut bytes);
+    bytes
+}
+fn exercise_verify_cli(directory: &Directory, options: &Options, pin: &str, height: u64) {
+    let mut args = vec![
+        "--storage-profile".to_owned(),
+        "dev_local".to_owned(),
+        "--root".into(),
+        options.root.to_str().unwrap().into(),
+        "--scratch".into(),
+        directory.0.join("verify-only").to_str().unwrap().into(),
+        "--world-id".into(),
+        options.world_id.clone(),
+        "--node-id".into(),
+        options.node_id.clone(),
+        "--service-public-key".into(),
+        pin.into(),
+        "--height".into(),
+        height.to_string(),
+        "--max-replay-heights".into(),
+        "1".into(),
+        "--max-replay-bytes".into(),
+        "67108864".into(),
+        "--deadline-ms".into(),
+        "60000".into(),
+    ];
+    let before = source_business_bytes(&options.root);
+    super::super::super::preview_world_history::verify_run(args.iter().map(String::as_str))
+        .unwrap();
+    assert_eq!(
+        source_business_bytes(&options.root),
+        before,
+        "verify must preserve World, records, CAS and pins; only explicit scratch and transient lock may change"
+    );
+    assert!(directory.0.join("verify-only/state.json").is_file());
+    let set = |args: &mut Vec<String>, key: &str, value: String| {
+        let index = args.iter().position(|v| v == key).unwrap();
+        args[index + 1] = value;
+    };
+    set(
+        &mut args,
+        "--scratch",
+        directory
+            .0
+            .join("verify-wrong-world")
+            .to_str()
+            .unwrap()
+            .into(),
+    );
+    set(&mut args, "--world-id", "different-world".into());
+    let diagnostic = directory.0.join("verify-error.txt");
+    args.extend([
+        "--private-diagnostic".into(),
+        diagnostic.to_str().unwrap().into(),
+    ]);
+    let error =
+        super::super::super::preview_world_history::verify_run(args.iter().map(String::as_str))
+            .unwrap_err();
+    assert_eq!(
+        error,
+        "preview history verification rejected; inspect explicit private diagnostic if supplied"
+    );
+    assert!(!directory.0.join("verify-wrong-world").exists());
+    assert!(
+        fs::read_to_string(&diagnostic)
+            .unwrap()
+            .starts_with("stage=verification height=")
+    );
+    assert_eq!(source_business_bytes(&options.root), before);
+    set(&mut args, "--world-id", options.world_id.clone());
+    set(&mut args, "--height", "0".into());
+    set(
+        &mut args,
+        "--scratch",
+        directory
+            .0
+            .join("verify-wrong-height")
+            .to_str()
+            .unwrap()
+            .into(),
+    );
+    args.truncate(args.len() - 2); // Existing diagnostic cannot be overwritten on another attempt.
+    assert!(
+        super::super::super::preview_world_history::verify_run(args.iter().map(String::as_str))
+            .is_err()
+    );
+    assert!(!directory.0.join("verify-wrong-height").exists());
+    set(&mut args, "--height", height.to_string());
+    set(&mut args, "--max-replay-heights", "0".into());
+    assert!(
+        super::super::super::preview_world_history::verify_run(args.iter().map(String::as_str))
+            .is_err()
+    );
+    assert_eq!(source_business_bytes(&options.root), before);
 }
