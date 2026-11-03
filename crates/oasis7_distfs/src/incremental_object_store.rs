@@ -41,6 +41,7 @@ impl<'a> IncrementalObjectStore<'a> {
     ) -> Result<Self> {
         let _workspace = pages.memory.reserve(WORKSPACE, MemoryClass::Ordinary)?;
         check_cancelled(cancelled)?;
+        reclaim::check_publication(&pages.root)?;
         files::validate_store_io(&pages.root, io, cancelled)?;
         files::validate_lease(&pages.root, &pages._lease)?;
         files::create_directory(&pages.root.join("objects"))?;
@@ -164,6 +165,7 @@ impl IncrementalObjectStore<'_> {
         expected: Option<[u8; 32]>,
         io: &mut ObjectIo<'_>,
     ) -> Result<[u8; 32]> {
+        reclaim::check_publication(&self.pages.root)?;
         let _workspace = self
             .pages
             .memory
@@ -202,6 +204,7 @@ impl IncrementalObjectStore<'_> {
     ) -> Result<[u8; 32]> {
         let locator = encode_locator(&id, &ObjectLocator { length, value_root });
         check_cancelled(io.cancelled)?;
+        reclaim::check_publication(&self.pages.root)?;
         files::publish(
             &self.pages.root,
             "objects",

@@ -1,6 +1,6 @@
 //! Bounded, durable physical representations of IWS pages. A successful put is
 //! provisional storage, never world acceptance or a protected-root publication.
-//! There is deliberately no deletion API until typed owner roots are installed.
+//! Logical pages remain retained; physical orphan reclamation retains every recipe.
 //! Local path/lease/directory durability currently requires Unix; create/open
 //! reject other platforms before reserving memory or changing the filesystem.
 use oasis7_cas::frame_codec::{self, FrameDescriptor};
@@ -26,6 +26,11 @@ mod files;
 mod pack;
 #[path = "incremental_page_store_recipe.rs"]
 mod recipe;
+#[path = "incremental_page_reclaim.rs"]
+mod reclaim;
+pub use reclaim::{
+    PageReclaimFailure, PageReclaimReport, PageReclaimWork, reclaim_orphan_page_frames,
+};
 
 const FORMAT: &[u8] = b"oasis7.iws.physical-pages.v1\n";
 const RAW_WORKSPACE: usize = 512 * 1024;
@@ -169,6 +174,7 @@ impl IncrementalPageStore {
         cancelled: &AtomicBool,
     ) -> Result<()> {
         check_cancelled(cancelled)?;
+        reclaim::check_publication(&self.root)?;
         if !bytes.uses_budget(&self.memory) || bytes.capacity() > bytes.reserved_bytes() {
             return Err(PageStoreError::Corrupt("unaccounted/cross-pool input"));
         }

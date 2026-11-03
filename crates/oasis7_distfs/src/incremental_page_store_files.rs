@@ -72,6 +72,20 @@ pub(super) fn sync(path: &Path) -> Result<()> {
     }
     file.sync_all()?;
     #[cfg(test)]
+    FAIL_AFTER_SYNC.with(|slot| -> Result<()> {
+        let mut slot = slot.borrow_mut();
+        if let Some((target, remaining)) = slot.as_mut()
+            && target == path
+        {
+            *remaining -= 1;
+            if *remaining == 0 {
+                *slot = None;
+                return Err(io::Error::other("injected final directory sync failure").into());
+            }
+        }
+        Ok(())
+    })?;
+    #[cfg(test)]
     CANCEL_AFTER_SYNC.with(|slot| {
         let mut slot = slot.borrow_mut();
         if let Some((target, flag, remaining)) = slot.as_mut()
@@ -342,7 +356,13 @@ pub(super) fn publication_point(_root: &Path, _directory: &str, _point: u8) {
 
 #[cfg(test)]
 thread_local! {
+    static FAIL_AFTER_SYNC: std::cell::RefCell<Option<(PathBuf, usize)>> = const { std::cell::RefCell::new(None) };
     static CANCEL_AFTER_SYNC: std::cell::RefCell<Option<(PathBuf, Arc<AtomicBool>, usize)>> = const { std::cell::RefCell::new(None) };
+}
+#[cfg(all(test, unix))]
+pub(super) fn fail_after_sync(path: PathBuf, occurrence: usize) {
+    assert!(occurrence > 0);
+    FAIL_AFTER_SYNC.with(|slot| *slot.borrow_mut() = Some((path, occurrence)));
 }
 #[cfg(all(test, unix))]
 pub(super) fn cancel_after_sync(path: PathBuf, flag: Arc<AtomicBool>, occurrence: usize) {
