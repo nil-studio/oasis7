@@ -171,28 +171,6 @@ pub(crate) fn verify_archived_initial_publication(
     )
 }
 
-/// Same immutable archive checks with a separately trusted Host restore context.
-/// Snapshot fields never select a DevLocal authority or release policy.
-pub(crate) fn verify_archived_initial_publication_with_context(
-    record_bytes: &[u8],
-    snapshot_bytes: &[u8],
-    journal_bytes: &[u8],
-    proof_bytes: &[u8],
-    identity: &WorldIdentity,
-    expected_commit: &CommitRef,
-    context: &RestoreContext,
-) -> Result<(), String> {
-    verify_archived_initial_publication_inner(
-        record_bytes,
-        snapshot_bytes,
-        journal_bytes,
-        proof_bytes,
-        identity,
-        expected_commit,
-        Some(context),
-        None,
-    )
-}
 /// Offline operator diagnostics observe the original restore failure only.
 /// The observer has no decision or replacement-state channel.
 #[expect(
