@@ -51,7 +51,7 @@ struct LocalConsensusActionPayloadEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     gameplay_submission_origin:
         Option<oasis7_proto::gameplay_submission_origin::GameplaySubmissionOrigin>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     auth: Option<LocalConsensusActionAuthEnvelope>,
     body: LocalConsensusActionPayloadBody,
 }

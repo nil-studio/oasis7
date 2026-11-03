@@ -203,3 +203,84 @@ fn cleanup_v2_catalog_rejects_ignored_additional_cbor_fields() {
     assert_eq!(ignored, positive); // Actual old typed Serde would ignore the extra field.
     assert!(decode_consensus_action_payload_envelope(&altered).is_err());
 }
+
+// This hook qualifies only catalog admission in this component test. It cannot
+// execute a tick and is not a production cleanup Driver implementation.
+struct CleanupCatalogFixtureHook {
+    expected: TaskCleanupSubmitV2,
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+impl oasis7_node::NodeExecutionHook for CleanupCatalogFixtureHook {
+    fn validate_cleanup_v2_action_payload(&self, request: &TaskCleanupSubmitV2) -> Result<(), String> {
+        assert_eq!(request, &self.expected);
+        request.verify_owner_signature()?;
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+    fn on_commit(&mut self, _: NodeExecutionCommitContext) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
+        panic!("catalog-only fixture must not execute a commit")
+    }
+}
+#[test]
+fn cleanup_v2_public_encoder_crosses_node_and_execution_boundaries() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    let (close, _) = fixture();
+    close.verify_owner_signature().unwrap();
+    let bytes = oasis7::world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
+    let decoded = oasis7::consensus_action_payload::decode_consensus_action_payload_envelope(&bytes).unwrap();
+    assert!(decoded.auth.is_none());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let config = oasis7_node::NodeConfig::new("node", "world", oasis7_node::NodeRole::Observer).unwrap();
+    let node = oasis7_node::NodeRuntime::new(config.clone()).with_execution_hook(CleanupCatalogFixtureHook {
+        expected: close.clone(), calls: calls.clone(),
+    });
+    node.submit_consensus_action_payload(1, bytes.clone())
+        .expect("the public encoder bytes must pass actual Node catalog and profile admission");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(node.snapshot().consensus.pending_consensus_actions.submit_buffer_action_count, 1);
+    let action = oasis7_node::NodeConsensusAction::from_payload(1, "transport", bytes.clone()).unwrap();
+    let (_, _, _, inputs) = super::super::driver_replicated_input::decode_committed_actions(&context(vec![action])).unwrap();
+    assert!(matches!(&inputs[0].1, RegisteredServiceIntent::CleanupV2(request) if **request == close));
+
+    let unsupported = oasis7_node::NodeRuntime::new(config);
+    assert!(unsupported.submit_consensus_action_payload(1, bytes.clone()).is_err());
+    assert_eq!(unsupported.snapshot().consensus.pending_consensus_actions.submit_buffer_action_count, 0);
+
+    let mut bad_owner = decoded;
+    let oasis7::consensus_action_payload::ConsensusActionPayloadBody::WorldCleanupV2 { request } = &mut bad_owner.body else { unreachable!() };
+    request.original.request.cleanup_until_ms.0 += 1;
+    assert!(node.submit_consensus_action_payload(2, serde_cbor::to_vec(&bad_owner).unwrap()).is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(node.snapshot().consensus.pending_consensus_actions.submit_buffer_action_count, 1);
+
+    // An explicit null is not the public V2 encoding. Keep both exact-byte
+    // gates closed, rather than accepting both serializations as a workaround.
+    let mut noncanonical: serde_cbor::Value = serde_cbor::from_slice(&bytes).unwrap();
+    let serde_cbor::Value::Map(fields) = &mut noncanonical else { unreachable!() };
+    fields.insert(serde_cbor::Value::Text("auth".into()), serde_cbor::Value::Null);
+    let noncanonical = serde_cbor::to_vec(&noncanonical).unwrap();
+    assert!(node.submit_consensus_action_payload(3, noncanonical.clone()).is_err());
+    assert!(oasis7::consensus_action_payload::decode_consensus_action_payload_envelope(&noncanonical).is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn cleanup_v2_alignment_preserves_legacy_public_and_null_auth_envelopes() {
+    let (_, legacy) = fixture();
+    let bytes = oasis7::world_service::correlation::encode_consensus_intent(&legacy).unwrap();
+    for explicit_null in [false, true] {
+        let wire = if explicit_null {
+            let mut envelope: serde_cbor::Value = serde_cbor::from_slice(&bytes).unwrap();
+            let serde_cbor::Value::Map(fields) = &mut envelope else { unreachable!() };
+            fields.insert(serde_cbor::Value::Text("auth".into()), serde_cbor::Value::Null);
+            serde_cbor::to_vec(&envelope).unwrap()
+        } else { bytes.clone() };
+        let node = oasis7_node::NodeRuntime::new(oasis7_node::NodeConfig::new("node", "world", oasis7_node::NodeRole::Observer).unwrap());
+        node.submit_consensus_action_payload(1, wire.clone()).unwrap();
+        assert_eq!(node.snapshot().consensus.pending_consensus_actions.submit_buffer_action_count, 1);
+        let action = oasis7_node::NodeConsensusAction::from_payload(1, "transport", wire).unwrap();
+        let (_, _, _, inputs) = super::super::driver_replicated_input::decode_committed_actions(&context(vec![action])).unwrap();
+        assert!(matches!(&inputs[0].1, RegisteredServiceIntent::LegacyV1(request) if **request == legacy));
+    }
+    assert_eq!(bytes, oasis7::world_service::correlation::encode_consensus_intent(&legacy).unwrap());
+}
