@@ -44,6 +44,33 @@ pub(super) fn mint(
         .retain(ArtifactConfigFamilyQualificationV1 { roots, class }))
 }
 
+/// Re-admit this exact recovered scope using new Ordinary metadata only.
+/// This reads no pages and does not select a head or grant execution authority.
+pub fn readmit_artifact_config_family_ordinary_v1(
+    source: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
+    roots: &RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<ArtifactConfigFamilyQualificationV1>, ValueTreeError> {
+    use oasis7_proto::memory_budget::MemoryClass;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < 512
+        || source.class != MemoryClass::Recovery
+    {
+        return Err(read::invalid());
+    }
+    let _scratch = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    source.validate_binding(&roots.digest().map_err(|_| read::invalid())?)?;
+    let output = mint(source.roots, memory, MemoryClass::Ordinary)?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(output)
+}
+
 pub(super) fn outer<R: ValueNodeReader, C: FnMut() -> bool>(
     field: ArtifactConfigFieldV1,
     key: &WorldFieldKeyV1,

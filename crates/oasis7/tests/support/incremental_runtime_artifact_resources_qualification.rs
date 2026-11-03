@@ -93,89 +93,9 @@ fn bounded_root_set(root: StateRootV1) -> RootSetV1 {
     roots
 }
 
-fn qualification_state_physical() -> PageIoBudget {
-    PageIoBudget {
-        reads_remaining: QUALIFICATION_STATE_READS,
-        ..physical()
-    }
-}
-
-fn qualify(
-    store: &IncrementalPageStore,
-    memory: &MemoryBudget,
-    roots: &RootSetV1,
-) -> Result<ReservedValue<oasis7_runtime::incremental_runtime_artifact_resources::RuntimeArtifactResourcesQualificationV1>, ValueTreeError>{
-    let state = store
-        .state_session(qualification_state_physical(), MemoryClass::Ordinary)
-        .unwrap();
-    let values = store.value_session(physical());
-    let mut value_io = logical();
-    let mut key_work = SemanticKeyBudget {
-        bytes_remaining: 64 << 20,
-    };
-    let mut scans = std::array::from_fn(|_| StateScanBudget {
-        nodes_remaining: 100_000,
-        read_bytes_remaining: 256 << 20,
-        leaves_remaining: 100_000,
-    });
-    let mut work = RuntimeArtifactResourcesWorkV1 {
-        cells_remaining: 100_000,
-        max_pending_node_bytes: 2 << 20,
-    };
-    let result = qualify_runtime_artifact_resources_v1(
-        roots,
-        &mut RuntimeArtifactResourcesReadContextV1 {
-            state: &state,
-            values: ValueReadContext {
-                source: &values,
-                memory,
-                class: MemoryClass::Ordinary,
-                io: &mut value_io,
-            },
-            key_work: &mut key_work,
-            semantic_bytes: 8 << 20,
-            record_bytes: 16 << 20,
-            max_payload_bytes: 8 << 20,
-            scans: &mut scans,
-            take_state_error: || state.take_read_error().map(super::typed),
-            cancelled: || false,
-        },
-        &mut work,
-    );
-    if result.is_err() {
-        let state_remaining = state.remaining_io().unwrap();
-        let value_remaining = values.remaining_io().unwrap();
-        eprintln!(
-            "Artifact qualification failed: state remaining reads={} bytes={} writes={} write_bytes={}; value remaining reads={} bytes={} writes={} write_bytes={}; scan remaining={:?}; cells remaining={}",
-            state_remaining.reads_remaining,
-            state_remaining.read_bytes_remaining,
-            state_remaining.writes_remaining,
-            state_remaining.write_bytes_remaining,
-            value_remaining.reads_remaining,
-            value_remaining.read_bytes_remaining,
-            value_remaining.writes_remaining,
-            value_remaining.write_bytes_remaining,
-            scans.map(|scan| (
-                scan.nodes_remaining,
-                scan.read_bytes_remaining,
-                scan.leaves_remaining
-            )),
-            work.cells_remaining,
-        );
-    } else {
-        let state_remaining = state.remaining_io().unwrap();
-        let value_remaining = values.remaining_io().unwrap();
-        eprintln!(
-            "Artifact qualification consumed state {} reads / {} bytes and value {} reads / {} bytes; cells {}",
-            QUALIFICATION_STATE_READS - state_remaining.reads_remaining,
-            (256 << 20) - state_remaining.read_bytes_remaining,
-            100_000 - value_remaining.reads_remaining,
-            (256 << 20) - value_remaining.read_bytes_remaining,
-            100_000 - work.cells_remaining,
-        );
-    }
-    result
-}
+#[path = "incremental_runtime_artifact_resources_qualification_support.rs"]
+mod qualification_support;
+use qualification_support::{qualification_state_physical, qualify, qualify_with_class};
 
 fn install_governance_control_roots(
     store: &IncrementalPageStore,
@@ -1175,6 +1095,9 @@ fn delta_tick_overlay_seals_one_outer_write_and_requalifies_cold_root() {
 
 #[path = "incremental_runtime_artifact_resources_change_tests.rs"]
 mod change_tests;
+
+#[path = "incremental_runtime_artifact_resources_readmission_tests.rs"]
+mod readmission_tests;
 
 #[path = "incremental_runtime_artifact_resources_pages.rs"]
 mod pages;

@@ -827,3 +827,6 @@ mod pages_tests;
 
 #[path = "incremental_runtime_artifact_content_overlay_fault_tests.rs"]
 mod overlay_fault_tests;
+
+#[path = "incremental_runtime_artifact_content_readmission_tests.rs"]
+mod readmission_tests;
