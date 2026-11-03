@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Manual storage acceptance using immutable native artifacts and owned process cleanup."""
 import argparse
-import contextlib
 import importlib.util
 import json
 import os
@@ -120,18 +119,6 @@ def pack(bundle, destination):
             archive.add(path, arcname=name, recursive=False)
 
 
-class Tee:
-    def __init__(self, stream):
-        self.stream = stream
-    def write(self, value):
-        sys.__stdout__.write(value)
-        self.stream.write(value)
-        self.stream.flush()
-    def flush(self):
-        self.stream.flush()
-        sys.__stdout__.flush()
-
-
 class MemorySampler:
     """Sample sum RSS of processes inheriting a private marker; not system peak RSS."""
     def __init__(self, marker, directory):
@@ -240,9 +227,10 @@ def execute(args):
                     if free < 3 * 1024 ** 3:
                         raise ValueError('disk below 3 GiB safety floor; incomplete acceptance')
                     log = directory / f'{repeat:02}-{index:04}.log'
-                    with log.open('w') as stream, contextlib.redirect_stdout(Tee(stream)):
+                    with log.open('w') as stream:
                         result = run(command, cwd, dict(env, CARGO_MANIFEST_DIR=str(cwd)),
                                      args.group, name, directory / 'results.jsonl', expected_count=count,
+                                     log_stream=stream,
                                      timeout_seconds=args.timeout_seconds or ((7200 if args.group == 'full-node' else 1200) if args.capacity_scale == 10 else 19000)
                                      if args.group in ('capacity', 'full-node') else args.timeout_seconds or 2400)
                     summary['results'].append(dict(result, log=log.name, repetition=repeat + 1))

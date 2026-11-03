@@ -874,6 +874,8 @@ CI 对依赖影响区分 library 输入与独立目标：包内 `src/bin/`、`te
 
 进程运行器使用单调绝对期限、20 秒存活心跳及独立进程所有权标识。Linux 扫描同 UID 环境标识并核对进程 starttime，清理包括脱离原进程组的自有后代；macOS 本地兼容使用独立进程组。退出码、超时、实际测试数、清理结果分别保存。摘要产物只含测试名和运行元数据；原输出通过 nocapture 进入 job 日志，不打包临时世界目录。
 
+live 日志背压不得阻塞监督期限、结果落盘或自有后代清理。每个运行器进程仅有一个有界后台转发队列，不修改共享 stdout 的 open-description flags；队列满时只抑制 live 转发，独立 reader 仍以有界 chunk/候选摘要行读取完整子进程输出，仅保留最后一个有效标准 libtest 计数。摘要记录实际读取的 `output_bytes`、被队列明确抑制或丢弃的 `output_suppressed_bytes`、结果生成时尚未确认写出的 `output_pending_bytes` 及读取错误类型，不新增 raw 日志产物，也不以 live 日志是否送达改变测试选择或成功条件。未完整读取的摘要不能证明执行数量。退出成功若到绝对期限后才被监督者观察到，仍记 timeout/failed；结果文件先于最后的 live 结果通知保存。受控背压回归证明这一机制，不代表某次 hosted 停滞的根因已确定。 每次调用独立快照当前输出描述符，排队片段持有独立副本并在转发或抑制后关闭，防止跨调用重定向失配或描述符复用误投。显式普通文件重定向保留完整输出；storage acceptance 通过可选普通文件日志入口保存原有逐 case 日志，独立于可抑制的控制台转发，不经 Tee 回调。该显式日志必须完整读取且无写入错误才可接受，结构化容量及全节点报告仍从完整日志核验；普通调用不新增默认 raw 日志或 spool。
+
 验证方法见[测试手册](../../../testing-manual.md#ci-formal-process-validation)。具体候选、失败、独立评审及 hosted 结果归当前 PR，未完成真实 runner 验证不得宣称产物复用已验收。
 
 ### Ordinary workspace library cache
