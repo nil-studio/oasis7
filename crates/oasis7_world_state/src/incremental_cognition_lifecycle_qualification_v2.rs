@@ -5,6 +5,8 @@ use crate::{
     incremental_field_member::*, incremental_field_read::WorldFieldReadContextV1,
 };
 use oasis7_formal_protocol::{
+    incremental_execution::{ExecutionError, ExecutionFactKindV1},
+    incremental_material::{CoreError, VerifiedFactHistoryExtensionV1, inherit_fact_occurrence_v1},
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StatePageWriter, StateRootV1},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
@@ -104,6 +106,7 @@ pub fn qualify_empty_cognition_lifecycle_v2(
 /// scalar transition under the exact accepted successor. All pages are CAS
 /// preparation; only final root equality returns the new owner qualification.
 pub struct CognitionLifecycleReceiverV2<'a> {
+    pub extension: &'a ReservedValue<VerifiedFactHistoryExtensionV1>,
     pub parent: &'a ReservedValue<CognitionLifecycleQualificationV2>,
     pub before: &'a ReservedValue<AcceptedCognitionHistoryViewV1>,
     pub after: &'a ReservedValue<AcceptedCognitionHistoryViewV1>,
@@ -132,6 +135,7 @@ impl<'a> CognitionLifecycleReceiverBuilderV2<'a> {
             return Err(ValueTreeError::Cancelled);
         }
         let CognitionLifecycleReceiverV2 {
+            extension,
             parent,
             before,
             after,
@@ -161,6 +165,28 @@ impl<'a> CognitionLifecycleReceiverBuilderV2<'a> {
             || after.manifest().previous_view != Some(before.occurrence().location())
             || before.occurrence().location().height.checked_add(1)
                 != Some(after.occurrence().location().height)
+        {
+            return Err(invalid());
+        }
+        // The public previous-view hint and adjacent heights do not prove
+        // ancestry. Formal inherits this exact selected occurrence only across
+        // its authenticated direct accepted extension, with fresh Ordinary
+        // credit and the caller's cancellation channel.
+        let inherited =
+            inherit_fact_occurrence_v1(before.occurrence(), extension, memory, &mut cancelled)
+                .map_err(|error| match error {
+                    CoreError::Cancelled => ValueTreeError::Cancelled,
+                    CoreError::Execution(ExecutionError::Memory(error)) => {
+                        ValueTreeError::Memory(error)
+                    }
+                    _ => invalid(),
+                })?;
+        let selected = after.occurrence();
+        if inherited.head_record_id() != selected.head_record_id()
+            || inherited.roots_id() != selected.roots_id()
+            || inherited.head_body_id() != selected.head_body_id()
+            || selected.kind() != ExecutionFactKindV1::Result
+            || selected.fact_body_id() != selected.head_body_id()
         {
             return Err(invalid());
         }

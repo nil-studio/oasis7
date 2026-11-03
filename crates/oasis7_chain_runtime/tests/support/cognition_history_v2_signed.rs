@@ -218,15 +218,35 @@ fn signed_v2(adversarial: bool) {
                 // IWS body/roots, but a distinct signed Formal record identity.
                 let mut other_record = proof.decision.record.clone();
                 other_record.projection_root = hex::encode([91; 32]);
-                let other_proof = fixture::proof(other_record, &s.authority,
-                    formal::FormalCompletionBranchV1::Normal, None, None, 4, 5, 6);
-                let other = formal::verify_formal_qualified(&other_proof, &s.authority, None, None).unwrap();
+                let other_proof = fixture::proof(
+                    other_record,
+                    &s.authority,
+                    formal::FormalCompletionBranchV1::Normal,
+                    None,
+                    None,
+                    4,
+                    5,
+                    6,
+                );
+                let other = formal::verify_formal_qualified(&other_proof, &s.authority, None, None)
+                    .unwrap();
                 assert_ne!(other.head().record_id, accepted.head().record_id);
-                normal::continue_view(normal::Source {
-                    memory: &memory, config: &s.config, roots: &s.roots,
-                    authority: &s.authority, reuse: None, alternate_parent: Some(&other),
-                }, (&history.body, &history.prefix), &catalog.after,
-                    (&accepted, &selected), &store, &objects, &mut io);
+                normal::continue_view(
+                    normal::Source {
+                        memory: &memory,
+                        config: &s.config,
+                        roots: &s.roots,
+                        authority: &s.authority,
+                        reuse: None,
+                        alternate_parent: Some(&other),
+                    },
+                    (&history.body, &history.prefix),
+                    &catalog.after,
+                    (&accepted, &selected),
+                    &store,
+                    &objects,
+                    &mut io,
+                );
                 return;
             }
 
@@ -429,7 +449,7 @@ fn signed_v2(adversarial: bool) {
         io.class = MemoryClass::Ordinary;
         let advanced = normal::continue_from_cold(
             normal::Source {
-                    alternate_parent: None,
+                alternate_parent: None,
                 memory: &memory,
                 config: &config,
                 roots: &roots,

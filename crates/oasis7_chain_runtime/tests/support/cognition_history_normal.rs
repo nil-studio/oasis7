@@ -373,7 +373,7 @@ pub(super) fn continue_view(
     }
     .prepare(memory)
     .unwrap();
-    let (accepted, selected) = super::normal_accept::accept_normal_history(
+    let (accepted, selected, extension) = super::normal_accept::accept_normal_history(
         super::normal_accept::NormalHistoryFrame {
             authority: s.authority,
             parent: s.alternate_parent.unwrap_or(parent.0),
@@ -673,12 +673,45 @@ pub(super) fn continue_view(
                 },
                 cancelled: || false,
             };
+            if s.alternate_parent.is_none() {
+                use oasis7_world_state::incremental_cognition_lifecycle_qualification_v2::{
+                    CognitionLifecycleReceiverBuilderV2, CognitionLifecycleReceiverV2,
+                };
+                // Entry, Formal entry/final inheritance and receiver final
+                // cancellation must all refuse a qualification without leaks.
+                for boundary in 1..=4 {
+                    let used = memory.used();
+                    let mut calls = 0;
+                    assert!(matches!(
+                        CognitionLifecycleReceiverBuilderV2::new(
+                            CognitionLifecycleReceiverV2 {
+                                extension: &extension,
+                                parent: life,
+                                before: parent.1,
+                                after: &selected,
+                                current: &binding,
+                                journal,
+                            },
+                            memory,
+                            || {
+                                calls += 1;
+                                calls == boundary
+                            }
+                        ),
+                        Err(ValueTreeError::Cancelled)
+                    ));
+                    assert_eq!(memory.used(), used);
+                }
+            }
             let continued=oasis7_world_state::incremental_cognition_lifecycle_qualification_v2::accept_cognition_lifecycle_appends_v2(
-                oasis7_world_state::incremental_cognition_lifecycle_qualification_v2::CognitionLifecycleReceiverV2{parent:life,before:parent.1,after:&selected,current:&binding,journal},std::iter::empty(),&mut read,&mut write,
+                oasis7_world_state::incremental_cognition_lifecycle_qualification_v2::CognitionLifecycleReceiverV2{extension:&extension,parent:life,before:parent.1,after:&selected,current:&binding,journal},std::iter::empty(),&mut read,&mut write,
                 &mut oasis7_world_state::incremental_cognition_lifecycle_index_v2::CognitionLifecycleWorkV2{key_bytes_remaining:0,cells_remaining:0,max_pending_node_bytes:1<<20},
                 &mut CognitionHistoryIndexWorkV1{cells_remaining:0,max_pending_node_bytes:1<<20});
             if s.alternate_parent.is_some() {
-                assert!(continued.is_err(), "unrelated accepted parent must not inherit lifecycle qualification");
+                assert!(
+                    continued.is_err(),
+                    "unrelated accepted parent must not inherit lifecycle qualification"
+                );
                 return (accepted, sealed.record.after.clone(), manifest_id.unwrap());
             }
             let continued = continued.unwrap();

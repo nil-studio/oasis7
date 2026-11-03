@@ -305,7 +305,7 @@ fn signed_modes(modes: impl IntoIterator<Item = u8>) {
                 assert_eq!(selected.manifest().roots, s.roots.digest().unwrap());
                 let advanced = normal::continue_view(
                     normal::Source {
-                    alternate_parent: None,
+                        alternate_parent: None,
                         memory: &memory,
                         config: &s.config,
                         roots: &s.roots,

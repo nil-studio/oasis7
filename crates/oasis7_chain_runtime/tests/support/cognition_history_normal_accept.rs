@@ -27,6 +27,7 @@ pub(super) fn accept_normal_history(
 ) -> (
     formal::VerifiedFormalCommitV1,
     ReservedValue<AcceptedCognitionHistoryViewV1>,
+    ReservedValue<oasis7_formal_protocol::incremental_material::VerifiedFactHistoryExtensionV1>,
 ) {
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
@@ -168,5 +169,15 @@ pub(super) fn accept_normal_history(
     let selected =
         promote_cognition_history_view_v1(&selected, &accepted, memory, || false).unwrap();
     assert_eq!(core.facts().facts.len(), frame.expected_facts);
-    (accepted, selected)
+    let extension = oasis7_formal_protocol::incremental_material::verify_fact_history_extension_v1(
+        &oasis7_formal_protocol::incremental_material::FactHistoryExtensionRequestV1 {
+            parent: frame.parent,
+            head: &accepted,
+            core: &core,
+        },
+        memory,
+        || false,
+    )
+    .unwrap();
+    (accepted, selected, extension)
 }

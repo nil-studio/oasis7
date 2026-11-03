@@ -425,7 +425,7 @@ pub(super) fn append_two_events(
     }
     .prepare(memory)
     .unwrap();
-    let (accepted, selected) = super::normal_accept::accept_normal_history(
+    let (accepted, selected, extension) = super::normal_accept::accept_normal_history(
         super::normal_accept::NormalHistoryFrame {
             authority: source.authority,
             parent: frame.head,
@@ -448,6 +448,7 @@ pub(super) fn append_two_events(
     )
     .unwrap();
     let request = || CognitionLifecycleReceiverV2 {
+        extension: &extension,
         parent: &lifecycle,
         before: view,
         after: &selected,
