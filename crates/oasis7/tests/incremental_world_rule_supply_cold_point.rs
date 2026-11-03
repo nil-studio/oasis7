@@ -233,6 +233,7 @@ fn cold_supply_scalar_streams_larger_than_pool_and_member_point_writes_skip_it()
     assert_eq!(output.bytes, TEXT_BYTES as u64);
     assert_eq!(output.hasher.finalize().as_bytes(), &expected_hash);
     drop(ordinary);
+    let proof = readmit_supply_record_ordinary_v1(&proof, &memory).unwrap();
     let point_state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();

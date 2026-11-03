@@ -98,6 +98,9 @@ fn member_delta_skips_unchanged_text_larger_than_the_cold_pool() {
         .unwrap();
         (family, proof)
     };
+    // Cold Recovery metadata gains no ordinary authority without new admission.
+    let family = readmit_diplomacy_family_ordinary_v1(&family, &memory).unwrap();
+    let proof = readmit_diplomacy_record_ordinary_v1(&proof, &memory).unwrap();
     let parent = ExecutionParent {
         roots,
         commit: [4; 32],
@@ -321,6 +324,9 @@ fn formed_at_point_skips_unchanged_text_larger_than_the_cold_pool() {
         .unwrap();
         (family, proof)
     };
+    // Cold Recovery metadata gains no ordinary authority without new admission.
+    let family = readmit_diplomacy_family_ordinary_v1(&family, &memory).unwrap();
+    let proof = readmit_diplomacy_record_ordinary_v1(&proof, &memory).unwrap();
     let parent = ExecutionParent {
         roots,
         commit: [4; 32],
