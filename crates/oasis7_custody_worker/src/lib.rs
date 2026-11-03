@@ -246,3 +246,10 @@ mod identity_execution_native_callback_v2;
 
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod term_guarded_signer_runtime_v2;
+
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod directory_admission_policy_v3;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod directory_execution_history_v2;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod read_directory_config_v3;

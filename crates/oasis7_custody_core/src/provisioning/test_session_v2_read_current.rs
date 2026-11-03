@@ -581,3 +581,15 @@ pub(super) fn event_count(s: &TestSessionAuthorityV2) -> usize {
 pub(super) fn source_owned(s: &TestSessionAuthorityV2, id: &str) -> bool {
     s.purpose_http_admissions.values().any(|a|matches!(&a.class,SessionPurposeHttpAdmissionClassV1::ReadCurrentFiveV3 {preparation:r} if r.reservation.as_ref().is_some_and(|p|p.source_id==id)))
 }
+
+#[path = "test_session_v2_read_claim_source.rs"]
+mod claim_source;
+pub use claim_source::{
+    ReadClaimSourceCallbackV3, ReadClaimSourceDirectoryClaimedV3, ReadClaimSourceRouteV3,
+    ReadClaimSourceSigningAuthorityV3, ReadDirectorySigningAuthorityV3,
+};
+#[path = "test_session_v2_read_rf_sender.rs"]
+mod rf_sender;
+pub use rf_sender::{
+    ReadFenceDispatchSigningAuthorityV3, ReadFenceReadSigningAuthorityV3, ReadFenceRouteV3,
+};

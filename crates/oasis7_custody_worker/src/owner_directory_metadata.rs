@@ -3,7 +3,7 @@ use super::*;
 use oasis7_custody_core::management_metadata::*;
 #[wasm_bindgen(module = "/platform/management_metadata_sql.mjs")]
 extern "C" {
-    #[wasm_bindgen(catch,js_name=managementParentsTransition)]
+    #[wasm_bindgen(catch,js_name=managementParentsTransitionInsideTransaction)]
     fn metadata_transition(
         state: &JsValue,
         key: &str,
@@ -44,6 +44,10 @@ impl ManagerAssociations {
                             "table:custody_records"
                                 | "table:custody_audit"
                                 | "table:sqlite_sequence"
+                                | "table:custody_pending_current_floor_v2"
+                                | "table:custody_pending_current_once_v2"
+                                | "table:custody_read_directory_header_v3"
+                                | "table:custody_read_directory_once_v3"
                                 | "table:_cf_METADATA"
                                 | "table:custody_management_metadata"
                         )
@@ -84,8 +88,10 @@ impl ManagerAssociations {
             action().map_err(|_| JsValue::from_str("management metadata rejected"))
         };
         let closure = Closure::borrow_mut(&mut callback);
-        let raw = metadata_transition(&self.state, KEY, closure.as_ref().unchecked_ref())
-            .map_err(|_| denied())?;
+        let raw = self.guarded_directory_sql(|| {
+            metadata_transition(&self.state, KEY, closure.as_ref().unchecked_ref())
+                .map_err(|_| denied())
+        })?;
         if raw.is_empty() || raw.len() > MAX_PAGE_BYTES {
             return Err(denied());
         }

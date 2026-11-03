@@ -16,12 +16,17 @@ pub(crate) mod source_revocation;
 #[path = "owner_directory_metadata.rs"]
 mod metadata;
 
+#[path = "owner_directory_admission_v3.rs"]
+mod admission_v3;
+#[path = "owner_directory_read_v3.rs"]
+mod read_v3;
+
 const KEY: &str = "manager-directory-v1";
 const MAX_BYTES: usize = 1024 * 1024;
 const FANOUT_BATCH: usize = 8;
 #[wasm_bindgen(module = "/platform/sql.mjs")]
 extern "C" {
-    #[wasm_bindgen(catch, js_name = initializeTextRecord)]
+    #[wasm_bindgen(catch, js_name = initializeTextRecordInsideTransaction)]
     fn initialize(
         state: &JsValue,
         key: &str,
@@ -29,7 +34,7 @@ extern "C" {
     ) -> std::result::Result<String, JsValue>;
     #[wasm_bindgen(catch, js_name = readTextRecord)]
     fn read(state: &JsValue, key: &str) -> std::result::Result<String, JsValue>;
-    #[wasm_bindgen(catch, js_name = updateAuditedTextRecord)]
+    #[wasm_bindgen(catch, js_name = updateAuditedTextRecordInsideTransaction)]
     fn update(
         state: &JsValue,
         key: &str,
@@ -113,10 +118,13 @@ fn encode(s: &Snapshot) -> Result<String> {
 pub struct ManagerAssociations {
     state: JsValue,
     env: Env,
+    object_id: String,
 }
 impl DurableObject for ManagerAssociations {
     fn new(state: State, env: Env) -> Self {
+        let object_id = state.id().to_string();
         Self {
+            object_id,
             state: state._inner().into(),
             env,
         }
@@ -141,6 +149,7 @@ impl DurableObject for ManagerAssociations {
             "/internal/freeze" => self.freeze(&raw, &config).await,
             "/internal/source-freeze" => self.source_freeze(&raw, &config).await,
             "/internal/provision-gate" => self.provision_gate(&raw, &config),
+            "/internal/read-directory-v3" => self.read_directory_v3(&raw, &config),
             "/internal/provision-inspect-gate" => self.provision_inspect_gate(&raw, &config),
             _ => return Response::error("not found", 404),
         };
@@ -167,7 +176,8 @@ impl ManagerAssociations {
         create: bool,
         require_allowlist: bool,
     ) -> Result<Snapshot> {
-        let raw = match read(&self.state, KEY) {
+        let raw = match self.guarded_directory_sql(|| read(&self.state, KEY).map_err(|_| denied()))
+        {
             Ok(v) => v,
             Err(_) if create => {
                 if require_allowlist
@@ -191,7 +201,9 @@ impl ManagerAssociations {
                     inventory_complete: require_allowlist,
                     source_closures: BTreeMap::new(),
                 };
-                initialize(&self.state, KEY, &encode(&s)?).map_err(|_| denied())?
+                self.guarded_directory_sql(|| {
+                    initialize(&self.state, KEY, &encode(&s)?).map_err(|_| denied())
+                })?
             }
             Err(_) => return Err(denied()),
         };
@@ -263,8 +275,9 @@ impl ManagerAssociations {
             action().map_err(|_| JsValue::from_str("directory transaction rejected"))
         };
         let closure = Closure::borrow_mut(&mut callback);
-        let result =
-            update(&self.state, KEY, closure.as_ref().unchecked_ref()).map_err(|_| denied());
+        let result = self.guarded_directory_sql(|| {
+            update(&self.state, KEY, closure.as_ref().unchecked_ref()).map_err(|_| denied())
+        });
         drop(closure);
         decode(&result?)
     }
@@ -298,7 +311,10 @@ impl ManagerAssociations {
         }
         let principal = config.principal(&rpc.manager_session)?;
         // Validate before creating a new namespace; no key or native/world call occurs here.
-        if read(&self.state, KEY).is_err() {
+        if self
+            .guarded_directory_sql(|| read(&self.state, KEY).map_err(|_| denied()))
+            .is_err()
+        {
             let mut probe = ManagerAccountIndex::new_for_environment(
                 principal.clone(),
                 config.environment.clone(),
