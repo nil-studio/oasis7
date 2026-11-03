@@ -96,6 +96,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - 已画状态：已发送 ≠ 已入账。
   - 区域「新手启动资金」：入账后解锁第一次 Agent 聊天；和早期玩法操作。；无需外部付费入场或模型充值。
   - 区域「等待 committed 快照」：Agent：示例 A；反馈：queued；余额尚未确认；不要重复领取。；可先阅读：指挥 Agent 恢复产线
+  - 区域「若等待较久或查询受阻」：有授权且既有查询入口可用时核对原领取状态，不重新领取；无法查询则保留结果未知，不推断零余额，按当前恢复说明处理。这里是条件化恢复说明，不新增查询按钮、接口、自动重试或超时阈值，也不将查询失败解释为原领取被拒绝。
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 - 表示：`normal_frame`。
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/first-oc-ready.svg)；区域：named visible cards: 已入账 / 下一步。
