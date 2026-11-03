@@ -112,6 +112,8 @@ python3 scripts/ci-contract-jobs.py --write
 - **路径与写入：** 输出及父路径须在真实仓库内且不是 symlink，文件是已有普通文件。`--write` 先完成所有校验，在相同目录写完整临时文件并保留原 mode；替换前重读原文件，若与初读字节不同则报告并发修改并退出，否则原子替换。失败清理自己的临时文件，原文件保持；生成操作由当前工作区的单一写入者执行，不能与其他编辑者并行覆盖。
 - **结构错误：** 不猜测缺失标记的位置，不把标记外的同名 job 当作可覆盖目标。修复源码或明确的边界标记后再执行；工具不得为了继续生成删除未知内容。
 
+当前 `validate_candidate_graph` 尚未逐项验证这两个 job 的选择输出和 driver group 映射；不能把现有测试描述为已经覆盖。实施前须先由可信 BASE 合同独立登记并验证这两项映射，再让候选生成器和 workflow 接入；若可信 BASE 尚未包含该合同，沿用可信侧的保守检查及独立前置交付，候选不能声称已完成该语义验收或为自身放宽 bootstrap。
+
 新增输入仍按现有 CI 控制归属执行，拟建 `scripts/ci-contract-jobs.test.py` 在已有 `workflow_governance` 入口运行，并由实施 PR 补齐其真实合同登记。`--check` 也放在该现有组，不增加 GitHub required-check 名称。首次迁移接受当时可信 BASE 的必要范围；新测试在合入并进入可信规则后才能按既有能力被消费，候选不能自行选择更窄的检查集。generator/check 失败向现有组返回非零，最终 gate 按原规则汇总。
 
 ### 行为等价与验证
@@ -122,7 +124,7 @@ python3 scripts/ci-contract-jobs.py --write
 | 固定 tested SHA、`fetch-depth: 0`、`persist-credentials: false`、Python 3.12、文档 base/head 环境及真实 driver 命令 | 逐字段/表达式核对；执行所属已有合同，不只检查模板变量存在 |
 | 顶层 triggers、concurrency、permissions、其他 job、required/explicit-full gate 的 needs 与结果解释 | 受管区外字节比较，并保留现有 DAG、取消、缺失、意外 skipped、空执行及完整库存反例 |
 | policy/source/tested 分离、可信 BASE 与候选 checkout 的职责 | 复用现有真实 Git fixture、BASE 合同和结果摘要验证；生成器无权改写计划或伪造结果 |
-| 生成一致与语义正确分离 | 同时修改模板和输出，使某 job 使用错误组、去掉 select 成功条件或改变失败传播；`--check` 可一致，但既有语义合同必须拒绝 |
+| 生成一致与语义正确分离 | 实施时先扩展可信 BASE 侧语义合同，分别约束两个 job 的选择输出与 driver group 的精确对应；注入模板和产物同步改错选择输出、driver group 的负例，以及去掉 select 成功条件或改变失败传播的负例。`--check` 可一致，但可信合同必须拒绝；候选不得自行豁免或缩小 bootstrap 检查 |
 
 生成器自身还需覆盖两次生成字节一致、单独改 YAML 后检查只读失败、模板修改而未更新输出、标记损坏、重复 job、未知组、symlink/越界路径、只读文件及写入前并发变化；每个失败检查文件字节未变。测试 fixture 只证明本地生成与行为断言，迁移候选仍需实际 GitHub 必要检查，不能据此宣称 hosted 耗时或覆盖已达标。
 
@@ -939,3 +941,13 @@ Successful trusted main producer and compatible consumer samples remain required
 The runtime-protocol suite registers one real-owner controlled regression for admission and Node-worker budget consumption. With a short test-only timeout, a held admission gate must return retained Pending before release without creating a late worker; a later retry keeps the same owner and exactly one worker until real completion. Join-only Pending, unstarted/already-stopped stop(0), poison and cleanup failure remain distinct. This regression does not increase any existing caller or production stop timeout. Artificial blocking proves this mechanism rather than any historical CI root cause; measured return overruns include OS scheduling. No diagnostic workflow, observer or production timeout is enabled by this registration.
 
 Controlled crash-publication shutdown must distinguish a zero-budget Pending before worker creation from a Pending while a worker owns the Node. It advances that same owner with a positive interval bounded by the existing scenario/10-second observation deadline before asserting worker ownership; zero-budget Pending alone never authorizes release or successful completion. No retry creates a replacement worker or renews the scenario budget.
+
+## Worker 生产编译的精确平台组合
+
+Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、完整 feature/平台覆盖和可信基线要求，不新增游戏权限。
+
+生产模块名含 `test_session` 不等于 Rust 测试，但其新增 cfg 必须证明实际可编译。可信 planner 与可信 CI driver 共用封闭 Worker wasm 编译组合：四个角色分别单独编译，另分别编译 Owner+approval-harness、Identity+native-runtime-harness。每条均为 `wasm32-unknown-unknown`、`--no-default-features`、`--locked` 的独立命令；不合并互斥角色。六项已有主线平台 driver 先例，可信 driver 继续执行原 `verify.sh --platform` 并直接执行同一精确编译命令库存，使新候选不能仅凭声明一个 feature 或脚本名取得证明。
+
+该证据只用于同属 Worker 的静态、无环、无 opaque 生产模块路径，要求父路径与局部 cfg 在同一个实际组合全部成立。未声明 feature、未知谓词、矛盾角色、跨包路径及不可证明的 mount 保持拒绝。编译时 `test=false`；该库存不执行或授权 wasm `#[test]`、ignored 用例，不改变原 native/expanded 测试组合和忽略用例 runner 登记要求。新增平台组合须独立审查并先进入可信 main；候选自行修改 planner/config 不成为该候选的授权来源。
+
+第七项作为新引入的封闭条件合同预登记，不能称为既有主线编译证据：仅当 Worker manifest 声明空、默认关闭的 `execution-signer-harness=[]` 时，可信 driver 才追加 Executor+execution-signer-harness 的成功编译，并分别验证 Identity、Owner、RecoveryFence+该 feature 的失败编译及精确 guard 消息。feature 缺失时不执行这四项，也不声称已编译。每个 tuple 都以实际 manifest 的本地 feature 传递闭包，同时核对父路径和局部 cfg；不注入 default，不跨 tuple 合并。非空声明、default 闭包开启，或六个原组合通过角色或 harness 别名隐式开启该 feature 均直接拒绝；无法建模的 optional/weak/implicit 依赖传播不能推定为已编译。失败编译仅证明精确字面 `compile_error!` guard，不能证明其后的任意生产函数、模块或测试可执行；真实成功组合仍逐实际 parent/cfg 核对。此前所有新增 ignored 用例的 runner 缺口保持独立阻断。

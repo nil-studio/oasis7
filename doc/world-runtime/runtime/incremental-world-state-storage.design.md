@@ -742,6 +742,45 @@ MainTokenSupplyState 穷尽 total_supply/circulating_supply/total_issued/total_b
 每个全局值和 active 成员具有独立 child StateRoot。一个 registry record 的四个原列分别以原 descriptor/schema/外键的 RootRef165 指向同一个完整 record child；完整资格必须核对四列同键齐备且 child 相同，不得从只读某列成功授完整 registry 资格。child 保留 metadata、封闭 body-kind 标记和逐原名列。ModuleManifest 穷尽十三字段；Limits 保留六列及三个 u32 上界；Security 穷尽四 Bool。ModuleAbiContract 七字段、GameplayContract 四字段、ModuleArtifactIdentity 五字段与 CommandDeclaration 五字段分别穷尽。Vec 以原 ordinal/认证 length 保序并保留重复值，cap_slots 保留原 String 成员；Option 以 Unit/实际值或显式 presence 与完整子结构区分 None、Some(0/empty/null)。不调用 resolved_stage 补造默认值，不用完整 ModuleManifest CBOR DOM 或 DTO JSON 影子叶。仅实际 JsonValue 的 Manifest.content 与 subscription.filters 使用中性 JSON 子树 schema。
 
 新 profile 内部相对地址为 section/column、外 ordinal、内 ordinal、原 map member 的封闭 tuple；每个可缺组件有独立存在位，不以零或空串代替不存在。原 Unit、String 外键及业务 hash 字段原值不变。借用 GEN 仅产 provisional writes，所有 cell、JSON node/depth、key/IO/heap 预算连续有界。root-only 资格须凭认证 RootSet 与保存内容完整拒绝未知列、缺列、孤儿、Option/Vec 关系错误；不能要求原 World snapshot 作恢复 oracle。普通同事务点读/精确 expected 修改须复用已资格父，仅访问目标及必要关系，长比较、NoOp、末次 put 后均组合取消，任何失败 poison 整笔成功前缀。receiver 独立 generic replay 后仅检查实际 changed paths，继承未变闭包。typed pages 追随全部 child/JSON 页，buffered finish 前保持暂态。本节是此 owner 的实现合同；单独 visitor/GEN checkpoint 不登记 ready，不授部署、签名、政策、完整 Runtime/World 或 GC 权限。
+### 12.43 Runtime 调度确定性控制组
+
+<a id="iws-runtime-scheduler-controls-v1"></a>
+
+本 owner 只覆盖原 Runtime/Scheduler 的八个 Value descriptor：scheduler_cursor、runtime_memory_limits.max_pending_actions/max_pending_effects/max_inflight_effects、runtime_backpressure_stats.pending_actions_evicted/pending_effects_evicted/inflight_effects_evicted、module_tick_routing_metrics。游标为原 Option<String>，不是 Cognition 的 SchedulerCursorV1；三项容量为原 usize、三项驱逐计数为原 u64。路由只保存 ModuleTickRoutingDeterministicSnapshot 的 last_due_count/last_invoked_count/last_missing_invocation_count 三 usize、missing_invocation_count/routing_count 两 u64 和 oldest_overdue_ticks Option<u64>。usize 以 U64 保存并校验接收目标原 usize 域，不新增容量或调度业务上限。max_journal_events、inflight_effect_dispatch_blocked、journal_events_evicted、wall-clock duration/buckets 仍是已登记 Process 字段，不借此 owner 落盘或标 ready。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+七个 primitive 全局值各用原 descriptor 的 Metadata 与 Entry/Unit 语义键，payload 为原 U64 或 nullable Unit/Text。游标 None 与 Some(empty)、overdue None 与 Some(0) 必须区分，必需全局对象和列不能删除。路由原对象是独立 RootRef165 child，同 Scheduler namespace，绑定专属 schema 与原 Unit digest；child 有 Metadata、Unit marker 和六个原名列，不聚合 JSON/Serde blob。完整借用 GEN 从实际 World 控制值和既有 deterministic_snapshot 投影得到，穷尽 DTO 并明确排除 Process 部分，不 clone 完整 World 或长游标。
+
+根绑定 opaque 资格只在有限预算下验证此完整八字段组；固定根和 same-TX getter/单列 expected 更新不能冒称完整 Runtime 资格。普通贡献须使用同一 ExecutionTransaction、guard/live、同池 Ordinary、认证元数据与实际 pending 根，保留所有读写依赖；NoOp/长比较、输出重试和返回前取消、真实 put 失败均 poison 已成功贡献。receiver 先独立 generic replay，再由 qualified 父及实际 changed paths 验证本组，跳过未变长游标/无关 owner。冷恢复不能要求原 World snapshot，页闭包仍须本组完整验证及 sink finish 完成。
+
+已有 allocator/event sequence/module-wake/index 专用键与 wire 不得被本组 generic primitive 或 RootRef 影子替代；本组也不为 pending actions/effects、provider pending/result、nonce、idempotency、continuation、Cognition journal/history/receipt 关系发放 ready 或外调资格。原请求/attempt/nonce/continuation 身份、外调 unknown 不重派及业务调度次序继续由原 owner/driver 接线验证，不能从这八项控制值相等推出续跑或完整 World 激活/GC 成功。
+
+family 与 routing 私有资格须记录真实 mint class，所有使用入口同时核验同池与 class。Recovery 冷恢复资格不能直接供 Ordinary 消费；显式重新准入须先支付 Ordinary 临时与保留 metadata 费用，核对原精确根绑定、复制全部固定资格并在最终取消检查后返回。此桥不重扫旧长游标、不改变根或业务权限，也不证明持久可用性、完整驱动或 GC。
+
+### 12.45 Runtime capability 执行账本
+
+<a id="iws-runtime-capability-execution-records-v1"></a>
+
+本组只覆盖原 Runtime 的三个 Map descriptor：Authorization namespace 的 capability_nonce_records、capability_budget_accounts，以及 Effects namespace 的 capability_effect_receipt_links。原外层 String key 与记录内 request_hash/outcome_hash/grant_id/主体ID/authorization_receipt_id 分别保存，不能自动补全、重新生成 nonce、规范化或推导成相同身份。Nonce 原四字段的 state 仍是 String，不因注释列出 reserved/committed/aborted 就拒绝其他原内容。预算原 subject/grant_id/remaining_units/reserved_units/spent_units 五字段与 link 的原单字段穷尽借用，不调用任意 Serialize 或 clone 整账本。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+每条记录为独立同 namespace RootRef165，绑定专属 schema 与原 String key digest；外层保留原 descriptor 和 key 前像，另有封闭 format marker。内部相对 Unit/原字段名列避免把长 ID 重复到每个子键。Nonce 四列、budget 十三列、link 一列全部存在；预算 subject.kind 保留原 CapabilitySubject 的 agent/module/system 三变体，八个变体 payload 列按原所属分支为原 Text/U64，其他分支显式 Unit。主体关联必须同时验证，不能只靠总叶数；None/Some(empty)、不适用 Unit 与有效空 String、u64/i64 原极值严格区分。三项预算 i64 不增加新的经济约束；存储类型资格也不把数据里的 subject/grant/state 当成授权信任或新执行权限。
+
+本组完整合同包括 borrowed GEN、有限 root-only 资格/冷读、同 ExecutionTransaction 的 guard/live/同池 Ordinary 点读写、完整新记录与闭合删除、精确 expected、NoOp 和长比较后的组合取消、真实写入故障后整事务 poison。subject 变体变化须成组更新，单列预算变化不得扫描未变的长主体或 grant Text；接收器先独立 generic replay，再验证真正 changed child 路径并继承未变资格。页 mark/transfer 须遍历此 owner 的全部根和值闭包，sink 与 buffered finish 前均保持暂态。编译或 GEN visitor 不能代签完整合同已经验证。
+
+真实生产来源是原 capability_authorization_command/events/publication 的 nonce/预算/link 准备结果及 effects receipt ingestion 的 link 删除，字段贡献须与原关联事件、账本和授权 root 一起进入既有事务/接受流程；本组不改变这些业务动作。pending_effects/inflight_effects 的顺序、birth_era、identity_key、专用 intent payload digest、正式 outbox/world/continuation gate，以及 audit receipts、Cognition 状态仍由原或后续 owner 证明；不能用本组三个结构资格代签它们 ready、重派 unknown 外调、World 激活或全局 GC。
+
+family 与单记录资格保留真实 mint class，读写、生命周期及 receiver 不得仅凭同池将 Recovery 资格转作 Ordinary。显式重新准入只在同池、原精确 RootSet 绑定和足够新 Ordinary 费用下复制固定 metadata；额度不足或取消不返回资格，不扫描旧 grant/主体长文本，不提升授权、身份或可用性。
+
+### 12.58 Runtime 原 grant 与 policy 的快照结构闭包
+
+<a id="iws-runtime-module-authorization-v1"></a>
+
+本节定义 Runtime/Authorization 的 `capabilities` 原 String Map 与 `policies.rules` 原 Ordered Vec 的借用 GEN、根恢复及只读结构资格，不把 CapabilityExecution nonce/budget/link 或 Agent authority 数据当成原业务 grant。cap_ref 外键与 CapabilityGrant.name 独立保存；effect_kinds 按原 ordinal、认证 length 保留重复/空串，expiry 区分 None/Some(0)。PolicyRule 保留原 ordinal、when.effect_kind/origin_kind/cap_name 三 Option，以及 Allow 或 Deny 的原 reason；OriginKind 穷尽 reducer/plan/module/system，不排序或合并规则。每条 grant/rule 使用原 descriptor/外键摘要/Auth namespace 绑定的 RootRef165 子根，内部相对列不重复大外键。两族 metadata 与 policy length 必须存在，空 Vec 不等于缺控制列。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+生产者借用原 DTO，不 clone Vec/map、不写整条 JSON/CBOR 影子叶。完整 family 资格仅凭认证六根及保存内容，拒绝未知列、缺列、孤儿、Option/decision 配对错误、越界 ordinal、实际数量不等于 length 与错误 namespace/key framing。固定根点读继承完整父，绑定精确 root、同池、最低 carrier charge 和真实 mint class；公开输出在成功前均暂态，外部 Write 的 partial/Interrupted 尝试连续扣有限工作，并在末边界检查取消。Recovery 资格不能隐式用于 Ordinary；显式 readmission 只复制固定已认证元数据并先支付新 Ordinary 费用，不读取原件或选择新 head。
+
+现有 cell 的只读与精确 expected 贡献共用同一 overlay resolver：只接受绑定原 Txn parent 的完整 family 和与实际当前 child 相同的同池 Ordinary body 资格，guard/live 在入口检查。支持 Unit/U64/Text、Nullable/closed label 与已存在 effect_kinds ordinal；不扫描无关 grant.name 或其它规则。caller-owned expected/after 比较连续扣独立 byte allowance；NoOp 在比较后组合两取消通道，真实最后 put 后再次组合检查。任何错误使此前成功贡献整体 Aborted。list length 和 decision variant 不能通过单列改变制造半更新；完整 record 生命周期、Vec append/tail truncate、changed receiver、typed page transfer 与真实模块调用仍未由这些 cell 操作代签。
+
+该组件的私有资格只证明保存的数据结构，不是 capability/policy 的业务许可，也不授 Invocation、完整 Runtime/World 或 GC 权限；不因此快照与 cell 组件完成登记 owner ready。后续授权须保留 CapabilityGrant::is_expired/allows 的 now > expiry、全等/`*`/尾部 `.*` 语义，以及 PolicySet::decide 的原顺序首匹配/default_deny；不能用此结构 token 或调用者自报判断代替。
 
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 
@@ -902,3 +941,142 @@ ordinary 变化必须使用同一 `ExecutionTransaction`、原 accepted family t
 Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
 
 Artifacts 的恢复资格与普通执行资格不得隐式互换。配置 family/body、内容 family 和资源清单 family 可以显式重新准入：仅从同池且保留原计费的 Recovery 私有资格复制固定 metadata，保持原完整 RootSet 或 body kind/root 绑定，在分配前取得新的 Ordinary 计费并保留至最后持有者释放。该桥不读取原页、原件或历史，不更换 head、root、schema 或 owner，不授业务/派发权限；Ordinary 额度不足、错误绑定/池/来源和前后取消均不得返回可采用的新资格。旧 Recovery carrier 可独立释放；实际存储读取、事务与接受仍分别验证原合同。
+### 12.22 世界规则治理效果映射
+
+<a id="iws-world-rule-effects-v1"></a>
+
+world_rules 保持 WorldState/Value/Authorization 的唯一字段登记，内部增长集合分开保存，不能把整个 WorldRulesStateV1 序列化为单叶。此片固定可选父状态与 governance_effects：必需 Metadata，Unit Entry/Bool 明确记录原 Option 是否为 Some；false 不同于缺失 marker，true 的空映射也不同于 None。治理效果成员使用规范二元 Text 语义键 (固定子字段名 governance_effects, 原 proposal key)，Entry/Text 保存原 result ID，保留空字符串、UTF-8、NUL 与空白，不连接/规范化/换算身份。字段仍是 Value，不能套用不合法的 Group 标记或更改为另一主责登记。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世借用原 Option 与 map，流写 Metadata、父存在 marker 和原成员，不 clone/收集整表，不使用任意 Serialize。记录数、原键哈希、payload/record、I/O、内存与取消持续有限，源对象和sink批次由调用方准入，失败丢弃整个暂态前缀。固定根点读先共同认证 Metadata、父 marker 与目标成员，返回 RulesAbsent、EffectAbsent、原 Text 字节长度三态；父 false 但目标成员存在必须拒绝。三态只描述当前查询路径，不能推定所有兄弟字段无 orphan，更不能证明其余规则字段已覆盖；结果和流输出只在全调用及最终取消成功后采用。
+
+共享事务点读/点写在同一次 contribute 中保留三项读取依赖，精确比较三态 expected 和原 Text 字节，核对当前 guard/live fence、同池 Ordinary、有限额度和读写组合取消。此子字段 setter 不能把原 None 创建为 Some，也不删除父 marker；父不存在时仅允许精确 RulesAbsent→无成员的 no-op，不能据此局部构造其余尚未接通的规则状态。成员 put/delete 仍由原 owner 决定，no-op 在长字符串比较后检查取消，任何后续失败使整笔事务不可 seal。原治理提案、幂等、权限、result 身份及跨字段规则仍由业务 owner 接通；本入口不授予治理权限、完整世界规则族资格、World/C<T 恢复或激活。
+
+
+### 12.23 世界规则供应谱系固定记录
+
+<a id="iws-world-rule-lineages-v1"></a>
+
+world_rules.supply_lineages 继续属于原 world_rules Value/Authorization 登记，不另造主责字段。复用 §12.22 的父 Metadata 与 Unit/Bool Option marker。每个原 String map key 使用二元 Text 语义键 (supply_lineages, 原 key) 的 Entry/Unit 记录存在；target、fulfilled、reserved 各为 Entry/I64，语义键为 ((supply_lineages, 原 key), 固定原字段名)。三量保留原 i64 全部位，不规范化谱系 ID，不将全零记录当缺失，也不连接字符串编码复合键。此记录布局封闭于原 SupplyLineageV1 三个字段，不能当动态 Group 并推定兄弟数量。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+子字段创世生产者只借用原谱系 map，为每个原记录写存在标记与三个具名量，不重复写父 Metadata/Option；同一创世 owner 必须先用同一冻结来源生产一次父字段标记，再组合各子字段。None 与 Some(empty) 仍由父 marker 区分；单个子字段生产成功不签发完整 world_rules 覆盖资格。所有记录共享有限记录数、语义键哈希、I/O、字节、内存及取消额度，调用方准入源与批次，失败丢弃整个组合前缀。
+
+固定根与共享事务查询共同认证父两项、记录存在及三个数值，共六项路径依赖。父或记录不存在但当前四个子记录任一存在均拒绝；存在记录缺少任何数值、错 codec/原键/长度均拒绝，不补零。返回 RulesAbsent、LineageAbsent 或原具名三量；不扫描其他谱系或签发完整字段族资格。事务 setter 精确比较完整三态，核对当前 guard/live、同池 Ordinary、有限额度与组合取消；父 None 不允许局部创建。新增谱系必须原子写完整四项，变更只写不同数值，删除仅移除本封闭记录四项，父 marker 保留。no-op 保留六项依赖，任何后续失败 poison 整笔事务。原供应政策、授权、供需约束和原结果仍由 owner 决定，本存储入口不激活草案供应路径或完整 World/C<T。
+
+
+### 12.24 世界规则供应运输封闭记录
+
+<a id="iws-world-rule-supply-shipments-v1"></a>
+
+world_rules.supply_shipments 仍属于原 world_rules Value/Authorization 登记，复用可选父的 Metadata 与 Unit/Bool marker。每个原 u64 map key 的存在记录使用 (supply_shipments, 原 u64) 的 Entry/Unit；authorization_id、batch_id、beneficiary_id、lineage_id 分别按原名以 Entry/Text 保存原字符串；input_amount、delivered_amount 为 Entry/I64，settled 为 Entry/Bool。列语义键为 ((supply_shipments, 原 u64), 原列名)，不能把 map key 改成 String、规范化或以摘要替换内部身份。原 SupplyShipmentV1 的七个字段全部显式匹配；此布局只封闭该记录，不把动态子 map 序列化为单叶。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+创世只借用原来源，并由同一冻结来源的 owner 先生成一次父标记；每条运输记录写完整八项，失败丢弃整个组合前缀。固定根和事务点读认证父两项及完整八项，返回父不存在、记录不存在或有界摘要，并将四段原 UTF-8 流向调用者已准入输出；空 String、NUL、Unicode、零和 i64 极值均保留，输出只在整个调用及最终取消成功后采用。父/存在 marker 缺失但当前列存在、存在记录缺列、错误类型/长度/Bool/UTF-8 均拒绝，不以默认值补齐。查询只证明当前闭合记录，不扫描其他运输或证明全规则族。
+
+事务 setter 用原完整七字段 expected，四段 Text 经借用流比较，数值/Bool 精确比较；长比较后仍检查取消。当前 guard/live、同池 Ordinary、有限原键/记录/内存/I/O 和读写组合取消持续生效；每次贡献保留完整十项依赖，失败使整个事务不可 seal。新增八项原子写入、只更新真正不同列、删除完整封闭记录而不删父 marker；父 None 不得局部创建。此存储入口不授予供应权限、结算权限或激活被禁止草案路径。SupplyAuthorization/Batch 的动态集合须另行分解，未覆盖它们、其他规则状态和 World/C<T 时不得宣称完整 supply/world_rules 资格。
+
+
+### 12.25 供应授权的固定列与动态成员
+
+<a id="iws-world-rule-supply-authorizations-v1"></a>
+
+SupplyAuthorizationV1 的十四原字段与内嵌 CrisisState 十一原字段全部显式分解，不以任意 Serialize 保存结构体。继续使用 world_rules Value/Authorization 登记与同一可选父；原 String map key 和内部 id、provider_id、crisis_id、crisis_evidence.crisis_id 等原字符串独立保留，不规范化或替换。授权存在使用 (supply_authorizations, 原 key) 的 Entry/Unit；普通标量列使用 (授权键, 原字段名)，Crisis 列使用 ((授权键, crisis_evidence), 原字段名)；全是 Entry，不将 Value 改为 Group。Text、I64、U64、Bool 使用已有 codec。policy_version、severity 的原 u32 以 U64 无损保存并拒绝大于 u32::MAX 的存储值；CrisisStatus 显式闭合为原 snake_case Text active/resolved/timed_out，不接受未知值，不新增 codec。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+授权与记录资格同时绑定创建它们的内存类别。Ordinary 资格可供 Ordinary 或 Recovery 使用；Recovery 资格即使来自同一内存池，也不能直接供 Ordinary 使用。显式 Ordinary readmission 在原池另取 Ordinary reservation，并保留相同 roots、键、记录身份及计数，不重读、不重新资格化数据；这只改变后续读取的资源准入，不改变语义资格。
+
+Crisis 的 resolver_agent_id、strategy、success、resolved_at 各用 ((Crisis父, 原字段名), Unit) 的 Bool 记录 Option 存在，((Crisis父, 原字段名), value) 为 Some 时的原 Text/Bool/U64；None 必须没有 value，Some 空字符串、false、0 不能视作 None。固定记录含二十九个路径，其中四个 Option value 路径可以缺失，其余在授权存在时必需。固定读取共同认证父两项与全部二十九项；父/授权缺失但当前列存在、必需列缺失、Option 前后矛盾、错 codec/长度/Bool/UTF-8/枚举/整数域都拒绝，不补默认。九个 Text 输出由调用者准入并流式接收，只有全调用与最终取消成功后可采用。
+
+beneficiaries 与 requests 分别在 ((授权键, 原集合名), Unit) 保存 Entry/Unit 的集合存在，空集合也保留该元标记；原 String 成员键使用 ((授权键, 原集合名), 原成员键)。beneficiaries 成员为 Entry/Unit，requests 成员为 Entry/I64，原键/原 signed 位完整保留。这些 Unit 元标记不认证成员数量，不据单点缺失推断全空，也不能在删除最后一个已查询成员时删除集合或授权。成员点读/写共同认证父两项、授权存在、集合元标记与目标成员五条路径；缺失授权/父但当前集合或成员存在均拒绝，授权存在却缺集合标记亦拒绝。
+
+创世借用所有原固定列、Option 和两个动态集合；同一冻结 owner 先产生一次可选父，再组合记录并共享有限条目、键、payload/record、I/O、内存及取消额度，任一失败丢弃整个前缀。普通变更区分标量 expected 与动态集合 expected：标量接口明确不声称比较两个动态集合，集合接口精确比较目标成员。授权标量更新只处理已存在记录，空集合授权创建在任何写入前拒绝原来源中非空 beneficiaries 或 requests，不能借标量投影静默丢失成员；标量更新仍允许投影非空来源而不替换集合。空创建一次原子贡献全部必需固定列和两项集合元标记，之后可在同一事务添加成员；不得局部创建 None 父。所有操作核对精确 guard/live、同池 Ordinary，Text 借用比较及每个跳过/成功返回前检查组合取消，任何后续失败 poison 整笔事务。点接口不提供完整授权删除；未来完整删除须获得全成员关系依据并删除全部依赖。当前业务没有授权 remove/clear，本模块不改变 active 的原业务语义、供应权限、幂等或被禁止的草案路径。Batch 采用 §12.26 的独立记录方案；本节不能据此签发完整 supply/world_rules/World 恢复或激活资格。
+
+
+### 12.26 供应批次的固定列与三个动态集合
+
+<a id="iws-world-rule-supply-batches-v1"></a>
+
+SupplyBatchV1 的九个原字段显式分解，沿用 world_rules Value/Authorization 唯一登记与同一可选父，不保存聚合 Serialize。原 String map key 与内部 id、authorization_id 独立保留；批次存在以 (supply_batches, 原 key) 的 Entry/Unit 表示。六个固定标量以 (批次键, 原字段名) 保存：id、authorization_id 使用 Text，frozen_at、authorization_revision 使用 U64，frozen_escrow 使用 I64，allocated 使用 Bool。三项动态集合 frozen_lineages、demands、allocation 在 ((批次键, 原集合名), Unit) 保存独立 Entry/Unit，空集合仍保留元标记。固定标量读取认证父两项、记录存在、六列和三项集合元标记共十二条路径；不存在、完整零值与空 Text 分开，不允许孤儿列、缺列、错误 codec/长度/Bool/UTF-8 或补默认。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+批次 family/record 资格遵循 §12.25 的内存类别边界：Ordinary 资格可用于 Recovery，Recovery 资格不能仅凭同池关系进入 Ordinary 操作。需要 Ordinary 使用时，调用者显式在同一池取得 Ordinary readmission；readmission 保留原根、键和计数，不重读数据。
+
+demands 与 allocation 的原 String 成员键分别使用 ((批次键, 原集合名), 原成员键) 的 Entry/I64。frozen_lineages 的原 String 成员键在同一位置保存 Entry/Unit 存在；其 target、fulfilled、reserved 在 (冻结成员键, 原字段名) 保存三项独立 Entry/I64，复用供应谱系的闭合字段名和原值投影，保留全部 signed 位。普通数量点查询认证父、批次、集合、成员五条路径；冻结谱系点查询认证父、批次、集合、成员及三列八条路径。父/批次缺失而当前后继存在、集合元标记缺失、冻结成员缺列或孤儿列全部拒绝。冻结成员删除必须已认证完整三列与成员存在，删除此闭合四叶；不得据成员缺失或最后一次点删除移除集合或批次，集合标记不认证全成员关系或数量。
+
+创世借用原固定列及三个动态集合，逐成员、逐原列写入；同一冻结 owner 先产生一次可选父，组合调用共享有限额度并在任一失败时废弃整个前缀。标量 expected 只声明固定投影而不替换集合，更新要求已存在记录；空创建在精确 guard/live 之后、任何写入之前拒绝原来源中任一非空动态集合，空来源才一次贡献完整固定记录与三项元标记，随后可同事务添加原成员。三个成员集合使用独立精确 expected；所有变更检查 Ordinary 与同池，组合取消在比较、NoOp、跳过和最终返回前检查，真实 put 后后续失败或取消 poison 整笔事务。不提供无完整成员关系证明的整批次或集合删除；不改变原供应授权、分配算法、禁用草案或业务权限，本节不签发完整 world_rules/World 恢复资格。
+
+#### 供应授权与批次的创建资格和隔离闭包
+
+<a id="iws-supply-record-closure-v1"></a>
+
+§12.25/26 的旧平铺固定列缺失不证明动态成员不存在。公开回归已验证：从完整合法记录只保留 beneficiaries、requests、demands、allocation 或 frozen_lineages 原成员，移除所有固定列和集合元标记后，旧空创建接口能恢复元标记、显露原成员并成功 seal；只验证来源集合为空不能阻止此复活。因此旧固定投影不能作为空创建资格，不能用“点证明不认证未查询关系”的说明替代实现约束。Trace refs 沿用 §12.25/26。
+
+新未发布 profile 为每个 SupplyAuthorization、SupplyBatch 各持有独立 Authorization StateRoot。外层分别保留原 (supply_authorizations, 原 String key)、(supply_batches, 原 String key) 完整前像，Entry/RecordRoot 保存固定 165 字节引用，绑定各自封闭 schema、原键 digest 与 Authorization namespace。内部以 Unit 为根祖先，各列、Crisis 嵌套列、Option、集合元标记和成员沿旧 profile 的原标签、原 codec 与原内容相对寻址；不重复外层长 ID，不规范化外键或内部 id。beneficiaries/requests 和 frozen_lineages/demands/allocation 仍是独立可增长成员，冻结谱系仍有独立 Unit 与三个原名 I64 列；不得改回 Serialize 聚合叶。新 schema 与旧平铺地址明确分离。
+
+空创建先检查 guard/live、同池 Ordinary 和来源集合确实为空，再消费绑定确切父 roots 的供应家族资格，仅从新建空内部树产生完整固定记录与空集合元标记；不得扫描或采用外层残留成员。资格只覆盖这两个家族，不授予完整 World、业务供应或激活资格。源可借用于 genesis 或显式 expected 对比，不能成为恢复资格必需输入。恢复仅凭认证 RootSet、schema 与有限 reader 完整检查所有所属路径、原 primitive/UTF-8/枚举/Option、集合关系、冻结谱系闭合、namespace 和引用出边，拒绝未知字段、孤儿、旧平铺后代或缺页，额度贯穿全 scope 不按记录重置。
+
+正常点读写消费绑定当前记录内部根的资格，保持原 expected、有限计费、guard/live、组合取消与失败 poison；标量不替换动态集合。冷根标量点读以封闭原字段枚举选择 Authorization、内嵌 Crisis 或 Batch 的字段，只认证目标及适用 Option flag，不扫描其他 Text 或动态成员；原 Text 流向调用者已准入输出，None、Some(空字符串/false/0) 分开，u32 与 CrisisStatus 保持原域。记录资格、原外键 digest、schema 与当前内部根必须一致，只有完整输出和最终取消成功后采用返回值。正常 family 推进先通用转移验证，再检查实际外引用 writes 与内部 Merkle 差分，跳过未改变子树，不为成员点改重扫整授权/批次或无关长 Text。只有全部语义关系和最终取消成功后才签发后继资格。旧无资格空创建兼容入口在合法新创建及同事务成员后继验证后退役，不以永久禁止创建交付。持久化、传输和 GC 同时追随引用值与内部 StateRoot 出边。
+
+本家族的有界 mark/transfer 通过同一 root-only 资格遍历记录实际读取的 state/value 原件，包含六棵顶层树、规则父依赖及 Authorization/Batch 全部内部页；返回与原 RootSet 绑定的本家族资格和同池保留的可达页集合。私有页观察器只计费、核对原件 hash/准入和去重，不授予 owner 资格。其他 owner 仍须贡献各自完整闭包并取并集，不能把此集合当完整 World live set。transfer 的 sink 输出在全部资格检查、最终取消以及调用方 buffered sink finish 成功前保持暂态；缺页、错 hash、页数额度、预算、取消或真实 put 失败均不返回完成集合或资格。
+
+### 12.27 组织案件与托管财产的完整 owner 记录
+
+<a id="iws-world-rule-organization-owner-v1"></a>
+
+organization_cases 与 organization_estate 沿用 world_rules Value/Authorization 的唯一登记和同一可选父，原 String map key 与每个记录内部 id 独立保存，不规范化。记录存在分别使用 (organization_cases, 原 key)、(organization_estate, 原 key) 的 Entry/Unit，原字段使用 (记录键, 原字段名)。OrganizationCaseV1 十三个原字段、OrganizationEstateDepositV1 八个原字段、可达 OrganizationGrantV1 七个原字段和 OrganizationRecoveryRequestV1 四个原字段全部使用封闭 schema 与穷尽原类型匹配，禁止 Serialize 聚合 Blob 和整 Case 克隆。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+Family 与记录资格绑定其创建时的内存类别。Ordinary 资格可用于 Recovery；Recovery 资格不能因共用 memory pool 就直接用于 Ordinary。显式 Ordinary readmission 在同一池新取 Ordinary reservation，并保留相同 roots、原键、记录身份和闭包计数，不重新扫描或重资格化数据。
+
+Case 的 id、organization_id、founder_id 为 Text，policy_version 原 u32 以 U64 无损保存并拒绝超过 u32::MAX 的值，revision 为 U64；phase 的闭合 Text 标签为 active/notice/protected/limited/resolved，disposition 为 none/frozen/obligations/business/residual/complete。notified_at、protected_at 各在 ((记录键, 原字段名), Unit) 保存 Bool 存在，在 ((记录键, 原字段名), value) 保存 Some 时的 U64；None 与 Some(0) 分开。members、grants、requests、stage_receipts 均保留独立 Entry/Unit 集合元标记；stage_receipts 另有 ((Case键, stage_receipts), length) 的 Entry/U64 认证长度。Case 固定投影包含十七项，与可选父合计十九条路径；标量更新只比较和修改固定标量，不以来源 Vec 长度替换当前认证长度，也不扫描任何动态集合。
+
+Estate 的 id、organization_id、contributor_id、material 为独立 Text，amount 为完整 I64，held_in_trust、disposed 为 Bool，effect_receipt 使用同一直接字段 Option Bool/Text 方案，保留 None 与 Some(空字符串)。Estate 十项闭合路径与父合计十二项。grants 的原 String 成员键为 ((Case键, grants), 原 key)，该位置的 Unit 表示 Grant 存在；其 id、delegate_id、source_proposal 为 Text，revision、expires_at 为 U64，replaces 为 Option Text，scopes 有独立 Unit 集合元标记。Grant 九项固定路径与规则父、Case 存在及 grants 元标记共十三项。requests 的原 String 成员键为 ((Case键, requests), 原 key)；RecoveryRequest 的 requester_id 为 Text、appeal 为 Bool、approved 为 Option Bool、resolved_by 为 Option Text，共七项固定路径，加祖先共十一项，保留 None、Some(false) 和 Some(空字符串) 的差别。固定读取必须拒绝孤儿、缺必需列、Option flag/value 矛盾、错 codec/长度/Bool/UTF-8、未知 phase/disposition 和 u32 越界，不补默认；原字符串由调用者准入并流式接收，只有完整调用成功才可采用输出。
+
+members 在 ((Case键, members), 原 String 成员) 保存 Entry/Unit；scopes 的原类型是 OrganizationEstateScopeV1 { object_id, right }，使用 ((Grant键, scopes), (原 object_id, 原 right 标签)) 保存独立 Entry/Unit，完整身份显式参与 semantic key，不拼接、不转 JSON。right 仅允许 preserve/return_trust/distribute_residual/finalize_case/advance_case。成员点查询分别认证五条和七条路径；只读取必要 Unit 祖先、集合及目标成员，不扫描 Case/Grant 的长 Text 或其他成员。删除最后一个已查询成员不删除集合或 owner，Unit 元标记不证明全成员数量或全空。
+
+stage_receipts 保留原 Vec 的零基 U64 ordinal：((Case键, stage_receipts), 原 ordinal) 为 Entry/Text，重复字符串处于不同 ordinal，不排序或去重。点查询只认证规则父、Case、集合元标记、长度及目标项共六条路径；ordinal 小于认证长度时必须存在，超出长度时目标不得存在。只提供原位替换、追加和尾部弹出；替换不改长度，追加和尾部弹出在同事务更新目标及长度，不提供中间删除、空洞插入或整个 Vec 删除。所有操作比较精确 expected 长度及目标 Text；长度不符在扫描目标 Text 前拒绝，追加对 u64 长度溢出、弹出对零长度拒绝。长度为零仍保留集合元标记和长度，空 Vec 与单个空字符串回执分开。
+
+创世从同一冻结 WorldState 借用四类记录及全部动态成员，逐记录、逐原字段、逐 ordinal 写入；owner 先产生一次可选父，组合调用共享有限记录、键、payload/record、I/O、内存及取消额度，任一失败废弃整个前缀。空创建一律先验证 guard/live，再在任何写入前拒绝 Case 的任一非空 members/grants/requests/stage_receipts，或 Grant 的非空 scopes；不得借标量投影丢成员。合法空创建可同事务补齐原成员；普通标量投影允许来源带集合但不比较或替换集合与 Vec 长度。Case/Grant 没有完整动态关系证明时不提供整体删除；闭合 Estate/Recovery 删除必须认证全部固定依赖和精确 expected。所有 overlay 贡献检查 Ordinary 与同池；比较、NoOp、跳过、真实 put 后和最终成功前检查组合取消，后续任一失败 poison 整笔事务。点证明不认证未查询关系、不授予完整 owner/world_rules/World 恢复或激活资格，也不改变组织治理、委托、托管财产、恢复请求和被禁止草案的业务权限。
+
+#### 组织记录的创建资格与子树闭包
+
+<a id="iws-organization-record-closure-v1"></a>
+
+12.27 的固定字段存在检查只提供点证明，不能作为空创建资格：动态成员可在全部固定列缺失时残留，重新写入固定列会使其复活。该边界也适用于 SupplyAuthorization 和 SupplyBatch；旧字段验证不代表这些家族已具备封闭恢复或创建资格。Trace refs 沿用 12.27。
+
+OrganizationCase 和 OrganizationEstate 各持有独立 Authorization StateRoot。外树仍以原 (organization_cases, 原 String key)、(organization_estate, 原 String key) semantic preimage 定位记录；值为固定 165 字节 RecordRootRefV1，绑定封闭 schema、外键 semantic digest 和 Authorization namespace。内部 id 仍是独立原字段。Case 子树容纳全部标量、members、grants/scopes、requests 和 stage_receipts；Estate 子树容纳全部闭合字段。内部采用新的封闭相对路径 profile：Case/Estate 根以 Unit 作为祖先，字段使用 (Unit, 原字段名)，Grant/Recovery 与集合成员在此基础上保留原 tuple、原 String key、Scope right 和 Vec ordinal，不在每项前像重复外层 Case ID。此内部寻址变化不规范化业务 ID；outer 引用仍完整保存原外键前像。新 schema 与旧平铺 profile 分离，旧平铺字面证据不能代签新地址。原 payload codec 与原值保留，不用聚合 Blob、不复制整个 Case。外树不得同时存在旧平铺后代。RecordRootRef 解码和绑定只证明完整性边，不单独授予记录资格。
+
+QualifiedOrganizationParent 私有构造只认证确切父 roots 中这两个家族的 owner 闭包，不认证其他 world_rules 字段、完整 World 或业务授权。首次导入和恢复使用有限全 schema 遍历，认证所有引用和内部叶、原字段类型、Option 关系、集合元标记、Grant/Recovery 祖先及 Vec 的 length/ordinal 连续关系；未知字段、孤儿、残留平铺后代、错绑定和 namespace 均拒绝。额度与取消贯穿整次遍历，不能按记录重置。
+
+完整 raw 遍历对每个 Grant/Recovery 的 canonical Record Unit 认证一次完整固定 profile 关系，其余后代叶仍逐项认证自身完整 primitive 和直接父 Unit；整树必达所有 canonical marker，缺 marker、缺必需列和孤儿均拒绝。该优化不减少正常增量接收器对改变关系的检查，也不按记录或叶重置整次恢复的物理、逻辑或工作额度。恢复完成后的独立点请求各自接受有界请求额度，不能据此宣称一个无界全量查询已通过。
+
+原平铺读写、GEN 和不消费资格的空创建 API 退役，不保留危险空创建兼容入口。新 GEN 借用冻结源数据，逐独立成员建立并持久化内部树，再发布绑定原外键的引用；失败丢弃全部外层候选前缀。完整借用源也可用于显式 expected-record 对比，但不是冷根恢复资格的必需输入。旧平铺 orphan 红例留在不可变版本证据中，新格式负例以独立字面构造残留叶，不依赖退役生产 API。
+
+正常空创建必须消费与当前父 roots 绑定的资格，并仅从新建空子树写入已验证的空记录；Case 非空 members/grants/requests/stage_receipts 和 Grant 非空 scopes 仍在 guard 后、任何写入前拒绝。父 Case 已 qualified 才可新增内部 Grant/Recovery。标量更新不替换动态成员；点删除不提供整个 Case/Grant 删除。读者采用经过绑定且具备相应资格的内部根，不能将旧外树平铺成员并入新根。
+
+正常推进先运行通用 TransitionVerifier，再按经过认证的 writes 检查实际改变的外部 owner 引用。旧、新内部 Merkle 根差分中，相同子树哈希不读取；改变路径校验节点哈希、深度、namespace 和 key digest 实际路由，逐改变叶认证原 semantic、封闭 codec 和直接关系。Option flag/value、集合与 owner、Grant/Recovery 必需列、Vec 长度及边界项按相关键增量检查，不扫描未改变的大 Case 或无关长 Text。通用转移验证、codec token 或用户声称空集合不代替 owner 闭包。全部关系和最终取消检查成功后才产生新资格，失败 poison 同事务 typed 前缀。
+
+持久化、传输和 GC 同时遍历外值页和 RecordRootRef 指向的内部 StateRoot，不能把引用值当无出边固定字节。冷 Raw/Zstd 恢复、Ordinary/Recovery 准入、同池、guard/live、真实 put 后取消与失败不可 seal 共同构成验收。旧 orphan 公开负例与合法空创建后同事务补成员的正例必须同时保留。
+
+
+### 12.31 Organization 引用闭包的标记与传输
+
+<a id="iws-organization-pages-v1"></a>
+
+Organization Case/Estate 的 RootRef 是实际子 StateRoot 出边，不能只保留顶层 value 页。标记与传输入口复用完整 family qualification，遍历六个认证顶层树、可选父依赖及 Case/Estate 记录中的 typed 内部 state/value 闭包；所有 read、scan、cell、语义键与记录字节额度由调用者连续提供，不按记录重置。有限 max_pages 的去重集合须在分配前按最坏节点开销准入，持有期间保持计费。重复原页只输出一次，hash、来源池/页界限或缺失子页不合法时不返回完成集合或资格。
+
+传输只向调用者暂存目的地输出原始物理页的 bytes/hash，不授予 World authority。输出拷贝先在同一进程 Ordinary 预算取得准入；若目的地采用缓冲 writer，调用者还必须成功 finish 后才能采用返回的 family 资格或标记集合。错误、取消、配额不足和 sink 失败保留已写暂存前缀但不得宣称完成。此集合只承接 Organization 与为其证明读取的顶层/父依赖；全局 GC/复制必须合并其余 owner、历史、读者 lease、未决和回滚保护，不以本入口替代全 World live set 或独立故障域持久证明。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+### 12.34 联盟、战争、危机和经济合同的专业 owner 闭包
+
+<a id="iws-diplomacy-contract-records-v1"></a>
+
+alliances、wars、crises、economic_contracts 保留各自 WorldState/Map/Business 唯一登记。每字段必需原 Metadata；原 String map key 的 Entry/RecordRoot 保留完整原键前像，165 字节引用绑定字段专属封闭 schema、原键 digest 和 Business namespace。每原记录有独立 Business StateRoot，内层以 Unit 相对寻址；不把业务内部 ID 与 map key 归一，不改业务治理、战争结算或经济合同权限。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+Family 与记录资格同时绑定其内存类别。Ordinary 资格可用于 Recovery；Recovery 资格即使使用同一 memory pool，也须先显式 readmit 到 Ordinary，且新 reservation 必须来自该池。readmission 只复制相同 roots、字段、原键及记录身份，不重新扫描或授予额外业务资格。
+
+AllianceState 五字段、WarState 十八字段及 WarParticipantOutcome 四字段、CrisisState 十一字段、EconomicContractState 十六字段均穷尽原 DTO 显式生产。Text/U64/I64/Bool 使用既有 primitive；u32 以 U64 无损保存并拒越界；CrisisStatus、EconomicContractStatus、FulfillmentKind、ResourceKind 保留闭合原标签。所有 Option 分为原名 Bool 存在及独立 value，None 与 Some(false/0/空字符串) 不同。members Vec<String> 与 participant_outcomes Vec<Outcome> 独立保存 Unit 集合标记和 U64 length，成员保原零基 ordinal、重复和顺序；每个 Outcome 原 ordinal 对应 Unit 加 agent_id/electricity_delta/data_delta/reputation_delta 四列，不能聚合 Serialize 叶或 clone 整记录。
+
+GEN 借用全部原值并流写；空创建要求精确完整家族资格、guard/live/同池 Ordinary，且在任何写前拒非空 Vec，随后可同事务添加成员。标量 expected/update 不比较或替换动态 Vec。正常字段与 ordinal 操作只读目标及其必需关系，不扫描无关长 Text/成员；Vec 仅原位更新、追加、尾弹，长度先于正文 expected；无全关系依据不暴露动态 owner 整删。纯闭合 Crisis/Contract 删除仍需完整 expected。
+
+完整 root-only 资格不要求原 World/完整 DTO，有限地检查四字段 Metadata、六根错位、引用绑定、全部 primitive/UTF8/Option/闭合枚举、Vec ordinal 小于 length 且实际数量相等、Outcome 完整列和无未知/孤儿。正常接收器先验证通用转移，再按实际外写与内部 Merkle 差分验证变化路径并继承未变闭包，不全扫未变大对象；计费、组合取消和最后取消贯穿，失败不返回后继资格，事务贡献失败 poison 先前前缀。
+
+页 mark/transfer 复用同一完整 owner 资格并追随所有内部根；sink 输出在包括 buffered finish 的全部步骤成功前保持暂态。本四字段资格不是完整 World、协议接受、业务权限或全局 GC live set；必须组合其他 owner/历史/lease/未决和回滚保护。独立字面 oracle、Raw/Zstd 冷恢复、合法后继、预算/取消/真实 put/poison 和缺页拒绝分别验证，不把 visitor/typecheck 当完整实现。
+
+`change_qualified_diplomacy_scalar_v1` 是这四个 owner 的普通单列更新入口：调用者显式选取封闭字段枚举及其 typed expected/after，仅校验该列的原值；Option 只额外校验并原子编辑同列旗标，不读无关标量、长 Text 或 Vec。`change_qualified_diplomacy_scalars_v1` 是显式完整 expected 投影核对，成本为 O(S)，不能用于证明普通单列更新的固定 Δ。单列更新须以未变 32 MiB charter、仅改 formed_at、receiver payload 上限165的公开冷根证据证明未扫描无关内容。

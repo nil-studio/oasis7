@@ -96,7 +96,7 @@ mod enabled {
         }),
         std::sync::Condvar::new(),
     );
-    // Only the fixed prepare-token identity leaf reaches this hook. The actual
+    // Hosted dispatch, completion and retry identity leaves reach this hook. The actual
     // identity computation still follows; no result, state or timing is forged.
     pub(crate) fn identity_barrier() {
         let (lock, changed) = &IDENTITY_GATE;
