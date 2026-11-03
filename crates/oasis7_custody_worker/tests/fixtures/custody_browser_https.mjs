@@ -46,6 +46,11 @@ export async function browserHttps(directory,viewerRoot) {
       const headers=new Headers();for(const [name,value]of Object.entries(req.headers)){
         if(['cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type','accept','content-digest','oasis7-token-digest','oasis7-capability','oasis7-enrollment','oasis7-request-id','oasis7-test-session','oasis7-binding','signature-input','signature'].includes(name)&&typeof value==='string')headers.set(name,value);
       }
+      if(path==='/api/public/hosted-account/v2/custody/pending-source-inspect'){
+        const values=[];for(let i=0;i<req.rawHeaders.length;i+=2)if(req.rawHeaders[i].toLowerCase()==='authorization')values.push(req.rawHeaders[i+1]);
+        if(values.length!==1||!values[0]){res.writeHead(400,{'content-type':'application/json'});res.end('{"error_code":"local_source_authorization"}');return;}
+        headers.set('authorization',values[0]);
+      }
       const countKey=req.method+' '+normalizeBrowserPath(path);counts[countKey]=(counts[countKey]??0)+1;
       const selected=fault && (fault.kind==='lost-owner-approve'?path.endsWith('/owner-setups/approve'):path.endsWith('/custody/approvals/complete'));
       let forwardedBody=body;
@@ -67,7 +72,7 @@ export async function browserHttps(directory,viewerRoot) {
         headers.set('host',physicalAuthority);headers.set('MF-Proxy-Shared-Secret',proxySecret);
         response=await identity(new Request(receivedUrl,{method:req.method,headers,...(req.method==='GET'?{}:{body:forwardedBody})}));}
       const responseBytes=Buffer.from(await response.arrayBuffer());
-      const phase=path.endsWith('/custody/approvals/options')?'native_options':path.endsWith('/custody/approvals/complete')?'native_complete':path.endsWith('/owner-setups/prepare')?'owner_prepare':path.endsWith('/test-sessions/prepare')?'session_prepare':null;
+      const phase=path.endsWith('/entry/read-and-register-test-session-v2')?'native_register':path.endsWith('/custody/approvals/options')?'native_options':path.endsWith('/custody/approvals/complete')?'native_complete':path.endsWith('/owner-setups/prepare')?'owner_prepare':path.endsWith('/test-sessions/prepare')?'session_prepare':null;
       if(phase&&Number.isInteger(response.status)&&response.status>=100&&response.status<=599)phaseStatuses[phase]=response.status;
 
       if(selected) {
@@ -97,7 +102,8 @@ export async function browserHttps(directory,viewerRoot) {
     }catch {res.writeHead(503,{'content-type':'application/json'});res.end('{"error_code":"local_fixture_unavailable"}');}
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`https://localhost:${server.address().port}`;
-  async function clientFetch(input,init){
+  async function clientFetch(input,init,totalTimeout){
+    if(totalTimeout!==undefined&&(!Number.isSafeInteger(totalTimeout)||totalTimeout<1||totalTimeout>5000))throw Error('bounded Source HTTPS deadline');
     const request=new Request(input,init);const target=new URL(request.url);
     if(target.origin!==origin||!['GET','POST'].includes(request.method))throw Error('fixed local HTTPS target required');
     const bytes=request.method==='GET'?null:Buffer.from(await request.arrayBuffer());
@@ -106,17 +112,19 @@ export async function browserHttps(directory,viewerRoot) {
     if(headers['transfer-encoding']||bytes&&headers['content-length']!==undefined&&headers['content-length']!==String(bytes.length))throw Error('local HTTPS framing mismatch');
     if(bytes)headers['content-length']=String(bytes.length);
     return new Promise((resolve,reject)=>{
+      let deadlineTimer;const clearDeadline=()=>clearTimeout(deadlineTimer);
       // One real TLS request with only this fixture's public cert as trust.
       // Host derives from the actual URL unless the caller explicitly supplies
       // another physical Host, which the receiver must preserve and reject.
       const outgoing=httpsRequest(target,{method:request.method,headers,ca:readFileSync(cert),servername:'localhost',rejectUnauthorized:true,agent:false,lookup:(_name,options,callback)=>options?.all?callback(null,[{address:'127.0.0.1',family:4}]):callback(null,'127.0.0.1',4)},incoming=>{
         const chunks=[];let length=0;
         incoming.on('data',chunk=>{length+=chunk.length;if(length>131072){outgoing.destroy(Error('bounded local HTTPS response'));return;}chunks.push(chunk);});
-        incoming.on('end',()=>{const responseHeaders=new Headers();for(let i=0;i<incoming.rawHeaders.length;i+=2)responseHeaders.append(incoming.rawHeaders[i],incoming.rawHeaders[i+1]);resolve(new Response(Buffer.concat(chunks),{status:incoming.statusCode,headers:responseHeaders}));});
-        incoming.on('error',()=>reject(Error('local HTTPS response unavailable')));
+        incoming.on('end',()=>{clearDeadline();const responseHeaders=new Headers();for(let i=0;i<incoming.rawHeaders.length;i+=2)responseHeaders.append(incoming.rawHeaders[i],incoming.rawHeaders[i+1]);resolve(new Response(Buffer.concat(chunks),{status:incoming.statusCode,headers:responseHeaders}));});
+        incoming.on('error',()=>{clearDeadline();reject(Error('local HTTPS response unavailable'));});
       });
       outgoing.setTimeout(20000,()=>outgoing.destroy(Error('local HTTPS request expired')));
-      outgoing.on('error',()=>reject(Error('local HTTPS request unavailable')));
+      outgoing.on('error',()=>{clearDeadline();reject(Error('local HTTPS request unavailable'));});
+      if(totalTimeout!==undefined)deadlineTimer=setTimeout(()=>{outgoing.destroy(Error('bounded Source HTTPS deadline'));reject(Error('bounded Source HTTPS deadline'));},totalTimeout);
       outgoing.end(bytes);
     });
   }

@@ -337,23 +337,49 @@ pub(super) async fn read_and_register(
     secrets: &SessionSecrets,
     request: &oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterRequestV2,
 ) -> JResult<oasis7_custody_core::native_cleanup_v2::NativeReadAndRegisterReplyV2> {
-    check(env, selector, o)?;
-    request.validate().map_err(|_| js_denied())?;
+    #[cfg(feature = "native-runtime-harness")]
+    registration_diag("before_check", true);
+    let checked = check(env, selector, o);
+    #[cfg(feature = "native-runtime-harness")]
+    registration_diag("check", checked.is_ok());
+    checked?;
+    let valid = request.validate().map_err(|_| js_denied());
+    #[cfg(feature = "native-runtime-harness")]
+    registration_diag("request_validate", valid.is_ok());
+    valid?;
     let transport = NativeProvisionTransport::from_env(env).map_err(|_| js_denied())?;
+    #[cfg(feature = "native-runtime-harness")]
+    registration_diag(
+        "fixed_origin",
+        transport.native_origin() == request.pending.issuer.native_audience_origin,
+    );
     if transport.native_origin() != request.pending.issuer.native_audience_origin {
         return Err(js_denied());
     }
     let raw = zeroize::Zeroizing::new(serde_json::to_string(request).map_err(|_| js_denied())?);
-    let reply = transport
+    let received = transport
         .request::<serde_json::Value>(
             NativePrivateRoute::ParticipantReadAndRegisterTestSessionV2,
             &raw,
             Some(&secrets.cookie),
             Some(std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| js_denied())?),
         )
-        .await
-        .map_err(|_| js_denied())?
-        .body;
+        .await;
+    #[cfg(feature = "native-runtime-harness")]
+    registration_diag("native_return", received.is_ok());
+    let reply = received.map_err(|_| js_denied())?.body;
     // Exact closed roundtrip precedes Account's actual fixed Node/Native checks.
-    exact(reply)
+    let closed = exact(reply);
+    #[cfg(feature = "native-runtime-harness")]
+    registration_diag("closed_decode", closed.is_ok());
+    closed
+}
+
+#[cfg(feature = "native-runtime-harness")]
+pub(super) fn registration_diag(stage: &'static str, passed: bool) {
+    worker::console_log!(
+        "fixture.session_registration.{}.{}",
+        stage,
+        if passed { "ok" } else { "reject" }
+    );
 }

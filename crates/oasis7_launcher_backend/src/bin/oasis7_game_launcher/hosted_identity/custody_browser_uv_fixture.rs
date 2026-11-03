@@ -171,6 +171,7 @@ fn serve_custody_browser_uv_fixture() {
     let end = Instant::now() + Duration::from_secs(600);
     let mut manager: Option<String> = None;
     let mut bypass = 0u64;
+    let mut source_inspect_requests = 0u64;
     while !stop.exists() && Instant::now() < end {
         let (mut stream, _) = match listener.accept() {
             Ok(v) => v,
@@ -199,8 +200,14 @@ fn serve_custody_browser_uv_fixture() {
             NATIVE_REGISTER_V2_PATH,
             NATIVE_ACTIVATE_V2_PATH,
             oasis7_custody_core::native_execution_prepare_v2::NATIVE_EXECUTION_PREPARE_PATH_V2,
+            oasis7_custody_core::execution_pending_source_inspect_v2::SOURCE_NATIVE_PATH_V2,
         ]
         .contains(&path);
+        let source_path =
+            path == oasis7_custody_core::execution_pending_source_inspect_v2::SOURCE_NATIVE_PATH_V2;
+        if source_path {
+            source_inspect_requests = source_inspect_requests.checked_add(1).unwrap();
+        }
         let value = if world3 && owned_route {
             assert_eq!(method, "POST");
             // No service guard crosses actual World/callback HTTP. The production
@@ -235,7 +242,7 @@ fn serve_custody_browser_uv_fixture() {
             } else if method == "GET" && path == "/_fixture/browser-facts" {
                 crate::hosted_identity::IdentityReply::ok(
                     json!({"bypass_attempts":bypass,"manager_configured":manager.is_some(),
-                    "world3_enabled":world3,"protected_storage_ready":world3 && service.store.require_guarded_machine_storage().is_ok()}),
+                    "world3_enabled":world3,"source_inspect_requests":source_inspect_requests,"protected_storage_ready":world3 && service.store.require_guarded_machine_storage().is_ok()}),
                 )
             } else if method == "POST" && path == "/_fixture/browser-manager" {
                 let token =

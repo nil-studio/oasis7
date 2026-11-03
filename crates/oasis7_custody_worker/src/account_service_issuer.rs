@@ -175,3 +175,10 @@ mod execution_dispatch;
 
 #[path = "account_service_issuer_term_guarded.rs"]
 mod term_guarded;
+
+#[path = "account_service_issuer_execution_fence.rs"]
+mod execution_fence;
+#[path = "account_service_issuer_execution_pending.rs"]
+mod execution_pending;
+#[path = "account_service_issuer_pending_source_inspect_v2.rs"]
+mod pending_source_inspect_v2;

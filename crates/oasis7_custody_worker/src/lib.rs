@@ -253,3 +253,26 @@ mod directory_admission_policy_v3;
 mod directory_execution_history_v2;
 #[cfg(all(target_arch = "wasm32", feature = "owner"))]
 mod read_directory_config_v3;
+
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod execution_fence_config_v2;
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod execution_fence_dispatch_once_v2;
+#[cfg(all(target_arch = "wasm32", feature = "recovery-fence"))]
+mod execution_fence_dispatch_receiver_v2;
+#[cfg(all(
+    target_arch = "wasm32",
+    any(
+        all(feature = "owner", feature = "approval-harness"),
+        all(feature = "identity", feature = "native-runtime-harness")
+    )
+))]
+mod execution_pending_component_v2;
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity")))]
+mod execution_source_inspect_pins_v2;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_execution_fence_gate_v2;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod owner_execution_source_inspect_gate_v2;
+#[cfg(all(target_arch = "wasm32", feature = "owner"))]
+mod pending_current_actor_once_v2;

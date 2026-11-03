@@ -97,3 +97,19 @@ entrypoint = "IdentityTestSessions"
 binding = "TEST_SESSION_PRIVATE_HISTORY"
 service = "oasis7-custody-identity-staging"
 entrypoint = "TestSessionPrivateHistory"
+
+# Read-only fixed-profile dispatcher; never the FENCES/control namespace.
+[[durable_objects.bindings]]
+name = "EXECUTION_FENCE_DISPATCHERS"
+class_name = "ExecutionFenceDispatcher"
+script_name = "oasis7-custody-recovery-fence-staging"
+
+# New Pending Directory profile requires an explicit finite deployment lifetime
+# CUSTODY_EXECUTION_DIRECTORY_ADMISSION_CAPACITY (canonical nonzero u32).
+# No default/production value or installation qualification is implied.
+
+# Source Inspect stays disabled unless every dedicated server setting/pin exists.
+[[durable_objects.bindings]]
+name = "EXECUTION_SOURCE_INSPECT_DISPATCHERS"
+class_name = "ExecutionSourceInspectDispatcher"
+script_name = "oasis7-custody-identity-staging"

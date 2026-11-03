@@ -252,12 +252,29 @@ function credentialCycle({identity,origin,scope,enrollment,plan,prefix,nativeCou
       return reply;
     }catch(error){error.custodyNonceMetadataDiagnostic=diagnostic;throw error;}
   };
+  cycle.executionPendingSourceFirst=async(token,metadata,onPhase)=>{
+    const action={api_version:2,session_id:scope.session_id,request_id:`${prefix}-five-action`,action:{kind:'execute',request:plan.actions[0]}};
+    assert.equal(metadata.logical_request_id,action.request_id);assert.equal(metadata.body_digest,digest('oasis7.custody.test-session-action-request.v2',action));
+    assert.match(metadata.nonce,/^[A-Za-z0-9_-]{43}$/);
+    const raw=JSON.stringify(action),target=targetPrefix+'actions',created=Math.floor(Date.now()/1000);
+    const expires=Math.min(created+20,Number(BigInt(plan.write_deadline)/1000n),Number(BigInt(metadata.expires_at)/1000n));
+    assert.ok(expires*1000>Date.now());const sha=v=>createHash('sha256').update(v).digest('base64');
+    const fields=['@method','@target-uri','content-type','content-digest','oasis7-token-digest','oasis7-test-session','oasis7-request-id'];
+    const params=`(${fields.map(n=>JSON.stringify(n)).join(' ')});created=${created};expires=${expires};nonce="${metadata.nonce}";alg="ed25519";keyid="${enrollment.key_id}";tag="oasis7-custody-client-v1"`;
+    const headers={'content-type':'application/json','content-digest':`sha-256=:${sha(raw)}:`,'oasis7-token-digest':`:${sha(token)}:`,'oasis7-capability':token,'oasis7-test-session':scope.session_id,'oasis7-request-id':action.request_id,Host:new URL(origin).host};
+    const values={'@method':'POST','@target-uri':target,...headers};
+    const message=fields.map(n=>`"${n}": ${values[n]}`).concat(`"@signature-params": ${params}`).join('\n');
+    headers['signature-input']=`oasis7=${params}`;headers.signature=`oasis7=:${sign(null,Buffer.from(message),client.privateKey).toString('base64')}:`;
+    const send=async(expected=200)=>{onPhase?.('signed-actions-http');const response=await identity.fetch(target,{method:'POST',headers,body:raw});onPhase?.('signed-actions-status');const result={http_status:response.status,reply:response.status===200?await response.json():null};if(response.status!==200)await response.body?.cancel();return result;};
+    const first=await send();assert.equal(first.http_status,200);
+    return {reply:first.reply,replay:send};
+  };
   return cycle;
 }
 function credentialCounters(persist,account,id){
   let raw;
   try {raw=execFileSync('rtk',['proxy','python3','-c',`
-import json,sqlite3,sys
+import json,sqlite3,sys,time
 from pathlib import Path
 def remaining(b):return int(b['limit'])-int(b['spent'])-sum(int(v) for v in b['reservations'].values())
 found=[]
@@ -274,7 +291,9 @@ for p in Path(sys.argv[1]).rglob('*.sqlite'):
   roots={}
   for purpose,wrapped in v['roots'].items():
    r=wrapped['root'];roots[purpose]={'transport':remaining(r['budgets']['transport']),'business':remaining(r['budgets']['business']),'history':len(r['credential_history']),'generation':None if r['credential'] is None else r['credential']['generation']}
-  found.append({'host':remaining(v['control']['transport']),'native':remaining(v['identity_transport']),'requests':remaining(v['control']['requests']),'sources':len(v['sources']),'claims':len(v['credential_claims']),'model_controls':sum(k.startswith('actual-host-v2-control-') for k in v['controls']),'closing_reason':None if v['closing'] is None else v['closing'][0],'purposes':roots,'execution_book_absent':v['execution_book'] is None,'old_v1_sessions':len(s.get('test_sessions',{}))})
+  original=v['book']['records'][v['input']['operation_id']]['verification']['verification']
+  current_ms=int(time.time()*1000)
+  found.append({'host':remaining(v['control']['transport']),'native':remaining(v['identity_transport']),'requests':remaining(v['control']['requests']),'sources':len(v['sources']),'claims':len(v['credential_claims']),'model_controls':sum(k.startswith('actual-host-v2-control-') for k in v['controls']),'closing_reason':None if v['closing'] is None else v['closing'][0],'purposes':roots,'execution_book_absent':v['execution_book'] is None,'reference_over_five':current_ms-int(original['observed_at'])>5000,'reference_natural_valid':current_ms<min(int(original['source_session_expires_at']),int(original['source_session_idle_expires_at'])),'pending_exists':v.get('execution_pending_start') is not None,'pending_dispatch':(v.get('execution_pending_start') or {}).get('fence_dispatch') is not None,'pending_read':(v.get('execution_pending_start') or {}).get('fence_read') is not None,'pending_source_fields_present':all(k in (v.get('execution_pending_start') or {}) for k in ['source_inspect_dispatch','source_inspect_native_leaf','source_inspect_result']),'pending_source_dispatch':(v.get('execution_pending_start') or {}).get('source_inspect_dispatch') is not None,'pending_source_native_leaf':(v.get('execution_pending_start') or {}).get('source_inspect_native_leaf') is not None,'pending_source_result':(v.get('execution_pending_start') or {}).get('source_inspect_result') is not None,'pending_claimed_ports':sum(p.get('claimed_at') is not None for p in (v.get('execution_pending_start') or {}).get('physical_ports',[])),'metadata_consumed':sum(c.get('kind',{}).get('kind')=='tool_metadata' and c.get('consumed_by') is not None for c in v.get('challenges',{}).values()),'old_v1_sessions':len(s.get('test_sessions',{}))})
  except (sqlite3.Error,KeyError,TypeError,ValueError):pass
 if len(found)!=1:raise SystemExit(2)
 print(json.dumps(found[0]))

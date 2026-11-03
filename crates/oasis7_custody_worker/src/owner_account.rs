@@ -257,6 +257,31 @@ impl DurableObject for AccountAuthority {
             )
             .await;
         }
+        #[cfg(feature = "approval-harness")]
+        if url.path() == crate::execution_pending_component_v2::PATH {
+            return crate::execution_pending_component_v2::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
+        if url.path() == crate::owner_execution_source_inspect_gate_v2::PATH {
+            return crate::owner_execution_source_inspect_gate_v2::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
+        if url.path() == crate::owner_execution_fence_gate_v2::PATH {
+            return crate::owner_execution_fence_gate_v2::handle(
+                &self.state,
+                self.env.as_ref(),
+                &request,
+            )
+            .await;
+        }
         if url.path() == crate::owner_execution_dispatch_v2::NATIVE_PATH {
             return crate::owner_execution_dispatch_v2::handle_native(
                 &self.state,

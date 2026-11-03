@@ -252,3 +252,59 @@ pub(crate) async fn capture_native_model(
         &body,
     )
 }
+
+/// Capture only the new pending Execution action profile. This produces no
+/// authority, Book or Source and is intentionally not mounted by ordinary flow.
+/// The actual caller must first execute both existing ingress limiter leaves.
+pub(crate) async fn capture_execution_pending(
+    env: &Env,
+    request: &Request,
+) -> Result<TestSessionClientAdmissionRpc, JsValue> {
+    if request.method() != Method::Post
+        || [
+            "CUSTODY_TEST_SESSION_ENABLED",
+            "CUSTODY_TEST_SESSION_V2_ENABLED",
+            "CUSTODY_EXECUTION_PENDING_START_V2_ENABLED",
+        ]
+        .into_iter()
+        .any(|name| env.var(name).ok().is_none_or(|v| v.to_string() != "true"))
+    {
+        return Err(rejected());
+    }
+    let url = request.url().map_err(|_| rejected())?;
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(rejected());
+    }
+    let selected = crate::test_session_client_route::parse_execution_pending(url.path())
+        .ok_or_else(rejected)?;
+    if !matches!(&selected.route, ClientRoute::Actions) {
+        return Err(rejected());
+    }
+    let body = zeroize::Zeroizing::new(
+        bounded(request.inner().as_ref(), 32768)
+            .await?
+            .as_string()
+            .ok_or_else(rejected)?,
+    );
+    let q: oasis7_custody_core::provisioning::SessionActionRequestV2 =
+        serde_json::from_str(&body).map_err(|_| rejected())?;
+    if q.api_version != 2
+        || q.purpose() != oasis7_custody_core::provisioning::SessionPurposeV1::Execution
+        || [&q.request_id, &q.session_id]
+            .into_iter()
+            .any(|id| id.is_empty() || id.len() > 256 || id.chars().any(char::is_control))
+    {
+        return Err(rejected());
+    }
+    capture_canonical(
+        env,
+        request,
+        CapturedRoute {
+            selected,
+            inner: HttpPopRoute::Actions,
+            session_id: q.session_id,
+            api_version: 2,
+        },
+        &body,
+    )
+}

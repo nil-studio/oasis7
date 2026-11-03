@@ -1023,3 +1023,10 @@ mod term_owner_slot_qualification_v2;
 
 #[path = "test_session_v2_read_history_store.rs"]
 mod read_history_v2;
+
+#[path = "test_session_execution_fence_store_v2.rs"]
+mod execution_fence_v2;
+#[path = "test_session_execution_pending_store_v2.rs"]
+mod execution_pending_start_v2;
+#[path = "test_session_execution_source_inspect_store_v2.rs"]
+mod execution_source_inspect_v2;

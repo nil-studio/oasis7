@@ -106,3 +106,9 @@ export function claimReadDirectoryV3(state, executionCapacity, readCapacity, rea
     return once;
   });
 }
+
+// Internal bridge only: caller must retain its transaction and synchronously
+// authenticate this complete dual-family inventory before any projection/write.
+export function directoryAdmissionInventoryV3(state, executionCapacity, readCapacity, readRowBound) {
+ return scan(state, executionCapacity, readCapacity, readRowBound);
+}

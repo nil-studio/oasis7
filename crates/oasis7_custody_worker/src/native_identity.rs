@@ -302,3 +302,6 @@ async fn read_native_body_limited<T: DeserializeOwned>(
 ) -> Result<T> {
     crate::native_http_bounded::read_body(response, limit).await
 }
+
+#[path = "execution_source_inspect_dispatcher_v2.rs"]
+mod source_inspect_dispatcher_v2;

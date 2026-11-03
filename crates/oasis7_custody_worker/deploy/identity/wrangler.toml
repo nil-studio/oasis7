@@ -74,3 +74,27 @@ class_name = "ContextBody"
 [[migrations]]
 tag = "v4"
 new_sqlite_classes = ["ContextBody"]
+
+# Read-only fixed-profile dispatcher; never the FENCES/control namespace.
+[[durable_objects.bindings]]
+name = "EXECUTION_FENCE_DISPATCHERS"
+class_name = "ExecutionFenceDispatcher"
+script_name = "oasis7-custody-recovery-fence-staging"
+
+# Source Inspect stays disabled unless every dedicated server setting/pin exists.
+[[durable_objects.bindings]]
+name = "EXECUTION_SOURCE_INSPECT_DISPATCHERS"
+class_name = "ExecutionSourceInspectDispatcher"
+script_name = "oasis7-custody-identity-staging"
+
+[[migrations]]
+tag = "execution-source-inspect-v2"
+new_sqlite_classes = ["ExecutionSourceInspectDispatcher"]
+[[services]]
+binding = "EXECUTION_SOURCE_INSPECT_ACCOUNT_GATE"
+service = "oasis7-custody-owner-staging"
+entrypoint = "ExecutionSourceInspectAccountGate"
+# Required server configuration, intentionally no invented/default values:
+# CUSTODY_EXECUTION_SOURCE_INSPECT_ADMISSION_CAPACITY (canonical nonzero u32)
+# CUSTODY_EXECUTION_SOURCE_INSPECT_ISSUER_PINS (fixed ordered public pin pair)
+# CUSTODY_EXECUTION_SOURCE_INSPECT_V2_ENABLED remains absent/off.

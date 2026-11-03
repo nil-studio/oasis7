@@ -11,6 +11,8 @@ import {browserHttps,normalizeBrowserPath} from '../tests/fixtures/custody_brows
 import {approveProvision,installActualGetFault,actualGetFacts} from '../tests/fixtures/custody_browser_actions.mjs';
 import {sessionV2BrowserOptions,acceptSessionV2,withActualHostDescriptor,rawBrowserRoles} from '../tests/fixtures/custody_browser_session_v2.mjs';
 import {world3BrowserFixture} from '../tests/fixtures/custody_browser_world3.mjs';
+import {configurePendingExecutionComponent} from '../tests/fixtures/pending_execution_component_options.mjs';
+import {armNativeSource,configurePendingSourceComponent} from '../tests/fixtures/pending_source_component_options.mjs';
 import {actualHostDriver} from '../tests/fixtures/custody_browser_host_driver.mjs';
 import {exerciseV2PublicCredentials} from '../tests/fixtures/custody_browser_v2_credentials.mjs';
 import {signFixtureRecoveryActivation} from '../tests/fixtures/fence_activation_signer.mjs';
@@ -43,10 +45,16 @@ function classifyNativeStartup(chunk){
 }
 let nonceFailureStage=null;let nonceCounterDiagnostic=null;let moduleDiagnostic=null;let nonceFiveDiagnostic=null;
 const directory=mkdtempSync(join(tmpdir(),'oasis7-browser-uv-'));chmodSync(directory,0o700);
-let world,https,native,mf,browser,context,page,hostDriver,world3;let stage='startup';let exited=false;let ownerContinueDiagnostic=null;let sessionContinueDiagnostic=null;const enrollmentDiagnostics={};const enrollmentActorStages=Object.fromEntries(['received','host_absent','host_ambiguous','host_expected','host_unexpected','transfer_encoding_present','content_encoding_present','trailer_present','length_expected','length_unexpected','status_200','status_409','status_other','status_threw'].map(k=>[k,0]));const enrollmentProofStages=Object.fromEntries(['read','decode','physical','prepare','precrypto','finalinventory','finalprepare','verifyReceipt','stateProve','update'].map(k=>[k,0]));const enrollmentPopErrors=Object.fromEntries(['Bounds','Target','Header','Binding','Digest','Time','Signature','Crypto'].map(k=>[k,0]));
-const world3Ready=faultCase==='session-v2-world3-ready';
+let nativeFixtureAddress;let world,https,native,mf,browser,context,page,hostDriver,world3;let stage='startup';let exited=false;let ownerContinueDiagnostic=null;let sessionContinueDiagnostic=null;const enrollmentDiagnostics={};const enrollmentActorStages=Object.fromEntries(['received','host_absent','host_ambiguous','host_expected','host_unexpected','transfer_encoding_present','content_encoding_present','trailer_present','length_expected','length_unexpected','status_200','status_409','status_other','status_threw'].map(k=>[k,0]));const enrollmentProofStages=Object.fromEntries(['read','decode','physical','prepare','precrypto','finalinventory','finalprepare','verifyReceipt','stateProve','update'].map(k=>[k,0]));const enrollmentPopErrors=Object.fromEntries(['Bounds','Target','Header','Binding','Digest','Time','Signature','Crypto'].map(k=>[k,0]));
+const pendingSource=process.env.OASIS7_PENDING_SOURCE_INSPECT_COMPONENT==='true';
+const pendingFirstRF=process.env.OASIS7_PENDING_FIRST_RF_COMPONENT==='true'||pendingSource;
+const historicalDirectory=process.env.OASIS7_PENDING_DIRECTORY_HISTORICAL_REFERENCE_TEST==='true';if(historicalDirectory)assert.ok(pendingFirstRF);
+const pendingPorts=Object.fromEntries(['public','provider','realm','owner','account','directory','dispatcher','causal_owner','causal_account','fences',...(pendingSource?['source_dispatcher','source_owner','source_account']:[])].map(k=>[k,0]));let pendingFenceObjectID;
+const world3Ready=faultCase==='session-v2-world3-ready'||pendingFirstRF;
+const sessionRegistrationStages=Object.fromEntries(["pending_owner_exact", "pending_session_exact", "before_check", "check", "request_validate", "fixed_origin", "native_return", "closed_decode"].flatMap(k=>[k+'.ok',k+'.reject']).map(k=>[k,0]));
 const sourceWindowStages={checked:0,bounded:0,exceeded:0,missing:0};const credentialProfileStages=Object.fromEntries(['first_commit','missing','credential_five','wrong','inspection_error','no_unique_source'].map(key=>[key,0]));const credentialSourceStages=Object.fromEntries(['admit','claim_source','record_source','observe','claim_lifetime','complete'].flatMap(action=>['entered','returned','threw'].map(stage=>[action+'.'+stage,0])));const nonceFive=faultCase==='session-v2-execution-nonce-five';const noncePorts={public:0,provider:0,realm:0,owner:0,account:0};const sessionInspectionStages=Object.fromEntries(['entered','status_200','status_409','status_other','threw'].map(key=>[key,0]));const sessionPreflightStages=Object.fromEntries(['describe_preflight','claim_source','record_source','get_permit','claim_step','reserve_source_read','record_access','record_lifetime','publish_owner_read','activate'].flatMap(action=>['entered','returned','threw'].map(stage=>[action+'.'+stage,0])));const ownerPrepareStages={received_v2:0,returned_text:0,returned_nontext:0,closed_v2:0,exact_original:0,valid_context:0,rpc_failed:0};
 const sessionV2=['session-v2-activation','session-v2-claim','session-v2-claim-lost-reply','session-v2-host-control','session-v2-execution-nonce-five','session-v2-world3-ready'].includes(faultCase);
+if(pendingFirstRF){assert.equal(pendingSource,true,'this new Source component supports only its exact Source profile');assert.ok(nonceFive,'component requires genuine NonceFive case');assert.equal(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC,'true','component requires fresh approval-harness actual alias');}
 const recovering=faultCase==='cancel-expiry-recover', cancelling=faultCase==='cancel-get'||recovering;let recoveryFacts=null;
 const ready=resolve(directory,'native-ready.json'),stop=resolve(directory,'native-stop');
 try {
@@ -54,12 +62,13 @@ try {
   https=await browserHttps(directory,resolve(repo,'crates/oasis7_viewer/software_safe_src'));
   const origin=https.origin;
   if(world3Ready)world3=await world3BrowserFixture(directory,origin);
+  if(pendingSource)armNativeSource(world3);
   stage='native';const binary=readFileSync(resolve(root,'artifacts/native-test-binary.txt'),'utf8').trim();
   native=spawn('rtk',['proxy',binary,'serve_custody_browser_uv_fixture','--ignored','--nocapture','--test-threads=1'],{
     env:{PATH:process.env.PATH,...Object.fromEntries(Object.entries(process.env).filter(([k])=>!k.startsWith('OASIS7_'))),OASIS7_CUSTODY_BROWSER_READY:ready,OASIS7_CUSTODY_BROWSER_STOP:stop,
       OASIS7_CUSTODY_BROWSER_ORIGIN:origin,OASIS7_CUSTODY_BROWSER_SESSION_V2:sessionV2?'true':'false',OASIS7_CUSTODY_BROWSER_WORLD_TRUST:JSON.stringify(world.data),...(world3?.nativeEnv??{})},stdio:['ignore','ignore','pipe']});native.stderr.on('data',classifyNativeStartup);native.once('exit',(code,signal)=>{exited=true;nativeStartupDiagnostic.exited=true;nativeStartupDiagnostic.exit_code=Number.isInteger(code)?code:null;nativeStartupDiagnostic.signal=['SIGABRT','SIGTERM','SIGKILL','SIGSEGV'].includes(signal)?signal:null;});
   for(let i=0;!existsSync(ready);i++){assert.ok(!exited&&i<1500,'Native browser fixture readiness failed');await delay(20);}
-  const data=JSON.parse(readFileSync(ready,'utf8'));https.setNative(data.address);
+  const data=JSON.parse(readFileSync(ready,'utf8'));nativeFixtureAddress=data.address;https.setNative(data.address);
   stage='browser-launch';const modules=process.env.OASIS7_PLAYWRIGHT_NODE_MODULES;
   const require=modules?createRequire(join(modules,'local-browser-uv.cjs')):createRequire(import.meta.url);browser=await require('playwright').chromium.launch({channel:'chrome',headless:!process.argv.includes('--headed')});
   context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1280,height:960}});page=await context.newPage();
@@ -75,7 +84,13 @@ try {
     const url=new URL(request.url);assert.equal(url.origin,origin,'fixed local Native origin');assert.ok(url.pathname.startsWith('/api/public/hosted-account/v2/'));
     const nativePath=normalizeBrowserPath(url.pathname);nativeCounts[nativePath]=(nativeCounts[nativePath]??0)+1;
     const headers=new Headers();for(const key of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']){const v=request.headers.get(key);if(v!==null)headers.set(key,v);}
-    const response=await fetch(data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+    let response;
+    if(pendingSource&&url.pathname==='/api/public/hosted-account/v2/custody/pending-source-inspect'){
+      const bytes=Buffer.from(await request.arrayBuffer());const q=JSON.parse(bytes.toString('utf8'));
+      const until=Number(q.leaf?.claim?.expires_at),remaining=until-Date.now();assert.ok(Number.isSafeInteger(until)&&remaining>0);
+      // One real trusted TLS request, original body/bearer, no redirect/retry.
+      response=await https.clientFetch(url.href,{method:request.method,headers,body:bytes,redirect:'manual'},Math.min(5000,remaining));
+    }else response=await fetch(data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
     return new MiniflareResponse(await response.arrayBuffer(),{status:response.status,headers:response.headers});
   };
   stage='workerd';const runtimeData={...data,world:world.data.world,adapter_secret:'34'.repeat(32),revocation_poll_secret:'53'.repeat(32),revocation_ack_secret:'54'.repeat(32)};
@@ -94,7 +109,7 @@ try {
     }
     if(sessionV2){
       const previous=raw.handleStructuredLogs;
-      raw.handleStructuredLogs=record=>{classifyRuntime(record?.message);previous?.(record);const message=typeof record?.message==='string'?record.message.trim():'';for(const [prefix,counts] of [['fixture.source_window.',sourceWindowStages],['fixture.credential_profile.',credentialProfileStages],['fixture.credential_source.',credentialSourceStages],['fixture.session_inspection.',sessionInspectionStages],['fixture.session_preflight.',sessionPreflightStages],['fixture.enrollment_actor.',enrollmentActorStages],['enrollment.prove.',enrollmentProofStages],['enrollment.prove.http_pop.',enrollmentPopErrors]]){const key=Object.keys(counts).find(k=>message===prefix+k);if(key)counts[key]++;}const name=Object.keys(ownerPrepareStages).find(n=>record.message.trim()===`fixture.owner_v2_prepare.${n}`);if(name)ownerPrepareStages[name]++;};
+      raw.handleStructuredLogs=record=>{classifyRuntime(record?.message);previous?.(record);const message=typeof record?.message==='string'?record.message.trim():'';for(const [prefix,counts] of [['fixture.session_registration.',sessionRegistrationStages],['fixture.source_window.',sourceWindowStages],['fixture.credential_profile.',credentialProfileStages],['fixture.credential_source.',credentialSourceStages],['fixture.session_inspection.',sessionInspectionStages],['fixture.session_preflight.',sessionPreflightStages],['fixture.enrollment_actor.',enrollmentActorStages],['enrollment.prove.',enrollmentProofStages],['enrollment.prove.http_pop.',enrollmentPopErrors]]){const key=Object.keys(counts).find(k=>message===prefix+k);if(key)counts[key]++;}const name=Object.keys(ownerPrepareStages).find(n=>record.message.trim()===`fixture.owner_v2_prepare.${n}`);if(name)ownerPrepareStages[name]++;};
       // The observer imports this wrapper for every Session case, not only
       // NonceFive. Register its dependency once without selecting a new entry.
       const nonceWrapper=resolve(root,'tests/fixtures/tool_nonce_owner_runtime.mjs');
@@ -123,11 +138,14 @@ try {
       };
     }
     if(world3)world3.configure(raw,data,bridge);
+    if(pendingSource)configurePendingSourceComponent(raw,root,pendingFenceObjectID,pendingPorts);
+    else if(pendingFirstRF)configurePendingExecutionComponent(raw,root,pendingFenceObjectID,pendingPorts);
     moduleDiagnostic=Object.fromEntries(Object.entries(roles).map(([name,worker])=>{const paths=worker.modules.map(m=>m.path).filter(p=>typeof p==='string');return[name,{registered_modules:paths.length,duplicate_paths:paths.length-new Set(paths).size}];}));
     return raw;
   });
   const roleOptions=makeRoleOptions();
   mf=new Miniflare(roleOptions);
+  if(pendingFirstRF){const namespace=await mf.getDurableObjectNamespace('FENCES','fence');pendingFenceObjectID=namespace.idFromName('service-fence-v1').toString();await mf.setOptions(makeRoleOptions());}
   world3?.setIdentity(async request=>mf.dispatchFetch(request.url,{method:request.method,headers:request.headers,body:Buffer.from(await request.arrayBuffer())}));
   https.setIdentity(async request=>mf.dispatchFetch(request.url,{method:request.method,headers:request.headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())})}));
   const controller=await mf.getWorker('fence-controller');const description=await(await controller.fetch('https://fixture.test/describe',{method:'POST'})).json();
@@ -152,7 +170,7 @@ try {
     }:undefined;
     const facts=await acceptSessionV2({page,identity:liveIdentity,origin,sourceHeaders,parent:original,world:world.data.world,persist:resolve(directory,'workerd'),setStage:value=>{stage=value;},nativeCounts,hostEnrollment,world3Ready,expectedAudience:data.audience,onOwnerContinue:value=>{ownerContinueDiagnostic=value;},onSessionContinue:value=>{sessionContinueDiagnostic=value;},onEnrollment:value=>{if(["invite","enroll","prove"].includes(value.phase))enrollmentDiagnostics[value.phase]={status:Number.isInteger(value.status)?value.status:null,api1:value.api1===true,status_proved:value.status_proved===true,descriptor_match:value.descriptor_match===true};},
       onActivated:hostCase?args=>hostDriver.exercise(args):nonceFive?args=>exerciseExecutionNonceFive(args,noncePorts):['session-v2-activation','session-v2-world3-ready'].includes(faultCase)?undefined:args=>exerciseV2PublicCredentials({...args,lostReply:faultCase==='session-v2-claim-lost-reply'})});
-    const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();
+    const nativeFacts=await(await fetch(nativeFixtureAddress+'/_fixture/browser-facts')).json();
     if(world3Ready){assert.equal(nativeFacts.world3_enabled,true);assert.equal(nativeFacts.protected_storage_ready,true);assert.equal(world3.facts().callback_requests,0,'activation does not pretend to execute Native45');}
     assert.equal(nativeFacts.bypass_attempts,0);assert.equal(https.facts().bypass_attempts,0);
     const sum=suffix=>Object.entries(https.facts().counts).filter(([key])=>key.endsWith(suffix)).reduce((n,[,v])=>n+v,0);
@@ -242,7 +260,7 @@ try {
   assert.equal(phaseCount(https.facts().counts,'/custody/approvals/options')-baseOptions,recovering?2:1,'only explicit expired recovery may allocate a fresh custody challenge');
   if(faultCase==='cancel-get'){assert.equal(phaseCount(https.facts().counts,'/custody/approvals/complete'),baseComplete);assert.equal(phaseCount(https.facts().counts,'/owner-setups/approve'),baseApprove);}
   const facts=https.facts();assert.equal(facts.bypass_attempts,0);assert.ok(!Object.keys(facts.counts).some(path=>path.includes('/owner-setups/continue')),'OwnerSetup must never continue');
-  const nativeFacts=await(await fetch(data.address+'/_fixture/browser-facts')).json();assert.equal(nativeFacts.bypass_attempts,0);assert.equal(nativeFacts.manager_configured,true);
+  const nativeFacts=await(await fetch(nativeFixtureAddress+'/_fixture/browser-facts')).json();assert.equal(nativeFacts.bypass_attempts,0);assert.equal(nativeFacts.manager_configured,true);
   const evidence={kind:'local_native_workerd_browser_uv',status:'passed',case:faultCase,fault:https.facts().fault,cancel_recovery:recoveryFacts,actual_get:getFacts,software_uv:true,hardware:'not_tested',production:'not_tested',parent_precondition:'actual fixture provision/participant, outside OwnerSetup UI acceptance',mfa_bypass_attempts:0,owner_setup_continue_calls:0,http_counts:facts.counts,native_counts:nativeCounts};
   writeFileSync(resolve(directory,'safe-evidence.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify({status:'passed',case:faultCase,evidence_directory:directory,kind:evidence.kind}));
   }
@@ -265,7 +283,7 @@ try {
     phase:raw.phase,code:knownCodes.includes(raw.code)?raw.code:'unclassified',http_status:Number.isInteger(raw.http_status)&&raw.http_status>=100&&raw.http_status<=599?raw.http_status:null,
     fields:Object.fromEntries(booleanFields.filter(k=>typeof raw[k]==='boolean').map(k=>[k,raw[k]])),
   }:null;
-  console.error(JSON.stringify({status:'failed',case:faultCase,stage,error_kind:kind,evidence_directory:directory,native_startup_diagnostic:stage==='native'?nativeStartupDiagnostic:null,nonce_five_diagnostic:nonceFiveDiagnostic,nonce_metadata_diagnostic:nonceMetadataDiagnostic,nonce_failure_stage:nonceFailureStage,nonce_counter_diagnostic:nonceCounterDiagnostic,credential_diagnostic:credentialDiagnostic,nonce_ports:{...noncePorts},credential_source_stages:credentialSourceStages,credential_profile_stages:credentialProfileStages,source_window_stages:sourceWindowStages,prepare_diagnostic:diagnostic,owner_continue_diagnostic:ownerContinueDiagnostic,session_continue_diagnostic:sessionContinueDiagnostic,enrollment_diagnostic:enrollmentDiagnostics,enrollment_actor_stages:enrollmentActorStages,enrollment_proof_stages:enrollmentProofStages,enrollment_pop_errors:enrollmentPopErrors,owner_prepare_stages:ownerPrepareStages,session_preflight_stages:sessionPreflightStages,session_inspection_stages:sessionInspectionStages,...(stage==='workerd'?{startup:{code:startupCode,classes:runtimeDiagnostic,modules:moduleDiagnostic}}:{}),http_phase_statuses:https?.facts().phase_statuses??{},
+  console.error(JSON.stringify({status:'failed',case:faultCase,stage,error_kind:kind,evidence_directory:directory,runtime_diagnostic:{...runtimeDiagnostic},runtime_code:startupCode,native_startup_diagnostic:stage==='native'?nativeStartupDiagnostic:null,nonce_five_diagnostic:nonceFiveDiagnostic,nonce_metadata_diagnostic:nonceMetadataDiagnostic,nonce_failure_stage:nonceFailureStage,nonce_counter_diagnostic:nonceCounterDiagnostic,credential_diagnostic:credentialDiagnostic,nonce_ports:{...noncePorts},credential_source_stages:credentialSourceStages,credential_profile_stages:credentialProfileStages,source_window_stages:sourceWindowStages,prepare_diagnostic:diagnostic,owner_continue_diagnostic:ownerContinueDiagnostic,session_continue_diagnostic:sessionContinueDiagnostic,enrollment_diagnostic:enrollmentDiagnostics,enrollment_actor_stages:enrollmentActorStages,enrollment_proof_stages:enrollmentProofStages,enrollment_pop_errors:enrollmentPopErrors,owner_prepare_stages:ownerPrepareStages,session_preflight_stages:sessionPreflightStages,session_registration_stages:sessionRegistrationStages,session_inspection_stages:sessionInspectionStages,...(stage==='workerd'?{startup:{code:startupCode,classes:runtimeDiagnostic,modules:moduleDiagnostic}}:{}),http_phase_statuses:https?.facts().phase_statuses??{},
     phase_counts:{options:sum('/custody/approvals/options'),complete:sum('/custody/approvals/complete'),prepare:sum('/owner-setups/prepare'),approve:sum('/owner-setups/approve')}}));process.exitCode=1;
 }
 finally {await hostDriver?.close();await context?.close();await browser?.close();await mf?.dispose();if(native&&!exited){writeFileSync(stop,'stop');for(let i=0;!exited&&i<250;i++)await delay(20);if(!exited)native.kill('SIGTERM');}await https?.close();await world3?.close();await world?.close();}
@@ -306,7 +324,8 @@ async function exerciseExecutionNonceFive({cycle,counters,setStage},ports){
   assert.deepEqual(ports,{public:0,provider:2,realm:2,owner:0,account:0},'genuine claim limiter prefix must be observed before nonce measurement');
   setStage('nonce-five-claim-no-book');
   const before=counters(),previous={...ports};assert.equal(before.execution_book_absent,true);
-  setStage('nonce-five-actual-public');await cycle.executionNonce(credential.token,phase=>setStage('nonce-five-'+phase));
+  if(historicalDirectory){setStage('pending-reference-normal-clock-aging');await delay(5100);const reference=counters();assert.equal(reference.reference_over_five,true);assert.equal(reference.reference_natural_valid,true);}
+  setStage('nonce-five-actual-public');const metadata=await cycle.executionNonce(credential.token,phase=>setStage('nonce-five-'+phase));
   const after=counters();
   nonceCounterDiagnostic={execution_transport_spent:before.purposes.execution.transport-after.purposes.execution.transport,read_transport_spent:before.purposes.reconcile_read.transport-after.purposes.reconcile_read.transport,read_business_spent:before.purposes.reconcile_read.business-after.purposes.reconcile_read.business,read_unchanged:['transport','business','history','generation'].every(k=>after.purposes.reconcile_read[k]===before.purposes.reconcile_read[k]),book_absent:after.execution_book_absent===true,...Object.fromEntries(['host','native','requests','sources','claims'].map(k=>[k+'_delta',after[k]-before[k]]))};
   setStage('nonce-five-counter-execution');assert.equal(after.purposes.execution.transport,before.purposes.execution.transport-5);
@@ -317,5 +336,30 @@ async function exerciseExecutionNonceFive({cycle,counters,setStage},ports){
   const until=Date.now()+2000;
   while(Object.keys(ports).some(k=>ports[k]-previous[k]!==1)&&Date.now()<until)await delay(10);
   for(const k of Object.keys(ports)){setStage('nonce-five-physical-'+k);assert.equal(ports[k]-previous[k],1,`actual ${k} physical leaf exactly once`);}
+  if(pendingSource){
+    const before=counters(),portsBefore={...pendingPorts};
+    const nativeBefore=await(await fetch(nativeFixtureAddress+'/_fixture/browser-facts')).json();
+    assert.ok(Number.isSafeInteger(nativeBefore.source_inspect_requests));
+    setStage('pending-source-genuine-actions');const first=await cycle.executionPendingSourceFirst(credential.token,metadata,phase=>setStage('pending-source-'+phase));
+    assert.equal(first.reply.api_version,2);assert.equal(first.reply.component,'pending_first_directory_rf_source_history');assert.equal(first.reply.source_history_archived,true);
+    assert.equal(first.reply.current_authority,false);assert.equal(first.reply.book_born,false);assert.equal(first.reply.whole_graph_ready,false);
+    const paid=counters();assert.equal(before.purposes.execution.transport-paid.purposes.execution.transport,139,'same Exec400 first5 plus134 master, no new budget');
+    assert.equal(paid.execution_book_absent,true);assert.equal(paid.pending_exists,true);assert.equal(paid.pending_dispatch,true);assert.equal(paid.pending_read,true);assert.equal(paid.pending_claimed_ports,9);
+    assert.equal(paid.pending_source_fields_present,true);assert.equal(paid.pending_source_dispatch,true);assert.equal(paid.pending_source_native_leaf,true);assert.equal(paid.pending_source_result,true);
+    assert.equal(paid.metadata_consumed,before.metadata_consumed,'history is not the later Book/Actions nonce consumer');
+    for(const k of ['host','native','requests','claims'])assert.equal(paid[k],before[k]);
+    assert.equal(paid.sources,before.sources+1,'one dedicated Pending source is born, without legacy upgrade');assert.deepEqual(paid.purposes.reconcile_read,before.purposes.reconcile_read);
+    const until=Date.now()+2000;while(Object.keys(pendingPorts).some(k=>pendingPorts[k]-portsBefore[k]!==1)&&Date.now()<until)await delay(10);
+    for(const key of Object.keys(pendingPorts)){setStage('pending-source-physical-'+key);assert.equal(pendingPorts[key]-portsBefore[key],1);}
+    const nativeAfter=await(await fetch(nativeFixtureAddress+'/_fixture/browser-facts')).json();assert.equal(nativeAfter.source_inspect_requests-nativeBefore.source_inspect_requests,1,'actual Native TCP receipt, not a sender inference');
+    const replayPorts={...pendingPorts};setStage('pending-source-exact-pending-replay');await first.replay();
+    const after=counters();assert.equal(paid.purposes.execution.transport-after.purposes.execution.transport,5,'valid new ingress preserves actual first5 then rejects pending conflict');assert.equal(after.pending_claimed_ports,paid.pending_claimed_ports);assert.equal(after.metadata_consumed,paid.metadata_consumed);
+    const replayUntil=Date.now()+2000;while(['public','provider','realm','owner','account'].some(k=>pendingPorts[k]-replayPorts[k]!==1)&&Date.now()<replayUntil)await delay(10);
+    for(const key of ['public','provider','realm','owner','account'])assert.equal(pendingPorts[key]-replayPorts[key],1);
+    for(const key of Object.keys(pendingPorts).filter(k=>!['public','provider','realm','owner','account'].includes(k)))assert.equal(pendingPorts[key],replayPorts[key]);
+    const nativeReplay=await(await fetch(nativeFixtureAddress+'/_fixture/browser-facts')).json();assert.equal(nativeReplay.source_inspect_requests,nativeAfter.source_inspect_requests);
+    return {actual_execution_nonce_five:true,actual_signed_actions_first_source_component:true,actual_first_fourteen_physical_leaves:true,action_nonce_unconsumed:true,actual_master139_single_ledger:true,replay_pending_conflict_prefix_five_only:true,no_book_seed:true,whole139_qualified:false};
+  }
+
   return {actual_execution_nonce_five:true,actual_five_physical_hops:true,no_book_seed:true,no_source_native_world_io:true,no_control_or_read_borrow:true};
 }

@@ -518,3 +518,42 @@ pub(super) async fn observe_paid_owner_setup_result_v2(
 ) -> Result<Observations> {
     v2::observe_paid_owner_setup_result_v2(env, draft, input, signed).await
 }
+
+#[path = "owner_native_execution_pending_current_v2.rs"]
+mod execution_pending_current_v2;
+pub(crate) use execution_pending_current_v2::PendingDirectoryFenceObservationV2;
+
+#[cfg(feature = "approval-harness")]
+pub(crate) async fn pending_execution_source_component_v2(
+    env: &Env,
+    store: &crate::provision_approval_store::OwnerProvisionApprovalStore,
+    request: &crate::test_session_client_rpc::TestSessionClientAdmissionRpc,
+) -> Result<String> {
+    if env
+        .var("CUSTODY_EXECUTION_PENDING_SOURCE_COMPONENT_V2_TEST")
+        .ok()
+        .is_none_or(|v| v.to_string() != "true")
+    {
+        return Err(denied());
+    }
+    let Some(current) =
+        execution_pending_current_v2::observe_pending_first_directory_fence_v2(env, store, request)
+            .await?
+    else {
+        return Err(denied());
+    };
+    // The sole private first value survives the actual Directory/RF awaits.
+    // Successful history is deliberately dropped; it grants no Current/Book.
+    let _history =
+        execution_pending_current_v2::observe_pending_source_inspect_v2(env, store, current)
+            .await?;
+    serde_json::to_string(&serde_json::json!({
+        "api_version": 2,
+        "component": "pending_first_directory_rf_source_history",
+        "source_history_archived": true,
+        "current_authority": false,
+        "book_born": false,
+        "whole_graph_ready": false
+    }))
+    .map_err(|_| denied())
+}

@@ -31,3 +31,15 @@ new_sqlite_classes = ["RecoveryFence"]
 # CUSTODY_EXECUTION_FENCE_ADMISSION_ENABLED
 # CUSTODY_EXECUTION_FENCE_ADMISSION_ACTIVE_VERIFIER (exact history member)
 # This provides only the FENCES leaf; it does not install an Account/Dispatcher sender.
+
+# Dedicated per-attempt first receiver. No global capacity is borrowed here.
+[[durable_objects.bindings]]
+name = "EXECUTION_FENCE_DISPATCHERS"
+class_name = "ExecutionFenceDispatcher"
+[[migrations]]
+tag = "execution-fence-dispatch-v2"
+new_sqlite_classes = ["ExecutionFenceDispatcher"]
+[[services]]
+binding = "EXECUTION_FENCE_ACCOUNT_GATE"
+service = "oasis7-custody-owner-staging"
+entrypoint = "ExecutionFenceAccountGate"

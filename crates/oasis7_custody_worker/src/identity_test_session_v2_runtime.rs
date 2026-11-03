@@ -204,6 +204,17 @@ async fn execute(state: JsValue, env: &Env, selector: &Selector) -> JResult<serd
             },
         )
         .await?;
+        #[cfg(feature = "native-runtime-harness")]
+        {
+            transport::registration_diag(
+                "pending_owner_exact",
+                original.owner_read == published.original,
+            );
+            transport::registration_diag(
+                "pending_session_exact",
+                original.pending.session_id == selector.session_id,
+            );
+        }
         if original.owner_read != published.original
             || original.pending.session_id != selector.session_id
         {

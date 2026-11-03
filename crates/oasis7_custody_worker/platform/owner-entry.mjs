@@ -77,3 +77,13 @@ export class OwnerKeyPermits extends WorkerEntrypoint {
 export class ExecutorKeyPermits extends WorkerEntrypoint {
   async verifyKeyPermit(raw) { return new RustWorker(this.ctx, this.env).owner_executor_key_permit(this.env, raw); }
 }
+
+// The RF role receives only this closed read-claim capability, not the wider
+// OwnerNativePermits surface or any Account namespace/control operation.
+export class ExecutionFenceAccountGate extends WorkerEntrypoint {
+  async claim(raw) { return new RustWorker(this.ctx,this.env).owner_execution_pending_fence_read_v2(this.env,raw); }
+}
+
+export class ExecutionSourceInspectAccountGate extends WorkerEntrypoint {
+  async claim(raw) { return new RustWorker(this.ctx,this.env).owner_execution_pending_source_native_v2(this.env,raw); }
+}

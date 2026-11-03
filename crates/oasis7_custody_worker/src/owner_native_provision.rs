@@ -225,3 +225,6 @@ fn binding_statement(
 
 #[path = "owner_test_session.rs"]
 pub(crate) mod test_session;
+pub(crate) use authority::PendingDirectoryFenceObservationV2;
+#[cfg(feature = "approval-harness")]
+pub(crate) use authority::pending_execution_source_component_v2;

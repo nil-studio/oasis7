@@ -1,6 +1,7 @@
 //! Routing selectors are signed as part of the actual URI, never authority.
 pub(crate) enum ClientRoute {
     Challenge,
+    Actions,
     ModelReservation { session_id: String },
     Claim { enrollment_id: String },
     Initialize { session_id: String },
@@ -71,4 +72,16 @@ pub(crate) fn parse(path: &str) -> Option<ClientTarget> {
         provision_id: (*provision).into(),
         route,
     })
+}
+
+/// Separate selector: ordinary public parsing never recognizes the disabled
+/// pending Actions entry. The real URI is compared unchanged by capture.
+pub(crate) fn parse_execution_pending(path: &str) -> Option<ClientTarget> {
+    if path.len() > 2048 {
+        return None;
+    }
+    let prefix = path.strip_suffix("/actions")?;
+    let mut selected = parse(&format!("{prefix}/proof-challenges"))?;
+    selected.route = ClientRoute::Actions;
+    Some(selected)
 }

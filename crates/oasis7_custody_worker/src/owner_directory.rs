@@ -131,6 +131,18 @@ impl DurableObject for ManagerAssociations {
     }
     async fn fetch(&self, request: Request) -> Result<Response> {
         let url = request.url()?;
+        if url.path()
+            == oasis7_custody_core::execution_pending_current_v2::EXECUTION_PENDING_DIRECTORY_PATH_V2
+            && (url.scheme() != "https"
+                || url.host_str() != Some("directory.internal")
+                || url.port().is_some()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.fragment().is_some()
+                || request.headers().get("Content-Type")?.as_deref() != Some("application/json"))
+        {
+            return Response::error("not found", 404);
+        }
         if request.method() != Method::Post || url.query().is_some() {
             return Response::error("not found", 404);
         }
@@ -148,6 +160,9 @@ impl DurableObject for ManagerAssociations {
             "/internal/read" => self.view(&raw, &config),
             "/internal/freeze" => self.freeze(&raw, &config).await,
             "/internal/source-freeze" => self.source_freeze(&raw, &config).await,
+            oasis7_custody_core::execution_pending_current_v2::EXECUTION_PENDING_DIRECTORY_PATH_V2 => {
+                self.pending_execution_directory(&raw, &config)
+            }
             "/internal/provision-gate" => self.provision_gate(&raw, &config),
             "/internal/read-directory-v3" => self.read_directory_v3(&raw, &config),
             "/internal/provision-inspect-gate" => self.provision_inspect_gate(&raw, &config),
@@ -159,6 +174,10 @@ impl DurableObject for ManagerAssociations {
         }
     }
 }
+
+#[path = "owner_directory_execution_pending_v2.rs"]
+mod execution_pending;
+pub(crate) use execution_pending::{PendingDirectoryReplyV2, call_pending_directory};
 impl ManagerAssociations {
     fn snapshot(
         &self,
