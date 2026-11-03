@@ -259,6 +259,9 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         let mut execution = base
             .execution
             .fork_strict_with_seed(nodes.into_iter().collect())?;
+        // This execution owns the strict reader installed by the fork above.
+        // Only the authenticated pre-pin overlay below changes its layer mode.
+        let mut derived_current_layer = false;
         let mut previous = origin.digest()?;
         let mut prefix_history = Vec::new();
         for (record, _) in records {
@@ -300,6 +303,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
                 // Exact Input is only a candidate access overlay. The independently
                 // authenticated C0/H and already replayed prefix remain the parent.
                 execution = execution.fork_replay_current(seed)?.fork_live_closed()?;
+                derived_current_layer = true;
             }
             let executed = execution.replay_next(&input.certificate, &input.actions_cbor)?;
             let observed = execution.retained_nodes.accessed_nodes()?;
@@ -402,7 +406,13 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         if &execution.schedule != parent.schedule() {
             return Err("Active actual parent schedule differs from signed prefix".into());
         }
-        execution.close_verified_replay_inventory()?;
+        if derived_current_layer {
+            execution.close_verified_replay_inventory()?;
+        } else {
+            // No derived writes were admitted: actual replay already ran over
+            // this execution's strict, immutable dependency owner.
+            execution.retained_nodes.require_strict_inventory()?;
+        }
         if root.read_window_origin(&base, deadline)?.1 != reference {
             return Err("Active Origin changed during replay".into());
         }
