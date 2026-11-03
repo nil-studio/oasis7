@@ -23,7 +23,8 @@ impl World {
             Action::SubmitGovernanceValidatorAdmission { .. }
             | Action::ApproveGovernanceValidatorAdmission { .. }
             | Action::ActivateGovernanceValidatorAdmission { .. }
-            | Action::RevokeGovernanceValidatorAdmission { .. } => {
+            | Action::RevokeGovernanceValidatorAdmission { .. }
+            | Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => {
                 self.action_to_event_policy_governance_admission(action_id, action, authorization)
             }
             Action::OpenEconomicContract { .. }
