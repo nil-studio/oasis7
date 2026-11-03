@@ -306,6 +306,44 @@ API 已证明为专用非 full 诊断的运行不会冒充完整结果，也不�
   选中 case 与结果逐项核对；选择器/结果函数回归仅证明其自身边界，真实离线回放与 wasmtime 执行结果另记。
   清单故意漏项、失败命令和缺环境的负例应能阻断适用结论；本次文档合并没有运行这些场景。
 
+<a id="local-check-entry-design"></a>
+### 显式本地检查的薄入口（目标合同）
+
+Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；承接 [LOCAL-AC-1–5](ci-test-coverage.prd.md#local-check-entry-requirement)。产品适用性：N/A；reason=开发检查工具合同；scope=本地范围、执行与报告，不改变 CI 准入或玩家行为。
+
+当前已有 `ci-tests.sh` 显式 tier、`cargo-dev.sh`、no-op `pre-commit.sh` 和基于 Git refs 的 `plan-rust-required-scope.py`。本节定义尚待实现的 `scripts/check-local.py`；当前可执行命令以[手册入口](../../../testing-manual.md#local-check-entry)为准。普通 Git commit 不调用该入口，`fix-precommit.sh` 的格式化与 `git add -u` 也不纳入检查链。
+
+**接口与分层。** 目标接口要求显式 `--profile quick|affected|formal`，接受 `--base-ref`、`--output-dir`、`--format text|json` 与 `--dry-run`；formal 另须显式 `--tier required|full`。缺 profile/tier 不猜测用户意图。入口仅适配输入、调用已有 planner/driver 并汇总结果；路径规则、受影响闭包、features/target 和 case 清单仍只有现有配置与 planner 一份权威。quick 也记录受影响但未运行的组，不把轻量检查描述成完整选测。
+
+| Profile | 执行合同 | 不执行/成功边界 |
+| --- | --- | --- |
+| quick | 复用现有 `ci-tests.sh required --group baseline` 的治理、脚本与配置检查；传递已解析的文档比较基线，保留 worktree 输入 | 不包含 Rust fmt、编译、业务测试、浏览器或真实服务验收；baseline 中所有适用检查实际通过才算该 profile 通过。没有测试执行时明确记 `tests_executed=0` |
+| affected | 由同一 planner 对完整本地输入生成组/参数，调用既有 required driver 的对应组；输出被选中及未选中的理由 | 不隐含 full/所有平台/真实世界闭环；全部选中且适用的检查实际执行通过，测试组还须证明选中 case 非零且未漏执行 |
+| formal | 干净工作树、已解析 source SHA、显式 tier 和当前手册 canonical 命令；required 沿 planner，full 沿现有完整清单 | 不以开发 wrapper 参数替换 canonical，不把单机平台结果当 hosted gate 或其他平台通过；任何必要组、环境或证据缺失均不通过 |
+
+`affected` 复用现有 driver 的 canonical Cargo 调用，不为提速另建一组改变断言的本地命令。按包迭代仍可独立使用 `cargo-dev.sh`，结果只证明该命令的开发配置。入口不得自动缩小慢组、吞失败重试或把 `scope=full` 的 required 选测扩张改写成 full tier。耗时先按实际阶段记录，本项没有新增本地时延 SLA。
+
+**基线与本地输入。** `--base-ref` 优先；未提供时仅尝试本地 `origin/main` 与 HEAD 的唯一 merge-base，记录 ref 和解析后的 SHA，不自动 fetch。基线不存在、merge-base 不唯一、未解决合并或无法读取输入时为 blocked，提示可执行的显式参数。policy 使用现有可信基线来源并记录 SHA；候选改动不能自改路径规则后豁免自己，控制文件变化沿原 planner 的扩张/拒绝规则处理。
+
+quick/affected 的输入是 base→HEAD 的已提交差异、暂存差异、未暂存差异及非 ignored 未跟踪文件的保守并集，路径用 NUL 安全读取；重命名保留旧/新路径，删除保留旧路径。scope 报告同时保留三类本地来源，不能用 `git diff HEAD` 漏掉未跟踪文件，也不能把同一路径的抵消改动静默丢弃。忽略目录、Git 管理文件与输出目录不枚举为源码，但显式依赖引用的输入不得仅因 ignored 就漏读；无法确认的依赖输入按现有不确定性规则扩张或阻断并解释。
+
+现有 planner 只读取提交对象。实施须给同一 planner 增加只读的工作树输入适配：固定起始 HEAD/index/文件内容身份，在内存或自有临时目录形成不可变输入视图，共用基线、当前清单及依赖图的选择逻辑；不得创建临时提交、修改 index、stash 或 checkout。不能直接把 HEAD 计划标成覆盖 dirty 文件。执行针对起始输入核对，结束重新检查身份；期间有用户或命令改动则标 `stale_input`，保留已执行结果但不宣布当前工作树通过。formal 遇到源码 dirty/untracked 直接 blocked，ignored 构建产物不构成源码 dirty。
+
+**只读与故障。** 默认只允许写 ignored 的构建输出、入口自有临时目录和显式报告目录，不改源码、锁文件、配置、index 或 Git ref，不安装/升级工具。依赖下载仅可沿既有锁定命令写依赖缓存，并在计划中披露；缺工具、无法满足锁定依赖或禁止联网的运行环境分别报告。接线前逐个确认 driver 的写集合；会改用户文件的命令必须先提供真实 check-only 模式或隔离输出适配，尚不具备时为必要检查 blocked，不能先执行再回滚用户文件。检查前后核对 tracked/untracked 与 index 身份是异常检测，不替代只读接线。失败停止依赖它的步骤，独立检查可继续；取消/超时只清理本次拥有的子进程和临时目录，不删除用户输出。
+
+**统一结果。** text/JSON 从同一结果对象生成，至少包含 `schema_version`、profile/tier、source/base/policy SHA、输入摘要及 dirty/untracked 分类、planner 版本、选择原因、实际命令 argv/cwd、明确允许的配置（不得转储凭据）、开始/结束时间、exit code、每项 `pass|fail|skipped|cancelled` 与 reason、预期/实际执行数、日志路径、未覆盖组/平台及总状态。未选择是范围外，必要但未执行是 skipped，两者不能合并。日志位置在运行前确定，报告失败也不能留下成功摘要；没有可解析执行数量时记 unknown，不猜零或通过。
+
+| 总状态 | 退出语义 | 判定 |
+| --- | --- | --- |
+| passed | 0 | 至少一项有效检查且本 profile 全部必要项实际通过；quick 可无业务测试，但须单独显示该事实 |
+| planned | 0，仅显式 `--dry-run` | 只有计划；`validated=false`，不输出 pass 结论 |
+| failed / incomplete | 1 | 任一失败、预期测试零匹配、必要项 skipped、执行证据 unknown 或写报告失败 |
+| blocked / stale_input | 2 | 参数/基线/路径解析/工具等前置失败，或输入在运行中变化；已产生的局部结果仍保留 |
+| no_checks | 3 | 选择结果没有任何可执行检查；必须给出原因，不等同所有测试通过 |
+| cancelled | 130 | 中断并记录未执行范围；超时按 failed 记录具体 timeout 原因 |
+
+实现接线按输入适配→profile/driver 只读接线→报告/取消→正反例验证分片，沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 保留未完义务；更新 help 中旧的 “used by pre-commit” 描述也属于代码阶段。验收方法见[本地入口核验](../../../testing-manual.md#local-check-entry-validation)。当前文档只完成合同与入口说明校准，未实现薄入口，不改变现有 CI policy；涉及其语义的后续改动仍走适用独立评审。
+
 <a id="ci-case-tier-design"></a>
 ## Test case 分级专题的共享设计
 
@@ -336,6 +374,7 @@ API 已证明为专用非 full 诊断的运行不会冒充完整结果，也不�
 | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | 十分钟目标、快速准入/迁出、风险加测、四小时完整覆盖及同源发布 | [分层实施](#ci-fast-pr-periodic-full-design) | CI 维护者、QA 与发布消费者 | 产品适用性：N/A；reason=开发反馈与验证时点治理；scope=检查选择、构建、调度、汇总、发布消费及实施验收。候选已接线，旧 BASE 保守回退；hosted 覆盖、时延及容量待验证 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | 离线协议、full/wasmtime、降级目标及失败范围 | [覆盖专题](#ci-coverage-design) | CI 维护者与 QA | 不将未接线 snapshot 或文档合并计为覆盖 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
+| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | 三 profile、完整本地输入、只读接线和诚实结果 | [薄入口合同](#local-check-entry-design) | 本地工具维护者复用 planner/driver；QA 验证负例 | 产品适用性：N/A；reason=开发反馈工具；scope=本地选择与执行。当前只校准文档，薄入口未实现；不拥有 hosted 时延或发布准入 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | 独立标签语义到实际选中 case 与结果 | [Case 分级](#ci-case-tier-design) | 测试维护者与 CI driver | 不修改断言或扩展任务准入 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | 保留产品测试并按真实影响选择 | [测试范围](#测试范围) | 选择器与执行器 | 解析不确定扩大普通 required，未登记路径另按门禁阻断 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | Trace refs: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df；[未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs) | 所有未登记路径阻断规划，失败到最终 required 汇总，保持可信规则来源 | [失败链路](#ci-unknown-inputs-design) | 选择器、Rust workflow 与结果回归 | 产品适用性：N/A；reason=CI 范围登记治理，不改变游戏行为；scope=未登记路径的规划失败、可信基线与 required 结果传播；本地失败回归不代签 hosted 运行。 |
@@ -613,6 +652,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 | --- | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | [分层实施](#ci-fast-pr-periodic-full-design) | 准入/迁出、真实包与 feature 闭包、Formal 最低库存、完整组/平台、旧 BASE/候选 bootstrap、失败重跑及固定候选发布 | [分层验收](../../../testing-manual.md#ci-fast-pr-periodic-full-validation)、实际 workflow/driver、selector/result/receipt 与真实 Cargo 合同 | 实施 PR 的准确候选、计划、运行链接、观察窗口与耗时分布 | 当前候选已接线；本地合同不代签 hosted 完整覆盖、十分钟/P95 或四小时容量 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | [覆盖专题](#ci-coverage-design) | 同候选/环境/features 下离线消息链、full 包含关系、失败及未接线目标 | [测试手册](../../../testing-manual.md)、实际 driver/选中 job；按本节选择正反例 | 实际命令、参数、case、退出与缺口；本次未执行 | 不由 selector fixture、skip 或旧 PASS 代签真实覆盖 |
+| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | [薄入口合同](#local-check-entry-design) | LOCAL-AC-1–5：当前入口一致、全输入选择、只读与非成功语义 | [本地入口核验](../../../testing-manual.md#local-check-entry-validation)，实施候选的真实 driver 与临时仓库正反例 | 实施 PR 的输入/命令、前后文件与 index 身份、报告和退出码 | 文档检查不证明 thin entry 已实现；本地通过不代签 PR/平台/真实环境 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | [Case 分级](#ci-case-tier-design) | 同候选标签到实际执行；漏标、错 feature、零匹配和失败传播 | [测试手册](../../../testing-manual.md)、实际 CI driver；结果函数回归 `scripts/ci-required-result.test.py` 仅作补充 | case/feature/target 与运行结果；本次未执行 | 无 hosted 或性能结论，不改 required/full 保护 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | [测试范围](#测试范围) | 删除、重命名、依赖和未知输入覆盖 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 命令退出码及输出 | 不替代真实产品组运行 |
 | [未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs) | [失败链路](#ci-unknown-inputs-design) | 未登记新增/删除/重命名、混合全量控制、候选豁免不能放行；无成功输出且 gate 明确失败 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 当前 PR 中保留选择器、工作流和结果回归的命令、source HEAD、退出码和 Actions 结果 | 本地 fixture 不证明 hosted 运行；Git/依赖解析不确定仍保留全量 |
@@ -783,3 +823,7 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、�
 该证据只用于同属 Worker 的静态、无环、无 opaque 生产模块路径，要求父路径与局部 cfg 在同一个实际组合全部成立。未声明 feature、未知谓词、矛盾角色、跨包路径及不可证明的 mount 保持拒绝。编译时 `test=false`；该库存不执行或授权 wasm `#[test]`、ignored 用例，不改变原 native/expanded 测试组合和忽略用例 runner 登记要求。新增平台组合须独立审查并先进入可信 main；候选自行修改 planner/config 不成为该候选的授权来源。
 
 第七项作为新引入的封闭条件合同预登记，不能称为既有主线编译证据：仅当 Worker manifest 声明空、默认关闭的 `execution-signer-harness=[]` 时，可信 driver 才追加 Executor+execution-signer-harness 的成功编译，并分别验证 Identity、Owner、RecoveryFence+该 feature 的失败编译及精确 guard 消息。feature 缺失时不执行这四项，也不声称已编译。每个 tuple 都以实际 manifest 的本地 feature 传递闭包，同时核对父路径和局部 cfg；不注入 default，不跨 tuple 合并。非空声明、default 闭包开启，或六个原组合通过角色或 harness 别名隐式开启该 feature 均直接拒绝；无法建模的 optional/weak/implicit 依赖传播不能推定为已编译。失败编译仅证明精确字面 `compile_error!` guard，不能证明其后的任意生产函数、模块或测试可执行；真实成功组合仍逐实际 parent/cfg 核对。此前所有新增 ignored 用例的 runner 缺口保持独立阻断。
+
+### Preview provider 测试附属产物
+
+Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用共享产物合同。本能力不登记新的 ignored 测试，也不改变可信 BASE 的选择权限。ordinary expanded／full producer 使用官方 `scripts/build-wasm-module.sh --candidate-build`，按同 checkout 构建 `module.runtime.local-test-provider`；原 WASM、官方 metadata 与 native bundle 的 tested/source SHA、两个文件及官方 build receipt、同 candidate 只读 checker 的 hash 一并绑定。checker 复用既有 `sync_builtin_wasm_identity --verify-provider-artifact` 入口，使用官方 SourceRule2 完整闭包、builder recipe／execution 和 receipt 验证 API；不修改 producer recipe，不同步身份或生成发布材料。允许现 API 的 locked Cargo metadata 解析，不启动编译或模块执行。pack／load 验证完整材料、当前 source-input v2 和身份后，才向实际测试进程显式注入 `OASIS7_PREVIEW_TEST_PROVIDER_WASM` 与 `OASIS7_PREVIEW_TEST_PROVIDER_METADATA`。缺失、损坏、跨 source 或路径越界均失败，不回退 placeholder、其他 checkout 或本机缓存材料。`ci-tests.sh full-extended` 使用同一官方准备及验证入口；不新增 secret 或外部写权限。纯 Python 合同不代签真实 WASM 构建或 consumer 执行；后续实际 full-tier consumer 必须在材料缺失时失败而非 skip。

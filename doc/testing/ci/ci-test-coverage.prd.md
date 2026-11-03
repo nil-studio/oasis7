@@ -52,6 +52,25 @@
   - 不做 CI 缓存优化与并行矩阵调优。
   - 不引入 UI 真实渲染端到端依赖。
 
+<a id="local-check-entry-requirement"></a>
+### 显式本地检查入口
+
+Trace ID: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3
+
+产品适用性：N/A；reason=统一开发者本地验证入口与结果含义，不改变玩家功能；scope=本地检查选择、只读执行与结果报告。
+
+开发者需要从同一入口知道本次检查了什么、为什么选择这些检查、哪些内容尚未验证。普通提交的兼容 hook 保持 no-op；显式检查不是提交准入，单次本地通过也不代替 PR 实际 CI、full 或真实环境验收。
+
+- LOCAL-AC-1：当前入口说明与真实行为一致。文档检查、按包开发反馈、显式 `commit` 诊断、PR required 和 full/真实验收分别说明职责；自动格式化并暂存的修复入口不得成为默认检查。
+- LOCAL-AC-2：薄入口显式选择 quick、affected 或 formal；列出各自实际检查、未执行范围及成功条件。它复用现有可信范围规划器和 driver，不建立独立路径规则、case 清单或另一套选测权威。
+- LOCAL-AC-3：范围覆盖基线到 HEAD 的已提交差异，以及适用 profile 下暂存、未暂存和未跟踪文件；重命名、删除、清单/依赖变化和运行中输入变化可诊断。缺基线、未知路径、解析不确定或工具缺失不能变成完整通过。
+- LOCAL-AC-4：人读摘要与机器报告来自同一结果，包含 source/base/policy、工作树状态、选择原因、实际命令、pass/fail/skipped、退出/取消、执行数量、日志及未覆盖项。计划存在、命令零退出或测试零匹配分别报告，不合并为有效测试通过。
+- LOCAL-AC-5：检查默认不格式化、暂存、checkout、安装工具或改写用户文件；允许的构建/报告输出明确列出。实现用正反例验证只读性、失败传播与零执行边界，保留开发 wrapper 和 canonical 验收的不同证明范围。
+
+系统设计状态：已覆盖；[本地检查设计](ci-tiered-execution.design.md#local-check-entry-design)承接 LOCAL-AC-1–5，具体操作与验证见[测试手册](../../../testing-manual.md#local-check-entry)。
+
+实现状态：部分实现。2026-11-03 对 `d4cdabe4c9011ebc66b6376b1dce96f0d8b2cc39` 的静态核查确认现有 `pre-commit.sh` no-op、显式 tier driver、开发 wrapper 和仅基于 Git refs 的 planner；本条的三 profile 薄入口、dirty/untracked 输入适配、统一报告与负例回归尚未实现。本次文档交付不构成这些能力的执行验证；后续实现与实际结果沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 追踪。hosted 十分钟/P95 与周期完整回归仍由 [CI 分级要求](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)拥有。
+
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本任务为测试覆盖治理）。
 - Evaluation Strategy: 不适用。
