@@ -201,6 +201,40 @@ fn store_captured_attempt_with_response(
 }
 
 #[test]
+fn committed_originals_remain_verifiable_for_finalization_recovery() {
+    let root = capture_root();
+    let memory = MemoryBudget::new(128 * 1024 * 1024, 8 * 1024 * 1024).unwrap();
+    let (binding, owner) = interruption_tests::fixture_owner_with_memory(&root, memory);
+    let base = interruption_tests::direct_capture_request("committed-finalization");
+    let (request, response, refs) = store_captured_attempt(&owner, &base, "-recovery");
+    owner.mark_committed(&refs, "fixture-runtime-receipt", 7).unwrap();
+    owner.verify_commit_materials(&refs, &request, &response)
+        .expect("a failed later finalization may revalidate committed originals");
+    drop(owner);
+    let reopened = ProviderOriginalMaterialOwnerV1::open(
+        &root, &binding,
+        MemoryBudget::new(128 * 1024 * 1024, 8 * 1024 * 1024).unwrap(),
+        PageCompression::Raw, MemoryClass::Ordinary,
+        Arc::new(FixtureProviderAuthority { world_id: binding.world_id.clone(), owner_id: binding.owner_id }),
+    ).unwrap();
+    reopened.verify_commit_materials(&refs, &request, &response)
+        .expect("reopen preserves authenticated committed recovery");
+    reopened.mark_committed(&refs, "fixture-runtime-receipt", 7).unwrap();
+    assert!(reopened.mark_committed(&refs, "different-receipt", 7).is_err());
+    assert!(reopened.mark_committed(&refs, "fixture-runtime-receipt", 8).is_err());
+    let mut forged = refs.clone();
+    forged.response_object_id = [0xee; 32];
+    assert!(reopened.verify_commit_materials(&forged, &request, &response).is_err());
+    assert!(reopened.mark_committed(&forged, "fixture-runtime-receipt", 7).is_err());
+    assert!(reopened.persist_request(&request, refs.request_object_id,
+        &mut std::io::Cursor::new(serde_json::to_vec(&request).unwrap()),
+        serde_json::to_vec(&request).unwrap().len() as u64).is_err(),
+        "recovery must not redispatch the durable identity");
+    drop(reopened);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn verify_commit_materials_admits_decoded_json_heap_before_deserializing() {
     const OWNER_MEMORY_BYTES: usize = 128 * 1024 * 1024;
     const RECOVERY_RESERVE_BYTES: usize = 8 * 1024 * 1024;
