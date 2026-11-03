@@ -22,6 +22,7 @@ pub(crate) struct TrackingLabels {
 pub(crate) struct Tracking<'a, W> {
     pub(crate) pages: ReservedValue<RefCell<BTreeSet<[u8; 32]>>>,
     max: usize,
+    class: MemoryClass,
     sink: Option<&'a mut W>,
     pub(crate) error: Option<ValueTreeError>,
     labels: TrackingLabels,
@@ -42,6 +43,7 @@ impl<'a, W: ValueNodeWriter> Tracking<'a, W> {
         Ok(Self {
             pages: retained.retain(RefCell::new(BTreeSet::new())),
             max,
+            class,
             sink,
             error: None,
             labels,
@@ -64,7 +66,7 @@ impl<'a, W: ValueNodeWriter> Tracking<'a, W> {
             return Err(ValueTreeError::ResourceLimited(self.labels.page_limit));
         }
         if let Some(sink) = self.sink.as_mut() {
-            let charge = memory.reserve(bytes.len(), MemoryClass::Ordinary)?;
+            let charge = memory.reserve(bytes.len(), self.class)?;
             sink.put_node(id, charge.retain(bytes.to_vec()))?;
         }
         self.pages.borrow_mut().insert(id);
@@ -138,5 +140,50 @@ pub(crate) struct NoSink;
 impl ValueNodeWriter for NoSink {
     fn put_node(&mut self, _: [u8; 32], _: ReservedValue<Vec<u8>>) -> Result<(), ValueTreeError> {
         unreachable!("mark does not write")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Sink;
+    impl ValueNodeWriter for Sink {
+        fn put_node(
+            &mut self,
+            _: [u8; 32],
+            bytes: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            assert_eq!(bytes.as_slice(), b"page");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn transfer_copy_uses_the_selected_recovery_class() {
+        let memory = MemoryBudget::new(1 << 20, 1 << 20).unwrap();
+        {
+            let mut sink = Sink;
+            let mut tracking = Tracking::new(
+                &memory,
+                MemoryClass::Recovery,
+                1,
+                Some(&mut sink),
+                TrackingLabels {
+                    allowance: "test allowance",
+                    hash: "test hash",
+                    page_limit: "test page limit",
+                    state_bound: "test state bound",
+                    state_digest: "test state digest",
+                    state_tracking: "test tracking",
+                    value_admission: "test value admission",
+                },
+            )
+            .unwrap();
+            let id = *blake3::hash(b"page").as_bytes();
+            tracking.note(id, b"page", &memory).unwrap();
+            assert!(tracking.pages.borrow().contains(&id));
+        }
+        assert_eq!(memory.used(), 0);
     }
 }

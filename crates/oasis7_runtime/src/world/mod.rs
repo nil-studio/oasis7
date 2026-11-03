@@ -73,6 +73,7 @@ mod formal_retention_candidate_restore;
 mod formal_retention_tick;
 mod formal_retention_tick_reads;
 mod runtime_support;
+mod rolling_sequence;
 pub use formal_retention::FormalWorldRetentionPlanV1;
 #[cfg(test)]
 use oasis7_wasm_router::PreparedSubscription;
@@ -182,13 +183,13 @@ mod rules;
 mod scheduling;
 mod snapshot;
 mod step;
+pub(crate) mod task_terminal_v2;
 mod tick_consensus;
 mod tick_consensus_state_root;
 #[cfg(test)]
 mod tick_consensus_test_support;
 mod transition;
 mod world_service;
-pub(crate) mod task_terminal_v2;
 pub use cognition_economy::{
     COGNITION_ECONOMY_SCHEMA_VERSION, COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
     COGNITION_LEASE_SCHEMA_VERSION, COGNITION_PROVISIONING_EVENT_SCHEMA_VERSION,
@@ -1006,23 +1007,6 @@ impl World {
         Self::preview_rolling_sequence_id(next_id, era)
     }
 
-    fn allocate_rolling_sequence_id(next_id: &mut u64, era: &mut u64) -> u64 {
-        let (allocated, next_id_after, era_after) =
-            Self::preview_rolling_sequence_id(*next_id, *era);
-        *next_id = next_id_after;
-        *era = era_after;
-        allocated
-    }
-
-    fn preview_rolling_sequence_id(next_id: u64, era: u64) -> (u64, u64, u64) {
-        let allocated = next_id.max(1);
-        if allocated == u64::MAX {
-            (allocated, 1, era.saturating_add(1))
-        } else {
-            (allocated, allocated + 1, era)
-        }
-    }
-
     pub(super) fn enforce_pending_action_limit(&mut self) {
         let max_len = self.runtime_memory_limits.max_pending_actions.max(1);
         while self.pending_actions.len() > max_len {
@@ -1196,5 +1180,7 @@ pub(super) mod incremental_clock;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_effect_records;
-
+mod incremental_artifact_config;
 pub mod incremental_artifact_content;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_artifact_resources;
