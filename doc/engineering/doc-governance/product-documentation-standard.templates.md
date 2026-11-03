@@ -1,6 +1,7 @@
-# 产品文档模板与迁移卡
+# 产品与内容设计模板、交付索引及迁移卡
 
 - 配套规范：[`product-documentation-standard.design.md`](product-documentation-standard.design.md)
+- 内容设计与交付组织：[组织规范](doc-structure-standard.design.md#non-code-design-deliverables)；专业承接与验证：[适用边界](system-design-writing-standard.design.md#content-design-applicability)
 - 模板性质：可复用写作结构，不是新的任务、数据库 schema 或自动门禁
 - 使用边界：保留现有根身份、SC/验收 ID、专业 PRD-ID 和已验证事实；占位符必须替换为真实内容并标明性质
 
@@ -307,3 +308,80 @@ Prompt 主题必须保留：目标 Agent 与控制资格、对话/配置区分�
 ```
 
 在当前 PR/Task 声明阶段完成时，记录所审版本、体验/入口/阶段范围、全部适用领域的来源、实际结果、未覆盖项与结论。已有等价验收记录直接引用；阶段未通过如实说明，不新建通用证书。音频等条件项可以明确某入口无声音，但不能用“还没做”判不适用；Viewer 静态稿可支持设计评审，实际可用性仍需对应运行验证。
+
+<a id="content-presentation-design-template"></a>
+## 8. 专业内容与表现设计模板
+
+按[组织规则](doc-structure-standard.design.md#non-code-design-deliverables)放在原专业域，先复用已有设计条款；产品体验 design 仍使用 §3。下列模板直接覆盖五个核心内容组，保留现有 `2.1`、`11.1` 追踪标题及列结构，中间章节按内容职责组织，不要求补齐空的 5～10 章。真实技术义务按[适用边界](system-design-writing-standard.design.md#content-design-applicability)由本设计或其他专业设计承接。
+
+```markdown
+# 〈主题〉内容与表现设计
+
+- 主责：〈真实专业角色与所属模块入口〉
+- 生命周期、适用入口/阶段、审读基线：〈真实范围；active 不表示资产或运行已验收〉
+- 上游：〈产品/专业 PRD 的准确条款；沿用其 Trace refs〉
+
+## 1. 问题、目标与范围
+〈玩家应理解/感受到什么；本设计拥有的内容/表现义务、非目标和未决范围。〉
+〈区分已核实基线、目标、设计假设、参考图与正式内容。〉
+
+## 2. 上游要求与约束
+〈产品承诺、世界规则、相邻专业设计及实际消费者；不重复定义数值或权限。〉
+
+### 2.1 需求承接与分配表
+| 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
+| --- | --- | --- | --- | --- |
+| 〈真实外部上游链接；适用的 Trace refs〉 | 〈内容/表现义务与入口、阶段〉 | 〈本文件准确条款链接〉 | 〈规则、制作或技术依赖及主责〉 | 〈实际剩余范围〉 |
+
+## 3. 内容与表现设计条款
+〈按稳定条款组织内容种类、空间/叙事结构、表达规则、状态反馈或视听风格。〉
+〈写明与真实世界事实的关系、参考与取舍；适用语言、无障碍和不同入口的差异。〉
+
+## 4. 制作规格与交付物
+〈内容规模/变体、品质、格式/尺度/时长等规格，制作方式、输入和依赖；引用原技术合同。〉
+〈原内容/资产目录、源文件和导出物的版本定位；占位与缺失项、来源/许可核实边界。〉
+〈适用的产能/成本假设及估算依据；未评估项与主责，执行排期继续引用原 PR/Task。〉
+
+## 11. 验证与验收
+〈分别说明设计审读、实际素材检查和目标入口验证，保留未执行与未通过范围。〉
+
+### 11.1 验证映射表
+| 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
+| --- | --- | --- | --- | --- | --- |
+| 〈同一真实上游及适用 Trace refs〉 | 〈本文件准确条款链接〉 | 〈可独立判断的内容/体验结果〉 | 〈真实测试或专业手册的链接、步骤/判据、场景和候选/环境〉 | 〈实际 PR、原证据或交付物位置；未执行则写计划去向〉 | 〈尚未覆盖的入口、品质、批量生产或运行义务〉 |
+
+## 12. 决策、风险与未决问题
+〈方案选择与理由、失效条件；尚未确定事项的影响、主责和解决触发条件。〉
+```
+
+使用前必须将占位符替换为真实内容和链接。验收手册可复用既有入口，但必须实际包含本范围的方法与判据；只有泛首页、自引设计或空手册不构成验证。上游或方法尚未形成时如实保留缺口，不为套模板伪造要求、方法或已覆盖结论。模板中的表格属于设计计划；实际结果继续在原 PR/Task 与专业证据中维护。
+
+<a id="non-code-deliverable-template"></a>
+## 9. 内容与资产交付索引模板
+
+按[交付索引规则](doc-structure-standard.design.md#non-code-deliverable-index)补原目录、配置说明或 manifest。可以使用已有结构化字段或下面的简卡；同规格资产组可共享信息，避免每个文件重复一套资料。
+
+```markdown
+### 〈既有内容/资产 ID 或名称〉
+- 用途与主责：〈场景、实际消费者、维护者、准确设计条款〉
+- 源文件：〈原路径或受控存储的固定版本定位；不可取得/不适用时的理由与编辑限制〉
+- 交付版本与导出物：〈实际使用版本、文件位置或可复现输入、入口/语言范围〉
+- 规格与依赖：〈原规格、工具/配置版本、字体/关联素材等实际依赖〉
+- 可用边界：〈示意/占位/部分可用/本范围交付的事实与依据，缺失及限制〉
+- 来源与权利：〈作者、取得来源、许可/授权/署名与复用限制；未核实项〉
+- 验证：〈准确方法及已有结果/候选/环境；未执行时保留计划和缺口〉
+```
+
+原格式、提交策略与存储职责保持有效。稳定交付需要可取得的版本；临时本地输出、失效外链或只有生成工具都不能证明实际素材已交付。此索引不复制功能双状态、排期或完成率，也不为资产新增 Trace ID；新增规范性要求仍在其主责条款声明一次。
+
+<a id="non-code-organization-examples"></a>
+## 10. 现有入口的组织示例
+
+以下示例说明如何复用真实入口并区分证明范围，不要求迁移示例文件，也不认定全领域素材或运行验收已完成。实际版本和已知限制以所引用来源为准。
+
+| 示例 | 复用的设计与交付入口 | 依规范应区分的内容 |
+| --- | --- | --- |
+| Viewer 静态设计稿 | [UI/UX 交付说明](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)、[覆盖目录](../../world-simulator/viewer/assets/ui-ux/full-function/coverage-catalog.json)、[W01 世界目标稿](../../world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg)、[W09 窄屏稿](../../world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W09-narrow-world.svg) | 原设计拥有交互语义；SVG 是设计目标；派生目录保留来源修订和区域映射，按各项 runtime/test_status 读取未运行边界。静态稿和映射不能证明真实焦点、输入、排版或世界结果，实际验证沿原 QA 方法取证。 |
+| 体素资产制作 | [制作工具设计](../../../tools/voxel_asset_pipeline/DESIGN.md#asset-contract)及其输入、导出与输出说明 | 工具拥有六视图、尺度、格式和生成/评估方法；具体资产入口另行定位选定源图、版本、成品及来源/许可。工具文档保留本地预览与评估产物不提交的规则；工具存在或生成成功不能证明正式资产齐备、运行接入或游戏内品质已验收。 |
+
+两例都可沿“真实上游 → 设计条款 → 原内容/素材入口 → 适用方法与证据”追踪。源文件和权利资料未核清时保持未知；小说的版本与文本交付另由 [story 入口](../../../site/story/README.md)说明，可玩事件、任务或对话仍需对应游戏规则与内容明确承接。

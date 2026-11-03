@@ -2,7 +2,7 @@
 
 本手册只说明维护操作；组织规则、权威边界与裁定原则以 [`doc-structure-standard.design.md`](doc-structure-standard.design.md) 为准。
 
-系统设计正文按 [`system-design-writing-standard.design.md`](system-design-writing-standard.design.md) 的十二段骨架、需求承接和验证映射维护；项目管理记录按 [`project-management-record-standard.design.md`](project-management-record-standard.design.md) 维护。生命周期、权限、任务状态和门禁仍只从 [`workflow source of truth`](../workflow/source-of-truth.md) 读取。
+技术设计正文按 [`system-design-writing-standard.design.md`](system-design-writing-standard.design.md) 的适用十二段、需求承接和验证映射维护；内容与表现设计复用其[共同内容与追踪合同](system-design-writing-standard.design.md#content-design-applicability)。项目管理记录按 [`project-management-record-standard.design.md`](project-management-record-standard.design.md) 维护。生命周期、权限、任务状态和门禁仍只从 [`workflow source of truth`](../workflow/source-of-truth.md) 读取。
 
 ## 1. Intake 与分类
 
@@ -48,6 +48,15 @@ GitHub PR baseline CI 检查实际测试的合并快照时，先校验 checkout 
 3. 分开核对设计、实际内容/资产和验证。功能双状态沿用原规范；占位素材、历史证据和未验证范围如实标识，不能通过导航或目录计数升级结论。
 4. 仅同步变化的导航行，核对来源、归属和已审边界；一次初始盘点保留基线与读取范围，后续来源变动时更新受影响行的核对范围，不续写评审流水。排期与缺口实施继续使用原 PR/Task。
 5. 按[阶段证据](product-documentation-standard.design.md#game-design-stage-evidence)核对完成声明，并在当前 PR/Task 保留所审范围、结果与未知。现有 CI 只检查已实现的结构和引用；领域枚举、适用性及语义充分性由作者与适用评审判断。
+
+<a id="non-code-design-maintenance"></a>
+#### 1.2.1 内容设计与交付物的作者步骤
+
+1. 按[非代码组织规则](doc-structure-standard.design.md#non-code-design-deliverables)区分产品体验、专业技术、内容/表现设计、实际素材与制作/验证方法。确认原主责和消费者，优先补已有章节，独立长期专题才另建文档并接入原模块导航。
+2. 内容设计使用[专业内容模板](product-documentation-standard.templates.md#content-presentation-design-template)，保留五核心内容组及真实上游、设计条款和验证关系。接口、状态、加载、权限、性能等实际技术义务准确交给对应技术设计；无技术义务不虚写技术章节，有技术义务不能用内容分类省略。
+3. 在原内容/制作入口按[交付索引模板](product-documentation-standard.templates.md#non-code-deliverable-template)补用途、源文件/导出与版本、规格、依赖、来源/权利及证据。遵守原存储和提交规则，核实引用版本可取得，保留占位、缺失和未核实范围。
+4. 对受影响范围核对设计、实际内容、制作能力/成本假设和目标入口证据；手工验收引用具体手册与判据。参考[两个现有入口示例](product-documentation-standard.templates.md#non-code-organization-examples)区分静态设计稿、生成工具、实际成品和运行结果。
+5. 更新直接受影响的消费者、导航和适用 corpus 对象，沿 §4 运行既有检查；当前 CI 不检查全部原生素材、许可真实性或审美品质，评审按真实影响补核。普通修改不要求全领域迁移、全仓素材入库或新增状态台账。
 
 <a id="11-过程信息归位"></a>
 ### 1.3 过程信息归位

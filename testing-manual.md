@@ -38,6 +38,33 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
+<a id="local-check-entry"></a>
+## 显式本地检查：当前入口与目标分层
+
+普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。其 help 中 “used by pre-commit” 是待实施修正的旧描述，应以脚本实际接线和本节为准。
+
+| 当前目的 | 当前可执行入口 | 结果证明范围 |
+| --- | --- | --- |
+| 文档改动反馈 | `./scripts/doc-governance-check.sh` | 实际检查的结构、引用和治理规则；不证明文档语义或功能实现 |
+| 最小 Rust 包反馈 | `./scripts/cargo-dev.sh check -p oasis7_proto`；测试示例 `./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>` | 指定包/过滤器和开发配置；测试过滤器须核对实际非零执行，不据此声明 required/full |
+| 显式本地诊断 | `./scripts/ci-tests.sh commit` | 当前 commit 清单；保留日志和未执行的 required/full 范围 |
+| 正式测试 | `./scripts/ci-tests.sh required` 或 `./scripts/ci-tests.sh full` | 当前手册定义的适用 tier、实际平台和执行结果；仍需按改动补 UI/真实环境验收 |
+
+`./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
+
+目标 `scripts/check-local.py` **尚未实现**。其 quick（现有 baseline 组）、affected（同 planner 的本地影响计划）和 formal（显式 required/full canonical）合同见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。当前 planner 仅支持 Git refs；它还不能把 dirty/untracked 文件纳入上述统一入口。需要今天检查未提交变更时，使用已存在的文档/按包/显式 tier 命令，并在 PR 记录真实输入、命令和局限；不要执行不存在的目标命令或将 HEAD 计划当成工作树覆盖。
+
+<a id="local-check-entry-validation"></a>
+### 本地入口核验（实施阶段）
+
+Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5](doc/testing/ci/ci-test-coverage.prd.md#local-check-entry-requirement)。本节是后续实现的验证方法，当前文档 PR 未执行这些目标入口场景。
+
+1. 在自有临时仓库准备可解析 base/HEAD，分别放入已提交、暂存、未暂存、未跟踪变更及删除/重命名；核对报告列出来源、old/new 路径、policy SHA、依赖影响与选择理由。同路径抵消改动和修改 Cargo 清单也不能漏选。将同样的干净提交输入原 planner，与 thin entry 的计划逐项比对，不能产生另一套选测结果。
+2. quick 核对只运行 baseline，明确显示未运行 Rust fmt/编译/业务测试；affected 让真实受影响组执行且核对 case/target/features；formal 记录显式 tier、干净 source 和 canonical 命令。使用一个有真实断言的小型消费者证明从计划到执行的接线，fake runner 仅验证调度/汇总，不能代签消费者覆盖。
+3. 注入不存在/歧义 base、未解决合并、未登记路径、不可读输入、缺工具、锁定依赖不可用、formal dirty、运行中改文件和禁止写用户文件的命令。检查 blocked/stale_input 的原因、非零退出及保留的局部结果；对照前后源码、未跟踪文件、index 与 Git ref 身份，确认没有格式化、暂存或自动回滚。
+4. 分别验证命令失败、测试零匹配、必要项 skipped、执行数 unknown、空计划、取消、超时和报告写失败；输出与退出码须遵守设计状态表。显式 dry-run 只有 planned/`validated=false`，全部 skipped 或零执行不能显示 passed。核对取消后仅清理自有进程。
+5. 对照 text/JSON 的相同 source/base/scope、命令与 pass/fail/skipped，保留报告和日志。指出未执行组/平台/真实环境；证据记录在实施 PR/实际 CI，不把本地结果变成 hosted required 或 full 的替代证明。
+
 ## 本地 Cargo 开发约定
 
 - 本地开发态 `cargo check/test/run/build` 优先使用 `./scripts/cargo-dev.sh <cargo-args...>`。wrapper 只调整开发 profile 与可用的 sccache，target 沿用 Cargo 原生解析，默认在当前 worktree 的 `target/`；不建立外部缓存 namespace 或符号链接，也不需要预先准备 target。直接 Cargo 与 wrapper 使用相同的 target 解析规则。
@@ -308,7 +335,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - Viewer headed / GPU 真环境性能在被选择时必须采集，但在稳定可复现的环境特定采样阈值、原始复现与有时限 waiver 生命周期建立前仍是 report/watch，不是 blocking required gate。
 
 结论：
-- `commit` 是默认本地提交基线，目标是尽快暴露格式/治理/viewer-support 回归，但不承担 `oasis7 --tests` required shard；
+- `commit` 是显式本地诊断，覆盖当前治理/support/viewer 清单，不由普通提交触发；它不包含 Rust fmt，也不承担 `oasis7 --tests` required shard；
 - ordinary PR 的 `required-gate` 是 impact-scoped premerge 最小 blocking set：先拦截改动影响面的缺陷，再在不降低充分度的前提下优化速度；基础 required 含 `oasis7 + consensus + distfs + viewer`，GitHub 可按 planner 追加 `node + net/libp2p` support shard；
 - `full` 不是 ordinary PR 默认，只用于 release、高风险、历史缺陷升级、信号触发或 schedule 回归；planner 的 `scope=full` 仅表示 required tier 内 fail-closed 覆盖扩张，不等于选择 full tier；
 - `required-gate` 已补充 changed-path scope planner；
@@ -343,6 +370,42 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 - 最小纵向闭环要经过本次真正要验证的接线、状态持久化或授权边界。mock 可以隔离不可控外部依赖，但不能替代正在验证的边界；只有 fixture/mock 的结果不宣称真实服务、网络或 Runtime 已通过。
 - 按受影响行为复用或补充能区分正确与错误实现的正/负例。例如 cognition committed、业务 receipt rejected 时，断言候选已提交与业务已拒绝、未成功分别成立；仅断言 HTTP 200 或 committed 应不足以判成功。对原 world/request/适用 fence 做不匹配变体，核对相关校验拒绝及合同规定的无副作用结果。
 - 行为稳定时，不让测试绑定无关内部拆分；重构后应继续由同一公共行为断言保护。已有用例能检出缺陷就复用，不为方法补一套同义测试。
+
+<a id="shared-interface-conformance"></a>
+### 接口共用契约验证：ModelProvider 首个试点
+
+Trace refs: O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c
+
+本节落实[接口前置交付](doc/engineering/workflow/source-of-truth.md#interface-prerequisite-delivery)的验证方法。试点选用现有 `oasis7_agent_api::ModelProvider` 的 `CallerSnapshot` 模式；接口、DTO 和依赖权威仍为 [GameClient / Harness 设计](doc/world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)。`ProviderConversation` 的会话历史、工具结果顺序和恢复由其原设计及专门测试负责，不因这一试点取得覆盖。
+
+**当前能力与待实施增量。** `crates/oasis7_agent_api/src/model_provider.rs` 已唯一声明 trait、请求/响应、错误及 `complete_checked`；Harness 的 `native_task_tests.rs` 已有本地 `FakeProvider`；`crates/oasis7_model_provider/tests/transport.rs` 已通过本地 HTTP/SSE 夹具驱动真实 `OpenAiChatCompletionClient`，验证工具名、参数、使用量和请求线格式。它们目前没有共用同一套可复用行为断言，也没有 API crate 的 `test-support` feature；下述共享支撑和接入属于待实施方案，不是现成命令或已通过结果。
+
+**支撑代码与单一写入者。** 前置实现复用现有 trait，不另造 port 或镜像 DTO。在 `oasis7_agent_api` 内增加显式启用的 `test-support` 模块，提供脚本化 fake、场景数据和公共断言；仅测试的 dev-dependency 启用，检查正常/build 依赖闭包不因此引入 Harness、真实 provider 或 Runtime。API 共享写入者统一修改其 `Cargo.toml`、模块导出和支撑代码；适配器执行者只负责 `oasis7_model_provider/tests/` 的真实构造器与 HTTP 探针；消费执行者负责 Harness 的测试接入。任务负责人把这些范围分配给唯一现任执行者并承担组合验收，可以兼任，沿用现有 Issue/PR 的交接记录。
+
+fake 的控制面限于本例所需的每次响应/错误队列及收到的完整请求快照；每例重新构造，脚本耗尽显式失败，不自动返回成功或吞掉错误。共用断言接受实现构造器与观察探针，以相同请求和独立预期值经 `ModelProvider::complete_checked` 调用；fake 探针记录 `complete` 输入，真实适配器探针读取本地服务收到的请求。两种构造器的编码不同可以接受，但公共响应及错误判据不能复制成两份。最小消费者复用 Harness 已有的 `NativeTaskRunner` 用例，依赖同一 API 类型和 fake；生产代码的世界授权与提交路径不由测试支撑接管。
+
+| 共用场景 | 输入/观察点 | 两种实现共用的判据 |
+| --- | --- | --- |
+| 合法单次工具返回 | 固定合法 digest、`quote_factory` schema；脚本返回参数 `{"factory":"f1"}` 与 total tokens `5` | 返回相同 request digest、精确工具名/参数及 usage；观察输入保持所选 prompt/tool 内容。`provider_id`、时延等实现特有信息不要求相等 |
+| 请求在调用前拒绝 | 非规范 digest；另选空 model 与空 tool name；记录 fake 调用和本地 HTTP 请求数 | 分别返回 `invalid_request_digest`、`invalid_model`、`invalid_tool_schema`，`retryable=false`，且实际 provider 调用数为零。只证明模型调用未发生，不外推世界副作用 |
+| 供应商暂不可用 | fake 返回 `provider_unavailable`；真实适配器收到本地 HTTP 503，使用已有 native 单次预算配置 | 保持 `provider_unavailable` 与 `retryable=true`；不把错误变成成功或假定该标志已授权额外物理调用。真实请求次数仍由适配器预算用例验证 |
+| 错配/空响应防线 | 测试专用包装器在 `complete` 后、`complete_checked` 校验前替换 digest 或清空 turns，分别包裹两种实现 | 分别拒绝为 `response_identity_mismatch` 或 `empty_model_response`，且 `retryable=false`。这是公共校验防线测试；真实适配器当前从请求复制 digest，HTTP 夹具不能独立制造该错配 |
+
+`complete_checked` 当前只做请求校验、`complete` 和响应校验，不会自动调用 `preflight`、`check_execution`，也不会校验所有预算或工具权限。非法 caller schema、未声明工具返回、native 零预算、物理重试和重定向继续由真实适配器既有测试负责；不得把这些实现专属规则误写成全部 `ModelProvider` 的默认行为。`ModelProviderError.code` 仍是现有可扩展字符串合同，本试点只断言所选稳定代码与 `retryable`，不新增全局错误枚举迁移。
+
+**防止测试自证。** 前置 PR 中先在 fake 上运行合法场景并通过，再用测试专用包装器把返回参数 `factory` 改成另一个合法字符串，重新运行同一合法场景断言，要求失败；后继 PR 接入真实适配器后，也在真实适配器上运行合法场景及同一破坏性反例，并在实际组合上验收；不要为被破坏实现另写一个期待失败的替代业务断言。实现时可用捕获断言失败的定向测试保留此证据，或在临时变体运行后撤销破坏，不能提交永久失败的普通测试。此反例应证明原公共断言能区分行为偏差，不能只证明测试进程启动过。
+
+**小 PR 与组合验收。** 第一个前置 PR 交付共享支撑、fake 通过及上述反例、一个实际 Harness 消费用例；API 已存在，生产行为无需等待未来实现才成立。其固定提交可供真实适配器接入 PR 消费，合入后核对实际 merge 版本；共用代码继续由同一写入者维护。后继 PR 把同一场景接到本地 HTTP 的真实适配器，并由整体负责人在实际组合上执行两种实现与最小消费者回归。若共享支撑与首次接入无法独立正确，可合成一个小而完整 PR，不机械拆分。文档交付后仍保留实现、真实接入及最终组合验收清单。
+
+以下是已有测试入口，用于实施前盘点及实施后的受影响回归；新增共用场景落在哪个测试目标，由实现 PR 写明实际命令与受测版本：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api model_provider::tests
+env -u RUSTC_WRAPPER cargo test -p oasis7_model_provider --test transport --test physical_budget
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_harness native_task::tests
+```
+
+本地 HTTP 通过只证明生产适配器在受控传输中的映射行为；不需要外部模型密钥，也不证明供应商可用性、真实认证、费用、持久化、Stop/撤权或 Runtime 提交正确。重复调用在此接口上不承诺去重；请求身份不等于 exactly-once。需要上述能力的任务沿原设计补充真实边界验收，不因 fake、共用断言或文档合入而关闭。
 
 <a id="request-recovery-regression"></a>
 ### 原请求与恢复路径的定向回归
@@ -889,6 +952,7 @@ env -u RUSTC_WRAPPER cargo check -p pixel_world_bridge --target wasm32-unknown-u
 - JS-required（结构/反馈/Vitest/freshness/build）：触达 `crates/oasis7_viewer/**` 的 source、生成物边界或 bundle 时，执行 `npm --prefix crates/oasis7_viewer run test:frontend-structure`、`npm --prefix crates/oasis7_viewer run test:feedback-contract`、`npm --prefix crates/oasis7_viewer run test:ui`、`./scripts/agent-browser-viewer-dist-freshness-test.sh` 与 `./scripts/build-viewer-software-safe.sh`。
 - JS-browser（真实浏览器）：WASM bundle ready 后，以真实 browser 验证关键交互、console、desktop 与 narrow viewport；任何 player-visible 改动必须通过此层，不能只以 JS-required 替代。
 - JS-full（release/risk-triggered）：跨模式、恢复路径、长运行与性能验证；发布或风险触发时执行，包含适用的 raster/browser/performance 证据。
+- 受控浏览器功能回归使用显式 `fixture-functional` profile，目标是用真实组件/状态处理复现响应时序；当前仍待实现，详见[目标合同](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)与下方[实施核验](#browser-functional-regression-validation)。其合成依赖结论与真实栈/正式 S6 分开记录。
 - S6 详细执行步骤、agent-browser 命令、发布门禁与补充约定已拆分到：
   - `doc/testing/manual/web-ui-agent-browser-closure-manual.manual.md`
   - `doc/testing/manual/web-ui-playwright-closure-manual.manual.md`（Playwright 实跑系列入口，管理真实本地栈 + 真实 UI 操作流程矩阵）
@@ -1010,6 +1074,18 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
     若本地需要 builtin LLM 直连验证，`scripts/with-letai-llm-config.sh` 只适用于已经包含 chat-completions/Responses-compatible `token_key` / `api_key` 的配置；不要把只有 `Doc` 和平台管理 `Key` 的文件直接当 inference token 使用。platform-only 配置应先通过 `scripts/ensure-letai-local-token-config.sh` 或 `scripts/run-local-letai-game-test.sh` 规范化成临时 project token config；不得把 raw key、生成的 `letai-local-token.env`、或其它 token config 写入日志、仓库文件或 public evidence。
     LetAI provider bridge 参考装配走 `/chat/completions`，与 builtin LLM 的 Responses preflight 不是同一协议；`scripts/run-local-letai-provider-bridge.sh` 是 `run-local-letai-game-test.sh` 使用的底层 bridge 入口，也可用于专项排障，随后用 `provider-bridge-contract-smoke.sh` 验证真实 provider decision。普通本地试玩不要从这个底层入口开始；应回到 `run-local-letai-game-test.sh`，让 wrapper 统一处理 token config、auto-topup 和 launcher 参数。`scripts/check-letai-chat-completions.sh` 和 `--chat-probe-backend legacy-cli` 只保留给兼容排障或对比 Python legacy adapter，不作为普通本地试玩默认 gate。
     本地真实 Rust provider bridge 默认在上游返回 `insufficient_user_quota` 且同时存在 `OASIS7_REMOTE_LLM_PLATFORM_KEY` / `OASIS7_REMOTE_LLM_PLATFORM_USER_ID` 时按 `$0.1`（`quota=50000`）自动充值；这是 paid real-provider 行为。充值触发按 chat request 发生，随后使用有限次数延迟重试来等待 LetAI 余额更新可见，而不是全局每次运行只充值一次；没有这些管理面字段时不会自动充值，仍应把 quota error 作为失败证据。
+
+<a id="browser-functional-regression-validation"></a>
+#### 受控浏览器功能回归核验（实施阶段）
+
+Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](doc/testing/prd.md#browser-functional-regression)。现有 `npm --prefix crates/oasis7_viewer run test:ui` 是 Vitest/jsdom；`./scripts/viewer-software-safe-step-regression-smoke.sh` 是 tooling fixture 预检；`node crates/oasis7_viewer/scripts/player-visual-feedback-browser-smoke.mjs` 已使用真实 shell 和固定 bridge/feed 采证。三者各保留原证明范围，均不能单凭入口存在宣称[全部 BFR-P01–P07](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-pilot)已覆盖。新的统一 runner/场景选择入口尚未实现，不提供伪可执行命令。
+
+1. 在实施候选记录准确 source/tree、依赖锁定和测试构建身份，先运行适用 JS-required；确认服务的 bundle 来自当前真实 `viewer_app.jsx` 与 PromptControl/feedback 模块。核对 test entry、synthetic auth/bridge/feed/transport 的替换清单，release 加 query 不能开启控制器。只为本 profile 启动本地静态资源和受控依赖，不启动完整 worktree launcher/active LLM 栈。
+2. 为每 case 新建独立命名 context、loopback 端口、storage 和产物目录，先用一个非 allowlist HTTP/WebSocket/worker 请求确认网络在发送前被阻断；核对没有继承用户 session 或真实 provider 配置。共享构建先串行冻结，case 并行前检查实际隔离；失败/取消也只回收自己拥有的资源。
+3. 按 BFR-P01–P07 的输入/预期执行真实可见控件，先等出站请求和 pending 条件，再按 barrier 释放消息/时钟。至少保存 desktop 与 narrow 的声明视口结果；P04 在 B 的 signingEntered 后交付 A，再 releaseSigning 并确认 B 实际发送，另案覆盖 sent 期；记录 deferred signer 只延迟真实签名结果的替换边界与 P06 连接代次。控制器不得直接写期望 core state，`__AW_TEST__` 仅用于读回；用固定次序重放失败，不能自动重试取绿。
+4. 给每个已选 case 核对请求次数、关联字段、当前草稿/授权版本、反馈状态及安全下一步，保存实际截图、trace、console/network、准确未满足断言与清理结果。拒绝场景不提前显示 applied；只清理属于原等待的 pending，不能清新请求 timer。若出现生产缺陷，保留红色结果并路由原领域 Issue，不修改 fixture 使其通过。
+5. 分别验证缺浏览器/产物、空选择、未识别请求、超时/取消、日志写失败和跨 case 状态污染；必要 case 不能 skipped 后汇总为 pass。后续 CI 接线用受影响 Viewer/state/transport/测试装配输入的正例与无关文档改动反例核对同一 planner，选择与执行不一致直接失败。首片只运行 P01–P03 时如实报告剩余矩阵。
+6. 将产物与结果留在实施 PR/CI。fixture pass 只证明所测真实前端在合成输入下的行为；真实认证、绑定恢复、Runtime 应用、provider/world delta 仍按原 S6/PWT 及领域验收补证，不能换算成 release、跨浏览器或 L4B/L5 通过。本次文档 PR 未执行上述浏览器核验。
 
 ### S7：场景矩阵回归套件（L1 + L4）
 ```bash

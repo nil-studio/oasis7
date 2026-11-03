@@ -60,6 +60,8 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；新增或实质修改�
 
 本节按[领域覆盖与阶段证据规范](../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)检查全游戏范围，继续使用上表四个产品模块。模块列用于分流，具体主责按原条款；本表不重新定义玩法、技术合同或完成状态。
 
+内容与表现设计、实际素材和制作资料的职责及落位见[非代码设计与交付物组织规则](../engineering/doc-governance/doc-structure-standard.design.md#non-code-design-deliverables)；详细目录复用原专业/制作入口，本表仅导航。
+
 初始核查基线为 `3131366cd1b2fe82cdca849ba6e6c34d4837af80`（2026-11-03）。阅读范围是四模块入口、下列关键章节与相邻专业导航，结合 Viewer 静态资产、体素制作说明和测试/发行入口；未逐篇审读全仓，未执行游戏，也未逐项核验当前实现、素材许可和历史运行证据。下列“未核实/未找到”仅表示该范围的观察；原条款的适用入口和已有完成边界继续有效。
 
 | 领域 | 所属产品模块 | 现有权威条款或素材入口 | 已核对覆盖边界 |

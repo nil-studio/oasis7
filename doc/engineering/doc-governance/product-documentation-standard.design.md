@@ -255,6 +255,8 @@ Trace ID: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748
 
 本节是非代码设计内容的工程治理要求，产品功能层不适用；它要求完整游戏的设计义务有明确归属，不新增游戏功能或改变四模块职责。设计资料包括文字、规则与数值数据、地图、原型、可编辑素材及导出物、验证方法和发行运营材料。一个已有条款或资产可以覆盖多个领域，一个领域也可以由多处权威共同承接。
 
+这些资料的职责、目录与原存储入口、实际交付索引和制作范围按[非代码设计与交付物组织规则](doc-structure-standard.design.md#non-code-design-deliverables)维护。专业内容与表现设计复用共同需求承接和验证映射，技术章节按实际义务适用；详见[专业适用边界](system-design-writing-standard.design.md#content-design-applicability)。
+
 全游戏的领域导航保留在[唯一产品入口](../../product/README.md#game-design-coverage-map)，只列主责、来源与已核对边界。具体决定在原产品/专业条款维护，实际资产清单在原内容或制作入口维护，执行安排在现有 PR/Task 维护。目录编号 GD-01～GD-22 仅用于核对覆盖，不是功能、要求或任务身份；新增规范性要求仍按 §7 使用同一 Trace ID 追踪。
 
 <a id="game-design-domain-catalog"></a>

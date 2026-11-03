@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "ddde9346d548fa21cd522acffff182d268e5a0e82bdf47267b96bd8311f079a3",
+    "content_sha256": "f237fb71acefb7affc2805f4bb755f33f9660b786974d15884691e2df80260a4",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程的唯一主责、既有授权、五类 Issue、独立评审、完整交付、任务拆分与小而完整 PR 边界。定点复核游戏设计领域覆盖的新增入口：只在游戏设计、玩法/内容/交互变化或游戏体验/设计阶段声明时核对适用领域及直接消费者；未触达历史不阻断无关工作，不新增全游戏证明或自动 CI 语义判定。原有角色、路由和并行开发规则未改变。本次为有界静态语义复核，不证明全部业务设计、素材就绪、队列启用、并行效率、部署、CI 目标或运行验收。",
+    "note": "保留开发流程的唯一主责、五类 Issue、现有授权、独立评审、任务拆分、小而完整 PR 与完整交付边界。已定点复核主线接口前置交付与本 PR 游戏设计入口的组合：前者复用原领域 trait/DTO、可消费支撑和真实组合验收；后者仅在游戏设计、玩法/内容/交互变化或游戏体验/设计阶段声明时核对适用领域与直接消费者。非代码内容按原专业入口和组织规则承接，未触达历史不阻断无关工作，不增加全领域报告、素材全入库、身份、审批或 CI 语义门禁。接口试点仍保留其待实施边界，静态设计和规范采纳不代签运行、素材或发行完成。原分类、路由和主责不变。本次是对新增条款及其直接消费者的有界静态复核，不证明全仓语义、真实队列、并行效率、部署、CI 目标或业务验收。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
