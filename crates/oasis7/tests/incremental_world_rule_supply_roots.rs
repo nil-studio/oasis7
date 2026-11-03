@@ -422,8 +422,6 @@ fn fresh_supply_records_same_transaction_and_root_only_cold_successors() {
         );
         let canonical = prepared.record.after.canonical_bytes().unwrap();
         drop(prepared);
-        drop(writer);
-        drop(values);
         drop(state);
         drop(store);
         // No World or complete record snapshot is passed into cold qualification.
