@@ -38,6 +38,7 @@
 - `doc/world-simulator/launcher/game-client-launcher-control-plane-and-machine-interface.prd.md`：launcher control plane、共享 UI schema 与 GUI-agent operator HTTP-JSON 接口当前 authority；capabilities 响应是 action-list truth，hosted 的枚举 operator 路由 peer-IP gate 不构成 general auth/readiness 结论。
 - `doc/world-simulator/launcher/game-client-launcher-blockchain-explorer.prd.md`：launcher explorer 当前 authority，收敛既有概览、七个只读业务视图与状态呈现；五组历史源三件套已退役删除，历史追溯仅使用 Git 与 GitHub task issue evidence，且不得将历史 mainnet-grade/public-chain 命名外推为 readiness、公开服务、结算或 validator 承诺。
 - `doc/world-simulator/scenario/README.md`：`scenario/` 子域 landing page，适合先按场景文件、world initialization、seed/location、资源生成或 asteroid-fragment 问题分流，再进入精确专题。
+- [小行星碎片场景内容与交付](scenario/asteroid-scenario-content-delivery.design.md)与[验证手册](scenario/asteroid-scenario-content-delivery.manual.md)：整理四个现有 JSON 场景的内容差异、有效配置、材料和出生来源、Simulator 与 Runtime 消费差异，以及修改传播和制作交接；沿用原生成规则，正式 seed 与业务记录的统一仍按原专题处理。
 - launcher transfer 当前入口：`doc/world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md` 承接早期 `PRD-WORLD_SIMULATOR-004/005` 的链上转账基础条款；旧 `world-simulator` launcher blockchain-transfer singleton 分册与四组 2026-03 源三件套均已退役删除，不再作为 active supporting doc。
 - `doc/world-simulator/llm/README.md`：LLM/provider 专题入口，说明 decision-provider 权威、非声明与 PR 与实际验证记录 边界；2026-04 dual-mode remediation 的可复核摘要见下列 contract 和 retained evidence。
 - `doc/world-simulator/llm/provider-agent-dual-mode-contract.md`：`Local Provider` 双轨模式的 observation / action contract supporting spec。
