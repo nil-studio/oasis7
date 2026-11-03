@@ -22,7 +22,7 @@ def key(scope='ordinary', source='b'):
 
 
 def environment(scope='ordinary', **changes):
-    value = dict(GITHUB_ACTIONS='true', GITHUB_REF='refs/heads/main', GITHUB_SHA='b' * 40,
+    value = dict(PATH=os.environ.get("PATH", os.defpath), GITHUB_ACTIONS='true', GITHUB_REF='refs/heads/main', GITHUB_SHA='b' * 40,
         GITHUB_WORKFLOW_SHA='b' * 40, GITHUB_EVENT_NAME='push', GITHUB_REPOSITORY='nil-studio/oasis7',
         GITHUB_JOB='oasis7-test-build-trusted' if scope == 'ordinary' else 'formal-test-build-trusted',
         ACTIONS_CACHE_MODE='write',
@@ -68,7 +68,7 @@ def fixture(directory, scope='ordinary'):
 class Workspace(unittest.TestCase):
     def test_identity_is_scoped_and_tracks_configuration_but_not_source_contents(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             inputs = ('Cargo.toml', 'Cargo.lock', 'scripts/ci-workspace-cache.py',
                       'scripts/ci-cache-archive.py', 'scripts/ci-test-artifacts.py',
                       'scripts/ci-formal-process-suites.json', 'scripts/ci-rust-cache-toolchains.py',
@@ -138,7 +138,7 @@ class Workspace(unittest.TestCase):
 
     def test_manual_writer_requires_full_in_event_payload(self):
         with tempfile.TemporaryDirectory() as directory:
-            event = Path(directory) / 'event.json'
+            event = Path(directory).resolve() / 'event.json'
             for mode in ('full', 'newapi_bridge_package', None):
                 event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
                 with patch.dict(os.environ, environment(GITHUB_EVENT_NAME='workflow_dispatch',
@@ -151,7 +151,7 @@ class Workspace(unittest.TestCase):
 
     def test_measurement_does_not_query_capacity_or_prepare_payload(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             root, state, _ = fixture(directory)
             args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=state)
             with patch.object(cache, 'ROOT', root), patch.object(cache, 'api_client') as remote, \
@@ -167,7 +167,7 @@ class Workspace(unittest.TestCase):
 
     def test_stage_rechecks_capacity_and_never_saves_when_inventory_grows(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             root, state, _ = fixture(directory)
             args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=state)
             first, second = api(), api([entry(key='unrelated', size_in_bytes=10_000_000_000)])
@@ -187,7 +187,7 @@ class Workspace(unittest.TestCase):
         for scope in ('ordinary', 'formal'):
             for event in ('push', 'schedule', 'workflow_dispatch'):
                 with self.subTest(scope=scope, event=event), tempfile.TemporaryDirectory() as directory:
-                    directory = Path(directory)
+                    directory = Path(directory).resolve()
                     root, state, _ = fixture(directory, scope)
                     event_path = directory / 'event.json'
                     event_path.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
@@ -216,7 +216,7 @@ class Workspace(unittest.TestCase):
     def test_full_stage_can_save_when_actual_upload_and_rotation_space_both_fit(self):
         for scope in ('ordinary', 'formal'):
             with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
-                directory = Path(directory)
+                directory = Path(directory).resolve()
                 root, state, _ = fixture(directory, scope)
                 args = SimpleNamespace(scope=scope, cache=directory / 'cache', state=state)
                 with patch.object(cache, 'ROOT', root), \
@@ -232,7 +232,7 @@ class Workspace(unittest.TestCase):
 
     def test_stage_rejects_untrusted_or_nonfull_manual_runs_before_preparation(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             event_path = directory / 'event.json'
             event_path.write_text(json.dumps({'inputs': {'run_mode': 'required'}}))
             args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=directory / 'state.json')
@@ -257,7 +257,7 @@ class Workspace(unittest.TestCase):
         # pretending to compress the hosted payload.
         observed_raw_bytes = 4_428_645_549
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             root, state, library = fixture(directory)
             with library.open('wb') as stream:
                 stream.truncate(observed_raw_bytes - len(b'fingerprint'))
@@ -277,7 +277,7 @@ class Workspace(unittest.TestCase):
     def test_stage_round_trip_and_restore_requires_compatible_key(self):
         for scope in ('ordinary', 'formal'):
             with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
-                directory = Path(directory)
+                directory = Path(directory).resolve()
                 root, state, library = fixture(directory, scope)
                 args = SimpleNamespace(scope=scope, cache=directory / 'cache', state=state)
                 with patch.object(cache, 'ROOT', root), patch.object(cache, 'identity', return_value={'key': key(scope)}), \
@@ -312,7 +312,7 @@ class Workspace(unittest.TestCase):
 
     def test_wrong_selection_cannot_be_uploaded_as_ordinary(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             root, state, _ = fixture(directory, 'formal')
             args = SimpleNamespace(scope='ordinary', cache=directory / 'cache', state=state)
             with patch.object(cache, 'ROOT', root), self.assertRaises(ValueError):
@@ -348,7 +348,7 @@ class BoundedWorkspace(unittest.TestCase):
 
     def test_retains_complete_recent_units_without_mutating_capture(self):
         with tempfile.TemporaryDirectory() as directory:
-            root, state = self.make_state(Path(directory))
+            root, state = self.make_state(Path(directory).resolve())
             original = json.loads(json.dumps(state))
             report = {}
             chosen = cache.bounded_library_state(state, 1000, report)
@@ -359,16 +359,41 @@ class BoundedWorkspace(unittest.TestCase):
             self.assertEqual(chosen['inputs'], state['inputs'])
             self.assertEqual(chosen['input_owners'], state['input_owners'])
             self.assertEqual(report['omitted_unit_groups'], 1)
-            measured = cache.units.cache_stage(chosen, Path(directory) / 'unused', 1000, measure_only=True)
+            measured = cache.units.cache_stage(chosen, Path(directory).resolve() / 'unused', 1000, measure_only=True)
             self.assertTrue(measured['eligible'], measured)
             self.assertEqual(report['selection_retained_bytes'], measured['raw_bytes'])
             reordered = dict(state, files=list(reversed(state['files'])), directories=list(reversed(state['directories'])))
             self.assertEqual(cache.bounded_library_state(reordered, 1000, {}), chosen)
             self.assertTrue(all((root / 'target' / name).exists() for name in state['files']))
 
+    def test_public_library_alias_and_dep_info_follow_their_complete_unit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, state = self.make_state(Path(directory).resolve())
+            target = root / 'target'
+            for index in range(3):
+                unit = f'{index + 1:016x}'
+                public = target / f'debug/libunit{index}.rlib'
+                os.link(target / f'debug/deps/libunit{index}-{unit}.rlib', public)
+                dep_info = public.with_suffix('.d')
+                dep_info.write_bytes(b'dep-info')
+                state['files'].extend([public.relative_to(target).as_posix(),
+                                       dep_info.relative_to(target).as_posix()])
+            chosen = cache.bounded_library_state(state, 1900, {})
+            self.assertNotIn('debug/libunit0.d', chosen['files'])
+            self.assertNotIn('debug/libunit0.rlib', chosen['files'])
+            for index in (1, 2):
+                self.assertIn(f'debug/libunit{index}.d', chosen['files'])
+                self.assertIn(f'debug/libunit{index}.rlib', chosen['files'])
+                self.assertIn(f'debug/.fingerprint/unit{index}-{index + 1:016x}', chosen['directories'])
+            mystery = target / 'debug/mystery.d'
+            mystery.write_bytes(b'unbound')
+            state['files'].append('debug/mystery.d')
+            with self.assertRaisesRegex(ValueError, 'unbound bounded Cargo output'):
+                cache.bounded_library_state(state, 1900, {})
+
     def test_oversized_newest_unit_does_not_discard_smaller_complete_units(self):
         with tempfile.TemporaryDirectory() as directory:
-            _, state = self.make_state(Path(directory), (100, 100, 2000))
+            _, state = self.make_state(Path(directory).resolve(), (100, 100, 2000))
             chosen = cache.bounded_library_state(state, 300, {})
             self.assertEqual(len(chosen['directories']), 2)
             self.assertFalse(any('unit2-' in name for name in chosen['files']))
@@ -376,7 +401,7 @@ class BoundedWorkspace(unittest.TestCase):
     def test_malformed_capture_cannot_be_pruned_into_success(self):
         for change in ('incomplete', 'selection', 'unsafe', 'missing', 'unbound', 'ambiguous'):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
-                root, state = self.make_state(Path(directory))
+                root, state = self.make_state(Path(directory).resolve())
                 if change == 'incomplete':
                     state['complete'] = False
                 elif change == 'selection':
@@ -396,7 +421,7 @@ class BoundedWorkspace(unittest.TestCase):
 
     def test_generator_units_and_unhashed_libraries_are_pinned(self):
         with tempfile.TemporaryDirectory() as directory:
-            root, state = self.make_state(Path(directory))
+            root, state = self.make_state(Path(directory).resolve())
             target = root / 'target'
             additions = ['debug/build/generator-1111111111111111',
                          'debug/.fingerprint/generator-1111111111111111',
@@ -423,7 +448,7 @@ class BoundedWorkspace(unittest.TestCase):
 
     def test_cross_unit_hardlinks_are_not_split(self):
         with tempfile.TemporaryDirectory() as directory:
-            root, state = self.make_state(Path(directory), (100, 100, 200))
+            root, state = self.make_state(Path(directory).resolve(), (100, 100, 200))
             first, second = [root / 'target/debug/deps' / f'libunit{index}-{index + 1:016x}.rlib'
                              for index in (0, 1)]
             second.unlink()
@@ -438,7 +463,7 @@ class BoundedWorkspace(unittest.TestCase):
         # Sparse fixtures reproduce the 12,144,199,095-byte observed selection,
         # not its compression ratio or its actual compiled output contents.
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             observed = 12_144_199_095
             root, state = self.make_state(directory, (observed // 3 - 31,) * 3)
             state_path = directory / 'state.json'
@@ -460,7 +485,7 @@ class BoundedWorkspace(unittest.TestCase):
     def test_upload_miss_reselects_locally_and_rechecks_final_inventory(self):
         for inventory_growth in (False, True):
             with self.subTest(inventory_growth=inventory_growth), tempfile.TemporaryDirectory() as directory:
-                directory = Path(directory)
+                directory = Path(directory).resolve()
                 root, state = self.make_state(directory)
                 state_path = directory / 'state.json'
                 state_path.write_text(json.dumps(state))
@@ -493,7 +518,7 @@ class BoundedWorkspace(unittest.TestCase):
 
     def test_pack_retries_are_bounded_and_do_not_publish_an_oversized_archive(self):
         with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
+            directory = Path(directory).resolve()
             root, state = self.make_state(directory, (100,) * 20)
             state_path = directory / 'state.json'
             state_path.write_text(json.dumps(state))
@@ -542,7 +567,7 @@ class RealCargoCompact(unittest.TestCase):
     def test_compatible_restore_is_fresh_and_changed_leaf_rebuilds(self):
         for scope in ('ordinary', 'formal'):
             with self.subTest(scope=scope), tempfile.TemporaryDirectory() as directory:
-                base = Path(directory)
+                base = Path(directory).resolve()
                 root = base / 'checkout'
                 sources = {
                     'Cargo.toml': '[workspace]\nmembers=["base", "leaf"]\nresolver="2"\n'
@@ -618,7 +643,7 @@ class RealCargoCompact(unittest.TestCase):
 
     def test_bounded_subset_rebuilds_omitted_units_and_changed_retained_source(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
+            base = Path(directory).resolve()
             root = base / 'checkout'
             sources = {
                 'Cargo.toml': '[workspace]\nmembers=["a","b","app"]\nresolver="2"\n'

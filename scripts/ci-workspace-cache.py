@@ -161,11 +161,41 @@ def bounded_library_state(state, maximum, report):
         package = Path(name).name.rsplit('-', 1)[0]
         if (unit[0], package) in pinned_packages or (unit[0], Path(name).name) in build_units:
             pinned.add(name)
+    # Public library aliases have no hash. Bind them through the same inode
+    # as a recorded deps output, then attach only their recorded dep-info.
+    public_owners, recorded_inodes = {}, {}
+    for name in files:
+        path = Path(name)
+        info = units._cache_path(target, name).stat()
+        match = re.fullmatch(r'.+-([0-9a-f]{16})(?:\..+)?', path.name)
+        unit = (path.parent.parent.as_posix(), match[1]) if match else None
+        if path.parent.name == 'deps' and unit in fingerprints:
+            key = (path.parent.parent.as_posix(), info.st_dev, info.st_ino)
+            recorded_inodes.setdefault(key, set()).add(fingerprints[unit])
+    for name in files:
+        path = Path(name)
+        if path.parent.name == 'deps' or path.suffix == '.d' or name in unhashed:
+            continue
+        info = units._cache_path(target, name).stat()
+        owners = recorded_inodes.get((path.parent.as_posix(), info.st_dev, info.st_ino), set()).copy()
+        if len(owners) > 1:
+            raise ValueError('ambiguous bounded public Cargo output: ' + name)
+        if owners:
+            owner = owners.pop()
+            public_owners[name] = owner
+            dep_info = path.with_suffix('.d').as_posix()
+            if dep_info in files:
+                previous = public_owners.setdefault(dep_info, owner)
+                if previous != owner:
+                    raise ValueError('ambiguous bounded public Cargo dep-info: ' + dep_info)
     for name in files:
         path = Path(name)
         units._cache_path(target, name)
         if any(path.is_relative_to(Path(directory)) for directory in builds) or name in unhashed:
             support['files'].add(name)
+            continue
+        if name in public_owners:
+            groups[public_owners[name]]['files'].add(name)
             continue
         match = re.fullmatch(r'.+-([0-9a-f]{16})(?:\..+)?', path.name)
         unit = (path.parent.parent.as_posix(), match[1]) if match else None
