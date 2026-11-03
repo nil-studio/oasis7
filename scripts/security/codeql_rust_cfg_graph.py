@@ -286,7 +286,11 @@ def main():
     ap.add_argument('--verify-context-exclusion',action='store_true')
     ap.add_argument('--scope-identities',action='store_true')
     ap.add_argument('--check-only',action='store_true');ap.add_argument('--deadline',type=float,required=True);ap.add_argument('--threads',type=int,default=4);ap.add_argument('--ram',type=int,required=True)
-    args=ap.parse_args();out=args.output;out.mkdir(exist_ok=True);args.work.mkdir(exist_ok=True)
+    args=ap.parse_args()
+    if os.environ.get('CALLEE_DIAGNOSTIC') == 'true':
+        import codeql_rust_callee_diagnostic
+        return codeql_rust_callee_diagnostic.run_diagnostic(args)
+    out=args.output;out.mkdir(exist_ok=True);args.work.mkdir(exist_ok=True)
     runtime.CAP=CAP;runtime.WRITE_CAP=CAP-8*1024**2
     end=time.monotonic()+max(0,args.deadline-time.time())-180
     terminal={'status':'INCOMPLETE','full_rust_coverage':'HOLD','production_capacity':'UNKNOWN','security_upload':False,'closure_cardinality':'NOT_MEASURED'}

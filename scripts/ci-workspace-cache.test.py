@@ -69,10 +69,12 @@ class Workspace(unittest.TestCase):
     def test_identity_is_scoped_and_tracks_configuration_but_not_source_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            inputs = ('Cargo.toml', 'Cargo.lock', cache.WORKFLOW, 'scripts/ci-workspace-cache.py',
-                      'scripts/ci-cache-policy.py', 'scripts/ci-cache-archive.py', 'scripts/ci-test-artifacts.py',
-                      'scripts/ci-formal-process-suites.json', 'scripts/ci-rust-cache-toolchains.py')
-            for name in (*inputs, 'src/lib.rs'):
+            inputs = ('Cargo.toml', 'Cargo.lock', 'scripts/ci-workspace-cache.py',
+                      'scripts/ci-cache-archive.py', 'scripts/ci-test-artifacts.py',
+                      'scripts/ci-formal-process-suites.json', 'scripts/ci-rust-cache-toolchains.py',
+                      '.cargo/config.toml', 'rust-toolchain.toml', 'crates/leaf/Cargo.toml')
+            operational = (cache.WORKFLOW, 'scripts/ci-cache-policy.py')
+            for name in (*inputs, *operational, 'src/lib.rs'):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(name)
@@ -80,7 +82,8 @@ class Workspace(unittest.TestCase):
 
             def output(command, **kwargs):
                 if command[:2] == ['cargo', 'metadata']:
-                    return json.dumps({'packages': [{'manifest_path': str(root / 'Cargo.toml')}]})
+                    # A virtual workspace does not list its root manifest as a package.
+                    return json.dumps({'packages': [{'manifest_path': str(root / 'crates/leaf/Cargo.toml')}]})
                 if command[:2] == ['git', 'rev-parse']:
                     return source[0]
                 return ' '.join(command) + ' pinned-version'
@@ -96,17 +99,27 @@ class Workspace(unittest.TestCase):
                 self.assertTrue(cache.identity('ordinary')['key'].endswith(source[0]))
                 with patch.dict(os.environ, CARGO_BUILD_JOBS='1', CARGO_TERM_COLOR='never'):
                     self.assertEqual(cache.identity('ordinary')['prefix'], original['prefix'])
-                for variable in ('RUSTFLAGS', 'CARGO_PROFILE_TEST_DEBUG', 'OASIS7_WASM_TOOLCHAIN'):
-                    with patch.dict(os.environ, {variable: 'changed'}):
-                        self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
-                for name in inputs:
-                    path = root / name
-                    before = path.read_text()
-                    path.write_text(before + ' changed')
-                    self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'], name)
-                    path.write_text(before)
+                for scope in ('ordinary', 'formal'):
+                    baseline = cache.identity(scope)['prefix']
+                    for variable in ('RUSTFLAGS', 'CARGO_PROFILE_TEST_DEBUG', 'OASIS7_WASM_TOOLCHAIN'):
+                        with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
+                            self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
+                    for name in (*inputs, *operational):
+                        path = root / name
+                        before = path.read_text()
+                        path.write_text(before + ' changed')
+                        with self.subTest(scope=scope, path=name):
+                            self.assertEqual(cache.identity(scope)['prefix'] == baseline, name in operational)
+                        path.write_text(before)
+                    with patch.dict(os.environ, CI_CACHE_REPOSITORY_BUDGET_BYTES='20000000000'):
+                        self.assertEqual(cache.identity(scope)['prefix'], baseline)
+                    with patch.object(cache.units, 'build_variants', return_value=[('different', ['build'], [])]):
+                        self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
                 with patch.object(cache.platform, 'machine', return_value='different-architecture'):
                     self.assertNotEqual(cache.identity('ordinary')['prefix'], original['prefix'])
+                (root / 'Cargo.toml').unlink()
+                with self.assertRaises(FileNotFoundError):
+                    cache.identity('ordinary')
 
     def test_only_matching_trusted_main_lane_can_stage(self):
         for scope in ('ordinary', 'formal'):

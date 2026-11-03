@@ -45,11 +45,62 @@ governance_function="$(sed -n '/^run_product_doc_governance_check()/,/^run_stand
 eval "$governance_function"
 run() {
   printf '%s\n' "$*" >>"$tmp_dir/governance-calls.out"
+  printf '%s\n%s\n' "${OASIS7_PRODUCT_DOC_BASE:-}" "${OASIS7_PRODUCT_DOC_HEAD:-}" >>"$tmp_dir/governance-range.out"
 }
-GITHUB_EVENT_PATH="$tmp_dir/pull_request.json" GITHUB_EVENT_NAME=pull_request GITHUB_SHA="$head_oid" \
-  run_product_doc_governance_check
+
+# Required fast feedback keeps the exact paired range; hosted full still runs
+# the full-corpus report through the same baseline job and selected profile.
+for mode in required: required:pr-fast required:main-fast required:periodic-full required:candidate-full full: full-standard: commit:; do
+  test_tier="${mode%%:*}"
+  test_profile="${mode#*:}"
+  : >"$tmp_dir/governance-calls.out"
+  : >"$tmp_dir/governance-range.out"
+  tier="$test_tier" OASIS7_CI_PROFILE="$test_profile" \
+    OASIS7_PRODUCT_DOC_BASE="$base_oid" OASIS7_PRODUCT_DOC_HEAD="$head_oid" \
+    run_product_doc_governance_check
+  expected='./scripts/doc-governance-check.sh --full-corpus'
+  if [[ "$test_tier" == required && "$test_profile" != periodic-full && "$test_profile" != candidate-full ]]; then
+    expected='./scripts/doc-governance-check.sh'
+  fi
+  grep -Fqx "$expected" "$tmp_dir/governance-calls.out"
+  [[ "$(wc -l <"$tmp_dir/governance-calls.out" | tr -d ' ')" == 1 ]]
+  [[ "$(cat "$tmp_dir/governance-range.out")" == "$base_oid
+$head_oid" ]]
+done
+
+# The legacy event-derived range follows the same quick path and exports the
+# resolved pair to the checker rather than losing it while choosing a profile.
+: >"$tmp_dir/governance-calls.out"
+: >"$tmp_dir/governance-range.out"
+(unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD; \
+  tier=required OASIS7_CI_PROFILE=pr-fast GITHUB_EVENT_PATH="$tmp_dir/pull_request.json" \
+    GITHUB_EVENT_NAME=pull_request GITHUB_SHA="$head_oid" run_product_doc_governance_check)
+grep -Fqx './scripts/doc-governance-check.sh' "$tmp_dir/governance-calls.out"
+[[ "$(cat "$tmp_dir/governance-range.out")" == "$base_oid
+$head_oid" ]]
+
+# Neither quick nor full may turn an incomplete explicit pair into an all-doc
+# fallback; the governance command must not run after range validation fails.
+for test_profile in pr-fast periodic-full candidate-full; do
+  for partial in OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD; do
+    : >"$tmp_dir/governance-calls.out"
+    if (unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD; \
+        export "$partial=$head_oid"; \
+        tier=required OASIS7_CI_PROFILE="$test_profile" run_product_doc_governance_check) \
+        >"$tmp_dir/partial-driver.out" 2>&1; then
+      echo "product-doc-content-callers.test: $test_profile accepted partial $partial" >&2
+      exit 1
+    fi
+    grep -Fq 'explicit base/head must be supplied together' "$tmp_dir/partial-driver.out"
+    [[ ! -s "$tmp_dir/governance-calls.out" ]]
+  done
+done
+
+# An explicitly local invocation without any CI range retains full coverage.
+: >"$tmp_dir/governance-calls.out"
+(unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD GITHUB_EVENT_PATH GITHUB_EVENT_NAME; \
+  CI=false GITHUB_ACTIONS=false tier=required OASIS7_CI_PROFILE=pr-fast run_product_doc_governance_check)
 grep -Fqx './scripts/doc-governance-check.sh --full-corpus' "$tmp_dir/governance-calls.out"
-[[ "$(wc -l <"$tmp_dir/governance-calls.out" | tr -d ' ')" == 1 ]]
 
 printf '{}\n' >"$tmp_dir/empty.json"
 if (unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD; GITHUB_EVENT_PATH="$tmp_dir/empty.json" GITHUB_EVENT_NAME=unknown GITHUB_SHA="$head_oid" product_doc_range) >"$tmp_dir/event.out" 2>&1; then

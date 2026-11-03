@@ -681,3 +681,6 @@ mod live_read;
 
 #[path = "world_service_live_context_http_fixture.rs"]
 mod live_context_http_fixture;
+
+#[path = "world_service_private_task_context_projection_tests.rs"]
+mod projection_tests;

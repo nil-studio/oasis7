@@ -155,8 +155,29 @@ fn verify_current_response_with_scope(
         configured_service_key,
         scope.as_deref_mut(),
     )?;
-    let r = &original.request;
-    let p = &response.payload;
+    verify_current_payload_with_scope(
+        &original.request,
+        &original.subject_public_key,
+        &response.payload,
+        scope,
+    )
+}
+
+/// Validate the complete current-goal payload and original nested Owner proof.
+/// This never fabricates a service signature or accepts an unsigned payload as authority.
+pub fn verify_current_payload(
+    request: &CurrentGoalRequest,
+    subject_public_key: &str,
+    payload: &CurrentGoalResponse,
+) -> Result<(), String> {
+    verify_current_payload_with_scope(request, subject_public_key, payload, None)
+}
+fn verify_current_payload_with_scope(
+    r: &CurrentGoalRequest,
+    subject_public_key: &str,
+    p: &CurrentGoalResponse,
+    mut scope: Option<&mut StrictOwnerSignatureScope>,
+) -> Result<(), String> {
     let c = &p.control;
     p.read_commit.validate().map_err(|e| e.to_string())?;
     if p.schema_revision != 1
@@ -170,7 +191,7 @@ fn verify_current_response_with_scope(
         || c.agent_id != r.agent_id
         || c.world_id != r.world.world_id
         || c.genesis_digest != r.world.genesis_digest
-        || c.owner_public_key != original.subject_public_key
+        || c.owner_public_key != subject_public_key
         || p.read_commit.world != r.world
         || p.read_commit.binding.branch_id != c.branch_id
         || p.read_commit.binding.reorg_generation != c.reorg_epoch.0

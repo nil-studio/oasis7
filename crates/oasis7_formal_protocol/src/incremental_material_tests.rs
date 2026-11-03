@@ -684,3 +684,6 @@ fn caught_source_unwind_does_not_refund_merkle_allowance() {
 
 #[path = "incremental_fact_material_tests.rs"]
 mod fact_originals;
+
+#[path = "incremental_event_fact_tests.rs"]
+mod event_fact_tests;

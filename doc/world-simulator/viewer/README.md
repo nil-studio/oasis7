@@ -3,7 +3,8 @@
 更新时间: 2026-10-12
 
 ## 从这里开始
-- 想逐屏核对游戏 Viewer / Bevy 像素世界的阅读顺序、观察/草稿/原回执身份、输入与恢复状态：读[详细 UI/UX 交接](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)及[版本化设计稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)。这些是设计目标，不是运行截图或实现验收。
+- 想逐功能核对当前源码、条件目标、具体设计稿与尚未覆盖状态：读[全功能派生目录](viewer-full-function-coverage-catalog.md)。105个当前源码条目与经济/治理目标分开，不能以概览页数判完整覆盖。
+- 想逐屏核对游戏 Viewer / Bevy 像素世界的阅读顺序、观察/草稿/原回执身份、输入与恢复状态：读[详细 UI/UX 交接](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)及[版本化设计稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)。这些是设计目标，不是运行截图或实现验收。 账号、绑定、模型连接等外围旅程与状态覆盖见[页面模块§10.9](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)，09–14为补充目标稿。
 - 想先理解 Pixel-world 对玩家承诺的首读层级、空间关系来源、可归因因果与诊断边界：读 [`doc/product/agents-world-simulation/player-readable-world-stage.prd.md`](../../product/agents-world-simulation/player-readable-world-stage.prd.md)；具体 DTO、LOD、renderer 与验证仍回到本目录专业文档。
 - 想确认 Viewer / player-facing surface 的整体视觉方向、层级、pixel-world 可读性与视觉评审 gate：先读 `viewer-visual-design-spec-2026-06-05.design.md`；涉及本轮 image2 视觉目标、首屏总体设计与分模块落地时继续读 `viewer-page-module-design-2026-06-18.design.md`；涉及 brand book、token、icon/status、资产准入和截图矩阵时继续读 `viewer-brand-system-2026-06-05.design.md`
 - 想执行 Viewer、走 Web 闭环、看命令或手工步骤：先读 `viewer-manual.manual.md`

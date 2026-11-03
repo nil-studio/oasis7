@@ -3,6 +3,7 @@ use super::*;
 use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 #[path = "application_hosted_final_budget_window.rs"]
 mod completion_window;
+pub(super) const PRODUCER_BUDGET: Duration = Duration::from_secs(25);
 
 // Same-machine native CI diagnostic only: raw Instant Debug is implementation
 // specific, not a portable clock contract. Record it with local elapsed time;
@@ -121,7 +122,7 @@ pub(super) fn start_clock(fixture: &Fixture, root: std::path::PathBuf) -> Clock 
     let driver = fixture.driver.clone();
     let worker = thread::spawn(move || {
         let started = Instant::now();
-        let deadline = started + Duration::from_secs(25);
+        let deadline = started + PRODUCER_BUDGET;
         timing(
             "clock_started",
             started,

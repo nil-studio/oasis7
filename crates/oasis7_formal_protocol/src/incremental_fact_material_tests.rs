@@ -2,6 +2,40 @@ use super::*;
 use crate::incremental_execution::ExecutionFactRefV1;
 use std::io::Write;
 
+#[test]
+fn occurrence_metadata_is_admitted_before_streaming_and_released_with_summary() {
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let s = fixture::incremental::setup_with_memory(memory);
+    let (mut objects, pages) = sources(&s, &s.history);
+    let core = checked(&s, &mut objects, &pages);
+    let before = s.memory.used();
+    let held = s
+        .memory
+        .reserve((4 << 20) - before - (16 << 10), MemoryClass::Ordinary)
+        .unwrap();
+    let mut stream = Stream {
+        objects: &mut objects,
+        mode: 0,
+        order: vec![],
+    };
+    let mut quota = allowance(1 << 20);
+    let used = s.memory.used();
+    assert!(matches!(
+        verify_fact_originals(&core, &mut stream, &s.memory, &mut quota, || false),
+        Err(CoreError::Execution(ExecutionError::Memory(_)))
+    ));
+    assert!(stream.order.is_empty());
+    assert_eq!(quota.facts_remaining, 8);
+    assert_eq!(quota.original_bytes_remaining, 1 << 20);
+    assert_eq!(s.memory.used(), used);
+    drop(held);
+    let summary =
+        verify_fact_originals(&core, &mut stream, &s.memory, &mut quota, || false).unwrap();
+    assert!(s.memory.used() > before + (16 << 10));
+    drop(summary);
+    assert_eq!(s.memory.used(), before);
+}
+
 struct Stream<'a> {
     objects: &'a mut Objects,
     mode: u8,

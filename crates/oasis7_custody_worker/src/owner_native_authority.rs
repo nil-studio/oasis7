@@ -88,6 +88,17 @@ pub(super) fn original_source(
         }
     }
 }
+// New Core codecs do not authorize V2 probes on existing production paths.
+fn reject_resource_v2(input: &ApprovalAdmissionInput) -> Result<()> {
+    if matches!(
+        &input.request.intent,
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
+            | oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { .. }
+    ) {
+        return Err(denied());
+    }
+    Ok(())
+}
 pub(super) async fn observe(
     env: &Env,
     draft: &oasis7_custody_core::provisioning::AccountDraftV1,
@@ -95,6 +106,7 @@ pub(super) async fn observe(
     signed: &SignedApprovalVerificationV1,
     inspection_only: bool,
 ) -> Result<Observations> {
+    reject_resource_v2(&input)?;
     let manager = manager(&input, signed);
     let gate = if inspection_only {
         let rpc = ProvisionInspectGateRpc {
@@ -137,6 +149,7 @@ pub(super) async fn observe_paid_test_session_factory(
     input: ApprovalAdmissionInput,
     signed: &SignedApprovalVerificationV1,
 ) -> Result<Observations> {
+    reject_resource_v2(&input)?;
     let manager = manager(&input, signed);
     let rpc = ApproveRpc {
         manager_session: manager.clone(),
@@ -233,6 +246,7 @@ pub(super) async fn observe_fresh_manager(
     input: ApprovalAdmissionInput,
     manager: CustodySessionStatusV1,
 ) -> Result<Observations> {
+    reject_resource_v2(&input)?;
     let rpc = ApproveRpc {
         manager_session: manager.clone(),
         provision_id: draft.entry.provision_id.clone(),
@@ -325,6 +339,11 @@ fn build_current(
     // deadline/proof and current source bound it; an expired Provision plan grants
     // no new rights and must not suppress this independently approved recovery.
     let authority_deadline = match &observed.input.request.intent {
+        // Core contracts do not enable V2 source or paid read production paths.
+        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
+        | oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { .. } => {
+            return Err(denied());
+        }
         oasis7_custody_core::approval::CustodyIntentV1::ManagedLogin { deadline, .. } => {
             deadline.0.min(proof.expires_at.0)
         }

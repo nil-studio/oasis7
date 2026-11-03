@@ -435,6 +435,24 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let requests = slow.send_snapshot_burst(128);
     let (kernel_pressure, maximum_queued) = slow.wait_for_kernel_pressure(Duration::from_secs(1));
 
+    // Explicit diagnostic experiment only; ordinary fairness runs are unchanged.
+    struct IdentityGateRelease(bool);
+    impl Drop for IdentityGateRelease {
+        fn drop(&mut self) {
+            if self.0 {
+                ViewerRuntimeLiveServer::test_release_hosted_identity_barrier();
+            }
+        }
+    }
+    let identity_barrier = std::env::var("OASIS7_PERIODIC_IDENTITY_BARRIER").as_deref() == Ok("1");
+    let identity_release = IdentityGateRelease(identity_barrier);
+    if identity_barrier {
+        ViewerRuntimeLiveServer::test_arm_hosted_identity_barrier();
+        assert!(
+            ViewerRuntimeLiveServer::test_wait_hosted_identity_barrier(Duration::from_secs(2)),
+            "actual hosted token identity leaf must be reached before the observer sample"
+        );
+    }
     let diagnostic_started = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
     observer.send(serde_json::json!({"type":"hello_v2","client":"PRE2 periodic in-flight observer","version":2,"capabilities":[]}));
     observer.send(serde_json::json!({"type":"request_snapshot"}));
@@ -444,6 +462,7 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
     let diagnostic_finished = ViewerRuntimeLiveServer::test_stream_budget_timestamp();
     let still_held_during_observer = !root.join("world-periodic-view-release").exists();
 
+    drop(identity_release);
     gate_release.release();
     let completion_deadline = Instant::now() + Duration::from_secs(2);
     while !root.join("world-periodic-view-completed").exists()
@@ -476,6 +495,21 @@ pub(crate) fn verify_periodic_view_gate(client: &RemoteWorldServiceClient) {
             r.timeout_partial_bytes,
             r.eof,
             r.other_error_kind
+        );
+    }
+    if identity_barrier {
+        let facts = ViewerRuntimeLiveServer::test_hosted_identity_barrier_facts();
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "hosted_identity_barrier entered={} returned={} timed_out={}",
+            facts.0,
+            facts.1,
+            facts.2
+        );
+        assert_eq!(
+            facts,
+            (true, true, false),
+            "real identity barrier must release without its safety timeout"
         );
     }
     let stages = ViewerRuntimeLiveServer::test_take_stream_budget_diagnostics();

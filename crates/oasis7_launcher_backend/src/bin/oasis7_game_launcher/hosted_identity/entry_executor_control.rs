@@ -5,6 +5,7 @@ use super::{
     store::StoreError,
 };
 use oasis7_agent_api::game::*;
+use oasis7_client_api::world_service::task_context_projection::*;
 use oasis7_client_api::{
     world_service::{
         entry_executor::*, task_context::*, task_factory_quote::*, task_recipe_quote::*, *,
@@ -47,6 +48,21 @@ impl IdentityService {
                 parse_request(&bytes).map_err(|_| reject("invalid_request"))?;
             if let EntryExecutorOperationV1::ReadLiveContext(q) = &request.operation {
                 verify_live_context_read(q).map_err(|_| reject("authentication_failed"))?;
+            }
+            match &request.operation {
+                EntryExecutorOperationV1::PrepareContextAttestedV2(q) => {
+                    validate_prepare_attestation_request_v2(q)
+                        .map_err(|_| reject("authentication_failed"))?;
+                }
+                EntryExecutorOperationV1::ReadContextAttestedV2(q) => {
+                    validate_get_attestation_request_v2(q, &entry.trust.service_public_key)
+                        .map_err(|_| reject("authentication_failed"))?;
+                }
+                EntryExecutorOperationV1::ReadMoveProjectionV2(q) => {
+                    validate_move_projection_request_v2(q, &entry.trust.service_public_key)
+                        .map_err(|_| reject("authentication_failed"))?;
+                }
+                _ => {}
             }
             let access = &request.access;
             let fence = &access.fence;
@@ -233,6 +249,51 @@ impl IdentityService {
                         q,
                         q,
                         MAX_EXECUTOR_REPLY,
+                    )
+                }
+                EntryExecutorOperationV1::PrepareContextAttestedV2(q) => {
+                    check_actor_fence(
+                        &q.original.subject_public_key,
+                        &q.original.request.fence,
+                        actor,
+                        fence,
+                    )?;
+                    entry.forward_bounded(
+                        CONTEXT_PREPARE_ATTESTED_PATH_V2,
+                        CONTEXT_PREPARE_ATTESTED_PATH_V2,
+                        q,
+                        q,
+                        MAX_ATTESTED_CONTEXT_WIRE_BYTES_V2,
+                    )
+                }
+                EntryExecutorOperationV1::ReadContextAttestedV2(q) => {
+                    check_actor_fence(
+                        &q.original.subject_public_key,
+                        &q.original.request.context.fence,
+                        actor,
+                        fence,
+                    )?;
+                    entry.forward_bounded(
+                        CONTEXT_READ_ATTESTED_PATH_V2,
+                        CONTEXT_READ_ATTESTED_PATH_V2,
+                        q,
+                        q,
+                        MAX_ATTESTED_CONTEXT_WIRE_BYTES_V2,
+                    )
+                }
+                EntryExecutorOperationV1::ReadMoveProjectionV2(q) => {
+                    check_actor_fence(
+                        &q.original.subject_public_key,
+                        &q.original.request.context.fence,
+                        actor,
+                        fence,
+                    )?;
+                    entry.forward_bounded(
+                        CONTEXT_MOVE_PROJECTION_PATH_V2,
+                        CONTEXT_MOVE_PROJECTION_PATH_V2,
+                        q,
+                        q,
+                        MAX_ATTESTED_CONTEXT_WIRE_BYTES_V2,
                     )
                 }
                 EntryExecutorOperationV1::GoalSnapshot(q) => {

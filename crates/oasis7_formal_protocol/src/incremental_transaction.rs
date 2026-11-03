@@ -13,6 +13,20 @@ pub struct TransactionLimits {
     pub max_pending_node_bytes: usize,
 }
 
+/// Failure while sealing one final, after-root-bound fact. Producer failure
+/// retains its original type; no prepared transition escapes on any error.
+#[derive(Debug)]
+pub enum SealWithFinalFactError<E> {
+    Execution(ExecutionError),
+    Producer(E),
+    Cancelled,
+}
+impl<E> From<ExecutionError> for SealWithFinalFactError<E> {
+    fn from(error: ExecutionError) -> Self {
+        Self::Execution(error)
+    }
+}
+
 struct Entry {
     before: Option<[u8; 32]>,
     after: Option<[u8; 32]>,
@@ -93,6 +107,11 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             revision: self.revision,
             fence: self.fence,
         }
+    }
+
+    /// Immutable original namespace root, never the current overlay.
+    pub fn parent_state_root(&self, namespace: StateNamespaceV1) -> &StateRootV1 {
+        self.parent.roots.state_root(namespace)
     }
 
     pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
@@ -254,6 +273,11 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         Ok(())
     }
 
+    /// Current ordered position only, not proof of an accepted occurrence.
+    pub fn ordered_fact_count(&self) -> usize {
+        self.facts.len()
+    }
+
     pub fn append_fact(&mut self, value: ExecutionFactRefV1) -> Result<(), ExecutionError> {
         self.checked(|txn| txn.append_fact_inner(value))
     }
@@ -286,9 +310,59 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         live: &ExecutionFence,
         next_tick: u64,
     ) -> Result<ReservedValue<PreparedTransition>, ExecutionError> {
+        let result = self.seal_inner(
+            guard,
+            live,
+            next_tick,
+            &mut || false,
+            None::<fn(&RootSetV1) -> Result<ExecutionFactRefV1, std::convert::Infallible>>,
+        );
+        match result {
+            Ok(value) => Ok(value),
+            Err(SealWithFinalFactError::Execution(error)) => Err(error),
+            Err(SealWithFinalFactError::Producer(never)) => match never {},
+            // The legacy wrapper's cancellation predicate is always false.
+            Err(SealWithFinalFactError::Cancelled) => unreachable!(),
+        }
+    }
+
+    /// Freeze writes first, then produce exactly one final fact from the actual
+    /// after RootSet. The callback cannot modify roots, writes or the consumed
+    /// transaction. Its physical output stays provisional until full acceptance.
+    /// Capacity and workspace for the additional fact are admitted before it runs.
+    pub fn seal_with_final_fact<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<ExecutionFactRefV1, E>,
+    ) -> Result<ReservedValue<PreparedTransition>, SealWithFinalFactError<E>> {
+        self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce))
+    }
+
+    fn seal_inner<E, F: FnOnce(&RootSetV1) -> Result<ExecutionFactRefV1, E>>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        cancelled: &mut impl FnMut() -> bool,
+        produce: Option<F>,
+    ) -> Result<ReservedValue<PreparedTransition>, SealWithFinalFactError<E>> {
         self.validate_guard(guard, live)?;
+        if cancelled() {
+            return Err(SealWithFinalFactError::Cancelled);
+        }
+        let fact_count = self
+            .facts
+            .len()
+            .checked_add(usize::from(produce.is_some()))
+            .ok_or(ExecutionError::ResourceLimited("ordered facts"))?;
+        if fact_count > self.limits.max_facts {
+            return Err(ExecutionError::ResourceLimited("ordered facts").into());
+        }
         if next_tick < self.parent.roots.simulation_tick {
-            return Err(ExecutionError::Invalid("tick regression"));
+            return Err(ExecutionError::Invalid("tick regression").into());
         }
         let height = self
             .parent
@@ -296,16 +370,22 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             .height
             .checked_add(1)
             .ok_or(ExecutionError::Invalid("height overflow"))?;
-        let mut workspace = self.memory.reserve(
-            transition::phase_bound(self.dirty, self.reads, self.facts.len())?,
-            MemoryClass::Ordinary,
-        )?;
+        let mut workspace = self
+            .memory
+            .reserve(
+                transition::phase_bound(self.dirty, self.reads, fact_count)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ExecutionError::Memory)?;
         let mut after = self.parent.roots.clone();
         after.height = height;
         after.simulation_tick = next_tick;
         let mut writes = Vec::with_capacity(self.dirty);
         let mut new_nodes = Vec::new();
         for namespace in NAMESPACES {
+            if cancelled() {
+                return Err(SealWithFinalFactError::Cancelled);
+            }
             let mutations = self.entries[namespace_index(namespace)]
                 .iter()
                 .filter(|(_, entry)| entry.before != entry.after)
@@ -337,8 +417,9 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
                 before: entry.before,
             }));
         }
-        let facts = self.facts.into_values().map(|fact| fact.value).collect();
-        let record = TransitionRecordV1 {
+        let mut facts = Vec::with_capacity(fact_count);
+        facts.extend(self.facts.into_values().map(|fact| fact.value));
+        let mut record = TransitionRecordV1 {
             parent_commit: self.parent.commit,
             operation: self.operation,
             authority: self.parent.authority,
@@ -349,12 +430,26 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
             facts,
         };
         record.validate()?;
+        if cancelled() {
+            return Err(SealWithFinalFactError::Cancelled);
+        }
+        if let Some(produce) = produce {
+            let fact = produce(&record.after).map_err(SealWithFinalFactError::Producer)?;
+            if cancelled() {
+                return Err(SealWithFinalFactError::Cancelled);
+            }
+            record.facts.push(fact);
+            record.validate()?;
+        }
         new_nodes.sort_unstable_by(|a, b| a.digest.cmp(&b.digest));
         let candidate = PreparedTransition { record, new_nodes };
         let bytes = candidate.heap_bytes()?;
         let charge = workspace
             .split(bytes)
             .map_err(|_| ExecutionError::Invalid("transition exceeded workspace accounting"))?;
+        if cancelled() {
+            return Err(SealWithFinalFactError::Cancelled);
+        }
         Ok(charge.retain(candidate))
     }
 }

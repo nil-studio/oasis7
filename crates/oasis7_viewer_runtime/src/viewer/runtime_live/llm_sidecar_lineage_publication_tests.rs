@@ -489,3 +489,67 @@ fn lineage_deferred_rename_directory_failure_retries_exact_original_after_repair
     assert_eq!(std::fs::read(&path).unwrap(), original);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn lineage_owned_bare_relative_path_publishes_and_confirms_exact_retry() {
+    const CHILD: &str = "OASIS7_LINEAGE_BARE_RELATIVE_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let path = PathBuf::from("lineage.json");
+        let owner = sidecar(path.clone(), "bare-relative-original");
+        owner.enable_deferred_publications();
+        owner.persist_provider_lineage().unwrap();
+        let ticket = owner.publication_ticket();
+        let batch = owner.take_queued_publications();
+        assert_eq!(batch.len(), 1);
+        let expected = serde_json::to_vec_pretty(&batch[0].checkpoint).unwrap();
+        assert!(owner.ensure_lineage_published().is_err());
+        batch[0].execute().unwrap();
+        assert!(!batch[0].permanently_blocked());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        assert_eq!(owner.publication_ticket(), ticket);
+        assert!(
+            owner.ensure_lineage_published().is_err(),
+            "I/O alone cannot acknowledge owner ticket"
+        );
+        // Retry the exact same owned publication before and after its matching ACK.
+        batch[0].execute().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        owner.confirm_lineage_publication(ticket).unwrap();
+        assert!(owner.ensure_lineage_published().is_ok());
+        batch[0].execute().unwrap();
+        assert!(!batch[0].permanently_blocked());
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        return;
+    }
+    let root = std::env::temp_dir().join(format!(
+        "lineage-bare-relative-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let test_name = std::thread::current()
+        .name()
+        .expect("named Rust test thread")
+        .to_owned();
+    // Child-only cwd keeps parallel tests' process-global working directory intact.
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &test_name, "--nocapture"])
+        .env(CHILD, "1")
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    std::fs::remove_dir_all(&root).unwrap();
+    assert!(
+        output.status.success(),
+        "actual owned relative publication failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+        "child must run the actual regression"
+    );
+}

@@ -4,7 +4,7 @@ use oasis7_formal_protocol::controlled_authority::formal::{
     FormalReadCheckpointV1, InitialActivationTrustV1, VerifiedFormalReadAnchorV1,
 };
 /// Authorized local pins; never filled from service responses.
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FormalReadTrustConfigV1 {
     pub initial_trust: InitialActivationTrustV1,

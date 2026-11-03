@@ -71,9 +71,11 @@ impl NodeBftPeerExecutionStateV3 {
             .map_err(|_| "wire-3 peer view poisoned".into())
     }
     /// These handles only narrow an already authorized transport response.
+    #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
     pub(super) fn serving_guard(&self) -> Arc<AtomicBool> {
         self.serving.clone()
     }
+    #[cfg(all(feature = "libp2p", not(target_arch = "wasm32")))]
     pub(super) fn generation_guard(&self) -> Arc<AtomicU64> {
         self.generation.clone()
     }

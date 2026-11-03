@@ -41,7 +41,7 @@ pub(super) struct RuntimePendingAction {
     pub(super) feedback_emitted: bool,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub(in crate::viewer::runtime_live) struct RuntimeProviderActionContext {
     pub(in crate::viewer::runtime_live) request: cognition_context::ProviderContextState,
     pub(in crate::viewer::runtime_live) response: ContinuousAgentResponseContextV1,
@@ -265,6 +265,8 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     pub(in crate::viewer::runtime_live) hosted_service_inflight:
         Option<crate::viewer::runtime_live::agent_service_io::AgentServiceIoToken>,
     pub(in crate::viewer::runtime_live) hosted_service_generation: u64,
+    pub(in crate::viewer::runtime_live) hosted_identity_reservation:
+        Option<crate::viewer::runtime_live::agent_service_io::HostedIdentityReservation>,
     pub(in crate::viewer::runtime_live) hosted_service_config_binding: Option<String>,
     #[cfg(any(test, feature = "test_tier_required"))]
     pub(in crate::viewer::runtime_live) hosted_service_memory_failure: Option<&'static str>,
@@ -1138,3 +1140,7 @@ pub(in crate::viewer::runtime_live) mod service_feedback_ack;
 
 #[path = "llm_sidecar_service_orphan_recovery.rs"]
 pub(in crate::viewer::runtime_live) mod service_orphan_recovery;
+
+#[cfg(test)]
+#[path = "agent_service_identity_tests.rs"]
+mod hosted_identity_tests;
