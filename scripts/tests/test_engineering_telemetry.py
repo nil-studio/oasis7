@@ -85,6 +85,31 @@ class TelemetryTests(unittest.TestCase):
         result = t.collect(self.input)
         self.assertNotIn("identity conflict", result["missing_reasons"])
 
+    def test_job_alias_cannot_evade_identity_conflict(self):
+        source = self.input["sources"][0]
+        other = copy.deepcopy(source)
+        other["reference"] = "fixture/other.json"
+        other["records"][0]["id"] = "different-alias"
+        other["records"][0]["execution_result"] = "failure"
+        self.input["sources"].append(other)
+        result = t.collect(self.input)
+        conflicts = [record for record in result["records"] if record["identity_conflict"]]
+        self.assertEqual(len(conflicts), 2)
+        self.assertEqual({r["execution_result"] for r in conflicts}, {"success", "failure"})
+        self.assertIn("identity conflict", result["missing_reasons"])
+
+    def test_job_aliases_same_values_deduplicate_with_aliases(self):
+        other = copy.deepcopy(self.input["sources"][0])
+        other["reference"] = "fixture/other.json"
+        other["records"][0]["id"] = "different-alias"
+        self.input["sources"].append(other)
+        result = t.collect(self.input)
+        self.assertEqual(len(result["records"]), 2)
+        record = next(r for r in result["records"] if r["job_id"] == 10)
+        self.assertEqual(record["aliases"], ["different-alias", "select"])
+        self.assertFalse(record["identity_conflict"])
+        t.report(result)
+
     def test_unverified_identities_are_not_deduplicated(self):
         source = self.input["sources"][0]
         for record in source["records"]:
@@ -95,6 +120,16 @@ class TelemetryTests(unittest.TestCase):
         result = t.collect(self.input)
         self.assertEqual(len(result["records"]), 4)
         self.assertFalse(any(record["identity_conflict"] for record in result["records"]))
+
+    def test_conflicting_evidence_reference_is_rejected(self):
+        other = copy.deepcopy(self.input["sources"][0])
+        other["records"][0]["execution_result"] = "failure"
+        self.input["sources"].append(other)
+        result = t.collect(self.input)
+        self.assertEqual(result["records"], [])
+        self.assertEqual(result["evidence"], [])
+        self.assertIn("conflicting evidence reference", result["missing_reasons"])
+        t.report(result)
 
     def test_unknown_schema_and_unapproved_fields_are_partial(self):
         self.input["sources"][0]["records"][0]["secret"] = "do not copy"

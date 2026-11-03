@@ -108,6 +108,18 @@ def collect(document):
     records, evidence, missing = [], [], ["source completeness not verified"]
     if not inputs:
         missing.append("no sources")
+    references = {}
+    for source in inputs:
+        if not isinstance(source, dict) or not token(source.get("reference")):
+            continue
+        if not isinstance(source.get("records"), list) or not isinstance(source.get("kind"), str) or not isinstance(source.get("source_schema"), str):
+            continue
+        identity = (source.get("kind"), source.get("source_schema"), canonical(source["records"]))
+        references.setdefault(source["reference"], set()).add(identity)
+    conflicting_references = {ref for ref, versions in references.items() if len(versions) > 1}
+    if conflicting_references:
+        missing.append("conflicting evidence reference")
+    seen_evidence = set()
     for source in inputs:
         if not isinstance(source, dict) or source.get("kind") not in SOURCES:
             missing.append("unsupported source kind")
@@ -117,6 +129,8 @@ def collect(document):
         if not token(reference) or Path(reference).is_absolute() or ".." in Path(reference).parts:
             missing.append("invalid evidence reference")
             continue
+        if reference in conflicting_references:
+            continue
         payload = source.get("records")
         if not isinstance(payload, list):
             missing.append("invalid source records: " + reference)
@@ -124,7 +138,9 @@ def collect(document):
         digest = hashlib.sha256(canonical(payload).encode()).hexdigest()
         ev = {"kind": source["kind"], "reference": reference,
               "source_schema": INPUT if source.get("source_schema") == INPUT else "unknown", "records_sha256": digest}
-        evidence.append(ev)
+        if reference not in seen_evidence:
+            evidence.append(ev)
+            seen_evidence.add(reference)
         if source.get("source_schema") != INPUT:
             missing.append("unsupported source schema: " + reference)
             continue
@@ -141,18 +157,22 @@ def collect(document):
     grouped = {}
     for occurrence, record in enumerate(records):
         if (record.get("repository") and record.get("run_id") and record.get("run_attempt")
-                and record.get("job_id")):
+                and record.get("job_id") and record.get("kind") in ("job", "step")
+                and (record.get("kind") != "step" or record.get("step_number") is not None)):
             ident = ("github", record["repository"], record["run_id"], record["run_attempt"],
-                     record["job_id"], record.get("step_number"), record["id"])
+                     record["job_id"], record["kind"], record.get("step_number"))
         elif record.get("local_invocation_id") and origin == "local":
             ident = ("local", record["local_invocation_id"], record["id"])
         else:
             # Unverified identity cannot establish duplicates or conflicts.
             ident = ("unidentified", occurrence)
-        body = {k: v for k, v in record.items() if k != "evidence"}
+        body = {k: v for k, v in record.items() if k not in ("evidence", "id")}
+        record["aliases"] = [record["id"]]
         grouped.setdefault(ident, {}).setdefault(canonical(body), record)
         target = grouped[ident][canonical(body)]
         target["evidence"] = sorted(set(target["evidence"] + record["evidence"]))
+        target["aliases"] = sorted(set(target["aliases"] + record["aliases"]))
+        target["id"] = target["aliases"][0]
     output = []
     for versions in grouped.values():
         conflict = len(versions) > 1
@@ -181,6 +201,7 @@ def report(snapshot):
             or not isinstance(snapshot["evidence"], list)
             or not isinstance(snapshot["missing_reasons"], list)):
         raise ValueError("invalid snapshot metadata")
+    evidence_by_reference = {}
     for ev in snapshot["evidence"]:
         if (not isinstance(ev, dict) or set(ev) not in ({"kind", "reference", "source_schema", "records_sha256"}, {"kind", "reference", "source_schema", "records_sha256", "raw_sha256"})
                 or ev["kind"] not in SOURCES or not token(ev["reference"])
@@ -188,22 +209,28 @@ def report(snapshot):
                 or not re.fullmatch(r"[0-9a-f]{64}", ev["records_sha256"])
                 or ("raw_sha256" in ev and not re.fullmatch(r"[0-9a-f]{64}", ev["raw_sha256"]))):
             raise ValueError("invalid snapshot evidence")
+        previous = evidence_by_reference.setdefault(ev["reference"], canonical(ev))
+        if previous != canonical(ev):
+            raise ValueError("conflicting snapshot evidence reference")
     for record in records:
-        if not isinstance(record, dict) or set(record) - (FIELDS | {"evidence", "identity_conflict"}):
+        if not isinstance(record, dict) or set(record) - (FIELDS | {"evidence", "identity_conflict", "aliases"}):
             raise ValueError("invalid snapshot record")
-        body = {k: v for k, v in record.items() if k not in ("evidence", "identity_conflict")}
+        body = {k: v for k, v in record.items() if k not in ("evidence", "identity_conflict", "aliases")}
         if (not valid_record(body) or type(record.get("identity_conflict")) is not bool
                 or not isinstance(record.get("evidence"), list)
-                or not all(token(x) for x in record["evidence"])):
+                or not all(token(x) for x in record["evidence"])
+                or not isinstance(record.get("aliases"), list) or not record["aliases"]
+                or not all(token(x) for x in record["aliases"])
+                or record["id"] not in record["aliases"]):
             raise ValueError("invalid snapshot record")
     # Only collector-generated reason patterns are accepted, never arbitrary text.
     reasons = snapshot["missing_reasons"]
     prefixes = ("invalid source records: ", "unsupported source schema: ", "invalid or unsafe record: ")
     adapter_reasons = {"invalid job", "job fields unavailable", "reversed job timestamps",
         "pagination, workflow dependencies and run identity not verified", "invalid process record",
-        "invalid process elapsed", "missing process exit code", "process artifact outer identity not verified",
+        "invalid process elapsed", "invalid or missing process started_at", "missing process exit code", "process artifact outer identity not verified",
         "configuration and producer-consumer binding not verified", "measurement invocation and dirty inputs not verified"}
-    fixed = adapter_reasons | {"no sources", "unsupported source kind", "invalid evidence reference", "identity conflict", "source completeness not verified", "raw source identity and completeness not verified"}
+    fixed = adapter_reasons | {"no sources", "unsupported source kind", "invalid evidence reference", "identity conflict", "source completeness not verified", "raw source identity and completeness not verified", "conflicting evidence reference"}
     if not all(isinstance(x, str) and (x in fixed or any(x.startswith(p) and token(x[len(p):]) for p in prefixes)) for x in reasons):
         raise ValueError("invalid snapshot reasons")
     # No inference about execution success, timing, or complete DAG from this initial slice.

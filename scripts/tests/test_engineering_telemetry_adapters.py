@@ -25,6 +25,17 @@ class AdapterTests(unittest.TestCase):
         rows, missing, _ = a.project('process-jsonl', b'{"test_name":"x", "elapsed_seconds":3, "exit_code":1, "passed":false}\n')
         self.assertEqual(rows[0]['exit_code'], 1); self.assertNotIn('job_id', rows[0]); self.assertTrue(missing)
 
+    def test_process_producer_utc_offset_and_missing_time(self):
+        raw = b'{"started_at":"2026-11-03T15:37:25.123456+00:00","elapsed_seconds":3,"exit_code":0,"passed":true}\n'
+        rows, missing, _ = a.project("process-jsonl", raw)
+        self.assertEqual(rows[0]["started_at"], "2026-11-03T15:37:25.123456+00:00")
+        self.assertNotIn("invalid or missing process started_at", missing)
+        for invalid in (None, "2026-01-01T00:00:00", "2026-01-01T00:00:00+01:00"):
+            import json
+            rows, missing, _ = a.project("process-jsonl", (json.dumps({"started_at": invalid, "elapsed_seconds": 1, "exit_code": 0}) + "\n").encode())
+            self.assertIsNone(rows[0]["started_at"])
+            self.assertIn("invalid or missing process started_at", missing)
+
     def test_schema_and_budget_fail_closed(self):
         with self.assertRaises(ValueError): a.project('build-manifest', b'{"schema_version":3}')
         with self.assertRaises(ValueError): a.project('compile-metrics', b'{}')

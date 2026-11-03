@@ -11,7 +11,7 @@ import re
 
 MAX_BYTES = 32 * 1024 * 1024
 SHA = re.compile(r"^[0-9a-f]{40}$")
-UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$")
+UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|\+00:00)$")
 RESULTS = frozenset(("success", "failure", "cancelled", "skipped", "timed_out", "action_required", "neutral", "stale", "startup_failure"))
 
 
@@ -78,7 +78,10 @@ def project(kind, raw):
             code = row.get("exit_code")
             if type(code) is not int or abs(code) > 2**31:
                 code = None; missing.append("missing process exit code")
-            result.append({"kind": "test", "started_at": stamp(row.get("started_at")),
+            started_at = stamp(row.get("started_at"))
+            if started_at is None:
+                missing.append("invalid or missing process started_at")
+            result.append({"kind": "test", "started_at": started_at,
                            "elapsed_seconds": elapsed, "exit_code": code,
                            "timeout": row.get("timeout") if type(row.get("timeout")) is bool else None,
                            "cancelled": row.get("cancelled") if type(row.get("cancelled")) is bool else None,
