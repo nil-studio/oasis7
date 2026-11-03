@@ -12,6 +12,66 @@ use std::{
 };
 
 type PageMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
+
+#[test]
+fn fixed_member_reader_never_zero_pads_short_bytes_payloads() {
+    // A locator is 56 bytes. Its 40-byte prefix must not acquire a fabricated
+    // height/ordinal of zero merely because the destination array starts zeroed.
+    for length in [56, 0, 40, 55, 57] {
+        let memory = MemoryBudget::new(16 << 20, 0).unwrap();
+        let mut pages = Pages::new(&memory);
+        let payload = [7; 57];
+        let record = write_member_record_v1(
+            descriptor(WorldFieldRecordKindV1::Bytes),
+            WorldFieldRecordKindV1::Bytes,
+            "original-key",
+            MemberPayloadRefV1::Bytes(&payload[..length]),
+            &mut MemberRecordWriteContext {
+                sink: &mut pages,
+                memory: &memory,
+                io: &mut quota(),
+                key_work: &mut SemanticKeyBudget {
+                    bytes_remaining: 4096,
+                },
+                limits: MemberRecordLimitsV1 {
+                    semantic_bytes: 1024,
+                    payload_bytes: 1024,
+                    record_bytes: 4096,
+                },
+                cancelled: || false,
+            },
+        )
+        .unwrap();
+        let mut io = quota();
+        let mut values = ValueReadContext {
+            source: &pages,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut io,
+        };
+        let result = crate::incremental_inventory_value_read::InventoryValueReader {
+            values: &mut values,
+            key_work: &mut SemanticKeyBudget {
+                bytes_remaining: 4096,
+            },
+            semantic_bytes: 1024,
+            record_bytes: 4096,
+            cancelled: &mut || false,
+        }
+        .fixed::<56>(
+            &record.value_root,
+            &record.field_key,
+            record.info.semantic_bytes,
+            MemberPayloadCodecV1::Bytes,
+        );
+        if length == 56 {
+            assert_eq!(result.unwrap(), [7; 56]);
+        } else {
+            assert!(result.is_err(), "short/oversize wire accepted: {length}");
+        }
+    }
+}
+
 struct Pages {
     nodes: ReservedValue<RefCell<PageMap>>,
     reads: Cell<usize>,

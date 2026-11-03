@@ -1,0 +1,1945 @@
+{
+  "rows": [
+    {
+      "catalog_id": "R-NAV-03",
+      "design_anchor": "doc/world-simulator/viewer/viewer-world-navigation-uiux.design.md#r-nav-03",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/10-entry-gate-focus.svg",
+              "region": "entry-menu"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "entry-menu",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L854",
+              "source_excerpt": "function ViewerEntryMenu() {",
+              "fields": [
+                "locale zh/en",
+                "localeCode badge",
+                "softwareSafeUrl text",
+                "account security details"
+              ],
+              "actions": [
+                "native details toggle",
+                "setViewerLocale"
+              ],
+              "states": [
+                "current locale button disabled",
+                "account details only hosted_public_join and auth.available"
+              ],
+              "spec_anchor": "entry-menu",
+              "frame": "10-entry-gate-focus.svg",
+              "region": "entry-menu",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-01",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-01",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "entry"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-entry",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_module.js#L437",
+              "source_excerpt": "root.append(button(\"免邮箱创建账号\", async () => {",
+              "fields": [],
+              "actions": [
+                "create passkey account",
+                "existing passkey login"
+              ],
+              "states": [
+                "registration closed",
+                "passkey unavailable",
+                "signed out"
+              ],
+              "spec_anchor": "account-entry",
+              "frame": "01-account.svg",
+              "region": "entry",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-02",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-02",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "entry"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-entry",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_module.js#L437",
+              "source_excerpt": "root.append(button(\"免邮箱创建账号\", async () => {",
+              "fields": [],
+              "actions": [
+                "create passkey account",
+                "existing passkey login"
+              ],
+              "states": [
+                "registration closed",
+                "passkey unavailable",
+                "signed out"
+              ],
+              "spec_anchor": "account-entry",
+              "frame": "01-account.svg",
+              "region": "entry",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-03",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-03",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "world"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-world",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_module.js#L458",
+              "source_excerpt": "root.append(button(\"确认在此设备继续，替换原世界控制\", async () => {",
+              "fields": [
+                "expected epoch"
+              ],
+              "actions": [
+                "enter world",
+                "explicit takeover",
+                "retain previous control"
+              ],
+              "states": [
+                "signed in not admitted",
+                "control elsewhere",
+                "control pending"
+              ],
+              "spec_anchor": "account-world",
+              "frame": "01-account.svg",
+              "region": "world",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-04",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-04",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "management"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-management",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_module.js#L369",
+              "source_excerpt": "\"/capabilities\": \"能力检查\", \"/session\": \"会话确认\", \"/credentials\": \"登录方式加载\", \"/sessions\": \"会话列表加载\",",
+              "fields": [
+                "credential label",
+                "session current/device"
+              ],
+              "actions": [
+                "add passkey",
+                "remove credential",
+                "revoke other/current session",
+                "logout",
+                "retry independent lists"
+              ],
+              "states": [
+                "signed in",
+                "list failure",
+                "last credential protected",
+                "reauth required"
+              ],
+              "spec_anchor": "account-management",
+              "frame": "01-account.svg",
+              "region": "management",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-05",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-05",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "management"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-management",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_module.js#L369",
+              "source_excerpt": "\"/capabilities\": \"能力检查\", \"/session\": \"会话确认\", \"/credentials\": \"登录方式加载\", \"/sessions\": \"会话列表加载\",",
+              "fields": [
+                "credential label",
+                "session current/device"
+              ],
+              "actions": [
+                "add passkey",
+                "remove credential",
+                "revoke other/current session",
+                "logout",
+                "retry independent lists"
+              ],
+              "states": [
+                "signed in",
+                "list failure",
+                "last credential protected",
+                "reauth required"
+              ],
+              "spec_anchor": "account-management",
+              "frame": "01-account.svg",
+              "region": "management",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-06",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-06",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "original"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-original",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_module.js#L425",
+              "source_excerpt": "root.append(element(\"p\", `待核对操作：${pendingOperation}`));",
+              "fields": [
+                "operation ID"
+              ],
+              "actions": [
+                "refresh session",
+                "lookup original"
+              ],
+              "states": [
+                "pending",
+                "committed requires fresh authentication",
+                "cancelled/expired/exhausted"
+              ],
+              "spec_anchor": "account-original",
+              "frame": "02-recovery.svg",
+              "region": "original",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-07",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-07",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "import"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-import",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_imported_key.js#L57",
+              "source_excerpt": "const pub = input(\"公钥\", \"text\"); const secret = input(\"私钥种子\", \"password\");",
+              "fields": [
+                "public key 64 hex",
+                "private seed password 64 hex"
+              ],
+              "actions": [
+                "login existing key",
+                "bind key when signed in",
+                "load key for security confirmation"
+              ],
+              "states": [
+                "invalid",
+                "mismatch",
+                "unsupported",
+                "conflict"
+              ],
+              "spec_anchor": "account-import",
+              "frame": "01-account.svg",
+              "region": "import",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-08",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-08",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "eligibility"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "code"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "email-address",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L14",
+              "source_excerpt": "if (!account && capabilities.email?.available) button(\"使用邮箱登录\", () => mode(\"login_address\"));",
+              "fields": [
+                "email"
+              ],
+              "actions": [
+                "send operation OTP"
+              ],
+              "states": [
+                "login_address",
+                "binding_address"
+              ],
+              "spec_anchor": "email-address",
+              "frame": "02-recovery.svg",
+              "region": "eligibility",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "email-code",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L36",
+              "source_excerpt": "if ([\"login_code\", \"binding_code\", \"recovery_code\", \"upgrade_code\", \"completion_code\"].includes(state.mode)) {",
+              "fields": [
+                "OTP max6 numeric"
+              ],
+              "actions": [
+                "confirm operation"
+              ],
+              "states": [
+                "login_code",
+                "binding_code",
+                "upgrade_code"
+              ],
+              "spec_anchor": "email-code",
+              "frame": "02-recovery.svg",
+              "region": "code",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-09",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-09",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/11-recovery-lookup.svg",
+              "region": "lookup"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "eligibility"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "candidate"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "status"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/02-recovery.svg",
+              "region": "complete"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "recovery-lookup",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L61",
+              "source_excerpt": "if (state.mode === \"recovery_lookup\") {",
+              "fields": [
+                "recoveryId input; no client required attribute"
+              ],
+              "actions": [
+                "view this request using recoveryStatus",
+                "close flow"
+              ],
+              "states": [
+                "signed-in recovery_lookup",
+                "then recovery_status"
+              ],
+              "spec_anchor": "recovery-lookup",
+              "frame": "11-recovery-lookup.svg",
+              "region": "lookup",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "recovery-address",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L26",
+              "source_excerpt": "field(\"已有恢复申请编号（可选）\", \"recoveryId\");",
+              "fields": [
+                "bound email",
+                "optional recovery ID"
+              ],
+              "actions": [
+                "send eligibility OTP"
+              ],
+              "states": [
+                "recovery_address",
+                "recovery_code"
+              ],
+              "spec_anchor": "recovery-address",
+              "frame": "02-recovery.svg",
+              "region": "eligibility",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "recovery-candidate",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L55",
+              "source_excerpt": "root.append(element(\"p\", \"创建一个固定的候选通行密钥。它在恢复完成前不能登录原账号；完成时还需再次验证邮箱和此候选密钥。\"));",
+              "fields": [],
+              "actions": [
+                "create fixed candidate"
+              ],
+              "states": [
+                "recovery_candidate"
+              ],
+              "spec_anchor": "recovery-candidate",
+              "frame": "02-recovery.svg",
+              "region": "candidate",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "recovery-status",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L67",
+              "source_excerpt": "const stateLabel = { waiting: \"等待保护期\", approved: \"原通行密钥已批准\", cancelled: \"已取消\", completed: \"已完成\" };",
+              "fields": [
+                "request ID",
+                "state",
+                "not_before",
+                "expires_at",
+                "candidate digest"
+              ],
+              "actions": [
+                "refresh",
+                "cancel fixed candidate",
+                "authenticated approve",
+                "signed-out completion OTP"
+              ],
+              "states": [
+                "waiting",
+                "approved",
+                "cancelled",
+                "completed",
+                "unknown label"
+              ],
+              "spec_anchor": "recovery-status",
+              "frame": "02-recovery.svg",
+              "region": "status",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "recovery-complete",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_account_email_recovery.js#L38",
+              "source_excerpt": "button(state.mode === \"completion_code\" ? \"验证邮箱与候选通行密钥，完成恢复\" : \"确认本次操作\", async () => {",
+              "fields": [
+                "OTP",
+                "candidate passkey ceremony"
+              ],
+              "actions": [
+                "verify email and candidate",
+                "close flow"
+              ],
+              "states": [
+                "completion_code"
+              ],
+              "spec_anchor": "recovery-complete",
+              "frame": "02-recovery.svg",
+              "region": "complete",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-10",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-10",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/01-account.svg",
+              "region": "capability"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-capability",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_passkey_account_surface.jsx#L32",
+              "source_excerpt": "if (failure.status === 404) { setLegacy(true); focusReadySurface(); }",
+              "fields": [],
+              "actions": [
+                "404 only: legacy form"
+              ],
+              "states": [
+                "loading",
+                "404 legacy",
+                "other failure"
+              ],
+              "spec_anchor": "account-capability",
+              "frame": "01-account.svg",
+              "region": "capability",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-11",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-11",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/07-legacy-session.svg",
+              "region": "legacy-address"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/07-legacy-session.svg",
+              "region": "legacy-code"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "legacy-address",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L619",
+              "source_excerpt": "function LegacyHostedLoginForm(props) {",
+              "fields": [
+                "email autocomplete=email"
+              ],
+              "actions": [
+                "request login code"
+              ],
+              "states": [
+                "HTTP404 only",
+                "startInFlight",
+                "retry_after"
+              ],
+              "spec_anchor": "legacy-address",
+              "frame": "07-legacy-session.svg",
+              "region": "legacy-address",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "legacy-code",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L682",
+              "source_excerpt": "data-auth-action=\"complete-login\"",
+              "fields": [
+                "challenge",
+                "masked target",
+                "delivery",
+                "existing/new",
+                "code autocomplete off"
+              ],
+              "actions": [
+                "sign in and acquire player session"
+              ],
+              "states": [
+                "completeInFlight",
+                "issueInFlight",
+                "error"
+              ],
+              "spec_anchor": "legacy-code",
+              "frame": "07-legacy-session.svg",
+              "region": "legacy-code",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-12",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-12",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/10-entry-gate-focus.svg",
+              "region": "focus-boundary"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/10-entry-gate-focus.svg",
+              "region": "gate-world-pending"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "account-focus",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L724",
+              "source_excerpt": "function HostedLoginGate() {",
+              "fields": [
+                "signed-in / not-signed-in gate copy"
+              ],
+              "actions": [
+                "Tab focus trap",
+                "restore prior focus on cleanup"
+              ],
+              "states": [
+                "no auth + hosted_public_join",
+                "v2 surface ready autofocus"
+              ],
+              "spec_anchor": "account-focus",
+              "frame": "10-entry-gate-focus.svg",
+              "region": "focus-boundary",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "gate-stage",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L726",
+              "source_excerpt": "const accountCopy = () => hostedAccountGateCopy(accountSignedIn(), uiLocale());",
+              "fields": [
+                "signed-in flag gate title/badge/summary"
+              ],
+              "actions": [
+                "login or create",
+                "enter world after account login"
+              ],
+              "states": [
+                "no auth and hosted_public_join gate",
+                "account signed in world pending",
+                "no close/escape bypass"
+              ],
+              "spec_anchor": "gate-stage",
+              "frame": "10-entry-gate-focus.svg",
+              "region": "gate-world-pending",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-13",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-13",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/07-legacy-session.svg",
+              "region": "player-session"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "player-session",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2875",
+              "source_excerpt": "title={tr(locale(), \"进入会话\", \"Player Access\")}",
+              "fields": [
+                "auth",
+                "tier",
+                "player",
+                "boundAgent",
+                "rebindNotice"
+              ],
+              "actions": [
+                "release player session"
+              ],
+              "states": [
+                "missing",
+                "rebinding",
+                "recovery",
+                "nonlegacy available"
+              ],
+              "spec_anchor": "player-session",
+              "frame": "07-legacy-session.svg",
+              "region": "player-session",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-AUTH-QA",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-auth-qa",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "text_spec_only",
+          "frames": [],
+          "authored_scope": "text-only",
+          "details": [
+            {
+              "id": "test-login",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_hosted_test_login_view.jsx#L10",
+              "source_excerpt": "export function HostedTestLoginOptIn(props) {",
+              "fields": [],
+              "actions": [
+                "explicit test login"
+              ],
+              "states": [
+                "URL opt-in plus supported test deployment",
+                "disabled in-flight"
+              ],
+              "spec_anchor": "test-login",
+              "frame": null,
+              "region": "text-only QA not production",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-01",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-01",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/04-byok-entry.svg",
+              "region": "entry"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/04-byok-entry.svg",
+              "region": "original"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-entry",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_byok_surface.jsx#L20",
+              "source_excerpt": "const entryLabel = () => ({ needs_participant: tr(\"账号绑定待核对\", \"Account binding needs verification\"), needs_task: tr(\"需要创建任务\", \"Task needs preparation\"), needs_goal: tr(\"需要发布目标\", \"Goal needs publication\"), ready: tr(\"账号任务已就绪\", \"Account task ready\"), pending: browserGameDiagnostic(entryState()).category === \"pending\" ? tr(\"原件结果待确认\", \"Original result pending\") : browserGameDiagnostic(entryState()).category === \"history_unavailable\" ? tr(\"原件历史暂不可核对\", \"Original history unavailable\") : tr(\"原件结果尚未确认\", \"Original result unconfirmed\"), unsent: tr(\"保留原件确定尚未发送\", \"Retained original has not been sent\"), owner_mismatch: tr(\"玩家身份与原绑定不符\", \"Owner identity mismatch\"), failed: tr(\"入口核对失败\", \"Entry inspection failed\"), stopped: tr(\"入口准备已停止，请先只读核对原件\", \"Entry preparation stopped; inspect originals before continuing\") })[entryState()?.state] || \"—\";",
+              "fields": [
+                "goal UTF8 bytes <=8192",
+                "entry consent",
+                "canonical Agent/Task"
+              ],
+              "actions": [
+                "prepare missing entry",
+                "lookup original",
+                "stop preparation",
+                "reopen read-only"
+              ],
+              "states": [
+                "needs_participant",
+                "needs_task",
+                "needs_goal",
+                "ready",
+                "pending",
+                "unsent",
+                "owner_mismatch",
+                "failed",
+                "stopped"
+              ],
+              "spec_anchor": "byok-entry",
+              "frame": "04-byok-entry.svg",
+              "region": "entry",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "byok-unsent",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_byok_surface.jsx#L153",
+              "source_excerpt": "<button type=\"button\" disabled={entryBusy() || !entryConsent() || !goal().trim() || goalBytes() > 8192} onClick={() => void prepareEntry(true)}>{tr(\"继续发送保留的原件\", \"Continue sending the retained original\")}</button>",
+              "fields": [
+                "retained original",
+                "frozen goal"
+              ],
+              "actions": [
+                "explicit continue same proven-unsent original"
+              ],
+              "states": [
+                "durably unsent only",
+                "possibly sent lookup only"
+              ],
+              "spec_anchor": "byok-unsent",
+              "frame": "04-byok-entry.svg",
+              "region": "original",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-02",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-02",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/04-byok-entry.svg",
+              "region": "executor"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-executor",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_byok_surface.jsx#L163",
+              "source_excerpt": "<button type=\"button\" disabled={!state()?.fence || !confirm() || [\"running\", \"preparing\"].includes(state()?.phase)} onClick={() => { const confirmedFence = state()?.fence; setConfirm(false); void act((session) => session.prepare({ takeover: true, confirmedFence }), \"executor_prepare\"); }}>{tr(\"核对任务并登记执行身份\", \"Check task and register executor\")}</button>",
+              "fields": [
+                "world/owner/Agent/Task/goal/executor fence",
+                "takeover consent"
+              ],
+              "actions": [
+                "inspect current task",
+                "register browser executor"
+              ],
+              "states": [
+                "fence absent",
+                "preparing",
+                "ready",
+                "other executor needs explicit switch"
+              ],
+              "spec_anchor": "byok-executor",
+              "frame": "04-byok-entry.svg",
+              "region": "executor",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-03",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-03",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/05-byok-model.svg",
+              "region": "save"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-key",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_model_connection_panel.jsx#L83",
+              "source_excerpt": "<label>{tr(\"推理 API Key\", \"Inference API key\")}<input ref={input} type=\"password\" autocomplete=\"off\" spellcheck={false} disabled={busy()} /></label>",
+              "fields": [
+                "password API key",
+                "local save consent"
+              ],
+              "actions": [
+                "save Key"
+              ],
+              "states": [
+                "deployment absent no collection",
+                "executor not ready",
+                "key saved not running"
+              ],
+              "spec_anchor": "byok-key",
+              "frame": "05-byok-model.svg",
+              "region": "save",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "byok-storage",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_model_store.js#L17",
+              "source_excerpt": "const storageKey = `oasis7.browser-model.v1:${encodeURIComponent(accountId)}:deepseek`;",
+              "fields": [
+                "account-scoped localStorage record",
+                "Web Lock management key"
+              ],
+              "actions": [
+                "save atomic record",
+                "stop retains key",
+                "forget key"
+              ],
+              "states": [
+                "storage corrupt",
+                "storage unavailable",
+                "lock unavailable"
+              ],
+              "spec_anchor": "byok-storage",
+              "frame": null,
+              "region": "text-only",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-04",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-04",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/05-byok-model.svg",
+              "region": "probe"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-probe",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_model_connection_panel.jsx#L90",
+              "source_excerpt": "<label class=\"model-connection-panel__check\"><input type=\"checkbox\" checked={probeConsent()} onChange={(event) => setProbeConsent(event.currentTarget.checked)} disabled={busy() || !snapshot()?.hasKey} />{tr(\"同意一次两请求的有限付费工具检查，不写游戏世界。\", \"Consent to one bounded, two-request, billable tool check; no world writes.\")}</label>",
+              "fields": [
+                "billable check consent",
+                "4 calls/2048 token probe allowance",
+                "8 calls/131072 total"
+              ],
+              "actions": [
+                "test connection"
+              ],
+              "states": [
+                "no key",
+                "checked",
+                "auth failure",
+                "CORS/network/protocol unknown",
+                "budget exhausted"
+              ],
+              "spec_anchor": "byok-probe",
+              "frame": "05-byok-model.svg",
+              "region": "probe",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-05",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-05",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/05-byok-model.svg",
+              "region": "run"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-start",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_byok_surface.jsx#L165",
+              "source_excerpt": "<label><input type=\"checkbox\" checked={runConsent()} onChange={(event) => setRunConsent(event.currentTarget.checked)} disabled={!state()?.ready || state()?.phase === \"running\"} />{tr(\"确认上述实际 Agent、任务和目标；开始后供应商账户计费。检查与执行共享本站账号最多 8 次调用、131072 token；每次执行输出最多 512 token，本轮 120 秒。\", \"Confirm the actual Agent, Task and goal above. Starting charges your provider account. Checks and execution share an account limit of 8 calls and 131072 reserved tokens. Each execution call allows 512 output tokens; this run lasts 120 seconds.\")}</label>",
+              "fields": [
+                "actual task/goal",
+                "run consent",
+                "512 output/run call",
+                "120sec"
+              ],
+              "actions": [
+                "confirm start",
+                "stop new decisions",
+                "lookup originals",
+                "forget local Key"
+              ],
+              "states": [
+                "ready + checked required",
+                "running",
+                "budget exhausted",
+                "authority changed stopped"
+              ],
+              "spec_anchor": "byok-start",
+              "frame": "05-byok-model.svg",
+              "region": "run",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "byok-diagnostics",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_byok_surface.jsx#L45",
+              "source_excerpt": "history_unavailable: tr(\"无法核对原件历史；这不代表未执行或被拒绝。保留原件，不自动重发。\", \"Original history cannot be verified. This does not mean non-execution or rejection. Retain the original; it is not automatically resubmitted.\"),",
+              "fields": [
+                "safe category/stage/code/HTTP",
+                "original identity"
+              ],
+              "actions": [
+                "read-only reconcile"
+              ],
+              "states": [
+                "network",
+                "timeout",
+                "storage",
+                "proof",
+                "permission",
+                "deployment",
+                "history unavailable",
+                "pending"
+              ],
+              "spec_anchor": "byok-diagnostics",
+              "frame": null,
+              "region": "text-only",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-06",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-06",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/05-byok-model.svg",
+              "region": "stop"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-stop-forget",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_model_connection_panel.jsx#L96",
+              "source_excerpt": "<p>{tr(\"停止保留 Key；忘记删除本站保存的 Key。两者不撤销供应商 Key，不保证已发请求退款，也不取消已受理的世界作业。\", \"Stop retains the key; Forget removes it from site data. Neither revokes the provider key, guarantees refunds for sent requests, nor cancels accepted world jobs.\")}</p>",
+              "fields": [],
+              "actions": [
+                "stop retains Key",
+                "forget site Key"
+              ],
+              "states": [
+                "not provider revocation",
+                "not refund",
+                "not world job cancellation"
+              ],
+              "spec_anchor": "byok-stop-forget",
+              "frame": "05-byok-model.svg",
+              "region": "stop",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-BYOK-07",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-byok-07",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/05-byok-model.svg",
+              "region": "legacy"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "byok-legacy",
+              "source": "crates/oasis7_viewer/software_safe_src/browser_byok_surface.jsx#L176",
+              "source_excerpt": "<ModelConnectionPanel locale={props.locale} agentId={props.agentId} canControl={false} managementOnly={true} />",
+              "fields": [
+                "legacy connection selector"
+              ],
+              "actions": [
+                "select",
+                "refresh",
+                "stop",
+                "forget"
+              ],
+              "states": [
+                "no create",
+                "no probe",
+                "no start",
+                "no renew"
+              ],
+              "spec_anchor": "byok-legacy",
+              "frame": "05-byok-model.svg",
+              "region": "legacy",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-01",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-01",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "chat"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "chat-authority",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3294",
+              "source_excerpt": "const chatControlsEnabled = () => {",
+              "fields": [
+                "selected Agent",
+                "capability",
+                "binding",
+                "in-flight"
+              ],
+              "actions": [
+                "send only when capability and control valid"
+              ],
+              "states": [
+                "unselected",
+                "location selected",
+                "binding pending",
+                "other Agent",
+                "in-flight"
+              ],
+              "spec_anchor": "chat-authority",
+              "frame": "03-command.svg",
+              "region": "chat",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-02",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-02",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "chat"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "history"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "chat-compose",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3454",
+              "source_excerpt": "id=\"agent-chat-message\"",
+              "fields": [
+                "message multiline"
+              ],
+              "actions": [
+                "explicit Send Chat"
+              ],
+              "states": [
+                "draft",
+                "no feedback",
+                "pending",
+                "blocked",
+                "rejected",
+                "accepted/applied as returned"
+              ],
+              "spec_anchor": "chat-compose",
+              "frame": "03-command.svg",
+              "region": "chat",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "chat-history",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3286",
+              "source_excerpt": "const chatHistory = () => {",
+              "fields": [
+                "Agent-filtered history max12",
+                "tick",
+                "feedback"
+              ],
+              "actions": [
+                "expand diagnostics",
+                "refresh authority and binding"
+              ],
+              "states": [
+                "empty",
+                "history available"
+              ],
+              "spec_anchor": "chat-history",
+              "frame": "03-command.svg",
+              "region": "history",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-03",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-03",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/08-command-context.svg",
+              "region": "goal"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "canonical-goal",
+              "source": "crates/oasis7_viewer/software_safe_src/canonical_agent_goal.jsx#L5",
+              "source_excerpt": "const goal = () => authenticatedCanonicalGoal(props.state, props.agentId);",
+              "fields": [
+                "authenticated current goal message"
+              ],
+              "actions": [],
+              "states": [
+                "available",
+                "hidden if unauthenticated",
+                "canonical chat pending"
+              ],
+              "spec_anchor": "canonical-goal",
+              "frame": "08-command-context.svg",
+              "region": "goal",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-04",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-04",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/08-command-context.svg",
+              "region": "activity"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "agent-activity",
+              "source": "crates/oasis7_viewer/software_safe_src/agent_activity_surface.jsx#L11",
+              "source_excerpt": "const model = () => describeAgentActivity(props.activity, locale());",
+              "fields": [
+                "state",
+                "blocked operation",
+                "target or unavailable",
+                "blocked reason"
+              ],
+              "actions": [],
+              "states": [
+                "idle",
+                "executing",
+                "blocked",
+                "waiting",
+                "unavailable"
+              ],
+              "spec_anchor": "agent-activity",
+              "frame": "08-command-context.svg",
+              "region": "activity",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-05",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-05",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/08-command-context.svg",
+              "region": "intent"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "agent-intent",
+              "source": "crates/oasis7_viewer/software_safe_src/agent_intent_surface.jsx#L16",
+              "source_excerpt": "const hidden = () => [\"control_lost\", \"read_only\", \"unauthorized\", \"unavailable\"].includes(model().kind);",
+              "fields": [
+                "status label",
+                "safe message",
+                "receipt label",
+                "reason summary",
+                "lifecycle",
+                "next step"
+              ],
+              "actions": [],
+              "states": [
+                "proposed",
+                "submitted",
+                "accepted",
+                "blocked",
+                "completed",
+                "rejected",
+                "expired",
+                "cancelled",
+                "superseded",
+                "control_lost/read_only/unauthorized/unavailable hide details"
+              ],
+              "spec_anchor": "agent-intent",
+              "frame": "08-command-context.svg",
+              "region": "intent",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-06",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-06",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/08-command-context.svg",
+              "region": "context"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "agent-context",
+              "source": "crates/oasis7_viewer/software_safe_src/agent_context_lite.jsx#L43",
+              "source_excerpt": "const decisionFields = () => [model().objective, model().nextMove, model().blocker, model().playerLeverage];",
+              "fields": [
+                "identity name/id/label",
+                "location",
+                "state/freshness",
+                "objective",
+                "nextMove",
+                "blocker",
+                "playerLeverage",
+                "feedback"
+              ],
+              "actions": [],
+              "states": [
+                "published",
+                "unavailable",
+                "non-Agent fallback",
+                "matched intent",
+                "receipt confirmation suppressed"
+              ],
+              "spec_anchor": "agent-context",
+              "frame": "08-command-context.svg",
+              "region": "context",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-07",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-07",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/09-safe-alternative.svg",
+              "region": "compare"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/09-safe-alternative.svg",
+              "region": "candidate"
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/09-safe-alternative.svg",
+              "region": "execute"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "safe-compare",
+              "source": "crates/oasis7_viewer/software_safe_src/safe_alternative_panel.jsx#L13",
+              "source_excerpt": "const propose = () => {",
+              "fields": [
+                "original goal",
+                "waypoint JSON 1-8",
+                "optional arrival_tick"
+              ],
+              "actions": [
+                "compare",
+                "recover original",
+                "retry exact signed original"
+              ],
+              "states": [
+                "unknown prevents new compare",
+                "JSON invalid error"
+              ],
+              "spec_anchor": "safe-compare",
+              "frame": "09-safe-alternative.svg",
+              "region": "compare",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "safe-candidate",
+              "source": "crates/oasis7_viewer/software_safe_src/safe_alternative_panel.jsx#L36",
+              "source_excerpt": "<For each={record().candidates || []}>{candidate => <article>",
+              "fields": [
+                "target",
+                "scope",
+                "cost upper bound",
+                "risk",
+                "consequences",
+                "retractability",
+                "recommendation",
+                "required authority",
+                "generation/digest/expiry"
+              ],
+              "actions": [
+                "confirm exact candidate"
+              ],
+              "states": [
+                "awaiting_confirmation",
+                "no_safe_alternative",
+                "evaluation_unavailable",
+                "unknown disabled"
+              ],
+              "spec_anchor": "safe-candidate",
+              "frame": "09-safe-alternative.svg",
+              "region": "candidate",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            },
+            {
+              "id": "safe-execute",
+              "source": "crates/oasis7_viewer/software_safe_src/safe_alternative_panel.jsx#L49",
+              "source_excerpt": "authorization_id: record().authorization.authorization_id, execution_id: crypto.randomUUID() }))}>Execute confirmed choice / 执行已确认选择</button>",
+              "fields": [
+                "authorization ID",
+                "actual outcome/status/action/event"
+              ],
+              "actions": [
+                "execute confirmed",
+                "reevaluate",
+                "read",
+                "decline/cancel"
+              ],
+              "states": [
+                "authorization available",
+                "confirmed",
+                "execution_bound",
+                "applied",
+                "rejected",
+                "declined",
+                "expired",
+                "superseded",
+                "unknown disabled"
+              ],
+              "spec_anchor": "safe-execute",
+              "frame": "09-safe-alternative.svg",
+              "region": "execute",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-08",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-08",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "prompt"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "prompt-overrides",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3554",
+              "source_excerpt": "id=\"prompt-system\"",
+              "fields": [
+                "system override",
+                "short term goal",
+                "long term goal",
+                "approval code when eligible",
+                "rollback version"
+              ],
+              "actions": [
+                "show/hide overrides",
+                "preview",
+                "apply",
+                "rollback"
+              ],
+              "states": [
+                "hidden default",
+                "no authority",
+                "preview not apply",
+                "accepted not applied",
+                "stale/blocked"
+              ],
+              "spec_anchor": "prompt-overrides",
+              "frame": "03-command.svg",
+              "region": "prompt",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-09",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-09",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "prompt"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "prompt-overrides",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3554",
+              "source_excerpt": "id=\"prompt-system\"",
+              "fields": [
+                "system override",
+                "short term goal",
+                "long term goal",
+                "approval code when eligible",
+                "rollback version"
+              ],
+              "actions": [
+                "show/hide overrides",
+                "preview",
+                "apply",
+                "rollback"
+              ],
+              "states": [
+                "hidden default",
+                "no authority",
+                "preview not apply",
+                "accepted not applied",
+                "stale/blocked"
+              ],
+              "spec_anchor": "prompt-overrides",
+              "frame": "03-command.svg",
+              "region": "prompt",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-10",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-10",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "prompt"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "prompt-overrides",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3554",
+              "source_excerpt": "id=\"prompt-system\"",
+              "fields": [
+                "system override",
+                "short term goal",
+                "long term goal",
+                "approval code when eligible",
+                "rollback version"
+              ],
+              "actions": [
+                "show/hide overrides",
+                "preview",
+                "apply",
+                "rollback"
+              ],
+              "states": [
+                "hidden default",
+                "no authority",
+                "preview not apply",
+                "accepted not applied",
+                "stale/blocked"
+              ],
+              "spec_anchor": "prompt-overrides",
+              "frame": "03-command.svg",
+              "region": "prompt",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-11",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-11",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "prompt"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "prompt-overrides",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3554",
+              "source_excerpt": "id=\"prompt-system\"",
+              "fields": [
+                "system override",
+                "short term goal",
+                "long term goal",
+                "approval code when eligible",
+                "rollback version"
+              ],
+              "actions": [
+                "show/hide overrides",
+                "preview",
+                "apply",
+                "rollback"
+              ],
+              "states": [
+                "hidden default",
+                "no authority",
+                "preview not apply",
+                "accepted not applied",
+                "stale/blocked"
+              ],
+              "spec_anchor": "prompt-overrides",
+              "frame": "03-command.svg",
+              "region": "prompt",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-12",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-12",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/08-command-context.svg",
+              "region": "asset"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "asset-lane",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3654",
+              "source_excerpt": "<details class=\"diagnostic command-surface__asset-details\">",
+              "fields": [
+                "main_token_transfer",
+                "required_auth",
+                "availability",
+                "policy reason"
+              ],
+              "actions": [
+                "disabled transfer placeholder"
+              ],
+              "states": [
+                "preview_only",
+                "blocked",
+                "not exposed"
+              ],
+              "spec_anchor": "asset-lane",
+              "frame": "08-command-context.svg",
+              "region": "asset",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    },
+    {
+      "catalog_id": "R-CMD-13",
+      "design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-13",
+      "mappings": [
+        {
+          "family": "account-agent",
+          "representation": "normal_frame",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/03-command.svg",
+              "region": "history"
+            }
+          ],
+          "authored_scope": "form/state examples plus text specification",
+          "details": [
+            {
+              "id": "chat-history",
+              "source": "crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L3286",
+              "source_excerpt": "const chatHistory = () => {",
+              "fields": [
+                "Agent-filtered history max12",
+                "tick",
+                "feedback"
+              ],
+              "actions": [
+                "expand diagnostics",
+                "refresh authority and binding"
+              ],
+              "states": [
+                "empty",
+                "history available"
+              ],
+              "spec_anchor": "chat-history",
+              "frame": "03-command.svg",
+              "region": "history",
+              "evidence": "source-observed",
+              "runtime_validation": "not performed"
+            }
+          ],
+          "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        }
+      ]
+    }
+  ],
+  "limits": "Representative field/state mapping only; source qualifications live in global catalog."
+}

@@ -322,3 +322,28 @@ pub mod incremental_governance_records;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_main_token_policy_records;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_qualification_class;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_capability_records;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_scheduler_controls;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_effects;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_lineages;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_world_rule_parent;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_world_rule_record;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_shipments;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_organization;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_supply_root;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_diplomacy;

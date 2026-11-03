@@ -1184,3 +1184,8 @@ mod incremental_artifact_config;
 pub mod incremental_artifact_content;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_artifact_resources;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_scheduler_controls;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_capability_records;
