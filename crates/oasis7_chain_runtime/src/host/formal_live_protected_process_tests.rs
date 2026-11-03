@@ -127,6 +127,8 @@ const WASM_EXECUTOR_TEST_MODULE: &[u8] = &[
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; oracle is a test simulation"]
 fn protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin() {
     run_on_fixture_stack(false).unwrap();
+    // Keep both complete scenarios under the trusted ignored-test runner.
+    protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session();
 }
 
 #[test]
@@ -162,8 +164,8 @@ fn protected_endpoint_children_start_from_qualified_zero_height_genesis() {
     run_on_fixture_stack(true).unwrap();
 }
 
-#[test]
-#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; deterministic lost initial reply, simulated custody"]
+// Separate complete fixture lifecycle; invoked unconditionally by the trusted
+// protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin test.
 fn protected_initial_closure_lost_reply_recovers_original_with_new_coordinator_session() {
     std::thread::Builder::new()
         .name("formal-initial-lost-reply".into())
