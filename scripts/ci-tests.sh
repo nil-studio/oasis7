@@ -942,7 +942,7 @@ PY
   done <<<"$selected"
 }
 
-run_full_extended_tier_tests() {
+prepare_full_provider_artifact() {
   local provider_bundle provider_env
   mkdir -p "$repo_root/target"
   provider_bundle=$(mktemp -d "$repo_root/target/ci-preview-provider.XXXXXX")
@@ -950,6 +950,9 @@ run_full_extended_tier_tests() {
   run "$ci_python" "$driver_dir/ci-test-artifacts.py" prepare-provider --repo-root "$repo_root" \
     --bundle "$provider_bundle" --output "$provider_env"
   source "$provider_env"
+}
+
+run_full_extended_tier_tests() {
   run_oasis7_full_tier_tests
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke
@@ -1022,6 +1025,11 @@ fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline ) ) ]]; then
   echo '--plan requires required --group oasis7_required or rust_baseline' >&2
   exit 2
+fi
+if [[ -z "$group" ]]; then
+  case "$tier" in
+    full|full-standard|full-extended|full-core) prepare_full_provider_artifact ;;
+  esac
 fi
 if [[ -n "$group" ]]; then
   [[ "$tier" == required ]] || { echo '--group requires required tier' >&2; exit 2; }
