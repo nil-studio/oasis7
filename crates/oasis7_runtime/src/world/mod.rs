@@ -1140,6 +1140,7 @@ pub mod incremental_module_instance_family;
 pub mod incremental_module_instance_receiver;
 pub mod incremental_module_instance_recovery;
 pub mod incremental_module_read;
+pub mod incremental_module_invocation;
 
 #[cfg(test)]
 mod incremental_module_instance_tests;

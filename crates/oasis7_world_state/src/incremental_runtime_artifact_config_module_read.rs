@@ -6,7 +6,11 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
-use std::{cell::RefCell, collections::{BTreeMap, BTreeSet}, io::Cursor};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    io::Cursor,
+};
 
 pub struct SelectedModuleManifestLimitsV1 {
     pub heap_bytes: usize,
@@ -43,7 +47,7 @@ struct Decoder<'a, 'b, M, R, E, C> {
     heap: usize,
     limit: &'a SelectedModuleManifestLimitsV1,
     json: Vec<MemoryReservation>,
-    known: BTreeSet<[u8;32]>,
+    known: BTreeSet<[u8; 32]>,
 }
 fn address(
     section: &'static str,
@@ -74,7 +78,8 @@ impl<
         self.work.cell()?;
         let key = read::key(a, &mut self.ctx.records())?;
         spend(&mut self.heap, 512)?;
-        self.known.insert(*blake3::hash(key.0.as_bytes()).as_bytes());
+        self.known
+            .insert(*blake3::hash(key.0.as_bytes()).as_bytes());
         let id = self.ctx.lookup(&key.0)?.ok_or_else(read::invalid)?;
         let info = read_member_record_header_v1(
             &id,
@@ -218,9 +223,13 @@ impl<
         // These record metadata columns are not part of ModuleManifest. Never
         // touch their value roots merely to enumerate unknown cap-slot keys.
         for column in ["registered_at", "registered_by", "audit_event_id"] {
-            let key = read::key(address("record", None, None, column), &mut self.ctx.records())?;
+            let key = read::key(
+                address("record", None, None, column),
+                &mut self.ctx.records(),
+            )?;
             spend(&mut self.heap, 512)?;
-            self.known.insert(*blake3::hash(key.0.as_bytes()).as_bytes());
+            self.known
+                .insert(*blake3::hash(key.0.as_bytes()).as_bytes());
         }
         let meta = WorldFieldKeyV1::new(
             genesis::body_descriptor(),
@@ -263,8 +272,10 @@ impl<
             self.ctx.root,
             |entry| {
                 self.work.cell()?;
-                if entry.key == meta.as_bytes() || entry.key == marker.as_bytes()
-                    || self.known.contains(blake3::hash(&entry.key).as_bytes()) {
+                if entry.key == meta.as_bytes()
+                    || entry.key == marker.as_bytes()
+                    || self.known.contains(blake3::hash(&entry.key).as_bytes())
+                {
                     return Ok(());
                 }
                 let binding =
@@ -638,7 +649,11 @@ mod tests {
             memory: &MemoryBudget,
             class: MemoryClass,
         ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
-            assert_ne!(self.root.get().as_ref(), Some(id), "unused registered_by read");
+            assert_ne!(
+                self.root.get().as_ref(),
+                Some(id),
+                "unused registered_by read"
+            );
             self.pages.read_node(id, max, memory, class)
         }
     }
@@ -665,7 +680,10 @@ mod tests {
         };
         let root = body_tests::produce(genesis::Body::Module(&record), &backing, &mut pages);
         drop(record);
-        let source = Forbid { pages: &pages, root: Cell::new(None) };
+        let source = Forbid {
+            pages: &pages,
+            root: Cell::new(None),
+        };
         let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
         let mut state_io = body_tests::io();
         let state_io = RefCell::new(&mut state_io);
@@ -722,7 +740,11 @@ mod tests {
             &mut work,
         )
         .unwrap();
-        let owner_key = read::key(address("record", None, None, "registered_by"), &mut ctx.records()).unwrap();
+        let owner_key = read::key(
+            address("record", None, None, "registered_by"),
+            &mut ctx.records(),
+        )
+        .unwrap();
         let owner_root = ctx.lookup(&owner_key.0).unwrap().unwrap();
         source.root.set(Some(owner_root));
         let selected = read_selected_module_manifest_v1(

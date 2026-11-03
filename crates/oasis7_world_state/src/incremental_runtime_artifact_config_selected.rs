@@ -120,22 +120,51 @@ where
             return Ok(None);
         };
         if let Some(current) = request.current {
-            if !current.uses_budget(ctx.values.memory) || current.allocation_class() != ctx.values.class
-                || current.reserved_bytes() < 512 { return Err(read::invalid().into()); }
+            if !current.uses_budget(ctx.values.memory)
+                || current.allocation_class() != ctx.values.class
+                || current.reserved_bytes() < 512
+            {
+                return Err(read::invalid().into());
+            }
             current.validate_binding(request.field.body_kind(), &root)?;
-            let token = closure::mint(request.field.body_kind(), &root, ctx.values.memory, ctx.values.class)?;
-            if (ctx.cancelled)() { return Err(ValueTreeError::Cancelled.into()); }
+            let token = closure::mint(
+                request.field.body_kind(),
+                &root,
+                ctx.values.memory,
+                ctx.values.class,
+            )?;
+            if (ctx.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
             return Ok(Some(token));
         }
-        let parent = open_qualified_artifact_config_body_v1(request.field, request.key,
-            request.parent_roots, request.family, &mut WorldFieldReadContextV1 {
-                root: request.parent_roots.state_root(oasis7_formal_protocol::incremental_state::StateNamespaceV1::Artifacts),
-                state, values: ValueReadContext { source: ctx.values.source, memory: ctx.values.memory, class: ctx.values.class, io: ctx.values.io },
-                key_work: ctx.key_work, semantic_bytes: ctx.semantic_bytes, record_bytes: ctx.record_bytes,
-                take_state_error: &mut ctx.take_state_error, cancelled: &mut ctx.cancelled,
-            })?;
+        let parent = open_qualified_artifact_config_body_v1(
+            request.field,
+            request.key,
+            request.parent_roots,
+            request.family,
+            &mut WorldFieldReadContextV1 {
+                root: request.parent_roots.state_root(
+                    oasis7_formal_protocol::incremental_state::StateNamespaceV1::Artifacts,
+                ),
+                state,
+                values: ValueReadContext {
+                    source: ctx.values.source,
+                    memory: ctx.values.memory,
+                    class: ctx.values.class,
+                    io: ctx.values.io,
+                },
+                key_work: ctx.key_work,
+                semantic_bytes: ctx.semantic_bytes,
+                record_bytes: ctx.record_bytes,
+                take_state_error: &mut ctx.take_state_error,
+                cancelled: &mut ctx.cancelled,
+            },
+        )?;
         if let Some(parent) = parent.filter(|proof| proof.root() == &root) {
-            if (ctx.cancelled)() { return Err(ValueTreeError::Cancelled.into()); }
+            if (ctx.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
             return Ok(Some(parent));
         }
         let result = qualify_artifact_config_body_v1(

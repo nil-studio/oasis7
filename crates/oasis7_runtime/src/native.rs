@@ -534,6 +534,7 @@ pub use world::incremental_module_instance_change::{change_module_instance_field
 pub use world::incremental_module_instance_family::{ModuleInstanceFamilyQualificationV1, readmit_module_instance_family_ordinary_v1};
 pub use world::incremental_module_instance_receiver::accept_module_instance_transition_v1;
 pub use world::incremental_module_read::{ModuleReadContext, PreparedModuleInstanceFields};
+pub use world::incremental_module_invocation::*;
 pub use world::incremental_module_instance_recovery::{
     InstanceScratchBudget, ModuleInstanceRecoveryContext, VerifiedModuleInstanceContent,
 };
