@@ -12,9 +12,9 @@
 
 开发者应能在明确位置维护共享 Cargo 配置，知道哪些依赖关系违反现行架构，并能复现对外协议产物。评审者应能区分配置去重、实际能力变化、生成漂移和协议兼容性，避免把其中一项检查当成全部正确性的证明。
 
-本专题覆盖第一方 workspace 的共性配置、已有架构边界的检查方法，以及已登记协议 profile 的派生产物。独立 workspace、第三方代码、运行时权威、发布权限与 required/full 门禁仍由原主责维护。当前根 workspace 排除的 `tools/oasis7-command-center` 保持独立，不能隐式继承根 workspace 或为统一配置而被并入。
+本专题覆盖第一方 workspace 的共性配置、已有架构边界的检查方法、有界的模块内部错误语义保护，以及已登记协议 profile 的派生产物。独立 workspace、第三方代码、运行时权威、发布权限与 required/full 门禁仍由原主责维护。当前根 workspace 排除的 `tools/oasis7-command-center` 保持独立，不能隐式继承根 workspace 或为统一配置而被并入。
 
-产品适用性：N/A；reason=三项新增要求拥有开发期治理机制，不新增玩家功能或发布承诺；scope=workspace 配置、依赖检查和生成生命周期。机制消费的既有游戏接口、共享客户端与授权合同仍然适用，具体承接见[设计需求分配](rust-engineering-contracts.design.md#21-需求承接与分配表)，不以工程 N/A 排除它们。
+产品适用性：N/A；reason=本专题工程要求拥有开发期治理机制，不新增玩家功能或发布承诺；scope=workspace 配置、依赖/源级检查、错误传播与生成生命周期。机制消费的既有游戏接口、共享客户端与授权合同仍然适用，具体承接见[设计需求分配](rust-engineering-contracts.design.md#21-需求承接与分配表)，不以工程 N/A 排除它们。
 
 ### 非目标
 
@@ -71,6 +71,8 @@ Trace ID: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc
 
 首个实施切片限定为现有 signed-read bootstrap profile：保留其人工维护 OpenAPI，派生 TypeScript 与独立 JSON Schema，并以真实 parser/handler/codec fixtures 校验。其他 Rust 根类型、Viewer、World Service profile 后续按实际消费者登记，不因本设计存在自动纳入。
 
+后续增量先选真实 `game_read_api::render_response` 的最小错误 envelope，按[真实 DTO 迁移](rust-engineering-contracts.design.md#real-dto-increment)提取被 handler 消费的唯一结构，再迁移该 component 的生成来源。当前生成器仍只消费人工 OpenAPI；本条不声称已有 Rust 导出入口，也不把 `ReadInfo`、动态 `data` 或完整游戏 API 顺带纳入。
+
 产品适用性：N/A；reason=本要求拥有开发期生成与漂移检查机制；scope=已登记 profile 的派生产物管理。既有游戏 API、编码、鉴权和恢复要求通过设计承接，仍须独立验证。
 
 <a id="ac-rust-003"></a>
@@ -85,13 +87,36 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；对应 [REQ-RUST-003](
 5. 分别验证生成漂移、wire/消费者兼容性和真实服务语义。`DecimalU64`、裸 `u64`、字段缺省、enum、规范 JSON/CBOR 与签名域保持原行为；未具备 lossless codec 与跨语言 golden 的 profile 不发布可调用的 JS 签名/编解码能力。
 6. 中断、并发修改、写入冲突与回滚有明确处理；未形成完整且校验通过的产物集不得打包发布。生成成功不证明实际部署、授权成功或世界效果。
 
+<a id="req-rust-004"></a>
+### REQ-RUST-004：模块内部的错误决策边界可定位，事实不被诊断文本替代
+
+Trace ID: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164
+
+Cargo 图无法表达的模块内部约束，只在有具体消费方、可检出反例和明确例外的边界增量实施。优先用已有类型、模块可见性和构造入口保留错误类别、原因与来源；重试、回退或展示决策消费原合同允许的结构化事实，诊断措辞变化不能静默改变这些决策。旧文本输入在明确的兼容适配位置解释，不被冒充为新的本地观测；不因此禁止所有字符串错误、格式化、日志或必要兼容字段。
+
+首个边界为 Node 已有网络错误分类到实际 fallback 消费者，设计见[模块内部与错误保真](rust-engineering-contracts.design.md#module-error-boundary)。现有类型化和回归已实现；待补的是源级作用域、反例和检查接线，不重做原迁移。纯计算路径不为套分层模板增加动态分派、分配或无收益的 adapter；不要求重排全仓目录、拆 crate 或先拆 Node capability trait。
+
+产品适用性：N/A；reason=本要求保护现有实现语义并定义开发期检查，不新增网络恢复或玩家可用性承诺；scope=登记的模块/函数、错误传播、兼容例外和实际检查接线。
+
+<a id="ac-rust-004"></a>
+#### AC-RUST-004：精确作用域、语义反例与真实执行
+
+Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；对应 [REQ-RUST-004](#req-rust-004)。
+
+1. 将 Cargo 规则、`FormalReadError`、Node typed network failure、现有协议生成分别列为已存在能力；本次源级检查与真实 DTO 输入迁移保留未实施状态，不把已完成的类型化重新列为缺陷。
+2. 选定函数、输入适配、结构化事实、实际 fallback 消费者与旧文本例外有明确路径。新增语义须归原领域 owner；Node capability 评估与玩家能力展示仍由其原任务拥有。
+3. 用真实错误构造和实际消费函数验证：只改诊断文案不改决策，来源/原因/协议冲突不被压成同一个可重试状态，旧快照保持保守解释。刻意恢复文本决策应被定向反例检出；已有覆盖足够时直接复用。
+4. 每条源级规则声明 owner、依据、路径/函数、支持语法、例外、诊断级别与启用阶段；可证明违规、解析失败和覆盖缺口分开。warning 不自动升级为 required 失败，error 也只有在实际选择和执行接线后才构成门禁；不能因规则文件存在宣称已阻断。
+5. 新增检查保留生产与测试范围，误报例外精确且可复核；未知宏/别名、跨函数数据流与所有 feature 的完整性不被普通语法扫描冒领。检查接入、行为回归和协议兼容分别提供证据，小 PR 保留后续实现与最终验收。
+
 ## 3. 设计覆盖与实现状态
 
 | 要求 | 系统设计覆盖 | 实现基线 | 剩余范围与证据入口 |
 | --- | --- | --- | --- |
 | [REQ-RUST-001](#req-rust-001) | 已覆盖：[Workspace 合同](rust-engineering-contracts.design.md#workspace-policy)、迁移与验证 | 首版已落地：6 个成员显式继承 workspace package/依赖/lint | 逐批同义迁移、配置检查与 lint 继承；以实施 PR 的候选图和实际 CI 为证据 |
-| [REQ-RUST-002](#req-rust-002) | 已覆盖：[边界规则](rust-engineering-contracts.design.md#architecture-rules)、方向矩阵、覆盖与诊断 | 首版已落地：9 条规则、37 个 profile 的声明、依赖图和编译检查 | 局部执行保留全部图核查，按可信输入选择编译；未登记平台不声称覆盖 |
-| [REQ-RUST-003](#req-rust-003) | 已覆盖：[协议权威与首切片](rust-engineering-contracts.design.md#protocol-authority)、生成与兼容生命周期 | 首版已落地：signed-read bootstrap TS/schema 生成、只读完整集检查和真实 handler consumer | API revision 1 / read schema revision 5；其他 profile 仍需独立登记和证明 |
+| [REQ-RUST-002](#req-rust-002) | 已覆盖：[边界规则](rust-engineering-contracts.design.md#architecture-rules)、方向矩阵、覆盖与诊断 | 已有声明、依赖图与编译检查；规则/profile 集合以[当前配置](../../../scripts/cargo-dev-architecture.json)为准 | 局部执行保留全部图核查，按可信输入选择编译；未登记平台不声称覆盖 |
+| [REQ-RUST-003](#req-rust-003) | 已覆盖：[协议权威与首切片](rust-engineering-contracts.design.md#protocol-authority)、[真实 DTO 增量](rust-engineering-contracts.design.md#real-dto-increment)、生成与兼容生命周期 | 首版已落地：signed-read bootstrap TS/schema 生成、只读完整集检查和真实 handler consumer；Rust DTO 输入迁移尚未实施 | API revision 1 / read schema revision 5；新增真实错误 envelope 与生成输入按小切片验证，其他 profile 仍需独立登记 |
+| [REQ-RUST-004](#req-rust-004) | 已覆盖：[模块内部与错误保真](rust-engineering-contracts.design.md#module-error-boundary)、[源级检查接线](rust-engineering-contracts.design.md#source-rule-enforcement) | 已有 typed 分类及 Node 行为回归；本专题的源级规则/检查接线尚未实施 | 先完成 Node 精确边界、反例和实际 CI 消费，实施与组合验收继续由原 Issue 保留 |
 
 上表以[固定基线与源文件](rust-engineering-contracts.design.md#baseline-gap)为实现依据，只说明本专题覆盖范围。工程设计的“已覆盖”不表示实现、CI 或相关产品 AC 已完成；执行进度与验证结果保留在 PR、实际 CI 和评审记录。
 
@@ -107,4 +132,5 @@ Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；对应 [REQ-RUST-003](
 - 文件体量与结构切片：[Rust 1200 行治理](rust-1200-line-root-cause-governance-2026-03-29.prd.md)，本专题不替代其扫描合同。
 - Workspace 成员、工具链、共享依赖或 lint 政策改变时，复核 REQ-RUST-001 的适用与等价证明。
 - 架构 owner 改变边界、测试归属或支持组合时，同步复核规则及反例；不能仅为通过检查放宽原合同。
+- 错误事实、诊断/持久字段或实际 retry/fallback 消费方改变时，复核 REQ-RUST-004 的作用域和兼容例外；不把有意保留的文本边界当全仓清理目标。
 - 服务 profile、wire 编码、生成工具、导出根或跨语言消费者变化时，复核产物集合、兼容方向与验证计划。
