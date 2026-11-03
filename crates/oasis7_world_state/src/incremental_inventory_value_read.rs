@@ -82,7 +82,7 @@ impl<R: ValueNodeReader, C: FnMut() -> bool> InventoryValueReader<'_, '_, R, C> 
         codec: MemberPayloadCodecV1,
     ) -> Result<[u8; N], ValueTreeError> {
         let mut bytes = [0; N];
-        read_member_record_profile_v1(
+        let info = read_member_record_profile_v1(
             value,
             key,
             &mut *self.values,
@@ -101,6 +101,9 @@ impl<R: ValueNodeReader, C: FnMut() -> bool> InventoryValueReader<'_, '_, R, C> 
         )?;
         if (self.cancelled)() {
             return Err(ValueTreeError::Cancelled);
+        }
+        if info.payload_bytes != N as u64 {
+            return Err(ValueTreeError::Invalid("inventory fixed payload length"));
         }
         Ok(bytes)
     }
