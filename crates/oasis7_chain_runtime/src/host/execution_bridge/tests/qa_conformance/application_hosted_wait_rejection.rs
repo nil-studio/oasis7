@@ -92,6 +92,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
                     summary = guard.test_canonical_provider_diagnostic_summary();
                 }
                 if isolated
+                    && summary["publication_pending"] == false
+                    && summary["publication_capture_failed"] == false
                     && summary["terminal_states"]["agent-a"]["status"] == "rejected"
                     && summary["terminal_states"]["agent-a"]["reject_reason"]
                         == "canonical_wait_admission_rejected"

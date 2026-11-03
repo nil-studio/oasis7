@@ -14,7 +14,11 @@ describe("bounded complete Targets lists", () => {
     </TargetListWindow>);
     expect(view.container.querySelectorAll("[data-target-row]")).toHaveLength(50);
     expect(view.getByRole("status")).toHaveTextContent("1–50 / 10000");
-    for (let page = 0; page < 199; page += 1) fireEvent.click(view.getByRole("button", { name: "Next agents page" }));
+    const nextPage = view.getByRole("button", { name: "Next agents page" });
+    for (let page = 0; page < 199; page += 1) {
+      fireEvent.click(nextPage);
+      expect(view.container.querySelectorAll("[data-target-row]")).toHaveLength(50);
+    }
     expect(view.container.querySelectorAll("[data-target-row]")).toHaveLength(50);
     expect(view.getByRole("status")).toHaveTextContent("9951–10000 / 10000");
     fireEvent.click(view.getByRole("button", { name: "agent-09999" }));

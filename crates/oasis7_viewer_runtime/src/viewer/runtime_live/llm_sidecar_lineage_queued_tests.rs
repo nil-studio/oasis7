@@ -1,6 +1,76 @@
 use super::*;
 
 #[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn hosted_outcome_sync_checkpoint_failure_retries_original_before_exposing_decision() {
+    let agent = "agent-sync-outcome";
+    let mut world = lineage_recovery_tests::bound_provider_lease_test_world(&[agent]);
+    let cognition = queued_wait_cognition(&mut world, agent);
+    let original_lease = cognition.cognition_lease.clone();
+    let root = std::env::temp_dir().join(format!(
+        "hosted-outcome-sync-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("lineage.json");
+    std::fs::create_dir(&path).unwrap(); // deterministic synchronous rename failure
+    let mut owner = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
+    owner.configure_provider_lineage_store(&path);
+    let provider = crate::simulator::MockDecisionProvider::new("sync-outcome");
+    let calls = provider.shared_state();
+    let mut runner = crate::simulator::AsyncAgentRunner::with_default_capacity();
+    runner
+        .register(
+            crate::simulator::ProviderBackedAgentBehavior::new_legacy_compatibility(
+                agent,
+                provider,
+                vec![crate::simulator::ActionCatalogEntry::new("wait", "wait")],
+            ),
+        )
+        .unwrap();
+    owner.runner = Some(RuntimeDecisionRunner::ProviderBacked(runner));
+    owner.test_retain_hosted_outcome(async_support::RuntimeLlmDecision {
+        agent_id: agent.into(),
+        decision: AgentDecision::Wait,
+        decision_trace: None,
+        cognition: Some(cognition),
+        memory_write_intents: Vec::new(),
+        continuation_admitted: false,
+    });
+    let original =
+        serde_json::to_value(owner.provider_completed_decisions.front().unwrap()).unwrap();
+    for _ in 0..2 {
+        assert!(
+            owner.poll_hosted_provider_decision(&world).is_err(),
+            "an empty subsequent poll must not expose the unconfirmed original"
+        );
+        assert!(owner.hosted_outcome_checkpoint_pending);
+        assert_eq!(
+            serde_json::to_value(owner.provider_completed_decisions.front().unwrap()).unwrap(),
+            original
+        );
+        assert!(calls.lock().unwrap().recorded_requests.is_empty());
+    }
+    std::fs::remove_dir(&path).unwrap();
+    let recovered = owner
+        .poll_hosted_provider_decision(&world)
+        .unwrap()
+        .unwrap();
+    assert_eq!(serde_json::to_value(&recovered).unwrap(), original);
+    assert_eq!(recovered.cognition.unwrap().cognition_lease, original_lease);
+    assert!(!owner.hosted_outcome_checkpoint_pending);
+    let checkpoint: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(checkpoint["provider_completed_decisions"][0], original);
+    assert!(calls.lock().unwrap().recorded_requests.is_empty());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub(in super::super) fn queued_wait_cognition(
     world: &mut RuntimeWorld,
     agent_id: &str,

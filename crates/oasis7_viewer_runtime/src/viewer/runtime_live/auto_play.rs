@@ -15,18 +15,47 @@ impl ViewerRuntimeLiveServer {
         session.transient_play_failures = 0;
     }
 
-    pub(super) fn pause_auto_play(&mut self, session: &mut RuntimeLiveSession) {
+    pub(super) fn pause_auto_play(
+        &mut self,
+        session: &mut RuntimeLiveSession,
+    ) -> Result<(), ViewerRuntimeLiveServerError> {
         self.auto_play_paused = true;
         session.playing = false;
         session.next_play_step_at = None;
+        self.observe_auto_play_policy(session, true)
     }
 
-    pub(super) fn resume_auto_play(&mut self, session: &mut RuntimeLiveSession) {
+    pub(super) fn resume_auto_play(
+        &mut self,
+        session: &mut RuntimeLiveSession,
+    ) -> Result<(), ViewerRuntimeLiveServerError> {
+        self.observe_auto_play_policy(session, false)?;
         self.auto_play_paused = false;
         session.playing = true;
         session.next_play_step_at = None;
         session.transient_play_failures = 0;
         self.next_auto_play_step_at = None;
+        Ok(())
+    }
+
+    fn observe_auto_play_policy(
+        &mut self,
+        session: &RuntimeLiveSession,
+        paused: bool,
+    ) -> Result<(), ViewerRuntimeLiveServerError> {
+        let observed = self.control_state.observe(paused);
+        if session.negotiated_protocol.version >= 2
+            && session
+                .negotiated_protocol
+                .capabilities
+                .iter()
+                .any(|cap| cap == crate::viewer::protocol::LIVE_CONTROL_STATE_CAPABILITY)
+        {
+            observed
+        } else {
+            // Observation exhaustion must not introduce a new legacy protocol failure.
+            Ok(())
+        }
     }
 
     pub(super) fn should_advance_auto_play_step(&mut self) -> bool {

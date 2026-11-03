@@ -132,6 +132,12 @@ impl ViewerRuntimeLiveServer {
                             && !self.world.capability_invocation_contexts().is_empty())
                 };
                 if version >= 2 {
+                    if offered.iter().any(|capability| {
+                        capability == crate::viewer::protocol::LIVE_CONTROL_STATE_CAPABILITY
+                    }) {
+                        selected
+                            .push(crate::viewer::protocol::LIVE_CONTROL_STATE_CAPABILITY.into());
+                    }
                     if offered.iter().any(|capability| capability == "world_view") {
                         selected.push("world_view".to_string());
                         for capability in [
@@ -213,6 +219,7 @@ impl ViewerRuntimeLiveServer {
                         },
                     },
                 )?;
+                self.publish_live_control_state(session, writer, None, true)?;
             }
             ViewerRequest::Subscribe {
                 streams,
@@ -226,6 +233,7 @@ impl ViewerRuntimeLiveServer {
                 };
             }
             ViewerRequest::RequestSnapshot => {
+                self.publish_live_control_state(session, writer, None, true)?;
                 // HelloV2 may already have authoritatively primed this
                 // chain-linked server. Reusing that validated projection
                 // avoids a second status read racing the first snapshot.

@@ -43,7 +43,7 @@ fn runtime_auto_play_pause_and_resume_are_global() {
 
     server.enable_auto_play_for_session_if_available(&mut first);
     assert!(first.playing);
-    server.pause_auto_play(&mut first);
+    server.pause_auto_play(&mut first).unwrap();
     assert!(!first.playing);
     assert!(!server.should_advance_auto_play_step());
 
@@ -53,7 +53,7 @@ fn runtime_auto_play_pause_and_resume_are_global() {
         "new sessions should respect a global pause until the user resumes live play"
     );
 
-    server.resume_auto_play(&mut second);
+    server.resume_auto_play(&mut second).unwrap();
     assert!(second.playing);
     assert!(server.should_advance_auto_play_step());
 }

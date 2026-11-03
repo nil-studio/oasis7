@@ -251,4 +251,18 @@ fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
     );
     assert!(sidecar.provider_contexts.is_empty());
     assert!(sidecar.pending_runtime_wakes.is_empty());
+
+    // Once a worker owns this Agent, its retained ResumeWake capsule is
+    // evidence for later orphan reconciliation, not a wake to hydrate again.
+    // Re-entering the old receiver would reject this incomplete capsule above.
+    let active =
+        super::super::tests::test_provider_context("agent-a", "active-turn", "active-request", 1);
+    sidecar
+        .provider_active_turns
+        .insert("agent-a".into(), active);
+    sidecar.recover_consumed_service_resumes(&binding).unwrap();
+    assert_eq!(
+        serde_json::to_value(&sidecar.provider_scheduler_pending).unwrap(),
+        before
+    );
 }

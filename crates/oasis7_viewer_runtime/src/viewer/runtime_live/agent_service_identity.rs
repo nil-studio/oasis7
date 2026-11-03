@@ -42,6 +42,7 @@ impl PreparedHostedIdentity {
     }
     pub(in crate::viewer::runtime_live) fn reserve_submit(phase: Option<&mut HostedServicePhase>) {
         match phase {
+            Some(HostedServicePhase::Orphan(orphan)) => orphan.submit = false,
             Some(HostedServicePhase::Act { submit, .. })
             | Some(HostedServicePhase::ActSettle { submit, .. })
             | Some(HostedServicePhase::HandoffWake { submit, .. })
