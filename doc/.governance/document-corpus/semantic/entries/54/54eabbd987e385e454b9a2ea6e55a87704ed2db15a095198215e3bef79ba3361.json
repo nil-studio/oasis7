@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "3de5e96fc3cede793b2d49be7a2a12013b7ac076be8f94b0cce74efa6f690c34",
+    "content_sha256": "5d505ac6fbe4e47b83afd1f0608c47299335c17ef0cbe61af290f24bd31d3916",
     "current_authority": "doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md",
     "decision_owner": "game_visual_interaction_designer",
     "disposition": "retain_current_design_supplement",
-    "note": "current page-family visual supplement retained; added navigation to source-bound professional companions and corrected imported-key product ENTRY-MODE relationship while preserving Flow technical dependency; not product, root visual or release authority; static semantic review only",
+    "note": "本次独立有界静态复核确认保留为当前页面族视觉补充：正文 §1–10.9.7、全部本次页面改动及8张改动SVG的新栅格图已审读，交接与验证映射局部抽查；核对根视觉规范、shell authority与品牌状态文案。窄屏目标保留原目标及回执，字形与44px静态设计不代表运行时可访问性，阻塞/恢复仍受原结果与权限边界约束。不继承历史签名，不代表全篇/全仓语义、实现、安全或发布验收。",
     "path": "doc/world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
