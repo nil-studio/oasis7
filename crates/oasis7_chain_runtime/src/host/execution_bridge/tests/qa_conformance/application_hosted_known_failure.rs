@@ -49,6 +49,8 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
             && summary["publication_pending"] == false
             && summary["publication_capture_failed"] == false
             && summary["hosted_service_phase"].is_null()
+            && summary["agent_service_pump_error"].is_null()
+            && summary["hosted_service_memory_failure"].is_null()
             && durable_original_cleanup_complete(&root, &summary);
         let mut watched = summary.clone();
         let exact_prepare = summary["agent_service_pump_error"]
@@ -96,6 +98,14 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
             watched["terminal_states"]["agent-a"]["status"] = serde_json::json!("committed");
         }
         if watch.finished_after_injected_rollback(&watched, done, false) {
+            if !done {
+                save_private_summary(&root, &summary);
+            }
+            assert!(
+                done,
+                "known failure stopped before exact durable cleanup: {}",
+                application_completion::hosted_failure_diagnostic(&summary)
+            );
             break summary;
         }
     };
