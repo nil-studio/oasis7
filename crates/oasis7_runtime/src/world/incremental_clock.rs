@@ -99,6 +99,23 @@ fn emit_clock<
     }
     Ok(())
 }
+pub(super) fn advance_clock<R: MerkleNodeReader, W: ValueNodeWriter, C: FnMut() -> bool>(
+    expected: u64,
+    txn: &mut ExecutionTransaction<'_, R>,
+    context: &mut BodyMutationContext<'_, W, C>,
+) -> Result<u64, BodyMutationError> {
+    txn.contribute(|txn| {
+        check_clock(expected, txn, context)?;
+        let after = expected
+            .checked_add(1)
+            .ok_or(BodyMutationError::Invalid("step clock overflow"))?;
+        emit_clock(after, context, |key, id| {
+            txn.write(Ns::Allocator, key, Some(id))?;
+            Ok(())
+        })?;
+        Ok(after)
+    })
+}
 pub(super) fn check_clock<R: MerkleNodeReader, W, C: FnMut() -> bool>(
     expected: u64,
     txn: &mut ExecutionTransaction<'_, R>,

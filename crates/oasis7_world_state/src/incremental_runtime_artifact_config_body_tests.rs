@@ -70,7 +70,11 @@ pub(super) fn write_work() -> ArtifactConfigWriteWorkV1 {
         max_pending_node_bytes: 1 << 20,
     }
 }
-fn produce(source: genesis::Body<'_>, memory: &MemoryBudget, pages: &mut Pages) -> StateRootV1 {
+pub(super) fn produce(
+    source: genesis::Body<'_>,
+    memory: &MemoryBudget,
+    pages: &mut Pages,
+) -> StateRootV1 {
     genesis::body(
         source,
         &mut MemberRecordWriteContext {
