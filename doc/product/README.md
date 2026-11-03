@@ -55,6 +55,40 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；新增或实质修改�
 | 智能体、世界模拟与交互 | [`doc/product/agents-world-simulation/prd.md`](agents-world-simulation/prd.md) | 把场景、Agent/LLM 决策、世界状态与可交互模拟体验连接起来。 |
 | 玩家接入与发行 | [`doc/product/player-entry-distribution/prd.md`](player-entry-distribution/prd.md) | 统一玩家如何了解、进入、安装和验证当前有证据支持的技术预览及其公开边界。 |
 
+<a id="game-design-coverage-map"></a>
+## 游戏设计领域覆盖导航
+
+本节按[领域覆盖与阶段证据规范](../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)检查全游戏范围，继续使用上表四个产品模块。模块列用于分流，具体主责按原条款；本表不重新定义玩法、技术合同或完成状态。
+
+初始核查基线为 `3131366cd1b2fe82cdca849ba6e6c34d4837af80`（2026-11-03）。阅读范围是四模块入口、下列关键章节与相邻专业导航，结合 Viewer 静态资产、体素制作说明和测试/发行入口；未逐篇审读全仓，未执行游戏，也未逐项核验当前实现、素材许可和历史运行证据。下列“未核实/未找到”仅表示该范围的观察；原条款的适用入口和已有完成边界继续有效。
+
+| 领域 | 所属产品模块 | 现有权威条款或素材入口 | 已核对覆盖边界 |
+| --- | --- | --- | --- |
+| GD-01 定位与体验目标 | 世界规则与玩法系统 | [产品承诺](world-rules-core-gameplay/prd.md#1-产品承诺)及其余三模块根 PRD | 已有玩家位置、目标与范围；总体体验结论需按实际组合核验 |
+| GD-02 循环与玩家旅程 | 世界规则与玩法系统 | [玩法总纲](../game/gameplay/gameplay-top-level-design.prd.md)、[首局片段](world-rules-core-gameplay/first-session-and-continuation.prd.md#first-session-concrete-sample) | 首局、持续游玩与退出/回访已有设计；当前玩家体验验证未在本轮完成 |
+| GD-03 玩法与系统组合 | 世界规则与玩法系统 | [玩法专业入口](../game/gameplay/README.md)、[根成功标准归属](world-rules-core-gameplay/prd.md#7-根成功标准的语义归属与状态) | 规则与承接已分专题；各系统全部边界及组合充分性未全量复核 |
+| GD-04 数值、经济与成长 | 世界规则与玩法系统 | [Agent 制造政策](../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-manufacturing-v1)、[资源与跨域来源](world-rules-core-gameplay/prd.md#resource-model-and-cross-module-provenance) | 已有成本、时间、来源和结算；完整经济平衡与长期实测未核定 |
+| GD-05 世界观与叙事 | 世界规则与玩法系统 | [游戏前提](world-rules-core-gameplay/prd.md#1-产品承诺)、[小说与背景入口](../../site/story/README.md) | 世界背景和小说资料已有；可玩事件、任务、对话的整体覆盖未核实，小说不代签玩法 |
+| GD-06 地图、空间与生成 | 世界规则与玩法系统；智能体、世界模拟与交互 | [世界种子与片段](../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md)、[生成未决范围](../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-decision-profile) | 空间/生成已有局部合同；开局分布、探索节奏与完整生成质量仍需按原未决项核对 |
+| GD-07 内容目录与初始配置 | 世界规则与玩法系统 | [配方生命周期](world-rules-core-gameplay/prd.md#root-sc24-recipeversion)、[工厂选择](world-rules-core-gameplay/prd.md#root-sc25-factorychoice)、[起始配置范围](world-rules-core-gameplay/first-session-and-continuation.prd.md#starter-profile-applicability) | 已有内容实例与引用；首发内容总量、素材对应和完整目录未核定，不复制源码数值形成第二权威 |
+| GD-08 操作、UI 与反馈 | 智能体、世界模拟与交互；玩家接入与发行 | [UI/UX 交付](../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)、[静态稿覆盖目录](../world-simulator/viewer/assets/ui-ux/full-function/coverage-catalog.json) | 已有流程、状态及静态素材；静态设计与实际运行、各平台可用性分别验收 |
+| GD-09 美术、动画与特效 | 智能体、世界模拟与交互 | [视觉语言](../world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md#7-visual-language)、[世界分层](../world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md#9-pixel-world-layering)、[体素制作](../../tools/voxel_asset_pipeline/DESIGN.md) | 视觉和部分制作规格已有；完整模型、动画、特效资产就绪范围未核定 |
+| GD-10 音乐、音效与语音 | 智能体、世界模拟与交互 | [Viewer 已审读边界](../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-module-coverage) | 本轮在产品、game、world-simulator、site/readme 文档范围未找到专门设计入口；各表面的音频适用性待明确，不推断没有实现 |
+| GD-11 本地化 | 智能体、世界模拟与交互；玩家接入与发行 | [双语文案目标](../world-simulator/viewer/viewer-brand-system-2026-06-05.design.md#25-bilingual-terminal-copy-matrix-target)、[入口语言边界](../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-module-coverage) | 已有 en/zh 和公开口径要求；全游戏字符串、术语、字体、翻译更新与语言 QA 覆盖未核实 |
+| GD-12 无障碍与帮助 | 智能体、世界模拟与交互；玩家接入与发行 | [可访问性设计](../world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md#12-accessibility-and-robustness)、[验证方法](../testing/manual/pixel-world-visualization-validation.manual.md#pw-accessibility) | 已有键盘/焦点、输入替代、IME、可读性与减弱动效要求；完整帮助内容未专审，各入口结果分别取证 |
+| GD-13 多人、社交与冲突 | 世界规则与玩法系统 | [组织连续性](world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md#1-产品承诺)、[冲突与离线防御](world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#2-宣战参战范围与离线防御) | 组织、权利、冲突与恢复已有设计；全生命周期组合未在本轮复核 |
+| GD-14 NPC 与 AI Agent | 智能体、世界模拟与交互；世界规则与玩法系统 | [外部 Runtime 接入](agents-world-simulation/external-agent-runtime-play.prd.md#external-runtime-canonical-interface)、[间接控制与能动性](world-rules-core-gameplay/indirect-control-agency-and-continuation.prd.md#req-wr-ia-001) | AI Agent 的目标、授权、预算与停止恢复已有设计；独立 NPC 适用范围未核实，各 Runtime 实现/试玩仍依原证据 |
+| GD-15 持久世界与规则演化 | 权威世界基础设施；世界规则与玩法系统；智能体、世界模拟与交互 | [世界保证](world-infrastructure/prd.md)、[组织休眠与恢复](world-rules-core-gameplay/organization-continuity-dissolution-and-dormancy-protection.prd.md)、[状态反馈](../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-state-feedback) | 世界历史、经营、授权和界面恢复已有分工；规则演化及离线体验整体覆盖需联读核对 |
+| GD-16 UGC、Mod 与规则扩展 | 世界规则与玩法系统；权威世界基础设施 | [区域能力与扩展](world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md) | 已有提案、准入、许可与扩展边界；完整作者工具、发现、发布更新是否适用及覆盖仍待核实 |
+| GD-17 技术与体验预算 | 权威世界基础设施；智能体、世界模拟与交互；玩家接入与发行 | [基础设施根 PRD](world-infrastructure/prd.md)、[模拟专业设计](../world-simulator/design.md)、[性能承诺](player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) | 技术合同与部分性能目标已有；不能据此推导全部设备、容量或体验已通过 |
+| GD-18 资产生产、来源与权利 | 智能体、世界模拟与交互；玩家接入与发行 | [静态素材目录](../world-simulator/viewer/assets/ui-ux/full-function/coverage-catalog.json)、[体素管线](../../tools/voxel_asset_pipeline/DESIGN.md) | 已有局部资产与制作入口；全资产源文件、版本、许可、署名和复用关系未核定 |
+| GD-19 试玩与质量验证 | 世界规则与玩法系统；权威世界基础设施；智能体、世界模拟与交互；玩家接入与发行 | [测试专业要求](../testing/prd.md)、[Agent 实玩方法](../testing/manual/agent-runtime-self-playtest.manual.md)、[测试总手册](../../testing-manual.md) | 各模块承诺由 testing 专业域承接；已有要求与方法，历史证据不代签当前候选 |
+| GD-20 制作范围与成本 | 世界规则与玩法系统；权威世界基础设施；智能体、世界模拟与交互；玩家接入与发行 | 本轮未核到完整游戏内容产能、制作预算与成本的专门入口 | 缺口性质与既有计划覆盖仍待核实；执行排期/分派保留在现有 Task，不在本表复制 |
+| GD-21 商业与发行 | 玩家接入与发行 | [免费进入及可选服务](player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001)、[发行范围](player-entry-distribution/access-modes-and-release-readiness.prd.md)、[公开口径](player-entry-distribution/release-communications-and-public-claims.prd.md#public-claim-four-layer-model) | 已有商业边界、访问/发行和宣传要求；渠道素材按实际渠道核对，不引入未承诺商城 |
+| GD-22 运营、社区与支持 | 玩家接入与发行 | [发行沟通](player-entry-distribution/release-communications-and-public-claims.prd.md)、[既有渠道运营方法](../readme/governance/readme-moltbook-liveops-runbook.md) | 事故、回退、反馈与部分渠道已有要求；游戏客服、社区管理、持续产能和结束服务的整体设计未核实 |
+
+上述行是来源导航与初始边界，不是全游戏完成清单。领域要求、入口、素材或适用范围变化时，只更新受影响行及原权威；具体设计/实现状态继续按功能条款维护，阶段评审须核对当时实际范围与证据。
+
 每个产品模块以主 PRD 为权威入口，但不限于单个文件；可以按长期稳定的产品主题建立专题分册，形成“模块入口 → 主 PRD → 专题分册”的文档树。专题分册必须由模块入口可达并回链主 PRD，不得按日期或短期小功能拆成设计碎片。
 
 外部 Runtime 游玩从[智能体模块根 PRD](agents-world-simulation/prd.md#external-runtime-play)进入[外部 Agent Runtime 接入与持续游玩](agents-world-simulation/external-agent-runtime-play.prd.md)：产品分册拥有 OpenClaw、Codex 等 Runtime 的目标、首期范围与组合验收，[配对设计](agents-world-simulation/external-agent-runtime-play.design.md)承接用户流程。具体协议、适配和能力证据下钻到 [LLM/provider 专业合同](../world-simulator/llm/README.md)，文档目标不提升当前发行或支持状态。

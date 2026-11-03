@@ -40,7 +40,17 @@ GitHub PR baseline CI 检查实际测试的合并快照时，先校验 checkout 
 
 若变更只涉及产品文档，仍应运行 `./scripts/doc-governance-check.sh`、`python3 scripts/product-doc-governance-check.test.py`、`./scripts/readme-link-check.sh` 和 `git diff --check`；PR-prep/CI 会用同一 base/head 合同再次执行，不能把本地通过外推成实现或发行结论。
 
-### 1.1 过程信息归位
+<a id="game-design-coverage-maintenance"></a>
+### 1.2 游戏设计领域的覆盖核对
+
+1. 从[产品领域导航](../../product/README.md#game-design-coverage-map)和[完整目录](product-documentation-standard.design.md#game-design-domain-catalog)反查本次受影响领域、直接消费者及实际入口；全游戏或阶段评审逐项考虑完整目录，普通变更只核对本范围。
+2. 在原产品/专业条款写清适用、后续范围、不适用理由或待决问题；具体内容按领域最低要求核对，复用准确条款、内容表和素材目录，不创建对称空文档。
+3. 分开核对设计、实际内容/资产和验证。功能双状态沿用原规范；占位素材、历史证据和未验证范围如实标识，不能通过导航或目录计数升级结论。
+4. 仅同步变化的导航行，核对来源、归属和已审边界；一次初始盘点保留基线与读取范围，后续来源变动时更新受影响行的核对范围，不续写评审流水。排期与缺口实施继续使用原 PR/Task。
+5. 按[阶段证据](product-documentation-standard.design.md#game-design-stage-evidence)核对完成声明，并在当前 PR/Task 保留所审范围、结果与未知。现有 CI 只检查已实现的结构和引用；领域枚举、适用性及语义充分性由作者与适用评审判断。
+
+<a id="11-过程信息归位"></a>
+### 1.3 过程信息归位
 
 先按[流程规范的信息归属](../workflow/source-of-truth.md#information-record-placement)区分长期合同、过程、原始证据与派生摘要。具体接收/变化记录使用[项目管理记录方法](project-management-record-standard.design.md)。迁移旧标题时，兼容 fragment 应紧邻对应替代条款或历史记录入口；链接能解析不等于仍指向正确内容。同步文档时更新长期方法/边界；实际测试计数、候选/CI 等待、重试、评审修复和下一轮安排不追加到长期正文。拆分原始 evidence 时保留运行身份、原判定与真实消费者，按本手册的局部对象/组操作处理适用 hash，不用全量 sync 或改日期制造新鲜度。
 
@@ -105,6 +115,8 @@ python3 scripts/doc-core-content-check.py --repo-root <worktree-path> --full-cor
 本节帮助审读者在明确范围内运用既有规范，不另立内容 authority、处置权限或统一放行材料。职责与裁决沿用[组织规范](doc-structure-standard.design.md#doc-authority-resolution)，检查能证明的范围沿用[验证分配](doc-structure-standard.design.md#doc-validation-boundary)，评审安排仍按[开发流程规范](../workflow/source-of-truth.md#3-验证与评审)。以下是风险导向的阅读方法，不是每篇文档必须补齐的章节、表格或语义评分 CI；一种模块或文档类型的审读经验不能直接宣称覆盖所有类型。
 
 **先固定范围和读法。** 在当前 PR/Task 说明所审版本、模块或问题、文档清单、关键依赖与未覆盖范围。辨认整篇的职责、生命周期和本次实际审查的条款；分别记录核心正文的全文阅读、依赖的局部抽查及未读部分。需要“全量已审”结论时，以声明清单的真实全文阅读和适用义务核对为依据，不能把检索命中或抽查算作全文覆盖。共享专业文档即使全文读过，本次模块之外的领域义务仍可能未核；文件覆盖与语义验收范围分开说明。
+
+游戏设计范围的审读还需按[领域核对方法](#game-design-coverage-maintenance)反查尚未被现有文件表达的义务；有文件、标题或素材样例不能单独证明领域内容完整。
 
 **按职责核对正确性与价值。** 先问文档承担什么决定、约束、操作或追溯责任，再判断正文是否履责。PRD、产品体验设计、系统设计、手册、索引和历史证据不套同一技术模板；可以通过准确引用履责，不重复维护已有专业合同。旧日期、无引用或篇幅只提示继续核查，不直接证明内容无用或应该删除；历史失败和决策理由也有保留价值。无需为每篇新增受众或价值自述。
 

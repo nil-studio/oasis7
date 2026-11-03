@@ -72,6 +72,8 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本段承接[全局要
 
 跨层要求按[跨层要求与验证映射](../doc-governance/cross-layer-requirements-traceability.design.md)使用同一稳定 Trace ID 关联产品或专业要求、系统设计和项目执行记录。ID 在要求原文声明一次，设计和 Task 引用；Task 可以直接使用 PR，不强制创建 Issue 或额外任务标识。只对新增或实质修改的相关要求补齐本次关系，不全仓迁移；Trace ID 分配和只读查询本身不新增任务准入、审批或合入检查。当前可使用[只读追踪工具](../../../scripts/requirement-trace.README.md)的有界查询/索引，结合全文检索和人工追链；只读索引本身不赋予检查器额外验证能力。文档内容与关系的机械检查按[内容规范的增量/历史边界](../doc-governance/product-documentation-standard.design.md#advisory-content-checks)及[系统设计关系合同](../doc-governance/system-design-writing-standard.design.md#product-system-design-relations)执行，包括本次变更新增的失效引用关系；机械通过不证明语义完备、实现或验收成立。产品文档按[内容规范](../doc-governance/product-documentation-standard.design.md#feature-design-implementation-status)保留功能点的设计/实现状态摘要，详细执行过程仍归 Task。
 
+涉及游戏设计、玩法/内容/交互变化或游戏体验/设计阶段完成声明时，按[设计领域覆盖与阶段证据](../doc-governance/product-documentation-standard.design.md#game-design-coverage)核对适用内容与直接消费者，沿用本节的最小完整范围及第 3 节评审；普通变更不要求全游戏重审。全领域导航复用产品入口，未触达历史缺口不阻塞无关工作；当前 CI 不自动判断领域语义完整性。Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748。
+
 修改影响对外行为、接口、部署方式或使用方法时，同步维护相关文档。文档长度是编辑参考，不能作为是否允许提交的门禁，也不能通过压成长行掩盖过量内容。
 
 涉及当前目标、阶段进展、重要设计决定或部署边界的工作，负责人在收尾时按[指挥面板持续更新流程](../command-center/command-center.manual.md)维护受影响的[项目状态](../command-center/README.md)和[架构索引](../command-center/architecture/README.md)；开始相关工作或项目回顾时核对旧摘要。先更新已授权的主责条款，再同步带来源、时间和未知项的派生内容；尚未发生的合入、部署和验收不能预写。无实质变化不制造提交，合入事实可在下一次刷新批量补齐，不为每个 PR 新建状态 PR。摘要维护不增加任务准入、审批、完成证明或合入门禁，读取失败只影响有关信息的时效。
