@@ -96,7 +96,7 @@ fn malformed_provider_module_cannot_publish_a_preview_root() {
 /// The caller must build the canonical suite for this candidate and explicitly
 /// supply its WASM/metadata. No placeholder module or synthesized provenance.
 #[test]
-#[ignore = "requires explicit same-candidate canonical local-test-provider WASM and metadata"]
+#[cfg(feature = "test_tier_full")]
 fn provider_preview_actual_module_commit_agent_read_and_immutable_rerun() {
     let root = Directory::new();
     let mut options = root.options();
