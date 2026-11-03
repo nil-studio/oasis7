@@ -191,6 +191,7 @@ fn accept_current<
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(retained.retain(CognitionCurrentStateQualificationV1 {
+        class: context.values.class,
         roots,
         controls: parent.controls,
         entries,
@@ -213,6 +214,7 @@ pub(super) fn verify_parent<
 > {
     context.check()?;
     if context.values.class != MemoryClass::Ordinary
+        || parent.class() != MemoryClass::Ordinary
         || verifier.class != MemoryClass::Ordinary
         || !parent.uses_budget(context.values.memory)
         || !verifier.memory.same_pool(context.values.memory)

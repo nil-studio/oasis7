@@ -578,3 +578,5 @@ pub use world::incremental_module_fee_contribution::{
 pub use world::incremental_scheduler_recovery::{
     ModuleScheduleReadContext, VerifiedModuleScheduleContent,
 };
+
+pub use oasis7_world_state::incremental_cognition_history;

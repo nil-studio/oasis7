@@ -158,6 +158,10 @@ pub use read::{JsonReadWorkV1, JsonSubtreeQualificationV1, qualify_json_subtree_
 #[path = "incremental_json_records_materialize.rs"]
 mod materialize;
 pub(crate) use materialize::materialize_records;
+
+#[path = "incremental_json_records_readmission.rs"]
+mod readmission;
+pub(crate) use readmission::copy_json_subtree_metadata_ordinary_v1;
 #[path = "incremental_json_records_cursor.rs"]
 pub(crate) mod cursor;
 

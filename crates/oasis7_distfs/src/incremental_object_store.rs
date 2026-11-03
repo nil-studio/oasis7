@@ -12,6 +12,12 @@ const WORKSPACE: usize = 64 * 1024;
 #[path = "incremental_object_stream_writer.rs"]
 mod stream_writer;
 pub use stream_writer::ObjectStreamWriteError;
+#[path = "incremental_object_recovery_reader.rs"]
+mod recovery_reader;
+pub use recovery_reader::RecoveryObjectReadSession;
+#[path = "incremental_object_cursor.rs"]
+mod cursor;
+pub use cursor::VerifiedOriginalCursor;
 
 pub struct IncrementalObjectStore<'a> {
     pages: &'a IncrementalPageStore,

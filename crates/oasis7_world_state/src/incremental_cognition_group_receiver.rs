@@ -176,6 +176,7 @@ pub fn accept_cognition_current_lifecycle_transition_v1<
     )?;
     let roots = record.after.digest().map_err(|_| invalid())?;
     let output = retained.retain(CognitionCurrentStateQualificationV1 {
+        class: context.values.class,
         roots,
         controls,
         entries,
