@@ -7,6 +7,7 @@
 - 想逐屏核对游戏 Viewer / Bevy 像素世界的阅读顺序、观察/草稿/原回执身份、输入与恢复状态：读[详细 UI/UX 交接](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)及[版本化设计稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)。这些是设计目标，不是运行截图或实现验收。 账号、绑定、模型连接等外围旅程与状态覆盖见[页面模块§10.9](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)，09–14为补充目标稿。
 - 想制作或核验 `production_only` 首局的目标、首产物、受阻和回访内容：读[首局内容与交付规格](first-session-content-delivery.design.md)及[配套验收方法](first-session-content-delivery.manual.md)。这里承接事实到文案、素材和交付的关系；玩法条件、页面布局与运行结果仍由各自原主责核定。
 - 想制作 Viewer 中英术语、上下文帮助，或核对语言切换、缺译和字体的交付边界：读[本地化与上下文帮助](viewer-localization-and-context-help.design.md)及[验证手册](viewer-localization-and-context-help.manual.md)。品牌短标签、实际语言机制与其他入口各沿原主责，帮助目标与已实现入口分别核对。
+- 想制作或交接世界材质、热点符号、模块标记和 Micro Depot 视觉内容：读[世界视觉内容与交付](viewer-world-visual-content-delivery.design.md)及[制作验收手册](viewer-world-visual-content-delivery.manual.md)。这里定位当前程序化变体、编辑源、构建消费者及来源资料；图层、尺寸、LOD、动效和场景仍沿原 Bevy 详细交接。
 - 想先理解 Pixel-world 对玩家承诺的首读层级、空间关系来源、可归因因果与诊断边界：读 [`doc/product/agents-world-simulation/player-readable-world-stage.prd.md`](../../product/agents-world-simulation/player-readable-world-stage.prd.md)；具体 DTO、LOD、renderer 与验证仍回到本目录专业文档。
 - 想确认 Viewer / player-facing surface 的整体视觉方向、层级、pixel-world 可读性与视觉评审 gate：先读 `viewer-visual-design-spec-2026-06-05.design.md`；涉及本轮 image2 视觉目标、首屏总体设计与分模块落地时继续读 `viewer-page-module-design-2026-06-18.design.md`；涉及 brand book、token、icon/status、资产准入和截图矩阵时继续读 `viewer-brand-system-2026-06-05.design.md`
 - 想执行 Viewer、走 Web 闭环、看命令或手工步骤：先读 `viewer-manual.manual.md`
