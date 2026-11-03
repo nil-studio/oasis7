@@ -353,7 +353,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 #### 具体稿字段与状态映射
 
 - 表示：`normal_frame`。
-  - [具体frame](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)；区域：named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用。
+  - [具体frame](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)；标题明确“比较恢复方案（只读）”，不以“执行”承诺此组件具备提交入口；区域：named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用。
   - 已画状态：只读 · 所有已发布选项保留。
   - 区域「等待 safe_wait · 不可用」：原因：当前条件不能安全等待；保留：已提交进度；成本：已发布成本；机会成本：错过当前窗口
   - 区域「修复 repair_now · 可用 / 推荐」：原因：运行时推荐的恢复路径；保留：已发布保留进度；成本：已发布本地投入；机会成本：延后其他计划
