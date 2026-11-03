@@ -161,6 +161,8 @@ Account verifies the original World response domain/digest, canonical receipt an
 
 `CUSTODY_OWNER_SETUP_ENABLED` defaults off. The same authenticated management path exposes closed `owner-setups/basis`, `prepare`, `approve` and `continue` POSTs. Basis and prepare read actual Account bindings and use the Core canonical codec to construct the request for fresh native UV; they do not consume approval, reserve a budget or grant a World effect. The private goal and its approval digest are not public progress fields.
 
+TestSession 的既有管理 `POST /v1/account-provisions/{id}/test-sessions/basis` 返回闭合的 `TestSessionBasisResponseV1 { basis, basis_digest }`。摘要由 Rust 既有 canonical codec 计算，客户端只将返回值放入 plan，不在 JS/UI 重算协议摘要。响应一致性核对不授予权限；prepare 仍根据当前状态独立重建 basis。这是默认关闭 lane 的响应形状更新，Owner、Identity 和生成合同必须配套更新，不猜测兼容旧裸 basis 响应，也不代表管理 UI 已接通。
+
 An independent OwnerSetup approval reserves 584–600 credits: eight for its source and 96 for each of six fixed stages. It cannot use Provision, ManagedLogin or TestSession balances. Each stage has five paid current reads and a conservative 95-hop graph, including renewed native admission, separate Fence checks and fact archival. Identity uses its original encrypted SID/CSRF; Owner's vault signs only the registered task, private goal, delegation, bind and observation domains. Pre-signing permits only a World preflight. Strong World/Root admission and the final Account SQL transition must claim the effect before Identity sends it.
 
 Canonical submit and lookup responses occupy separate immutable fact slots. Archival can retain a late response after freeze without advancing authorization; live completion still needs current authority. Known rejection blocks the stage, other uncertain outcomes remain pending, and continuation cannot resend an unknown original. Final World owner, goal and delegation observations are required for `prepared`; that stage grants no TestSession or game execution. Integration and real environment acceptance remain separate from compilation checks.
@@ -170,3 +172,42 @@ Canonical submit and lookup responses occupy separate immutable fact slots. Arch
 The platform verification builds a test-only real NodeRuntime/World HTTP process in addition to the native SQLite authority and workerd roles. World policy is installed through the existing fixture governance signatures, and actual execution produces the canonical receipt. Fixed test keys are not operational credentials. Local tests cover response loss, signature corruption, independent Fence freezing, budget exhaustion and restart without resending; deployment and CT/ST gameplay acceptance remain separate.
 
 Node test files run serially so independent local World/workerd fixtures do not compete for the five-second authority window. Explicit races inside a test still run concurrently, and expiry, revocation and rollback tests retain their original checks. This verification does not establish production load capacity.
+
+## 受限生产测试候选准入
+
+本节整理现有构建、配置和验收入口，不宣布 production ready，也不提供可直接执行的发布命令。四份 [`deploy/`](deploy/) 配置只有 staging Worker 名称、角色 binding 和 SQLite migration；`workers_dev=false`、`preview_urls=false`，未登记测试域名路由、账号或运维秘密。当前 `verify.sh --platform` 的 Wrangler 命令仅为 dry-run。正式测试环境须另行确认独立环境身份、同源 HTTPS 路由、四个最小权限发布身份及秘密归属；不能将测试 harness、固定 fixture key 或 loopback HTTP bridge 发布成服务。
+
+候选以同一 source/tested-tree、四角色工件摘要、必要 CI 和适用独立评审为准。构建保持四角色分别输出，部署入口只能为各自 `artifacts/<role>/entry.mjs`，不能使用带默认生成 RPC 的原始 builder 输出。现有本地验收入口是：
+
+```sh
+rtk proxy bash crates/oasis7_custody_worker/scripts/verify.sh --platform
+```
+
+该入口串行构建、dry-run、检查实际 Rust 合同并运行本地原生 authority、World 和 workerd 测试；不包含实际 Cloudflare 发布、部署后 TLS/IAM 验收或 Agent 实玩。新的候选不能以旧提交的通过结果代签。
+
+### 环境登记清单
+
+这里只登记名称与归属，不存放值。缺项不从 fixture 推导，也不在请求中自动创建 key。以下组须按实际开启的 lane 完整核对；列出开关不表示允许开启。
+
+| 归属 / 用途 | 必须登记的配置或 secret 名称 | 准入约束 |
+| --- | --- | --- |
+| Identity / Native 管理认证 | `CUSTODY_NATIVE_ORIGIN`、`CUSTODY_NATIVE_RP_ID`、`CUSTODY_NATIVE_NAMESPACE`、`CUSTODY_NATIVE_INSTANCE_EPOCH`、`CUSTODY_NATIVE_ENVIRONMENT`、`CUSTODY_NATIVE_AUDIENCE`、`CUSTODY_NATIVE_APPROVAL_KEY_ID`、`CUSTODY_NATIVE_APPROVAL_PUBLIC_KEY`；secret `CUSTODY_NATIVE_ADAPTER_SECRET` | Worker 与实际 Native RP 同一 HTTPS origin；独立 adapter credential，不转交 Executor。 |
+| Owner / 固定目录与 World | `CUSTODY_BOOTSTRAP_MANAGERS`、`CUSTODY_PROVISION_ROUTES`、`CUSTODY_PROVISION_WORLD_IDENTITY`、`CUSTODY_POLICY_VERSION`，以及同一 Native namespace/epoch/environment | World identity 必须为真实 `ApprovedWorldV1`，包含实际 world/genesis/branch/reorg/service-key pins；禁止用测试 World 或调用者自报目标替换。 |
+| 三个持钥角色 / 私密角色材料 | `CUSTODY_ROLE_KEY_ENVIRONMENT`、`CUSTODY_SERVICE_EPOCH`、`CUSTODY_ROLE_WRAPPING_KEY_VERSION`；各角色独立 secret `CUSTODY_ROLE_KEY_KEK` | 四角色发布权限和秘密隔离；KEK 为预配置的 32 字节小写 hex，不能共享 Native SID 或协议 seed。 |
+| Owner / Native 绑定 | `CUSTODY_NATIVE_BINDING_OWNER_PIN`；secret `CUSTODY_NATIVE_BINDING_SIGNING_SEED` | Owner pin 的完整 `key_id` / `public_key` / `environment` / `service_identity` / `service_epoch` 必须与 Native 登记一致，并匹配目录环境、服务代和 Native namespace 合同。Owner service key 及 key ID 必须不同于 Native Root；不将 Owner seed 给 Native、Identity、Executor 或客户端。 |
+| Identity / ContextBody | `CUSTODY_CONTEXT_BODY_ENABLED`、`CUSTODY_CONTEXT_BODY_WRAPPING_KEY_VERSION`；独立 secret `CUSTODY_CONTEXT_BODY_KEK` | 独立于角色 KEK，完整正文仍为私密记录；当前组件测试不证明生产业务调用已经接通。 |
+| Identity / 客户端登记 | `CUSTODY_PUBLIC_ORIGIN`、`CUSTODY_ENROLLMENT_REALM`、`CUSTODY_HOST_DEPLOYMENTS`、`CUSTODY_CLIENT_ENROLLMENT_ENABLED` | host allowlist 缺省为空；实际 host 隔离未验收不得登记为可信。可信 provider IP/Origin 必须来自平台上下文。 |
+| Native / 独立批准 authority | `OASIS7_CUSTODY_APPROVAL_SIGNING_KEY`、`OASIS7_CUSTODY_APPROVAL_KEY_ID`、`OASIS7_CUSTODY_ACCOUNT_AUTHORITY_AUDIENCE`、`OASIS7_CUSTODY_NATIVE_ADAPTER_SECRET` | 使用实际 SQLite identity authority、真实 Passkey 管理会话与持久参与者 registry；独立于 identity session secret。 |
+| Native / Managed Binding Owner pin | `OASIS7_CUSTODY_MANAGED_BINDINGS_ENABLED=true`、`OASIS7_CUSTODY_MANAGED_BINDING_OWNER_PIN`；轮换另需 `OASIS7_CUSTODY_MANAGED_BINDING_OWNER_ROTATION_MANIFEST` | Native 登记与 Owner 配置逐字段匹配完整 `key_id` / `public_key` / `environment` / `service_identity` / `service_epoch`，环境须为实际 Native namespace 环境，Owner key/key ID 与 Native Root 不同。轮换须由原 Native Root 签署精确 manifest，并由新 Owner 证明持钥，绑定当前持久 ledger digest、namespace/instance epoch、旧 pin、新 pin 及有效窗口；持久 floor 与 retired pins 不得删除、回退或复用。Native 仅持 Owner 公钥 pin，不复制 Owner seed，不能仅改环境 pin 绕过轮换。 |
+| Native / 撤销通道 | `OASIS7_CUSTODY_REVOCATION_POLL_SECRET`、`OASIS7_CUSTODY_REVOCATION_ACK_SECRET`、`OASIS7_CUSTODY_REVOCATION_OWNER_KEY_ID`、`OASIS7_CUSTODY_REVOCATION_OWNER_PUBLIC_KEY`、`OASIS7_CUSTODY_REVOCATION_OWNER_AUDIENCE`、`OASIS7_CUSTODY_REVOCATION_PARTICIPANTS` | Identity 仅持对应 `CUSTODY_NATIVE_REVOCATION_POLL_SECRET` / `CUSTODY_NATIVE_REVOCATION_ACK_SECRET`；Owner 独立持 `CUSTODY_REVOCATION_OWNER_SIGNING_KEY` / `CUSTODY_REVOCATION_OWNER_KEY_ID`。poll、ack、adapter、signer 秘密彼此独立。 |
+| 独立 Recovery Fence / 离线控制 | `CUSTODY_RECOVERY_CONTROL_ENABLED`、`CUSTODY_RECOVERY_AUTHORITY_POLICY` | 新库初始 frozen。启用需要独立离线 quorum manifest、实际 DO 身份、库存及下游核对；普通批准不能解冻，fixture active fence 不能替代。 |
+
+`CUSTODY_PROVISION_APPROVAL_ENABLED`、`CUSTODY_PROVISION_KEYS_ENABLED`、`CUSTODY_NATIVE_PROVISION_ENABLED`、`CUSTODY_PARTICIPANT_PROVISION_ENABLED`、`CUSTODY_OWNER_SETUP_ENABLED`、`CUSTODY_TEST_SESSION_ENABLED` 均为独立 opt-in。不得为试通一个入口一次性全开；候选须写明实际支持的 lane、允许管理者/host/World、预算和停止条件。秘密登记清单不代表相关凭据已经存在或经过核验。
+
+### 冻结、回滚与验收证据
+
+出现权限、来源、库存、部署身份或秘密隔离不明时，先停止新批准/配对/业务准入并保留原件和未知结果；使用已授权的管理冻结与独立 Fence disable 能力收紧权限。停止公开入口或回滚代码不等于世界委托已撤销：原 Stop/Revoke 必须分别取得真实 canonical 结果，不能重发未知原件、换 operation ID 或伪造 Closed。保留 Account、目录、SID、outbox、nonce/水位和审计数据，不以清库恢复通过。独立 Fence 整库 PITR 或丢失不能由同库自证，禁止将旧 active 快照作为常规回滚；先隔离旧服务并走独立恢复核对。环境面和 session 处置同时遵循[现有 Operator Runbook](../../doc/p2p/blockchain/hosted-player-access-operator-runbook.md)。
+
+部署后测试记录必须区分：实际四角色 IAM/binding/TLS 和 secret 隔离；真实 Native fresh-MFA、撤销、来源与固定 World pin；真实 host 的 OS 主体或远端隔离；实际工具调用、World receipt/业务效果、预算及到限收尾。沿设计 [§12.18 的 CT-008](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-selftest) 使用既有 RunInput/TesterInput/RunResult 和正式 `oasis7-play` Skill，保留 ST-02/03/04/06 证据。脚本 HTTP 成功、普通 WebAuthn ceremony、同 UID 的 0600 文件及本地 fixture 不代签这些项目。
+
+当前 ContextRef/LiveRead 协议、存储和桥接验证不构成完整 Execution/ReconcileRead 生产消费者；ResourceBasis、权威用量结算、完整 24-transport Stop/Revoke、真实隔离 Host/管理 UI 和正式实玩仍须按实现与实际结果逐项确认。无法在原预算内闭合的调用图保持 disabled，不增加上限或隐藏批量成本。dot 的独立 OAuth/MCP 双 PoP 仍单独 blocked，不能用 Native 或 Host 代签；未确认部署凭据、付费模型授权和测试资源前不执行相应外部动作。Issue #5076 保持 OPEN。

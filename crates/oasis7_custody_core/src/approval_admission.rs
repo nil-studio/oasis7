@@ -475,6 +475,8 @@ fn deadline(input: &ApprovalAdmissionInput, context: &ApprovalAdmissionContext) 
         | CustodyIntentV1::OwnerSetup { deadline, .. }
         | CustodyIntentV1::ManagedLogin { deadline, .. } => deadline.0,
         CustodyIntentV1::OwnerSetupReconcile { plan } => plan.deadline.0,
+        CustodyIntentV1::OwnerSetupV2 { plan } => plan.deadline.0,
+        CustodyIntentV1::TestSessionV2 { plan, .. } => plan.write_deadline.0,
         CustodyIntentV1::TestSession { write_deadline, .. } => write_deadline.0,
     };
     [
@@ -744,3 +746,7 @@ mod private_debug_tests {
 #[path = "http_pop_checks.rs"]
 mod http_pop_checks;
 pub(crate) use http_pop_checks::http_pop_signature_checks;
+
+#[path = "context_body_signature_checks.rs"]
+mod context_body_signature_checks;
+pub(crate) use context_body_signature_checks::*;

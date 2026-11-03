@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 /// Material ledger identifier used by M4 economy state.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Hash, Default)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(try_from = "String", into = "String")]
 pub enum MaterialLedgerId {
@@ -10,6 +10,14 @@ pub enum MaterialLedgerId {
     Agent(String),
     Site(String),
     Factory(String),
+}
+
+impl Serialize for MaterialLedgerId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Preserve the string wire while allowing streaming serializers to
+        // format the borrowed ID without cloning it or building a full String.
+        serializer.collect_str(self)
+    }
 }
 
 impl MaterialLedgerId {

@@ -124,6 +124,8 @@ First show state and whether the relevant action is possible; then cause/missing
 
 Preserve World/Targets/Command and optional Diagnostics without forcing the player to scroll past the whole world to find commands. Low-height/landscape, CJK, zoomed text and touch tooltips need explicit coverage. Layer/filter/selection changes do not alter task or original receipt identity.
 
+账号/准入/绑定、Targets/重入、浏览器模型连接、Command原件结果、Live/Playback与次级安全工具的整体交接见[页面模块§10.9](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)。它们复用现有三项主路由及专业authority，不引入新世界选择器、统一提交、设置中心或能力声明。
+
 ## 9. Pixel-World Layering
 
 Priority is decision context and original receipt/blocker, active/selected Agent, valid routes/relationships/hotspots/goal callouts, logical Location anchors, terrain/background, then diagnostics. This is reading priority, not a requirement that every item occupy a permanent panel.
@@ -180,6 +182,8 @@ Pixel-world blockers include terrain overpowering Agent/goal, diagnostics overpo
 State Player/Director scope, first-read subject, affected stage/command/context/diagnostics, subject/provenance/receipt/empty/recovery behavior, desktop/mobile/input matrix, stable hooks and non-goals. Structural/visual changes with material layout or interaction alternatives still require two or three bounded comparison artifacts and inherited decisions under the existing workflow; routine fixes must not become an excuse for a new Shell redesign.
 
 A documentation-only contract revision does not supply screenshots or pretend those comparisons/reviews have run. Implementation and visible changes obtain the corresponding actual evidence.
+
+Detailed journeys, independent observation/draft/original-operation identity, viewport/input states and versioned references are specified in the [page/module handoff](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff). These refine this specification, not establish another visual authority. Static reference review proves only the reference's presentation; it does not replace the current-candidate visual, input, runtime or comprehension evidence above.
 
 ## 15. Acceptance Criteria for Future Visual Changes
 

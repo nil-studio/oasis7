@@ -6,6 +6,7 @@ pub use oasis7_agent_api::game::{
     GameGoalPublishV1, GameGoalReferenceV1, GameTaskControlV1, GameTaskCreateV1,
 };
 use std::collections::BTreeMap;
+mod task_scope;
 mod executor;
 pub use executor::*;
 mod task_context;
@@ -271,28 +272,11 @@ fn select_current<'a>(
     if relevant.is_empty() {
         return Ok(None);
     }
-    let identity = world
-        .current_agent_identity(agent)
-        .ok_or("task current owner identity unavailable")?;
-    let binding = world
-        .current_cognition_runtime_binding()
-        .map_err(|e| format!("{e:?}"))?;
-    let owner = agent_authority::owner_public_key(world, agent)?;
+    let scope = task_scope::current_task_scope(world, agent)?;
     let mut current = None;
     for task in relevant {
         let c = &task.control;
-        if c.owner_public_key != owner
-            || c.owner_binding != identity.owner_binding
-            || c.owner_generation.0 != identity.generation
-            || c.world_id != binding.world_id
-            || c.branch_id != binding.branch_id
-            || c.reorg_epoch.0 != binding.reorg_epoch
-            || world
-                .chain_resource_manifest()
-                .genesis_ref
-                .as_ref()
-                .is_some_and(|genesis| genesis != &c.genesis_digest)
-        {
+        if !scope.matches(&oasis7_agent_api::game::GameTaskFenceV1::from_control(c)) {
             continue;
         }
         if current.replace(task).is_some() {
@@ -303,12 +287,29 @@ fn select_current<'a>(
 }
 /// Validate every historical task chain, including currently revoked owners.
 pub fn validate_history(world: &World) -> Result<(), String> {
+    crate::world::task_terminal_v2::validate_index(world)?;
     reduce(collect(world, [])?)?;
     Ok(())
 }
-pub fn current_control(world: &World, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
+pub(crate) fn current_control_before_terminal(world: &World, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
     let tasks = reduce(collect(world, [])?)?;
     Ok(select_current(world, agent, &tasks)?.map(|task| task.control.clone()))
+}
+pub fn current_control(world: &World, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
+    let control = current_control_before_terminal(world, agent)?;
+    if let Some(c) = &control {
+        ensure_task_not_closed(world, &c.task_id)?;
+    } else if task_scope::has_closed_in_current_scope(world, agent)? {
+        return Err("closed task requires explicit V2 task identity".into());
+    }
+    Ok(control)
+}
+pub fn ensure_task_not_closed(world: &World, task_id: &str) -> Result<(), String> {
+    if world.capability_revocation_state().task_terminals_v2.as_ref()
+        .is_some_and(|index| index.records.contains_key(task_id)) {
+        return Err("task Closed V2 is unsupported by legacy V1 lifecycle".into());
+    }
+    Ok(())
 }
 /// Exact authoritative publication used to prove the historical activation cut.
 pub fn active_publish(
@@ -316,7 +317,11 @@ pub fn active_publish(
     agent: &str,
 ) -> Result<Option<CanonicalIntentResultV1>, String> {
     let tasks = reduce(collect(world, [])?)?;
-    Ok(select_current(world, agent, &tasks)?.and_then(|task| task.publish.clone()))
+    let task = select_current(world, agent, &tasks)?;
+    if let Some(task) = task {
+        ensure_task_not_closed(world, &task.control.task_id)?;
+    }
+    Ok(task.and_then(|task| task.publish.clone()))
 }
 
 /// One immutable, fully validated view used by checkpoint live-task retention.
@@ -424,7 +429,9 @@ impl ValidatedRetentionHistory<'_> {
     /// The current publication after reducing this view's complete task history.
     #[doc(hidden)]
     pub fn active_publish(&self, agent: &str) -> Result<Option<CanonicalIntentResultV1>, String> {
-        Ok(select_current(self.world, agent, &self.tasks)?.and_then(|task| task.publish.clone()))
+        let task = select_current(self.world, agent, &self.tasks)?;
+        if let Some(task) = task { ensure_task_not_closed(self.world, &task.control.task_id)?; }
+        Ok(task.and_then(|task| task.publish.clone()))
     }
 
     /// The current control selected from this view's complete task history.
@@ -432,7 +439,12 @@ impl ValidatedRetentionHistory<'_> {
     /// supplied with a different World by the caller.
     #[doc(hidden)]
     pub fn current_control(&self, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
-        Ok(select_current(self.world, agent, &self.tasks)?.map(|task| task.control.clone()))
+        let task = select_current(self.world, agent, &self.tasks)?;
+        if let Some(task) = task { ensure_task_not_closed(self.world, &task.control.task_id)?; }
+        else if task_scope::has_closed_in_current_scope(self.world, agent)? {
+            return Err("closed task requires explicit V2 task identity".into());
+        }
+        Ok(task.map(|task| task.control.clone()))
     }
 
     /// Revalidate the caller's live executor fence against this view's World.
@@ -526,6 +538,7 @@ pub fn prepare_create<'a>(
     let WorldServicePayloadV1::GameTaskCreate(signed) = &request.signed_payload else {
         return Err("not task create".into());
     };
+    ensure_task_not_closed(world, &create_control(request)?.task_id)?;
     validate_owner(world, signed)?;
     if derive_correlation(
         request.correlation.key.world.clone(),
@@ -552,6 +565,7 @@ pub fn prepare_publish<'a>(
     let WorldServicePayloadV1::GameGoalPublish(signed) = &request.signed_payload else {
         return Err("not goal publish".into());
     };
+    ensure_task_not_closed(world, &signed.request.task_id)?;
     validate_publish_owner(world, signed)?;
     if derive_correlation(
         request.correlation.key.world.clone(),

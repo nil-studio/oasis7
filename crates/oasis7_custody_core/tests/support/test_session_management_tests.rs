@@ -85,6 +85,31 @@ fn test_session_management_codec_is_exact_readonly_and_never_returns_or_consumes
             .test_session_basis(&request, &current, UnixMillis::new(8001))
             .unwrap()
     );
+    let response = TestSessionBasisResponseV1::new(basis.clone()).unwrap();
+    response.validate().unwrap();
+    assert!(
+        response.basis == basis,
+        "response retains the exact Rust basis"
+    );
+    assert!(
+        response.basis_digest == basis.digest().unwrap(),
+        "response carries the existing Rust commitment"
+    );
+    let mut changed_digest = response.clone();
+    changed_digest.basis_digest = "ff".repeat(32);
+    assert!(changed_digest.validate().is_err());
+    let mut changed_basis = response.clone();
+    changed_basis.basis.request_id.push_str("-changed");
+    assert!(changed_basis.validate().is_err());
+    for missing in ["basis", "basis_digest"] {
+        let mut wire = serde_json::to_value(&response).unwrap();
+        wire.as_object_mut().unwrap().remove(missing);
+        assert!(serde_json::from_value::<TestSessionBasisResponseV1>(wire).is_err());
+    }
+    let mut unknown = serde_json::to_value(&response).unwrap();
+    unknown["verified_authority"] = true.into();
+    assert!(serde_json::from_value::<TestSessionBasisResponseV1>(unknown).is_err());
+    assert!(f.state == before, "basis response creation is read-only");
     assert_eq!(basis.session_id.len(), 64);
     assert_eq!(basis.termination.session_id, basis.session_id);
     assert_eq!(

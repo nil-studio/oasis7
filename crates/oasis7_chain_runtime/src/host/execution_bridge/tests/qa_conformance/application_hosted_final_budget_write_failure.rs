@@ -26,7 +26,10 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 fn await_marker(root: &Path, name: &str) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    await_marker_for(root, name, Duration::from_secs(15))
+}
+fn await_marker_for(root: &Path, name: &str, budget: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + budget;
     while !root.join(name).exists() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(2));
     }
@@ -49,6 +52,14 @@ pub(super) struct FaultProof {
 
 pub(super) fn start(root: PathBuf) -> thread::JoinHandle<Result<FaultProof, String>> {
     thread::spawn(move || {
+        // Clock production has its own existing allowance. Starting the fault
+        // boundary timer before the selected wake can expire before cleanup
+        // even begins, leaving a genuine late Consume without its fault worker.
+        await_marker_for(
+            &root,
+            "hosted-final-budget-selected.json",
+            application_hosted_final_budget::PRODUCER_BUDGET,
+        )?;
         await_marker(&root, "final-budget-before-persist")?;
         let target = root.join("hosted-final-budget-private-lineage.json");
         let backup = root.join("final-budget-checkpoint-backup.json");

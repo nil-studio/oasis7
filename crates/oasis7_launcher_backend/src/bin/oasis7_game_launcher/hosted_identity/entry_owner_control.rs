@@ -24,6 +24,21 @@ impl IdentityService {
         body: &Value,
         now: u64,
     ) -> Option<Result<Value, StoreError>> {
+        #[cfg(test)]
+        if path == "/_fixture/resource-basis/owner-control" {
+            return Some((|| {
+                if method != "POST" {
+                    return Err(reject("method_not_allowed"));
+                }
+                let q: EntryOwnerControlRequestV1 = parse_request(
+                    &serde_json::to_vec(body).map_err(|_| reject("invalid_request"))?,
+                )
+                .map_err(|_| reject("invalid_request"))?;
+                let bytes = resource_component::read(self, sid, &q, now)?;
+                let reply: oasis7_client_api::world_service::resource_basis::NativeResourceEnvelopeV1<oasis7_client_api::world_service::resource_basis::OwnerSetupFinalResourceObservationV2> = parse_request(&bytes).map_err(|_| reject("invalid_request"))?;
+                serde_json::to_value(reply).map_err(|_| reject("invalid_request"))
+            })());
+        }
         if path != "/entry-owner/control" {
             return None;
         }
@@ -43,6 +58,14 @@ impl IdentityService {
             }
             let request: EntryOwnerControlRequestV1 =
                 parse_request(&bytes).map_err(|_| reject("invalid_request"))?;
+            // No actual V2 approval/prepaid-once producer or verifier exists yet.
+            // Reject before even the legacy owner-view preflight can leave Native.
+            if matches!(
+                &request.operation,
+                EntryOwnerOperationV1::ReadResourceGoal(_)
+            ) {
+                return Err(reject("owner_control_unavailable"));
+            }
             self.check_participant_subject(
                 &request.access.owner.request,
                 &account.account_id,
@@ -170,6 +193,9 @@ impl IdentityService {
                         return Err(reject("owner_control_context_mismatch"));
                     }
                     entry.forward_bound(GOAL_PREPARE_PATH, GOAL_PREPARE_PATH, q, q)
+                }
+                EntryOwnerOperationV1::ReadResourceGoal(_) => {
+                    Err(reject("owner_control_unavailable"))
                 }
                 EntryOwnerOperationV1::ReadGoal(q) => {
                     verify_current_request(q).map_err(|_| reject("authentication_failed"))?;
@@ -326,3 +352,7 @@ fn validate_payload(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "entry_resource_component.rs"]
+mod resource_component;

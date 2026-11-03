@@ -635,11 +635,13 @@ fn manifest(
     let artifact_roots = material
         .roots
         .iter()
-        .map(|(role, content_hash)| FormalFullSyncArtifactRootV1 {
-            role: wire_role(*role),
-            content_hash: content_hash.clone(),
+        .map(|(role, content_hash)| {
+            Ok(FormalFullSyncArtifactRootV1 {
+                role: wire_role(*role)?,
+                content_hash: content_hash.clone(),
+            })
         })
-        .collect();
+        .collect::<FormalReadResult<Vec<_>>>()?;
     let objects = material
         .objects
         .iter()
@@ -667,8 +669,8 @@ fn manifest(
     Ok(manifest)
 }
 
-fn wire_role(role: ArtifactRole) -> WireRole {
-    match role {
+fn wire_role(role: ArtifactRole) -> FormalReadResult<WireRole> {
+    Ok(match role {
         ArtifactRole::Input => WireRole::Input,
         ArtifactRole::Result => WireRole::Result,
         ArtifactRole::Snapshot => WireRole::Snapshot,
@@ -679,7 +681,15 @@ fn wire_role(role: ArtifactRole) -> WireRole {
         ArtifactRole::Wasm => WireRole::Wasm,
         ArtifactRole::Rules => WireRole::Rules,
         ArtifactRole::NativeExecutionEnvironment => WireRole::NativeExecutionEnvironment,
-    }
+        ArtifactRole::IncrementalGenesisConfig
+        | ArtifactRole::IncrementalRootSet
+        | ArtifactRole::IncrementalCommitBody
+        | ArtifactRole::IncrementalHistoryPrefix => {
+            return Err(FormalReadError::Integrity(
+                "incremental artifacts require the typed incremental sync format".into(),
+            ));
+        }
+    })
 }
 
 fn retained_history_root(material: &ClosedRecord) -> FormalReadResult<Option<String>> {
@@ -871,4 +881,31 @@ fn rejected(
         &error.to_string(),
         &service.signer,
     )
+}
+
+#[cfg(test)]
+mod incremental_role_tests {
+    use super::*;
+    #[test]
+    fn legacy_full_sync_wire_rejects_all_incremental_roles() {
+        for role in [
+            ArtifactRole::IncrementalGenesisConfig,
+            ArtifactRole::IncrementalRootSet,
+            ArtifactRole::IncrementalCommitBody,
+            ArtifactRole::IncrementalHistoryPrefix,
+        ] {
+            assert!(matches!(
+                wire_role(role),
+                Err(FormalReadError::Integrity(_))
+            ));
+        }
+        assert_eq!(
+            wire_role(ArtifactRole::NativeExecutionEnvironment).unwrap(),
+            WireRole::NativeExecutionEnvironment
+        );
+        assert_eq!(
+            wire_role(ArtifactRole::Snapshot).unwrap(),
+            WireRole::Snapshot
+        );
+    }
 }

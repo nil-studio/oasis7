@@ -37,6 +37,23 @@ class GraphTests(unittest.TestCase):
         for bad in (good[:2],good+[good[0]],[[paths[0],1,1],*good[1:]],[[paths[0],0,0],[paths[1],0,0],good[2]],[["other.rs",0,0],*good[1:]],[[paths[0],False,0],*good[1:]]):
             with self.assertRaises(RuntimeError):cfg.validate_context_exclusion(bad)
 
+    def test_scope_identity_labels_are_bounded_and_database_local(self):
+        source=Path('/frozen')
+        good=[[i,str(source/p),p+'@1:1:2:1','Function','fn deserialize',1]
+              for i,p in enumerate(cfg.DERIVED_SCOPE_PATHS)]
+        self.assertEqual(cfg.validate_scope_identities(good,source)['status'],'SCOPE_IDENTITIES_RECORDED')
+        for bad in (good[:-1],good+[good[0]],[[True,*good[0][1:]],*good[1:]],
+                    [[good[0][0],'/unknown',*good[0][2:]],*good[1:]],
+                    [[good[0][0],{},*good[0][2:]],*good[1:]],
+                    [[*good[0][:4],'x'*4097,1],*good[1:]],[[*good[0][:5],True],*good[1:]]):
+            with self.assertRaises(RuntimeError):cfg.validate_scope_identities(bad,source)
+        with self.assertRaisesRegex(RuntimeError,'scope identity row bound'):
+            cfg.validate_scope_identities(good*2501,source)
+        query=cfg.scope_identity_query(source)
+        for p in cfg.DERIVED_SCOPE_PATHS:self.assertIn(str(source/p),query)
+        self.assertNotIn('localFlow',query)
+        self.assertNotIn('fastTC',query)
+
     def test_digest_exception_preserves_primary_error(self):
         terminal={'status':'DIAGNOSTIC_COMPLETED','error':'original query failure'}
         with tempfile.TemporaryDirectory() as tmp:

@@ -3,8 +3,11 @@ use oasis7_wasm_abi::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[path = "action_serialize.rs"]
+mod action_serialize;
+
 /// Actions that can be submitted to the world.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum Action {
     WorldRule {
@@ -460,12 +463,6 @@ pub enum Action {
         node_id: String,
         reason: String,
     },
-    RotateGovernanceValidatorFinalityKeyV1 {
-        controller_account_id: String,
-        body: FinalityKeyRotationBodyV1,
-        old_key_proof: FinalityKeyRotationProofV1,
-        new_key_proof: FinalityKeyRotationProofV1,
-    },
     OpenEconomicContract {
         creator_agent_id: String,
         contract_id: String,
@@ -576,6 +573,12 @@ pub enum Action {
         operator_agent_id: String,
         proposal_id: ProposalId,
         profile: FactoryProfileV1,
+    },
+    RotateGovernanceValidatorFinalityKeyV1 {
+        controller_account_id: String,
+        body: FinalityKeyRotationBodyV1,
+        old_key_proof: FinalityKeyRotationProofV1,
+        new_key_proof: FinalityKeyRotationProofV1,
     },
 }
 
@@ -882,3 +885,11 @@ fn default_governance_validator_admission_stake() -> u64 {
 fn default_logistics_capacity_units() -> i64 {
     i64::MAX
 }
+
+#[cfg(test)]
+#[path = "action_serialize_call_trace_test_support.rs"]
+mod action_serialize_call_trace_test_support;
+
+#[cfg(test)]
+#[path = "action_serialize_compatibility_tests.rs"]
+mod action_serialize_compatibility_tests;

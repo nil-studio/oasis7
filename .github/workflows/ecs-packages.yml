@@ -441,6 +441,7 @@ jobs:
           role-session-expiration: 1800
       - name: Publish immutable objects and advance channel last
         env:
+          GH_TOKEN: ${{ github.token }}
           OSS_ENDPOINT: ${{ vars.ECS_PREVIEW_OSS_ENDPOINT }}
           OSS_BUCKET: ${{ vars.ECS_PREVIEW_OSS_BUCKET }}
           OSS_PREFIX: ${{ vars.ECS_PREVIEW_OSS_PREFIX }}

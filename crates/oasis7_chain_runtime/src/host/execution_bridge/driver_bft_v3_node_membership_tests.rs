@@ -50,7 +50,10 @@ pub(super) fn provider_sessions(
 fn wire3_membership_actual_world_noise_follower_installs_at_h_plus_two() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(|| network_case_membership(false, false, false, false, true, false))
+        .spawn(|| {
+            let _trace = hook_trace::Scope::begin("membership");
+            network_case_membership(false, false, false, false, true, false)
+        })
         .unwrap()
         .join()
         .unwrap();

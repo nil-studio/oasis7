@@ -6,7 +6,16 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from ecs_preview_release import OssStore, publish, validate_manifest, sha256_file
+
+
+def verify_full_for_publish(source, rollback=False):
+    # Retained rollback keeps its existing explicit recovery authorization.
+    # A retained version promoted normally still needs its own full result.
+    if not rollback:
+        subprocess.run([sys.executable, str(Path(__file__).with_name("ci-full-result.py")),
+                        "verify", "--source", source], check=True)
 
 
 def main():
@@ -43,6 +52,7 @@ def main():
         # Compare the exact sidecar emitted by the already-qualified package job.
         if args.archive.with_suffix(args.archive.suffix + ".sha256").read_text().split()[0] != manifest["archive_sha256"]:
             p.error("qualified archive sidecar mismatch")
+    verify_full_for_publish(manifest["source_sha"], args.rollback)
     def ancestor(old, new):
         return subprocess.run(["git", "merge-base", "--is-ancestor", old, new], check=False).returncode == 0
     result = publish(store, manifest, archive, os.environ["GITHUB_RUN_ID"], int(os.environ["GITHUB_RUN_NUMBER"]), ancestor, args.rollback)

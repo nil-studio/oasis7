@@ -23,6 +23,10 @@ use std::{
 use super::formal_bft_prefix_transport::write_http_reply;
 use super::formal_live_service::{http::read_http_request, parse_strict};
 
+#[cfg(test)]
+#[path = "formal_bft_header_listener_probe.rs"]
+pub(crate) mod listener_probe;
+
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const HTTP_STACK_BYTES: usize = 8 * 1024 * 1024;
 const MAX_SIGNED_RESPONSE_BYTES: usize =
@@ -81,6 +85,8 @@ impl FormalBftHeaderReadHttpServiceV4 {
         if !bind.ip().is_loopback() || bind.port() == 0 {
             return Err("formal BFT read bind must be a nonzero loopback address".into());
         }
+        #[cfg(test)]
+        listener_probe::record_bind_attempt();
         let listener = TcpListener::bind(bind).map_err(|error| error.to_string())?;
         listener
             .set_nonblocking(true)

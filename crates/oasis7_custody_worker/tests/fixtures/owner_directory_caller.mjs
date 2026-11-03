@@ -65,6 +65,7 @@ export default {
       else if (url.pathname === '/source-event') result = await env.REVOCATIONS.closeSourceEvent(raw);
       else if (url.pathname === '/default-rpc') result = await env.DEFAULT_OWNER.owner_reserve_draft(raw);
       else if (url.pathname === '/reserve') result = await env.MANAGEMENT.reserveDraft(raw);
+      else if (url.pathname === '/parents') result = await env.MANAGEMENT.queryParents(raw);
       else if (url.pathname === '/read') result = await env.MANAGEMENT.getDraft(raw);
       else if (url.pathname === '/freeze-manager') result = await env.MANAGEMENT.freezeManager(raw);
       else return new Response(null, { status: 404 });

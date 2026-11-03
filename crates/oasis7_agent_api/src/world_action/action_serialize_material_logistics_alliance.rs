@@ -1,0 +1,150 @@
+// Domain-scoped Action dispatch; payload field serialization is derived.
+use super::{Action, ActionTag, payloads, serialize_action_envelope};
+use serde::ser::{Error as _, Serializer};
+
+pub(super) fn serialize<S>(action: &Action, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match action {
+        Action::TransferMaterial {
+            requester_agent_id,
+            from_ledger,
+            to_ledger,
+            kind,
+            amount,
+            distance_km,
+            priority,
+            route_id,
+            route_ids,
+            auto_reroute,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::TRANSFER_MATERIAL,
+            payloads::TransferMaterialPayload {
+                requester_agent_id,
+                from_ledger,
+                to_ledger,
+                kind,
+                amount,
+                distance_km,
+                priority,
+                route_id,
+                route_ids,
+                auto_reroute,
+            },
+        ),
+        Action::RegisterLogisticsRoute {
+            requester_agent_id,
+            from_ledger,
+            to_ledger,
+            kind,
+            distance_km,
+            priority,
+            capacity_units,
+            tariff_electricity_per_unit,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::REGISTER_LOGISTICS_ROUTE,
+            payloads::RegisterLogisticsRoutePayload {
+                requester_agent_id,
+                from_ledger,
+                to_ledger,
+                kind,
+                distance_km,
+                priority,
+                capacity_units,
+                tariff_electricity_per_unit,
+            },
+        ),
+        Action::SetLogisticsRouteAvailability {
+            requester_agent_id,
+            route_id,
+            available,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::SET_LOGISTICS_ROUTE_AVAILABILITY,
+            payloads::SetLogisticsRouteAvailabilityPayload {
+                requester_agent_id,
+                route_id,
+                available,
+            },
+        ),
+        Action::FormAlliance {
+            proposer_agent_id,
+            alliance_id,
+            members,
+            charter,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::FORM_ALLIANCE,
+            payloads::FormAlliancePayload {
+                proposer_agent_id,
+                alliance_id,
+                members,
+                charter,
+            },
+        ),
+        Action::JoinAlliance {
+            operator_agent_id,
+            alliance_id,
+            member_agent_id,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::JOIN_ALLIANCE,
+            payloads::JoinAlliancePayload {
+                operator_agent_id,
+                alliance_id,
+                member_agent_id,
+            },
+        ),
+        Action::LeaveAlliance {
+            operator_agent_id,
+            alliance_id,
+            member_agent_id,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::LEAVE_ALLIANCE,
+            payloads::LeaveAlliancePayload {
+                operator_agent_id,
+                alliance_id,
+                member_agent_id,
+            },
+        ),
+        Action::DissolveAlliance {
+            operator_agent_id,
+            alliance_id,
+            reason,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::DISSOLVE_ALLIANCE,
+            payloads::DissolveAlliancePayload {
+                operator_agent_id,
+                alliance_id,
+                reason,
+            },
+        ),
+        Action::DeclareWar {
+            initiator_agent_id,
+            war_id,
+            aggressor_alliance_id,
+            defender_alliance_id,
+            objective,
+            intensity,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::DECLARE_WAR,
+            payloads::DeclareWarPayload {
+                initiator_agent_id,
+                war_id,
+                aggressor_alliance_id,
+                defender_alliance_id,
+                objective,
+                intensity,
+            },
+        ),
+        _ => Err(S::Error::custom(
+            "Action dispatched to wrong material_logistics_alliance serializer",
+        )),
+    }
+}

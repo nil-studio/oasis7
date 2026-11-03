@@ -71,11 +71,15 @@ fn real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve() {
         "--nocapture",
     ]);
     command.env("PRE2_CONFORMANCE_FINAL_BUDGET_CLOCK_HANDOFF", "1");
+    // Exercise the existing late-producer allowance together with the actual
+    // cleanup fault. The fault worker must remain available after production.
+    command.env("PRE2_FINAL_BUDGET_LATE_CLOCK", "1");
     let output = application_completion::run_child(&mut command, &root);
     let stdout = String::from_utf8_lossy(&output.stdout);
     println!("{stdout}\n{}", String::from_utf8_lossy(&output.stderr));
     fs::remove_dir_all(root).unwrap();
     assert!(output.status.success(), "clock rescan must preserve the original final-budget oracle");
     assert!(stdout.contains("PRE2_FINAL_BUDGET_CLOCK_HANDOFF"));
+    assert!(stdout.contains("PRE2_FINAL_BUDGET_LATE_CLOCK_RELEASED"));
     assert!(stdout.contains("PRE2_FINAL_BUDGET_RUNTIME_AND_SIDECAR_ROLLBACK_PASSED"));
 }
