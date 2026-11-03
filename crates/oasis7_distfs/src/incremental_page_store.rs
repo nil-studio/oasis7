@@ -156,6 +156,12 @@ impl IncrementalPageStore {
         &self.root
     }
 
+    /// Exact admission pool shared by this store's state/value sessions.
+    /// This borrowed handle grants no owner qualification or allocation class.
+    pub fn memory_budget(&self) -> &MemoryBudget {
+        &self.memory
+    }
+
     pub fn put_page(
         &self,
         id: [u8; 32],

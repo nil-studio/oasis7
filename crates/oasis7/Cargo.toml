@@ -74,6 +74,7 @@ ci_formal_required_features = [
 ]
 
 [dev-dependencies]
+oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_distfs = { version = "0.1.0", path = "../oasis7_distfs" }
 oasis7_hosted_access = { path = "../oasis7_hosted_access", features = ["test-support"] }
 

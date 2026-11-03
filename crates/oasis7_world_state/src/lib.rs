@@ -363,6 +363,8 @@ pub mod incremental_cognition_history_cbor;
 pub mod incremental_cognition_history_hash_outboard;
 pub mod incremental_cognition_history_lifecycle;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_marketplace;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_module_authorization;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -373,3 +375,6 @@ pub mod incremental_cognition_lifecycle_index_v2;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_lifecycle_qualification_v2;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_owner_closure;
