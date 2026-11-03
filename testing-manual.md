@@ -344,6 +344,42 @@ CI 分层口径：ordinary PR 以 impact-scoped `required-gate` 作为 premerge 
 - 按受影响行为复用或补充能区分正确与错误实现的正/负例。例如 cognition committed、业务 receipt rejected 时，断言候选已提交与业务已拒绝、未成功分别成立；仅断言 HTTP 200 或 committed 应不足以判成功。对原 world/request/适用 fence 做不匹配变体，核对相关校验拒绝及合同规定的无副作用结果。
 - 行为稳定时，不让测试绑定无关内部拆分；重构后应继续由同一公共行为断言保护。已有用例能检出缺陷就复用，不为方法补一套同义测试。
 
+<a id="shared-interface-conformance"></a>
+### 接口共用契约验证：ModelProvider 首个试点
+
+Trace refs: O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c
+
+本节落实[接口前置交付](doc/engineering/workflow/source-of-truth.md#interface-prerequisite-delivery)的验证方法。试点选用现有 `oasis7_agent_api::ModelProvider` 的 `CallerSnapshot` 模式；接口、DTO 和依赖权威仍为 [GameClient / Harness 设计](doc/world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)。`ProviderConversation` 的会话历史、工具结果顺序和恢复由其原设计及专门测试负责，不因这一试点取得覆盖。
+
+**当前能力与待实施增量。** `crates/oasis7_agent_api/src/model_provider.rs` 已唯一声明 trait、请求/响应、错误及 `complete_checked`；Harness 的 `native_task_tests.rs` 已有本地 `FakeProvider`；`crates/oasis7_model_provider/tests/transport.rs` 已通过本地 HTTP/SSE 夹具驱动真实 `OpenAiChatCompletionClient`，验证工具名、参数、使用量和请求线格式。它们目前没有共用同一套可复用行为断言，也没有 API crate 的 `test-support` feature；下述共享支撑和接入属于待实施方案，不是现成命令或已通过结果。
+
+**支撑代码与单一写入者。** 前置实现复用现有 trait，不另造 port 或镜像 DTO。在 `oasis7_agent_api` 内增加显式启用的 `test-support` 模块，提供脚本化 fake、场景数据和公共断言；仅测试的 dev-dependency 启用，检查正常/build 依赖闭包不因此引入 Harness、真实 provider 或 Runtime。API 共享写入者统一修改其 `Cargo.toml`、模块导出和支撑代码；适配器执行者只负责 `oasis7_model_provider/tests/` 的真实构造器与 HTTP 探针；消费执行者负责 Harness 的测试接入。任务负责人把这些范围分配给唯一现任执行者并承担组合验收，可以兼任，沿用现有 Issue/PR 的交接记录。
+
+fake 的控制面限于本例所需的每次响应/错误队列及收到的完整请求快照；每例重新构造，脚本耗尽显式失败，不自动返回成功或吞掉错误。共用断言接受实现构造器与观察探针，以相同请求和独立预期值经 `ModelProvider::complete_checked` 调用；fake 探针记录 `complete` 输入，真实适配器探针读取本地服务收到的请求。两种构造器的编码不同可以接受，但公共响应及错误判据不能复制成两份。最小消费者复用 Harness 已有的 `NativeTaskRunner` 用例，依赖同一 API 类型和 fake；生产代码的世界授权与提交路径不由测试支撑接管。
+
+| 共用场景 | 输入/观察点 | 两种实现共用的判据 |
+| --- | --- | --- |
+| 合法单次工具返回 | 固定合法 digest、`quote_factory` schema；脚本返回参数 `{"factory":"f1"}` 与 total tokens `5` | 返回相同 request digest、精确工具名/参数及 usage；观察输入保持所选 prompt/tool 内容。`provider_id`、时延等实现特有信息不要求相等 |
+| 请求在调用前拒绝 | 非规范 digest；另选空 model 与空 tool name；记录 fake 调用和本地 HTTP 请求数 | 分别返回 `invalid_request_digest`、`invalid_model`、`invalid_tool_schema`，`retryable=false`，且实际 provider 调用数为零。只证明模型调用未发生，不外推世界副作用 |
+| 供应商暂不可用 | fake 返回 `provider_unavailable`；真实适配器收到本地 HTTP 503，使用已有 native 单次预算配置 | 保持 `provider_unavailable` 与 `retryable=true`；不把错误变成成功或假定该标志已授权额外物理调用。真实请求次数仍由适配器预算用例验证 |
+| 错配/空响应防线 | 测试专用包装器在 `complete` 后、`complete_checked` 校验前替换 digest 或清空 turns，分别包裹两种实现 | 分别拒绝为 `response_identity_mismatch` 或 `empty_model_response`，且 `retryable=false`。这是公共校验防线测试；真实适配器当前从请求复制 digest，HTTP 夹具不能独立制造该错配 |
+
+`complete_checked` 当前只做请求校验、`complete` 和响应校验，不会自动调用 `preflight`、`check_execution`，也不会校验所有预算或工具权限。非法 caller schema、未声明工具返回、native 零预算、物理重试和重定向继续由真实适配器既有测试负责；不得把这些实现专属规则误写成全部 `ModelProvider` 的默认行为。`ModelProviderError.code` 仍是现有可扩展字符串合同，本试点只断言所选稳定代码与 `retryable`，不新增全局错误枚举迁移。
+
+**防止测试自证。** 合法场景分别在 fake 和真实适配器上通过后，用测试专用包装器把返回参数 `factory` 改成另一个合法字符串，重新运行同一合法场景断言，要求失败；不要为被破坏实现另写一个期待失败的替代业务断言。实现时可用捕获断言失败的定向测试保留此证据，或在临时变体运行后撤销破坏，不能提交永久失败的普通测试。此反例应证明原公共断言能区分行为偏差，不能只证明测试进程启动过。
+
+**小 PR 与组合验收。** 第一个前置 PR 交付共享支撑、fake 通过及上述反例、一个实际 Harness 消费用例；API 已存在，生产行为无需等待未来实现才成立。其固定提交可供真实适配器接入 PR 消费，合入后核对实际 merge 版本；共用代码继续由同一写入者维护。后继 PR 把同一场景接到本地 HTTP 的真实适配器，并由整体负责人在实际组合上执行两种实现与最小消费者回归。若共享支撑与首次接入无法独立正确，可合成一个小而完整 PR，不机械拆分。文档交付后仍保留实现、真实接入及最终组合验收清单。
+
+以下是已有测试入口，用于实施前盘点及实施后的受影响回归；新增共用场景落在哪个测试目标，由实现 PR 写明实际命令与受测版本：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_api model_provider::tests
+env -u RUSTC_WRAPPER cargo test -p oasis7_model_provider --test transport --test physical_budget
+env -u RUSTC_WRAPPER cargo test -p oasis7_agent_harness native_task_tests
+```
+
+本地 HTTP 通过只证明生产适配器在受控传输中的映射行为；不需要外部模型密钥，也不证明供应商可用性、真实认证、费用、持久化、Stop/撤权或 Runtime 提交正确。重复调用在此接口上不承诺去重；请求身份不等于 exactly-once。需要上述能力的任务沿原设计补充真实边界验收，不因 fake、共用断言或文档合入而关闭。
+
 <a id="request-recovery-regression"></a>
 ### 原请求与恢复路径的定向回归
 
