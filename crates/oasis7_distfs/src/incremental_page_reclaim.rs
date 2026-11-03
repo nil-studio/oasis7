@@ -143,7 +143,7 @@ fn retirement(
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     if FAIL_RETIRE_OPEN.with(|flag| flag.replace(false)) {
         return Err(io::Error::from_raw_os_error(libc::ENOSPC).into());
     }
@@ -343,5 +343,5 @@ pub fn reclaim_orphan_page_frames(
 #[path = "incremental_page_reclaim_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 thread_local! { static FAIL_RETIRE_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
