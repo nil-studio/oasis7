@@ -157,10 +157,6 @@ impl DecisionSource {
     }
 }
 
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Stable runtime enum preserves established variant payload ownership and wire behavior."
-)]
 enum DemoAgentBehavior {
     Llm(LlmAgentBehavior<OpenAiChatCompletionClient>),
     ProviderBacked {
