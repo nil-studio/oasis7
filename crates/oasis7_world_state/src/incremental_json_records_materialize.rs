@@ -1,4 +1,6 @@
 //! Caller-admitted selected DTO materialization, never an owner qualification.
+//! The depth-64 ceiling is a selected DTO resource limit, not a restriction on
+//! valid persisted JSON. Its admission must outlive the returned DTO's children.
 use super::{read, *};
 use crate::incremental_inventory_value_read::InventoryValueReader;
 use crate::incremental_record_value_read::RecordValueV1;
@@ -205,7 +207,8 @@ mod tests {
     use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
     use oasis7_proto::memory_budget::MemoryBudget;
     use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
-    struct Pages(RefCell<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>);
+    type PageMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
+    struct Pages(RefCell<PageMap>);
     impl ValueNodeWriter for Pages {
         fn put_node(
             &mut self,

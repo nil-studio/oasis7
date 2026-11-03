@@ -80,13 +80,15 @@ impl<O: OriginalObjectStreamReader> OriginalObjectStreamReader for Capture<'_, O
         )
     }
 }
+type SelectedOriginalResult<E> =
+    Result<(Arc<[u8]>, MemoryReservation), RuntimeArtifactOriginalErrorV1<E>>;
 pub(super) fn selected_original<O: OriginalObjectStreamReader, C: FnMut() -> bool>(
     original: OriginalArtifactRefV1,
     source: &mut O,
     memory: &MemoryBudget,
     work: &mut RuntimeArtifactOriginalWorkV1,
     cancelled: &mut C,
-) -> Result<(Arc<[u8]>, MemoryReservation), RuntimeArtifactOriginalErrorV1<O::Error>> {
+) -> SelectedOriginalResult<O::Error> {
     let n = usize::try_from(original.byte_len)
         .map_err(|_| ValueTreeError::ResourceLimited("selected WASM address space"))?;
     // Vec and Arc may coexist during conversion. Keep this full admission for

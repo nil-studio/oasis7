@@ -778,6 +778,14 @@ family 与 routing 私有资格须记录真实 mint class，所有使用入口�
 
 family 与单记录资格保留真实 mint class，读写、生命周期及 receiver 不得仅凭同池将 Recovery 资格转作 Ordinary。显式重新准入只在同池、原精确 RootSet 绑定和足够新 Ordinary 费用下复制固定 metadata；额度不足或取消不返回资格，不扫描旧 grant/主体长文本，不提升授权、身份或可用性。
 
+<a id="iws-root-module-invocation-preparation-v1"></a>
+
+调用准备须复用原 `active_module_invocation_for_id` 的三路选择：原 instance map key 命中后先核 active，再使用其各自保存的 instance_id/module_id/version/target；未命中但对应 module_id 的实例计数非零（含 inactive）时禁止全局回退；否则查询 registry.active，并以原 record_key 规则定位记录。缺 active 返回不存在，active 指向缺记录则报错；全局安装目标缺失仍为 SelfAgent。不能以 embedded ID 或 manifest 内部版本替代原外键，不读取未参与选择的实例 owner/wasm_hash/installed_at。
+
+选中 manifest 由原逐字段/ordinal/Option/JSON 子树有界重建，SHA256 必须逐 byte 对照原 `hash_json` 的 serde_json 编码，不以 RootRef、BLAKE3 或 CBOR 替代。普通准备只继承已资格父或真实同事务 typed-after body，不因只需 manifest 而扫描无关 registered_by；新 body 无 scope 时仍须显式有界 bootstrap。selected DTO 的 JSON materialize 深度上限 64 是 ResourceLimited 资源档，不改变存储合法性。完整输出容量须在分配前准入，DTO 及其 JSON 子值持有全部对应 reservation 至释放。
+
+原 WASM bytes 从独立 content owner 的精确 OriginalArtifactRef 流验证后才进入现有 Arc ABI；set membership 与 bytes map 不新加强制联立。原 String artifact key 与 raw BLAKE3 ID 保持独立。Vec→Arc 峰值及保留体积均先付 Ordinary 费用，准备对象只借出 bytes，不能脱离 charge。一个借用唯一 ExecutionTxn 的准备入口检查原 guard/live、parent RootSet、三个 owner 的同池 Ordinary 资格，后续任何读取、编码、source 或末取消失败 poison 整笔前缀。私有准备对象只证明此次选择/来源/资源，不授业务 grant、policy、Invocation、selected-head 或完整 World 权限；真正 dispatch、费用、五类输出与 ModuleState 接线仍由实际调用目标闭合。
+
 ### 12.46 Runtime effect intent 的有界原件与执行存储
 
 <a id="iws-runtime-effect-intent-records-v1"></a>

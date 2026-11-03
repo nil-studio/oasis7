@@ -185,6 +185,10 @@ fn manifest_hash<C: FnMut() -> bool>(
 /// The original instance -> inactive-count suppression -> active-registry
 /// fallback, using only this transaction's authenticated reads. All errors
 /// poison the same outer transaction, including source/encoding final errors.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Independent state, value, schema and original contexts retain their continuous admission budgets."
+)]
 pub fn prepare_root_module_invocation_v1<M, R, E, C, O>(
     request: ModuleInvocationPreparationRequestV1<'_>,
     state: &M,
@@ -314,7 +318,7 @@ where
                 class: values.class,
                 io: &mut *values.io,
             },
-            key_work: &mut **key_work,
+            key_work,
             semantic_bytes: *semantic_bytes,
             record_bytes: *record_bytes,
             take_state_error: &mut *take_state_error,
@@ -341,6 +345,10 @@ where
             };
             let mut bytes = vec![0; limits.max_text_bytes];
             let mut output = Cursor::new(bytes.as_mut_slice());
+            // New authenticated reads advance the transaction revision too.
+            // The caller's guard was checked before any operation; this local
+            // getter must bind the revision after our own preceding reads.
+            let current_guard = overlay.transaction.guard();
             let value = read_qualified_artifact_config_overlay_v1(
                 ArtifactConfigCellRequestV1 {
                     field: ArtifactConfigFieldV1::RegistryActive,
@@ -357,7 +365,7 @@ where
                     max_payload_bytes: limits.max_text_bytes as u64,
                 },
                 &mut overlay,
-                request.guard,
+                &current_guard,
                 request.live,
                 &mut output,
             )?;
