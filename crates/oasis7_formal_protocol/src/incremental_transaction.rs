@@ -150,6 +150,22 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         }
     }
 
+    /// Bind a retained overlay token to this in-process transaction across
+    /// read/write revisions. Mutation and sealing still require a fresh guard
+    /// and the original authority's live fence through `validate_guard`.
+    pub fn validate_transaction_identity(
+        &self,
+        guard: &PreparedGuard,
+    ) -> Result<(), ExecutionError> {
+        if self.aborted {
+            return Err(ExecutionError::Aborted);
+        }
+        if !Arc::ptr_eq(&guard.owner, &self.owner) || guard.fence != self.fence {
+            return Err(ExecutionError::StaleGuard);
+        }
+        Ok(())
+    }
+
     /// Constant-size comparison: no state serialization, history scan or hash.
     pub fn validate_guard(
         &self,

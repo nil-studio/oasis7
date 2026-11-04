@@ -170,6 +170,7 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
     let mut txn =
         ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
     let guard = txn.guard();
+    txn.validate_transaction_identity(&guard).unwrap();
     for changed in 0..4 {
         let mut other = live;
         match changed {
@@ -183,9 +184,30 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
             Err(ExecutionError::ParentConflict)
         ));
     }
-    let other = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+    let mut other =
+        ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
     assert!(matches!(
         other.validate_guard(&guard, &live),
+        Err(ExecutionError::StaleGuard)
+    ));
+    assert!(matches!(
+        other.validate_transaction_identity(&guard),
+        Err(ExecutionError::StaleGuard)
+    ));
+    let other_guard = other.guard();
+    let failed: Result<(), ExecutionError> =
+        other.contribute(|_| Err(ExecutionError::Invalid("identity test failure")));
+    assert!(failed.is_err());
+    assert!(matches!(
+        other.validate_transaction_identity(&other_guard),
+        Err(ExecutionError::Aborted)
+    ));
+    drop(other_guard);
+    txn.read(StateNamespaceV1::Business, b"identity-read")
+        .unwrap();
+    txn.validate_transaction_identity(&guard).unwrap();
+    assert!(matches!(
+        txn.validate_guard(&guard, &live),
         Err(ExecutionError::StaleGuard)
     ));
     // Even a same-tick write that coalesces back to absence invalidates prepare.
