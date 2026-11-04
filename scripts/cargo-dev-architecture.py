@@ -24,7 +24,7 @@ class InspectionError(Exception):
     pass
 
 
-def ordinary_target_build_policy(root, plan, architecture):
+def ordinary_target_build_policy(root, plan, architecture, packages, members, *, clean=True):
     """Validate the BASE-owned contract before deferring any profile build."""
     if 'build_policy_version' not in architecture:
         return False
@@ -46,7 +46,8 @@ def ordinary_target_build_policy(root, plan, architecture):
         selected = artifacts.fast_plan(plan)
         if (selected is None or selected.get('fast_execution_version') != 1
                 or selected.get('ordinary_execution') != 'inline'
-                or set(selected['groups']) != {'baseline', 'rust_baseline', 'oasis7_required'}
+                or not {'baseline', 'rust_baseline', 'oasis7_required'}.issubset(selected['groups'])
+                or len(selected['groups']) != len(set(selected['groups']))
                 or selected.get('test_policy_changed') is not False
                 or any(selected.get(key) != [] for key in
                        ('fast_plan_exceptions', 'formal_suites', 'oasis7_required_wasm_packages'))):
@@ -65,9 +66,53 @@ def ordinary_target_build_policy(root, plan, architecture):
                 or len(inputs) != len(set(inputs))
                 or not set(inputs) <= {target['package'] for target in targets}):
             raise ValueError('ordinary fast target owners do not cover every direct architecture input')
+        extra_groups = set(selected['groups']) - {'baseline', 'rust_baseline', 'oasis7_required'}
+        consumers = architecture.get('consumer_groups', {})
+        if (not isinstance(consumers, dict) or set(consumers) != extra_groups
+                or not extra_groups <= {'consensus', 'distfs', 'net', 'node'}):
+            raise ValueError('extra native groups require exact reverse-consumer evidence')
+        if extra_groups:
+            affected = selected.get('affected_packages')
+            policy = selected.get('policy_sha')
+            if (not isinstance(affected, list) or not affected
+                    or any(not isinstance(name, str) or not name for name in affected)
+                    or len(affected) != len(set(affected))
+                    or not isinstance(policy, str) or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', policy)):
+                raise ValueError('invalid reverse-consumer package or policy identity')
+            # Read fixed BASE data, never the candidate's mutable scope file.
+            group_map = json.loads(run(root, ['git', 'show', policy + ':scripts/ci-required-scope.json']))['package_groups']
+            if not isinstance(group_map, dict):
+                raise ValueError('invalid trusted reverse-consumer group mapping')
+            workspace_ids = {package['name']: package['id'] for package in members}
+            if len(workspace_ids) != len(members) or not set(inputs) <= workspace_ids.keys():
+                raise ValueError('direct inputs have no unique actual workspace identity')
+            reverse = {package['id']: set() for package in packages}
+            for package in packages:
+                for dependency in package['_resolved_deps']:
+                    reverse[dependency['pkg']].add(package['id'])
+            closure = {workspace_ids[name] for name in inputs}
+            pending = list(closure)
+            while pending:
+                for consumer in reverse[pending.pop()]:
+                    if consumer not in closure:
+                        closure.add(consumer)
+                        pending.append(consumer)
+            actual_consumers = {name for name, identity in workspace_ids.items()
+                                if identity in closure and name not in inputs}
+            for group, names in consumers.items():
+                if (not isinstance(names, list) or not names
+                        or any(not isinstance(name, str) or not name for name in names)
+                        or len(names) != len(set(names))
+                        or not set(names) <= (set(affected) - set(inputs))
+                        or (clean and not set(names) <= actual_consumers)
+                        or any(not isinstance(group_map.get(name), list)
+                               or group not in group_map[name] for name in names)):
+                    raise ValueError('unproved native reverse-consumer group: ' + group)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError) as error:
         raise InspectionError('invalid ordinary-targets execution plan: ' + str(error)) from error
-    return True
+    # A dirty dependency graph cannot prove the committed consumer relationship;
+    # it also cannot defer anything. Preserve the full compilation fallback.
+    return clean
 
 
 def run(root, command):
@@ -303,7 +348,8 @@ def inspect(root, config, builds=True, selected=None, plan=None):
     architecture = (plan or {}).get('architecture', {})
     if not isinstance(architecture, dict):
         raise InspectionError('invalid architecture plan')
-    ordinary_targets = ordinary_target_build_policy(root, plan, architecture)
+    ordinary_targets = ordinary_target_build_policy(root, plan, architecture, packages, members,
+                                                     clean=not evidence['tracked_changes'])
     targeted = architecture.get('version') == 1 and architecture.get('mode') == 'targeted'
     if targeted:
         if (not isinstance(architecture.get('packages'), list) or
