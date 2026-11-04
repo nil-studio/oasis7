@@ -203,3 +203,6 @@ mod tests {
         assert_eq!(calls, 1);
     }
 }
+
+#[path = "incremental_runtime_authorization_json_match.rs"]
+pub(crate) mod json_match;

@@ -1,5 +1,6 @@
 //! Exact-before original JSON grant updates through the shared transaction.
 use super::*;
+use crate::incremental_runtime_authorization_audit::json_match::exact_authorization_json_match_v1;
 use crate::{
     incremental_field_overlay::{WorldFieldOverlayErrorV1, lookup},
     incremental_inventory_value_read::InventoryValueReader,
@@ -130,7 +131,17 @@ where
                     json_read,
                     max_selected_heap,
                 )?;
-                if change.expected.is_none_or(|expected| &value != expected) {
+                let Some(expected) = change.expected else {
+                    return Err(invalid().into());
+                };
+                if !exact_authorization_json_match_v1(
+                    &value,
+                    expected,
+                    local.values.memory,
+                    local.values.class,
+                    json_read,
+                    &mut local.cancelled,
+                )? {
                     return Err(invalid().into());
                 }
             } else if change.expected.is_some() {
@@ -141,7 +152,18 @@ where
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        let unchanged = change.expected == change.after;
+        let unchanged = match (change.expected, change.after) {
+            (None, None) => true,
+            (Some(a), Some(b)) => exact_authorization_json_match_v1(
+                a,
+                b,
+                read.values.memory,
+                read.values.class,
+                json_read,
+                || cancel() || (write.cancelled)(),
+            )?,
+            _ => false,
+        };
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
@@ -149,7 +171,20 @@ where
             return Ok(false);
         }
         let after = if let Some(value) = change.after {
-            let row = prepare_authorization_grant_member_v1(change.key, value, write, json_write)?;
+            let mut combined = MemberRecordWriteContext {
+                sink: &mut *write.sink,
+                memory: write.memory,
+                io: &mut *write.io,
+                key_work: &mut *write.key_work,
+                limits: write.limits,
+                cancelled: || cancel() || (write.cancelled)(),
+            };
+            let row = prepare_authorization_grant_member_v1(
+                change.key,
+                value,
+                &mut combined,
+                json_write,
+            )?;
             if row.field_key != key {
                 return Err(invalid().into());
             }
@@ -160,7 +195,10 @@ where
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        tx.validate_guard(guard, live)?;
+        // Our exact-before reads legitimately advance the transaction revision.
+        // Recheck the live fence against the resulting current guard.
+        let ready = tx.guard();
+        tx.validate_guard(&ready, live)?;
         // The read above registered the exact current overlay dependency.
         let _ = current;
         tx.write(StateNamespaceV1::Authorization, key.as_bytes(), after)?;

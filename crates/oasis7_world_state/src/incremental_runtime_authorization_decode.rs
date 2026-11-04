@@ -48,6 +48,7 @@ fn profile(kind: AuthorizationBodyKindV1) -> ColumnReadProfileV1 {
         field: kind.descriptor(),
         schema: kind.schema(),
         groups,
+        reference_schema: None,
     }
 }
 
@@ -98,76 +99,68 @@ where
         scan,
         max_heap,
     )?;
-    let mut map = columns.cells_mut();
+    columns.spend_output(
+        std::mem::size_of::<crate::CapabilityAuthorizationAuditReceipt>()
+            .checked_add(3 * std::mem::size_of::<MemoryReservation>() + 128)
+            .ok_or_else(invalid)?,
+    )?;
     let mut charges = Vec::with_capacity(3);
-    let subject = json(
-        AuthorizationBodyKindV1::Audit,
-        &mut map,
-        "subject",
-        ctx,
-        work,
-        max_heap,
-        &mut charges,
-    )?;
-    let audience = json(
-        AuthorizationBodyKindV1::Audit,
-        &mut map,
-        "audience",
-        ctx,
-        work,
-        max_heap,
-        &mut charges,
-    )?;
-    let presenter = if present(&mut map, "presenter")? {
-        Some(json(
+    let (subject, audience, presenter, count) = {
+        let mut map = columns.cells_mut();
+        let subject = json(
             AuthorizationBodyKindV1::Audit,
             &mut map,
-            "presenter",
+            "subject",
             ctx,
             work,
             max_heap,
             &mut charges,
-        )?)
-    } else {
-        None
-    };
-    let count = match map
-        .remove(&ColumnKeyV1::pair(
-            ColumnKeyV1::text("committed_effect_receipt_ids"),
-            ColumnKeyV1::text("count"),
-        ))
-        .ok_or_else(invalid)?
-    {
-        ColumnCellV1::U64(v) => v,
-        _ => return Err(invalid()),
-    };
-    let mut effects = BTreeSet::new();
-    loop {
-        let next=map.keys().find(|k|matches!(k,ColumnKeyV1::Pair(a,b) if matches!(a.as_ref(),ColumnKeyV1::Text(v) if v=="committed_effect_receipt_ids") && matches!(b.as_ref(),ColumnKeyV1::Pair(c,d) if matches!(c.as_ref(),ColumnKeyV1::Text(v) if v=="member") && matches!(d.as_ref(),ColumnKeyV1::Text(_))))).cloned();
-        let Some(key) = next else {
-            break;
+        )?;
+        let audience = json(
+            AuthorizationBodyKindV1::Audit,
+            &mut map,
+            "audience",
+            ctx,
+            work,
+            max_heap,
+            &mut charges,
+        )?;
+        let presenter = if present(&mut map, "presenter")? {
+            Some(json(
+                AuthorizationBodyKindV1::Audit,
+                &mut map,
+                "presenter",
+                ctx,
+                work,
+                max_heap,
+                &mut charges,
+            )?)
+        } else {
+            None
         };
-        match map.remove(&key).ok_or_else(invalid)? {
-            ColumnCellV1::Unit => (),
+        let count = match map
+            .remove(&ColumnKeyV1::pair(
+                ColumnKeyV1::text("committed_effect_receipt_ids"),
+                ColumnKeyV1::text("count"),
+            ))
+            .ok_or_else(invalid)?
+        {
+            ColumnCellV1::U64(value) => usize::try_from(value).map_err(|_| invalid())?,
             _ => return Err(invalid()),
-        }
-        let ColumnKeyV1::Pair(_, tail) = key else {
-            return Err(invalid());
         };
-        let ColumnKeyV1::Pair(_, id) = *tail else {
-            return Err(invalid());
-        };
-        let ColumnKeyV1::Text(id) = *id else {
-            return Err(invalid());
-        };
-        if !effects.insert(id) {
+        if count > map.len() {
             return Err(invalid());
         }
-    }
-    if effects.len() as u64 != count {
-        return Err(invalid());
-    }
-    let value = crate::CapabilityAuthorizationAuditReceipt {
+        (subject, audience, presenter, count)
+    };
+    columns.spend_output(
+        count
+            .checked_mul(192)
+            .and_then(|n| n.checked_add(384))
+            .ok_or_else(invalid)?,
+    )?;
+    let mut map = columns.cells_mut();
+    let mut value = crate::CapabilityAuthorizationAuditReceipt {
         receipt_id: text(&mut map, "receipt_id")?,
         root_receipt_id: opt_text(&mut map, "root_receipt_id")?,
         grant_id: opt_text(&mut map, "grant_id")?,
@@ -194,16 +187,52 @@ where
         state_hash_before: text(&mut map, "state_hash_before")?,
         state_hash_after: opt_text(&mut map, "state_hash_after")?,
         committed_effect_receipt_id: opt_text(&mut map, "committed_effect_receipt_id")?,
-        committed_effect_receipt_ids: effects,
+        committed_effect_receipt_ids: BTreeSet::new(),
         canonical_request_hash: text(&mut map, "canonical_request_hash")?,
         canonical_result_hash: text(&mut map, "canonical_result_hash")?,
     };
+    // All fixed columns are consumed. Only the exact ordered set-member range
+    // may remain; pop_first avoids rescanning or cloning every preceding key.
+    for _ in 0..count {
+        ctx.check()?;
+        work.cells_remaining =
+            work.cells_remaining
+                .checked_sub(1)
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "authorization audit set recovery cells",
+                ))?;
+        let (key, cell) = map.pop_first().ok_or_else(invalid)?;
+        if !matches!(cell, ColumnCellV1::Unit) {
+            return Err(invalid());
+        }
+        let ColumnKeyV1::Pair(field, tail) = key else {
+            return Err(invalid());
+        };
+        if !matches!(*field,ColumnKeyV1::Text(ref name) if name=="committed_effect_receipt_ids") {
+            return Err(invalid());
+        }
+        let ColumnKeyV1::Pair(tag, id) = *tail else {
+            return Err(invalid());
+        };
+        if !matches!(*tag,ColumnKeyV1::Text(ref name) if name=="member") {
+            return Err(invalid());
+        }
+        let ColumnKeyV1::Text(id) = *id else {
+            return Err(invalid());
+        };
+        ctx.check()?;
+        if !value.committed_effect_receipt_ids.insert(id) {
+            return Err(invalid());
+        }
+        ctx.check()?;
+    }
     if !map.is_empty() {
         return Err(invalid());
     }
     ctx.check()?;
     columns.finish(value, charges)
 }
+
 pub fn recover_authorization_invocation_body_v1<M, R, E, C>(
     root: &StateRootV1,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,

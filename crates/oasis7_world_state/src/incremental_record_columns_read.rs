@@ -18,11 +18,12 @@ pub(crate) struct ColumnReadProfileV1 {
     pub field: FieldDescriptor,
     pub schema: [u8; 32],
     pub groups: &'static [&'static str],
+    pub reference_schema: Option<fn(&ColumnKeyV1) -> Option<[u8; 32]>>,
 }
 pub struct RecoveredColumnsV1<T> {
     value: T,
-    _charge: MemoryReservation,
     _extra: Vec<MemoryReservation>,
+    _charge: MemoryReservation,
 }
 impl<T> RecoveredColumnsV1<T> {
     pub fn value(&self) -> &T {
@@ -36,10 +37,19 @@ pub(crate) struct ChargedColumnsV1 {
 }
 impl ChargedColumnsV1 {
     pub(crate) fn finish_parts(self) -> Result<MemoryReservation, ValueTreeError> {
-        if !self.cells.is_empty() {
+        if !self.cells.is_empty() || self.left > self.charge.bytes() {
             return Err(invalid());
         }
-        Ok(self.charge)
+        let Self {
+            cells,
+            mut charge,
+            left,
+        } = self;
+        drop(cells);
+        let used = charge.bytes() - left;
+        let retained = charge.split(used).map_err(ValueTreeError::Invalid)?;
+        drop(charge);
+        Ok(retained)
     }
     pub(crate) fn spend_output(&mut self, n: usize) -> Result<(), ValueTreeError> {
         spend(&mut self.left, n)
@@ -53,12 +63,30 @@ impl ChargedColumnsV1 {
         value: T,
         extra: Vec<MemoryReservation>,
     ) -> Result<RecoveredColumnsV1<T>, ValueTreeError> {
-        if !self.cells.is_empty() {
+        if !self.cells.is_empty() || self.left > self.charge.bytes() {
+            drop(value);
+            drop(extra);
             return Err(invalid());
         }
+        let Self {
+            cells,
+            mut charge,
+            left,
+        } = self;
+        drop(cells);
+        let used = charge.bytes() - left;
+        let retained = match charge.split(used) {
+            Ok(v) => v,
+            Err(e) => {
+                drop(value);
+                drop(extra);
+                return Err(ValueTreeError::Invalid(e));
+            }
+        };
+        drop(charge);
         Ok(RecoveredColumnsV1 {
             value,
-            _charge: self.charge,
+            _charge: retained,
             _extra: extra,
         })
     }
@@ -92,7 +120,6 @@ pub(crate) enum ColumnCellV1 {
     U64(u64),
     I64(i64),
     Text(String),
-    Bytes(Vec<u8>),
     Root(StateRootV1),
 }
 fn invalid() -> ValueTreeError {
@@ -118,17 +145,45 @@ impl ColumnKeyV1 {
         Self::Pair(Box::new(a), Box::new(b))
     }
 }
-fn path(key: SemanticKeyRefV1<'_>, depth: usize) -> Result<ColumnKeyV1, ValueTreeError> {
+fn path(
+    key: SemanticKeyRefV1<'_>,
+    depth: usize,
+    left: &mut usize,
+) -> Result<ColumnKeyV1, ValueTreeError> {
     if depth > 8 {
         return Err(invalid());
     }
+    // Each returned enum lives in its parent's Box (or the root map slot).
+    // Charge its actual metadata before constructing either child Box.
+    spend(left, std::mem::size_of::<ColumnKeyV1>())?;
     match key {
-        SemanticKeyRefV1::Text(v) => Ok(ColumnKeyV1::Text(v.into())),
+        SemanticKeyRefV1::Text(v) => {
+            let allowance = v
+                .len()
+                .checked_mul(2)
+                .and_then(|n| n.checked_add(128))
+                .ok_or_else(invalid)?;
+            spend(left, allowance)?;
+            let text = v.to_owned();
+            if text.capacity() > allowance {
+                return Err(invalid());
+            }
+            Ok(ColumnKeyV1::Text(text))
+        }
         SemanticKeyRefV1::Unsigned(v) => Ok(ColumnKeyV1::Ordinal(v)),
-        SemanticKeyRefV1::Pair { left, right } => Ok(ColumnKeyV1::pair(
-            path(left.decode().map_err(ValueTreeError::Invalid)?, depth + 1)?,
-            path(right.decode().map_err(ValueTreeError::Invalid)?, depth + 1)?,
-        )),
+        SemanticKeyRefV1::Pair { left: a, right: b } => {
+            let a = path(
+                a.decode().map_err(ValueTreeError::Invalid)?,
+                depth + 1,
+                left,
+            )?;
+            let b = path(
+                b.decode().map_err(ValueTreeError::Invalid)?,
+                depth + 1,
+                left,
+            )?;
+            Ok(ColumnKeyV1::pair(a, b))
+        }
         _ => Err(invalid()),
     }
 }
@@ -245,8 +300,7 @@ where
             let bytes = usize::try_from(header.payload_bytes).map_err(|_| invalid())?;
             spend(
                 left,
-                sem.checked_mul(4)
-                    .and_then(|n| n.checked_add(bytes))
+                sem.checked_add(bytes)
                     .and_then(|n| n.checked_add(1024))
                     .ok_or_else(invalid)?,
             )?;
@@ -264,6 +318,7 @@ where
             let name = path(
                 read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)?,
                 0,
+                left,
             )?;
             let cell = match info.codec {
                 MemberPayloadCodecV1::Unit if payload.is_empty() => ColumnCellV1::Unit,
@@ -276,17 +331,20 @@ where
                 MemberPayloadCodecV1::I64 if payload.len() == 8 => {
                     ColumnCellV1::I64(i64::from_be_bytes(payload.as_slice().try_into().unwrap()))
                 }
-                MemberPayloadCodecV1::Bytes => ColumnCellV1::Bytes(payload),
                 MemberPayloadCodecV1::Text => {
                     ColumnCellV1::Text(String::from_utf8(payload).map_err(|_| invalid())?)
                 }
                 MemberPayloadCodecV1::RecordRoot => {
                     let reference =
                         RecordRootRefV1::from_canonical_bytes(&payload).map_err(|_| invalid())?;
+                    let expected_schema = match profile.reference_schema {
+                        Some(resolve) => resolve(&name).ok_or_else(invalid)?,
+                        None => profile.schema,
+                    };
                     ColumnCellV1::Root(
                         reference
                             .validate_binding(
-                                &profile.schema,
+                                &expected_schema,
                                 &parsed.semantic_key.ok_or_else(invalid)?,
                                 root.namespace,
                             )

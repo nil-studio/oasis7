@@ -136,160 +136,238 @@ impl<W: StatePageWriter + ValueNodeReader, C: FnMut() -> bool> Builder<'_, '_, W
         )?;
         self.append(row)
     }
-    fn text_option(&mut self, name: &str, value: Option<&str>) -> Result<(), MemberRecordError> {
-        self.column(
-            &(name, "present"),
-            MemberPayloadRefV1::Bool(value.is_some()),
+}
+#[path = "incremental_runtime_governance_columns.rs"]
+mod columns;
+pub use columns::*;
+macro_rules! with_gov_key {
+    ($column:expr,$key:ident=>$body:expr) => {
+        match $column {
+            RuntimeGovernanceColumnV1::Policy(c) => {
+                let $key = c.name();
+                $body
+            }
+            RuntimeGovernanceColumnV1::Epoch(c) => {
+                let $key = c.name();
+                $body
+            }
+            RuntimeGovernanceColumnV1::Penalty(c) => {
+                let $key = c.name();
+                $body
+            }
+            RuntimeGovernanceColumnV1::SignerCount => {
+                let $key = &("signer_node_ids", "count");
+                $body
+            }
+            RuntimeGovernanceColumnV1::Signer(i) => {
+                let $key = &("signer_node_ids", i);
+                $body
+            }
+            RuntimeGovernanceColumnV1::StakeCount => {
+                let $key = &("validator_stakes", "count");
+                $body
+            }
+            RuntimeGovernanceColumnV1::Stake(id) => {
+                let $key = &("validator_stakes", ("member", id));
+                $body
+            }
+            RuntimeGovernanceColumnV1::OptionPresence(c) => {
+                let $key = &(c.name(), "present");
+                $body
+            }
+            RuntimeGovernanceColumnV1::OptionValue(c) => {
+                let $key = &(c.name(), "value");
+                $body
+            }
+        }
+    };
+}
+fn emit_option_text<'a>(
+    name: &str,
+    value: Option<&'a str>,
+    emit: &mut impl FnMut(
+        RuntimeGovernanceColumnV1<'a>,
+        RuntimeGovernanceValueV1<'a>,
+    ) -> Result<(), MemberRecordError>,
+) -> Result<(), MemberRecordError> {
+    let option = GovernanceOptionV1::ALL
+        .into_iter()
+        .find(|c| c.name() == name)
+        .ok_or(MemberRecordError::Invalid("governance option"))?;
+    emit(
+        RuntimeGovernanceColumnV1::OptionPresence(option),
+        RuntimeGovernanceValueV1::Bool(value.is_some()),
+    )?;
+    if let Some(value) = value {
+        emit(
+            RuntimeGovernanceColumnV1::OptionValue(option),
+            RuntimeGovernanceValueV1::Text(value),
         )?;
-        if let Some(value) = value {
-            self.column(&(name, "value"), MemberPayloadRefV1::Text(value))?;
-        }
-        Ok(())
     }
-    fn unsigned_option(&mut self, name: &str, value: Option<u64>) -> Result<(), MemberRecordError> {
-        self.column(
-            &(name, "present"),
-            MemberPayloadRefV1::Bool(value.is_some()),
+    Ok(())
+}
+fn emit_option_u64<'a>(
+    name: &str,
+    value: Option<u64>,
+    emit: &mut impl FnMut(
+        RuntimeGovernanceColumnV1<'a>,
+        RuntimeGovernanceValueV1<'a>,
+    ) -> Result<(), MemberRecordError>,
+) -> Result<(), MemberRecordError> {
+    let option = GovernanceOptionV1::ALL
+        .into_iter()
+        .find(|c| c.name() == name)
+        .ok_or(MemberRecordError::Invalid("governance option"))?;
+    emit(
+        RuntimeGovernanceColumnV1::OptionPresence(option),
+        RuntimeGovernanceValueV1::Bool(value.is_some()),
+    )?;
+    if let Some(value) = value {
+        emit(
+            RuntimeGovernanceColumnV1::OptionValue(option),
+            RuntimeGovernanceValueV1::Unsigned(value),
         )?;
-        if let Some(value) = value {
-            self.column(&(name, "value"), MemberPayloadRefV1::U64(value))?;
-        }
-        Ok(())
     }
-    fn visit(&mut self, source: RuntimeGovernanceRecordV1<'_>) -> Result<(), MemberRecordError> {
-        macro_rules! u{($($name:ident),*$(,)?)=>{$(self.column(stringify!($name),MemberPayloadRefV1::U64(u64::from(*$name)))?;)*};}
-        macro_rules! text{($($name:ident),*$(,)?)=>{$(self.column(stringify!($name),MemberPayloadRefV1::Text($name))?;)*};}
-        match source {
-            RuntimeGovernanceRecordV1::Policy(source) => {
-                let GovernanceExecutionPolicy {
-                    timelock_ticks,
-                    epoch_length_ticks,
-                    activation_delay_epochs,
-                    emergency_brake_guardian_threshold,
-                    emergency_veto_guardian_threshold,
-                    emergency_brake_max_ticks,
-                } = source;
-                u!(
-                    timelock_ticks,
-                    epoch_length_ticks,
-                    activation_delay_epochs,
-                    emergency_brake_guardian_threshold,
-                    emergency_veto_guardian_threshold,
-                    emergency_brake_max_ticks
-                );
-            }
-            RuntimeGovernanceRecordV1::EpochSnapshot(source) => {
-                let GovernanceFinalityEpochSnapshot {
-                    epoch_id,
-                    threshold_bps,
-                    min_unique_signers,
-                    validator_set_hash,
-                    stake_root,
-                    threshold,
-                    signer_node_ids,
-                    validator_stakes,
-                } = source;
-                u!(epoch_id, threshold_bps, min_unique_signers, threshold);
-                text!(validator_set_hash, stake_root);
-                self.column(
-                    &("signer_node_ids", "count"),
-                    MemberPayloadRefV1::U64(
-                        u64::try_from(signer_node_ids.len())
-                            .map_err(|_| MemberRecordError::Invalid("signer count overflow"))?,
+    Ok(())
+}
+pub fn visit_runtime_governance_columns_v1<'a>(
+    source: RuntimeGovernanceRecordV1<'a>,
+    mut emit: impl FnMut(
+        RuntimeGovernanceColumnV1<'a>,
+        RuntimeGovernanceValueV1<'a>,
+    ) -> Result<(), MemberRecordError>,
+) -> Result<(), MemberRecordError> {
+    let kind = source.kind();
+    macro_rules! u{($($name:ident),*$(,)?)=>{$(emit(RuntimeGovernanceColumnV1::scalar(kind,stringify!($name))?,RuntimeGovernanceValueV1::Unsigned(u64::from(*$name)))?;)*};}
+    macro_rules! text{($($name:ident),*$(,)?)=>{$(emit(RuntimeGovernanceColumnV1::scalar(kind,stringify!($name))?,RuntimeGovernanceValueV1::Text($name))?;)*};}
+    match source {
+        RuntimeGovernanceRecordV1::Policy(source) => {
+            let GovernanceExecutionPolicy {
+                timelock_ticks,
+                epoch_length_ticks,
+                activation_delay_epochs,
+                emergency_brake_guardian_threshold,
+                emergency_veto_guardian_threshold,
+                emergency_brake_max_ticks,
+            } = source;
+            u!(
+                timelock_ticks,
+                epoch_length_ticks,
+                activation_delay_epochs,
+                emergency_brake_guardian_threshold,
+                emergency_veto_guardian_threshold,
+                emergency_brake_max_ticks
+            );
+        }
+        RuntimeGovernanceRecordV1::EpochSnapshot(source) => {
+            let GovernanceFinalityEpochSnapshot {
+                epoch_id,
+                threshold_bps,
+                min_unique_signers,
+                validator_set_hash,
+                stake_root,
+                threshold,
+                signer_node_ids,
+                validator_stakes,
+            } = source;
+            u!(epoch_id, threshold_bps, min_unique_signers, threshold);
+            text!(validator_set_hash, stake_root);
+            emit(
+                RuntimeGovernanceColumnV1::SignerCount,
+                RuntimeGovernanceValueV1::Unsigned(
+                    u64::try_from(signer_node_ids.len())
+                        .map_err(|_| MemberRecordError::Invalid("signer count overflow"))?,
+                ),
+            )?;
+            for (ordinal, id) in signer_node_ids.iter().enumerate() {
+                emit(
+                    RuntimeGovernanceColumnV1::Signer(
+                        u64::try_from(ordinal)
+                            .map_err(|_| MemberRecordError::Invalid("signer ordinal overflow"))?,
                     ),
+                    RuntimeGovernanceValueV1::Text(id),
                 )?;
-                for (ordinal, id) in signer_node_ids.iter().enumerate() {
-                    self.column(
-                        &(
-                            "signer_node_ids",
-                            u64::try_from(ordinal).map_err(|_| {
-                                MemberRecordError::Invalid("signer ordinal overflow")
-                            })?,
-                        ),
-                        MemberPayloadRefV1::Text(id),
-                    )?;
-                }
-                self.column(
-                    &("validator_stakes", "count"),
-                    MemberPayloadRefV1::U64(
-                        u64::try_from(validator_stakes.len())
-                            .map_err(|_| MemberRecordError::Invalid("stake count overflow"))?,
-                    ),
-                )?;
-                for (id, stake) in validator_stakes {
-                    self.column(
-                        &("validator_stakes", ("member", id.as_str())),
-                        MemberPayloadRefV1::U64(*stake),
-                    )?;
-                }
             }
-            RuntimeGovernanceRecordV1::IdentityPenalty(source) => {
-                let GovernanceIdentityPenaltyRecord {
-                    penalty_id,
-                    target_agent_id,
-                    evidence_hash,
-                    reason,
-                    slash_stake,
-                    appeal_deadline_tick,
-                    status,
-                    identity_status_before,
-                    detection_source,
-                    detection_risk_score,
-                    detection_incident_id,
-                    evidence_chain_hash,
-                    appeal_evidence_hash,
-                    resolution_evidence_hash,
-                    appellant,
-                    appeal_reason,
-                    resolved_by,
-                    resolution_reason,
-                    resolved_at_tick,
-                } = source;
-                u!(penalty_id, slash_stake, appeal_deadline_tick);
-                text!(
-                    target_agent_id,
-                    evidence_hash,
-                    reason,
-                    detection_source,
-                    detection_incident_id,
-                    evidence_chain_hash
-                );
-                self.column(
-                    "detection_risk_score",
-                    MemberPayloadRefV1::I64(*detection_risk_score),
+            emit(
+                RuntimeGovernanceColumnV1::StakeCount,
+                RuntimeGovernanceValueV1::Unsigned(
+                    u64::try_from(validator_stakes.len())
+                        .map_err(|_| MemberRecordError::Invalid("stake count overflow"))?,
+                ),
+            )?;
+            for (id, stake) in validator_stakes {
+                emit(
+                    RuntimeGovernanceColumnV1::Stake(id.as_str()),
+                    RuntimeGovernanceValueV1::Unsigned(*stake),
                 )?;
-                self.column(
-                    "status",
-                    MemberPayloadRefV1::U64(match status {
-                        GovernanceIdentityPenaltyStatus::Applied => 0,
-                        GovernanceIdentityPenaltyStatus::Appealed => 1,
-                        GovernanceIdentityPenaltyStatus::AppealAccepted => 2,
-                        GovernanceIdentityPenaltyStatus::AppealRejected => 3,
-                    }),
-                )?;
-                self.column(
-                    "identity_status_before",
-                    MemberPayloadRefV1::U64(match identity_status_before {
-                        GovernanceIdentityStatus::Active => 0,
-                        GovernanceIdentityStatus::Frozen => 1,
-                        GovernanceIdentityStatus::Expelled => 2,
-                    }),
-                )?;
-                for (name, value) in [
-                    ("appeal_evidence_hash", appeal_evidence_hash),
-                    ("resolution_evidence_hash", resolution_evidence_hash),
-                    ("appellant", appellant),
-                    ("appeal_reason", appeal_reason),
-                    ("resolved_by", resolved_by),
-                    ("resolution_reason", resolution_reason),
-                ] {
-                    self.text_option(name, value.as_deref())?;
-                }
-                self.unsigned_option("resolved_at_tick", *resolved_at_tick)?;
             }
         }
-        Ok(())
+        RuntimeGovernanceRecordV1::IdentityPenalty(source) => {
+            let GovernanceIdentityPenaltyRecord {
+                penalty_id,
+                target_agent_id,
+                evidence_hash,
+                reason,
+                slash_stake,
+                appeal_deadline_tick,
+                status,
+                identity_status_before,
+                detection_source,
+                detection_risk_score,
+                detection_incident_id,
+                evidence_chain_hash,
+                appeal_evidence_hash,
+                resolution_evidence_hash,
+                appellant,
+                appeal_reason,
+                resolved_by,
+                resolution_reason,
+                resolved_at_tick,
+            } = source;
+            u!(penalty_id, slash_stake, appeal_deadline_tick);
+            text!(
+                target_agent_id,
+                evidence_hash,
+                reason,
+                detection_source,
+                detection_incident_id,
+                evidence_chain_hash
+            );
+            emit(
+                RuntimeGovernanceColumnV1::scalar(kind, "detection_risk_score")?,
+                RuntimeGovernanceValueV1::Signed(*detection_risk_score),
+            )?;
+            emit(
+                RuntimeGovernanceColumnV1::scalar(kind, "status")?,
+                RuntimeGovernanceValueV1::Unsigned(match status {
+                    GovernanceIdentityPenaltyStatus::Applied => 0,
+                    GovernanceIdentityPenaltyStatus::Appealed => 1,
+                    GovernanceIdentityPenaltyStatus::AppealAccepted => 2,
+                    GovernanceIdentityPenaltyStatus::AppealRejected => 3,
+                }),
+            )?;
+            emit(
+                RuntimeGovernanceColumnV1::scalar(kind, "identity_status_before")?,
+                RuntimeGovernanceValueV1::Unsigned(match identity_status_before {
+                    GovernanceIdentityStatus::Active => 0,
+                    GovernanceIdentityStatus::Frozen => 1,
+                    GovernanceIdentityStatus::Expelled => 2,
+                }),
+            )?;
+            for (name, value) in [
+                ("appeal_evidence_hash", appeal_evidence_hash),
+                ("resolution_evidence_hash", resolution_evidence_hash),
+                ("appellant", appellant),
+                ("appeal_reason", appeal_reason),
+                ("resolved_by", resolved_by),
+                ("resolution_reason", resolution_reason),
+            ] {
+                emit_option_text(name, value.as_deref(), &mut emit)?;
+            }
+            emit_option_u64("resolved_at_tick", *resolved_at_tick, &mut emit)?;
+        }
     }
+    Ok(())
 }
 /// Emits a record-local authenticated tree; the caller publishes its outer reference atomically.
 pub fn prepare_runtime_governance_record_v1<
@@ -336,7 +414,10 @@ pub fn prepare_runtime_governance_record_v1<
             labels: LABELS,
         },
     )?;
-    builder.visit(source)?;
+    visit_runtime_governance_columns_v1(source, |column, value| {
+        let payload = column.payload(value)?;
+        with_gov_key!(column,key=>builder.column(key,payload))
+    })?;
     if (builder.ctx.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -505,6 +586,17 @@ pub use recovery::*;
 #[path = "incremental_runtime_governance_family.rs"]
 mod family;
 pub use family::*;
+
+#[path = "incremental_runtime_governance_delta.rs"]
+mod delta;
+#[path = "incremental_runtime_governance_overlay.rs"]
+mod overlay;
+pub use overlay::{
+    RuntimeGovernanceColumnChangeV1, RuntimeGovernanceRecordQualificationV1,
+    change_runtime_governance_columns_v1, create_runtime_governance_record_v1,
+    delete_runtime_governance_record_v1, open_runtime_governance_record_v1,
+    readmit_runtime_governance_record_ordinary_v1,
+};
 
 #[cfg(test)]
 #[path = "incremental_runtime_governance_tests.rs"]

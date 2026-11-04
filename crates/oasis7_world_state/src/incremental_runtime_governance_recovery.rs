@@ -51,6 +51,7 @@ pub fn recover_runtime_governance_record_v1<
             field: kind.columns(),
             schema: kind.schema(),
             groups: &[],
+            reference_schema: None,
         },
         root,
         ctx,
@@ -76,6 +77,7 @@ pub fn recover_runtime_governance_record_v1<
             })
         }
         RuntimeGovernanceKindV1::EpochSnapshot => {
+            ctx.check()?;
             let signer_count = count(body.cells_mut(), "signer_node_ids")?;
             let stake_count = count(body.cells_mut(), "validator_stakes")?;
             body.spend_output(
@@ -85,6 +87,7 @@ pub fn recover_runtime_governance_record_v1<
                     .ok_or_else(invalid)?,
             )?;
             let map = body.cells_mut();
+            ctx.check()?;
             let mut value = GovernanceFinalityEpochSnapshot {
                 epoch_id: columns::unsigned(map, "epoch_id")?,
                 threshold_bps: narrow(columns::unsigned(map, "threshold_bps")?)?,
@@ -96,6 +99,7 @@ pub fn recover_runtime_governance_record_v1<
                 validator_stakes: BTreeMap::new(),
             };
             for ordinal in 0..signer_count {
+                ctx.check()?;
                 let key = Key::pair(Key::text("signer_node_ids"), Key::Ordinal(ordinal as u64));
                 let Some(Cell::Text(id)) = map.remove(&key) else {
                     return Err(invalid());
@@ -103,6 +107,7 @@ pub fn recover_runtime_governance_record_v1<
                 value.signer_node_ids.push(id);
             }
             for _ in 0..stake_count {
+                ctx.check()?;
                 let Some((Key::Pair(field, member), Cell::U64(stake))) = map.pop_first() else {
                     return Err(invalid());
                 };

@@ -296,3 +296,6 @@ fn governance_genesis_family_keeps_map_key_separate_from_inner_id() {
     let wrong = RootSetV1::empty("other-world".into(), [72; 32]).unwrap();
     assert!(proof.validate_binding(&wrong).is_err());
 }
+
+#[path = "incremental_runtime_governance_overlay_tests.rs"]
+mod overlay;

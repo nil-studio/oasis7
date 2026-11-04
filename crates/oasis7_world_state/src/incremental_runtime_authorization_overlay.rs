@@ -1,5 +1,6 @@
 //! Same-transaction exact-before authorization record replacement.
 use super::*;
+use crate::incremental_runtime_authorization_audit::json_match::exact_authorization_audit_match_v1;
 use crate::{
     CapabilityAuthorizationAuditReceipt, CapabilityInvocationContext,
     incremental_field_overlay::{WorldFieldOverlayErrorV1, lookup},
@@ -118,7 +119,17 @@ where
                             json_read,
                             max_selected_heap,
                         )?;
-                        if expected.is_none_or(|expected| value.value() != expected) {
+                        let Some(expected) = expected else {
+                            return Err(invalid().into());
+                        };
+                        if !exact_authorization_audit_match_v1(
+                            value.value(),
+                            expected,
+                            local.values.memory,
+                            local.values.class,
+                            json_read,
+                            &mut local.cancelled,
+                        )? {
                             return Err(invalid().into());
                         }
                     }
@@ -148,7 +159,18 @@ where
         let unchanged = match &change {
             AuthorizationRecordChangeV1::Audit {
                 expected, after, ..
-            } => expected == after,
+            } => match (expected, after) {
+                (None, None) => true,
+                (Some(a), Some(b)) => exact_authorization_audit_match_v1(
+                    a,
+                    b,
+                    read.values.memory,
+                    read.values.class,
+                    json_read,
+                    || cancel() || (write.cancelled)(),
+                )?,
+                _ => false,
+            },
             AuthorizationRecordChangeV1::Invocation {
                 expected, after, ..
             } => expected == after,
@@ -159,20 +181,38 @@ where
         if unchanged {
             return Ok(false);
         }
-        let row = match change {
-            AuthorizationRecordChangeV1::Audit {
-                after: Some(source),
-                ..
-            } => Some(prepare_authorization_audit_member_v1(
-                key, source, write, work, json_write,
-            )?),
-            AuthorizationRecordChangeV1::Invocation {
-                after: Some(source),
-                ..
-            } => Some(prepare_authorization_invocation_member_v1(
-                key, source, write, work, json_write,
-            )?),
-            _ => None,
+        let row = {
+            let mut combined = MemberRecordWriteContext {
+                sink: &mut *write.sink,
+                memory: write.memory,
+                io: &mut *write.io,
+                key_work: &mut *write.key_work,
+                limits: write.limits,
+                cancelled: || cancel() || (write.cancelled)(),
+            };
+            match change {
+                AuthorizationRecordChangeV1::Audit {
+                    after: Some(source),
+                    ..
+                } => Some(prepare_authorization_audit_member_v1(
+                    key,
+                    source,
+                    &mut combined,
+                    work,
+                    json_write,
+                )?),
+                AuthorizationRecordChangeV1::Invocation {
+                    after: Some(source),
+                    ..
+                } => Some(prepare_authorization_invocation_member_v1(
+                    key,
+                    source,
+                    &mut combined,
+                    work,
+                    json_write,
+                )?),
+                _ => None,
+            }
         };
         let after = match row {
             Some(row) => {
@@ -186,7 +226,10 @@ where
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        tx.validate_guard(guard, live)?;
+        // Our exact-before reads legitimately advance the transaction revision.
+        // Recheck the live fence against the resulting current guard.
+        let ready = tx.guard();
+        tx.validate_guard(&ready, live)?;
         tx.write(StateNamespaceV1::Authorization, current.0.as_bytes(), after)?;
         if cancel() || (write.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());

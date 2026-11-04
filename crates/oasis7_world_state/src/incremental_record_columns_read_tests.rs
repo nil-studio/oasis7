@@ -167,7 +167,6 @@ fn scan() -> StateScanBudget {
     }
 }
 
-use crate::incremental_field_member::*;
 use crate::incremental_field_presence::*;
 use crate::incremental_semantic_key::{CanonicalSemanticKeyRefV1, SEMANTIC_KEY_DOMAIN};
 fn deep_key(depth: usize, out: &mut Vec<u8>) {
@@ -266,7 +265,8 @@ fn wide_pair_tree_is_admitted_by_actual_box_and_string_metadata() {
             ColumnReadProfileV1 {
                 field,
                 schema: [31; 32],
-                groups: &[]
+                groups: &[],
+                reference_schema: None,
             },
             ctx.root,
             &mut ctx,
@@ -276,3 +276,6 @@ fn wide_pair_tree_is_admitted_by_actual_box_and_string_metadata() {
         Err(ValueTreeError::ResourceLimited(_))
     ));
 }
+
+#[path = "incremental_record_columns_retention_tests.rs"]
+mod retention;

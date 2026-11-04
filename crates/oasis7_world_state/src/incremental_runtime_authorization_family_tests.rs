@@ -518,3 +518,6 @@ fn authorization_family_same_transaction_updates_replay_and_wrong_expected_poiso
 
 #[path = "incremental_runtime_authorization_exact_json_tests.rs"]
 mod exact_json;
+
+#[path = "incremental_runtime_authorization_producer_cancel_tests.rs"]
+mod producer_cancel;

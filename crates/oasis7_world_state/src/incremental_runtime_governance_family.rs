@@ -283,7 +283,8 @@ pub fn qualify_runtime_governance_v1<
     }))
 }
 
-/// Ordinary validation reuses the exact parent family and checks only writes.
+/// Changed-member validation reuses the exact parent and retains its class.
+/// Recovery suffix replay stays Recovery; ordinary use requires explicit readmission.
 pub fn accept_runtime_governance_transition_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -296,6 +297,7 @@ pub fn accept_runtime_governance_transition_v1<
     record: &TransitionRecordV1,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     scan: &mut StateScanBudget,
+    work: &mut RuntimeGovernanceWorkV1,
     max_record_heap: usize,
 ) -> Result<
     ReservedValue<RuntimeGovernanceQualificationV1>,
@@ -332,6 +334,12 @@ pub fn accept_runtime_governance_transition_v1<
     let mut counts = parent.counts.map(i128::from);
     for write in &checked.record.writes {
         ctx.check()?;
+        work.cells_remaining =
+            work.cells_remaining
+                .checked_sub(1)
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "Runtime governance outer changed cells",
+                ))?;
         let entry = StateEntryV1 {
             namespace: write.namespace,
             key: write.mutation.key.clone(),
@@ -354,14 +362,22 @@ pub fn accept_runtime_governance_transition_v1<
         counts[index(kind)] += i128::from(write.mutation.after.is_some())
             - i128::from(write.mutation.before.is_some());
         if let Some(value) = write.mutation.after {
-            let (_, child_root) = child(kind, &key, &value, ctx)?;
-            let _body = recover_runtime_governance_record_v1(
-                kind,
-                &child_root,
-                ctx,
-                scan,
-                max_record_heap,
-            )?;
+            let (identity, child_root) = child(kind, &key, &value, ctx)?;
+            if let Some(before) = write.mutation.before {
+                let (original, before_root) = child(kind, &key, &before, ctx)?;
+                if original != identity {
+                    return Err(invalid().into());
+                }
+                super::delta::changed(kind, &before_root, &child_root, &mut ctx.records(), work)?;
+            } else {
+                let _body = recover_runtime_governance_record_v1(
+                    kind,
+                    &child_root,
+                    ctx,
+                    scan,
+                    max_record_heap,
+                )?;
+            }
         }
     }
     let counts = [

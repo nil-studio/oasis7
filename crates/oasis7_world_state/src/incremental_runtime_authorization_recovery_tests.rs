@@ -18,7 +18,7 @@ impl Pages {
         Self {
             memory: memory.clone(),
             nodes: RefCell::new(BTreeMap::new()),
-            _metadata: memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap(),
+            _metadata: memory.reserve(8 << 20, MemoryClass::Ordinary).unwrap(),
         }
     }
 }
@@ -28,7 +28,7 @@ impl ValueNodeWriter for Pages {
         id: [u8; 32],
         value: ReservedValue<Vec<u8>>,
     ) -> Result<(), ValueTreeError> {
-        assert!(self.nodes.borrow().len() < 16_384);
+        assert!(self.nodes.borrow().len() < 65_536);
         self.nodes.borrow_mut().insert(id, Arc::new(value));
         Ok(())
     }
@@ -327,3 +327,6 @@ fn invocation_body_recovery_preserves_actual_abi_variants_and_optional_presence(
         );
     }
 }
+
+#[path = "incremental_runtime_authorization_post_scan_cancel_tests.rs"]
+mod post_scan_cancel;
