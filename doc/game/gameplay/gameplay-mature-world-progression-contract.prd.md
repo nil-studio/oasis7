@@ -198,7 +198,9 @@ Agent-facing 专业执行合同继续消费 `small_player_lane_id`、`leverage_c
 
 本叶子承接产品分册 [`REQ-WR-MW-004`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004) / [`AC-WR-MW-004`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004) 与 `MW-11` 的 gameplay 专业执行语义。它只适用于玩家完成首次持续能力后的成熟世界；不把首局结果、starter grant、普通行动成功或历史贡献自动写成认可、资格、优先级、容量或可使用机会。
 
-本合同拥有玩家可操作的认可/机会循环、结果边界、失败恢复和可玩性验收；产品分册仍拥有玩家承诺与适用条件，runtime、Agent、Viewer/API、blockchain 与 QA 保留各自的状态、实现和证据 authority。本叶子不新增 runtime/API/schema 字段，不冻结数值、队列算法或 UI 布局，也不宣称当前实现或发行已就绪。
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；唯一声明仍在上述产品要求。
+
+本合同拥有玩家可操作的认可/机会循环、结果边界、失败恢复和可玩性验收；产品分册仍拥有玩家承诺与适用条件，runtime、Agent、Viewer/API、blockchain 与 QA 保留各自的状态、实现和证据 authority。下述首版只冻结地方交付认可及一次物流机会的专业政策与有限竞争规则，不制定全世界工业分配参数、费用或容量数值、runtime/API/schema 字段或 UI 布局。[系统设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md)与[专用验收方法](../../testing/manual/recognition-opportunity-acceptance.manual.md)承接实现义务；这些目标合同不宣称当前实现或发行已就绪。
 
 ### 2.10.1 玩家动作与生命周期边界
 
@@ -215,8 +217,51 @@ Agent-facing 专业执行合同继续消费 `small_player_lane_id`、`leverage_c
 
 情境声誉、pioneer priority 与区域设施容量分别回链 CR-003、FI-002 与 GR-001；本叶子可以消费这些窄范围 authority 的结果，但不得重新定义、扩张或互相转译它们。
 
+<a id="recognition-local-delivery-profile"></a>
+### 2.10.2 首版地方交付认可与有限物流机会
+
+#### 2.10.2.1 先声明用途，再复核真实交付
+
+首版供给者与认可发行人是同一主体 O：O 当前拥有原生物流路段 R，并由有权控制 O 的主体显式发布本地贡献 program。发布前明确认可用途、接收材料及其原单位、O 自己的 Agent 接收账本、有限观察期、交付达成条件、认可起止时间、可申领机会、审核与申诉规则。参与者在贡献前可以读取这些条件；不得事后更换目的、抬高已接受条件，或用一个新的 program 改写旧事实。改变承诺须形成显式新版本并保留旧版本及其未结义务。
+
+符合成熟世界阶段的参与者按原运输权限完成交付后，O 的当前合法控制者才能显式复核和签发该用途的认可。复核同时追溯原运输接受与完成事实、请求主体、源账本、接收账本、材料、实际收到量、损耗及单次结算身份，确认 program 已在该次贡献接受前发布，且交付满足当时声明的条件。贡献的个人归属必须来自原运输接受时的受益者、Agent 与控制来源绑定；不能因 Agent 后来换了控制者，就用当前 owner 把旧个人的贡献归给新个人。只有 tariff 或 owner payout 的简化收据不够；尚在运输、只有发送成功、缺失或冲突的个人归因及完成来源也不能补成实际交付。普通完成 receipt 只证明原运输事实，仍须经过该 program 的审核，不能直接增加认可、容量或资格。
+
+认可明确归属被审核的受益玩家与贡献 Agent，并绑定 program、用途、路段作用域和期限；当前合法控制与执行授权独立检查。更换请求键、Agent 别名、控制者或组织不能复制或接管认可；同一玩家使用其当前受权 Agent 执行，也不能把权益交给另一受益者。首版不接入全局信誉分、OC、投票、组织职级或其他所有者的容量，不用支付或历史评分代替实际贡献与审核。审核拒绝、暂停、撤销或复核更正均给出事实依据、当前效果、可补证范围和再获资格条件，并保留原决定。
+
+#### 2.10.2.2 供给承诺来自原容量，并保留普通通路
+
+每个首版 program 绑定一个明确且只能结算一次的机会 occurrence。O 明示 R 的原身份、方向、材料、容量单位、此次不可拆分数量、有限申领与使用时间，以及原运输的费用、损耗和其他必要条件。该承诺只允许尝试取得现有 R 的有限容量，不新增路段、材料、免费运力、目的地权限或后续成功保证。它不自动滚动为下一轮供给；新机会须由供给者按当前权限显式发布，并重新核对其来源、范围和条件。
+
+发布、审核通过、预览和 `pending` 都不占用 R。只有结算后的有效 receipt 才占有此次未使用分配；在结算前，普通活动先用掉可用容量会导致该申领真实待决或拒绝。普通运输、工业工作、已有在途及已结算未使用机会共同受原路段容量约束，不能由认可模块另外记一份可用容量。原有材料来源权限、路径每一跳的可用性与容量、目的地条件、损耗和 tariff 均继续有效。
+
+供给声明与结算必须证明普通独立通路仍成立：要么原容量 authority 明确保留可供普通动作使用的份额，要么存在对相应主体确实可用的独立原路径，并有其权限、容量、费用及时间来源。普通保留份额可以正在被普通动作合法使用，但不能被本机会的未使用分配或后续运输侵占。既有普通/工业义务不可被驱逐或降级为认可的附属队列；缺少真实通路来源时，不得发布或结算本 profile。不能把唯一必经路段全额划给认可，再要求普通玩家取得认可、加入组织或付费才能继续原活动。
+
+#### 2.10.2.3 有限轮次内公开竞争
+
+供给者在申领开始前固定轮次起止世界时间、最晚结算时间和有限重评条件；关闭轮次时，取原容量域同一权威快照中的完整候选集合。原已接受占用与普通/工业分配政策是本机会不得越过的约束；一个 occurrence 的认可候选作为同域容量请求参与分配，不能先在私有池分出胜者和容量，再让原 allocator 补救。
+
+首版机会候选采用确定的窄范围顺序：先按每个受益者已固定的首次有效闭合轮次序号 `first_eligible_round` 升序，再按其权威 canonical beneficiary 身份稳定排序。同一 occurrence 每个受益者只有一个候选；重试、重连和相同事实的重放保留原轮次与身份，不以调用到达、预览点击、可重生成 request ID 或额外请求次数争先。合法待决保留等待来源；提交后权限失效的旧请求终态结束，恢复权限后的显式新提交从新的有效轮次起算，不能借旧等待复活。
+
+分配在同一原容量域内共同验证这些候选、全部普通/工业 contenders 和既有义务，并对该 occurrence 施加至多一份分配的限制。只有仍满足当前条件且原容量政策允许的首个候选可以结算；其余请求说明本轮未分配原因、下一次有限重评条件或终止原因，不获得排他 hold、隐藏优先级或 charge。该顺序只解决本 profile 的机会候选竞争，不覆盖原工业 allocator。原域不能接纳该候选类别、完整集合或这项窄规则时，该 profile 不启用；不得以 legacy 的到达先后替代。
+
+#### 2.10.2.4 receipt 必须接到真实使用与恢复
+
+单次结算同时登记原容量占用与唯一 receipt，receipt 明确受益者、认可来源、R、数量、用途、期限和实际分配效果。使用必须由该受益者通过当前有效的原 `TransferMaterial` 权限显式发起，源材料仍来自其受权账本。原提交还须检查完整路径、其他路段容量、材料、目的地与 tariff；获得 R 的机会不代表整个运输已受理。首版不新增认可或机会业务费，但真实制度执行仍承担预先明示的原 WASM 执行成本。O 必须同时是该 module artifact 的实际 owner，并显式承担其原 Data/Electricity 执行费；不能藏入运输 tariff、转嫁 A/B 或利用缺 owner 的分支假称免费。A/B 的只读预览与通用协议 inbox 中的待决登记保持无费用、无排他效果；该登记不执行认可审核或分配。真实运输继续承担原 tariff，不因认可获得减免或重复扣费。
+
+O 发布时须接受实际执行版本、费用来源和有限操作次数，并从自身真实资源保护有界的操作与闭合费用预算；各资源按原执行成本分别计算，不新增费率。原通用资源适配器及所有可能消费该余额的入口共同保护这些预算，不能用模块私有数字代替已保护资金，也不能借未来 tariff 收入垫付。操作预算不足时停止新工作，已接受机会仍有足额闭合预算用于原处置与释放；不得无限占槽或临时向申领者补收费。执行版本、artifact owner 变更或停用须先保证旧义务能按已接受的真实费用来源闭合，不能暗换 payer、挪用闭合预算或删除原历史。
+
+原运输接受时，把该 receipt 尚未使用的 R 容量原子转为此次 transit 的占用，机会随即标记已使用。转换不能先释放再重新竞争，也不能同时保留两份容量。原运输拒绝且无效果时，尚有效的 receipt 仍按原用途和期限处理，或因明确失效原因单次释放；不能把失败使用当成又一次供给。使用前到期、撤销或失去必要权限只释放未消费分配一次，保留 receipt 历史，且同一 occurrence 不重发第二份 receipt。运输已经受理后，认可失效不能抹去原在途、材料、费用或交付义务；完成和容量释放继续由原运输 authority 单次处理。
+
+提交或使用结果未知时，玩家看到“结果未知”及查询原请求、receipt 或 transit 的下一步；重连先恢复原权威结果，同身份同载荷的重放只解析原结果，不能自动另提一单、换键争抢、续期或退款。只有证明原请求未接受且当前条件仍有效后，才允许按原提交语义显式新提交。已经使用或终态失效的 receipt 永不恢复为可使用；复核更正也不能复制历史分配。失败、到期或复核期间，玩家仍可进入上述普通独立通路，或按原规则补证、修复、重建、改道。
+
+#### 2.10.2.5 首版可玩性对照
+
+正常竞争使用两个独立受益者 A、B，各自从自己的 Agent 材料账本经独立 feeder 到 H，再共同使用 R：`H → agent:O`。两者各有当前授权、真实来源材料和已复核的地方贡献；不能用同一 builder、depot owner 或 Agent 来源冒充两个有效竞争者。关闭同一轮次后，只有一个候选取得 R 的一次分配，并通过原运输实际使用；另一个读到准确原因与独立下一步。
+
+同一候选还要让未获机会的 B 不携带机会 receipt，经原普通入口实际使用保留份额，并与获胜者的机会运输共同对账。具体路段容量、机会数量和材料/费用是[受控验收方法](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-04)的输入，不是全局平衡数值。只显示“仍有独立路径”、只签发 receipt 或只让赢者看到成功文案，均不证明机会可用或普通基线受到保护。
+
 <a id="prd-game-015-recognition-opportunity-acceptance"></a>
-### 2.10.2 来源到叶子映射与专业验收
+### 2.10.3 来源到叶子映射与专业验收
 
 | 上游来源 | 本叶子承接的 gameplay obligation | 专业验收入口 |
 | --- | --- | --- |
@@ -225,27 +270,75 @@ Agent-facing 专业执行合同继续消费 `small_player_lane_id`、`leverage_c
 | `MW-11` 与 CR-003 / FI-002 / GR-001 窄范围 authority | 跨专业证据保持可追溯；不把情境声誉、pioneer priority 或区域容量扩张为 generic recognition | [AC-RO-07](#ac-ro-07)、[AC-RO-08](#ac-ro-08) |
 
 <a id="ac-ro-01"></a>
-- **AC-RO-01 阶段门槛**：样例必须发生在首次持续能力之后的成熟世界；首局、冷启动、starter grant、普通行动 receipt 或环境活动不能单独产生本叶子的认可/机会效果。
+#### AC-RO-01 阶段门槛
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+样例必须发生在首次持续能力之后的成熟世界；首局、冷启动、starter grant、普通行动 receipt 或环境活动不能单独产生本叶子的认可/机会效果。
+
+承接：[阶段与来源设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-stage)；方法：[RO-01](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-01)。
 
 <a id="ac-ro-02"></a>
-- **AC-RO-02 事实、权限与范围可读**：玩家能读到相称世界事实或可复核审核/治理决定，并能区分当前 `permission/authorization`、来源、地点/作用域、用途、开始时间、到期时间、复核/申诉边界；缺失、撤销或过期的权限/授权不得被推荐、预览或历史认可写成可结算认可。
+#### AC-RO-02 事实、权限与范围可读
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+玩家能读到相称世界事实或可复核审核/治理决定，并能区分当前 `permission/authorization`、来源、地点/作用域、用途、开始时间、到期时间、复核/申诉边界；缺失、撤销或过期的权限/授权不得被推荐、预览或历史认可写成可结算认可。
+
+承接：[发行与当前权限设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-authority)；方法：[RO-02](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-02)。
 
 <a id="ac-ro-03"></a>
-- **AC-RO-03 预览与待决不生效**：预览、邀请、推荐和资格不改变资格、容量、排队、优先级或其他世界状态；提交保持待决，有界 hold/排队明确不等于已分配，并给出阻塞原因与下一步。
+#### AC-RO-03 预览与待决不生效
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+预览、邀请、推荐和资格不改变资格、容量、排队、优先级或其他世界状态；提交保持待决，有界 hold/排队明确不等于已分配，并给出阻塞原因与下一步。
+
+承接：[预览与待决设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-preview-pending)；方法：[RO-03](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-03)。
 
 <a id="ac-ro-04"></a>
-- **AC-RO-04 receipt 至多一次与竞争申领**：给定同一成熟世界作用域内一个只能分配一次的 scarce opportunity，以及两个 distinct 且当前 permission/authorization、资格与其他适用条件均有效的 eligible contenders；当两者提交、并发、重连或 retry 竞争该机会时，只有一个当前有效 receipt 可以产生一次可使用机会。获胜者之外的请求必须保持待决或原子拒绝/释放，说明冲突原因与独立下一步；不得产生第二次分配、隐藏优先级、隐藏 charge 或其他第二次世界效果。该规则也适用于 replay，但不改写 FI-002 专门 authority 下的 pioneer priority transfer 条件。
+#### AC-RO-04 receipt 至多一次与竞争申领
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+给定同一成熟世界作用域内一个只能分配一次的 scarce opportunity，以及两个 distinct 且当前 permission/authorization、资格与其他适用条件均有效的 eligible contenders；当两者提交、并发、重连或 retry 竞争该机会时，只有一个当前有效 receipt 可以产生一次可使用机会。获胜者之外的请求必须保持待决或原子拒绝/释放，说明冲突原因与独立下一步；不得产生第二次分配、隐藏优先级、隐藏 charge 或其他第二次世界效果。该规则也适用于 replay，但不改写 FI-002 专门 authority 下的 pioneer priority transfer 条件。
+
+承接：[单次分配与真实使用设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-once-settlement)；方法：[RO-04](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-04)，同时检查真实容量消费者、公平顺序与普通基线。
 
 <a id="ac-ro-05"></a>
-- **AC-RO-05 结算前重验**：来源、作用域、当前 `permission/authorization`、资格、容量、期限或反滥用事实变化时，系统必须重新校验；若提交后权限/授权缺失、撤销或过期，旧 `pending` 必须失效并拒绝、释放或过期，不得产生 receipt 或世界效果，也不得继续保持可结算状态，且要给出原因与独立下一步。权限后来恢复时，必须再次重验当前权限与其他条件并显式新提交，不得自动重提；其他权限仍有效、仅因容量或资格变化的合法 `pending` 可按既有规则继续待决。不得自动续期、跨区域携带或使用历史认可补签。
+#### AC-RO-05 结算前重验
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+来源、作用域、当前 `permission/authorization`、资格、容量、期限或反滥用事实变化时，系统必须重新校验；若提交后权限/授权缺失、撤销或过期，旧 `pending` 必须失效并拒绝、释放或过期，不得产生 receipt 或世界效果，也不得继续保持可结算状态，且要给出原因与独立下一步。权限后来恢复时，必须再次重验当前权限与其他条件并显式新提交，不得自动重提；其他权限仍有效、仅因容量或资格变化的合法 `pending` 可按既有规则继续待决。不得自动续期、跨区域携带或使用历史认可补签。
+
+承接：[当前条件重验设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-current-revalidation)；方法：[RO-05](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-05)。
 
 <a id="ac-ro-06"></a>
-- **AC-RO-06 失效与恢复**：到期、拒绝、暂停、撤销或申诉结果保留历史，停止未来效果，并提供独立行动、补证、替代路线、repair/rebuild/pivot、恢复或复核下一步；失效认可不得封锁独立基线或静默重试。
+#### AC-RO-06 失效与恢复
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+到期、拒绝、暂停、撤销或申诉结果保留历史，停止未来效果，并提供独立行动、补证、替代路线、repair/rebuild/pivot、恢复或复核下一步；失效认可不得封锁独立基线或静默重试。
+
+承接：[失效、未知结果与恢复设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-recovery)；方法：[RO-06](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-06)，分别检查使用前释放与使用后原运输义务。
 
 <a id="ac-ro-07"></a>
-- **AC-RO-07 非转让与反滥用**：由本叶子 generic recognition 派生的认可/机会不能出售、出租、转让、拆分、叠加或代理/组织代持；[`FI-002 pioneer priority`](../../product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#req-wr-fi-002) 在其专门 authority 下的可转让性及其原有资格、期限、范围和重验条件不被本 generic 规则改写。处置只使用预声明、可复核规则，未经审核的怀疑不直接惩罚，并反馈事实类别、当前效果、复核路径和再获资格条件。CR-003、FI-002、GR-001 的窄范围边界保持不变。
+#### AC-RO-07 非转让与反滥用
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+由本叶子 generic recognition 派生的认可/机会不能出售、出租、转让、拆分、叠加或代理/组织代持；[`FI-002 pioneer priority`](../../product/world-rules-core-gameplay/frontier-expansion-and-world-information-boundaries.prd.md#req-wr-fi-002) 在其专门 authority 下的可转让性及其原有资格、期限、范围和重验条件不被本 generic 规则改写。处置只使用预声明、可复核规则，未经审核的怀疑不直接惩罚，并反馈事实类别、当前效果、复核路径和再获资格条件。CR-003、FI-002、GR-001 的窄范围边界保持不变。
+
+承接：[反滥用与复核设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-abuse-review)；方法：[RO-07](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-07)。
 
 <a id="ac-ro-08"></a>
-- **AC-RO-08 证据闸门**：本叶子只定义可玩性和专业合同，不提供当前实现、fresh mature-world sample、跨角色对账或发行 readiness 证据。没有同一候选的 gameplay、runtime、Agent、Viewer、blockchain 与 QA 组合证据时，结论必须保持 `pending/unresolved`，不得公开声称认可/机会闭环已通过。
+#### AC-RO-08 证据闸门
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；产品验收：[AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+本叶子只定义可玩性和专业合同，不提供当前实现、fresh mature-world sample、跨角色对账或发行 readiness 证据。没有同一候选的 gameplay、runtime、Agent、Viewer、blockchain 与 QA 组合证据时，结论必须保持 `pending/unresolved`，不得公开声称认可/机会闭环已通过。
+
+承接：[正式消费者与证据边界设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-consumers)；方法：[RO-08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-08)。
 
 本叶子的细节验收不改变产品分册的非目标：不新增首局认可或经济旁路，不拍数值，不把 generic recognition 变成治理/资产 authority，也不替代 CR/FI/GR 专题或任何专业实现与验证结论。
