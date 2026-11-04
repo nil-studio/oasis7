@@ -52,7 +52,7 @@ test('separate real UV owner setup creates canonical task, private goal, delegat
     assert.equal(saved.setups.length,1);
     assert.equal(saved.setups[0].stages.length,6);
     assert.ok(saved.setups[0].stages.every(stage=>stage.reads===5 && stage.has_result));
-  });
+  },{settleSubmits:true});
 });
 
 for(const revoke of [false,true]) {

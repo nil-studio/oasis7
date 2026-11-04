@@ -487,3 +487,79 @@ pub(super) fn serve_live_context_fixture(
         Some(private),
     );
 }
+
+// The positive custody schedule must be based on actual installation, not the
+// Worker's fixed 250 ms lookup delay. Other HTTP fixtures remain asynchronous.
+#[test]
+fn custody_happy_submit_barrier_preserves_unknown_and_settles_exact_originals() {
+    let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
+    governance::install(&mut driver.execution_world, &identity, 1, true);
+    empty_commit(&mut driver);
+    let root = dir.canonicalize().unwrap();
+    let node = Arc::new(Mutex::new(runtime(&root, driver)));
+    let signer = crate::feedback_submit_api::FeedbackSubmitSigner {
+        public_key_hex: sign_read_request("fixture", (), &hex::encode([9; 32]))
+            .unwrap()
+            .subject_public_key,
+        private_key_hex: hex::encode([9; 32]),
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let stop = AtomicBool::new(false);
+    let dropped = AtomicBool::new(true);
+    std::thread::scope(|scope| {
+        let _stop = Stop {
+            stop: &stop,
+            node: node.clone(),
+        };
+        scope.spawn(|| {
+            transport::serve_with_private_settlement(
+                listener, &node, &root, &signer, &stop, &dropped, None, true,
+            )
+        });
+        for (account, operation, key_byte) in [
+            ("account-a", "register-a", 72),
+            ("account-b", "register-b", 73),
+        ] {
+            let key = hex::encode([key_byte; 32]);
+            let api = client(&endpoint, &identity, &signer, &key);
+            let original = request(
+                &identity,
+                payload(&root, &identity, account, operation, &key),
+            );
+            let lookup = LookupIntentRequest {
+                contract_version: 1,
+                key: original.correlation.key.clone(),
+            };
+            let before = api
+                .lookup(lookup.clone(), original.signed_payload.clone())
+                .unwrap();
+            assert!(
+                matches!(before.outcome, IntentOutcome::Unknown),
+                "barrier cannot manufacture an unsubmitted result"
+            );
+            let response = api.submit(original.clone()).unwrap();
+            assert!(
+                matches!(response, SubmitObservation::Response(ref reply) if matches!(reply.outcome, IntentOutcome::Received { .. })),
+                "fixture must preserve the real submit response"
+            );
+            // One lookup, without sleeping, retrying or replacing its original.
+            let after = api.lookup(lookup, original.signed_payload.clone()).unwrap();
+            assert_eq!(after.correlation, original.correlation);
+            assert!(matches!(after.outcome, IntentOutcome::Committed { .. }));
+            let current = pin(&root, &identity);
+            let digest = correlation::key_digest(&original.correlation.key).unwrap();
+            let result: CanonicalIntentResultV1 = serde_json::from_value(
+                current
+                    .world
+                    .capability_revocation_state()
+                    .world_service_results[&digest]
+                    .clone(),
+            )
+            .unwrap();
+            assert_eq!(result.request, original);
+            assert!(result.rejected.is_none());
+        }
+    });
+}

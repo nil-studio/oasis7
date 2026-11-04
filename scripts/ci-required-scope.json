@@ -834,6 +834,8 @@
     "scripts/ci-formal-process.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
+    "scripts/ci-local-check-plan.py": ["workflow_governance"],
+    "scripts/ci-local-check-plan.test.py": ["workflow_governance"],
     "scripts/ci-local-signer-tests.py": ["workflow_governance", "packaging_contracts", "fleet_health"],
     "scripts/ci-local-signer-tests.test.py": ["workflow_governance"],
     "scripts/ci-required-result.py": ["workflow_governance"],
@@ -858,6 +860,18 @@
   },
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-local-check-plan.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-check-plan.test.py"
+      ]
+    },
+    "scripts/ci-local-check-plan.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-check-plan.test.py"
+      ]
+    },
     "scripts/ci-bin-ownership.test.py": {
       "group": "cargo_tooling_contracts",
       "tests": [

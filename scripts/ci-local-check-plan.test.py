@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,25 @@ BASE_PLANNER = '''import json, sys\nprint(json.dumps({'groups': ['baseline'], 'p
 
 
 class CheckLocal(unittest.TestCase):
+    def test_governance_driver_runs_adapter_tests_and_propagates_failure(self):
+        driver = (ENTRY.parent / 'ci-tests.sh').read_text()
+        function = re.search(r'^run_workflow_governance_baseline_contract_tests\(\) \{\n.*?^\}',
+                             driver, re.M | re.S).group()
+        for status in (0, 37):
+            with self.subTest(status=status):
+                result = subprocess.run(['bash', '-c', '''set -euo pipefail
+run_dot_todo_contract_tests() { :; }
+run() {
+  printf '%s\\n' "$*"
+  if [[ "$*" == 'python3 ./scripts/ci-local-check-plan.test.py' ]]; then return ''' + str(status) + '''; fi
+}
+''' + function + '\nrun_workflow_governance_baseline_contract_tests\necho completed\n'],
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(result.stdout.splitlines().count(
+                    'python3 ./scripts/ci-local-check-plan.test.py'), 1)
+                self.assertEqual('completed' in result.stdout.splitlines(), status == 0)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
