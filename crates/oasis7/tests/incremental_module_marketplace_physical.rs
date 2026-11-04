@@ -141,112 +141,113 @@ fn prepare_state_roots(path: &std::path::Path, compression: PageCompression) -> 
     // typed producers below.
     let market_names = ModuleMarketplaceFieldV1::ALL.map(ModuleMarketplaceFieldV1::name);
     let u64_names = WorldU64FieldV1::ALL.map(WorldU64FieldV1::name);
-    let mut value_writer = store.value_session(physical());
-    let mut records_remaining = 10_000;
-    for field in WORLD_STATE_FIELDS {
-        let FieldDestination::State(namespace) = field.destination else {
-            continue;
-        };
-        if market_names.contains(&field.name) || u64_names.contains(&field.name) {
-            continue;
+    {
+        let mut value_writer = store.value_session(physical());
+        let mut records_remaining = 10_000;
+        for field in WORLD_STATE_FIELDS {
+            let FieldDestination::State(namespace) = field.destination else {
+                continue;
+            };
+            if market_names.contains(&field.name) || u64_names.contains(&field.name) {
+                continue;
+            }
+            let record = write_field_metadata_v1(
+                *field,
+                &mut PresenceRecordWriteContext {
+                    sink: &mut value_writer,
+                    memory: &memory,
+                    io: &mut value_io,
+                    key_work: &mut key_work,
+                    limits: PresenceRecordLimitsV1 {
+                        semantic_bytes: 0,
+                        record_bytes: 512,
+                    },
+                    cancelled: || false,
+                },
+            )
+            .unwrap();
+            push_row(
+                &memory,
+                &mut rows,
+                namespace,
+                record.field_key.as_bytes(),
+                record.value_root,
+            );
         }
-        let record = write_field_metadata_v1(
-            *field,
-            &mut PresenceRecordWriteContext {
-                sink: &mut value_writer,
-                memory: &memory,
-                io: &mut value_io,
-                key_work: &mut key_work,
-                limits: PresenceRecordLimitsV1 {
-                    semantic_bytes: 0,
-                    record_bytes: 512,
-                },
-                cancelled: || false,
-            },
-        )
-        .unwrap();
-        push_row(
-            &memory,
-            &mut rows,
-            namespace,
-            record.field_key.as_bytes(),
-            record.value_root,
-        );
-    }
 
-    for name in [
-        "module_instances.instance_id",
-        "module_instances.module_id",
-        "module_instances.module_version",
-        "module_instances.wasm_hash",
-        "module_instances.owner_agent_id",
-        "module_instances.install_target",
-        "module_instances.active",
-        "module_instances.installed_at",
-    ] {
-        let descriptor = oasis7_world_state::incremental_projection::FieldDescriptor {
-            owner: FieldOwner::WorldState,
-            name,
-            destination: FieldDestination::State(StateNamespaceV1::Business),
-            shape: FieldShape::Map,
+        for name in [
+            "module_instances.instance_id",
+            "module_instances.module_id",
+            "module_instances.module_version",
+            "module_instances.wasm_hash",
+            "module_instances.owner_agent_id",
+            "module_instances.install_target",
+            "module_instances.active",
+            "module_instances.installed_at",
+        ] {
+            let descriptor = oasis7_world_state::incremental_projection::FieldDescriptor {
+                owner: FieldOwner::WorldState,
+                name,
+                destination: FieldDestination::State(StateNamespaceV1::Business),
+                shape: FieldShape::Map,
+            };
+            let record = write_field_metadata_v1(
+                descriptor,
+                &mut PresenceRecordWriteContext {
+                    sink: &mut value_writer,
+                    memory: &memory,
+                    io: &mut value_io,
+                    key_work: &mut key_work,
+                    limits: PresenceRecordLimitsV1 {
+                        semantic_bytes: 0,
+                        record_bytes: 512,
+                    },
+                    cancelled: || false,
+                },
+            )
+            .unwrap();
+            push_row(
+                &memory,
+                &mut rows,
+                StateNamespaceV1::Business,
+                record.field_key.as_bytes(),
+                record.value_root,
+            );
+        }
+
+        let mut member_write = MemberRecordWriteContext {
+            sink: &mut value_writer,
+            memory: &memory,
+            io: &mut value_io,
+            key_work: &mut key_work,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 64 << 10,
+                payload_bytes: 1 << 20,
+                record_bytes: MAX_TEST_RECORD_BYTES,
+            },
+            cancelled: || false,
         };
-        let record = write_field_metadata_v1(
-            descriptor,
-            &mut PresenceRecordWriteContext {
-                sink: &mut value_writer,
-                memory: &memory,
-                io: &mut value_io,
-                key_work: &mut key_work,
-                limits: PresenceRecordLimitsV1 {
-                    semantic_bytes: 0,
-                    record_bytes: 512,
-                },
-                cancelled: || false,
+        prepare_world_u64_genesis_v1(
+            &source,
+            &mut member_write,
+            &mut records_remaining,
+            &mut |row| {
+                rows.push(row);
+                Ok(())
             },
         )
         .unwrap();
-        push_row(
-            &memory,
-            &mut rows,
-            StateNamespaceV1::Business,
-            record.field_key.as_bytes(),
-            record.value_root,
-        );
+        prepare_module_marketplace_genesis_v1(
+            &source,
+            &mut member_write,
+            &mut records_remaining,
+            &mut |row| {
+                rows.push(row);
+                Ok(())
+            },
+        )
+        .unwrap();
     }
-
-    let mut member_write = MemberRecordWriteContext {
-        sink: &mut value_writer,
-        memory: &memory,
-        io: &mut value_io,
-        key_work: &mut key_work,
-        limits: MemberRecordLimitsV1 {
-            semantic_bytes: 64 << 10,
-            payload_bytes: 1 << 20,
-            record_bytes: MAX_TEST_RECORD_BYTES,
-        },
-        cancelled: || false,
-    };
-    prepare_world_u64_genesis_v1(
-        &source,
-        &mut member_write,
-        &mut records_remaining,
-        &mut |row| {
-            rows.push(row);
-            Ok(())
-        },
-    )
-    .unwrap();
-    prepare_module_marketplace_genesis_v1(
-        &source,
-        &mut member_write,
-        &mut records_remaining,
-        &mut |row| {
-            rows.push(row);
-            Ok(())
-        },
-    )
-    .unwrap();
-    drop(value_writer);
 
     rows.sort_by(|left, right| {
         left.namespace
