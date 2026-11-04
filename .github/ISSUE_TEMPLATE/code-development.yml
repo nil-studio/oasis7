@@ -20,14 +20,14 @@ body:
     id: goal
     attributes:
       label: "目标"
-      description: "当前问题、预期交付及对用户的影响。"
+      description: "本项交付的可观察结果及影响；父项写总体目标，并在任务拆分中定位具体执行项。"
     validations:
       required: true
   - type: textarea
     id: sources_scope
     attributes:
       label: "来源与范围"
-      description: "公开来源链接与固定版本；允许修改或测试的范围、不包含项；勿上传凭据或敏感日志。"
+      description: "公开来源链接与固定版本；本次范围、非目标、实际消费者与接口边界。勿上传凭据或敏感日志。"
     validations:
       required: true
   - type: textarea
@@ -41,14 +41,14 @@ body:
     id: acceptance
     attributes:
       label: "验收"
-      description: "可核对的完成条件、适用验证与未覆盖边界；CI 不代替部署或实玩。"
+      description: "本项验证入口、输入及独立预期结果，包含适用的成功、拒绝或恢复行为；写清交付条件和仍由父项承担的验收。CI 不代替部署或实玩。"
     validations:
       required: true
   - type: textarea
     id: dependencies
     attributes:
       label: "依赖"
-      description: "前置 Issue/PR、权限或 owner 决定及满足条件；没有写“无”。"
+      description: "实际依赖的 Issue/PR/提交、接口、权限或 owner 决定，区分已具备和待满足条件；没有写“无”。"
     validations:
       required: true
   - type: textarea
@@ -62,4 +62,11 @@ body:
     id: parallel_plan
     attributes:
       label: "任务拆分（复杂任务适用）"
-      description: "复用原任务清单或链接：各项交付与验收、前置及输入版本、写入范围/共享接口、负责人、验证、小 PR 边界与交付顺序；指定整体集成负责人。优先交付可解除下游阻塞的前置；强耦合部分说明串行或原子合入原因，简单任务无需填写。子任务不等于子 Issue 或独立 PR。"
+      description: "按可验证代码任务逐项说明，阶段名或模块名不足以直接派工；子项仍有多个独立结果时继续拆分，必要原子改动说明具体耦合。需独立跨会话领取、交接、等待依赖或验收的结果关联代码子 Issue；短任务可用父项清单，简单任务由前文表达即可。指定当前可启动项与整体集成负责人；任务与 PR 不要求一一对应。"
+      placeholder: |
+        父目标及最终集成验收 / 整体负责人：
+        子 Issue 或清单项 / 一个可观察结果及对应验收：
+        本次范围、非目标 / 消费入口与共享接口：
+        实际输入版本 / 已具备或尚缺前置 / 负责人：
+        验证输入、方法与预期结果 / 本项交付终点：
+        当前可启动项与依赖顺序 / 需调整或重新拆分的条件：

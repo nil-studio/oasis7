@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "f237fb71acefb7affc2805f4bb755f33f9660b786974d15884691e2df80260a4",
+    "content_sha256": "21d481b33b7e233e7dddff597403ecf5c2e044c5f2fa121dfc48654f7d0577b4",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程的唯一主责、五类 Issue、现有授权、独立评审、任务拆分、小而完整 PR 与完整交付边界。已定点复核主线接口前置交付与本 PR 游戏设计入口的组合：前者复用原领域 trait/DTO、可消费支撑和真实组合验收；后者仅在游戏设计、玩法/内容/交互变化或游戏体验/设计阶段声明时核对适用领域与直接消费者。非代码内容按原专业入口和组织规则承接，未触达历史不阻断无关工作，不增加全领域报告、素材全入库、身份、审批或 CI 语义门禁。接口试点仍保留其待实施边界，静态设计和规范采纳不代签运行、素材或发行完成。原分类、路由和主责不变。本次是对新增条款及其直接消费者的有界静态复核，不证明全仓语义、真实队列、并行效率、部署、CI 目标或业务验收。",
+    "note": "保留开发流程唯一主责、原分类与路由。已定点复核可验证代码任务、子项内部可分离性与必要原子范围，及其与关键交付路径、代码模板、执行/并行方法、TPM、dot 交接及 Triage 的组合：父项保留总体目标、依赖和最终集成，可由协调者先接手拆分；实现派工只覆盖结果、消费者、输入、验证和交付边界明确的就绪子 Issue 或等价清单项。需独立跟踪的结果保留关联代码子 Issue，同会话短任务及临时 worker 不机械建单，归并不吞并有效子任务。既有授权、暂停、小而完整 PR、接口前置、实际版本及验证边界保持不变，不新增普通小任务表单、审批、状态或 CI 门禁。本次为新增条款及直接消费者的有界静态审读，不证明实际队列行为、执行效率、部署或业务验收。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
