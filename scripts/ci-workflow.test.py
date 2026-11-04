@@ -1016,6 +1016,62 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
                     assert 'oasis7_viewer_live' in records, records
 
+    def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(function)
+        governance = driver.split('run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
+        self.assertEqual(governance.count('  run_engineering_telemetry_contract_tests'), 1)
+        paths = (
+            'scripts/engineering_telemetry.py',
+            'scripts/engineering_telemetry_adapters.py',
+            'scripts/tests/fixtures/engineering-telemetry/input.json',
+            'scripts/tests/test_engineering_telemetry.py',
+            'scripts/tests/test_engineering_telemetry_adapters.py',
+        )
+        cases = [('absent', None), ('complete', None)]
+        cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
+        cases += [(kind, path) for kind in ('empty', 'failing') for path in paths[-2:]]
+        for kind, changed in cases:
+            with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if kind != 'absent':
+                    for path in paths:
+                        target = root / path
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        if path == changed and kind == 'missing':
+                            continue
+                        if path == changed and kind == 'directory':
+                            target.mkdir()
+                            continue
+                        if path == changed and kind == 'symlink':
+                            target.symlink_to(root / 'missing-target')
+                            continue
+                        content = '# synthetic telemetry input\n'
+                        if path in paths[-2:] and not (path == changed and kind == 'empty'):
+                            content = ("import unittest\nfrom pathlib import Path\n"
+                                       "class Contract(unittest.TestCase):\n"
+                                       "    def test_runs(self):\n"
+                                       "        Path(%r).write_text('once')\n"
+                                       "        self.assertTrue(%r)\n" %
+                                       (target.name + '.ran', not (path == changed and kind == 'failing')))
+                        target.write_text(content)
+                shell = ('set -euo pipefail\nrun() { "$@"; }\n' + function.group()
+                         + '\nrun_engineering_telemetry_contract_tests\n')
+                result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
+                if kind in ('absent', 'complete'):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                if kind == 'absent':
+                    self.assertIn('not introduced', result.stdout)
+                if kind in ('complete', 'failing'):
+                    for path in paths[-2:]:
+                        self.assertTrue((root / (Path(path).name + '.ran')).is_file(), result.stderr)
+                    self.assertIn('Ran 2 tests', result.stderr)
+                if kind == 'empty':
+                    self.assertIn('no tests in', result.stderr)
+
     def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_dot_todo_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
