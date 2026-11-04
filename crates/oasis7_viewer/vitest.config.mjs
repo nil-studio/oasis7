@@ -11,6 +11,9 @@ export default defineConfig({
   define: { "__OASIS7_VISUAL_TEST__": "true" },
   test: {
     environment: "jsdom",
+    // vi.resetModules() reloads viewer state between scenarios. Keep Solid in
+    // Node's module cache so fresh components share the renderer's owner graph.
+    server: { deps: { external: ["solid-js"] } },
     globals: true,
     maxWorkers: 1,
     setupFiles: ["./test/setup.js"],
