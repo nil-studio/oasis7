@@ -52,18 +52,27 @@ final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟
 
 `./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
 
-目标 `scripts/check-local.py` **尚未实现**。其 quick（现有 baseline 组）、affected（同 planner 的本地影响计划）和 formal（显式 required/full canonical）合同见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。当前 planner 仅支持 Git refs；它还不能把 dirty/untracked 文件纳入上述统一入口。需要今天检查未提交变更时，使用已存在的文档/按包/显式 tier 命令，并在 PR 记录真实输入、命令和局限；不要执行不存在的目标命令或将 HEAD 计划当成工作树覆盖。
+目标 `scripts/check-local.py` **尚未实现**。日常按上表直接选择所需检查，不必把所有入口依次跑一遍。后续先提供固定 baseline 的 quick，再接可信 affected（先干净提交、后 dirty 精确选测）；formal 在自身前置具备后独立接入。三个 profile 的合同和边界见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。
+
+当前 planner 只支持 Git refs。检查未提交变更仍用已存在的文档/按包/显式 tier 命令，并记录真实输入、命令与局限；不要运行不存在的目标命令，或把 HEAD 规划当作 dirty 工作树检查通过。quick 未来也只证明固定 baseline，不提供完整影响分析结论。
 
 <a id="local-check-entry-validation"></a>
 ### 本地入口核验（实施阶段）
 
-Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5](doc/testing/ci/ci-test-coverage.prd.md#local-check-entry-requirement)。本节是后续实现的验证方法，当前文档 PR 未执行这些目标入口场景。
+Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5](doc/testing/ci/ci-test-coverage.prd.md#local-check-entry-requirement)。以下核验随实际开放能力分阶段完成，结果放在实施 PR；文档设计不构成运行证据。
 
-1. 在自有临时仓库准备可解析 base/HEAD，分别放入已提交、暂存、未暂存、未跟踪变更及删除/重命名；核对报告列出来源、old/new 路径、policy SHA、依赖影响与选择理由。同路径抵消改动和修改 Cargo 清单也不能漏选。将同样的干净提交输入原 planner，与 thin entry 的计划逐项比对，不能产生另一套选测结果。
-2. quick 核对只运行 baseline，明确显示未运行 Rust fmt/编译/业务测试；affected 让真实受影响组执行且核对 case/target/features；formal 记录显式 tier、干净 source 和 canonical 命令。使用一个有真实断言的小型消费者证明从计划到执行的接线，fake runner 仅验证调度/汇总，不能代签消费者覆盖。
-3. 注入不存在/歧义 base、未解决合并、未登记路径、不可读输入、缺工具、锁定依赖不可用、formal dirty、运行中改文件和禁止写用户文件的命令。检查 blocked/stale_input 的原因、非零退出及保留的局部结果；对照前后源码、未跟踪文件、index 与 Git ref 身份，确认没有格式化、暂存或自动回滚。
-4. 分别验证命令失败、测试零匹配、必要项 skipped、执行数 unknown、空计划、取消、超时和报告写失败；输出与退出码须遵守设计状态表。显式 dry-run 只有 planned/`validated=false`，全部 skipped 或零执行不能显示 passed。核对取消后仅清理自有进程。
-5. 对照 text/JSON 的相同 source/base/scope、命令与 pass/fail/skipped，保留报告和日志。指出未执行组/平台/真实环境；证据记录在实施 PR/实际 CI，不把本地结果变成 hosted required 或 full 的替代证明。
+**每片先验证共同底线。** 核对实际命令、读取范围、允许写集合和 text/JSON 同源结果。至少一项真实有效检查通过才可报告 passed；显式 dry-run 只有 planned/`validated=false`。对照[状态表](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)，注入本片适用的缺基线/歧义、冲突、输入不可读、缺工具、锁定依赖不可用、失败、预期测试零匹配、必要 skip、数量 unknown、空计划、取消、超时及报告写失败。未开放 profile/输入应 blocked，不能静默换范围。
+
+核对执行前后 tracked/untracked 文件、index 与 ref；运行中改动须 stale_input。实际命令接线不得先写用户文件再回滚，取消只清理自有进程/临时目录。fake runner 用于调度与故障注入，每个开放执行 profile 还须有真实检查/消费者验证；没有业务测试的 quick 明示零业务测试，不虚构消费者覆盖。
+
+| 交付范围 | 本阶段必要核验 | 留给后续的义务 |
+| --- | --- | --- |
+| quick | 真实调用 baseline，核对每项实际结果与工作树支持范围，特别检查传入 base/head 后是否遗漏 staged/unstaged/untracked；未调用 planner 明示 not_used，明确未执行 Rust fmt/编译/业务测试等类别；无法可靠处理的 dirty 输入 blocked | 不要求 Cargo 影响闭包或 dirty 精确计划，也不声称这些已覆盖 |
+| affected：干净提交 | 临时仓库与现有可信 planner 同输入逐项比对；候选 policy 不能自豁免。只有 dry-run 时不得报执行通过；开放执行后用具有真实断言的小型消费者走 planner→driver→结果，核对 case/target/features 与非零执行数 | dirty 适配未完成时明确 blocked；准备性规划不算完整 affected |
+| affected：dirty 精确输入 | 覆盖已提交、暂存、未暂存、未跟踪、删除/rename、特殊路径、同路径抵消、Cargo 清单/依赖变化和 ignored 显式依赖；逐项核对来源、选择理由、policy 与不可变视图，未知路径/解析不确定按可信规则扩张或阻断 | 本地选择与执行仍不代签 hosted、多平台或真实环境 |
+| formal | 显式 required/full、干净 source、canonical 参数和必要组；dirty/untracked 阻断；记录实际数量、日志、缺环境与未覆盖平台 | 不依赖 dirty 精确适配，也不取消原 required/full 和真实环境验收 |
+
+结果由入口生成，实施 PR 引用原始报告即可，不要求在 Issue、PR 和手册重复抄录同一份执行记录。每片完成后同步该片 help 与使用说明；最终按 LOCAL-AC-1–5 核对完整范围和真实证据，未完成项继续留在原任务。已有 CI 或其他正式验收只引用实际运行的版本与结果，不以本地报告替代。
 
 ## 本地 Cargo 开发约定
 

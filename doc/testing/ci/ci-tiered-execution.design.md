@@ -392,38 +392,46 @@ API 已证明为专用非 full 诊断的运行不会冒充完整结果，也不�
 
 Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；承接 [LOCAL-AC-1–5](ci-test-coverage.prd.md#local-check-entry-requirement)。产品适用性：N/A；reason=开发检查工具合同；scope=本地范围、执行与报告，不改变 CI 准入或玩家行为。
 
-当前已有 `ci-tests.sh` 显式 tier、`cargo-dev.sh`、no-op `pre-commit.sh` 和基于 Git refs 的 `plan-rust-required-scope.py`。本节定义尚待实现的 `scripts/check-local.py`；当前可执行命令以[手册入口](../../../testing-manual.md#local-check-entry)为准。普通 Git commit 不调用该入口，`fix-precommit.sh` 的格式化与 `git add -u` 也不纳入检查链。
+当前已有 `ci-tests.sh` 显式 tier、`cargo-dev.sh`、no-op `pre-commit.sh` 和 Git refs planner；目标 `scripts/check-local.py` 尚未实现，当前命令见[手册](../../../testing-manual.md#local-check-entry)。普通 commit 不调用新入口，`fix-precommit.sh` 的格式化与暂存不进入检查链。
 
-**接口与分层。** 目标接口要求显式 `--profile quick|affected|formal`，接受 `--base-ref`、`--output-dir`、`--format text|json` 与 `--dry-run`；formal 另须显式 `--tier required|full`。缺 profile/tier 不猜测用户意图。入口仅适配输入、调用已有 planner/driver 并汇总结果；路径规则、受影响闭包、features/target 和 case 清单仍只有现有配置与 planner 一份权威。quick 也记录受影响但未运行的组，不把轻量检查描述成完整选测。
+**按用途调用，按能力交付。** 目标接口显式指定 `--profile quick|affected|formal`，接受 `--base-ref`、`--output-dir`、`--format text|json` 与 `--dry-run`；formal 另须显式 `--tier required|full`。三种 profile 不是逐级必跑的流水线。尚未实现的 profile/输入组合明确 blocked，不降级成其他 profile 后报通过。
 
-| Profile | 执行合同 | 不执行/成功边界 |
+| Profile | 执行合同 | 成功与未覆盖范围 |
 | --- | --- | --- |
-| quick | 复用现有 `ci-tests.sh required --group baseline` 的治理、脚本与配置检查；传递已解析的文档比较基线，保留 worktree 输入 | 不包含 Rust fmt、编译、业务测试、浏览器或真实服务验收；baseline 中所有适用检查实际通过才算该 profile 通过。没有测试执行时明确记 `tests_executed=0` |
-| affected | 由同一 planner 对完整本地输入生成组/参数，调用既有 required driver 的对应组；输出被选中及未选中的理由 | 不隐含 full/所有平台/真实世界闭环；全部选中且适用的检查实际执行通过，测试组还须证明选中 case 非零且未漏执行 |
-| formal | 干净工作树、已解析 source SHA、显式 tier 和当前手册 canonical 命令；required 沿 planner，full 沿现有完整清单 | 不以开发 wrapper 参数替换 canonical，不把单机平台结果当 hosted gate 或其他平台通过；任何必要组、环境或证据缺失均不通过 |
+| quick | 固定复用 `ci-tests.sh required --group baseline`；沿现有检查读取工作树并传递已解析的文档比较基线，不先求 Rust 影响闭包 | baseline 全部适用检查真实通过；未运行 Rust fmt、编译、业务测试、浏览器或真实服务。业务测试数为零须明示，不声称完成 affected 选测 |
+| affected | 同一可信 planner 生成组、case、target/features，调用既有 required driver；保留选中/未选中理由 | 全部选中且适用的检查真实通过；测试组须证明 case 非零且未漏执行。不隐含 full、所有平台或真实世界闭环 |
+| formal | 干净源码、已解析 source、显式 tier，执行手册 canonical required/full；required 沿可信 planner，full 沿完整清单 | 必要组、环境或证据缺失均不通过；单机结果不代替 hosted gate 或其他平台 |
 
-`affected` 复用现有 driver 的 canonical Cargo 调用，不为提速另建一组改变断言的本地命令。按包迭代仍可独立使用 `cargo-dev.sh`，结果只证明该命令的开发配置。入口不得自动缩小慢组、吞失败重试或把 `scope=full` 的 required 选测扩张改写成 full tier。耗时先按实际阶段记录，本项没有新增本地时延 SLA。
+quick 报告固定 baseline 的选择理由与全部未运行类别即可，不要求为了列出“受影响但未运行的组”先实现 dirty 精确选测。未调用 planner 时，相关字段明确 `not_used` 及原因，仍记录实际 driver/checker 版本、比较基线和输入范围。affected 不另建路径规则、case 清单或改变断言的轻量命令；按包迭代继续用 `cargo-dev.sh`，只证明其开发配置。不得自动缩小慢组、吞失败重试，或把 required 的 `scope=full` 扩张说成 full tier。
 
-**基线与本地输入。** `--base-ref` 优先；未提供时仅尝试本地 `origin/main` 与 HEAD 的唯一 merge-base，记录 ref 和解析后的 SHA，不自动 fetch。基线不存在、merge-base 不唯一、未解决合并或无法读取输入时为 blocked，提示可执行的显式参数。policy 使用现有可信基线来源并记录 SHA；候选改动不能自改路径规则后豁免自己，控制文件变化沿原 planner 的扩张/拒绝规则处理。
+**分阶段接线。**
 
-quick/affected 的输入是 base→HEAD 的已提交差异、暂存差异、未暂存差异及非 ignored 未跟踪文件的保守并集，路径用 NUL 安全读取；重命名保留旧/新路径，删除保留旧路径。scope 报告同时保留三类本地来源，不能用 `git diff HEAD` 漏掉未跟踪文件，也不能把同一路径的抵消改动静默丢弃。忽略目录、Git 管理文件与输出目录不枚举为源码，但显式依赖引用的输入不得仅因 ignored 就漏读；无法确认的依赖输入按现有不确定性规则扩张或阻断并解释。
+1. quick：先接固定 baseline、真实执行、共同报告及只读/失败边界。其输入记录与变化检测只覆盖实际检查读取的输入，不需要完整 Cargo 依赖闭包或 dirty planner 适配；必须说明各检查实际支持的工作树形态，不能可靠处理的输入 blocked。
+2. affected：先用干净提交证明与现有可信 planner 等价并接通真实 driver，再补完整 dirty/untracked 输入。只有规划适配时仅支持显式 dry-run，输出 planned，不宣称 affected 已可执行；执行接线完成但 dirty 适配未完成时，dirty 输入 blocked。
+3. formal：在干净输入、只读 canonical 接线与证据合同具备后独立交付，不依赖 dirty 精确选测，也不要求开发者先跑 quick/affected。原 required/full 必要验证不减项。
 
-现有 planner 只读取提交对象。实施须给同一 planner 增加只读的工作树输入适配：固定起始 HEAD/index/文件内容身份，在内存或自有临时目录形成不可变输入视图，共用基线、当前清单及依赖图的选择逻辑；不得创建临时提交、修改 index、stash 或 checkout。不能直接把 HEAD 计划标成覆盖 dirty 文件。执行针对起始输入核对，结束重新检查身份；期间有用户或命令改动则标 `stale_input`，保留已执行结果但不宣布当前工作树通过。formal 遇到源码 dirty/untracked 直接 blocked，ignored 构建产物不构成源码 dirty。
+各阶段都是包含适用回归的小而完整交付。最终输入范围和 LOCAL-AC-1–5 仍沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 收口；不以首片可用关闭整体任务。CLI/help/手册同步随对应能力交付，旧 “used by pre-commit” 描述在实现阶段修正。
 
-**只读与故障。** 默认只允许写 ignored 的构建输出、入口自有临时目录和显式报告目录，不改源码、锁文件、配置、index 或 Git ref，不安装/升级工具。依赖下载仅可沿既有锁定命令写依赖缓存，并在计划中披露；缺工具、无法满足锁定依赖或禁止联网的运行环境分别报告。接线前逐个确认 driver 的写集合；会改用户文件的命令必须先提供真实 check-only 模式或隔离输出适配，尚不具备时为必要检查 blocked，不能先执行再回滚用户文件。检查前后核对 tracked/untracked 与 index 身份是异常检测，不替代只读接线。失败停止依赖它的步骤，独立检查可继续；取消/超时只清理本次拥有的子进程和临时目录，不删除用户输出。
+**基线与可信选择。** `--base-ref` 优先；缺省仅解析本地 `origin/main` 与 HEAD 的唯一 merge-base，不 fetch。记录原 ref 和解析 SHA；必要基线缺失、歧义、未解决合并或输入不可读为 blocked。affected/formal 的 policy 沿现有可信来源并记录 SHA；候选不能修改选测规则后豁免自己，控制文件变化沿原 planner 扩张/拒绝。quick 的固定 baseline 只提供局部反馈，不授予候选缩减 CI 或绕过可信 policy 的能力。
 
-**统一结果。** text/JSON 从同一结果对象生成，至少包含 `schema_version`、profile/tier、source/base/policy SHA、输入摘要及 dirty/untracked 分类、planner 版本、选择原因、实际命令 argv/cwd、明确允许的配置（不得转储凭据）、开始/结束时间、exit code、每项 `pass|fail|skipped|cancelled` 与 reason、预期/实际执行数、日志路径、未覆盖组/平台及总状态。未选择是范围外，必要但未执行是 skipped，两者不能合并。日志位置在运行前确定，报告失败也不能留下成功摘要；没有可解析执行数量时记 unknown，不猜零或通过。
+**输入与运行中变化。** quick 沿 baseline 已支持的输入与比较接口执行，记录 staged/unstaged/untracked 状态及实际读取范围，未做影响分析的部分明确未覆盖；若必要检查不能完整处理该输入，blocked。传入 base/head 后某子检查可能只读提交差异，记录 dirty 状态本身不证明它覆盖工作树；必须逐项核对，不能可靠接线时拒绝该输入。所有 profile 固定起始 HEAD/index 与实际检查输入的内容身份，结束复核；变化时记 `stale_input`，保留局部结果，不宣布当前工作树通过。不能用“运行后没变”替代接线前的只读审计。
+
+affected 的最终 dirty 适配保守合并 base→HEAD、暂存、未暂存和非 ignored 未跟踪输入，以 NUL 安全读取；保留来源、rename 旧/新路径、删除旧路径和同路径抵消变化。显式依赖引用的 ignored 输入不得漏读，不能确定时按既有规则扩张或阻断。复用同一 planner 的基线、清单和依赖图逻辑，在内存或自有临时目录构建不可变输入视图，不创建提交、改 index、stash 或 checkout；HEAD 计划不代表 dirty 覆盖。formal 的源码 dirty/untracked 直接 blocked，ignored 构建产物除外。
+
+**只读与故障。** 仅允许 ignored 构建输出、自有临时目录和显式报告目录；锁定命令的依赖缓存写入须披露。不改源码、锁文件、配置、index 或 ref，不自动安装/升级工具。接线前逐个审计 driver 写集合；必要命令须有真实 check-only 或隔离输出，否则 blocked，不能先写后回滚。缺工具、锁定依赖不可用及禁止联网分别诊断。失败停止依赖步骤，独立检查可继续；取消/超时只清理本次拥有的子进程和临时目录，不删除用户输出。
+
+**共同结果。** text/JSON 来自同一对象，包含 `schema_version`、profile/tier、source/base/policy 或明确的不适用原因、输入/dirty 摘要、实际 planner/driver 版本、选择理由、argv/cwd、非凭据配置、时间、退出码、逐项状态与 reason、预期/实际执行数、日志及未覆盖范围。有效检查数与测试 case 数分列，非测试检查不得虚构测试数量；预期执行测试的项仍须证明实际 case 非零。未选择与必要但 skipped 分开；必要执行数量不可解析为 unknown。运行前确定日志位置，报告写失败不能留下成功摘要。
 
 | 总状态 | 退出语义 | 判定 |
 | --- | --- | --- |
-| passed | 0 | 至少一项有效检查且本 profile 全部必要项实际通过；quick 可无业务测试，但须单独显示该事实 |
-| planned | 0，仅显式 `--dry-run` | 只有计划；`validated=false`，不输出 pass 结论 |
-| failed / incomplete | 1 | 任一失败、预期测试零匹配、必要项 skipped、执行证据 unknown 或写报告失败 |
-| blocked / stale_input | 2 | 参数/基线/路径解析/工具等前置失败，或输入在运行中变化；已产生的局部结果仍保留 |
-| no_checks | 3 | 选择结果没有任何可执行检查；必须给出原因，不等同所有测试通过 |
-| cancelled | 130 | 中断并记录未执行范围；超时按 failed 记录具体 timeout 原因 |
+| passed | 0 | 至少一项有效检查且本 profile 全部必要项实际通过；quick 无业务测试须单列，不是完整测试通过 |
+| planned | 0，仅显式 `--dry-run` | 只有计划，`validated=false`，不输出 pass |
+| failed / incomplete | 1 | 任一失败、预期测试零匹配、必要项 skipped、执行证据 unknown 或报告写失败 |
+| blocked / stale_input | 2 | 不支持的 profile/输入或参数、基线、路径、工具等前置失败，或运行中输入变化；保留局部结果 |
+| no_checks | 3 | 无可执行检查并说明原因，不等同通过 |
+| cancelled | 130 | 中断并记录未执行范围；超时按 failed，注明 timeout |
 
-实现接线按输入适配→profile/driver 只读接线→报告/取消→正反例验证分片，沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 保留未完义务；更新 help 中旧的 “used by pre-commit” 描述也属于代码阶段。验收方法见[本地入口核验](../../../testing-manual.md#local-check-entry-validation)。当前文档只完成合同与入口说明校准，未实现薄入口，不改变现有 CI policy；涉及其语义的后续改动仍走适用独立评审。
+验收按[手册中的阶段范围](../../../testing-manual.md#local-check-entry-validation)执行，每片验证实际开放能力，不提前要求运行尚未开放的 profile。共同底线不能延期；涉及 CI 选择语义的改动仍接受适用独立评审。本地时延先记录实际阶段耗时，不新增 SLA。
 
 <a id="ci-case-tier-design"></a>
 ## Test case 分级专题的共享设计
@@ -456,7 +464,7 @@ quick/affected 的输入是 base→HEAD 的已提交差异、暂存差异、未�
 | Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs) | 两个重复 job 的单一结构定义、确定性产物、只读校验及等价迁移 | [首轮生成试点](#ci-generated-contract-jobs-design) | CI 维护者；沿用 planner、driver、可信 BASE 和独立评审 | 产品适用性：N/A；reason=工程工作流定义治理；scope=两个合同 job；生成器尚未实现，不承接十分钟/P95、缓存或遥测验收 |
 | Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | 十分钟目标、快速准入/迁出、风险加测、四小时完整覆盖及同源发布 | [分层实施](#ci-fast-pr-periodic-full-design) | CI 维护者、QA 与发布消费者 | 产品适用性：N/A；reason=开发反馈与验证时点治理；scope=检查选择、构建、调度、汇总、发布消费及实施验收。候选已接线，旧 BASE 保守回退；hosted 覆盖、时延及容量待验证 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | 离线协议、full/wasmtime、降级目标及失败范围 | [覆盖专题](#ci-coverage-design) | CI 维护者与 QA | 不将未接线 snapshot 或文档合并计为覆盖 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
-| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | 三 profile、完整本地输入、只读接线和诚实结果 | [薄入口合同](#local-check-entry-design) | 本地工具维护者复用 planner/driver；QA 验证负例 | 产品适用性：N/A；reason=开发反馈工具；scope=本地选择与执行。当前只校准文档，薄入口未实现；不拥有 hosted 时延或发布准入 |
+| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | 分阶段交付三 profile；quick 固定 baseline，affected 最终完整本地输入，保留只读与诚实结果 | [薄入口合同](#local-check-entry-design) | 本地工具维护者复用 planner/driver；QA 验证负例 | 产品适用性：N/A；reason=开发反馈工具；scope=本地选择与执行。当前只校准文档，薄入口未实现；不拥有 hosted 时延或发布准入 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | 独立标签语义到实际选中 case 与结果 | [Case 分级](#ci-case-tier-design) | 测试维护者与 CI driver | 不修改断言或扩展任务准入 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | 保留产品测试并按真实影响选择 | [测试范围](#测试范围) | 选择器与执行器 | 解析不确定扩大普通 required，未登记路径另按门禁阻断 产品 N/A；理由：CI 专业验证要求；范围：本行列明的测试与工具链。 |
 | Trace refs: O7-REQ-4e7f2e0d-9147-43d9-a593-00a8db9b21df；[未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs) | 所有未登记路径阻断规划，失败到最终 required 汇总，保持可信规则来源 | [失败链路](#ci-unknown-inputs-design) | 选择器、Rust workflow 与结果回归 | 产品适用性：N/A；reason=CI 范围登记治理，不改变游戏行为；scope=未登记路径的规划失败、可信基线与 required 结果传播；本地失败回归不代签 hosted 运行。 |
@@ -801,7 +809,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 | Trace refs: O7-REQ-7d1dab3c-451e-4915-bf76-5bd28c117371；[可生成工作流定义](ci-tiered-execution.prd.md#ci-generated-contract-jobs) | [首轮生成试点](#ci-generated-contract-jobs-design) | 确定性、漂移/标记/路径错误、只读失败、原子写入及 job/DAG/权限/身份/失败语义等价 | [workflow 合同](../../../scripts/ci-workflow.test.py) 为现有入口；实施时按本节正反例扩展生成器回归，并执行既有 `ci-required-result.test.py` | 实施 PR 记录固定 source/tested/policy、迁移 diff、实际命令与 CI；当前仅设计 | 模板与输出一致不能代替语义合同，不证明 hosted 性能或扩展范围 |
 | Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；[快速反馈与周期回归](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full) | [分层实施](#ci-fast-pr-periodic-full-design) | 准入/迁出、真实包与 feature 闭包、Formal 最低库存、完整组/平台、旧 BASE/候选 bootstrap、失败重跑及固定候选发布 | [分层验收](../../../testing-manual.md#ci-fast-pr-periodic-full-validation)、实际 workflow/driver、selector/result/receipt 与真实 Cargo 合同 | 实施 PR 的准确候选、计划、运行链接、观察窗口与耗时分布 | 当前候选已接线；本地合同不代签 hosted 完整覆盖、十分钟/P95 或四小时容量 |
 | [Coverage requirements](ci-test-coverage.prd.md#coverage-requirements) | [覆盖专题](#ci-coverage-design) | 同候选/环境/features 下离线消息链、full 包含关系、失败及未接线目标 | [测试手册](../../../testing-manual.md)、实际 driver/选中 job；按本节选择正反例 | 实际命令、参数、case、退出与缺口；本次未执行 | 不由 selector fixture、skip 或旧 PASS 代签真实覆盖 |
-| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | [薄入口合同](#local-check-entry-design) | LOCAL-AC-1–5：当前入口一致、全输入选择、只读与非成功语义 | [本地入口核验](../../../testing-manual.md#local-check-entry-validation)，实施候选的真实 driver 与临时仓库正反例 | 实施 PR 的输入/命令、前后文件与 index 身份、报告和退出码 | 文档检查不证明 thin entry 已实现；本地通过不代签 PR/平台/真实环境 |
+| Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；[显式本地检查](ci-test-coverage.prd.md#local-check-entry-requirement) | [薄入口合同](#local-check-entry-design) | LOCAL-AC-1–5：阶段实际范围、最终完整输入、只读与非成功语义 | [本地入口核验](../../../testing-manual.md#local-check-entry-validation)，实施候选的真实 driver 与临时仓库正反例 | 实施 PR 的输入/命令、前后文件与 index 身份、报告和退出码 | 文档检查不证明 thin entry 已实现；本地通过不代签 PR/平台/真实环境 |
 | [Case-tier requirements](ci-testcase-tiering.prd.md#case-tier-requirements) | [Case 分级](#ci-case-tier-design) | 同候选标签到实际执行；漏标、错 feature、零匹配和失败传播 | [测试手册](../../../testing-manual.md)、实际 CI driver；结果函数回归 `scripts/ci-required-result.test.py` 仅作补充 | case/feature/target 与运行结果；本次未执行 | 无 hosted 或性能结论，不改 required/full 保护 |
 | [测试范围](ci-tiered-execution.prd.md#测试范围) | [测试范围](#测试范围) | 删除、重命名、依赖和未知输入覆盖 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 命令退出码及输出 | 不替代真实产品组运行 |
 | [未登记路径门禁](ci-tiered-execution.prd.md#ci-unknown-inputs) | [失败链路](#ci-unknown-inputs-design) | 未登记新增/删除/重命名、混合全量控制、候选豁免不能放行；无成功输出且 gate 明确失败 | [选择器回归](../../../scripts/plan-rust-required-scope.test.py) | 当前 PR 中保留选择器、工作流和结果回归的命令、source HEAD、退出码和 Actions 结果 | 本地 fixture 不证明 hosted 运行；Git/依赖解析不确定仍保留全量 |
