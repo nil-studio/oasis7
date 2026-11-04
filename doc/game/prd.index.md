@@ -34,6 +34,8 @@
 | 模块根入口 | 模块目标态、执行台账、设计总览与文件级精确检索 |
 
 ## 活跃补充文档
+- [有限检查点供能服务政策](gameplay/gameplay-checkpoint-power-service-contract.prd.md)：个人供需双方的 Electricity/Data 服务条款、部分履行、修复、结清、争议与显式继受；执行由 [Runtime 履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接，不代表当前已启用。
+- [世界叙事内容与交付](gameplay/world-narrative-content-delivery.design.md)与[验证手册](gameplay/world-narrative-content-delivery.manual.md)：把既有世界前提、事实摘要边界与实际展示来源落实为可编辑文案、状态组合和内容交接；复用官网、舞台、个人结果与 Agent 消息的原合同，小说不构成运行事实。
 - [native 工业内容目录与交付](gameplay/industrial-native-content-delivery.design.md)与[验证手册](gameplay/industrial-native-content-delivery.manual.md)：明确当前 native 配方/工厂的来源与内容关系、starter 与有效初态适用性、变更传播和制作测量方法；沿用原规则数值与准入合同，不把 native 子集当成全游戏目录。
 - `doc/game/gameplay/README.md`：`gameplay/` 热点子域 landing page，适合先做簇级分流，再决定进入玩法骨架、留存、agency、preview/beta gate 或 economy/claim 专题。
 - `doc/game/gameplay/gameplay-top-level-design.prd.md`：核心玩法骨架的专题入口；活跃基线与路由先看 `doc/game/prd.md`。
@@ -90,6 +92,7 @@
 | `doc/game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md` | PRD-only；本专题只承载区域制度的玩家动作、机会成本、失败恢复、申诉与验收，不新增实现结构 |
 | `doc/game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md` | PRD-only；本专题只承载普通治理主体、事项权利与 OC 分离的玩家动作、机会成本、失败恢复与验收，不新增实现结构 |
 | [gameplay-organization-continuity-policy.prd.md](gameplay/gameplay-organization-continuity-policy.prd.md) | 专业政策 PRD；执行、事务与恢复由 [组织连续性设计](../world-runtime/runtime/organization-continuity-and-disposition.design.md)承接，不重复建立同名技术权威 |
+| [gameplay-checkpoint-power-service-contract.prd.md](gameplay/gameplay-checkpoint-power-service-contract.prd.md) | 专业玩法政策；执行、资源与恢复由 [供能服务履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接 |
 
 ## 历史 closure / provenance 入口
 | 历史 closure 专题 | 当前追溯入口 |

@@ -64,12 +64,40 @@ pub trait FormalDurabilityEndpoint: Send {
         &mut self,
         candidate: FormalCandidateMaterialV1,
     ) -> Result<FormalPrepareReceiptV1, FormalError>;
+    /// Cancellable prepare seam for local endpoints. Remote implementations
+    /// inherit a conservative pre-call check until their transport carries an
+    /// explicit cancellation protocol.
+    fn prepare_with_cancel(
+        &mut self,
+        candidate: FormalCandidateMaterialV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<FormalPrepareReceiptV1, FormalError> {
+        if cancelled() {
+            return Err(invalid("formal prepare cancelled before endpoint call"));
+        }
+        self.prepare(candidate)
+    }
     fn decide(
         &mut self,
         request: &str,
         primary: FormalPrepareReceiptV1,
         replica: FormalPrepareReceiptV1,
     ) -> Result<FormalFinalReceiptV1, FormalError>;
+    /// Cancellable decision seam; remote adapters remain non-interruptible
+    /// during an in-flight RPC until the transport has an explicit cancel
+    /// message/identity protocol.
+    fn decide_with_cancel(
+        &mut self,
+        request: &str,
+        primary: FormalPrepareReceiptV1,
+        replica: FormalPrepareReceiptV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<FormalFinalReceiptV1, FormalError> {
+        if cancelled() {
+            return Err(invalid("formal decision cancelled before endpoint call"));
+        }
+        self.decide(request, primary, replica)
+    }
     fn install_proof(
         &mut self,
         decision: FormalDecisionProofV1,
@@ -153,6 +181,13 @@ impl FormalDurabilityEndpoint for FileFormalEndpoint {
     ) -> Result<FormalPrepareReceiptV1, FormalError> {
         Self::prepare(self, candidate)
     }
+    fn prepare_with_cancel(
+        &mut self,
+        candidate: FormalCandidateMaterialV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<FormalPrepareReceiptV1, FormalError> {
+        Self::prepare_with_cancel(self, candidate, cancelled)
+    }
     fn decide(
         &mut self,
         request: &str,
@@ -160,6 +195,15 @@ impl FormalDurabilityEndpoint for FileFormalEndpoint {
         replica: FormalPrepareReceiptV1,
     ) -> Result<FormalFinalReceiptV1, FormalError> {
         Self::decide(self, request, primary, replica)
+    }
+    fn decide_with_cancel(
+        &mut self,
+        request: &str,
+        primary: FormalPrepareReceiptV1,
+        replica: FormalPrepareReceiptV1,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<FormalFinalReceiptV1, FormalError> {
+        Self::decide_with_cancel(self, request, primary, replica, cancelled)
     }
     fn install_proof(
         &mut self,
@@ -413,8 +457,24 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalCoordinator
         &mut self,
         candidate: FormalCandidateMaterialV1,
     ) -> Result<FormalQualifiedCommitProofV1, FormalCoordinatorErrorV1> {
+        self.submit_with_cancel(candidate, || false)
+    }
+
+    /// Same local transaction sequence with cancellation forwarded to both
+    /// local endpoint verification phases. Cancellation after one endpoint has
+    /// persisted a prepare/decision remains OutcomeUnknown and is query-only.
+    pub fn submit_with_cancel(
+        &mut self,
+        candidate: FormalCandidateMaterialV1,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<FormalQualifiedCommitProofV1, FormalCoordinatorErrorV1> {
         let request = candidate.candidate.record.request_digest.clone();
         self.ready(&request)?;
+        if cancelled() {
+            return Err(FormalCoordinatorErrorV1::Rejected(invalid(
+                "formal submit cancelled before endpoint work",
+            )));
+        }
         let mut qualified = None;
         let mut qualified_count = 0;
         for outcome in [self.primary.query(&request), self.replica.query(&request)] {
@@ -530,11 +590,11 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalCoordinator
         } else {
             let primary = self
                 .primary
-                .prepare(candidate.clone())
+                .prepare_with_cancel(candidate.clone(), &mut cancelled)
                 .map_err(|cause| self.unknown(&request, cause))?;
             let replica = self
                 .replica
-                .prepare(candidate.clone())
+                .prepare_with_cancel(candidate.clone(), &mut cancelled)
                 .map_err(|cause| self.unknown(&request, cause))?;
             verify_formal_prepare_receipt(&primary, &candidate, &context, EndpointRole::Primary)
                 .map_err(|cause| self.unknown(&request, cause))?;
@@ -542,11 +602,11 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalCoordinator
                 .map_err(|cause| self.unknown(&request, cause))?;
             let p = self
                 .primary
-                .decide(&request, primary.clone(), replica.clone())
+                .decide_with_cancel(&request, primary.clone(), replica.clone(), &mut cancelled)
                 .map_err(|cause| self.unknown(&request, cause))?;
             let r = self
                 .replica
-                .decide(&request, primary, replica)
+                .decide_with_cancel(&request, primary, replica, &mut cancelled)
                 .map_err(|cause| self.unknown(&request, cause))?;
             FormalDecisionProofV1 {
                 schema_version: 1,

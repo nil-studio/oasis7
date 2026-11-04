@@ -8,6 +8,13 @@ use super::gameplay_state::GovernanceIdentityStatus;
 use super::manifest::{Manifest, ManifestPatch};
 use super::types::{ProposalId, WorldTime};
 
+#[path = "governance_finality_rotation.rs"]
+mod finality_rotation;
+pub(crate) use finality_rotation::{
+    FinalityKeyRotationHistoryRef, deserialize_finality_key_rotations,
+};
+pub use finality_rotation::{FinalityKeyRotationRecordV1, MAX_FINALITY_KEY_ROTATION_RECORDS_V1};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GovernanceExecutionPolicy {
     pub timelock_ticks: u64,
@@ -356,6 +363,10 @@ pub enum GovernanceEvent {
         controller_account_id: String,
         previous_admin_account_ids: Vec<String>,
         next_admin_account_ids: Vec<String>,
+    },
+    /// New rotations always retain their complete original authorization.
+    ValidatorFinalityKeyRotated {
+        authorization: oasis7_agent_api::world_action::GovernanceAuthorizedActionV1,
     },
     ValidatorAdmissionSubmitted {
         #[serde(default, skip_serializing_if = "Option::is_none")]

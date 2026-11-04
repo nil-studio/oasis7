@@ -299,6 +299,7 @@ jobs:
       contents: read
     outputs:
       enabled: ${{ steps.preview.outputs.enabled }}
+      groups: ${{ steps.preview.outputs.groups }}
       synthetic_base_sha: ${{ steps.preview.outputs.synthetic_base_sha }}
       source_sha: ${{ steps.preview.outputs.source_sha }}
       tested_sha: ${{ steps.preview.outputs.tested_sha }}
@@ -316,16 +317,18 @@ jobs:
         id: preview
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
           TESTED_SHA: ${{ github.sha }}
         run: |
           python3 scripts/ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA" \
+            --source-ref "$SOURCE_SHA" \
             --output "$RUNNER_TEMP/selection.json" --github-output "$GITHUB_OUTPUT"
       - name: Record diagnostic-only plan
         if: steps.preview.outputs.enabled == 'true'
         run: |
           printf '%s\n' '## Candidate fast-profile preview' \
             'Diagnostic only: candidate policy and a synthetic Rust-only diff; the trusted-BASE required gate remains independent.' \
-            'The three real groups run in parallel without restoring caches. This single sample does not establish a ten-minute P95.' \
+            'Every selected real group runs in parallel without restoring caches. This single sample does not establish a ten-minute P95.' \
             'End-to-end preview latency runs from workflow creation to the last preview group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/selection.json.metadata.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -348,7 +351,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [baseline, rust_baseline, oasis7_required]
+        group: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.groups) }}
     steps:
       - name: Start cold runner measurement
         run: echo "PREVIEW_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
@@ -381,7 +384,7 @@ jobs:
       - name: Stabilize Rust toolchains for ordinary execution
         if: matrix.group != 'baseline'
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
         if: matrix.group == 'rust_baseline'
         with:
           tool: cargo-deny@0.19.9
@@ -390,6 +393,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Install WASM C compiler
+        if: matrix.group == 'net'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          clang --print-targets | grep -w wasm32
+          llvm-ar --version
       - name: Execute actual preview group
         id: execute
         shell: bash
@@ -529,7 +539,7 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
+      - uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install native libraries
@@ -2170,7 +2180,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
@@ -2345,7 +2355,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
+        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps

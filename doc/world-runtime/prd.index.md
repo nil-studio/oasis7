@@ -66,6 +66,8 @@
 | 工业外部性影响谁、由谁处置 | [工业外部性与处置](runtime/industrial-externality-and-mitigation.design.md) | 显式 profile、作用域与处置授权，生产和处置分别确认 |
 | 恢复项目如何把贡献转成实际结果 | [有界恢复项目与贡献结算](runtime/bounded-recovery-projects-and-contribution-settlement.design.md) | 项目资格、里程碑与世界效果可对账，不混同存储恢复 |
 | 不受支持的请求如何安全选择替代 | [安全 canonical 替代确认](runtime/safe-canonical-alternative-confirmation.design.md) | 原请求、候选、独立确认、授权消费与唯一结果完整关联 |
+| 协作提议如何经双方接受形成即时交换 | [Agent 代表的合同形成](runtime/agent-mediated-contract-formation.design.md) | 非绑定提议、同版条款、当前授权、两腿原子效果与原请求恢复；持续服务另核 |
+| 跨时间供能如何逐检查点履行及恢复 | [有限供能服务履约](runtime/checkpoint-power-service-fulfillment.design.md) | 价款/抵押/费用占用、部分履行、修复、争议、结清与三方显式继受；通用服务和实际激活另核 |
 
 ## governance 子域阅读边界
 - `doc/world-runtime/governance/README.md` 是治理子域的唯一首读入口：它把当前模块规格、执行台账、按需设计分册与已完成专题追溯分开，避免根 README / 文件索引重复平铺。

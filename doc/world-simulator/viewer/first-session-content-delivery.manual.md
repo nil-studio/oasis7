@@ -128,6 +128,8 @@ R3/R7 若出现权限泄露、重复效果或错误归因，先保留 exact fail
 
 新目标文案未进入实际候选时，可另做标明“静态稿”的概念审读，但不能计为上述运行理解。缺真人参与则记未执行，作者自测、模型 persona 和 UI 单测均不能替代。继续意愿、经营分支和 Agent 主体感若需结论，仍按[首局分项验证](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#val-first-decision-sample)独立组织，不由本手册的识读结果推导。
 
+需要把识读与首局目标、真实选择、Agent 委托和返回后的继续行为连成实际研究时，按[首局真人试玩手册](../../testing/manual/first-session-human-playtest.manual.md)执行筛选、两次会话、提示与原始记录；本节的局部可读性判据保持原范围，各分项分别报告。
+
 ## 7. 结果与复测范围
 
 结果直接进入原 PR/运行证据，说明采用的内容单元与版本、命令或操作、环境、通过/失败/未执行、原 artifact 路径及未证明范围。静态检查只证明其结构和审读范围；运行与玩家结果必须来自实际执行。本手册不预填通过记录。

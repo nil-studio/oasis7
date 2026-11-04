@@ -256,6 +256,7 @@ impl World {
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
             schedule: BftGovernanceSchedule::HeaderV3(schedule.clone()),
             controller_registry: registry,
+            rotation_parent: self.capture_finality_key_rotation_parent()?,
             formal_handoff: Some(FormalBftHandoffBinding::HeaderV3(binding)),
             execution: None,
         }));
@@ -403,6 +404,7 @@ impl World {
         self.bft_governance_parent = Some(Box::new(BftGovernanceParentV2 {
             schedule: BftGovernanceSchedule::HeaderV3(schedule.clone()),
             controller_registry: registry,
+            rotation_parent: self.capture_finality_key_rotation_parent()?,
             formal_handoff: Some(FormalBftHandoffBinding::HeaderV3(binding)),
             execution: None,
         }));

@@ -21,6 +21,13 @@ use std::{
     sync::Arc,
 };
 
+#[path = "incremental_native_material.rs"]
+mod native_material;
+pub use native_material::*;
+#[path = "incremental_execution_artifact_material.rs"]
+mod execution_artifact_material;
+pub use execution_artifact_material::*;
+
 /// Reader retains admission until the last Arc. Errors are not absence; full
 /// original bytes and their flat digest must be checked, not locator identity.
 pub trait OriginalObjectReader {

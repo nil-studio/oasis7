@@ -6,6 +6,7 @@
 - 想快速理解核心玩法骨架：先在 `../prd.md` 确认活跃基线与路由，再读 `gameplay-top-level-design.prd.md` 的 bounded 专业合同
 - 想确认首局、前 10/30 分钟吸引力和持续游玩合同：先读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 由同候选 PR、实际验证记录与 `../../testing/evidence/` 确认。
 - 想定位当前 native 工业配方、工厂类别、首局配置与有效初态，或交接内容变更：读[工业内容目录与交付](industrial-native-content-delivery.design.md)及[验证手册](industrial-native-content-delivery.manual.md)。目录范围与世界实际安装、准入、库存和生产资格分别核对。
+- 想制作世界前提、公共事件、个人结果与 Agent 消息的叙事内容：读[世界叙事内容与交付](world-narrative-content-delivery.design.md)及[验证手册](world-narrative-content-delivery.manual.md)。内容稿、运行事实与小说分别标识，原产品和玩法合同继续拥有题材及事实边界。
 - 想了解经营决策、目标委托和回访的体验与实现边界：先读[首局产品设计的范围与优先顺序](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#gameplay-experience-priorities)，再读[组合系统设计](gameplay-decision-delegation-return.design.md)；真实合作与策略复用保持后续范围，不增加当前首产物或邀请测试门槛。
 - 想确认间接控制为什么仍然应该让玩家感觉自己在控制：先读 `gameplay-indirect-control-agency-contract.prd.md`
 - 想确认成熟世界里小玩家/新玩家靠什么继续形成独立价值：先读 `../../product/world-rules-core-gameplay/mature-world-progression.prd.md`，再读 `gameplay-mature-world-progression-contract.prd.md` 的专业合同
@@ -24,6 +25,7 @@
 - 想确认额外 Agent 的制造配方、报价、产能与失败成本：读 [Agent claim 经济合同](gameplay-agent-claim-economy-contract.prd.md)的制造政策，再读 [Runtime 制造设计](../../world-runtime/runtime/agent-industrial-manufacturing.design.md)。
 - 想确认紧急保供触发、资格优先级、批次窗口、补偿与退出：读 [保供首版政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)，产品承诺仍由 [ES 专题](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md)拥有。
 - 想确认组织有效活动、通知保护期限、接替资格、资产处置与部分交接：读 [组织连续性首版政策](gameplay-organization-continuity-policy.prd.md)，再读 [Runtime 处置设计](../../world-runtime/runtime/organization-continuity-and-disposition.design.md)。
+- 想比较有限供能服务的检查点、价款、抵押和失败出口：读[供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)，再读 [Runtime 履约设计](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)及[验收手册](../../testing/manual/checkpoint-power-service-acceptance.manual.md)；实际能力仍须独立实现与验证。
 - 想精确找某份 gameplay 专题文档，而不是按问题阅读：回到 `../prd.index.md`
 
 ## 入口分工
@@ -36,6 +38,7 @@
 - `gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md` 拥有 `PRD-GAME-019` 的普通治理主体聚合、资格/委托、公开审计、重复主体纠错/申诉、事项快照、OC 外部转让与单向非治理额度桥玩家动作和验收；其中 GCB-005 的事项快照与额度桥由 AC-GAME-019-04/05 承接，产品 `GCB-004/005` 仍由 `governed-common-decisions-and-constitutional-boundaries.prd.md` 拥有，runtime/P2P/QA 保留各自执行与验证 authority。
 - `gameplay-industrial-creation-and-cross-region-market-contract.prd.md` 拥有 `PRD-GAME-018` 的工业创建、许可/开放、OC/世界资格隔离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同；工业/世界资格隔离保持 GR-011 边界。其 [保供政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)集中持有 ES-001 至 ES-004 的首版规则值，产品要求仍由 ES 专题声明，Runtime 拥有执行与恢复合同。
 - [组织连续性政策](gameplay-organization-continuity-policy.prd.md)集中持有 OC-001 至 OC-003 的活动、保护、接替和处置规则；组织权利连续性由产品专题声明，外部代币 OC 的治理资格仍由 GAME-019 专题拥有。
+- [供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)拥有 CR-001/002 有限个人供能切片的检查点、补救、争议和继受规则；Runtime 拥有资源占用、计量、事务及恢复，既有物料物流和组织处置规则继续由原专题拥有。
 - GitHub Project task status 与 issue evidence comments 是 retention、preview、经济规则和放行门禁的执行状态入口。
 - `../prd.index.md` 是完整文件级索引，适合已知主题后按文件名查找。
 

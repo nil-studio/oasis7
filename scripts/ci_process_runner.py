@@ -242,7 +242,7 @@ def cleanup(process, marker):
     return ('unresolved' if members() else 'clean'), bool(initial)
 
 
-def run(command, cwd, env, suite, name, results, expected_count=None, timeout_seconds=2400, heartbeat_seconds=20, log_stream=None):
+def run(command, cwd, env, suite, name, results, expected_count=None, timeout_seconds=2400, heartbeat_seconds=20, log_stream=None, cancellation_event=None):
     """Capture this call's stdout; an explicit file log receives every child byte."""
     started = datetime.now(timezone.utc).isoformat()
     start = time.monotonic()
@@ -256,7 +256,7 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
                 os.close(log_fd)
                 log_fd = None
         return _run(command, cwd, env, suite, name, results, expected_count, timeout_seconds,
-                    heartbeat_seconds, started, start, stdout_fd, log_fd, log_stream is not None)
+                    heartbeat_seconds, started, start, stdout_fd, log_fd, log_stream is not None, cancellation_event)
     finally:
         os.close(stdout_fd)
         if log_fd is not None:
@@ -264,7 +264,9 @@ def run(command, cwd, env, suite, name, results, expected_count=None, timeout_se
 
 
 def _run(command, cwd, env, suite, name, results, expected_count, timeout_seconds,
-         heartbeat_seconds, started, start, stdout_fd, log_fd, log_requested):
+         heartbeat_seconds, started, start, stdout_fd, log_fd, log_requested, cancellation_event=None):
+    if cancellation_event is not None and cancellation_event.is_set():
+        raise InterruptedError('cancelled before starting child')
     marker = uuid.uuid4().hex
     env = dict(env, OASIS7_CI_PROCESS_OWNER=marker)
     capture = _Capture()
@@ -332,6 +334,9 @@ def _run(command, cwd, env, suite, name, results, expected_count, timeout_second
             if now - start >= timeout_seconds:
                 timed_out = True
                 break
+            if cancellation_event is not None and cancellation_event.is_set():
+                cancelled = True
+                break
             if process.poll() is not None:
                 break
             if now >= next_heartbeat:
@@ -359,6 +364,7 @@ def _run(command, cwd, env, suite, name, results, expected_count, timeout_second
     if not reader.is_alive():
         process.stdout.close()
     capture.idle.wait(timeout=0.05)
+    cancelled |= cancellation_event is not None and cancellation_event.is_set()
     count_ok = expected_count is None or (expected_count > 0 and capture.complete and capture.summary is not None and capture.summary[0] == expected_count and capture.summary[1] == 0)
     result = dict(suite=suite, test_name=name, started_at=started,
                   elapsed_seconds=round(time.monotonic()-start, 3), exit_code=process.returncode,

@@ -286,6 +286,7 @@ impl IncrementalPageStore {
         compression: PageCompression,
     ) -> Result<()> {
         check_cancelled(cancelled)?;
+        super::reclaim::check_publication(&self.root)?;
         if pages.len() > MAX_ENTRIES {
             return Err(PageStoreError::ResourceLimited("page batch entries"));
         }
