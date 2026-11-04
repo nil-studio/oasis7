@@ -25,6 +25,7 @@ OBSERVED_FIXED_BYTES = 3_960_422_714
 # Historical numerical oracles exercise the original capacity policy explicitly.
 LEGACY_FORMAL_LIMITS = dict(staging_bytes=8 * 1024 ** 3, max_upload_bytes=768 * 1024 ** 2,
                             max_bytes=1536 * 1024 ** 2, rotation_bytes=2304 * 1024 ** 2)
+LEGACY_ORDINARY_LIMITS = dict(LEGACY_FORMAL_LIMITS, staging_bytes=6 * 1024 ** 3)
 
 
 def key(name, number, compatibility='a'):
@@ -197,7 +198,7 @@ class AdmissionTests(unittest.TestCase):
     def test_rotation_headroom_is_additional_to_the_measured_upload_bound(self):
         reserve = 5 * 1024 ** 3 // 2
         self.assertEqual(policy.DEPENDENCY_ROTATION_HEADROOM_BYTES, reserve)
-        entries = [entry('ordinary', 1, key='shared-dependency-and-other-caches',
+        entries = [entry('ordinary', 1, key='shared-dependency-andother-caches',
                          size_in_bytes=7_308_732_735)]
         for name, bound in (('ordinary', 764_291_602), ('formal', 798_904_222)):
             with self.subTest(name=name):
@@ -251,6 +252,7 @@ class AdmissionTests(unittest.TestCase):
                 self.assertTrue(zero['capacity_allowed'])
 
     @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
+    @patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS)
     def test_raw_staging_single_upload_resident_and_rotation_are_distinct(self):
         for name, upload, raw in (('ordinary', 768 * 1024 ** 2, 6 * 1024 ** 3),
                                   ('formal', 768 * 1024 ** 2, 8 * 1024 ** 3),
@@ -438,6 +440,7 @@ class InventoryLifecycleTests(unittest.TestCase):
         self.assertEqual(sum(item['size_in_bytes'] for item in entries), OBSERVED_FIXED_BYTES + 4_600_000_000)
 
     @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
+    @patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS)
     def test_family_ceiling_entitlements_cannot_override_global_capacity(self):
         entries = [entry('ordinary', 100, key='unmanaged-observed-dependencies-and-tools',
                          size_in_bytes=OBSERVED_FIXED_BYTES)]
@@ -605,6 +608,116 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
             self.assertTrue(self.native_admission(entries)['allowed'])
             self.assertEqual(self.recover(entries, f'2026-10-26T{hour:02d}:31:00Z', number)['delete'], [])
             old_id = number
+
+
+class OrdinaryUploadBudgetTests(unittest.TestCase):
+    """Current ordinary policy; historical inventory oracles remain unchanged."""
+    UPLOAD = 1_342_177_280  # 1.25 GiB, not 1.25 decimal GB.
+    REPOSITORY = 20_000_000_000
+    RESERVE = 2_684_354_560
+    # First pack attempt in run 41748192072, ordinary-cache-stage.json.
+    # This is an observed conservative upload bound, not stored archive bytes.
+    OBSERVED_BOUND = 1_029_305_560
+
+    def admit(self, entries, bound=None, limit=None):
+        return policy.save_policy(entries, key('ordinary', 99),
+            self.OBSERVED_BOUND if bound is None else bound,
+            self.REPOSITORY if limit is None else limit,
+            reserved_repository_bytes=self.RESERVE)
+
+    def test_current_budget_and_unchanged_staging_and_retention(self):
+        settings = policy.FAMILIES['ordinary']
+        self.assertEqual(settings['max_upload_bytes'], self.UPLOAD)
+        self.assertEqual(settings['max_bytes'], 2_684_354_560)
+        self.assertEqual(settings['rotation_bytes'], 4_026_531_840)
+        self.assertEqual(settings['staging_bytes'], 6 * 1024 ** 3)
+        self.assertEqual(settings['keep_generations'], 2)
+        self.assertEqual(policy.DEPENDENCY_ROTATION_HEADROOM_BYTES, self.RESERVE)
+        self.assertNotIn('migration_bytes', settings)
+
+    def test_observed_first_pack_fits_without_a_budget_driven_second_trim(self):
+        # Inventory identity is synthetic; its byte total is the observed
+        # pre-admission inventory from the same stage report.
+        entries = [entry('ordinary', 1, key='other-caches', size_in_bytes=5_184_177_391)]
+        before = json.dumps(entries, sort_keys=True)
+        report = self.admit(entries)
+        self.assertTrue(report['capacity_allowed'], report)
+        self.assertEqual(report['projected_repository_bytes_with_reserve'], 8_897_837_511)
+        with patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS):
+            legacy = self.admit(entries)
+        self.assertFalse(legacy['capacity_allowed'])
+        self.assertEqual(legacy['reason'], 'ordinary single upload budget')
+        self.assertEqual(json.dumps(entries, sort_keys=True), before)
+
+    def test_exact_single_upload_limit_and_one_byte_over(self):
+        self.assertTrue(self.admit([], self.UPLOAD)['capacity_allowed'])
+        report = self.admit([], self.UPLOAD + 1)
+        self.assertFalse(report['capacity_allowed'])
+        self.assertEqual(report['reason'], 'ordinary single upload budget')
+
+    def test_two_resident_generations_allow_one_bounded_rotation(self):
+        entries = [entry('ordinary', i, size_in_bytes=self.UPLOAD) for i in (1, 2)]
+        report = self.admit(entries, self.UPLOAD)
+        self.assertTrue(report['capacity_allowed'], report)
+        self.assertTrue(report['rotation_required'])
+        self.assertEqual(report['family_resident_limit_bytes'], 2_684_354_560)
+        self.assertEqual(report['projected_family_bytes'], 4_026_531_840)
+        self.assertEqual(report['family_limit_bytes'], 4_026_531_840)
+        entries.append(entry('ordinary', 3, size_in_bytes=self.UPLOAD))
+        report = self.admit(entries, 1)
+        self.assertFalse(report['capacity_allowed'])
+        self.assertEqual(report['reason'], 'ordinary main family rotation budget')
+
+    def test_other_compatibilities_still_count_toward_the_same_family(self):
+        entries = [entry('ordinary', i, key=key('ordinary', i, 'b'),
+                         size_in_bytes=self.UPLOAD) for i in (1, 2, 3)]
+        report = self.admit(entries, 1)
+        self.assertEqual(report['compatible_generations'], 0)
+        self.assertFalse(report['migration_admission'])
+        self.assertEqual(report['reason'], 'ordinary main family rotation budget')
+
+    def test_repository_budget_and_dependency_reserve_are_not_entitlements(self):
+        exact_bytes = self.REPOSITORY - self.UPLOAD - self.RESERVE
+        entries = [entry('ecs', 1, key='other-caches', size_in_bytes=exact_bytes)]
+        report = self.admit(entries, self.UPLOAD)
+        self.assertTrue(report['capacity_allowed'], report)
+        self.assertEqual(report['projected_available_repository_bytes'], self.RESERVE)
+        entries[0]['size_in_bytes'] += 1
+        self.assertEqual(self.admit(entries, self.UPLOAD)['reason'], 'dependency rotation headroom')
+        entries[0]['size_in_bytes'] = self.REPOSITORY - self.UPLOAD + 1
+        self.assertEqual(self.admit(entries, self.UPLOAD)['reason'], 'repository cache capacity gap')
+
+    def test_all_families_and_refs_share_the_twenty_gb_budget(self):
+        # Synthetic pressure fixture: this is not a report of current usage.
+        entries = [entry('formal', 1, size_in_bytes=1024 ** 3),
+                   entry('ecs', 2, size_in_bytes=1024 ** 3),
+                   entry('ordinary', 3, ref='refs/pull/9/merge', size_in_bytes=self.UPLOAD)]
+        other = self.REPOSITORY - self.OBSERVED_BOUND - self.RESERVE
+        other -= sum(item['size_in_bytes'] for item in entries)
+        entries.append(entry('ordinary', 4, key='release-testnet-dependencies-and-tools', size_in_bytes=other))
+        self.assertTrue(self.admit(entries)['capacity_allowed'])
+        entries[-1]['size_in_bytes'] += 1
+        before = json.dumps(entries, sort_keys=True)
+        report = self.admit(entries)
+        self.assertEqual(report['reason'], 'dependency rotation headroom')
+        self.assertEqual(report['projected_family_bytes'], self.OBSERVED_BOUND)
+        self.assertEqual(json.dumps(entries, sort_keys=True), before)
+
+    def test_existing_key_remains_immutable(self):
+        report = self.admit([entry('ordinary', 99, size_in_bytes=700_000_000)])
+        self.assertFalse(report['capacity_allowed'])
+        self.assertEqual(report['reason'], 'existing immutable key')
+
+    def test_formal_and_ecs_upload_limits_do_not_increase(self):
+        for name, raw in (('formal', 8 * 1024 ** 3), ('ecs', 6 * 1024 ** 3)):
+            with self.subTest(name=name):
+                settings = policy.FAMILIES[name]
+                self.assertEqual(settings['max_upload_bytes'], 1024 ** 3)
+                self.assertEqual(settings['max_bytes'], 2 * 1024 ** 3)
+                self.assertEqual(settings['rotation_bytes'], 3 * 1024 ** 3)
+                self.assertEqual(settings['staging_bytes'], raw)
+                report = policy.save_policy([], key(name, 99), 1024 ** 3 + 1, self.REPOSITORY)
+                self.assertEqual(report['reason'], name + ' single upload budget')
 
 
 class CapacityEvidenceTests(unittest.TestCase):
