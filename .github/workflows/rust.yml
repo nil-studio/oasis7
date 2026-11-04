@@ -1647,6 +1647,12 @@ jobs:
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    env:
+      OASIS7_SUPPORT_CAPACITY: "1"
+      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1670,6 +1676,11 @@ jobs:
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Observe support capacity before cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot before-cache
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
@@ -1677,6 +1688,11 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Observe support capacity after cache
+        shell: bash
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-cache
       - name: Install native libraries
         run: |
           sudo apt-get update
@@ -1688,7 +1704,18 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
-        run: bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN"
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot after-native-libraries
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN"
+      - name: Observe support capacity on job exit
+        if: always()
+        shell: bash
+        env:
+          OASIS7_SUPPORT_JOB_STATUS: ${{ job.status }}
+        run: |
+          source scripts/ci-tests.sh
+          support_capacity_snapshot job-exit
 
   scenario-regression:
     needs: select

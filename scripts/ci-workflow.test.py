@@ -2010,5 +2010,128 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                             case.index('run_oasis7_' + prefix + '_tests'))
 
 
+class SupportCapacity(unittest.TestCase):
+    def probe(self, root, *, enabled='1', extra='', env=None):
+        script = 'set -euo pipefail\nsource "$1/scripts/ci-tests.sh"\nsupport_capacity_snapshot fixture\n' + extra
+        return subprocess.run(['bash', '-c', script, 'fixture', str(ROOT)], cwd=root,
+                              env=dict(os.environ, OASIS7_SUPPORT_CAPACITY=enabled,
+                                       RUNNER_TEMP=str(root / 'runner-temp'),
+                                       CARGO_HOME=str(root / 'cargo'),
+                                       RUSTUP_HOME=str(root / 'rustup'), **(env or {})),
+                              text=True, capture_output=True, timeout=35)
+
+    def records(self, result):
+        return [json.loads(line.removeprefix('SUPPORT_CAPACITY '))
+                for line in result.stdout.splitlines() if line.startswith('SUPPORT_CAPACITY ')]
+
+    def test_opt_in_snapshot_reports_bytes_inodes_without_contents_or_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deps = root / 'target/debug/deps'; deps.mkdir(parents=True)
+            (root / 'runner-temp').mkdir()
+            payload = deps / 'secret-name'; payload.write_bytes(b'PRIVATE-CONTENT' * 100)
+            os.link(payload, deps / 'hardlink')
+            result = self.probe(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = self.records(result)
+            self.assertTrue(records, result.stdout)
+            fs = next(r for r in records if r.get('kind') == 'filesystem' and r['label'] == 'workspace')
+            self.assertGreater(fs['available_bytes'], 0)
+            self.assertGreater(fs['available_inodes'], 0)
+            usage = next(r for r in records if r.get('kind') == 'directory' and r['label'] == 'target/debug/deps')
+            self.assertGreaterEqual(usage['apparent_bytes'], payload.stat().st_size)
+            self.assertLessEqual(usage['apparent_bytes'], payload.stat().st_size + deps.stat().st_size)
+            self.assertEqual(usage['inodes'], 2)
+            self.assertNotIn('PRIVATE-CONTENT', result.stdout)
+            self.assertNotIn('secret-name', result.stdout)
+            self.assertEqual(payload.read_bytes(), b'PRIVATE-CONTENT' * 100)
+
+    def test_disabled_probe_is_silent_and_observer_failure_preserves_test_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            disabled = self.probe(root, enabled='0')
+            self.assertEqual((disabled.returncode, disabled.stdout, disabled.stderr), (0, '', ''))
+            result = self.probe(root, extra='exit 37\n', env={'PATH': '/bin', 'ci_python': '/missing-python'})
+            self.assertEqual(result.returncode, 37, result.stderr)
+            self.assertIn('SUPPORT_CAPACITY_WARNING', result.stdout)
+
+    def test_directory_symlinks_are_not_followed_and_missing_paths_are_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / 'outside'; outside.mkdir()
+            (outside / 'secret').write_text('secret-value')
+            (root / 'target').symlink_to(outside, target_is_directory=True)
+            result = self.probe(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = self.records(result)
+            for label in ('target', 'target/debug/deps'):
+                record = next(r for r in records if r.get('kind') == 'directory' and r['label'] == label)
+                self.assertEqual(record['status'], 'symlink')
+            missing = next(r for r in records if r.get('kind') == 'directory' and r['label'] == 'custody/artifacts')
+            self.assertEqual(missing['status'], 'missing')
+
+    def test_failed_directory_measurement_is_explicit_and_does_not_replace_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'target').mkdir()
+            binary = root / 'bin'; binary.mkdir()
+            du = binary / 'du'; du.write_text('#!/bin/sh\necho PRIVATE-DU-ERROR >&2\nexit 13\n'); du.chmod(0o755)
+            result = self.probe(root, extra='exit 41\n', env={'PATH': str(binary) + os.pathsep + os.environ['PATH']})
+            self.assertEqual(result.returncode, 41, result.stderr)
+            record = next(r for r in self.records(result) if r.get('kind') == 'directory' and r['label'] == 'target')
+            self.assertEqual(record['status'], 'error')
+            self.assertNotIn('PRIVATE-DU-ERROR', result.stdout + result.stderr)
+
+    def test_outer_timeout_keeps_partial_evidence_and_original_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'target').mkdir()
+            binary = root / 'bin'; binary.mkdir()
+            wrapper = binary / 'timeout'
+            wrapper.write_text('#!/bin/sh\nshift\nexec /usr/bin/timeout 0.2s "$@"\n'); wrapper.chmod(0o755)
+            du = binary / 'du'; du.write_text('#!/bin/sh\nexec /bin/sleep 5\n'); du.chmod(0o755)
+            result = self.probe(root, extra='exit 43\n', env={'PATH': str(binary) + os.pathsep + os.environ['PATH']})
+            self.assertEqual(result.returncode, 43, result.stderr)
+            self.assertTrue(any(r['kind'] == 'filesystem' for r in self.records(result)))
+            self.assertIn('observer_status=124', result.stdout)
+
+    def test_enabled_observer_does_not_disable_profile_errexit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = r'''set -euo pipefail
+source "$1/scripts/ci-tests.sh"
+ci_python="$2"; driver_dir="$1/scripts"; support_profiles='["oasis7_context"]'
+run_cargo() { return 47; }
+run_selected_workspace_support
+printf 'unexpected-after-tests
+'
+'''
+            result = subprocess.run(['bash', '-c', script, 'fixture', str(ROOT), sys.executable],
+                                    cwd=root, env=dict(os.environ, OASIS7_SUPPORT_CAPACITY='1'),
+                                    text=True, capture_output=True, timeout=35)
+            self.assertEqual(result.returncode, 47, result.stderr)
+            self.assertIn('profile-before:oasis7_context', result.stdout)
+            self.assertNotIn('profile-after:oasis7_context', result.stdout)
+            self.assertNotIn('support profile completed:', result.stdout)
+            self.assertNotIn('unexpected-after-tests', result.stdout)
+
+    def test_read_only_probes_surround_cache_profiles_and_custody_native_boundary(self):
+        job = JOBS['workspace-support']
+        self.assertLess(job.index('support_capacity_snapshot before-cache'), job.index('Swatinem/rust-cache@'))
+        self.assertGreater(job.index('support_capacity_snapshot after-cache'), job.index('Swatinem/rust-cache@'))
+        self.assertIn('if: always()', job)
+        self.assertIn('support_capacity_snapshot job-exit', job)
+        self.assertIn('OASIS7_SUPPORT_CAPACITY: "1"', job)
+        self.assertIn('save-if: false', job)
+        self.assertIn('runs-on: ubuntu-24.04', job)
+        self.assertNotIn('continue-on-error:', job)
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        self.assertIn('support_capacity_snapshot "profile-before:$profile"', driver)
+        self.assertIn('support_capacity_snapshot "profile-after:$profile"', driver)
+        custody = (ROOT / 'crates/oasis7_custody_worker/scripts/verify.sh').read_text()
+        native = 'env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend'
+        self.assertLess(custody.index('support_capacity_snapshot custody-wasm-complete'), custody.index(native))
+        self.assertIn('support_capacity_snapshot custody-native-complete', custody)
+        self.assertIn('support_capacity_snapshot custody-platform-complete', custody)
+
+
 if __name__ == '__main__':
     unittest.main()
