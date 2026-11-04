@@ -1115,6 +1115,7 @@ pub mod incremental_step;
 pub mod incremental_agent_genesis;
 pub mod incremental_agent_verified_genesis;
 pub mod incremental_scheduler;
+pub mod incremental_scheduler_recovery;
 mod incremental_scheduler_index;
 
 pub mod incremental_projection;

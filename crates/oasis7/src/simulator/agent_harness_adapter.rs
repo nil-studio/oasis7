@@ -39,6 +39,11 @@ pub(super) struct BehaviorTurnResult {
     pub decision_trace: Option<AgentDecisionTrace>,
     pub prepared_context: Option<ContinuousAgentTurnContextV1>,
     pub prepared_response_context: Option<ContinuousAgentResponseContextV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub provider_original_material_refs: Option<crate::simulator::ProviderOriginalMaterialRefsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub provider_response_context_lease:
+        Option<crate::simulator::provider_json_admission::ProviderResponseContextLease>,
     pub memory_write_intents: Vec<MemoryWriteIntent>,
 }
 
@@ -204,6 +209,10 @@ impl OasisBehaviorProvider {
             decision_trace: self.behavior.take_decision_trace(),
             prepared_context: turn_context.cloned(),
             prepared_response_context: self.behavior.take_continuous_response_context(),
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_original_material_refs: self.behavior.take_provider_original_material_refs(),
+            #[cfg(not(target_arch = "wasm32"))]
+            provider_response_context_lease: self.behavior.take_provider_response_context_lease(),
             memory_write_intents: self.behavior.take_memory_write_intents(),
         }
     }
@@ -283,12 +292,13 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
             Some(&input.turn_context),
             Some(&input.request_context),
         );
-        if let Ok(mut state) = self.control.0.lock() {
-            state.production_results.insert(key, result.clone());
-        }
         let response = decision_response(&result);
+        if let Ok(mut state) = self.control.0.lock() {
+            state.production_results.insert(key, result);
+        }
+        let response_digest = cognition_response_digest(&response);
         Ok(ApiResponseContext {
-            base_decision_response: response.clone(),
+            base_decision_response: response,
             context_discriminator: request.context_discriminator.clone(),
             context_version: request.context_version,
             agent_session_id: request.agent_session_id.clone(),
@@ -297,7 +307,7 @@ impl HarnessProvider<Action, super::super::agent::AgentQuery> for OasisBehaviorP
             retry_seq: request.retry_seq,
             transport_attempt: request.transport_attempt,
             request_digest: request.request_digest.clone(),
-            response_digest: cognition_response_digest(&response),
+            response_digest,
         })
     }
 

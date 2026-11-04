@@ -8,7 +8,50 @@ use super::super::control_plane::provider_action_commit::{
 use super::HostedServicePhase;
 use crate::viewer::ViewerRuntimeLiveServer;
 
+pub(super) fn original_settlement_requires_replay(
+    response: &oasis7_client_api::world_service::IntentResponse<serde_json::Value>,
+    original: &oasis7_client_api::world_service::RequestCorrelation,
+) -> Result<bool, String> {
+    response
+        .validate(original)
+        .map_err(|error| error.to_string())?;
+    Ok(matches!(
+        response.outcome,
+        oasis7_client_api::world_service::IntentOutcome::Unknown
+    ))
+}
+
 impl HostedServicePhase {
+    pub(super) fn verify_original_disposition(
+        &self,
+        sidecar: &super::super::control_plane::llm_sidecar::RuntimeLlmSidecar,
+    ) -> Result<(), String> {
+        match self {
+            Self::Orphan(_) | Self::Act { .. } => Ok(()),
+            Self::ActView {
+                pending, receipt, ..
+            }
+            | Self::ActSettle {
+                pending, receipt, ..
+            }
+            | Self::HandoffWake {
+                pending, receipt, ..
+            }
+            | Self::HandoffView {
+                pending, receipt, ..
+            }
+            | Self::Feedback { pending, receipt }
+            | Self::FeedbackAck {
+                pending, receipt, ..
+            }
+            | Self::FeedbackAckView {
+                pending, receipt, ..
+            }
+            | Self::Finalize {
+                pending, receipt, ..
+            } => sidecar.verify_hosted_original_disposition(pending, receipt),
+        }
+    }
     #[cfg(any(test, feature = "test_tier_required"))]
     pub(in crate::viewer::runtime_live) fn test_phase_label(&self) -> &'static str {
         match self {
@@ -159,6 +202,27 @@ impl HostedServicePhase {
         Ok(
             serde_json::to_value(self.pending()?).map_err(|error| error.to_string())?
                 == serde_json::to_value(candidate).map_err(|error| error.to_string())?,
+        )
+    }
+}
+
+impl super::super::control_plane::llm_sidecar::RuntimeLlmSidecar {
+    pub(in crate::viewer::runtime_live) fn verify_hosted_original_disposition(
+        &self,
+        pending: &PendingProviderServiceIntent,
+        receipt: &ProviderServiceCognitionReceipt,
+    ) -> Result<(), String> {
+        super::validate_provider_service_receipt(pending, receipt)?;
+        let action_id = receipt
+            .commit_record
+            .action_id
+            .strip_prefix("action:")
+            .and_then(|id| id.parse::<u64>().ok())
+            .ok_or("canonical action ID is not numeric")?;
+        self.verify_provider_original_disposition(
+            &pending.cognition,
+            receipt.lineage.receipt_id.as_str(),
+            action_id,
         )
     }
 }

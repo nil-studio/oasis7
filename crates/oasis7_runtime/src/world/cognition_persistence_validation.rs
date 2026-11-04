@@ -5,6 +5,11 @@ use crate::cognition_recovery::{
     WorldCommitRecordV1, WorldRootViewV1, cognition_digest_v1, response_artifact_digest,
 };
 use crate::error::WorldError;
+use oasis7_world_state::incremental_cognition_history_lifecycle::{
+    COGNITION_LIFECYCLE_KEY_FIELDS_V1, CognitionLifecycleErrorV1,
+    CognitionLifecycleStateV1 as LifecycleState, advance_cognition_lifecycle_v1,
+    is_cognition_lifecycle_kind_v1,
+};
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
 
@@ -369,20 +374,6 @@ pub(super) fn validate_cognition_journal_integrity(journal: &JsonValue) -> Resul
     Ok(())
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LifecycleState {
-    Started,
-    ContextCaptured,
-    Dispatched,
-    ResponseRecorded,
-    Submitted,
-    Validated,
-    Linked,
-    Failed,
-    Cancelled,
-    Completed,
-}
-
 fn validate_lifecycle_event(
     event: &serde_json::Map<String, JsonValue>,
     states: &mut BTreeMap<(String, String, String, String, String), LifecycleState>,
@@ -394,46 +385,32 @@ fn validate_lifecycle_event(
         .unwrap_or_default();
     // Scheduler/continuation/feedback records are not turn lifecycle events;
     // they may carry an agent identity but have their own state machine.
-    if !matches!(
-        kind,
-        "TurnStarted"
-            | "ContextCaptured"
-            | "RequestDispatched"
-            | "ResponseRecorded"
-            | "DecisionEnvelopeSubmitted"
-            | "DecisionValidated"
-            | "WorldReceiptLinked"
-            | "DecisionRejected"
-            | "CognitionTurnFailed"
-            | "CognitionTurnCancelled"
-            | "CognitionTurnCompleted"
-            | "LateResponseRejected"
-    ) {
+    if !is_cognition_lifecycle_kind_v1(kind) {
         return Ok(());
     }
     let key = (
         event
-            .get("agent_id")
+            .get(COGNITION_LIFECYCLE_KEY_FIELDS_V1[0])
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_string(),
         event
-            .get("agent_session_id")
+            .get(COGNITION_LIFECYCLE_KEY_FIELDS_V1[1])
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_string(),
         event
-            .get("agent_turn_id")
+            .get(COGNITION_LIFECYCLE_KEY_FIELDS_V1[2])
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_string(),
         event
-            .get("decision_request_id")
+            .get(COGNITION_LIFECYCLE_KEY_FIELDS_V1[3])
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_string(),
         event
-            .get("request_digest")
+            .get(COGNITION_LIFECYCLE_KEY_FIELDS_V1[4])
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_string(),
@@ -449,103 +426,21 @@ fn validate_lifecycle_event(
         return Ok(());
     }
     let state = states.get(&key).copied();
-    let next = match kind {
-        "TurnStarted" if state.is_none() => LifecycleState::Started,
-        // A stale-base rejection can be persisted after provider dispatch (or
-        // response validation) when the captured World head moved. It is a
-        // terminal branch before any receipt is linked, not a new turn.
-        "DecisionRejected"
-            if matches!(
-                state,
-                None | Some(
-                    LifecycleState::Started
-                        | LifecycleState::ContextCaptured
-                        | LifecycleState::Dispatched
-                        | LifecycleState::ResponseRecorded
-                        | LifecycleState::Submitted
-                        | LifecycleState::Validated
-                )
-            ) =>
-        {
-            LifecycleState::Cancelled
-        }
-        "ContextCaptured" if matches!(state, Some(LifecycleState::Started)) => {
-            LifecycleState::ContextCaptured
-        }
-        "RequestDispatched"
-            if matches!(
-                state,
-                Some(LifecycleState::ContextCaptured | LifecycleState::Dispatched)
-            ) =>
-        {
-            let attempt = event
-                .get("transport_attempt")
-                .and_then(JsonValue::as_u64)
-                .ok_or_else(|| validation("cognition_transport_attempt_invalid"))?;
-            let previous = attempts.get(&key).copied().unwrap_or_default();
-            if attempt != previous.saturating_add(1) {
-                return Err(validation("cognition_transport_attempt_gap"));
-            }
+    let update = advance_cognition_lifecycle_v1(kind, state, || {
+        let attempt = event
+            .get("transport_attempt")
+            .and_then(JsonValue::as_u64)
+            .ok_or(CognitionLifecycleErrorV1::TransportInvalid)?;
+        let previous = attempts.get(&key).copied().unwrap_or_default();
+        Ok((previous, attempt))
+    })
+    .map_err(|error| validation(error.message()))?;
+    if let Some(update) = update {
+        if let Some(attempt) = update.transport_attempt {
             attempts.insert(key.clone(), attempt);
-            LifecycleState::Dispatched
         }
-        "ResponseRecorded" if matches!(state, Some(LifecycleState::Dispatched)) => {
-            LifecycleState::ResponseRecorded
-        }
-        "DecisionEnvelopeSubmitted" if matches!(state, Some(LifecycleState::ResponseRecorded)) => {
-            LifecycleState::Submitted
-        }
-        "DecisionValidated"
-            if matches!(
-                state,
-                Some(
-                    LifecycleState::ContextCaptured
-                        | LifecycleState::Dispatched
-                        | LifecycleState::ResponseRecorded
-                        | LifecycleState::Submitted
-                )
-            ) =>
-        {
-            LifecycleState::Validated
-        }
-        "WorldReceiptLinked" if matches!(state, Some(LifecycleState::Validated)) => {
-            LifecycleState::Linked
-        }
-        "CognitionTurnFailed"
-            if matches!(
-                state,
-                Some(LifecycleState::ContextCaptured | LifecycleState::Dispatched)
-            ) =>
-        {
-            LifecycleState::Failed
-        }
-        "CognitionTurnCancelled" if !matches!(state, None | Some(LifecycleState::Completed)) => {
-            LifecycleState::Cancelled
-        }
-        "CognitionTurnCompleted"
-            if matches!(
-                state,
-                Some(
-                    LifecycleState::Failed
-                        | LifecycleState::Cancelled
-                        | LifecycleState::Validated
-                        | LifecycleState::Linked
-                )
-            ) =>
-        {
-            LifecycleState::Completed
-        }
-        "LateResponseRejected"
-            if matches!(
-                state,
-                Some(LifecycleState::Cancelled | LifecycleState::Completed)
-            ) =>
-        {
-            state.unwrap()
-        }
-        _ => return Err(validation("cognition_lifecycle_order_invalid")),
-    };
-    states.insert(key, next);
+        states.insert(key, update.state);
+    }
     Ok(())
 }
 

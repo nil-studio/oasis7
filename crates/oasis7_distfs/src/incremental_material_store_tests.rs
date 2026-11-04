@@ -150,3 +150,8 @@ mod facts;
 
 #[path = "incremental_state_values_store_tests.rs"]
 mod state_values;
+
+#[path = "incremental_execution_artifact_store_tests.rs"]
+mod artifacts;
+#[path = "incremental_native_material_store_tests.rs"]
+mod native;

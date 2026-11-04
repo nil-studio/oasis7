@@ -609,6 +609,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn("if: github.event_name == 'pull_request'", planner)
         self.assertNotIn('needs: select', planner)
         self.assertIn('ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
+        self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', planner)
+        self.assertIn('--source-ref "$SOURCE_SHA"', planner)
         self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
         self.assertIn('group: [baseline, rust_baseline, oasis7_required]', preview)

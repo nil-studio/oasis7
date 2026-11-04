@@ -513,9 +513,12 @@ L4-C05 保留已有三条回归入口：[alias 生成](crates/oasis7_viewer/scri
 
 Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要应只占 stdout，诊断写 stderr。若命令非零退出，即使目录已有卡片或 manifest，也只算部分输出；保留现场、检查失败原因，并为新尝试选择新目录/`--run-id`，不要自动删除或覆盖旧证据。`commands.sh` 只记录待执行步骤，其存在和可执行位不证明 L4A/L4B 成功。
 
+<a id="playability-l5"></a>
 ### L5 真实人类 / 受控线上验证层
+
 - 目标：验证真实人类或受控外部玩家在真实时间、注意力和机会成本约束下，是否仍愿意继续玩；这是 `L4B` 之上的正式验证层。
 - 入口：limited preview、liveops 反馈回流、真实玩家 session、受控人工试玩样本。
+- 受控首局操作：按[首局真人试玩手册](doc/testing/manual/first-session-human-playtest.manual.md)准备候选、筛选目标玩家并主持两次会话，保留独立完成、提示、停止和回访的原始记录；预约回访与主观意愿不推导自然留存。
 - 结论边界：只有到这一层，才能正式回答“真实人类/真实环境里是否仍想继续玩”；内部真人 spot-check 仍只算 `L4B` 的可选校准，不单列新层。
 - 说明：长稳、压力和 soak 仍属于测试套件层（如 S8/S10），不是这里的 playability `L5`。
 

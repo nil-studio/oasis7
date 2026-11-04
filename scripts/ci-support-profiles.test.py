@@ -13,11 +13,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DRIVER = (ROOT / 'scripts/ci-tests.sh').read_text()
-CONTRACT_FUNCTION = DRIVER.split('run_signed_read_protocol_contract_tests() {', 1)[1].split('\n}', 1)[0]
-WORKER_COMPILE_FUNCTION = re.search(r'^run_worker_wasm_compile_profiles\(\) \{\n.*?^\}',
-                                    DRIVER, re.M | re.S).group()
-FUNCTION = DRIVER.split('run_selected_workspace_support() {', 1)[1].split(
-    '\nrun_rustsec_advisory_check()', 1)[0]
+DRIVER_LIBRARY = '# ci-driver-library: functions-v1' in DRIVER.splitlines()
+
+
+def support_driver_definitions():
+    if DRIVER_LIBRARY:
+        return 'source "$driver_dir/ci-tests.sh"\n'
+    # Historical drivers have no source interface. Preserve their existing
+    # fixture path; a missing dependency remains a failure, never a skipped test.
+    worker = re.search(r'^run_worker_wasm_compile_profiles\(\) \{\n.*?^\}', DRIVER, re.M | re.S)
+    protocol = DRIVER.split('run_signed_read_protocol_contract_tests() {', 1)[1].split('\n}', 1)[0]
+    selected = DRIVER.split('run_selected_workspace_support() {', 1)[1].split(
+        '\nrun_rustsec_advisory_check()', 1)[0]
+    return ((worker.group() + '\n' if worker else '') + 'run_signed_read_protocol_contract_tests() {'
+            + protocol + '\n}\nrun_selected_workspace_support() {' + selected + '\n')
 
 
 def production_workspace_closure(package, *, wasm):
@@ -69,6 +78,42 @@ def production_workspace_closure(package, *, wasm):
 
 
 class Profiles(unittest.TestCase):
+    def test_driver_library_preserves_shell_context_without_running_cli(self):
+        script = '''set +e
+set +u
+set +o pipefail
+before_options=$(set +o)
+before_directory=$PWD
+before_arguments="$*"
+source "$1"
+[[ $(set +o) == "$before_options" ]] || exit 71
+[[ $PWD == "$before_directory" ]] || exit 72
+[[ $* == "$before_arguments" ]] || exit 73
+[[ -z ${driver_dir+x} && -z ${repo_root+x} && -z ${ci_python+x} && -z ${tier+x} ]] || exit 74
+declare -F run_selected_workspace_support >/dev/null || exit 75
+declare -F run_worker_wasm_compile_profiles >/dev/null || exit 76
+echo 'loaded definitions only'
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            # A definitions-only source must not even discover an interpreter,
+            # run preflight, or invoke dirname/cd in the CLI initialization.
+            result = subprocess.run([shutil.which('bash'), '-c', script, 'library-test',
+                                     str(ROOT / 'scripts/ci-tests.sh'), 'untouched-argument'],
+                                    cwd=directory, text=True, capture_output=True,
+                                    env=dict(os.environ, PATH=str(Path(directory) / 'missing-bin')))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'loaded definitions only\n')
+
+    def test_driver_cli_argument_errors_keep_their_exit_codes(self):
+        cases = [((), 2), (('unknown-tier',), 1),
+                 (('required', '--unknown-option'), 1),
+                 (('required', '--group', 'unknown-group'), 2)]
+        for arguments, expected in cases:
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(['bash', str(ROOT / 'scripts/ci-tests.sh'), *arguments],
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+
     def test_owner_setup_protocol_inputs_retain_actual_custody_world_coverage(self):
         config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
         paths = set(config['workspace_support_profile_paths']['oasis7_custody_worker'])
@@ -128,13 +173,14 @@ class Profiles(unittest.TestCase):
                real_cargo=False, real_worker_compile=False, environment=None):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"
+'''
+        script += support_driver_definitions()
+        script += '''
 run() { echo "contract $*"; }
 run_cargo() { echo "cargo $*"; }
 run_cargo_clippy() { echo "clippy $*"; }
 run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
 '''
-        script += WORKER_COMPILE_FUNCTION + '\n'
-        script += 'run_signed_read_protocol_contract_tests() {' + CONTRACT_FUNCTION + '\n}\n'
         if fail_protocol:
             script += 'run() { echo "contract $*"; return 19; }\n'
         if fail:
@@ -146,7 +192,6 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
             script += 'run_cargo_clippy() { env -u RUSTC_WRAPPER cargo clippy "$@" -- -D warnings; }\n'
         if real_worker_compile:
             script += 'run() { echo "contract $*"; if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }\n'
-        script += 'run_selected_workspace_support() {' + FUNCTION
         script += '\nrun_selected_workspace_support\n'
         return subprocess.run(['bash', '-c', script, 'test', sys.executable,
                                str(ROOT / 'scripts'), profiles],
@@ -234,9 +279,13 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         spec = importlib.util.spec_from_file_location('full_support_scope', ROOT / 'scripts/plan-rust-required-scope.py')
         scope = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(scope)
-        body = DRIVER.split('run_workspace_support_full_feature_tests() {', 1)[1].split('\n}', 1)[0]
         script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"\nexport OASIS7_WASM_BUILD_STD=1\n'
-        script += 'run_cargo() { echo "cargo $*"; env -u RUSTC_WRAPPER cargo "$@"; }\nrun_workspace_support_full_feature_tests() {' + body + '\n}\n'
+        if DRIVER_LIBRARY:
+            script += 'source "$driver_dir/ci-tests.sh"\n'
+        else:
+            body = DRIVER.split('run_workspace_support_full_feature_tests() {', 1)[1].split('\n}', 1)[0]
+            script += 'run_workspace_support_full_feature_tests() {' + body + '\n}\n'
+        script += 'run_cargo() { echo "cargo $*"; env -u RUSTC_WRAPPER cargo "$@"; }\n'
         script += 'run_workspace_support_full_feature_tests\n'
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

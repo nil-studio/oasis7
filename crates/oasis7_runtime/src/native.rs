@@ -575,3 +575,8 @@ pub use world::incremental_module_fee_accounts::{
 pub use world::incremental_module_fee_contribution::{
     RootModuleFeeWriteContextV1, contribute_root_module_fee_v1,
 };
+pub use world::incremental_scheduler_recovery::{
+    ModuleScheduleReadContext, VerifiedModuleScheduleContent,
+};
+
+pub use oasis7_world_state::incremental_cognition_history;

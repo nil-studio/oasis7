@@ -316,9 +316,11 @@ jobs:
         id: preview
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
           TESTED_SHA: ${{ github.sha }}
         run: |
           python3 scripts/ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA" \
+            --source-ref "$SOURCE_SHA" \
             --output "$RUNNER_TEMP/selection.json" --github-output "$GITHUB_OUTPUT"
       - name: Record diagnostic-only plan
         if: steps.preview.outputs.enabled == 'true'

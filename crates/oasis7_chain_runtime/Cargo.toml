@@ -61,6 +61,8 @@ test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
 
 [dev-dependencies]
+# Signed History fixtures use the existing test authority; no production feature changes.
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
 oasis7_viewer_runtime = { path = "../oasis7_viewer_runtime", default-features = false, features = ["test_tier_required"] }
 # Keep fixture helpers available to the moved harness without enabling them in production builds.
 oasis7 = { path = "../oasis7", default-features = false, features = ["test_tier_required"] }

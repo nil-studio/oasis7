@@ -3789,6 +3789,294 @@ class ExpandedNativeContracts(unittest.TestCase):
             self.assertIn('oasis7_viewer_runtime', plan['oasis7_required_packages'])
 
 
+class NativeRootModuleAdditions(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+    fast_config = Selection.fast_config
+    bounded_config = Selection.bounded_config
+    component_config = Selection.component_config
+
+    ROOT = 'crates/core/src/lib.rs'
+    LEAF = 'crates/core/src/added.rs'
+    ORIGINAL = 'pub fn portable() -> u8 { 1 }\n#[test] fn existing() {}\n'
+    DECLARATION = '#[cfg(not(target_arch = "wasm32"))]\npub mod added;\n'
+    BODY = 'pub fn value() -> u8 { 2 }\n#[test] fn behavior() { assert_eq!(value(), 2); }\n'
+
+    def fixture(self):
+        config = self.component_config()
+        # A trusted complete-library component contract, not a filename waiver
+        # or an expansion of the attribute-free static_module_additions rule.
+        config['ordinary_fast_rules'][0]['paths'] = ['crates/core/src/registered.rs']
+        self.write(self.ROOT, self.ORIGINAL)
+        return config, self.commit()
+
+    def add_module(self, declaration=None, body=None):
+        self.write(self.ROOT, self.ORIGINAL + '\n' + (declaration or self.DECLARATION))
+        self.write(self.LEAF, body or self.BODY)
+        return self.commit()
+
+    def assert_portable(self, plan):
+        self.assertIn('core', plan['oasis7_required_wasm_packages'])
+        self.assertIn('launcher_web', plan['groups'])
+        self.assertNotIn('build_policy', plan['architecture'])
+
+    def test_pr5405_native_root_addition_defers_only_unrelated_consumers(self):
+        config, base = self.fixture()
+        head = self.add_module()
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                plan = selector.select(config, base, head, profile=profile)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+                self.assertEqual(plan['ordinary_execution'], 'inline')
+                self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+                self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['core-lib']])
+                self.assertEqual(plan['affected_packages'], ['consumer', 'core'])
+                self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+                self.assertEqual(plan['architecture']['packages'], ['core'])
+                self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+                self.assertFalse(plan['test_policy_changed'])
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+
+    def test_native_root_proof_uses_actual_selected_cargo_entry_and_regular_new_module(self):
+        config, base = self.fixture()
+        root = 'crates/core/src/entry.rs'
+        self.write('crates/core/Cargo.toml', Path('crates/core/Cargo.toml').read_text()
+                   + '\n[lib]\npath="src/entry.rs"\n')
+        self.write(root, self.ORIGINAL)
+        base = self.commit()
+        self.write(root, self.ORIGINAL + self.DECLARATION)
+        self.write(self.LEAF, self.BODY)
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+        self.assertNotIn('launcher_web', plan['groups'])
+        self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+
+    def test_root_delta_does_not_change_legacy_execution_or_full_inventory(self):
+        config, base = self.fixture()
+        head = self.add_module()
+        legacy = dict(config)
+        del legacy['fast_execution_version']
+        del legacy['ordinary_fast_component_rules']
+        del legacy['architecture_build_policy_version']
+        plan = selector.select(legacy, base, head, profile='pr-fast')
+        self.assert_portable(plan)
+        self.assertNotIn('ordinary_execution', plan)
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, head)
+            self.assertEqual(set(plan['groups']), set(config['groups']))
+            self.assertEqual(set(plan['oasis7_required_wasm_packages']), {'core', 'other'})
+            self.assertNotIn('build_policy', plan['architecture'])
+
+    def test_changed_existing_cfg_and_mixed_portable_body_keep_original_coverage(self):
+        config, base = self.fixture()
+        for root in (self.ORIGINAL.replace('{ 1 }', '{ 2 }') + self.DECLARATION,
+                     self.ORIGINAL + self.DECLARATION + 'pub const PORTABLE: u8 = 2;\n',
+                     '#[cfg(not(target_arch="wasm32"))]\n' + self.ORIGINAL + self.DECLARATION):
+            self.write(self.ROOT, root)
+            self.write(self.LEAF, self.BODY)
+            with self.subTest(root=root):
+                self.assert_portable(selector.select(config, base, self.commit(), profile='pr-fast'))
+            self.git('reset', '--hard', base)
+        self.write(self.ROOT, '#[cfg(not(target_arch="wasm32"))] mod original;\n')
+        self.write('crates/core/src/original.rs', 'pub fn original() {}\n')
+        base = self.commit()
+        self.write(self.ROOT, 'mod original;\n' + self.DECLARATION)
+        self.write(self.LEAF, self.BODY)
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'full')
+        self.assert_portable(plan)
+
+    def test_existing_unwired_or_renamed_module_cannot_borrow_new_source_proof(self):
+        config, base = self.fixture()
+        self.write(self.LEAF, self.BODY)
+        base = self.commit()
+        self.write(self.ROOT, self.ORIGINAL + self.DECLARATION)
+        self.assert_portable(selector.select(config, base, self.commit(), profile='pr-fast'))
+        self.git('reset', '--hard', base)
+        self.write(self.ROOT, self.ORIGINAL + '#[cfg(not(target_arch="wasm32"))] mod added;\n')
+        base = self.commit()
+        self.write(self.ROOT, self.ORIGINAL + '#[cfg(not(target_arch="wasm32"))] mod renamed;\n')
+        self.git('mv', self.LEAF, 'crates/core/src/renamed.rs')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_execution', plan)
+        self.assert_portable(plan)
+
+    def test_portable_and_host_readers_of_root_or_new_module_keep_consumers(self):
+        config, original_base = self.fixture()
+        for target in ('lib.rs', 'added.rs'):
+            for reader in ('data', 'module', 'build'):
+                self.git('reset', '--hard', original_base)
+                path = 'crates/consumer/' + ('build.rs' if reader == 'build' else 'src/lib.rs')
+                relative = os.path.relpath('crates/core/src/' + target, Path(path).parent)
+                body = (f'#[path="{relative}"] mod shared;\n' if reader == 'module'
+                        else f'const SOURCE: &str = include_str!("{relative}");\n')
+                self.write(path, body + ('fn main() {}\n' if reader == 'build' else ''))
+                base = self.commit()
+                with self.subTest(target=target, reader=reader):
+                    self.assert_portable(selector.select(config, base, self.add_module(), profile='pr-fast'))
+
+    def test_root_delta_preserves_transitive_host_generation_and_unknown_readers(self):
+        config, original_base = self.fixture()
+        consumer_manifest = Path('crates/consumer/Cargo.toml').read_text()
+        for kind in ('build-dependency', 'proc-macro', 'dynamic-data', 'dynamic-include'):
+            self.git('reset', '--hard', original_base)
+            if kind == 'build-dependency':
+                self.write('crates/consumer/Cargo.toml', consumer_manifest
+                           + '\n[build-dependencies]\ncore={workspace=true}\n')
+                self.write('crates/consumer/build.rs', 'fn main() { let _ = core::portable(); }\n')
+            elif kind == 'proc-macro':
+                self.write('crates/other/Cargo.toml', Path('crates/other/Cargo.toml').read_text()
+                           + '\n[lib]\nproc-macro=true\n[dependencies]\ncore={workspace=true}\n')
+                self.write('crates/consumer/Cargo.toml', consumer_manifest
+                           + '\n[dependencies]\nother={path="../other"}\n')
+            elif kind == 'dynamic-data':
+                self.write('crates/consumer/src/lib.rs', 'const SOURCE: &str = include_str!(env!("SOURCE"));\n')
+            else:
+                self.write('crates/core/src/lib.rs', self.ORIGINAL + 'include!(env!("SOURCE"));\n')
+            base = self.commit()
+            original = Path(self.ROOT).read_text()
+            self.write(self.ROOT, original + self.DECLARATION)
+            self.write(self.LEAF, self.BODY)
+            with self.subTest(kind=kind):
+                head = self.commit()
+                if kind == 'dynamic-include':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'unresolved or cyclic module path'):
+                        selector.select(config, base, head, profile='pr-fast')
+                else:
+                    self.assert_portable(selector.select(config, base, head, profile='pr-fast'))
+
+    def test_uncovered_source_and_explicit_risk_are_not_waived_by_root_delta(self):
+        config, base = self.fixture()
+        head = self.add_module()
+        risky = json.loads(json.dumps(config))
+        risky['formal_risk_rules'].append({'match': [self.LEAF], 'suites': ['world-history'],
+                                           'reason': 'retained history'})
+        plan = selector.select(risky, base, head, profile='pr-fast')
+        self.assertEqual(plan['formal_suites'], ['world-history'])
+        self.assertNotIn('build_policy', plan['architecture'])
+        self.write('crates/core/src/unwired.rs', '#[test] fn never_runs() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_execution', plan)
+        self.assert_portable(plan)
+
+        self.write('not-registered/added.rs', self.BODY)
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_native_delta_parser_preserves_exact_gate_and_top_level_boundary(self):
+        _, base = self.fixture()
+        native = '#[cfg(not(target_arch="wasm32"))] '
+        for declaration in (
+                'mod added;', '#[cfg(test)] mod added;',
+                '#[cfg(any(test,not(target_arch="wasm32")))] mod added;',
+                native + '#[path="added.rs"] mod added;',
+                native + '#[unknown] mod added;',
+                native + 'mod added {}', native + 'pub(in crate) mod added;',
+                'fn nested() { ' + native + 'mod added; }',
+                'mount! { ' + native + 'mod added; }',
+                'include!("added.rs");'):
+            head = self.add_module(declaration=declaration)
+            with self.subTest(declaration=declaration):
+                self.assertIsNone(selector.added_static_module_sources(self.ROOT, [(base, head)], native_root=True))
+            self.git('reset', '--hard', base)
+
+        self.write(self.ROOT, '/*\n' + self.ORIGINAL + '*/\n' + self.DECLARATION)
+        self.write(self.LEAF, self.BODY)
+        self.assertIsNone(selector.added_static_module_sources(self.ROOT, [(base, self.commit())], native_root=True))
+
+    def test_native_delta_parser_cannot_rebind_an_existing_attribute(self):
+        _, base = self.fixture()
+        original = self.ORIGINAL + '#[cfg(not(target_arch="wasm32"))]\nmod original;\n'
+        self.write(self.ROOT, original)
+        self.write('crates/core/src/original.rs', 'pub fn original() {}\n')
+        base = self.commit()
+        self.write(self.ROOT, original.replace('mod original;', 'mod added;\nmod original;'))
+        self.write(self.LEAF, self.BODY)
+        self.assertIsNone(selector.added_static_module_sources(self.ROOT, [(base, self.commit())], native_root=True))
+
+    def test_native_delta_parser_requires_unique_new_regular_source(self):
+        _, base = self.fixture()
+        for kind in ('missing', 'ambiguous', 'symlink', 'executable'):
+            self.git('reset', '--hard', base)
+            self.write(self.ROOT, self.ORIGINAL + self.DECLARATION)
+            if kind != 'missing':
+                if kind == 'symlink':
+                    Path(self.LEAF).symlink_to('lib.rs')
+                else:
+                    self.write(self.LEAF, self.BODY)
+                if kind == 'ambiguous':
+                    self.write('crates/core/src/added/mod.rs', self.BODY)
+                elif kind == 'executable':
+                    Path(self.LEAF).chmod(0o755)
+            with self.subTest(kind=kind):
+                self.assertIsNone(selector.added_static_module_sources(self.ROOT, [(base, self.commit())], native_root=True))
+
+    def test_native_delta_accepts_independently_gated_visibility_and_directory_modules(self):
+        config, base = self.fixture()
+        root = self.ORIGINAL
+        expected = set()
+        for number, visibility in enumerate(('', 'pub ', 'pub(crate) ', 'pub(self) ', 'pub(super) ')):
+            name = 'r#type' if number == 0 else 'added_' + str(number)
+            root += '#[cfg(not(target_arch="wasm32"))]\n' + visibility + 'mod ' + name + ';\n'
+            path = 'crates/core/src/' + name.removeprefix('r#') + ('/mod.rs' if number == 0 else '.rs')
+            self.write(path, self.BODY)
+            expected.add(path)
+        self.write(self.ROOT, root)
+        head = self.commit()
+        self.assertEqual(selector.added_static_module_sources(self.ROOT, [(base, head)], native_root=True), expected)
+        self.assertFalse(selector.only_static_modules_added(self.ROOT, [(base, head)]))
+        self.assertEqual(selector.select(config, base, head, profile='pr-fast')['oasis7_required_wasm_packages'], [])
+
+    def test_native_delta_requires_a_selected_complete_library_not_only_integration(self):
+        config, base = self.fixture()
+        self.write('crates/core/tests/probe.rs', '#[path="../src/lib.rs"] mod product;\n')
+        base = self.commit()
+        config['ordinary_fast_targets']['core-lib'].update(target_kind='test', target_name='probe')
+        plan = selector.select(config, base, self.add_module(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assert_portable(plan)
+
+    def test_native_delta_checks_source_and_actual_tested_merge_independently(self):
+        config, base = self.fixture()
+        for wider in ('source', 'tested'):
+            self.git('checkout', '-qb', 'source-' + wider, base)
+            self.write(self.ROOT, self.ORIGINAL + self.DECLARATION
+                       + ('pub const PORTABLE: u8 = 2;\n' if wider == 'source' else ''))
+            self.write(self.LEAF, self.BODY)
+            source = self.commit()
+            self.git('checkout', '-qb', 'target-' + wider, base)
+            self.write('doc/readme.md', 'target history is not the PR delta')
+            target = self.commit()
+            self.git('merge', '--no-ff', '-qm', 'fixture merge', source)
+            if wider == 'tested':
+                clean = selector.select(config, target, source, self.git('rev-parse', 'HEAD'), profile='pr-fast')
+                self.assertEqual(clean['architecture']['build_policy'], 'ordinary-targets')
+            self.write(self.ROOT, self.ORIGINAL + self.DECLARATION
+                       + ('pub const PORTABLE: u8 = 2;\n' if wider == 'tested' else ''))
+            self.git('add', '-A')
+            self.git('commit', '--amend', '-qm', 'fixture resolution')
+            with self.subTest(wider=wider):
+                plan = selector.select(config, target, source, self.git('rev-parse', 'HEAD'), profile='pr-fast')
+                self.assert_portable(plan)
+
+    def test_merge_restoring_native_addition_cannot_borrow_source_only_proof(self):
+        config, base = self.fixture()
+        source = self.add_module()
+        self.git('checkout', '-qb', 'target', base)
+        self.write('doc/readme.md', 'target advance')
+        target = self.commit()
+        self.git('merge', '--no-ff', '-qm', 'fixture merge', source)
+        self.git('checkout', target, '--', self.ROOT)
+        self.git('rm', self.LEAF)
+        self.git('commit', '--amend', '-qm', 'restore complete module addition')
+        plan = selector.select(config, target, source, self.git('rev-parse', 'HEAD'), profile='pr-fast')
+        self.assert_portable(plan)
+
+
 class WorkerCompileProfiles(unittest.TestCase):
     package='oasis7_custody_worker'
     root='crates/oasis7_custody_worker/src/lib.rs'
