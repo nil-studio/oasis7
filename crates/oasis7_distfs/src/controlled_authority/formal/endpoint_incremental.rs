@@ -7,11 +7,14 @@
 //! receipt can be written.
 
 use super::*;
-use crate::incremental_page_store::{IncrementalPageStore, PageIoBudget, PageStoreError};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::incremental_page_store::PageStoreError;
+use crate::incremental_page_store::{IncrementalPageStore, PageIoBudget};
+use oasis7_formal_protocol::controlled_authority::formal::{
+    incremental::IWS_AUTHORITY_PROFILE_VERSION, verify_formal_candidate,
+};
+#[cfg(not(target_arch = "wasm32"))]
 use oasis7_formal_protocol::{
-    controlled_authority::formal::{
-        incremental::IWS_AUTHORITY_PROFILE_VERSION, verify_formal_candidate,
-    },
     controlled_authority::replicated_protocol::ClosedRecord,
     incremental_material::{
         CoreBudget, CoreRequest, OriginalObjectReader, WrittenValueBudget, verify_commit_core,
@@ -20,7 +23,9 @@ use oasis7_formal_protocol::{
     incremental_state::StateScanBudget,
     incremental_value::{ValueIoBudget, ValueReadContext},
 };
+#[cfg(not(target_arch = "wasm32"))]
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
 /// Explicit total allowances for one page-backed IWS candidate verification.
@@ -51,8 +56,10 @@ pub struct IwsEndpointVerificationBudgetsV1 {
 /// Explicit endpoint capability: physical IWS pages, one shared pool and
 /// finite per-candidate core/state/value allowances. It does not bind or
 /// publish a RootSet; every candidate still supplies its signed roots.
+/// Wasm endpoints reject IWS owner verification even with this capability.
 pub struct IwsPageStoreCapabilityV1 {
     pages: IncrementalPageStore,
+    #[cfg(not(target_arch = "wasm32"))]
     budgets: IwsEndpointVerificationBudgetsV1,
 }
 
@@ -66,7 +73,11 @@ impl IwsPageStoreCapabilityV1 {
         if budgets.max_pending_node_bytes == 0 {
             return Err(invalid("IWS endpoint pending node bound"));
         }
-        Ok(Self { pages, budgets })
+        Ok(Self {
+            pages,
+            #[cfg(not(target_arch = "wasm32"))]
+            budgets,
+        })
     }
 
     pub fn page_store_root(&self) -> &std::path::Path {
@@ -74,11 +85,13 @@ impl IwsPageStoreCapabilityV1 {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct ClosedRecordOriginalReader<'a> {
     record: &'a ClosedRecord,
     memory: &'a MemoryBudget,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl OriginalObjectReader for ClosedRecordOriginalReader<'_> {
     type Error = String;
 
@@ -174,6 +187,22 @@ impl FileFormalEndpoint {
         Ok(context)
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn verify_iws_page_backed_material(
+        &self,
+        _candidate: &FormalCandidateMaterialV1,
+        _context: &VerifiedCandidateContextV1,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        if cancelled() {
+            return Err(invalid("IWS owner verification cancelled"));
+        }
+        // The native owner registry is unavailable on this target. Never
+        // treat omitted owner verification as receipt-producing evidence.
+        Err(invalid("IWS typed owner coverage unsupported on wasm32"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn verify_iws_page_backed_material(
         &self,
         candidate: &FormalCandidateMaterialV1,
@@ -330,6 +359,7 @@ impl FileFormalEndpoint {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn page_store_formal_error(error: PageStoreError) -> FormalError {
     FormalError::Io(format!("IWS page store: {error}"))
 }
