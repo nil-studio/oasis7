@@ -1,7 +1,7 @@
 # 成熟世界小玩家成长合同
 
 - 上层产品映射：本合同承接 `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md` 的成熟世界产品承诺与 `doc/game/prd.md` 的 `PRD-GAME-015`。
-- 产品叶子入口：[`REQ-WR-MW-001`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；认可/机会专业叶子另承接 [`REQ-WR-MW-004`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)。本文保留成熟世界 lane、checkpoint、专业化、认可/机会玩家动作、生命周期、失败恢复与专业验收语义。
+- 产品叶子入口：[`REQ-WR-MW-001`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；生产目标恢复比较承接 [`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002) / [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)；认可/机会专业叶子另承接 [`REQ-WR-MW-004`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)。本文保留成熟世界 lane、checkpoint、专业化、认可/机会玩家动作、生命周期、失败恢复与专业验收语义。
 - 主题 authority：本文件拥有 generic recognition/opportunity 的 mature-world 适用性、事实/审核、作用域/用途/期限、预览/待决/receipt、重验、失效/复核/恢复与 anti-abuse 详细玩法语义，同时保留成熟世界 lane、checkpoint、专业化与恢复选择；不覆盖产品承诺、runtime schema、数值或 Viewer 布局。
 - 可变执行状态：对应 GitHub Project task 与 issue evidence comments；当前实现完成度不得由本合同单独宣称。
 
@@ -19,7 +19,10 @@
 
 这些轴允许玩家按当前世界状态改道、重排或回退，不是必须逐级完成的职业树。组织、协议或治理等文明尺度项目只能作为自愿的共同扩展：它们可以形成更大范围的协作后果，但不能取代独立成长、成为唯一有效路线或构成全体玩家的胜利条件。
 
+<a id="production-recovery-comparison"></a>
 ### 2.9.1 Disruption recovery comparison
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；产品验收：[`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
 
 当 disruption 阻断 active goal 时，gameplay 必须以同一个目标比较 `repair / rebuild / pivot`，并给出每条路线的时间/阶段成本、资源成本、保留/失去价值、主要风险和推荐理由。推荐应解释它如何最快或最可靠地恢复当前目标的玩家价值，而不是只按最低即时成本排序。
 
@@ -27,6 +30,143 @@
 - 每项比较必须说明独立 `small-player lane` 是否仍可行。仅当独立路径当前确实不可行，才可推荐外部赞助或 major-power 依赖，并说明阻断约束、该依赖的用途及下次重评时机。
 - 代表性验收至少覆盖一次局部停机、资源短缺、据点受压或路线失效：玩家能在同一 active goal 下作出有依据的选择，恢复后仍能回到本地立足、区域专业化或有限区域影响，而不是被静默降级为旁观者或强制站队。
 - 本节只定义比较与可玩性验收；不新增 runtime 状态、数值、路径可用性算法或 Viewer 布局。
+
+#### 2.9.1.1 本次生产比较的范围与权威
+
+以下专业条款落实其中一个完整切片：首次持续能力之后，一个仍有效的生产目标被真实输入、能源、设施、站点或物流前置阻断时，玩家在同一目标和同一来源时点比较恢复方案、选择下一步，并在原执行结果后判断是否恢复。`repair / rebuild / pivot` 是方案分类，不是新增世界 Action。比较不会修复工厂、创建资源、冻结价格、替玩家选择或授予新的机会。一般据点攻防、组织站队、系统性危机恢复项目与尚无专业能力的迁移/改造不由本切片补齐；MW-002 的总体状态继续按其完整适用范围记录。
+
+| 依赖权威 | 本比较复用的边界 |
+| --- | --- |
+| [M4 报价账本](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#industrial-quote-ledger-semantics)与该文件的“工业方案成本与价值归因合同” | 实际消费账本、逐材料净缺口、原电力/材料规则、`planned / admissible / committed / actual` 与成本/价值归因；世界或其他主体的余额不能清除本工厂的缺口 |
+| [工厂选址](./gameplay-industrial-factory-site-selection-contract.prd.md)与[工厂能力生命周期](./gameplay-industrial-factory-capability-lifecycle-contract.prd.md) | 当前 profile 支持的建设/能力选择、站点前置和旧工作处置；新建 receipt 不证明生产或交付完成 |
+| [维护与计划停机](./gameplay-industrial-maintenance-planned-downtime-contract.prd.md)及[背压恢复](./gameplay-industrial-backpressure-recovery-contract.prd.md) | 维护事实、停机和容量原因各有自己的来源；不能用电池、低耐久或标签代替排产 blocker，不能自动暂停、释放、改道或退款 |
+| [需求变化处置](./gameplay-industrial-demand-change-disposition-contract.prd.md)与[工业 cutover](../../world-runtime/runtime/industrial-work-graph-and-recipe-lifecycle.design.md#industrial-cutover) | 改用途、接收方、配方、工厂或路径时，沿原专业规则处置旧工作并建立所需关联；不转移旧满足量、receipt、容量顺位、稳定窗口或奖励 |
+| [原事务与恢复](../../world-runtime/runtime/industrial-work-graph-and-recipe-lifecycle.design.md#industrial-transaction-recovery) | 真实执行、提交前重验、已发生效果和结果未知恢复；比较结果不替代原执行口或增加新世界准入规则 |
+
+这些引用包含目标设计，不能据此宣称对应运行时能力已经存在。具体来源闭包、接口、上限、兼容和恢复技术由[生产恢复比较设计](../../world-runtime/runtime/production-recovery-comparison.design.md)拥有；本节的可玩性验收由[专用手册](../../testing/manual/production-recovery-comparison-acceptance.manual.md)承接。
+
+#### 2.9.1.2 固定原目标，解释真实阻断
+
+比较先说明“你原本要完成什么、哪项条件现在不成立”。原目标至少包含其权威身份/版本、玩家或被授权执行主体、材料与数量、适用工厂/地点/到达账本范围、用途与完成标准，以及该目标原本具有的接收方、期限或交付条件。没有某项条件时说明不适用；不得新加接收方、时限或交付门槛。`production_only` 的原目标按匹配产物入账判断；带交付要求的原目标继续等待其匹配 settlement，二者不能混用。
+
+上述接受准则必须由原 goal authority 在创建目标或显式澄清/修改时接受，并绑定原目标 revision/content digest；比较只读消费已经接受的证明。若现有目标只有 `goal_text` / `soft_constraints`，没有可核查的材料、数量和允许账本准则，应返回 `goal_unresolved` 并进入原目标澄清入口，不能让模型解释、客户端复选框或本次比较中的一次确认补成已接受目标。真正改变产物、地点、用途、接收方或期限须按原目标权限形成显式 revision；澄清也不能静默放宽原硬约束。
+
+来源还必须覆盖真实 factory/recipe/profile、所需输入与实际消费账本、相关电力/容量/站点/物流/权限、既有工作与原提交结果，标出时点和适用范围。已有权威 root/revision 时引用它；尚未接受的计划不能编造 root、已占用量或 receipt。旧报错可解释历史，当前 blocker 必须按当前来源重新判断；`goal_kind`、展示标签、自由文本中的“缺料”“赞助”或 Agent 建议均不能单独证明目标、路径或依赖。
+
+读者、执行主体、资源所有者和目标受益者分别保留其身份。能够读比较不等于有权调料、建厂、改目标或使用他人产物；已有执行授权也不扩大私有目标、账本或其他主体承诺的读权。当前读权不足时只返回允许披露的缺失类别和下一步，不能通过隐藏候选的数量、精确余额或拒绝细节泄露他人状态。
+
+#### 2.9.1.3 真实候选、可行性与原动作
+
+每条候选写明方案分类、所服务的原目标、原专业能力支持的有序步骤、当前可开始的一步、后续成立条件、主要 blocker、预计产物/到达范围、旧工作处置和下次重评条件。路线之间须有真实的恢复节奏、投入、风险或保留价值差异；同一动作换三个标题不能算三个候选。
+
+| 方向 | 对玩家的意义 | 必须证明或明确限制的内容 |
+| --- | --- | --- |
+| `repair` 修补当前路径 | 保留现有工厂或服务能力，补齐造成原目标受阻的具体条件 | 如合法调料进入实际消费账本、补足原电力义务或恢复受支持路径；步骤须能改变该 blocker。`MaintainFactory` 改善耐久本身不证明消除缺料、电力不足或排产拒绝 |
+| `rebuild` 重建同类能力 | 承担新建设与准备阶段，绕开旧位置/能力的具体限制，继续服务原目标 | 合法站点、建设投入/能源、同类能力与原目标范围、新工厂输入/输出条件和旧工作处置均有来源。保留旧设施只表示不处理它，不自动回收旧建设成本；新设施不继承旧 WIP、预留或稳定进度 |
+| `pivot` 转用现有投入 | 改配方或区域用途，保住仍可用的资源、能力或后续选择 | 只有原目标权威已允许替代产物/用途且当前候选确实满足它，才可称恢复原目标。否则明确 `needs_goal_change`：这是放弃、暂停或改写原目标的备选方向，需玩家按原权限显式改目标并处置旧义务；不能把另一个产物计为原目标完成 |
+
+可行性分别表达“有完整来源支持、按列明条件可开始”“存在已知 blocker”“缺少或冲突的来源，尚不能判断”“当前执行 profile 未支持”。这些是玩家可读含义，字段由系统设计定义。多步方案可有可执行的准备步骤，但后续排产仍是条件结果，不能把“调料后再报价”写成“现在可排产”。缺少必要后续能力或关键成本来源时，不能将整条路线标为已核实可行；同样，已知当前不能直接排产并不否定一条来源完整、确实能补齐缺口的准备路线。
+
+比较保留三类方向的解释，但不要求每次都有三条可用路线。代表性正常样例必须提供至少两条真实、有差别的同目标候选；其他情形如实说明已发现的路线、未覆盖范围与不可行/未知原因。只有一个已核实候选时，可以说明它在当前范围内能做什么，不能伪造第二条，也不能把“未找到”推成“全部独立路径均不可能”。
+
+#### 2.9.1.4 成本、保留价值与阶段节奏
+
+比较按每条路线分别列出：从现在起还需新增的资源投入；已经消费、无法由本方案自动追回的沉没投入；仍被旧工作占用的材料、电力或容量；允许保留/释放/回收的价值及其条件；下一步和后续阶段；主要失败风险与原目标的机会成本。按材料、资源、所有者和账本分别对账，保留原单位；不同材料的盈余不能抵销另一种缺口，也不能把材料、Electricity、阶段数与潜在收益相加为一个未经声明的分数。
+
+`planned` 只表示预测，`admissible` 表示原规则允许，`committed` 只来自权威接受后的真实义务，`actual` 只来自对应已结算结果。只读比较不能新记一笔成本、回收、收益或预留。已消费材料不因选择 rebuild 自动返还；旧工作持有量不是可自由再用库存；production receipt 不等于交付、需求减少、机会解锁或地区服务收益。原目标如果只要求生产，也不得反向增设交付要求。
+
+时间优先展示可核查的阶段与顺序，例如“调入原料 → 原账本重报 → 排产 → 原目标要求的入账/交付”。只有原 authority 提供有效时长/窗口时才展示相应数值，运输、排队与建设的不确定部分单列，不能用配方时长冒充整条恢复 ETA。原 profile 明确不适用的成本说明不适用；未声明或未取得维护/运输收费、损耗、价值来源时显示未跟踪或未知，不能推定不适用或补零。恢复没有额外的统一手续费、免费补偿、默认贷款或成功奖励。
+
+旧工作仍按原 bucket 与 lineage 保留：未开工、WIP、在途、buffer、terminal-pending、已结算各自处置，不能重复计算同一批量。需要 cutover、目标变更、释放、回收或迁移时，仅消费原专业 authority 支持的结果；缺合法处置意味着该候选尚不能作完整恢复推荐。比较或切换标签不重置风险、不推进稳定窗口，也不复制历史成果。
+
+#### 2.9.1.5 推荐、独立路径与具体取舍
+
+推荐先解释该方案能否满足原目标及原期限/完成标准，再比较到达下一项有效世界结果的阶段、可靠性、仍可保留的能力、额外投入和暴露风险。应说明为何不选另一条有意义的候选，以及什么事实变化会改变推荐。产品不设统一权重或永远优先 repair；低即时成本但不能满足原用途、期限或合法处置的路线不能胜出，花费较多的 rebuild 也不能仅凭“新工厂更好”胜出。玩家可以选择另一条合法路线，或按原规则显式修改/暂停目标；比较不新增自动选择或执行授权。
+
+独立路线只在已检查的主体、地点、能力、资源和时间范围内给出结论，并披露覆盖限制。有可行独立路线时，不得把赞助/联盟列为必需。缺证、无读权、预算截断、当前只检查一处工厂或未支持某类恢复，均不足以证明所有独立路线不可行。只有原权威能证明相关独立路线不可行，且外部依赖本身具有当前合法能力与明确条件时，才可将其列为受迫选项，并解释它解除哪个约束及何时重新比较。玩家自愿寻求外部合作继续服从原产品和授权规则，不能倒推独立路线失效；本节不创建赞助资格、组织准入或新机会。
+
+正常缺料样例以同一个已生效目标 G 为比较基础：G 要求玩家 A 新增完成原配方一批，在原目标允许的 owner-bound 产物账本形成 3 单位 `iron_ingot`；已接受的准则预先允许 A 的 S0/S1 site ledger，不要求区域交付。S0 原 Smelter F0 有 1 单位 `carbon_fuel`、缺 4 单位 `iron_ore`。A 的材料账本有矿石 4、燃料 1 与原 Smelter 建材 `structural_frame 12 / heat_coil 4 / refractory_brick 6`，A 有 18 Electricity；空站点 S1 已有合法地点、建设授权及要求 10 Electricity 的 construction profile，其余原排产/输出前置均有效。原 [builtin 配方](../../../crates/oasis7_agent_api/src/world_quote/recipe_catalog.rs)的一批为 `iron_ore 4 + carbon_fuel 1 → iron_ingot 3 + slag 1`，需 8 Electricity，[原建材表](../../../crates/oasis7_agent_api/src/world_quote/factory_catalog.rs)按上述数量消费。建设电力来自此 fixture 的有效站点 profile；这些数值不是本节新定的经济规则，实际比较必须重新读取所选 profile。
+
+| 同一初态的独立分叉 | 玩家看到的真实取舍与下一步 |
+| --- | --- |
+| repair F0/S0 | 按已授权的 direct、零距离转移把 A 的矿石 4 调入 S0 实际消费账本，重报后排产。该分叉消耗原配方 8 Electricity，A 剩 10；保留原 F0、全部建材和 A 的燃料 1，使用的是 S0 原有燃料。不能直接使用 world 余额，也不能把预计到料写成已入厂 |
+| rebuild F1/S1 | 按原建设 profile 在 S1 新建同类工厂，消费上述建材和 10 Electricity；显式转入 A 的矿石 4/燃料 1 后重报排产，再消耗 8 Electricity，A 剩 0。保留旧 F0 及 S0 燃料 1；承担建设和准备阶段，不回收旧设施成本。只有来源另行证明旧站点受限、而 S1 能解除该限制时，才可把这种差异列为重建优势 |
+| 另一配方/用途 | 若只生产别种材料且原 G 不接受该产物，显示“需要改目标，不能完成这笔铁锭目标”。说明可保留什么与放弃什么；不得把该方向与前两条一起标为 G 的已核实恢复 |
+
+手册必须从同一初态分别执行这两条互斥分叉，给出完整合法 fixture、原建设/转移/配方来源与独立账本计算；两条路线不能合并使用同一份矿石或同一笔电力。正常样例预置原目标接受记录来验收目标设计，但该记录的生产适配尚未实现，不能伪称当前文本目标已具有机器可证准则。初始化 fixture 与实际恢复动作分证，不能用任意补库存代替执行调料，也不能把不存在的路径或建设能力当成已支持。若 F0 的调料条件完整且风险可接受，推荐 repair 应能解释保留能力与较少新增承诺；若其路径/时间条件不再满足，而 F1 的独立来源、建设和原目标条件完整，推荐可改变。该反向情景必须从真实变化推导，不得仅交换推荐文案。若 G 原本只接受 S0/F0 的结果，S1/F1 同样需要改目标，不能偷偷放宽 G。
+
+#### 2.9.1.6 只读、时效、未知结果与有界重评
+
+查看、切换比较候选、刷新和退出均不推进世界时间，不创建工厂、job、hold、root、目标修订或 receipt，不扣电/扣料、不改变优先级，也不执行维护、回收或补偿。读结果必须对应一个可复核的来源时点，返回时重验当前读权及决定推荐有效性的相关来源；漂移、失权或无法核实撤回当前推荐，保留允许展示的历史事实和明确的刷新/补证下一步。晚到的旧结果不能覆盖新目标、新草稿或新 revision，缓存不能把未知变成零成本或已核实可行。
+
+玩家真正选择下一步时继续走原 Action、权限和提交规则，并按原规则重验原料、owner、设施、站点、配方及适用条件。比较过期本身不是新增 World 拒绝条件：当前原规则仍允许的动作保留可执行性；当前原规则不允许的动作正常拒绝或重报。一个准备步骤成功后，重新读取真实结果再判断后续步骤；旧比较不授权整条链盲目继续。
+
+若原调料、建设或排产提交结果未知，显示“原提交尚未确认，先查原请求”，按原 request/action/receipt 和恢复机制查询；不能将超时、断线或空列表视为失败，再发一条不同身份的替代方案造成双重消费。仍可解释条件化备选，但不得宣称旧资源已经释放或恢复已经成功。确认原结果后，保留已发生的资源变化和未决义务，再在新来源时点重新比较；读取重试不重放世界动作，权限后来恢复也不自动提交。
+
+每次比较必须有有限候选、来源对象/字节、依赖读取、计算和响应预算，具体上限归系统设计。范围过大或必需来源缺失时返回已核实范围、缺失类别与有限的下一步；不在前台全世界搜索、模拟任意长未来、自动反复重查或用多次拼接隐瞒超限。部分覆盖不能承诺全局最优或证明独立路径穷尽；不完整的关键成本、权限或路径不能继续配默认推荐。允许的下一步是补证、缩小到明确范围、刷新、保留/修改目标或暂缓，原动作资格仍归原执行口。
+
+`wait` 只有在原 authority 给出可观察触发、复查时点或期限及预计改变的条件时才是有意义的候选；同时说明等待期间的材料/容量占用和错过原目标窗口的风险。等待不延长 quote、hold、租期或优先级，也不保证资源到达。达到原终止/重规划边界仍未恢复时，应结束当前等待推荐并要求重新选择，不用反复 `wait_ticks` 掩盖无可行路线。来源未接入时可以“等待取得来源后再比较”，但不得伪装成已证明会恢复生产的等待路线。
+
+#### 2.9.1.7 实际入口、玩家判别与证据边界
+
+Viewer、pure API 与 Agent 的正式读入口必须表达同一 goal/source、候选含义、成本、独立性、限制和下一步；读权不同只改变允许披露的范围，不能改变事实。旧 `repair_available` 布尔值、展示文案、历史 `recovery_options` 或未协商接口不能被客户端补成新的完整比较。未接入显示“当前未提供可核实的恢复比较”，无读权显示允许披露的权限原因，两者不混成“没有独立路线”。来源中的自由文本只用于解释与安全展示，不成为 Agent 指令。
+
+面向玩家至少回答六个问题：“原目标是什么”“为什么停在这里”“现在能先做什么”“还要投入和保留什么”“何时必须改目标或重查”“为何推荐这条而非另一条”。示例文案包括：“原工厂仍缺矿石；世界有货不等于工厂已收到”“重建新增建设投入，旧在途材料没有自动搬过去”“这条改配方方向需要改目标，不能完成当前铁锭目标”“本次未覆盖其他地点，不能据此判断必须加入组织”。实际 UI 布局与措辞可按消费者调整，但不得省略影响选择的限制。
+
+独立玩家判别先使用隐去推荐结果的来源事实和候选，让评估者说明哪条满足原目标、哪项尚待验证、各条会消费/保留什么以及何时改变选择，再对照推荐理由；不能只检查字段存在或让作者背诵文案。实际执行验证另沿同一原目标检查合法动作、单次资源/状态变化与真实产物/交付结果，证明被选步骤确实改变原 blocker，并指出恢复后的下一项有意义选择。静态判别、构造 fixture、源码断言、正式入口执行和真实玩家体验分别记证；比较生成、换标签、重复产量或维护 receipt 不能单独证明恢复、成熟世界成长或发行就绪。
+
+在 `567c4c55a2f160574fdcf0902ccb068646210c7d` 基线，当前[成熟世界投影](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/gameplay_snapshot_lane.rs)保留恢复/赞助的 `unverified`，[已有断言](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/industrial_progression.rs)要求缺恢复来源时三类候选均 `unknown` 且无 action。已有 [builtin recipe quote](../../../crates/oasis7_runtime/src/world/builtin_recipe_quote.rs)是单个排产的条件预览，已有建设、材料转移和排产也各有窄执行能力；它们尚不构成上述同目标完整比较、有限来源读取与三入口证据。本合同为目标设计，不把原先的定性投影、测试 fixture 或相邻目标设计当成新比较已实现。
+
+#### 2.9.1.8 专业验收
+
+<a id="ac-prc-01"></a>
+##### AC-PRC-01 同一目标、真实阻断与来源
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+给定成熟世界一个有效生产目标及其真实 blocker，比较必须固定原目标的主体、材料/数量、适用范围与完成标准，消费原 goal authority 已接受且绑定 revision/digest 的准则与可复核当前来源，区分历史拒绝与现时条件。只有文本而无接受记录时为 goal_unresolved；模型、本次比较确认或省略原硬约束不能补成机器谓词。改变目标、消费账本或完成标准不能仍沿用旧结论；`goal_kind`、低耐久和文字标签不能替代因果。设计：[goal](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-goal)；方法：[01](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-01)。
+
+<a id="ac-prc-02"></a>
+##### AC-PRC-02 实际候选与原动作能力
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+正常缺料样例至少有两条来源完整、取舍不同且满足原目标的合法候选，各自映射到原 Action/专业 profile 与有序前置；可行、已知受阻、未知、未支持分开。世界有货不能跳过显式入厂，准备步骤可开始不表示后续排产已经准入；未支持的维护/迁移或同动作换标签不能凑数。设计：[candidates](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-candidates)；方法：[02](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-02)。
+
+<a id="ac-prc-03"></a>
+##### AC-PRC-03 成本、阶段与保留价值守恒
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+独立计算每条候选的阶段、逐资源/所有者/账本新增投入、沉没投入、旧工作占用与条件化可保留价值，并区分 planned/admissible/committed/actual。逐材料短缺、旧 WIP/在途/terminal 义务、byproduct 及未知成本不得互相抵销或补零；重建/改配方不自动退款、迁移、交付或复制稳定进度。设计：[costs](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-costs)；方法：[03](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-03)。
+
+<a id="ac-prc-04"></a>
+##### AC-PRC-04 目标适配、独立路线与推荐取舍
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+推荐必须解释服务原目标的理由、另一候选的真实取舍和改变推荐的条件；不以最低即时成本固定排序。替代产物/用途或新站点超出原接受准则时明确 needs_goal_change，须经原目标 authority 显式修改并绑定新 revision；未经变更不减少旧目标未满足量，本次比较不能代行修改。有独立路线或尚未穷尽相关来源时不得把外部依赖判为必需；受迫外部路线须给出真实约束、用途、原授权与重评条件。设计：[decision](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-decision)；方法：[04](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-04)。
+
+<a id="ac-prc-05"></a>
+##### AC-PRC-05 只读、当前权限与原执行恢复
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+预览、刷新、断线和重试不产生任何世界效果；失权或相关来源漂移撤回当前推荐，旧响应不覆盖新目标。真实动作只按原执行规则重验，过期比较不是新 World gate；原提交结果未知先恢复原请求，不能重发替代动作复制成本。保留原合法历史和未决义务，读权限不转化为执行权或他人私有来源访问权。设计：[execution](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-execution)；方法：[05](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-05)。
+
+<a id="ac-prc-06"></a>
+##### AC-PRC-06 有限比较、缺失范围与停止条件
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+一个正常两路线样例须在声明的有限预算内完整求值；超限、缺证、无读权或部分来源不得伪装为完整零成本、安全推荐或独立路径穷尽。等待必须给出原触发、复查和终止/重规划条件，不能无限刷新、隐式续期或自动继续旧计划。设计：[budget](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-budget)；方法：[06](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-06)。
+
+<a id="ac-prc-07"></a>
+##### AC-PRC-07 正式入口一致与独立玩家判别
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；承接 [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)。
+
+Viewer、pure API 与 Agent 对同一允许披露范围给出同义比较，未接入与无权读取分别解释。独立评估者可不依赖推荐标签判断同目标可行路线、改目标方向、成本/保留价值与重查条件；实际执行另证明单次合法效果改变真实 blocker、按原目标完成标准判定结果，并保留下一项有意义选择。静态样例、源码证据与真实入口/玩家结果分别记录，不将比较本身算作生产、成长、机会授予或 readiness。设计：[consumers](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-consumers)；方法：[07](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-07)。
 
 从 `local operator` 切到 `regional specialist` 之前，系统必须展示 `specialization_entry_quote` / `first_delivery_preview`：玩家要知道候选专业化的第一单交付会满足哪个本地需求、预计产出什么、需要哪些输入、多久形成价值、解锁哪种 `leverage_class`，以及交付后的回访 hook。否则专业化只是抽象标签，不能证明 mature-world 小玩家仍有可判断的经营取舍。
 

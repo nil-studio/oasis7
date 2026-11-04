@@ -13,7 +13,7 @@
 - 想确认工业流水线服务窗口、lease/expiry、hard/soft 迟到与电力连续性：读 `doc/game/gameplay/gameplay-industrial-pipeline-service-window-contract.prd.md`。
 - 想确认首局、前 10/30 分钟吸引力与持续游玩合同：先读产品承诺 `doc/product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，再读 `doc/game/gameplay/gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 与复跑边界由对应 PR、实际验证记录和 `doc/testing/evidence/` 的同候选样本确认。
 - 想确认“间接控制为什么仍然应该感觉像我在控制，而不是旁观 AI”：先读 `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`。
-- 想确认“成熟世界里小玩家/新玩家靠什么继续有独立价值，而不是只能投靠大组织”：先读 `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md`，再下钻 `doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md`。
+- 想确认“成熟世界里小玩家/新玩家靠什么继续有独立价值，而不是只能投靠大组织”：先读 `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md`，再下钻 `doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md`；生产受阻时的候选、目标适配与取舍见[同目标恢复比较](gameplay/gameplay-mature-world-progression-contract.prd.md#production-recovery-comparison)。
 - 想确认当前试玩放行与发行口径：先读 `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前执行状态由 Git、PR、实际 CI 记录与同候选 evidence 确认，公开状态只看根 `README.md`。
 - 想跟进最近最活跃的经济/运营规则变化：先读 `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`，再按需进入对应 design / project / runbook。
 - 想确认制造、紧急保供和组织连续性的首版政策：从 [gameplay 入口](gameplay/README.md)进入各专题的唯一规则版本；配方、配给和处置参数不由 Runtime 或 Viewer 各自定义。

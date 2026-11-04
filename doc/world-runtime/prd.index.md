@@ -60,6 +60,7 @@
 | 问题 | 系统设计 | 主要边界 |
 | --- | --- | --- |
 | 普通事项能否治理、宪制变更何时生效 | [治理分类与独立宪制闸门](runtime/governance-classification-and-constitutional-execution.design.md) | 事项分类、授权来源、独立审查与实际生效分别记录 |
+| 同一生产目标受阻后如何比较修复、重建与转向 | [生产恢复方案比较](runtime/production-recovery-comparison.design.md) | 原目标、真实候选、逐步资源与价值、有限读取及原 operation 恢复；比较不新增世界动作或自动改目标 |
 | 多阶段工业工作如何连续、配方变化如何处置 | [工业工作图与配方生命周期](runtime/industrial-work-graph-and-recipe-lifecycle.design.md) | 工作图与配方各自管理状态，按原身份处理六类存量工作 |
 | 新工业能力如何经历模拟、受限试点与准入 | [工业创建四阶段](runtime/industrial-creation-simulation-and-admission.design.md) | 同版证据、同输入隔离模拟、累计试点预算和当前准入；复用原工作图与配方六状态 |
 | 许可如何收费、到期开放并保持单次结算 | [有限许可与版税结算](runtime/industrial-license-and-royalty-settlement.design.md) | 当前使用 gate、真实批次、独立托管、有限争议和收益池；不以发布或物流 receipt 发版税 |
