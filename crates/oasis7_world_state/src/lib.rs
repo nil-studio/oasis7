@@ -249,6 +249,7 @@ pub mod incremental_rollback_family;
 pub mod incremental_runtime_pending_action_record;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_pending_actions;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_registry;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_key_router;

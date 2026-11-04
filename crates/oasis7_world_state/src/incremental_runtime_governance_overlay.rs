@@ -210,7 +210,8 @@ fn expected<R: ValueNodeReader, C: FnMut() -> bool>(
                 position: 0,
             };
             let actual = super::delta::value(column, id, key, records, &mut output)?;
-            matches!(actual,RecordValueV1::Text{utf8_bytes} if utf8_bytes==v.len() as u64)
+            matches!(actual,RecordValueV1::Text{utf8_bytes}
+if utf8_bytes==v.len() as u64)
                 && output.position == v.len()
         }
         V::Unsigned(v) => {
@@ -277,7 +278,8 @@ let after=if let Some(value)=change.after{let payload=change.column.payload(valu
 if combined(){return Err(ValueTreeError::Cancelled.into());}
 if root==initial{return Ok(None);}
 let mut records=InventoryValueReader{values:&mut context.values,key_work:context.key_work,semantic_bytes:context.semantic_bytes,record_bytes:context.record_bytes,cancelled:&mut combined};super::delta::changed(kind(record.key),&initial,&root,&mut records,work)?;
-let mut output=MemberRecordWriteContext{sink:&mut *write.sink,memory:write.memory,io:&mut *write.io,key_work:&mut *write.key_work,limits:write.limits,cancelled:||(*cancel.borrow_mut())()||(*write_cancel.borrow_mut())()};let row=write_outer(record.key,root.clone(),semantic,&mut output)?;if row.field_key!=outer.0{return Err(invalid().into());}if(output.cancelled)(){return Err(ValueTreeError::Cancelled.into());}tx.write(StateNamespaceV1::Authorization,outer.0.as_bytes(),Some(row.value_root))?;
+let mut output=MemberRecordWriteContext{sink:&mut *write.sink,memory:write.memory,io:&mut *write.io,key_work:&mut *write.key_work,limits:write.limits,cancelled:||(*cancel.borrow_mut())()||(*write_cancel.borrow_mut())()};let row=write_outer(record.key,root.clone(),semantic,&mut output)?;if row.field_key!=outer.0{return Err(invalid().into());}
+if(output.cancelled)(){return Err(ValueTreeError::Cancelled.into());}tx.write(StateNamespaceV1::Authorization,outer.0.as_bytes(),Some(row.value_root))?;
 let proof=phase.split(512).map_err(ValueTreeError::Invalid)?.retain(RuntimeGovernanceRecordQualificationV1{parent:record.parent,key:record.key,root,class:MemoryClass::Ordinary});if(output.cancelled)(){return Err(ValueTreeError::Cancelled.into());}Ok(Some(proof))
 })
 }
