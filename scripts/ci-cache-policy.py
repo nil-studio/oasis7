@@ -26,7 +26,7 @@ FAMILIES = {
     'ordinary': {
         'current_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
-        'max_upload_bytes': 768 * 1024 ** 2, 'staging_bytes': 6 * 1024 ** 3,
+        'max_upload_bytes': 5 * 1024 ** 3 // 4, 'staging_bytes': 6 * 1024 ** 3,
         'keep_generations': 2,
     },
     'ecs': {
