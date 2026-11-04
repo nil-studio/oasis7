@@ -302,6 +302,85 @@ Trace ID: O7-REQ-eb290f7e-b49e-42dc-ba88-016ed9c87808
 - 则：只请求必要复现信息，公开材料使用脱敏摘要和可公开定位；说明符合实际保存/复制与访问范围；未执行或无法证明的隐藏、删除、全网撤回及私密受理不得标记成功。
 - 方法：[数据与误传核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-data-check)使用虚构输入做静态/桌面检查，真实数据操作另按权限和渠道能力执行。
 
+### 6.1.2 发行材料与项目支持边界
+
+以下要求承接候选实际声明的发行范围，以及项目可管理的支持和社区表面。它们不选择新的发行国家、商店、收费服务或私密收件入口；已有预览的传输、世界权威和公开状态保持各自原合同。
+
+<a id="req-entry-release-materials-001"></a>
+#### REQ-ENTRY-RELEASE-MATERIALS-001：发行材料必须对应实际渠道和受众
+
+Trace ID: O7-REQ-a0b94d0f-456c-4702-8933-2232fdf0a544
+
+- 功能点：候选的渠道、地区、受众与发行材料适用性。
+- 适用范围：准备对外提供的候选及其实际选定入口；内部设计审读不等于选择或开放新渠道。
+- 要求：发布说明应能定位实际渠道、支持平台/语言、可进入范围、受众限制、品牌和素材权利，以及适用的内容分级、使用协议和数据告知材料。未选择的渠道不能默认为已支持；无法确认受众、地区或适用材料时，受影响发布范围保持待核，不用仓库许可证、免费进入目标或其他渠道结论代签。内容或数据使用变化时重核对应材料及公开 claim。
+- 系统设计状态：部分覆盖
+- 系统设计依据：[发行材料与适用性](../../readme/governance/player-support-and-service-lifecycle.design.md#support-release-materials)承接内容输入、责任和缺项判定；实际商店/地区及相关专业执行尚须分别核实。
+- 实现状态：未核实
+- 实现与验证依据：已有 README、官网和候选发行要求；尚无本条完整范围的同候选渠道材料和专业核定记录。仓库内容可访问不证明全球发行许可。
+- 核对日期与基线：2026-11-04；文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅设计与源审读。
+- 剩余范围：具体候选的渠道/地区/受众选择、适用材料实际准备和核定、当前对外入口采用与验收。
+- 验收：[AC-ENTRY-RELEASE-MATERIALS-001](#ac-entry-release-materials-001)。
+
+<a id="ac-entry-release-materials-001"></a>
+#### AC-ENTRY-RELEASE-MATERIALS-001：材料缺项会限制对应发布范围
+
+Trace refs: O7-REQ-a0b94d0f-456c-4702-8933-2232fdf0a544；承接[REQ-ENTRY-RELEASE-MATERIALS-001](#req-entry-release-materials-001)。
+
+- 给定同候选的实际渠道/受众声明、素材和数据用途；逐项核对有依据的适用、不适用和未知。
+- 缺少适用材料、没有真实支持证据或素材权利未核实的范围不能宣称已就绪。一个渠道的齐备结果不能扩大另一渠道或地区；后续修订保留原事实与新判定。
+- 方法：[发行材料核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-release-materials)；静态案例不等于法务、平台审核或真实发布通过。
+
+<a id="req-entry-community-001"></a>
+#### REQ-ENTRY-COMMUNITY-001：项目社区处置应有行为依据和复核路径
+
+Trace ID: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79
+
+- 功能点：项目可管理的公开社区、反馈讨论及相关滥用报告的内容处置。
+- 适用范围：已确认由项目管理、且管理者实际具备权限的讨论或渠道；第三方社区只能按平台规则转交，不能虚构跨平台处罚权。
+- 要求：行为规则、受理方式、处置理由和复核方式可查；区分规则内竞争损失、正常批评、重复或偏题内容、骚扰/威胁、欺诈冒充、垃圾信息与敏感信息公开。依据实际证据和权限选择最小适当动作，必要紧急保护可以先执行并补充不泄露敏感内容的说明。原处置者有利益冲突时由其他有权限人员复核；尚无可用复核者时如实保留待复核状态。社区内容处置不改变玩家世界资产、控制权、历史或合同结果。
+- 系统设计状态：部分覆盖
+- 系统设计依据：[社区行为、处置与复核](../../readme/governance/player-support-and-service-lifecycle.design.md#support-community-rules)定义内容与人工责任；实际平台权限、处置和复核能力须逐渠道验证。
+- 实现状态：未核实
+- 实现与验证依据：已有公开 Issue 和渠道回流方法；未取得各渠道已采用本规则、具备相应权限或完成真实处置/复核的记录。
+- 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅静态审读。
+- 剩余范围：公开规则采用、实际管理和复核人员、可用权限、敏感报告的安全受理能力及真实案例验证；不承诺逐条答复或统一响应时限。
+- 验收：[AC-ENTRY-COMMUNITY-001](#ac-entry-community-001)。
+
+<a id="ac-entry-community-001"></a>
+#### AC-ENTRY-COMMUNITY-001：竞争、批评和滥用不会混为同类
+
+Trace refs: O7-REQ-cd283368-58dd-4538-93a8-7dae3cb2de79；承接[REQ-ENTRY-COMMUNITY-001](#req-entry-community-001)。
+
+- 用同一公开行为规则比较合法竞争损失、强烈但无攻击的批评、重复刷屏、具体骚扰、敏感误传和证据不足的报告；按实际内容和风险分别处理。
+- 结果能定位依据、实际动作范围与复核下一步；隐藏、删除、锁定或限制参与按平台真实语义说明，未执行不报成功。世界结果和他方私密内容不因讨论处置被改写或公开。
+- 方法：[社区处置核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-community-disposition)；虚构案例不代签真实权限和操作。
+
+<a id="req-entry-support-data-001"></a>
+#### REQ-ENTRY-SUPPORT-DATA-001：支持资料按用途和控制范围保留
+
+Trace ID: O7-REQ-96d24911-2209-4606-999e-545e4cd10fe9
+
+- 功能点：项目为反馈、支持、社区处置或事故核查持有的资料及相关数据请求。
+- 适用范围：现有渠道产生、且项目实际控制的运营副本和摘要；玩家本地数据、第三方平台、公开复制账本与世界权威历史分别遵守各自主责合同。
+- 要求：收集前说明用途、必要范围、访问者、实际公开性、保留或复核规则及可用请求方式；不因新增本条自动扩展诊断或收集个人资料。项目可控副本采用明确的最小保留和到期处置规则，不以“可能有用”无限保存；未结争议或确有适用保留依据的材料注明理由、最小范围和复核点。请求先最小化确认请求者与材料关联，区分已删除、仅隐藏/撤回当前展示、第三方待处理、不可控副本及保留例外；没有执行或核实能力不得承诺全网删除。敏感误传优先停止扩散并保护受影响访问凭据，不能把追加 tombstone 当历史擦除。
+- 系统设计状态：部分覆盖
+- 系统设计依据：[保留与数据请求](../../readme/governance/player-support-and-service-lifecycle.design.md#support-retention-requests)承接人工内容政策及分流；各技术数据源的访问、保留、复制和实际删除由原专业 authority 执行。
+- 实现状态：未核实
+- 实现与验证依据：现有 Launcher 本地反馈、GitHub 和 DistFS 路径的能力不同；本条没有新增私密入口、自动删除或全网擦除实现。当前技术边界见[原反馈数据合同](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries)。
+- 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；未操作真实个人资料或执行删除。
+- 剩余范围：当前持有资料、访问权限、政策告知采用、各渠道实际请求与处置验证；未知平台/地区的法定义务须按实际范围核定，不能由本条代签。
+- 验收：[AC-ENTRY-SUPPORT-DATA-001](#ac-entry-support-data-001)。
+
+<a id="ac-entry-support-data-001"></a>
+#### AC-ENTRY-SUPPORT-DATA-001：保留与删除说明对应实际副本
+
+Trace refs: O7-REQ-96d24911-2209-4606-999e-545e4cd10fe9；承接[REQ-ENTRY-SUPPORT-DATA-001](#req-entry-support-data-001)。
+
+- 给定项目可控临时副本、公开 Issue、玩家本地包、只追加账本和受限争议材料，检查正常到期、误传、删除请求、权限不足和保留例外。
+- 每类资料能定位目的、控制者、实际可做动作及下一复核点；已删除对象与无法控制的历史/副本分别说明，处置记录不继续复制原秘密；请求不会变为取消世界义务或删除他人数据的授权。
+- 方法：[保留与数据请求核对](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-retention-requests)；桌面演练与真实删除、平台回复分别判断。
+
 ### 6.2 验收追踪
 
 | 成功标准 | 专业 owner | 专业域 PRD-ID | 权威文档 | 验证证据 | 测试层级 |
@@ -341,3 +420,6 @@ Trace ID: O7-REQ-eb290f7e-b49e-42dc-ba88-016ed9c87808
 | [REQ-ENTRY-PREVIEW-FEEDBACK-001](#req-entry-preview-feedback-001) / [AC-ENTRY-PREVIEW-FEEDBACK-001](#ac-entry-preview-feedback-001) | `liveops_community` / `viewer_engineer` / `qa_engineer` | [支持入口与结果](../../readme/governance/player-support-and-service-lifecycle.design.md#support-entry-results) | [入口核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-entry-check)；静态、桌面与实际提交分别留证，不由本地保存或受理推定人工处理 | `test_tier_required`；实际入口按原 S6/Launcher 方法 |
 | [REQ-ENTRY-PREVIEW-FEEDBACK-002](#req-entry-preview-feedback-002) / [AC-ENTRY-PREVIEW-FEEDBACK-002](#ac-entry-preview-feedback-002) | `liveops_community` / `qa_engineer` / `producer_system_designer` | [分流与复核](../../readme/governance/player-support-and-service-lifecycle.design.md#support-triage-review) | [分流核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-triage-check)；实际 owner、处置和同候选重验记录待取得 | `test_tier_required`；人工运营核对，受影响专业域沿原 test tier |
 | [REQ-ENTRY-PREVIEW-FEEDBACK-003](#req-entry-preview-feedback-003) / [AC-ENTRY-PREVIEW-FEEDBACK-003](#ac-entry-preview-feedback-003) | `liveops_community` / `qa_engineer` / 对应数据与安全 owner | [支持数据边界](../../readme/governance/player-support-and-service-lifecycle.design.md#support-data-boundaries) | [数据与误传方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#support-data-check)；虚构材料审读不代签真实隐私、复制或删除结果 | `test_tier_required`；真实数据操作另按授权与原方法 |
+| [REQ-ENTRY-RELEASE-MATERIALS-001](#req-entry-release-materials-001) / [AC-ENTRY-RELEASE-MATERIALS-001](#ac-entry-release-materials-001) | `producer_system_designer` / `liveops_community` / `qa_engineer` 及实际平台或数据 owner | [支持与生命周期专业条款](../../readme/governance/player-support-and-service-lifecycle.design.md#support-release-materials) | [核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-release-materials)；当前仅设计与静态核对，实际渠道、权限和执行分别验证 | `test_tier_required`；实际技术执行沿原专业方法 |
+| [REQ-ENTRY-COMMUNITY-001](#req-entry-community-001) / [AC-ENTRY-COMMUNITY-001](#ac-entry-community-001) | `producer_system_designer` / `liveops_community` / `qa_engineer` 及实际平台或数据 owner | [支持与生命周期专业条款](../../readme/governance/player-support-and-service-lifecycle.design.md#support-community-rules) | [核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-community-disposition)；当前仅设计与静态核对，实际渠道、权限和执行分别验证 | `test_tier_required`；实际技术执行沿原专业方法 |
+| [REQ-ENTRY-SUPPORT-DATA-001](#req-entry-support-data-001) / [AC-ENTRY-SUPPORT-DATA-001](#ac-entry-support-data-001) | `producer_system_designer` / `liveops_community` / `qa_engineer` 及实际平台或数据 owner | [支持与生命周期专业条款](../../readme/governance/player-support-and-service-lifecycle.design.md#support-retention-requests) | [核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-retention-requests)；当前仅设计与静态核对，实际渠道、权限和执行分别验证 | `test_tier_required`；实际技术执行沿原专业方法 |

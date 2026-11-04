@@ -34,6 +34,8 @@
 | 模块根入口 | 模块目标态、执行台账、设计总览与文件级精确检索 |
 
 ## 活跃补充文档
+
+- [内容制作范围、来源与成本](gameplay/content-production-and-rights.design.md)与[核对手册](gameplay/content-production-and-rights.manual.md)：统一已有内容的计数、权利资料、源与交付关系、变更传播及角色成本；复用原内容 authority，不从文件数推定完整游戏或生产能力。
 - [有限检查点供能服务政策](gameplay/gameplay-checkpoint-power-service-contract.prd.md)：个人供需双方的 Electricity/Data 服务条款、部分履行、修复、结清、争议与显式继受；执行由 [Runtime 履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接，不代表当前已启用。
 - [世界叙事内容与交付](gameplay/world-narrative-content-delivery.design.md)与[验证手册](gameplay/world-narrative-content-delivery.manual.md)：把既有世界前提、事实摘要边界与实际展示来源落实为可编辑文案、状态组合和内容交接；复用官网、舞台、个人结果与 Agent 消息的原合同，小说不构成运行事实。
 - [native 工业内容目录与交付](gameplay/industrial-native-content-delivery.design.md)与[验证手册](gameplay/industrial-native-content-delivery.manual.md)：明确当前 native 配方/工厂的来源与内容关系、starter 与有效初态适用性、变更传播和制作测量方法；沿用原规则数值与准入合同，不把 native 子集当成全游戏目录。

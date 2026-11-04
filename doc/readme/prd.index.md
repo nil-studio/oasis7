@@ -34,7 +34,7 @@
 
 ## 活跃补充文档
 
-- [玩家支持与服务生命周期](governance/player-support-and-service-lifecycle.design.md)与[执行手册](governance/player-support-and-service-lifecycle.manual.md)：承接受控测试的反馈入口结果、最小信息、分流复核、公开追加账本边界，以及事故、暂停和结束告知；提供具体文案与桌面演练，实际支持和恢复证据留在原任务。
+- [玩家支持与服务生命周期](governance/player-support-and-service-lifecycle.design.md)与[执行手册](governance/player-support-and-service-lifecycle.manual.md)：承接反馈结果、分流与事故说明，并补发行材料适用性、项目社区行为/复核、按控制范围的资料保留/请求、持续服务退出和运营容量；内容政策与真实平台、技术和服务执行分别取证。
 
 ### 未结履约义务
 

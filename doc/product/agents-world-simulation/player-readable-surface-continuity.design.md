@@ -79,6 +79,19 @@
 
 这一顺序减少无效提交，同时保留世界持续变化带来的风险。具体检查范围与资格机制由[专业系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#collect-data-preflight-consistency)决定；产品层不冻结协议、nonce、错误码或查询频率。
 
+<a id="optional-audio-experience"></a>
+### 5.4 可选声音与安静阅读
+
+对应[声音辅助要求](player-readable-surface-continuity.prd.md#req-agent-surface-006)及[静音、重复与失败验收](player-readable-surface-continuity.prd.md#ac-agent-surface-006)。
+
+首次进入保持安静。声音设置从现有 Viewer 设置语境进入，显示当前关闭、可用或不可用；不能靠听到声音判断开关是否生效。玩家主动开启后，可试听一次标明为本地测试的短提示，再回到原选择和任务。试听不显示行动成功，也不发送世界请求；具体控件和音量规格见[专业设置合同](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-settings-lifecycle)。
+
+运行中，声音仅提醒玩家查看已经可读的事实。收到本人权威结果时，文字保留原行动、结果与下一步；被拒绝或结果未知时，继续显示真实原因或查询路径，不能靠音调替代说明。重复读取、历史回放和重新连接不会庆祝同一次结果。提示竞争时以专业事件优先级压低或丢弃非关键声音，已有文字仍保留可查。
+
+玩家可随时关闭声音；窗口失活、身份或世界切换、离开 Viewer 时停止旧提示，恢复阅读后不补播积压历史。设备拒绝、播放资源损坏或音频适配不可用时，用简短状态说明声音暂不可用，保留设置与安全恢复动作，原行动的提交和查询不受影响。纯 API、Launcher 和官网不会因此自动拥有 Viewer 的音频能力。
+
+当前方案以安静的工业指挥体验为目标，采用有限短提示；背景音乐、环境循环和语音不属于该方案的内容制作。若后续产品加入这些体验，须先补对应目的、文本/视觉替代、可独立控制的设置和专业生产合同。
+
 ## 6. 非承诺
 
 - 不承诺旧 EGUI 右栏、模块可见性缓存、专用 fullscreen toggle、固定断点或历史 Web 布局。
@@ -103,3 +116,4 @@ This design delegates product requirements and acceptance semantics to its paire
 | Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6；[REQ-AGENT-SURFACE-003](player-readable-surface-continuity.prd.md#req-agent-surface-003) | [AC-AGENT-SURFACE-003](player-readable-surface-continuity.prd.md#ac-agent-surface-003) |
 | Trace refs: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4；[REQ-AGENT-SURFACE-004](player-readable-surface-continuity.prd.md#req-agent-surface-004) | [AC-AGENT-SURFACE-004](player-readable-surface-continuity.prd.md#ac-agent-surface-004) |
 | Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；[REQ-AGENT-SURFACE-005](player-readable-surface-continuity.prd.md#req-agent-surface-005) | [AC-AGENT-SURFACE-005](player-readable-surface-continuity.prd.md#ac-agent-surface-005) |
+| Trace refs: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34；[REQ-AGENT-SURFACE-006](player-readable-surface-continuity.prd.md#req-agent-surface-006) | [AC-AGENT-SURFACE-006](player-readable-surface-continuity.prd.md#ac-agent-surface-006) |

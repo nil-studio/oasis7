@@ -140,6 +140,32 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 - 早期边界：首次持续能力之前，从接入、付费或泛化互动信号推导的认可/机会样例只证明 preview、推荐、当前 blocker 或下一步不产生世界效果，不证明由这些信号授予的早期认可、奖励、资格、优先级、容量或可使用机会；首局正常世界行动及其结果不在这项负边界内。
 - 证据边界：资格、评分、分配、OC、治理和反滥用实现由 gameplay/runtime/blockchain/QA authority 定义；产品层不冻结数值或算法。
 
+<a id="req-entry-service-exit-001"></a>
+### REQ-ENTRY-SERVICE-EXIT-001：可选服务退出必须保留真实下一步与未结义务
+
+Trace ID: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f
+
+- 功能点：项目实际提供的可选 hosting、storage、support 服务缩减或终止时的退出准备和玩家说明。
+- 适用范围：被决定缩减或结束的具体服务、提供者和受影响候选/用户；关闭一次测试、一个官网或单一节点不自动等于关闭整个 P2P 世界。
+- 要求：在提供该服务前明确其支持和退出能力；实际退出时逐项说明停止新增受理、通知、剩余读取或适用数据交接窗口、玩家可采取的步骤、未结行动和服务义务、资料处置以及剩余联系/复核方式。普通计划退出按已公布条款保留履行窗口；紧急停止说明实际原因和受影响范围，不能静默改写已接受的义务。没有可用导出、迁移、替代访问或退款执行时如实说明缺口并由对应主责处置，不能以结束通知代替实际交付。服务状态与世界身份、控制权、已确认历史及仍有效的世界义务保持 [REQ-ENTRY-FREE-001](#req-entry-free-001) 的分离。
+- 系统设计状态：部分覆盖
+- 系统设计依据：[持续服务退出](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit)承接通知、角色交接和材料判据；具体服务的导出/迁移/账务/数据执行尚须由原专业合同支持。
+- 实现状态：未核实
+- 实现与验证依据：本条不声明可选服务已销售或上线，也不把 DevLocal 身份核查工具当作玩家自助导出。尚未取得实际服务清单、退出条款和完整执行证据。
+- 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅设计审读，未停止服务、通知用户或处理真实数据。
+- 剩余范围：每项实际服务的支持者、条款和履行窗口、技术退出路径、未结义务处理、成本与真实演练。不能由内容方法代签世界恢复、支付、迁移或正式全服务结束。
+- 验收：[AC-ENTRY-SERVICE-EXIT-001](#ac-entry-service-exit-001)。
+
+<a id="ac-entry-service-exit-001"></a>
+### AC-ENTRY-SERVICE-EXIT-001：服务关闭不改写世界结果
+
+Trace refs: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f；承接[REQ-ENTRY-SERVICE-EXIT-001](#req-entry-service-exit-001)。
+
+- 给定普通计划结束、紧急停止及能力不足的服务，以及已确认历史、未结算请求、玩家本地资料和第三方副本。
+- 当准备退出、通知、停止新增承诺、交接资料和结束支持时，玩家能辨认服务与世界的不同状态，并得到当前真正可用的下一步；不存在的导出、恢复、退款或全面删除不能写成已完成。
+- 原身份和世界义务按各自主责持续追踪；未结事项有明确责任和处置，不因删除服务页面或结束运营轮次而消失。
+- 方法：[退出核对与演练](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-exit)；静态推演只验证内容合同，真实退出能力须实际验证。
+
 ## 5. Done：成功标准与验收
 
 - FE-1：产品说明能区分免费客户端/账户/基础进入、世界内需要取得和维护的实质能力，以及不授予世界权力的可选付费便利服务；不会把其中任何一项误写成当前 preview 已广泛可用。
@@ -181,3 +207,4 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 | --- | --- | --- | --- | --- |
 | [REQ-ENTRY-FREE-001](#req-entry-free-001) / [AC-ENTRY-FREE-001](#ac-entry-free-001) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC 对账免费与可选服务的权限/成本，核对取消、失效与恢复不改变世界权力；待取得同候选记录；导航关系不等于通过证据 | `test_tier_required` |
 | [REQ-ENTRY-FREE-002](#req-entry-free-002) / [AC-ENTRY-FREE-002](#ac-entry-free-002) | `producer_system_designer` | [`doc/game/prd.md`](../../game/prd.md#3-player-facing-authority-boundary)、[`成熟世界成长与区域参与`](../world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)、[`沟通、合同、声誉与 R&D 连续性`](../world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md) | 待执行方法：按 AC-ENTRY-FREE-002 分别核对成熟世界认可授予/到期/撤销、双人容量竞争、重复申领及独立恢复；首次持续能力前另核对入口信号不产生资格/容量/世界效果；待取得同候选主责与入口对照记录，导航关系不等于通过证据 | `test_tier_full` |
+| [REQ-ENTRY-SERVICE-EXIT-001](#req-entry-service-exit-001) / [AC-ENTRY-SERVICE-EXIT-001](#ac-entry-service-exit-001) | `producer_system_designer` / `liveops_community` / 对应服务、数据与 Runtime owner | [持续服务退出](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit) | [退出核对方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-exit)；实际退出能力、义务处置和玩家下一步须按服务验证 | `test_tier_required`；真实服务技术路径沿原专业验收 |
