@@ -304,6 +304,45 @@ question/answer → approval/decision/grant → context/operation → world rece
 - 恢复输入：首次运行没有本地目标缓存、历史激活事件已不在重放范围时，必须从 snapshot 正文而非仅 revision/digest 得到目标；收到 recovery_required 的世界操作则保持原关联并对账，不开新的副作用轮次。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
+<a id="adapter-private-context-recovery"></a>
+### 场景 adapter-private-context-recovery
+
+- Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；承接 [AC-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-008) 和[适配器私有上下文恢复](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-private-context-recovery)。本场景验证外部 driver、worker、既有任务恢复及报告消费者的组合，不替代认知 journal/profile 的同 provider_invocation_key 投递测试。
+- 层/环境：普通合同验证使用 scripted driver、临时持久 inbox/outbox/预算记录、实际候选的任务读写与原操作路径，并消费已验证的分页、权限及回执 fixture。真实 Runtime、Viewer/pure_api 组合另按下述同案要求取证；不存在的接口、故障注入或 fixture 记录 blocked/not_run，不能用设计中的名称冒充已执行。
+- 给定：受权 Agent A 的当前目标 G1、完整目标正文、明确许可与剩余预算、一个已结算成果 C、未完问答和待批申请；保留实际 driver/profile、session/run/invocation、world/task/goal/fence 及原操作关联。需要未知运行/世界结果的用例另创建原 M/P。准备同进程独立 Agent B，用于检查范围隔离；不触碰其他用户的会话或状态目录。
+- 故障边界：只使本案的私有会话不可接续，保留任务、调用、操作、inbox/outbox 和预算原件；另用专门负例损坏这些原件。分别统计原调用及额外 driver start、原业务效果和预算前后值，不能用 HTTP 200、日志中的“恢复成功”或当前 UI 一句话代替实际关联。
+
+**正常、丢失与待核对的区别。** 每例记录故障发生点、当前 S/goal/fence/audience、送入实际 Runtime 的基线、原运行核对结果和玩家可见报告。
+
+| 用例 | 执行与可判定预期 |
+| --- | --- |
+| 只有观战或传输断连 | 保持专用 session 和执行方有效，断开并重连观察入口。回访仍读取原 task，执行端按原预算继续；不得自动报告记忆丢失或为同一原调用增加 start。检查原 invocation 关联与世界结果，不能以 heartbeat 单独证明继续 |
+| 进程重启且会话可接续 | 在旧 run 已知终态后重启 worker/driver，先核对原件和当前完整基线再 open/resume。新决策接收 G1、当前权限和 C；C 的原业务效果仍只有一次。会话接续仅报告 driver 能核实的范围，不宣称所有旧记忆完整 |
+| 私有会话明确不可接续 | 在原 run、世界操作均已核清时，使本案 resume 返回不可用。有效同设备续接许可下直接以当前基线建立隔离会话，允许一次有界重规划，不强制重复人工确认；报告保留“旧私有上下文未接续”，关联真实新 session/run/result。新计划出现不把 C 重做，也不自动产生批准或世界成果 |
+| 只有旧私有内容待核对 | 让 driver 无法核实旧内容，同时能确认原 run 已结束、原世界操作允许继续。选择不使用旧记忆，从完整当前基线重规划；既不能凭超时宣称记忆已丢失，也不能只因记忆未知永久阻塞。若无法确认的是原 run，本行不适用，按下表保留 run_unknown |
+| 新运行失败或没有输出 | 在合法新调用中返回真实错误、无计划的终态或只发送 heartbeat。报告区分已开始、失败/阻塞与新计划；没有匹配输出就没有“重规划已有结果”。保留原关联和预算支出，不填默认计划或 Wait 冒充模型结果 |
+
+**交错与故障必须保留原身份。** 以下用例可复用同候选的确定性合同证据，仍要检查适配器实际消费，不要求两个真实 Runtime 重复全部注入点。
+
+| 用例 | 执行与可判定预期 |
+| --- | --- |
+| 私有上下文丢失 + 原模型运行未知 | 在上游接受 M、RunRef 回包前断连/崩溃，再使旧会话不可接续。恢复先查原 invocation/session；Unknown 或 Active 分别保持核对/追读，额外 start 为 0，不换 session/key 试探。原 M 终态可确认后才按当前条件继续；取消请求或 worker 退出不替代终态 |
+| 私有上下文丢失 + 世界结果未知 | 原 P 已提交但回包丢失，或返回 recovery_required。只按原 client_operation_id/context/nonce 查结果，私有会话换新不解除原副作用限制；只读核对和获权沟通仍可用。P 最终 committed 时其效果一次、原件身份未变；pending、查询失败或超时均不能改写为未执行/取消 |
+| 必需正文缺失与不完整快照 | 分别删除/损坏 active_goal 正文、仅返回 revision/digest、遗漏中间页或已答未处理线程、让 cursor 失效。即使 driver 报会话正常也不得启动新决策；沿原合同 reset/recovery_required，读齐后恢复，当前获权的原操作回查及 Stop 仍可达。真正 active_goal=null 的任务保持无有效目标，不能用私有记忆补成当前目标 |
+| 读取后目标、权限或分支变化 | 在基线读齐后、模型接受前、输出返回前及工具出站前分别激活 G2、Stop、换 executor/owner 或改变 branch。旧输入/报告不能改标 G2 或新 fence；新受限提交被当前权威拒绝，原结果仍按当前读权查询。新许可必须来自原授权通道，不由旧 session 或恢复报告生成 |
+| audience 收窄但 session 尚在 | 保持相同进程和 session，使当前读权限不再覆盖原私有材料。旧缓存/session 不得继续供新输入或工具使用，后续读不泄露正文/计数/指纹；按当前合法范围重读后才可用隔离新会话，不能把旧记忆摘要搬进去。新 owner 同样不能默认读旧私有历史 |
+| inbox 丢失与已有处理记录 | 保留服务端当前线程，删除本案本地 inbox；同时提供已保存收到/处理报告。必须重新取得完整获权正文，不能把旧 ACK 当作本进程已有内容；已处理线程不再启动原调用，旧 epoch 线程只按当前资格作历史。未完问答继续沿 collab-question-delivery 的原阶段与原操作恢复 |
+| 迟到、重复与陈旧报告 | 新计划报告之后再送达旧 session 输出、旧不可用报告和重复消息；另让源时钟偏移、通信过期及报告提交回包丢失。原 message_id/观察时间不变，不按到达时间或模型时间戳把旧内容提成当前；无法比较来源则显示最近已知/待核对。没有原调用/输出依据的一般文字不升级为恢复完成 |
+| 当前预算不足或原件缺失 | 让剩余预算为零、原用量 ledger 不可恢复、原 invocation/outbox 无法读取，或旧费用预留已占满本次模型限额。保持相应阻塞/保守预留，额外 start 为 0；不得创建空目录、重签 nonce、换 operation/profile 或重置累计值来继续。报告和机械回查计入原请求/时间预算，不能静默换付费路由 |
+| 同 Runtime 的 A/B 隔离 | 对调 A/B 的 session、goal、来源引用、原 operation 和预算关联，或用 A 的自报正文冒充 B。错误绑定拒绝，B 不消费 A 私有材料、成果或批准；A 的恢复阻塞不扩大为 B 的失权，除非实际共用凭据/预算的失效范围确实覆盖 B |
+| 报告保存与隐私 | 观察 report 保存前后崩溃、断连重发和玩家换设备/身份；未确认保存不显示已送达，人未查看不显示已读。报告沿当前获权渠道可回读，正文/完整编码受原限额约束；公开记录不含完整 Prompt、记忆、推理链、秘密、cursor/签名、私有 digest/路径或任意结果 URL，玩家端无新增持久正文缓存 |
+
+**每个真实 Runtime 的同案取证。** OpenClaw 与 Codex 各自在声明的版本/profile 上分别覆盖连接中断和进程重启，并至少完成一次本案专用私有会话不可接续后的可信重规划。可复用同候选 [collab-session](#collab-session) 的实际阶段，不能以另一个 Runtime 的成功补缺。用获准的临时会话或受支持的故障注入制造不可接续，保留原调用及世界操作记录；没有安全可用方法时如实保留该缺口，不删除用户会话或伪造 driver 结论。
+
+每案需能关联 `Runtime/profile → 原 session/run/invocation → 原 world/task/Agent → 当前 S/goal/fence/audience → 新会话的实际输入与输出 → 恢复报告 → 原 operation/receipt`。核对实际 driver 消费了完整当前目标、权限、未完义务和已确认结果，报告和实际运行来源一致；只观察到模型自述“记得”不构成这条链。实际 Viewer 和 pure_api 输出分别检查来源、时间、限制、下一步及世界结果分层，按所声明入口留证；Web/native 不相互代签。
+
+原证据保存在受保护测试记录中，公开 PR/CI 只保留不可反用的脱敏关联、次数、范围和结论；不能为了核对输入而公布完整目标/Prompt、私有正文、可重放 cursor/签名或可枚举私有摘要。新计划、服务保存报告和已有世界成果分别取证；本场景不证明旧记忆完整、模型内部理解、跨 Runtime 私有记忆迁移或公开发行就绪。缺实现、真实 Runtime、许可、预算或对应消费者时记录 blocked/not_run，文档检查和 scripted driver 通过不填补这些缺项。
+
 <a id="adapter-liveness"></a>
 ### 场景 adapter-liveness
 

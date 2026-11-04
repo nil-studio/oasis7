@@ -99,6 +99,7 @@
 | [gameplay-organization-continuity-policy.prd.md](gameplay/gameplay-organization-continuity-policy.prd.md) | 专业政策 PRD；执行、事务与恢复由 [组织连续性设计](../world-runtime/runtime/organization-continuity-and-disposition.design.md)承接，不重复建立同名技术权威 |
 | [gameplay-checkpoint-power-service-contract.prd.md](gameplay/gameplay-checkpoint-power-service-contract.prd.md) | 专业玩法政策；执行、资源与恢复由 [供能服务履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接 |
 | [gameplay-contextual-reputation-contract.prd.md](gameplay/gameplay-contextual-reputation-contract.prd.md) | 专业玩法政策；只读咨询来源、时效及复核由[情境声誉执行设计](../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md)承接；不新建产品要求身份 |
+| [gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md](gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md) | 专业玩法政策；事前章程、贡献/来源、固定收益分配与整槽转让由[R&D 执行设计](../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md)承接；复用 CR-003，不新建产品要求身份 |
 
 ## 历史 closure / provenance 入口
 | 历史 closure 专题 | 当前追溯入口 |
