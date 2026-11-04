@@ -48,7 +48,7 @@
 - `viewer/`：Viewer、Web 闭环、`software_safe`、2D/3D 与操作手册；先看 `viewer/README.md`，再按簇进入 `viewer-manual.manual.md` 或具体专题。
 - `launcher/`：启动器、控制面、转账、explorer 与自引导体验；先看 `launcher/README.md`，再按簇进入 release/distribution、control plane、explorer、runtime 边界或 self-guided 专题。
 - `llm/`：provider、loopback、本地桥接、体验等价和 direct-connect 相关口径。
-- `kernel/`：规则桥接、WASM 执行、资源与 runtime 约束；已完成的 simulator rule-hook / Wasm 接线历史收敛到模块 `design.md`，当前 WASM ABI、执行器、构建与工件治理继续下钻 `doc/world-runtime/wasm/`。
+- `kernel/`：规则桥接、WASM 执行、资源与 runtime 约束；[社会动作后果预览](kernel/social-fact-ledger-declarative-reputation.prd.md#social-preview-contract)与[来源及消费者设计](kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-source)维护五动作提交前判断和当前能力边界。已完成的 simulator rule-hook / Wasm 接线历史收敛到模块 `design.md`，当前 WASM ABI、执行器、构建与工件治理继续下钻 `doc/world-runtime/wasm/`。
 - `m4/`：M4 方案与配套设计。
 - `scenario/`：场景初始化、配置与模板；先读 `scenario/README.md`，再按问题进入专题。
 - `prd/`：验收模板、质量趋势与补充附件。

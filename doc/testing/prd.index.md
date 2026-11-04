@@ -47,6 +47,7 @@
 - [工业创建四阶段验收](manual/industrial-creation-simulation-and-admission.manual.md)：同输入模拟、试点预算/退出、当前准入和原请求恢复。
 - [有限许可与版税验收](manual/industrial-license-and-royalty-settlement.manual.md)：真实批次、托管、通知与最小保全、累计整数分配及开放。
 - [情境声誉验收](manual/contextual-reputation-acceptance.manual.md)：合同来源、主体/情境/时效、补救、更正和旧分数消费者隔离。
+- [社会动作后果预览验收](manual/social-action-consequence-preview-acceptance.manual.md)：五动作的来源与声明边界、逐资源后果、当前受众、实际消费者、陈旧/未知恢复和有限读取；区分 kernel、seed 夹具与正式玩家入口的证据。
 - [组织与岗位履历验收](manual/organization-custody-role-reputation-acceptance.manual.md)：登记/接替/真实托管返还到组织与原任期咨询的来源、权限、时效、派生更正及恢复；方法与实际运行证据分开。
 - [R&D 归因与份额转让验收](manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)：预工作时序、贡献与使用权、冻结分配、有限程序和原槽转让；不把方法或静态复算写成真实业务通过。
 - [外部 Runtime 私有上下文恢复](manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)：原 run/operation 核对、完整任务基线、告知/重规划与双 Agent 隔离；真实 Runtime 分别取证。
