@@ -553,11 +553,11 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；承接[共享产物要
 
 | 缓存族 | 原始逻辑 staging 上限 | 单份上传上界 | 两代常驻目标 | 临时写入族上限 |
 | --- | --- | --- | --- | --- |
-| ordinary | 6 GiB | 768 MiB | 1.5 GiB | 2.25 GiB |
+| ordinary | 6 GiB | 1.25 GiB | 2.5 GiB | 3.75 GiB |
 | Formal | 8 GiB | 1 GiB | 2 GiB | 3 GiB |
 | ECS | 6 GiB | 1 GiB | 2 GiB | 3 GiB |
 
-这些上限不是预留额度，各族同时达到最大值再增加一份上传不保证能放入 10 GB。完整库存包含所有 ref、旧格式、共享原生和 ECS 依赖及其他缓存，实际总量加保守上传上界必须不超过有效仓库额度；不足时仍跳过保存。ordinary 的 6 GiB staging 限制所选完整 library 单元，完整选集超限时按下述有界选择缩减；ordinary 的 768 MiB 与 Formal 的 1 GiB 上传上界是容量政策，不是实际压缩体积。Formal 保留两代，常驻及临时第三代上限由单份上限派生。
+这些上限不是预留额度，各族同时达到最大值再增加一份上传仍须满足有效仓库额度。完整库存包含所有 ref、旧格式、共享原生和 ECS 依赖及其他缓存，实际总量加保守上传上界必须不超过有效仓库额度；不足时仍跳过保存。ordinary 的 6 GiB staging 限制所选完整 library 单元，完整选集超限时按下述有界选择缩减；ordinary 的 1.25 GiB 与 Formal 的 1 GiB 上传上界是容量政策，不是实际压缩体积。Formal 保留两代，常驻及临时第三代上限由单份上限派生。
 
 每个族的常驻目标为单份上界的两倍，正常轮换的临时写入上限为三倍；空间充足时按两代目标回收，容量压力下仅减少有稳定完整锚点的额外副本。
 
@@ -910,7 +910,7 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用[容量要求](c
 
 保存前测量完整库选集；超过 6 GiB raw 上限时，按 profile/fingerprint 组织完整 Cargo 单元，优先保留最近构建的单元，同时间戳按稳定路径排序，跳过无法容纳的超大单元。必须保留 build-script 支持目录及其 fingerprint、已解析的混合无哈希库相关单元和跨组硬链接涉及的单元；缺失输出、未绑定路径、歧义或不安全状态拒绝保存。保留完整输入快照和包归属，未缓存单元由 Cargo 正常重建并传播失效，不修改 target 或编译、测试选择。该排序是有界打包启发式，不承诺最优复用率。
 
-raw 大小不能代替压缩结果。ordinary 最多执行三次本地完整单元选集压缩试算，按实际 compact 归档和外包装保守上传上界缩小选集，不重试远端上传。最终重新读取完整远端库存，核对 768 MiB 单份上传、1.5 GiB 常驻目标、2.25 GiB 临时写入上限、依赖周转预留和全仓预算；仍不满足预算时跳过保存并完成原构建和测试。诊断分别记录完整选集、选中大小、单元裁剪和各次压缩上界；重选阶段的 omitted 数仅描述该阶段输入，不作为原始选集累计数。
+raw 大小不能代替压缩结果。ordinary 最多执行三次本地完整单元选集压缩试算，按实际 compact 归档和外包装保守上传上界缩小选集，不重试远端上传。最终重新读取完整远端库存，核对 1.25 GiB 单份上传、2.5 GiB 常驻目标、3.75 GiB 临时写入上限、依赖周转预留和全仓预算；仍不满足预算时跳过保存并完成原构建和测试。诊断分别记录完整选集、选中大小、单元裁剪和各次压缩上界；重选阶段的 omitted 数仅描述该阶段输入，不作为原始选集累计数。
 
 所有状态、归档和报告位于 runner 临时目录，禁止 Python bytecode 污染源码扫描。
 
@@ -942,7 +942,7 @@ Only a recognized access-denied response from the quota endpoint, excluding rate
 
 Diagnostics retain only bounded, allowlisted status/request/permission information; response bodies and credentials are not logged.
 
-The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21. The trusted workflow therefore supplies a conservative 10,000,000,000-byte budget. This is a recorded configuration source, not a claim that every run read the live quota. Maintainers must reverify this setting when the repository cache limit changes.
+The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21; the historical numerical fixtures retain that 10,000,000,000-byte policy. The trusted workflows now configure a 20,000,000,000-byte repository budget, unchanged by the Ordinary single-upload increase. These configured values do not claim that every run read the live quota; a lower valid live limit still wins. Maintainers must reverify the setting when the repository cache limit changes.
 
 Reports separately identify the live limit, configured and effective budgets, capacity basis, observed inventory and projected usage. The entry point never changes repository limits or grants administration permissions.
 
@@ -952,7 +952,7 @@ Capacity checks use the measured compressed payload plus a conservative bound fo
 
 The wrapper guard validates GNU tar and GNU gzip and rejects inherited TAR_OPTIONS/GZIP overrides. It measures the actual outer tar records, then takes the larger safe zstd streaming or GNU gzip CLI bound (including block/header slack), rather than a generic zlib bound for unrelated deflate parameters.
 
-The payload must remain the same single-link regular file before and after measurement. The upload ceilings are 768 MiB for ordinary and 1 GiB for Formal; all repository/family budgets are checked independently; real gzip and zstd wrapper regressions check the bound independently.
+The payload must remain the same single-link regular file before and after measurement. The upload ceilings are 1.25 GiB for ordinary and 1 GiB for Formal; all repository/family budgets are checked independently; real gzip and zstd wrapper regressions check the bound independently.
 
 The complete all-ref/all-family inventory plus this upload bound must fit the effective repository budget. Separately, the main ECS family inventory plus the bound must fit the ECS family budget.
 
