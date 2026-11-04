@@ -317,6 +317,7 @@ impl FileFormalEndpoint {
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
+            iws_page_store: None,
             #[cfg(test)]
             controlled: false,
         };
