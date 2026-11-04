@@ -3,6 +3,7 @@
 更新时间: 2026-11-03
 
 ## 从这里开始
+- 想核对跨内容类型的制作范围、资产来源/权利、人员/外包与成本：读[内容制作与来源设计](content-production-and-rights.design.md)及[核对手册](content-production-and-rights.manual.md)。数量按源、内容单元和实际消费者区分；许可材料、产能与预算须分别取证。
 - 想快速理解核心玩法骨架：先在 `../prd.md` 确认活跃基线与路由，再读 `gameplay-top-level-design.prd.md` 的 bounded 专业合同
 - 想确认首局、前 10/30 分钟吸引力和持续游玩合同：先读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 由同候选 PR、实际验证记录与 `../../testing/evidence/` 确认。
 - 想定位当前 native 工业配方、工厂类别、首局配置与有效初态，或交接内容变更：读[工业内容目录与交付](industrial-native-content-delivery.design.md)及[验证手册](industrial-native-content-delivery.manual.md)。目录范围与世界实际安装、准入、库存和生产资格分别核对。

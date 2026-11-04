@@ -214,6 +214,33 @@ Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；承接[REQ-AGENT-SURFA
 - 当：依次进行提交前检查和真实提交。
 - 则：未变化样例对共享资格条件给出一致判断；条件变化时按提交时权威事实重新判断，并能读到变化或拒绝原因。检查通过及请求受理均不显示为世界执行成功；无法取得权威状态时不使用旧检查结果继续承诺资格。
 
+<a id="req-agent-surface-006"></a>
+### REQ-AGENT-SURFACE-006：可选声音只辅助当前可读事实
+
+Trace ID: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34
+
+- 功能点：Viewer 的可选短功能提示、静音等价阅读和播放失败恢复。
+- 适用范围：提供世界观察与间接指导的 Web/native Viewer；`pure_api` 保留同一结果语义，不产生声音交付义务。Launcher、官网和工程控制台不继承 Viewer 的声音开关或事件。
+- 要求：声音默认为关闭，只有玩家在当前 Viewer 会话明确开启后才播放。提示只消费当前身份有权读取、已有可读解释且来源明确的事件；声音不能补造可见性、请求结果、空间关系或控制资格。未确认、断连、重放和历史重新读取不能伪装成新的成功提示。关闭声音、设备不可用或播放失败时，目标、阻塞、反馈和下一步仍有完整文本或视觉表达；音频失败不阻断世界观察与合法操作，也不触发世界重试。
+- 体验取舍：当前工业指挥舞台采用简短功能提示，保持长时间观察安静、可自主控制；不制作持续背景音乐、环境循环、空间世界声或配音。这里是当前声音方案的明确内容取舍，不是因为缺素材而宣称整个声音领域不适用。新增叙事台词、空间声源玩法或音乐体验时，重新评估对应内容、设置与替代表达。
+- 系统设计状态：部分覆盖
+- 系统设计依据：[音频事件与事实来源](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-event-contract)和[设置、播放与降级](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-settings-lifecycle)承接内容和消费合同；具体平台音频适配、控件接入和运行验证仍须按该专业设计落实。
+- 实现状态：未核实
+- 实现与验证依据：固定源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3` 的 Viewer、pixel-world bridge、Launcher 和官网入口审读未定位到本条可选音频接入；所审路径和检索边界见[音频当前基线](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-current-baseline)。这不证明全部部署、第三方依赖或未经审读入口没有声音。
+- 核对日期与基线：2026-11-04；上述固定源码和本条设计输入；仅静态审读，未制作音频、执行播放器或取得真实试听/可访问性证据。
+- 剩余范围：实际提示素材、平台播放与设置消费者、身份/世界切换及重连恢复组合、目标设备试听和静音等价验证；既有页面布局没有这些控件，不能由设计新增推定已提供。
+- 验收：[AC-AGENT-SURFACE-006](#ac-agent-surface-006)。
+
+<a id="ac-agent-surface-006"></a>
+### AC-AGENT-SURFACE-006：静音、重复与播放失败不改变事实
+
+Trace refs: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34；承接[REQ-AGENT-SURFACE-006](#req-agent-surface-006)。
+
+- 给定：同一候选的 Web/native Viewer、默认关闭和显式开启状态，以及本人可读结果、他人结果、未知请求、历史重读、身份切换和播放失败样例。
+- 当：玩家开启或关闭声音、读取新结果、重连、切换身份或离开页面，或设备拒绝播放。
+- 则：只有符合当前事实和披露条件的新提示可响；个人提示不跨身份泄露，重放不产生新的成功感；关闭和不可用状态仍能完成同一决策，播放失败不重复提交请求，离开或切换身份后旧提示停止。
+- 方法：[音频交付与验收手册](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-validation-cases)分别核对静态事件映射、素材试听与实际入口。设计推演、素材存在及单一平台结果不能相互代签。
+
 ## 5.1 组合验收
 
 - PSC-1：代表性 desktop、窄屏和低高度 viewport 中，当前目标、主要 blocker、接受/结果反馈与下一步保持可读且可恢复。
@@ -235,6 +262,7 @@ Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；承接[REQ-AGENT-SURFA
 | [REQ-AGENT-SURFACE-003](#req-agent-surface-003) / [AC-AGENT-SURFACE-003](#ac-agent-surface-003) | viewer_engineer / runtime_engineer：身份与个人反馈隔离；qa_engineer：交叉负例 | PRD-WORLD_SIMULATOR-039 / PRD-TESTING-003 | [反馈隔离系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-feedback-isolation) | 两名玩家和匿名请求的反馈读取、刷新、重连及身份切换；本人拒绝可达、其他个人反馈不变 | test_tier_required |
 | [REQ-AGENT-SURFACE-004](#req-agent-surface-004) / [AC-AGENT-SURFACE-004](#ac-agent-surface-004) | viewer_engineer / gameplay_designer：错误与恢复语义；runtime_engineer：真实拒绝原因；qa_engineer：分类与入口核对 | PRD-WORLD_SIMULATOR-039 / PRD-TESTING-003 | [错误语义系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-error-code-preservation) | 输入、权限、世界条件和未知结果独立判定；身份有效但输入非法的专项负例 | test_tier_required |
 | [REQ-AGENT-SURFACE-005](#req-agent-surface-005) / [AC-AGENT-SURFACE-005](#ac-agent-surface-005) | viewer_engineer / gameplay_designer / runtime_engineer：检查与提交资格；qa_engineer：同状态及变化样例 | PRD-WORLD_SIMULATOR-039 / PRD-TESTING-003 | [检查与提交系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#collect-data-preflight-consistency) | 同身份/意图/权威状态的资格正反例，以及检查后权限、绑定或资源变化与未知状态 | test_tier_required |
+| [REQ-AGENT-SURFACE-006](#req-agent-surface-006) / [AC-AGENT-SURFACE-006](#ac-agent-surface-006) | `producer_system_designer`：声音目的、静音等价与范围；`game_visual_interaction_designer`：提示辨识与可访问内容；`viewer_engineer`：播放器、设置和事件消费；`qa_engineer`：素材与实际入口分别验证 | `PRD-PRODUCT-003` | [音频内容与消费合同](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-event-contract) | [音频验收方法](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-validation-cases)，含当前身份、未知结果、重复、静音和平台失败；尚未取得实际结果 | `test_tier_required`：适用播放器和事件合同；实际 Viewer 与试听按手册独立执行 |
 
 ### 5.3 表现与视觉证据边界
 
@@ -244,7 +272,7 @@ Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；承接[REQ-AGENT-SURFA
 
 ## 6. 范围与非目标
 
-覆盖可用空间、信息密度、当前模式支持的行动、语言、关键文本、连接中断与恢复的跨 surface 产品连续性。不定义具体 panel/module、fullscreen 控件、布局宽度、hit boundary、字体/资产、local JSON/cache、控制 profile、时间/事件计数、WebSocket 时序、Test API、测试命令或发布/readiness claim。
+覆盖可用空间、信息密度、当前模式支持的行动、语言、关键文本、连接中断与恢复，以及可选声音下的跨 surface 产品连续性。音频素材、事件和平台消费规格由专业设计拥有；本分册不定义具体 panel/module、fullscreen 控件、布局宽度、hit boundary、字体/资产文件、local JSON/cache、控制 profile、时间/事件计数、WebSocket 时序、Test API、测试命令或发布/readiness claim。
 
 同一受支持行动也通过 `pure_api` 提供时，个人反馈归属、拒绝含义和提交资格保持一致；不要求两种入口布局相同，也不据此新增行动能力。反馈存储、鉴权机制、错误码、数据结构、检查算法及性能指标仍归专业域。
 

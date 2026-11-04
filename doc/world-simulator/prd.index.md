@@ -28,6 +28,7 @@
 - `doc/world-simulator/viewer/viewer-brand-system-2026-06-05.design.md`：Viewer 视觉规范 companion，覆盖 brand book、语义 token、icon/status vocabulary、资产语言、稳定 DOM hook 与扩展截图矩阵。
 - [首局内容与交付规格](viewer/first-session-content-delivery.design.md)与[配套验收方法](viewer/first-session-content-delivery.manual.md)：消费已采纳的首局与反馈产品要求，定义 `production_only` 首局内容单元、文案语义、实际素材入口及制作/验证交接；不另立玩法 PRD，不代替原页面布局与运行验收。
 - [Viewer 本地化与上下文帮助](viewer/viewer-localization-and-context-help.design.md)与[验证手册](viewer/viewer-localization-and-context-help.manual.md)：维护语言范围、实际字符串来源、领域术语、帮助正文、翻译更新与逐语言验收；复用品牌短标签和原页面布局，保留 Viewer、Launcher、Site 的各自语言规则。
+- [Viewer 音频内容与交付](viewer/viewer-audio-content-delivery.design.md)与[验收手册](viewer/viewer-audio-content-delivery.manual.md)：定义当前 Viewer 的可选短提示、事件与事实归属、设置/失活/恢复消费、制作配方及静音等价验证；不把设计存在当成已提供播放器或素材。
 - [Viewer 世界视觉内容与交付](viewer/viewer-world-visual-content-delivery.design.md)与[制作验收手册](viewer/viewer-world-visual-content-delivery.manual.md)：维护当前四类程序化视觉内容的变体、事实边界、编辑源、构建消费关系、来源资料和替换交接；复用原 Bevy 详细视觉交接，六视图工具与正式消费资产分别核实。
 - `doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md`：Viewer 前端 `js/html/jsx` 结构治理标准，覆盖 source/generated/compat taxonomy、分层模型、拆分触发条件、组件/模块抽象边界与验证矩阵。
 - `doc/world-simulator/viewer/viewer-manual.manual.md`：Viewer / Web 闭环 / operator 手册，不在下方 PRD 三件套长表中展开。
