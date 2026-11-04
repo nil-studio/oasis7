@@ -6,7 +6,7 @@ usage() {
   cat <<'USAGE'
 Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--support-plan JSON|--support-profiles JSON]
 
-  commit        Run the lightweight local commit gate used by pre-commit.
+  commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
   full          Run required checks plus all extended feature/integration tests.
   full-standard Run full checks excluding the independent formal-process suites.
@@ -472,6 +472,7 @@ run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
+  run python3 ./scripts/ci-local-check-plan.test.py
   run python3 ./scripts/ci-python-control-contracts.test.py
   run python3 ./scripts/ci-formal-process.test.py
   run python3 ./scripts/ci-storage-acceptance.test.py

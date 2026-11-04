@@ -3285,6 +3285,34 @@ class PythonControlContracts(unittest.TestCase):
         self.write(path, content)
         return self.commit()
 
+    def test_local_check_adapter_selects_its_trusted_contract(self):
+        config = self.trusted()
+        test = 'scripts/ci-local-check-plan.test.py'
+        for path in ('scripts/ci-local-check-plan.py', test):
+            with self.subTest(path=path):
+                plan = selector.select(config, self.base, self.change(path), profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+                self.assertEqual(plan['python_control_tests'], {'workflow_governance': [test]})
+                self.base = self.git('rev-parse', 'HEAD')
+
+    def test_local_check_adapter_cannot_enrol_itself_from_candidate_policy(self):
+        config = self.trusted()
+        old = json.loads(json.dumps(config))
+        paths = ('scripts/ci-local-check-plan.py', 'scripts/ci-local-check-plan.test.py')
+        for path in paths:
+            old['scoped_control_paths'].pop(path, None)
+            old['python_control_contracts'].pop(path, None)
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        for path in (*paths, 'scripts/ci-local-check-plan-future.py'):
+            with self.subTest(path=path):
+                head = self.change(path)
+                plan = selector.select(old, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'full')
+                self.assertEqual(set(plan['groups']), set(old['groups']))
+                self.assertEqual(plan['python_control_tests'], {})
+                self.base = head
+
     def test_registered_control_uses_owned_contract_without_native_groups(self):
         config = self.trusted()
         path = 'scripts/plan-rust-required-scope.py'

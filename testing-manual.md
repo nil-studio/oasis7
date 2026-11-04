@@ -41,7 +41,7 @@ final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟
 <a id="local-check-entry"></a>
 ## 显式本地检查：当前入口与目标分层
 
-普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。其 help 中 “used by pre-commit” 是待实施修正的旧描述，应以脚本实际接线和本节为准。
+普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。help 与本节均将其标为显式诊断。
 
 | 当前目的 | 当前可执行入口 | 结果证明范围 |
 | --- | --- | --- |
@@ -49,6 +49,13 @@ final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟
 | 最小 Rust 包反馈 | `./scripts/cargo-dev.sh check -p oasis7_proto`；测试示例 `./scripts/cargo-dev.sh test -p oasis7_proto <test-filter>` | 指定包/过滤器和开发配置；测试过滤器须核对实际非零执行，不据此声明 required/full |
 | 显式本地诊断 | `./scripts/ci-tests.sh commit` | 当前 commit 清单；保留日志和未执行的 required/full 范围 |
 | 正式测试 | `./scripts/ci-tests.sh required` 或 `./scripts/ci-tests.sh full` | 当前手册定义的适用 tier、实际平台和执行结果；仍需按改动补 UI/真实环境验收 |
+
+准备性选测入口：`python3 scripts/ci-local-check-plan.py --profile affected --dry-run --format json`。它只接受干净提交，使用本地 `origin/main` 与 HEAD 的唯一 merge-base；`--base-ref` 可指定该信任锚的祖先，不自动 fetch。规划器及两个配置均从固定 base 加载，沿原 `pr-fast` 逻辑选测，候选改动不能自行缩减检查。输出始终 `validated=false`，检查数与测试数均为零，不代表 affected 已可执行。
+
+- `--output-dir` 指定报告父目录，必须在工作树外或 ignored 目录下；每次创建独有子目录，不覆盖既有报告。省略时保留在系统临时目录，结果包含实际日志和 `result.json` 路径。仅写这些自有输出及临时 policy 文件，不修改源码、index 或 ref。
+- `--timeout-seconds` 设置规划器时限，默认 120 秒。text/JSON 与持久报告同源，包含固定 SHA、原始计划、实际 argv/cwd、配置摘要、耗时、退出码和未执行组。
+- dirty/untracked、冲突、隐藏 index 标志、缺失或歧义基线及未开放参数为 blocked（2）。执行中输入变化为 stale_input（2），保留已有计划；规划器失败/超时、无效结果或报告写失败为 failed（1），空计划为 no_checks（3），中断为 cancelled（130）。只有显式 dry-run 成功才为 planned（0），没有 passed 状态。
+- 本片不运行 driver，不验证 ignored/外部运行输入、quick/formal、业务测试或其他平台。本地 `origin/main` 的可信性是前提；JSON 的零执行和限制字段必须与计划一起解读。
 
 `./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
 
