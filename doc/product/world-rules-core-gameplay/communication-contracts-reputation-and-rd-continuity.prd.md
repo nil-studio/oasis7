@@ -74,11 +74,12 @@ Trace ID: O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f
 
 - 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：[明确条款与同版接受](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-terms)、[双边交换权威生效](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-commit)及[原请求恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-recovery)承接本条在双边 Electricity/Data 即时原子交换中的非绑定提议、当前授权、明确接受、单次效果与可读结果；专业条款保留反向承接和独立验证方法。该目标合同不等于现有 native EconomicContract、正式 API 或 Viewer 已接通，也不覆盖其他履约类型的完整绑定与后续救济。
+- 系统设计依据：[明确条款与同版接受](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-terms)、[双边交换权威生效](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-commit)及[原请求恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-recovery)承接双边 Electricity/Data 即时交换；[有限供能服务形成](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-formation)承接个人供需双方对检查点、价款、抵押、费用及救济的同版接受与显式生效。两种目标合同分别保留反向承接和验证方法，不表示现有 native EconomicContract、正式 API 或 Viewer 已接通。
 - 实现与验证依据：已交付原子经济合同的主体接受子义务：Simulator动作映射经生产分发进入Runtime，Accept检查主体、Open状态、指定counterparty及到期条件，并生成EconomicContractAccepted进入publication。明确条款渲染、offered/accepted_pending_validation零效果与玩家授权/权威receipt完整绑定仍未核清。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L793-L1004)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L30-L111)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L1-L140)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L448-L457)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runtime_support.rs#L250-L268)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
 - 本轮设计补核：2026-11-04；输入基线 `5e62da69ddb511f9f10a524accdf0071ecd6b91c`。新增专业设计只覆盖上述即时交换切片；旧 native Open 到期已有声誉后果，不能作为零效果 offered 的实现证据。历史实现与测试定义仍按上方固定版本保留，本轮没有运行业务、正式入口或跨节点验收。
-- 剩余范围：设计仍须承接持续服务等其他履约类型的绑定、明确义务与后续救济组合；实现仍须交付完整条款渲染、双方当前授权与同版接受、零效果待校验、绑定和两腿原子效果及权威 receipt 的端到端流程。受治理分类/激活、真实恢复与各正式入口的证据继续分别核验；社交消息、action ack 或本次文档检查不证明合同已成立。
+- 服务设计补核：2026-11-04；固定输入 `0a967845ba8e0bb33331a91008d2e7471eec1ece`。新增服务合同只覆盖个人双方、有限 Electricity 检查点与 Data 价款；依赖的资源占用、费用及救济能力仍为目标设计。
+- 剩余范围：设计仍须承接组织、多方、长期受托及其他履约类型的完整形成与救济组合；实现仍须交付明确条款、双方当前授权与同版接受、零效果待校验、合法占用和原子效果及权威 receipt 的端到端流程。受治理分类/激活、真实恢复与各正式入口的证据继续分别核验；社交消息、action ack 或文档检查不证明合同已成立。
 
 - 要求：人类沟通、草稿、未接受提议和 Agent 建议保持非绑定；只有授权范围内渲染的明确条款、主体明确接受并获得权威校验 receipt 后，才可以创建绑定义务和世界效果。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)
@@ -99,12 +100,13 @@ Trace refs: O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f；声明：[REQ-WR-CR-00
 
 Trace ID: O7-REQ-805fc92a-bbcb-4e77-b2d8-e40105522a0d
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[检查点单次结算](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-checkpoint-settlement)、[修复与终止](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-recovery-actions)、[争议作用域](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-dispute-authority)、[显式继受](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-succession)及[持久恢复](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-persistence)承接有限个人供能服务的已履行/未履行单元、价款/抵押与费用分账、原范围补救、最小保全、三方接受和原请求去重。专业设计保留准确反向承接及独立验收方法；该切片不代表所有服务和通用裁决机制已覆盖。
 - 实现与验证依据：持续服务本身尚未实现：新建与结算生产入口均显式拒绝Service；结算及过期事件准备层也拒绝Service（Opened/Accepted准备分支没有该拒绝），过期生命周期仅处理AtomicExchange。已交付的原子交换、通用恢复与幂等基础不属于本条持续服务检查点恢复交付。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L793-L809)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L1035-L1051)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L504-L512)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/gameplay_loop.rs#L292-L315)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L104-L140)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
-- 剩余范围：持续服务的collateral/evidence/remedy、检查点已履行/未履行责任、修复/终止/dispute/preserve、续期重报价与重试去重尚未交付；不能以AtomicExchange或通用恢复代替。
+- 服务设计补核：2026-11-04；固定输入 `0a967845ba8e0bb33331a91008d2e7471eec1ece`。新[供能服务政策](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-scope)与专业执行合同定义目标规则和方法；当前 native Service 仍拒绝，未运行持续服务、正式入口、跨节点或真人验收。
+- 剩余范围：其他维护、运输和协作服务的证据与救济政策，组织/多方责任及通用争端、声誉的组合设计仍未完整覆盖。有限供能服务所需的受保护资源占用、费用闭合、合法本地 panel、正式消费者和全部业务/恢复验证尚未实现；本条实现状态保持未实现，不能由即时交换或通用恢复代签。
 
 - 要求：跨时间服务按检查点保留已完成结果、未履行范围、责任和可执行下一步；玩家可选择修复/重新履行、终止/结清、最小争议保全或显式继受，且 retry、reconnect 和续期不能重复交付、扣款或静默转移责任。
 - 专业权威：[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)

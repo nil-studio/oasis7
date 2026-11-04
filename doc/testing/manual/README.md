@@ -8,6 +8,7 @@
 - 想验证像素世界的原操作归属、授权分页/时效、探索跟随、图形恢复、可访问性、五秒首读、容量与 Web/native 同义：读 [`pixel-world-visualization-validation.manual.md`](pixel-world-visualization-validation.manual.md)。这是验证方法，不是当前通过报告；它细化而不替代外部 Runtime 的 viewer-* 组合场景。
 - 想组织受控首局的真人研究：读[首局真人试玩手册](first-session-human-playtest.manual.md)，按同一候选完成筛选、两次会话、主持与提示、原始记录及分项分析；实际执行仍须满足原候选开放条件。
 - 想核对双边即时交换的非绑定提议、授权接受、原子效果与恢复：读[合同形成验收手册](agent-mediated-contract-formation-acceptance.manual.md)；这是目标验证方法，不是当前业务通过记录。
+- 想核对有限供能服务的部分履行、抵押、费用、修复、争议与显式继受：读[供能服务验收手册](checkpoint-power-service-acceptance.manual.md)，分别核资源守恒、责任范围、原请求恢复和玩家理解；方法存在不表示服务已可用。
 - 想让本地入口接入 formal `public_testnet` world state，或排查 LetAI 配置、代理继承、模型选择、quota 与受控 auto-topup：读 [`local-public-testnet-letai-test-environment-2026-06-23.manual.md`](local-public-testnet-letai-test-environment-2026-06-23.manual.md)。
 - 想在受治理 deployment truth 下只物化一台已擦除 validator host、保持服务 disabled/inactive 并输出 public receipt：先读 blockchain ops authority [`../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)，再按 [`public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md`](public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md) 执行其 narrow subprocedure。
 - 想用截图加模型视觉评审替代 routine 人工 review：读 [`model-visual-review-sop-2026-05-29.manual.md`](model-visual-review-sop-2026-05-29.manual.md)，并使用 [`../templates/model-visual-review-card-template.md`](../templates/model-visual-review-card-template.md)。
@@ -24,6 +25,7 @@
 | 像素世界的数据/体验/恢复/质量与逐端验收 | `pixel-world-visualization-validation.manual.md` | 新增通用 CI gate、模拟运行成绩、付费模型或完整发行放行 |
 | 受控首局真人研究的招募准备、双会话主持与原始记录 | `first-session-human-playtest.manual.md` | 招募授权、运行成绩、全游戏好玩性与留存证明 |
 | 双边 Electricity/Data 合同形成与即时交换 | `agent-mediated-contract-formation-acceptance.manual.md` | 持续服务、争端/继受、现有 native 兼容面或正式入口完成证明 |
+| 有限 Electricity 供能服务的检查点与救济 | `checkpoint-power-service-acceptance.manual.md` | 其他服务、通用法院/声誉、实际运行或完整 CR-002 完成证明 |
 | 本地入口接入 formal public testnet | `local-public-testnet-letai-test-environment-2026-06-23.manual.md` | 纯 local-only LetAI playtest |
 | 已擦除 validator host 的 no-start 物化 | `doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`，再进入 `public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md` | topology 审批、服务启用、网络 readiness 或 release claim |
 | 截图的模型视觉评审 | `model-visual-review-sop-2026-05-29.manual.md` | runtime / security / release 放行结论 |
