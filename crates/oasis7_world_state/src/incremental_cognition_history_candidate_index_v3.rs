@@ -61,6 +61,61 @@ fn core_error(error: CoreError<std::convert::Infallible>) -> ValueTreeError {
     }
 }
 impl<'a> CandidateCognitionHistoryIndexBuilderV3<'a> {
+    pub fn activate_field(
+        request: &CognitionHistorySelectionRequestV1<'_>,
+        selected: &'a ReservedValue<CheckedCognitionHistoryViewV1>,
+        parent: &ReservedValue<CompleteCognitionHistorySourceV3>,
+        index: &ReservedValue<CognitionHistoryIndexQualificationV1>,
+        memory: &MemoryBudget,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<Self, ValueTreeError> {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        let field = index.field();
+        validate_new_cognition_field_source_parent_v3(parent, request, selected, field, memory)?;
+        if !index.uses_budget(memory)
+            || index.reserved_bytes() < 16 << 10
+            || index.class() != MemoryClass::Ordinary
+        {
+            return Err(invalid_candidate_index());
+        }
+        index.validate_binding(field, selected.manifest().index_ref(field))?;
+        let charge = memory.reserve(16 << 10, MemoryClass::Ordinary)?;
+        let occurrence = check_candidate_fact_v1(
+            &CandidateFactRequestV1 {
+                kind: ExecutionFactKindV1::Result,
+                candidate: request.candidate,
+                core: request.core,
+                originals: request.originals,
+                ordinal: selected.occurrence().location().ordinal,
+            },
+            memory,
+            &mut cancelled,
+        )
+        .map_err(core_error)?;
+        if occurrence.candidate_record_id() != selected.occurrence().candidate_record_id()
+            || occurrence.body_id() != selected.occurrence().body_id()
+            || occurrence.roots_id() != selected.manifest().roots
+            || occurrence.location() != selected.occurrence().location()
+        {
+            return Err(invalid_candidate_index());
+        }
+        let root = index.root().clone();
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        Ok(Self {
+            selected,
+            occurrence,
+            root,
+            field,
+            next: 0,
+            replay: false,
+            failed: false,
+            charge,
+        })
+    }
     pub fn new(
         request: &CognitionHistorySelectionRequestV1<'_>,
         selected: &'a ReservedValue<CheckedCognitionHistoryViewV1>,

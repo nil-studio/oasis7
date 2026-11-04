@@ -131,7 +131,11 @@ pub(crate) fn accept_rollback_family_verified_v1<
             // Other owners contribute dedicated raw keys to this same transaction.
             // The enclosing key router closes those grammars; this family still
             // rejects malformed keys in its own generic field-key domain.
-            if !write.mutation.key.starts_with(b"oasis7.iws.world-field-key.v1") {
+            if !write
+                .mutation
+                .key
+                .starts_with(b"oasis7.iws.world-field-key.v1")
+            {
                 continue;
             }
             let key = WorldFieldKeyV1::from_bytes(&write.mutation.key)

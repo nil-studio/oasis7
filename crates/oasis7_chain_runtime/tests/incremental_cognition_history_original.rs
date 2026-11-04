@@ -27,6 +27,8 @@ mod enabled;
 mod normal;
 #[path = "support/cognition_history_readmission.rs"]
 mod readmission;
+#[path = "support/cognition_history_source_presence.rs"]
+mod source_presence;
 #[path = "support/cognition_history_v3_ordinary.rs"]
 mod source_v3_ordinary;
 struct Directory(PathBuf);

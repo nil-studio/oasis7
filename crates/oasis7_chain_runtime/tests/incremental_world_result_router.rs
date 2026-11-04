@@ -111,7 +111,7 @@ fn put(objects: &IncrementalObjectStore<'_>, bytes: &[u8], io: &mut ObjectIo<'_>
 // closure only; they do not grant complete World execution or HistoryReady.
 #[test]
 fn actual_signed_genesis_result_router_requires_unique_both_views_and_closed_profiles() {
-    for mode in 0..7 {
+    for mode in 0..8 {
         let compression = if mode == 1 {
             PageCompression::Zstd
         } else {
@@ -164,15 +164,22 @@ fn actual_signed_genesis_result_router_requires_unique_both_views_and_closed_pro
                 },
             )
             .unwrap();
+        if mode == 7 {
+            raw = duplicate_snapshot_envelope(&snapshot);
+        }
+        let snapshot_id = *blake3::hash(&raw).as_bytes();
+        if mode != 7 {
+            assert_eq!(snapshot_id, binding.original_id());
+        }
         put(&objects, &raw, &mut io);
         let ordinal = s.history.facts.facts.len() as u64;
         let row = RuntimeHistoryIndexRowV1 {
             location: FactLocationV1 {
                 height: 0,
                 ordinal,
-                original: binding.original_id(),
+                original: snapshot_id,
             },
-            encoded_bytes: binding.original_bytes(),
+            encoded_bytes: raw.len() as u64,
         };
         let mut writer = store.value_session(physical());
         let mut value_io = logical();
@@ -220,7 +227,7 @@ fn actual_signed_genesis_result_router_requires_unique_both_views_and_closed_pro
         let mut genesis = s.history.facts.facts.clone();
         genesis.push(ExecutionFactRefV1 {
             kind: ExecutionFactKindV1::Result,
-            id: binding.original_id(),
+            id: snapshot_id,
         });
         let runtime_id = *blake3::hash(&bytes).as_bytes();
         if mode != 6 {
@@ -452,4 +459,20 @@ fn router_work() -> WorldResultRouterWorkV1 {
             max_key_bytes: 4096,
         },
     }
+}
+
+fn duplicate_snapshot_envelope(snapshot: &SnapshotRecord) -> Vec<u8> {
+    struct Duplicate<'a>(&'a SnapshotRecord);
+    impl serde::Serialize for Duplicate<'_> {
+        fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeMap;
+            let mut map = s.serialize_map(Some(4))?;
+            map.serialize_entry("domain", "oasis7.runtime.history.original.v1")?;
+            map.serialize_entry("domain", "oasis7.runtime.history.original.v1")?;
+            map.serialize_entry("schema", "snapshot-record.v1")?;
+            map.serialize_entry("value", self.0)?;
+            map.end()
+        }
+    }
+    serde_cbor::to_vec(&Duplicate(snapshot)).unwrap()
 }

@@ -1,123 +1,71 @@
 //! Full current-state acceptance over the actual full Runtime GEN fixture.
-use super::super::raw_complete::{Binder, Scratch, raw_work};
+use super::super::raw_complete::{Binder, Scratch};
 use super::*;
 use oasis7_world_state::{
-    incremental_cognition_current_complete_v3::{
-        CognitionCurrentCompleteWorkV3, CognitionCurrentPresenceV3,
-    },
-    incremental_factory_records as factory, incremental_industry_jobs as industry,
-    incremental_inventory as inventory, incremental_logistics_records as logistics,
-    incremental_module_marketplace as market, incremental_owner_closure as primitive,
-    incremental_world_collection_controls as controls,
+    incremental_cognition_current_complete_v3::CognitionCurrentPresenceV3,
     incremental_world_current_complete::*,
-    incremental_world_native as native,
-    incremental_world_native_complete::WorldNativeCompleteWorkV1,
-    incremental_world_rules_family as rules,
+    incremental_world_current_limits::WorldCurrentStateLimitsV1,
 };
 use std::cell::Cell;
-fn rules_work() -> rules::WorldRulesFamilyWorkV1 {
-    rules::WorldRulesFamilyWorkV1 {
-        outer_records_remaining: 1_000_000,
-        legacy_cells_remaining: 1_000_000,
-        max_semantic_bytes: 1 << 20,
-        max_record_bytes: 8 << 20,
-        composite: rules::WorldRulesTypedReadWorkV1 {
-            max_retained_trees: 100000,
-            max_tree_heap: 1 << 20,
-            json: oasis7_world_state::incremental_json_records::JsonReadWorkV1 {
-                cells_remaining: 1_000_000,
-                json_nodes_remaining: 1_000_000,
-                max_depth: 64,
-                max_payload_bytes: 4 << 20,
-            },
-        },
-        remainder: oasis7_world_state::incremental_world_rule_effects::WorldRuleRemainderWorkV1 {
-            cells_remaining: 1_000_000,
-            max_semantic_bytes: 1 << 20,
-            max_payload_bytes: 4 << 20,
-        },
-    }
-}
-fn native_work() -> WorldNativeCompleteWorkV1 {
-    WorldNativeCompleteWorkV1 {
-        legacy_cells_remaining: 1_000_000,
-        max_payload_bytes: 8 << 20,
-        primitive: primitive::WorldPrimitiveFamilyWorkV1 {
-            records_remaining: 1_000_000,
-            max_record_bytes: 8 << 20,
-        },
-        native: native::WorldNativeQualificationWorkV1 {
-            records_remaining: 1_000_000,
-            trees_remaining: 1_000_000,
-            max_key_heap: 1 << 20,
-            max_pending_records: 8,
-            typed: oasis7_world_state::incremental_runtime_revocation::RevocationReadWorkV1 {
-                json: json_work(),
-                max_retained_trees: 100_000,
-                max_tree_heap: 1 << 20,
-            },
-        },
-        inventory: inventory::InventoryFamilyWorkV1 {
-            records_remaining: 1_000_000,
-            index_steps_remaining: 1_000_000,
-            max_semantic_bytes: 1 << 20,
-        },
-        factory: factory::FactoryWorkBudgetV1 {
-            cells_remaining: 1_000_000,
-            max_pending_node_bytes: 8 << 20,
-            scan: scan(),
-        },
-        industry: industry::IndustryWorkBudgetV1 {
-            cells_remaining: 1_000_000,
-            max_pending_node_bytes: 8 << 20,
-            scan: scan(),
-        },
-        logistics: logistics::LogisticsWorkBudgetV1 {
-            cells_remaining: 1_000_000,
-            max_pending_node_bytes: 8 << 20,
-            scan: scan(),
-        },
-        market: market::ModuleMarketplaceFamilyWorkV1 {
-            outer_rows_remaining: 1_000_000,
-            changed_cells_remaining: 1_000_000,
-            membership_cells_remaining: 1_000_000,
-            max_record_bytes: 8 << 20,
-        },
-        rules: rules_work(),
-        controls: controls::WorldCollectionControlsWorkV1 {
-            records_remaining: 1_000_000,
-            index_steps_remaining: 1_000_000,
-            max_record_bytes: 8 << 20,
-        },
-    }
-}
-fn json_work() -> oasis7_world_state::incremental_json_records::JsonReadWorkV1 {
-    oasis7_world_state::incremental_json_records::JsonReadWorkV1 {
-        cells_remaining: 1_000_000,
-        json_nodes_remaining: 1_000_000,
-        max_depth: 64,
-        max_payload_bytes: 8 << 20,
-    }
-}
 fn whole_work() -> WorldCurrentStateWorkV1 {
-    WorldCurrentStateWorkV1 {
-        key_scan: scan(),
-        native_outer_scan: scan(),
-        native_inner_scan: scan(),
+    // Exercise the actual endpoint limits adapter, with explicit finite test
+    // allowances. Each operation receives its own caller-owned work value.
+    WorldCurrentStateLimitsV1 {
+        buckets_remaining: 1_000_000,
+        bytes_remaining: 256 << 20,
+        cells_remaining: 1_000_000,
+        changed_cells_remaining: 1_000_000,
+        comparison_bytes_remaining: 256 << 20,
+        index_steps_remaining: 1_000_000,
+        instance_relations_remaining: 1_000_000,
+        instances_remaining: 1_000_000,
+        json_nodes_remaining: 1_000_000,
         key_changes_remaining: 1_000_000,
-        native: native_work(),
-        runtime: read_work(),
-        raw: raw_work(),
-        cognition: CognitionCurrentCompleteWorkV3 {
-            scan: scan(),
-            json: oasis7_world_state::incremental_json_records::JsonChangeWorkV1 {
-                json: json(),
-                paths_remaining: 1_000_000,
-                max_pending_pairs: 1024,
-            },
-            outer_cells_remaining: 1_000_000,
-        },
+        leaves_remaining: 1_000_000,
+        legacy_cells_remaining: 1_000_000,
+        logical_bytes_remaining: 256 << 20,
+        mailbox_occurrences_remaining: 1_000_000,
+        max_agents: 100_000,
+        max_depth: 64,
+        max_instance_scalar_bytes: 8 << 20,
+        max_key_bytes: 8 << 20,
+        max_key_heap: 8 << 20,
+        max_map_keys: 1024,
+        max_object_bytes: 8 << 20,
+        max_original_bytes: 8 << 20,
+        max_payload_bytes: 8 << 20,
+        max_pending_node_bytes: 8 << 20,
+        max_pending_pairs: 1024,
+        max_pending_records: 8,
+        max_record_bytes: 8 << 20,
+        max_retained_trees: 100_000,
+        max_scalar_bytes: 8 << 20,
+        max_selected_heap: 8 << 20,
+        max_semantic_bytes: 8 << 20,
+        max_state_bytes: 8 << 20,
+        max_text_bytes: 8 << 20,
+        max_tree_heap: 8 << 20,
+        membership_cells_remaining: 1_000_000,
+        nodes_remaining: 1_000_000,
+        objects_remaining: 1_000_000,
+        original_bytes_remaining: 256 << 20,
+        outer_cells_remaining: 1_000_000,
+        outer_records_remaining: 1_000_000,
+        outer_rows_remaining: 1_000_000,
+        paths_remaining: 1_000_000,
+        read_bytes: 256 << 20,
+        read_bytes_remaining: 256 << 20,
+        reads: 1_000_000,
+        records_remaining: 1_000_000,
+        states_remaining: 1_000_000,
+        steps_remaining: 1_000_000,
+        trees_remaining: 1_000_000,
+        visits_remaining: 1_000_000,
+        write_bytes: 256 << 20,
+        writes: 1_000_000,
     }
+    .work()
+    .unwrap()
 }
 struct Counted<'a> {
     reader: &'a Reader<'a>,

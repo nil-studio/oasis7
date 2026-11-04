@@ -68,12 +68,53 @@ impl<'a> CandidateCognitionHeadSourceBuilderV3<'a> {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        let summary = selected.source_v3().ok_or_else(candidate_invalid)?;
-        let field = index.field();
         if request.core.body().height != 0
+            || request.core.parent_record_id().is_some()
             || selected.manifest().revision != 0
             || selected.manifest().previous_view.is_some()
-            || summary.mode != CognitionHistorySourceModeV3::Bootstrap
+            || selected
+                .source_v3()
+                .is_none_or(|summary| summary.mode != CognitionHistorySourceModeV3::Bootstrap)
+        {
+            return Err(candidate_invalid());
+        }
+        Self::full_scope(request, selected, index, memory, cancelled)
+    }
+    /// A newly present active field starts from its actual complete new index,
+    /// never from a fabricated enabled parent or from a scan of archived H.
+    pub fn activate_field(
+        request: &'a CognitionHistorySelectionRequestV1<'a>,
+        selected: &'a ReservedValue<CheckedCognitionHistoryViewV1>,
+        parent: &ReservedValue<CompleteCognitionHistorySourceV3>,
+        index: &ReservedValue<CognitionHistoryIndexQualificationV1>,
+        memory: &'a MemoryBudget,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<Self, ValueTreeError> {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        validate_new_cognition_field_source_parent_v3(
+            parent,
+            request,
+            selected,
+            index.field(),
+            memory,
+        )?;
+        Self::full_scope(request, selected, index, memory, cancelled)
+    }
+    fn full_scope(
+        request: &'a CognitionHistorySelectionRequestV1<'a>,
+        selected: &'a ReservedValue<CheckedCognitionHistoryViewV1>,
+        index: &ReservedValue<CognitionHistoryIndexQualificationV1>,
+        memory: &'a MemoryBudget,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<Self, ValueTreeError> {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        let summary = selected.source_v3().ok_or_else(candidate_invalid)?;
+        let field = index.field();
+        if !selected.manifest().enabled
             || field == CognitionHistoryFieldV1::Responses
             || !selected.uses_budget(memory)
             || selected.reserved_bytes() < 16 << 10

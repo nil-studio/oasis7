@@ -98,6 +98,59 @@ impl CompleteCognitionHistorySourceV3 {
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("complete Cognition history source")
 }
+/// Exact authenticated active-scope predecessor. The previous-view edge keeps
+/// the old accepted scope reachable; this does not authorize a business reset.
+pub(crate) fn validate_cognition_source_candidate_parent_v3(
+    parent: &ReservedValue<CompleteCognitionHistorySourceV3>,
+    request: &CognitionHistorySelectionRequestV1<'_>,
+    selected: &ReservedValue<CheckedCognitionHistoryViewV1>,
+    memory: &MemoryBudget,
+) -> Result<(), ValueTreeError> {
+    let before = parent.selected();
+    let summary = selected.source_v3().ok_or_else(invalid)?;
+    let _scratch = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    if !parent.uses_budget(memory)
+        || parent.reserved_bytes() < 4096
+        || !before.uses_budget(memory)
+        || before.class() != MemoryClass::Ordinary
+        || !selected.uses_budget(memory)
+        || selected.reserved_bytes() < 16 << 10
+        || !summary.uses_budget(memory)
+        || summary.reserved_bytes() < COGNITION_HISTORY_SOURCE_SUMMARY_ADMISSION_V3_BYTES
+        || summary.mode != CognitionHistorySourceModeV3::Delta
+        || request.core.parent_record_id() != Some(before.occurrence().head_record_id())
+        || request.core.body().parent_commit != Some(before.occurrence().head_body_id())
+        || request
+            .core
+            .parent_body()
+            .is_none_or(|body| body.roots != before.manifest().roots)
+        || request
+            .core
+            .parent_roots()
+            .is_none_or(|roots| roots.digest().ok() != Some(before.manifest().roots))
+        || selected.manifest().previous_view != Some(before.occurrence().location())
+        || before.manifest().revision.checked_add(1) != Some(selected.manifest().revision)
+    {
+        return Err(invalid());
+    }
+    summary.validate_shape(selected.manifest(), selected.derived().ok_or_else(invalid)?)
+}
+pub(crate) fn validate_new_cognition_field_source_parent_v3(
+    parent: &ReservedValue<CompleteCognitionHistorySourceV3>,
+    request: &CognitionHistorySelectionRequestV1<'_>,
+    selected: &ReservedValue<CheckedCognitionHistoryViewV1>,
+    field: CognitionHistoryFieldV1,
+    memory: &MemoryBudget,
+) -> Result<(), ValueTreeError> {
+    validate_cognition_source_candidate_parent_v3(parent, request, selected, memory)?;
+    if parent.selected().manifest().index_ref(field).present
+        || !selected.manifest().enabled
+        || !selected.manifest().index_ref(field).present
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
 pub fn qualify_checked_cognition_history_source_v3(
     parts: CheckedCognitionHistoryComponentsV3,
     memory: &MemoryBudget,

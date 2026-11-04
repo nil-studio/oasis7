@@ -53,23 +53,65 @@ pub struct RuntimeTypedCompleteQualificationV1 {
     pending: ReservedValue<pending::PendingActionQualificationV1>,
 }
 impl RuntimeTypedCompleteQualificationV1 {
-    pub fn config(&self) -> &ReservedValue<config::ArtifactConfigFamilyQualificationV1> { &self.config }
-    pub fn controls(&self) -> &ReservedValue<controls::RuntimeControlsQualificationV1> { &self.controls }
-    pub fn business(&self) -> &ReservedValue<business::RuntimeBusinessQualificationV1> { &self.business }
-    pub fn effects(&self) -> &ReservedValue<effects::RuntimeEffectFamilyQualificationV1> { &self.effects }
-    pub fn scheduler(&self) -> &ReservedValue<scheduler::RuntimeSchedulerControlsQualificationV1> { &self.scheduler }
-    pub fn capabilities(&self) -> &ReservedValue<capabilities::RuntimeCapabilityFamilyQualificationV1> { &self.capabilities }
-    pub fn module_authorization(&self) -> &ReservedValue<module_authorization::ModuleAuthorizationFamilyQualificationV1> { &self.module_authorization }
-    pub fn grants(&self) -> &ReservedValue<grants::AuthorizationGrantsQualificationV1> { &self.grants }
-    pub fn authorization_records(&self) -> &ReservedValue<authorization_records::AuthorizationRecordFamiliesQualificationV1> { &self.authorization_records }
-    pub fn authorization_root(&self) -> &ReservedValue<authorization_root::RuntimeAuthorizationRootQualificationV1> { &self.authorization_root }
-    pub fn revocation(&self) -> &ReservedValue<revocation::RuntimeRevocationQualificationV1> { &self.revocation }
-    pub fn proposals(&self) -> &ReservedValue<proposals::RuntimeProposalsQualificationV1> { &self.proposals }
-    pub fn governance(&self) -> &ReservedValue<governance::RuntimeGovernanceQualificationV1> { &self.governance }
-    pub fn resources(&self) -> &ReservedValue<resources::RuntimeArtifactResourcesQualificationV1> { &self.resources }
-    pub fn content(&self) -> &ReservedValue<content::RuntimeArtifactContentQualificationV1> { &self.content }
-    pub fn rollback(&self) -> &ReservedValue<rollback::RollbackFamilyQualificationV1> { &self.rollback }
-    pub fn pending(&self) -> &ReservedValue<pending::PendingActionQualificationV1> { &self.pending }
+    pub fn config(&self) -> &ReservedValue<config::ArtifactConfigFamilyQualificationV1> {
+        &self.config
+    }
+    pub fn controls(&self) -> &ReservedValue<controls::RuntimeControlsQualificationV1> {
+        &self.controls
+    }
+    pub fn business(&self) -> &ReservedValue<business::RuntimeBusinessQualificationV1> {
+        &self.business
+    }
+    pub fn effects(&self) -> &ReservedValue<effects::RuntimeEffectFamilyQualificationV1> {
+        &self.effects
+    }
+    pub fn scheduler(&self) -> &ReservedValue<scheduler::RuntimeSchedulerControlsQualificationV1> {
+        &self.scheduler
+    }
+    pub fn capabilities(
+        &self,
+    ) -> &ReservedValue<capabilities::RuntimeCapabilityFamilyQualificationV1> {
+        &self.capabilities
+    }
+    pub fn module_authorization(
+        &self,
+    ) -> &ReservedValue<module_authorization::ModuleAuthorizationFamilyQualificationV1> {
+        &self.module_authorization
+    }
+    pub fn grants(&self) -> &ReservedValue<grants::AuthorizationGrantsQualificationV1> {
+        &self.grants
+    }
+    pub fn authorization_records(
+        &self,
+    ) -> &ReservedValue<authorization_records::AuthorizationRecordFamiliesQualificationV1> {
+        &self.authorization_records
+    }
+    pub fn authorization_root(
+        &self,
+    ) -> &ReservedValue<authorization_root::RuntimeAuthorizationRootQualificationV1> {
+        &self.authorization_root
+    }
+    pub fn revocation(&self) -> &ReservedValue<revocation::RuntimeRevocationQualificationV1> {
+        &self.revocation
+    }
+    pub fn proposals(&self) -> &ReservedValue<proposals::RuntimeProposalsQualificationV1> {
+        &self.proposals
+    }
+    pub fn governance(&self) -> &ReservedValue<governance::RuntimeGovernanceQualificationV1> {
+        &self.governance
+    }
+    pub fn resources(&self) -> &ReservedValue<resources::RuntimeArtifactResourcesQualificationV1> {
+        &self.resources
+    }
+    pub fn content(&self) -> &ReservedValue<content::RuntimeArtifactContentQualificationV1> {
+        &self.content
+    }
+    pub fn rollback(&self) -> &ReservedValue<rollback::RollbackFamilyQualificationV1> {
+        &self.rollback
+    }
+    pub fn pending(&self) -> &ReservedValue<pending::PendingActionQualificationV1> {
+        &self.pending
+    }
     pub fn allocation_class(&self) -> MemoryClass {
         self.class
     }

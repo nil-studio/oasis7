@@ -77,6 +77,58 @@ fn candidate_declared(
         .map_err(|_| invalid())
 }
 impl<'a> CandidateCognitionLifecycleBuilderV3<'a> {
+    pub fn activate(
+        request: &CognitionHistorySelectionRequestV1<'_>,
+        selected: &'a ReservedValue<CheckedCognitionHistoryViewV1>,
+        parent: &ReservedValue<CompleteCognitionHistorySourceV3>,
+        memory: &MemoryBudget,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<Self, ValueTreeError> {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        validate_new_cognition_field_source_parent_v3(
+            parent,
+            request,
+            selected,
+            CognitionHistoryFieldV1::JournalEvents,
+            memory,
+        )?;
+        candidate_declared(selected)?;
+        let charge = memory.reserve(16 << 10, MemoryClass::Ordinary)?;
+        let occurrence = check_candidate_fact_v1(
+            &CandidateFactRequestV1 {
+                kind: ExecutionFactKindV1::Result,
+                candidate: request.candidate,
+                core: request.core,
+                originals: request.originals,
+                ordinal: selected.occurrence().location().ordinal,
+            },
+            memory,
+            &mut cancelled,
+        )
+        .map_err(candidate_error)?;
+        if occurrence.candidate_record_id() != selected.occurrence().candidate_record_id()
+            || occurrence.body_id() != selected.occurrence().body_id()
+            || occurrence.roots_id() != selected.manifest().roots
+            || occurrence.location() != selected.occurrence().location()
+        {
+            return Err(invalid());
+        }
+        let root = StateRootV1::empty(StateNamespaceV1::Artifacts).map_err(|_| invalid())?;
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        Ok(Self {
+            selected,
+            occurrence,
+            root,
+            keys: 0,
+            next: 0,
+            failed: false,
+            charge,
+        })
+    }
     /// A nonempty GEN is checked by replaying every original, within the
     /// existing finite Formal fact limit. Ordinary replay starts at its exact
     /// authenticated parent and does not revisit that prefix.

@@ -104,6 +104,15 @@ pub fn check_candidate_disabled_cognition_history_source_v3(
         }
         _ => return Err(invalid()),
     }
+    finish_disabled_candidate_v3(request, selected, memory, charge, cancelled)
+}
+fn finish_disabled_candidate_v3(
+    request: &CognitionHistorySelectionRequestV1<'_>,
+    selected: &ReservedValue<CheckedCognitionHistoryViewV1>,
+    memory: &MemoryBudget,
+    charge: oasis7_proto::memory_budget::MemoryReservation,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CheckedDisabledCognitionHistorySourceV3>, ValueTreeError> {
     let occurrence = check_candidate_fact_v1(
         &CandidateFactRequestV1 {
             kind: ExecutionFactKindV1::Result,
@@ -131,6 +140,32 @@ pub fn check_candidate_disabled_cognition_history_source_v3(
         revision: selected.manifest().revision,
     }))
 }
+/// Switch only the active projection, retaining the exact accepted previous
+/// view edge. This does not authorize discarding business or terminal state.
+pub fn check_candidate_disabled_cognition_history_successor_v3(
+    request: &CognitionHistorySelectionRequestV1<'_>,
+    selected: &ReservedValue<CheckedCognitionHistoryViewV1>,
+    absence: &ReservedValue<CognitionCurrentAbsenceQualificationV1>,
+    parent: &ReservedValue<CompleteCognitionHistorySourceV3>,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CheckedDisabledCognitionHistorySourceV3>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    validate_cognition_source_candidate_parent_v3(parent, request, selected, memory)?;
+    if selected.manifest().enabled
+        || !absence.uses_budget(memory)
+        || absence.reserved_bytes() < 1024
+        || absence.class() != MemoryClass::Ordinary
+    {
+        return Err(invalid());
+    }
+    absence.validate_binding(&selected.manifest().roots)?;
+    let charge = memory.reserve(4096, MemoryClass::Ordinary)?;
+    finish_disabled_candidate_v3(request, selected, memory, charge, cancelled)
+}
+
 pub fn promote_disabled_cognition_history_source_v3(
     source: &ReservedValue<CheckedDisabledCognitionHistorySourceV3>,
     accepted: &VerifiedFormalCommitV1,
