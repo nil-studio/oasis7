@@ -51,7 +51,6 @@ impl CheckedPendingActionOriginalV1 {
 }
 #[path = "incremental_typed_original_binding.rs"]
 mod binding;
-pub(crate) use binding::verify_typed_original_v1;
 /// No untrusted original DTO is deserialized. The complete typed projection is
 /// canonically encoded to a bounded hash sink, then the actual original source
 /// is independently streamed and compared by exact length and content ID.

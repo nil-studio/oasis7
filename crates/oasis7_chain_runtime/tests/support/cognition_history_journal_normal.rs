@@ -25,6 +25,8 @@ use oasis7_world_state::{
     incremental_field_overlay::WorldFieldOverlayContextV1,
 };
 pub(super) struct JournalFrame<'a> {
+    pub complete:
+        Option<&'a oasis7_proto::memory_budget::ReservedValue<CompleteCognitionHistorySourceV3>>,
     pub source: normal::Source<'a>,
     pub head: &'a formal::VerifiedFormalCommitV1,
     pub view: &'a oasis7_proto::memory_budget::ReservedValue<AcceptedCognitionHistoryViewV1>,
@@ -482,7 +484,7 @@ pub(super) fn append_two_events(
             io,
             |candidate, core, originals, _checked, io| {
                 view.source_v3().map(|_| {
-                    super::source_v3_ordinary::check_ordinary(
+                    let oracle = super::source_v3_ordinary::check_ordinary(
                         super::source_v3_ordinary::OrdinaryFrame {
                             before: view,
                             before_current: &parent_binding,
@@ -500,12 +502,49 @@ pub(super) fn append_two_events(
                         objects,
                         io,
                         memory,
-                    )
+                    );
+                    let pending = frame.complete.map(|parent| {
+                        let request = CognitionHistorySelectionRequestV1 {
+                            candidate,
+                            core,
+                            originals,
+                        };
+                        let production = super::source_reader::check(
+                            &request,
+                            CognitionHistoryCurrentSourceV1::Enabled(&after_current),
+                            Some(parent),
+                            store,
+                            objects,
+                            io,
+                            memory,
+                        );
+                        assert_eq!(
+                            production.selected().manifest(),
+                            oracle.selected().manifest()
+                        );
+                        super::source_reader::prepare(&production, memory)
+                    });
+                    (oracle, pending)
                 })
             },
         );
-    let _promoted_complete = checked_complete.as_ref().map(|checked| {
-        promote_complete_cognition_history_source_v3(checked, &accepted, memory, || false).unwrap()
+    let _promoted_complete = checked_complete.map(|(checked, pending)| {
+        let oracle =
+            promote_complete_cognition_history_source_v3(&checked, &accepted, memory, || false)
+                .unwrap();
+        if let Some(pending) = pending {
+            let production =
+                super::source_reader::finish_without_admission(pending, &accepted, memory);
+            assert_eq!(
+                production.selected().manifest(),
+                oracle.selected().manifest()
+            );
+            assert_eq!(production.indexes()[0].as_ref().unwrap().record_count(), 2);
+            assert!(production.attested_lifecycle().is_none());
+            production
+        } else {
+            oracle
+        }
     });
     read.root = sealed.record.after.state_root(StateNamespaceV1::Allocator);
     let binding = bind_cognition_history_current_v1(

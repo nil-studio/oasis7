@@ -230,8 +230,6 @@ pub mod incremental_cognition_current_complete_v3;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_delivery_cursor;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_domain_event_decode;
-#[cfg(not(target_arch = "wasm32"))]
 mod incremental_field_write;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_inventory;

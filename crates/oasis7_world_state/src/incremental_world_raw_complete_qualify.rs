@@ -7,9 +7,10 @@ pub(super) fn run<
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     roots: &RootSetV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     scratch: &S,
@@ -27,7 +28,7 @@ pub(super) fn run<
         .memory
         .reserve(CARRIER, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
-    let (agents, mailbox) = mailbox::qualify(roots, ctx, work, objects, originals)?;
+    let (agents, mailbox) = mailbox::qualify(roots, scope, ctx, work, objects, originals)?;
     check(ctx)?;
     let module_states = {
         let mut local = ModuleStateRecoveryContextV1 {

@@ -29,7 +29,8 @@ pub(super) fn current_work() -> WorldCurrentStateWorkV1 {
         max_payload_bytes: 16777216,
         max_pending_node_bytes: 16777216,
         max_pending_pairs: 65536,
-        max_pending_records: 65536,
+        // The native field scanner has a hard 256-record page contract.
+        max_pending_records: 256,
         max_record_bytes: 16777216,
         max_retained_trees: 100000,
         max_scalar_bytes: 16777216,

@@ -1,5 +1,5 @@
 //! Full current-state acceptance over the actual full Runtime GEN fixture.
-use super::super::raw_complete::{Binder, Scratch};
+use super::super::raw_complete::{Binder, Scratch, protocol};
 use super::*;
 use oasis7_world_state::{
     incremental_cognition_current_complete_v3::CognitionCurrentPresenceV3,
@@ -90,6 +90,24 @@ pub(super) fn exercise(
     roots: &RootSetV1,
     originals: &BTreeMap<[u8; 32], ReservedValue<Vec<u8>>>,
 ) {
+    let mut all_originals = BTreeMap::new();
+    for (id, bytes) in originals {
+        all_originals.insert(
+            *id,
+            memory
+                .reserve(bytes.len() + 128, MemoryClass::Ordinary)
+                .unwrap()
+                .retain(bytes.to_vec()),
+        );
+    }
+    let genesis_frame = protocol::genesis(
+        memory,
+        pages,
+        roots.state.clone(),
+        std::iter::empty(),
+        &mut all_originals,
+    );
+    let roots = &genesis_frame.roots;
     let events = BTreeMap::new();
     let mut quota = io();
     let mut keys = SemanticKeyBudget {
@@ -104,18 +122,16 @@ pub(super) fn exercise(
         };
         let scratch = Scratch::new(memory, MemoryClass::Ordinary);
         let mut objects = Originals {
-            values: originals,
+            values: &all_originals,
             memory,
             class: MemoryClass::Ordinary,
             calls: 0,
         };
-        let mut binder = Binder {
-            events: &events,
-            calls: 0,
-        };
+        let mut binder = Binder::new(&events, &genesis_frame, &genesis_frame, &reader);
         let proof = qualify_world_current_state_v1(
             roots,
             CognitionCurrentPresenceV3::Enabled,
+            &genesis_frame.candidate_scope(),
             &mut context(roots, &reader, &mut quota, &mut keys),
             &mut budget,
             &scratch,
@@ -133,14 +149,7 @@ pub(super) fn exercise(
         proof.validate_binding(roots).unwrap();
         proof
     };
-    let parent = ExecutionParent {
-        roots: roots.clone(),
-        commit: [81; 32],
-        authority: AuthorityBinding {
-            token: [82; 32],
-            epoch: 4,
-        },
-    };
+    let parent = genesis_frame.parent();
     let field = oasis7_world_state::incremental_projection::WORLD_STATE_FIELDS
         .iter()
         .copied()
@@ -202,6 +211,15 @@ pub(super) fn exercise(
     .unwrap()
     .digest()
     .unwrap();
+    let input = b"actual complete-current ordinary Input";
+    let input_id = *blake3::hash(input).as_bytes();
+    all_originals.insert(
+        input_id,
+        memory
+            .reserve(input.len() + 128, MemoryClass::Ordinary)
+            .unwrap()
+            .retain(input.to_vec()),
+    );
     let sealed = {
         let reader = Reader {
             pages,
@@ -220,6 +238,11 @@ pub(super) fn exercise(
                 max_pending_node_bytes: 16 << 20,
             },
         )
+        .unwrap();
+        tx.append_fact(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Input,
+            id: input_id,
+        })
         .unwrap();
         tx.write(
             StateNamespaceV1::Allocator,
@@ -240,6 +263,14 @@ pub(super) fn exercise(
         tx.seal(&guard, &parent.fence().unwrap(), 1).unwrap()
     };
     persist(memory, pages, sealed.new_nodes.clone());
+    let next = protocol::normal(
+        memory,
+        pages,
+        &genesis_frame,
+        &sealed.record,
+        input_id,
+        &mut all_originals,
+    );
     let after = {
         let reader = Reader {
             pages,
@@ -264,20 +295,18 @@ pub(super) fn exercise(
         assert!(once > 0);
         let scratch = Scratch::new(memory, MemoryClass::Ordinary);
         let mut objects = Originals {
-            values: originals,
+            values: &all_originals,
             memory,
             class: MemoryClass::Ordinary,
             calls: 0,
         };
-        let mut binder = Binder {
-            events: &events,
-            calls: 0,
-        };
+        let mut binder = Binder::new(&events, &genesis_frame, &next, &reader);
         let after = accept_world_current_state_transition_v1(
             &proof,
             &verifier,
             &sealed.record,
             CognitionCurrentPresenceV3::Enabled,
+            &next.candidate_scope(),
             &mut context(&sealed.record.after, &reader, &mut quota, &mut keys),
             &mut budget,
             &scratch,
@@ -303,18 +332,16 @@ pub(super) fn exercise(
         };
         let scratch = Scratch::new(memory, MemoryClass::Recovery);
         let mut objects = Originals {
-            values: originals,
+            values: &all_originals,
             memory,
             class: MemoryClass::Recovery,
             calls: 0,
         };
-        let mut binder = Binder {
-            events: &events,
-            calls: 0,
-        };
+        let mut binder = Binder::new(&events, &genesis_frame, &next, &reader);
         let recovered = qualify_world_current_state_v1(
             &sealed.record.after,
             CognitionCurrentPresenceV3::Enabled,
+            &next.accepted_scope(),
             &mut context(&sealed.record.after, &reader, &mut quota, &mut keys),
             &mut budget,
             &scratch,
@@ -335,6 +362,7 @@ pub(super) fn exercise(
     let admitted = readmit_world_current_state_ordinary_v1(
         &recovered,
         &sealed.record.after,
+        &next.accepted_scope(),
         &mut context(&sealed.record.after, &reader, &mut quota, &mut keys),
         &mut budget,
     )

@@ -1103,13 +1103,29 @@ impl FileFormalEndpoint {
             .then_some(self.recovery.as_ref())
             .flatten();
         let verified = verify_formal_qualified(&proof, original, self.parent.as_ref(), recovery)?;
+        let iws=self.authority.definition().profile_version==oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION;
+        #[cfg(not(target_arch = "wasm32"))]
+        if iws {
+            self.check_iws_qualified_install(&verified)?;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if iws {
+            return Err(invalid("IWS Qualified installation unavailable on wasm"));
+        }
+        // Any allocating Formal compatibility outputs are prepared before
+        // the durable accepted checkpoint; IWS refinement itself only moves.
+        let installed_head = verified.head();
         self.write(
             FormalRequestStateV1::Qualified { candidate, proof },
             true,
             guard.as_mut(),
         )?;
-        self.parent = Some(verified.clone());
-        Ok(verified.head())
+        #[cfg(not(target_arch = "wasm32"))]
+        if iws {
+            self.finish_iws_qualified_install(&verified)?;
+        }
+        self.parent = Some(verified);
+        Ok(installed_head)
     }
 }
 

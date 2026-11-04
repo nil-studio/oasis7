@@ -504,6 +504,7 @@ pub(super) fn signed_v2_source_mode(adversarial: bool, corrupt_source: bool) {
                 },
                 head: &advanced.0,
                 view: &after,
+                complete: None,
             },
             &store,
             &objects,

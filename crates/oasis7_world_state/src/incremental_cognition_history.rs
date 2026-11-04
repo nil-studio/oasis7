@@ -289,3 +289,7 @@ pub use disabled_v3::*;
 #[path = "incremental_cognition_history_dependencies_v3.rs"]
 mod dependencies_v3;
 pub use dependencies_v3::*;
+
+#[path = "incremental_cognition_history_candidate_complete_reader_v3.rs"]
+mod candidate_complete_reader_v3;
+pub use candidate_complete_reader_v3::*;

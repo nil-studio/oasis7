@@ -173,6 +173,7 @@ macro_rules! local {
 pub fn qualify_world_current_state_v1<M, R, E, C, S, O, B>(
     roots: &RootSetV1,
     presence: cognition::CognitionCurrentPresenceV3,
+    scope: &raw::MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldCurrentStateWorkV1,
     scratch: &S,
@@ -186,7 +187,7 @@ where
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: raw::MailboxDomainEventOriginalReaderV1<O>,
+    B: raw::MailboxWorldEventOriginalReaderV1<O>,
 {
     let result = (|| {
         check(ctx)?;
@@ -230,6 +231,7 @@ where
         .map_err(WorldCurrentStateErrorV1::Runtime)?;
         let raw = raw::qualify_world_raw_complete_v1(
             roots,
+            scope,
             &mut local!(roots, ctx),
             &mut work.raw,
             scratch,
@@ -299,6 +301,7 @@ pub fn accept_world_current_state_transition_v1<M, P, R, E, C, S, O, B>(
     verifier: &TransitionVerifier<'_, P>,
     record: &TransitionRecordV1,
     after_presence: cognition::CognitionCurrentPresenceV3,
+    scope: &raw::MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldCurrentStateWorkV1,
     scratch: &S,
@@ -313,7 +316,7 @@ where
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: raw::MailboxDomainEventOriginalReaderV1<O>,
+    B: raw::MailboxWorldEventOriginalReaderV1<O>,
 {
     let result = (|| {
         check(ctx)?;
@@ -334,6 +337,7 @@ where
             parent,
             &witness,
             after_presence,
+            scope,
             ctx,
             work,
             scratch,
@@ -349,6 +353,7 @@ pub(crate) fn accept_world_current_state_verified_v1<M, R, E, C, S, O, B>(
     parent: &ReservedValue<WorldCurrentStateQualificationV1>,
     witness: &VerifiedWorldTransitionV1,
     after_presence: cognition::CognitionCurrentPresenceV3,
+    scope: &raw::MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldCurrentStateWorkV1,
     scratch: &S,
@@ -362,7 +367,7 @@ where
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: raw::MailboxDomainEventOriginalReaderV1<O>,
+    B: raw::MailboxWorldEventOriginalReaderV1<O>,
 {
     let result = (|| {
         check(ctx)?;
@@ -408,6 +413,7 @@ where
         let raw = raw::accept_world_raw_complete_verified_v1(
             &parent.raw,
             witness,
+            scope,
             &mut local!(roots, ctx),
             &mut work.raw,
             scratch,
@@ -445,6 +451,7 @@ where
 pub fn readmit_world_current_state_ordinary_v1<M, R, E, C>(
     source: &ReservedValue<WorldCurrentStateQualificationV1>,
     roots: &RootSetV1,
+    scope: &raw::MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldCurrentStateWorkV1,
 ) -> Result<
@@ -495,6 +502,7 @@ where
         let raw = raw::readmit_world_raw_complete_ordinary_v1(
             &source.raw,
             roots,
+            scope,
             memory,
             &mut work.raw,
             &mut ctx.cancelled,

@@ -50,6 +50,11 @@ impl<'a, C: FnMut() -> bool> DomainEventProofContextV1<'a, C> {
             poisoned: false,
         }
     }
+    /// Consume this operation without resetting the actual remaining work.
+    /// A failed caller must terminate its operation even when credit remains.
+    pub fn into_work(self) -> Result<CanonicalCborWorkV1, CanonicalCborStreamError> {
+        self.work.ok_or(CanonicalCborStreamError::Poisoned)
+    }
     pub fn is_poisoned(&self) -> bool {
         self.poisoned
     }

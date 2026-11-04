@@ -54,7 +54,7 @@ pub fn decode_world_event_original_v1<C: FnMut() -> bool>(
     work: &mut WorldEventDecodeWorkV1,
     mut cancelled: C,
 ) -> Result<ReservedValue<DecodedWorldEventV1>, ValueTreeError> {
-    crate::incremental_domain_event_decode::assert_json_owned_layout_features_v1();
+    crate::incremental_original_decode::assert_json_owned_layout_features_v1();
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }

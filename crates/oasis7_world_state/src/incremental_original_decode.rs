@@ -122,3 +122,28 @@ pub fn check_decoded_canonical_original_v1<T: serde::Serialize, C: FnMut() -> bo
     }
     Ok(())
 }
+
+// serde_json's public Iter is an opaque wrapper in both feature modes, so it
+// cannot be equated to btree_map::Iter. Instead use a compile-time API marker:
+// shift_remove is an inherent Map method ONLY with preserve_order enabled in
+// the pinned serde_json release. Inherent lookup then wins and returns Option,
+// making this assignment fail rather than silently switching allocation model.
+struct AuditedBtreeMapOnly;
+trait NoPreserveOrderFeature {
+    fn shift_remove(&mut self, key: &str) -> AuditedBtreeMapOnly;
+}
+impl NoPreserveOrderFeature for serde_json::Map<String, serde_json::Value> {
+    fn shift_remove(&mut self, _: &str) -> AuditedBtreeMapOnly {
+        AuditedBtreeMapOnly
+    }
+}
+pub(crate) fn assert_json_owned_layout_features_v1() {
+    let mut map = serde_json::Map::<String, serde_json::Value>::new();
+    let _: AuditedBtreeMapOnly = map.shift_remove("");
+}
+// arbitrary_precision gives Number a String allocation even for a scalar.
+// Feature unification anywhere in the dependency graph must stop this build.
+const _: () = assert!(
+    !std::mem::needs_drop::<serde_json::Number>(),
+    "owned original decode requires audited scalar serde_json Number"
+);

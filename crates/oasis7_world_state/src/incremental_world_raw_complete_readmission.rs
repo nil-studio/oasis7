@@ -2,6 +2,7 @@ use super::*;
 pub(super) fn run(
     source: &ReservedValue<WorldRawCompleteQualificationV1>,
     roots: &RootSetV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     memory: &MemoryBudget,
     _work: &mut WorldRawCompleteWorkV1,
     mut cancelled: impl FnMut() -> bool,
@@ -39,7 +40,7 @@ pub(super) fn run(
         memory,
         &mut cancelled,
     )?;
-    let mailbox = mailbox::readmit(&source.mailbox, roots, memory, &mut cancelled)?;
+    let mailbox = mailbox::readmit(&source.mailbox, roots, scope, memory, &mut cancelled)?;
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }

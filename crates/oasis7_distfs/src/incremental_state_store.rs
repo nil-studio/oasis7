@@ -6,6 +6,10 @@ use oasis7_formal_protocol::{
     incremental_history::CatalogDeltaV1,
     incremental_state::{MerkleNodeReader, STATE_MAX_PAGE_BYTES},
 };
+#[path = "incremental_state_read_memo.rs"]
+mod read_memo;
+use read_memo::StateReadMemo;
+pub use read_memo::StateReadMemoStats;
 
 pub struct ChargedMerklePage(Arc<ReservedValue<Vec<u8>>>);
 impl AsRef<[u8]> for ChargedMerklePage {
@@ -21,6 +25,7 @@ pub struct StatePageSession<'a> {
     class: MemoryClass,
     pub cancelled: AtomicBool,
     caller_cancelled: Option<&'a AtomicBool>,
+    memo: Option<Mutex<StateReadMemo>>,
     _charge: MemoryReservation,
 }
 impl IncrementalPageStore {
@@ -37,6 +42,7 @@ impl IncrementalPageStore {
             class,
             cancelled: AtomicBool::new(false),
             caller_cancelled: None,
+            memo: None,
             _charge: charge,
         })
     }
@@ -57,11 +63,37 @@ impl IncrementalPageStore {
             class,
             cancelled: AtomicBool::new(false),
             caller_cancelled: Some(cancelled),
+            memo: None,
             _charge: charge,
         })
     }
 }
 impl StatePageSession<'_> {
+    /// Enable a finite positive memo for this immutable-page session. Every
+    /// cached Arc retains the actual store's original pool/class charge.
+    pub fn with_read_memo(mut self, max_entries: usize, max_retained_bytes: usize) -> Result<Self> {
+        self.check_cancelled()?;
+        if self.memo.is_some() {
+            return Err(PageStoreError::Corrupt("state memo already installed"));
+        }
+        self.memo = Some(Mutex::new(StateReadMemo::new(
+            &self.store.memory,
+            self.class,
+            max_entries,
+            max_retained_bytes,
+        )?));
+        Ok(self)
+    }
+    pub fn read_memo_stats(&self) -> Result<Option<StateReadMemoStats>> {
+        self.memo
+            .as_ref()
+            .map(|memo| {
+                memo.lock()
+                    .map(|memo| memo.stats())
+                    .map_err(|_| PageStoreError::Corrupt("state memo poisoned"))
+            })
+            .transpose()
+    }
     fn physical_cancelled(&self) -> &AtomicBool {
         self.caller_cancelled.unwrap_or(&self.cancelled)
     }
@@ -203,31 +235,43 @@ impl MerkleNodeReader for StatePageSession<'_> {
                 return Err(PageStoreError::Corrupt("state source request bound"));
             }
             let id = parse_id(digest)?;
-            if self.caller_cancelled.is_some() {
-                self.check_cancelled()?;
+            self.check_cancelled()?;
+            if let Some(memo) = &self.memo {
+                let cached = memo
+                    .lock()
+                    .map_err(|_| PageStoreError::Corrupt("state memo poisoned"))?
+                    .get(&id, max_bytes);
+                if let Some(page) = cached {
+                    self.check_cancelled()?;
+                    return Ok(Some(ChargedMerklePage(page)));
+                }
             }
             let mut io = self
                 .io
                 .lock()
                 .map_err(|_| PageStoreError::Corrupt("state session poisoned"))?;
-            let result = self
-                .store
-                .read_page(
-                    &id,
-                    max_bytes,
-                    self.class,
-                    &mut io,
-                    self.physical_cancelled(),
-                )
-                .map(|bytes| Some(ChargedMerklePage(bytes)));
-            if self.caller_cancelled.is_some() {
-                self.check_cancelled()?;
+            let page = self.store.read_page(
+                &id,
+                max_bytes,
+                self.class,
+                &mut io,
+                self.physical_cancelled(),
+            )?;
+            self.check_cancelled()?;
+            if let Some(memo) = &self.memo {
+                memo.lock()
+                    .map_err(|_| PageStoreError::Corrupt("state memo poisoned"))?
+                    .remember(id, &page);
             }
-            result
+            Ok(Some(ChargedMerklePage(page)))
         })();
         result.map_err(|error| self.failure(error))
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "incremental_state_read_memo_tests.rs"]
+mod read_memo_tests;
 fn persist_nodes<'a>(
     store: &IncrementalPageStore,
     class: MemoryClass,

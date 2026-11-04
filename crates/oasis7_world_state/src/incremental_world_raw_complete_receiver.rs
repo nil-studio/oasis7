@@ -7,10 +7,11 @@ pub(super) fn run<
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     parent: &ReservedValue<WorldRawCompleteQualificationV1>,
     witness: &VerifiedWorldTransitionV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     scratch: &S,
@@ -24,6 +25,22 @@ pub(super) fn run<
         return Err(invalid().into());
     }
     let roots = &witness.record().after;
+    let MailboxProvenanceScopeV1::Candidate { core, .. } = scope else {
+        return Err(invalid().into());
+    };
+    let anchor = scope.anchor(ctx.values.memory, MemoryClass::Ordinary)?;
+    if core.transition() != Some(witness.record())
+        || core.parent_record_id() != Some(parent.mailbox.anchor.record_id())
+        || core.parent_roots() != Some(&witness.record().before)
+        || core.roots() != roots
+        || core.parent_body().and_then(|body| body.digest().ok())
+            != Some(parent.mailbox.anchor.body_id())
+        || parent.mailbox.anchor.roots_id() != *witness.before_digest()
+        || anchor.roots_id() != *witness.after_digest()
+    {
+        return Err(invalid().into());
+    }
+
     let charge = ctx
         .values
         .memory
@@ -36,7 +53,7 @@ pub(super) fn run<
         &mut work.agent_changes,
     )?;
     check(ctx)?;
-    let mailbox = mailbox::accept(witness, &agents, ctx, work, objects, originals)?;
+    let mailbox = mailbox::accept(witness, &agents, scope, ctx, work, objects, originals)?;
     check(ctx)?;
     let module_states = {
         let mut local = ModuleStateRecoveryContextV1 {

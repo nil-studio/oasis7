@@ -304,6 +304,20 @@ fn actual_v3_enabled_genesis_recovers_source_in_fresh_pool() {
                 || false,
             )
             .unwrap();
+            let production_checked = super::source_reader::check(
+                &request,
+                CognitionHistoryCurrentSourceV1::Enabled(&current),
+                None,
+                &store,
+                &objects,
+                &mut io,
+                &memory,
+            );
+            assert_eq!(
+                production_checked.selected().manifest(),
+                checked_whole.selected().manifest()
+            );
+            let pending = super::source_reader::prepare(&production_checked, &memory);
             let accepted =
                 formal::verify_formal_qualified(&proof, &s.authority, None, None).unwrap();
             let promoted_whole = promote_complete_cognition_history_source_v3(
@@ -313,7 +327,13 @@ fn actual_v3_enabled_genesis_recovers_source_in_fresh_pool() {
                 || false,
             )
             .unwrap();
-            let selected = promoted_whole.selected();
+            let production_promoted =
+                super::source_reader::finish_without_admission(pending, &accepted, &memory);
+            assert_eq!(
+                production_promoted.selected().manifest(),
+                promoted_whole.selected().manifest()
+            );
+            let selected = production_promoted.selected();
             assert_eq!(selected.derived(), Some(&refs));
             assert!(promoted_whole.lifecycle().is_some());
             assert_eq!(
@@ -530,6 +550,7 @@ fn actual_v3_enabled_genesis_recovers_source_in_fresh_pool() {
                 },
                 head: &head,
                 view: ordinary.selected(),
+                complete: Some(&ordinary),
             },
             &store,
             &objects,

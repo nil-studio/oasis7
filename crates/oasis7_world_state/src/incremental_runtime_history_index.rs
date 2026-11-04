@@ -569,3 +569,7 @@ where
 #[cfg(test)]
 #[path = "incremental_runtime_history_index_tests.rs"]
 mod tests;
+
+#[path = "incremental_runtime_history_index_prepared.rs"]
+mod prepared;
+pub(crate) use prepared::prepare_runtime_history_index_promotion_v1;

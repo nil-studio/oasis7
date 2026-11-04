@@ -66,6 +66,12 @@ pub struct IwsPageStoreCapabilityV1 {
     pages: IncrementalPageStore,
     #[cfg(not(target_arch = "wasm32"))]
     budgets: IwsEndpointVerificationBudgetsV1,
+    #[cfg(not(target_arch = "wasm32"))]
+    current_limits: Option<current::IwsCurrentLimitsV1>,
+    #[cfg(not(target_arch = "wasm32"))]
+    source_work: std::cell::RefCell<Option<work::IwsCandidateSourceWorkV1>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    jobs: jobs::EndpointIwsState,
 }
 
 impl IwsPageStoreCapabilityV1 {
@@ -82,6 +88,12 @@ impl IwsPageStoreCapabilityV1 {
             pages,
             #[cfg(not(target_arch = "wasm32"))]
             budgets,
+            #[cfg(not(target_arch = "wasm32"))]
+            current_limits: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            source_work: std::cell::RefCell::new(None),
+            #[cfg(not(target_arch = "wasm32"))]
+            jobs: jobs::EndpointIwsState::new(),
         })
     }
 
@@ -308,6 +320,15 @@ impl FileFormalEndpoint {
             None,
             candidate.branch,
         )?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(capability) = &self.iws_page_store {
+            if capability.jobs.matches(candidate, cancelled)? {
+                if cancelled() {
+                    return Err(invalid("IWS candidate reuse cancelled"));
+                }
+                return Ok(context);
+            }
+        }
         self.verify_iws_page_backed_material(candidate, &context, cancelled)?;
         Ok(context)
     }
@@ -448,9 +469,11 @@ impl FileFormalEndpoint {
                 cancelled()
             })
             .map_err(|error| invalid(format!("IWS final written values: {error}")))?;
-            return Err(invalid(
-                "IWS ordinary transition owner delta verifier unavailable",
-            ));
+            if capability.current_limits.is_none() {
+                return Err(invalid(
+                    "IWS ordinary complete Current configuration required",
+                ));
+            }
         }
 
         let mut scan = StateScanBudget {
@@ -463,20 +486,223 @@ impl FileFormalEndpoint {
             logical_bytes_remaining: limits.full_value_bytes,
             max_value_bytes: limits.max_full_value_bytes,
         };
-        let checked = verify_state_values(
-            &core,
-            &state,
-            &mut value_context,
-            &mut scan,
-            &mut full_values,
-            &mut *cancelled,
-        )
-        .map_err(|error| {
-            state
-                .take_read_error()
-                .map(page_store_formal_error)
-                .unwrap_or_else(|| invalid(format!("IWS state/value closure: {error}")))
-        })?;
+        let checked = if core.transition().is_none() {
+            Some(
+                verify_state_values(
+                    &core,
+                    &state,
+                    &mut value_context,
+                    &mut scan,
+                    &mut full_values,
+                    &mut *cancelled,
+                )
+                .map_err(|error| {
+                    state
+                        .take_read_error()
+                        .map(page_store_formal_error)
+                        .unwrap_or_else(|| invalid(format!("IWS state/value closure: {error}")))
+                })?,
+            )
+        } else {
+            None
+        };
+        let parent_cache_slot = capability.jobs.parent()?;
+        let parent_cache = if core.transition().is_some() {
+            let cache = parent_cache_slot
+                .as_ref()
+                .ok_or_else(|| invalid("IWS exact parent requires cold restoration"))?;
+            cache
+                .check_parent(&core, memory, &mut *cancelled)
+                .map_err(|e| invalid(format!("IWS accepted parent: {e}")))?;
+            Some(cache)
+        } else {
+            None
+        };
+        if let Some(current_limits) = &capability.current_limits {
+            let mut source_work = capability
+                .source_work
+                .try_borrow_mut()
+                .map_err(|_| invalid("IWS work slot borrowed"))?
+                .take()
+                .ok_or_else(|| invalid("IWS explicit candidate source work required"))?;
+            let mut fact_budget = oasis7_formal_protocol::incremental_material::FactBudget {
+                facts_remaining: core_budget.objects_remaining,
+                original_bytes_remaining: core_budget.original_bytes_remaining,
+                max_fact_bytes: limits.max_full_value_bytes,
+            };
+            let originals = oasis7_formal_protocol::incremental_material::verify_fact_originals(
+                &core,
+                &mut objects,
+                memory,
+                &mut fact_budget,
+                &mut *cancelled,
+            )
+            .map_err(|e| invalid(format!("IWS actual fact originals: {e}")))?;
+            // Continue the remaining generic original allowance through Result routing.
+            source_work.router.facts.facts_remaining = source_work
+                .router
+                .facts
+                .facts_remaining
+                .min(fact_budget.facts_remaining);
+            source_work.router.facts.original_bytes_remaining = source_work
+                .router
+                .facts
+                .original_bytes_remaining
+                .min(fact_budget.original_bytes_remaining);
+            source_work.router.facts.max_fact_bytes = source_work
+                .router
+                .facts
+                .max_fact_bytes
+                .min(fact_budget.max_fact_bytes);
+            let scope=oasis7_world_state::incremental_world_raw_complete::MailboxProvenanceScopeV1::Candidate {candidate:context,core:&core,originals:&originals};
+            let mut mailbox = current_limits
+                .candidate_mailbox(memory, MemoryClass::Ordinary)
+                .map_err(|e| invalid(format!("IWS mailbox admission: {e}")))?;
+            let mut work = current_limits
+                .current
+                .work()
+                .map_err(|e| invalid(format!("IWS Current work: {e}")))?;
+            let scratch =
+                scratch::Scratch::new(memory, MemoryClass::Ordinary, current_limits.scratch_pages)
+                    .map_err(invalid)?;
+            let mut key_work = oasis7_world_state::incremental_semantic_key::SemanticKeyBudget {
+                bytes_remaining: current_limits.current.bytes_remaining,
+            };
+            let root = core
+                .roots()
+                .state
+                .first()
+                .ok_or_else(|| invalid("IWS Current missing state"))?;
+            let selection_request=oasis7_world_state::incremental_cognition_history::CognitionHistorySelectionRequestV1 {candidate:context,core:&core,originals:&originals};
+            let stop = std::cell::RefCell::new(&mut *cancelled);
+            let mut owner_ctx =
+                oasis7_world_state::incremental_field_read::WorldFieldReadContextV1 {
+                    root,
+                    state: &state,
+                    values: ValueReadContext {
+                        source: &values,
+                        memory,
+                        class: MemoryClass::Ordinary,
+                        io: &mut *value_context.io,
+                    },
+                    key_work: &mut key_work,
+                    semantic_bytes: u64::try_from(current_limits.current.max_semantic_bytes)
+                        .map_err(|_| invalid("IWS semantic bound"))?,
+                    record_bytes: u64::try_from(current_limits.current.max_record_bytes)
+                        .map_err(|_| invalid("IWS record bound"))?,
+                    take_state_error: || {
+                        state.take_read_error().map(|e| {
+                            oasis7_formal_protocol::incremental_value::ValueTreeError::Io(
+                                std::io::Error::other(e),
+                            )
+                        })
+                    },
+                    cancelled: || (*stop.borrow_mut())(),
+                };
+            let current_qualification=match (core.transition(),parent_cache){
+                (Some(record),Some(parent))=>{
+                    let execution_parent=parent_binding::transition_parent(parent,&core,memory,||(*stop.borrow_mut())()).map_err(|e|invalid(format!("IWS transition parent: {e}")))?;
+                    let verifier=oasis7_formal_protocol::incremental_execution::TransitionVerifier {parent:&execution_parent,operation:core.body().operation,source:&state,memory,class:MemoryClass::Ordinary,max_pending_node_bytes:limits.max_pending_node_bytes};
+                    oasis7_world_state::incremental_world_current_complete::accept_world_current_state_transition_v1(parent.current(),&verifier,record,current_limits.cognition,&scope,&mut owner_ctx,&mut work,&scratch,&mut objects,&mut mailbox)
+                },
+                (None,None)=>oasis7_world_state::incremental_world_current_complete::qualify_world_current_state_v1(core.roots(),current_limits.cognition,&scope,&mut owner_ctx,&mut work,&scratch,&mut objects,&mut mailbox),
+                _=>return Err(invalid("IWS Current exact parent transition")),
+            }.map_err(|e|invalid(format!("IWS complete Current: {e:?}")))?;
+            let routed=oasis7_world_state::incremental_world_result_router::route_checked_world_results_v1(&oasis7_world_state::incremental_world_result_router::WorldResultRouterRequestV1 {candidate:context,core:&core,originals:&originals},&mut objects,memory,&mut source_work.router,||(*stop.borrow_mut())()).map_err(|e|invalid(format!("IWS Result routing: {e:?}")))?;
+            let runtime_original = routed.runtime_history().occurrence().location().original;
+            let manifest_raw = objects
+                .read_original(
+                    &runtime_original,
+                    usize::try_from(limits.max_full_value_bytes)
+                        .map_err(|_| invalid("IWS manifest limit"))?,
+                    memory,
+                )
+                .map_err(invalid)?;
+            let runtime_manifest=oasis7_world_state::incremental_runtime_history_manifest::RuntimeHistoryManifestV1::from_canonical_bytes(&manifest_raw).map_err(|e|invalid(format!("IWS Runtime manifest: {e}")))?;
+            let selected=oasis7_world_state::incremental_cognition_history::check_candidate_cognition_history_view_v1(&selection_request,&mut objects,memory,&mut source_work.router.facts,||(*stop.borrow_mut())()).map_err(|e|invalid(format!("IWS selected Cognition: {e:?}")))?;
+            let runtime_request=oasis7_world_state::incremental_runtime_history_source::RuntimeHistoryCandidateReadRequestV1 {candidate:context,core:&core,originals:&originals,manifest:&runtime_manifest,selected_ordinal:routed.runtime_history().occurrence().location().ordinal,parent:parent_cache.map(|p|&p.runtime),prefix:None};
+            let mut writer = pages.value_session(source_work.write_physical);
+            let mut write_ctx =
+                oasis7_world_state::incremental_field_member::MemberRecordWriteContext {
+                    sink: &mut writer,
+                    memory,
+                    io: &mut source_work.write_values,
+                    key_work: &mut source_work.write_keys,
+                    limits: source_work.write_limits,
+                    cancelled: || (*stop.borrow_mut())(),
+                };
+            let mut history_io = crate::incremental_page_store::objects::ObjectIo {
+                physical: &mut source_work.history_physical,
+                logical: &mut source_work.history_values,
+                class: MemoryClass::Ordinary,
+                cancelled: &physical_cancelled,
+            };
+            let mut history_cancel = || (*stop.borrow_mut())();
+            let mut history_reader = history_originals::HistoryOriginalReader {
+                candidate: &candidate.material,
+                retained: &original_store,
+                io: &mut history_io,
+                memory,
+                occurrences: &mut source_work.history_occurrences,
+                hash_bytes: &mut source_work.history_hash_bytes,
+                cancelled: &mut history_cancel,
+            };
+            let mut cognition_work=oasis7_world_state::incremental_cognition_history::CognitionHistoryCandidateReaderWorkV3 {indexes:&mut source_work.cognition_index,cbor:&mut source_work.cognition_cbor,hashes:&mut source_work.cognition_hash,lifecycle:&mut source_work.cognition_lifecycle};
+            let checked_sources = sources::read_sources(
+                &runtime_request,
+                &selection_request,
+                selected,
+                current_qualification.cognition().history_source(),
+                parent_cache.map(|p| &p.cognition),
+                &mut owner_ctx,
+                &mut write_ctx,
+                &mut objects,
+                &mut history_reader,
+                &mut source_work.runtime,
+                &mut cognition_work,
+            )?;
+            drop(owner_ctx);
+            let provisional = provisional::ProvisionalCandidate::checked(
+                core,
+                current::CheckedCurrent {
+                    qualification: current_qualification,
+                },
+                checked_sources.cognition,
+                checked_sources.runtime,
+                routed,
+                memory,
+                || (*stop.borrow_mut())(),
+            )
+            .map_err(|e| invalid(format!("IWS source conjunction: {e}")))?;
+            let mut persist_io = crate::incremental_page_store::objects::ObjectIo {
+                physical: &mut source_work.persist_physical,
+                logical: &mut source_work.persist_values,
+                class: MemoryClass::Ordinary,
+                cancelled: &physical_cancelled,
+            };
+            persist::persist_checked_originals(
+                candidate,
+                &provisional,
+                &original_store,
+                &mut persist_io,
+                &mut source_work.persist_occurrences,
+                &mut || (*stop.borrow_mut())(),
+            )?;
+            let prepared = provisional::PreparedCandidateInstall::prepare(
+                provisional,
+                checked_sources.indexes,
+                memory,
+                || (*stop.borrow_mut())(),
+            )?;
+            capability.jobs.stage(
+                candidate,
+                memory,
+                prepared,
+                &mut source_work.history_hash_bytes,
+                &mut || (*stop.borrow_mut())(),
+            )?;
+            return Ok(());
+        }
         // The owner pass consumes the remainder of the same scan allowance;
         // it cannot silently double the per-candidate state traversal budget.
         let coverage =
@@ -495,6 +721,8 @@ impl FileFormalEndpoint {
                     .unwrap_or_else(|| invalid(format!("IWS typed owner coverage: {error}")))
             })?;
         let report = coverage.report();
+        let checked =
+            checked.ok_or_else(|| invalid("IWS complete delta configuration required"))?;
         if checked.body_id()
             != core
                 .body()
@@ -534,3 +762,107 @@ fn page_store_formal_error(error: PageStoreError) -> FormalError {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "endpoint_incremental_stream_tests.rs"]
 mod stream_tests;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_current.rs"]
+mod current;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_scratch.rs"]
+mod scratch;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use current::IwsCurrentLimitsV1;
+#[cfg(not(target_arch = "wasm32"))]
+impl IwsPageStoreCapabilityV1 {
+    /// Explicitly enable complete Current checks; receipts still require the
+    /// independent History/source and formal lifecycle closure.
+    pub fn with_current_limits(mut self, limits: IwsCurrentLimitsV1) -> Result<Self, FormalError> {
+        limits
+            .validate()
+            .map_err(|e| invalid(format!("IWS Current limits: {e}")))?;
+        self.current_limits = Some(limits);
+        Ok(self)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_provisional.rs"]
+mod provisional;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_mailbox.rs"]
+mod mailbox;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_persist.rs"]
+mod persist;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_history_originals.rs"]
+mod history_originals;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_sources.rs"]
+mod sources;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_jobs.rs"]
+mod jobs;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_work.rs"]
+mod work;
+#[cfg(not(target_arch = "wasm32"))]
+pub use work::IwsCandidateSourceWorkV1;
+#[cfg(not(target_arch = "wasm32"))]
+impl FileFormalEndpoint {
+    pub fn supply_iws_candidate_work(
+        &mut self,
+        work: IwsCandidateSourceWorkV1,
+    ) -> Result<(), FormalError> {
+        let capability = self
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS page capability missing"))?;
+        let mut slot = capability
+            .source_work
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS work slot borrowed"))?;
+        if slot.is_some() {
+            return Err(invalid("IWS work already supplied"));
+        }
+        *slot = Some(work);
+        Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl FileFormalEndpoint {
+    pub(super) fn check_iws_qualified_install(
+        &self,
+        commit: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError> {
+        let capability = self
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted capability missing"))?;
+        if !capability.jobs.ready(commit.verified_record_id())? {
+            return Err(invalid(
+                "IWS complete prepared candidate required before Qualified",
+            ));
+        }
+        Ok(())
+    }
+    pub(super) fn finish_iws_qualified_install(
+        &self,
+        commit: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError> {
+        self.iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted capability missing"))?
+            .jobs
+            .accepted(commit)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_parent.rs"]
+mod parent_binding;

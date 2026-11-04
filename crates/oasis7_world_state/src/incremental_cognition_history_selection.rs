@@ -440,3 +440,7 @@ fn copy_source_v3(
 }
 const _: () = assert!(std::mem::size_of::<CheckedCognitionHistoryViewV1>() <= 16 << 10);
 const _: () = assert!(std::mem::size_of::<AcceptedCognitionHistoryViewV1>() <= 16 << 10);
+
+#[path = "incremental_cognition_history_selection_prepared_v3.rs"]
+mod prepared_v3;
+pub use prepared_v3::*;

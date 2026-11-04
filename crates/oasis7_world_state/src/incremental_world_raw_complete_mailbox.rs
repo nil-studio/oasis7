@@ -6,6 +6,7 @@ use crate::{
 };
 pub(super) struct MailboxOriginalQualificationV1 {
     pub(super) roots: [u8; 32],
+    pub(super) anchor: MailboxProvenanceAnchorV1,
     pub(super) class: MemoryClass,
     pub(super) references: u64,
 }
@@ -23,9 +24,10 @@ pub(super) fn qualify<
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     roots: &RootSetV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     objects: &mut O,
@@ -39,6 +41,10 @@ pub(super) fn qualify<
 > {
     check(ctx)?;
     let memory = ctx.values.memory;
+    let anchor = scope.anchor(memory, ctx.values.class)?;
+    if anchor.roots_id() != roots.digest().map_err(BodyMutationError::from)? {
+        return Err(invalid().into());
+    }
     let class = ctx.values.class;
     let charge = memory.reserve(512, class).map_err(ValueTreeError::Memory)?;
     let mut failure = None;
@@ -68,12 +74,13 @@ pub(super) fn qualify<
         &mut work.agents,
         &mut |reference| {
             occurrence(remaining)?;
-            let proof = match originals.checked_domain_event(
+            let proof = match originals.checked_world_event(
                 AgentMailboxReferenceV1 {
                     agent: reference.agent,
                     ordinal: reference.ordinal,
                     original: reference.original,
                 },
+                scope,
                 objects,
                 memory,
                 class,
@@ -86,7 +93,13 @@ pub(super) fn qualify<
                     return Err(ValueTreeError::Invalid("mailbox original source failed"));
                 }
             };
-            CheckedDomainEventOriginalV1::validate(&proof, &reference.original, memory, class)?;
+            CheckedMailboxWorldEventOriginalV1::validate(
+                &proof,
+                &reference.original,
+                anchor,
+                memory,
+                class,
+            )?;
             references = references.checked_add(1).ok_or_else(invalid)?;
             Ok(())
         },
@@ -101,6 +114,7 @@ pub(super) fn qualify<
     }
     let mailbox = charge.retain(MailboxOriginalQualificationV1 {
         roots: roots.digest().map_err(BodyMutationError::from)?,
+        anchor,
         class,
         references,
     });
@@ -112,15 +126,20 @@ pub(super) fn accept<
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     witness: &VerifiedWorldTransitionV1,
     agent: &ReservedValue<agents::AgentSubtreeStructureQualificationV1>,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     objects: &mut O,
     originals: &mut B,
 ) -> Result<ReservedValue<MailboxOriginalQualificationV1>, WorldRawCompleteErrorV1<O::Error>> {
+    let anchor = scope.anchor(ctx.values.memory, ctx.values.class)?;
+    if anchor.roots_id() != *witness.after_digest() {
+        return Err(invalid().into());
+    }
     let charge = ctx
         .values
         .memory
@@ -145,12 +164,13 @@ pub(super) fn accept<
         let bytes = schedule::fixed::<MAILBOX_EVENT_REFERENCE_BYTES, _, _, _, _>(&id, ctx)?;
         let original = mailbox_event_id_v1(&bytes).map_err(ValueTreeError::Invalid)?;
         let proof = originals
-            .checked_domain_event(
+            .checked_world_event(
                 AgentMailboxReferenceV1 {
                     agent,
                     ordinal,
                     original,
                 },
+                scope,
                 objects,
                 ctx.values.memory,
                 ctx.values.class,
@@ -158,9 +178,10 @@ pub(super) fn accept<
                 &mut ctx.cancelled,
             )
             .map_err(WorldRawCompleteErrorV1::Original)?;
-        CheckedDomainEventOriginalV1::validate(
+        CheckedMailboxWorldEventOriginalV1::validate(
             &proof,
             &original,
+            anchor,
             ctx.values.memory,
             ctx.values.class,
         )?;
@@ -168,6 +189,7 @@ pub(super) fn accept<
     }
     Ok(charge.retain(MailboxOriginalQualificationV1 {
         roots: *witness.after_digest(),
+        anchor,
         class: ctx.values.class,
         references: agent.mailbox_reference_count(),
     }))
@@ -175,11 +197,19 @@ pub(super) fn accept<
 pub(super) fn readmit(
     source: &ReservedValue<MailboxOriginalQualificationV1>,
     roots: &RootSetV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     memory: &MemoryBudget,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<MailboxOriginalQualificationV1>, WorldRawCompleteStructuralErrorV1> {
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
+    }
+    let MailboxProvenanceScopeV1::Accepted { .. } = scope else {
+        return Err(invalid().into());
+    };
+    let anchor = scope.anchor(memory, MemoryClass::Ordinary)?;
+    if source.anchor != anchor {
+        return Err(invalid().into());
     }
     if source.class != MemoryClass::Recovery
         || !source.uses_budget(memory)
@@ -193,6 +223,7 @@ pub(super) fn readmit(
         .map_err(ValueTreeError::Memory)?;
     let output = charge.retain(MailboxOriginalQualificationV1 {
         roots: source.roots,
+        anchor,
         class: MemoryClass::Ordinary,
         references: source.references,
     });

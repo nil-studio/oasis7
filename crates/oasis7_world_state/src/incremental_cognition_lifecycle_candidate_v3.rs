@@ -408,3 +408,7 @@ pub fn promote_checked_cognition_lifecycle_v3(
     }
     Ok(charge.retain(value))
 }
+
+#[path = "incremental_cognition_lifecycle_prepared_v3.rs"]
+mod prepared_v3;
+pub use prepared_v3::*;

@@ -555,3 +555,7 @@ fn candidate_core_error(error: CoreError<std::convert::Infallible>) -> ValueTree
         _ => candidate_invalid(),
     }
 }
+
+#[path = "incremental_cognition_history_head_prepared_v3.rs"]
+mod prepared_v3;
+pub use prepared_v3::*;

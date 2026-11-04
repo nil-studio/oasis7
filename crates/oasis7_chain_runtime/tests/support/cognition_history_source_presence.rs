@@ -89,7 +89,7 @@ fn persist_nodes<'a>(
     }
     pages.finish().unwrap();
 }
-fn checked_scope(
+fn checked_scope_oracle(
     request: &CognitionHistorySelectionRequestV1<'_>,
     parent: Option<&ReservedValue<CompleteCognitionHistorySourceV3>>,
     store: &IncrementalPageStore,
@@ -341,6 +341,69 @@ fn checked_scope(
     )
     .unwrap()
 }
+fn checked_scope(
+    request: &CognitionHistorySelectionRequestV1<'_>,
+    parent: Option<&ReservedValue<CompleteCognitionHistorySourceV3>>,
+    store: &IncrementalPageStore,
+    objects: &IncrementalObjectStore<'_>,
+    io: &mut ObjectIo<'_>,
+    memory: &MemoryBudget,
+) -> ReservedValue<CheckedCognitionHistorySourceV3> {
+    let oracle = checked_scope_oracle(request, parent, store, objects, io, memory);
+    let state = store
+        .state_session(physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let values = store.value_session(physical());
+    let mut quota = logical();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 32 << 20,
+    };
+    let mut read = WorldFieldReadContextV1 {
+        root: request.core.roots().state_root(StateNamespaceV1::Allocator),
+        state: &state,
+        values: ValueReadContext {
+            source: &values,
+            memory,
+            class: MemoryClass::Ordinary,
+            io: &mut quota,
+        },
+        key_work: &mut keys,
+        semantic_bytes: 4096,
+        record_bytes: 8192,
+        take_state_error: || state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    let current = qualify_complete_cognition_current_v3(
+        request.core.roots(),
+        if oracle.selected().manifest().enabled {
+            CognitionCurrentPresenceV3::Enabled
+        } else {
+            CognitionCurrentPresenceV3::Disabled
+        },
+        &mut read,
+        &mut current_work(),
+    )
+    .unwrap();
+    let production = super::source_reader::check(
+        request,
+        current.history_source(),
+        parent,
+        store,
+        objects,
+        io,
+        memory,
+    );
+    assert_eq!(
+        production.candidate_record_id(),
+        oracle.candidate_record_id()
+    );
+    assert_eq!(production.body_id(), oracle.body_id());
+    assert_eq!(
+        production.selected().manifest(),
+        oracle.selected().manifest()
+    );
+    production
+}
 #[test]
 fn source_presence_four_actual_signed_transitions_preserve_previous_scope() {
     for (before_enabled, after_enabled) in
@@ -528,11 +591,11 @@ fn source_presence_four_actual_signed_transitions_preserve_previous_scope() {
             &mut io,
             &memory,
         );
+        let pending = super::source_reader::prepare(&checked, &memory);
+        let actual_genesis =
+            formal::verify_formal_qualified(&setup.proof, &setup.authority, None, None).unwrap();
         let parent =
-            promote_complete_cognition_history_source_v3(&checked, &setup.commit, &memory, || {
-                false
-            })
-            .unwrap();
+            super::source_reader::finish_without_admission(pending, &actual_genesis, &memory);
         let execution_parent = ExecutionParent {
             roots: setup.roots.clone(),
             commit: setup.history.body.digest().unwrap(),
@@ -638,8 +701,26 @@ fn source_presence_four_actual_signed_transitions_preserve_previous_scope() {
         }
         .prepare(&memory)
         .unwrap();
+        let transition_pages = u64::try_from(sealed.new_nodes.len()).unwrap();
+        let catalog_pages = u64::try_from(
+            history
+                .body
+                .catalog_before
+                .extend(&history.body, &state, &memory, 4 << 20)
+                .unwrap()
+                .new_nodes
+                .len(),
+        )
+        .unwrap();
+        let mut core_work = core_budget();
+        let default_new_pages = core_work.new_pages_remaining;
+        core_work.new_pages_remaining = transition_pages.checked_add(catalog_pages).unwrap();
+        eprintln!(
+            "source presence {before_enabled}->{after_enabled}: transition_pages={transition_pages}, catalog_pages={catalog_pages}, required_new_pages={}, old_partial_allowance={default_new_pages}",
+            core_work.new_pages_remaining
+        );
         let (accepted, selected, _extension, checked) =
-            super::normal_accept::accept_normal_history_with_candidate(
+            super::normal_accept::accept_normal_history_with_candidate_work(
                 super::normal_accept::NormalHistoryFrame {
                     authority: &setup.authority,
                     parent: &setup.commit,
@@ -652,8 +733,9 @@ fn source_presence_four_actual_signed_transitions_preserve_previous_scope() {
                 &store,
                 &objects,
                 &mut io,
+                &mut core_work,
                 |candidate, core, originals, _selected, io| {
-                    checked_scope(
+                    let checked = checked_scope(
                         &CognitionHistorySelectionRequestV1 {
                             candidate,
                             core,
@@ -664,12 +746,27 @@ fn source_presence_four_actual_signed_transitions_preserve_previous_scope() {
                         &objects,
                         io,
                         &memory,
+                    );
+                    (
+                        super::source_reader::prepare(&checked, &memory),
+                        super::source_reader::prepare(&checked, &memory),
                     )
                 },
             );
-        let after =
-            promote_complete_cognition_history_source_v3(&checked, &accepted, &memory, || false)
-                .unwrap();
+        assert_eq!(
+            core_work.new_pages_remaining, 0,
+            "exact current transition plus catalog page charge"
+        );
+        let (pending, wrong_head_pending) = checked;
+        assert!(
+            finish_prepared_complete_cognition_history_promotion_v3(
+                wrong_head_pending,
+                &setup.commit
+            )
+            .is_err(),
+            "a true accepted GEN is not the checked Normal head"
+        );
+        let after = super::source_reader::finish_without_admission(pending, &accepted, &memory);
         assert_eq!(
             after.selected().manifest(),
             after_manifest.as_ref().unwrap()

@@ -52,6 +52,36 @@ pub(super) fn accept_normal_history_with_candidate<T>(
     ReservedValue<oasis7_formal_protocol::incremental_material::VerifiedFactHistoryExtensionV1>,
     T,
 ) {
+    accept_normal_history_with_candidate_work(
+        frame,
+        memory,
+        store,
+        objects,
+        io,
+        &mut core_budget(),
+        before_accept,
+    )
+}
+pub(super) fn accept_normal_history_with_candidate_work<T>(
+    frame: NormalHistoryFrame<'_>,
+    memory: &MemoryBudget,
+    store: &IncrementalPageStore,
+    objects: &IncrementalObjectStore<'_>,
+    io: &mut ObjectIo<'_>,
+    core_work: &mut oasis7_formal_protocol::incremental_material::CoreBudget,
+    before_accept: impl FnOnce(
+        &formal::VerifiedCandidateContextV1,
+        &ReservedValue<oasis7_formal_protocol::incremental_material::CheckedCommitCore>,
+        &ReservedValue<oasis7_formal_protocol::incremental_material::CheckedFactOriginals>,
+        &ReservedValue<CheckedCognitionHistoryViewV1>,
+        &mut ObjectIo<'_>,
+    ) -> T,
+) -> (
+    formal::VerifiedFormalCommitV1,
+    ReservedValue<AcceptedCognitionHistoryViewV1>,
+    ReservedValue<oasis7_formal_protocol::incremental_material::VerifiedFactHistoryExtensionV1>,
+    T,
+) {
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
         .unwrap();
@@ -163,7 +193,7 @@ pub(super) fn accept_normal_history_with_candidate<T>(
         &mut objects.original_reader(io),
         &state,
         memory,
-        &mut core_budget(),
+        core_work,
         || false,
     )
     .unwrap();

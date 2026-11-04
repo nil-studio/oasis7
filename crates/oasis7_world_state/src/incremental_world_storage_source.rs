@@ -76,6 +76,7 @@ pub fn qualify_checked_world_storage_source_v1(
         .validate_binding(core.roots())
         .map_err(|_| invalid())?;
     current.check_pool(memory)?;
+    current.raw().validate_candidate_core(core)?;
     if current.allocation_class() != MemoryClass::Ordinary
         || cognition.allocation_class() != MemoryClass::Ordinary
     {

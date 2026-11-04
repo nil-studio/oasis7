@@ -142,36 +142,158 @@ impl CounterScratchStore for Scratch<'_> {
         Ok(())
     }
 }
+#[path = "incremental_world_current_provenance_tests.rs"]
+pub(super) mod protocol;
 pub(super) struct Binder<'a> {
-    pub(super) events: &'a BTreeMap<[u8; 32], oasis7_world_state::DomainEvent>,
+    events: &'a BTreeMap<[u8; 32], crate::WorldEvent>,
+    parent: &'a protocol::Frame,
+    head: &'a protocol::Frame,
+    catalog: &'a Reader<'a>,
     pub(super) calls: usize,
+    core: oasis7_formal_protocol::incremental_material::CoreBudget,
+    facts: oasis7_formal_protocol::incremental_material::FactBudget,
+    structure: oasis7_proto::cbor_decode_preflight::CborPreflightWorkV1,
+}
+impl<'a> Binder<'a> {
+    pub(super) fn new(
+        events: &'a BTreeMap<[u8; 32], crate::WorldEvent>,
+        parent: &'a protocol::Frame,
+        head: &'a protocol::Frame,
+        catalog: &'a Reader<'a>,
+    ) -> Self {
+        Self {
+            events,
+            parent,
+            head,
+            catalog,
+            calls: 0,
+            core: oasis7_formal_protocol::incremental_material::CoreBudget {
+                objects_remaining: 1024,
+                original_bytes_remaining: 64 << 20,
+                new_pages_remaining: 8192,
+                merkle_reads_remaining: 1_000_000,
+            },
+            facts: protocol::fact_work(),
+            structure: oasis7_proto::cbor_decode_preflight::CborPreflightWorkV1 {
+                bytes_remaining: 32 << 20,
+                values_remaining: 1_000_000,
+                max_depth: 64,
+            },
+        }
+    }
 }
 impl<O: oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader>
-    MailboxDomainEventOriginalReaderV1<O> for Binder<'_>
+    MailboxWorldEventOriginalReaderV1<O> for Binder<'_>
 {
-    fn checked_domain_event(
+    fn checked_world_event(
         &mut self,
         reference: oasis7_world_state::incremental_agent_subtree::AgentMailboxReferenceV1<'_>,
+        scope: &MailboxProvenanceScopeV1<'_>,
         objects: &mut O,
         memory: &MemoryBudget,
         class: MemoryClass,
-        work: &mut DomainEventOriginalWorkV1,
+        work: &mut MailboxWorldEventOriginalWorkV1,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<
-        Arc<ReservedValue<CheckedDomainEventOriginalV1>>,
-        DomainEventOriginalErrorV1<O::Error>,
+        Arc<ReservedValue<CheckedMailboxWorldEventOriginalV1>>,
+        MailboxWorldEventOriginalErrorV1<O::Error>,
     > {
+        use oasis7_formal_protocol::incremental_material::*;
+        use oasis7_world_state::incremental_world_event_decode::*;
         self.calls += 1;
-        let event =
-            self.events
-                .get(&reference.original)
-                .ok_or(DomainEventOriginalErrorV1::Invalid(
-                    "missing actual borrowed DomainEvent",
-                ))?;
-        Ok(Arc::new(verify_domain_event_original_v1(
-            event,
-            reference.original,
-            objects,
+        let raw = objects
+            .read_original(
+                &reference.original,
+                usize::try_from(work.max_original_bytes).map_err(|_| {
+                    MailboxWorldEventOriginalErrorV1::Invalid("mailbox original bound")
+                })?,
+                memory,
+            )
+            .map_err(MailboxWorldEventOriginalErrorV1::Source)?;
+        let zero = oasis7_wasm_abi::CanonicalCborWorkV1 {
+            visits_remaining: 0,
+            bytes_remaining: 0,
+            max_depth: work.canonical.max_depth,
+            max_map_keys: work.canonical.max_map_keys,
+            max_key_bytes: work.canonical.max_key_bytes,
+        };
+        let mut decode_work = WorldEventDecodeWorkV1 {
+            structure: std::mem::replace(
+                &mut self.structure,
+                oasis7_proto::cbor_decode_preflight::CborPreflightWorkV1 {
+                    bytes_remaining: 0,
+                    values_remaining: 0,
+                    max_depth: 64,
+                },
+            ),
+            canonical: std::mem::replace(&mut work.canonical, zero),
+            max_original_bytes: usize::try_from(work.max_original_bytes).unwrap(),
+            max_heap_bytes: 32 << 20,
+        };
+        let decoded =
+            decode_world_event_original_v1(&raw, memory, class, &mut decode_work, &mut *cancelled);
+        work.canonical = decode_work.canonical;
+        self.structure = decode_work.structure;
+        let decoded = decoded.map_err(MailboxWorldEventOriginalErrorV1::Value)?;
+        assert_eq!(Some(decoded.event()), self.events.get(&reference.original));
+        let occurrence = if let MailboxProvenanceScopeV1::Candidate {
+            candidate,
+            core,
+            originals,
+        } = scope
+        {
+            if let Some(ordinal) = core.facts().facts.iter().position(|fact| {
+                fact.kind == ExecutionFactKindV1::Event && fact.id == reference.original
+            }) {
+                MailboxWorldEventOccurrenceV1::Candidate(
+                    check_candidate_event_fact_v1(
+                        &CandidateEventFactRequestV1 {
+                            candidate,
+                            core,
+                            originals,
+                            ordinal: ordinal as u64,
+                        },
+                        memory,
+                        &mut *cancelled,
+                    )
+                    .map_err(|_| {
+                        MailboxWorldEventOriginalErrorV1::Invalid(
+                            "actual candidate Event occurrence",
+                        )
+                    })?,
+                )
+            } else {
+                let parent = self.parent;
+                MailboxWorldEventOccurrenceV1::Accepted(self.historical(
+                    reference.original,
+                    &parent.accepted,
+                    &parent.roots,
+                    objects,
+                    memory,
+                    class,
+                    &mut *cancelled,
+                )?)
+            }
+        } else if let MailboxProvenanceScopeV1::Accepted { head, roots } = scope {
+            MailboxWorldEventOccurrenceV1::Accepted(self.historical(
+                reference.original,
+                head,
+                roots,
+                objects,
+                memory,
+                class,
+                &mut *cancelled,
+            )?)
+        } else {
+            unreachable!()
+        };
+        let _arc = memory
+            .reserve(64, class)
+            .map_err(|e| MailboxWorldEventOriginalErrorV1::Value(ValueTreeError::Memory(e)))?;
+        Ok(Arc::new(verify_mailbox_world_event_original_v1(
+            Arc::new(decoded),
+            occurrence,
+            scope,
             memory,
             class,
             work,
@@ -179,11 +301,64 @@ impl<O: oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader
         )?))
     }
 }
+impl Binder<'_> {
+    fn historical<O: oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader>(
+        &mut self,
+        id: [u8; 32],
+        head: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+        roots: &RootSetV1,
+        objects: &mut O,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+        cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<
+        ReservedValue<oasis7_formal_protocol::incremental_material::VerifiedEventFactOccurrenceV1>,
+        MailboxWorldEventOriginalErrorV1<O::Error>,
+    > {
+        use oasis7_formal_protocol::incremental_material::*;
+        let location = [self.parent, self.head]
+            .into_iter()
+            .find_map(|frame| {
+                frame
+                    .core
+                    .facts()
+                    .facts
+                    .iter()
+                    .position(|fact| fact.kind == ExecutionFactKindV1::Event && fact.id == id)
+                    .map(|ordinal| EventFactLocationV1 {
+                        height: frame.roots.height,
+                        ordinal: ordinal as u64,
+                        original: id,
+                    })
+            })
+            .ok_or(MailboxWorldEventOriginalErrorV1::Invalid(
+                "actual Event locator missing",
+            ))?;
+        verify_event_fact_occurrence_v1(
+            &EventFactRequestV1 {
+                head,
+                roots,
+                location,
+            },
+            &mut EventFactReadContextV1 {
+                originals: objects,
+                catalog_pages: self.catalog,
+                memory,
+                class,
+                core_budget: &mut self.core,
+                fact_budget: &mut self.facts,
+                cancelled,
+            },
+        )
+        .map_err(|_| MailboxWorldEventOriginalErrorV1::Invalid("actual accepted Event history"))
+    }
+}
+
 fn raw_gen(
     world: &World,
     pages: &mut Pages,
     memory: &MemoryBudget,
-    events: &mut BTreeMap<[u8; 32], oasis7_world_state::DomainEvent>,
+    events: &mut BTreeMap<[u8; 32], crate::WorldEvent>,
     originals: &mut BTreeMap<[u8; 32], ReservedValue<Vec<u8>>>,
 ) -> Vec<ReservedValue<ExecutionWriteV1>> {
     let mut quota = io();
@@ -211,7 +386,8 @@ fn raw_gen(
             },
             &mut budget,
             &mut |_, _, event| {
-                let bytes = oasis7_wasm_abi::encode_canonical_cbor(event).unwrap();
+                let original=world.journal.events.iter().find(|original|matches!(&original.body,crate::WorldEventBody::Domain(domain) if domain==event)).expect("actual mailbox WorldEvent original");
+                let bytes = oasis7_wasm_abi::encode_canonical_cbor(original).unwrap();
                 let id = *blake3::hash(&bytes).as_bytes();
                 originals.insert(
                     id,
@@ -220,7 +396,7 @@ fn raw_gen(
                         .unwrap()
                         .retain(bytes),
                 );
-                events.insert(id, event.clone());
+                events.insert(id, original.clone());
                 Ok(id)
             },
             &mut |row| {
@@ -297,6 +473,12 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
         ),
         0,
     );
+    world.journal.events.push(crate::WorldEvent {
+        id: 17,
+        time: 0,
+        caused_by: Some(oasis7_world_state::CausedBy::Action(7)),
+        body: crate::WorldEventBody::Domain(event.clone()),
+    });
     agent.mailbox.push_back(event);
     world.state.agents.insert("alice".into(), agent);
     world.state.module_instances.insert(
@@ -323,7 +505,15 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
     let mut events = BTreeMap::new();
     let mut raw_originals = BTreeMap::new();
     let rows = raw_gen(&world, &mut pages, &memory, &mut events, &mut raw_originals);
-    let roots = install(&memory, &mut pages, &rows);
+    let installed = install(&memory, &mut pages, &rows);
+    let genesis_frame = protocol::genesis(
+        &memory,
+        &mut pages,
+        installed.state,
+        events.keys().copied(),
+        &mut raw_originals,
+    );
+    let roots = genesis_frame.roots.clone();
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 128 << 20,
     };
@@ -342,12 +532,10 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
             class: MemoryClass::Ordinary,
             calls: 0,
         };
-        let mut binder = Binder {
-            events: &events,
-            calls: 0,
-        };
+        let mut binder = Binder::new(&events, &genesis_frame, &genesis_frame, &reader);
         let result = qualify_world_raw_complete_v1(
             &roots,
+            &genesis_frame.candidate_scope(),
             &mut context(&roots, &reader, &mut quota, &mut keys),
             &mut budget,
             &scratch,
@@ -386,15 +574,23 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
             eta_ticks: 0,
             notes: vec![],
         });
+    let second = world
+        .state
+        .agents
+        .get("alice")
+        .unwrap()
+        .mailbox
+        .back()
+        .unwrap()
+        .clone();
+    world.journal.events.push(crate::WorldEvent {
+        id: 18,
+        time: 0,
+        caused_by: Some(oasis7_world_state::CausedBy::Action(8)),
+        body: crate::WorldEventBody::Domain(second),
+    });
     let after_rows = raw_gen(&world, &mut pages, &memory, &mut events, &mut raw_originals);
-    let parent = ExecutionParent {
-        roots: roots.clone(),
-        commit: [51; 32],
-        authority: AuthorityBinding {
-            token: [52; 32],
-            epoch: 3,
-        },
-    };
+    let parent = genesis_frame.parent();
     let live = parent.fence().unwrap();
     let sealed = {
         let reader = Reader {
@@ -415,6 +611,26 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
             },
         )
         .unwrap();
+        let input = b"actual raw ordinary Input";
+        tx.append_fact(ExecutionFactRefV1 {
+            kind: ExecutionFactKindV1::Input,
+            id: *blake3::hash(input).as_bytes(),
+        })
+        .unwrap();
+        for id in events.keys().filter(|id| {
+            !genesis_frame
+                .core
+                .facts()
+                .facts
+                .iter()
+                .any(|fact| fact.id == **id)
+        }) {
+            tx.append_fact(ExecutionFactRefV1 {
+                kind: ExecutionFactKindV1::Event,
+                id: *id,
+            })
+            .unwrap();
+        }
         let mut count = 0;
         for row in &after_rows {
             if rows
@@ -443,6 +659,22 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
             )
             .unwrap();
     }
+    let input = b"actual raw ordinary Input";
+    raw_originals.insert(
+        *blake3::hash(input).as_bytes(),
+        memory
+            .reserve(input.len() + 128, MemoryClass::Ordinary)
+            .unwrap()
+            .retain(input.to_vec()),
+    );
+    let next = protocol::normal(
+        &memory,
+        &mut pages,
+        &genesis_frame,
+        &sealed.record,
+        *blake3::hash(input).as_bytes(),
+        &mut raw_originals,
+    );
     let reader = Reader {
         pages: &pages,
         memory: &memory,
@@ -455,10 +687,7 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
         class: MemoryClass::Ordinary,
         calls: 0,
     };
-    let mut binder = Binder {
-        events: &events,
-        calls: 0,
-    };
+    let mut binder = Binder::new(&events, &genesis_frame, &next, &reader);
     let verifier = TransitionVerifier {
         parent: &parent,
         operation: [53; 32],
@@ -471,6 +700,7 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
         &proof,
         &verifier,
         &sealed.record,
+        &next.candidate_scope(),
         &mut context(&sealed.record.after, &reader, &mut quota, &mut keys),
         &mut budget,
         &scratch,
@@ -495,12 +725,10 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
         class: MemoryClass::Recovery,
         calls: 0,
     };
-    let mut rec_binder = Binder {
-        events: &events,
-        calls: 0,
-    };
+    let mut rec_binder = Binder::new(&events, &genesis_frame, &next, &rec_reader);
     let recovered = qualify_world_raw_complete_v1(
         &sealed.record.after,
+        &next.accepted_scope(),
         &mut context(&sealed.record.after, &rec_reader, &mut quota, &mut keys),
         &mut budget,
         &rec_scratch,
@@ -514,6 +742,7 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
     let admitted = readmit_world_raw_complete_ordinary_v1(
         &recovered,
         &sealed.record.after,
+        &next.accepted_scope(),
         &memory,
         &mut budget,
         || false,

@@ -30,25 +30,27 @@ mod original;
 mod schedule;
 
 pub use original::{
-    CheckedDomainEventOriginalV1, DomainEventOriginalErrorV1, DomainEventOriginalWorkV1,
-    verify_domain_event_original_v1,
+    CheckedMailboxWorldEventOriginalV1, MailboxProvenanceAnchorV1, MailboxProvenanceScopeV1,
+    MailboxWorldEventOccurrenceV1, MailboxWorldEventOriginalErrorV1,
+    MailboxWorldEventOriginalWorkV1, verify_mailbox_world_event_original_v1,
 };
 pub use schedule::{WorldRawScheduleQualificationV1, WorldRawScheduleWorkV1};
 /// A checked result is mandatory. An implementation cannot fabricate a proof
 /// from an ID or return success without a private, actually streamed token.
-pub trait MailboxDomainEventOriginalReaderV1<O: OriginalObjectStreamReader> {
+pub trait MailboxWorldEventOriginalReaderV1<O: OriginalObjectStreamReader> {
     #[allow(clippy::too_many_arguments)]
-    fn checked_domain_event(
+    fn checked_world_event(
         &mut self,
         reference: agents::AgentMailboxReferenceV1<'_>,
+        scope: &MailboxProvenanceScopeV1<'_>,
         objects: &mut O,
         memory: &MemoryBudget,
         class: MemoryClass,
-        work: &mut DomainEventOriginalWorkV1,
+        work: &mut MailboxWorldEventOriginalWorkV1,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<
-        Arc<ReservedValue<CheckedDomainEventOriginalV1>>,
-        DomainEventOriginalErrorV1<O::Error>,
+        Arc<ReservedValue<CheckedMailboxWorldEventOriginalV1>>,
+        MailboxWorldEventOriginalErrorV1<O::Error>,
     >;
 }
 pub struct WorldRawCompleteWorkV1 {
@@ -62,7 +64,7 @@ pub struct WorldRawCompleteWorkV1 {
     pub allocators: allocators::RuntimeAllocatorsWorkV1,
     pub schedule: WorldRawScheduleWorkV1,
     pub mailbox_occurrences_remaining: u64,
-    pub originals: DomainEventOriginalWorkV1,
+    pub originals: MailboxWorldEventOriginalWorkV1,
 }
 pub struct WorldRawCompleteQualificationV1 {
     roots: [u8; 32],
@@ -99,6 +101,22 @@ impl WorldRawCompleteQualificationV1 {
     pub fn allocation_class(&self) -> MemoryClass {
         self.class
     }
+    pub fn mailbox_anchor(&self) -> MailboxProvenanceAnchorV1 {
+        self.mailbox.anchor
+    }
+    /// The enclosing candidate conjunction must call this even for no mailbox.
+    pub fn validate_candidate_core(
+        &self,
+        core: &oasis7_formal_protocol::incremental_material::CheckedCommitCore,
+    ) -> Result<(), ValueTreeError> {
+        if self.mailbox.anchor.record_id() != core.candidate_record_id()
+            || self.mailbox.anchor.body_id() != core.body().digest().map_err(|_| invalid())?
+            || self.mailbox.anchor.roots_id() != core.roots().digest().map_err(|_| invalid())?
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
     pub fn mailbox_reference_count(&self) -> u64 {
         self.mailbox.references
     }
@@ -114,7 +132,8 @@ impl WorldRawCompleteQualificationV1 {
         self.instances.validate_binding(roots)?;
         self.allocators.validate_binding(roots)?;
         self.schedule.validate_binding(roots)?;
-        if self.mailbox.roots != self.roots
+        if self.mailbox.anchor.roots_id() != self.roots
+            || self.mailbox.roots != self.roots
             || self.mailbox.class != self.class
             || self.mailbox.references != self.agents.mailbox_reference_count()
         {
@@ -150,7 +169,7 @@ pub enum WorldRawCompleteStructuralErrorV1 {
 #[derive(Debug)]
 pub enum WorldRawCompleteErrorV1<E> {
     Structure(WorldRawCompleteStructuralErrorV1),
-    Original(DomainEventOriginalErrorV1<E>),
+    Original(MailboxWorldEventOriginalErrorV1<E>),
 }
 impl std::fmt::Display for WorldRawCompleteStructuralErrorV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -273,9 +292,10 @@ pub fn qualify_world_raw_complete_v1<
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     roots: &RootSetV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     scratch: &S,
@@ -293,7 +313,7 @@ pub fn qualify_world_raw_complete_v1<
             .memory
             .reserve(128 << 10, ctx.values.class)
             .map_err(ValueTreeError::Memory)?;
-        qualify::run(roots, ctx, work, scratch, objects, originals)
+        qualify::run(roots, scope, ctx, work, scratch, objects, originals)
     })();
     check(ctx)?;
     result
@@ -307,11 +327,12 @@ pub fn accept_world_raw_complete_transition_v1<
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     parent: &ReservedValue<WorldRawCompleteQualificationV1>,
     verifier: &oasis7_formal_protocol::incremental_execution::TransitionVerifier<'_, P>,
     record: &oasis7_formal_protocol::incremental_execution::TransitionRecordV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     scratch: &S,
@@ -341,7 +362,7 @@ pub fn accept_world_raw_complete_transition_v1<
         )
         .map_err(WorldFieldOverlayErrorV1::from)?;
         accept_world_raw_complete_verified_v1(
-            parent, &witness, ctx, work, scratch, objects, originals,
+            parent, &witness, scope, ctx, work, scratch, objects, originals,
         )
     })();
     check(ctx)?;
@@ -355,10 +376,11 @@ pub(crate) fn accept_world_raw_complete_verified_v1<
     C: FnMut() -> bool,
     S: CounterScratchStore,
     O: OriginalObjectStreamReader,
-    B: MailboxDomainEventOriginalReaderV1<O>,
+    B: MailboxWorldEventOriginalReaderV1<O>,
 >(
     parent: &ReservedValue<WorldRawCompleteQualificationV1>,
     witness: &VerifiedWorldTransitionV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldRawCompleteWorkV1,
     scratch: &S,
@@ -378,7 +400,9 @@ pub(crate) fn accept_world_raw_complete_verified_v1<
             MemoryClass::Ordinary,
             &mut ctx.cancelled,
         )?;
-        receiver::run(parent, witness, ctx, work, scratch, objects, originals)
+        receiver::run(
+            parent, witness, scope, ctx, work, scratch, objects, originals,
+        )
     })();
     check(ctx)?;
     result
@@ -386,12 +410,13 @@ pub(crate) fn accept_world_raw_complete_verified_v1<
 pub fn readmit_world_raw_complete_ordinary_v1(
     source: &ReservedValue<WorldRawCompleteQualificationV1>,
     roots: &RootSetV1,
+    scope: &MailboxProvenanceScopeV1<'_>,
     memory: &MemoryBudget,
     work: &mut WorldRawCompleteWorkV1,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<WorldRawCompleteQualificationV1>, WorldRawCompleteStructuralErrorV1> {
     let _phase = bind(source, roots, memory, MemoryClass::Recovery, &mut cancelled)?;
-    let result = readmission::run(source, roots, memory, work, &mut cancelled);
+    let result = readmission::run(source, roots, scope, memory, work, &mut cancelled);
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }

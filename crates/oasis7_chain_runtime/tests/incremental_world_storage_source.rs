@@ -123,35 +123,36 @@ mod scratch;
 // every unexpected request and records it, rather than minting original proofs.
 struct NoMailbox(usize);
 impl<O: OriginalObjectStreamReader>
-    oasis7_world_state::incremental_world_raw_complete::MailboxDomainEventOriginalReaderV1<O>
+    oasis7_world_state::incremental_world_raw_complete::MailboxWorldEventOriginalReaderV1<O>
     for NoMailbox
 {
-    fn checked_domain_event(
+    fn checked_world_event(
         &mut self,
         _: oasis7_world_state::incremental_agent_subtree::AgentMailboxReferenceV1<'_>,
+        _: &oasis7_world_state::incremental_world_raw_complete::MailboxProvenanceScopeV1<'_>,
         _: &mut O,
         _: &MemoryBudget,
         _: MemoryClass,
-        _: &mut oasis7_world_state::incremental_world_raw_complete::DomainEventOriginalWorkV1,
+        _: &mut oasis7_world_state::incremental_world_raw_complete::MailboxWorldEventOriginalWorkV1,
         _: &mut dyn FnMut() -> bool,
     ) -> Result<
         std::sync::Arc<
             ReservedValue<
-                oasis7_world_state::incremental_world_raw_complete::CheckedDomainEventOriginalV1,
+                oasis7_world_state::incremental_world_raw_complete::CheckedMailboxWorldEventOriginalV1,
             >,
         >,
-        oasis7_world_state::incremental_world_raw_complete::DomainEventOriginalErrorV1<O::Error>,
-    > {
+        oasis7_world_state::incremental_world_raw_complete::MailboxWorldEventOriginalErrorV1<O::Error>,
+    >{
         self.0 += 1;
         Err(
-            oasis7_world_state::incremental_world_raw_complete::DomainEventOriginalErrorV1::Invalid(
+            oasis7_world_state::incremental_world_raw_complete::MailboxWorldEventOriginalErrorV1::Invalid(
                 "unexpected mailbox in empty fresh World",
             ),
         )
     }
 }
-fn state_error(_: oasis7_distfs::incremental_page_store::PageStoreError) -> ValueTreeError {
-    ValueTreeError::Invalid("actual state page read")
+fn state_error(error: oasis7_distfs::incremental_page_store::PageStoreError) -> ValueTreeError {
+    ValueTreeError::Io(std::io::Error::other(error))
 }
 
 #[test]
@@ -323,6 +324,8 @@ fn real_default_world_genesis_qualifies_complete_storage_sources() {
         .unwrap();
         let state = store
             .state_session(physical(), MemoryClass::Ordinary)
+            .unwrap()
+            .with_read_memo(65536, 32 << 20)
             .unwrap();
         let core = verify_commit_core(
             &CoreRequest {
@@ -383,10 +386,46 @@ fn real_default_world_genesis_qualifies_complete_storage_sources() {
             cancelled: || false,
         };
         let mut mailbox = NoMailbox(0);
+        let mut current_budget = current_work::current_work();
+        let total_bootstrap_leaves = s
+            .roots
+            .state
+            .iter()
+            .try_fold(0u64, |sum, root| sum.checked_add(root.leaf_count))
+            .expect("finite RootSet leaf total");
+        // Complete cold/bootstrap Q may visit every declared native owner.
+        // A 256-depth SMT visits at most 257 nodes per leaf per descriptor.
+        // This explicit one-operation allowance says nothing about ordinary D.
+        let initial_native_outer_nodes = total_bootstrap_leaves
+            .checked_mul(257)
+            .and_then(|n| n.checked_mul(97))
+            .expect("finite complete bootstrap scan allowance");
+        current_budget.native_outer_scan.nodes_remaining = initial_native_outer_nodes;
+        // Runtime Q likewise shares one outer scanner across its 46 fixed
+        // descriptors. Its namespace passes are bounded by a full six-root
+        // traversal per descriptor; content/body scans have separate accounts.
+        // The default empty rollback registry's marker scan also fits within
+        // its three declared rollback descriptors, rather than resetting work.
+        let initial_runtime_outer_nodes = total_bootstrap_leaves
+            .checked_mul(257)
+            .and_then(|n| n.checked_mul(46))
+            .expect("finite complete Runtime bootstrap scan allowance");
+        current_budget.runtime.outer_scan.nodes_remaining = initial_runtime_outer_nodes;
+
         let current=qualify_world_current_state_v1(&s.roots,
    oasis7_world_state::incremental_cognition_current_complete_v3::CognitionCurrentPresenceV3::Enabled,
-   &mut ctx,&mut current_work::current_work(),&scratch::Scratch::new(&memory,4096),
-   &mut objects.original_reader(&mut object_io),&mut mailbox).unwrap();
+   &oasis7_world_state::incremental_world_raw_complete::MailboxProvenanceScopeV1::Candidate{candidate:&candidate,core:&core,originals:&originals},
+   &mut ctx,&mut current_budget,&scratch::Scratch::new(&memory,4096),
+   &mut objects.original_reader(&mut object_io),&mut mailbox).unwrap_or_else(|error| panic!("actual Current qualification: {error:?}; remaining state physical IO: {:?}", (state.remaining_io(),state.read_memo_stats(),
+      (current_budget.key_scan.nodes_remaining,current_budget.key_scan.read_bytes_remaining,current_budget.key_scan.leaves_remaining),
+      (current_budget.native_outer_scan.nodes_remaining,current_budget.native_outer_scan.read_bytes_remaining,current_budget.native_outer_scan.leaves_remaining),
+      (current_budget.native_inner_scan.nodes_remaining,current_budget.native_inner_scan.read_bytes_remaining,current_budget.native_inner_scan.leaves_remaining),
+      (current_budget.native.legacy_cells_remaining,current_budget.native.primitive.records_remaining,current_budget.native.native.records_remaining,current_budget.native.native.trees_remaining,current_budget.native.native.typed.json.cells_remaining,current_budget.native.native.typed.json.json_nodes_remaining),
+      (current_budget.runtime.outer_scan.nodes_remaining,current_budget.runtime.outer_scan.read_bytes_remaining,current_budget.runtime.outer_scan.leaves_remaining),
+      (current_budget.runtime.body_scan.nodes_remaining,current_budget.runtime.body_scan.read_bytes_remaining,current_budget.runtime.body_scan.leaves_remaining),
+      (current_budget.runtime.cells_remaining,current_budget.runtime.rollback.cells_remaining,current_budget.runtime.pending.selected_scan.nodes_remaining,current_budget.runtime.pending.selected_scan.read_bytes_remaining,current_budget.runtime.pending.selected_scan.leaves_remaining),
+      (initial_runtime_outer_nodes,initial_runtime_outer_nodes.checked_sub(current_budget.runtime.outer_scan.nodes_remaining).expect("Runtime scan counter never refills"),current_budget.runtime.outer_scan.nodes_remaining),
+      (total_bootstrap_leaves,initial_native_outer_nodes,initial_native_outer_nodes.checked_sub(current_budget.native_outer_scan.nodes_remaining).expect("scan counter never refills"),current_budget.native_outer_scan.nodes_remaining))));
         assert_eq!(mailbox.0, 0);
         let indexes = RuntimeHistoryLaneV1::ALL.map(|lane| {
             qualify_runtime_history_index_v1(
@@ -511,8 +550,30 @@ fn real_default_world_genesis_qualifies_complete_storage_sources() {
             );
         } else {
             let source = source.unwrap();
+            eprintln!(
+                "complete Runtime bootstrap outer scan (not ordinary delta): initial={} spent={} remaining={}",
+                initial_runtime_outer_nodes,
+                initial_runtime_outer_nodes
+                    .checked_sub(current_budget.runtime.outer_scan.nodes_remaining)
+                    .unwrap(),
+                current_budget.runtime.outer_scan.nodes_remaining
+            );
+            eprintln!(
+                "complete bootstrap outer scan (not ordinary delta): leaves={} initial={} spent={} remaining={}",
+                total_bootstrap_leaves,
+                initial_native_outer_nodes,
+                initial_native_outer_nodes
+                    .checked_sub(current_budget.native_outer_scan.nodes_remaining)
+                    .unwrap(),
+                current_budget.native_outer_scan.nodes_remaining
+            );
             source.current().validate_binding(&s.roots).unwrap();
             assert_eq!(source.results().rows().len(), 2);
+            eprintln!(
+                "full GEN physical IO/memo: {:?} {:?}",
+                state.remaining_io(),
+                state.read_memo_stats()
+            );
         }
     }
 }
