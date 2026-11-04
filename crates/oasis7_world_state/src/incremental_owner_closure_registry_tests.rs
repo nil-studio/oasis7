@@ -293,3 +293,16 @@ fn text_byte_owner_scan_observes_late_cancellation() {
     ));
     assert_eq!(calls.get(), 64);
 }
+
+#[test]
+fn id_set_metadata_and_unit_member_cannot_move_to_another_namespace_root() {
+    let misplaced = fixture_with_issue(true, Some(FixtureIssue::MisplacedIdSetNamespace));
+    match verify(&misplaced, || false) {
+        Err(WorldStateOwnerError::Invalid("field namespace/root mismatch")) => {}
+        Err(other) => panic!("unexpected owner error: {other:?}"),
+        Ok(report) => panic!(
+            "relocated Authorization metadata/Unit accepted with {} checked ID sets",
+            report.checked_id_set_fields()
+        ),
+    }
+}

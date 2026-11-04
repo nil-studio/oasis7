@@ -519,6 +519,11 @@ pub fn verify_world_state_owner_closure_v1<S: MerkleNodeReader, V: ValueNodeRead
                 let parsed =
                     crate::incremental_world_field_key::WorldFieldKeyV1::from_bytes(&entry.key)
                         .map_err(WorldStateOwnerError::Invalid)?;
+                if parsed.namespace != root.namespace {
+                    return Err(WorldStateOwnerError::Invalid(
+                        "field namespace/root mismatch",
+                    ));
+                }
                 if module_instances::handles_name(parsed.name)
                     && module_instances::visit_entry(
                         &mut module_instance_coverage,
