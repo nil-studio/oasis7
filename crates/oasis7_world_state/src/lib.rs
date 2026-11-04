@@ -423,3 +423,13 @@ pub mod incremental_rollback_overlay;
 pub mod incremental_rollback_registry_overlay;
 
 pub mod incremental_runtime_authorization_family_genesis;
+
+pub mod incremental_module_state_recovery;
+
+pub mod incremental_module_state_family;
+
+pub mod incremental_module_instance_recovery;
+
+pub mod incremental_module_instance_family;
+
+pub mod incremental_module_instance_receiver;

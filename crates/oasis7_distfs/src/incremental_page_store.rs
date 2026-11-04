@@ -454,3 +454,6 @@ pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriter};
 
 #[path = "incremental_object_store.rs"]
 pub mod objects;
+
+#[path="incremental_genesis_store.rs"]
+pub mod genesis;
