@@ -31,6 +31,7 @@
 - 想从创作交付走到受限试点、正式准入和有限收益：读[工业四阶段设计](../../world-runtime/runtime/industrial-creation-simulation-and-admission.design.md)与[有限许可政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#industrial-license-policy-v1)，再核[许可执行与结算](../../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md)；模拟、技术发布、正式使用和付款不是同一结果。
 - 想在合作前了解对方的可核验履约事实：读[情境声誉政策](gameplay-contextual-reputation-contract.prd.md)和[证据及复核设计](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md)；分清主体/控制任期、情境、补救与历史，不把缺记录或旧分数当全球信誉。
 - 想在研究开始前约定贡献与收益，或转让已约定份额：读 [R&D charter 政策](gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md)、[归因与转让执行设计](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md)及[验收手册](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)；贡献事实、成果使用权和经济份额分别核对。
+- 想了解组织或接替岗位的托管返还履历：读[玩法政策](gameplay-organization-custody-role-reputation-contract.prd.md)、[执行设计](../../world-runtime/runtime/organization-custody-role-reputation.design.md)和[验收手册](../../testing/manual/organization-custody-role-reputation-acceptance.manual.md)；分别核组织事项、原接替任期、实际返还和当前读取权限。
 - 想精确找某份 gameplay 专题文档，而不是按问题阅读：回到 `../prd.index.md`
 
 ## 入口分工
@@ -46,6 +47,7 @@
 - [供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)拥有 CR-001/002 有限个人供能切片的检查点、补救、争议和继受规则；Runtime 拥有资源占用、计量、事务及恢复，既有物料物流和组织处置规则继续由原专题拥有。
 - [情境声誉政策](gameplay-contextual-reputation-contract.prd.md)拥有 CR-003 合同履约咨询切片的来源选择、时效与复核规则；Runtime 拥有证据投影和恢复，原合同继续拥有责任及申诉，其他主体/来源沿原范围补齐。
 - [R&D charter 政策](gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md)拥有 CR-003 自然主体有界研究的事前同意、固定分配、归因程序与整槽转让规则；Runtime 拥有证据、权利交接和恢复，原工业许可继续拥有实际使用和累计收益。
+- [组织与岗位履历政策](gameplay-organization-custody-role-reputation-contract.prd.md)拥有 CR-003 托管返还咨询切片的来源、情境、时效与玩家选择；Runtime 拥有受权派生和恢复，原组织合同继续拥有任命、处分和实质救济。
 - GitHub Project task status 与 issue evidence comments 是 retention、preview、经济规则和放行门禁的执行状态入口。
 - `../prd.index.md` 是完整文件级索引，适合已知主题后按文件名查找。
 

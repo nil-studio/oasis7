@@ -72,6 +72,7 @@
 | 协作提议如何经双方接受形成即时交换 | [Agent 代表的合同形成](runtime/agent-mediated-contract-formation.design.md) | 非绑定提议、同版条款、当前授权、两腿原子效果与原请求恢复；持续服务另核 |
 | 跨时间供能如何逐检查点履行及恢复 | [有限供能服务履约](runtime/checkpoint-power-service-fulfillment.design.md) | 价款/抵押/费用占用、部分履行、修复、争议、结清与三方显式继受；通用服务和实际激活另核 |
 | 合作前如何查看有情境的履约事实并纠错 | [情境声誉证据与复核](runtime/contextual-reputation-evidence-and-review.design.md) | 两个个人合同 profile 的来源/主体/时效/更正/恢复；原分数、一般社会声明和资格消费者不混入 |
+| 如何按原组织事项与接替任期查询托管返还履历 | [组织与岗位履历咨询](runtime/organization-custody-role-reputation.design.md) | 两条合法返还路径、组织/原任期、当前受众、有界派生和客观更正；原任命及资产处分另核 |
 | 研究开始前如何约定归因、保留 Agent provenance 并转让收益份额 | [R&D 章程、来源与转让](runtime/rd-charter-provenance-and-share-transfer.design.md) | 同版同意、预工作时序、固定分配交接、独立有限归因程序和原槽转让；不移动个人 credential 或改写累计收益 |
 
 ## governance 子域阅读边界
