@@ -1,5 +1,94 @@
 use super::*;
 #[test]
+fn scoped_reader_caught_source_unwind_cannot_return_success() {
+    struct Panics<'a>(&'a Source);
+    impl MerkleNodeReader for Panics<'_> {
+        type Node = Page;
+        fn allocation_budget(&self) -> Option<&MemoryBudget> {
+            Some(&self.0.memory)
+        }
+        fn allocation_class(&self) -> Option<MemoryClass> {
+            Some(MemoryClass::Ordinary)
+        }
+        fn read_node(&self, _: &str, _: usize) -> Result<Option<Page>, String> {
+            panic!("scoped source unwind");
+        }
+    }
+    let (root, source) = source(&[b"a"]);
+    let panics = Panics(&source);
+    let result = StateScanContext {
+        source: &panics,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut io(),
+    }
+    .with_reader(
+        || false,
+        |reader| {
+            let caught =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| reader.get(&root, b"a")));
+            assert!(caught.is_err());
+            Ok::<_, String>(())
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(StateScanError::Invalid(
+            "scoped state reader failure ignored"
+        ))
+    ));
+    let result = StateScanContext {
+        source: &panics,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut io(),
+    }
+    .with_reader(
+        || false,
+        |reader| {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    MerkleNodeReader::read_node(reader, &root.node_root, 4096)
+                }))
+                .is_err()
+            );
+            Ok::<_, String>(())
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(StateScanError::Invalid(
+            "scoped state reader failure ignored"
+        ))
+    ));
+    let result = StateScanContext {
+        source: &source,
+        memory: &source.memory,
+        class: MemoryClass::Ordinary,
+        io: &mut io(),
+    }
+    .with_reader(
+        || false,
+        |reader| {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    reader.visit_entries(&root, |_| -> Result<(), String> {
+                        panic!("scoped visitor unwind")
+                    })
+                }))
+                .is_err()
+            );
+            Ok::<_, String>(())
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(StateScanError::Invalid(
+            "scoped state reader failure ignored"
+        ))
+    ));
+}
+#[test]
 fn scoped_reader_has_no_implicit_traversal_and_point_work_shares_allowances() {
     let (root, source) = source(&[b"a", b"b"]);
     let memory = &source.memory;

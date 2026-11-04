@@ -88,9 +88,40 @@ pub struct StateScanReader<'a, R, C> {
     pub(crate) failed: Option<&'a Cell<bool>>,
 }
 pub(crate) type Guarded<'a, R, C> = StateScanReader<'a, R, C>;
+// A callback may catch a source/visitor unwind. Keep the scope poisoned even
+// when that unwind skips the normal Result boundary; nested success never
+// clears an earlier failure. Existing readers with no latch keep their policy.
+struct ReaderAttempt<'a> {
+    failed: Option<&'a Cell<bool>>,
+    finished: bool,
+}
+impl<'a> ReaderAttempt<'a> {
+    fn new(failed: Option<&'a Cell<bool>>) -> Self {
+        Self {
+            failed,
+            finished: false,
+        }
+    }
+    fn finish(mut self, failed: bool) {
+        if failed && let Some(latch) = self.failed {
+            latch.set(true);
+        }
+        self.finished = true;
+    }
+}
+impl Drop for ReaderAttempt<'_> {
+    fn drop(&mut self) {
+        if !self.finished
+            && let Some(latch) = self.failed
+        {
+            latch.set(true);
+        }
+    }
+}
 impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanReader<'_, R, C> {
     type Node = R::Node;
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
+        let attempt = ReaderAttempt::new(self.failed);
         let result = (|| {
             if let Some(stop) = self.stop.get() {
                 return Err(match stop {
@@ -129,11 +160,7 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanRead
             }
             Ok(result)
         })();
-        if result.is_err()
-            && let Some(failed) = self.failed
-        {
-            failed.set(true);
-        }
+        attempt.finish(result.is_err());
         result
     }
 }
@@ -172,11 +199,10 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
         root: &StateRootV1,
         key: &[u8],
     ) -> Result<Option<[u8; 32]>, StateScanError<String>> {
-        self.get_inner(root, key).inspect_err(|_| {
-            if let Some(failed) = self.failed {
-                failed.set(true);
-            }
-        })
+        let attempt = ReaderAttempt::new(self.failed);
+        let result = self.get_inner(root, key);
+        attempt.finish(result.is_err());
+        result
     }
     fn get_inner(
         &self,
@@ -214,11 +240,10 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
         root: &StateRootV1,
         visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
     ) -> Result<u64, StateScanError<E>> {
-        self.visit_entries_inner(root, visit).inspect_err(|_| {
-            if let Some(failed) = self.failed {
-                failed.set(true);
-            }
-        })
+        let attempt = ReaderAttempt::new(self.failed);
+        let result = self.visit_entries_inner(root, visit);
+        attempt.finish(result.is_err());
+        result
     }
     fn visit_entries_inner<E>(
         &self,
