@@ -852,6 +852,7 @@
     "scripts/ci-workflow.test.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.py": ["workflow_governance"],
     "scripts/ci-workspace-cache.test.py": ["workflow_governance"],
+    "scripts/ci_process_runner.py": ["workflow_governance"],
     "scripts/document_corpus.py": ["doc_checker_contracts"],
     "scripts/plan-rust-required-scope.py": ["workflow_governance"],
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
@@ -1107,6 +1108,14 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-workspace-cache.test.py"
+      ]
+    },
+    "scripts/ci_process_runner.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-formal-process.test.py",
+        "scripts/ci-storage-acceptance.test.py",
+        "scripts/ci-support-profiles.test.py"
       ]
     },
     "scripts/document_corpus.py": {
@@ -1382,7 +1391,6 @@
   "rules": [
     {
       "match": [
-        "scripts/ci_process_runner.py",
         "scripts/pr-review-threads.py",
         "scripts/pr-review-threads.test.py"
       ],

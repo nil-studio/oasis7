@@ -199,7 +199,9 @@ Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。
 
 完整声明检查及全部登记 profile 的依赖图始终执行。普通源码变化的必需编译集合为：可信 BASE 选择器从 base/source/tested（含实际 merge parents）归属及嵌入输入得到的直接受影响包，与每个 profile 的实际 Cargo 图相交的 root/profile；图包括 normal/build，测试配置另含 root dev，host build/proc-macro 与 target 条件及 features 由 Cargo 解析。编译选择使用未豁免的完整图，精确互操作允许关系只影响违规判定，不能使构建输入漏选。未选中编译明确报告 `not_required`，图通过与编译成功分别记录，不能声称执行过未选项。
 
-[普通快速合同](../../testing/ci/ci-tiered-execution.design.md#pr-快速反馈与周期完整回归设计)可以显式调整编译分层。可信 scope 配置声明 `architecture_build_policy_version=1`，且完整计划是有效的 targeted inline、恰好包含 baseline/Rust baseline/native 三组、没有额外 WASM/Formal、测试政策迁移或必要加测例外时，选择器才可输出 `architecture.build_policy_version=1`、`build_policy=ordinary-targets`。全部直接 architecture 输入必须非空，并完整包含于已验证快速 target 的 package owner 集合；不另维护一份覆盖名单。混有 custody、平台或其他未被快速目标承接的输入时，整份架构计划沿用原编译选择。
+[普通快速合同](../../testing/ci/ci-tiered-execution.design.md#pr-快速反馈与周期完整回归设计)可以显式调整编译分层。可信 scope 配置声明 `architecture_build_policy_version=1`，且完整计划是有效的 targeted inline、包含 baseline/Rust baseline/native 三个必需组、没有额外 WASM/Formal、测试政策迁移或必要加测例外时，选择器才可输出 `architecture.build_policy_version=1`、`build_policy=ordinary-targets`。全部直接 architecture 输入必须非空，并完整包含于已验证快速 target 的 package owner 集合；不另维护一份覆盖名单。混有 custody、平台或其他未被快速目标承接的直接输入时，整份架构计划沿用原编译选择。
+
+可同时保留由这些直接输入的真实反向消费者产生的 `consensus/distfs/net/node` 组。选择器以 `architecture.consumer_groups` 记录额外组及对应的非空消费者包集合；这些包须来自受影响集合，不能是借用其他快速目标的未覆盖直接输入，额外组也不能由路径规则直接命中或显式加测产生。最终组集合必须恰为三个必需组与已证明的消费者组并集；没有额外组时不要求该字段。消费者从固定 `policy_sha` 的 scope 配置核对包到组的归属，并以实际 Cargo 依赖关系复核反向可达性；缺包、未知组、错误归属、空集合或不完整证明返回 `inspection_error`。额外消费者组仍真实执行并进入原结果汇总，不能用架构编译延期替代其行为测试。
 
 消费者复用执行层对完整计划、精确目标及 source/tested 的校验。合法快速计划仍检查全部声明和全部登记 profile 的 Cargo 图；原本因输入交集要求编译的 profile 改记 `deferred_to_full`，由 periodic-full/candidate-full 执行原命令。当轮必需 native 构建与真实测试、strict Clippy 继续验证计划中的全部快速目标，任一失败由原 required gate 阻断。此分工允许仅在上层消费者或扩展 feature 中暴露的兼容编译错误由周期 full 发现，不声称无默认 feature 的 required 变体等价于 default/full/test-support/wasmtime/WASM 矩阵。
 

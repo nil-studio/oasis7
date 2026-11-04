@@ -151,6 +151,23 @@ def release_growth_inventory():
 
 
 class SchemaTests(unittest.TestCase):
+    def test_ordinary_configured_budget_matches_a_supported_policy_version(self):
+        # Bound the policy transition independently of the legacy numeric
+        # fixtures. This prerequisite does not change the configured ceiling.
+        settings = policy.FAMILIES['ordinary']
+        upload = settings['max_upload_bytes']
+        self.assertIn(upload, (768 * 1024 ** 2, 5 * 1024 ** 3 // 4))
+        self.assertEqual(settings['staging_bytes'], 6 * 1024 ** 3)
+        self.assertEqual(settings['keep_generations'], 2)
+        self.assertEqual(settings['max_bytes'], 2 * upload)
+        self.assertEqual(settings['rotation_bytes'], 3 * upload)
+        self.assertNotIn('migration_bytes', settings)
+        self.assertTrue(policy.save_policy([], key('ordinary', 1), upload,
+                                          REPOSITORY_LIMIT)['capacity_allowed'])
+        rejected = policy.save_policy([], key('ordinary', 1), upload + 1, REPOSITORY_LIMIT)
+        self.assertFalse(rejected['capacity_allowed'])
+        self.assertEqual(rejected['reason'], 'ordinary single upload budget')
+
     def test_formal_configured_budget_matches_a_supported_policy_version(self):
         settings = policy.FAMILIES['formal']
         upload = settings['max_upload_bytes']
@@ -198,7 +215,7 @@ class AdmissionTests(unittest.TestCase):
     def test_rotation_headroom_is_additional_to_the_measured_upload_bound(self):
         reserve = 5 * 1024 ** 3 // 2
         self.assertEqual(policy.DEPENDENCY_ROTATION_HEADROOM_BYTES, reserve)
-        entries = [entry('ordinary', 1, key='shared-dependency-andother-caches',
+        entries = [entry('ordinary', 1, key='shared-dependency-and-other-caches',
                          size_in_bytes=7_308_732_735)]
         for name, bound in (('ordinary', 764_291_602), ('formal', 798_904_222)):
             with self.subTest(name=name):

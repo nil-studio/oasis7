@@ -54,8 +54,14 @@ def valid_plan(source):
                 for package, kind, name in sorted(PREVIEW.EXPECTED_TARGETS)]}
 
 
-def fixture_planner(repo):
+def fixture_planner(repo, consumer_groups=None):
     """Run a real planner subprocess without compiling a product workspace."""
+    plan = valid_plan('unused')
+    if consumer_groups:
+        plan['groups'] = sorted(PREVIEW.EXPECTED_GROUPS | consumer_groups.keys())
+        plan['affected_packages'] = ['oasis7_runtime', 'oasis7_world_state',
+                                     *(name for names in consumer_groups.values() for name in names)]
+        plan['architecture']['consumer_groups'] = consumer_groups
     (repo / 'scripts/plan-rust-required-scope.py').write_text("""import argparse,json,pathlib
 p=argparse.ArgumentParser()
 for key in ('profile','base-ref','head-ref','test-ref','policy-ref','config','formal-config','output'):
@@ -67,7 +73,7 @@ plan=PLAN
 for key in ('source_sha','tested_sha','policy_sha'): plan[key]=a.head_ref
 for key in ('source','tested'): plan['architecture'][key]=a.head_ref
 pathlib.Path(a.output).write_text(json.dumps(plan))
-""".replace('PLAN', repr(valid_plan('unused'))))
+""".replace('PLAN', repr(plan)))
 
 
 def commit(repo, message):
@@ -383,6 +389,45 @@ class Preview(unittest.TestCase):
             plan = copy.deepcopy(original)
             plan['architecture'][field] = value
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(plan, source)
+
+    def test_native_reverse_consumer_groups_reach_the_complete_preview_matrix(self):
+        consumers = {'distfs': ['oasis7_distfs'], 'net': ['oasis7_net'], 'node': ['oasis7_node']}
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = fixture(directory)
+            fixture_planner(repo, consumers)
+            (repo / 'scripts/ci-tests.sh').write_text('# candidate driver\n')
+            source = commit(repo, 'candidate with actual native reverse consumers')
+            output, github_output = Path(directory) / 'plan.json', Path(directory) / 'github-output'
+            metadata = PREVIEW.plan_preview(repo, base, source, output, github_output)
+            selected = json.loads(output.read_text())
+            values = dict(line.split('=', 1) for line in github_output.read_text().splitlines())
+            expected = sorted(['baseline', 'rust_baseline', 'oasis7_required', 'distfs', 'net', 'node'])
+            self.assertEqual(selected['groups'], expected)
+            self.assertEqual(json.loads(values['groups']), expected)
+            self.assertEqual(metadata['groups'], expected)
+            self.assertEqual(selected['architecture']['consumer_groups'], consumers)
+            self.assertEqual(len(selected['ordinary_fast_targets']), 4)
+
+    def test_unproved_duplicate_or_misassigned_consumer_groups_are_rejected(self):
+        source = 'a' * 40
+        original = valid_plan(source)
+        original['groups'] += ['net']
+        original['affected_packages'] = ['oasis7_runtime', 'oasis7_world_state', 'oasis7_net']
+        original['architecture']['consumer_groups'] = {'net': ['oasis7_net']}
+        PREVIEW.validate_plan(original, source)
+        for mapping in (None, {}, {'node': ['oasis7_net']}, {'net': []},
+                        {'net': ['oasis7_net', 'oasis7_net']}, {'net': ['unknown']},
+                        {'net': ['oasis7_runtime']}, {'net': 'oasis7_net'}, {'net': [1]}):
+            plan = copy.deepcopy(original)
+            plan['architecture']['consumer_groups'] = mapping
+            with self.subTest(mapping=mapping), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(plan, source)
+        for groups in (original['groups'] + ['net'], original['groups'] + ['launcher_web'],
+                       ['baseline', 'oasis7_required', 'net'], original['groups'] + [1]):
+            plan = copy.deepcopy(original)
+            plan['groups'] = groups
+            with self.subTest(groups=groups), self.assertRaises(ValueError):
                 PREVIEW.validate_plan(plan, source)
 
 

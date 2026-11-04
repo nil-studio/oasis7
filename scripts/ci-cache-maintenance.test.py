@@ -260,12 +260,15 @@ class WorkspaceRetentionTests(unittest.TestCase):
         self.assertEqual(plan['protected_ids'], [2, 3, 10, 11])
 
     def test_each_family_retains_its_budget_and_protected_excess(self):
-        entries = [self.entry(1, 'ordinary', size=900_000_000),
-                   self.entry(2, 'ordinary', size=900_000_000), self.entry(3, size=1)]
+        # Keep both protected generations over the resident budget when the
+        # configured upload ceiling changes; the retention contract is unchanged.
+        upload = maintenance.policy.FAMILIES['ordinary']['max_upload_bytes']
+        entries = [self.entry(1, 'ordinary', size=upload + 1),
+                   self.entry(2, 'ordinary', size=upload + 1), self.entry(3, size=1)]
         plan = maintenance.plan_retention(entries, [entries[1]['key'], entries[2]['key']], START)
-        self.assertEqual(plan['families']['ordinary']['max_bytes'], 1536 * 1024 ** 2)
+        self.assertEqual(plan['families']['ordinary']['max_bytes'], 2 * upload)
         self.assertEqual(plan['families']['ecs']['max_bytes'], 2 * 1024 ** 3)
-        self.assertEqual(plan['protected_over_budget_bytes'], 1_800_000_000 - 1536 * 1024 ** 2)
+        self.assertEqual(plan['protected_over_budget_bytes'], 2)
         self.assertEqual(plan['delete'], [])
 
     def test_revalidation_across_families_can_only_shrink_candidates(self):
@@ -1045,13 +1048,17 @@ class CapacityClosureTests(unittest.TestCase):
             api.delete_cache.assert_not_called()
 
     def test_family_only_lineage_pressure_stops_once_the_family_has_room(self):
-        entries = [self.entry(i, 'ordinary', compatibility=group, size=700_000_000)
+        # Three full uploads exceed the two-generation resident budget; after
+        # one proven old lineage is retired, two must remain at the exact limit.
+        upload = maintenance.policy.FAMILIES['ordinary']['max_upload_bytes']
+        entries = [self.entry(i, 'ordinary', compatibility=group, size=upload)
                    for i, group in ((1, 'a'), (2, 'b'), (3, 'c'))]
         plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=20_000_000_000,
             verified_head_sha=self.HEAD, is_ancestor=self.ancestry)
         self.assertEqual([item['id'] for item in plan['delete']], [1])
         self.assertEqual(plan['workspace_recovery']['recovery_ids'], [2, 3])
-        self.assertEqual(plan['families']['ordinary']['projected_bytes'], 1_400_000_000)
+        self.assertEqual(plan['families']['ordinary']['max_bytes'], 2 * upload)
+        self.assertEqual(plan['families']['ordinary']['projected_bytes'], 2 * upload)
 
     def test_late_old_source_cannot_hide_a_newer_source_inside_its_group(self):
         entries = [self.entry(1, 'ordinary', compatibility='a', created='2026-10-19T08:59:00Z'),
