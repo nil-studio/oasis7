@@ -380,58 +380,86 @@ pub mod incremental_cognition_lifecycle_qualification_v2;
 pub mod incremental_owner_closure;
 
 /// Runtime business counters and signed threat-map records.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_business;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_audit;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_invocation;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_records;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_grants;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_genesis;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_genesis;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_read;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_family_genesis;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_root;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_grants_family;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_recovery;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_qualification;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_decode;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_family_recovery;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_governance;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod incremental_record_columns_read;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_delta;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_family;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_overlay;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_registry_overlay;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_authorization_family_genesis;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_revocation;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_state_recovery;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_state_family;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_recovery;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_family;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_receiver;
