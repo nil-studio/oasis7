@@ -145,7 +145,12 @@ pub fn prepare_runtime_revocation_genesis_v1<
         &mut ctx.cancelled,
     )
     .map_err(MemberRecordError::Key)?;
-    let reference = RecordRootRefV1::new(schema(), owner.digest, body).map_err(|_| invalid())?;
+    let _reference_charge = ctx
+        .memory
+        .reserve(512, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    let reference =
+        RecordRootRefV1::new(schema(), owner.digest, (*body).clone()).map_err(|_| invalid())?;
     work.spend(&mut ctx.cancelled)?;
     let row = write_member_record_v1(
         outer(),
@@ -159,6 +164,34 @@ pub fn prepare_runtime_revocation_genesis_v1<
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(())
+}
+fn validate_body<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    before: Option<&StateRootV1>,
+    after: &StateRootV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut RevocationReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    let trees_remaining = work.max_retained_trees;
+    let profile = profile();
+    crate::incremental_typed_record_diff::accept_body::<crate::CapabilityRevocationState, _, _, _, _>(
+        &profile,
+        before,
+        Some(after),
+        &mut crate::incremental_typed_record_diff::ChangeDecoder {
+            ctx,
+            scan,
+            work,
+            profile,
+            trees_remaining,
+            tree_depth: 0,
+        },
+    )
 }
 pub fn qualify_runtime_revocation_v1<
     M: MerkleNodeReader,
@@ -255,7 +288,7 @@ pub fn qualify_runtime_revocation_v1<
         }
         body.ok_or_else(invalid)?
     };
-    recover_runtime_revocation_body_v1(&body, ctx, scan, work)?;
+    validate_body(None, &body, ctx, scan, work)?;
     ctx.check()?;
     Ok(retained.retain(RuntimeRevocationQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
@@ -355,8 +388,9 @@ pub fn accept_runtime_revocation_transition_v1<
                     return Err(invalid().into());
                 }
             } else {
-                body = child(&key, &entry.value, ctx)?;
-                recover_runtime_revocation_body_v1(&body, ctx, scan, work)?;
+                let next_body = child(&key, &entry.value, ctx)?;
+                validate_body(Some(&body), &next_body, ctx, scan, work)?;
+                body = next_body;
             }
         }
     }

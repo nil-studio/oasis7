@@ -25,10 +25,16 @@ impl ValueNodeReader for Sink<'_> {
 }
 impl StatePageWriter for Sink<'_> {}
 fn seed(memory: &MemoryBudget) -> (Pages, RootSetV1) {
+    seed_value(memory, &crate::CapabilityRevocationState::default())
+}
+fn seed_value(
+    memory: &MemoryBudget,
+    value: &crate::CapabilityRevocationState,
+) -> (Pages, RootSetV1) {
     let mut pages = Pages::new(memory);
     let mut rows = Vec::with_capacity(2);
     prepare_runtime_revocation_genesis_v1(
-        &crate::CapabilityRevocationState::default(),
+        value,
         &mut MemberRecordWriteContext {
             sink: &mut pages,
             memory,
@@ -38,8 +44,8 @@ fn seed(memory: &MemoryBudget) -> (Pages, RootSetV1) {
             },
             limits: MemberRecordLimitsV1 {
                 semantic_bytes: 1024,
-                payload_bytes: 4096,
-                record_bytes: 4096,
+                payload_bytes: 2 << 20,
+                record_bytes: 3 << 20,
             },
             cancelled: || false,
         },
@@ -261,7 +267,7 @@ fn qualified_root_replacement_independent_receiver_and_failure_poison() {
         )
         .unwrap();
         next.validate_binding(&sealed.record.after).unwrap();
-        assert_eq!(next.body(), &after);
+        assert_eq!(next.body(), &*after);
     }
 }
 
@@ -400,3 +406,6 @@ fn misplaced_original_metadata_or_unit_and_missing_outer_records_never_qualify()
         );
     }
 }
+
+#[path = "incremental_runtime_revocation_path_tests.rs"]
+mod path_tests;

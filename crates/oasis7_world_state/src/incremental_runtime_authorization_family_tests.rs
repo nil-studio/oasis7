@@ -20,7 +20,7 @@ impl Pages {
         Self {
             memory: memory.clone(),
             nodes: RefCell::new(BTreeMap::new()),
-            _metadata: memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap(),
+            _metadata: memory.reserve(8 << 20, MemoryClass::Ordinary).unwrap(),
         }
     }
 }
@@ -30,7 +30,7 @@ impl ValueNodeWriter for Pages {
         id: [u8; 32],
         value: ReservedValue<Vec<u8>>,
     ) -> Result<(), ValueTreeError> {
-        assert!(self.nodes.borrow().len() < 16_384);
+        assert!(self.nodes.borrow().len() < 65_536);
         self.nodes.borrow_mut().insert(id, Arc::new(value));
         Ok(())
     }
@@ -521,3 +521,6 @@ mod exact_json;
 
 #[path = "incremental_runtime_authorization_producer_cancel_tests.rs"]
 mod producer_cancel;
+
+#[path = "incremental_runtime_authorization_stream_tests.rs"]
+mod stream;

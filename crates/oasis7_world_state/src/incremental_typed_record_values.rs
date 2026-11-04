@@ -7,8 +7,9 @@ macro_rules! scalar {
                 C: FnMut() -> bool,
             >(
                 &self,
+                _profile: &TypedRecordProfileV1,
                 _ctx: &mut MemberRecordWriteContext<'_, W, C>,
-                _work: &mut RevocationWriteWorkV1,
+                _work: &mut TypedRecordWriteWorkV1,
             ) -> Result<Encoded<'_>, MemberRecordError> {
                 Ok(Encoded::Scalar(MemberPayloadRefV1::$payload(*self)))
             }
@@ -33,15 +34,29 @@ scalar!(u64, U64, U64);
 scalar!(i64, I64, I64);
 scalar!(bool, Bool, Bool);
 macro_rules! unsigned {($($ty:ty),*)=>{$(impl Codec for $ty {
-fn encode<W:ValueNodeWriter+ValueNodeReader+StatePageWriter,C:FnMut()->bool>(&self,_ctx:&mut MemberRecordWriteContext<'_,W,C>,_work:&mut RevocationWriteWorkV1)->Result<Encoded<'_>,MemberRecordError>{Ok(Encoded::Scalar(MemberPayloadRefV1::U64(u64::from(*self))))}
+fn encode<W:ValueNodeWriter+ValueNodeReader+StatePageWriter,C:FnMut()->bool>(&self,_profile:&TypedRecordProfileV1,_ctx:&mut MemberRecordWriteContext<'_,W,C>,_work:&mut TypedRecordWriteWorkV1)->Result<Encoded<'_>,MemberRecordError>{Ok(Encoded::Scalar(MemberPayloadRefV1::U64(u64::from(*self))))}
 fn decode<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(cell:ColumnCellV1,d:&mut Decoder<'_, '_,M,R,E,C>)->Result<Self,ValueTreeError>{Self::try_from(u64::decode(cell,d)?).map_err(|_|invalid())}
 })*};}
 unsigned!(u8, u16, u32);
 impl Codec for String {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_text(profile, before, after, d)
+    }
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        _profile: &TypedRecordProfileV1,
         _ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        _work: &mut RevocationWriteWorkV1,
+        _work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
         Ok(Encoded::Scalar(MemberPayloadRefV1::Text(self)))
     }
@@ -61,14 +76,31 @@ impl Codec for String {
     }
 }
 impl<T: Codec> Codec for Option<T> {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_option::<T, _, _, _, _>(
+            profile, before, after, d,
+        )
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
         match self {
             None => Ok(Encoded::Scalar(MemberPayloadRefV1::Unit)),
-            Some(v) => v.encode(ctx, work),
+            Some(v) => v.encode(profile, ctx, work),
         }
     }
     fn decode<
@@ -88,12 +120,27 @@ impl<T: Codec> Codec for Option<T> {
     }
 }
 impl<T: Codec> Codec for Box<T> {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_box::<T, _, _, _, _>(profile, before, after, d)
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        (**self).encode(ctx, work)
+        (**self).encode(profile, ctx, work)
     }
     fn decode<
         M: MerkleNodeReader,
@@ -116,13 +163,29 @@ impl<T: Codec> Codec for Box<T> {
     }
 }
 impl<T: Codec> Codec for Vec<T> {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_vec::<T, _, _, _, _>(profile, before, after, d)
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        let mut root = new_tree(ctx, work)?;
+        let mut root = new_tree(profile, ctx, work)?;
         put(
+            profile,
             &mut root,
             "_length",
             Encoded::Scalar(MemberPayloadRefV1::U64(self.len() as u64)),
@@ -130,8 +193,8 @@ impl<T: Codec> Codec for Vec<T> {
             work,
         )?;
         for (i, v) in self.iter().enumerate() {
-            let value = v.encode(ctx, work)?;
-            put(&mut root, &(i as u64), value, ctx, work)?;
+            let value = v.encode(profile, ctx, work)?;
+            put(profile, &mut root, &(i as u64), value, ctx, work)?;
         }
         Ok(Encoded::Tree(root))
     }
@@ -167,14 +230,32 @@ impl<T: Codec> Codec for Vec<T> {
         Ok(out)
     }
 }
-impl<T: Codec> Codec for BTreeMap<String, T> {
+impl<K: CollectionKey, T: Codec> Codec for BTreeMap<K, T> {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_map_key::<K, T, _, _, _, _>(
+            profile, before, after, d,
+        )
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        let mut root = new_tree(ctx, work)?;
+        let mut root = new_tree(profile, ctx, work)?;
         put(
+            profile,
             &mut root,
             "_length",
             Encoded::Scalar(MemberPayloadRefV1::U64(self.len() as u64)),
@@ -182,8 +263,15 @@ impl<T: Codec> Codec for BTreeMap<String, T> {
             work,
         )?;
         for (k, v) in self {
-            let value = v.encode(ctx, work)?;
-            put(&mut root, &("entry", k.as_str()), value, ctx, work)?;
+            let value = v.encode(profile, ctx, work)?;
+            put(
+                profile,
+                &mut root,
+                &("entry", k.semantic_key()),
+                value,
+                ctx,
+                work,
+            )?;
         }
         Ok(Encoded::Tree(root))
     }
@@ -205,6 +293,8 @@ impl<T: Codec> Codec for BTreeMap<String, T> {
         c.spend_output(
             n.checked_mul(
                 std::mem::size_of::<T>()
+                    .checked_add(std::mem::size_of::<K>())
+                    .ok_or_else(invalid)?
                     .checked_add(128)
                     .ok_or_else(invalid)?,
             )
@@ -216,9 +306,10 @@ impl<T: Codec> Codec for BTreeMap<String, T> {
             let ColumnKeyV1::Pair(left, right) = key else {
                 return Err(invalid());
             };
-            let (ColumnKeyV1::Text(tag), ColumnKeyV1::Text(key)) = (*left, *right) else {
+            let ColumnKeyV1::Text(tag) = *left else {
                 return Err(invalid());
             };
+            let key = K::from_column(*right)?;
             if tag != "entry" {
                 return Err(invalid());
             }
@@ -230,14 +321,32 @@ impl<T: Codec> Codec for BTreeMap<String, T> {
         Ok(out)
     }
 }
-impl Codec for BTreeSet<String> {
+impl<K: CollectionKey> Codec for BTreeSet<K> {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_set_key::<K, _, _, _, _>(
+            profile, before, after, d,
+        )
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        let mut root = new_tree(ctx, work)?;
+        let mut root = new_tree(profile, ctx, work)?;
         put(
+            profile,
             &mut root,
             "_length",
             Encoded::Scalar(MemberPayloadRefV1::U64(self.len() as u64)),
@@ -246,8 +355,9 @@ impl Codec for BTreeSet<String> {
         )?;
         for k in self {
             put(
+                profile,
                 &mut root,
-                &("entry", k.as_str()),
+                &("entry", k.semantic_key()),
                 Encoded::Scalar(MemberPayloadRefV1::Bool(true)),
                 ctx,
                 work,
@@ -270,16 +380,24 @@ impl Codec for BTreeSet<String> {
         if c.cells_mut().len() != n {
             return Err(invalid());
         }
-        c.spend_output(n.checked_mul(128).ok_or_else(invalid)?)?;
+        c.spend_output(
+            n.checked_mul(
+                std::mem::size_of::<K>()
+                    .checked_add(128)
+                    .ok_or_else(invalid)?,
+            )
+            .ok_or_else(invalid)?,
+        )?;
         let mut out = BTreeSet::new();
         while let Some((key, value)) = c.cells_mut().pop_first() {
             d.ctx.check()?;
             let ColumnKeyV1::Pair(left, right) = key else {
                 return Err(invalid());
             };
-            let (ColumnKeyV1::Text(tag), ColumnKeyV1::Text(key)) = (*left, *right) else {
+            let ColumnKeyV1::Text(tag) = *left else {
                 return Err(invalid());
             };
+            let key = K::from_column(*right)?;
             if tag != "entry" || !bool::decode(value, d)? || !out.insert(key) {
                 return Err(invalid());
             }
@@ -288,23 +406,48 @@ impl Codec for BTreeSet<String> {
         Ok(out)
     }
 }
+#[path = "incremental_typed_record_json_change.rs"]
+mod json_change;
 impl Codec for serde_json::Value {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        json_change::accept(profile, before, after, d)
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        Ok(Encoded::Tree(
-            crate::incremental_json_records::prepare_json_subtree_v1(
-                crate::incremental_json_records::JsonRecordProfileV1 {
-                    field: field(),
-                    schema: schema(),
-                },
-                self,
-                ctx,
-                &mut work.json,
-            )?,
-        ))
+        let charge = ctx
+            .memory
+            .reserve(512, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let pool = ctx
+            .memory
+            .reserve(0, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?
+            .retain(());
+        let root = crate::incremental_json_records::prepare_json_subtree_v1(
+            crate::incremental_json_records::JsonRecordProfileV1 {
+                field: profile.field,
+                schema: profile.schema,
+            },
+            self,
+            ctx,
+            &mut work.json,
+        )?;
+        Ok(Encoded::Tree(TypedTreeBuilderV1 { root, charge, pool }))
     }
     fn decode<
         M: MerkleNodeReader,
@@ -320,8 +463,8 @@ impl Codec for serde_json::Value {
             return Err(invalid());
         };
         let profile = crate::incremental_json_records::JsonRecordProfileV1 {
-            field: field(),
-            schema: schema(),
+            field: d.profile.field,
+            schema: d.profile.schema,
         };
         let proof = crate::incremental_json_records::qualify_json_subtree_records_v1(
             profile,

@@ -463,3 +463,28 @@ pub mod incremental_module_instance_family;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_receiver;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_typed_record_codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_typed_record_diff;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_typed_record_patch;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_composite;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_composite_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_composite_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_industrial;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_continuity;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_receipts;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_proposal;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod incremental_typed_record_test_support;

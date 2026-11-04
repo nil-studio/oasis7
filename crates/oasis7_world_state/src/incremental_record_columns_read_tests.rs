@@ -279,3 +279,6 @@ fn wide_pair_tree_is_admitted_by_actual_box_and_string_metadata() {
 
 #[path = "incremental_record_columns_retention_tests.rs"]
 mod retention;
+
+#[path = "incremental_record_columns_row_tests.rs"]
+mod row;

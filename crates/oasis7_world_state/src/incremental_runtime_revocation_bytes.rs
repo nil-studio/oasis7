@@ -23,13 +23,13 @@ pub(super) fn put_original<
     W: ValueNodeWriter + ValueNodeReader + StatePageWriter,
     C: FnMut() -> bool,
 >(
-    parent: &mut StateRootV1,
+    parent: &mut TypedTreeBuilderV1,
     name: &str,
     source: &[u8],
     ctx: &mut MemberRecordWriteContext<'_, W, C>,
     work: &mut RevocationWriteWorkV1,
 ) -> Result<(), MemberRecordError> {
-    let mut child = StateRootV1::empty(StateNamespaceV1::Authorization).map_err(|_| invalid())?;
+    let mut child = TypedTreeBuilderV1::empty(StateNamespaceV1::Authorization, ctx.memory)?;
     work.spend(&mut ctx.cancelled)?;
     let meta = write_field_metadata_v1(
         descriptor(),
@@ -45,7 +45,14 @@ pub(super) fn put_original<
             cancelled: &mut ctx.cancelled,
         },
     )?;
-    append(&mut child, &meta.field_key, meta.value_root, ctx, work)?;
+    crate::incremental_typed_record_codec::append(
+        &profile(),
+        &mut child,
+        &meta.field_key,
+        meta.value_root,
+        ctx,
+        work,
+    )?;
     work.spend(&mut ctx.cancelled)?;
     let row = write_member_record_v1(
         descriptor(),
@@ -54,7 +61,14 @@ pub(super) fn put_original<
         MemberPayloadRefV1::Bytes(source),
         ctx,
     )?;
-    append(&mut child, &row.field_key, row.value_root, ctx, work)?;
+    crate::incremental_typed_record_codec::append(
+        &profile(),
+        &mut child,
+        &row.field_key,
+        row.value_root,
+        ctx,
+        work,
+    )?;
     let owner = hash_semantic_key_v1(
         name,
         ctx.memory,
@@ -63,8 +77,12 @@ pub(super) fn put_original<
         &mut ctx.cancelled,
     )
     .map_err(MemberRecordError::Key)?;
-    let reference =
-        RecordRootRefV1::new(byte_schema(), owner.digest, child).map_err(|_| invalid())?;
+    let _reference_charge = ctx
+        .memory
+        .reserve(512, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    let reference = RecordRootRefV1::new(byte_schema(), owner.digest, child.root().clone())
+        .map_err(|_| invalid())?;
     work.spend(&mut ctx.cancelled)?;
     let row = write_member_record_v1(
         field(),
@@ -73,51 +91,67 @@ pub(super) fn put_original<
         MemberPayloadRefV1::RecordRoot(&reference),
         ctx,
     )?;
-    append(parent, &row.field_key, row.value_root, ctx, work)
+    crate::incremental_typed_record_codec::append(
+        &profile(),
+        parent,
+        &row.field_key,
+        row.value_root,
+        ctx,
+        work,
+    )
 }
-pub(super) fn recover<
+struct Captured {
+    value: Vec<u8>,
+    charge: oasis7_proto::memory_budget::MemoryReservation,
+}
+fn read_bytes<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 >(
     root: &StateRootV1,
-    d: &mut Decoder<'_, '_, M, R, E, C>,
-) -> Result<Vec<u8>, ValueTreeError> {
-    d.reserve_slot()?;
+    source: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    capture: Option<usize>,
+) -> Result<Option<Captured>, ValueTreeError> {
     root.validate().map_err(|_| invalid())?;
-    d.ctx.check()?;
+    source.check()?;
     if root.namespace != StateNamespaceV1::Authorization || root.leaf_count != 2 {
         return Err(invalid());
     }
-    let _scratch = d.ctx.values.memory.reserve(32 << 10, d.ctx.values.class)?;
+    let _scratch = source
+        .values
+        .memory
+        .reserve(32 << 10, source.values.class)?;
     let mut metadata = false;
     // Data drops before its reservation on every early return.
     let mut output_charge = None;
     let mut output = None;
-    let max_heap = d.work.max_tree_heap;
+    let mut bytes_seen = false;
+    let max_heap = capture.unwrap_or(0);
     {
-        let stop = RefCell::new(&mut d.ctx.cancelled);
+        let stop = RefCell::new(&mut source.cancelled);
         let mut ctx = WorldFieldReadContextV1 {
             root,
-            state: d.ctx.state,
+            state: source.state,
             values: oasis7_formal_protocol::incremental_value::ValueReadContext {
-                source: d.ctx.values.source,
-                memory: d.ctx.values.memory,
-                class: d.ctx.values.class,
-                io: &mut *d.ctx.values.io,
+                source: source.values.source,
+                memory: source.values.memory,
+                class: source.values.class,
+                io: &mut *source.values.io,
             },
-            key_work: &mut *d.ctx.key_work,
-            semantic_bytes: d.ctx.semantic_bytes,
-            record_bytes: d.ctx.record_bytes,
-            take_state_error: &mut d.ctx.take_state_error,
+            key_work: &mut *source.key_work,
+            semantic_bytes: source.semantic_bytes,
+            record_bytes: source.record_bytes,
+            take_state_error: &mut source.take_state_error,
             cancelled: || (stop.borrow_mut())(),
         };
         let result = StateScanContext {
             source: ctx.state,
             memory: ctx.values.memory,
             class: ctx.values.class,
-            io: &mut *d.scan,
+            io: scan,
         }
         .visit_entries(
             root,
@@ -143,7 +177,7 @@ pub(super) fn recover<
                         metadata = true;
                     }
                     WorldFieldRecordKindV1::Bytes => {
-                        if output.is_some() {
+                        if bytes_seen {
                             return Err(invalid());
                         }
                         let (expected, _) =
@@ -154,7 +188,7 @@ pub(super) fn recover<
                         }
                         let limits = MemberRecordLimitsV1 {
                             semantic_bytes: ctx.semantic_bytes,
-                            payload_bytes: max_heap as u64,
+                            payload_bytes: capture.map(|n| n as u64).unwrap_or(ctx.record_bytes),
                             record_bytes: ctx.record_bytes,
                         };
                         let info = crate::incremental_field_member::read_member_record_header_v1(
@@ -166,6 +200,24 @@ pub(super) fn recover<
                         )?;
                         if info.codec != MemberPayloadCodecV1::Bytes {
                             return Err(invalid());
+                        }
+                        if capture.is_none() {
+                            let checked = read_member_record_v1(
+                                &entry.value,
+                                &key,
+                                &mut ctx.values,
+                                limits,
+                                &mut std::io::sink(),
+                                &mut std::io::sink(),
+                                &mut ctx.cancelled,
+                            )?;
+                            if checked.codec != MemberPayloadCodecV1::Bytes
+                                || checked.payload_bytes != info.payload_bytes
+                            {
+                                return Err(invalid());
+                            }
+                            bytes_seen = true;
+                            return Ok(());
                         }
                         let n = usize::try_from(info.payload_bytes).map_err(|_| invalid())?;
                         let retained = n.checked_add(128).ok_or_else(invalid)?;
@@ -192,6 +244,7 @@ pub(super) fn recover<
                         }
                         output_charge = Some(charge);
                         output = Some(bytes);
+                        bytes_seen = true;
                     }
                     _ => return Err(invalid()),
                 }
@@ -217,11 +270,73 @@ pub(super) fn recover<
             Err(_) => return Err(invalid()),
         }
     }
-    if !metadata {
+    if !metadata || !bytes_seen {
         return Err(invalid());
     }
-    let value = output.ok_or_else(invalid)?;
-    d.ctx.check()?;
-    d.hold(output_charge.ok_or_else(invalid)?)?;
+    source.check()?;
+    Ok(output
+        .zip(output_charge)
+        .map(|(value, charge)| Captured { value, charge }))
+}
+pub(super) fn recover<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    root: &StateRootV1,
+    d: &mut Decoder<'_, '_, M, R, E, C>,
+) -> Result<Vec<u8>, ValueTreeError> {
+    d.reserve_slot()?;
+    let Captured { value, charge } =
+        read_bytes(root, d.ctx, d.scan, Some(d.work.max_tree_heap))?.ok_or_else(invalid)?;
+    d.hold(charge)?;
     Ok(value)
+}
+pub(super) fn accept_changed<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    profile: &TypedRecordProfileV1,
+    before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+    after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+    d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+) -> Result<(), ValueTreeError> {
+    d.check()?;
+    if crate::incremental_typed_record_diff::unchanged(before, after) {
+        return Ok(());
+    }
+    let Some(after) = after else {
+        return Ok(());
+    };
+    let crate::incremental_typed_record_diff::TypedCellRefV1::Entry(entry) = after else {
+        return Err(invalid());
+    };
+    let row = crate::incremental_record_columns_read::read_column_row_v1(
+        ColumnReadProfileV1 {
+            field: profile.field,
+            schema: profile.schema,
+            groups: &[],
+            reference_schema: profile.reference_schema,
+        },
+        entry,
+        &mut d.ctx.records(),
+        d.work.max_tree_heap,
+    )?;
+    match &row.cell {
+        ColumnCellV1::Unit => (),
+        ColumnCellV1::Root(root) => {
+            d.trees_remaining =
+                d.trees_remaining
+                    .checked_sub(1)
+                    .ok_or(ValueTreeError::ResourceLimited(
+                        "revocation bytes changed trees",
+                    ))?;
+            read_bytes(root, d.ctx, d.scan, None)?;
+        }
+        _ => return Err(invalid()),
+    }
+    d.check()
 }

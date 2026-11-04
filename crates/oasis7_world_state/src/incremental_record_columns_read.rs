@@ -227,9 +227,9 @@ where
                 return Err(invalid());
             }
             let mut stop = || (cancel.borrow_mut())();
-            ctx.values
-                .verify_closure(&entry.value, ctx.record_bytes, &mut stop)?;
             if parsed.kind == WorldFieldRecordKindV1::Metadata {
+                ctx.values
+                    .verify_closure(&entry.value, ctx.record_bytes, &mut stop)?;
                 if parsed.semantic_key.is_some() || metadata != 0 {
                     return Err(invalid());
                 }
@@ -245,6 +245,8 @@ where
                 return Ok(());
             }
             if parsed.kind == WorldFieldRecordKindV1::Group {
+                ctx.values
+                    .verify_closure(&entry.value, ctx.record_bytes, &mut stop)?;
                 let mut matched = None;
                 for name in profile.groups {
                     let expected = crate::incremental_inventory_value_read::InventoryValueReader {
@@ -284,76 +286,19 @@ where
             if parsed.kind != WorldFieldRecordKindV1::Entry {
                 return Err(invalid());
             }
-            let limits = MemberRecordLimitsV1 {
-                semantic_bytes: ctx.semantic_bytes,
-                payload_bytes: ctx.record_bytes,
-                record_bytes: ctx.record_bytes,
-            };
-            let header = read_member_record_header_v1(
-                &entry.value,
-                &key,
-                &mut ctx.values,
-                limits,
-                &mut stop,
-            )?;
-            let sem = usize::try_from(header.semantic_bytes).map_err(|_| invalid())?;
-            let bytes = usize::try_from(header.payload_bytes).map_err(|_| invalid())?;
-            spend(
-                left,
-                sem.checked_add(bytes)
-                    .and_then(|n| n.checked_add(1024))
-                    .ok_or_else(invalid)?,
-            )?;
-            let mut semantic = vec![0; sem];
-            let mut payload = vec![0; bytes];
-            let info = read_member_record_v1(
-                &entry.value,
-                &key,
-                &mut ctx.values,
-                limits,
-                &mut std::io::Cursor::new(semantic.as_mut_slice()),
-                &mut std::io::Cursor::new(payload.as_mut_slice()),
-                &mut stop,
-            )?;
-            let name = path(
-                read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)?,
-                0,
+            let row = row::read_row_into(
+                profile,
+                entry,
+                &mut crate::incremental_inventory_value_read::InventoryValueReader {
+                    values: &mut ctx.values,
+                    key_work: &mut *ctx.key_work,
+                    semantic_bytes: ctx.semantic_bytes,
+                    record_bytes: ctx.record_bytes,
+                    cancelled: &mut stop,
+                },
                 left,
             )?;
-            let cell = match info.codec {
-                MemberPayloadCodecV1::Unit if payload.is_empty() => ColumnCellV1::Unit,
-                MemberPayloadCodecV1::Bool if payload.len() == 1 && payload[0] <= 1 => {
-                    ColumnCellV1::Bool(payload[0] == 1)
-                }
-                MemberPayloadCodecV1::U64 if payload.len() == 8 => {
-                    ColumnCellV1::U64(u64::from_be_bytes(payload.as_slice().try_into().unwrap()))
-                }
-                MemberPayloadCodecV1::I64 if payload.len() == 8 => {
-                    ColumnCellV1::I64(i64::from_be_bytes(payload.as_slice().try_into().unwrap()))
-                }
-                MemberPayloadCodecV1::Text => {
-                    ColumnCellV1::Text(String::from_utf8(payload).map_err(|_| invalid())?)
-                }
-                MemberPayloadCodecV1::RecordRoot => {
-                    let reference =
-                        RecordRootRefV1::from_canonical_bytes(&payload).map_err(|_| invalid())?;
-                    let expected_schema = match profile.reference_schema {
-                        Some(resolve) => resolve(&name).ok_or_else(invalid)?,
-                        None => profile.schema,
-                    };
-                    ColumnCellV1::Root(
-                        reference
-                            .validate_binding(
-                                &expected_schema,
-                                &parsed.semantic_key.ok_or_else(invalid)?,
-                                root.namespace,
-                            )
-                            .map_err(|_| invalid())?
-                            .clone(),
-                    )
-                }
-                _ => return Err(invalid()),
-            };
+            let ColumnRowV1 { key: name, cell } = row;
             if map.insert(name, cell).is_some() {
                 return Err(invalid());
             }
@@ -483,3 +428,7 @@ pub(crate) fn opt_signed(
 #[cfg(test)]
 #[path = "incremental_record_columns_read_tests.rs"]
 mod tests;
+
+#[path = "incremental_record_columns_row.rs"]
+mod row;
+pub(crate) use row::{ColumnRowV1, parse_column_key_v1, read_column_key_v1, read_column_row_v1};

@@ -5,7 +5,7 @@ use crate::{
 };
 use oasis7_formal_protocol::{
     incremental_execution::{
-        AuthorityBinding, ExecutionParent, ExecutionTransaction, RootSetV1, TransactionLimits,
+        AuthorityBinding, ExecutionParent, ExecutionTransaction, TransactionLimits,
     },
     incremental_state::*,
 };

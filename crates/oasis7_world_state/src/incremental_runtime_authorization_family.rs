@@ -104,7 +104,7 @@ fn body<M, R, E, C>(
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     scan: &mut StateScanBudget,
     json: &mut JsonReadWorkV1,
-    max_selected_heap: usize,
+    _max_selected_heap: usize,
 ) -> Result<(), ValueTreeError>
 where
     M: MerkleNodeReader,
@@ -112,16 +112,7 @@ where
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 {
-    match kind {
-        AuthorizationBodyKindV1::Audit => {
-            recover_authorization_audit_body_v1(root, ctx, scan, json, max_selected_heap)?;
-        }
-        AuthorizationBodyKindV1::Invocation => {
-            recover_authorization_invocation_body_v1(root, ctx, scan, max_selected_heap)?;
-        }
-    }
-    ctx.check()?;
-    Ok(())
+    stream::qualify(kind, root, ctx, scan, json)
 }
 pub fn qualify_authorization_record_families_v1<M, R, E, C>(
     roots: &RootSetV1,
@@ -333,7 +324,12 @@ where
                     continue;
                 };
                 let root = child(kind, &key, &value, ctx)?;
-                body(kind, &root, ctx, body_scan, json, max_selected_heap)?;
+                if let Some(before) = write.mutation.before {
+                    let before = child(kind, &key, &before, ctx)?;
+                    delta::advance(kind, &before, &root, ctx, json)?;
+                } else {
+                    body(kind, &root, ctx, body_scan, json, max_selected_heap)?;
+                }
             }
             _ => return Err(invalid().into()),
         }
@@ -357,3 +353,8 @@ pub use overlay::{AuthorizationRecordChangeV1, change_authorization_record_overl
 #[cfg(test)]
 #[path = "incremental_runtime_authorization_family_tests.rs"]
 mod tests;
+
+#[path = "incremental_runtime_authorization_delta.rs"]
+mod delta;
+#[path = "incremental_runtime_authorization_stream.rs"]
+mod stream;

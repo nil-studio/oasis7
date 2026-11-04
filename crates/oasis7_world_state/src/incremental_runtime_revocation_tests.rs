@@ -203,6 +203,10 @@ fn nonempty_all_revocation_families_roundtrip_from_only_persisted_pages() {
     let mut key_work = SemanticKeyBudget {
         bytes_remaining: 64 << 20,
     };
+    assert_eq!(
+        root.node_root,
+        "036c63ac26bea324fd07a1b53b90c90b622e40a37de47ec6ad13ae20a22fd654"
+    );
     eprintln!(
         "revocation-body baseline node_root={} leaf_count={}",
         root.node_root, root.leaf_count
@@ -359,7 +363,7 @@ fn missing_required_column_and_new_well_formed_unknown_column_fail_closed() {
         };
         let before = root.get(key.as_bytes(), &pages).unwrap();
         let delta = StateDeltaV1::build(
-            root,
+            (*root).clone(),
             vec![StateWriteV1 {
                 key: key.as_bytes().to_vec(),
                 before,
@@ -417,7 +421,7 @@ fn original_json_negative_zero_is_a_distinct_typed_body() {
         .unwrap();
         roots.push(root);
     }
-    assert_ne!(roots[0], roots[1]);
+    assert_ne!(&*roots[0], &*roots[1]);
 }
 
 #[test]

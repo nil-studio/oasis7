@@ -1,15 +1,11 @@
 //! Exhaustive original DTO shapes; no arbitrary DTO serialization.
 use super::*;
 use crate::capability_authorization::*;
+use crate::incremental_typed_record_codec::{TypedRecordWriteWorkV1, new_tree, put, take_named};
 use crate::service_admission::participant::*;
 use crate::service_admission::participant_policy::*;
 use crate::service_admission::{AgentSignerDelegationChangeV1, SignedReadRequest};
 use oasis7_agent_api::game::*;
-macro_rules! dto {
-($ty:ty,{$($name:ident),+$(,)?})=>{impl Codec for $ty {
-fn encode<W:ValueNodeWriter+ValueNodeReader+StatePageWriter,C:FnMut()->bool>(&self,ctx:&mut MemberRecordWriteContext<'_,W,C>,work:&mut RevocationWriteWorkV1)->Result<Encoded<'_>,MemberRecordError>{let Self{$($name),+}=self;let mut root=new_tree(ctx,work)?;$(let value=$name.encode(ctx,work)?;put(&mut root,stringify!($name),value,ctx,work)?;)+Ok(Encoded::Tree(root))}
-fn decode<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool>(cell:ColumnCellV1,d:&mut Decoder<'_, '_,M,R,E,C>)->Result<Self,ValueTreeError>{let mut c=d.read(cell)?;c.spend_output(std::mem::size_of::<Self>())?;let value=Self{$($name:Codec::decode(take_named(&mut c,stringify!($name))?,d)?),+};d.hold(c.finish_parts()?)?;Ok(value)}
-}};}
 dto!(CapabilityRevocationState,{participants,epoch,revoked_grant_ids,superseded_by,authority_records,authority_finality_proofs,finalized_receipt_id,agent_identities,manufactured_identity_acquisition_sequences,agent_signer_delegations,world_service_results,task_terminals_v2,safe_alternatives,system_identities});
 dto!(CapabilityAuthorityRecord,{issuer_id,issuer_kind,key_id,public_key_hex,issuer_key_epoch,governance_epoch,finalized_receipt_id,authority_rotation_receipt_id,world_id,branch_id,finality_epoch,finality_block_hash,finality_status,revocation_epoch,revoked_grant_ids,superseded_by});
 dto!(CapabilityAuthorityFinalityProof,{proof_version,certificate,binding,signatures});
@@ -38,23 +34,73 @@ dto!(GameTaskFenceV1,{world_id,genesis_digest,branch_id,reorg_epoch,agent_id,own
 dto!(GameGoalReferenceV1,{goal_revision,goal_ref,prepare_operation_id,publish_operation_id,activation_committed_height});
 dto!(GameExecutorBindingV1,{executor_id,executor_public_key,delegation_generation,executor_epoch});
 impl<T: Codec> Codec for SignedReadRequest<T> {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_struct(
+            profile,
+            before,
+            after,
+            d,
+            &["request", "subject_public_key", "signature_hex"],
+            |name, before, after, d| match name {
+                "request" => crate::incremental_typed_record_diff::accept_projected::<
+                    Self,
+                    T,
+                    _,
+                    _,
+                    _,
+                    _,
+                >(|v| &v.request, profile, before, after, d),
+                "subject_public_key" => {
+                    crate::incremental_typed_record_diff::accept_projected::<Self, String, _, _, _, _>(
+                        |v| &v.subject_public_key,
+                        profile,
+                        before,
+                        after,
+                        d,
+                    )
+                }
+                "signature_hex" => {
+                    crate::incremental_typed_record_diff::accept_projected::<Self, String, _, _, _, _>(
+                        |v| &v.signature_hex,
+                        profile,
+                        before,
+                        after,
+                        d,
+                    )
+                }
+                _ => Err(invalid()),
+            },
+        )
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut crate::incremental_typed_record_codec::TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
         let Self {
             request,
             subject_public_key,
             signature_hex,
         } = self;
-        let mut root = new_tree(ctx, work)?;
-        let value = request.encode(ctx, work)?;
-        put(&mut root, "request", value, ctx, work)?;
-        let value = subject_public_key.encode(ctx, work)?;
-        put(&mut root, "subject_public_key", value, ctx, work)?;
-        let value = signature_hex.encode(ctx, work)?;
-        put(&mut root, "signature_hex", value, ctx, work)?;
+        let mut root = new_tree(profile, ctx, work)?;
+        let value = request.encode(profile, ctx, work)?;
+        put(profile, &mut root, "request", value, ctx, work)?;
+        let value = subject_public_key.encode(profile, ctx, work)?;
+        put(profile, &mut root, "subject_public_key", value, ctx, work)?;
+        let value = signature_hex.encode(profile, ctx, work)?;
+        put(profile, &mut root, "signature_hex", value, ctx, work)?;
         Ok(Encoded::Tree(root))
     }
     fn decode<
@@ -80,10 +126,11 @@ impl<T: Codec> Codec for SignedReadRequest<T> {
 impl Codec for DecimalU64 {
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut crate::incremental_typed_record_codec::TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        self.0.encode(ctx, work)
+        self.0.encode(profile, ctx, work)
     }
     fn decode<
         M: MerkleNodeReader,
@@ -100,8 +147,9 @@ impl Codec for DecimalU64 {
 impl Codec for GameTaskStatusV1 {
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        _profile: &TypedRecordProfileV1,
         _ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        _work: &mut RevocationWriteWorkV1,
+        _work: &mut crate::incremental_typed_record_codec::TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
         Ok(Encoded::Scalar(MemberPayloadRefV1::U64(match self {
             Self::Suspended => 0,
@@ -127,22 +175,24 @@ impl Codec for GameTaskStatusV1 {
 impl Codec for GameTaskClosePredicateV2 {
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut crate::incremental_typed_record_codec::TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
-        let mut root = new_tree(ctx, work)?;
+        let mut root = new_tree(profile, ctx, work)?;
         let (tag, value) = match self {
             Self::InitialActive => (0, Encoded::Scalar(MemberPayloadRefV1::Unit)),
-            Self::OwnStopSuspended(value) => (1, value.encode(ctx, work)?),
+            Self::OwnStopSuspended(value) => (1, value.encode(profile, ctx, work)?),
         };
         put(
+            profile,
             &mut root,
             "tag",
             Encoded::Scalar(MemberPayloadRefV1::U64(tag)),
             ctx,
             work,
         )?;
-        put(&mut root, "value", value, ctx, work)?;
+        put(profile, &mut root, "value", value, ctx, work)?;
         Ok(Encoded::Tree(root))
     }
     fn decode<
@@ -168,10 +218,87 @@ impl Codec for GameTaskClosePredicateV2 {
     }
 }
 impl Codec for crate::TaskTerminalRecordV2 {
+    fn accept_changed<
+        M: MerkleNodeReader,
+        R: ValueNodeReader,
+        E: FnMut() -> Option<ValueTreeError>,
+        C: FnMut() -> bool,
+    >(
+        profile: &TypedRecordProfileV1,
+        before: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        after: Option<&crate::incremental_typed_record_diff::TypedCellRefV1<'_>>,
+        d: &mut crate::incremental_typed_record_diff::ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError> {
+        crate::incremental_typed_record_diff::accept_struct(
+            profile,
+            before,
+            after,
+            d,
+            &[
+                "schema_revision",
+                "original",
+                "committed_height",
+                "committed_at_unix_ms",
+                "stop_predecessor_canonical_cbor",
+                "closed",
+            ],
+            |name, before, after, d| match name {
+                "schema_revision" => {
+                    crate::incremental_typed_record_diff::accept_projected::<Self, _, _, _, _, _>(
+                        |v| &v.schema_revision,
+                        profile,
+                        before,
+                        after,
+                        d,
+                    )
+                }
+                "original" => crate::incremental_typed_record_diff::accept_projected::<
+                    Self,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                >(|v| &v.original, profile, before, after, d),
+                "committed_height" => {
+                    crate::incremental_typed_record_diff::accept_projected::<Self, _, _, _, _, _>(
+                        |v| &v.committed_height,
+                        profile,
+                        before,
+                        after,
+                        d,
+                    )
+                }
+                "committed_at_unix_ms" => {
+                    crate::incremental_typed_record_diff::accept_projected::<Self, _, _, _, _, _>(
+                        |v| &v.committed_at_unix_ms,
+                        profile,
+                        before,
+                        after,
+                        d,
+                    )
+                }
+                "closed" => crate::incremental_typed_record_diff::accept_projected::<
+                    Self,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                >(|v| &v.closed, profile, before, after, d),
+                "stop_predecessor_canonical_cbor" => {
+                    bytes::accept_changed(profile, before, after, d)
+                }
+                _ => Err(invalid()),
+            },
+        )
+    }
+
     fn encode<W: ValueNodeWriter + ValueNodeReader + StatePageWriter, C: FnMut() -> bool>(
         &self,
+        profile: &TypedRecordProfileV1,
         ctx: &mut MemberRecordWriteContext<'_, W, C>,
-        work: &mut RevocationWriteWorkV1,
+        work: &mut crate::incremental_typed_record_codec::TypedRecordWriteWorkV1,
     ) -> Result<Encoded<'_>, MemberRecordError> {
         let Self {
             schema_revision,
@@ -181,8 +308,8 @@ impl Codec for crate::TaskTerminalRecordV2 {
             stop_predecessor_canonical_cbor,
             closed,
         } = self;
-        let mut root = new_tree(ctx, work)?;
-        macro_rules! col {($($v:ident),*)=>{$(let value=$v.encode(ctx,work)?;put(&mut root,stringify!($v),value,ctx,work)?;)*};}
+        let mut root = new_tree(profile, ctx, work)?;
+        macro_rules! col {($($v:ident),*)=>{$(let value=$v.encode(profile,ctx,work)?;put(profile, &mut root,stringify!($v),value,ctx,work)?;)*};}
         col!(
             schema_revision,
             original,
@@ -192,6 +319,7 @@ impl Codec for crate::TaskTerminalRecordV2 {
         );
         match stop_predecessor_canonical_cbor {
             None => put(
+                profile,
                 &mut root,
                 "stop_predecessor_canonical_cbor",
                 Encoded::Scalar(MemberPayloadRefV1::Unit),
