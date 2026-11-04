@@ -31,7 +31,11 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 可稳定自动复现的行为缺陷，优先复用能检出该缺陷的现有回归测试，覆盖不足再增加或修正，先观察失败再修复。验证覆盖受影响行为和关键风险，不以测试数量判断充分；机械修改不强制增加与实现重复的测试。同步相关技术和使用文档。
 
-使用验证和评审方法。同一交付范围继续更新原 PR，说明问题、改动、验证和风险。合入前检查当前 HEAD、required checks、评审及阻断项、冲突、权限和 hold；正常保护合入绑定预期 HEAD。PR 实际 merged 才完成代码交付；已明确的部署或整体验收继续执行。
+使用验证和评审方法。同一交付范围继续更新原 PR。创建和更新时按[PR 描述要求](../../../doc/engineering/workflow/source-of-truth.md#pr-description)读取[默认模板](../../../.github/pull_request_template.md)，填写实际问题、改动结果、验证和适用风险；简单变更可用等价简短结构。
+
+通过 CLI 提交时，先把完整正文写入文件，再用 `gh pr create --title '<English title>' --body-file <path>`；通过 API 提交时显式提供同样的正文。发布后回读确认内容完整。实质改动后及请求评审前对照当前 diff 更新摘要，详细执行过程按规范归位，收尾时修正过期的当前状态。
+
+合入前检查当前 HEAD、required checks、评审及阻断项、冲突、权限和 hold；正常保护合入绑定预期 HEAD。PR 实际 merged 才完成代码交付；已明确的部署或整体验收继续执行。
 
 清理独立进行，保留 dirty、未推送、使用中和身份不明资源。
 
