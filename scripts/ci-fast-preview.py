@@ -24,6 +24,7 @@ SAMPLE_PATHS = (
 )
 COMMENT = b'\n// Synthetic CI budget preview baseline; production behavior is unchanged.\n'
 EXPECTED_GROUPS = frozenset(('baseline', 'rust_baseline', 'oasis7_required'))
+NATIVE_CONSUMER_GROUPS = frozenset(('consensus', 'distfs', 'net', 'node'))
 EXPECTED_TARGETS = frozenset((
     ('oasis7_runtime', 'lib', 'oasis7_runtime'),
     ('oasis7_runtime', 'test', 'pr_fast_incremental'),
@@ -115,7 +116,8 @@ def validate_plan(plan, source):
             or plan.get('oasis7_required_wasm_packages') != []):
         raise ValueError('preview did not select the expected bounded native execution')
     groups = plan.get('groups')
-    if not isinstance(groups, list) or len(groups) != len(EXPECTED_GROUPS) or set(groups) != EXPECTED_GROUPS:
+    if (not isinstance(groups, list) or any(not isinstance(group, str) for group in groups)
+            or len(groups) != len(set(groups)) or not EXPECTED_GROUPS <= set(groups)):
         raise ValueError('preview selected unexpected groups; do not silently omit work')
     architecture = plan.get('architecture')
     if (not isinstance(architecture, dict)
@@ -125,6 +127,25 @@ def validate_plan(plan, source):
             or architecture.get('mode') != 'targeted'
             or architecture.get('packages') != ['oasis7_runtime', 'oasis7_world_state']):
         raise ValueError('preview did not select the expected architecture compile policy')
+    extra_groups = set(groups) - EXPECTED_GROUPS
+    consumers = architecture.get('consumer_groups', {})
+    if (not extra_groups <= NATIVE_CONSUMER_GROUPS or not isinstance(consumers, dict)
+            or set(consumers) != extra_groups):
+        raise ValueError('preview extra groups require exact native reverse-consumer evidence')
+    if extra_groups:
+        affected = plan.get('affected_packages')
+        if (not isinstance(affected, list) or not affected
+                or any(not isinstance(package, str) for package in affected)
+                or len(affected) != len(set(affected))):
+            raise ValueError('preview reverse consumers require an affected-package inventory')
+        for names in consumers.values():
+            if (not isinstance(names, list) or not names
+                    or any(not isinstance(name, str) or not name for name in names)
+                    or len(names) != len(set(names))
+                    or not set(names) <= set(affected) - set(architecture['packages'])):
+                raise ValueError('preview has unproved native reverse consumers')
+    # The architecture consumer verifies fixed policy mappings and real Cargo
+    # reachability. Every selected consumer group also runs in the preview DAG.
     for key in ('source_sha', 'tested_sha', 'policy_sha'):
         if plan.get(key) != source:
             raise ValueError('preview source/tested/policy identity mismatch: ' + key)
@@ -190,13 +211,14 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
         **inputs, 'source_sha': source, 'tested_sha': source,
         'policy_sha': source, 'source_tree': git(repo, 'rev-parse', source + '^{tree}').decode().strip(),
         'synthetic_base_sha': synthetic, 'synthetic_base_tree': tree,
-        'paths': list(SAMPLE_PATHS),
+        'paths': list(SAMPLE_PATHS), 'groups': selected['groups'],
         'limitation': 'Current real tests and compilation footprint; not PR authorization, regression quality, or P95 evidence.',
     }
     metadata_path = Path(str(output) + '.metadata.json')
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
     write_outputs(github_output, {'enabled': 'true', 'source_sha': source, 'tested_sha': source,
-        'synthetic_base_sha': synthetic, 'metadata_path': metadata_path, 'plan_path': output})
+        'synthetic_base_sha': synthetic, 'metadata_path': metadata_path, 'plan_path': output,
+        'groups': json.dumps(selected['groups'], separators=(',', ':'))})
     print(json.dumps(metadata, ensure_ascii=False))
     return metadata
 

@@ -4,9 +4,11 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import unittest
 from pathlib import Path
@@ -534,6 +536,167 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         result = self.invoke('plan:' + json.dumps(dict(groups=['workspace_support'], scope='targeted')))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('support profile completed: wasm_module_observe', result.stdout)
+
+
+class ViewerChecks(unittest.TestCase):
+    """Run the real Viewer dispatcher with two independent executable fixtures."""
+
+    def viewer_fixture(self, directory, *, failing='', leak=False, timeout=False,
+                       cancel=False, source_failure=False):
+        root = Path(directory)
+        (root / 'bin').mkdir()
+        (root / 'scripts').mkdir()
+        (root / 'dist').mkdir()
+        (root / 'dist/current').write_text('stale')
+        executable = f'''#!{sys.executable}
+import json, os, pathlib, subprocess, sys, time
+root = pathlib.Path(os.environ['VIEWER_FIXTURE_ROOT'])
+role = pathlib.Path(sys.argv[0]).name
+role = {{'npm': 'ui', 'build-viewer-software-safe.sh': 'build', 'node': 'smoke'}}[role]
+with (root / 'events.jsonl').open('a') as stream:
+    stream.write(json.dumps([role, sys.argv[1:]]) + '\\n')
+if role == 'smoke':
+    assert sys.argv[1:] == ['crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs']
+    assert (root / 'ui.complete').is_file() and (root / 'build.complete').is_file()
+    assert (root / 'dist/current').read_text() == 'current'
+    raise SystemExit(0)
+assert sys.argv[1:] == (['--prefix', 'crates/oasis7_viewer', 'run', 'test:ui'] if role == 'ui' else [])
+(root / (role + '.started')).write_text('started')
+other = 'build' if role == 'ui' else 'ui'
+deadline = time.monotonic() + 3
+while not (root / (other + '.started')).is_file():
+    if time.monotonic() >= deadline:
+        raise SystemExit('parallel peer did not start')
+    time.sleep(.01)
+time.sleep(float(os.environ.get('VIEWER_HOLD_SECONDS', '0')))
+if role == os.environ.get('VIEWER_FAIL_ROLE'):
+    raise SystemExit(17 if role == 'ui' else 19)
+if role == 'ui' and os.environ.get('VIEWER_LEAK') == '1':
+    # An intentionally detached, short-lived child must still be observed as
+    # a leak after both direct commands exit zero. It cannot survive the fixture.
+    subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(.4)'],
+                     start_new_session=True)
+if role == 'build':
+    (root / 'dist/current').write_text('current')
+(root / (role + '.complete')).write_text('complete')
+'''
+        for path in (root / 'bin/npm', root / 'bin/node',
+                     root / 'scripts/build-viewer-software-safe.sh'):
+            path.write_text(executable)
+            path.chmod(0o755)
+        environment = dict(os.environ, VIEWER_FIXTURE_ROOT=str(root), VIEWER_FAIL_ROLE=failing,
+                           VIEWER_LEAK='1' if leak else '0',
+                           VIEWER_HOLD_SECONDS='.8' if timeout or cancel else '0',
+                           VIEWER_SOURCE_FAIL='1' if source_failure else '0',
+                           PATH=str(root / 'bin') + os.pathsep + os.environ['PATH'])
+        interpreter = root / 'bin/fixture-python'
+        interpreter.write_text(f'''#!{sys.executable}
+import os, pathlib, sys
+pathlib.Path(os.environ['VIEWER_FIXTURE_ROOT'], 'supervisor.pid').write_text(str(os.getpid()))
+sys.argv = sys.argv[1:]
+if {timeout!r}:
+    sys.path.insert(0, {str(ROOT / 'scripts')!r})
+    import ci_process_runner
+    actual_run = ci_process_runner.run
+    def short_deadline(*args, **kwargs):
+        assert kwargs['timeout_seconds'] > 0
+        kwargs['timeout_seconds'] = .1
+        return actual_run(*args, **kwargs)
+    ci_process_runner.run = short_deadline
+exec(compile(sys.stdin.read(), '<viewer-driver>', 'exec'), {{'__name__': '__main__'}})
+''')
+        interpreter.chmod(0o755)
+        script = '''set -euo pipefail
+source "$1/ci-tests.sh"
+driver_dir="$1"; ci_python="$2"; repo_root="$3"
+viewer_dependency_preflight() { :; }
+run() {
+  case "$1" in
+    ./scripts/viewer-dependency-preflight.test.sh)
+      [[ "$VIEWER_SOURCE_FAIL" != 1 ]] || return 23 ;;
+    npm)
+      if [[ "$*" == *test:ui ]]; then "$@"; fi ;;
+    ./scripts/build-viewer-software-safe.sh) "$@" ;;
+    node)
+      if [[ "$*" == *viewer-auth-browser-security-smoke.mjs ]]; then "$@"; fi ;;
+    "$ci_python"|python3)
+      if [[ "${2:-}" == - ]]; then "$@"; fi ;;
+  esac
+}
+run_group viewer_js_required
+'''
+        arguments = ['bash', '-c', script, 'viewer-checks', str(ROOT / 'scripts'),
+                     str(interpreter), str(root)]
+        if cancel:
+            process = subprocess.Popen(arguments, cwd=root, env=environment, text=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                deadline = time.monotonic() + 5
+                while not all((root / marker).is_file() for marker in
+                              ('supervisor.pid', 'ui.started', 'build.started')):
+                    if process.poll() is not None or time.monotonic() >= deadline:
+                        self.fail('Viewer parallel supervisor did not start both branches')
+                    time.sleep(.01)
+                os.kill(int((root / 'supervisor.pid').read_text()), signal.SIGTERM)
+                stdout, stderr = process.communicate(timeout=10)
+                result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate(timeout=10)
+        else:
+            result = subprocess.run(arguments, cwd=root, env=environment,
+                                    text=True, capture_output=True, timeout=15)
+        event_path = root / 'events.jsonl'
+        events = [json.loads(line) for line in event_path.read_text().splitlines()] if event_path.exists() else []
+        return result, events
+
+    def test_viewer_ui_and_build_overlap_before_security_smoke(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertCountEqual([role for role, _ in events], ['ui', 'build', 'smoke'])
+        self.assertEqual(events[-1][0], 'smoke')
+
+    def test_viewer_ui_failure_cannot_be_overwritten_by_successful_build(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory, failing='ui')
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('smoke', [role for role, _ in events])
+
+    def test_viewer_failed_build_does_not_smoke_stale_dist(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory, failing='build')
+            self.assertEqual((Path(directory) / 'dist/current').read_text(), 'stale')
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('smoke', [role for role, _ in events])
+
+    def test_viewer_contract_failure_stops_before_parallel_children(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory, source_failure=True)
+        self.assertEqual(result.returncode, 23, result.stdout + result.stderr)
+        self.assertEqual(events, [])
+
+    def test_viewer_timeout_cannot_reach_security_smoke(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory, timeout=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('"timeout": true', result.stdout)
+        self.assertNotIn('smoke', [role for role, _ in events])
+
+    def test_viewer_cancellation_cannot_reach_security_smoke(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory, cancel=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('"cancelled": true', result.stdout)
+        self.assertNotIn('smoke', [role for role, _ in events])
+
+    def test_viewer_zero_exit_with_detached_child_cannot_reach_security_smoke(self):
+        with tempfile.TemporaryDirectory(prefix='oasis7-viewer-parallel-') as directory:
+            result, events = self.viewer_fixture(directory, leak=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('"leaked_processes": true', result.stdout)
+        self.assertNotIn('smoke', [role for role, _ in events])
 
 
 if __name__ == '__main__':

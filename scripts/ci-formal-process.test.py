@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Coverage, transition-gate and real libtest runner regressions."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import tarfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -661,6 +665,267 @@ class InlineExecutionSelection(unittest.TestCase):
         for failed in ('failure', 'cancelled', 'skipped', None):
             with self.subTest(clippy_owner_status=failed), self.assertRaisesRegex(ValueError, 'rust_baseline'):
                 checker.validate(selected, successful | {'rust-baseline': {'result': failed}}, jobs)
+
+    def test_inline_build_combines_only_identical_package_feature_selections(self):
+        target = FastTargetInventory().target
+        targets = [
+            target(target_name='first'),
+            target(target_kind='lib', target_name='oasis7_viewer_codec'),
+            target(target_name='different_features', features=[]),
+            target(target_name='different_defaults', default_features=True),
+            target(package='oasis7_runtime', target_name='runtime'),
+        ]
+        selected = self.selection() | {'ordinary_fast_targets': targets}
+        variants = artifacts.build_variants('ordinary', selected)
+        self.assertEqual(len(variants), 4)
+        self.assertEqual(variants[0], ('required-fast-0',
+            ['test', '-p', 'oasis7_viewer_codec', '--test', 'first', '--lib',
+             '--no-default-features', '--features', 'test_tier_required', '--no-run'],
+            ['test_tier_required']))
+        self.assertEqual([name for name, _, _ in variants],
+                         ['required-fast-0', 'required-fast-2', 'required-fast-3', 'required-fast-4'])
+        # Clippy still checks every exact original target and feature contract.
+        self.assertEqual(len(artifacts.required_native_commands(selected)), len(targets))
+        for capability in (None, 2):
+            legacy = dict(selected)
+            if capability is None:
+                del legacy['fast_execution_version']
+            else:
+                legacy['fast_execution_version'] = capability
+            self.assertEqual(len(artifacts.build_variants('ordinary', legacy)), len(targets))
+        full = FastTargetInventory().selection(targets, full=True)
+        supplements = [v for v in artifacts.build_variants('ordinary', full)
+                       if v[0].startswith('required-full-fast-')]
+        self.assertEqual(len(supplements), len(targets))
+
+
+class ParallelNativeExecution(unittest.TestCase):
+    def selection(self, count=3):
+        return InlineExecutionSelection().selection() | {
+            'ordinary_fast_targets': [FastTargetInventory().target(target_name='case_' + str(index))
+                                      for index in range(count)],
+        }
+
+    def manifest(self, selected):
+        return dict(scope='ordinary', execution_plan=selected, binaries={
+            'harness-' + str(index): FastTargetInventory().binary(target, 'required-fast-' + str(index)) |
+                dict(path='harness-' + str(index), cwd='.')
+            for index, target in enumerate(selected['ordinary_fast_targets'])
+        })
+
+    @staticmethod
+    def receipt(suite, name, results, count, **changes):
+        result = dict(suite=suite, test_name=name, expected_count=count, count_ok=True,
+                      passed=True, cleanup_result='clean', cancelled=False, timeout=False,
+                      exit_code=0, leaked_processes=False) | changes
+        results.parent.mkdir(parents=True, exist_ok=True)
+        with results.open('a') as stream:
+            stream.write(json.dumps(result) + '\n')
+        return result
+
+    def test_inline_runs_every_complete_harness_once_with_bounded_cpu_budget(self):
+        selected = self.selection()
+        entered = threading.Barrier(2)
+        lock = threading.Lock()
+        calls, active = [], [0, 0]
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            with lock:
+                active[0] += 1
+                active[1] = max(active)
+                calls.append((name, expected_count, env.get('RUST_TEST_THREADS')))
+            try:
+                if name in ('harness-0', 'harness-1'):
+                    entered.wait(timeout=2)
+                return self.receipt(suite, name, results, expected_count)
+            finally:
+                with lock:
+                    active[0] -= 1
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            results = Path(temporary) / 'results.jsonl'
+            artifacts.execute(Path(temporary), 'ordinary', results, plan=selected)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(active[1], 2)
+        self.assertEqual(sorted(calls), [('harness-' + str(i), 2, '2') for i in range(3)])
+        self.assertEqual(sorted(record['test_name'] for record in records),
+                         ['harness-0', 'harness-1', 'harness-2'])
+        self.assertTrue(all(record['passed'] for record in records))
+
+    def test_first_failure_stops_pending_and_cancels_active_without_retry(self):
+        selected = self.selection()
+        entered = threading.Barrier(2)
+        calls = []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            calls.append(name)
+            entered.wait(timeout=2)
+            if name == 'harness-0':
+                return self.receipt(suite, name, results, expected_count, passed=False, exit_code=7)
+            self.assertTrue(kwargs['cancellation_event'].wait(timeout=2))
+            return self.receipt(suite, name, results, expected_count,
+                                passed=False, cancelled=True, exit_code=-signal.SIGTERM)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            results = Path(temporary) / 'results.jsonl'
+            with self.assertRaisesRegex(RuntimeError, 'ordinary failed'):
+                artifacts.execute(Path(temporary), 'ordinary', results, plan=selected)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(sorted(calls), ['harness-0', 'harness-1'])
+        self.assertEqual(len(records), 2)
+        first = next(record for record in records if record['test_name'] == 'harness-0')
+        self.assertEqual(first['exit_code'], 7)
+        self.assertFalse(first['passed'])
+        self.assertTrue(next(record for record in records if record['test_name'] == 'harness-1')['cancelled'])
+
+    def test_missing_duplicate_or_wrong_worker_receipt_cannot_pass(self):
+        selected = self.selection(1)
+        for damage in ('missing', 'duplicate', 'identity', 'count', 'exit-zero'):
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                if damage == 'exit-zero':
+                    raise SystemExit(0)
+                result = self.receipt(suite, name, results, expected_count)
+                if damage == 'missing':
+                    results.unlink()
+                elif damage == 'duplicate':
+                    with results.open('a') as stream:
+                        stream.write(json.dumps(result) + '\n')
+                else:
+                    result['test_name' if damage == 'identity' else 'expected_count'] = 'other'
+                    results.write_text(json.dumps(result) + '\n')
+                return result
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+                 patch('ci_process_runner.run', side_effect=invoke):
+                with self.assertRaisesRegex(RuntimeError, 'ordinary failed'):
+                    artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+
+    def test_legacy_targets_keep_sequential_execution_and_environment(self):
+        selected = self.selection()
+        del selected['fast_execution_version']
+        calls = []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            self.assertNotIn('cancellation_event', kwargs)
+            self.assertEqual(env.get('RUST_TEST_THREADS'), '3')
+            calls.append(name)
+            return self.receipt(suite, name, results, expected_count)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {'RUST_TEST_THREADS': '3'})), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+        self.assertEqual(calls, ['harness-0', 'harness-1', 'harness-2'])
+
+    def test_inline_respects_one_cpu_and_existing_lower_thread_limit(self):
+        selected = self.selection()
+        for cpus, configured, expected in ((1, '9', '1'), (8, '1', '1')):
+            active, maximum, calls = [0], [0], []
+            lock = threading.Lock()
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                with lock:
+                    active[0] += 1
+                    maximum[0] = max(maximum[0], active[0])
+                    calls.append(env['RUST_TEST_THREADS'])
+                time.sleep(0.01)
+                with lock:
+                    active[0] -= 1
+                return self.receipt(suite, name, results, expected_count)
+            with self.subTest(cpus=cpus), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(self.manifest(selected), {'RUST_TEST_THREADS': configured})), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=cpus), \
+                 patch('ci_process_runner.run', side_effect=invoke):
+                artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+            self.assertEqual(calls, [expected] * 3)
+            self.assertLessEqual(maximum[0], min(2, cpus))
+
+    def test_invalid_thread_budget_fails_before_starting_harnesses(self):
+        selected = self.selection()
+        for configured in ('0', '-1', 'unbounded'):
+            with self.subTest(configured=configured), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(self.manifest(selected), {'RUST_TEST_THREADS': configured})), \
+                 patch('ci_process_runner.run') as execute_test:
+                with self.assertRaisesRegex(ValueError, 'RUST_TEST_THREADS'):
+                    artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+                execute_test.assert_not_called()
+
+    def test_read_error_leak_or_inconsistent_success_cannot_start_pending_harnesses(self):
+        selected = self.selection()
+        for changes in (dict(passed=False, count_ok=False, output_read_error='OSError'),
+                        dict(passed=False, cleanup_result='unresolved', leaked_processes=True),
+                        dict(passed=True, cleanup_result='unresolved'),
+                        dict(passed=True, count_ok=False)):
+            calls = []
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                calls.append(name)
+                return self.receipt(suite, name, results, expected_count, **changes)
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=1), \
+                 patch('ci_process_runner.run', side_effect=invoke):
+                with self.assertRaisesRegex(RuntimeError, 'ordinary failed'):
+                    artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+            self.assertEqual(calls, ['harness-0'])
+
+    def test_signal_stops_dispatch_and_cancels_each_active_owner(self):
+        selected = self.selection()
+        entered = threading.Barrier(2)
+        handlers = {}
+        calls = []
+        def register(signum, handler):
+            previous = handlers.get(signum, 'prior-handler')
+            handlers[signum] = handler
+            return previous
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            calls.append(name)
+            entered.wait(timeout=2)
+            if name == 'harness-0':
+                handlers[signal.SIGTERM](signal.SIGTERM, None)
+            self.assertTrue(kwargs['cancellation_event'].wait(timeout=2))
+            return self.receipt(suite, name, results, expected_count,
+                                passed=False, cancelled=True, exit_code=-signal.SIGTERM)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+             patch.object(artifacts.signal, 'signal', side_effect=register), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            results = Path(temporary) / 'results.jsonl'
+            with self.assertRaisesRegex(RuntimeError, 'ordinary failed'):
+                artifacts.execute(Path(temporary), 'ordinary', results, plan=selected)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(sorted(calls), ['harness-0', 'harness-1'])
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(record['cancelled'] and not record['passed'] for record in records))
+        self.assertEqual(handlers, {signal.SIGTERM: 'prior-handler', signal.SIGINT: 'prior-handler'})
+
+    def test_cpu_budget_obeys_visible_quota_and_affinity(self):
+        root = Path('/sys/fs/cgroup')
+        for files, expected in (
+            ({root / 'cpu.max': '100000 100000'}, 1),
+            ({root / 'cpu.max': '250000 100000'}, 2),
+            ({root / 'cpu.max': '50000 100000'}, 1),
+            ({root / 'cpu.max': 'max 100000'}, 8),
+            ({root / 'cpu.max': '1600000 100000'}, 8),
+            ({root / 'cpu/cpu.cfs_quota_us': '200000',
+              root / 'cpu/cpu.cfs_period_us': '100000'}, 2),
+            ({root / 'cpu/cpu.cfs_quota_us': '-1',
+              root / 'cpu/cpu.cfs_period_us': '100000'}, 8),
+            ({}, 8),
+        ):
+            def read(path, *args, **kwargs):
+                if path not in files:
+                    raise FileNotFoundError(path)
+                return files[path]
+            with self.subTest(files=files), \
+                 patch.object(artifacts.os, 'sched_getaffinity', return_value=set(range(8)), create=True), \
+                 patch.object(Path, 'read_text', read):
+                self.assertEqual(artifacts.native_cpu_budget(), expected)
+        for value in ('0 100000', '-1 100000', '100000 0', 'max 0', 'invalid'):
+            with self.subTest(value=value), \
+                 patch.object(artifacts.os, 'sched_getaffinity', return_value=set(range(8)), create=True), \
+                 patch.object(Path, 'read_text', return_value=value):
+                with self.assertRaisesRegex(ValueError, 'CPU quota'):
+                    artifacts.native_cpu_budget()
 
 
 class DriverCoverage(unittest.TestCase):
@@ -2363,6 +2628,92 @@ class Process(unittest.TestCase):
                     with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'minimum case inventory'):
                         artifacts.build(root / label, 'ordinary', plan=selected)
 
+    def test_real_inline_combined_build_keeps_each_original_target_and_features(self):
+        source = '''
+#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");
+#[cfg(all(test,feature="test_tier_required"))] mod required {
+    #[test] fn round_trip() { assert_eq!(1 + 1, 2); }
+    #[test] fn newly_added() { assert_eq!(2 + 2, 4); }
+    #[test] #[ignore] fn expensive() { panic!("ignored test ran"); }
+}
+'''
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root, source, source)
+            target = FastTargetInventory().target
+            selected = InlineExecutionSelection().selection() | {
+                'architecture': dict(source=sha, tested=sha),
+                'ordinary_fast_targets': [target(), target(target_kind='lib', target_name='oasis7_viewer_codec')],
+            }
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle = root / 'bundle'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                self.assertEqual(len(manifest['build_timings']), 1)
+                binaries = list(manifest['binaries'].values())
+                self.assertEqual({binary['variant'] for binary in binaries}, {'required-fast-0', 'required-fast-1'})
+                self.assertEqual({tuple(binary['target_kind']) for binary in binaries}, {('lib',), ('test',)})
+                self.assertTrue(all(binary['features'] == ['test_tier_required'] for binary in binaries))
+                self.assertTrue(all(binary['default_features'] is False for binary in binaries))
+                results = root / 'results.jsonl'
+                artifacts.execute(bundle, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 2)
+                self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
+                altered = copy.deepcopy(manifest)
+                del altered['binaries'][next(iter(altered['binaries']))]
+                (bundle / 'manifest.json').write_text(json.dumps(altered))
+                with patch('ci_process_runner.run') as execute_test:
+                    with self.assertRaisesRegex(ValueError, 'target inventory'):
+                        artifacts.execute(bundle, 'ordinary', root / 'bad-results.jsonl', plan=selected)
+                    execute_test.assert_not_called()
+
+    def test_real_inline_harnesses_overlap_without_dropping_new_cases(self):
+        def source(name, other):
+            return '''
+#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");
+#[cfg(all(test,feature="test_tier_required"))] mod required {
+    #[test] fn round_trip() {
+        let root = std::path::PathBuf::from(std::env::var("OASIS7_CI_NATIVE_PARALLEL_FIXTURE").unwrap());
+        std::fs::write(root.join("SELF.started"), b"started").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !root.join("OTHER.started").is_file() {
+            assert!(std::time::Instant::now() < deadline, "other full harness never started");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+    #[test] fn newly_added() {
+        let root = std::path::PathBuf::from(std::env::var("OASIS7_CI_NATIVE_PARALLEL_FIXTURE").unwrap());
+        assert_eq!(std::env::var("RUST_TEST_THREADS").unwrap(), "1");
+        std::fs::write(root.join("SELF.new"), b"executed").unwrap();
+    }
+    #[test] #[ignore] fn expensive() { panic!("ignored test ran"); }
+}
+'''.replace('SELF', name).replace('OTHER', other)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root, source('lib', 'integration'),
+                                                       source('integration', 'lib'))
+            target = FastTargetInventory().target
+            selected = InlineExecutionSelection().selection() | {
+                'architecture': dict(source=sha, tested=sha),
+                'ordinary_fast_targets': [target(), target(target_kind='lib', target_name='oasis7_viewer_codec')],
+            }
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+                 patch.dict(os.environ, SOURCE_SHA=sha, OASIS7_CI_NATIVE_PARALLEL_FIXTURE=str(root)):
+                bundle = root / 'bundle'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                results = root / 'results.jsonl'
+                artifacts.execute(bundle, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 2)
+                self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
+                self.assertTrue(all((root / (name + suffix)).is_file()
+                                    for name in ('lib', 'integration') for suffix in ('.started', '.new')))
+
     def test_real_full_bundle_runs_default_and_no_default_variants_of_same_lib(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -2419,6 +2770,125 @@ class Process(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertEqual(result['cleanup_result'], 'clean')
         self.assertLess(result['elapsed_seconds'], 3)
+
+    def test_pre_cancelled_worker_never_starts_a_child(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        with patch('ci_process_runner.subprocess.Popen') as child:
+            with self.assertRaisesRegex(InterruptedError, 'cancelled before'):
+                self.execute([sys.executable, '-c', 'raise SystemExit(0)'], cancellation_event=cancelled)
+            child.assert_not_called()
+
+    def test_shared_cancellation_cannot_be_overridden_by_a_late_zero_exit(self):
+        cancelled = threading.Event()
+        real_popen = subprocess.Popen
+        def start(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            real_poll = process.poll
+            def poll():
+                code = real_poll()
+                if code == 0:
+                    cancelled.set()
+                return code
+            process.poll = poll
+            return process
+        with patch('ci_process_runner.subprocess.Popen', side_effect=start):
+            result = self.execute([sys.executable, '-c',
+                'print("test result: ok. 1 passed; 0 failed; 0 ignored;")'], cancellation_event=cancelled)
+        self.assertTrue(result['cancelled'])
+        self.assertFalse(result['passed'])
+        self.assertEqual(result['cleanup_result'], 'clean')
+
+    def test_cancelling_one_parallel_owner_preserves_other_and_unrelated_processes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cancelled, other_cancelled = threading.Event(), threading.Event()
+            observing, resume_observation = threading.Event(), threading.Event()
+            children = []
+            owners = {}
+            real_popen = subprocess.Popen
+            foreign = real_popen([sys.executable, '-c', 'import time; time.sleep(20)'])
+            def start(*args, **kwargs):
+                process = real_popen(*args, **kwargs)
+                children.append(process)
+                role = kwargs['env']['OASIS7_NATIVE_FIXTURE_ROLE']
+                owners[role] = process
+                if role == 'first':
+                    real_poll = process.poll
+                    def poll():
+                        if not observing.is_set():
+                            observing.set()
+                            if not resume_observation.wait(timeout=5):
+                                raise RuntimeError('cancellation observation was not released')
+                        return real_poll()
+                    process.poll = poll
+                return process
+            def execute(name, cancellation):
+                program = (
+                    'from pathlib import Path; import os,signal,subprocess,sys,time\n'
+                    f'root=Path({str(root)!r}); name={name!r}\n'
+                    'if name == "first":\n'
+                    '    child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(.05)"])\n'
+                    '    def finish(signum,frame):\n'
+                    '        child.wait(timeout=2)\n'
+                    '        (root/"first.reaped").write_text(str(child.returncode))\n'
+                    '        print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True)\n'
+                    '        raise SystemExit(0)\n'
+                    '    signal.signal(signal.SIGTERM,finish)\n'
+                    '(root/(name+".ready")).write_text(str(os.getpid()))\n'
+                    'while not (root/(name+".release")).exists(): time.sleep(0.01)\n'
+                    'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\n'
+                )
+                return run([sys.executable, '-c', program], root,
+                           dict(os.environ, OASIS7_NATIVE_FIXTURE_ROLE=name), 'fixture', name,
+                           root / (name + '.jsonl'), expected_count=1,
+                           timeout_seconds=10, cancellation_event=cancellation)
+            try:
+                with patch('ci_process_runner.subprocess.Popen', side_effect=start):
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        first = pool.submit(execute, 'first', cancelled)
+                        other = pool.submit(execute, 'other', other_cancelled)
+                        try:
+                            deadline = time.monotonic() + 3
+                            while not observing.is_set() or not all(
+                                    (root / (name + '.ready')).exists() for name in ('first', 'other')):
+                                self.assertLess(time.monotonic(), deadline, 'both children must really start')
+                                time.sleep(0.01)
+                            cancelled.set()
+                            # Deliver TERM through the original Popen handle in
+                            # this PID namespace. The fixture reaps its real
+                            # descendant before supervision observes its zero
+                            # exit; cancellation must still win. /proc may be
+                            # mounted from the host namespace in local sandboxes.
+                            owners['first'].terminate()
+                            self.assertEqual(owners['first'].wait(timeout=3), 0)
+                            self.assertEqual((root / 'first.reaped').read_text(), '0')
+                            resume_observation.set()
+                            first_result = first.result(timeout=6)
+                            self.assertIsNone(foreign.poll(), 'unrelated same-user process was killed')
+                            self.assertFalse(other.done(), 'other owner was cancelled or killed')
+                            os.kill(int((root / 'other.ready').read_text()), 0)
+                            (root / 'other.release').touch()
+                            other_result = other.result(timeout=3)
+                            self.assertTrue(first_result['cancelled'])
+                            self.assertFalse(first_result['passed'])
+                            self.assertEqual(first_result['exit_code'], 0)
+                            self.assertTrue(first_result['count_ok'])
+                            self.assertEqual(first_result['cleanup_result'], 'clean')
+                            self.assertTrue(other_result['passed'])
+                        finally:
+                            resume_observation.set()
+                            for name in ('first', 'other'):
+                                (root / (name + '.release')).touch()
+                            cancelled.set()
+                            other_cancelled.set()
+            finally:
+                # These are the fixture's original Popen handles, never PIDs
+                # inferred from another process or another owner's /proc view.
+                for process in [*children, foreign]:
+                    if process.poll() is None:
+                        process.terminate()
+                    process.wait(timeout=3)
 
     def test_fresh_consumer_restores_compiled_cargo_binary_path_and_prior_attempt(self):
         with tempfile.TemporaryDirectory() as temp:

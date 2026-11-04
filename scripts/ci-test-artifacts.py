@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build once and run native test executables without Cargo on consumers."""
 import argparse
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import gzip
 import hashlib
 import io
@@ -9,11 +10,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import tomllib
 
@@ -371,9 +374,31 @@ def required_native_commands(plan=None):
                                        for target in ordinary_full_fast_targets(plan) or []]
 
 
-def target_build_variants(targets, prefix):
-    return [(prefix + str(index), ['test', *target_native_arguments(target), '--no-run'], target['features'])
-            for index, target in enumerate(targets or [])]
+def target_build_key(target):
+    return target['package'], target['default_features'], tuple(target['features'])
+
+
+def target_build_variants(targets, prefix, combine=False):
+    if not combine:
+        return [(prefix + str(index), ['test', *target_native_arguments(target), '--no-run'], target['features'])
+                for index, target in enumerate(targets or [])]
+    # Never unify features across package roots. Only targets of the same
+    # package with the exact same feature request share a Cargo invocation.
+    groups = {}
+    for index, target in enumerate(targets or []):
+        groups.setdefault(target_build_key(target), []).append((index, target))
+    variants = []
+    for members in groups.values():
+        index, first = members[0]
+        args = ['test', '-p', first['package']]
+        for _, target in members:
+            args += ['--lib'] if target['target_kind'] == 'lib' else ['--test', target['target_name']]
+        if not first['default_features']:
+            args.append('--no-default-features')
+        if first['features']:
+            args += ['--features', ','.join(first['features'])]
+        variants.append((prefix + str(index), args + ['--no-run'], first['features']))
+    return variants
 
 
 def formal_suites(plan=None):
@@ -624,7 +649,8 @@ def build_variants(scope, plan=None):
     if scope == 'ordinary':
         targets = ordinary_fast_targets(plan)
         if targets is not None:
-            return target_build_variants(targets, 'required-fast-')
+            return target_build_variants(targets, 'required-fast-',
+                                         combine=plan.get('fast_execution_version') == 1)
         if fast_plan(plan) is not None:
             packages = set(required_packages(plan))
             native_args = required_arguments(plan)
@@ -738,6 +764,12 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                                 ('required-full-fast-', ordinary_full_fast_targets(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
     for variant, args, features in variants:
+        members = {variant: target_specs[variant]} if variant in target_specs else {}
+        if (members and scope == 'ordinary' and plan is not None
+                and plan.get('fast_execution_version') == 1):
+            key = target_build_key(target_specs[variant])
+            members = {name: target for name, target in target_specs.items()
+                       if name.startswith('required-fast-') and target_build_key(target) == key}
         started = time.monotonic()
         local_units = local_fresh = dependency_units = dependency_fresh = 0
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
@@ -772,7 +804,15 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                 name = target['name']
                 manifest = Path(artifact['manifest_path'])
                 package = tomllib.loads(manifest.read_text())['package']['name']
-                logical = artifact_logical_name(variant, package, target, test)
+                artifact_variant = variant
+                if members and test:
+                    matching = [name for name, spec in members.items()
+                                if (spec['package'], [spec['target_kind']], spec['target_name']) ==
+                                   (package, target['kind'], target['name'])]
+                    if len(matching) != 1:
+                        raise ValueError('unexpected test target in Cargo build: ' + variant)
+                    artifact_variant = matching[0]
+                logical = artifact_logical_name(artifact_variant, package, target, test)
                 if logical in binaries:
                     raise ValueError(f'duplicate executable: {logical}')
                 source = Path(executable)
@@ -783,10 +823,10 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                     profile=artifact['profile'], features=artifact['features'], requested_features=features,
                     test=test, package=package, target=name, target_kind=target['kind'],
                     original_executable=str(source), cwd=str(manifest.parent.relative_to(ROOT)),
-                    ordinary=(variant == 'required' or variant in target_specs) and test, variant=variant,
+                    ordinary=(variant == 'required' or artifact_variant in target_specs) and test, variant=artifact_variant,
                     bytes=destination.stat().st_size, libraries=[])
-                if variant in target_specs:
-                    binaries[logical]['default_features'] = target_specs[variant]['default_features']
+                if artifact_variant in target_specs:
+                    binaries[logical]['default_features'] = target_specs[artifact_variant]['default_features']
                 validate_profile(logical, binaries[logical], scope)
                 if sys.platform == 'linux':
                     linked = subprocess.run(['ldd', str(source)], text=True, capture_output=True)
@@ -802,6 +842,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
                             local_units=local_units, local_fresh=local_fresh, local_rebuilt=local_units - local_fresh,
                             dependency_units=dependency_units, dependency_fresh=dependency_fresh,
                             dependency_rebuilt=dependency_units - dependency_fresh))
+        if len(members) > 1:
+            timings[-1]['target_variants'] = list(members)
         print('native_build=' + json.dumps(timings[-1]), flush=True)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -1574,6 +1616,153 @@ def load(bundle, suite=None, shard=None, plan=None):
     return manifest, env
 
 
+def native_cpu_budget():
+    try:
+        cpus = max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        cpus = max(1, os.cpu_count() or 1)
+    # Hosted Linux exposes its current container quota here. An unreadable or
+    # unlimited quota retains affinity; a fractional CPU still needs one worker.
+    try:
+        fields = Path('/sys/fs/cgroup/cpu.max').read_text().split()
+    except OSError:
+        fields = None
+    if fields is not None:
+        try:
+            quota, period = fields
+            period = int(period)
+            limit = None if quota == 'max' else int(quota)
+            if period <= 0 or (limit is not None and limit <= 0):
+                raise ValueError()
+        except ValueError as error:
+            raise ValueError('invalid visible CPU quota') from error
+        return cpus if limit is None else min(cpus, max(1, limit // period))
+    for directory in ('cpu', 'cpu,cpuacct'):
+        root = Path('/sys/fs/cgroup') / directory
+        try:
+            quota = (root / 'cpu.cfs_quota_us').read_text()
+            period = (root / 'cpu.cfs_period_us').read_text()
+        except OSError:
+            continue
+        try:
+            quota, period = int(quota), int(period)
+            if period <= 0 or quota == 0 or quota < -1:
+                raise ValueError()
+        except ValueError as error:
+            raise ValueError('invalid visible CPU quota') from error
+        return cpus if quota == -1 else min(cpus, max(1, quota // period))
+    return cpus
+
+
+def execute_inline_jobs(jobs, results):
+    """Run complete validated harnesses, with one receipt and owner per child."""
+    from ci_process_runner import run
+    cpus = native_cpu_budget()
+    workers = min(2, cpus, len(jobs))
+    threads = max(1, cpus // workers)
+    # An existing lower limit remains useful; never multiply libtest's normal
+    # CPU-sized pool by the number of concurrently running harnesses.
+    for job in jobs:
+        configured = job['env'].get('RUST_TEST_THREADS')
+        if configured is not None:
+            try:
+                requested = int(configured)
+            except ValueError as error:
+                raise ValueError('invalid RUST_TEST_THREADS') from error
+            if requested < 1:
+                raise ValueError('invalid RUST_TEST_THREADS')
+            threads = min(threads, requested)
+    stop = threading.Event()
+    interrupted = []
+    handlers = {}
+    failures, recorded = [], set()
+    next_job = 0
+    results.parent.mkdir(parents=True, exist_ok=True)
+    print('native_execution=' + json.dumps(dict(mode='inline', workers=workers,
+          cpu_budget=cpus, test_threads=threads, selected=len(jobs))), flush=True)
+
+    def interrupt(signum, frame):
+        interrupted.append(signum)
+        stop.set()
+
+    def invoke(index, receipt):
+        job = jobs[index]
+        if stop.is_set():
+            raise InterruptedError('cancelled before starting harness')
+        env = dict(job['env'], RUST_TEST_THREADS=str(threads))
+        result = run(job['command'], job['cwd'], env, job['suite'], job['name'],
+                     receipt, expected_count=job['count'], cancellation_event=stop)
+        if not result.get('passed'):
+            stop.set()
+        return result
+
+    def collect(index, future, receipt):
+        # A worker return or exit alone cannot stand in for completed execution.
+        result = future.result()
+        if receipt.stat().st_size > 1024 * 1024:
+            raise ValueError('oversized harness result')
+        lines = receipt.read_text().splitlines()
+        if len(lines) != 1:
+            raise ValueError('missing or duplicate harness result')
+        record = json.loads(lines[0])
+        job = jobs[index]
+        if (record != result or record.get('suite') != job['suite']
+                or record.get('test_name') != job['name']
+                or type(record.get('expected_count')) is not int
+                or record['expected_count'] != job['count']
+                or type(record.get('passed')) is not bool):
+            raise ValueError('harness result identity mismatch')
+        if record['passed'] and (record.get('exit_code') != 0 or record.get('count_ok') is not True
+                or record.get('timeout') is not False or record.get('cancelled') is not False
+                or record.get('cleanup_result') != 'clean' or record.get('leaked_processes') is not False):
+            raise ValueError('harness result reports success without clean complete execution')
+        with results.open('a') as stream:
+            stream.write(json.dumps(record) + '\n')
+        recorded.add(index)
+        if not record['passed']:
+            failures.append(job['name'])
+            stop.set()
+
+    try:
+        if threading.current_thread() is threading.main_thread():
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                handlers[signum] = signal.signal(signum, interrupt)
+        with tempfile.TemporaryDirectory(prefix='oasis7-ci-native-results-') as temporary:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                pending = {}
+                try:
+                    while pending or (next_job < len(jobs) and not stop.is_set()):
+                        while next_job < len(jobs) and len(pending) < workers and not stop.is_set():
+                            receipt = Path(temporary) / (str(next_job) + '.jsonl')
+                            pending[pool.submit(invoke, next_job, receipt)] = (next_job, receipt)
+                            next_job += 1
+                        if not pending:
+                            break
+                        done, _ = wait(pending, timeout=0.1, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            index, receipt = pending.pop(future)
+                            try:
+                                collect(index, future, receipt)
+                            except BaseException as error:
+                                # SystemExit(0), a missing receipt, and a reader
+                                # failure must all remain failed executions.
+                                failures.append(jobs[index]['name'] + ': ' + type(error).__name__ + ': ' + str(error))
+                                stop.set()
+                finally:
+                    # Unexpected supervisor errors must also stop active
+                    # children before the pool waits for their cleanup.
+                    stop.set()
+    finally:
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
+    complete = recorded == set(range(len(jobs)))
+    print('native_execution=' + json.dumps(dict(mode='inline', selected=len(jobs),
+          started=next_job, recorded=len(recorded), failures=failures,
+          interrupted=interrupted, complete=complete)), flush=True)
+    if failures or interrupted or not complete:
+        raise RuntimeError(f'ordinary failed; see {results}')
+
+
 def execute(bundle, suite, results, shard=None, plan=None):
     from ci_process_runner import run
     manifest, env = load(bundle, suite if not shard else None, shard, plan)
@@ -1595,7 +1784,7 @@ def execute(bundle, suite, results, shard=None, plan=None):
         entries = selected_entries(manifest, formal_configuration(), suite if not shard else None, shard)
     if not entries:
         raise ValueError('selected test execution is empty')
-    failed = False
+    jobs = []
     for entry in entries:
         logical_suite = entry.get('suite', suite)
         if 'script' in entry:
@@ -1620,6 +1809,16 @@ def execute(bundle, suite, results, shard=None, plan=None):
                 command += ['--test-threads=1', '--nocapture']
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
+        jobs.append(dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
+                         name=name, count=count))
+    if (suite == 'ordinary' and not shard and fast_plan(plan) is not None
+            and plan.get('fast_execution_version') == 1):
+        execute_inline_jobs(jobs, results)
+        return
+    failed = False
+    for job in jobs:
+        command, cwd, test_env = job['command'], job['cwd'], job['env']
+        logical_suite, name, count = job['suite'], job['name'], job['count']
         if shard:
             # The generic runner owns cleanup and all result checks. Keep shard
             # metadata in this execution entry point, after its complete result.
