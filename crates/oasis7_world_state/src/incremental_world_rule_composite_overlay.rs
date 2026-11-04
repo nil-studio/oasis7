@@ -248,3 +248,7 @@ pub(crate) fn patch_world_rule_branch_v1<
         Ok(Some(proof))
     })
 }
+
+#[path = "incremental_world_rule_composite_path.rs"]
+mod path;
+pub(crate) use path::prepare_semantic_path_key_v1;

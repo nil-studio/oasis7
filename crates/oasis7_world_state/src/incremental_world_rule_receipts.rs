@@ -131,3 +131,13 @@ impl crate::incremental_world_rule_composite_family::CompositeBranchCodecV1
 {
     const BRANCH: WorldRuleCompositeBranchV1 = WorldRuleCompositeBranchV1::AgentOrders;
 }
+
+#[path = "incremental_world_rule_receipts_family.rs"]
+mod family;
+pub use family::*;
+#[path = "incremental_world_rule_receipts_edits.rs"]
+mod edits;
+pub use edits::{AgentOrderEditV1, WorldRuleRequestEditV1};
+#[path = "incremental_world_rule_receipts_overlay.rs"]
+mod overlay;
+pub use overlay::*;

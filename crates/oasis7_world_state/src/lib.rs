@@ -484,6 +484,17 @@ pub mod incremental_world_rule_continuity;
 pub mod incremental_world_rule_receipts;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_industry;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_gameplay;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_governance;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_state_genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_proposal;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

@@ -884,3 +884,7 @@ pub(crate) fn accept_text<
 #[path = "incremental_typed_record_tagged_diff.rs"]
 mod tagged;
 pub(crate) use tagged::tagged_choice_v1;
+
+#[path = "incremental_typed_record_point.rs"]
+mod point;
+pub(crate) use point::point_typed_column_v1;

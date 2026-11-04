@@ -1368,3 +1368,20 @@ industrial_work 与 substitution 使用原 world_rules descriptor 的 Entry，se
 
 
 创世六根索引组合使用同一个 PageStore 和 MemoryBudget：typed owner 顺序贡献已计费 ExecutionWrite，组合器最多暂存 64 条，按固定 namespace 分批构建 sparse-Merkle 增量并持久化新页；不保存完整写集 Vec。每条写入都必须是 absent→present，重复 key（含跨批重复）拒绝，不因值相同而忽略冲突。行、新节点、新字节、暂存逻辑页和物理 I/O 各有持续额度，建树临时容器在构建前单独取得 Ordinary 准入，取消贯穿读页和写页。生产者失败、panic 或吞掉 sink 错误后组合器永久不可 finish。输出只是已持久化的 provisional RootSet，完整字段/历史闭包、原 authority 接受和 head 选择仍是独立的必需步骤；空输出不获得完整世界资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+### WorldState 完整 GEN 与原字段逐记录适配
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+`prepare_world_state_genesis_v1` 借用原 WorldState、单个 MemberRecordWriteContext 与显式 WorldStateGenesisWorkV1，向同一 charged ExecutionWrite sink 流式贡献。101 项字段表中必须恰好覆盖 97 项 State 字段；module_states 委派给 Runtime 原 opaque 字节生产器，agents/module_instances 委派给原 Children 生产器，retained_history_root 委派给 ProofLedger。静态无省略解构和 descriptor 表双向核对；未知字段、重复或缺失 Metadata、错误 owner/namespace、外来内存池、非 absent→present 均失败。所有空字段仍有唯一 Metadata，world_rules 的 None 与 Some(empty) 保留唯一区分标记，十三个原分支全部贡献且不重复生产父 Metadata。
+
+组合器复用既有字段族的原生产器与有限 Work，不重置 I/O、semantic key、record 或 typed tree 额度。Inventory 原 StateWrite 的 reservation 保留到消费结束，ExecutionWrite 转换在复制 key 前另取 Ordinary 准入，并随输出保留。sink、source、取消或预算失败不产生部分成功资格，调用方废弃全部 provisional 前缀。
+
+此前缺少生产器的 23 项原字段使用唯一 native 逐记录封闭协议。原 Map 的 String/u64 外层 key 独立保留，不以 DTO 内部 ID 替换；Value 使用 Unit key，即使原值为 None 仍有 Entry。每字段唯一原 Metadata，每记录 Entry/RecordRoot 指向 WorldState/Map/原 namespace 的 `<field>.columns`；schema 为 BLAKE3(`oasis7.iws.world-native.record.v1\0` || 原 field name bytes)。body 恰为 Metadata 和 Text("value")，原 T 继续采用封闭 typed codec，所有 struct 原字段无省略穷尽访问；不经 DTO Serialize，不将整个 map 聚合为一个记录。
+
+工业九项为 product_validation_receipts、product_profiles、latest_product_validation、recipe_profiles、factory_profiles、factory_construction_receipts、product_validation_attempts、factory_recycle_receipts、industry_progress。gameplay/module 七项为 gameplay_policy、agent_claims、starter_oc_claims、meta_progress、module_admission_freezes、module_release_requests、module_release_manifest_mappings。治理与资金七项为 governance_finality_signer_registry、governance_main_token_controller_registry、main_token_node_points_bridge_records、main_token_treasury_distribution_records、restricted_starter_claim_liveops_pool_top_up_records、governance_validator_admissions、governance_finality_key_rotations；实现必须以 WORLD_STATE_FIELDS 的实际原名为准，不建立别名或回填。
+
+原 Option、整数宽度/符号、Vec 原顺序与重复项、map 原 key 和空字符串完整保留。ModuleSubscription.filters 仅因其原类型为 JSON 而复用原 JSON codec，保留 f64 -0.0 位身份；其他 DTO 不转 JSON。所有 enum 使用封闭 tagged child，unit variant 仍有 child，未知 tag、缺列及其他 variant 遗留列拒绝。FinalityKeyRotation 原记录最多 256 项，原 key 须非空、无首尾空白且至多 256 bytes，与原 body.rotation_id 完全一致；原 authorized action 与 record.validate 校验不被结构资格替代。持久化 binding 验证只点读 value/authorized_action/action/body/rotation_id，但完整字段资格仍须认证其他全部内容。
+
+上述 GEN、选中记录冷恢复与字段资格只证明受测结构；完整 History、原件、物理可用性、原 authority 接受、active head 和恢复后合法续写仍是完整启用的必要条件，不以成功计数或空世界测试替代。

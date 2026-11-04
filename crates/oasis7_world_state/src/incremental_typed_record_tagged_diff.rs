@@ -17,53 +17,13 @@ fn tag<
     d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
 ) -> Result<u64, ValueTreeError> {
     d.check()?;
-    let _point = d.ctx.values.memory.reserve(8192, d.ctx.values.class)?;
     let body = root(profile, cell, d)?;
-    let (key, _) = d
-        .ctx
-        .records()
-        .key(profile.field, WorldFieldRecordKindV1::Entry, "tag")?;
-    let probe = StateEntryV1 {
-        namespace: body.namespace,
-        key: key.as_bytes().to_vec(),
-        value: [0; 32],
-    };
-    let digest = probe.key_digest().map_err(|_| invalid())?;
-    let mut current = Some(body.node_root.clone());
-    for depth in 0..=256u16 {
-        d.check()?;
-        let page = d.page(current.as_deref(), depth)?.ok_or_else(invalid)?;
-        match page {
-            StatePageLinksV1::Branch { children, .. } if depth < 256 => {
-                let bit = usize::from((digest[usize::from(depth) / 8] >> (7 - depth % 8)) & 1);
-                current = children.into_iter().nth(bit).ok_or_else(invalid)?;
-                if current.is_none() {
-                    return Err(invalid());
-                }
-            }
-            StatePageLinksV1::Value(entry) if depth == 256 => {
-                d.scan.leaves_remaining = d
-                    .scan
-                    .leaves_remaining
-                    .checked_sub(1)
-                    .ok_or(ValueTreeError::ResourceLimited("typed enum tag leaves"))?;
-                if entry.namespace != body.namespace
-                    || entry.key != key.as_bytes()
-                    || entry.key_digest().map_err(|_| invalid())? != digest
-                {
-                    return Err(invalid());
-                }
-                let selected = TypedCellRefV1::Entry(&entry);
-                let row = row(profile, &selected, d)?;
-                return match &row.cell {
-                    ColumnCellV1::U64(tag) => Ok(*tag),
-                    _ => Err(invalid()),
-                };
-            }
-            _ => return Err(invalid()),
-        }
+    let max_heap = d.work.max_tree_heap;
+    let row = super::point::point_typed_column_v1(profile, &body, "tag", d, max_heap)?;
+    match &row.cell {
+        ColumnCellV1::U64(tag) => Ok(*tag),
+        _ => Err(invalid()),
     }
-    Err(invalid())
 }
 
 pub(crate) fn tagged_choice_v1<

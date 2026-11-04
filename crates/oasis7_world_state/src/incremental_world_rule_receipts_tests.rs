@@ -94,3 +94,8 @@ fn estate_scope_borrowed_keys_preserve_all_rights_and_reserved_object_id() {
         roundtrip(&set, WorldRuleCompositeBranchV1::Requests.profile());
     }
 }
+
+#[path = "incremental_world_rule_receipts_orders_overlay_tests.rs"]
+mod orders_overlay;
+#[path = "incremental_world_rule_receipts_requests_overlay_tests.rs"]
+mod requests_overlay;
