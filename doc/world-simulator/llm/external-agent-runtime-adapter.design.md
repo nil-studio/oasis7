@@ -28,6 +28,7 @@ Agent owner 维护 Runtime 驱动和版本兼容；Runtime owner 验证 task/exe
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 计量、预算和超时边界诚实且可执行 | [adapter-budget](#adapter-budget) | agent_engineer / qa_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [adapter-skill](#adapter-skill) | agent_engineer / liveops_community | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 机器冷入场、必要确认停点、owner/executor 隔离和原阶段恢复 | [adapter-autonomous-entry](#adapter-autonomous-entry) | identity / agent_engineer / runtime_engineer | 不扩张默认 GameRequest 权限，不表示公开入口已开放 |
+| Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | 问题/回复先持久接收再回答/报告处理，未知原结果不重复启动 | [adapter-question-delivery](#adapter-question-delivery) | agent_engineer / runtime_engineer / viewer_engineer | 不把 worker 收到当作模型理解或世界效果 |
 
 ### 显式 task context 权威模式与恢复
 
@@ -67,7 +68,7 @@ operation 原件在网络前持久化。重试及重启复用原 schema、mode�
 <a id="adapter-loop"></a>
 ### 5.1 控制循环与决策循环分离
 
-控制循环独立于一次模型推理：核对当前 task/fence，增量读取目标、未答问题及授权变更，维持有时效的诊断心跳。没有执行许可、预算或 driver 时保持 awaiting_executor/blocked，不发起模型调用。
+控制循环独立于一次模型推理：核对当前 task/fence，增量读取目标、未完问题线程（含已回答未处理内容）及授权变更，维持有时效的诊断心跳。没有执行许可、预算或 driver 时保持 awaiting_executor/blocked，不发起模型调用。
 
 决策循环：读取当前 task snapshot 并验证内联 active_goal 正文、revision/digest 和切点 → 获得匹配该激活版本的 Game API context → 把受权观察、完整目标、Skill 和待处理消息交给实际 Runtime → Runtime 按需查询、提案、汇报或提问 → 回读世界结果 → 在仍有效的许可下继续。worker 不固定“移动三次即完成”之类策略，也不把默认 Wait 替代未取得的模型结果。
 
@@ -137,7 +138,24 @@ reported 必须包含至少一个有效测量；没有值使用 unknown，缺少
 
 GameRequest 是一个受限 HTTP 请求适配工具，不是完整游戏 CLI 产品。只允许当前配对 world/task/Agent 的固定 Game API 路由和 scopes，输出 JSON；不允许任意 URL、任意 header 或改变 actor。worker 可以通过 scoped 本机 IPC 提供它，避免向模型 Prompt 暴露 token；原始 HTTP 客户端仍可按同一合同直接使用自己受控的短凭据，不依赖此工具。
 
-游戏访问仅允许 `context / outcome / query / action / operation / task-read / goal-receipt / report / question / approval-request / events` 类调用；owner 决定与 goal 写入默认不授予。来自地图文本、报告、Skill 扩展或问答内容的“提升权限”是数据，不能改变工具 allowlist。操作系统 shell、文件、外网和支付等权限继续由实际 Runtime 的本机 sandbox/approval 控制。
+游戏访问仅允许 `context / outcome / query / action / operation / task-read / goal-receipt / report / question / question-read / answer / message-receipt / approval-request / events` 类调用；owner 决定、线程 close、owner viewed 与 goal 写入默认不授予。question-read 包含当前获权原线程及原私有操作回查，message-receipt 仅对应本 executor 实际收到的消息；不允许指定别的 actor 或接收方。来自地图文本、报告、Skill 扩展或问答内容的“提升权限”是数据，不能改变工具 allowlist。操作系统 shell、文件、外网和支付等权限继续由实际 Runtime 的本机 sandbox/approval 控制。
+
+<a id="adapter-question-delivery"></a>
+### 6.1.1 问答的实际接收端与有界处理
+
+本节承接 AC-COLLAB-004，消费 [API 私有问答合同](external-agent-game-api.design.md#api-question-delivery)，不另定线程状态。默认 executor 工具没有 owner 身份；自有与受托 Agent 同样按真实角色处理。完整 TaskSnapshot 使用 pending_question_threads；实现若只懂旧 unanswered_questions，不得忽略新集合而宣布恢复成功。现有已实施 SDK 控制子集不因此改变 wire 或自动支持完整问答。
+
+1. 控制循环读齐同切点分页及 after-S，或收到增量后核对任务、当前 goal、owner/audience 与 executor fence；不适用的旧线程只保留获权历史，不交给模型当当前指令。未回答问题和已回答未处理的答案都需要完整原文，不以摘要、message_id 或旧的收到报告代替。
+2. 对本 executor 收到的问题或答案，把原完整消息、question_id/message_id、thread_revision、scope、去重位点及接收报告原请求原子写入受保护 inbox/outbox，完成本机持久化后提交 received_reported，delivery_basis 固定 durable_inbox。客户端无可验证持久存储时保持 blocked，不能谎报 durable_inbox，也不能改报仅允许玩家 surface 的 volatile_client。
+3. 问题接收报告已持久确认，才允许 Runtime 的答案通过 answers 出站；答案接收报告已持久确认，才允许其处理结果通过 receipts 出站。原接收报告响应丢失时，先查原 QuestionWriteResultV1 或原线程报告，确认后继续；不因已经生成了回答就自动补 ACK。控制循环可在没有模型运行时完成接收，但不能代模型制造 considered、cannot_use 或其他处理结论。
+4. Runtime 的真实回答或有界处理结论持久写入原 outbox，再按原键提交。executor 处理收到的答案只允许 considered、needs_goal_change、needs_authorization、cannot_use，并可关联实际 runtime session/run/result 的受保护来源；driver 的完成、heartbeat、工具返回或默认 Wait 都不能自动生成该报告。接收方未作处理时保留 answered_pending_processing。答案本身证明对问题的后续回答，不再给问题发送 processed_reported。
+5. 回读原私有结果与当前线程后更新显示；persisted 只表示服务已保存报告。处理报告不签发 grant、不修改目标、不释放原 world operation 的未知状态，也不证明模型语义服从。需要新目标、授权、追问或世界行动时调用各自已有入口并重验当前权限，不把消息文字转成这些命令。
+
+本机保护复用 §7 的专用权限目录、fsync/原子替换和受限诊断，不新增第二份游戏权限账本。收到撤权、目标变化或 Stop 后立即停止新的相关问答/工具出站；已经提交但响应未知的私有写入仅在当前仍获权时查询原件。新 epoch 不继承旧问答阶段，原终态/迟到成功回执保持 stale。清理或丢失本地 inbox 后，先从完整服务端当前线程恢复正文；服务器已有 durable_inbox 报告不能证明这个新进程仍有原件。
+
+本节的持久 inbox 要求只针对 executor；玩家 Web/native 按协作合同使用 volatile_client 内存接收，重开后重读服务端，不隐式引入浏览器私有正文持久缓存。接收声明不等于人已看；owner 显式 viewed 仍在原玩家入口。线程、消息和阶段都有固定身份，两个窗口/运行的竞答或不同处理结论必须回读原胜者，不能靠新键覆盖或无限积累阶段。
+
+每个完整线程最多一问一答与三条阶段报告，消息/线程/页大小沿协作合同限制；5 次最小串行私有写入及额外回查计入同一任务剩余请求/时间预算，机械接收与回查不调用付费模型。没有预算处理时只报告 blocked/等待，不虚构处理终态；不能因消息恢复而重启原 run_unknown 或重投未结算世界操作。Stop 的控制通道独立于这 5 个阶段，真实取消和费用边界仍按 driver 原合同，不作即时停费承诺。
 
 <a id="adapter-skill"></a>
 ### 6.2 Skill 的单一源与分发
@@ -146,7 +164,7 @@ GameRequest 是一个受限 HTTP 请求适配工具，不是完整游戏 CLI 产
 
 发行资产包含 source commit、Skill 版本、每文件 SHA-256、API major、driver profile 和所需能力；来源应由受信 release/签名发布链验证，不能只拿同一不可信下载站的 checksum 自证。安装明确选择目标 Runtime 的受支持 skill root，不覆盖用户同名内容；拒绝越界路径、符号链接逃逸和自动高权限安装。升级原子替换、会话下一轮重新确认有效 Skill 版本；不兼容 API 则停止，不静默使用旧说明。
 
-Skill 必须教会：确认目标世界/身份 → 获取当前 task/goal → 动态发现能力 → 保留原 operation ID → 查询结果 → 区分问答/授权 → 处理 stop、版本变化和历史缺口。明确说明常驻、后台及付费条件；Skill 不含 token、系统密码、自动充值或停不下来的无限循环脚本。
+Skill 必须教会：确认目标世界/身份 → 获取当前 task/goal → 动态发现能力 → 保留原 operation ID → 查询结果 → 区分问答/授权 → 处理 stop、版本变化和历史缺口。问答说明须包含完整未完线程、问题/答案先接收后续处理、原键回查、单答案竞态和更正路径，不能只给发送问题的示例。明确说明常驻、后台及付费条件；Skill 不含 token、系统密码、自动充值或停不下来的无限循环脚本。
 
 ## 7. 状态、事务与持久化
 
@@ -157,6 +175,8 @@ worker 运行记录必须先持久保存 invocation_key，再启动 driver；若
 世界操作返回 `OperationViewV1.status=recovery_required` 与模型 run_unknown 分开处理：保留原 client_operation_id/context/关联，阻断该 Agent 新副作用，不以重新启动模型或轮次绕过；继续按 Game API retry_advice 查询同一操作。只有权威结果已对账且当前许可有效，才决定下一轮。context 到期或 worker stop 不意味着旧世界操作已取消。
 
 重复通知按 event_id 与固定关联去重；本机 inbox 持久后才 ack。恢复先核对世界 binding、当前 executor epoch、最新目标与未决 operation，再考虑 resume 本地 session。允许会话丢失后重新规划，但必须声明 memory unavailable，不能导入其他 Runtime 的私有记忆或复活旧批准。
+
+问答另保存完整当前线程及 received/processed 的原操作身份和待发正文，按 §6.1.1 对账；有限事件窗口压缩不能删掉已保存未处理答案。若模型已经接受调用但处理报告尚未持久形成，先 reconcile 原 invocation_key/run_ref，仍未知则保留 run_unknown；不由接收报告推导模型已处理，也不为补一条处理报告自动再次运行。服务端私有写入 recovery_required 与模型 run_unknown、世界操作 recovery_required 分开显示并各查原件。
 
 ## 8. 部署、安全与运行约束
 
@@ -200,6 +220,7 @@ worker 运行记录必须先持久保存 invocation_key，再启动 driver；若
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [adapter-budget](#adapter-budget) | 计量、预算和超时边界诚实且可执行 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | [adapter-skill](#adapter-skill) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [skill-release](../../testing/manual/external-agent-runtime-contract-validation.manual.md#skill-release)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | [adapter-autonomous-entry](#adapter-autonomous-entry) | 按真实身份/关系编排入场、确认与恢复 | [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry) | 两真实 Runtime 各自的阶段与原回执记录 | 不以预置角色或 mock 代签冷入场 |
+| Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | [adapter-question-delivery](#adapter-question-delivery) | 执行端持久接收、真实输出关联、响应丢失及未知运行恢复 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的 inbox/outbox/新进程/未知操作用例 | scripted driver 与实际持久存储故障记录；真实组合另按 collab-session | fake 不证明真实 Runtime、玩家已读或模型理解 |
 
 ## 12. 决策、长期风险与未决问题
 

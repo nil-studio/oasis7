@@ -49,6 +49,7 @@
 - `doc/world-runtime/runtime/chain-pos-control-plane.prd.md`：链 PoS 时间、tick 相位、控制面 status 与恢复合同主入口。
 - `doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md`：线上模块发布合法性与默认 binary-only 边界主入口。
 - `doc/world-runtime/module/player-published-entities.prd.md`：玩家发布实体与模块发布链路衔接入口。
+- [玩家发布内容与创作交付](module/player-published-entities.design.md#ppe-creator-inputs)及[核验手册](module/player-published-entities.manual.md)：具体编辑源、发布包、离线样例、状态正文与实际消费者；沿原发布/回滚 authority，不将 Shadow、批准或工件存在代签工业采用。
 - `doc/world-runtime/governance/zero-trust-governance-receipt-hardening-2026-02-26.prd.md`：治理收据安全 hardening 主入口。
 
 <a id="gameplay-authority-protocols"></a>

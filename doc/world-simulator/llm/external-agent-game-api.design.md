@@ -135,6 +135,7 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 鉴权、越权、限流与授权撤销在服务端生效 | [api-auth](#api-auth) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73；[AC-EXT-014](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-014) | 关闭旧 Provider Bridge 后新主路径仍可运行 | [api-cutover](#api-cutover) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 无预置 Agent/task/grant 的合法机器入场、原结果恢复与准入安全 | [api-autonomous-entry](#api-autonomous-entry) | identity / runtime_engineer / agent_engineer / gameplay_designer | 不开放现有私有端点，不把 import_only 或 prepared-world 当冷入场 |
+| Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | 同一私有问答的接收/处理端点、原结果回查与当前接收者校验可由客户端完整消费 | [api-question-delivery](#api-question-delivery) | runtime_engineer / agent_engineer / viewer_engineer | 不将私有 persisted 回执当世界 committed 或新增授权 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -318,7 +319,10 @@ context 创建也必须携带 client_operation_id；超时重试返回原 contex
 | GET `W/operations/by-client-id` | actor-scoped client_operation_id + operation_kind + agent_id | 不确定响应时找回原操作；不能读取他人操作 |
 | POST `W/tasks`；GET `T/snapshot` | agent_id / TaskSnapshotV1（含受权 active_goal 正文） | 协作设计拥有任务唯一性、正文验证与一致切点；不能只返回 revision/digest |
 | PUT `T/goal`；POST `T/goal-receipts` | expected revision / executor read-adopt report | 保存、激活、读取、采纳、用于决策五类证据分开 |
-| POST `T/reports`；POST `T/questions`；POST `T/questions/{Q}/answers` | 稳定消息 ID、关联版本、source 与有界正文 | 协作主责；普通文本不授权 |
+| POST `T/reports` | 稳定消息 ID、关联版本、source 与有界正文 | 协作主责；汇报不授权、不证明世界效果 |
+| POST `T/questions`；POST `T/questions/{Q}/answers` | QuestionWriteV1 的问题/答案分支；QuestionWriteResultV1 | 当前问答双方；答案须先有问题接收报告，原线程只保存一个答案 |
+| POST `T/questions/{Q}/receipts`；POST `T/questions/{Q}/close` | 接收/答案处理分支或 owner 关闭分支；QuestionWriteResultV1 | received_reported 与 processed_reported 分开；关闭不伪造接收、回答或处理 |
+| GET `T/questions/{Q}`；GET `T/questions/{Q}/operations/{client_operation_id}` | 受权 QuestionThreadV1 / 原私有 QuestionWriteResultV1 | 当前及授权历史读；用于响应丢失和原阶段恢复，不查询新的世界效果 |
 | POST `T/approval-requests`；POST `T/approval-requests/{P}/decisions` | 精确方案与范围 / owner 明确决定 | 只申请不自行批准；世界执行仍重验 |
 | POST `T/executor-bindings`；POST `T/heartbeats`；POST `T/stop` | 当前绑定 / 诊断心跳 / 撤销后续执行 | 协作主责；状态不是取消既有世界效果 |
 | GET `T/events` | cursor、limit、wait_ms | 至少支持有界增量轮询；过期游标必须显式重同步 |
@@ -361,6 +365,56 @@ ErrorV1 = {code, message, request_trace_id, operation_id?, retryable,
 `pending -> recovery_required` 必须留下持久原因与最后已知关联；恢复服务重查原 request/correlation/receipt 和有效世界分支后，才可 `recovery_required -> pending`（确认仍受理待决）或进入上述有证据终态。轮询时间、重试次数或用户停止不能把未知结果改成失败或取消。recovery.reason 有界且脱敏；reconciliation 与 last_attempt_at 表达恢复进展，阻塞时可升级人工诊断但不授予重放权限。终态历史与 reorg/finality 变化仍按既有世界合同处理，不由本地计时器反向改写。
 
 同键重试首先查询既有 operation，返回相同的 recovery 状态或已经核实的新状态；禁止更换 client_operation_id、重新签 nonce、开启新的副作用 context 或靠 outcome=abandoned 遗忘未知操作。只有恢复服务核实底层仍持久保有原身份去重、允许原请求重投时，才可重送原 outbox 内容；否则只回查并保留阻塞。Worker、Web 和 native 将它显示为“结果待恢复确认”，不复用表示普通排队的 pending 或原模型调用的 run_unknown；只读查询、任务沟通和原结果核对仍可按当前权限进行。
+
+<a id="api-question-delivery"></a>
+### 6.4 私有问答写入、阶段报告与回查
+
+本节承接 AC-COLLAB-004，消费[协作逐条交付](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-question-delivery)及[未完线程恢复](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-question-recovery)的唯一状态机。以下仍是完整 Game API 的目标合同，当前 native task-control/private-goal 子集没有因此具备这些端点。`GET T/snapshot` 的四个集合为 pending_question_threads、pending_approvals、unsettled_operation_refs、latest_reports；未完线程包含已回答但未处理的内容，不能降级到 unanswered_questions。
+
+```text
+QuestionWriteV1 = {api_revision, client_operation_id, question_id,
+  world_binding, expected_task_revision, expected_thread_revision,
+  owner_revision, goal_revision, executor_id, executor_epoch, actor_proof,
+  payload: QuestionWritePayloadV1}
+QuestionWritePayloadV1 = {kind: question, message_id, body, evidence_refs,
+                           related_question_id?}
+  | {kind: answer, message_id, in_reply_to, body, evidence_refs}
+  | {kind: receipt, message_id, stage: received_reported,
+       delivery_basis: durable_inbox|volatile_client}
+  | {kind: receipt, message_id, stage: processed_reported,
+       disposition: viewed|considered|needs_goal_change|needs_authorization|cannot_use,
+       summary?, source_ref?}
+  | {kind: close, reason}
+QuestionWriteResultV1 = {api_revision, client_operation_id, question_id, kind,
+  status: persisted|rejected|not_recorded|recovery_required,
+  thread_revision?, result_ref?, recorded_event_seq?, reason?,
+  retry_advice: lookup_original|retry_same|none}
+```
+
+路径和 kind 必须精确匹配。创建问题时客户端固定新的 question_id/message_id，expected_thread_revision="0"；其余写入使用已读线程的版本。所有 revision/epoch/seq 继续用十进制字符串。authenticated actor、owner/executor 角色、收件人、receipt_id、保存时间及结果状态由服务器确定，请求不能自填。answer.in_reply_to 必须是原 question.message_id；报告的 message_id 指向原问题或唯一答案，不能引用其他 task。close.reason 与处理 summary 各至多 1 KiB；完整消息/报告/线程的编码上限由协作合同统一拥有，使用同一实际 UTF-8 JSON 校验。
+
+**权限与顺序。** 新写入复用 message:write 的实际授权范围，再验证当前 task/Agent/branch、owner revision、goal revision、executor id/epoch 和线程 CAS；token 有此 scope 不等于自动成为该条消息接收方。提问者可以是当前 owner 或 executor，回答与接收报告仅允许对应原接收者；答案处理仅允许原提问者，close 仅当前原 owner。owner 的 received_reported 只允许 volatile_client，executor 只允许 durable_inbox；viewed 只接受 owner 的显式操作，不能由默认 executor 工具代做。缺少问题接收报告就提交 answer、缺少答案接收报告就提交 processed_reported，均拒绝，不自动补阶段。processed_reported 不接受 delivery_basis，received_reported 不接受 disposition/summary；未知枚举、混合分支和多余字段拒绝。
+
+每次读写先认证并检查当前对象及历史 audience 资格，再返回原状态、版本或冲突细节；解密前和交付前重验读权。当前读权成立时，可先回放已接受原操作，即使其旧 scope 已失效；只有没有原结果的新写入才进入当前写权限/版本校验，不能让迟到重试新建旧效果。`GET T/questions/{Q}` 返回一个完整的受权线程及其原 scope/status/applicability，响应 no-store；终态历史已按公开保留策略不可用时明确 `410 history_unavailable`，承诺应有的原件缺失则 `503 recovery_required`。两者都不返回伪造空线程，不绕过当前读权。
+
+**原身份与幂等。** 原操作作用域为 world/genesis/branch、task、稳定已认证 actor 与 client_operation_id；规范请求摘要绑定准确路径、kind、question/message、原版本及完整 payload。不同传输或重启不能重签成另一份意图。同键同内容回读原结果，同键异内容返回 operation_conflict；必须在当前读权检查后处理，不能用原键泄露撤权历史。同 task/actor 的 message_id 不得改正文或转用于另一个问题，违者 message_conflict。每个线程问题、唯一答案、两条接收报告、答案处理报告和 owner 关闭分别有自然唯一槽位；换键重复同一阶段不会再创建记录或事件，返回 `409 phase_already_recorded` 和获权的原 result_ref，客户端读取原件核对，不能为每个重试别名积累新 tombstone。不同答案/不同处理内容不覆盖已接受槽位；重新追问或更正使用新关联问题。
+
+`QuestionWriteResultV1` 来自原 Runtime 私有协作操作记录及同一线程提交，不新建网关权限账本，也不放入表示世界最终性的 OperationViewV1。成功写入返回 `201 status=persisted`，原键重放/结果读取返回 `200`；本合同不增加私有待处理队列或在内存接收后返回 202。persisted 必须带 thread_revision、私有 result_ref 和 recorded_event_seq，只证明该条私有记录已持久保存；引用与正文不进公开世界历史，不能填 world receipt/finality。读取原操作的结果还可能明确 rejected 或 recovery_required；已知元数据但原件不可证时回 `200 recovery_required / lookup_original`，连记录都不能可信读取时回 `503 recovery_required`，两者均保留客户端原键。
+
+只有受信完整原操作索引在读取切点确认没有该键时，查询才返回 `200 not_recorded / retry_same`；它不证明网络中绝无原请求在途，只允许在当前写资格仍有效且原身份持久去重保护可验证时重投**完全相同**的原请求。persisted/rejected 使用 none；不存在“超时即 rejected”。客户端不能因 not_recorded 或服务不可用换键。阶段响应丢失先查此原键或原线程已保存报告；确认问题接收后才回答，确认答案接收后才处理。玩家 volatile 窗口关闭导致原键丢失时，不自动重发旧草稿或制造处理报告；先回读原线程，再由新的显式操作与当前 CAS 决定是否仍需写入，原在途请求与新请求仍受相同自然槽位唯一约束。拒绝的新请求无线程、配额或事件副作用；若存在持久拒绝结果，沿原键回读其原因。
+
+| HTTP / code | 可判定条件与调用方动作 |
+| --- | --- |
+| 400 invalid_question_request | 错路由分支、未知字段/枚举、非法关联或接收/处理字段混用；修正输入，不把它当待决 |
+| 401 / 403 | 当前身份、scope、角色、接收者或历史读权不足；不返回对象存在、版本或私有差异 |
+| 409 thread_conflict / thread_inapplicable / question_recipient_unavailable | 当前版本已变、原 scope 失效或缺有效接收方；读当前获权状态，不能覆盖或自动重定向旧消息 |
+| 409 receipt_precondition_required | 所需前序接收报告未持久确认；回查/完成原接收阶段，不能让 answer 自动代签 |
+| 409 operation_conflict / message_conflict / phase_already_recorded | 原键/消息异内容或自然槽位已占；读取原件，保留竞答失败的私有草稿而不覆盖原答案 |
+| 413 content_too_large | 完整编码超限；持久接受前拒绝，不截断已接受内容 |
+| 429 quota_exceeded / rate_limited | 新问题/申请无槽位，或当前请求速率超限；已有线程的合法答案/报告不重新占槽位，限流不删除其原记录 |
+| 503 recovery_required | 私有正文、原操作索引或控制关联无法验证；保持原键与阻塞，不伪完整 snapshot、不制造接收/处理成功 |
+
+问答报告不得混用 goal-receipts、审批 decisions、context outcomes 或 world actions。默认 executor 的受限工具可消费 question/read/answer/message-receipt 的当前范围，owner close 与 owner viewed 仍在原 owner 控制路径。新字段只调整尚未发布的完整草案；现有 SDK/control wire、签名和版本语义不改变，实际公开 schema 若已发布须另做兼容协商。
 
 ## 7. 状态、事务与持久化
 
@@ -405,6 +459,7 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-auth](#api-auth) | 鉴权、越权、限流与授权撤销在服务端生效 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73；[AC-EXT-014](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-014) | [api-cutover](#api-cutover) | 关闭旧 Provider Bridge 后新主路径仍可运行 | [api-cutover](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cutover)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | [api-autonomous-entry](#api-autonomous-entry) | 身份/准入/角色/owner/task/executor 各阶段独立确认，未知结果无重复效果 | [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry)；普通客户端与真实 Runtime 分层执行 | 原阶段 operation/receipt、初始预置清单和实际确认停点 | 文档合同与 prepared-world 不证明公开上线或冷入场通过 |
+| Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | [api-question-delivery](#api-question-delivery) | 双向写入角色、先接收再回答/处理、原键回查和具体错误可实施 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的合同/错误/故障窗口用例 | 请求分支、原私有结果、线程版本和拒绝无额外效果 | 不代签已上线端点、真实客户端或世界最终性 |
 
 ## 12. 决策、长期风险与未决问题
 
