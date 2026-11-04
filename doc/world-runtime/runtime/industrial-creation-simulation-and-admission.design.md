@@ -59,7 +59,7 @@
 ### 5.1 可审计提案与修订
 
 1. `inspect_opportunity` 返回具体瓶颈、可用既有路线、来源新鲜度及当前权限。预览不预留资源、审查顺位、能力或奖励。
-2. 当前有权的作者提交 `creation_id/revision`、完整能力身份/来源闭包、假设、拟改行为和 Profile、影响区域/用途、风险、候选失败情形、投入上限、退出/返还与替代路线。来源材料引用 PPE 包，不把一个 Cargo license 字段当工业许可。
+2. 当前有权的作者提交 `creation_id/revision`、完整能力身份/来源闭包、假设、拟改行为和 Profile、影响区域/用途、风险、候选失败情形、投入上限、退出/返还与替代路线。来源材料引用 PPE 包，不把一个 Cargo license 字段当工业许可。主张 R&D 来源时另绑定[预工作 charter](rd-charter-provenance-and-share-transfer.design.md#rd-charter-activation)及已有的[贡献来源](rd-charter-provenance-and-share-transfer.design.md#rd-contribution-source)；非绑定提案不补造先前实质工作的授权，也不要求尚未产出的成果先完成最终分配交接。
 3. 专业接收器验证字段和权限、能力因果指纹及依赖闭包。接受只形成审查记录和缺项列表；不足时返回具体缺证或范围问题。身份与提交 disposition 同事务，无法提交时不能预先发一个权威创作身份。
 4. 纯文字说明更新可追加 annotation，不覆盖原字节。行为、投入产出、工厂适用性、scope、风险/退出、评价判据或依赖变化必须建立 linked revision，旧 simulation/pilot/admission 不自动迁移。仅缩小本次执行数量但不改变已验证因果内容时，可以在原上限内申请更小试点；不能通过改名称、拆请求或换 module ID 绕过同一来源/能力的限制。
 5. `defer/abandon` 不删除历史；有活动试点时只能触发其停止/处置流程。没有试点和剩余义务才可关闭当前修订。重新尝试引用原失败，明确新假设或新条件，不能把重连当新实验。
@@ -116,6 +116,8 @@
 `matching_creation_evidence ∧ current_industrial_admission ∧ current_type_lifecycle ∧ legal_module_activation ∧ current_asset_and_execution_authority ∧ required_externality_conditions ∧ applicable_license`。
 
 只有实际适用的项才可由其 authority 明确返回 `not_required`；缺字段、未知版本或网络缺项不能推断不适用。许可消费[许可使用合同](industrial-license-and-royalty-settlement.design.md#license-use)；pilot 不产生该合同的 paid-use receipt。首版付费计量仅正式 recipe 的成功完整批次，由许可专题绑定原 Root/Child/完成事实；其他能力的明确零费不等于无准入。
+
+合作创作取得工业准入不等于其经济归因已经验证。付费许可另需完整 [R&D 分配与来源交接](rd-charter-provenance-and-share-transfer.design.md#rd-distribution-handoff)；反之，charter、贡献或交接已成立也不授予模拟、试点、正式准入、资源或生产权限。来源合法性按实际使用范围核对，未取得他人使用权不能以零费发布绕过；尚未完成的收益交接不反向改写真实试点结果。
 
 准入 guard 必须覆盖 technical release 后的实际采用，以及 native/module 的 build、schedule、validate、首次 sink、相关后继边界、tick directives 和恢复待决动作。对 recipe，它与既有 `ResolveRecipeAdmission` 合取；`restricted/retiring/retired` 不能被本设计的历史 `admitted` 覆盖。模块返回的 plan、Profile reader 或 `ModuleReleaseApplied` 均不构成执行许可。
 

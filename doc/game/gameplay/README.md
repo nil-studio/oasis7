@@ -30,6 +30,7 @@
 - 想比较有限供能服务的检查点、价款、抵押和失败出口：读[供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)，再读 [Runtime 履约设计](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)及[验收手册](../../testing/manual/checkpoint-power-service-acceptance.manual.md)；实际能力仍须独立实现与验证。
 - 想从创作交付走到受限试点、正式准入和有限收益：读[工业四阶段设计](../../world-runtime/runtime/industrial-creation-simulation-and-admission.design.md)与[有限许可政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#industrial-license-policy-v1)，再核[许可执行与结算](../../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md)；模拟、技术发布、正式使用和付款不是同一结果。
 - 想在合作前了解对方的可核验履约事实：读[情境声誉政策](gameplay-contextual-reputation-contract.prd.md)和[证据及复核设计](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md)；分清主体/控制任期、情境、补救与历史，不把缺记录或旧分数当全球信誉。
+- 想在研究开始前约定贡献与收益，或转让已约定份额：读 [R&D charter 政策](gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md)、[归因与转让执行设计](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md)及[验收手册](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)；贡献事实、成果使用权和经济份额分别核对。
 - 想精确找某份 gameplay 专题文档，而不是按问题阅读：回到 `../prd.index.md`
 
 ## 入口分工
@@ -43,7 +44,8 @@
 - `gameplay-industrial-creation-and-cross-region-market-contract.prd.md` 拥有 `PRD-GAME-018` 的工业创建、许可/开放、OC/世界资格隔离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同；工业/世界资格隔离保持 GR-011 边界。其 [保供政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)集中持有 ES-001 至 ES-004 的首版规则值，产品要求仍由 ES 专题声明，Runtime 拥有执行与恢复合同。
 - [组织连续性政策](gameplay-organization-continuity-policy.prd.md)集中持有 OC-001 至 OC-003 的活动、保护、接替和处置规则；组织权利连续性由产品专题声明，外部代币 OC 的治理资格仍由 GAME-019 专题拥有。
 - [供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)拥有 CR-001/002 有限个人供能切片的检查点、补救、争议和继受规则；Runtime 拥有资源占用、计量、事务及恢复，既有物料物流和组织处置规则继续由原专题拥有。
-- [情境声誉政策](gameplay-contextual-reputation-contract.prd.md)拥有 CR-003 合同履约咨询切片的来源选择、时效与复核规则；Runtime 拥有证据投影和恢复，原合同继续拥有责任及申诉，其他主体/来源与 R&D 沿原范围补齐。
+- [情境声誉政策](gameplay-contextual-reputation-contract.prd.md)拥有 CR-003 合同履约咨询切片的来源选择、时效与复核规则；Runtime 拥有证据投影和恢复，原合同继续拥有责任及申诉，其他主体/来源沿原范围补齐。
+- [R&D charter 政策](gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md)拥有 CR-003 自然主体有界研究的事前同意、固定分配、归因程序与整槽转让规则；Runtime 拥有证据、权利交接和恢复，原工业许可继续拥有实际使用和累计收益。
 - GitHub Project task status 与 issue evidence comments 是 retention、preview、经济规则和放行门禁的执行状态入口。
 - `../prd.index.md` 是完整文件级索引，适合已知主题后按文件名查找。
 

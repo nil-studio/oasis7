@@ -12,6 +12,8 @@
 - 想核对工业模拟、有限试点、治理准入及直接消费者：读[工业创建验收手册](industrial-creation-simulation-and-admission.manual.md)，区分静态输入算例和真实隔离、退出、恢复证据。
 - 想核对有限许可、版税托管、通知/争议、开放和整数分配：读[许可结算验收手册](industrial-license-and-royalty-settlement.manual.md)，核真实批次、所有资金来源及旧请求恢复。
 - 想核对合作前情境声誉的来源、主体/任期、时效和纠错：读[情境声誉验收手册](contextual-reputation-acceptance.manual.md)，不将 native 分数、自由声明或方法存在当作已交付事实。
+- 想核对研究章程的预工作同意、贡献来源、份额与许可交接：读 [R&D 归因及转让验收手册](rd-charter-attribution-and-share-transfer-acceptance.manual.md)，区分历史贡献、使用权、未付权益和已付历史。
+- 想核对外部 Runtime 私有上下文未接续后的告知与重规划：读[私有上下文恢复场景](external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)，原模型调用、世界操作、当前任务与私有会话分别取证。
 - 想让本地入口接入 formal `public_testnet` world state，或排查 LetAI 配置、代理继承、模型选择、quota 与受控 auto-topup：读 [`local-public-testnet-letai-test-environment-2026-06-23.manual.md`](local-public-testnet-letai-test-environment-2026-06-23.manual.md)。
 - 想在受治理 deployment truth 下只物化一台已擦除 validator host、保持服务 disabled/inactive 并输出 public receipt：先读 blockchain ops authority [`../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`](../../p2p/blockchain/public-testnet-governed-bootstrap.runbook.md)，再按 [`public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md`](public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md) 执行其 narrow subprocedure。
 - 想用截图加模型视觉评审替代 routine 人工 review：读 [`model-visual-review-sop-2026-05-29.manual.md`](model-visual-review-sop-2026-05-29.manual.md)，并使用 [`../templates/model-visual-review-card-template.md`](../templates/model-visual-review-card-template.md)。
@@ -32,6 +34,8 @@
 | 工业创建四阶段的隔离、预算、准入和恢复 | `industrial-creation-simulation-and-admission.manual.md` | Shadow 即模拟、Apply 即准入或未执行的运行证据 |
 | 许可范围、有限版税与开放结算 | `industrial-license-and-royalty-settlement.manual.md` | 任意 receipt 计费、外部价值、真实参数平衡或已启用声明 |
 | 合同来源的情境声誉与客观复核 | `contextual-reputation-acceptance.manual.md` | 全局评分、资格授予、组织/岗位或完整 CR-003 完成证明 |
+| 预工作 R&D 归因、固定分配与整槽转让 | `rd-charter-attribution-and-share-transfer-acceptance.manual.md` | 现实知识产权裁判、自动贡献评分、已实现或完整 CR-003 证明 |
+| 外部 Runtime 私有上下文告知与可信重规划 | [adapter-private-context-recovery](external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery) | 私有记忆无损迁移、模型理解、世界成果或一个 driver 代签另一个 |
 | 本地入口接入 formal public testnet | `local-public-testnet-letai-test-environment-2026-06-23.manual.md` | 纯 local-only LetAI playtest |
 | 已擦除 validator host 的 no-start 物化 | `doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md`，再进入 `public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md` | topology 审批、服务启用、网络 readiness 或 release claim |
 | 截图的模型视觉评审 | `model-visual-review-sop-2026-05-29.manual.md` | runtime / security / release 放行结论 |
