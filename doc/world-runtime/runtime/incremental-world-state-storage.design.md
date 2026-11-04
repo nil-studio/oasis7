@@ -1332,6 +1332,8 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1。
 
 冷恢复先认证完整 typed 子树并共享实际 State/Value/scan/semantic/bytes 预算；每层 DTO、集合、字符串、bytes 与 charged column carrier 的同时存活均预先计费，输出 reservation 随 DTO 保留。共享事务 mutation 复用 parent qualification、同池 Ordinary、guard/live、exact-before、组合取消及整笔 poison；receiver 独立 replay 并验证修改后完整 revocation 闭包后方可继承资格。Recovery 到 Ordinary 必须显式 readmission。上述 typed 内容资格不授予业务权限或完整 WorldReady。
 
+枚举与 bytes 的具体封闭编码：GameTaskStatusV1 为原列 U64，Suspended=0、Active=1，其他值拒绝。GameTaskClosePredicateV2 为 typed child（Metadata、Text("tag")/U64、Text("value")）：InitialActive 的 tag=0/value=Unit；OwnStopSuspended 的 tag=1/value=原 GameOwnStopReferenceV2 typed child root；额外列和其他 tag 拒绝。TaskTerminalRecordV2.stop_predecessor_canonical_cbor 的 None=Unit，Some 为绑定原列 semantic hash 的 RecordRoot，指向 Runtime/Authorization/ByteMap descriptor `capability_revocation_state.bytes`；schema 为 BLAKE3(`oasis7.iws.runtime-revocation.bytes.v1\0`)。该子树只有 Metadata 与 semantic Unit、record kind Bytes、payload Bytes 两叶，含空 bytes；不得放宽原 codec 使 Map/Entry 直接接受 Bytes。所有集合长度为 Text("_length")/U64，map/set 项为 Pair(Text("entry"), Text(原 key))，Vec 项为原 U64 ordinal；因此保留原 key 为 `_length` 的记录。签名请求的三个原字段 request/subject_public_key/signature_hex 全部必需，request 仍是原 typed DTO，而非重新序列化的签名材料。
+
 
 ### Runtime manifest proposals
 
@@ -1344,7 +1346,7 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4
 - Text columns：`author`、`base_manifest_hash`。U64 columns：`id`、`timelock_ticks`。
 - `manifest` 的 version/content 复用既有 `visit_artifact_world_manifest_v1` 穷尽借用接口：对应 `manifest.version` U64 与 `manifest.content` 原 JsonValue 认证图引用。只把原 `Manifest.content` 当 JSON，不把 Manifest DTO Serialize。原 JSON number 种类与 f64 bits 保留，-0.0 不等于 +0.0。
 - `queued_at_tick`、`not_before_tick`、`activate_epoch` 各用 `(name,"present")` Bool 与 Some 时 `(name,"value")` U64；None 与 Some(0) 不同。
-- `patch` 用 `("patch","present")` Bool。Some 时 `patch.base_manifest_hash` Text；`patch.new_version` 显式 Option/U64；`patch.ops.count` U64。原 `ManifestPatch.ops` 使用零基 u64 ordinal，不排序或去重；每个 ordinal 的闭合 op child 有 kind U64：Set=0、Remove=1。两种 op 均有 `path.count` U64 和每个原 ordinal 的 Text path segment（空串不改）；Set 另有 `value` 原 JSON 图，Remove 禁止此列。None patch 不允许任何 patch 子列，Some(empty ops) 与 None 不同。
+- `patch` 用 `("patch","present")` Bool。Some 时 `patch.base_manifest_hash` Text；`patch.new_version` 显式 Option/U64；`patch.ops.count` U64。原 `ManifestPatch.ops` 使用零基 u64 ordinal，不排序或去重；每个 ordinal 的闭合 op 列组以 `(Text("patch.ops"), (Unsigned(ordinal), Text("kind")))` 存 kind U64：Set=0、Remove=1。两种 op 均以相同地址中的 Text("path.count") 存路径长度，并以 `(Text("patch.ops"), (Unsigned(op_ordinal), (Text("path"), Unsigned(segment_ordinal))))` 存原 Text path segment（空串不改）；Set 另有 Text("value") 的原 JSON 图引用，Remove 禁止此列。None patch 不允许任何 patch 子列，Some(empty ops) 与 None 不同。
 - `status.kind` U64：Proposed=0、Shadowed=1、Approved=2、Rejected=3、Applied=4。Shadowed/Approved/Applied 有 `status.manifest_hash` Text；Approved 另有 `status.approver` Text；Rejected 只有 `status.reason` Text；Proposed 不允许任何 status data 子列。未知 tag 和其他 variant 遗留列拒绝。
 
 JSON 子图使用独立固定 `proposals.json` Runtime/Map/Authorization descriptor，schema BLAKE3(`oasis7.iws.runtime-proposal.json.v1\0`)；所有引用绑定完整原 semantic address（包括 op ordinal），防止同内容的不同原位置误绑定。JSON 使用既有 neutral bounded engine，选中 DTO 恢复保留其单独 output reservation。
@@ -1352,3 +1354,17 @@ JSON 子图使用独立固定 `proposals.json` Runtime/Map/Authorization descrip
 GEN 对 Proposal、ManifestPatch、ManifestPatchOp、ProposalStatus 无 `..` 穷尽借用；恢复先全量验闭合列/原 key/codec/namespace，保留完整 Pair 结构，U64 ordinal 不等于十进制 Text。缺列、重复、未知列、非法 Option、错误长度/ordinal、未知 variant、错误引用 hash、错误 record schema 或残余子图拒绝。输出 DTO、Patch Vec/path Vec 容器及字符串先取得 shared process reservation，charge 随最后持有者释放；父 proof 准确绑定 RootSet、phase 和 pool。
 
 Bootstrap/Recovery 完整验证全部原记录；分页外根与所有子图使用连续有限 scan/JSON work。Recovery proof 不能直接执行 ordinary 更新，须显式同池/同根 readmission。ordinary setter 检查真实 parent proof、guard/live、原 key、同 txn 当前值和 exact expected，NoOp 也检查取消。producer/reader/typed comparison 全过程组合读写取消，后续任何错误 poison 整笔事务；receiver 验证真实 TransitionRecord 并只检查受影响新闭包，不能用全部拒绝替代合法后继工作。proposal 状态更新可采用点列编辑避免重新构造无变化 Manifest/patch 图；完整原记录替换只用于已有业务真正替换这些内容的情况。签名、manifest hash、提案审批和激活合法性仍由原 Runtime 业务 verifier 所有，本结构资格不授予治理权限或完整 World 启用资格。
+
+
+### 完整 owner 校验的代码边界
+
+ModuleState 与 ModuleInstance 的纯结构闭包、增量接收及恢复资格由 `oasis7_world_state` 提供，供 Runtime 和存储端点复用。Runtime 保留原借用生产者、业务/模块调用、执行权限、共享事务贡献和既有 Rust 入口的重导出；存储端点不为调用结构校验引入对 Runtime 执行层的依赖。资格仍私有构造并绑定原 RootSet、同池与分配 class；下移不改变逻辑 key、原值、原 wire 或接受权限，也不让尚未完整的 owner registry 自动合格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5。
+
+完整 WorldState 闭包必须逐项覆盖 `WorldRulesStateV1` 的十三个原字段。已实现治理效果、组织 case/estate、供给 authorization/batch/lineage/shipment 不代表 requests、organization_continuity、emergency_supply、agent_orders、industrial_work、substitution 已覆盖。缺少任一项的生产、认证接收或恢复适配时，完整 owner 资格和启用仍须拒绝；不以初始为空、普通测试未触发或可从其他日志推导替代原字段。可选 world_rules 的 None 与 Some(全空) 继续由唯一原父 marker 区分，各子族组合不得重复生产该 marker。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5。
+
+industrial_work 与 substitution 使用原 world_rules descriptor 的 Entry，semantic key 分别为 Pair(Text(原分支名), Unit)，payload 为绑定该 key 的 RecordRoot；None world_rules 禁止子根，Some 的空分支仍有显式子根。子树 descriptor 是 WorldState/Map/Authorization，名字分别为 `world_rules.industrial_work.columns`、`world_rules.substitution.columns`；schema 分别为 BLAKE3(`oasis7.iws.world-rule-industrial-work.columns.v1\0`)、BLAKE3(`oasis7.iws.world-rule-substitution.columns.v1\0`)。原 struct 的每个具名字段均必需，map/set 使用 `_length` 与 Pair(Text("entry"), 原 key)，Vec 使用 `_length` 与原 u64 ordinal；每层 Metadata、schema、namespace、closed shape 和长度独立验证。具体 DTO 通过穷尽 typed 访问适配，不经任意 Serialize，也不因派生 serde 的空字段省略而删除原值。Option 的 None 使用 Unit，Some 的复合值使用 typed child，保留 Some(empty)；带数据枚举使用含 U64 tag 和该 variant 全部原字段的闭合子树，无数据枚举也使用该子树，避免与外层 Option None 混淆。Recovery 的完整输出保留所有原引用、顺序、枚举、数量和 reservation；ordinary 更新须沿精确父根路径修改选中记录，独立 receiver 跳过根未变的已认证子图，不能以整个分支重新编码代替小更新。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+上述工业枚举子树的 Text("tag")/U64 固定映射：MaterialLedgerId 为 World=0、Agent=1、Site=2、Factory=3，后三者的原单个 String 位于 Text("value")；IndustrialDisposition 为 Hold=0、Terminate=1；SubstitutionSelection 为 SameMaterialSource=0、ProfileRule=1、NewRecipe=2，各具名字段使用原名；SubstitutionCandidateKind 为 SameMaterial=0、ProfileSubstitute=1、NewRecipe=2；SubstitutionPreviewStatus 为 Available=0、NoLegalSubstitute=1、Unknown=2；SubstitutionScope 为 DecisionOnly=0、DecisionAndExactConversion=1；SubstitutionRounding 为 Exact=0、Ceil=1；SubstitutionResidual 为 Reject=0、Retain=1；SubstitutionConversion 为 None=0、Required=1，Required 必须有原 converter typed child。未知 tag、缺列及任何其他 variant 的遗留列均拒绝。
+
+
+创世六根索引组合使用同一个 PageStore 和 MemoryBudget：typed owner 顺序贡献已计费 ExecutionWrite，组合器最多暂存 64 条，按固定 namespace 分批构建 sparse-Merkle 增量并持久化新页；不保存完整写集 Vec。每条写入都必须是 absent→present，重复 key（含跨批重复）拒绝，不因值相同而忽略冲突。行、新节点、新字节、暂存逻辑页和物理 I/O 各有持续额度，建树临时容器在构建前单独取得 Ordinary 准入，取消贯穿读页和写页。生产者失败、panic 或吞掉 sink 错误后组合器永久不可 finish。输出只是已持久化的 provisional RootSet，完整字段/历史闭包、原 authority 接受和 head 选择仍是独立的必需步骤；空输出不获得完整世界资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
