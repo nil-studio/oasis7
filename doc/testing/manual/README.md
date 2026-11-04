@@ -11,6 +11,7 @@
 - 想核对有限供能服务的部分履行、抵押、费用、修复、争议与显式继受：读[供能服务验收手册](checkpoint-power-service-acceptance.manual.md)，分别核资源守恒、责任范围、原请求恢复和玩家理解；方法存在不表示服务已可用。
 - 想核对同一生产目标受阻后的修复、重建与转向：读[生产恢复比较验收手册](production-recovery-comparison-acceptance.manual.md)，按同一前态独立核候选、实际成本、保留价值、目标适配和原请求恢复，区分已实现动作与目标查询能力。
 - 想核对成熟贡献到一次有限物流机会的全过程：读[认可与机会验收手册](recognition-opportunity-acceptance.manual.md)，独立核真实交付来源、双人竞争、共享容量、原费用、实际使用、撤权与未知恢复；目标协议、原生夹具和正式入口分别给结论。
+- 想核对同候选/窗口的非 levy 资源与治理影响：读[成熟世界经济审计验收手册](mature-world-economic-audit-acceptance.manual.md)，从原规则独立算期初/期末、生产/转移/发行/分发，核缺证、未知 writer、治理未执行及补证恢复；原生夹具与正式消费者分别取证。
 - 想核对工业模拟、有限试点、治理准入及直接消费者：读[工业创建验收手册](industrial-creation-simulation-and-admission.manual.md)，区分静态输入算例和真实隔离、退出、恢复证据。
 - 想核对有限许可、版税托管、通知/争议、开放和整数分配：读[许可结算验收手册](industrial-license-and-royalty-settlement.manual.md)，核真实批次、所有资金来源及旧请求恢复。
 - 想核对合作前情境声誉的来源、主体/任期、时效和纠错：读[情境声誉验收手册](contextual-reputation-acceptance.manual.md)，不将 native 分数、自由声明或方法存在当作已交付事实。
@@ -37,6 +38,7 @@
 | 有限 Electricity 供能服务的检查点与救济 | `checkpoint-power-service-acceptance.manual.md` | 其他服务、通用法院/声誉、实际运行或完整 CR-002 完成证明 |
 | 同一生产目标的修复、重建与转向比较 | `production-recovery-comparison-acceptance.manual.md` | 改目标冒充恢复、假设可用的动作、免费资源、全世界不可行或未运行的正式入口证明 |
 | 本地交付认可、一次有限物流机会及实际使用 | `recognition-opportunity-acceptance.manual.md` | 自动奖励、通用声誉/资格、可交易权利、普通容量旁路或未执行的正式业务证明 |
+| 同候选/窗口的非 levy 资源流与治理影响 | `mature-world-economic-audit-acceptance.manual.md` | 账户或证据缺失补零、跨资源相加、静默修账、局部 green 代签完整长期健康或发行 |
 | 工业创建四阶段的隔离、预算、准入和恢复 | `industrial-creation-simulation-and-admission.manual.md` | Shadow 即模拟、Apply 即准入或未执行的运行证据 |
 | 许可范围、有限版税与开放结算 | `industrial-license-and-royalty-settlement.manual.md` | 任意 receipt 计费、外部价值、真实参数平衡或已启用声明 |
 | 合同来源的情境声誉与客观复核 | `contextual-reputation-acceptance.manual.md` | 全局评分、资格授予、组织/岗位或完整 CR-003 完成证明 |
