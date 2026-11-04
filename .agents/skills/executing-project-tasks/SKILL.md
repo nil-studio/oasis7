@@ -11,6 +11,8 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[任务拆分与并行开发](../../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)和 [parallel-development](../parallel-development/SKILL.md)梳理剩余工作、依赖、写入负责人及整体验收。在条件具备时并行实施；强耦合部分按实际依赖串行。默认交付小而完整的 PR，公共前置具备条件后及时评审并在授权内合入，让依赖方尽早复用；任务数与 PR 数分别判断。父 Issue 的整体认领与已明确的子任务委派一并复用。
 
+开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项、消费入口、验证和交付边界。只有父目标或阶段标题时，先在原安排补齐可执行范围；开发中出现独立新结果或前提变化时更新受影响拆分，不把剩余父目标持续吸收到当前任务。
+
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。Task 可直接是 PR，不另领要求 ID，也不强制建 Issue；未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
 接手已有代码或文档 Issue 开始实施前，按[日常开发](../../../doc/engineering/workflow/source-of-truth.md#2-日常开发)检查已有认领和暂停，在原 Issue 发布开工 comment 并回读确认；已有执行或状态不明时先核对交接，避免重复认领。续做同一范围及已有 TPM 记录按通用规范复用，不重复留言。
