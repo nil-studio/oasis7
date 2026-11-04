@@ -25,6 +25,7 @@ OBSERVED_FIXED_BYTES = 3_960_422_714
 # Historical numerical oracles exercise the original capacity policy explicitly.
 LEGACY_FORMAL_LIMITS = dict(staging_bytes=8 * 1024 ** 3, max_upload_bytes=768 * 1024 ** 2,
                             max_bytes=1536 * 1024 ** 2, rotation_bytes=2304 * 1024 ** 2)
+LEGACY_ORDINARY_LIMITS = dict(LEGACY_FORMAL_LIMITS, staging_bytes=6 * 1024 ** 3)
 
 
 def key(name, number, compatibility='a'):
@@ -150,6 +151,23 @@ def release_growth_inventory():
 
 
 class SchemaTests(unittest.TestCase):
+    def test_ordinary_configured_budget_matches_a_supported_policy_version(self):
+        # Bound the policy transition independently of the legacy numeric
+        # fixtures. This prerequisite does not change the configured ceiling.
+        settings = policy.FAMILIES['ordinary']
+        upload = settings['max_upload_bytes']
+        self.assertIn(upload, (768 * 1024 ** 2, 5 * 1024 ** 3 // 4))
+        self.assertEqual(settings['staging_bytes'], 6 * 1024 ** 3)
+        self.assertEqual(settings['keep_generations'], 2)
+        self.assertEqual(settings['max_bytes'], 2 * upload)
+        self.assertEqual(settings['rotation_bytes'], 3 * upload)
+        self.assertNotIn('migration_bytes', settings)
+        self.assertTrue(policy.save_policy([], key('ordinary', 1), upload,
+                                          REPOSITORY_LIMIT)['capacity_allowed'])
+        rejected = policy.save_policy([], key('ordinary', 1), upload + 1, REPOSITORY_LIMIT)
+        self.assertFalse(rejected['capacity_allowed'])
+        self.assertEqual(rejected['reason'], 'ordinary single upload budget')
+
     def test_formal_configured_budget_matches_a_supported_policy_version(self):
         settings = policy.FAMILIES['formal']
         upload = settings['max_upload_bytes']
@@ -251,6 +269,7 @@ class AdmissionTests(unittest.TestCase):
                 self.assertTrue(zero['capacity_allowed'])
 
     @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
+    @patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS)
     def test_raw_staging_single_upload_resident_and_rotation_are_distinct(self):
         for name, upload, raw in (('ordinary', 768 * 1024 ** 2, 6 * 1024 ** 3),
                                   ('formal', 768 * 1024 ** 2, 8 * 1024 ** 3),
@@ -438,6 +457,7 @@ class InventoryLifecycleTests(unittest.TestCase):
         self.assertEqual(sum(item['size_in_bytes'] for item in entries), OBSERVED_FIXED_BYTES + 4_600_000_000)
 
     @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
+    @patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS)
     def test_family_ceiling_entitlements_cannot_override_global_capacity(self):
         entries = [entry('ordinary', 100, key='unmanaged-observed-dependencies-and-tools',
                          size_in_bytes=OBSERVED_FIXED_BYTES)]
