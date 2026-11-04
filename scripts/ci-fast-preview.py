@@ -41,6 +41,44 @@ def resolve(repo, ref):
     return git(repo, 'rev-parse', '--verify', '--end-of-options', ref + '^{commit}').decode().strip()
 
 
+def changed_paths(repo, base, head):
+    """Match the required selector's NUL records and both rename endpoints."""
+    records = git(repo, 'diff', '--name-status', '--find-renames', '-z', base, head).split(b'\0')
+    if records.pop() != b'':
+        raise ValueError('incomplete name-status diff')
+    paths = []
+    while records:
+        status = records.pop(0).decode('ascii')
+        count = 2 if status.startswith(('R', 'C')) else 1
+        if len(records) < count:
+            raise ValueError('incomplete rename record')
+        for _ in range(count):
+            paths.append(records.pop(0).decode('utf-8', 'surrogateescape'))
+    return paths
+
+
+def preview_comparisons(repo, base, source, tested):
+    """Use the required selector's PR ranges, retaining merge-only changes.
+
+    Source-only calls keep their event range. A tested PR merge must identify
+    the real source as its second parent and a target descended from that base;
+    unreadable or ambiguous identities fail instead of silently disabling work.
+    """
+    if source == tested:
+        return [(base, source)], None, base
+    parents = git(repo, 'show', '-s', '--format=%P', tested).decode().split()
+    if len(parents) != 2 or parents[1] != source:
+        raise ValueError('tested commit is not a target/source merge')
+    target = parents[0]
+    if git(repo, 'merge-base', base, target).decode().strip() != base:
+        raise ValueError('event base is not an ancestor of tested target')
+    forks = git(repo, 'merge-base', '--all', target, source).decode().split()
+    if len(forks) != 1:
+        raise ValueError('ambiguous source/target merge base')
+    source_base = forks[0]
+    return [(source_base, source), (target, tested)], target, source_base
+
+
 def synthetic_baseline(repo, source):
     """Create only Git objects, leaving the candidate checkout and index intact."""
     timestamp = git(repo, 'show', '-s', '--format=%ct', source).decode().strip()
@@ -115,12 +153,23 @@ def write_outputs(path, values):
                 output.write(key + '=' + value + '\n')
 
 
-def plan_preview(repo, base_ref, head_ref, output, github_output=None):
+def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source_ref=None):
+    # Existing benchmark source/tested identities both name the exact checkout.
+    # The separate source ref supplies the real PR head for trigger attribution.
     base, source = resolve(repo, base_ref), resolve(repo, head_ref)
+    pr_source = resolve(repo, source_ref) if source_ref is not None else source
     if resolve(repo, 'HEAD') != source:
         raise ValueError('preview must use its exact candidate checkout')
-    changed = set(git(repo, 'diff', '--name-only', '-z', base, source).decode().split('\0'))
-    if not changed.intersection(POLICY_INPUTS):
+    comparisons, target, source_base = preview_comparisons(repo, base, pr_source, source)
+    changed = {path for before, after in comparisons for path in changed_paths(repo, before, after)}
+    inputs = {
+        'actual_pr_base_sha': base, 'actual_pr_source_sha': pr_source,
+        'actual_target_sha': target, 'source_base_sha': source_base,
+        'comparisons': [{'base': before, 'head': after} for before, after in comparisons],
+        'trigger_paths': sorted(changed.intersection(POLICY_INPUTS)),
+    }
+    print('preview_inputs=' + json.dumps(inputs, ensure_ascii=False))
+    if not inputs['trigger_paths']:
         write_outputs(github_output, {'enabled': 'false'})
         print('No product Rust preview input changed: candidate fast preview is not selected.')
         return None
@@ -138,7 +187,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None):
     metadata = {
         'schema_version': 1, 'authority': 'diagnostic-only',
         'workload': 'synthetic-comment-diff', 'cache': 'cold-no-restore',
-        'actual_pr_base_sha': base, 'source_sha': source, 'tested_sha': source,
+        **inputs, 'source_sha': source, 'tested_sha': source,
         'policy_sha': source, 'source_tree': git(repo, 'rev-parse', source + '^{tree}').decode().strip(),
         'synthetic_base_sha': synthetic, 'synthetic_base_tree': tree,
         'paths': list(SAMPLE_PATHS),
@@ -175,14 +224,16 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     plan = commands.add_parser('plan')
     plan.add_argument('--base-ref', required=True)
-    plan.add_argument('--head-ref', required=True)
+    plan.add_argument('--head-ref', required=True, help='exact tested checkout for the diagnostic benchmark')
+    plan.add_argument('--source-ref', help='real PR source HEAD; required when testing a PR merge')
     plan.add_argument('--output', required=True)
     plan.add_argument('--github-output')
     restore = commands.add_parser('restore')
     restore.add_argument('--metadata', required=True)
     args = parser.parse_args()
     if args.command == 'plan':
-        plan_preview(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output, args.github_output)
+        plan_preview(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output, args.github_output,
+                     source_ref=args.source_ref)
     else:
         restore_baseline(args.repo_root.resolve(), json.loads(Path(args.metadata).read_text()))
 
