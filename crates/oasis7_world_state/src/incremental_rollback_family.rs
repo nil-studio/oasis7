@@ -586,3 +586,5 @@ mod tests;
 
 #[path = "incremental_rollback_family_vector_delta.rs"]
 mod vector_delta;
+
+pub(crate) use receiver::accept_rollback_family_verified_v1;

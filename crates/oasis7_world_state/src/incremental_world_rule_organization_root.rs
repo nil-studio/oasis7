@@ -335,3 +335,5 @@ pub use pages::{
     OrganizationFamilyPagesV1, OrganizationPagesWorkV1, mark_organization_family_pages_v1,
     transfer_organization_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_organization_verified_v1;

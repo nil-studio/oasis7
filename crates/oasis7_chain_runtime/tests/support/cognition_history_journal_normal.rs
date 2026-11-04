@@ -63,6 +63,7 @@ pub(super) fn append_two_events(
     store: &IncrementalPageStore,
     objects: &IncrementalObjectStore<'_>,
     io: &mut ObjectIo<'_>,
+    corrupt_source: bool,
 ) {
     let source = frame.source;
     let memory = source.memory;
@@ -199,6 +200,7 @@ pub(super) fn append_two_events(
     let mut index_after = None;
     let mut life_root = lifecycle.root().clone();
     let mut life_keys = 0;
+    let mut source_last = None;
     let mut originals = CognitionHistoryWriteContextV1::new(
         memory,
         CanonicalCborWorkV1 {
@@ -265,6 +267,17 @@ pub(super) fn append_two_events(
         )
         .unwrap();
         cursor.finish().unwrap();
+        let CognitionOriginalIdentityStatusV1::DigestMatched(semantic_digest) =
+            schema.semantic().identity_status()
+        else {
+            panic!("real event digest");
+        };
+        source_last = Some(CognitionHeadSourceLastV3 {
+            sequence: ordinal as u64 + 1,
+            semantic_digest,
+            location,
+            original_bytes: stored.encoded_bytes(),
+        });
         let prepared = prepare_cognition_lifecycle_append_v2(
             &life_root,
             life_keys,
@@ -281,7 +294,11 @@ pub(super) fn append_two_events(
         .unwrap();
         life_root = prepared.root;
         life_keys = prepared.keys;
-        let encoded = oasis7_wasm_abi::encode_canonical_cbor(event).unwrap();
+        let mut cache_event = event.clone();
+        if corrupt_source {
+            cache_event["world_id"] = "other-world".into();
+        }
+        let encoded = oasis7_wasm_abi::encode_canonical_cbor(&cache_event).unwrap();
         builder
             .append(&encoded, &mut hash_work(), || false)
             .unwrap();
@@ -292,9 +309,15 @@ pub(super) fn append_two_events(
             false
         })
         .unwrap();
+    let mut oracle_events = events.clone();
+    if corrupt_source {
+        for event in &mut oracle_events {
+            event["world_id"] = "other-world".into();
+        }
+    }
     let original = oasis7_world_state::cognition_recovery::cognition_digest_v1(
         "oasis7.cognition.journal-head.v1",
-        &serde_json::json!({"head_seq":2,"events":events}),
+        &serde_json::json!({"head_seq":2,"events":oracle_events}),
     );
     assert_eq!(
         format!("blake3:{}", blake3::Hash::from(digest).to_hex()),
@@ -310,6 +333,21 @@ pub(super) fn append_two_events(
         || false,
     )
     .unwrap();
+    struct CacheDigest(blake3::Hasher);
+    impl std::io::Write for CacheDigest {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut cache_digest = CacheDigest(blake3::Hasher::new());
+    cache
+        .write_canonical_cache_v1(&mut cache_digest, &mut hash_work(), || false)
+        .unwrap();
+    let cache_digest = *cache_digest.0.finalize().as_bytes();
     drop(cache);
     let before_digest = format!(
         "blake3:{}",
@@ -361,7 +399,10 @@ pub(super) fn append_two_events(
     let sealed=tx.seal_with_final_fact(&guard,&fence,source.roots.simulation_tick+1,||false,|after|{
   let mut manifest=view.manifest().clone();manifest.roots=after.digest().unwrap();manifest.revision+=1;manifest.previous_view=Some(view.occurrence().location());manifest.heads[0]=CognitionHistoryHeadV1{sequence:2,digest:Some(digest)};
   let index=index_after.as_ref().unwrap();manifest.indexes[0].root=index.root().clone();manifest.indexes[0].records=index.record_count();let mut refs=view.derived().unwrap().clone();refs.caches[0]=Some(cache_id);refs.lifecycle=Some(RecordRootRefV1::new(lifecycle_schema(),lifecycle_owner(),life_root.clone()).unwrap());
-  let fact=oasis7_chain_runtime::incremental_cognition_history_store::persist_cognition_history_view_result_v2(after,&manifest,&refs,memory,objects,io,||false)?;manifest_id=Some(fact.id);Ok::<_,ValueTreeError>(fact)
+  let fact=if let Some(parent_source)=view.source_v3() {
+    let mut summary=(***parent_source).clone();summary.mode=CognitionHistorySourceModeV3::Delta;summary.cache_state_digests[0]=Some(cache_digest);summary.last[0]=source_last;summary.lifecycle_keys=life_keys;summary.lifecycle_journal_records=index.record_count();
+    super::source_v3::persist_v3_summary(&manifest,&refs,&summary,memory,objects,io,||false)?
+  }else{oasis7_chain_runtime::incremental_cognition_history_store::persist_cognition_history_view_result_v2(after,&manifest,&refs,memory,objects,io,||false)?};manifest_id=Some(fact.id);Ok::<_,ValueTreeError>(fact)
  }).unwrap();
     read.root = sealed.record.before.state_root(StateNamespaceV1::Allocator);
     let after_current =
@@ -425,20 +466,47 @@ pub(super) fn append_two_events(
     }
     .prepare(memory)
     .unwrap();
-    let (accepted, selected, extension) = super::normal_accept::accept_normal_history(
-        super::normal_accept::NormalHistoryFrame {
-            authority: source.authority,
-            parent: frame.head,
-            after: &sealed.record.after,
-            history: &history,
-            input,
-            expected_facts: 4,
-        },
-        memory,
-        store,
-        objects,
-        io,
-    );
+    let (accepted, selected, extension, checked_complete) =
+        super::normal_accept::accept_normal_history_with_candidate(
+            super::normal_accept::NormalHistoryFrame {
+                authority: source.authority,
+                parent: frame.head,
+                after: &sealed.record.after,
+                history: &history,
+                input,
+                expected_facts: 4,
+            },
+            memory,
+            store,
+            objects,
+            io,
+            |candidate, core, originals, _checked, io| {
+                view.source_v3().map(|_| {
+                    super::source_v3_ordinary::check_ordinary(
+                        super::source_v3_ordinary::OrdinaryFrame {
+                            before: view,
+                            before_current: &parent_binding,
+                            before_journal: &journal,
+                            before_lifecycle: &lifecycle,
+                            after_current: &after_current,
+                            after_journal: index_after.as_ref().unwrap(),
+                        },
+                        &CognitionHistorySelectionRequestV1 {
+                            candidate,
+                            core,
+                            originals,
+                        },
+                        store,
+                        objects,
+                        io,
+                        memory,
+                    )
+                })
+            },
+        );
+    let _promoted_complete = checked_complete.as_ref().map(|checked| {
+        promote_complete_cognition_history_source_v3(checked, &accepted, memory, || false).unwrap()
+    });
     read.root = sealed.record.after.state_root(StateNamespaceV1::Allocator);
     let binding = bind_cognition_history_current_v1(
         &selected,
@@ -461,6 +529,9 @@ pub(super) fn append_two_events(
         CognitionLifecycleReceiverBuilderV2::new(request(), memory, || false).unwrap();
     let mut cancelled =
         CognitionLifecycleReceiverBuilderV2::new(request(), memory, || false).unwrap();
+    let mut actual_source =
+        AuthenticatedHeadStreamV1::new(&selected, index_after.as_ref().unwrap(), memory, || false)
+            .unwrap();
     let mut last = None;
     for ordinal in 0..2 {
         let index = index_after.as_ref().unwrap();
@@ -513,6 +584,21 @@ pub(super) fn append_two_events(
             || false,
         )
         .unwrap();
+        let mut source_cursor = objects
+            .verified_original_cursor(&row.location.original, row.encoded_bytes, io)
+            .unwrap();
+        actual_source
+            .push(
+                &joined,
+                &selected,
+                &mut source_cursor,
+                memory,
+                &mut cbor_work(),
+                &mut hash_work(),
+                || false,
+            )
+            .unwrap();
+        source_cursor.finish().unwrap();
         receiver
             .push(
                 &joined,
@@ -544,6 +630,41 @@ pub(super) fn append_two_events(
             )
             .unwrap();
         last = Some(joined);
+    }
+    let persisted = recover_cognition_head_cache_v1(
+        selected.derived().unwrap().caches[0].unwrap(),
+        &mut read.values,
+        &mut hash_work(),
+        || false,
+    )
+    .unwrap();
+    // Even the adversarial cache is a real accepted, mathematically bound
+    // fixed frontier. Its source is independently checked below.
+    let mathematical = bind_persisted_cognition_head_caches_v2(
+        [Some(persisted), None, None],
+        &selected,
+        &binding,
+        memory,
+        &mut hash_work(),
+        || false,
+    )
+    .unwrap();
+    let actual_source = actual_source.finish(&selected, memory, &mut hash_work(), || false);
+    if corrupt_source {
+        assert!(matches!(
+            actual_source,
+            Err(ValueTreeError::Invalid("authenticated head stream digest"))
+        ));
+    } else {
+        AuthenticatedCognitionHeadSourceV1::validate_persisted_cache(
+            &actual_source.unwrap(),
+            mathematical.cache(0).unwrap(),
+            &selected,
+            memory,
+            &mut hash_work(),
+            || false,
+        )
+        .unwrap();
     }
     let qualified = receiver.finish(&mut read, &mut write).unwrap();
     assert_eq!(qualified.keys(), 1);

@@ -184,3 +184,5 @@ pub use remainder::{
     accept_world_rule_remainder_transition_v1, qualify_world_rule_remainder_v1,
     readmit_world_rule_remainder_ordinary_v1, world_rule_child_from_semantic_v1,
 };
+
+pub(crate) use remainder::accept_world_rule_remainder_verified_v1;

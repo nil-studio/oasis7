@@ -183,3 +183,5 @@ pub use pages::{
     RewardFamilyPagesV1, RewardPagesWorkV1, mark_reward_family_pages_v1,
     transfer_reward_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_reward_verified_v1;

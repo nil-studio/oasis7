@@ -121,13 +121,28 @@ macro_rules! fields {
             value.validate_binding(roots)?;Ok(charge.retain(value))
         })();read::check(ctx)?;result
     }
+    fn world_native_fields_preflight_v1(parent:&ReservedValue<WorldNativeFieldsQualificationV1>,record:&TransitionRecordV1,ctx:&mut WorldFieldReadContextV1<'_,impl MerkleNodeReader,impl ValueNodeReader,impl FnMut()->Option<ValueTreeError>,impl FnMut()->bool>)->Result<oasis7_proto::memory_budget::MemoryReservation,ValueTreeError>{
+        read::check(ctx)?;
+        if parent.class!=MemoryClass::Ordinary||ctx.values.class!=MemoryClass::Ordinary||!parent.uses_budget(ctx.values.memory)||parent.reserved_bytes()<std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512||!record.after.state.iter().any(|root|root==ctx.root){return Err(invalid());}
+        let phase=ctx.values.memory.reserve(128<<10,MemoryClass::Ordinary)?;
+        parent.validate_binding(&record.before)?;world_native_field_descriptors_v1()?;read::check(ctx)?;Ok(phase)
+    }
     pub fn accept_world_native_fields_transition_v1(parent:&ReservedValue<WorldNativeFieldsQualificationV1>,verifier:&TransitionVerifier<'_,impl MerkleNodeReader>,record:&TransitionRecordV1,ctx:&mut WorldFieldReadContextV1<'_,impl MerkleNodeReader,impl ValueNodeReader,impl FnMut()->Option<ValueTreeError>,impl FnMut()->bool>,scan:&mut StateScanBudget,work:&mut WorldNativeQualificationWorkV1)->Result<ReservedValue<WorldNativeFieldsQualificationV1>,WorldFieldOverlayErrorV1>{
         let result=(||{
-            read::check(ctx)?;parent.validate_binding(&record.before)?;world_native_field_descriptors_v1()?;
-            if parent.class!=MemoryClass::Ordinary||ctx.values.class!=MemoryClass::Ordinary||!parent.uses_budget(ctx.values.memory)||parent.reserved_bytes()<std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512{return Err(invalid().into());}
-            let charge=ctx.values.memory.reserve(std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
+            read::check(ctx)?;
+            if verifier.class!=MemoryClass::Ordinary||!verifier.memory.same_pool(ctx.values.memory){return Err(invalid().into());}
+            {let _phase=world_native_fields_preflight_v1(parent,record,ctx)?;}
             let verified=family::verify_world_native_transition_v1(verifier,record,ctx)?;
-            let value=WorldNativeFieldsQualificationV1 {roots:record.after.digest().map_err(|_|invalid())?,class:MemoryClass::Ordinary,$($slot:accept_at::<$spec>(&parent.$slot,&verified,ctx,scan,work)?,)+};
+            accept_world_native_fields_verified_v1(parent,&verified,ctx,scan,work)
+        })();read::check(ctx)?;result
+    }
+    pub(crate) fn accept_world_native_fields_verified_v1(parent:&ReservedValue<WorldNativeFieldsQualificationV1>,verified:&crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,ctx:&mut WorldFieldReadContextV1<'_,impl MerkleNodeReader,impl ValueNodeReader,impl FnMut()->Option<ValueTreeError>,impl FnMut()->bool>,scan:&mut StateScanBudget,work:&mut WorldNativeQualificationWorkV1)->Result<ReservedValue<WorldNativeFieldsQualificationV1>,WorldFieldOverlayErrorV1>{
+        let result=(||{
+            read::check(ctx)?;verified.check_context(ctx.values.memory,ctx.values.class,ctx.root)?;
+            let record=verified.record();
+            let _phase=world_native_fields_preflight_v1(parent,record,ctx)?;
+            let charge=ctx.values.memory.reserve(std::mem::size_of::<WorldNativeFieldsQualificationV1>()+512,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
+            let value=WorldNativeFieldsQualificationV1 {roots:record.after.digest().map_err(|_|invalid())?,class:MemoryClass::Ordinary,$($slot:accept_at::<$spec>(&parent.$slot,verified,ctx,scan,work)?,)+};
             value.validate_binding(&record.after)?;Ok(charge.retain(value))
         })();read::check(ctx)?;result
     }

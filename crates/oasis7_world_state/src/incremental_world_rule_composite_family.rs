@@ -231,6 +231,40 @@ pub fn readmit_world_rule_branch_ordinary_v1<T>(
         _type: PhantomData,
     }))
 }
+fn branch_transition_preflight_v1<
+    T: CompositeBranchCodecV1,
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<WorldRuleCompositeQualificationV1<T>>,
+    record: &TransitionRecordV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<
+    oasis7_proto::memory_budget::MemoryReservation,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+> {
+    check(ctx)?;
+    if ctx.values.class != MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    parent.check_budget(ctx.values.memory, MemoryClass::Ordinary)?;
+    if !parent.uses_budget(ctx.values.memory)
+        || parent.reserved_bytes() < 512
+        || ctx.root != record.after.state_root(StateNamespaceV1::Authorization)
+    {
+        return Err(invalid().into());
+    }
+    let phase = ctx
+        .values
+        .memory
+        .reserve(128 << 10, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    parent.validate_binding(&record.before)?;
+    check(ctx)?;
+    Ok(phase)
+}
 pub(crate) fn accept_world_rule_branch_transition_v1<
     T: CompositeBranchCodecV1,
     M: MerkleNodeReader,
@@ -250,29 +284,44 @@ pub(crate) fn accept_world_rule_branch_transition_v1<
     crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
 > {
     check(ctx)?;
-    parent.check_budget(ctx.values.memory, ctx.values.class)?;
-    if !parent.uses_budget(ctx.values.memory)
-        || parent.reserved_bytes() < 512
-        || verifier.class != ctx.values.class
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || ctx.root != record.after.state_root(StateNamespaceV1::Authorization)
-    {
+    if verifier.class != MemoryClass::Ordinary || !verifier.memory.same_pool(ctx.values.memory) {
         return Err(invalid().into());
     }
-    let _phase = ctx
-        .values
-        .memory
-        .reserve(128 << 10, ctx.values.class)
-        .map_err(ValueTreeError::Memory)?;
-    parent.validate_binding(&record.before)?;
+    {
+        let _phase = branch_transition_preflight_v1(parent, record, ctx)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    let result = accept_world_rule_branch_verified_v1(parent, &witness, ctx, scan, work);
+    check(ctx)?;
+    result
+}
+pub(crate) fn accept_world_rule_branch_verified_v1<
+    T: CompositeBranchCodecV1,
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<WorldRuleCompositeQualificationV1<T>>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut TypedRecordReadWorkV1,
+) -> Result<
+    ReservedValue<WorldRuleCompositeQualificationV1<T>>,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+> {
+    check(ctx)?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+    let _phase = branch_transition_preflight_v1(parent, record, ctx)?;
     let carrier = ctx
         .values
         .memory
-        .reserve(512, ctx.values.class)
+        .reserve(512, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
-    let result = verifier.verify(record);
-    check(ctx)?;
-    let _checked = result?;
     let (present, body) = fixed::<T, _, _, _, _>(ctx)?;
     let trees_remaining = work.max_retained_trees;
     accept_body::<T, _, _, _, _>(
@@ -290,7 +339,7 @@ pub(crate) fn accept_world_rule_branch_transition_v1<
     )?;
     check(ctx)?;
     Ok(carrier.retain(WorldRuleCompositeQualificationV1 {
-        roots: record.after.digest().map_err(|_| invalid())?,
+        roots: *witness.after_digest(),
         memory: ctx.values.memory.clone(),
         present,
         body,

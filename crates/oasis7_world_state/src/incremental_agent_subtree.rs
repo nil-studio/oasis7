@@ -70,3 +70,5 @@ pub use pages::{
     AgentSubtreePagesV1, AgentSubtreePagesWorkV1, mark_agent_subtree_pages_v1,
     transfer_agent_subtree_pages_v1,
 };
+
+pub(crate) use receiver::accept_agent_subtree_verified_v1;

@@ -34,7 +34,10 @@ fn accepted_v2_retains_cache_references_through_cold_normal_continuation() {
 fn unrelated_accepted_predecessor_cannot_inherit_empty_lifecycle() {
     signed_v2(true);
 }
-fn signed_v2(adversarial: bool) {
+pub(super) fn signed_v2(adversarial: bool) {
+    signed_v2_source_mode(adversarial, false);
+}
+pub(super) fn signed_v2_source_mode(adversarial: bool, corrupt_source: bool) {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let path = directory.0.join("v2");
@@ -505,6 +508,7 @@ fn signed_v2(adversarial: bool) {
             &store,
             &objects,
             &mut io,
+            corrupt_source,
         );
     }
 }

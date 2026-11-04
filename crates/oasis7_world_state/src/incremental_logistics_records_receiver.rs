@@ -48,6 +48,83 @@ pub fn verify_logistics_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
     context: &mut LogisticsTransitionReadContextV1<'_, R, C>,
     work: &mut LogisticsWorkBudgetV1,
 ) -> Result<LogisticsPreparedTransitionV1, WorldFieldOverlayErrorV1> {
+    {
+        if (context.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        let memory = context.values.memory;
+        if context.values.class != MemoryClass::Ordinary
+            || !qualification.uses_budget(memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                qualification,
+                memory,
+                context.values.class,
+            )
+            .is_err()
+        {
+            return Err(invalid().into());
+        }
+        let _workspace = memory
+            .reserve(24 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+            qualification,
+            crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+            memory,
+            MemoryClass::Ordinary,
+            &mut context.cancelled,
+        )?;
+    }
+    let memory = context.values.memory;
+    let witness = {
+        let source = tree::Source {
+            source: context.values.source,
+            memory,
+            class: MemoryClass::Ordinary,
+            io: RefCell::new(&mut *context.values.io),
+            cancelled: RefCell::new(&mut context.cancelled),
+            error: RefCell::new(None),
+        };
+        let verifier = TransitionVerifier {
+            parent,
+            operation,
+            source: &source,
+            memory,
+            class: MemoryClass::Ordinary,
+            max_pending_node_bytes: work.max_pending_node_bytes,
+        };
+        let mut verify =
+            crate::incremental_verified_world_transition::WorldTransitionVerificationContextV1 {
+                after_root: record.after.state_root(
+                    oasis7_formal_protocol::incremental_state::StateNamespaceV1::Business,
+                ),
+                memory,
+                class: MemoryClass::Ordinary,
+                take_state_error: || source.error.borrow_mut().take(),
+                cancelled: || (source.cancelled.borrow_mut())(),
+            };
+        crate::incremental_verified_world_transition::verify_world_transition_in_v1(
+            &verifier,
+            record,
+            &mut verify,
+        )?
+    };
+    let qualification = accept_logistics_verified_v1(&witness, qualification, context, work)?;
+    Ok(LogisticsPreparedTransitionV1 {
+        transition: witness.into_prepared(),
+        qualification,
+    })
+}
+
+pub(crate) fn accept_logistics_verified_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    qualification: &ReservedValue<LogisticsFamilyQualificationV1>,
+    context: &mut LogisticsTransitionReadContextV1<'_, R, C>,
+    work: &mut LogisticsWorkBudgetV1,
+) -> Result<ReservedValue<LogisticsFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    let record = witness.record();
+    witness.check_pool_class(context.values.memory, context.values.class)?;
+
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -73,32 +150,7 @@ pub fn verify_logistics_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
         MemoryClass::Ordinary,
         &mut context.cancelled,
     )?;
-    let prepared = {
-        let source = tree::Source {
-            source: context.values.source,
-            memory,
-            class: MemoryClass::Ordinary,
-            io: RefCell::new(&mut *context.values.io),
-            cancelled: RefCell::new(&mut context.cancelled),
-            error: RefCell::new(None),
-        };
-        let result = TransitionVerifier {
-            parent,
-            operation,
-            source: &source,
-            memory,
-            class: MemoryClass::Ordinary,
-            max_pending_node_bytes: work.max_pending_node_bytes,
-        }
-        .verify(record);
-        if let Some(error) = source.error.borrow_mut().take() {
-            return Err(error.into());
-        }
-        if (source.cancelled.borrow_mut())() {
-            return Err(ValueTreeError::Cancelled.into());
-        }
-        result?
-    };
+    let prepared = witness.prepared();
     let mut counts = qualification.record_counts();
     for write in &prepared.record.writes {
         if (context.cancelled)() {
@@ -184,12 +236,9 @@ pub fn verify_logistics_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    Ok(LogisticsPreparedTransitionV1 {
-        transition: prepared,
-        qualification: charge.retain(LogisticsFamilyQualificationV1 {
-            roots: digest,
-            records: counts,
-            class: MemoryClass::Ordinary,
-        }),
-    })
+    Ok(charge.retain(LogisticsFamilyQualificationV1 {
+        roots: digest,
+        records: counts,
+        class: MemoryClass::Ordinary,
+    }))
 }

@@ -161,7 +161,8 @@ pub use world::{
 };
 pub use world::{
     incremental_action_original, incremental_genesis, incremental_genesis_raw,
-    incremental_genesis_typed,
+    incremental_genesis_typed, incremental_runtime_history_original, incremental_runtime_history_source,
+    incremental_runtime_history_decode,
 };
 
 // Consensus

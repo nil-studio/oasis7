@@ -10,94 +10,12 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;
-use oasis7_world_state::incremental_event_fields::{
-    EVENT_SEQUENCE_BYTES, EVENT_SEQUENCE_KEY_V1, EventSequenceV1,
+use oasis7_world_state::incremental_event_fields::EVENT_SEQUENCE_BYTES;
+pub use oasis7_world_state::incremental_runtime_allocators_codec::{
+    RuntimeAllocatorV1, RuntimeSequenceV1,
 };
-
-use oasis7_world_state::incremental_runtime_registry::RUNTIME_SEQUENCE_KEY_DOMAIN_V1 as KEY;
-const VALUE: &[u8] = b"oasis7.iws.runtime-sequence.v1\0";
-const BYTES: usize = VALUE.len() + 17;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeAllocatorV1 {
-    Event,
-    Action,
-    Intent,
-    Proposal,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RuntimeSequenceV1 {
-    pub next: u64,
-    pub era: u64,
-}
-impl RuntimeAllocatorV1 {
-    pub const ALL: [Self; 4] = [Self::Event, Self::Action, Self::Intent, Self::Proposal];
-    fn tag(self) -> u8 {
-        match self {
-            Self::Event => 0,
-            Self::Action => 1,
-            Self::Intent => 2,
-            Self::Proposal => 3,
-        }
-    }
-    fn key(self) -> ([u8; KEY.len() + 1], usize) {
-        let mut bytes = [0; KEY.len() + 1];
-        let length = if self == Self::Event {
-            bytes[..EVENT_SEQUENCE_KEY_V1.len()].copy_from_slice(EVENT_SEQUENCE_KEY_V1);
-            EVENT_SEQUENCE_KEY_V1.len()
-        } else {
-            bytes[..KEY.len()].copy_from_slice(KEY);
-            bytes[KEY.len()] = self.tag();
-            bytes.len()
-        };
-        (bytes, length)
-    }
-    fn encode(self, sequence: RuntimeSequenceV1) -> ([u8; BYTES], usize) {
-        let mut bytes = [0; BYTES];
-        if self == Self::Event {
-            bytes[..EVENT_SEQUENCE_BYTES].copy_from_slice(
-                &EventSequenceV1 {
-                    next: sequence.next,
-                    era: sequence.era,
-                }
-                .canonical_bytes(),
-            );
-            (bytes, EVENT_SEQUENCE_BYTES)
-        } else {
-            bytes[..VALUE.len()].copy_from_slice(VALUE);
-            bytes[VALUE.len()] = self.tag();
-            bytes[VALUE.len() + 1..VALUE.len() + 9].copy_from_slice(&sequence.next.to_be_bytes());
-            bytes[VALUE.len() + 9..].copy_from_slice(&sequence.era.to_be_bytes());
-            (bytes, BYTES)
-        }
-    }
-    fn decode(self, bytes: &[u8]) -> Result<RuntimeSequenceV1, BodyMutationError> {
-        if self == Self::Event {
-            let value =
-                EventSequenceV1::from_canonical_bytes(bytes).map_err(BodyMutationError::Invalid)?;
-            return Ok(RuntimeSequenceV1 {
-                next: value.next,
-                era: value.era,
-            });
-        }
-        if bytes.len() != BYTES || !bytes.starts_with(VALUE) || bytes[VALUE.len()] != self.tag() {
-            return Err(BodyMutationError::Invalid(
-                "runtime allocator domain/tag/length",
-            ));
-        }
-        Ok(RuntimeSequenceV1 {
-            next: u64::from_be_bytes(
-                bytes[VALUE.len() + 1..VALUE.len() + 9]
-                    .try_into()
-                    .map_err(|_| BodyMutationError::Invalid("runtime allocator next width"))?,
-            ),
-            era: u64::from_be_bytes(
-                bytes[VALUE.len() + 9..]
-                    .try_into()
-                    .map_err(|_| BodyMutationError::Invalid("runtime allocator era width"))?,
-            ),
-        })
-    }
-}
+const BYTES: usize =
+    oasis7_world_state::incremental_runtime_allocators_codec::RUNTIME_SEQUENCE_BYTES_V1;
 fn check<W, C: FnMut() -> bool>(
     context: &mut BodyMutationContext<'_, W, C>,
 ) -> Result<(), BodyMutationError> {
@@ -119,21 +37,25 @@ fn read<R: MerkleNodeReader, V: ValueNodeReader, W, C: FnMut() -> bool>(
     check(context)?;
     let (key, length) = allocator.key();
     let value = if allocator == RuntimeAllocatorV1::Event {
-        allocator.decode(&read_fixed::<EVENT_SEQUENCE_BYTES, _, _, _, _>(
-            txn,
-            Ns::Allocator,
-            &key[..length],
-            values,
-            context,
-        )?)?
+        allocator
+            .from_canonical_bytes(&read_fixed::<EVENT_SEQUENCE_BYTES, _, _, _, _>(
+                txn,
+                Ns::Allocator,
+                &key[..length],
+                values,
+                context,
+            )?)
+            .map_err(BodyMutationError::Invalid)?
     } else {
-        allocator.decode(&read_fixed::<BYTES, _, _, _, _>(
-            txn,
-            Ns::Allocator,
-            &key[..length],
-            values,
-            context,
-        )?)?
+        allocator
+            .from_canonical_bytes(&read_fixed::<BYTES, _, _, _, _>(
+                txn,
+                Ns::Allocator,
+                &key[..length],
+                values,
+                context,
+            )?)
+            .map_err(BodyMutationError::Invalid)?
     };
     check(context)?;
     Ok(value)
@@ -177,7 +99,7 @@ impl World {
         ] {
             check(context)?;
             let (key, length) = allocator.key();
-            let (bytes, size) = allocator.encode(RuntimeSequenceV1 { next, era });
+            let (bytes, size) = allocator.canonical_bytes(RuntimeSequenceV1 { next, era });
             let id = write_field_bytes(&bytes[..size], context)?;
             emit(&key[..length], id)?;
         }
@@ -215,7 +137,7 @@ impl World {
                 Self::preview_rolling_sequence_id(current.next, current.era);
             let after = RuntimeSequenceV1 { next, era };
             let (key, length) = allocator.key();
-            let (bytes, size) = allocator.encode(after);
+            let (bytes, size) = allocator.canonical_bytes(after);
             let id = write_field_bytes(&bytes[..size], context)?;
             txn.write(Ns::Allocator, &key[..length], Some(id))?;
             check(context)?;

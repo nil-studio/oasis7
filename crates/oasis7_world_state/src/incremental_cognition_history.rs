@@ -229,6 +229,9 @@ pub use selection::*;
 #[path = "incremental_cognition_history_current.rs"]
 mod current;
 pub use current::*;
+#[path = "incremental_cognition_history_complete_v3.rs"]
+mod complete_v3;
+pub use complete_v3::*;
 #[path = "incremental_cognition_history_response_append.rs"]
 mod response_append;
 pub use response_append::*;
@@ -258,3 +261,31 @@ pub use manifest_v2::*;
 #[path = "incremental_cognition_history_head_cache_store.rs"]
 mod head_cache_store;
 pub use head_cache_store::*;
+
+#[path = "incremental_cognition_history_components.rs"]
+mod components;
+pub use components::*;
+
+#[path = "incremental_cognition_history_source_stream.rs"]
+mod source_stream;
+pub use source_stream::*;
+
+#[path = "incremental_cognition_history_source_summary_v3.rs"]
+mod source_summary_v3;
+pub use source_summary_v3::*;
+#[path = "incremental_cognition_history_manifest_v3.rs"]
+mod manifest_v3;
+pub use manifest_v3::*;
+#[path = "incremental_cognition_history_candidate_original.rs"]
+mod candidate_original;
+pub use candidate_original::*;
+
+#[path = "incremental_cognition_history_attested_index_v3.rs"]
+mod attested_index_v3;
+pub use attested_index_v3::*;
+#[path = "incremental_cognition_history_disabled_v3.rs"]
+mod disabled_v3;
+pub use disabled_v3::*;
+#[path = "incremental_cognition_history_dependencies_v3.rs"]
+mod dependencies_v3;
+pub use dependencies_v3::*;

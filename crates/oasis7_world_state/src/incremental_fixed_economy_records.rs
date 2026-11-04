@@ -226,3 +226,5 @@ pub use pages::{
     FixedEconomyFamilyPagesV1, FixedEconomyPagesWorkV1, mark_fixed_economy_family_pages_v1,
     transfer_fixed_economy_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_fixed_economy_verified_v1;

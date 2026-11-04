@@ -19,11 +19,58 @@ where
     C: FnMut() -> bool,
 {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|root| root == ctx.root)
+    {
+        return Err(invalid().into());
+    }
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes() < 512
+            || parent.class != ctx.values.class
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before)?;
+        let _phase = ctx
+            .values
+            .memory
+            .reserve(64 << 10, ctx.values.class)
+            .map_err(ValueTreeError::Memory)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_module_authorization_verified_v1(parent, &witness, ctx, body_scan, work)
+}
+
+pub(crate) fn accept_module_authorization_verified_v1<M, R, E, C>(
+    parent: &ReservedValue<ModuleAuthorizationFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    body_scan: &mut StateScanBudget,
+    work: &mut ModuleAuthorizationReadWorkV1,
+) -> Result<ReservedValue<ModuleAuthorizationFamilyQualificationV1>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < 512
         || parent.class != ctx.values.class
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
     {
         return Err(invalid().into());
     }
@@ -33,13 +80,7 @@ where
         .memory
         .reserve(64 << 10, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
-    let replay = verifier.verify(record);
-    let original = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let verified = replay?;
+    let verified = witness.prepared();
     let record = &verified.record;
     if ctx.root != record.after.state_root(StateNamespaceV1::Authorization) {
         return Err(invalid().into());

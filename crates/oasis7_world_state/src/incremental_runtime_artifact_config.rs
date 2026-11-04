@@ -650,3 +650,5 @@ mod module_read;
 pub use module_read::{
     SelectedModuleManifestLimitsV1, SelectedModuleManifestV1, read_selected_module_manifest_v1,
 };
+
+pub(crate) use receiver::accept_artifact_config_verified_v1;

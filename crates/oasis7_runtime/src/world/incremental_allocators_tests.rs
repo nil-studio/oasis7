@@ -107,7 +107,7 @@ fn closed_allocator_bytes_preserve_event_and_reject_cross_family_values() {
         era: u64::MAX,
     };
     for allocator in RuntimeAllocatorV1::ALL {
-        let (bytes, length) = allocator.encode(value);
+        let (bytes, length) = allocator.canonical_bytes(value);
         let (key, key_len) = allocator.key();
         if allocator == RuntimeAllocatorV1::Event {
             assert_eq!(&key[..key_len], b"oasis7.iws.event-sequence-key.v1\0");
@@ -131,11 +131,18 @@ fn closed_allocator_bytes_preserve_event_and_reject_cross_family_values() {
             expected.extend_from_slice(&[255; 8]);
             assert_eq!(&bytes[..length], expected);
         }
-        assert_eq!(allocator.decode(&bytes[..length]).unwrap(), value);
-        assert!(allocator.decode(&bytes[..length - 1]).is_err());
+        assert_eq!(
+            allocator.from_canonical_bytes(&bytes[..length]).unwrap(),
+            value
+        );
+        assert!(
+            allocator
+                .from_canonical_bytes(&bytes[..length - 1])
+                .is_err()
+        );
         for other in RuntimeAllocatorV1::ALL {
             if other != allocator {
-                assert!(other.decode(&bytes[..length]).is_err());
+                assert!(other.from_canonical_bytes(&bytes[..length]).is_err());
             }
         }
     }
@@ -300,7 +307,7 @@ fn final_allocator_cancellation_poison_keeps_no_successful_prefix() {
             RuntimeAllocatorV1::Action
         };
         // Calibrate the standalone value writer, not the contributor under test.
-        let (bytes, length) = allocator.encode(RuntimeSequenceV1 { next: 12, era: 3 });
+        let (bytes, length) = allocator.canonical_bytes(RuntimeSequenceV1 { next: 12, era: 3 });
         let calibration_start = puts.get();
         let mut seen = calibration_start;
         let mut after_put = 0;

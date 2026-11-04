@@ -39,7 +39,74 @@ pub fn accept_rollback_family_transition_v1<
         {
             return Err(invalid().into());
         }
-        let _verified = verifier.verify(record)?;
+        let witness = {
+            let mut verify=crate::incremental_verified_world_transition::WorldTransitionVerificationContextV1 {
+                after_root:record.after.state_root(StateNamespaceV1::Authorization),memory:ctx.values.memory,class:ctx.values.class,
+                take_state_error:&mut take_state_error,cancelled:&mut *ctx.cancelled
+            };
+            crate::incremental_verified_world_transition::verify_world_transition_in_v1(
+                verifier,
+                record,
+                &mut verify,
+            )?
+        };
+        accept_rollback_family_verified_v1(
+            parent,
+            &witness,
+            state,
+            scan,
+            ctx,
+            diff_cells,
+            &mut take_state_error,
+        )
+    })();
+    if (ctx.cancelled)() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    if let Some(e) = take_state_error() {
+        return Err(e.into());
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn accept_rollback_family_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<RollbackFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    state: &M,
+    scan: &mut StateScanBudget,
+    ctx: &mut RollbackDecodeContextV1<'_, '_, R, C>,
+    diff_cells: &mut u64,
+    mut take_state_error: impl FnMut() -> Option<ValueTreeError>,
+) -> Result<ReservedValue<RollbackFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    witness.check_pool_class(ctx.values.memory, ctx.values.class)?;
+    let record = witness.record();
+
+    let result = (|| {
+        if (ctx.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if let Some(e) = take_state_error() {
+            return Err(e.into());
+        }
+        parent.validate_binding(&record.before)?;
+        let memory = ctx.values.memory;
+        if parent.class != MemoryClass::Ordinary
+            || ctx.values.class != MemoryClass::Ordinary
+            || !parent.uses_budget(memory)
+            || parent.reserved_bytes() < 512
+            || state.allocation_class() != Some(MemoryClass::Ordinary)
+            || !state
+                .allocation_budget()
+                .is_some_and(|b| b.same_pool(memory))
+        {
+            return Err(invalid().into());
+        }
+
         let charge = memory
             .reserve(512, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
@@ -61,6 +128,12 @@ pub fn accept_rollback_family_transition_v1<
                 .cells_remaining
                 .checked_sub(1)
                 .ok_or(ValueTreeError::ResourceLimited("rollback receiver rows"))?;
+            // Other owners contribute dedicated raw keys to this same transaction.
+            // The enclosing key router closes those grammars; this family still
+            // rejects malformed keys in its own generic field-key domain.
+            if !write.mutation.key.starts_with(b"oasis7.iws.world-field-key.v1") {
+                continue;
+            }
             let key = WorldFieldKeyV1::from_bytes(&write.mutation.key)
                 .map_err(ValueTreeError::Invalid)?;
             if key.owner != FieldOwner::Runtime

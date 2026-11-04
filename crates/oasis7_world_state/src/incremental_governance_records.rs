@@ -161,3 +161,5 @@ pub use pages::{
     GovernanceFamilyPagesV1, GovernancePagesWorkV1, mark_governance_family_pages_v1,
     transfer_governance_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_governance_verified_v1;

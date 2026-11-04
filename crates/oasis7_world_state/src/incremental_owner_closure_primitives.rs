@@ -328,33 +328,70 @@ pub fn accept_world_primitive_transition_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut WorldPrimitiveFamilyWorkV1,
 ) -> Result<ReservedValue<WorldPrimitiveQualificationV1>, WorldStateOwnerError> {
+    {
+        check(ctx)?;
+        if parent.class != MemoryClass::Ordinary
+            || ctx.values.class != MemoryClass::Ordinary
+            || verifier.class != MemoryClass::Ordinary
+            || !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes() < CARRIER
+            || !verifier.memory.same_pool(ctx.values.memory)
+        {
+            return Err(invalid());
+        }
+        let _phase = ctx
+            .values
+            .memory
+            .reserve(32 << 10, MemoryClass::Ordinary)
+            .map_err(WorldStateOwnerError::Memory)?;
+        parent.validate_binding(&record.before)?;
+        if !record.after.state.iter().any(|r| r == ctx.root) {
+            return Err(invalid());
+        }
+    }
+    let witness=crate::incremental_verified_world_transition::verify_world_transition_v1(verifier,record,ctx) .map_err(|e|match e {crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Execution(e)=>WorldStateOwnerError::RootSet(e),crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Value(e)=>WorldStateOwnerError::Value(e)})?;
+    accept_world_primitive_verified_v1(parent, &witness, ctx, work)
+}
+
+pub(crate) fn accept_world_primitive_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<WorldPrimitiveQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut WorldPrimitiveFamilyWorkV1,
+) -> Result<ReservedValue<WorldPrimitiveQualificationV1>, WorldStateOwnerError> {
+    witness
+        .check_context(ctx.values.memory, ctx.values.class, ctx.root)
+        .map_err(WorldStateOwnerError::Value)?;
+    let record = witness.record();
+
     check(ctx)?;
     if parent.class != MemoryClass::Ordinary
         || ctx.values.class != MemoryClass::Ordinary
-        || verifier.class != MemoryClass::Ordinary
         || !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < CARRIER
-        || !verifier.memory.same_pool(ctx.values.memory)
     {
         return Err(invalid());
     }
+    let _phase = ctx
+        .values
+        .memory
+        .reserve(32 << 10, MemoryClass::Ordinary)
+        .map_err(WorldStateOwnerError::Memory)?;
     parent.validate_binding(&record.before)?;
     if !record.after.state.iter().any(|r| r == ctx.root) {
         return Err(invalid());
     }
-    let checked = verifier
-        .verify(record)
-        .map_err(WorldStateOwnerError::RootSet)?;
+    let checked = witness.prepared();
     let record = &checked.record;
     let retained = ctx
         .values
         .memory
         .reserve(CARRIER, MemoryClass::Ordinary)
-        .map_err(WorldStateOwnerError::Memory)?;
-    let _phase = ctx
-        .values
-        .memory
-        .reserve(32 << 10, MemoryClass::Ordinary)
         .map_err(WorldStateOwnerError::Memory)?;
     let mut counts = parent.counts;
     for write in &record.writes {

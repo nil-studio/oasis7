@@ -183,3 +183,5 @@ pub use pages::{
 #[cfg(test)]
 #[path = "incremental_factory_authority_records_tests.rs"]
 mod tests;
+
+pub(crate) use receiver::accept_factory_authority_verified_v1;

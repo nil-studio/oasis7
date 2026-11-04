@@ -172,3 +172,5 @@ mod pages;
 pub use pages::{
     IndustryFamilyPagesV1, mark_industry_family_pages_v1, transfer_industry_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_industry_verified_v1;

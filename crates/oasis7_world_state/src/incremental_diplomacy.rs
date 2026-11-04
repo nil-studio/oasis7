@@ -168,3 +168,5 @@ mod scalar_point;
 pub use scalar_point::{
     DiplomacyScalarChangeV1, DiplomacyScalarValueV1, change_qualified_diplomacy_scalar_v1,
 };
+
+pub(crate) use receiver::accept_diplomacy_verified_v1;

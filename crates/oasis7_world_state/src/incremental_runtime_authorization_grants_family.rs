@@ -199,12 +199,63 @@ where
     E: FnMut() -> Option<ValueTreeError>,
     C: FnMut() -> bool,
 {
+    ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|root| root == ctx.root)
+    {
+        return Err(invalid().into());
+    }
+    {
+        use oasis7_proto::memory_budget::MemoryClass;
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes() < std::mem::size_of::<AuthorizationGrantsQualificationV1>()
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+            || parent.class != MemoryClass::Ordinary
+            || ctx.values.class != MemoryClass::Ordinary
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before)?;
+        let _retained = ctx
+            .values
+            .memory
+            .reserve(512, ctx.values.class)
+            .map_err(ValueTreeError::Memory)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_authorization_grants_verified_v1(parent, &witness, ctx, work)
+}
+
+pub(crate) fn accept_authorization_grants_verified_v1<M, R, E, C>(
+    parent: &ReservedValue<AuthorizationGrantsQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<
+    ReservedValue<AuthorizationGrantsQualificationV1>,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
     use oasis7_proto::memory_budget::MemoryClass;
     ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < std::mem::size_of::<AuthorizationGrantsQualificationV1>()
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
         || parent.class != MemoryClass::Ordinary
         || ctx.values.class != MemoryClass::Ordinary
     {
@@ -216,13 +267,7 @@ where
         .memory
         .reserve(512, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
-    let result = verifier.verify(record);
-    let original = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let checked = result?;
+    let checked = witness.prepared();
     let record = &checked.record;
     if !record.after.state.iter().any(|root| root == ctx.root) {
         return Err(invalid().into());

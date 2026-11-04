@@ -131,3 +131,5 @@ pub use pages::{
     AgentAuthorityFamilyPagesV1, AgentAuthorityPagesWorkV1, mark_agent_authority_family_pages_v1,
     transfer_agent_authority_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_agent_authority_verified_v1;

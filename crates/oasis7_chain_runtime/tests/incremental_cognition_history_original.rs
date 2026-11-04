@@ -27,6 +27,8 @@ mod enabled;
 mod normal;
 #[path = "support/cognition_history_readmission.rs"]
 mod readmission;
+#[path = "support/cognition_history_v3_ordinary.rs"]
+mod source_v3_ordinary;
 struct Directory(PathBuf);
 impl Directory {
     fn new() -> Self {
@@ -194,3 +196,9 @@ mod lifecycle_physical;
 
 #[path = "support/cognition_history_journal_normal.rs"]
 mod journal_normal;
+
+#[path = "support/cognition_history_source_stream.rs"]
+mod source_stream;
+
+#[path = "support/cognition_history_v3_source.rs"]
+mod source_v3;

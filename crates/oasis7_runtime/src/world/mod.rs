@@ -1153,6 +1153,9 @@ pub mod incremental_genesis_raw;
 pub mod incremental_genesis_typed;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_genesis;
+pub mod incremental_runtime_history_original;
+pub mod incremental_runtime_history_decode;
+pub mod incremental_runtime_history_source;
 mod incremental_module_instance_genesis_state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_receiver;

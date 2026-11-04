@@ -16,7 +16,7 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateNamespaceV1},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::cell::RefCell;
 
 fn step(work: &mut u64) -> Result<(), BodyMutationError> {
@@ -138,6 +138,66 @@ where
     S: CounterScratchStore,
     C: FnMut() -> bool,
 {
+    if ctx.class != MemoryClass::Ordinary {
+        return Err(family::invalid());
+    }
+    {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if !parent.uses_budget(ctx.memory)
+            || parent.reserved_bytes() < 1024
+            || parent.allocation_class() != ctx.class
+            || !ctx
+                .state
+                .allocation_budget()
+                .is_some_and(|pool| pool.same_pool(ctx.memory))
+            || ctx.state.allocation_class() != Some(ctx.class)
+            || verifier.class != ctx.class
+            || !verifier.memory.same_pool(ctx.memory)
+            || ctx.root != record.after.state_root(StateNamespaceV1::Business)
+        {
+            return Err(family::invalid());
+        }
+        parent.validate_binding(&record.before)?;
+        let _charge = ctx
+            .memory
+            .reserve(128 << 10, ctx.class)
+            .map_err(ValueTreeError::Memory)?;
+    }
+    let witness = {
+        let mut verify =
+            crate::incremental_verified_world_transition::WorldTransitionVerificationContextV1 {
+                after_root: ctx.root,
+                memory: ctx.memory,
+                class: ctx.class,
+                take_state_error: || None,
+                cancelled: &mut cancelled,
+            };
+        crate::incremental_verified_world_transition::verify_world_transition_in_v1(verifier,record,&mut verify).map_err(|e|match e {crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Execution(e)=>BodyMutationError::from(e),crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Value(e)=>BodyMutationError::from(e)})?
+    };
+    accept_module_instance_verified_v1(parent, &witness, ctx, relation_work, cancelled)
+}
+
+pub(crate) fn accept_module_instance_verified_v1<R, V, S, C>(
+    parent: &ReservedValue<ModuleInstanceFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut ModuleInstanceRecoveryContext<'_, R, V, S>,
+    relation_work: &mut u64,
+    mut cancelled: C,
+) -> Result<ReservedValue<ModuleInstanceFamilyQualificationV1>, BodyMutationError>
+where
+    R: MerkleNodeReader,
+    V: ValueNodeReader,
+    S: CounterScratchStore,
+    C: FnMut() -> bool,
+{
+    if ctx.class != MemoryClass::Ordinary {
+        return Err(family::invalid());
+    }
+    witness.check_context(ctx.memory, ctx.class, ctx.root)?;
+    let record = witness.record();
+
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -149,8 +209,6 @@ where
             .allocation_budget()
             .is_some_and(|pool| pool.same_pool(ctx.memory))
         || ctx.state.allocation_class() != Some(ctx.class)
-        || verifier.class != ctx.class
-        || !verifier.memory.same_pool(ctx.memory)
         || ctx.root != record.after.state_root(StateNamespaceV1::Business)
     {
         return Err(family::invalid());
@@ -160,8 +218,7 @@ where
         .memory
         .reserve(128 << 10, ctx.class)
         .map_err(ValueTreeError::Memory)?;
-    let generic = verifier.verify(record)?;
-    drop(generic);
+
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }

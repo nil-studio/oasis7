@@ -287,3 +287,5 @@ mod header;
 
 #[path = "incremental_runtime_proposal_stream.rs"]
 mod stream;
+
+pub(crate) use receiver::accept_runtime_proposals_verified_v1;

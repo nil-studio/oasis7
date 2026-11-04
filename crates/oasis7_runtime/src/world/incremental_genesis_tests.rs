@@ -19,7 +19,7 @@ impl ValueNodeWriter for Pages {
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
     ) -> Result<(), ValueTreeError> {
-        if self.0.len() == 65536 && !self.0.contains_key(&id) {
+        if self.0.len() == 262144 && !self.0.contains_key(&id) {
             return Err(ValueTreeError::ResourceLimited("bounded GEN fixture pages"));
         }
         self.0.insert(id, Arc::new(bytes));
@@ -87,6 +87,7 @@ fn runtime_whole_genesis_streams_all_native_and_runtime_fields_with_original_act
         bytes_remaining: 64 << 20,
     };
     let mut writes = BTreeSet::new();
+    let mut complete_rows = Vec::new();
     let mut metadata = 0;
     let mut cognition_metadata = BTreeSet::new();
     let mut originals = BTreeMap::new();
@@ -155,6 +156,7 @@ fn runtime_whole_genesis_streams_all_native_and_runtime_fields_with_original_act
                         }
                     }
                 }
+                complete_rows.push((*row).clone());
                 assert!(writes.insert((row.namespace as u8, row.mutation.key.clone())));
                 Ok(())
             },
@@ -194,4 +196,10 @@ fn runtime_whole_genesis_streams_all_native_and_runtime_fields_with_original_act
     }
     assert!(io.write_bytes_remaining < 256 << 20);
     assert!(keys.bytes_remaining < 64 << 20);
+    complete::exercise(&memory, &mut pages, &complete_rows, &originals);
 }
+#[path = "incremental_runtime_complete_tests.rs"]
+mod complete;
+
+#[path = "incremental_world_raw_complete_tests.rs"]
+mod raw_complete;

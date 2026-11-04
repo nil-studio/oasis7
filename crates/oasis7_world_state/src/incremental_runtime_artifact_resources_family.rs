@@ -961,3 +961,5 @@ fn map_scan_result(
 #[path = "incremental_runtime_artifact_resources_receiver_general.rs"]
 mod general;
 pub use general::accept_runtime_artifact_resources_transition_v1;
+
+pub(crate) use general::accept_runtime_artifact_resources_verified_v1;

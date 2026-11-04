@@ -202,31 +202,63 @@ where
     C: FnMut() -> bool,
 {
     ctx.check()?;
-    if !parent.uses_budget(ctx.values.memory)
+    if verifier.class != ctx.values.class || !verifier.memory.same_pool(ctx.values.memory) {
+        return Err(invalid().into());
+    }
+    {
+        let _phase = authorization_root_preflight_v1(parent, record, ctx)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_runtime_authorization_root_verified_v1(parent, &witness, ctx, max_text_bytes)
+}
+
+fn authorization_root_preflight_v1<M, R, E, C>(
+    parent: &ReservedValue<RuntimeAuthorizationRootQualificationV1>,
+    record: &TransitionRecordV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<oasis7_proto::memory_budget::MemoryReservation, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || parent.allocation_class() != ctx.values.class
+        || !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < 512
-        || parent.class != ctx.values.class
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
+        || ctx.root != record.after.state_root(StateNamespaceV1::Authorization)
     {
         return Err(invalid().into());
     }
-    let _phase = ctx
+    let phase = ctx
         .values
         .memory
-        .reserve(64 << 10, ctx.values.class)
+        .reserve(128 << 10, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
     parent.validate_binding(&record.before)?;
-    let replay = verifier.verify(record);
-    let original = (ctx.take_state_error)();
     ctx.check()?;
-    if let Some(original) = original {
-        return Err(original.into());
-    }
-    let verified = replay?;
-    let record = &verified.record;
-    if ctx.root != record.after.state_root(StateNamespaceV1::Authorization) {
-        return Err(invalid().into());
-    }
+    Ok(phase)
+}
+pub(crate) fn accept_runtime_authorization_root_verified_v1<M, R, E, C>(
+    parent: &ReservedValue<RuntimeAuthorizationRootQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    max_text_bytes: u64,
+) -> Result<ReservedValue<RuntimeAuthorizationRootQualificationV1>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+    let _phase = authorization_root_preflight_v1(parent, record, ctx)?;
     let mut utf8_bytes = parent.utf8_bytes;
     for write in &record.writes {
         ctx.check()?;

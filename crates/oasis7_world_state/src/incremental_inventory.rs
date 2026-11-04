@@ -265,3 +265,5 @@ fn adjust(
 #[cfg(test)]
 #[path = "incremental_inventory_family_tests.rs"]
 mod tests;
+
+pub(crate) use receiver::accept_inventory_verified_v1;

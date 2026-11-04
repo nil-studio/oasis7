@@ -1053,6 +1053,7 @@ pub(super) fn validate_member<M, R, C>(
     parsed: WorldFieldKeyRefV1<'_>,
     state_reader: &StateScanReader<'_, M, C>,
     values: &mut ValueReadContext<'_, R>,
+    key_work: &mut SemanticKeyBudget,
     max_value_bytes: u64,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), WorldStateOwnerError>
@@ -1091,9 +1092,6 @@ where
         max_value_bytes,
         cancelled,
     )?;
-    let mut key_work = SemanticKeyBudget {
-        bytes_remaining: max_value_bytes,
-    };
     match owner {
         ModuleMarketplaceFieldV1::VisualEntities => validate_visual(
             &child,
@@ -1116,9 +1114,12 @@ where
             state_reader,
             field,
             values,
-            &mut key_work,
+            key_work,
             max_value_bytes,
             cancelled,
         ),
     }
 }
+
+#[path = "incremental_owner_marketplace_bridge.rs"]
+pub(crate) mod bridge;

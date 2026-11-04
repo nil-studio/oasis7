@@ -133,3 +133,5 @@ mod pages;
 pub use pages::{
     LogisticsFamilyPagesV1, mark_logistics_family_pages_v1, transfer_logistics_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_logistics_verified_v1;

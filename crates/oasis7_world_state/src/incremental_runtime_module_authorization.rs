@@ -284,3 +284,5 @@ mod tests {
         ));
     }
 }
+
+pub(crate) use family::accept_module_authorization_verified_v1;

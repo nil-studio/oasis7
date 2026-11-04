@@ -13,13 +13,51 @@ pub fn accept_inventory_transition_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut InventoryFamilyWorkV1,
 ) -> Result<ReservedValue<InventoryFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    {
+        ctx.check()?;
+        let memory = ctx.values.memory;
+        if ctx.values.class != MemoryClass::Ordinary
+            || !parent.uses_budget(memory)
+            || parent.reserved_bytes() < std::mem::size_of::<InventoryFamilyQualificationV1>() + 128
+            || verifier.class != MemoryClass::Ordinary
+            || !verifier.memory.same_pool(memory)
+        {
+            return Err(invalid().into());
+        }
+        parent.check(memory, MemoryClass::Ordinary)?;
+        if ctx.root != record.after.state_root(StateNamespaceV1::Business) {
+            return Err(invalid().into());
+        }
+        let _phase = memory
+            .reserve(8192, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        parent.validate_binding(&record.before)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_inventory_verified_v1(parent, &witness, ctx, work)
+}
+
+pub(crate) fn accept_inventory_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<InventoryFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut InventoryFamilyWorkV1,
+) -> Result<ReservedValue<InventoryFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+
     ctx.check()?;
     let memory = ctx.values.memory;
     if ctx.values.class != MemoryClass::Ordinary
         || !parent.uses_budget(memory)
         || parent.reserved_bytes() < std::mem::size_of::<InventoryFamilyQualificationV1>() + 128
-        || verifier.class != MemoryClass::Ordinary
-        || !verifier.memory.same_pool(memory)
     {
         return Err(invalid().into());
     }
@@ -31,9 +69,7 @@ pub fn accept_inventory_transition_v1<
         .reserve(8192, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
     parent.validate_binding(&record.before)?;
-    let verified = verifier.verify(record);
-    ctx.check()?;
-    let verified = verified?;
+    let verified = witness.prepared();
     let charge = memory
         .reserve(
             std::mem::size_of::<InventoryFamilyQualificationV1>() + 128,

@@ -26,12 +26,80 @@ where
     C: FnMut() -> bool,
 {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|root| root == ctx.root)
+    {
+        return Err(invalid().into());
+    }
+    {
+        ctx.check()?;
+        if ctx.values.class != MemoryClass::Ordinary
+            || parent.class != MemoryClass::Ordinary
+            || !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes()
+                < std::mem::size_of::<RuntimeArtifactResourcesQualificationV1>()
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != MemoryClass::Ordinary
+            || ctx.state.allocation_class() != Some(MemoryClass::Ordinary)
+            || !ctx
+                .state
+                .allocation_budget()
+                .is_some_and(|p| p.same_pool(ctx.values.memory))
+        {
+            return Err(invalid().into());
+        }
+        let _phase = ctx
+            .values
+            .memory
+            .reserve(128 << 10, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        parent.validate_binding(
+            &record.before.digest().map_err(|_| invalid())?,
+            MemoryClass::Ordinary,
+        )?;
+        if parent.counts[0] != 1 || parent.counts[2] != 1 || parent.counts[1] > 1 {
+            return Err(invalid().into());
+        }
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_runtime_artifact_resources_verified_v1(
+        parent,
+        &witness,
+        ctx,
+        scans,
+        max_payload_bytes,
+        work,
+    )
+}
+
+pub(crate) fn accept_runtime_artifact_resources_verified_v1<M, R, E, C>(
+    parent: &ReservedValue<RuntimeArtifactResourcesQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scans: &mut [StateScanBudget; MAX_DEPTH],
+    max_payload_bytes: u64,
+    work: &mut super::super::RuntimeArtifactResourcesWorkV1,
+) -> Result<ReservedValue<RuntimeArtifactResourcesQualificationV1>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
     if ctx.values.class != MemoryClass::Ordinary
         || parent.class != MemoryClass::Ordinary
         || !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < std::mem::size_of::<RuntimeArtifactResourcesQualificationV1>()
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != MemoryClass::Ordinary
         || ctx.state.allocation_class() != Some(MemoryClass::Ordinary)
         || !ctx
             .state
@@ -52,13 +120,7 @@ where
     if parent.counts[0] != 1 || parent.counts[2] != 1 || parent.counts[1] > 1 {
         return Err(invalid().into());
     }
-    let replay = verifier.verify(record);
-    let original = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(original) = original {
-        return Err(original.into());
-    }
-    let verified = replay?;
+    let verified = witness.prepared();
     let record = &verified.record;
     if ctx.root != record.after.state_root(StateNamespaceV1::Artifacts) {
         return Err(invalid().into());

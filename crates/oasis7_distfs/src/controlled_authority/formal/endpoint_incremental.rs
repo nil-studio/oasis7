@@ -17,8 +17,8 @@ use oasis7_formal_protocol::controlled_authority::formal::{
 use oasis7_formal_protocol::{
     controlled_authority::replicated_protocol::ClosedRecord,
     incremental_material::{
-        CoreBudget, CoreRequest, OriginalObjectReader, WrittenValueBudget, verify_commit_core,
-        verify_state_values, verify_written_values,
+        CoreBudget, CoreRequest, OriginalObjectReader, OriginalObjectStreamReader,
+        WrittenValueBudget, verify_commit_core, verify_state_values, verify_written_values,
     },
     incremental_state::StateScanBudget,
     incremental_value::{ValueIoBudget, ValueReadContext},
@@ -51,6 +51,11 @@ pub struct IwsEndpointVerificationBudgetsV1 {
     pub max_pending_node_bytes: usize,
     pub state_page_io: PageIoBudget,
     pub value_page_io: PageIoBudget,
+    /// Independent physical/logical quotas for already retained original
+    /// objects. Candidate-byte reads continue borrowing the ClosedRecord.
+    pub original_page_io: PageIoBudget,
+    pub original_value_nodes: u64,
+    pub original_value_read_bytes: u64,
 }
 
 /// Explicit endpoint capability: physical IWS pages, one shared pool and
@@ -89,6 +94,76 @@ impl IwsPageStoreCapabilityV1 {
 struct ClosedRecordOriginalReader<'a> {
     record: &'a ClosedRecord,
     memory: &'a MemoryBudget,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct EndpointOriginalReader<'a, 'record, O> {
+    candidate: ClosedRecordOriginalReader<'record>,
+    retained: &'a mut O,
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl<O> EndpointOriginalReader<'_, '_, O> {
+    fn candidate_contains(&self, id: &[u8; 32]) -> bool {
+        let mut encoded = [0u8; 64];
+        // Fixed-size input/output; this cannot fail and does not allocate.
+        if hex::encode_to_slice(id, &mut encoded).is_err() {
+            return false;
+        }
+        self.candidate
+            .record
+            .objects
+            .iter()
+            .any(|object| object.content_hash.as_bytes() == encoded)
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl<O: OriginalObjectReader> OriginalObjectReader for EndpointOriginalReader<'_, '_, O>
+where
+    O::Error: std::fmt::Display,
+{
+    type Error = String;
+    fn allocation_budget(&self) -> &MemoryBudget {
+        self.candidate.memory
+    }
+    fn allocation_class(&self) -> MemoryClass {
+        MemoryClass::Ordinary
+    }
+    fn read_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, Self::Error> {
+        if self.candidate_contains(id) {
+            self.candidate.read_original(id, max_bytes, memory)
+        } else {
+            self.retained
+                .read_original(id, max_bytes, memory)
+                .map_err(|error| error.to_string())
+        }
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl<O: OriginalObjectStreamReader> OriginalObjectStreamReader for EndpointOriginalReader<'_, '_, O>
+where
+    O::Error: std::fmt::Display,
+{
+    fn stream_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: u64,
+        memory: &MemoryBudget,
+        output: &mut dyn std::io::Write,
+    ) -> Result<u64, Self::Error> {
+        if self.candidate_contains(id) {
+            self.candidate
+                .stream_original(id, max_bytes, memory, output)
+        } else {
+            self.retained
+                .stream_original(id, max_bytes, memory, output)
+                .map_err(|error| error.to_string())
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -138,6 +213,56 @@ impl OriginalObjectReader for ClosedRecordOriginalReader<'_> {
             return Err("IWS original object allocation bound".into());
         }
         Ok(Arc::new(charge.retain(bytes)))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl OriginalObjectStreamReader for ClosedRecordOriginalReader<'_> {
+    fn stream_original(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: u64,
+        memory: &MemoryBudget,
+        output: &mut dyn std::io::Write,
+    ) -> Result<u64, Self::Error> {
+        if !self.memory.same_pool(memory) {
+            return Err("IWS original stream pool mismatch".into());
+        }
+        let mut id_hex = [0u8; 64];
+        hex::encode_to_slice(id, &mut id_hex)
+            .map_err(|_| "IWS original stream ID encoding".to_owned())?;
+        let object = self
+            .record
+            .objects
+            .iter()
+            .find(|object| object.content_hash.as_bytes() == id_hex)
+            .ok_or_else(|| "IWS original stream not in closed record".to_owned())?;
+        let len = u64::try_from(object.bytes.len())
+            .map_err(|_| "IWS original stream length overflow".to_owned())?;
+        if len > max_bytes {
+            return Err("IWS original stream byte bound".into());
+        }
+        // The retained ClosedRecord owns these bytes. Borrow bounded slices;
+        // never duplicate a large original just to hash or observe its facts.
+        let _phase = memory
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(|_| "IWS original stream workspace admission".to_owned())?;
+        let mut hash = blake3::Hasher::new();
+        for chunk in object
+            .bytes
+            .chunks(oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES)
+        {
+            // write_all honors partial writes, Interrupted and WriteZero. Any
+            // failure stops this provisional stream and cannot return success.
+            output
+                .write_all(chunk)
+                .map_err(|_| "IWS original stream output stopped".to_owned())?;
+            hash.update(chunk);
+        }
+        if hash.finalize().as_bytes() != id {
+            return Err("IWS original stream checksum".into());
+        }
+        Ok(len)
     }
 }
 
@@ -216,9 +341,51 @@ impl FileFormalEndpoint {
         let pages = &capability.pages;
         let memory = pages.memory_budget();
         let limits = &capability.budgets;
-        let mut objects = ClosedRecordOriginalReader {
-            record: &candidate.material,
-            memory,
+        let mut original_pages = limits.original_page_io.clone();
+        let physical_cancelled = std::sync::atomic::AtomicBool::new(false);
+        // This API supplies cooperative polling, not an externally shared
+        // AtomicBool. Latch every caller observation into the physical reader
+        // signal as well. Streaming observers poll between bounded chunks;
+        // core owned reads retain their explicit per-original byte bound.
+        let mut poll_cancelled = || {
+            if physical_cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                return true;
+            }
+            let stop = cancelled();
+            if stop {
+                physical_cancelled.store(true, std::sync::atomic::Ordering::Release);
+            }
+            stop
+        };
+        let cancelled = &mut poll_cancelled;
+        if cancelled() {
+            return Err(invalid("IWS original capability open cancelled"));
+        }
+        let original_store = crate::incremental_page_store::objects::IncrementalObjectStore::open(
+            pages,
+            MemoryClass::Ordinary,
+            &mut original_pages,
+            &physical_cancelled,
+        )
+        .map_err(page_store_formal_error)?;
+        let mut original_values = ValueIoBudget {
+            nodes_remaining: limits.original_value_nodes,
+            read_bytes_remaining: limits.original_value_read_bytes,
+            write_bytes_remaining: 0,
+        };
+        let mut original_io = crate::incremental_page_store::objects::ObjectIo {
+            physical: &mut original_pages,
+            logical: &mut original_values,
+            class: MemoryClass::Ordinary,
+            cancelled: &physical_cancelled,
+        };
+        let mut retained = original_store.original_reader(&mut original_io);
+        let mut objects = EndpointOriginalReader {
+            candidate: ClosedRecordOriginalReader {
+                record: &candidate.material,
+                memory,
+            },
+            retained: &mut retained,
         };
         let state = pages
             .state_session(limits.state_page_io.clone(), MemoryClass::Ordinary)
@@ -363,3 +530,7 @@ impl FileFormalEndpoint {
 fn page_store_formal_error(error: PageStoreError) -> FormalError {
     FormalError::Io(format!("IWS page store: {error}"))
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "endpoint_incremental_stream_tests.rs"]
+mod stream_tests;

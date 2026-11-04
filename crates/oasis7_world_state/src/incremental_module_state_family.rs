@@ -147,14 +147,60 @@ pub fn accept_module_state_transition_v1<R: MerkleNodeReader, V: ValueNodeReader
     ctx: &mut ModuleStateRecoveryContextV1<'_, R, V>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<ModuleStateFamilyQualificationV1>, BodyMutationError> {
+    if ctx.class != MemoryClass::Ordinary {
+        return Err(invalid());
+    }
+    {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if !parent.uses_budget(ctx.memory)
+            || parent.reserved_bytes() < FEE
+            || parent.class != ctx.class
+            || verifier.class != ctx.class
+            || !verifier.memory.same_pool(ctx.memory)
+            || ctx.root != record.after.state_root(StateNamespaceV1::Business)
+        {
+            return Err(invalid());
+        }
+        parent.validate_binding(&record.before)?;
+        let _charge = ctx
+            .memory
+            .reserve(128 << 10, ctx.class)
+            .map_err(ValueTreeError::Memory)?;
+    }
+    let witness = {
+        let mut verify =
+            crate::incremental_verified_world_transition::WorldTransitionVerificationContextV1 {
+                after_root: ctx.root,
+                memory: ctx.memory,
+                class: ctx.class,
+                take_state_error: || None,
+                cancelled: &mut cancelled,
+            };
+        crate::incremental_verified_world_transition::verify_world_transition_in_v1(verifier,record,&mut verify).map_err(|e|match e {crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Execution(e)=>BodyMutationError::from(e),crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Value(e)=>BodyMutationError::from(e)})?
+    };
+    accept_module_state_verified_v1(parent, &witness, ctx, cancelled)
+}
+
+pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeReader>(
+    parent: &ReservedValue<ModuleStateFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut ModuleStateRecoveryContextV1<'_, R, V>,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<ModuleStateFamilyQualificationV1>, BodyMutationError> {
+    if ctx.class != MemoryClass::Ordinary {
+        return Err(invalid());
+    }
+    witness.check_context(ctx.memory, ctx.class, ctx.root)?;
+    let record = witness.record();
+
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }
     if !parent.uses_budget(ctx.memory)
         || parent.reserved_bytes() < FEE
         || parent.class != ctx.class
-        || verifier.class != ctx.class
-        || !verifier.memory.same_pool(ctx.memory)
         || ctx.root != record.after.state_root(StateNamespaceV1::Business)
     {
         return Err(invalid());
@@ -164,7 +210,7 @@ pub fn accept_module_state_transition_v1<R: MerkleNodeReader, V: ValueNodeReader
         .memory
         .reserve(128 << 10, ctx.class)
         .map_err(ValueTreeError::Memory)?;
-    drop(verifier.verify(record)?);
+
     let mut states = i128::from(parent.states);
     let mut bytes = i128::from(parent.logical_bytes);
     for write in &record.writes {

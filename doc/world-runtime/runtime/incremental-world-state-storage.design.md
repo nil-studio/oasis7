@@ -1498,4 +1498,52 @@ Action typed child descriptor 为 Runtime/Map/Scheduler 的 pending_actions.colu
 
 完整队列资格私有持有与精确 RootSet、分配池及 class 绑定的位置索引。索引仅保留位置、原 action ID、原件引用和已验证 outer value ID，是冷验证后可重建的进程结构，不新增 durable 目录格式。逐节点计费的不可变 path-copy 使删除首项无需重编号其余项。已有位置的原输入不可替换；ordinary 新位置的 era 固定为本事务 after RootSet 的高度，ordinal 从零单调递增，同事务清空也不回退。最终写集合并可消去刚新增又删除的项，因此接收端允许最终 ordinal 空洞，仍验证新 era 与精确提交高度一致。冷资格验证所有位置的 era 不超过当前高度，GEN 高度零的序列仍须连续。这样新项始终排在父队列之后，同事务 ordinal 耗尽也不妨碍下一高度重新从零追加。Recovery→Ordinary 逐节点重新准入，不共享仍由 Recovery 持有的节点。所有索引遍历、扫描和原件流均使用显式有限预算并检查取消；这些结构证据不代替完整 World 与 History 的接受。
 
+### Cognition v3 原件来源摘要与候选接受
+
+三项数学 head/cache 相符不能证明它们来自四项历史索引所引用的实际原件。新格式的冷启动和 C<T 恢复还须恢复这项来源资格；不能为每次 ordinary 提交重扫累计历史，也不能把已解析的 v2 cache 或 caller 提供的成功标志当作来源证明。以下 v3 承诺只适用于新建、明确启用该 typed profile 的世界；现有 v1/v2 bytes、原 hash、原件与既有读取接口保持其原合同，不自动升级旧世界。
+
+v3 selected Result 采用独立 magic `oasis7.cognition.history-view.v3\0`，后接大端 u64 的 v2 payload 字节长度、完整且不变的原 v2 canonical payload，再接固定来源 capsule。解码先核长度上限、精确 framing 和末尾长度，不分配攻击者声明的任意大小缓冲。v2 部分保留 RootSet 摘要、revision、previous-view、四个 index root/count、三个 cache Value ref 和 lifecycle typed ref。capsule profile 为 BLAKE3(`oasis7.cognition.history-source-summary.v3\0`)，随后为 mode u8（bootstrap=0、delta=1），再按 Journal/Economy/Provision 固定顺序写入三组字段，最后为 lifecycle keys 与 journal-records 两个大端 u64。
+
+每组字段固定为：完整 canonical cache state 的摘要 32 bytes、last-present u8、last sequence u64、last semantic digest 32 bytes、最后一项 FactLocation（height u64、ordinal u64、original ID 32 bytes）和原件长度 u64。整数均为大端。last-present 须与该 index 的 count 非零一致；None 的其余字段全零，真实全零摘要仍由 Some 与 None 区分。摘要覆盖原 canonical cache codec 的全部 frontier，不只比较最终数学 head。四个 index 的引用和计数沿用 v2，Responses 的原件来源仍须单独验证；三项 cache 来源证明不能代签嵌套 RuntimeResponseArtifact、provider、receipt 或外部 effect 语义。
+
+对应 v2 cache ref 为 None 时，cache state 摘要须为全零、该 index count 为零且 last 为 None；Some(empty) 则核对真实空 canonical state，不与 Absent 合并，真实 Some 零摘要仍由 v2 ref 的存在性区分。fresh GEN 对 disabled/None Cognition 也产生明确的空来源承诺，后续启用沿已接受空 parent 做合法 delta；不能因缺来源资格自动改走全历史 bootstrap，也不将禁用 Cognition 当作拒绝其他合法世界业务的理由。
+
+候选支路使用独立、私有构造的 CheckedCandidateHistorySourceV3。其实际输入为 VerifiedCandidateContext、CheckedCommitCore、CheckedFactOriginals、候选 typed index 与每项真实 candidate fact occurrence；bootstrap 按原 ordinal、flat ID、长度、schema 及语义链实际流读原件，delta 由已授来源资格的精确 accepted parent 和实际 index Δ、新原件推导。原件直接为 record.raw() 的 canonical CBOR，来源重放与既有 cache builder 消费同一字节流，不猜测 wrapper offset，也不新增 CBOR→JSON 转换。capsule 只能由这种来源证明推导并与候选 Result 精确核对，mode 或 codec/decode 成功不能授资格。完整 World 与 History 的候选闭包同时通过后才可请求正式接受回执。
+
+接受后只允许沿真实 VerifiedFormalCommit 和既有 candidate-fact promotion 桥将同一 candidate/body/roots 的 checked 来源证明提升。v3 冷恢复须认证 exact accepted selected Result occurrence、明确的来源 profile、capsule 与全部固定引用，才能恢复该协议已接受的来源承诺；普通签名、v2 数学 cache 或独立公开元数据不能冒充这项 v3 承诺。当前 head/body ID 不写入自身 Result，避免哈希环；由真实 occurrence 外绑定。previous-view 沿用原认证前驱桥。C<T 后缀逐项从已授来源父资格推导，不挂载 T 全量历史补缺字段。
+
+v3 Result 的保留边包括原 v2 的四项 typed indexes 及全部原件、三项 cache ValueTrees、lifecycle typed graph、previous-view，以及 capsule 中三个 last locator 的 kind/flat ID/长度关系；重复引用也须核对身份。未知 v3/profile 或不能界定的依赖闭包保持 fail-closed，不能据此回收。上述逻辑来源承诺不代替物理代、reader lease、独立副本或完整 GC 验收。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
 选中Action的恢复必须沿该typed图在每次String/Vec/Map分配前同池计费；不能从不受信任CBOR整件from_slice后补算内存，也不以输入bytes乘一个未经证明的常数代替分配边界。原canonical ActionEnvelope bytes继续独立保存；完整队列资格还必须绑定该投影与实际原件的canonical hash/长度，不能只信任caller回调或flat digest。当前新增Codec本身不构成该完整队列资格，也不授予WorldReady。
+
+### Runtime History 原件与当前窗口接线
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+新世界 Runtime History 独立覆盖 `snapshot_catalog`、`journal`、`tick_consensus_records`、`formal_archived_tick_consensus_count`、`tick_consensus_rejection_audit_events` 五项；Cognition History 的证明不替代这些原件。拒绝审计以当前原始 DTO 的八个字段为准，不依据旧清单中的字段计数生成内容。
+
+新增 Runtime History selected Result 与每个新增原件都进入真实候选 FactSet：WorldEvent 保留 Event 原件；SnapshotRecord、TickConsensusRecord、拒绝审计使用带独立 domain/schema 的 Result envelope，内层保留原 DTO 的 canonical CBOR 值。候选接收先对真实 checked core/fact originals 调用 FactOccurrence 校验，再验证原件类型、索引与 capsule；只有实际接受的 FormalCommit 对应 selected Result 可以提升当前 History 资格。原件生产回调、普通对象摘要、解码出的 capsule 或调用方布尔值均不能替代这一步。
+
+有序原件索引继承真实 accepted 前驱，普通提交只证明新增原件与索引变更。当前窗口以已验证索引的起点、数量和终点表示，支持 append、前缀淘汰和已认证前缀截断；不得为每次淘汰重写整个旧前缀。SnapshotRecord 保留原 snapshot_hash、journal_len、created_at、manifest_hash 与 retention；TickConsensusRecord 保留原证书和区块；归档计数与实际认证 tick/归档范围联验，不把 FormalCatalog 的提交高度当作业务 tick 或旧快照 hash。需要归档原件的读请求继续核对实际区间与原件，不依据计数声称物理可用。
+
+WorldJournal 原有 `SHA256(JSON(events))` 是特定快照/导出请求的原始承诺，不能用 CBOR 原件摘要或索引根冒充。新 profile 普通提交与冷启动使用上述有来源的窗口/索引；只有实际请求旧式业务承诺时，按调用者预算流式计算当前窗口。超限或取消保留完整输入并拒绝完成，不截断窗口、不回退到普通提交全量历史计算。
+
+冷读只从实际 accepted selected Result 的精确 profile、绑定根、索引计数与固定极值点恢复逻辑资格；后续按需读取的原件仍须核对类型、ID、长度及 canonical 内容。Recovery 资格须重新申请 Ordinary 载体和索引内存后才可参与后继提交。逻辑资格不授予物理闭包、lease、业务权限或 GC 完成状态。
+
+Runtime History v1 capsule 的固定 wire 为 magic `oasis7.runtime.history-view.v1\0`、当前 RootSet digest 32 字节、previous-view presence 1 字节及 flat ID 32 字节（None 时 ID 全零），随后按 Snapshot、Journal、Tick、Audit 顺序各存 `STATE_ROOT_BYTES` 字节 canonical StateRoot descriptor 与 BE u64 的 total/start/count，最后是 BE u64 retention.max_snapshots 与 archived_tick_count。它不包含自身 Result、FactSet 或 CommitBody ID，避免原件承诺自引用。每个窗口满足 checked `start + count <= total`，Snapshot count 不大于 retention；归档 tick 数与实际认证 tick 前缀/范围一致，不能仅满足数值上界。
+
+四项独立索引 descriptor 为 Runtime / ByteMap / Artifacts 的 `history.snapshot.index.v1`、`history.journal.index.v1`、`history.tick.index.v1`、`history.audit.index.v1`；仅作为 History capsule 的子根，不加入 Runtime46 的当前状态闭合表。索引具有必需 metadata、Unit count 和连续 Ordinal 原件行；每行固定 56 字节：flat ID 32、原件长度 BE u64、接受高度 BE u64、FactSet ordinal BE u64。新增行须与本次真实 checked fact 的 kind、schema、ID、长度及 occurrence 一一绑定；旧行只继承对应已认证索引，窗口截断不授权重写旧行。
+
+Snapshot/Tick/Audit 的 Result 原件 envelope 是 canonical CBOR map，字段 `domain` 固定 `oasis7.runtime.history.original.v1`，`schema` 分别固定 `snapshot-record.v1`、`tick-consensus-record.v1`、`tick-consensus-rejection-audit.v1`，`value` 为实际原 DTO。WorldEvent 继续使用裸 canonical CBOR Event 原件。未知 schema、键、重复/缺失字段、非 canonical 编码、错误 FactKind 或伪造历史 locator 均拒绝。回滚后分支只能引用真实认证的旧前缀，不能用未验证的 index root 或改变 total 伪造继承关系。
+
+新 profile 的 tick 归档由上述真实 typed tick 索引的已验证前缀提供，Tick 行的证书 `consensus_height` 必须等于 ordinal + 1，当前热窗口 `start == archived_tick_count` 且 `count == total - archived_tick_count`。新 profile 的归档读取按该索引打开真实原件并再次核对身份和证书；不生成或伪造旧 JSON 归档段的 relative_path、content_hash 或 hash_chain_anchor，也不迁移既有世界的归档文件。
+
+### 新世界完整格式选择
+
+完整接线使用独立 GenesisConfig `format_profile`：BLAKE3 对字节串 `oasis7.iws.complete-world-format.v1\0native97\0runtime46\0raw-owners-v1\0cognition-history-v3\0runtime-history-v1\0` 的摘要，其中 `\0` 表示一个 NUL 字节。选择入口核对完整原 GenesisConfig digest、world_id 与 RootSet 的绑定；不能只凭 authority profile 3、Result magic、调用者 enabled 标志或旧配置自动进入完整格式路径。格式 scope 只表示配置选择，实际 current-state、两组 History 来源、authority、物理闭包与发布门仍须同时通过。
+
+逻辑来源组合保留当前状态和两组 History 的真实资格载体，核对同一内存池、Ordinary 类别，以及真实 checked Core 的候选记录、CommitBody 和 RootSet 身份。相同 RootSet 不足以替换另一候选提交的来源证明。History 原件生产、受预算约束的解码和来源验证由 WorldState 层持有，Runtime 复用该实现；正式存储端点不得为调用这些能力引入对 Runtime 的反向依赖。组合还必须保留真实 checked FactSet 的闭合 Result 分派资格，绑定两项唯一 selected Result 的精确 occurrence；端点继续完成执行合法性与物理持久化验证后才能发出接收凭证。
+
+该格式仅用于新建世界。普通提交与冷恢复沿已接受前驱的同一配置选择；未知 profile 或缺失完整来源门保持拒绝，不自动重新创世、导入或清理旧世界。组件的逻辑 typed/history 资格不能单独启用节点或发布 active head。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
+
+端点的原件读取同时覆盖本次 ClosedRecord 与明确安装的 IncrementalObjectStore。候选包含某 ID 时必须验证该候选原文；候选原文损坏不得回退到存储中的同 ID 副本掩盖错误。历史原件只从实际对象存储的受预算 reader 打开，物理页与逻辑 ValueTree 配额由调用者持续提供；不使用旧式整对象 CAS 读取冒充有界流。对象能力缺失时拒绝，不在校验阶段自动创建或猜测修复对象存储。流输出在完整长度、原 flat hash 和成功结束前保持暂态，部分写入、下游中止、限额和池不匹配均不能返回原件成功。

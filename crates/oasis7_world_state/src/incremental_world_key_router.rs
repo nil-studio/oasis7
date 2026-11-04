@@ -300,3 +300,56 @@ pub fn readmit_world_key_routing_ordinary_v1(
     }
     Ok(charge.retain(value))
 }
+
+/// Inherit unchanged key grammar from the private exact parent, and classify
+/// every changed key under the same generic integrity receipt as all owners.
+/// No new state traversal or value read is needed for this grammar proof.
+pub(crate) fn accept_world_key_routing_verified_v1(
+    parent: &ReservedValue<WorldKeyRoutingQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    memory: &MemoryBudget,
+    rows_remaining: &mut u64,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<WorldKeyRoutingQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    witness.check_pool_class(memory, MemoryClass::Ordinary)?;
+    if parent.class != MemoryClass::Ordinary
+        || !parent.uses_budget(memory)
+        || !parent.memory.same_pool(memory)
+        || parent.reserved_bytes() < 512
+    {
+        return Err(invalid());
+    }
+    let _phase = memory.reserve(128 << 10, MemoryClass::Ordinary)?;
+    parent.validate_binding(&witness.record().before)?;
+    let retained = memory.reserve(512, MemoryClass::Ordinary)?;
+    let mut counts = parent.counts;
+    for write in &witness.record().writes {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        *rows_remaining = rows_remaining
+            .checked_sub(1)
+            .ok_or(ValueTreeError::ResourceLimited("World changed key routing"))?;
+        let index = route_world_key_v1(write.namespace, &write.mutation.key)? as usize;
+        if write.mutation.before.is_some() {
+            counts[index] = counts[index].checked_sub(1).ok_or_else(invalid)?;
+        }
+        if write.mutation.after.is_some() {
+            counts[index] = counts[index].checked_add(1).ok_or_else(invalid)?;
+        }
+    }
+    let value = WorldKeyRoutingQualificationV1 {
+        roots: *witness.after_digest(),
+        class: MemoryClass::Ordinary,
+        counts,
+        memory: memory.clone(),
+    };
+    value.validate_binding(&witness.record().after)?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(retained.retain(value))
+}

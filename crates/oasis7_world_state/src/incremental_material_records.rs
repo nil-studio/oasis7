@@ -203,3 +203,5 @@ pub use overlay_read::read_qualified_material_cell_overlay_v1;
 #[cfg(test)]
 #[path = "incremental_material_records_phase_tests.rs"]
 mod phase_tests;
+
+pub(crate) use receiver::accept_material_verified_v1;

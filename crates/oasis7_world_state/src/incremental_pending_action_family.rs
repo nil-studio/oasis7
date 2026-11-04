@@ -258,6 +258,53 @@ pub fn accept_pending_actions_transition_v1<
     work: &mut PendingActionFamilyWorkV1,
     objects: &mut O,
 ) -> Result<ReservedValue<PendingActionQualificationV1>, PendingActionFamilyErrorV1<O::Error>> {
+    {
+        check(ctx)?;
+        if !objects.allocation_budget().same_pool(ctx.values.memory)
+            || objects.allocation_class() != ctx.values.class
+        {
+            return Err(invalid().into());
+        }
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes() < 512
+            || parent.class != ctx.values.class
+            || ctx.values.class != MemoryClass::Ordinary
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+            || ctx.root != record.after.state_root(StateNamespaceV1::Scheduler)
+        {
+            return Err(invalid().into());
+        }
+        let _phase = ctx
+            .values
+            .memory
+            .reserve(64 << 10, ctx.values.class)
+            .map_err(ValueTreeError::Memory)?;
+        parent.validate_binding(&record.before)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )
+    .map_err(|e| PendingActionFamilyErrorV1::Overlay(e.into()))?;
+    accept_pending_actions_verified_v1(parent, &witness, ctx, work, objects)
+}
+
+pub(crate) fn accept_pending_actions_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    O: OriginalObjectStreamReader,
+>(
+    parent: &ReservedValue<PendingActionQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut PendingActionFamilyWorkV1,
+    objects: &mut O,
+) -> Result<ReservedValue<PendingActionQualificationV1>, PendingActionFamilyErrorV1<O::Error>> {
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+
     check(ctx)?;
     if !objects.allocation_budget().same_pool(ctx.values.memory)
         || objects.allocation_class() != ctx.values.class
@@ -268,8 +315,6 @@ pub fn accept_pending_actions_transition_v1<
         || parent.reserved_bytes() < 512
         || parent.class != ctx.values.class
         || ctx.values.class != MemoryClass::Ordinary
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
     {
         return Err(invalid().into());
     }
@@ -279,9 +324,7 @@ pub fn accept_pending_actions_transition_v1<
         .reserve(64 << 10, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
     parent.validate_binding(&record.before)?;
-    let replay = verifier.verify(record);
-    check(ctx)?;
-    let verified = replay.map_err(|e| PendingActionFamilyErrorV1::Overlay(e.into()))?;
+    let verified = witness.prepared();
     let record = &verified.record;
     if ctx.root != record.after.state_root(StateNamespaceV1::Scheduler) {
         return Err(invalid().into());

@@ -975,3 +975,13 @@ pub fn prepare_module_marketplace_genesis_v1<
 #[cfg(test)]
 #[path = "incremental_module_marketplace_tests.rs"]
 mod tests;
+
+#[path = "incremental_module_marketplace_family.rs"]
+mod family;
+pub use family::{
+    ModuleMarketplaceFamilyQualificationV1, ModuleMarketplaceFamilyWorkV1,
+    accept_module_marketplace_family_transition_v1, qualify_module_marketplace_family_v1,
+    readmit_module_marketplace_family_ordinary_v1,
+};
+
+pub(crate) use family::accept_module_marketplace_family_verified_v1;

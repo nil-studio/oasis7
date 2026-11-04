@@ -134,3 +134,5 @@ pub use change::{
 #[cfg(test)]
 #[path = "incremental_runtime_artifact_resources_receiver_cold_tests.rs"]
 mod receiver_cold_tests;
+
+pub(crate) use family::accept_runtime_artifact_resources_verified_v1;

@@ -474,3 +474,5 @@ pub use pages::{
     RuntimeEffectFamilyPagesV1, RuntimeEffectPagesWorkV1, mark_runtime_effect_family_pages_v1,
     transfer_runtime_effect_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_runtime_effect_verified_v1;

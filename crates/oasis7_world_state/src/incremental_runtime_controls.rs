@@ -252,3 +252,5 @@ mod tests;
 #[path = "incremental_runtime_controls_pages.rs"]
 mod pages;
 pub use pages::*;
+
+pub(crate) use family::accept_runtime_controls_verified_v1;

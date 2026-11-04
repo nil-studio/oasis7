@@ -57,3 +57,5 @@ pub use family::*;
 #[cfg(test)]
 #[path = "incremental_runtime_proposal_tests.rs"]
 mod tests;
+
+pub(crate) use family::accept_runtime_proposals_verified_v1;

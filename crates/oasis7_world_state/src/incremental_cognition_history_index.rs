@@ -257,20 +257,33 @@ where
             "Cognition History index point parent",
         ));
     }
+    read_cognition_history_index_point_parts_v1(&parent.root, parent.field, ordinal, context, work)
+}
+pub(super) fn read_cognition_history_index_point_parts_v1<M, R, E, C>(
+    root: &StateRootV1,
+    field: CognitionHistoryFieldV1,
+    ordinal: u64,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut CognitionHistoryIndexWorkV1,
+) -> Result<ReservedValue<CognitionHistoryIndexPointV1>, ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    context.check()?;
     let charge = context
         .values
         .memory
         .reserve(16 << 10, context.values.class)?;
     work.cell()?;
     let mut records = context.records();
-    let (key, semantic) = records.key(
-        descriptor(parent.field),
-        WorldFieldRecordKindV1::Bytes,
-        &ordinal,
-    )?;
-    let value = tree::lookup(&parent.root, &key, &mut records, LABELS)?.ok_or(
-        ValueTreeError::Invalid("Cognition History index point missing"),
-    )?;
+    let (key, semantic) =
+        records.key(descriptor(field), WorldFieldRecordKindV1::Bytes, &ordinal)?;
+    let value = tree::lookup(root, &key, &mut records, LABELS)?.ok_or(ValueTreeError::Invalid(
+        "Cognition History index point missing",
+    ))?;
     let mut bytes = [0; ROW_BYTES];
     let info = read_member_record_profile_v1(
         &value,
@@ -295,8 +308,8 @@ where
         ));
     }
     let point = CognitionHistoryIndexPointV1 {
-        root: parent.root.clone(),
-        field: parent.field,
+        root: root.clone(),
+        field: field,
         ordinal,
         row: CognitionHistoryIndexRowV1::decode(&bytes),
         class: context.values.class,
@@ -374,11 +387,53 @@ where
         .memory
         .reserve(16 << 10, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
+    let (root, count) = append_cognition_history_index_parts_v3(
+        &parent.root,
+        parent.field,
+        parent.count,
+        row,
+        read,
+        write,
+        work,
+    )?;
+    Ok(retained.retain(CognitionHistoryIndexQualificationV1 {
+        class: MemoryClass::Ordinary,
+        root,
+        field: parent.field,
+        count,
+    }))
+}
+pub(super) fn append_cognition_history_index_parts_v3<M, R, E, C, W, CW>(
+    root: &StateRootV1,
+    field: CognitionHistoryFieldV1,
+    count: u64,
+    row: CognitionHistoryIndexRowV1,
+    read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    write: &mut MemberRecordWriteContext<'_, W, CW>,
+    work: &mut CognitionHistoryIndexWorkV1,
+) -> Result<(StateRootV1, u64), MemberRecordError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    W: StatePageWriter,
+    CW: FnMut() -> bool,
+{
+    read.check()?;
+    if read.values.class != MemoryClass::Ordinary
+        || !write.memory.same_pool(read.values.memory)
+        || root.namespace != StateNamespaceV1::Artifacts
+        || count.checked_add(2) != Some(root.leaf_count)
+    {
+        return Err(MemberRecordError::Invalid(
+            "Cognition History append parts binding",
+        ));
+    }
     if (read.cancelled)() || (write.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    let next = parent
-        .count
+    let next = count
         .checked_add(1)
         .and_then(|count| count.checked_add(2).map(|_| count))
         .ok_or(MemberRecordError::Invalid(
@@ -387,23 +442,18 @@ where
     let (count_key, old_count) = {
         let mut records = read.records();
         work.cell()?;
-        let (key, semantic) =
-            records.key(descriptor(parent.field), WorldFieldRecordKindV1::Entry, &())?;
-        let id = tree::lookup(&parent.root, &key, &mut records, LABELS)?.ok_or(
-            ValueTreeError::Invalid("Cognition History append count absent"),
-        )?;
-        if records.unsigned(&id, &key, semantic)? != parent.count {
+        let (key, semantic) = records.key(descriptor(field), WorldFieldRecordKindV1::Entry, &())?;
+        let id = tree::lookup(root, &key, &mut records, LABELS)?.ok_or(ValueTreeError::Invalid(
+            "Cognition History append count absent",
+        ))?;
+        if records.unsigned(&id, &key, semantic)? != count {
             return Err(MemberRecordError::Invalid(
                 "Cognition History append expected count",
             ));
         }
         work.cell()?;
-        let (tail, _) = records.key(
-            descriptor(parent.field),
-            WorldFieldRecordKindV1::Bytes,
-            &parent.count,
-        )?;
-        if tree::lookup(&parent.root, &tail, &mut records, LABELS)?.is_some() {
+        let (tail, _) = records.key(descriptor(field), WorldFieldRecordKindV1::Bytes, &count)?;
+        if tree::lookup(root, &tail, &mut records, LABELS)?.is_some() {
             return Err(MemberRecordError::Invalid(
                 "Cognition History append tail present",
             ));
@@ -417,14 +467,14 @@ where
     work.cell()?;
     let bytes = row.bytes();
     let tail = write_member_record_v1(
-        descriptor(parent.field),
+        descriptor(field),
         WorldFieldRecordKindV1::Bytes,
-        &parent.count,
+        &count,
         MemberPayloadRefV1::Bytes(&bytes),
         write,
     )?;
     let root = tree::edit(
-        parent.root.clone(),
+        root.clone(),
         &tail.field_key,
         (None, Some(tail.value_root)),
         &mut read.values,
@@ -434,7 +484,7 @@ where
     )?;
     work.cell()?;
     let count = write_member_record_v1(
-        descriptor(parent.field),
+        descriptor(field),
         WorldFieldRecordKindV1::Entry,
         &(),
         MemberPayloadRefV1::U64(next),
@@ -457,13 +507,9 @@ where
     if (read.cancelled)() || (write.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    Ok(retained.retain(CognitionHistoryIndexQualificationV1 {
-        class: MemoryClass::Ordinary,
-        root,
-        field: parent.field,
-        count: next,
-    }))
+    Ok((root, next))
 }
+
 /// Complete dense-key/index-value closure with no allocation proportional to
 /// count. The observer receives provisional locators, never original proofs.
 pub fn qualify_cognition_history_index_v1<M, R, E, C, F>(

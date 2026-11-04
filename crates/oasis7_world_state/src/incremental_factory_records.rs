@@ -276,3 +276,5 @@ pub use pages::{
 #[cfg(test)]
 #[path = "incremental_factory_industry_phase_tests.rs"]
 mod phase_tests;
+
+pub(crate) use receiver::accept_factory_verified_v1;

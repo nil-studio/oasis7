@@ -15,16 +15,19 @@ fn accept_verified_inner<F: WorldNativeFieldSpecV1>(
     work: &mut WorldNativeFieldReadWorkV1,
 ) -> Result<ReservedValue<WorldNativeFieldQualificationV1<F>>, WorldFieldOverlayErrorV1> {
     read::check(ctx)?;
+    verified.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
     let record = verified.record();
     parent.validate_binding(&record.before)?;
     record.after.validate().map_err(|_| invalid())?;
     let ns = target_namespace::<F>()?;
     if parent.class != MemoryClass::Ordinary
         || ctx.values.class != MemoryClass::Ordinary
-        || verified.class != MemoryClass::Ordinary
+        || verified.allocation_class() != MemoryClass::Ordinary
         || !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < 512
-        || !verified.checked.uses_budget(ctx.values.memory)
+        || verified
+            .check_pool_class(ctx.values.memory, ctx.values.class)
+            .is_err()
         || ctx.root != record.after.state_root(ns)
     {
         return Err(invalid().into());
@@ -137,23 +140,34 @@ pub(crate) fn accept_world_native_field_transition_v1<F: WorldNativeFieldSpecV1>
     scan: &mut StateScanBudget,
     work: &mut WorldNativeFieldReadWorkV1,
 ) -> Result<ReservedValue<WorldNativeFieldQualificationV1<F>>, WorldFieldOverlayErrorV1> {
+    read::check(ctx)?;
+    if parent.class != MemoryClass::Ordinary
+        || ctx.values.class != MemoryClass::Ordinary
+        || !parent.uses_budget(ctx.values.memory)
+        || parent.reserved_bytes() < 512
+        || verifier.class != ctx.values.class
+        || !verifier.memory.same_pool(ctx.values.memory)
+        || ctx.root != record.after.state_root(target_namespace::<F>()?)
+    {
+        return Err(invalid().into());
+    }
+    {
+        let _phase = ctx
+            .values
+            .memory
+            .reserve(128 << 10, ctx.values.class)
+            .map_err(ValueTreeError::Memory)?;
+        parent.validate_binding(&record.before)?;
+    }
     let verified = verify_world_native_transition_v1(verifier, record, ctx)?;
     let result = accept_world_native_field_verified_v1::<F>(parent, &verified, ctx, scan, work);
     read::check(ctx)?;
     result
 }
 
-/// Its fields and constructor are private; a raw PreparedTransition cannot be
-/// promoted into this verified witness by another module.
-pub(crate) struct WorldNativeVerifiedTransitionV1 {
-    checked: ReservedValue<oasis7_formal_protocol::incremental_execution::PreparedTransition>,
-    class: MemoryClass,
-}
-impl WorldNativeVerifiedTransitionV1 {
-    pub(crate) fn record(&self) -> &TransitionRecordV1 {
-        &self.checked.record
-    }
-}
+/// One shared generic replay can feed every independently typed native field.
+pub(crate) type WorldNativeVerifiedTransitionV1 =
+    crate::incremental_verified_world_transition::VerifiedWorldTransitionV1;
 pub(crate) fn verify_world_native_transition_v1(
     verifier: &TransitionVerifier<'_, impl MerkleNodeReader>,
     record: &TransitionRecordV1,
@@ -165,24 +179,15 @@ pub(crate) fn verify_world_native_transition_v1(
         impl FnMut() -> bool,
     >,
 ) -> Result<WorldNativeVerifiedTransitionV1, WorldFieldOverlayErrorV1> {
-    let result = (|| {
-        read::check(ctx)?;
-        record.after.validate().map_err(|_| invalid())?;
-        if verifier.class != MemoryClass::Ordinary
-            || ctx.values.class != MemoryClass::Ordinary
-            || !verifier.memory.same_pool(ctx.values.memory)
-            || !record.after.state.iter().any(|root| root == ctx.root)
-        {
-            return Err(invalid().into());
-        }
-        let checked = verifier.verify(record)?;
-        Ok(WorldNativeVerifiedTransitionV1 {
-            checked,
-            class: MemoryClass::Ordinary,
-        })
-    })();
     read::check(ctx)?;
-    result
+    if ctx.values.class != MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    Ok(
+        crate::incremental_verified_world_transition::verify_world_transition_v1(
+            verifier, record, ctx,
+        )?,
+    )
 }
 
 pub(crate) fn accept_world_native_field_verified_v1<F: WorldNativeFieldSpecV1>(

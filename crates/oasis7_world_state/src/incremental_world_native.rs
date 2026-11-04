@@ -296,3 +296,5 @@ pub(crate) mod family;
 #[path = "incremental_world_native_qualification.rs"]
 mod qualification;
 pub use qualification::*;
+
+pub(crate) use qualification::accept_world_native_fields_verified_v1;

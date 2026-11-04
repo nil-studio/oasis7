@@ -210,7 +210,7 @@ fn accept<M, S, R, E, C>(
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     inner_scan: &mut StateScanBudget,
     work: &mut ArtifactConfigReadWorkV1,
-    mut parents: Option<&mut ArtifactConfigJsonParentsV1<'_>>,
+    parents: Option<&mut ArtifactConfigJsonParentsV1<'_>>,
 ) -> Result<ReservedValue<ArtifactConfigFamilyQualificationV1>, WorldFieldOverlayErrorV1>
 where
     M: MerkleNodeReader,
@@ -220,22 +220,59 @@ where
     C: FnMut() -> bool,
 {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || ctx.root != record.after.state_root(StateNamespaceV1::Artifacts)
+    {
+        return Err(read::invalid().into());
+    }
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.allocation_class() != ctx.values.class
+            || parent.reserved_bytes() < std::mem::size_of::<ArtifactConfigFamilyQualificationV1>()
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+        {
+            return Err(read::invalid().into());
+        }
+        parent.validate_binding(&record.before.digest().map_err(|_| read::invalid())?)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_artifact_config_verified_v1(parent, &witness, ctx, inner_scan, work, parents)
+}
+
+pub(crate) fn accept_artifact_config_verified_v1<M, R, E, C>(
+    parent: &ReservedValue<ArtifactConfigFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    inner_scan: &mut StateScanBudget,
+    work: &mut ArtifactConfigReadWorkV1,
+    mut parents: Option<&mut ArtifactConfigJsonParentsV1<'_>>,
+) -> Result<ReservedValue<ArtifactConfigFamilyQualificationV1>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(read::invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
         || parent.allocation_class() != ctx.values.class
         || parent.reserved_bytes() < std::mem::size_of::<ArtifactConfigFamilyQualificationV1>()
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
     {
         return Err(read::invalid().into());
     }
     parent.validate_binding(&record.before.digest().map_err(|_| read::invalid())?)?;
-    let verified = verifier.verify(record);
-    let error = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = error {
-        return Err(error.into());
-    }
-    let verified = verified?;
+    let verified = witness.prepared();
     if verified
         .record
         .after

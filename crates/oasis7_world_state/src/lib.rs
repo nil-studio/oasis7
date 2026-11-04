@@ -244,6 +244,8 @@ pub mod incremental_pending_action_overlay;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_record_qualification_phase;
 #[cfg(not(target_arch = "wasm32"))]
+mod incremental_verified_world_transition;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_family;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_pending_action_record;
@@ -253,6 +255,48 @@ pub mod incremental_runtime_pending_actions;
 pub mod incremental_runtime_registry;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_key_router;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rules_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_collection_controls;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_typed_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_allocators_codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_allocators_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_manifest;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_source;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_original;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_original_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_original_producer;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_index;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_raw_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_current_complete_v3;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_current_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_format;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_storage_source;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_domain_event_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_result_router;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_event_decode;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_id_sets;

@@ -430,3 +430,5 @@ pub use pages::{
     MainTokenPolicyFamilyPagesV1, MainTokenPolicyPagesWorkV1,
     mark_main_token_policy_family_pages_v1, transfer_main_token_policy_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_main_token_policy_verified_v1;

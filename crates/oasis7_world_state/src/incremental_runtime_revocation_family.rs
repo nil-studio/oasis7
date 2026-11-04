@@ -341,11 +341,61 @@ pub fn accept_runtime_revocation_transition_v1<
     crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
 > {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|root| root == ctx.root)
+    {
+        return Err(invalid().into());
+    }
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes() < 512
+            || parent.class != ctx.values.class
+            || verifier.class != ctx.values.class
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || ctx.root != record.after.state_root(StateNamespaceV1::Authorization)
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before)?;
+        let _charge = ctx
+            .values
+            .memory
+            .reserve(512, ctx.values.class)
+            .map_err(ValueTreeError::Memory)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_runtime_revocation_verified_v1(parent, &witness, ctx, scan, work)
+}
+
+pub(crate) fn accept_runtime_revocation_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<RuntimeRevocationQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut RevocationReadWorkV1,
+) -> Result<
+    ReservedValue<RuntimeRevocationQualificationV1>,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+> {
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < 512
         || parent.class != ctx.values.class
-        || verifier.class != ctx.values.class
-        || !verifier.memory.same_pool(ctx.values.memory)
         || ctx.root != record.after.state_root(StateNamespaceV1::Authorization)
     {
         return Err(invalid().into());
@@ -356,13 +406,7 @@ pub fn accept_runtime_revocation_transition_v1<
         .memory
         .reserve(512, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
-    let checked = verifier.verify(record);
-    let err = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(e) = err {
-        return Err(e.into());
-    }
-    let checked = checked?;
+    let checked = witness.prepared();
     let _scratch = ctx
         .values
         .memory

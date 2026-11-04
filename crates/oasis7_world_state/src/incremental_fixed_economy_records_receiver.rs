@@ -83,6 +83,44 @@ pub fn accept_fixed_economy_transition_v1<
     cells: &mut u64,
 ) -> Result<ReservedValue<FixedEconomyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || verifier.class != ctx.values.class
+        || !verifier.memory.same_pool(ctx.values.memory)
+        || !record.after.state.iter().any(|r| r == ctx.root)
+    {
+        return Err(read::invalid().into());
+    }
+    {
+        let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+            parent,
+            crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+            ctx.values.memory,
+            ctx.values.class,
+            &mut ctx.cancelled,
+        )?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_fixed_economy_verified_v1(parent, &witness, ctx, cells)
+}
+
+pub(crate) fn accept_fixed_economy_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<FixedEconomyFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    cells: &mut u64,
+) -> Result<ReservedValue<FixedEconomyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+
+    ctx.check()?;
     if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
         return Err(ValueTreeError::Invalid("ordinary receiver class").into());
     }
@@ -94,8 +132,6 @@ pub fn accept_fixed_economy_transition_v1<
             ctx.values.class,
         )
         .is_err()
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
     {
         return Err(read::invalid().into());
     }
@@ -106,13 +142,7 @@ pub fn accept_fixed_economy_transition_v1<
         ctx.values.class,
         &mut ctx.cancelled,
     )?;
-    let verified = verifier.verify(record);
-    let error = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = error {
-        return Err(error.into());
-    }
-    let verified = verified?;
+    let verified = witness.prepared();
     if !verified
         .record
         .after
