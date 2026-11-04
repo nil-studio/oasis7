@@ -72,12 +72,13 @@
 
 Trace ID: O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[明确条款与同版接受](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-terms)、[双边交换权威生效](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-commit)及[原请求恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-recovery)承接本条在双边 Electricity/Data 即时原子交换中的非绑定提议、当前授权、明确接受、单次效果与可读结果；专业条款保留反向承接和独立验证方法。该目标合同不等于现有 native EconomicContract、正式 API 或 Viewer 已接通，也不覆盖其他履约类型的完整绑定与后续救济。
 - 实现与验证依据：已交付原子经济合同的主体接受子义务：Simulator动作映射经生产分发进入Runtime，Accept检查主体、Open状态、指定counterparty及到期条件，并生成EconomicContractAccepted进入publication。明确条款渲染、offered/accepted_pending_validation零效果与玩家授权/权威receipt完整绑定仍未核清。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L793-L1004)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L30-L111)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L1-L140)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L448-L457)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runtime_support.rs#L250-L268)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
-- 剩余范围：未核清明确条款渲染、双方授权接受、绑定义务创建及同一 receipt 的端到端流程；社交消息或 action ack 不证明合同已成立。
+- 本轮设计补核：2026-11-04；输入基线 `5e62da69ddb511f9f10a524accdf0071ecd6b91c`。新增专业设计只覆盖上述即时交换切片；旧 native Open 到期已有声誉后果，不能作为零效果 offered 的实现证据。历史实现与测试定义仍按上方固定版本保留，本轮没有运行业务、正式入口或跨节点验收。
+- 剩余范围：设计仍须承接持续服务等其他履约类型的绑定、明确义务与后续救济组合；实现仍须交付完整条款渲染、双方当前授权与同版接受、零效果待校验、绑定和两腿原子效果及权威 receipt 的端到端流程。受治理分类/激活、真实恢复与各正式入口的证据继续分别核验；社交消息、action ack 或本次文档检查不证明合同已成立。
 
 - 要求：人类沟通、草稿、未接受提议和 Agent 建议保持非绑定；只有授权范围内渲染的明确条款、主体明确接受并获得权威校验 receipt 后，才可以创建绑定义务和世界效果。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)

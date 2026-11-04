@@ -108,7 +108,7 @@ Launcher 后端只消费启动配置、共享协议和进程控制接口，其 n
 <a id="runtime-gameplay-authority-designs"></a>
 ### 玩法权威协议的专题分工
 
-具体数据与协议由[八个专题](prd.index.md#gameplay-authority-protocols)分别拥有。普通治理分类与独立宪制闸门提供合法事项和授权来源；charter 消费该来源并维护区域审查、资格和退化状态；levy 另有用途、预算与收费授权，charter 有效不自动赋予收费权。工业工作图持有 root/revision、资源占用与存量工作；配方生命周期、替代转换和外部性处置消费这些身份，并保留各自独立的状态与效果记录。贡献型恢复项目拥有自身作用域和里程碑，不能由工业完成或普通 Crisis 状态代签。安全 canonical 替代要求独立的玩家确认，不能借普通治理、chat 签名或模型建议扩大授权。
+具体数据与协议由[玩法权威专题](prd.index.md#gameplay-authority-protocols)分别拥有。普通治理分类与独立宪制闸门提供合法事项和授权来源；charter 消费该来源并维护区域审查、资格和退化状态；levy 另有用途、预算与收费授权，charter 有效不自动赋予收费权。工业工作图持有 root/revision、资源占用与存量工作；配方生命周期、替代转换和外部性处置消费这些身份，并保留各自独立的状态与效果记录。贡献型恢复项目拥有自身作用域和里程碑，不能由工业完成或普通 Crisis 状态代签。安全 canonical 替代要求独立的玩家确认，不能借普通治理、chat 签名或模型建议扩大授权。合同形成专题另行绑定双方对同版条款的明确接受及当前代表授权，在受限即时交换中将成立与两腿结算同次提交；单方确认、旧 native Open 或普通 action ack 均不代签。
 
 各专题中的逻辑记录是目标执行合同，接入既有 Runtime / governed module 与 typed transaction 边界；本次设计不新增通用 native 制度动作或第二套世界写服务。纯 API、Viewer、Harness 均消费同一权威状态与结果。一次请求登记、决策通过或预览不证明世界效果；已提交结果、授权消费、资源账本与去重记录应能联合恢复。共识排序与正式持久性仍由[提交与恢复合同](#runtime-authority-commit-recovery-target)拥有，专题 receipt 不自行产生 finality。
 
