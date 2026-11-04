@@ -8,6 +8,8 @@
 
 - 配套专业系统设计：[跨区物流与 escrow 结算](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)承接 AC-GAME-018-04..06 的物流、结算与读面；[紧急保供授权、冻结分配与结算](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-001)承接 §6.4 的执行合同。工业创建和许可准入不在这两份设计范围，产品设计豁免保持原意。
 
+工业创建的具体编辑来源、完整发布包、离线配方样例及状态正文见[玩家发布内容交付](../../world-runtime/module/player-published-entities.design.md#ppe-creator-inputs)与[核验手册](../../world-runtime/module/player-published-entities.manual.md)。该专题承接现有 append-only 发布的创作交接，未完成本合同四阶段强制执行、有限许可或版税机制；实际 Shadow 与工业模拟、技术发布与产品准入分别判定。
+
 ## 1. 目标与范围
 
 工业创建和跨区交易都应给玩家留下可归因的选择，而不是一个“提交后世界自动变好”的黑箱。玩家要能理解新工业能力如何从提案进入受限试点和治理准入，以及货物如何从可见报价经过真实路线、目的地接收和分阶段结算。

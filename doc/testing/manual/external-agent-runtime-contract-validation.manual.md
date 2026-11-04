@@ -141,12 +141,12 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 
 | 用例 | 执行与可判定预期 |
 | --- | --- |
-| 空集、200/201/256 个同类项 | 分别只放问题、只放申请；200 项可能因字节提前分页，201/256 项不得被 200 的列表上限拒收或截断。最终唯一 ID 集合与 S 上授权集合完全相等，最后页单独不能初始化 |
-| 混合集合 | 128 个问题 + 128 个申请，另有未结算操作和当前报告；用 limit=1、200 验证跨集合边界、顺序、total_counts 与原 operation 关联，不能只读问题列表 |
+| 空集、200/201/256 个同类项 | 分别只放未完问题线程、只放申请；线程同时覆盖未答和已答未处理。200 项可能因字节提前分页，201/256 项不得被 200 的列表上限拒收或截断。最终唯一 ID 集合与 S 上授权集合完全相等，最后页单独不能初始化 |
+| 混合集合 | 128 个未完线程 + 128 个申请，另有未结算操作和当前报告；用 limit=1、200 验证 pending_question_threads → pending_approvals → unsettled_operation_refs → latest_reports、total_counts 与原 operation 关联，不能只读问题列表 |
 | 最大编码边界 | goal 4 KiB、message/report 8 KiB，包含引号、反斜线、控制字符、多字节字符；另测 64 KiB 当前项/头部及超出一个字节。整个响应不超过 2 MiB，metadata 不能绕过检查，单项不切片 |
-| 条数与大小拒绝 | 第 257 个待决项、非法 limit、超大新记录在接受前明确拒绝且无持久副作用；256 个既有项及其正文保持不变。旧草案过大记录保留原数据并 recovery_required，不伪完整 |
+| 条数与大小拒绝 | 第 257 个待决项、非法 limit、超大新记录在接受前明确拒绝且无持久副作用；256 个既有项及其正文保持不变。满额时已有线程的合法答案/接收/处理报告使用预留容量，不能因槽位已满拒收；旧草案过大记录保留原数据并 recovery_required，不伪完整 |
 | 重试、乱序与断连 | 重复同 cursor 返回同一页；客户端重复页幂等，缺第零页/中间页、另一 snapshot_id 或被改写头部不能提交基线；重试不延长 pin 寿命 |
-| 页间新增、回答与批准 | 取得第一页后新增问题、回答旧问题、终结待批申请；其 S 上旧形态仍在原页，变化恰好经 after-S 接续。应用增量后不复活已回答/终结项目，不重放批准或原世界副作用 |
+| 页间新增、回答与批准 | 取得第一页后新增问题、回答原问题、处理答案或终结待批申请；其 S 上旧形态仍在原页，变化恰好经 after-S 接续。已回答未处理线程仍保留，处理/关闭/失效终态才移出；不复活旧阶段、不重放批准或原世界副作用 |
 | 日志压缩、到期与重启 | 原事件过期仍从当前态读齐；pin 内所需版本和 after-S 窗口可用。强制 pin 到期、服务重启丢 pin 或窗口不足，显式 reset 后从新 S 重建，不能返回空的成功尾页 |
 | 撤权与历史分支变化 | 读页后、解密前及交付前分别撤销/转让/替换 executor；无权请求不返回正文、计数或差异。仍有读权但 pin 绑定失效须 reset；分支不混用 |
 | 恢复到决策 | 完整基线及增量形成后再取 context；页间已激活 G2 或 grant 已失效，旧 G1/context 仍被当前权威拒绝。原未知 operation 先对账，读取快照不会生成任何批准或重提 |
@@ -186,10 +186,37 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 ### 场景 collab-questions
 
 - 层/环境：Messages / stale reply。
-- 给定：同一 task 的 Q1 绑定旧目标，Q2 绑定当前目标；Web 和桌面重复回答。
-- 执行：回答旧 Q1、重复发送同内容/异内容 message_id，发送“同意”及包含指令的世界文本。
-- 判定：关联和去重正确，旧答复为 stale；文字不自动改目标、不生成 grant、不改变工具权限。
+- 给定：同一 task 的 Q1 绑定旧目标，Q2 绑定当前目标；Q1 的一份答案在失效前已持久接受，延迟到失效后交付；Web 和桌面重复回答。
+- 执行：回读/交付旧 Q1 原答案，另在失效后首次提交旧写入；重复发送同内容/异内容 message_id，发送“同意”及包含指令的世界文本。
+- 判定：关联和去重正确，已接受旧答复保留 stale，失效后新提交拒绝；文字不自动改目标、不生成 grant、不改变工具权限。逐条接收与处理继续按下案验证。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
+
+<a id="collab-question-delivery"></a>
+### 场景 collab-question-delivery
+
+- 层/环境：普通 HTTP/RuntimePort 合同、实际临时持久存储、scripted driver 与确定性故障注入；不调用真实模型。玩家内存清理在候选实际支持的 Web/native surface 分别验证，不能由 HTTP fake 代签。
+- 主责与追踪：runtime_engineer / agent_engineer / viewer_engineer / qa_engineer；Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a、O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a、O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；分别承接 AC-COLLAB-004 的交付、AC-COLLAB-006 与 AC-EXT-008 的恢复子义务，不抬高其余未验收范围。
+- 合同来源：[Runtime 交付](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-question-delivery)、[当前态恢复](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-question-recovery)、[API 端点](../../world-simulator/llm/external-agent-game-api.design.md#api-question-delivery)、[adapter 消费](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-question-delivery)。fixture 记录实际支持的存储、客户端与 schema；不存在端点/实现则 blocked/not_run。
+- 给定：一项当前 task/G1/E1，两个 owner 窗口和一个受限 executor；分别建立 owner 提问与 executor 提问的线程，另有原 run_unknown 和未结算世界 operation。保存可比较的世界状态、grant 与预算，不用消息自报代替结果。
+
+| 用例 | 执行与可判定预期 |
+| --- | --- |
+| 双向角色与阶段 | 两种提问方向各走问题保存 → 问题 received_reported → 答案保存 → 答案 received_reported → 答案 processed_reported；每步回读原线程与 result_ref。awaiting_answer/answered_pending_processing/processed_reported 与阶段一一对应，接收前后不能提前显示已答或已处理 |
+| 问题尚未回答 | 接收端离线、已收到但尚未回答分别读取完整线程；未答问题正文和 question_received 可恢复，不因无答案而漏掉交付状态；等待不授予新权限 |
+| 接收依据与玩家内存 | executor 在 inbox 持久化前不能发 durable_inbox；owner 只能 volatile_client。玩家重开、切账号或失去读权清除私有内存，不新增浏览器/本机持久正文缓存；重新获权读取完整线程后才允许回答/标记查看。旧收到报告不表示新窗口有正文或人已读 |
+| 处理声明与业务效果 | owner 仅显式操作产生 viewed；渲染/焦点/重连不产生它，executor 使用 viewed 拒绝。considered/needs_goal_change/needs_authorization/cannot_use 都可按合法角色保存，但不改变 goal/grant/世界账本。问题没有 processed_reported，回答者不能处理确认自己的答案 |
+| 前序和乱序 | 未确认问题接收就 POST answer、未确认答案接收就 POST processed_reported，返回 receipt_precondition_required；服务器不自动生成前序。先让接收请求超时，再查原键/原线程，确认其 persisted 才提交后序 |
+| 同键、竞答与更正 | 同 client_operation_id 同内容回原结果，异内容 operation_conflict；两窗口同 thread_revision 竞答仅一份被接受。换键占用已有阶段返回 phase_already_recorded，不新增事件/别名记录；原正文不可覆盖，更正用新的 related_question_id 或明确目标修改 |
+| inbox/outbox 故障窗口 | 分别在 inbox 同步前后、接收报告提交前后、答案/处理输出持久化前后掉进程。执行端只允许持久原件驱动发送；丢响应先回查原键，persisted/rejected/not_recorded/recovery_required 不混淆，not_recorded 仅按合同重投相同原件。玩家窗口丢原键不自动重发，先读原线程，新的显式操作仍与在途原请求争用同一阶段槽位 |
+| 权限与协议负例 | 错 actor、接收者、task、分支、goal、epoch、私有 audience；非法枚举/混合字段/超限正文分别拒绝。401/403 不泄露对象存在或差异；409/413/429 不产生线程、配额或事件变动，不伪世界 receipt |
+| 窗口外的未完线程 | 同时保留未答 Q 与已答未处理 A，令原传输事件超出 7 天或 100000 项窗口；无本地缓存的受权端仅靠全部 snapshot 页及 after-S 恢复原文/阶段。回答不能使线程提前离开 pending_question_threads，也不能依赖补回 S 前事件 |
+| 201/256 项与预留 | 构造 201/256 个未完线程或混合待批项；满额后仍可保存已有线程的合法答案和阶段报告，第 257 新问题/申请拒绝且不驱逐旧项。并发创建竞争最后槽位，配额与正文/事件同提交；关闭/处理/失效释放一次且不解除 gameplay blocker |
+| 64 KiB / 2 MiB / 200 边界 | 联合 collab-snapshot-pages 按真实编码校验完整线程、报告、头部、转义和分页。验证大项提前分页，不能声称 31 个 64 KiB 项加 64 KiB 头部仍有 JSON 分隔余量；页数按实际集合和字节记录，不把手算写成实测 |
+| Stop 与原历史 | 在每个阶段提交前后提交 Stop/目标更新/owner 转让/executor 替换；已接受旧记录仍保持原结果并为 stale，失效后新写入拒绝。新 owner 不默认获旧正文，已处理终态不迁到新目标；Stop 不等 ACK、模型或私有正文解密 |
+| 新进程与未知原结果 | 本地 inbox 清空但服务端已有收到报告时，先重建完整原文；新 epoch 的旧线程只作历史，需当前沟通则显式新建。原 run_unknown 先 reconcile、原 world operation 先对账，不因收到了答案或处理报告就再次调用模型/提交世界行动 |
+| 原件与投影故障 | 缺失/损坏已承诺私有原件、不可验证索引或控制切点时，相关回读 recovery_required，不回空成功或假 ACK；已生效 Stop 不回退，原世界操作按独立合同回查。完整基线只能在所有页读齐后发布 |
+
+证据保存候选 source/build、私有存储能力、原请求/消息/阶段的脱敏稳定关联、S 与 control/fence、实际字节/页数和原结果；不公开正文、原签名、可重放 cursor 或可枚举私有 digest。最小路径有 5 次串行私有提交，故障回查与本地同步也计入原请求/时间预算；报告缺预算或超时时保留未完状态，不用完成报告凑终态。本节计划和容量手算均不证明实际持久时延、真实 Runtime、玩家已读或付费调用；真实组合仅在获准时按 collab-session 留证。
 
 <a id="collab-approval"></a>
 ### 场景 collab-approval
@@ -206,7 +233,7 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 层/环境：Event replay / snapshot cut。
 - 给定：task 在 cut S 后持续写消息，保留期可在测试中压缩，另有 audience 变化。
 - 执行：snapshot 读取与增量并发；重复、乱序、游标到期/篡改、重连与权限收窄。
-- 判定：S 与 after-S 没有静默缺口；过期显式 reset；private 数据不串线，pending 当前项不会因传输日志压缩丢失。完整度和容量联合 [collab-snapshot-pages](#collab-snapshot-pages) 验证，不能只测第一页。
+- 判定：S 与 after-S 没有静默缺口；过期显式 reset；private 数据不串线，未答及已答未处理的 pending_question_threads 不会因传输日志压缩丢失。完整度和容量联合 [collab-snapshot-pages](#collab-snapshot-pages) 与 [collab-question-delivery](#collab-question-delivery) 验证，不能只测第一页。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
 <a id="collab-executor"></a>
@@ -238,7 +265,7 @@ goal/control/grant revision 与提交引用，不把新版本伪装成相同值�
 | 停止执行器 | 记录 StopDelegation 的权威 control commit/fence 变化及自有 worker/driver 的停止结果。前者阻止新受限动作，后者证明进程确已离线；未知停止结果不得写成已停止，不能终止 world authority 或他人进程来制造成功 |
 | 离线更新 | world authority 保持运行，owner 在同一 task 发布并激活 G2；保存、激活引用和 awaiting_executor 分别可读。离线不是未保存，也不是运行中已采纳 |
 | 重启续接 | 用当前有权主体认可的绑定取得 E2，经完整 snapshot/after-S 恢复 G2；不新建 Agent/task，不把 stop 前的授权复活。记录真实新 session、context 和 G2 的 received/adoption/decision 关联 |
-| 问题与回答 | 在 G2/E2 下产生 Q2 与 message_id，owner 的回答以 in_reply_to 指回该问题；旧 G1 的问题/答复若仍存在，保持 stale，不替换当前目标；普通“同意”不生成 grant |
+| 问题与回答 | 在 G2/E2 下产生 Q2 与 message_id，owner 的回答以 in_reply_to 指回该问题；分别记录 owner 的 volatile_client 接收、答案保存、executor 的 durable_inbox 接收及实际 Runtime 的处理报告。问题保存/答案保存/接收/处理与世界结果分别可读；旧 G1 的已接受问题/答复保持 stale，失效后新写入拒绝，普通“同意”不生成 grant |
 | 明确批准 | 当前 executor 发起绑定 task/G2/E2、proposal digest、owner revision、scope/累计预算和 expiry 的申请 P2；owner 通过专用 decisions 入口生成唯一 decision_ref/grant_ref，不以聊天或截图当授权 |
 | 后续世界结果 | P2 的授权关联到实际 context/decision、client_operation_id/operation_id、admission 与权威 receipt；回读前后状态确认真实效果且只一次。accepted、adoption_reported 或 completion_reported 不代签 committed |
 | 回访与收尾 | 重开实际 Viewer，读取同一 task 的目标、问题/决定和原 operation 结果；失败、未知与 world result 分层可读。只清理本案资源，保留原失败和恢复过程 |

@@ -7,6 +7,7 @@
 - 想快速理解核心玩法骨架：先在 `../prd.md` 确认活跃基线与路由，再读 `gameplay-top-level-design.prd.md` 的 bounded 专业合同
 - 想确认首局、前 10/30 分钟吸引力和持续游玩合同：先读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md` 的产品承诺，再读 `gameplay-top-level-design.prd.md` 的 early-retention 专业合同；当前 verdict 由同候选 PR、实际验证记录与 `../../testing/evidence/` 确认。
 - 想定位当前 native 工业配方、工厂类别、首局配置与有效初态，或交接内容变更：读[工业内容目录与交付](industrial-native-content-delivery.design.md)及[验证手册](industrial-native-content-delivery.manual.md)。目录范围与世界实际安装、准入、库存和生产资格分别核对。
+- 想核对内置 WASM 的具体内容、Profile 默认值与安装组合：读[内置 WASM 内容与交付](builtin-wasm-content-delivery.design.md)及[验证手册](builtin-wasm-content-delivery.manual.md)。源包、构建工件、安装 helper 与正式世界采用分别核验，不把模块名称或测试调用当作完整玩法。
 - 想制作世界前提、公共事件、个人结果与 Agent 消息的叙事内容：读[世界叙事内容与交付](world-narrative-content-delivery.design.md)及[验证手册](world-narrative-content-delivery.manual.md)。内容稿、运行事实与小说分别标识，原产品和玩法合同继续拥有题材及事实边界。
 - 想了解经营决策、目标委托和回访的体验与实现边界：先读[首局产品设计的范围与优先顺序](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#gameplay-experience-priorities)，再读[组合系统设计](gameplay-decision-delegation-return.design.md)；真实合作与策略复用保持后续范围，不增加当前首产物或邀请测试门槛。
 - 想确认间接控制为什么仍然应该让玩家感觉自己在控制：先读 `gameplay-indirect-control-agency-contract.prd.md`

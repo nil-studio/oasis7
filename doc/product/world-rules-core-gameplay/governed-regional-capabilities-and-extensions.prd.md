@@ -279,12 +279,15 @@ Trace refs: O7-REQ-17536c7e-c59a-464a-90e8-c36f0330c8f7；声明：[REQ-WR-GR-00
 
 Trace ID: O7-REQ-3d713ab7-87c2-41df-9c89-827859c23313
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[创作者输入与阶段边界](../../world-runtime/module/player-published-entities.design.md#ppe-creator-inputs)与[具体离线样例](../../world-runtime/module/player-published-entities.design.md#ppe-creator-example)承接提案来源、假设、投入、范围和阶段缺口，以及行为与 Profile 的编辑来源和离线参数样例。此为内容交付与表达的局部覆盖；工业模拟、有限试点和四阶段强制执行的完整专业合同仍未覆盖，Shadow 不替代确定性工业模拟。
+- 内容核验方法：[离线来源与参数](../../world-runtime/module/player-published-entities.manual.md#ppe-manual-offline)及[作者与使用者审读](../../world-runtime/module/player-published-entities.manual.md#ppe-manual-reading)分别记录实际执行与未执行，不代签运行。
 - 实现与验证依据：工业profile随模块发布的受治理准入子链已核清：ModuleReleaseSubmit记录完整profile payload→Shadow承诺→required-role/current owner复核→Apply重算承诺→Product/Recipe/FactoryProfileGoverned与ModuleReleaseApplied进入prepared publication并写入实际profile maps。 [release真实动作dispatch](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/module_actions/release_support.rs#L4-L102)；[请求payload与Shadow边界](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/module_actions/release_request_support.rs#L90-L202)；[当前role/owner重验](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/module_actions/release_support.rs#L129-L249)；[Apply承诺重验及completion](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/module_actions/release_support.rs#L359-L444)；[真实工业profile与release事件准备](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/module_release_publication.rs#L29-L151)；[工业profile实际state写入](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/state/module_release_transition.rs#L60-L78)；[工业profile消费者reader](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/resources.rs#L840-L855)。读面边界：state保存Requested/Shadowed/Approved/Applied/Rejected及reason、profile内容；资源reader查询product/recipe/factory maps。专门四阶段成本/失败/next_recheck/替代UI及跨入口组合未核清。 本轮只读静态源码，未运行业务测试或端到端验收；不将单项机制、字段或普通Agent投票代签完整义务。
 - 核对日期与基线：2026-10-17；固定源码/产品审读基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；新增下载24/24文件Git blob匹配该tree；全部26个引用源另逐一核验26/26匹配；与 `bab8990cef3b42fe5a0a5538b5dd0c80ca3b19f5` 的仅文档差异沿用前轮核对。本轮无业务执行证据。
 - 剩余范围：这只覆盖工业profile发布准入。Shadow是manifest/profile校验承诺，不是同authority输入的工业确定性模拟；未核到独立有限试点scope/期限/资源/退出stage、四阶段强制顺序、风险证据/成本与玩家选择。required-role绑定也不代签全套法定治理。 产品语义已冻结，专业技术承接未核到不等于待定产品政策；未检视路径不判未实现。
+
+本次设计补充核对固定于 `a23bc41943893da72dbbd78df65214a8a0ae964c`（2026-11-04）。上列历史实现证据保持原范围；新增内容样例、交付规格与方法不表示真实发布、试点或跨入口验收已完成。
 
 - 要求：玩家或 Agent 提出的配方、材料、设施、模块或等价工业能力，必须依次经过可审计提案、同一权威输入下的确定性模拟、明确 scope/期限/资源上限/退出条件的原型或受限试点，以及有范围的治理准入。任何单一阶段都不取得世界写入权、默认全局可用性、永久许可或治理资格。
 - 专业权威：[`PRD-GAME-018`](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-01)、[`玩家发布实体合同`](../../world-runtime/module/player-published-entities.prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
