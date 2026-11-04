@@ -2,13 +2,13 @@
 
 - `PRD-ID`：`PRD-GAME-018`
 - 上层产品映射：工业提案、模拟、试点与准入消费 [`REQ-WR-GR-009`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-009) / [`AC-WR-GR-009`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-009)；创作者许可与开放消费 [`REQ-WR-GR-010`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010) / [`AC-WR-GR-010`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-010)；OC 转让与世界资格隔离消费 [`REQ-WR-GR-011`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-011) / [`AC-WR-GR-011`](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-011)。需求、报价与生产/交付结算消费 [`REQ-SC31-009`](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#req-sc31-009) 及 [`AC-SC31-010`](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#ac-sc31-010) / [`AC-SC31-011`](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.prd.md#ac-sc31-011)；常态市场与危机边界消费 [`REQ-WR-ES-004`](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md#req-wr-es-004) / [`AC-WR-ES-004`](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md#ac-wr-es-004)。
-- 主题 authority：本文件拥有工业能力创建、跨区市场交易与结算的玩家动作、机会成本、失败恢复、progression 和可玩性验收，以及 §6.4 紧急保供首版政策的数值与分配规则；产品层拥有世界承诺与保护边界，`world-runtime` / `world-simulator` / `p2p` / QA 各自拥有执行事实、确定性、资产状态和验证证据。
-- 设计适用性：`simple-topic-exemption`（`PRD-only-sufficient`）。本文只承载 Why / What / Done、玩家循环、风险与验收，不新增 API、schema、状态机、结算算法或 UI 布局；配对例外在 [`doc/game/prd.index.md`](../prd.index.md) 登记。
+- 主题 authority：本文件拥有工业能力创建、跨区市场交易与结算的玩家动作、机会成本、失败恢复、progression 和可玩性验收，以及 §4.1 有限许可、§6.4 紧急保供首版政策的玩法数值与分配规则；产品层拥有世界承诺与保护边界，`world-runtime` / `world-simulator` / `p2p` / QA 各自拥有执行事实、确定性、资产状态和验证证据。
+- 设计适用性：`simple-topic-exemption`（`PRD-only-sufficient`）。本文承载 Why / What / Done、玩家循环、明确归属的玩法政策、风险与验收；API、schema、执行状态、事务实现与 UI 布局由相应专业设计承接，不另建重复的配对系统设计；配对例外在 [`doc/game/prd.index.md`](../prd.index.md) 登记。
 - 当前执行：可变 task 状态与当前实现证据由 Git、PR、实际 CI 和评审记录承载；本文件不宣称当前已实现、已平衡、已可交易、已发布或已满足 release readiness。
 
-- 配套专业系统设计：[跨区物流与 escrow 结算](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)承接 AC-GAME-018-04..06 的物流、结算与读面；[紧急保供授权、冻结分配与结算](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-001)承接 §6.4 的执行合同。工业创建和许可准入不在这两份设计范围，产品设计豁免保持原意。
+- 配套专业系统设计：[工业四阶段执行](../../world-runtime/runtime/industrial-creation-simulation-and-admission.design.md)承接提案、确定性模拟、有限试点与治理准入；[有限许可与版税结算](../../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md)承接 §4 的使用权限、托管、有限收益、开放与争议；[跨区物流与 escrow 结算](../../world-runtime/runtime/cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)承接 AC-GAME-018-04..06 的物流、结算与读面；[紧急保供授权、冻结分配与结算](../../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md#des-wr-es-001)承接 §6.4 的执行合同。专业设计覆盖与当前实现、运行验证分别判定，产品设计豁免保持原意。
 
-工业创建的具体编辑来源、完整发布包、离线配方样例及状态正文见[玩家发布内容交付](../../world-runtime/module/player-published-entities.design.md#ppe-creator-inputs)与[核验手册](../../world-runtime/module/player-published-entities.manual.md)。该专题承接现有 append-only 发布的创作交接，未完成本合同四阶段强制执行、有限许可或版税机制；实际 Shadow 与工业模拟、技术发布与产品准入分别判定。
+工业创建的具体编辑来源、完整发布包、离线配方样例及状态正文见[玩家发布内容交付](../../world-runtime/module/player-published-entities.design.md#ppe-creator-inputs)与[核验手册](../../world-runtime/module/player-published-entities.manual.md)。该专题保留 append-only 发布的创作交接；四阶段强制执行与许可由上述独立专题承接。实际 Shadow 与工业模拟、技术发布与产品准入仍须分别判定。
 
 ## 1. 目标与范围
 
@@ -70,7 +70,81 @@ OC 与世界资格分离现在有明确的 active 产品接收边界：工业/�
 - `choose_open_condition`：在已声明的到期或开放条件达到时，比较继续有限许可、转入公共开放或重新提出维护版本；开放不追溯取消已合法产生的历史收益或 receipt。
 - `challenge_or_renew`：对错误归属、范围漂移、到期判断或收益结算提出可读争议/续期请求；待决请求不延长旧许可、不产生第二次权利。
 
-许可到期、既定开放条件满足、撤销或 scope 缩小时，玩家看到通知、理由、当前可用动作、已有工作如何处置以及不失真的迁移/替代路线。获得许可权本身不等于版税已经结算：没有绑定能力使用/交付事实的 verified receipt 或有效 escrow 里程碑，不得发放、扣除或宣称版税收益。开放条件不能被单方隐藏地延长，创作者收益不能覆盖公共安全、玩家独立资产、身份或其他宪制保护；版税数字、期限长度、汇率和算法属于产品/经济/执行 authority，不在此冻结。
+许可到期、既定开放条件满足、撤销或 scope 缩小时，玩家看到通知、理由、当前可用动作、已有工作如何处置以及不失真的迁移/替代路线。获得许可权本身不等于版税已经结算：没有绑定能力使用/交付事实的 verified receipt 或有效 escrow 里程碑，不得发放、扣除或宣称版税收益。开放条件不能被单方隐藏地延长，创作者收益不能覆盖公共安全、玩家独立资产、身份或其他宪制保护。首版玩法数值与收益归属只采用下节；执行算法、事务与实际可用性由配套 Runtime 设计及证据承接，不引入汇率或外部价值承诺。
+
+<a id="industrial-license-policy-v1"></a>
+### 4.1 有限许可首版政策：`industrial-license-policy-v1`
+
+Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47。承接 [GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010) 的有限许可与开放；受限退出同时消费原 GR-003 的历史保留和单一授权边界。
+
+本政策是 2026-11-04 提出的可实施 v1 目标，不是已治理激活的制度、已实现功能或经过平衡实测的经济参数。使用当前世界的 `Electricity` 最小整数单位；不使用 OC、外汇、现实货币估值、借款或对未来收入的预支。只有准确声明的当前合法准入、资源权限、许可和执行条件同时满足才可使用能力；许可和开放均不替代其中任何一项。
+
+| 首版规则 | 固定政策与边界 |
+| --- | --- |
+| 可收费单位 | 仅支持适配器可验证的 recipe 成功完整生产批次；每批次 1 Electricity。必须绑定 exact capability/admission、原工业 use root、互不重叠批次、执行时适用许可与实际完成 receipt。试点、预计产量、失败/被拒输出、普通发布或独立运输/交付不收费；生产和交付不能对同一批次收两次。 |
+| 其他能力 | 生命周期/范围规则通用；没有已批准原生计量适配器的能力只能明确为 0 版税或开放条件，不能把未知计量当免费成功，也不能让任意 receipt 或物流 tariff 发版税。扩展付费计量须另版政策明确单位、source 与重复边界。 |
+| 硬开放 | 同一 capability lineage 首次合法工业准入 tick 为 `A`，费权最迟在 `A + 3600` 开放；所有区间左闭右开且 checked 运算。提前公开只能缩短费权，不能延长。维护、改 ID、换许可、换受益人或续期不重置 `A`。 |
+| 单次许可 | 使用范围、用途、区域、主体及维护义务明确；期限至多 600 ticks，且结束不晚于硬开放。待决续期不延长旧权，成功续期也只授予当前剩余有限期间。 |
+| 单次承诺及并发 | 一次确认至多 32 个成功完整批次；同一 world/lineage/使用主体聚合至多 4 个未终结付费用途根。换 Agent、许可、请求 ID 或切单不重置该主体限额；本根生产处置、未消费 hold、通知窗口、使用/数额争议或原请求恢复未闭合时仍占槽。已赚取款可证明移交同一 lineage 收益池并保留完整来源/个人应付后，池的尾差、受益槽归属及收款恢复独立持续，不把已终结用途根一直占到硬开放，也不清除原权利；4 是同时上限，不是终身只许 128 批。 |
+| 收益分配 | 至多 8 个有明确身份的受益人；权重为正整数 basis points，合计 10000。分配必须来自实质工作前同版同意、可验证来源和贡献 provenance 的 charter；没有合法分配依据则不能激活该付费路径。份额/收款路径转移只能显式同意并合法校验，不转让个人身份、一般信誉或过去事实。 |
+| 预留与费用 | 查看或取得许可本身不扣版税。付费用途开工前足额冻结该根全部最大版税；生产资源、执行费用、争议/退出闭合预算另列合法来源、上界和受保护 hold，不互相借用。不是原资金主体的同意不得由许可或治理代签。 |
+
+lineage 必须有可核验的初次准入和来源链；同一规范内容和已知维护/派生版本不能靠新键重开收费期限。独立创造的不同能力不能仅因主观“相似”被强行归入他人 lineage；来源或派生关系无法证明时转原有权归属审查，不默认取得新费权或复制他人独立资产。专业设计负责规范身份、等价来源与当前消费者的机械验证。
+
+单次使用许可到期只终止该许可的后续使用权，不提前改变整条 lineage 已声明的硬开放时间。硬开放前继续付费使用，须重新同意当前条款、取得有效有限许可，并对未完 root 在原工作处置允许时原子换绑；保留原 sink、完成量与已赚取账，只调整尚未消费的费用承诺，不双重冻结或重复生产。
+
+到硬开放或声明的提前开放后，同 lineage 后续合法使用的创作者版税为零，不追溯取消已经合法赚取的收益。开放的是本政策内的工业许可费权，不代表他人材料、资产、私有数据、设施、身份、安全门槛或外部素材使用权一并开放。没有当前准入、安全或设施权限时，仍不能使用。
+
+<a id="industrial-license-policy-earned"></a>
+### 4.2 赚取、通知、可分配与支付
+
+只有在费权和本次使用条件有效的半开区间内，实际权威完成的合法批次才赚取版税。新 profile 的完成提交须同根记录该批次、从版税 hold 转出的 `pending-earned` 以及按原主体权限可回读的 canonical 通知；通知 tick `N` 为该提交的世界 tick。它不要求客户端已读或玩家在线，不以第一次读取重新起算；缺这种原子登记能力不得启用付费适配器。迟到读取只能恢复原绑定、原通知和原义务，旧的无许可 receipt 不补造收费。
+
+每笔收益先经过 `[N, N + 120)` 的异议窗口。无受理案件且窗口已结束，或对应精确范围已有有效 final 时，才能进入可分配累计收入 `E`。争议使用事实/数量时仅相关批次不进入 `E`；若实际使用量已确认，只争某个冻结份额槽的受益身份，则窗口结束后该量可进入 `E`，仅保全该槽的应付，其他槽正常处理。涉及整个原分配依据的争议也只保全确受影响的槽；不得借一个归属问题冻结全 lineage。确认前须披露 canonical tick 在离线期间仍可能推进，通知与申诉窗口不保证现实分钟或客户端送达时限。
+
+同一 world/lineage/原分配版本按累计 `E` 记账，受益人 `i` 的基础归属为 `floor(E × w_i / 10000)`。新增归属只取相邻累计值的非负差；不对每张小单单独舍入，不在每次增长时使用可能使旧份额倒退的最大余数差额。未分尾差 `H = E − Σ floor(E × w_i / 10000)` 留在已经赚取的收益池，`0 ≤ H < 受益人数`，不退付款人。
+
+只有费权结束、全部既有 root/批次与晚到义务、通知窗口、案件及未知提交均可证明处置完成，才按最终余数从大到小、同余数按原分配版本的稳定份额槽标识排序，一次分配 `H` 个最小单位。槽标识及 basis points 不随身份纠错、收款路径或显式转让改变；有权处理只能核定该槽未付权益的合法归属，不能重分其他人的比例。换单、换许可或显式转让不重置累计基数；更换收款授权不重新取整或抹掉旧应付。分配与实际支付分开：原受益人无可验证接收账户时保留其个人应付权利，不能转给新的 Agent owner、退给付款人或让他人领取。
+
+静态算例：权重 50%/30%/20%，`E=7` 时基础归属为 `3/2/1`、尾差 1；`E=11` 时为 `5/3/2`、尾差 1；完整闭合后最终为 `6/3/2`。分批到账和一笔到账相同。128 个待完成批次的最大版税 hold 为 128 Electricity，但这不包含生产、执行或闭合费用，也不是玩家获利或系统吞吐的实测值。
+
+<a id="industrial-license-policy-exit"></a>
+### 4.3 到期、公开、维护和存量工作
+
+完成 tick 在旧费权范围内的合法收益，即使晚回读或晚支付仍沿旧已验证义务结算。到期/公开时尚未完成的批次不预先赚取，也不凭旧许可继续生产或自动收尾；必须沿[工业工作处置](../../world-runtime/runtime/industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)及当前准入、执行权限重新判定。
+
+允许在公开零费条件下完成的存量工作，必须以显式原子换绑保留原 root、已 sink 投入、已完成批次与旧收益账；后续合法完成量为零版税，旧未赚取费用返原来源。不得重建 root 再领材料、清掉旧债权或借换绑跳过安全处置。不能安全继续时明确停止、保留 custody/责任和原请求恢复路径；已消费材料和真实损失不自动退回。
+
+维护义务须列明验证事项、适用范围、检查时点和失败处置；失效只缩小或停止对应后续使用，不自动没收无关资产。维护版本需重新走实际变更要求的模拟/试点/准入，不能借维护重新收费期限或延续旧批准。替代能力也必须独立具备当前准入、许可和资源条件，不保证一定存在安全替代。
+
+<a id="industrial-license-policy-review"></a>
+### 4.4 许可专属的有限争议程序
+
+付费条款激活前须绑定现有世界治理明确授予的 `industrial-license.review` 本地事项权限、固定 region、政策版本、可处理对象/金额上限、名册和随机来源。服务合同 panel、charter、运维权限或多数支持不自动授予此管辖。该专业权限和程序仍是目标前置，没有真实合法来源及预算时付费路径不可激活；零费路径仍需自身有效工业权限。
+
+名册至多 64 个去重 controller，排除付款方、受益人、关联控制者、原准入/许可批准者及本案直接经济关系人。付费激活时须能证明至少 6 名无冲突候选。案件承诺先固定，再消费已授权、事前不可预选的可验证随机源的首个合格结果，形成唯一候选排列；初审 3 人、复核另 3 人，补位和复核沿原排列顺延，不通过重开、nonce 或换随机结果重抽。每阶段至少 2 人同意同一范围、证据 root 及类型化处分，才形成该阶段结论。
+
+数额、重复或范围的确定性错误优先按完整 canonical 证据重验；不需要责任判断的重验不能被包装成任意多数裁决。争议仅针对确切原条款或实际使用义务，各合法当事方都保有对应 `[N,N+120)` 登记窗口。相同受影响单位、争点和证据只能进入原 case；重试/换 ID 不能重复开案。不同后来义务保留其原通知与程序机会，不能为合并旧案剥夺新单位的申诉窗口。实际受理另记 `accepted_at`；统一程序基点固定为原通知的 `C = N + 120`，不由第一位申请人提前起算，以免抢先开案耗尽其他人的登记/证据机会。按以下边界推进：
+
+| 阶段 | 固定窗口或截止 |
+| --- | --- |
+| 普通证据 | 从各方实际受理起可提交，统一至 `C + 60`；每个有责当事主体每阶段最多 16 个不同权威 receipt 引用。普通证据关闭后冻结全部已受理 scope/证据，不能抢先用局部结论耗尽他人机会。 |
+| 初审 | 证据关闭后至 `C + 120`；按冻结输入判断。 |
+| 一次程序申诉 | 初审可验证发布后 60 ticks 内且不晚于 `C + 180`；各方合格主张并入同一轮，非先到者独占，不扩展为一般重审。 |
+| 复核 | 申诉集合冻结后至 `C + 240`；针对权限、遗漏证据、利益冲突、程序越界或可验证错误；不重选一套可被当事方操纵的随机结果。 |
+| 硬尾部 | `C + 300`；查验完整 canonical 案件/初审/复核/final/和解与账本，执行下述有限结清。重连、补位、补证和继受不重置 `C`。 |
+
+保全只涉及直接争议的未支付收益、对应未消费资金或必要的不可逆效果；无争议份额、工业 admission、独立资产和其他工作继续按原规则处理。panel 只能确认原账、依完整证据纠正未付归属/合法使用量、返未赚取资金或解除错误保全，不能改价格、续期、扩大 fee root、追索已合法支付历史、增罚或铸造补偿。
+
+复核不自动推翻初审。有效初审没有合格申诉或到复核截止仍未被有效替代时按原规则 final；有权结论、同版合法和解和已确认未付款债权继续保留执行。硬尾部能够证明没有有效改变原合同的结论时，结束程序性保全，按原已验证 charter/实际使用基线结清已赚取款、返还未赚取款。不能取得完整结果时保留明确的证据/authority 恢复状态，查询原操作；不把未知当“无裁决”、不重开期限，也不给当事方单方无限冻结权。
+
+归因更正只能处理有权可证明的合同内权益，不代签完整一般 R&D 制度或现实法律结论。已合法支付款不被本程序追溯改写；如后续证据揭示另有未补偿损失，必须如实显示，不能凭空扣他人余额或虚构补偿。
+
+### 4.5 玩家比较与专业验收
+
+接受前必须同时比较当前可用 scope/期限、有限费权和硬开放、最多冻结金额、已披露生产/执行/闭合成本、维护责任、收益分配、可用争议及其有限窗口、未完成工作处置，以及公开/零费或已有能力替代。收益预期不是保证；创造路线不能成为首局唯一解，换主体、抢提交、囤许可或暂停客户端均不延长权益。
+
+具体消费者、整数守恒、并发与恢复由[许可设计](../../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md)承接；[验收手册](../../testing/manual/industrial-license-and-royalty-settlement.manual.md)逐项验证窗口边界、开工/完成/支付分层、累计分配、单次托管、部分保全、转让和当前准入组合。四阶段方法另见[工业创建手册](../../testing/manual/industrial-creation-simulation-and-admission.manual.md)。参数复算不证明经济平衡、运行能力或玩家理解；改动计量、费率、期限或分配必须建立新政策版本并保留旧义务，不通过后台配置重写已接受合同。
 
 ## 5. OC 转让与世界资格分离
 
@@ -187,17 +261,21 @@ Trace refs: O7-REQ-918d9050-5f73-40ad-b9d4-aba87233bdd1, O7-REQ-18fe18ca-4920-4f
 - `escrow_bypass`：报价、链上转账或客户端 receipt 直接触发交付奖励/最终结算。
 - `route_multiplication`：重连、重试、并发争议或旧 receipt 重复释放资金、库存、奖励或需求减少。
 
-验证样例必须证明创造路线不会成为首局唯一解，跨区物流不会取代本地专业化，失败后仍有独立可选路线，且玩家能判断继续投入是否值得。紧急保供的首版阈值、份额和资金限制只采用 [§6.4](#emergency-supply-policy-v1)；其他成本、常态价格、版税和奖励数值仍由相应专业 authority 定义。
+验证样例必须证明创造路线不会成为首局唯一解，跨区物流不会取代本地专业化，失败后仍有独立可选路线，且玩家能判断继续投入是否值得。紧急保供的首版阈值、份额和资金限制只采用 [§6.4](#emergency-supply-policy-v1)；有限版税与开放只采用 [§4.1](#industrial-license-policy-v1)及其收益/处置规则；其他成本、常态价格和奖励数值仍由相应专业 authority 定义。
 
 ## 8. 专业验收
 
 <a id="ac-game-018-01"></a>
 ### AC-GAME-018-01：工业创建阶段形成可恢复的玩家循环
 
+Trace refs: O7-REQ-3d713ab7-87c2-41df-9c89-827859c23313；承接 [AC-WR-GR-009](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-009) 的四阶段玩家选择与可恢复结果。
+
 给定一项新工业能力机会，玩家能够依次读取可审计提案、确定性模拟、受限原型/试点和治理准入的差异，比较继续、补证、缩小范围、延期、停止和既有路线；任一阶段均不自动取得世界能力。输入缺失、模拟不一致、试点失败、准入拒绝或条件漂移时，结果保留原因、投入/损失、scope、下一复查和安全替代，不产生第二次世界效果。
 
 <a id="ac-game-018-02"></a>
 ### AC-GAME-018-02：许可和开放奖励受范围、期限与公共边界约束
+
+Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47；承接 [AC-WR-GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-010) 的有限许可、真实收益、到期开放与玩家选择。
 
 给定一个获准工业能力，玩家能看到用途/区域、期限、版税/收益、维护、撤销/争议与到期/开放条件，并在继续许可、续期、开放、替代路线之间作出有机会成本的选择。到期或开放条件达到后按规则开放；许可不能永久封锁、覆盖玩家独立资产/身份或扩大到未准入范围。重复、旧缓存和待决请求不延长、复制或追溯改写许可。
 
@@ -236,7 +314,7 @@ Trace refs: O7-REQ-7737ac31-a377-46ec-b912-9aadc0ac7fd2；产品适用承接：[
 | 玩家循环与动词 | 提案/模拟/试点/准入选择、许可取舍、市场发现/路线/交付/争议动作、收益和失败恢复 | 产品专题拥有世界规则和玩家承诺边界 |
 | 工业与市场事实 | 只定义玩家需要理解的阶段与完成边界，不定义配方、价格、订单簿、物流、库存或 escrow 算法 | `world-runtime` / `world-simulator` 拥有确定性执行、资源、物流、状态、receipt 和 replay |
 | OC 与身份 | 明确 OC 链上转让与世界资格不可互推 | `p2p` / blockchain authority 拥有链上资产、身份、签名和分布式状态 |
-| 许可与治理 | 定义范围、期限、开放/争议的玩家选择及不可永久封锁边界 | `producer_system_designer` 与产品层拥有世界治理、公共安全和长期经济总原则 |
+| 许可与治理 | §4 唯一定义首版收费单位/有限期限、收益分配、通知与有界争议、开放及玩家选择 | 产品层拥有世界治理、公共安全和长期经济总原则；Runtime 拥有当前权限、资金、计量、程序与恢复，P2P/身份 authority 证明原合法来源 |
 | 紧急保供政策 | §6.4 唯一定义初始品类、危机阈值、优先级、配给、窗口、预算/补偿与退出规则 | 产品 ES-001..004 拥有保护边界；runtime 拥有版本化授权、需求账本、原子结算与恢复接口；P2P 证明既有治理权限和权威顺序 |
 | 表达和验证 | 规定玩家应看到的原因、机会成本、下一步和 parity 目标 | Viewer/API/Agent 拥有表达实现，QA 与 `doc/testing/prd.md` 拥有验证与 release 判断 |
 
@@ -244,7 +322,7 @@ Trace refs: O7-REQ-7737ac31-a377-46ec-b912-9aadc0ac7fd2；产品适用承接：[
 
 ## 10. Non-Goals
 
-- 除 §6.4 的保供首版政策外，不规定配方、材料、产率、常态价格、税费、版税数值、汇率、订单簿、库存、物流寻路、损耗公式、路线费率或通用 escrow 释放公式；保供不反向改写这些常态合同。
+- 除 §4 的有限许可和 §6.4 的保供首版政策外，不规定配方、材料、产率、常态价格、税费、版税数值、汇率、订单簿、库存、物流寻路、损耗公式、路线费率或通用 escrow 释放公式；两个有界政策不反向改写这些常态合同。
 - 不实现工业提案、确定性模拟、试点、治理准入、许可、市场撮合、物流、目的地存储、结算、争议或任何 runtime/API/schema/action。
 - 不把模型生成、投票、链上持有、客户端 receipt、报价或历史先例变成世界写入、玩家资格、最终交付或 reward 旁路。
 - 不新增第五产品模块、不改变现有目录 slug 或产品 PRD-ID，不扩展 `PRD-GAME-015`/`016` 的 authority，也不替代常态市场与紧急保供产品专题。

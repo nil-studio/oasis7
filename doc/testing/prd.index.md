@@ -43,6 +43,10 @@
 | `chaos-plans/` | 专项 chaos plan 入口 |
 
 ## 活跃补充文档
+
+- [工业创建四阶段验收](manual/industrial-creation-simulation-and-admission.manual.md)：同输入模拟、试点预算/退出、当前准入和原请求恢复。
+- [有限许可与版税验收](manual/industrial-license-and-royalty-settlement.manual.md)：真实批次、托管、通知与最小保全、累计整数分配及开放。
+- [情境声誉验收](manual/contextual-reputation-acceptance.manual.md)：合同来源、主体/情境/时效、补救、更正和旧分数消费者隔离。
 - [外部 Runtime 自主试玩与开发自测设计](governance/agent-runtime-self-playtest.design.md)：承接现有 L4B、真实 subagent、玩家 Skill、自主游玩、权威验真及修复回归，不新增通用门禁。
 - [开发 Agent 自测操作手册](manual/agent-runtime-self-playtest.manual.md)：唯一操作入口，集中维护预检、启动、派工、七组场景、反馈与清理；试玩者读取正式游戏 Skill。
 - [首局真人试玩手册](manual/first-session-human-playtest.manual.md)：复用现行证据层级与首局要求，提供受控目标玩家的筛选、两次会话、主持话术、提示规则、原始记录和复测方法；真实执行与结论在原 PR/证据入口分别留证。
