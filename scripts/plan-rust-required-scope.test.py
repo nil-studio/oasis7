@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import contextlib
+import copy
 import fnmatch
 import inspect
 import hashlib
@@ -176,6 +177,82 @@ class Selection(unittest.TestCase):
         self.assertEqual(plan['architecture']['mode'], 'targeted')
         self.assertEqual(plan['architecture']['packages'], ['core'])
         self.assertIn('consumer', plan['groups'])  # ordinary CI stays conservative
+
+    def test_unchanged_git_blobs_are_read_and_lexed_once_per_selection(self):
+        self.write('doc/readme.md', 'documentation alone changed')
+        head = self.commit()
+        original = selector.subprocess.check_output
+        batches = []
+
+        def read(command, **kwargs):
+            if command == ['git', 'cat-file', '--batch']:
+                batches.extend(kwargs['input'].splitlines())
+            return original(command, **kwargs)
+
+        with patch.object(selector.subprocess, 'check_output', side_effect=read), \
+                patch.object(selector, 'rust_source_inputs', wraps=selector.rust_source_inputs) as parse:
+            plan = selector.select(self.config, self.base, head)
+        self.assertEqual(plan['groups'], ['baseline'])
+        # All three lib.rs files are the same blob, unchanged across two refs.
+        self.assertEqual(parse.call_count, 1)
+        self.assertEqual(len(batches), len(set(batches)))
+        self.assertTrue(batches)
+
+    def test_blob_parse_reuse_keeps_each_tree_path_and_graph_independent(self):
+        source = 'const INPUT: &str = include_str!("../fixture.txt");\n'
+        for name in ('core', 'consumer', 'other'):
+            self.write(f'crates/{name}/src/lib.rs', source)
+            self.write(f'crates/{name}/fixture.txt', name)
+        base = self.commit()
+        cache = selector.GitSourceCache()
+        first = selector.cargo_graph(base, source_cache=cache)
+        for name in ('core', 'consumer', 'other'):
+            path = f'crates/{name}/fixture.txt'
+            self.assertEqual(first[2][path], {name})
+            self.assertEqual(first[2]['__rust_data_readers__'][path], {f'crates/{name}/src/lib.rs'})
+        # Mutating one returned graph must not alter another version's objects.
+        first[0]['core'][1]['package']['name'] = 'tampered'
+        first[1]['core'].clear()
+        first[2]['crates/core/fixture.txt'].clear()
+        second = selector.cargo_graph(base, source_cache=cache)
+        self.assertEqual(second[0]['core'][1]['package']['name'], 'core')
+        self.assertEqual(second[1]['core'], {'consumer'})
+        self.assertEqual(second[2]['crates/core/fixture.txt'], {'core'})
+        self.git('mv', 'crates/core/src/lib.rs', 'crates/core/src/relocated.rs')
+        self.write('crates/core/src/lib.rs', 'mod relocated;\n')
+        third = selector.cargo_graph(self.commit(), source_cache=cache)
+        self.assertEqual(third[2]['__rust_data_readers__']['crates/core/fixture.txt'],
+                         {'crates/core/src/relocated.rs'})
+
+    def test_cached_literals_still_resolve_new_tracked_inputs_in_each_tree(self):
+        self.write('crates/core/src/lib.rs', 'const PATH: &str = "doc/new-fixture.txt";\n')
+        base = self.commit()
+        self.write('doc/new-fixture.txt', 'newly tracked input')
+        plan = selector.select(self.config, base, self.commit())
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'core', 'consumer'})
+
+    def test_parse_cache_does_not_survive_selection_or_mutable_ref_changes(self):
+        self.write('doc/readme.md', 'first change')
+        self.commit()
+        self.assertEqual(selector.select(self.config, self.base, 'HEAD')['groups'], ['baseline'])
+        self.write('crates/core/src/lib.rs', 'const DATA: &str = include_str!(env!("UNKNOWN_INPUT"));\n')
+        self.commit()
+        changed = selector.select(self.config, self.base, 'HEAD')
+        self.assertEqual(changed['scope'], 'full')
+        self.assertTrue(any('unresolved embedded consumer' in reason for reason in changed['reasons']))
+
+    def test_blob_cache_rejects_incomplete_or_mismatched_batch_objects(self):
+        oid = b'a' * 40
+        cases = [b'b' * 40 + b' blob 1\nx\n', oid + b' tree 1\nx\n',
+                 oid + b' blob 2\nx\n', oid + b' blob 1\nx?',
+                 oid + b' blob 1\nx\nextra', oid + b' missing\n']
+        for data in cases:
+            with self.subTest(data=data):
+                cache = selector.GitSourceCache()
+                with patch.object(selector.subprocess, 'check_output', return_value=data), \
+                        self.assertRaises(ValueError):
+                    cache.load([oid])
+                self.assertEqual(cache.blobs, {})
 
     def test_architecture_shared_and_checker_controls_build_full(self):
         for path in ('Cargo.toml', 'Cargo.lock', 'crates/core/build.rs', 'rust-toolchain.toml',
@@ -1636,7 +1713,7 @@ class Selection(unittest.TestCase):
         Path('crates/oasis7_agent_harness/src/lib.rs').unlink()
         head = self.commit()
 
-        def graph_for(ref, generated_inputs=()):
+        def graph_for(ref, generated_inputs=(), *, source_cache=None):
             return ((old_manifests, old_reverse, {}) if ref == base
                     else (new_manifests, new_reverse, {}))
 
@@ -1816,6 +1893,62 @@ class Selection(unittest.TestCase):
         self.assertIn('launcher_web', plan['groups'])
         self.assertEqual(plan['fast_plan_exceptions'], [])
         self.assertNotIn('build_policy_version', plan['architecture'])
+
+    def native_consumer_fixture(self):
+        config = self.component_config()
+        for group in ('distfs', 'net', 'node'):
+            package = 'oasis7_' + group
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n'
+                       '[dependencies]\ncore={path="../core"}\n')
+            self.write(f'crates/{package}/src/lib.rs', 'pub fn consumer() {}\n')
+            config['groups'].append(group)
+            config['resources'][group] = []
+            config['package_groups'][package] = [group, 'formal_process']
+        base, head = self.component_fixture()
+        return config, base, head
+
+    def test_native_reverse_consumer_groups_keep_fast_architecture_and_all_checks(self):
+        config, base, head = self.native_consumer_fixture()
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                plan = selector.select(config, base, head, profile=profile)
+                self.assertEqual(set(plan['groups']),
+                                 {'baseline', 'rust_baseline', 'oasis7_required', 'distfs', 'net', 'node'})
+                self.assertEqual(plan['ordinary_fast_targets'], [config['ordinary_fast_targets']['core-lib']])
+                self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+                self.assertEqual(plan['architecture']['packages'], ['core'])
+                self.assertEqual(plan['architecture'].get('build_policy'), 'ordinary-targets')
+                self.assertEqual(plan['architecture'].get('consumer_groups'),
+                                 {group: ['oasis7_' + group] for group in ('distfs', 'net', 'node')})
+                self.assertEqual(plan['affected_packages'],
+                                 ['consumer', 'core', 'oasis7_distfs', 'oasis7_net', 'oasis7_node'])
+                self.assertEqual(plan['formal_suites'], [])
+                self.assertEqual(plan['fast_plan_exceptions'], [])
+
+    def test_native_consumer_group_does_not_cover_direct_unmapped_inputs_or_requests(self):
+        config, base, head = self.native_consumer_fixture()
+        for group in ('net', 'node', 'distfs'):
+            with self.subTest(group=group, reason='explicit request'):
+                plan = selector.select(config, base, head, additions=(group,), profile='pr-fast')
+                self.assertNotIn('build_policy', plan['architecture'])
+            self.write(f'crates/oasis7_{group}/src/lib.rs', 'pub fn directly_changed() {}\n')
+            with self.subTest(group=group, reason='direct owner'):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertIn('oasis7_' + group, plan['architecture']['packages'])
+                self.assertNotIn('build_policy', plan['architecture'])
+            self.git('reset', '--hard', head)
+        path = 'tools/native-consumer-input.txt'
+        self.write(path, 'additional non-Cargo input\n')
+        head = self.commit()
+        for group in ('net', 'node', 'distfs'):
+            with self.subTest(group=group, reason='direct path contract'):
+                mixed = json.loads(json.dumps(config))
+                mixed['rules'].append({'match': [path], 'groups': [group], 'reason': 'actual separate input'})
+                plan = selector.select(mixed, base, head, profile='pr-fast')
+                self.assertEqual(plan['architecture']['packages'], ['core'])
+                self.assertIn(group, plan['groups'])
+                self.assertNotIn('build_policy', plan['architecture'])
 
     def test_component_architecture_policy_cannot_borrow_scoped_control_exceptions(self):
         config = self.component_config()
@@ -3352,6 +3485,18 @@ class PythonControlContracts(unittest.TestCase):
                 self.assertEqual(plan['scope'], 'targeted')
                 self.assertTrue(groups.issubset(plan['groups']))
                 self.assertNotIn('oasis7_required', plan['groups'])
+                if path == 'scripts/ci_process_runner.py':
+                    self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+                    self.assertEqual(plan['python_control_paths'], [path])
+                    self.assertEqual(plan['python_control_tests'], {'workflow_governance': [
+                        'scripts/ci-formal-process.test.py',
+                        'scripts/ci-storage-acceptance.test.py',
+                        'scripts/ci-support-profiles.test.py',
+                    ]})
+                    older = copy.deepcopy(config)
+                    del older['scoped_control_paths'][path]
+                    del older['python_control_contracts'][path]
+                    self.assertEqual(selector.select(older, self.base, head)['scope'], 'full')
                 self.base = head
 
     def test_full_profile_keeps_the_complete_control_contract_inventory(self):

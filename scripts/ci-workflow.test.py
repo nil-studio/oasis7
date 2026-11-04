@@ -613,10 +613,18 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('--source-ref "$SOURCE_SHA"', planner)
         self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
-        self.assertIn('group: [baseline, rust_baseline, oasis7_required]', preview)
+        self.assertIn('groups: ${{ steps.preview.outputs.groups }}', planner)
+        self.assertIn('group: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.groups) }}', preview)
         self.assertIn('fail-fast: false', preview)
         self.assertIn('ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}', preview)
         self.assertIn('ci-fast-preview.py restore --metadata', preview)
+        compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
+                        if 'name: Install WASM C compiler' in step)
+        self.assertIn("if: matrix.group == 'net'", compiler)
+        for command in ('sudo apt-get install -y clang llvm',
+                        'clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
+            self.assertIn(command, compiler)
+            self.assertIn(command, JOBS['net'])
         self.assertIn('scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}"', preview)
         self.assertIn('--requirement scripts/doc-governance-requirements.txt', preview)
         self.assertIn('OASIS7_CI_PROFILE: pr-fast', preview)
@@ -647,14 +655,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             (root / 'scripts/ci-tests.sh').write_text(
                 '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\nexit "$DRIVER_EXIT"\n')
             (root / 'selection.json').write_text('{}')
-            for group in ('baseline', 'rust_baseline', 'oasis7_required'):
+            for group in ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node'):
                 for code in (0, 19):
                     result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
                         env=dict(os.environ, PREVIEW_GROUP=group, RUNNER_TEMP=str(root),
                                  GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'), DRIVER_EXIT=str(code)))
                     args = (root / 'args').read_text().strip('\0').split('\0')
                     expected = ['required', '--group', group]
-                    if group != 'baseline':
+                    if group in ('rust_baseline', 'oasis7_required'):
                         expected.extend(['--plan', str(root / 'selection.json')])
                     expected.extend(['--repo-root', str(root)])
                     with self.subTest(group=group, driver_exit=code):

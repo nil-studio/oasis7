@@ -624,11 +624,49 @@ run_oasis7_viewer_software_safe_feedback_contract_tests() {
   run bash ./scripts/viewer-prompt-control-race-identity.test.sh
   run node --test crates/oasis7_viewer/scripts/agent-browser-visual-runner-lifecycle.test.mjs
   run ./scripts/bundle-freshness-lib.test.sh
-  run npm --prefix crates/oasis7_viewer run test:ui
+  if [[ "${1:-}" != --source-only ]]; then
+    run npm --prefix crates/oasis7_viewer run test:ui
+  fi
 }
 
 run_oasis7_viewer_software_safe_build() {
-  run ./scripts/build-viewer-software-safe.sh
+  if [[ "${1:-}" == --with-ui ]]; then
+    run_oasis7_viewer_software_safe_build_with_ui
+  else
+    run ./scripts/build-viewer-software-safe.sh
+  fi
+}
+
+run_oasis7_viewer_software_safe_build_with_ui() {
+  # UI reads source/fixtures; the build alone writes the generated bundle/dist.
+  # Supervise their shared process tree so failure, cancellation, or leftover
+  # descendants cannot cross the browser-security build barrier.
+  run "$ci_python" - "$driver_dir" "$repo_root" <<'PY_VIEWER_PARALLEL'
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+driver, root = map(Path, sys.argv[1:])
+sys.path.insert(0, str(driver))
+from ci_process_runner import run
+
+command = ['bash', '-c', '''set -euo pipefail
+driver_dir="$1"; repo_root="$2"; ci_python="$3"
+source "$driver_dir/ci-tests.sh"
+run npm --prefix crates/oasis7_viewer run test:ui &
+ui_pid=$!
+run_oasis7_viewer_software_safe_build &
+build_pid=$!
+wait "$ui_pid"
+wait "$build_pid"
+''', 'viewer-ui-and-build', str(driver), str(root), sys.executable]
+with tempfile.TemporaryDirectory(prefix='oasis7-viewer-checks-') as temporary:
+    result = run(command, root, os.environ, 'viewer_js_required', 'ui-and-production-build',
+                 Path(temporary) / 'results.jsonl', timeout_seconds=2400)
+if not result['passed']:
+    raise SystemExit(1)
+PY_VIEWER_PARALLEL
 }
 
 run_pixel_world_bridge_lib_tests() {
@@ -841,8 +879,8 @@ run_full_required_superset() {
   run_oasis7_net_libp2p_clippy
   run_oasis7_net_tests
   run_oasis7_net_libp2p_tests
-  run_oasis7_viewer_software_safe_feedback_contract_tests
-  run_oasis7_viewer_software_safe_build
+  run_oasis7_viewer_software_safe_feedback_contract_tests --source-only
+  run_oasis7_viewer_software_safe_build --with-ui
   run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs
   run_oasis7_viewer_visual_test_build
   run_oasis7_viewer_performance_smoke_report_only
@@ -939,7 +977,7 @@ run_group() {
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
     node) run_oasis7_node_clippy; run_oasis7_node_tests ;;
     net) run_oasis7_net_clippy; run_oasis7_net_libp2p_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_tests ;;
-    viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests; run_oasis7_viewer_software_safe_build; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
+    viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;
     launcher_web) run_oasis7_client_launcher_web_build ;;

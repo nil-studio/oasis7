@@ -13,6 +13,7 @@ try:
 except ModuleNotFoundError:
     raise SystemExit("Python 3.11 or newer is required; use scripts/plan-rust-required-scope.sh to discover it")
 from pathlib import Path
+from types import MappingProxyType
 
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
@@ -41,7 +42,8 @@ NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
-           'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py')
+           'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py',
+           'scripts/ci_process_runner.py')
 
 
 class UnknownInputsError(ValueError):
@@ -361,7 +363,51 @@ def rust_source_inputs(source, return_tokens=False, with_module_paths=False):
     return literals, calls
 
 
-def cargo_graph(ref, generated_inputs=()):
+class GitSourceCache:
+    """One selection's immutable blob bytes and context-free Rust input scans.
+
+    Paths, modes, manifests, generated-output permissions and consumer edges are
+    still interpreted separately for every Git tree. No ref name or worktree
+    content is a cache key, and no state survives a select() invocation.
+    """
+
+    def __init__(self):
+        self.blobs = {}
+        self.rust_inputs = {}
+
+    def load(self, oids):
+        missing = list(dict.fromkeys(oid for oid in oids if oid not in self.blobs))
+        if not missing:
+            return
+        data = subprocess.check_output(['git', 'cat-file', '--batch'],
+                                       input=b''.join(oid + b'\n' for oid in missing))
+        fetched, offset = {}, 0
+        for oid in missing:
+            end = data.find(b'\n', offset)
+            fields = data[offset:end].split() if end >= offset else []
+            if (len(fields) != 3 or fields[:2] != [oid, b'blob']
+                    or not fields[2].isdigit()):
+                raise ValueError('invalid Git blob batch header')
+            size = int(fields[2])
+            start, offset = end + 1, end + 1 + size
+            if data[offset:offset + 1] != b'\n':
+                raise ValueError('incomplete Git blob batch body')
+            fetched[oid] = data[start:offset]
+            offset += 1
+        if offset != len(data):
+            raise ValueError('unexpected trailing Git blob batch data')
+        self.blobs.update(fetched)
+
+    def inputs(self, oid):
+        if oid not in self.rust_inputs:
+            literals, calls, uncertain = rust_source_inputs(
+                self.blobs[oid].decode('utf-8', 'replace'), with_module_paths=True)
+            self.rust_inputs[oid] = (tuple(literals),
+                                    tuple(MappingProxyType(call) for call in calls), uncertain)
+        return self.rust_inputs[oid]
+
+
+def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
     """Resolve workspace path edges including dev/build/target and renamed dependencies.
 
     Optional dependencies are included conservatively, so no feature combination is lost.
@@ -380,15 +426,10 @@ def cargo_graph(ref, generated_inputs=()):
         if kind == b'blob' and (path.endswith(b'Cargo.toml') or path.endswith(b'.rs')):
             entries.append((oid, path.decode('utf-8', 'surrogateescape')))
             blob_modes[path.decode('utf-8', 'surrogateescape')] = mode
-    data = subprocess.check_output(['git', 'cat-file', '--batch'], input=b''.join(oid + b'\n' for oid, _ in entries))
-    blobs = {}
-    offset = 0
-    for _, path in entries:
-        end = data.index(b'\n', offset)
-        size = int(data[offset:end].split()[2])
-        offset = end + 1
-        blobs[path] = data[offset:offset + size]
-        offset += size + 1
+    source_cache = source_cache if source_cache is not None else GitSourceCache()
+    source_cache.load(oid for oid, _ in entries)
+    blob_oids = {path: oid for oid, path in entries}
+    blobs = {path: source_cache.blobs[oid] for oid, path in entries}
     paths = list(blobs)
     root = tomllib.loads(blobs['Cargo.toml'].decode())
     workspace = root.get('workspace', {})
@@ -474,7 +515,7 @@ def cargo_graph(ref, generated_inputs=()):
     def inputs(path):
         if path not in source_inputs:
             try:
-                source_inputs[path] = rust_source_inputs(blobs[path].decode('utf-8', 'replace'), with_module_paths=True)
+                source_inputs[path] = source_cache.inputs(blob_oids[path])
             except ValueError as error:
                 raise ValueError(f'{path}: {error}') from error
         return source_inputs[path]
@@ -2233,17 +2274,30 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     architecture = plan['architecture']
     inputs = set(architecture['packages'])
     owners = {target['package'] for target in plan.get('ordinary_fast_targets', ())}
+    required_groups = {'baseline', 'rust_baseline', 'oasis7_required'}
+    extra_groups = set(plan['groups']) - required_groups
+    consumer_groups = {group: sorted(package for package in affected - inputs
+                                    if group in config['package_groups'].get(package, ()))
+                       for group in sorted(extra_groups)}
+    # Native reverse-consumer jobs retain their complete existing checks. A
+    # direct path contract or an explicit request is a separate input, not proof
+    # that an extra group only exercises an already-covered component change.
+    native_consumers = (extra_groups <= {'consensus', 'distfs', 'net', 'node'}
+                        and all(consumer_groups.values())
+                        and not any(extra_groups.intersection(groups) for groups in path_rules.values()))
     if (config.get('architecture_build_policy_version') == ARCHITECTURE_BUILD_POLICY_VERSION
             and plan.get('fast_execution_version') == FAST_EXECUTION_VERSION
             and plan.get('ordinary_execution') == 'inline' and plan['scope'] == 'targeted'
             and architecture['mode'] == 'targeted' and not additions
-            and set(plan['groups']) == {'baseline', 'rust_baseline', 'oasis7_required'}
+            and required_groups.issubset(plan['groups']) and native_consumers
             and not plan['test_policy_changed'] and not plan['fast_plan_exceptions']
             and not plan['formal_suites'] and not plan['oasis7_required_wasm_packages']
             and not any(fnmatch.fnmatchcase(path, pattern) for path in paths for pattern in CONTROL)
             and inputs and inputs.issubset(owners)):
         architecture.update(build_policy_version=ARCHITECTURE_BUILD_POLICY_VERSION,
                             build_policy='ordinary-targets')
+        if consumer_groups:
+            architecture['consumer_groups'] = consumer_groups
         plan['reasons'].append('all architecture inputs have mandatory fast targets; '
                                'extra profile compilation stays in full, all dependency graphs remain required')
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
@@ -2298,9 +2352,10 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             full = True
             reasons.append('uncertain tested merge inputs: ' + str(error))
         graphs = []
+        source_cache = GitSourceCache()
         for ref in dict.fromkeys(graph_refs):
             try:
-                graph = cargo_graph(ref, config.get('generated_inputs', []))
+                graph = cargo_graph(ref, config.get('generated_inputs', []), source_cache=source_cache)
                 graphs.append(graph)
                 sources = graph[2].pop('__rust_sources__', {})
                 if profile is not None:
