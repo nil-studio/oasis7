@@ -1,6 +1,7 @@
 //! Bounded recovery qualification for the dedicated opaque module-state key
 //! family. It returns counts only and never hydrates the module map.
 use crate::incremental_agent_mutation::BodyMutationError;
+use crate::incremental_module_fields::ModuleStateKeyV1;
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionError,
     incremental_state::{
@@ -10,7 +11,6 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueIoBudget, ValueNodeReader, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use crate::incremental_module_fields::ModuleStateKeyV1;
 use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

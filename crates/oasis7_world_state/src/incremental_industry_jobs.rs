@@ -141,6 +141,7 @@ mod key_read;
 mod tree;
 pub use family::{
     IndustryFamilyQualificationV1, IndustryFamilyReadContextV1, qualify_industry_family_v1,
+    readmit_industry_family_ordinary_v1,
 };
 
 #[path = "incremental_industry_jobs_container.rs"]

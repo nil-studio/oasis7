@@ -72,6 +72,10 @@ mod record_families;
 #[path = "incremental_owner_closure_typed_maps.rs"]
 mod typed_maps;
 
+#[path = "incremental_owner_closure_primitives.rs"]
+mod primitives;
+pub use primitives::*;
+
 const OWNER_SCAN_METADATA_BYTES: usize = 4096;
 const U64_SEMANTIC_BYTES: u64 = (SEMANTIC_KEY_DOMAIN.len() + 1) as u64;
 const ROOT_SET_CANONICAL_MAX_BYTES: usize =

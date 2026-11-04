@@ -11,8 +11,12 @@ use oasis7_formal_protocol::{
 use std::cell::RefCell;
 pub struct RuntimeControlsQualificationV1 {
     roots: [u8; 32],
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl RuntimeControlsQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {
         if roots.digest().map_err(|_| invalid())? != self.roots {
             return Err(invalid());
@@ -176,7 +180,10 @@ pub fn qualify_runtime_controls_v1<
     if (cancel.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(retained.retain(RuntimeControlsQualificationV1 { roots }))
+    Ok(retained.retain(RuntimeControlsQualificationV1 {
+        roots,
+        class: ctx.values.class,
+    }))
 }
 pub fn accept_runtime_controls_transition_v1<
     M: MerkleNodeReader,
@@ -193,7 +200,8 @@ pub fn accept_runtime_controls_transition_v1<
 ) -> Result<ReservedValue<RuntimeControlsQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
-        || parent.reserved_bytes() < std::mem::size_of::<RuntimeControlsQualificationV1>()
+        || parent.reserved_bytes() < 512
+        || parent.class != ctx.values.class
         || !verifier.memory.same_pool(ctx.values.memory)
         || verifier.class != ctx.values.class
     {
@@ -247,5 +255,12 @@ pub fn accept_runtime_controls_transition_v1<
     }
     let roots = record.after.digest().map_err(|_| invalid())?;
     ctx.check()?;
-    Ok(retained.retain(RuntimeControlsQualificationV1 { roots }))
+    Ok(retained.retain(RuntimeControlsQualificationV1 {
+        roots,
+        class: ctx.values.class,
+    }))
 }
+
+#[path = "incremental_runtime_controls_family_readmission.rs"]
+mod readmission;
+pub use readmission::readmit_runtime_controls_ordinary_v1;

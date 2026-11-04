@@ -13,12 +13,13 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::MemoryReservation;
 use std::{cell::RefCell, collections::BTreeMap};
+type ColumnReferenceSchemaV1 = fn(&ColumnKeyV1) -> Option<[u8; 32]>;
 #[derive(Clone, Copy)]
 pub(crate) struct ColumnReadProfileV1 {
     pub field: FieldDescriptor,
     pub schema: [u8; 32],
     pub groups: &'static [&'static str],
-    pub reference_schema: Option<fn(&ColumnKeyV1) -> Option<[u8; 32]>>,
+    pub reference_schema: Option<ColumnReferenceSchemaV1>,
 }
 pub struct RecoveredColumnsV1<T> {
     value: T,

@@ -135,6 +135,12 @@ pub fn change_qualified_governance_member_v1<
             || !tx.uses_budget(ctx.values.memory)
             || !tx.uses_budget(write.memory)
             || !change.qualification.uses_budget(write.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                change.qualification,
+                write.memory,
+                oasis7_proto::memory_budget::MemoryClass::Ordinary,
+            )
+            .is_err()
         {
             return Err(invalid().into());
         }

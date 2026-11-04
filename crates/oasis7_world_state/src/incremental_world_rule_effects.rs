@@ -176,3 +176,11 @@ pub use overlay::{
     WorldRuleEffectChangeV1, WorldRuleEffectExpectedV1, change_world_rule_effect_overlay_v1,
     read_world_rule_effect_overlay_v1,
 };
+
+#[path = "incremental_world_rule_remainder.rs"]
+mod remainder;
+pub use remainder::{
+    WORLD_RULE_CHILDREN_V1, WorldRuleRemainderQualificationV1, WorldRuleRemainderWorkV1,
+    accept_world_rule_remainder_transition_v1, qualify_world_rule_remainder_v1,
+    readmit_world_rule_remainder_ordinary_v1, world_rule_child_from_semantic_v1,
+};

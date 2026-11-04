@@ -52,7 +52,11 @@ pub fn verify_factory_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
         return Err(ValueTreeError::Cancelled.into());
     }
     let memory = context.values.memory;
-    if context.values.class != MemoryClass::Ordinary || !qualification.uses_budget(memory) {
+    if context.values.class != MemoryClass::Ordinary
+        || qualification.class != MemoryClass::Ordinary
+        || !qualification.uses_budget(memory)
+        || qualification.reserved_bytes() < std::mem::size_of::<FactoryFamilyQualificationV1>()
+    {
         return Err(invalid().into());
     }
     let _workspace = memory
@@ -173,6 +177,7 @@ pub fn verify_factory_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
         qualification: charge.retain(FactoryFamilyQualificationV1 {
             roots: digest,
             records: counts,
+            class: MemoryClass::Ordinary,
         }),
     })
 }

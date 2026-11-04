@@ -1385,3 +1385,117 @@ Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4
 原 Option、整数宽度/符号、Vec 原顺序与重复项、map 原 key 和空字符串完整保留。ModuleSubscription.filters 仅因其原类型为 JSON 而复用原 JSON codec，保留 f64 -0.0 位身份；其他 DTO 不转 JSON。所有 enum 使用封闭 tagged child，unit variant 仍有 child，未知 tag、缺列及其他 variant 遗留列拒绝。FinalityKeyRotation 原记录最多 256 项，原 key 须非空、无首尾空白且至多 256 bytes，与原 body.rotation_id 完全一致；原 authorized action 与 record.validate 校验不被结构资格替代。持久化 binding 验证只点读 value/authorized_action/action/body/rotation_id，但完整字段资格仍须认证其他全部内容。
 
 上述 GEN、选中记录冷恢复与字段资格只证明受测结构；完整 History、原件、物理可用性、原 authority 接受、active head 和恢复后合法续写仍是完整启用的必要条件，不以成功计数或空世界测试替代。
+
+
+Runtime 的 pending_actions 为独立 Ordered/Scheduler 字段。GEN 保存唯一 Metadata 和每个原队列位置的 Entry；语义键为 Pair(U64 era, U64 ordinal)，GEN 固定 era=0、ordinal 从零连续递增，不按 action ID 排序或去重。Entry 使用 RecordRoot，绑定 pending_actions.columns 固定 schema、原 Pair 键摘要及 Scheduler 根。封闭字段为 original_id（64 字节小写十六进制 Text）、original_bytes（非零 U64）和 envelope（完整原 ActionEnvelope 类型投影）。原件回调返回实际 flat digest 和字节长度；完整族验证分别流式编码类型投影和读取实际原件，核对两个独立流的哈希与长度。类型恢复不授予业务接受、History 资格、保留权或物理可用性。保存和恢复不允许将 pending_actions 默认为空。原件、sink、连续 typed/record 预算或取消失败即废弃 provisional 前缀；原件后再检查取消。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+完整 current-state GEN 由 Runtime 唯一组合入口顺序调用 typed 与 dedicated raw 生产器，共享同一 PageStore writer、MemoryBudget、I/O、semantic key work、取消及 charged ExecutionWrite sink，不新建普通事务或发布 head。Runtime typed descriptor 闭合表由 WorldState 层持有并由 Runtime 原字段 projection inventory 核对，使存储端点不反向依赖 Runtime。逐行统一 key router 校验原 owner/name/shape/namespace 和 canonical framing；WorldState module_states 只允许 dedicated 原字节 key family，不接受另一份 generic-field 格式。Agent 子字段、body、mailbox、module instance/count/index、module wakes/index 与四组 allocator 仅接受其既有封闭 key。未知、畸形或错误 namespace 的 key 失败。完整路由资格共享有限 scan 并不收集全部叶子，绑定精确 RootSet、class 和内存池，保留底层 reader 的 typed error；它只认证 key 全覆盖，不替代 typed value、原历史、physical lease 或原 authority 的资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+Runtime controls 与 effect-records 的完整族资格必须保存实际分配 class；Ordinary 接收与更新同时核对同池、精确父根、足额 carrier 及 Ordinary class。同池并不使 Recovery 资格自动适用于 Ordinary。显式 readmission 只复制已验证的不可变结构摘要，并在复制前取得 Ordinary 准入；不借此声称 physical lease 或业务授权。module authorization 的独立 receiver 先 replay 真 TransitionRecord；新增原记录完整验证，删除只验证必要旧 outer binding，原记录更新继承未变列并认证实际改变列。effect_kinds 的最终 length、ordinal 区间与数量闭合，policy decision kind 与 reason 列关系独立校验；未知列、fixed 列删增、缺洞或其他 variant 遗留列拒绝。该分支不得为修改 expiry 重读未变的巨大 name/reason，仍共享有限 scan、I/O、key、取消和输出计费。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+### Pending Action 原类型结构投影
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+原 ActionEnvelope 的 governance_authorization、committed_recipe_origin、id、action 均以封闭原类型图保存。Action 的 91 个原 variant 使用以下固定 tag；后续只追加，不因Rust声明重排重编号。原Serde/签名/canonical原件wire不改。struct原字段穷尽访问，原JSON字段独占JSON codec；原NodeSettlement的f64直接以U64保存to_bits/from_bits，包含负零和NaN payload，不通过JSON或finite策略改变原值。未知tag、字段、错误kind及残余variant列拒绝。
+
+- 1: WorldRule
+- 2: WorldServiceIntent
+- 3: RegisterAgent
+- 4: MoveAgent
+- 5: QueryObservation
+- 6: EmitObservation
+- 7: BodyAction
+- 8: EmitBodyAttributes
+- 9: ExpandBodyInterface
+- 10: DeployModuleArtifact
+- 11: CompileModuleArtifactFromSource
+- 12: InstallModuleFromArtifact
+- 13: InstallModuleFromArtifactWithFinality
+- 14: InstallModuleToTargetFromArtifact
+- 15: InstallModuleToTargetFromArtifactWithFinality
+- 16: UpgradeModuleFromArtifact
+- 17: UpgradeModuleFromArtifactWithFinality
+- 18: ModuleReleaseSubmit
+- 19: ModuleReleaseShadow
+- 20: ModuleReleaseSubmitAttestation
+- 21: ModuleReleaseApproveRole
+- 22: ModuleReleaseBindRoles
+- 23: ModuleReleaseReject
+- 24: ModuleReleaseApply
+- 25: ModuleReleaseApplyWithFinality
+- 26: RollbackModuleInstance
+- 27: RollbackModuleInstanceWithFinality
+- 28: ListModuleArtifactForSale
+- 29: BuyModuleArtifact
+- 30: DelistModuleArtifact
+- 31: DestroyModuleArtifact
+- 32: PlaceModuleArtifactBid
+- 33: CancelModuleArtifactBid
+- 34: TransferResource
+- 35: CollectData
+- 36: CollectDataAuthenticated
+- 37: GrantDataAccess
+- 38: RevokeDataAccess
+- 39: RedeemPower
+- 40: RedeemPowerSigned
+- 41: ApplyNodePointsSettlementSigned
+- 42: InitializeMainTokenGenesis
+- 43: ClaimMainTokenVesting
+- 44: TransferMainToken
+- 45: ApplyMainTokenEpochIssuance
+- 46: SettleMainTokenFee
+- 47: UpdateMainTokenPolicy
+- 48: DistributeMainTokenTreasury
+- 49: TopUpRestrictedStarterClaimLiveopsPool
+- 50: IssueRestrictedStarterClaimGrant
+- 51: RevokeRestrictedStarterClaimGrant
+- 52: ClaimAgent
+- 53: ClaimStarterOc
+- 54: ReleaseAgentClaim
+- 55: TransferMaterial
+- 56: RegisterLogisticsRoute
+- 57: SetLogisticsRouteAvailability
+- 58: FormAlliance
+- 59: JoinAlliance
+- 60: LeaveAlliance
+- 61: DissolveAlliance
+- 62: DeclareWar
+- 63: OpenGovernanceProposal
+- 64: CastGovernanceVote
+- 65: ResolveCrisis
+- 66: GrantMetaProgress
+- 67: UpdateGameplayPolicy
+- 68: UpdateRestrictedStarterClaimAdminRegistry
+- 69: SubmitGovernanceValidatorAdmission
+- 70: ApproveGovernanceValidatorAdmission
+- 71: ActivateGovernanceValidatorAdmission
+- 72: RevokeGovernanceValidatorAdmission
+- 73: OpenEconomicContract
+- 74: AcceptEconomicContract
+- 75: SettleEconomicContract
+- 76: EmitResourceTransfer
+- 77: BuildFactory
+- 78: BuildFactoryWithModule
+- 79: MaintainFactory
+- 80: RecycleFactory
+- 81: ScheduleEssentialRecipe
+- 82: ScheduleRecipe
+- 83: PauseFactoryProduction
+- 84: ScheduleRecipeWithModule
+- 85: ValidateProduct
+- 86: ValidateProductWithModule
+- 87: GovernMaterialProfile
+- 88: GovernProductProfile
+- 89: GovernRecipeProfile
+- 90: GovernFactoryProfile
+- 91: RotateGovernanceValidatorFinalityKeyV1
+
+Action typed child descriptor 为 Runtime/Map/Scheduler 的 pending_actions.columns，schema BLAKE3(`oasis7.iws.pending-actions.columns.v1\0`)。DeployModuleArtifact.wasm_bytes 和 ModuleSourcePackage.files 的原文件内容不能逐byte变成Vec ordinal树；它们使用 Runtime/ByteMap/Scheduler 的 pending_actions.bytes，schema BLAKE3(`oasis7.iws.pending-actions.bytes.v1\0`)，恰为Metadata与Unit/Bytes-kind/Bytes两叶。files的原String文件名保持map key，文件map另用 schema BLAKE3(`oasis7.iws.pending-actions.files.v1\0`) 的固定profile，不能把所有map entry误判为bytes schema。所有blob引用绑定真实原semantic key与固定byte schema；不放宽Map/Entry接受Bytes，不改common Vec的wire。共享两叶读写器只提供数据操作，不授予任意schema资格。
+
+完整队列资格私有持有与精确 RootSet、分配池及 class 绑定的位置索引。索引仅保留位置、原 action ID、原件引用和已验证 outer value ID，是冷验证后可重建的进程结构，不新增 durable 目录格式。逐节点计费的不可变 path-copy 使删除首项无需重编号其余项。已有位置的原输入不可替换；ordinary 新位置的 era 固定为本事务 after RootSet 的高度，ordinal 从零单调递增，同事务清空也不回退。最终写集合并可消去刚新增又删除的项，因此接收端允许最终 ordinal 空洞，仍验证新 era 与精确提交高度一致。冷资格验证所有位置的 era 不超过当前高度，GEN 高度零的序列仍须连续。这样新项始终排在父队列之后，同事务 ordinal 耗尽也不妨碍下一高度重新从零追加。Recovery→Ordinary 逐节点重新准入，不共享仍由 Recovery 持有的节点。所有索引遍历、扫描和原件流均使用显式有限预算并检查取消；这些结构证据不代替完整 World 与 History 的接受。
+
+选中Action的恢复必须沿该typed图在每次String/Vec/Map分配前同池计费；不能从不受信任CBOR整件from_slice后补算内存，也不以输入bytes乘一个未经证明的常数代替分配边界。原canonical ActionEnvelope bytes继续独立保存；完整队列资格还必须绑定该投影与实际原件的canonical hash/长度，不能只信任caller回调或flat digest。当前新增Codec本身不构成该完整队列资格，也不授予WorldReady。

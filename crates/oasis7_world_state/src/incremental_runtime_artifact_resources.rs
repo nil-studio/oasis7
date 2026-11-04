@@ -24,7 +24,8 @@ mod key;
 pub use family::{
     RUNTIME_ARTIFACT_RESOURCES_SCAN_DEPTH_V1, RuntimeArtifactResourcesPreparedTransitionV1,
     RuntimeArtifactResourcesQualificationV1, RuntimeArtifactResourcesReadContextV1,
-    qualify_runtime_artifact_resources_v1, readmit_runtime_artifact_resources_ordinary_v1,
+    accept_runtime_artifact_resources_transition_v1, qualify_runtime_artifact_resources_v1,
+    readmit_runtime_artifact_resources_ordinary_v1,
     verify_runtime_artifact_resources_change_transition_v1,
     verify_runtime_artifact_resources_transition_v1,
 };
@@ -129,3 +130,7 @@ mod change;
 pub use change::{
     change_runtime_artifact_body_overlay_v1, change_runtime_builtin_entry_overlay_v1,
 };
+
+#[cfg(test)]
+#[path = "incremental_runtime_artifact_resources_receiver_cold_tests.rs"]
+mod receiver_cold_tests;

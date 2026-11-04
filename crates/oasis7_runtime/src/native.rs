@@ -159,6 +159,10 @@ pub use world::incremental_step::IwsStepContext;
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
 };
+pub use world::{
+    incremental_action_original, incremental_genesis, incremental_genesis_raw,
+    incremental_genesis_typed,
+};
 
 // Consensus
 pub use consensus::{

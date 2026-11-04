@@ -397,13 +397,16 @@ pub use read::{
 };
 #[path = "incremental_main_token_policy_records_closure.rs"]
 mod closure;
-pub use closure::{MainTokenPolicyRecordQualificationV1, qualify_main_token_policy_body_v1};
+pub use closure::{
+    MainTokenPolicyRecordQualificationV1, qualify_main_token_policy_body_v1,
+    readmit_main_token_policy_record_ordinary_v1,
+};
 
 #[path = "incremental_main_token_policy_records_family.rs"]
 mod family;
 pub use family::{
     MainTokenPolicyFamilyQualificationV1, open_qualified_main_token_policy_record_v1,
-    qualify_main_token_policy_family_v1,
+    qualify_main_token_policy_family_v1, readmit_main_token_policy_family_ordinary_v1,
 };
 
 #[path = "incremental_main_token_policy_records_point.rs"]

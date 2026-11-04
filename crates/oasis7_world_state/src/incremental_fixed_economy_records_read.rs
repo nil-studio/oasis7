@@ -155,7 +155,14 @@ pub fn read_qualified_fixed_economy_cell_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<FixedEconomyValueV1, ValueTreeError> {
     ctx.check()?;
-    if !request.qualification.uses_budget(ctx.values.memory) {
+    if !request.qualification.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            request.qualification,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
         return Err(invalid());
     }
     let field = request.column.field();

@@ -105,6 +105,7 @@ mod tree;
 mod family;
 pub use family::{
     LogisticsFamilyQualificationV1, LogisticsFamilyReadContextV1, qualify_logistics_family_v1,
+    readmit_logistics_family_ordinary_v1,
 };
 
 #[path = "incremental_logistics_records_advance.rs"]

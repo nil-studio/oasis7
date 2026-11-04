@@ -14,7 +14,7 @@ use oasis7_world_state::incremental_event_fields::{
     EVENT_SEQUENCE_BYTES, EVENT_SEQUENCE_KEY_V1, EventSequenceV1,
 };
 
-const KEY: &[u8] = b"oasis7.iws.runtime-sequence-key.v1\0";
+use oasis7_world_state::incremental_runtime_registry::RUNTIME_SEQUENCE_KEY_DOMAIN_V1 as KEY;
 const VALUE: &[u8] = b"oasis7.iws.runtime-sequence.v1\0";
 const BYTES: usize = VALUE.len() + 17;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

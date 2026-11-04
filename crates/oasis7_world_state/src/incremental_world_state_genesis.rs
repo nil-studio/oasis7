@@ -294,7 +294,6 @@ pub fn prepare_world_state_genesis_v1<
         &mut work.rule_composites,
         &mut emit,
     )?;
-    drop(emit);
     if (ctx.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }

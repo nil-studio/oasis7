@@ -9,6 +9,8 @@ use crate::{
 };
 use oasis7_formal_protocol::incremental_state::{MerkleNodeReader, StateScanBudget};
 use std::collections::BTreeMap;
+// The enclosing admitted carrier covers the largest variant; boxing would add an uncharged allocation.
+#[allow(clippy::large_enum_variant)]
 pub enum RecoveredRuntimeGovernanceRecordV1 {
     Policy(GovernanceExecutionPolicy),
     EpochSnapshot(GovernanceFinalityEpochSnapshot),

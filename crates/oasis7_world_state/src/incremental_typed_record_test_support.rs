@@ -317,3 +317,7 @@ pub(crate) fn source_admission() -> MemoryReservation {
 
 #[path = "incremental_world_rule_continuity_test_data.rs"]
 pub(crate) mod continuity_data;
+
+#[path = "incremental_typed_record_classed_test_support.rs"]
+mod classed;
+pub(crate) use classed::ClassedPages;

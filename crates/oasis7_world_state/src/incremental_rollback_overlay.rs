@@ -111,7 +111,7 @@ pub fn change_rollback_outcome_v1<
             Some(
                 reference
                     .validate_binding(
-                        &*blake3::hash(b"runtime.rollback.outcome.v1").as_bytes(),
+                        blake3::hash(b"runtime.rollback.outcome.v1").as_bytes(),
                         &parsed.semantic_key.ok_or_else(invalid)?,
                         StateNamespaceV1::Authorization,
                     )
@@ -293,10 +293,10 @@ pub fn change_consumed_rollback_nonce_v1<
             records.fixed::<0>(&id, &marker.0, marker.1, MemberPayloadCodecV1::Unit)?;
             let key = records.key(descriptor, WorldFieldRecordKindV1::Entry, change.nonce)?;
             let id = lookup(tx, &key.0, &mut records, &mut context.take_state_error)?;
-            if let Some(id) = id {
-                if records.fixed::<1>(&id, &key.0, key.1, MemberPayloadCodecV1::Bool)? != [1] {
-                    return Err(invalid().into());
-                }
+            if let Some(id) = id
+                && records.fixed::<1>(&id, &key.0, key.1, MemberPayloadCodecV1::Bool)? != [1]
+            {
+                return Err(invalid().into());
             }
             (key, id.is_some())
         };

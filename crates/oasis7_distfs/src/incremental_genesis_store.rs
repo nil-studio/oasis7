@@ -88,9 +88,9 @@ impl IncrementalPageStore {
         Ok(GenesisStateIndexBuilderV1 {
             store: self,
             state: self
-                .state_session(reads, MemoryClass::Ordinary)
+                .state_session_with_cancelled(reads, MemoryClass::Ordinary, cancelled)
                 .map_err(value_error)?,
-            output: self.value_session(writes),
+            output: self.value_session_with_cancelled(writes, cancelled),
             cancelled,
             roots,
             rows,

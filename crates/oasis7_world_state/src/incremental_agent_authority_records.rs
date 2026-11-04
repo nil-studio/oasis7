@@ -97,13 +97,16 @@ pub use read::{
 
 #[path = "incremental_agent_authority_records_closure.rs"]
 mod closure;
-pub use closure::{AgentAuthorityRecordQualificationV1, qualify_agent_authority_body_v1};
+pub use closure::{
+    AgentAuthorityRecordQualificationV1, qualify_agent_authority_body_v1,
+    readmit_agent_authority_record_ordinary_v1,
+};
 
 #[path = "incremental_agent_authority_records_family.rs"]
 mod family;
 pub use family::{
     AgentAuthorityFamilyQualificationV1, open_qualified_agent_authority_record_v1,
-    qualify_agent_authority_family_v1,
+    qualify_agent_authority_family_v1, readmit_agent_authority_family_ordinary_v1,
 };
 
 #[path = "incremental_agent_authority_records_point.rs"]

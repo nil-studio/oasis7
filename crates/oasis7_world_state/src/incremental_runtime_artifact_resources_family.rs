@@ -243,9 +243,17 @@ impl RecordProgress {
     }
     fn finish(&self, record: Record) -> Result<(), ValueTreeError> {
         let layout = schema::layout(record);
-        let expected_fixed_mask = (1u128 << layout.fixed_fields) - 1;
+        let mut expected_fixed_mask = (1u128 << layout.fixed_fields) - 1;
+        for (index, option) in schema::options(record).into_iter().enumerate() {
+            if self.option_present[index] == Some(false) {
+                let (_, slot) = option.ok_or_else(invalid)?;
+                expected_fixed_mask &= !(1u128 << slot);
+            }
+        }
+        let expected_fixed_count =
+            u8::try_from(expected_fixed_mask.count_ones()).map_err(|_| invalid())?;
         if !self.metadata
-            || self.fixed_count != layout.fixed_fields
+            || self.fixed_count != expected_fixed_count
             || self.fixed_mask != expected_fixed_mask
             || self.group_mask != layout.groups
         {
@@ -817,7 +825,18 @@ where
                         return Err(invalid());
                     }
                 }
-                Ok((cell, parsed, decoded_value(decoded)?, None))
+                if schema::coordinate_i32(record, parsed)
+                    && !matches!(decoded, RecordValueV1::Signed(n) if i32::try_from(n).is_ok())
+                {
+                    return Err(invalid());
+                }
+                let decoded = decoded_value(decoded)?;
+                if let Some(expected) = schema::exact_variant(record, parsed)
+                    && !matches!(decoded, Decoded::Unsigned(actual) if actual == expected)
+                {
+                    return Err(invalid());
+                }
+                Ok((cell, parsed, decoded, None))
             }
         }
     }
@@ -938,3 +957,7 @@ fn map_scan_result(
         Err(StateScanError::Invalid(_) | StateScanError::Tree(_)) => Err(invalid()),
     }
 }
+
+#[path = "incremental_runtime_artifact_resources_receiver_general.rs"]
+mod general;
+pub use general::accept_runtime_artifact_resources_transition_v1;

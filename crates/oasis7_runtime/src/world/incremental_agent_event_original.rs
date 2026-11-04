@@ -1,4 +1,4 @@
-//! Borrowed concrete WorldEvent producer with private consumption state.
+//! Shared private consumption engine; the concrete WorldEvent entry stays compatible.
 //! Sink success is a contract report, not arbitrary external-IO attestation;
 //! actual ObjectStore finish/readback and the later fact-original gate remain.
 use super::BodyMutationError;
@@ -13,6 +13,7 @@ use oasis7_wasm_abi::{
     CanonicalCborAllocator, CanonicalCborStreamContextV1, CanonicalCborStreamError,
     CanonicalCborWorkV1, stream_canonical_cbor_v1,
 };
+use serde::Serialize;
 use std::{
     cell::RefCell,
     io::{self, Write},
@@ -118,8 +119,8 @@ impl Write for HashOutput<'_> {
         self.output.flush()
     }
 }
-fn encode<C: FnMut() -> bool>(
-    event: &WorldEvent,
+fn encode<T: Serialize + ?Sized, C: FnMut() -> bool>(
+    event: &T,
     memory: &MemoryBudget,
     work: &mut CanonicalCborWorkV1,
     cancel: &mut C,
@@ -140,7 +141,7 @@ fn encode<C: FnMut() -> bool>(
         max_map_keys: work.max_map_keys,
         max_key_bytes: work.max_key_bytes,
     };
-    // Keep the full WorldEvent serializer independent of each caller closure.
+    // Keep the borrowed original serializer independent of each caller closure.
     let stop: &mut dyn FnMut() -> bool = &mut *cancel;
     let mut encoding =
         CanonicalCborStreamContextV1::new(&allocator, std::mem::replace(work, placeholder), stop);
@@ -168,8 +169,8 @@ fn encode<C: FnMut() -> bool>(
     }
     Ok((*sink.hash.finalize().as_bytes(), sink.length))
 }
-struct Stream<'a> {
-    event: &'a WorldEvent,
+struct Stream<'a, T: Serialize + ?Sized> {
+    event: &'a T,
     memory: &'a MemoryBudget,
     work: &'a mut CanonicalCborWorkV1,
     cancel: &'a dyn Fn() -> bool,
@@ -178,7 +179,7 @@ struct Stream<'a> {
     attempted: bool,
     complete: bool,
 }
-impl AgentEventOriginalStreamV1 for Stream<'_> {
+impl<T: Serialize + ?Sized> AgentEventOriginalStreamV1 for Stream<'_, T> {
     fn original_id(&self) -> [u8; 32] {
         self.id
     }
@@ -208,17 +209,18 @@ impl AgentEventOriginalStreamV1 for Stream<'_> {
         Ok(())
     }
 }
-pub(in crate::world) struct Measured<'a> {
-    event: &'a WorldEvent,
+pub(in crate::world) struct Measured<'a, T: Serialize + ?Sized = WorldEvent> {
+    event: &'a T,
     id: [u8; 32],
     length: u64,
     _scratch: MemoryReservation,
 }
-impl Measured<'_> {
+impl<T: Serialize + ?Sized> Measured<'_, T> {
     pub(in crate::world) fn id(&self) -> [u8; 32] {
         self.id
     }
 }
+/// Preserve the concrete WorldEvent entrypoint and its original wire contract.
 pub(in crate::world) fn measure<'a, C: FnMut() -> bool>(
     event: &'a WorldEvent,
     memory: &MemoryBudget,
@@ -226,6 +228,15 @@ pub(in crate::world) fn measure<'a, C: FnMut() -> bool>(
     cancel: &mut C,
     max: usize,
 ) -> Result<Measured<'a>, BodyMutationError> {
+    measure_serializable(event, memory, work, cancel, max)
+}
+pub(in crate::world) fn measure_serializable<'a, T: Serialize + ?Sized, C: FnMut() -> bool>(
+    event: &'a T,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancel: &mut C,
+    max: usize,
+) -> Result<Measured<'a, T>, BodyMutationError> {
     let scratch = memory
         .reserve(8 << 10, MemoryClass::Ordinary)
         .map_err(ExecutionError::Memory)?;
@@ -237,17 +248,17 @@ pub(in crate::world) fn measure<'a, C: FnMut() -> bool>(
         _scratch: scratch,
     })
 }
-pub(in crate::world) struct Producer<'a, C> {
-    measured: Measured<'a>,
+pub(in crate::world) struct Producer<'a, C, T: Serialize + ?Sized = WorldEvent> {
+    measured: Measured<'a, T>,
     memory: &'a MemoryBudget,
     work: &'a mut CanonicalCborWorkV1,
     cancel: &'a mut C,
     attempted: bool,
     complete: bool,
 }
-impl<'a, C: FnMut() -> bool> Producer<'a, C> {
+impl<'a, C: FnMut() -> bool, T: Serialize + ?Sized> Producer<'a, C, T> {
     pub(in crate::world) fn new(
-        measured: Measured<'a>,
+        measured: Measured<'a, T>,
         memory: &'a MemoryBudget,
         work: &'a mut CanonicalCborWorkV1,
         cancel: &'a mut C,
@@ -274,7 +285,7 @@ impl<'a, C: FnMut() -> bool> Producer<'a, C> {
         Ok(())
     }
 }
-impl<C: FnMut() -> bool> AgentEventOriginalV1 for Producer<'_, C> {
+impl<C: FnMut() -> bool, T: Serialize + ?Sized> AgentEventOriginalV1 for Producer<'_, C, T> {
     fn original_id(&self) -> [u8; 32] {
         self.measured.id
     }

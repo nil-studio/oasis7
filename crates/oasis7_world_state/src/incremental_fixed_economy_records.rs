@@ -196,13 +196,16 @@ mod read;
 pub use read::{FixedEconomyValueV1, inspect_fixed_economy_root_v1};
 #[path = "incremental_fixed_economy_records_closure.rs"]
 mod closure;
-pub use closure::{FixedEconomyRecordQualificationV1, qualify_fixed_economy_body_v1};
+pub use closure::{
+    FixedEconomyRecordQualificationV1, qualify_fixed_economy_body_v1,
+    readmit_fixed_economy_record_ordinary_v1,
+};
 
 #[path = "incremental_fixed_economy_records_family.rs"]
 mod family;
 pub use family::{
     FixedEconomyFamilyQualificationV1, open_qualified_fixed_economy_record_v1,
-    qualify_fixed_economy_family_v1,
+    qualify_fixed_economy_family_v1, readmit_fixed_economy_family_ordinary_v1,
 };
 pub use read::{FixedEconomyCellRequestV1, read_qualified_fixed_economy_cell_v1};
 

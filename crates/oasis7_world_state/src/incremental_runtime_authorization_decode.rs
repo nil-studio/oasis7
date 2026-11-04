@@ -106,10 +106,10 @@ where
     )?;
     let mut charges = Vec::with_capacity(3);
     let (subject, audience, presenter, count) = {
-        let mut map = columns.cells_mut();
+        let map = columns.cells_mut();
         let subject = json(
             AuthorizationBodyKindV1::Audit,
-            &mut map,
+            map,
             "subject",
             ctx,
             work,
@@ -118,17 +118,17 @@ where
         )?;
         let audience = json(
             AuthorizationBodyKindV1::Audit,
-            &mut map,
+            map,
             "audience",
             ctx,
             work,
             max_heap,
             &mut charges,
         )?;
-        let presenter = if present(&mut map, "presenter")? {
+        let presenter = if present(map, "presenter")? {
             Some(json(
                 AuthorizationBodyKindV1::Audit,
-                &mut map,
+                map,
                 "presenter",
                 ctx,
                 work,
@@ -159,37 +159,37 @@ where
             .and_then(|n| n.checked_add(384))
             .ok_or_else(invalid)?,
     )?;
-    let mut map = columns.cells_mut();
+    let map = columns.cells_mut();
     let mut value = crate::CapabilityAuthorizationAuditReceipt {
-        receipt_id: text(&mut map, "receipt_id")?,
-        root_receipt_id: opt_text(&mut map, "root_receipt_id")?,
-        grant_id: opt_text(&mut map, "grant_id")?,
+        receipt_id: text(map, "receipt_id")?,
+        root_receipt_id: opt_text(map, "root_receipt_id")?,
+        grant_id: opt_text(map, "grant_id")?,
         subject,
         presenter,
         audience,
-        scope_hash: text(&mut map, "scope_hash")?,
-        module_id: opt_text(&mut map, "module_id")?,
-        module_version: opt_text(&mut map, "module_version")?,
-        manifest_hash: opt_text(&mut map, "manifest_hash")?,
-        catalog_snapshot_id: opt_text(&mut map, "catalog_snapshot_id")?,
-        response_nonce: opt_text(&mut map, "response_nonce")?,
-        authorization_nonce_key_hash: opt_text(&mut map, "authorization_nonce_key_hash")?,
-        decision: text(&mut map, "decision")?,
-        denial_code: opt_text(&mut map, "denial_code")?,
-        budget_before: signed(&mut map, "budget_before")?,
-        budget_after: opt_signed(&mut map, "budget_after")?,
-        world_head_before: unsigned(&mut map, "world_head_before")?,
-        world_head_after: opt_unsigned(&mut map, "world_head_after")?,
-        branch_id: text(&mut map, "branch_id")?,
-        finality_epoch: unsigned(&mut map, "finality_epoch")?,
-        finality_block_hash: opt_text(&mut map, "finality_block_hash")?,
-        finality_status: text(&mut map, "finality_status")?,
-        state_hash_before: text(&mut map, "state_hash_before")?,
-        state_hash_after: opt_text(&mut map, "state_hash_after")?,
-        committed_effect_receipt_id: opt_text(&mut map, "committed_effect_receipt_id")?,
+        scope_hash: text(map, "scope_hash")?,
+        module_id: opt_text(map, "module_id")?,
+        module_version: opt_text(map, "module_version")?,
+        manifest_hash: opt_text(map, "manifest_hash")?,
+        catalog_snapshot_id: opt_text(map, "catalog_snapshot_id")?,
+        response_nonce: opt_text(map, "response_nonce")?,
+        authorization_nonce_key_hash: opt_text(map, "authorization_nonce_key_hash")?,
+        decision: text(map, "decision")?,
+        denial_code: opt_text(map, "denial_code")?,
+        budget_before: signed(map, "budget_before")?,
+        budget_after: opt_signed(map, "budget_after")?,
+        world_head_before: unsigned(map, "world_head_before")?,
+        world_head_after: opt_unsigned(map, "world_head_after")?,
+        branch_id: text(map, "branch_id")?,
+        finality_epoch: unsigned(map, "finality_epoch")?,
+        finality_block_hash: opt_text(map, "finality_block_hash")?,
+        finality_status: text(map, "finality_status")?,
+        state_hash_before: text(map, "state_hash_before")?,
+        state_hash_after: opt_text(map, "state_hash_after")?,
+        committed_effect_receipt_id: opt_text(map, "committed_effect_receipt_id")?,
         committed_effect_receipt_ids: BTreeSet::new(),
-        canonical_request_hash: text(&mut map, "canonical_request_hash")?,
-        canonical_result_hash: text(&mut map, "canonical_result_hash")?,
+        canonical_request_hash: text(map, "canonical_request_hash")?,
+        canonical_result_hash: text(map, "canonical_result_hash")?,
     };
     // All fixed columns are consumed. Only the exact ordered set-member range
     // may remain; pop_first avoids rescanning or cloning every preceding key.
@@ -253,46 +253,46 @@ where
         scan,
         max_heap,
     )?;
-    let mut map = columns.cells_mut();
-    let subject = match text(&mut map, "subject.kind")?.as_str() {
+    let map = columns.cells_mut();
+    let subject = match text(map, "subject.kind")?.as_str() {
         "agent" => CapabilitySubject::Agent {
-            agent_id: text(&mut map, "subject.agent_id")?,
-            owner_binding: text(&mut map, "subject.owner_binding")?,
-            generation: unsigned(&mut map, "subject.generation")?,
+            agent_id: text(map, "subject.agent_id")?,
+            owner_binding: text(map, "subject.owner_binding")?,
+            generation: unsigned(map, "subject.generation")?,
         },
         "module" => CapabilitySubject::Module {
-            module_id: text(&mut map, "subject.module_id")?,
-            module_version: text(&mut map, "subject.module_version")?,
-            instance_id: text(&mut map, "subject.instance_id")?,
+            module_id: text(map, "subject.module_id")?,
+            module_version: text(map, "subject.module_version")?,
+            instance_id: text(map, "subject.instance_id")?,
         },
         "system" => CapabilitySubject::System {
-            system_id: text(&mut map, "subject.system_id")?,
-            epoch: unsigned(&mut map, "subject.epoch")?,
+            system_id: text(map, "subject.system_id")?,
+            epoch: unsigned(map, "subject.epoch")?,
         },
         _ => return Err(invalid()),
     };
     let presenter = CapabilityPresenter {
-        presenter_id: text(&mut map, "presenter.presenter_id")?,
-        presenter_kind: text(&mut map, "presenter.presenter_kind")?,
-        session_id: opt_text(&mut map, "presenter.session_id")?,
-        attestation_ref: opt_text(&mut map, "presenter.attestation_ref")?,
+        presenter_id: text(map, "presenter.presenter_id")?,
+        presenter_kind: text(map, "presenter.presenter_kind")?,
+        session_id: opt_text(map, "presenter.session_id")?,
+        attestation_ref: opt_text(map, "presenter.attestation_ref")?,
     };
     let audience = CapabilityAudience {
-        world_id: text(&mut map, "audience.world_id")?,
-        branch_id: text(&mut map, "audience.branch_id")?,
-        finality_epoch: unsigned(&mut map, "audience.finality_epoch")?,
-        target_kind: text(&mut map, "audience.target_kind")?,
-        target_id: opt_text(&mut map, "audience.target_id")?,
+        world_id: text(map, "audience.world_id")?,
+        branch_id: text(map, "audience.branch_id")?,
+        finality_epoch: unsigned(map, "audience.finality_epoch")?,
+        target_kind: text(map, "audience.target_kind")?,
+        target_id: opt_text(map, "audience.target_id")?,
     };
     let value = crate::CapabilityInvocationContext {
-        grant_id: text(&mut map, "grant_id")?,
+        grant_id: text(map, "grant_id")?,
         subject,
         presenter,
         audience,
-        catalog_snapshot_id: text(&mut map, "catalog_snapshot_id")?,
-        module_id: text(&mut map, "module_id")?,
-        module_version: text(&mut map, "module_version")?,
-        response_nonce: text(&mut map, "response_nonce")?,
+        catalog_snapshot_id: text(map, "catalog_snapshot_id")?,
+        module_id: text(map, "module_id")?,
+        module_version: text(map, "module_version")?,
+        response_nonce: text(map, "response_nonce")?,
     };
     if !map.is_empty() {
         return Err(invalid());

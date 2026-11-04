@@ -222,6 +222,12 @@ pub fn read_qualified_reward_cell_v1<
 ) -> Result<Option<RewardValueV1>, ValueTreeError> {
     if !request.cell.accepts(request.key.kind)
         || !request.qualification.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            request.qualification,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
     {
         return Err(invalid());
     }

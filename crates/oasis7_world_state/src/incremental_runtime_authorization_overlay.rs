@@ -26,6 +26,7 @@ pub enum AuthorizationRecordChangeV1<'a> {
         after: Option<&'a CapabilityInvocationContext>,
     },
 }
+#[allow(clippy::too_many_arguments)]
 pub fn change_authorization_record_overlay_v1<M, R, E, C, W, CW>(
     parent: &ReservedValue<AuthorizationRecordFamiliesQualificationV1>,
     roots: &RootSetV1,

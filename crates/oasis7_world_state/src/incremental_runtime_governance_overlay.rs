@@ -236,6 +236,7 @@ fn expected<R: ValueNodeReader, C: FnMut() -> bool>(
 }
 /// One batch is complete: optional presence/value and snapshot count/membership
 /// changes must close together. Intermediate candidate roots never grant proof.
+#[allow(clippy::too_many_arguments)]
 pub fn change_runtime_governance_columns_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -264,14 +265,17 @@ let mut phase=write.memory.reserve(32768,MemoryClass::Ordinary).map_err(ValueTre
 let mut records=InventoryValueReader{values:&mut context.values,key_work:context.key_work,semantic_bytes:context.semantic_bytes,record_bytes:context.record_bytes,cancelled:&mut combined};let field=kind(record.key).descriptor();let meta=WorldFieldKeyV1::new(field,WorldFieldRecordKindV1::Metadata,None).map_err(ValueTreeError::Invalid)?;let meta_id=lookup(tx,&meta,&mut records,&mut context.take_state_error)?.ok_or_else(invalid)?;records.presence(&meta_id,&meta,0)?;
 let outer=outer(record.key,&mut records)?;let original=lookup(tx,&outer.0,&mut records,&mut context.take_state_error)?.ok_or_else(invalid)?;let bytes=records.fixed::<{oasis7_formal_protocol::incremental_record_root::RECORD_ROOT_BYTES}>(&original,&outer.0,outer.1,MemberPayloadCodecV1::RecordRoot)?;let semantic=WorldFieldKeyV1::from_bytes(outer.0.as_bytes()).map_err(ValueTreeError::Invalid)?.semantic_key.ok_or_else(invalid)?;let reference=RecordRootRefV1::from_canonical_bytes(&bytes).map_err(|_|invalid())?;let initial=reference.validate_binding(&kind(record.key).schema(),&semantic,StateNamespaceV1::Authorization).map_err(|_|invalid())?.clone();record.validate_binding(roots,record.key,&initial)?;
 let mut root=initial.clone();
-for change in changes{if combined(){return Err(ValueTreeError::Cancelled.into());}work.cells_remaining=work.cells_remaining.checked_sub(1).ok_or(ValueTreeError::ResourceLimited("governance ordinary cells"))?;if change.column.kind()!=kind(record.key)||!change.column.nullable()&&(change.expected.is_none()||change.after.is_none()){return Err(invalid().into());}if let Some(value)=change.after{change.column.payload(value)?;}
+for change in changes{if combined(){return Err(ValueTreeError::Cancelled.into());}work.cells_remaining=work.cells_remaining.checked_sub(1).ok_or(ValueTreeError::ResourceLimited("governance ordinary cells"))?;if change.column.kind()!=kind(record.key)||!change.column.nullable()&&(change.expected.is_none()||change.after.is_none()){return Err(invalid().into());}
+if let Some(value)=change.after{change.column.payload(value)?;}
 let mut records=InventoryValueReader{values:&mut context.values,key_work:context.key_work,semantic_bytes:context.semantic_bytes,record_bytes:context.record_bytes,cancelled:&mut combined};let key=super::delta::key(change.column,&mut records)?;let current=incremental_record_tree::lookup(&root,&key.0,&mut records,LABELS)?;
 match(change.expected,current){(None,None)=>{},(Some(value),Some(id))=>expected(change.column,value,&id,&key,&mut records)?,_=>return Err(invalid().into())}
-let unchanged=change.expected==change.after;if combined(){return Err(ValueTreeError::Cancelled.into());}if unchanged{continue;}
+let unchanged=change.expected==change.after;if combined(){return Err(ValueTreeError::Cancelled.into());}
+if unchanged{continue;}
 let mut output=MemberRecordWriteContext{sink:&mut *write.sink,memory:write.memory,io:&mut *write.io,key_work:&mut *write.key_work,limits:write.limits,cancelled:||(*cancel.borrow_mut())()||(*write_cancel.borrow_mut())()};
 let after=if let Some(value)=change.after{let payload=change.column.payload(value)?;let row=with_gov_key!(change.column,key=>write_member_record_v1(kind(record.key).columns(),WorldFieldRecordKindV1::Entry,key,payload,&mut output))?;if row.field_key!=key.0{return Err(invalid().into());}Some(row.value_root)}else{None};root=incremental_record_tree::edit(root,&key.0,(current,after),&mut context.values,&mut output,&mut combined,RecordTreeWritePolicyV1{max_pending_node_bytes:work.max_pending_node_bytes,labels:LABELS})?;
 }
-if combined(){return Err(ValueTreeError::Cancelled.into());}if root==initial{return Ok(None);}
+if combined(){return Err(ValueTreeError::Cancelled.into());}
+if root==initial{return Ok(None);}
 let mut records=InventoryValueReader{values:&mut context.values,key_work:context.key_work,semantic_bytes:context.semantic_bytes,record_bytes:context.record_bytes,cancelled:&mut combined};super::delta::changed(kind(record.key),&initial,&root,&mut records,work)?;
 let mut output=MemberRecordWriteContext{sink:&mut *write.sink,memory:write.memory,io:&mut *write.io,key_work:&mut *write.key_work,limits:write.limits,cancelled:||(*cancel.borrow_mut())()||(*write_cancel.borrow_mut())()};let row=write_outer(record.key,root.clone(),semantic,&mut output)?;if row.field_key!=outer.0{return Err(invalid().into());}if(output.cancelled)(){return Err(ValueTreeError::Cancelled.into());}tx.write(StateNamespaceV1::Authorization,outer.0.as_bytes(),Some(row.value_root))?;
 let proof=phase.split(512).map_err(ValueTreeError::Invalid)?.retain(RuntimeGovernanceRecordQualificationV1{parent:record.parent,key:record.key,root,class:MemoryClass::Ordinary});if(output.cancelled)(){return Err(ValueTreeError::Cancelled.into());}Ok(Some(proof))
@@ -279,6 +283,7 @@ let proof=phase.split(512).map_err(ValueTreeError::Invalid)?.retain(RuntimeGover
 }
 
 /// Create one new map record. Mandatory Policy has no create/delete operation.
+#[allow(clippy::too_many_arguments)]
 pub fn create_runtime_governance_record_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,

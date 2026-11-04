@@ -83,13 +83,29 @@ pub fn accept_fixed_economy_transition_v1<
     cells: &mut u64,
 ) -> Result<ReservedValue<FixedEconomyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(ValueTreeError::Invalid("ordinary receiver class").into());
+    }
+
     if !parent.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            parent,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
         || !verifier.memory.same_pool(ctx.values.memory)
         || verifier.class != ctx.values.class
     {
         return Err(read::invalid().into());
     }
-    parent.validate_binding(&record.before.digest().map_err(|_| read::invalid())?)?;
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        parent,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+        ctx.values.memory,
+        ctx.values.class,
+        &mut ctx.cancelled,
+    )?;
     let verified = verifier.verify(record);
     let error = (ctx.take_state_error)();
     ctx.check()?;

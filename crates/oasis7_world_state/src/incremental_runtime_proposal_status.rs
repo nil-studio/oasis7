@@ -85,6 +85,7 @@ fn combined<C: FnMut() -> bool, CW: FnMut() -> bool>(cancel: &RefCell<(&mut C, &
     let mut c = cancel.borrow_mut();
     (c.0)() || (c.1)()
 }
+#[allow(clippy::too_many_arguments)]
 pub fn change_runtime_proposal_status_v1<M, R, E, C, W, CW>(
     change: RuntimeProposalStatusChangeV1<'_>,
     body: &ReservedValue<RuntimeProposalBodyQualificationV1>,

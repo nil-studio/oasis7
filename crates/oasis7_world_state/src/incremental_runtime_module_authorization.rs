@@ -225,8 +225,8 @@ mod family;
 mod overlay;
 pub use family::{
     ModuleAuthorizationFamilyQualificationV1, ModuleAuthorizationRecordKeyV1,
-    open_qualified_module_authorization_body_v1, qualify_module_authorization_family_v1,
-    readmit_module_authorization_family_ordinary_v1,
+    accept_module_authorization_transition_v1, open_qualified_module_authorization_body_v1,
+    qualify_module_authorization_family_v1, readmit_module_authorization_family_ordinary_v1,
 };
 pub use overlay::*;
 

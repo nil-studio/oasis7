@@ -9,6 +9,7 @@ use oasis7_proto::memory_budget::ReservedValue;
 /// Replaces the exact qualified parent body with a closed original typed root.
 /// Subsequent ordinary edits require the private current token below. This
 /// adapter grants no revocation/business authorization or head installation.
+#[allow(clippy::too_many_arguments)]
 pub fn change_runtime_revocation_overlay_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -46,6 +47,7 @@ pub fn change_runtime_revocation_overlay_v1<
         live,
     )
 }
+#[allow(clippy::too_many_arguments)]
 fn change_runtime_revocation_inner_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -254,6 +256,7 @@ impl RuntimeRevocationCurrentV1 {
 }
 /// Point-authenticate the parent's complete revocation body before the first
 /// ordinary edit. Later edits reuse the private current token across revisions.
+#[allow(clippy::too_many_arguments)]
 pub fn begin_runtime_revocation_current_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,
@@ -320,6 +323,7 @@ pub struct RuntimeRevocationPathEditV1<'a> {
 /// Applies a finite batch without reconstructing unchanged original histories.
 /// This validates storage structure; business revocation authority remains with
 /// the caller. Any failing stage poisons the same shared execution transaction.
+#[allow(clippy::too_many_arguments)]
 pub fn patch_runtime_revocation_overlay_v1<
     M: MerkleNodeReader,
     P: MerkleNodeReader,

@@ -178,7 +178,6 @@ pub(super) fn qualify<
         }
         Err(_) => return Err(invalid()),
     }
-    drop(cancel);
     let mut records = ctx.records();
     let meta = WorldFieldKeyV1::new(columns(), WorldFieldRecordKindV1::Metadata, None)
         .map_err(ValueTreeError::Invalid)?;

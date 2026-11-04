@@ -449,7 +449,7 @@ pub use json_read::{
 mod family;
 pub use family::{
     RuntimeEffectFamilyQualificationV1, RuntimeEffectQueueFrontierV1,
-    qualify_runtime_effect_records_v1,
+    qualify_runtime_effect_records_v1, readmit_runtime_effect_family_ordinary_v1,
 };
 
 #[path = "incremental_runtime_effect_records_overlay.rs"]

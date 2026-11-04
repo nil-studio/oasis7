@@ -307,12 +307,11 @@ pub fn accept_runtime_business_transition_v1<
         let Some((field, _, kind)) = identify(&entry)? else {
             continue;
         };
-        if kind == WorldFieldRecordKindV1::Metadata
-            || field == RuntimeBusinessFieldV1::LogisticsSlaMetrics
+        if (kind == WorldFieldRecordKindV1::Metadata
+            || field == RuntimeBusinessFieldV1::LogisticsSlaMetrics)
+            && (write.mutation.before.is_none() || write.mutation.after.is_none())
         {
-            if write.mutation.before.is_none() || write.mutation.after.is_none() {
-                return Err(invalid().into());
-            }
+            return Err(invalid().into());
         }
         if kind == WorldFieldRecordKindV1::Metadata && write.mutation.before != write.mutation.after
         {

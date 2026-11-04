@@ -96,7 +96,6 @@ pub(crate) fn validate<R: ValueNodeReader, C: FnMut() -> bool>(
     );
     let invalid_prefix = key_output.invalid;
     let bad = invalid_prefix || key_output.offset as u64 != info.semantic_bytes;
-    drop(key_output);
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }

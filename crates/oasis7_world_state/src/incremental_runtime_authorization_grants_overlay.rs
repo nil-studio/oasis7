@@ -17,6 +17,7 @@ pub struct AuthorizationGrantChangeV1<'a> {
     pub expected: Option<&'a serde_json::Value>,
     pub after: Option<&'a serde_json::Value>,
 }
+#[allow(clippy::too_many_arguments)]
 pub fn change_authorization_grant_overlay_v1<M, R, E, C, W, CW>(
     parent: &ReservedValue<AuthorizationGrantsQualificationV1>,
     roots: &RootSetV1,

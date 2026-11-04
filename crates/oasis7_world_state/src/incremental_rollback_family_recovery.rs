@@ -268,7 +268,7 @@ pub fn recover_rollback_controls_v1<M: MerkleNodeReader, R: ValueNodeReader, C: 
                             registry = Some(
                                 reference
                                     .validate_binding(
-                                        &*blake3::hash(b"runtime.rollback.registry.v1").as_bytes(),
+                                        blake3::hash(b"runtime.rollback.registry.v1").as_bytes(),
                                         &key.semantic_key.ok_or_else(invalid)?,
                                         StateNamespaceV1::Authorization,
                                     )
@@ -300,7 +300,7 @@ pub fn recover_rollback_controls_v1<M: MerkleNodeReader, R: ValueNodeReader, C: 
                                 let reference = original.reference.ok_or_else(invalid)?;
                                 let child = reference
                                     .validate_binding(
-                                        &*blake3::hash(b"runtime.rollback.outcome.v1").as_bytes(),
+                                        blake3::hash(b"runtime.rollback.outcome.v1").as_bytes(),
                                         &key.semantic_key.ok_or_else(invalid)?,
                                         StateNamespaceV1::Authorization,
                                     )
@@ -392,7 +392,7 @@ pub fn recover_rollback_controls_v1<M: MerkleNodeReader, R: ValueNodeReader, C: 
                         let reference = original.reference.ok_or_else(invalid)?;
                         let child = reference
                             .validate_binding(
-                                &*blake3::hash(b"runtime.rollback.authority.v1").as_bytes(),
+                                blake3::hash(b"runtime.rollback.authority.v1").as_bytes(),
                                 &key.semantic_key.ok_or_else(invalid)?,
                                 StateNamespaceV1::Authorization,
                             )

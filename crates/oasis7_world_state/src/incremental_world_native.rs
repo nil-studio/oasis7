@@ -6,12 +6,13 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 
 #[path = "incremental_world_native_read.rs"]
 mod read;
+#[cfg(test)]
 pub(crate) use read::{read_body_v1, recover_world_native_record_v1};
 
 pub(crate) enum WorldNativeKeyRefV1<'a> {
     Unit,
     Text(&'a str),
-    Unsigned(u64),
+    Unsigned,
 }
 /// Outer Value entries use the original Unit key. This is independent of
 /// collection-member keys, whose closed Map/Set grammar stays unchanged.
@@ -55,7 +56,7 @@ impl WorldNativeKeyV1 for u64 {
         *self
     }
     fn key_ref(&self) -> WorldNativeKeyRefV1<'_> {
-        WorldNativeKeyRefV1::Unsigned(*self)
+        WorldNativeKeyRefV1::Unsigned
     }
     fn accepts_column(key: &ColumnKeyV1) -> bool {
         matches!(key, ColumnKeyV1::Ordinal(_))
@@ -288,3 +289,10 @@ pub(crate) fn prepare_world_native_record_v1<F: WorldNativeFieldSpecV1>(
     )?;
     crate::incremental_field_write::emit(row.field_key, row.value_root, ctx, sink)
 }
+
+#[path = "incremental_world_native_family.rs"]
+pub(crate) mod family;
+
+#[path = "incremental_world_native_qualification.rs"]
+mod qualification;
+pub use qualification::*;

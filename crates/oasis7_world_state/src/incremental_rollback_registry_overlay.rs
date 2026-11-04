@@ -140,7 +140,7 @@ pub fn change_rollback_registry_v1<
         let reference = RecordRootRefV1::from_canonical_bytes(&bytes).map_err(|_| invalid())?;
         let actual = reference
             .validate_binding(
-                &*blake3::hash(b"runtime.rollback.registry.v1").as_bytes(),
+                blake3::hash(b"runtime.rollback.registry.v1").as_bytes(),
                 &semantic,
                 StateNamespaceV1::Authorization,
             )
@@ -197,7 +197,7 @@ pub fn change_rollback_registry_v1<
                 Some(
                     reference
                         .validate_binding(
-                            &*blake3::hash(b"runtime.rollback.authority.v1").as_bytes(),
+                            blake3::hash(b"runtime.rollback.authority.v1").as_bytes(),
                             &key.semantic_key.ok_or_else(invalid)?,
                             StateNamespaceV1::Authorization,
                         )

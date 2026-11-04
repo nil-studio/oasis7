@@ -224,9 +224,34 @@ pub mod incremental_field_read;
 pub mod incremental_field_overlay;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod incremental_byte_map;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_delivery_cursor;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_field_write;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_pending_action_codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_pending_action_family;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_pending_action_index;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_pending_action_original_binding;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_pending_action_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_record_qualification_phase;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_pending_action_record;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_pending_actions;
+pub mod incremental_runtime_registry;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_key_router;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_id_sets;
@@ -477,20 +502,20 @@ pub mod incremental_world_rule_composite_family;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rule_composite_overlay;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_world_rule_industrial;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rule_continuity;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_industrial;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rule_receipts;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_native;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_world_native_industry;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_native_gameplay;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_native_governance;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_industry;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_state_genesis;
 

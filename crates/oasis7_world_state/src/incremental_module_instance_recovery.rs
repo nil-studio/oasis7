@@ -1,6 +1,12 @@
 //! Complete instance-family content verification at genesis/recovery only.
 //! Rebuild counters in a private scratch Merkle tree; never expose that root.
 use super::incremental_agent_mutation::BodyMutationError;
+use crate::{
+    incremental_module_instance_fields::{
+        ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key, ModuleInstanceScalarStreamV1,
+    },
+    incremental_module_instance_index::*,
+};
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionError,
     incremental_scratch_counter::{CounterScratchStore, ScratchCounterRoot},
@@ -11,12 +17,6 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueIoBudget, ValueNodeReader, ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use crate::{
-    incremental_module_instance_fields::{
-        ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key, ModuleInstanceScalarStreamV1,
-    },
-    incremental_module_instance_index::*,
-};
 use std::cell::RefCell;
 
 pub struct InstanceScratchBudget {

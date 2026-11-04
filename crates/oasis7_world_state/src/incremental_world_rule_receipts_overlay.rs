@@ -20,6 +20,7 @@ pub type AgentOrdersOverlayV1 =
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("closed receipt order owner batch")
 }
+#[allow(clippy::too_many_arguments)]
 fn batch<
     Edit: OwnerEditV1,
     M: MerkleNodeReader,
@@ -166,6 +167,7 @@ macro_rules! owner {
         /// Exact old leaf IDs, original map keys and complete container counts
         /// are checked in one batch. Errors poison any successful shared prefix.
         /// This supplies storage typing; business authority remains with caller.
+        #[allow(clippy::too_many_arguments)]
         pub fn $name<
             M: MerkleNodeReader,
             S: MerkleNodeReader,

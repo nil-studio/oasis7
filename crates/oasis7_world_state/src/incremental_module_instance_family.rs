@@ -3,6 +3,12 @@ use super::{
     incremental_agent_mutation::BodyMutationError,
     incremental_module_instance_recovery::ModuleInstanceRecoveryContext,
 };
+use crate::{
+    incremental_module_instance_fields::ModuleInstanceKeyV1,
+    incremental_module_instance_index::{
+        MODULE_INSTANCE_INDEX_KEY_V1, is_module_instance_count_key,
+    },
+};
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionTransaction, RootSetV1},
     incremental_scratch_counter::CounterScratchStore,
@@ -10,12 +16,6 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use crate::{
-    incremental_module_instance_fields::ModuleInstanceKeyV1,
-    incremental_module_instance_index::{
-        MODULE_INSTANCE_INDEX_KEY_V1, is_module_instance_count_key,
-    },
-};
 
 const FEE: usize = 1024;
 pub struct ModuleInstanceFamilyQualificationV1 {

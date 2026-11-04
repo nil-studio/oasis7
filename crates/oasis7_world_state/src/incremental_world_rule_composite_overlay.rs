@@ -33,6 +33,7 @@ impl<T> WorldRuleCompositeOverlayV1<T> {
         &self.body
     }
 }
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn patch_world_rule_branch_v1<
     'a,
     T: CompositeBranchCodecV1,

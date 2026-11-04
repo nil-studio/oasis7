@@ -226,6 +226,8 @@ pub fn accept_runtime_effect_transition_v1<
 ) -> Result<ReservedValue<RuntimeEffectFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
+        || parent.reserved_bytes() < 512
+        || parent.allocation_class() != ctx.values.class
         || !verifier.memory.same_pool(ctx.values.memory)
         || verifier.class != ctx.values.class
     {

@@ -21,6 +21,7 @@ enum Key<'a> {
     Entry(&'a str),
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fixed_scalar<
     'a,
     T: CompositeBranchCodecV1,
@@ -113,6 +114,7 @@ fn fixed_scalar<
 
 /// `expected` is the exact original selected leaf value ID; unrelated records
 /// and original map keys remain untouched. A failed call poisons the transaction.
+#[allow(clippy::too_many_arguments)]
 pub fn set_world_rule_continuity_case_phase_v1<
     M: MerkleNodeReader,
     S: MerkleNodeReader,
@@ -187,6 +189,7 @@ pub fn set_world_rule_continuity_case_phase_v1<
 
 /// `expected` is the exact original selected leaf value ID; unrelated records
 /// and original map keys remain untouched. A failed call poisons the transaction.
+#[allow(clippy::too_many_arguments)]
 pub fn set_world_rule_emergency_review_decision_v1<
     M: MerkleNodeReader,
     S: MerkleNodeReader,

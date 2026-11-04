@@ -8,7 +8,6 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateScanBudget, StateScanContext, StateScanError},
     incremental_value::{ValueNodeReader, ValueReadContext},
 };
-use oasis7_proto::memory_budget::MemoryClass;
 use std::io;
 
 /// A successful raw scan is integrity/schema qualification, never business or
@@ -17,8 +16,13 @@ use std::io;
 pub struct LogisticsFamilyQualificationV1 {
     pub(super) roots: [u8; 32],
     pub(super) records: [u64; 2],
+    pub(super) class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl LogisticsFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if &self.roots != roots {
             return Err(ValueTreeError::Invalid("logistics family root binding"));
@@ -63,7 +67,7 @@ pub fn qualify_logistics_family_v1<
     }
     let memory = context.values.memory;
     let class = context.values.class;
-    let _workspace = memory.reserve(24 << 10, class)?;
+    let _workspace = memory.reserve(128 << 10, class)?;
     roots.validate().map_err(|_| invalid())?;
     if context.state.allocation_class() != Some(class)
         || context
@@ -180,16 +184,14 @@ pub fn qualify_logistics_family_v1<
         return Err(invalid());
     }
     let digest = roots.digest().map_err(|_| invalid())?;
-    let charge = memory.reserve(
-        std::mem::size_of::<LogisticsFamilyQualificationV1>(),
-        MemoryClass::Ordinary,
-    )?;
+    let charge = memory.reserve(std::mem::size_of::<LogisticsFamilyQualificationV1>(), class)?;
     if (cancelled.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
     }
     Ok(charge.retain(LogisticsFamilyQualificationV1 {
         roots: digest,
         records: counts,
+        class: class,
     }))
 }
 
@@ -239,4 +241,43 @@ pub(super) fn reference<R: ValueNodeReader, C: FnMut() -> bool>(
         )
         .map_err(|_| invalid())?
         .clone())
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for LogisticsFamilyQualificationV1
+{
+    const RETAINED_BYTES: usize = std::mem::size_of::<Self>();
+    type Binding<'a> = crate::incremental_record_qualification_phase::FamilyBindingV1<'a>;
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(&binding.digest()?)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            roots: source.roots,
+            records: source.records,
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_logistics_family_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<LogisticsFamilyQualificationV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<
+    oasis7_proto::memory_budget::ReservedValue<LogisticsFamilyQualificationV1>,
+    ValueTreeError,
+> {
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        memory,
+        cancelled,
+    )
 }

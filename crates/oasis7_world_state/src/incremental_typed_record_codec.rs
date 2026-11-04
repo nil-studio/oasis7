@@ -19,12 +19,13 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(crate) fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("closed typed record columns")
 }
+type TypedReferenceSchemaV1 = fn(&ColumnKeyV1) -> Option<[u8; 32]>;
 #[derive(Clone, Copy)]
 pub(crate) struct TypedRecordProfileV1 {
     pub(crate) field: FieldDescriptor,
     pub(crate) schema: [u8; 32],
     pub(crate) labels: RecordTreeLabelsV1,
-    pub(crate) reference_schema: Option<fn(&ColumnKeyV1) -> Option<[u8; 32]>>,
+    pub(crate) reference_schema: Option<TypedReferenceSchemaV1>,
 }
 impl TypedRecordProfileV1 {
     pub(crate) fn namespace(&self) -> Result<StateNamespaceV1, ValueTreeError> {

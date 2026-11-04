@@ -3,13 +3,13 @@ use super::{
     incremental_agent_mutation::BodyMutationError,
     incremental_module_state_recovery::ModuleStateRecoveryContextV1,
 };
+use crate::incremental_module_fields::ModuleStateKeyV1;
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionTransaction, RootSetV1},
     incremental_state::{MerkleNodeReader, StateNamespaceV1, StateScanContext},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use crate::incremental_module_fields::ModuleStateKeyV1;
 const FEE: usize = 1024;
 pub struct ModuleStateFamilyQualificationV1 {
     roots: [u8; 32],

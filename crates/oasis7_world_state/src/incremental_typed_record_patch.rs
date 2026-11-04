@@ -12,6 +12,7 @@ fn invalid() -> ValueTreeError {
 }
 /// Explicit canonical keys preserve original map IDs and tuple/set identities.
 /// `expected` is the actual old member value ID, independent of DTO fields.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn patch_typed_path_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -110,10 +111,10 @@ pub(crate) fn patch_typed_path_v1<
             write,
             work,
         )?;
-        if let ColumnCellV1::Root(original) = &row.cell {
-            if child.root() == original {
-                return Ok(());
-            }
+        if let ColumnCellV1::Root(original) = &row.cell
+            && child.root() == original
+        {
+            return Ok(());
         }
         Some(Encoded::Tree(child))
     };

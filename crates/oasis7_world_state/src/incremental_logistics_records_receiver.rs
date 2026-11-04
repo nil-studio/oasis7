@@ -52,13 +52,27 @@ pub fn verify_logistics_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
         return Err(ValueTreeError::Cancelled.into());
     }
     let memory = context.values.memory;
-    if context.values.class != MemoryClass::Ordinary || !qualification.uses_budget(memory) {
+    if context.values.class != MemoryClass::Ordinary
+        || !qualification.uses_budget(memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            qualification,
+            memory,
+            context.values.class,
+        )
+        .is_err()
+    {
         return Err(invalid().into());
     }
     let _workspace = memory
         .reserve(24 << 10, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?;
-    qualification.validate_binding(&record.before.digest()?)?;
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        qualification,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+        memory,
+        MemoryClass::Ordinary,
+        &mut context.cancelled,
+    )?;
     let prepared = {
         let source = tree::Source {
             source: context.values.source,
@@ -175,6 +189,7 @@ pub fn verify_logistics_transition_v1<R: ValueNodeReader, C: FnMut() -> bool>(
         qualification: charge.retain(LogisticsFamilyQualificationV1 {
             roots: digest,
             records: counts,
+            class: MemoryClass::Ordinary,
         }),
     })
 }

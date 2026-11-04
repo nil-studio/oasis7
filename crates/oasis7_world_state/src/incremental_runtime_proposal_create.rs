@@ -9,6 +9,7 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard},
     incremental_state::StatePageWriter,
 };
+#[allow(clippy::too_many_arguments)]
 pub fn create_runtime_proposal_overlay_v1<M, R, E, C, W, CW>(
     parent: &ReservedValue<RuntimeProposalsQualificationV1>,
     roots: &RootSetV1,

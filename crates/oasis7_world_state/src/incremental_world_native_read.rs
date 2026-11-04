@@ -29,9 +29,15 @@ pub(crate) fn read_body_at_entry_v1<
     check(ctx)?;
     let _phase = ctx.values.memory.reserve(4096, ctx.values.class)?;
     let parsed = WorldFieldKeyV1::from_bytes(key.as_bytes()).map_err(ValueTreeError::Invalid)?;
-    let expected = WorldFieldKeyV1::new(F::descriptor()?, WorldFieldRecordKindV1::Entry,
-        parsed.semantic_key).map_err(ValueTreeError::Invalid)?;
-    if expected != *key || ctx.root.namespace != parsed.namespace { return Err(invalid()); }
+    let expected = WorldFieldKeyV1::new(
+        F::descriptor()?,
+        WorldFieldRecordKindV1::Entry,
+        parsed.semantic_key,
+    )
+    .map_err(ValueTreeError::Invalid)?;
+    if expected != *key || ctx.root.namespace != parsed.namespace {
+        return Err(invalid());
+    }
     ctx.values
         .verify_closure(value, ctx.record_bytes, &mut ctx.cancelled)?;
     let mut bytes = [0; RECORD_ROOT_BYTES];

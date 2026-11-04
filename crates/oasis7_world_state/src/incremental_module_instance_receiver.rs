@@ -4,6 +4,12 @@ use super::{
     incremental_module_instance_family::{self as family, ModuleInstanceFamilyQualificationV1},
     incremental_module_instance_recovery::{self as recovery, ModuleInstanceRecoveryContext},
 };
+use crate::{
+    incremental_module_instance_fields::{
+        ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key,
+    },
+    incremental_module_instance_index::*,
+};
 use oasis7_formal_protocol::{
     incremental_execution::{RootSetV1, TransitionRecordV1, TransitionVerifier},
     incremental_scratch_counter::CounterScratchStore,
@@ -11,12 +17,6 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::ReservedValue;
-use crate::{
-    incremental_module_instance_fields::{
-        ModuleInstanceFieldV1 as Field, ModuleInstanceKeyV1 as Key,
-    },
-    incremental_module_instance_index::*,
-};
 use std::cell::RefCell;
 
 fn step(work: &mut u64) -> Result<(), BodyMutationError> {

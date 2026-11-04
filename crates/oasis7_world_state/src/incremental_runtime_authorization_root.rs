@@ -52,7 +52,20 @@ where
         .lookup(&key.0)?
         .ok_or(ValueTreeError::Invalid("authorization root value missing"))?;
     use crate::incremental_record_value_read::*;
-    let profile = RecordReadProfileV1 {
+    let profile = authorization_root_read_profile_v1();
+    let result =
+        read_record_value_v1(&value, &key, &mut ctx.records(), max_bytes, output, profile)?;
+    ctx.check()?;
+    match result {
+        RecordValueV1::Text { utf8_bytes } => Ok(utf8_bytes),
+        _ => Err(ValueTreeError::Invalid("authorization root codec")),
+    }
+}
+
+fn authorization_root_read_profile_v1() -> crate::incremental_record_value_read::RecordReadProfileV1
+{
+    use crate::incremental_record_value_read::*;
+    RecordReadProfileV1 {
         codec: MemberPayloadCodecV1::Text,
         nullable: false,
         integer_max: u64::MAX,
@@ -65,12 +78,16 @@ where
             profile: "authorization root profile",
             integer: "authorization root integer",
         },
-    };
-    let result =
-        read_record_value_v1(&value, &key, &mut ctx.records(), max_bytes, output, profile)?;
-    ctx.check()?;
-    match result {
-        RecordValueV1::Text { utf8_bytes } => Ok(utf8_bytes),
-        _ => Err(ValueTreeError::Invalid("authorization root codec")),
     }
 }
+
+#[path = "incremental_runtime_authorization_root_family.rs"]
+mod family;
+pub use family::{
+    RuntimeAuthorizationRootQualificationV1, accept_runtime_authorization_root_transition_v1,
+    qualify_runtime_authorization_root_v1, readmit_runtime_authorization_root_ordinary_v1,
+};
+
+#[cfg(test)]
+#[path = "incremental_runtime_authorization_root_family_tests.rs"]
+mod family_tests;

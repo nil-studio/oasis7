@@ -178,8 +178,8 @@ fn visit_entries_inner<
             if new.is_none() {
                 removed = removed.checked_add(1).ok_or_else(invalid)?
             }
-            let old = old.as_ref().map(|entry| TypedCellRefV1::Entry(entry));
-            let new = new.as_ref().map(|entry| TypedCellRefV1::Entry(entry));
+            let old = old.as_ref().map(TypedCellRefV1::Entry);
+            let new = new.as_ref().map(TypedCellRefV1::Entry);
             visitor(old.as_ref(), new.as_ref(), d)?;
         } else {
             let children = |p| match p {
@@ -644,10 +644,10 @@ fn check_tuple_size<
     d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
     n: u64,
 ) -> Result<(), ValueTreeError> {
-    if let Some(after) = after {
-        if root(profile, after, d)?.leaf_count != n + 2 {
-            return Err(invalid());
-        }
+    if let Some(after) = after
+        && root(profile, after, d)?.leaf_count != n + 2
+    {
+        return Err(invalid());
     }
     Ok(())
 }

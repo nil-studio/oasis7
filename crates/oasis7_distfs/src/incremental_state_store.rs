@@ -20,6 +20,7 @@ pub struct StatePageSession<'a> {
     first_read_error: Mutex<Option<PageStoreError>>,
     class: MemoryClass,
     pub cancelled: AtomicBool,
+    caller_cancelled: Option<&'a AtomicBool>,
     _charge: MemoryReservation,
 }
 impl IncrementalPageStore {
@@ -35,11 +36,39 @@ impl IncrementalPageStore {
             first_read_error: Mutex::new(None),
             class,
             cancelled: AtomicBool::new(false),
+            caller_cancelled: None,
+            _charge: charge,
+        })
+    }
+    /// Share the caller's live cancellation flag with every physical page read
+    /// and publication; the default constructor retains its local flag.
+    pub fn state_session_with_cancelled<'a>(
+        &'a self,
+        io: PageIoBudget,
+        class: MemoryClass,
+        cancelled: &'a AtomicBool,
+    ) -> Result<StatePageSession<'a>> {
+        check_cancelled(cancelled)?;
+        let charge = self.memory.reserve(4096, class)?;
+        Ok(StatePageSession {
+            store: self,
+            io: Mutex::new(io),
+            first_read_error: Mutex::new(None),
+            class,
+            cancelled: AtomicBool::new(false),
+            caller_cancelled: Some(cancelled),
             _charge: charge,
         })
     }
 }
 impl StatePageSession<'_> {
+    fn physical_cancelled(&self) -> &AtomicBool {
+        self.caller_cancelled.unwrap_or(&self.cancelled)
+    }
+    fn check_cancelled(&self) -> Result<()> {
+        check_cancelled(&self.cancelled)?;
+        check_cancelled(self.physical_cancelled())
+    }
     /// Preserve the original typed storage failure across the shared Merkle
     /// interface's legacy String error boundary. It is diagnostic only; a
     /// failed execution transaction remains poisoned and cannot be sealed.
@@ -130,11 +159,19 @@ impl StatePageSession<'_> {
         &mut self,
         nodes: impl Iterator<Item = (&'a str, &'a [u8])>,
     ) -> Result<()> {
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled()?;
+        }
+        let cancelled = self.caller_cancelled.unwrap_or(&self.cancelled);
         let io = self
             .io
             .get_mut()
             .map_err(|_| PageStoreError::Corrupt("state session poisoned"))?;
-        persist_nodes(self.store, self.class, io, &self.cancelled, nodes)
+        let result = persist_nodes(self.store, self.class, io, cancelled, nodes);
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled()?;
+        }
+        result
     }
     fn failure(&self, error: PageStoreError) -> String {
         let message = error.to_string();
@@ -166,13 +203,27 @@ impl MerkleNodeReader for StatePageSession<'_> {
                 return Err(PageStoreError::Corrupt("state source request bound"));
             }
             let id = parse_id(digest)?;
+            if self.caller_cancelled.is_some() {
+                self.check_cancelled()?;
+            }
             let mut io = self
                 .io
                 .lock()
                 .map_err(|_| PageStoreError::Corrupt("state session poisoned"))?;
-            self.store
-                .read_page(&id, max_bytes, self.class, &mut io, &self.cancelled)
-                .map(|bytes| Some(ChargedMerklePage(bytes)))
+            let result = self
+                .store
+                .read_page(
+                    &id,
+                    max_bytes,
+                    self.class,
+                    &mut io,
+                    self.physical_cancelled(),
+                )
+                .map(|bytes| Some(ChargedMerklePage(bytes)));
+            if self.caller_cancelled.is_some() {
+                self.check_cancelled()?;
+            }
+            result
         })();
         result.map_err(|error| self.failure(error))
     }

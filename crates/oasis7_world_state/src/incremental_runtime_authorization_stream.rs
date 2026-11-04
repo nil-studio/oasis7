@@ -338,7 +338,6 @@ pub(super) fn qualify<
         }
     };
     let known = p.known;
-    drop(records);
     let cancel = RefCell::new(&mut ctx.cancelled);
     let mut actual = 0u64;
     let mut dynamic = 0u64;
@@ -413,7 +412,6 @@ pub(super) fn qualify<
     {
         return Err(invalid());
     }
-    drop(cancel);
     ctx.check()
 }
 

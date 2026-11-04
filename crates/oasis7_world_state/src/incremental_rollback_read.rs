@@ -30,6 +30,7 @@ macro_rules! with_key {
 }
 /// Caller retains output reservation and chooses the closed expected codec.
 /// Every intermediate root is bound to its exact semantic component and schema.
+#[allow(clippy::too_many_arguments)]
 pub fn read_rollback_cell_v1<R: ValueNodeReader, C: FnMut() -> bool>(
     root: &StateRootV1,
     schema: [u8; 32],

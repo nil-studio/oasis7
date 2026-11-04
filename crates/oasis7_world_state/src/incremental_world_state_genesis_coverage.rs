@@ -152,7 +152,9 @@ impl Coverage {
             .iter()
             .enumerate()
             .find(|(_, f)| f.name == parsed.name)
-            .ok_or_else(|| ValueTreeError::Invalid("WorldState native GEN unknown field"))?;
+            .ok_or(ValueTreeError::Invalid(
+                "WorldState native GEN unknown field",
+            ))?;
         if parsed.owner != FieldOwner::WorldState
             || parsed.namespace != row.namespace
             || field.destination != FieldDestination::State(row.namespace)

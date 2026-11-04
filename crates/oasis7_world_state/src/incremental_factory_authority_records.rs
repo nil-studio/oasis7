@@ -136,7 +136,10 @@ pub use read::{
 };
 #[path = "incremental_factory_authority_records_closure.rs"]
 mod closure;
-pub use closure::{FactoryAuthorityQualificationV1, qualify_factory_authority_body_v1};
+pub use closure::{
+    FactoryAuthorityQualificationV1, qualify_factory_authority_body_v1,
+    readmit_factory_authority_record_ordinary_v1,
+};
 #[path = "incremental_factory_authority_records_point.rs"]
 mod point;
 pub use point::{
@@ -150,7 +153,7 @@ pub use overlay_read::read_qualified_factory_authority_cell_overlay_v1;
 mod family;
 pub use family::{
     FactoryAuthorityFamilyQualificationV1, open_qualified_factory_authority_record_v1,
-    qualify_factory_authority_family_v1,
+    qualify_factory_authority_family_v1, readmit_factory_authority_family_ordinary_v1,
 };
 #[path = "incremental_factory_authority_records_lifecycle.rs"]
 mod lifecycle;

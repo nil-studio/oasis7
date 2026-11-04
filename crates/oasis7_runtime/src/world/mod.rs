@@ -1104,6 +1104,8 @@ pub use participant_devlocal::DevLocalParticipantAuthority;
 
 pub mod incremental_body;
 pub mod incremental_body_event;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_action_original;
 mod incremental_module_fee;
 pub(crate) mod incremental_module_fee_accounts;
 pub(crate) mod incremental_module_fee_contribution;
@@ -1143,6 +1145,14 @@ pub mod incremental_module_instance_change;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_family;
 pub mod incremental_module_instance_genesis;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_genesis_instances;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_genesis_raw;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_genesis_typed;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_genesis;
 mod incremental_module_instance_genesis_state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_receiver;
