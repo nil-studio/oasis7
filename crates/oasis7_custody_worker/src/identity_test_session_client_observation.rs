@@ -49,6 +49,9 @@ impl Observation {
         Ok(observation)
     }
 
+    pub(super) fn diagnostic_facts(&self, diagnostic: &crate::rejection_diagnostic::Trace) {
+        diagnostic.fact("observation_until", Some(self.expires_at));
+    }
     pub fn fingerprint(&self) -> Result<String> {
         Ok(bytes_digest(
             &oasis7_wasm_abi::encode_canonical_cbor(&(
@@ -64,6 +67,12 @@ impl Observation {
 
     pub fn check(&self, env: &Env, selector: &TestSessionSelectorV1) -> Result<()> {
         let now = clock()?;
+        let report = |error| {
+            let diagnostic = crate::rejection_diagnostic::Trace::new(env, "client", Some(now), None);
+            self.diagnostic_facts(&diagnostic);
+            diagnostic.at("client.current", now);
+            error
+        };
         let d = &self.descriptor;
         let scope = &d.session.scope.role_scope;
         let value = |name| {
@@ -94,9 +103,11 @@ impl Observation {
             || now < self.fence_started
             || now - self.fence_started > 5000
         {
-            return Err(js_denied());
+            return Err(report(js_denied()));
         }
-        self.fence.check_epoch(epoch.0).map_err(|_| js_denied())?;
+        self.fence
+            .check_epoch(epoch.0)
+            .map_err(|_| report(js_denied()))?;
         crate::native_identity::provision_transport::NativeProvisionTransport::from_env(env)
             .map_err(|_| js_denied())?
             .validate_binding(&d.native_binding)

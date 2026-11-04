@@ -76,11 +76,18 @@ impl OwnerProvisionApprovalStore {
             &mut crate::approval_store::ExactCache,
         ) -> Result<R>,
     {
+        let diagnostic = crate::rejection_diagnostic::Trace::new(env, "proof", None, None);
+        let report = |stage, error| {
+            diagnostic.fail(stage);
+            error
+        };
         let initial = self
             .snapshot()
-            .map_err(|e| client_diagnostic("snapshot", e))?;
-        selector(&initial.state, rpc)?;
-        let configuration = ClientHttpConfiguration::load(env)?;
+            .map_err(|e| report("proof.snapshot", e))?;
+        diagnostic.session(&initial.state, &rpc.http.selector.session_id, None);
+        selector(&initial.state, rpc).map_err(|e| report("proof.selector", e))?;
+        let configuration =
+            ClientHttpConfiguration::load(env).map_err(|e| report("proof.configuration", e))?;
         let prepared = configuration
             .prepare(
                 &initial.state,
@@ -88,21 +95,23 @@ impl OwnerProvisionApprovalStore {
                 operation,
                 UnixMillis::new(now()?),
             )
-            .map_err(|e| client_diagnostic("prepare", e))?;
+            .map_err(|e| report("proof.prepare", e))?;
         let mut cache = verify(prepared.signature_checks().map_err(|_| rejected())?)
             .await
-            .map_err(|e| client_diagnostic("async_crypto", e))?;
+            .map_err(|e| report("proof.async_crypto", e))?;
         self.local_reservation(event, &rpc.http.selector.session_id, |state, time| {
+            diagnostic.session(state, &rpc.http.selector.session_id, None);
             selector(state, rpc)?;
             let prepared = ClientHttpConfiguration::load(env)?
                 .prepare(state, &rpc.http.original, operation, UnixMillis::new(time))
-                .map_err(|e| client_diagnostic("final_prepare", e))?;
+                .map_err(|e| report("proof.final_prepare", e))?;
             let proof = verify_http_possession(prepared, UnixMillis::new(time), &mut cache)
-                .map_err(|_| client_diagnostic("final_crypto", rejected()))?;
+                .map_err(|_| report("proof.final_crypto", rejected()))?;
+            diagnostic.fact("proof_until", proof.expires().get().checked_mul(1000));
             transition(state, &proof, UnixMillis::new(time), &mut cache)
-                .map_err(|e| client_diagnostic("transition", e))
+                .map_err(|e| report("proof.transition", e))
         })
-        .map_err(|e| client_diagnostic("sql_commit", e))
+        .map_err(|e| report("proof.sql_commit", e))
     }
     /// All Source/Root signature jobs and this same raw HTTP signature are
     /// verified asynchronously, then re-derived from the final Account SQL row.
@@ -130,11 +139,13 @@ impl OwnerProvisionApprovalStore {
             &mut NativeExactCache,
         ) -> Result<R>,
     {
+        let diagnostic = crate::rejection_diagnostic::Trace::new(env, "live", None, None);
         let (operation, event, alarm) = lane;
         let observe = |state: &AccountProvisionApprovalState,
                        _: &NativeStageScope<'_>,
                        _: &ProvisionApprovalContext<'_>,
                        time: u64| {
+            diagnostic.session(state, &rpc.http.selector.session_id, None);
             selector(state, rpc)?;
             let prepared = ClientHttpConfiguration::load(env)?.prepare(
                 state,
@@ -153,6 +164,7 @@ impl OwnerProvisionApprovalStore {
                      _: &ProvisionApprovalContext<'_>,
                      time: u64,
                      cache: &mut NativeExactCache| {
+            diagnostic.session(state, &rpc.http.selector.session_id, None);
             selector(state, rpc)?;
             let prepared = ClientHttpConfiguration::load(env)?.prepare(
                 state,
@@ -162,11 +174,12 @@ impl OwnerProvisionApprovalStore {
             )?;
             let proof = verify_http_possession(prepared, UnixMillis::new(time), cache)
                 .map_err(|_| rejected())?;
+            diagnostic.fact("proof_until", proof.expires().get().checked_mul(1000));
             current()?.with_core(|context| {
                 transition(state, &proof, context, UnixMillis::new(time), cache)
             })
         };
-        match alarm {
+        let result = match alarm {
             Some(deadline) => {
                 self.native_verified_with_alarm(
                     &|| Ok(current()?.native),
@@ -188,7 +201,11 @@ impl OwnerProvisionApprovalStore {
                 )
                 .await
             }
-        }
+        };
+        result.map_err(|error| {
+            diagnostic.fail("live.transaction");
+            error
+        })
     }
 }
 
@@ -283,6 +300,8 @@ impl OwnerProvisionApprovalStore {
     where
         F: Fn() -> Result<ClientLiveCurrent>,
     {
+        let diagnostic = crate::rejection_diagnostic::Trace::new(env, "live", None, None);
+        let checks_seen = std::cell::Cell::new(false);
         self.client_live_transaction(
             env,
             rpc,
@@ -293,6 +312,17 @@ impl OwnerProvisionApprovalStore {
             ),
             current,
             |state, context, time| {
+                diagnostic.session(
+                    state,
+                    &rpc.http.selector.session_id,
+                    Some(context.source_operation_id),
+                );
+                diagnostic.lifetime(context.lifetime);
+                let stage = if checks_seen.replace(true) {
+                    "core.checks.final"
+                } else {
+                    "core.checks.before"
+                };
                 Ok(vec![
                     state
                         .test_session_live_checks(
@@ -301,10 +331,18 @@ impl OwnerProvisionApprovalStore {
                             context,
                             time,
                         )
-                        .map_err(|_| rejected())?,
+                        .map_err(|e| {
+                            diagnostic.core_at(stage, &e, time.get());
+                            rejected()
+                        })?,
                 ])
             },
             |state, proof, context, time, cache| {
+                diagnostic.session(
+                    state,
+                    &rpc.http.selector.session_id,
+                    Some(context.source_operation_id),
+                );
                 state
                     .issue_test_session_challenge(
                         SessionProofRequest {
@@ -317,7 +355,10 @@ impl OwnerProvisionApprovalStore {
                         time,
                         cache,
                     )
-                    .map_err(|_| rejected())
+                    .map_err(|e| {
+                        diagnostic.core_at("account.challenge", &e, time.get());
+                        rejected()
+                    })
             },
         )
         .await
