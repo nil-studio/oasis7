@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/world-runtime/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "163d32d5a393f1c6a90078c8d97503204547a7b5613094b38535df06dae69322",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "design",
+    "path": "doc/world-runtime/runtime/contextual-reputation-evidence-and-review.design.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "world-runtime-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "runtime_engineer",
+    "structural_owner": "runtime_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

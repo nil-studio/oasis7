@@ -243,4 +243,4 @@ world-first：发布与恢复由权威世界提交；emergence-first：创作者
 
 采用 append-only 发布及仅冻结新增准入的有限回滚，理由与边界见 §§5–6；不以旧批准替代当前授权，不删除已发生的 profile、资产和历史。更丰富的授权期限、范围、替代与退出仍未覆盖，由 runtime/WASM owner 在扩展合同或消费者变化时复核；§11 的定位与计划不构成实际通过证据。
 
-作者输入和交付包只补齐 GR-009 的内容交接子范围。四阶段产品语义已经由 GAME-018 冻结；本专题未承接完整确定性工业模拟、有限试点的执行状态/限额/退出、阶段强制顺序、全部成本/损失读面及跨入口组合。应由原 producer/gameplay/runtime/WASM/QA 继续补对应专业执行与证据，不能将这些缺口转写为新的产品决定或手工许可。发现、分享市场、专用编辑器、图形资产分发与 GR-010 的许可/版税执行不在本次交付范围。
+作者输入和交付包只承接 GR-009 的内容交接子范围。完整确定性工业模拟、有限试点的状态/限额/退出、阶段强制顺序、成本/损失读面及跨入口组合，由[工业四阶段执行设计](../runtime/industrial-creation-simulation-and-admission.design.md)消费 GAME-018 并独立承接；GR-010 的有限许可、版税与开放由[许可结算设计](../runtime/industrial-license-and-royalty-settlement.design.md)承接。它们没有把本专题 Shadow/Apply 改成工业模拟/准入，也没有扩张 exact FROM 回滚对既有实例的权限。真实实现与组合证据仍须由原 producer/gameplay/runtime/WASM/QA 完成；不能以手工批准或新 ID 绕过。发现/分享市场、专用编辑器和图形资产分发仍不在本交接范围。
