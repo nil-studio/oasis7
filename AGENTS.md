@@ -25,7 +25,7 @@
 - 测试：`testing-manual.md`；UI/Web 见 S6。
 - Agent 游戏功能验证须按[规范触发范围](doc/engineering/workflow/source-of-truth.md#agent-gameplay-selftest)执行[自测操作手册](doc/testing/manual/agent-runtime-self-playtest.manual.md)：主 Agent 组织独立试玩、读取正式游戏 Skill、核对世界结果并修复复测；缺前置如实报告，普通 CI 不代签实玩。
 - 显式本地检查见 [测试手册](testing-manual.md#local-check-entry)：文档用 `./scripts/doc-governance-check.sh`；诊断套件用 `./scripts/ci-tests.sh commit`（必须显式 tier）。`pre-commit.sh` 是 no-op 兼容入口，不执行验证。
-- PR：`gh pr create`、`gh pr checks <pr> --required`。
+- PR：按[PR 描述要求](doc/engineering/workflow/source-of-truth.md#pr-description)填写并更新正文；`gh pr create`、`gh pr checks <pr> --required`。
 - 合入：满足适用评审、检查及用户限制后，执行 `gh pr merge <pr> --squash --match-head-commit <expected-head>`。
 
 PR 标题和 commit message 使用英文。
