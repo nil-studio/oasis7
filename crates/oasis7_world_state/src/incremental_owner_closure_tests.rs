@@ -181,6 +181,7 @@ struct Fixture {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FixtureIssue {
+    MisplacedIdSetNamespace,
     WrongTextKey,
     InvalidTextPayload,
     WrongTextCodec,
@@ -981,6 +982,29 @@ fn fixture_with_issue(include_u64_entries: bool, issue: Option<FixtureIssue>) ->
             &mut key_work,
             &mut writes,
         );
+    }
+
+    if issue == Some(FixtureIssue::MisplacedIdSetNamespace) {
+        let authorization = writes.get_mut(&StateNamespaceV1::Authorization).unwrap();
+        let mut relocated = Vec::new();
+        authorization.retain(|row| {
+            let parsed =
+                crate::incremental_world_field_key::WorldFieldKeyV1::from_bytes(&row.key).unwrap();
+            if parsed.name == "retired_factory_ids" {
+                assert_eq!(parsed.namespace, StateNamespaceV1::Authorization);
+                relocated.push(row.clone());
+                false
+            } else {
+                true
+            }
+        });
+        // Move the real metadata and Unit entry unchanged, then build both
+        // actual public Merkle roots below. Neither key nor ValueRoot is forged.
+        assert_eq!(relocated.len(), 2);
+        writes
+            .entry(StateNamespaceV1::Business)
+            .or_default()
+            .extend(relocated);
     }
 
     let namespaces = [
