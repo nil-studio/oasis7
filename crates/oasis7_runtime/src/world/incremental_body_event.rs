@@ -99,6 +99,22 @@ impl World {
         txn: &mut ExecutionTransaction<'_, R>,
         context: &mut AgentEventContext<'_, V, W, C, F>,
     ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_core(now, event, txn, context, false)
+    }
+
+    fn contribute_iws_agent_event_core<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    >(
+        now: u64,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        registration_created: bool,
+    ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
                 id: _,
@@ -114,6 +130,7 @@ impl World {
             let agent_id = match domain {
                 DomainEvent::BodyAttributesUpdated { agent_id, .. }
                 | DomainEvent::AgentMoved { agent_id, .. } => agent_id,
+                DomainEvent::AgentRegistered { agent_id, .. } if registration_created => agent_id,
                 _ => {
                     return Err(BodyMutationError::Invalid(
                         "unsupported incremental agent event",
@@ -231,6 +248,7 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
+                DomainEvent::AgentRegistered { .. } if registration_created => {}
                 _ => unreachable!("event kind was checked before any contribution"),
             }
             let next_ref = write_field_bytes(
@@ -277,3 +295,6 @@ impl World {
 #[cfg(test)]
 #[path = "incremental_body_event_tests.rs"]
 mod tests;
+
+#[path = "incremental_agent_registration.rs"]
+mod registration;

@@ -378,3 +378,48 @@ pub mod incremental_cognition_lifecycle_qualification_v2;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_owner_closure;
+
+/// Runtime business counters and signed threat-map records.
+pub mod incremental_runtime_business;
+
+pub mod incremental_runtime_authorization_audit;
+
+pub mod incremental_runtime_authorization_invocation;
+
+pub mod incremental_rollback_records;
+
+pub mod incremental_runtime_authorization_grants;
+
+pub mod incremental_rollback_genesis;
+
+pub mod incremental_runtime_authorization_genesis;
+
+pub mod incremental_rollback_read;
+
+pub mod incremental_rollback_family_genesis;
+
+pub mod incremental_runtime_authorization_root;
+
+pub mod incremental_runtime_authorization_grants_family;
+
+pub mod incremental_rollback_recovery;
+
+pub mod incremental_rollback_qualification;
+
+pub mod incremental_runtime_authorization_decode;
+
+pub mod incremental_rollback_family_recovery;
+
+pub mod incremental_runtime_governance;
+
+pub(crate) mod incremental_record_columns_read;
+
+pub mod incremental_rollback_delta;
+
+pub mod incremental_runtime_authorization_family;
+
+pub mod incremental_rollback_overlay;
+
+pub mod incremental_rollback_registry_overlay;
+
+pub mod incremental_runtime_authorization_family_genesis;

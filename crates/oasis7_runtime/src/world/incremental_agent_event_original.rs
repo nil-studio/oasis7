@@ -142,11 +142,8 @@ fn encode<C: FnMut() -> bool>(
     };
     // Keep the full WorldEvent serializer independent of each caller closure.
     let stop: &mut dyn FnMut() -> bool = &mut *cancel;
-    let mut encoding = CanonicalCborStreamContextV1::new(
-        &allocator,
-        std::mem::replace(work, placeholder),
-        stop,
-    );
+    let mut encoding =
+        CanonicalCborStreamContextV1::new(&allocator, std::mem::replace(work, placeholder), stop);
     let mut sink = HashOutput {
         output,
         hash: blake3::Hasher::new(),

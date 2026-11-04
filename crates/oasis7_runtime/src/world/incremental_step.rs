@@ -146,6 +146,58 @@ where
         result
     }
 
+    /// Register a qualified absent cell using this step's authenticated clock.
+    pub fn dispatch_agent_registration<F, E>(
+        &mut self,
+        qualification: &oasis7_proto::memory_budget::ReservedValue<
+            oasis7_world_state::incremental_agent_subtree::AgentSubtreeStructureQualificationV1,
+        >,
+        event: &WorldEvent,
+        key_work: &mut oasis7_world_state::incremental_semantic_key::SemanticKeyBudget,
+        read_io: &mut oasis7_formal_protocol::incremental_value::ValueIoBudget,
+        semantic_bytes: u64,
+        record_bytes: u64,
+        take_state_error: E,
+        live: &ExecutionFence,
+        max_event_bytes: usize,
+        persist_original: F,
+    ) -> Result<(), BodyMutationError>
+    where
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+        E: FnMut() -> Option<oasis7_formal_protocol::incremental_value::ValueTreeError>,
+    {
+        let guard = self.transaction.guard();
+        let result = World::contribute_iws_agent_registration_at(
+            self.now,
+            event,
+            qualification,
+            &mut oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1 {
+                transaction: self.transaction,
+                values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                    source: self.values,
+                    memory: self.mutation.memory,
+                    class: oasis7_proto::memory_budget::MemoryClass::Ordinary,
+                    io: read_io,
+                },
+                key_work,
+                semantic_bytes,
+                record_bytes,
+                take_state_error,
+                cancelled: || false,
+            },
+            self.mutation,
+            &guard,
+            live,
+            self.original_work,
+            max_event_bytes,
+            persist_original,
+        );
+        result?;
+        self.transaction.contribute(|transaction| {
+            super::incremental_clock::check_clock(self.now, transaction, self.mutation)
+        })
+    }
+
     pub fn allocate(
         &mut self,
         allocator: RuntimeAllocatorV1,

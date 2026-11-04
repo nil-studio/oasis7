@@ -222,7 +222,7 @@ fn text_byte_field(field: FieldDescriptor) -> Option<TextByteOwnerField> {
 }
 
 #[path = "incremental_owner_key_probe.rs"]
-mod key_probe;
+pub(crate) mod key_probe;
 use key_probe::{OwnerKeyKind, OwnerSemanticKeyProbe};
 
 fn read_typed_member<R: ValueNodeReader>(
