@@ -44,6 +44,8 @@
 
 ## 活跃补充文档
 
+- [生产目标恢复比较验收](manual/production-recovery-comparison-acceptance.manual.md)：同一目标与前态下独立计算真实候选、时间/资源和保留价值，核当前权限、目标变更、未知恢复、有限读取及玩家判断；原动作和正式入口分别取证。
+
 - [工业创建四阶段验收](manual/industrial-creation-simulation-and-admission.manual.md)：同输入模拟、试点预算/退出、当前准入和原请求恢复。
 - [有限许可与版税验收](manual/industrial-license-and-royalty-settlement.manual.md)：真实批次、托管、通知与最小保全、累计整数分配及开放。
 - [情境声誉验收](manual/contextual-reputation-acceptance.manual.md)：合同来源、主体/情境/时效、补救、更正和旧分数消费者隔离。

@@ -9,6 +9,7 @@
 - 想组织受控首局的真人研究：读[首局真人试玩手册](first-session-human-playtest.manual.md)，按同一候选完成筛选、两次会话、主持与提示、原始记录及分项分析；实际执行仍须满足原候选开放条件。
 - 想核对双边即时交换的非绑定提议、授权接受、原子效果与恢复：读[合同形成验收手册](agent-mediated-contract-formation-acceptance.manual.md)；这是目标验证方法，不是当前业务通过记录。
 - 想核对有限供能服务的部分履行、抵押、费用、修复、争议与显式继受：读[供能服务验收手册](checkpoint-power-service-acceptance.manual.md)，分别核资源守恒、责任范围、原请求恢复和玩家理解；方法存在不表示服务已可用。
+- 想核对同一生产目标受阻后的修复、重建与转向：读[生产恢复比较验收手册](production-recovery-comparison-acceptance.manual.md)，按同一前态独立核候选、实际成本、保留价值、目标适配和原请求恢复，区分已实现动作与目标查询能力。
 - 想核对工业模拟、有限试点、治理准入及直接消费者：读[工业创建验收手册](industrial-creation-simulation-and-admission.manual.md)，区分静态输入算例和真实隔离、退出、恢复证据。
 - 想核对有限许可、版税托管、通知/争议、开放和整数分配：读[许可结算验收手册](industrial-license-and-royalty-settlement.manual.md)，核真实批次、所有资金来源及旧请求恢复。
 - 想核对合作前情境声誉的来源、主体/任期、时效和纠错：读[情境声誉验收手册](contextual-reputation-acceptance.manual.md)，不将 native 分数、自由声明或方法存在当作已交付事实。
@@ -33,6 +34,7 @@
 | 受控首局真人研究的招募准备、双会话主持与原始记录 | `first-session-human-playtest.manual.md` | 招募授权、运行成绩、全游戏好玩性与留存证明 |
 | 双边 Electricity/Data 合同形成与即时交换 | `agent-mediated-contract-formation-acceptance.manual.md` | 持续服务、争端/继受、现有 native 兼容面或正式入口完成证明 |
 | 有限 Electricity 供能服务的检查点与救济 | `checkpoint-power-service-acceptance.manual.md` | 其他服务、通用法院/声誉、实际运行或完整 CR-002 完成证明 |
+| 同一生产目标的修复、重建与转向比较 | `production-recovery-comparison-acceptance.manual.md` | 改目标冒充恢复、假设可用的动作、免费资源、全世界不可行或未运行的正式入口证明 |
 | 工业创建四阶段的隔离、预算、准入和恢复 | `industrial-creation-simulation-and-admission.manual.md` | Shadow 即模拟、Apply 即准入或未执行的运行证据 |
 | 许可范围、有限版税与开放结算 | `industrial-license-and-royalty-settlement.manual.md` | 任意 receipt 计费、外部价值、真实参数平衡或已启用声明 |
 | 合同来源的情境声誉与客观复核 | `contextual-reputation-acceptance.manual.md` | 全局评分、资格授予、组织/岗位或完整 CR-003 完成证明 |

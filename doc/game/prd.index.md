@@ -35,6 +35,8 @@
 
 ## 活跃补充文档
 
+- [同目标生产恢复比较](gameplay/gameplay-mature-world-progression-contract.prd.md#production-recovery-comparison)、[Runtime 设计](../world-runtime/runtime/production-recovery-comparison.design.md)及[验收手册](../testing/manual/production-recovery-comparison-acceptance.manual.md)：以原目标和真实阻塞比较 repair/rebuild/pivot 的可行性、成本与价值；目标改写、未支持和未知分别表达，不把现有单配方 quote 当完整恢复。
+
 - [内容制作范围、来源与成本](gameplay/content-production-and-rights.design.md)与[核对手册](gameplay/content-production-and-rights.manual.md)：统一已有内容的计数、权利资料、源与交付关系、变更传播及角色成本；复用原内容 authority，不从文件数推定完整游戏或生产能力。
 - [有限检查点供能服务政策](gameplay/gameplay-checkpoint-power-service-contract.prd.md)：个人供需双方的 Electricity/Data 服务条款、部分履行、修复、结清、争议与显式继受；执行由 [Runtime 履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接，不代表当前已启用。
 - [合同履约的情境声誉政策](gameplay/gameplay-contextual-reputation-contract.prd.md)：合作前咨询的来源、主体/任期、时效、补救和有界复核；[Runtime 设计](../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md)承接投影与恢复，不授予资格或全局评分。
@@ -92,7 +94,7 @@
 | `doc/game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md` | PRD-only；本专题只承载代表性工业链的玩家顺序、取舍、恢复与验收，不新增实现结构 |
 | `doc/game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md` | 专业规则 PRD；承载工业/市场玩家合同、有限许可及紧急保供政策值；执行分别由[工业四阶段](../world-runtime/runtime/industrial-creation-simulation-and-admission.design.md)、[许可结算](../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md)与[保供设计](../world-runtime/runtime/emergency-supply-authorization-and-settlement.design.md)承接 |
 | `doc/game/gameplay/gameplay-industrial-starter-completion-contract.prd.md` | PRD-only；本专题只承载首产物完成边界、失败恢复与下一步动力，不新增实现结构 |
-| `doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md` | PRD-only；本专题不新增接口、状态机、回滚或实现算法，后续引入实现结构时再补同名 design |
+| `doc/game/gameplay/gameplay-mature-world-progression-contract.prd.md` | PRD-only 专业玩法合同；生产目标的恢复比较由 [Runtime 设计](../world-runtime/runtime/production-recovery-comparison.design.md)承接来源、计算与原动作衔接，其余成熟世界专题仍沿原权威 |
 | `doc/game/gameplay/gameplay-top-level-design.prd.md` | `doc/game/gameplay/gameplay-top-level-design.design.md` |
 | `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.prd.md` | `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md` |
 | `doc/game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md` | PRD-only；本专题只承载区域制度的玩家动作、机会成本、失败恢复、申诉与验收，不新增实现结构 |

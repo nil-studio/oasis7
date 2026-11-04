@@ -98,6 +98,8 @@
 
 推荐必须指向当前目标的最合适路径，而不是默认选择最低眼前成本。若三条独立路径均不可行，必须说明是哪项当前约束使独立 lane 暂不可行、外部依赖解决什么、以及何时可重新比较；不得把加入 major power、接受赞助或退出当前目标伪装为唯一正常答案。
 
+生产受阻的首版比较由[同目标恢复专业合同](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#production-recovery-comparison)承接。候选必须能追到原能力、当前权限与真实投入；不同产物、地点或用途只有已被原目标允许时才算服务该目标，否则明确需要玩家修改目标。原工作的已消耗、仍占用和待决结果保留，补料、重建或转向本身不代替目标产出与交付的完成证据。
+
 ## 4. Anti-grind 与玩家影响判据
 
 每个阶段成果至少需要证明以下一项有真实变化：
@@ -180,12 +182,15 @@ Trace ID: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce
 
 Trace ID: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
-- 实现与验证依据：已交付 repair/rebuild/pivot 三类定性比较投影；当前默认可用性仍按 goal_kind 补值，不能据此宣称真实恢复执行已完成。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_lane.rs#L23-L56)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_lane.rs#L155-L237)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/tests/industrial_progression.rs#L603-L651)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：已有 repair/rebuild/pivot 比较投影及固定文案；缺失字段按 goal_kind 补可用、赞助依赖靠文案关键词，不能证明当前 authority 下真实可行路径、成本或独立 lane。
+- 系统设计依据：[目标与来源](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-goal)、[真实候选](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-candidates)、[成本与保留价值](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-costs)、[推荐与独立路线](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-decision)、[权限、原动作与恢复](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-execution)、[有限读取与重评](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-budget)、[实际入口与验证](../../world-runtime/runtime/production-recovery-comparison.design.md#production-recovery-consumers)承接首版生产受阻比较的目标合同。既有工业维护、能力生命周期、背压与需求变更继续拥有各自规则；不以该局部设计覆盖全部 disruption 和成熟世界组合。
+- 历史实现与验证依据（2026-10-15）：已交付 repair/rebuild/pivot 三类定性比较投影；当时默认可用性按 goal_kind 补值，不能据此宣称真实恢复执行已完成。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_lane.rs#L23-L56)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot_lane.rs#L155-L237)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/tests/industrial_progression.rs#L603-L651)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
+- 实现与验证依据：当前固定输入 `567c4c55a2f160574fdcf0902ccb068646210c7d` 下，[主体能力查询](https://github.com/nil-studio/oasis7/blob/567c4c55a2f160574fdcf0902ccb068646210c7d/crates/oasis7_world_state/src/gameplay_capability.rs)将 repair/rebuild/pivot 保持 unknown，未支持原因与 action/evidence 分开；[Runtime 查询](https://github.com/nil-studio/oasis7/blob/567c4c55a2f160574fdcf0902ccb068646210c7d/crates/oasis7_runtime/src/world_rules.rs)只对有执行资格的当前产线附加一批 `current_recipe_run` 原配方 quote。[Viewer 当前投影](https://github.com/nil-studio/oasis7/blob/567c4c55a2f160574fdcf0902ccb068646210c7d/crates/oasis7_viewer_runtime/src/viewer/runtime_live/gameplay_snapshot_lane.rs)不再从目标标签或文案生成赞助依赖与可执行恢复；[当前断言定义](https://github.com/nil-studio/oasis7/blob/567c4c55a2f160574fdcf0902ccb068646210c7d/crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/industrial_progression.rs)覆盖这些未知边界。现有[私有目标 V1](https://github.com/nil-studio/oasis7/blob/567c4c55a2f160574fdcf0902ccb068646210c7d/crates/oasis7_agent_api/src/game/goal.rs)只有文本与软约束，不提供机器可证的产物/数量/接收范围；结构化完成条件还须由原目标权威接受并与目标版本绑定。已有来源与窄 quote 不等于同目标多方案计算、成本比较或真实恢复闭环，本轮仅静态审读，未执行这些测试。
+- 历史核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
+- 核对日期与基线：2026-11-04；输入 `567c4c55a2f160574fdcf0902ccb068646210c7d`。本次补首版生产比较的政策、技术与方法；未运行 Rust、游戏、正式入口、故障恢复或真人验收，历史样本保持原候选范围。
+- 剩余范围：本次生产比较的权威目标来源、候选及依赖读取、逐步计算、原请求衔接与正式 Viewer/API/Agent 消费仍须实现和验证。其他停机、据点受压、路线失效及多阶段旧工作等情境必须结合各领域真实能力补齐完整组合；三类标签或单配方可执行不能证明全部路径、当前成本或独立 lane 已成立。
+- 产品表达与验证方法：[同目标比较政策及七项专业验收](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#production-recovery-comparison)与[生产恢复比较手册](../../testing/manual/production-recovery-comparison-acceptance.manual.md)分别说明玩家取舍、可达前态、逐资源独立预期、未知与原请求恢复；静态算例和方法存在不代表运行通过。
 
 - 性质：`目标要求`
 - 适用条件：局部停机、资源短缺、据点受压或路线失效，且玩家仍有一个当前主目标。
