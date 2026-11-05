@@ -29,20 +29,6 @@ pub struct BftPrivateRetentionHistoricalInputContextV1<'a> {
     sequence_limit: Option<u64>,
 }
 impl<'a> BftPrivateRetentionSealVerificationContextV1<'a> {
-    pub(crate) fn from_backend_sealed_current(
-        binding: &'a BftSignerBindingV3,
-        trusted: &'a BftPrivateRetentionAttestorV1,
-        current: &'a BftPrivateRetentionSealedCurrentV1,
-        expected_lease: &BftSignerBackendSnapshotV3,
-    ) -> Result<Self, BftSignerErrorV3> {
-        Self::from_backend_sealed_current_with_verified_state(
-            binding,
-            trusted,
-            current,
-            expected_lease,
-            None,
-        )
-    }
     pub(crate) fn from_backend_sealed_current_with_verified_state(
         binding: &'a BftSignerBindingV3,
         trusted: &'a BftPrivateRetentionAttestorV1,

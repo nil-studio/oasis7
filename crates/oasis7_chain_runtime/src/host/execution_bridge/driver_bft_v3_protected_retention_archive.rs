@@ -41,7 +41,6 @@ pub(in super::super) struct OriginalInputWitnessV1 {
     pub entry: Entry,
     pub reference: InputRef,
     pub reservation: BftSuccessorWindowArchiveRefV1,
-    pub predecessor: Option<BftSuccessorWindowArchiveRefV1>,
 }
 /// Constructed only after the externally fixed role, exact H capsule and every
 /// contiguous original operation/seal have verified. It is not a ReadGrant.
@@ -141,7 +140,6 @@ impl ValidatedProtectedRetentionArchiveV1 {
         let mut selections = BTreeMap::new();
         let mut accounting = Vec::new();
         let mut previous: Option<Operation> = None;
-        let mut previous_ref = None;
         let mut operation_ids = BTreeSet::new();
         let mut used_seals = BTreeSet::new();
         for reference in &index.operations {
@@ -226,7 +224,6 @@ impl ValidatedProtectedRetentionArchiveV1 {
                                         entry: entry.clone(),
                                         reference: input,
                                         reservation: reference.clone(),
-                                        predecessor: previous_ref.clone(),
                                     },
                                 );
                             }
@@ -238,7 +235,6 @@ impl ValidatedProtectedRetentionArchiveV1 {
                 }
             }
             previous = Some(proof);
-            previous_ref = Some(reference.clone());
         }
         let last = previous.ok_or("protected archive final original operation absent")?;
         if used_seals.len() != seals.len()

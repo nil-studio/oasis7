@@ -14,17 +14,6 @@ use std::sync::Arc;
 
 pub type BftPrivateRetentionHistoryV1 = BTreeMap<String, Arc<BftPrivateRetentionSnapshotV1>>;
 
-pub(crate) fn validate_original_history(
-    binding: &BftSignerBindingV3,
-    trusted: &BftPrivateRetentionAttestorV1,
-    current: &BftPrivateRetentionLedgerV1,
-    operations: &BftPrivateRetentionHistoryV1,
-    seals: &BTreeMap<String, Arc<BftPrivateRetentionSealV1>>,
-) -> Result<(), BftSignerErrorV3> {
-    validate_original_history_with_active_context(
-        binding, trusted, current, operations, seals, None,
-    )
-}
 
 pub(crate) fn validate_original_history_with_active_context(
     binding: &BftSignerBindingV3,

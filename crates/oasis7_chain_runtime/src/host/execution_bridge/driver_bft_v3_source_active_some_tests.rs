@@ -116,7 +116,7 @@ pub(super) fn prepare<E>(
         "old Source hook/Noise must release its writer"
     );
     let open_deadline = Instant::now() + Duration::from_secs(120);
-    let mut window = Box::new(
+    let window = Box::new(
         FormalBftHeaderActiveExecutionV1::open(
             &case.root.path().join("ledger"),
             case.store.clone(),

@@ -34,7 +34,6 @@ pub(super) fn active_selection_bound(data: &Data) -> Result<usize, String> {
 /// reproduce this exact Active input. Metadata alone cannot construct it.
 pub(in super::super::super::super) struct VerifiedActiveAdmissionInputV1 {
     reference: InputRef,
-    reservation_bytes: u64,
     publication_metadata_ref: String,
     selection_identity:
         oasis7_distfs::protected_bft_v3::VerifiedBftPrivateRetentionSelectionIdentityV1,
@@ -56,9 +55,6 @@ impl VerifiedActiveAdmissionInputV1 {
     }
     pub(in super::super::super::super) fn publication_metadata_ref(&self) -> &str {
         &self.publication_metadata_ref
-    }
-    pub(in super::super::super::super) fn reservation_bytes(&self) -> u64 {
-        self.reservation_bytes
     }
 }
 
@@ -187,7 +183,6 @@ fn verify_active_admission_material(
     expected.matches_input(input, nodes)?;
     Ok(VerifiedActiveAdmissionInputV1 {
         reference: input.descriptor().map_err(|e| e.to_string())?,
-        reservation_bytes: cost,
         publication_metadata_ref: expected.publication.digest()?,
         selection_identity,
     })

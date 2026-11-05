@@ -225,6 +225,7 @@ impl std::fmt::Debug for PartBytesV2 {
     }
 }
 impl PartBytesV2 {
+    #[cfg(test)]
     pub fn new(bytes: Vec<u8>) -> Result<Self, String> {
         if bytes.is_empty() || bytes.len() > CHUNK as usize {
             return Err("admission batch part byte bound".into());
@@ -341,6 +342,7 @@ impl BatchResponseV2 {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub fn encode_for(&self, request: &BatchRequestV2) -> Result<Vec<u8>, String> {
         self.validate_for(request)?;
         encode_frame(self)

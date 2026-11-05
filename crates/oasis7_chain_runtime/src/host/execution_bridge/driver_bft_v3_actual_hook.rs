@@ -1,16 +1,6 @@
 //! Actual test hook forwarding; diagnostics never replace driver results.
 use super::*;
 
-impl ActualHook {
-    pub(super) fn new(driver: Arc<Mutex<FormalBftHeaderNodeDriverV3>>) -> Self {
-        Self(
-            driver,
-            hook_trace::current(),
-            CandidateRetentionProfile::LegacyRecovery,
-        )
-    }
-}
-
 impl NodeExecutionHook for ActualHook {
     fn prepare_bft_v3_execution(
         &mut self,

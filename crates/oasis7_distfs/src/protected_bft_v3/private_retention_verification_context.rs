@@ -19,20 +19,6 @@ pub struct BftPrivateRetentionVerificationContextV1<'a> {
 impl<'a> BftPrivateRetentionVerificationContextV1<'a> {
     /// Only the service's configured original backend read may enter here.
     /// Generic request DTOs and local private directory scans are not sources.
-    pub(crate) fn from_backend_current(
-        binding: &BftSignerBindingV3,
-        trusted: &'a BftPrivateRetentionAttestorV1,
-        current: &'a BftPrivateRetentionCurrentV1,
-        expected_lease: &BftSignerBackendSnapshotV3,
-    ) -> Result<Self, BftSignerErrorV3> {
-        Self::from_backend_current_with_verified_state(
-            binding,
-            trusted,
-            current,
-            expected_lease,
-            None,
-        )
-    }
     pub(crate) fn from_backend_current_with_verified_state(
         binding: &BftSignerBindingV3,
         trusted: &'a BftPrivateRetentionAttestorV1,
@@ -81,20 +67,6 @@ impl<'a> BftPrivateRetentionVerificationContextV1<'a> {
             trusted,
             sealed: None,
         })
-    }
-    pub(crate) fn from_backend_sealed_current(
-        binding: &BftSignerBindingV3,
-        trusted: &'a BftPrivateRetentionAttestorV1,
-        sealed: &'a super::private_retention_sealed_current::BftPrivateRetentionSealedCurrentV1,
-        expected_lease: &BftSignerBackendSnapshotV3,
-    ) -> Result<Self, BftSignerErrorV3> {
-        Self::from_backend_sealed_current_with_verified_state(
-            binding,
-            trusted,
-            sealed,
-            expected_lease,
-            None,
-        )
     }
     pub(crate) fn from_backend_sealed_current_with_verified_state(
         binding: &BftSignerBindingV3,
