@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-driver_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(cd "$driver_dir/.." && pwd)
-
-tier="${1:-}"
+# ci-driver-library: functions-v1
+# Sourcing loads definitions only; execute this file to initialize and dispatch CI.
 
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--support-plan JSON|--support-profiles JSON]
 
-  commit        Run the lightweight local commit gate used by pre-commit.
+  commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
   full          Run required checks plus all extended feature/integration tests.
   full-standard Run full checks excluding the independent formal-process suites.
@@ -25,62 +21,6 @@ The runner discovers a supported interpreter on PATH.
 Default: none (explicit tier required)
 USAGE
 }
-
-if [[ $# -eq 0 ]]; then
-  usage
-  exit 2
-fi
-
-case "$tier" in
-  commit|required|full|full-standard|full-extended|full-core|full-support|cache-native) ;;
-  *)
-    usage
-    exit 1
-    ;;
-esac
-
-shift
-group=""
-support_profiles=""
-required_plan=""
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --repo-root)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
-      repo_root=$(cd "$2" && pwd)
-      shift 2
-      ;;
-    --group)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
-      group="$2"
-      shift 2
-      ;;
-    --support-profiles)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
-      support_profiles="$2"
-      shift 2
-      ;;
-    --support-plan)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
-      support_profiles="plan:$2"
-      shift 2
-      ;;
-    --plan)
-      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
-      required_plan="$2"
-      shift 2
-      ;;
-    *)
-      usage
-      exit 1
-      ;;
-  esac
-done
-
-ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
-cd "$repo_root"
-# Keep sourced driver definitions with the driver, even when the tested tree differs.
-source "$driver_dir/viewer-dependency-preflight.sh"
 
 run() {
   if [[ "$1" == python3 ]]; then
@@ -532,6 +472,7 @@ run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
+  run python3 ./scripts/ci-local-check-plan.test.py
   run python3 ./scripts/ci-python-control-contracts.test.py
   run python3 ./scripts/ci-formal-process.test.py
   run python3 ./scripts/ci-storage-acceptance.test.py
@@ -684,11 +625,49 @@ run_oasis7_viewer_software_safe_feedback_contract_tests() {
   run bash ./scripts/viewer-prompt-control-race-identity.test.sh
   run node --test crates/oasis7_viewer/scripts/agent-browser-visual-runner-lifecycle.test.mjs
   run ./scripts/bundle-freshness-lib.test.sh
-  run npm --prefix crates/oasis7_viewer run test:ui
+  if [[ "${1:-}" != --source-only ]]; then
+    run npm --prefix crates/oasis7_viewer run test:ui
+  fi
 }
 
 run_oasis7_viewer_software_safe_build() {
-  run ./scripts/build-viewer-software-safe.sh
+  if [[ "${1:-}" == --with-ui ]]; then
+    run_oasis7_viewer_software_safe_build_with_ui
+  else
+    run ./scripts/build-viewer-software-safe.sh
+  fi
+}
+
+run_oasis7_viewer_software_safe_build_with_ui() {
+  # UI reads source/fixtures; the build alone writes the generated bundle/dist.
+  # Supervise their shared process tree so failure, cancellation, or leftover
+  # descendants cannot cross the browser-security build barrier.
+  run "$ci_python" - "$driver_dir" "$repo_root" <<'PY_VIEWER_PARALLEL'
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+driver, root = map(Path, sys.argv[1:])
+sys.path.insert(0, str(driver))
+from ci_process_runner import run
+
+command = ['bash', '-c', '''set -euo pipefail
+driver_dir="$1"; repo_root="$2"; ci_python="$3"
+source "$driver_dir/ci-tests.sh"
+run npm --prefix crates/oasis7_viewer run test:ui &
+ui_pid=$!
+run_oasis7_viewer_software_safe_build &
+build_pid=$!
+wait "$ui_pid"
+wait "$build_pid"
+''', 'viewer-ui-and-build', str(driver), str(root), sys.executable]
+with tempfile.TemporaryDirectory(prefix='oasis7-viewer-checks-') as temporary:
+    result = run(command, root, os.environ, 'viewer_js_required', 'ui-and-production-build',
+                 Path(temporary) / 'results.jsonl', timeout_seconds=2400)
+if not result['passed']:
+    raise SystemExit(1)
+PY_VIEWER_PARALLEL
 }
 
 run_pixel_world_bridge_lib_tests() {
@@ -901,8 +880,8 @@ run_full_required_superset() {
   run_oasis7_net_libp2p_clippy
   run_oasis7_net_tests
   run_oasis7_net_libp2p_tests
-  run_oasis7_viewer_software_safe_feedback_contract_tests
-  run_oasis7_viewer_software_safe_build
+  run_oasis7_viewer_software_safe_feedback_contract_tests --source-only
+  run_oasis7_viewer_software_safe_build --with-ui
   run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs
   run_oasis7_viewer_visual_test_build
   run_oasis7_viewer_performance_smoke_report_only
@@ -940,6 +919,16 @@ PY
       *) run_cargo test -p "$profile" --all-targets "${feature_args[@]}" ;;
     esac
   done <<<"$selected"
+}
+
+prepare_full_provider_artifact() {
+  local provider_bundle provider_env
+  mkdir -p "$repo_root/target"
+  provider_bundle=$(mktemp -d "$repo_root/target/ci-preview-provider.XXXXXX")
+  provider_env="$provider_bundle/environment.sh"
+  run "$ci_python" "$driver_dir/ci-test-artifacts.py" prepare-provider --repo-root "$repo_root" \
+    --bundle "$provider_bundle" --output "$provider_env"
+  source "$provider_env"
 }
 
 run_full_extended_tier_tests() {
@@ -996,7 +985,7 @@ run_group() {
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
     node) run_oasis7_node_clippy; run_oasis7_node_tests ;;
     net) run_oasis7_net_clippy; run_oasis7_net_libp2p_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_tests ;;
-    viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests; run_oasis7_viewer_software_safe_build; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
+    viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;
     launcher_web) run_oasis7_client_launcher_web_build ;;
@@ -1014,6 +1003,72 @@ run_group() {
   esac
 }
 
+# Keep the source interface free of CLI setup and process-wide side effects.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
+
+set -euo pipefail
+
+driver_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$driver_dir/.." && pwd)
+
+tier="${1:-}"
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 2
+fi
+
+case "$tier" in
+  commit|required|full|full-standard|full-extended|full-core|full-support|cache-native) ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
+
+shift
+group=""
+support_profiles=""
+required_plan=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo-root)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
+      repo_root=$(cd "$2" && pwd)
+      shift 2
+      ;;
+    --group)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 1; }
+      group="$2"
+      shift 2
+      ;;
+    --support-profiles)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_profiles="$2"
+      shift 2
+      ;;
+    --support-plan)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_profiles="plan:$2"
+      shift 2
+      ;;
+    --plan)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      required_plan="$2"
+      shift 2
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+cd "$repo_root"
+# Keep sourced driver definitions with the driver, even when the tested tree differs.
+source "$driver_dir/viewer-dependency-preflight.sh"
+
 echo "+ ci test tier: $tier"
 if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_support ) ]]; then
   echo '--support-profiles requires required --group workspace_support' >&2
@@ -1022,6 +1077,11 @@ fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline ) ) ]]; then
   echo '--plan requires required --group oasis7_required or rust_baseline' >&2
   exit 2
+fi
+if [[ -z "$group" ]]; then
+  case "$tier" in
+    full|full-standard|full-extended|full-core) prepare_full_provider_artifact ;;
+  esac
 fi
 if [[ -n "$group" ]]; then
   [[ "$tier" == required ]] || { echo '--group requires required tier' >&2; exit 2; }

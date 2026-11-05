@@ -169,6 +169,21 @@ where
                 reason,
             },
         ),
+        Action::RotateGovernanceValidatorFinalityKeyV1 {
+            controller_account_id,
+            body,
+            old_key_proof,
+            new_key_proof,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::ROTATE_GOVERNANCE_VALIDATOR_FINALITY_KEY_V1,
+            payloads::RotateGovernanceValidatorFinalityKeyV1Payload {
+                controller_account_id,
+                body,
+                old_key_proof,
+                new_key_proof,
+            },
+        ),
         _ => Err(S::Error::custom(
             "Action dispatched to wrong governance serializer",
         )),

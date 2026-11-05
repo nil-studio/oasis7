@@ -67,6 +67,10 @@ impl std::error::Error for MainTokenActionAuthError {}
 )]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ConsensusActionPayloadBody {
+    /// Explicit new typed catalog entry; legacy WorldServicePayloadV1 is untouched.
+    WorldCleanupV2 {
+        request: crate::world_service::task_cleanup_v2::TaskCleanupSubmitV2,
+    },
     WorldServiceIntent {
         request:
             crate::world_service::SubmitIntentRequest<crate::world_service::WorldServicePayloadV1>,
@@ -510,6 +514,15 @@ pub fn decode_consensus_action_payload_envelope(
                         envelope.version
                     ));
                 }
+            }
+            // V2 cleanup is an exact new closed catalog boundary. Preserve the
+            // legacy decoder's accepted bytes for every old variant.
+            if matches!(
+                &envelope.body,
+                ConsensusActionPayloadBody::WorldCleanupV2 { .. }
+            ) && encode_consensus_action_payload(&envelope)? != payload_cbor
+            {
+                return Err("cleanup v2 envelope is not exact typed canonical bytes".into());
             }
             if let Some(origin) = &envelope.gameplay_submission_origin {
                 match &envelope.body {

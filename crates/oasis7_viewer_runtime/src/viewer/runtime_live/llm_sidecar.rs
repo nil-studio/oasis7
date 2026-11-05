@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "test_tier_required"))]
 use oasis7::runtime_host::runner::RuntimeRunnerHostExt;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
@@ -14,6 +15,8 @@ use crate::runtime::{
 use crate::simulator::AgentRunner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::simulator::AsyncAgentRunner;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::simulator::ProviderOriginalMaterialStore;
 use crate::simulator::{
     ActionCatalogEntry, AgentDecision, AgentDecisionTrace,
     ContinuationProposalV1 as SimulatorContinuationProposalV1, ContinuousAgentResponseContextV1,
@@ -41,20 +44,9 @@ pub(super) struct RuntimePendingAction {
     pub(super) feedback_emitted: bool,
 }
 
-#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
-pub(in crate::viewer::runtime_live) struct RuntimeProviderActionContext {
-    pub(in crate::viewer::runtime_live) request: cognition_context::ProviderContextState,
-    pub(in crate::viewer::runtime_live) response: ContinuousAgentResponseContextV1,
-    /// Runtime's durable admission lease remains correlated with the provider
-    /// response until the Runtime receipt or terminal disposition closes it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(in crate::viewer::runtime_live) cognition_lease: Option<crate::runtime::CognitionLeaseV1>,
-    /// Keep provider memory intents correlated with the response until the
-    /// Runtime receipt/readback authorizes their durable projection.
-    #[serde(default)]
-    pub(in crate::viewer::runtime_live) memory_write_intents:
-        Vec<crate::simulator::MemoryWriteIntent>,
-}
+#[path = "llm_sidecar_provider_materials.rs"]
+mod provider_materials;
+pub(in crate::viewer::runtime_live) use provider_materials::RuntimeProviderActionContext;
 const BUILTIN_LLM_DECISION_SOURCE: &str = "builtin_llm";
 const PROVIDER_BACKED_DECISION_SOURCE: &str = "provider_backed";
 const PROVIDER_LOOPBACK_HTTP_IMPLEMENTATION: &str = "provider_loopback_http";
@@ -378,6 +370,10 @@ pub(in crate::viewer::runtime_live) struct RuntimeLlmSidecar {
     provider_world_event_quarantine: BTreeMap<String, String>,
     provider_lineage_store: Option<PathBuf>,
     publication: lineage_persistence::checkpoint_write::LineagePublicationOwner,
+    /// Explicitly installed new-format pending owner. This is deliberately
+    /// separate from the legacy JSON lineage checkpoint path.
+    #[cfg(not(target_arch = "wasm32"))]
+    provider_original_material_store: Option<std::sync::Arc<dyn ProviderOriginalMaterialStore>>,
     provider_lineage_binding: Option<RuntimeBindingV1>,
     provider_lineage_restored: bool,
     provider_lineage_hydrated: bool,

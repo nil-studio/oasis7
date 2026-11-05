@@ -17,3 +17,5 @@ pub mod incremental_history;
 pub mod incremental_schedule;
 
 pub mod incremental_material;
+
+pub mod incremental_scratch_counter;

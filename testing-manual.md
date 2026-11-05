@@ -41,7 +41,7 @@ final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟
 <a id="local-check-entry"></a>
 ## 显式本地检查：当前入口与目标分层
 
-普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。其 help 中 “used by pre-commit” 是待实施修正的旧描述，应以脚本实际接线和本节为准。
+普通提交的 `./scripts/pre-commit.sh` 是兼容 no-op，直接成功退出不代表执行过检查。`./scripts/ci-tests.sh` 必须提供显式 tier，省略会报错；`commit` 是一次主动诊断，包含治理、consensus/distfs 与 Viewer contract/UI 等检查，不是自动提交门禁，也不包含 Rust fmt/完整 required。help 与本节均将其标为显式诊断。
 
 | 当前目的 | 当前可执行入口 | 结果证明范围 |
 | --- | --- | --- |
@@ -50,20 +50,36 @@ final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟
 | 显式本地诊断 | `./scripts/ci-tests.sh commit` | 当前 commit 清单；保留日志和未执行的 required/full 范围 |
 | 正式测试 | `./scripts/ci-tests.sh required` 或 `./scripts/ci-tests.sh full` | 当前手册定义的适用 tier、实际平台和执行结果；仍需按改动补 UI/真实环境验收 |
 
+准备性选测入口：`python3 scripts/ci-local-check-plan.py --profile affected --dry-run --format json`。它只接受干净提交，使用本地 `origin/main` 与 HEAD 的唯一 merge-base；`--base-ref` 可指定该信任锚的祖先，不自动 fetch。规划器及两个配置均从固定 base 加载，沿原 `pr-fast` 逻辑选测，候选改动不能自行缩减检查。输出始终 `validated=false`，检查数与测试数均为零，不代表 affected 已可执行。
+
+- `--output-dir` 指定报告父目录，必须在工作树外或 ignored 目录下；每次创建独有子目录，不覆盖既有报告。省略时保留在系统临时目录，结果包含实际日志和 `result.json` 路径。仅写这些自有输出及临时 policy 文件，不修改源码、index 或 ref。
+- `--timeout-seconds` 设置规划器时限，默认 120 秒。text/JSON 与持久报告同源，包含固定 SHA、原始计划、实际 argv/cwd、配置摘要、耗时、退出码和未执行组。
+- dirty/untracked、冲突、隐藏 index 标志、缺失或歧义基线及未开放参数为 blocked（2）。执行中输入变化为 stale_input（2），保留已有计划；规划器失败/超时、无效结果或报告写失败为 failed（1），空计划为 no_checks（3），中断为 cancelled（130）。只有显式 dry-run 成功才为 planned（0），没有 passed 状态。
+- 本片不运行 driver，不验证 ignored/外部运行输入、quick/formal、业务测试或其他平台。本地 `origin/main` 的可信性是前提；JSON 的零执行和限制字段必须与计划一起解读。
+
 `./scripts/fix-precommit.sh` 会执行 `cargo fmt --all`、`git add -u` 再运行 commit 诊断，是显式修改文件和 index 的修复动作，不能当作默认只读检查。
 
-目标 `scripts/check-local.py` **尚未实现**。其 quick（现有 baseline 组）、affected（同 planner 的本地影响计划）和 formal（显式 required/full canonical）合同见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。当前 planner 仅支持 Git refs；它还不能把 dirty/untracked 文件纳入上述统一入口。需要今天检查未提交变更时，使用已存在的文档/按包/显式 tier 命令，并在 PR 记录真实输入、命令和局限；不要执行不存在的目标命令或将 HEAD 计划当成工作树覆盖。
+目标 `scripts/check-local.py` **尚未实现**。日常按上表直接选择所需检查，不必把所有入口依次跑一遍。后续先提供固定 baseline 的 quick，再接可信 affected（先干净提交、后 dirty 精确选测）；formal 在自身前置具备后独立接入。三个 profile 的合同和边界见[共享设计](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)。
+
+当前 planner 只支持 Git refs。检查未提交变更仍用已存在的文档/按包/显式 tier 命令，并记录真实输入、命令与局限；不要运行不存在的目标命令，或把 HEAD 规划当作 dirty 工作树检查通过。quick 未来也只证明固定 baseline，不提供完整影响分析结论。
 
 <a id="local-check-entry-validation"></a>
 ### 本地入口核验（实施阶段）
 
-Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5](doc/testing/ci/ci-test-coverage.prd.md#local-check-entry-requirement)。本节是后续实现的验证方法，当前文档 PR 未执行这些目标入口场景。
+Trace refs: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3；对应 [LOCAL-AC-1–5](doc/testing/ci/ci-test-coverage.prd.md#local-check-entry-requirement)。以下核验随实际开放能力分阶段完成，结果放在实施 PR；文档设计不构成运行证据。
 
-1. 在自有临时仓库准备可解析 base/HEAD，分别放入已提交、暂存、未暂存、未跟踪变更及删除/重命名；核对报告列出来源、old/new 路径、policy SHA、依赖影响与选择理由。同路径抵消改动和修改 Cargo 清单也不能漏选。将同样的干净提交输入原 planner，与 thin entry 的计划逐项比对，不能产生另一套选测结果。
-2. quick 核对只运行 baseline，明确显示未运行 Rust fmt/编译/业务测试；affected 让真实受影响组执行且核对 case/target/features；formal 记录显式 tier、干净 source 和 canonical 命令。使用一个有真实断言的小型消费者证明从计划到执行的接线，fake runner 仅验证调度/汇总，不能代签消费者覆盖。
-3. 注入不存在/歧义 base、未解决合并、未登记路径、不可读输入、缺工具、锁定依赖不可用、formal dirty、运行中改文件和禁止写用户文件的命令。检查 blocked/stale_input 的原因、非零退出及保留的局部结果；对照前后源码、未跟踪文件、index 与 Git ref 身份，确认没有格式化、暂存或自动回滚。
-4. 分别验证命令失败、测试零匹配、必要项 skipped、执行数 unknown、空计划、取消、超时和报告写失败；输出与退出码须遵守设计状态表。显式 dry-run 只有 planned/`validated=false`，全部 skipped 或零执行不能显示 passed。核对取消后仅清理自有进程。
-5. 对照 text/JSON 的相同 source/base/scope、命令与 pass/fail/skipped，保留报告和日志。指出未执行组/平台/真实环境；证据记录在实施 PR/实际 CI，不把本地结果变成 hosted required 或 full 的替代证明。
+**每片先验证共同底线。** 核对实际命令、读取范围、允许写集合和 text/JSON 同源结果。至少一项真实有效检查通过才可报告 passed；显式 dry-run 只有 planned/`validated=false`。对照[状态表](doc/testing/ci/ci-tiered-execution.design.md#local-check-entry-design)，注入本片适用的缺基线/歧义、冲突、输入不可读、缺工具、锁定依赖不可用、失败、预期测试零匹配、必要 skip、数量 unknown、空计划、取消、超时及报告写失败。未开放 profile/输入应 blocked，不能静默换范围。
+
+核对执行前后 tracked/untracked 文件、index 与 ref；运行中改动须 stale_input。实际命令接线不得先写用户文件再回滚，取消只清理自有进程/临时目录。fake runner 用于调度与故障注入，每个开放执行 profile 还须有真实检查/消费者验证；没有业务测试的 quick 明示零业务测试，不虚构消费者覆盖。
+
+| 交付范围 | 本阶段必要核验 | 留给后续的义务 |
+| --- | --- | --- |
+| quick | 真实调用 baseline，核对每项实际结果与工作树支持范围，特别检查传入 base/head 后是否遗漏 staged/unstaged/untracked；未调用 planner 明示 not_used，明确未执行 Rust fmt/编译/业务测试等类别；无法可靠处理的 dirty 输入 blocked | 不要求 Cargo 影响闭包或 dirty 精确计划，也不声称这些已覆盖 |
+| affected：干净提交 | 临时仓库与现有可信 planner 同输入逐项比对；候选 policy 不能自豁免。只有 dry-run 时不得报执行通过；开放执行后用具有真实断言的小型消费者走 planner→driver→结果，核对 case/target/features 与非零执行数 | dirty 适配未完成时明确 blocked；准备性规划不算完整 affected |
+| affected：dirty 精确输入 | 覆盖已提交、暂存、未暂存、未跟踪、删除/rename、特殊路径、同路径抵消、Cargo 清单/依赖变化和 ignored 显式依赖；逐项核对来源、选择理由、policy 与不可变视图，未知路径/解析不确定按可信规则扩张或阻断 | 本地选择与执行仍不代签 hosted、多平台或真实环境 |
+| formal | 显式 required/full、干净 source、canonical 参数和必要组；dirty/untracked 阻断；记录实际数量、日志、缺环境与未覆盖平台 | 不依赖 dirty 精确适配，也不取消原 required/full 和真实环境验收 |
+
+结果由入口生成，实施 PR 引用原始报告即可，不要求在 Issue、PR 和手册重复抄录同一份执行记录。每片完成后同步该片 help 与使用说明；最终按 LOCAL-AC-1–5 核对完整范围和真实证据，未完成项继续留在原任务。已有 CI 或其他正式验收只引用实际运行的版本与结果，不以本地报告替代。
 
 ## 本地 Cargo 开发约定
 
@@ -328,6 +344,18 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 
 本地合同测试只证明其实际范围；main 合入、hosted 构建、跨 tag 恢复与性能收益分别核实，不新增通用 required check、预热工作流或验收回执。
 
+<a id="engineering-telemetry-validation"></a>
+### 工程遥测报告核验
+
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。归一化报告器尚未实现；以下是实施验收方法，不是本次已取得的运行结果。
+
+1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒；改变依赖或错误地把并行时间相加时，同一断言应失败。
+2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复仅去重，不丢失来源。
+3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
+4. 验证 API/字节/时间预算、归档越界、敏感字段清理、截断产物与采集器失败。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
+5. 在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+6. 读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+
 ### 当前 CI 未直接覆盖（需手册补齐）
 - Web UI agent-browser 闭环（现为手动/agent 流程，不在 CI 默认路径中）。
 - `m4/m5` builtin wasm hash 校验（`scripts/ci-tests.sh` 已移除 `sync-m4/m5 --check`）。
@@ -501,9 +529,12 @@ L4-C05 保留已有三条回归入口：[alias 生成](crates/oasis7_viewer/scri
 
 Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要应只占 stdout，诊断写 stderr。若命令非零退出，即使目录已有卡片或 manifest，也只算部分输出；保留现场、检查失败原因，并为新尝试选择新目录/`--run-id`，不要自动删除或覆盖旧证据。`commands.sh` 只记录待执行步骤，其存在和可执行位不证明 L4A/L4B 成功。
 
+<a id="playability-l5"></a>
 ### L5 真实人类 / 受控线上验证层
+
 - 目标：验证真实人类或受控外部玩家在真实时间、注意力和机会成本约束下，是否仍愿意继续玩；这是 `L4B` 之上的正式验证层。
 - 入口：limited preview、liveops 反馈回流、真实玩家 session、受控人工试玩样本。
+- 受控首局操作：按[首局真人试玩手册](doc/testing/manual/first-session-human-playtest.manual.md)准备候选、筛选目标玩家并主持两次会话，保留独立完成、提示、停止和回访的原始记录；预约回访与主观意愿不推导自然留存。
 - 结论边界：只有到这一层，才能正式回答“真实人类/真实环境里是否仍想继续玩”；内部真人 spot-check 仍只算 `L4B` 的可选校准，不单列新层。
 - 说明：长稳、压力和 soak 仍属于测试套件层（如 S8/S10），不是这里的 playability `L5`。
 
@@ -952,6 +983,7 @@ env -u RUSTC_WRAPPER cargo check -p pixel_world_bridge --target wasm32-unknown-u
 - JS-required（结构/反馈/Vitest/freshness/build）：触达 `crates/oasis7_viewer/**` 的 source、生成物边界或 bundle 时，执行 `npm --prefix crates/oasis7_viewer run test:frontend-structure`、`npm --prefix crates/oasis7_viewer run test:feedback-contract`、`npm --prefix crates/oasis7_viewer run test:ui`、`./scripts/agent-browser-viewer-dist-freshness-test.sh` 与 `./scripts/build-viewer-software-safe.sh`。
 - JS-browser（真实浏览器）：WASM bundle ready 后，以真实 browser 验证关键交互、console、desktop 与 narrow viewport；任何 player-visible 改动必须通过此层，不能只以 JS-required 替代。
 - JS-full（release/risk-triggered）：跨模式、恢复路径、长运行与性能验证；发布或风险触发时执行，包含适用的 raster/browser/performance 证据。
+- 受控浏览器功能回归使用显式 `fixture-functional` profile，目标是用真实组件/状态处理复现响应时序；当前仍待实现，详见[目标合同](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)与下方[实施核验](#browser-functional-regression-validation)。其合成依赖结论与真实栈/正式 S6 分开记录。
 - S6 详细执行步骤、agent-browser 命令、发布门禁与补充约定已拆分到：
   - `doc/testing/manual/web-ui-agent-browser-closure-manual.manual.md`
   - `doc/testing/manual/web-ui-playwright-closure-manual.manual.md`（Playwright 实跑系列入口，管理真实本地栈 + 真实 UI 操作流程矩阵）
@@ -1073,6 +1105,18 @@ cargo run -q -p oasis7_client_cli --bin oasis7_pure_api_client -- --addr 127.0.0
     若本地需要 builtin LLM 直连验证，`scripts/with-letai-llm-config.sh` 只适用于已经包含 chat-completions/Responses-compatible `token_key` / `api_key` 的配置；不要把只有 `Doc` 和平台管理 `Key` 的文件直接当 inference token 使用。platform-only 配置应先通过 `scripts/ensure-letai-local-token-config.sh` 或 `scripts/run-local-letai-game-test.sh` 规范化成临时 project token config；不得把 raw key、生成的 `letai-local-token.env`、或其它 token config 写入日志、仓库文件或 public evidence。
     LetAI provider bridge 参考装配走 `/chat/completions`，与 builtin LLM 的 Responses preflight 不是同一协议；`scripts/run-local-letai-provider-bridge.sh` 是 `run-local-letai-game-test.sh` 使用的底层 bridge 入口，也可用于专项排障，随后用 `provider-bridge-contract-smoke.sh` 验证真实 provider decision。普通本地试玩不要从这个底层入口开始；应回到 `run-local-letai-game-test.sh`，让 wrapper 统一处理 token config、auto-topup 和 launcher 参数。`scripts/check-letai-chat-completions.sh` 和 `--chat-probe-backend legacy-cli` 只保留给兼容排障或对比 Python legacy adapter，不作为普通本地试玩默认 gate。
     本地真实 Rust provider bridge 默认在上游返回 `insufficient_user_quota` 且同时存在 `OASIS7_REMOTE_LLM_PLATFORM_KEY` / `OASIS7_REMOTE_LLM_PLATFORM_USER_ID` 时按 `$0.1`（`quota=50000`）自动充值；这是 paid real-provider 行为。充值触发按 chat request 发生，随后使用有限次数延迟重试来等待 LetAI 余额更新可见，而不是全局每次运行只充值一次；没有这些管理面字段时不会自动充值，仍应把 quota error 作为失败证据。
+
+<a id="browser-functional-regression-validation"></a>
+#### 受控浏览器功能回归核验（实施阶段）
+
+Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；对应 [AC-14C / BROWSER-AC-1–5](doc/testing/prd.md#browser-functional-regression)。现有 `npm --prefix crates/oasis7_viewer run test:ui` 是 Vitest/jsdom；`./scripts/viewer-software-safe-step-regression-smoke.sh` 是 tooling fixture 预检；`node crates/oasis7_viewer/scripts/player-visual-feedback-browser-smoke.mjs` 已使用真实 shell 和固定 bridge/feed 采证。三者各保留原证明范围，均不能单凭入口存在宣称[全部 BFR-P01–P07](doc/testing/manual/web-ui-playwright-closure-manual.design.md#browser-functional-pilot)已覆盖。新的统一 runner/场景选择入口尚未实现，不提供伪可执行命令。
+
+1. 在实施候选记录准确 source/tree、依赖锁定和测试构建身份，先运行适用 JS-required；确认服务的 bundle 来自当前真实 `viewer_app.jsx` 与 PromptControl/feedback 模块。核对 test entry、synthetic auth/bridge/feed/transport 的替换清单，release 加 query 不能开启控制器。只为本 profile 启动本地静态资源和受控依赖，不启动完整 worktree launcher/active LLM 栈。
+2. 为每 case 新建独立命名 context、loopback 端口、storage 和产物目录，先用一个非 allowlist HTTP/WebSocket/worker 请求确认网络在发送前被阻断；核对没有继承用户 session 或真实 provider 配置。共享构建先串行冻结，case 并行前检查实际隔离；失败/取消也只回收自己拥有的资源。
+3. 按 BFR-P01–P07 的输入/预期执行真实可见控件，先等出站请求和 pending 条件，再按 barrier 释放消息/时钟。至少保存 desktop 与 narrow 的声明视口结果；P04 在 B 的 signingEntered 后交付 A，再 releaseSigning 并确认 B 实际发送，另案覆盖 sent 期；记录 deferred signer 只延迟真实签名结果的替换边界与 P06 连接代次。控制器不得直接写期望 core state，`__AW_TEST__` 仅用于读回；用固定次序重放失败，不能自动重试取绿。
+4. 给每个已选 case 核对请求次数、关联字段、当前草稿/授权版本、反馈状态及安全下一步，保存实际截图、trace、console/network、准确未满足断言与清理结果。拒绝场景不提前显示 applied；只清理属于原等待的 pending，不能清新请求 timer。若出现生产缺陷，保留红色结果并路由原领域 Issue，不修改 fixture 使其通过。
+5. 分别验证缺浏览器/产物、空选择、未识别请求、超时/取消、日志写失败和跨 case 状态污染；必要 case 不能 skipped 后汇总为 pass。后续 CI 接线用受影响 Viewer/state/transport/测试装配输入的正例与无关文档改动反例核对同一 planner，选择与执行不一致直接失败。首片只运行 P01–P03 时如实报告剩余矩阵。
+6. 将产物与结果留在实施 PR/CI。fixture pass 只证明所测真实前端在合成输入下的行为；真实认证、绑定恢复、Runtime 应用、provider/world delta 仍按原 S6/PWT 及领域验收补证，不能换算成 release、跨浏览器或 L4B/L5 通过。本次文档 PR 未执行上述浏览器核验。
 
 ### S7：场景矩阵回归套件（L1 + L4）
 ```bash

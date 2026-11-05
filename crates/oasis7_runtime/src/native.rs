@@ -145,9 +145,17 @@ pub use formal_retained_history::{
 pub use oasis7_world_state::incremental_agent_body;
 pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields};
 pub use world::incremental_agent_genesis;
+pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
-pub use world::incremental_body_event::AgentEventContext;
+pub use world::incremental_body_event::{
+    AgentEventContext, AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1,
+};
+pub use world::incremental_module_state::{ModuleStateContentBudgetV1, read_iws_module_state};
+pub use world::incremental_module_state_recovery::{
+    ModuleStateRecoveryContextV1, VerifiedModuleStateContentV1,
+};
 pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};
+pub use world::incremental_step::IwsStepContext;
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
 };
@@ -539,3 +547,36 @@ pub use oasis7_world_state::incremental_world_rule_shipments;
 pub use oasis7_world_state::incremental_world_rule_supply_root;
 
 pub use oasis7_world_state::incremental_diplomacy;
+pub use world::incremental_module_instance_change::contribute_module_instance_change;
+pub use world::incremental_module_instance_change::{
+    ModuleInstanceFieldChangeV1, change_module_instance_field_v1,
+};
+pub use world::incremental_module_instance_family::{
+    ModuleInstanceFamilyQualificationV1, readmit_module_instance_family_ordinary_v1,
+};
+pub use world::incremental_module_instance_receiver::accept_module_instance_transition_v1;
+pub use world::incremental_module_instance_recovery::{
+    InstanceScratchBudget, ModuleInstanceRecoveryContext, VerifiedModuleInstanceContent,
+};
+pub use world::incremental_module_invocation::*;
+pub use world::incremental_module_read::{ModuleReadContext, PreparedModuleInstanceFields};
+
+pub use oasis7_world_state::incremental_module_fields;
+
+pub use world::incremental_module_state_family::{
+    ModuleStateFamilyQualificationV1, accept_module_state_transition_v1,
+    readmit_module_state_family_ordinary_v1,
+};
+
+pub use world::incremental_module_fee_accounts::{
+    PreparedRootModuleFeeV1, RootModuleFeeErrorV1, RootModuleFeeOutcomeV1, RootModuleFeeRequestV1,
+    check_root_module_fee_resources_v1, prepare_root_module_fee_v1,
+};
+pub use world::incremental_module_fee_contribution::{
+    RootModuleFeeWriteContextV1, contribute_root_module_fee_v1,
+};
+pub use world::incremental_scheduler_recovery::{
+    ModuleScheduleReadContext, VerifiedModuleScheduleContent,
+};
+
+pub use oasis7_world_state::incremental_cognition_history;

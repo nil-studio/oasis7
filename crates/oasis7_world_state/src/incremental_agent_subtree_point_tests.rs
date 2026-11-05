@@ -959,3 +959,145 @@ mod mailbox_tests;
 
 #[path = "incremental_agent_subtree_source_tests.rs"]
 mod source_tests;
+
+#[test]
+fn recovery_structure_cannot_mint_ordinary_balance_access() {
+    let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    let (pages, roots) = fixture::seed(&memory);
+    let proof = fixture::qualify_class(&roots, &pages, &memory, 2, MemoryClass::Recovery).unwrap();
+    assert_eq!(proof.allocation_class(), MemoryClass::Recovery);
+    let before = memory.used();
+    let mut wrong = roots.clone();
+    wrong.world_id.push_str("wrong");
+    assert!(
+        readmit_agent_subtree_structure_ordinary_v1(&proof, &wrong, &memory, || false).is_err()
+    );
+    assert!(
+        readmit_agent_subtree_structure_ordinary_v1(
+            &proof,
+            &roots,
+            &MemoryBudget::new(64 << 20, 8 << 20).unwrap(),
+            || false
+        )
+        .is_err()
+    );
+    assert!(readmit_agent_subtree_structure_ordinary_v1(&proof, &roots, &memory, || true).is_err());
+    let mut polls = 0;
+    assert!(
+        readmit_agent_subtree_structure_ordinary_v1(&proof, &roots, &memory, || {
+            polls += 1;
+            polls == 2
+        })
+        .is_err()
+    );
+    assert_eq!(memory.used(), before);
+    let full = memory
+        .reserve((56 << 20) - memory.used(), MemoryClass::Ordinary)
+        .unwrap();
+    assert!(matches!(
+        readmit_agent_subtree_structure_ordinary_v1(&proof, &roots, &memory, || false),
+        Err(ValueTreeError::Memory(_))
+    ));
+    drop(full);
+    let ordinary =
+        readmit_agent_subtree_structure_ordinary_v1(&proof, &roots, &memory, || false).unwrap();
+    assert_eq!(ordinary.allocation_class(), MemoryClass::Ordinary);
+    assert!(
+        readmit_agent_subtree_structure_ordinary_v1(&ordinary, &roots, &memory, || false).is_err()
+    );
+    let state = fixture::State::new(&pages, &memory);
+    let parent = parent(&roots);
+    let live = parent.fence().unwrap();
+    let extra = RefCell::new(Pages::default());
+    let values = Values {
+        base: &pages,
+        extra: &extra,
+    };
+    let mut sink = Sink(&extra);
+    let mut tx =
+        ExecutionTransaction::begin(parent.clone(), [4; 32], &state, &memory, limits()).unwrap();
+    let guard = tx.guard();
+    let mut io = io();
+    let mut write_io = super::io();
+    let mut keys = crate::incremental_semantic_key::SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    change_agent_subtree_scalar_v1(
+        AgentSubtreeCellChangeV1 {
+            query: AgentSubtreeQualifiedRequestV1 {
+                cell: request("agent α", AgentFieldV1::ResourceAmount, 0),
+                qualification: &ordinary,
+            },
+            expected: Some(AgentScalarRefV1::I64(77)),
+            after: Some(AgentScalarRefV1::I64(76)),
+            max_scalar_bytes: 64,
+        },
+        &mut overlay!(
+            &mut tx,
+            &state,
+            &values,
+            &memory,
+            &mut io,
+            &mut keys,
+            || false
+        ),
+        &mut ValueMutationContextV1 {
+            sink: &mut sink,
+            memory: &memory,
+            io: &mut write_io,
+            cancelled: || false,
+        },
+        &guard,
+        &live,
+    )
+    .unwrap();
+    let guard = tx.guard();
+    let result = read_agent_subtree_scalar_overlay_v1(
+        AgentSubtreeQualifiedRequestV1 {
+            cell: request("agent α", AgentFieldV1::ResourceAmount, 1),
+            qualification: &proof,
+        },
+        &mut overlay!(
+            &mut tx,
+            &state,
+            &values,
+            &memory,
+            &mut io,
+            &mut keys,
+            || false
+        ),
+        64,
+        &mut std::io::sink(),
+        &guard,
+        &live,
+    );
+    assert!(
+        result.is_err(),
+        "Recovery structure minted ordinary balance access"
+    );
+    let guard = tx.guard();
+    assert!(matches!(
+        tx.seal(&guard, &live, 0),
+        Err(ExecutionError::Aborted)
+    ));
+    drop(proof);
+    let mut tx = ExecutionTransaction::begin(parent, [5; 32], &state, &memory, limits()).unwrap();
+    let guard = tx.guard();
+    assert_eq!(
+        read_agent_subtree_scalar_overlay_v1(
+            AgentSubtreeQualifiedRequestV1 {
+                cell: request("agent α", AgentFieldV1::ResourceAmount, 0),
+                qualification: &ordinary
+            },
+            &mut overlay!(&mut tx, &state, &pages, &memory, &mut io, &mut keys, || {
+                false
+            }),
+            64,
+            &mut std::io::sink(),
+            &guard,
+            &live
+        )
+        .unwrap(),
+        Some(AgentSubtreeValueV1::I64(77))
+    );
+}

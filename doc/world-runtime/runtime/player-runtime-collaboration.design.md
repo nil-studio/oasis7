@@ -32,6 +32,9 @@ Runtime owner 负责世界侧 control fence、顺序、授权及恢复；Agent o
 | Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[AC-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-006) | 重复消息、迟到和历史缺口安全恢复 | [collab-recovery](#collab-recovery) | runtime_engineer / agent_engineer / viewer_engineer | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685；[AC-COLLAB-007](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-007) | 同一任务中证明离开 Viewer、停止、离线改目标、续接、问答、明确授权及世界结果 | [collab-runtime-journey](#collab-runtime-journey) | runtime_engineer / agent_engineer / viewer_engineer | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | 同 Runtime 自有/受托资源隔离，撤销不扩散 | [collab-relationship-isolation](#collab-relationship-isolation) | runtime_engineer / agent_engineer | 不把同一进程视为 owner 授权，不新增经济角色 |
+| Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | 双向逐条问答分别证明保存、接收报告与后续处理，旧实例不能代报 | [collab-question-delivery](#collab-question-delivery) | runtime_engineer / agent_engineer / viewer_engineer | 不证明人已阅读、模型理解或世界效果 |
+| Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[AC-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-006) | 未回答及已回答未处理的线程在事件窗口外仍完整恢复，配额不挤掉回复 | [collab-question-recovery](#collab-question-recovery) | runtime_engineer / agent_engineer / viewer_engineer | 不承诺无限历史、私有记忆迁移或已上线 |
+| Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[AC-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-008) | 恢复当前问答后仍核对原调用、当前 fence 与 Stop，不重演旧副作用 | [collab-question-recovery](#collab-question-recovery) | runtime_engineer / agent_engineer | 不证明真实 driver 的持久恢复或费用终止 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -102,9 +105,38 @@ approved 表示权威决定已提交并产生引用现有授权体系的 grant�
 
 Report 包含 task、目标版本、来源执行方、reported_at/received_at、phase、summary、blocker、next_actor 与 evidence_refs。服务器只校验引用是否存在及读取权限，不信任任意 URL 或未经回读的 receipt 字符串。UI 清楚标记“执行器汇报/估计”和服务器接收时间；不保存或展示模型内部推理链与秘密。
 
-Question/Answer 使用稳定 question_id、message_id、in_reply_to、goal revision 和 actor。提问或回答是协作消息，不写世界。旧目标的问题被新版本替代后，迟到答案留为 stale history；要影响新任务必须有明确的新问题或目标修改，不自动搬运批准。
+Question/Answer 使用稳定 question_id、message_id、in_reply_to、goal revision 和 actor。提问或回答是协作消息，不写世界。旧目标的问题被新版本替代后，失效前已持久接受、之后才交付或回查到的答案留为 stale history；失效后首次提交的旧写入拒绝。要影响新任务必须有明确的新问题或目标修改，不自动搬运批准。
 
 可机器验证的任务结束依赖绑定的 gameplay completion evaluator 与权威 receipt。任意自由文本目标无法机械判断时只能 `completion_reported` 或由 owner 显式结束委托，不能称世界已证明完成。日常请求批准不应替代 Agent 自主选择；等待期间仅允许原授权内不规避 blocker 的独立行动。
+
+<a id="collab-question-delivery"></a>
+### 5.4 逐条问答的接收与处理
+
+本节承接 AC-COLLAB-004。一个线程固定一条问题、至多一条被接受的答案和有限的阶段报告；owner 向 executor 提问与 executor 向 owner 提问使用同一合同。创建时绑定 world/branch、task/Agent、原 owner 主体及 owner_revision、goal_revision、executor_id/epoch，并由服务端据当前关系确定问答双方。`actor_ref` 不能由调用者切换角色，`recipient_ref` 不能改成第三人；离线但仍有效的接收方可以待送达，未绑定接收方则拒绝创建，不把未来任意 executor 当收件人。
+
+| 可观察事实 | 写入者与前置 | 精确含义 |
+| --- | --- | --- |
+| 服务已保存问题或答案 | 当前获权发送方；服务器已持久提交原消息及关联 | 可回读原文；不证明接收端已经取得它 |
+| `received_reported` | 该条消息的原接收方，完整取得内容后报告；`delivery_basis` 必填 | 接收端报告已收到；是有来源的声明，不证明人已读、模型理解或世界执行 |
+| 已保存答案 | 问题接收方；问题的 received_reported 已持久确认 | 这是对问题的实际后续回答；不能用空的处理 ACK 代替答案 |
+| `processed_reported` | 原提问者处理已保存的答案；答案的 received_reported 已持久确认 | 对答案的有界处理报告；不改变 goal、grant、预算、任务完成或世界结果 |
+| 世界结果 | 原世界 authority 的 context/operation/receipt 回读 | 独立证明具体效果；不得从上述消息阶段推断 |
+
+执行器的 `delivery_basis=durable_inbox`：worker 将完整原消息、线程版本、去重身份及来源关联写入受保护 inbox 并完成持久化后，才发送接收报告。报告本身仍是执行端声明，服务器不把它当作远端磁盘证明。玩家 Web/native surface 的 `delivery_basis=volatile_client`：完整受权内容进入当前客户端内存后可报告接收；本合同不新增 localStorage、IndexedDB、service worker 缓存或本机文件中的私有正文副本。窗口关闭、账号切换或失去读权时清除该内存，恢复依靠服务端当前线程。旧 volatile 报告只证明原客户端报告过接收，不证明新窗口持有内容或玩家阅读；新窗口必须重新读取完整正文后才能回答或标记查看。
+
+`processed_reported.disposition` 只允许 `viewed / considered / needs_goal_change / needs_authorization / cannot_use`。owner 在明确的“标为已查看”操作后可以使用 viewed，渲染、焦点、滚动、自动重连均不触发它；executor 不得使用 viewed。其余值是处理方的声明，分别表示已考虑、需要修改目标、需要授权、无法采用；都不执行对应业务操作。需要继续追问时另建带 `related_question_id` 的问题；需要目标或权限变化时走原专用入口。处理报告的 summary 可说明下一步但不包含内部推理链。接收报告不带 disposition；问题本身不接受 processed_reported，回答方也不能处理确认自己的答案。
+
+| 线程 status | 进入条件与退出 |
+| --- | --- |
+| `awaiting_answer` | 问题持久保存；接收报告不改变此状态。合法答案保存后进入 answered_pending_processing |
+| `answered_pending_processing` | 答案已保存，连同完整问题、答案及已有报告继续作为当前未完项；答案接收报告不终结线程 |
+| `processed_reported` | 原提问者的答案处理报告持久保存；仅表示这段沟通已报告处理 |
+| `closed_by_owner` | 当前原 owner 显式关闭未完线程并留下原因；不伪造收到/已答/处理报告，不解除行动 blocker 或已知原 operation |
+| `invalidated` | 未完线程的 owner、目标、执行代际或任务运行许可已失效；由对应控制变化投影，不能新写答案或处理报告 |
+
+`applicability=current|stale` 与 status 分开。已处理或显式关闭的旧线程保留原终态，适用性随控制变化变为 stale；未完旧线程变为 invalidated/stale。历史的保存、接收及处理时间仍保留，不能将其迁到新 goal/fence。转让后新 owner 不默认取得旧私有历史。原操作回查仍先检查当前历史读取资格；旧写入已成功的原回执可以回读，不能利用重试新增旧操作。
+
+顺序不可跳过：问题接收报告持久确认后才提交答案，答案接收报告持久确认后才提交处理报告。直接回答不能由服务器自动补一条“已持久接收”；阶段响应丢失时，先查原操作或当前获权的原线程报告，再继续。两个窗口竞答使用 expected_thread_revision；仅一个答案获胜，另一方重新读取，不覆盖原答案。每个 message_id 和阶段槽位只接受一份内容，相同身份与内容重试幂等，异内容冲突。正文更正、改变处理意见或新的追问通过新关联问题、普通后续报告或显式目标修改表达，不改写已确认历史。
 
 ## 6. 接口与数据合同
 
@@ -114,7 +146,7 @@ HTTP 路由由 Game API 设计拥有；本节定义它们调用的 RuntimePort �
 TaskSnapshotV1 = {world_binding, task_id, agent_id, owner_revision,
   task_revision, latest_goal_revision, active_goal_revision, active_goal_digest, grant_revision,
   executor_binding, task_status, activation_operation?,
-  active_goal: GoalVersionProjectionV1|null, goal_delivery, latest_reports, unanswered_questions, pending_approvals,
+  active_goal: GoalVersionProjectionV1|null, goal_delivery, latest_reports, pending_question_threads, pending_approvals,
   unsettled_operation_refs, snapshot_seq, snapshot_id, page_index, total_counts,
   next_snapshot_cursor, resume_cursor, completeness: partial|complete}
 GoalVersionProjectionV1 = {schema_revision, task_id, goal_revision,
@@ -127,6 +159,18 @@ GoalDeliveryV1 = {goal_revision, executor_epoch, received_at?,
 CollaborationMessageV1 = {message_id, kind, actor_ref, task_id,
   goal_revision, executor_epoch?, in_reply_to?, body,
   evidence_refs, received_at, applicability: current|stale|invalidated}
+QuestionThreadV1 = {question_id, thread_revision, task_id, agent_id,
+  owner_actor_ref, owner_revision, goal_revision, executor_id, executor_epoch,
+  question: CollaborationMessageV1, answer: CollaborationMessageV1|null,
+  question_recipient_ref, answer_recipient_ref, related_question_id?,
+  question_received: MessageReceiptV1|null, answer_received: MessageReceiptV1|null,
+  answer_processed: MessageReceiptV1|null, status, applicability: current|stale,
+  terminal_ref?}
+MessageReceiptV1 = {receipt_id, client_operation_id, question_id, message_id,
+  actor_ref, stage: received_reported|processed_reported,
+  delivery_basis?: durable_inbox|volatile_client,
+  disposition?: viewed|considered|needs_goal_change|needs_authorization|cannot_use,
+  summary?, source_ref?, recorded_at, recorded_event_seq}
 ApprovalRequestV1 = {approval_id, request_revision, task_id,
   owner_revision, goal_revision, executor_epoch, proposal_digest,
   requested_grant_scope, cumulative_limit, valid_until_tick,
@@ -157,7 +201,9 @@ Runtime 的 native library 提供独立私有目标存储基础 `world_service::
 
 端点不接受客户端填写的“世界结果 status=committed”来写回权威任务成果。`goal-receipts` 只允许 received/adoption_reported；context/decision/admission 的证据由各自受信边界记录。对没有外部观测能力的纯 Runtime 自报，保留 reported 等级，不伪造硬件或模型证明。
 
-控制命令至少包含 `PublishGoal / BindExecutor / StopDelegation / SubmitApprovalDecision`，复用 typed owner authority。消息类命令 `PostReport / AskQuestion / AnswerQuestion / AcknowledgeGoal` 不能改 grant。每条命令都携带稳定 operation ID、expected revision 和所属世界分支；通道切换不改变身份作用域。
+控制命令至少包含 `PublishGoal / BindExecutor / StopDelegation / SubmitApprovalDecision`，复用 typed owner authority。消息类命令 `PostReport / AskQuestion / AnswerQuestion / ReportMessageReceipt / CloseQuestion / AcknowledgeGoal` 不能改 grant；CloseQuestion 仍仅允许当前原 owner。每条命令都携带稳定 operation ID、expected revision 和所属世界分支；通道切换不改变身份作用域。
+
+线程中的 question.kind=question、answer.kind=answer；answer.in_reply_to 必须等于原问题 message_id。两个 recipient_ref 由服务器固定为对方和原提问者，所有内联消息/报告都必须与线程的任务、目标、主体和执行代际一致。`CollaborationMessageV1.received_at` 是服务器持久接收时间，与接收端的 received_reported 分开。MessageReceiptV1 的 recorded_at/event_seq 由服务器填写；source_ref 只是受权的有界关联，不能以任意 URL 或客户端字符串证明模型运行或世界效果。receipt_id 与原 client_operation_id 一起保持稳定。
 
 <a id="collab-snapshot-pages"></a>
 ### 6.1 同切点快照分页合同
@@ -185,7 +231,7 @@ Runtime 在已提交控制记录与私有正文投影间固定一致切点 S，�
 | completeness | `partial` 表示仍有续页；`complete` 只标记末页，不表示末页本身就是整份快照 |
 
 每页保留同一 S 的 world/control/goal/executor 元数据及完整 active_goal；四个列表只放该页项目。
-按 `unanswered_questions → pending_approvals → unsettled_operation_refs → latest_reports` 固定集合顺序，
+按 `pending_question_threads → pending_approvals → unsettled_operation_refs → latest_reports` 固定集合顺序，
 集合内按原稳定 question/message、approval、operation、report ID 的 UTF-8 字节顺序升序枚举。
 同集合 ID 唯一，S 上的内容与版本也固定；禁止在不断变化的当前列表上使用 offset 分页。
 `latest_reports` 的当前投影同样读齐，但完整历史报告仍沿既有授权历史入口读取，不借快照承诺无限历史。
@@ -196,7 +242,8 @@ Runtime 在已提交控制记录与私有正文投影间固定一致切点 S，�
 至少前进一项。空任务返回 page_index=0、四个计数为零、complete 和 after-S 游标。
 
 为保证合法单项总能装入一页，完整快照的非列表头部（含游标/计数）和每个完整当前态项目各不超过
-64 KiB 编码字节；goal 4 KiB、message/report 8 KiB 的既有正文限制和每 task 256 个待决项总限额不变。
+64 KiB 编码字节；goal 4 KiB、message/report 8 KiB 的既有正文限制不变。每 task 的 256 个待决项总限额
+按 §7.4 计入所有未完问题线程和待决申请，不能在答案刚保存时释放线程名额。
 新控制/消息/申请写入及当前投影更新在持久接受前检查完整编码，超限明确拒绝；追加历史不无限膨胀当前投影。
 不符合此尚未发布合同的旧草案记录保留原数据并返回 recovery_required，不能删记录、切正文或把 partial
 改成 complete。格式修复与兼容处理完成前不宣称该候选具备完整恢复能力。
@@ -233,7 +280,7 @@ audience/读权限版本或适用 executor fence 变化使旧 pin 失效；仍�
 
 Runtime 生成 task-scoped 单调 event_seq，投递至少一次。cursor 是服务端签发的不透明值，绑定 world branch、task、受众与权限 revision、位置及有效窗口；不能将全局消息总量或其他人的事件通过游标泄露。
 
-收到消息后执行器先持久化本地 inbox/去重位点，再确认。服务端同 message_id 同内容幂等，不同内容冲突。任务 snapshot 按[同切点分页合同](#collab-snapshot-pages)读齐后包含一致读取切点 S：该切点的当前目标、授权、未答问题、待决批准和未结算 operation，与 `events after S` 接续。snapshot 生成时并发新消息只会出现在增量中，不会落在两者之间。激活目标正文作为该 snapshot 的必需当前态，不依赖 S 之前的 GoalVersionSaved/Activated 事件是否仍在重放窗口内。首次连接且没有任何本地缓存的执行器也能仅凭全部授权 snapshot 页与 after-S 事件完成初始化；若取得 context 前目标再次激活，按 expected revision 拒绝并重新同步，不把旧正文重新标注为新版本。
+收到消息后执行器先持久化本地 inbox/去重位点，再确认；玩家客户端按 §5.4 仅声明 volatile_client 接收，不能套用执行器的磁盘保证。服务端同 message_id 同内容幂等，不同内容冲突。任务 snapshot 按[同切点分页合同](#collab-snapshot-pages)读齐后包含一致读取切点 S：该切点的当前目标、授权、未完问题线程（包括已回答未处理的回复）、待决批准和未结算 operation，与 `events after S` 接续。snapshot 生成时并发新消息只会出现在增量中，不会落在两者之间。激活目标正文作为该 snapshot 的必需当前态，不依赖 S 之前的 GoalVersionSaved/Activated 事件是否仍在重放窗口内。首次连接且没有任何本地缓存的执行器也能仅凭全部授权 snapshot 页与 after-S 事件完成初始化；若取得 context 前目标再次激活，按 expected revision 拒绝并重新同步，不把旧正文重新标注为新版本。
 
 游标过期、分支/受众变化或存储窗口外返回 `cursor_reset_required`，提供允许访问的当前 snapshot 获取方式；客户端标记历史缺口，不当作“无新事件”。恢复只消费当前有效目标/批准，不按旧历史顺序重演副作用；已知世界 operation 逐项先对账。
 
@@ -243,6 +290,21 @@ Stop 的效果是持久失效当前执行许可并阻断新受限提案，保留
 
 终态控制记录、幂等 tombstone、审批和世界结果引用与该世界的可审计历史一致保留；事件传输日志可以压缩，不能删去 current snapshot 需要的 pending 信息。私有内容保留期、数据删除与受众规则由部署公开说明，首期传输重放窗口初值为 7 天且每任务最多 100000 项，以先到达的限制为准并在接口公布实际最早可读位置；超出时显式 snapshot reset，而不是丢掉当前问题。备份恢复必须验证世界/control generation 一致并旋转受影响凭据；旧 fence 不得因恢复较早备份重新有效；必须同时验证既有 WorldBinding 的 branch/reorg/finality 变化和身份服务的撤销状态。无法证明旧执行资格已失效时保持 RecoveryRequired，不在本地私自生成一个“更大 epoch”冒充世界权威。
 
+<a id="collab-question-recovery"></a>
+### 7.4 未完线程的当前态、配额与停止恢复
+
+本节承接 AC-COLLAB-006 / AC-EXT-008。`pending_question_threads` 只含切点上 current 的 awaiting_answer 与 answered_pending_processing，内联完整 QuestionThreadV1；不把一条线程拆成多页、不只给问题 ID 或历史事件地址。问题尚未回答时的正文与接收报告、已经接受的答案及其接收/处理进度都由服务端持久当前态重建，不依赖发送方本地状态或 7 天/100000 条的传输事件窗口。处理、关闭或失效后离开未完集合，原线程沿当前获权的逐线程读取继续查询；历史缺失时明确返回 unavailable/recovery_required，不把旧处理报告搬成当前报告。
+
+原私有协作存储保存线程原件、每个阶段的操作身份、版本和事件关联；当前索引是可重建投影，不成为第二份世界或权限账本。每次问答写入在原 RuntimePort 顺序内重验当前 owner/audience、目标与 executor fence；完整私有记录及其引用持久化后，同一协作提交原子发布线程版本、配额变动、原操作结果与待发事件，才回复 persisted。任何准备孤儿不可见，事件只来自已提交记录。若原记录或控制切点不足以重建，返回 recovery_required，不返回空列表或假 ACK。私有消息正文/摘要及操作 proof 不进入公共 canonical intent、公开 journal、CAS 或广播；只有原控制合同允许的元数据进入其既有权威序列。
+
+配额是每 task **未完线程数 + 待决申请数 ≤ 256**。创建问题时原子占一个槽位，并为该线程的一条合法答案、两条接收报告和一条处理报告预留完整 64 KiB 当前项编码容量；答案和阶段报告使用原槽位，不再次申请第 257 个名额。每条消息正文仍至多 8 KiB，其完整编码至多 16 KiB；每条阶段报告至多 4 KiB，其中 summary 至多 1 KiB；线程其余字段与 JSON 框架合计至多 8 KiB，且整个线程再次检查 64 KiB 上限。ID、来源和引用同样纳入编码检查，不能用无限 metadata 绕过正文限制。该有限结构最多 52 KiB，预留余量不授权扩展消息数量或任意历史列表。
+
+新问题/申请在记录、当前索引和配额的同一提交边界竞争名额；第 257 项明确拒绝，不能接受后再丢旧问题或旧答案。容量满不拒绝已预留线程内的合法答案/阶段报告，也不能因 owner 离线自动声称已处理来腾位；显式关闭、真实处理终态或控制失效才释放该当前槽位。请求速率/队列、存储故障与私有数据保留策略仍独立适用，过载只推迟或明确拒绝本次未接受请求，不删除已经持久接受的回复。
+
+Stop、owner 转让、目标激活或 executor 替换的生效点仍是原控制合同的提交点，不等待消息 ACK、模型调用、正文解密或协作投影刷新。其 control revision/fence 确定旧未完线程失效；读取按该已提交切点派生终态并重建索引，不能由消息服务延后撤权。投影暂时不可用时暂停新问答/认知与完整 snapshot，原 Stop 及世界原 operation 回查仍按各自服务合同继续，不让损坏私有正文复活旧资格。相同设备续接取得新 epoch 后，旧线程只作获权历史；若需要当前答复，显式建新线程，不能自动转发旧私有正文或把旧 ACK 挪到新 fence。
+
+恢复先取得当前完整 snapshot 与 after-S，再根据相同 scope/message_id 对账本地 inbox/outbox 和服务端阶段。服务端已有 received_reported 不能代替重建丢失的本地完整正文；已有处理报告只恢复沟通状态，不重启原模型调用、不重放世界行动。原运行未知和未结算 operation 继续走各自恢复协议。缺口无法核实时保留原身份与阻塞，当前问答不借新键逃离未知世界结果。
+
 ## 8. 部署、安全与运行约束
 
 读任务、订阅事件、查看报告、审批和查原操作分别鉴权，不能只在最初 WebSocket 握手验证一次。配对 token 不能签发 owner 决定；公开日志不含 private prompt、审批材料、refresh token 或本机路径。Content store 加密密钥由 Runtime operator 管理，不写公开 chain snapshot。
@@ -251,7 +313,11 @@ Stop 的效果是持久失效当前执行许可并阻断新受限提案，保留
 
 ## 9. 质量与容量
 
-复用 Game API LimitsV1：goal 4 KiB，message/report 8 KiB，单页列表合计最多 200，单响应 2 MiB。每 task 首期最多 256 个未答问题加待决申请；超过时在接受新项前返回 quota_exceeded，不丢弃已接受项。201 个同类或合计 256 个合法待决项通过[同切点分页](#collab-snapshot-pages)完整读取；分页数量限制不是待决项准入限制。完整编码、单项可装入性、pin 配额和失效处理按 §6.1 执行，不能依赖 after-S 找回 S 前被遗漏的待决项。保留索引是可重建投影，pending 的 source 必须持久。
+复用 Game API LimitsV1：goal 4 KiB，message/report 8 KiB，单页列表合计最多 200，单响应 2 MiB。每 task 首期最多 256 个未完问题线程加待决申请；超过时在接受新项前返回 quota_exceeded，不丢弃已接受项。201 个同类或合计 256 个合法待决项通过[同切点分页](#collab-snapshot-pages)完整读取；分页数量限制不是待决项准入限制。完整编码、单项可装入性、pin 配额和失效处理按 §6.1 执行，不能依赖 after-S 找回 S 前被遗漏的待决项。保留索引是可重建投影，pending 的 source 必须持久。
+
+**约束组合手算，非性能实测。** 一段正常双向问答最少串行经过问题保存、问题接收报告、答案保存、答案接收报告、答案处理报告 5 次私有提交；加上各次正文读取/投递与执行端本地持久化，恢复时另有完整 snapshot、原操作回查。它们均消费既有请求与剩余时间预算，不能每次重试重置；接收端离线、缺预算或有限时间不足时保留 awaiting_answer/answered_pending_processing，而非虚构处理。Stop 走独立有界控制路径，不等待这些串行阶段；真实持久时延、driver 中断和尾部恢复时长须实施后测量。
+
+按 64 KiB 头部和 64 KiB 完整项保守计算，30 项加头部为 2,031,616 字节，再加至多 29 个项间逗号仍小于 2,097,152 字节；31 项加头部已达 2 MiB，不能忽略分隔符而宣称必然装下。实现按实际编码贪心分页，64 KiB 头部约束包含所有非项目框架；保守 30 项页证明无其他集合时 201/256 个最大项分别至多需 7/9 页，足够小且可装满 200 项的记录则各需 2 页。另有未结算操作/报告时按四集合合计继续分页，不把上述算例当全任务固定页数。201/256 个槽位的当前项预留分别为 13,172,736 / 16,777,216 字节（12.5625 / 16 MiB）；不含 pin、副本、索引、目标或历史成本，不是总内存/RPO 承诺。配额与 pin 数量必须在实施时结合真实存储和控制队列预算验证，不能用“200 条分页”拒绝已有的第 201–256 项或挤掉已接受答案。
 
 恢复目标是同一完整 checkpoint 中已确认 control operation 不丢失；这是目标，不是现有线上 RPO 声明。并发验证必须含两个 owner 窗口、两个 executor、目标更新/撤销与世界 commit 交错。事件读取不能阻塞 World::step，report 洪泛不得挤占 stop/撤销的有界控制队列。
 
@@ -261,7 +327,7 @@ Stop 的效果是持久失效当前执行许可并阻断新受限提案，保留
 
 实现可复用既有 goal/journal，但必须提供新语义的完整回读，不通过 alias 默默丢掉版本。回滚关闭新命令、保留任务与操作结果查询；schema 不可读时 fail closed，不清空状态或自动回退到旧 executor。未满足持久一致性与私有存储验证前不能对外承诺跨节点恢复。
 
-本修订补齐尚未发布的 revision 1 目标快照合同，不需要为缺少 active_goal 的草案实现保留静默兼容；读取不完整旧形状或不识别分页完整度时停止认知并要求 schema 对齐；不能把第一页当旧式完整快照。
+本修订补齐尚未发布的完整 revision 1 目标快照合同，以 pending_question_threads 替换其 unanswered_questions 草案字段，仍保留四个分页集合；这不是已发布 schema 的无版本破坏性迁移许可。没有该完整草案已公开发布的兼容性依据，不为缺少 active_goal、漏掉已答未处理内容或不识别分页完整度的草案实现保留静默降级；不兼容时停止认知并要求 schema 对齐，不能把第一页当完整快照。已实施 GameTaskControlV1、GoalContentV1、私有目标与当前 SDK 控制子集保持各自已定义的 wire、签名和版本合同，不能借本次草案修订变更；若实施发现完整 schema 已对外发布，先提供显式版本协商与迁移，再开放新语义。
 
 ## 11. 验证设计与可追溯性
 
@@ -284,6 +350,9 @@ A1 的完整恢复容量回归由 [collab-snapshot-pages](../../testing/manual/e
 | Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[AC-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-006) | [collab-recovery](#collab-recovery) | 重复消息、迟到和历史缺口安全恢复 | [collab-events](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-events)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-8dad5caa-d064-4ac8-8c98-40a702b13685；[AC-COLLAB-007](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-007) | [collab-runtime-journey](#collab-runtime-journey) | 同一任务中证明离开 Viewer、停止、离线改目标、续接、问答、明确授权及世界结果 | [collab-session](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-session)；按该场景的候选、环境、故障注入和判据执行 | 每个声明支持的真实 Runtime/profile 独立成案，保留同任务关联链 | 不证明自然语言策略正确或第三方工具已获授权 |
 | Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | [collab-relationship-isolation](#collab-relationship-isolation) | 自有/受托并存、跨资源拒绝和定域撤销 | [api-auth](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-auth) | A/B 当前权限、拒绝和原回执对账 | 不以单角色路径代签多关系隔离 |
+| Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | [collab-question-delivery](#collab-question-delivery) | 双向消息的角色、接收依据、阶段顺序与单答案终态 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的角色/顺序/重复/玩家内存用例 | 原线程与私有写入结果、无额外世界/授权效果的前后对比 | 不证明模型理解、人类阅读或真实平台已验收 |
+| Trace refs: O7-REQ-6044cb04-5fbb-4c68-81a6-fc57cfdd608a；[AC-COLLAB-006](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-006) | [collab-question-recovery](#collab-question-recovery) | 未完线程跨事件压缩恢复及配额原子性 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的窗口外/满额/原件故障用例；同场景联动 collab-snapshot-pages 的完整分页用例 | S 上完整线程集合、after-S、原操作与编码字节记录 | 手算不证明实际持久化、pin 性能或无限历史 |
+| Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[AC-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-008) | [collab-question-recovery](#collab-question-recovery) | Stop/新 fence 后不把旧问答与未知调用当当前资格 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的停止/新进程/未知操作用例 | 控制切点、历史适用性及原操作对账 | 不代签真实双 Runtime、跨节点私有副本或费用终止 |
 
 <a id="collab-runtime-journey"></a>
 ### 11.2 同任务的真实 Runtime 组合验收

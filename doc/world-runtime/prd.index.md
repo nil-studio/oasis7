@@ -49,6 +49,7 @@
 - `doc/world-runtime/runtime/chain-pos-control-plane.prd.md`：链 PoS 时间、tick 相位、控制面 status 与恢复合同主入口。
 - `doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md`：线上模块发布合法性与默认 binary-only 边界主入口。
 - `doc/world-runtime/module/player-published-entities.prd.md`：玩家发布实体与模块发布链路衔接入口。
+- [玩家发布内容与创作交付](module/player-published-entities.design.md#ppe-creator-inputs)及[核验手册](module/player-published-entities.manual.md)：具体编辑源、发布包、离线样例、状态正文与实际消费者；沿原发布/回滚 authority，不将 Shadow、批准或工件存在代签工业采用。
 - `doc/world-runtime/governance/zero-trust-governance-receipt-hardening-2026-02-26.prd.md`：治理收据安全 hardening 主入口。
 
 <a id="gameplay-authority-protocols"></a>
@@ -59,13 +60,23 @@
 | 问题 | 系统设计 | 主要边界 |
 | --- | --- | --- |
 | 普通事项能否治理、宪制变更何时生效 | [治理分类与独立宪制闸门](runtime/governance-classification-and-constitutional-execution.design.md) | 事项分类、授权来源、独立审查与实际生效分别记录 |
+| 同一生产目标受阻后如何比较修复、重建与转向 | [生产恢复方案比较](runtime/production-recovery-comparison.design.md) | 原目标、真实候选、逐步资源与价值、有限读取及原 operation 恢复；比较不新增世界动作或自动改目标 |
+| 成熟贡献如何打开一次可实际使用的有限机会 | [认可与有限机会结算](runtime/recognition-opportunity-settlement.design.md) | 本地交付来源、显式审核、完整竞争集合、连续授权、未用权利与运输共用容量账，以及单次使用和独立恢复 |
+| 同候选、同窗口的经济事实如何核算并解释 | [成熟世界经济审计](runtime/mature-world-economic-audit.design.md) | 非 levy 资源分账、关键变化、治理实际影响、缺证与异常、有界读权及补证恢复；局部审计不产生世界效果或发行结论 |
 | 多阶段工业工作如何连续、配方变化如何处置 | [工业工作图与配方生命周期](runtime/industrial-work-graph-and-recipe-lifecycle.design.md) | 工作图与配方各自管理状态，按原身份处理六类存量工作 |
+| 新工业能力如何经历模拟、受限试点与准入 | [工业创建四阶段](runtime/industrial-creation-simulation-and-admission.design.md) | 同版证据、同输入隔离模拟、累计试点预算和当前准入；复用原工作图与配方六状态 |
+| 许可如何收费、到期开放并保持单次结算 | [有限许可与版税结算](runtime/industrial-license-and-royalty-settlement.design.md) | 当前使用 gate、真实批次、独立托管、有限争议和收益池；不以发布或物流 receipt 发版税 |
 | 区域如何成立、取得资格、退化与恢复 | [区域 charter 权威与恢复](runtime/regional-charter-authority-and-recovery.design.md) | 分层审查、双资格、受限权限及资产义务连续性 |
 | 配方替代选择与实际转换如何结算 | [替代决策与 linked conversion](runtime/recipe-substitution-decision-and-conversion.design.md) | 决策不产生经济效果；转换与因果账本单次提交 |
 | 公共 levy 如何取得授权、收费及退出 | [公共 levy 授权与结算](runtime/public-levy-authorization-and-settlement.design.md) | 独立预算账本、到期与单次结算，不混同普通服务费 |
 | 工业外部性影响谁、由谁处置 | [工业外部性与处置](runtime/industrial-externality-and-mitigation.design.md) | 显式 profile、作用域与处置授权，生产和处置分别确认 |
 | 恢复项目如何把贡献转成实际结果 | [有界恢复项目与贡献结算](runtime/bounded-recovery-projects-and-contribution-settlement.design.md) | 项目资格、里程碑与世界效果可对账，不混同存储恢复 |
 | 不受支持的请求如何安全选择替代 | [安全 canonical 替代确认](runtime/safe-canonical-alternative-confirmation.design.md) | 原请求、候选、独立确认、授权消费与唯一结果完整关联 |
+| 协作提议如何经双方接受形成即时交换 | [Agent 代表的合同形成](runtime/agent-mediated-contract-formation.design.md) | 非绑定提议、同版条款、当前授权、两腿原子效果与原请求恢复；持续服务另核 |
+| 跨时间供能如何逐检查点履行及恢复 | [有限供能服务履约](runtime/checkpoint-power-service-fulfillment.design.md) | 价款/抵押/费用占用、部分履行、修复、争议、结清与三方显式继受；通用服务和实际激活另核 |
+| 合作前如何查看有情境的履约事实并纠错 | [情境声誉证据与复核](runtime/contextual-reputation-evidence-and-review.design.md) | 两个个人合同 profile 的来源/主体/时效/更正/恢复；原分数、一般社会声明和资格消费者不混入 |
+| 如何按原组织事项与接替任期查询托管返还履历 | [组织与岗位履历咨询](runtime/organization-custody-role-reputation.design.md) | 两条合法返还路径、组织/原任期、当前受众、有界派生和客观更正；原任命及资产处分另核 |
+| 研究开始前如何约定归因、保留 Agent provenance 并转让收益份额 | [R&D 章程、来源与转让](runtime/rd-charter-provenance-and-share-transfer.design.md) | 同版同意、预工作时序、固定分配交接、独立有限归因程序和原槽转让；不移动个人 credential 或改写累计收益 |
 
 ## governance 子域阅读边界
 - `doc/world-runtime/governance/README.md` 是治理子域的唯一首读入口：它把当前模块规格、执行台账、按需设计分册与已完成专题追溯分开，避免根 README / 文件索引重复平铺。

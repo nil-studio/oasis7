@@ -42,6 +42,36 @@ impl CognitionJsonEntryQualificationV1 {
         &self.body
     }
 }
+pub(crate) fn copy_cognition_json_entry_ordinary_v1(
+    source: &ReservedValue<CognitionJsonEntryQualificationV1>,
+    field: CognitionJsonFieldV1,
+    memory: &MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CognitionJsonEntryQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < std::mem::size_of::<CognitionJsonEntryQualificationV1>()
+    {
+        return Err(ValueTreeError::Invalid("Cognition entry metadata source"));
+    }
+    source.validate_binding(field, source.body_root())?;
+    let retained = memory.reserve(1024, MemoryClass::Ordinary)?;
+    let body = crate::incremental_json_records::copy_json_subtree_metadata_ordinary_v1(
+        &source.body,
+        field.profile(),
+        memory,
+        &mut cancelled,
+    )?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(retained.retain(CognitionJsonEntryQualificationV1 {
+        field: source.field,
+        body,
+    }))
+}
 pub fn qualify_cognition_json_entry_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,

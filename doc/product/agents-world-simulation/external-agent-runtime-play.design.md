@@ -109,11 +109,38 @@ Web/桌面玩家不直接控制 OpenClaw/Codex 的聊天进程，而是将有权
 
 恢复是核对已有工作再决定下一步。用户若显式选择切换 Runtime，消费[provider 切换主责](provider-agent-experience-continuity.prd.md#21-切换窗口与在途意图)；首期不要求把原 Runtime 的私有记忆、工具进程和在途推理无损迁移到另一个 Runtime。
 
+<a id="private-context-recovery-experience"></a>
+### 3.3 私有上下文未接续时的告知与继续
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；承接 [REQ-EXT-008](external-agent-runtime-play.prd.md#req-ext-008) / [AC-EXT-008](external-agent-runtime-play.prd.md#ac-ext-008)。本节补齐已承诺的外部 Runtime 断连/重启体验，不引入长期人格、私有记忆迁移或另一套世界恢复。执行方报告与可信基线由[适配主责](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-private-context-recovery)定义，世界任务与原操作仍由[协作恢复](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-recovery)拥有。以下为目标设计和文案语义，尚无正式界面或两 Runtime 的实际验证结论。
+
+玩家回访先看到同一世界、Agent、当前目标及已确认成果。私有上下文是 Runtime 自身保存的会话材料，世界服务不能凭任务存在、心跳或连接成功证明它已经恢复；只有当前执行方对明确任务范围的声明，才可作为注明来源与时效的接续状态。只有 Viewer 断连而执行会话正常时，不推断记忆丢失，也不启动新的推理。
+
+| 当前事实 | 默认层表达与玩家可选下一步 | 不能隐含的结论 |
+| --- | --- | --- |
+| 执行方尚不能确认旧私有上下文 | “旧私有上下文尚未核清”；保留最近可信目标/成果、报告来源和主要等待原因。原请求已核清且当前基线与资格具备时，可在不依赖旧记忆的条件下重新规划 | 未确认不等于已丢失或已恢复；不能用刷新按钮重发旧工作，也不能只因记忆未核清无限阻塞 |
+| 执行方确认能接续原会话 | “执行方报告已接续原会话”；仍核对当前目标、权限、预算和未决结果后继续 | 接续不证明全部历史记忆完整、理解正确或原授权重新生效 |
+| 私有上下文不可恢复，原模型调用或世界操作仍未知 | “原私有上下文未接续；正在核对原请求结果”；提供原结果的合法查询与等待路径 | 不因失忆重新启动已受理推理、重做操作或抹除已发生费用 |
+| 私有上下文不可恢复，世界任务与当前资格完整且无阻塞的原请求 | “原私有上下文未接续；将依据当前目标与已确认结果重新规划”；可按原有效委托继续，玩家仍可调整目标或停止 | 不强制额外人工批准，不默认为新任务，不重置预算或历史 |
+| 当前目标正文、恢复切点或未完义务不完整 | “当前任务资料尚不完整，暂不能重新规划”；说明缺少哪类资料、负责恢复的入口和最近可信成果 | 私有记忆缺失不能代替世界任务资料丢失；不得以空目标、旧草稿或猜测补齐 |
+| 委托撤销/到期、目标变化或执行方被替换 | 显示当前资格与目标，按既有入口恢复授权或等待当前执行方；旧报告只在原受权历史中查看 | 不复活旧权限，不把前任私有材料或迟到计划当作新任的当前上下文 |
+| 已实际使用当前可信基线产生新计划或明确阻塞 | “原私有上下文未接续；已按当前任务重新规划”，或如实显示本次规划失败/阻塞及可行下一步 | 计划报告不证明原记忆恢复、目标已完成或世界效果已发生 |
+
+重规划使用当前合法、完整且同一恢复切点的目标、已确认成果、未决结果、预算及仍需处理的协作义务。玩家已回答但尚未处理的问题仍从当前任务恢复；不要求玩家凭记忆重述整段对话，不把已回答内容再次当成未回答问题。若执行方缺少必要能力、连接或额度，保留这些事实和原请求，等待条件恢复；不得切换未获授权的 Runtime 或费用来源。
+
+例如，原任务已有一项权威确认的生产成果和一项尚待核对的提交，Runtime 重启后报告会话不可接续。界面保留成果、先核对原提交；确认后新计划只处理当前有效目标的剩余工作。即使执行方已经能再次调用模型，仍显示原上下文未接续；“可继续工作”与“恢复了旧记忆”分别表达。此例是设计走查，不是实际游戏记录。
+
+重规划提示只在有当前任务与目标关联的真实执行方结果后更新，不因心跳、HTTP 成功、报告入库或模型启动消失。后续正常工作时可将已完成的重规划说明收至可访问历史，当前阻塞继续前景化；历史明确保留原上下文未接续的事实。恢复中目标/权限/受众变化时，按当前资格重新取任务基线，旧会话晚到结果不得覆盖当前计划。
+
+默认层只提供可理解的原因与下一步；展开层按合法范围提供执行方、更新时间、使用的目标版本、已确认成果和未决义务关联。诊断细节不泄露私有对话正文、模型内部思维、其他 Agent 材料或凭据；当前角色失去读取资格时，相应内容不能因曾在同一设备展示过而继续返回。验证入口为[私有上下文恢复场景](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)，应分别验证 Viewer 与 pure API 表达及两个真实 Runtime 的实际能力。
+
 ## 4. 信息层级与入口一致性
 
 ### 4.1 默认任务视图
 
 默认层保留目标世界与 Agent、当前有效目标、Runtime 是否在工作、最近权威成果、主要阻塞、预算摘要和下一步。只有与当前决策相关的连接或权限问题前景化。
+
+私有上下文未接续和当前重规划阶段按[§3.3](#private-context-recovery-experience)表达；“Runtime 正在工作”不能覆盖其当前限制，普通在线状态也不能代替报告来源与时效。
 
 展开层提供阶段计划摘要、行动与结果关联、等待原因、目标变更和恢复历史。诊断层提供版本、适配方式、模型/profile、调用开销、错误与证据引用；可以核对实际 Runtime 和会话来源，无需暴露凭据、其他 Agent 私有上下文或模型内部思维过程。
 
@@ -164,7 +191,7 @@ Web/桌面玩家不直接控制 OpenClaw/Codex 的聊天进程，而是将有权
 | Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[REQ-EXT-005](external-agent-runtime-play.prd.md#req-ext-005) | [AC-EXT-005](external-agent-runtime-play.prd.md#ac-ext-005) | §2.2 权威后果；§3 未知结果与核对。 |
 | Trace refs: O7-REQ-091d6c22-fca5-4284-91dd-2edce9ef440b；[REQ-EXT-006](external-agent-runtime-play.prd.md#req-ext-006) | [AC-EXT-006](external-agent-runtime-play.prd.md#ac-ext-006) | §2.3 目标应用与停止后续委托；§2.6 跨 Runtime 协作。 |
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[REQ-EXT-007](external-agent-runtime-play.prd.md#req-ext-007) | [AC-EXT-007](external-agent-runtime-play.prd.md#ac-ext-007) | §2.3 回访；§3.1 分开的四类状态。 |
-| Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[REQ-EXT-008](external-agent-runtime-play.prd.md#req-ext-008) | [AC-EXT-008](external-agent-runtime-play.prd.md#ac-ext-008) | §3.2 故障恢复与原世界历史。 |
+| Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[REQ-EXT-008](external-agent-runtime-play.prd.md#req-ext-008) | [AC-EXT-008](external-agent-runtime-play.prd.md#ac-ext-008) | §3.2 故障恢复与原世界历史；[§3.3 私有上下文恢复](#private-context-recovery-experience)的来源、告知、可信重规划和未决/失权边界。 |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[REQ-EXT-009](external-agent-runtime-play.prd.md#req-ext-009) | [AC-EXT-009](external-agent-runtime-play.prd.md#ac-ext-009) | §3.2 预算限制；§5 两类成本与继续选择。 |
 | Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d；[REQ-EXT-010](external-agent-runtime-play.prd.md#req-ext-010) | [AC-EXT-010](external-agent-runtime-play.prd.md#ac-ext-010) | §2 完整首局经历；§5 两个 Runtime 分别验证。 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[REQ-EXT-011](external-agent-runtime-play.prd.md#req-ext-011) | [AC-EXT-011](external-agent-runtime-play.prd.md#ac-ext-011) | §2.1 与 §2.4 官方 Skill 可信分发、适配引导与失败修复。 |

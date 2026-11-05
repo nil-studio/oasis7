@@ -73,6 +73,17 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接[专业治理授
 
 公开候选申请如被允许，使用独立的无权威申请权限；批准、排程激活、轮换、撤销仍需要上述 controller policy。rotation 把旧／新 signer、节点与生效边界绑定在同一治理决定中。缺 proof、错误世界／parent／policy、threshold 不足、重复 signer、过期、nonce 冲突或 proof/action 不一致均 fail closed；unknown outcome 按原 action identity 查询，不生成第二个治理效果。
 
+<a id="readiness-finality-key-rotation"></a>
+#### 同一 Node ID 的正常 finality 换钥合同
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46。本条细化现有治理轮换与角色隔离要求。范围仅为有真实原 Admission 记录且已 effective active 的 validator；bootstrap registry 中没有原 Admission 的节点、已 revoked 节点重新入场、丢失旧 key 和紧急恢复均在本切片拒绝，另行设计，不能伪造原 Admission。
+
+采用独立 Rotate typed Action，并从精确 qualified parent 同时核对原 Admission、当时 effective finality key、finality generation 和 controller registry。完整决定绑定 world/chain/genesis、parent position/CommitRef/state root、父 policy 摘要、controller、治理 nonce/有效位置范围、node、原 Admission ID、expected generation、旧/新 key、rotation ID 及目标 epoch/h+2 边界。正式 BFT 动作必须在精确决策高度 h 提交，且 body 的 `target_epoch * epoch_length_ticks == decision_height + 2`，两侧均 checked；不能在任意高度记录轮换后等下一 epoch 自动应用。parent 中不存在原记录、记录未 active、generation/旧 key 不匹配、旧新 key 相同或新 key 被其他 validator 使用时拒绝。正常换钥不同时变更 stake、operator 或 manifest；也不得写 node/service identity 与主账户绑定。
+
+授权合取为父 controller policy 的完整动作阈值签名、旧 finality key 对该 RotationBody 的授权、新 finality key 对相同 body 的 possession proof。两份 proof 用独立 old/new 角色域且不包含自身或 controller 签名；controller 再签包含 proof 的完整原动作。controller 阈值、nonce 及执行 parent 规则沿用本节，不增加服务 identity owner co-sign 要求：该动作没有转移服务身份或账户。operator_owner 字符串、本机文件 owner、服务签名或新 key possession 均不能被解释为 controller/资产 owner 授权。实际部署需受保护 signer 提供只签该 typed body 的不可导出 key 操作；普通文件或任意字节签名不能冒充此能力。
+
+成功 publication 原子安装治理 nonce、轮换记录/generation 与确定性治理效果；保留原 Admission 和原签名事件，失败不产生部分状态。未来记录在生效前不能覆盖旧 active 记录；同一 parent 下的并发/重复/冲突请求按 rotation ID、controller nonce 和 generation 保持原决定，不覆盖或清空历史以重试。指定 epoch 的 registry 预演与正式候选执行必须复用同一轮换选择规则，历史 replay 按原 parent 与当时规则验证。Snapshot/Journal 的兼容准入、协议切换、受保护安装与验收沿用[wire 3 换钥条款](../design.md#des-p2p-bft-finality-key-rotation-v1)；本机测试不代替不可导出 custody 或真实故障域证明。
+
 #### 当前受控 profile-v2 实现范围（#4975）
 
 四类 validator admission 使用 `ConsensusActionAuthEnvelope::GovernanceAction`，签名协议为 `GovernanceAuthorizationV1`。固定 CBOR tuple 的域为 `oasis7.governance.authorization.v1`，覆盖版本、world/chain/genesis、精确 parent canonical position/record ID/Snapshot root、完整 controller registry 摘要、controller、nonce、有效 canonical position 范围和完整原始 typed Action；签名表不进入自身签名载荷。signer 和 threshold 只从已验证 parent Snapshot 中的 registry 取得，重复 signer wire key、非规范十六进制与超限 proof 被拒绝。受控位置来自 qualified parent 的 `position + 1`，不使用执行 height 或 local tick。

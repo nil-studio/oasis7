@@ -13,6 +13,8 @@ impl Drop for FixtureDirectory {
 fn serve_custody_world_http_fixture() {
     let ready = std::env::var_os("OASIS7_CUSTODY_WORLD_HTTP_READY").expect("isolated ready path");
     let stop_file = std::env::var_os("OASIS7_CUSTODY_WORLD_HTTP_STOP").expect("isolated stop path");
+    let settle_submits =
+        std::env::var("OASIS7_CUSTODY_WORLD_SETTLE_SUBMITS").is_ok_and(|v| v == "true");
     let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
     let _directory = FixtureDirectory(dir.clone());
     // Match the real native test authority, not the unrelated historical HTTP fixture namespace.
@@ -59,7 +61,7 @@ fn serve_custody_world_http_fixture() {
             node: node.clone(),
         };
         let server = scope.spawn(|| {
-            transport::serve_with_private(
+            transport::serve_with_private_settlement(
                 listener,
                 &node,
                 &root,
@@ -67,6 +69,7 @@ fn serve_custody_world_http_fixture() {
                 &stop,
                 &dropped,
                 Some(&private),
+                settle_submits,
             )
         });
         let mut output = std::fs::OpenOptions::new()

@@ -7,6 +7,7 @@
 | 需要回答的问题 | 首读专题 | 边界 |
 | --- | --- | --- |
 | 当前可用场景、稳定断言和场景加载契约是什么？ | `scenario-files.prd.md` | 场景文件与验证矩阵的入口；不替代模块级执行状态。 |
+| 四个现有小行星碎片场景具体包含什么，如何修改、消费和交付？ | [场景内容与交付](asteroid-scenario-content-delivery.design.md)、[验证手册](asteroid-scenario-content-delivery.manual.md) | 分别核对 JSON、有效生成输入、Simulator 初态与 Runtime 消费结果；不将本地场景直接认作正式世界。 |
 | 新世界如何初始化，基础、多地点与 P2P 场景各服务什么验证？ | `world-initialization.prd.md` | 初始化场景矩阵与用途；不是 production readiness 结论。 |
 | seed、地点和 deterministic spawn 如何生成？ | `scenario-seed-locations.prd.md` | location/agent 初始化专题；统一资源 manifest 语义继续读 `unified-world-seed-fragment-runtime.prd.md`。 |
 | chunk、frag 资源预算、补种与 onboarding 如何衔接？ | `chunked-fragment-generation.prd.md` | 生成、预算和补种主入口；首局资源选择读 `../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md`，初始位置继续读 `agent-frag-initial-spawn-position.prd.md`。 |

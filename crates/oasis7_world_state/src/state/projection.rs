@@ -447,6 +447,7 @@ where
         node_main_token_account_bindings: _,
         governance_finality_signer_registry: _,
         governance_validator_admissions: _,
+        governance_finality_key_rotations: _,
         governance_main_token_controller_registry: _,
         reward_signature_governance_policy: _,
         ..
@@ -456,7 +457,12 @@ where
         .map_or(&state.governance_authorization_nonces, |o| {
             &o.authorization_nonces
         });
+    let rotations = governance_registry_overlay
+        .map_or(&state.governance_finality_key_rotations, |overlay| {
+            &overlay.rotations
+        });
     let field_count = base_field_count(95, state, module_instance_overlay)
+        + usize::from(!rotations.is_empty())
         + usize::from(!authorization_nonces.is_empty())
         + usize::from(
             !state.agent_claim_acquisition_sequences.is_empty()

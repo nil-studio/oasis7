@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "078891c9bdeca2678ab8ad29c124beb09f33195fef9b6e5068a4e1a75adb9f52",
+    "content_sha256": "e1c070592e953321b71bc0c0aac5eaaa44f40174d1705aa54cdf126b7c7a29a1",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "已审读当前开发流程及本次任务拆分、并行开发和 TPM 交接修订。保留唯一主责、五类 Issue、现有授权、独立评审和完整交付边界；子任务按依赖与写入范围分派，父目标由明确负责人整合验收。没有 Issue/PR 时先在会话保存安排，共享目录整体操作先确认受影响执行者停写。已定点复核小而完整 PR 默认策略：独立前置按依赖及时评审并在已有授权内合入，堆叠开发保留固定输入和实际目标组合验证；强耦合修改保持原子性，不按任务数、执行者数或固定行数机械拆分。正常阶段交付数量不触发重规划，父目标保留完整验收。原分类、路由和负责人不变。本次为有界静态语义复核，不证明真实队列启用、并行效率、部署、CI 目标或运行验收。 本次补充定点复核接口前置交付：复用既有 trait/DTO 与领域语义，按实际缺口交付可消费支撑；ModelProvider 共用测试仍为待实施方案，fake、本地 HTTP 与真实环境证明范围明确。未新增固定材料、审批、调度或 CI 门禁，实施和整体集成仍由原任务保留。",
+    "note": "保留开发流程唯一主责、既有 owner、disposition 与路由，沿用未修改条款的既有结论。本次定点审读 §4 PR 描述及默认模板、AGENTS、executing-project-tasks 和评审提示：按问题、实际变化、验证和适用风险组织当前交付说明，小改动接受等价简短结构；网页、CLI、API 和 Agent 使用同一内容要求；实质改动、评审与收尾时核对当前摘要，详细过程保留原证据，有效暂停和重要未验证范围仍可见。要求追踪沿用原 ID，奖励标题及字段保持解析兼容；原合入条件及历史结果不变。未增加正文评分、固定标题或 CI 门禁。此记录为本次变更与直接消费者的静态语义审读，不代表后续 PR 已采用或阅读效率已经改善。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

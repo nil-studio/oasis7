@@ -451,6 +451,18 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
             "actual repeated process recovery must preserve memory revision exactly"
         );
     }
+    // Joining the stream worker does not stop the independent service pump.
+    // Retire its last server owner before reopening the same lineage path.
+    let retired = Arc::downgrade(&shared);
+    drop(shared);
+    let shutdown_deadline = Instant::now() + Duration::from_secs(10);
+    while retired.strong_count() != 0 {
+        assert!(
+            Instant::now() < shutdown_deadline,
+            "previous application server must stop before lineage recreation"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
     let recreated = ViewerRuntimeLiveServer::new(config).unwrap();
     assert_eq!(
         recreated.test_canonical_provider_summary()["memory_store"],

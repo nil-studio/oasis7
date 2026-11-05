@@ -250,26 +250,39 @@ def committed_target_text(root: Path, commit: str, target: Path) -> str | None:
     return None
 
 
-def previous_design_text(root: Path, base: str, head: str, path: str,
-                         include_worktree: bool = False) -> str | None:
-    """Follow Git-detected rename origins before reading the trusted baseline."""
-    current = path
+def design_rename_origins(root: Path, base: str, head: str,
+                          include_worktree: bool) -> tuple[dict[str, str], ...]:
+    """Read each rename range once for all selected design consumers."""
     ranges = []
     if include_worktree:
         ranges.extend([("diff", "--name-status", "-M", "--"),
                        ("diff", "--cached", "--name-status", "-M", head, "--")])
     ranges.append(("diff", "--name-status", "-M", base, head, "--"))
+    origins = []
     for arguments in ranges:
+        mapping: dict[str, str] = {}
         for line in run_git(root, *arguments).splitlines():
             fields = line.split("\t")
-            if len(fields) >= 3 and fields[0].startswith(("R", "C")) and fields[2] == current:
-                current = fields[1]
-                break
+            if len(fields) >= 3 and fields[0].startswith(("R", "C")):
+                mapping.setdefault(fields[2], fields[1])
+        origins.append(mapping)
+    return tuple(origins)
+
+
+def previous_design_text(root: Path, base: str, head: str, path: str,
+                         include_worktree: bool = False, *,
+                         rename_origins: tuple[dict[str, str], ...] | None = None) -> str | None:
+    """Follow Git-detected rename origins before reading the trusted baseline."""
+    current = path
+    if rename_origins is None:
+        rename_origins = design_rename_origins(root, base, head, include_worktree)
+    for mapping in rename_origins:
+        current = mapping.get(current, current)
     return git_text(root, base, current)
 
 
-def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
-    """Read the effective worktree content, preserving staged-only changes.
+def worktree_text_reader(root: Path, checkout_head: str) -> Callable[[str], str | None]:
+    """Share this invocation's Git status while preserving staged-only changes.
 
     ``git diff HEAD`` reports the union of index and worktree changes, but a
     staged tracked file can have its worktree restored to HEAD.  In that case
@@ -278,32 +291,35 @@ def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
     An unstaged change remains authoritative when both index and worktree
     contain edits because it is the content the local gate will observe.
     """
-    target = root / path
     unstaged = parse_name_status(run_git(root, "diff", "--name-status", "-M", "--", "."))
     staged = parse_name_status(
         run_git(root, "diff", "--cached", "--name-status", "-M", checkout_head, "--", ".")
     )
-    if path in unstaged:
-        status = unstaged[path]
-        current = target.read_text(encoding="utf-8") if not status.startswith("D") and target.is_file() else None
-        staged_status = staged.get(path)
-        if staged_status is not None and not staged_status.startswith("D"):
-            head_text = git_text(root, checkout_head, path)
-            if current == head_text:
-                return git_index_text(root, path)
-        return current
-    if path in staged:
-        status = staged[path]
-        return git_index_text(root, path) if not status.startswith("D") else None
-
-    untracked = {
-        candidate.strip()
-        for candidate in run_git(root, "ls-files", "--others", "--exclude-standard", "--", ".").splitlines()
-        if candidate.strip()
-    }
-    if path in untracked:
+    @lru_cache(maxsize=None)
+    def read(path: str) -> str | None:
+        target = root / path
+        if path in unstaged:
+            status = unstaged[path]
+            current = target.read_text(encoding="utf-8") if not status.startswith("D") and target.is_file() else None
+            staged_status = staged.get(path)
+            if staged_status is not None and not staged_status.startswith("D"):
+                head_text = git_text(root, checkout_head, path)
+                if current == head_text:
+                    return git_index_text(root, path)
+            return current
+        if path in staged:
+            status = staged[path]
+            return git_index_text(root, path) if not status.startswith("D") else None
+        # Untracked and unchanged files use the same filesystem read. Path
+        # discovery belongs to the existing overlay, not every target lookup.
         return target.read_text(encoding="utf-8") if target.is_file() else None
-    return target.read_text(encoding="utf-8") if target.is_file() else None
+
+    return read
+
+
+def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
+    """Read one target with fresh state for callers outside a shared check."""
+    return worktree_text_reader(root, checkout_head)(path)
 
 
 def worktree_overlay(root: Path, checkout_head: str) -> dict[str, str]:
@@ -346,6 +362,8 @@ def changed_system_design_paths(
     base: str,
     head: str,
     include_worktree: bool,
+    *,
+    worktree_reader: Callable[[str], str | None] | None = None,
 ) -> list[Path]:
     """Select changed system designs from an explicit trusted range.
 
@@ -365,6 +383,8 @@ def changed_system_design_paths(
     if include_worktree:
         checkout_head = run_git(root, "rev-parse", "--verify", "HEAD^{commit}").strip()
         changed.update(worktree_overlay(root, checkout_head))
+        if worktree_reader is None:
+            worktree_reader = worktree_text_reader(root, checkout_head)
     else:
         checkout_head = ""
 
@@ -375,7 +395,7 @@ def changed_system_design_paths(
         old_text = git_text(root, source_base, path)
         target = root / path
         new_text = (
-            worktree_file_text(root, checkout_head, path)
+            worktree_reader(path)
             if include_worktree
             else git_text(root, head_oid, path)
         )
@@ -1562,10 +1582,11 @@ def main() -> int:
     try:
         base = resolve_commit(root, args.base, "base")
         head = resolve_commit(root, args.head, "head")
-        selected = changed_system_design_paths(root, base, head, args.worktree)
-        directly_changed = set(selected)
         source_base = run_git(root, "merge-base", base, head).strip()
         checkout_head = run_git(root, "rev-parse", "--verify", "HEAD^{commit}").strip() if args.worktree else ""
+        read_worktree = worktree_text_reader(root, checkout_head) if args.worktree else None
+        selected = changed_system_design_paths(root, base, head, args.worktree, worktree_reader=read_worktree)
+        directly_changed = set(selected)
     except ValueError as exc:
         print(f"system-design-traceability: error: {exc}")
         return 2
@@ -1577,7 +1598,7 @@ def main() -> int:
                 relative = target.relative_to(root).as_posix()
             except ValueError:
                 return None
-            return worktree_file_text(root, checkout_head, relative)
+            return read_worktree(relative)
         try:
             target.relative_to(root)
         except ValueError:
@@ -1605,13 +1626,15 @@ def main() -> int:
         return 0
 
     read_previous_target = lru_cache(maxsize=None)(lambda target: committed_target_text(root, source_base, target))
+    rename_origins = design_rename_origins(root, source_base, head, args.worktree)
     errors: list[str] = []
     for path in selected:
         text = read_target(path)
         if text is None:
             fail(errors, "trace-ref-unresolved", path.relative_to(root).as_posix(), "design content is missing; repair the selected head/worktree file")
             continue
-        previous = previous_design_text(root, source_base, head, path.relative_to(root).as_posix(), args.worktree)
+        previous = previous_design_text(root, source_base, head, path.relative_to(root).as_posix(), args.worktree,
+                                        rename_origins=rename_origins)
         if not design_requires_traceability(path.relative_to(root).as_posix(), text, previous):
             print(f"system-design-traceability: module-overview: {path.relative_to(root).as_posix()}: selected; core checks overview duties")
             continue

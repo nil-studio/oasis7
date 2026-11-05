@@ -150,6 +150,8 @@ pub mod segmentation;
 pub mod incremental_agent_body;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_event_fields;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_fields;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_ledger_value;
@@ -282,6 +284,9 @@ mod incremental_intent_fields;
 pub mod incremental_agent_authority_records;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_domain_event_proof;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_effect_intent_cbor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_effect_records;
@@ -321,6 +326,10 @@ pub mod incremental_runtime_artifact_content;
 pub mod incremental_governance_records;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_absence;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_main_token_policy_records;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_qualification_class;
@@ -347,3 +356,25 @@ pub mod incremental_world_rule_supply_root;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_diplomacy;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history_cbor;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_history_hash_outboard;
+pub mod incremental_cognition_history_lifecycle;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_marketplace;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_module_authorization;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_lifecycle_row_v2;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_lifecycle_index_v2;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_lifecycle_qualification_v2;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_owner_closure;

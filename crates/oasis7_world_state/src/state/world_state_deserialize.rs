@@ -314,6 +314,8 @@ enum Field {
     GovernanceAuthorizationNonces,
     #[serde(rename = "reward_signature_governance_policy")]
     RewardSignatureGovernancePolicy,
+    #[serde(rename = "governance_finality_key_rotations")]
+    GovernanceFinalityKeyRotations,
     #[serde(other)]
     Other,
 }
@@ -421,7 +423,8 @@ impl Field {
             Field::GovernanceMainTokenControllerRegistry => 97,
             Field::GovernanceAuthorizationNonces => 98,
             Field::RewardSignatureGovernancePolicy => 99,
-            Field::Other => FIELDS.len(),
+            Field::GovernanceFinalityKeyRotations => 100,
+            Field::Other => FIELDS.len() + 1,
         }
     }
 
@@ -535,6 +538,7 @@ impl Field {
             }
             Field::GovernanceAuthorizationNonces => "governance_authorization_nonces",
             Field::RewardSignatureGovernancePolicy => "reward_signature_governance_policy",
+            Field::GovernanceFinalityKeyRotations => "governance_finality_key_rotations",
             Field::Other => "<unknown>",
         }
     }
@@ -644,6 +648,7 @@ struct WorldStateBuilder {
     node_main_token_account_bindings: Option<BTreeMap<String, String>>,
     governance_finality_signer_registry: Option<Option<GovernanceFinalitySignerRegistry>>,
     governance_validator_admissions: Option<BTreeMap<String, GovernanceValidatorAdmissionRecord>>,
+    governance_finality_key_rotations: Option<RotationHistory>,
     governance_main_token_controller_registry:
         Option<Option<GovernanceMainTokenControllerRegistry>>,
     governance_authorization_nonces: Option<BTreeMap<String, u64>>,
@@ -901,6 +906,10 @@ fn finish_state<E: de::Error>(builder: WorldStateBuilder) -> Result<WorldState, 
         node_main_token_account_bindings,
         governance_finality_signer_registry,
         governance_validator_admissions,
+        governance_finality_key_rotations: builder
+            .governance_finality_key_rotations
+            .unwrap_or_default()
+            .0,
         governance_main_token_controller_registry,
         governance_authorization_nonces,
         reward_signature_governance_policy,
@@ -943,10 +952,10 @@ impl<'de> Visitor<'de> for WorldStateVisitor {
         A: MapAccess<'de>,
     {
         let mut builder = WorldStateBuilder::default();
-        let mut seen = [false; 100];
+        let mut seen = [false; 101];
         while let Some(field) = map.next_key::<Field>()? {
             let index = field.index();
-            if index == FIELDS.len() {
+            if matches!(field, Field::Other) {
                 let _ = map.next_value::<IgnoredAny>()?;
                 continue;
             }
@@ -989,3 +998,11 @@ mod tests;
 mod map_groups;
 #[path = "world_state_deserialize_seq.rs"]
 mod seq_groups;
+
+#[derive(Default)]
+struct RotationHistory(BTreeMap<String, crate::governance::FinalityKeyRotationRecordV1>);
+impl<'de> serde::Deserialize<'de> for RotationHistory {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        crate::governance::deserialize_finality_key_rotations(d).map(Self)
+    }
+}

@@ -20,13 +20,13 @@ FAMILIES = {
         'current_pattern': re.compile(r'formal-workspace-v3-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'(?:' + FORMAL_V2 + r'|formal-workspace-v3-'
                                       + SOURCE_SUFFIX + r')\Z', re.ASCII),
-        'max_upload_bytes': 768 * 1024 ** 2, 'staging_bytes': 8 * 1024 ** 3,
+        'max_upload_bytes': 1024 ** 3, 'staging_bytes': 8 * 1024 ** 3,
         'keep_generations': 2,
     },
     'ordinary': {
         'current_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
-        'max_upload_bytes': 768 * 1024 ** 2, 'staging_bytes': 6 * 1024 ** 3,
+        'max_upload_bytes': 5 * 1024 ** 3 // 4, 'staging_bytes': 6 * 1024 ** 3,
         'keep_generations': 2,
     },
     'ecs': {

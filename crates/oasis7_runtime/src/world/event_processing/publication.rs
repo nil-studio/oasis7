@@ -329,7 +329,8 @@ impl World {
                 | GovernanceEvent::ValidatorAdmissionSubmitted { .. }
                 | GovernanceEvent::ValidatorAdmissionApproved { .. }
                 | GovernanceEvent::ValidatorAdmissionActivated { .. }
-                | GovernanceEvent::ValidatorAdmissionRevoked { .. }),
+                | GovernanceEvent::ValidatorAdmissionRevoked { .. }
+                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }),
             ) => Some(PreparedEventStateDelta::GovernanceRegistry(
                 self.prepare_governance_registry_event(event)?,
             )),

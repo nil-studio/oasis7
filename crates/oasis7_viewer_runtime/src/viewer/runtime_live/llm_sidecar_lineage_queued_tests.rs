@@ -122,6 +122,8 @@ fn queued_wait_cognition_with_identity(
         },
         cognition_lease: Some(lease),
         memory_write_intents: Vec::new(),
+        provider_original_material_refs: None,
+        provider_response_context_lease: None,
     }
 }
 

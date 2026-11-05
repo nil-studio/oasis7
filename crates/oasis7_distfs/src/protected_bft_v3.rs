@@ -7,6 +7,7 @@ mod client;
 mod crypto;
 mod install;
 mod membership;
+mod rotation;
 mod service;
 mod state;
 #[cfg(test)]
@@ -36,3 +37,5 @@ pub use install::{
     BftTransitionInstallReceiptV3, BftTransitionInstallResultV3,
 };
 pub use membership::BftMembershipInstallStateV3;
+
+pub use rotation::{BftFinalityRotationProofArchiveV3, BftFinalityRotationProofRecordV3};

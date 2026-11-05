@@ -84,6 +84,25 @@ CI 在检查前显式运行 `cargo fetch --locked` 准备依赖；检查器本�
 通过条件：正例通过、反例命中准确规则、例外仅作用于登记范围。模块 owner 按现行评审核对原合同、候选 manifests 与误报/漏报，不新增独立审批身份。
 依赖图通过不证明授权、World 执行结果、持久化恢复或产品行为等价；这些继续使用原专业验收。
 
+<a id="source-error-regressions"></a>
+## RG-S01 / RG-S02：模块内部边界与错误事实
+
+Trace refs: O7-REQ-ec0b7657-ce01-4a15-9040-bdb350cf1164；依据[Node 试点](rust-engineering-contracts.design.md#module-error-boundary)与[源级接线合同](rust-engineering-contracts.design.md#source-rule-enforcement)。现有 Node 类型化与行为测试可运行，新增源级检查尚待实现；本节不提供假定已经存在的 checker 参数或成功记录。
+
+1. 对照源码列出 `node-network-policy-facts` 的精确函数集合、允许 typed 入口和 legacy/persistence/diagnostic 例外。以真实 `network_error_classification.rs`、`network_bridge_error.rs`、`network_error_legacy.rs` 和 `replication_probe_gate.rs` 核边界，不根据整个文件是否包含 `String`、`format!` 或 HTTP 类型来判违规。
+2. 在隔离副本的选定谓词中引入 `err.to_string().contains("timed out")` 或直接读取 `replication_reason`，要求源级检查定位对应规则/符号并按配置级别报告。把相同文本放入注释、原始字符串和测试夹具，应不误报；保留 adapter 的合法解析。新增、删除、改名、重复函数与损坏语法须检查覆盖完整性，不能因找不到函数返回 pass。规则尚不支持的宏/别名或跨函数绕行明确列为缺口，使用定向行为回归保护，不伪造类型解析能力。
+3. 复用 `network_bridge_typed_failure_tests.rs`：保持 facts 不变而改诊断措辞，覆盖六类 origin、三条请求协议、原协议/其他协议、拒绝/未知/validation、远端 claim、publish 和坏持久后缀。核对 `cause`、`evidence`、`requested_protocol` 以及实际 `world_head_lookup_can_fallback`、provider-aware fallback、waitable 结果；已有用例未覆盖的真实消费断言才补齐。合法版本后缀恢复仍标记 `LegacyInterpretation`，不改变 snapshot 字段或把新文案当授权。
+4. 对上述错误文本变体，先验证正常实现通过，再验证故意恢复文本分类的实现被同一行为用例拒绝；在临时变体撤销后恢复通过。直接复用原 typed/legacy 正反例，不重写一套只校验 enum 相等的镜像测试。未改动的 `FormalReadError` 仅盘点现状，不为本源级试点重复迁移或扩大测试范围。
+5. 分别验证 warning 与已启用 error 的退出行为；注册范围的解析失败和必需覆盖缺口不能计为通过。按 RG-A03/A04 检查源文件、配置、词法 helper、规则反例各自的实际选择，以及失败进入既有 required 汇总。候选未接线时只记录局部运行，旧基线/未知路径按现行选择器合同处理，不增加独立同名成功状态。
+
+现有 Node 行为回归入口如下；实施时记录实际 features/target、发现的测试数与结果，必要支持组合由原模块与 CI 选择，不由本命令替代：
+
+```bash
+env -u RUSTC_WRAPPER cargo test -p oasis7_node --lib typed_failure_contract_tests
+```
+
+通过条件：注册边界的真实正反例与消费者行为保持，合法兼容不误报，级别与实际 CI 接线可核对。语法检查不证明线上网络恢复、完整 Node 架构、UI/Agent 展示或所有宏/feature 组合。
+
 <a id="architecture-scope"></a>
 ## RG-A03 / RG-A04：不完整检查与 CI 选择
 
@@ -152,6 +171,19 @@ env -u RUSTC_WRAPPER OASIS7_UPDATE_PROTOCOL_FIXTURES=1 cargo test -p oasis7_view
 5. 精确整数通过真实解析/编码往返验证；没有 lossless codec 与跨语言 golden 的 profile 只提供已验证描述或 opaque proof，不发布可调用的 JS 签名/编解码能力。
 
 通过条件：声明范围内 wire 与签名语义保持，兼容方向有实际证据。schema diff 或字节生成一致不替代该验证。
+
+<a id="real-dto-regressions"></a>
+## RG-P06：真实错误 DTO 与生成来源迁移
+
+Trace refs: O7-REQ-5f1aded7-fa06-40f7-a3ff-7a42a2cbefcc；依据[真实 DTO 增量](rust-engineering-contracts.design.md#real-dto-increment)。`ReadBootstrapError` 和 Rust component 输入为待实施切片；当前 OpenAPI/TS/schema/handler fixture 的既有入口继续有效。
+
+1. 首片核对唯一 DTO 被 `game_read_api::render_response` 的正常错误和 response-limit 分支实际构造，公共字段仍为 `code` 与 `retryable`，没有生成专用镜像。执行既有 `read_errors_distinguish_transient_limits_from_invalid_requests`、handler fixtures 和适用拒绝用例；保持普通 429/503 的 retryable 与 `response_limit_exceeded` 的 503/false 区别。若现有 fixture 未覆盖后者，补真实 handler 输出作为独立样例，不从生成 schema 反向生成 expected。
+2. 对提取前后的固定候选比较 handler JSON 字节、status、headers 与 TS 消费结果；`code` 非空、响应可扩展和既有错误代码保持。原请求严格未知字段、DecimalU64 上界、缺省/null、历史读拒绝及签名负例继续执行适用的现有测试，不能因为错误 DTO 不含整数而移除全 profile 防线。
+3. 第二片登记真实 Rust 根、`schema` feature、工具链/lock、实际输入闭包及受管输出，核对生产依赖不增加生成工具。人工 OpenAPI 只保留未迁移结构与 profile 语义；迁移的 component 引用唯一生成结果，不能同时保留可编辑的手写字段清单。复用真实 fixture 的 operation/path/status 关联及 TS/Ajv 消费，不以 derive 或 `tsc` 成功代替。
+4. 故意把生成组件的 `retryable` 类型改错、删除必需字段或错误关联一个 status，要求既有只读 drift 和真实 consumer 用例分别检出各自负责的偏差；确认未执行 write 时源/产物均未改变。继续执行 RG-P01/P02 的完整集、缺失/混合 generation、输入冲突和中断恢复，不让 Rust 输入迁移绕过现有检查。
+5. 只有该 component 的真实来源、完整生成物和消费者均通过才更新实现状态；未覆盖的 `ReadInfo`/`ReadProjection`、动态世界结构、真实部署与 JS 签名能力继续保留原边界。依赖前片时记录实际合入版本，在最终组合上核对相同 fixtures；不以两片分别绿色替代组合验证。
+
+通过条件：真实 handler、唯一 DTO、生成组件和消费者一致，线格式及原拒绝保持，检查仍只读并识别不完整集合。文档检查通过不表示上述两个实现切片完成。
 
 <a id="security-preservation"></a>
 ## RG-P05：真实拒绝、授权与恢复语义

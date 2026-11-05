@@ -142,6 +142,17 @@ fn controlled_history_rejects_decodable_service_envelopes_without_dropping_them(
         let (actions, simulator, bootstrap, intents) =
             super::super::driver_replicated_input::decode_committed_actions(&service).unwrap();
         assert!(actions.is_empty() && simulator.is_empty() && bootstrap.is_none());
+        let intents = intents
+            .into_iter()
+            .map(|(id, intent)| match intent {
+                super::super::world_service_cleanup_v2::RegisteredServiceIntent::LegacyV1(request) => {
+                    (id, *request)
+                }
+                super::super::world_service_cleanup_v2::RegisteredServiceIntent::CleanupV2(_) => {
+                    panic!("legacy controlled history decoded as cleanup V2")
+                }
+            })
+            .collect::<Vec<_>>();
         assert_eq!(intents, vec![(2, request.clone())]);
         assert_eq!(
             capture::supported_origin(&service).unwrap_err(),

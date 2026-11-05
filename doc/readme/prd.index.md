@@ -2,7 +2,7 @@
 
 审计轮次: 14
 
-更新时间：2026-07-04
+更新时间：2026-11-03
 
 ## 入口
 - 模块 PRD：`doc/readme/prd.md`
@@ -23,16 +23,18 @@
 ## 密度与库存
 
 - 不在索引中冻结容易漂移的文件数与专题组数；当前库存统一以 `./scripts/doc-inventory-report.sh` 为准。
-- release communication 的产品承诺进入 `doc/product/player-entry-distribution/`，readme/governance 只保留两份无日期操作模板。
+- release communication 与受控测试支持的产品承诺进入 `doc/product/player-entry-distribution/`；readme/governance 承接操作模板、专业支持设计和执行手册，不另立产品承诺。
 
 ## 热点子域导航
 | 子域 | 文件数 | 适合回答的问题 |
 | --- | --- | --- |
-| `governance/` | 动态 | release communication 操作模板、Moltbook/Xiaohongshu runbook、贡献奖励治理、material/execution 入口；产品承诺从 `doc/product/` 进入 |
+| `governance/` | 动态 | release communication 操作模板、玩家支持与服务生命周期、Moltbook/Xiaohongshu runbook、贡献奖励治理、material/execution 入口；产品承诺从 `doc/product/` 进入 |
 | `gap/` | 动态 | README 与实现/流程之间还有哪些正式缺口、哪些差距仍待收口；先从 `gap/README.md` 区分主收口、增量与历史追溯 |
 | `production/` | 16 | 生产收口、阶段边界、readiness 与受台账约束的素材；先由 `production/README.md` 分流 |
 
 ## 活跃补充文档
+
+- [玩家支持与服务生命周期](governance/player-support-and-service-lifecycle.design.md)与[执行手册](governance/player-support-and-service-lifecycle.manual.md)：承接反馈结果、分流与事故说明，并补发行材料适用性、项目社区行为/复核、按控制范围的资料保留/请求、持续服务退出和运营容量；内容政策与真实平台、技术和服务执行分别取证。
 
 ### 未结履约义务
 

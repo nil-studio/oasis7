@@ -295,6 +295,7 @@ pub(super) fn action_kind_label(action: &Action) -> &'static str {
         Action::ActivateGovernanceValidatorAdmission { .. } => {
             "action.governance.activate_validator_admission"
         }
+        Action::RotateGovernanceValidatorFinalityKeyV1 { .. } => "action.governance.rotate_validator_finality_key_v1",
         Action::RevokeGovernanceValidatorAdmission { .. } => {
             "action.governance.revoke_validator_admission"
         }

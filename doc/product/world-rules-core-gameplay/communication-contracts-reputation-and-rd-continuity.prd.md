@@ -59,11 +59,19 @@
 - Agent、设施、合同或组织控制权转让时，相关世界历史、风险和已确认 receipt 仍需披露；但玩家的个人、政治或社会 credential 不随资产/控制权自动转移、出售或继承。新的 owner 只能在自己的授权、关系和情境记录下重新建立资格。
 - 当情境声誉被成熟世界用于未来机会或候选资格时，本分册只主责主体/情境归属、来源、期限、更新与申诉的可追溯记录；成长、独立基线、容量竞争、待决/hold/receipt 和单次机会效果由[`成熟世界成长与区域参与`](mature-world-progression.prd.md#req-wr-mw-004)主责。它不把声誉记录扩成区域分配、pioneer priority、治理权或 Agent delegation authority。
 
+五种社会动作的[提交前后果预览](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.prd.md#social-preview-contract)分别表达声明者与受影响主体、原账本的直接条件后果、逐主体与资源种类的质押去向，以及具有真实消费依据的合作、治理或 claim 关联。事件引用存在、发布者确认、confidence 数字和关系名称各按原制度解释；缺少来源、当前读权或消费者覆盖时明确限制，并提供查来源、修改、刷新或暂缓选择。预览不预留资源，不增加裁决权，不把旧 quote 或静态 seed 变成当前世界结果。
+
+首版[合同履约情境声誉政策](../../game/gameplay/gameplay-contextual-reputation-contract.prd.md#contextual-reputation-policy-v1)只承接个人即时交换和有限供能合同的合作前咨询：玩家可比较已验证事实、范围与时效，选择继续了解、缩小承诺、换合作方、等待或退出。原签署者责任和 Agent 控制任期分开，补救不清除原事实，客观投影更正与原合同责任申诉分流；来源不完整不等于零风险。具体窗口与玩法值归该 game 专业政策，执行归独立 Runtime 设计；本切片不授予资格/排名/治理/claim 权，也不代签组织/岗位、其他社会来源、R&D 或完整机会组合。
+
+组织与岗位另由[托管返还履历政策](../../game/gameplay/gameplay-organization-custody-role-reputation-contract.prd.md#organization-custody-role-policy-v1)承接已登记组织、原有界接替任期与真实返还结果的咨询：组织事项记录和岗位任期分别归属，合法直接返还与受委托接替执行明确区分，当前相关性随原事项、任期及所查范围的有效状态更新。玩家可查原件、核对原任期与当前执行条件、等待原结果或进入原救济；查询与派生更正不改变原任命、资产处置、实质救济或个人 credential。具体来源、时效和受众由该政策唯一维护，其他组织经营和岗位类型继续按原范围补齐。
+
 ### 2.4 预声明 R&D charter、归因与份额
 
 - 合作研究、发现或发明若要求归因、版税或收益份额，必须在实质工作开始前由可读的 R&D charter 声明目标、贡献角色、归因方法、可适用收益/版税范围、争议路径和变更边界。事后占有、单方模型输出或组织权势不能抹去已记录贡献。
 - 参与的 Agent 保留永久 provenance：其身份、授权下的贡献、所用训练/模块来源和关键 receipt 可被追溯。Agent provenance 不是把 Agent 变成法律人格、永久锁定人员或自动赋予所有经济权利。
 - 研究产生的 share、许可或其他可转让份额只在明确的转让/继受合同下移动；Agent/玩家/组织的身份、个人政治 credential、一般声誉或历史因果不因 R&D 份额转移而自动转移。
+
+首版 [R&D charter 玩法政策](../../game/gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md#rd-charter-policy-v1)承接自然参与主体及受权 Agent 的有界合作研究：预先同版接受、固定分配、实际贡献与来源、有限归因争议和显式整槽转让。它分别确认历史贡献、成果使用权与经济权利；章程、代码发布和工业准入互不代签，组织代表、开放加入及其他复杂协作仍按原范围继续设计。具体规则值由该 game 专业政策唯一维护，执行与直接工业消费者由 Runtime 设计承接；目标政策不表示该机制已启用。
 
 ### 2.5 可验证的合同、救济与归因要求
 
@@ -72,12 +80,14 @@
 
 Trace ID: O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[明确条款与同版接受](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-terms)、[双边交换权威生效](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-commit)及[原请求恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-recovery)承接双边 Electricity/Data 即时交换；[有限供能服务形成](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-formation)承接个人供需双方对检查点、价款、抵押、费用及救济的同版接受与显式生效。两种目标合同分别保留反向承接和验证方法，不表示现有 native EconomicContract、正式 API 或 Viewer 已接通。
 - 实现与验证依据：已交付原子经济合同的主体接受子义务：Simulator动作映射经生产分发进入Runtime，Accept检查主体、Open状态、指定counterparty及到期条件，并生成EconomicContractAccepted进入publication。明确条款渲染、offered/accepted_pending_validation零效果与玩家授权/权威receipt完整绑定仍未核清。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L793-L1004)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L30-L111)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L1-L140)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing.rs#L448-L457)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runtime_support.rs#L250-L268)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
-- 剩余范围：未核清明确条款渲染、双方授权接受、绑定义务创建及同一 receipt 的端到端流程；社交消息或 action ack 不证明合同已成立。
+- 本轮设计补核：2026-11-04；输入基线 `5e62da69ddb511f9f10a524accdf0071ecd6b91c`。新增专业设计只覆盖上述即时交换切片；旧 native Open 到期已有声誉后果，不能作为零效果 offered 的实现证据。历史实现与测试定义仍按上方固定版本保留，本轮没有运行业务、正式入口或跨节点验收。
+- 服务设计补核：2026-11-04；固定输入 `0a967845ba8e0bb33331a91008d2e7471eec1ece`。新增服务合同只覆盖个人双方、有限 Electricity 检查点与 Data 价款；依赖的资源占用、费用及救济能力仍为目标设计。
+- 剩余范围：设计仍须承接组织、多方、长期受托及其他履约类型的完整形成与救济组合；实现仍须交付明确条款、双方当前授权与同版接受、零效果待校验、合法占用和原子效果及权威 receipt 的端到端流程。受治理分类/激活、真实恢复与各正式入口的证据继续分别核验；社交消息、action ack 或文档检查不证明合同已成立。
 
 - 要求：人类沟通、草稿、未接受提议和 Agent 建议保持非绑定；只有授权范围内渲染的明确条款、主体明确接受并获得权威校验 receipt 后，才可以创建绑定义务和世界效果。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)
@@ -98,12 +108,13 @@ Trace refs: O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f；声明：[REQ-WR-CR-00
 
 Trace ID: O7-REQ-805fc92a-bbcb-4e77-b2d8-e40105522a0d
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[检查点单次结算](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-checkpoint-settlement)、[修复与终止](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-recovery-actions)、[争议作用域](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-dispute-authority)、[显式继受](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-succession)及[持久恢复](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md#service-persistence)承接有限个人供能服务的已履行/未履行单元、价款/抵押与费用分账、原范围补救、最小保全、三方接受和原请求去重。专业设计保留准确反向承接及独立验收方法；该切片不代表所有服务和通用裁决机制已覆盖。
 - 实现与验证依据：持续服务本身尚未实现：新建与结算生产入口均显式拒绝Service；结算及过期事件准备层也拒绝Service（Opened/Accepted准备分支没有该拒绝），过期生命周期仅处理AtomicExchange。已交付的原子交换、通用恢复与幂等基础不属于本条持续服务检查点恢复交付。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L793-L809)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/event_processing/action_to_event_policy_contract.rs#L1035-L1051)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/economic_contract_publication.rs#L504-L512)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/gameplay_loop.rs#L292-L315)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/gameplay_protocol_regressions.rs#L104-L140)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
-- 剩余范围：持续服务的collateral/evidence/remedy、检查点已履行/未履行责任、修复/终止/dispute/preserve、续期重报价与重试去重尚未交付；不能以AtomicExchange或通用恢复代替。
+- 服务设计补核：2026-11-04；固定输入 `0a967845ba8e0bb33331a91008d2e7471eec1ece`。新[供能服务政策](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-scope)与专业执行合同定义目标规则和方法；当前 native Service 仍拒绝，未运行持续服务、正式入口、跨节点或真人验收。
+- 剩余范围：其他维护、运输和协作服务的证据与救济政策，组织/多方责任及通用争端、声誉的组合设计仍未完整覆盖。有限供能服务所需的受保护资源占用、费用闭合、合法本地 panel、正式消费者和全部业务/恢复验证尚未实现；本条实现状态保持未实现，不能由即时交换或通用恢复代签。
 
 - 要求：跨时间服务按检查点保留已完成结果、未履行范围、责任和可执行下一步；玩家可选择修复/重新履行、终止/结清、最小争议保全或显式继受，且 retry、reconnect 和续期不能重复交付、扣款或静默转移责任。
 - 专业权威：[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
@@ -124,16 +135,24 @@ Trace refs: O7-REQ-805fc92a-bbcb-4e77-b2d8-e40105522a0d；声明：[REQ-WR-CR-00
 
 Trace ID: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[来源绑定](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-source)、[主体与任期](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-subject)、[情境匹配](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-context)、[时效与补救](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-validity)、[客观更正](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-correction)、[原请求恢复](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-recovery)和[消费者隔离](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-consumers)承接两个个人合同 profile 的情境咨询切片；研发另由[预工作章程](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-charter-activation)、[贡献来源](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-contribution-source)、[Agent provenance](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-agent-provenance)、[冻结分配交接](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-distribution-handoff)、[显式份额转让](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-share-transfer)、[有限归因争议](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-review)与[原请求恢复](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-recovery)承接自然主体有界合作的目标合同，保留原槽/bps/累计收入和历史贡献；组织托管返还咨询由[来源资格](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-source)、[组织与任期](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-subject)、[情境时效](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-context)、[当前受众](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-access)、[客观派生更正](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-correction)、[原请求恢复](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-recovery)、[只读消费者](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-consumers)、[有界读取](../../world-runtime/runtime/organization-custody-role-reputation.design.md#orgrep-budget)承接当前组织事项与原接替岗位的目标合同；社会动作预览由[当前来源](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-source)、[声明含义](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-meaning)、[直接后果](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-effects)、[当前权限](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-access)、[实际消费者](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-consumers)、[失效与恢复](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-recovery)、[有限读取](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-budget)承接原五动作的目标预览合同；本条仍部分覆盖。
+- 产品表达与验证方法：[首版玩法政策](../../game/gameplay/gameplay-contextual-reputation-contract.prd.md#contextual-reputation-policy-v1)拥有玩家选择与窗口，[情境声誉验收手册](../../testing/manual/contextual-reputation-acceptance.manual.md)分别核来源、情境、时效、复核、转让和旧消费者；方法存在不表示实际通过。
+- R&D 产品表达与验证方法：[事前章程、归因及转让政策](../../game/gameplay/gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md#rd-charter-policy-v1)与[归因/转让验收手册](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)分别说明玩家选择、具体证据、程序与恢复；不以稿件或静态算例代签真实工作、付款或玩家理解。
+- 组织/岗位产品表达与验证方法：[托管返还履历政策](../../game/gameplay/gameplay-organization-custody-role-reputation-contract.prd.md#organization-custody-role-policy-v1)与[履历咨询验收手册](../../testing/manual/organization-custody-role-reputation-acceptance.manual.md)分别说明组织事项/原任期的玩家判断，以及真实来源、当前受众、纠错和正式入口取证；方法不代表咨询已可用。
+- 社会动作产品表达与验证方法：[五动作预览规则](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.prd.md#social-preview-contract)与[后果预览验收手册](../../testing/manual/social-action-consequence-preview-acceptance.manual.md)分别说明提交前选择，以及真实来源、风险单位、当前授权、消费者覆盖、恢复和逐入口验证；方法不代表当前五入口已接通。
 - 实现与验证依据：已交付社会事实发布/挑战/裁决/撤销的局部生命周期及提交前只读影响预览，Viewer实际调用kernel quote；这是本条的一部分，不覆盖R&D charter、credential/份额转让或世界机会消费组合。 [源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/kernel/social.rs#L17-L86)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/kernel/social.rs#L397-L640)；[源码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/social_quote.rs#L334-L499)；[测试定义](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/simulator/tests/social.rs#L55-L103)。本轮只读静态源码与断言，未运行Rust或正式玩家入口；同SHA CI的业务job为skipped，不能记为这些测试通过。实现交付PR到本条的完整映射仍未核清。
 - 核对日期与基线：2026-10-17；需求、专业设计与静态源码基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；仅GitHub只读源码及CI日志审查，未执行本条业务测试、正式入口、跨节点或真人验收。
-- 剩余范围：社会事实专业设计覆盖 lifecycle/只读预览的一部分，但与本条的准确反链及 R&D charter、份额/credential 不转移、机会消费组合未闭合。
+- 设计补核：2026-11-04；固定输入 `ad2bf1bb9e29d315ea70b64603b57c206da1be0f`。新增合同来源投影仍为目标能力；现有 social facts/edges 与 native `reputation_scores` 是不同来源，旧分数和固定 quote 文案不能证明本 profile 已可用。本轮未运行业务、正式入口、恢复或玩家验收，历史实现证据保留原版本与范围。
+- R&D 设计补核：2026-11-04；固定输入 `c3862d479ba835bddde3539e8e8e97c5cb563166`。补齐事前章程到工业许可消费的有界目标设计；现有组织连续性 charter、调用 provenance 或 module publisher 不能代签研究贡献与收益分配。未运行业务、模型、真实发布或玩家验收；历史实现依据保持原版本与范围。
+- 组织/岗位设计适用基线：2026-11-04；固定输入 `803e81524e29a988b40f8f642776a2c3c03ab085`。现有组织登记、接替与窄托管返还分支提供部分来源基础；直接返还所需的合同清单/阶段推进仍会明确拒绝，测试注入处置阶段不能代签正式来源可达。历史任期/受众验证、有界咨询投影及三入口消费仍是目标合同，原 receipt 或当前成员列表不能代签。未执行该咨询的业务、恢复或玩家验收，不提升本条实现状态。
+- 社会预览适用基线：2026-11-04；固定输入 `8035c556ade7eb989491d37e74f890701509bd40`。现有 kernel quote 的固定机会标签、schema 名称推断和事件存在校验不证明实际消费者或声明真实性；Viewer 从 seed 副本构造的社会记录与全量 journal 映射不证明当前权威来源及有界读取，五动作的正式入口仍须分别适配。原发布者裁决不等于独立本地 panel；旧生命周期修复目标继续保留，未因预览文档完成而成为已实现。
+- 剩余范围：其他组织与角色/岗位情境及来源、完整有限争端组合、组织研发代表/开放加入/可变经济向量等其他合作形态和成熟世界机会消费仍须逐项闭合。五动作预览的当前来源、受众和实际消费者适配，个人合同与组织/岗位咨询的来源/投影，研发归因与权利交接，以及正式 surface 还须实现并取得同候选验证；五动作预览不定义其他消费者的社会政策，不把本文部分设计覆盖改为全项完成。
 
 - 要求：玩家发布或质疑社会事实、或声明关系前，必须能查看只读预览，了解可能受影响的主体、合作/治理/claim 表面和争端/质押风险，并据此选择继续或暂缓；预览不判定事实、不处理质押、不改变资格或权限、不保证合作、访问、排名、治理权重或奖励。声誉按主体与情境记录，并支持到期、更新和有界申诉；R&D 在工作前以 charter 声明贡献与份额，Agent provenance 持续可追溯，份额转移不得自动转移个人 credential 或一般声誉。当该记录被世界内机会消费时，仍由[`成熟世界成长与区域参与`](mature-world-progression.prd.md#req-wr-mw-004)约束机会的作用域、容量、待决、结算和恢复边界；入口组合边界见[`免费进入、世界内成长与有界认可`](../player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002)；本要求不授予区域分配或优先级，也不声称当前实现或 readiness。
 - 专业权威：[`gameplay-top-level-design.prd.md`](../../game/gameplay/gameplay-top-level-design.prd.md)、[`social-fact-ledger-declarative-reputation.prd.md`](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.prd.md)、[`social-fact-ledger-declarative-reputation.design.md`](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md)、[`doc/game/prd.md`](../../game/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)
-- 局部专业设计导航：Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[生命周期五项局部承接](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-lifecycle-design)与[逐项验证](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#111-验证映射表)仅支撑 lifecycle/只读预览；以下状态及剩余范围不变，不代表整项要求已覆盖。
+- 局部专业设计导航：Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[生命周期五项局部承接](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-lifecycle-design)与[逐项验证](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#111-验证映射表)保留原 lifecycle 的局部支撑；[五动作后果预览](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-source)另承接来源、权限、消费者与当前风险。合同咨询切片不替换原社交内核，各局部组合仍不代表整项要求已覆盖。
 - 验收：[AC-WR-CR-003](#ac-wr-cr-003)
 
 <a id="ac-wr-cr-003"></a>

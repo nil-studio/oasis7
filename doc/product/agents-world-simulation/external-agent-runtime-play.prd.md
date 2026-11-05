@@ -411,12 +411,15 @@ Trace ID: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e
 Trace ID: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330
 
 - 功能点：[REQ-EXT-008](#req-ext-008)；适用范围沿本条原条件与 [AC-EXT-008](#ac-ext-008)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-recovery)已承接协作原子控制、恢复切点、游标缺口和旧fence拒绝；同文件需求承接/验证表反链本条AC。剩余：Runtime私有上下文不可恢复时的明示和可信重规划跨专业关系仍须核对；collab-recovery已覆盖世界任务恢复。 不代表实现或发布。
+- 系统设计状态：已覆盖
+- 系统设计依据：[世界任务恢复](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-recovery)承接协作原子控制、恢复切点、游标缺口和旧 fence 拒绝；[私有上下文恢复](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-private-context-recovery)补齐执行方来源与范围、原 run/操作核对、当前可信基线、重规划及迟到报告隔离。两处承接与验证表分别反链本条 AC；目标设计覆盖不代表实现或发布。
+- 产品表达与验证方法：[私有上下文恢复体验](external-agent-runtime-play.design.md#private-context-recovery-experience)区分未知、接续、未接续、重规划及世界成果；[专业验证场景](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)按实际入口和 Runtime 分别核对。方法存在不表示实际通过。
 - 实现状态：部分实现
 - 实现与验证依据：[实现任务 PR #4628](https://github.com/eng-cc/oasis7/pull/4628)；[固定实现源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/bin/oasis7_game_client/client.rs#L322)：持久原prepare/行动与未知结果只查询原请求；[历史prepared-world真实模型记录](../../testing/evidence/external-task-native-execution-2026-10-12/README.md)仅证明其固定候选的targeted切片，包含原cleanup失败。剩余完整断连/重启、私有记忆丢失提示和旧授权负例，不推导端到端完成。
 - 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：Runtime私有上下文不可恢复时的明示和可信重规划跨专业关系仍须核对；collab-recovery已覆盖世界任务恢复。；实现/验证：完整断连/重启、私有记忆丢失提示和旧授权负例。
+- 设计补核：2026-11-04；固定输入 `c3862d479ba835bddde3539e8e8e97c5cb563166`。只补已采纳断连/重启义务的目标合同；原实现与运行记录保持其固定版本和有限证明范围。本轮未运行真实 Runtime、浏览器、游戏或真人验收。
+- 状态适用版本：[认知生命周期承接及验证表](../../world-runtime/runtime/agent-cognition-lifecycle.design.md#1-boundary-map)中基于 `9b6a7674458cd0b7a61fcca2fabbe1a5377ab737` 源码审读所记的 `EXT remains partial design/implementation` 不包含本次新增适配设计；当前整体设计状态以本条此次补核为准。其有限 Runtime 依赖、未实跑结论及原 journal/profile 合同继续有效，不能将此处设计状态更新解释为补齐了其实现或运行证据。
+- 剩余范围：实现/验证仍须交付完整断连/重启、实际 driver 的私有上下文报告、玩家告知与可信重规划、双 Agent 隔离及旧授权/迟到结果负例；同候选下分别证明受支持 Runtime 与 Viewer/pure API。长期人格、跨 Runtime 私有记忆迁移不是本条已采纳范围，不以本次设计覆盖扩张承诺。
 
 - 要求：受支持的断连/Runtime 重启恢复必须重新核对世界、Agent、权限、有效目标与未决结果；已结算结果不得重做，未知提交先核对，失效授权不得自动复活。无法恢复的 Runtime 私有上下文必须明示，并提供从可信世界事实重新规划的路径。
 - 理由：玩家可以继续已有任务，恢复不会复制成果或悄悄丢失重要义务。
