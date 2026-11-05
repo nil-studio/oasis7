@@ -10,7 +10,7 @@
 - 专业域权威：[Local Provider 与内置 Agent 体验等价（parity）验收方案](../../world-simulator/llm/provider-agent-experience-parity.prd.md)
 - 配套专业系统设计：[Provider Switch Intent Continuity](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-001)（DES-PSW-001..004：provider/lane 切换、候选与在途意图连续性及重连不重放）
 - 统一客户端系统设计：[Agent Game Client 边界](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-001)
-- Last reviewed：2026-10-15
+- Last reviewed：2026-11-05
 
 本文是长期产品分册，定义 Agent/provider 切换时的体验连续性，以及官方内置与外部执行方遵循同一游戏能力合同的产品承诺。它不声明任何 provider 当前受支持、可用、默认或已就绪；具体 provider 组合的场景范围、评估、技术合同和结论仅由专业域权威文档维护。
 
@@ -65,12 +65,14 @@
 Trace ID: O7-REQ-21f1c7b1-8be0-438e-8f92-d4d1b34be0e6
 
 - 功能点：[REQ-AGENT-PARITY-001](#req-agent-parity-001)；适用范围沿本条原条件与 [AC-AGENT-PARITY-001](#ac-agent-parity-001)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[声明场景与证据身份](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-scope-evidence)及[受限结论与扩面边界](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-rollout-boundary)承接组合身份、证据不足不扩面和明确下一步。剩余：各入口玩家可读受限/退化呈现及真实组合全范围验证，不能由局部parity设计代签。
+- 系统设计状态：已覆盖
+- 系统设计依据：[场景与证据身份](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-scope-evidence)、[受限结论与扩面边界](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-rollout-boundary)及[可信声明发布与逐入口消费](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-declaration-consumption)组合承接正式发布来源/版本、精确组合匹配、撤回/过期和Launcher/Viewer/pure_api的受限/退化/阻塞与真实下一步；parity、实际可用性及发行阶段分别判断。
+- 设计验证方法：[PD01–08声明消费](../../testing/manual/external-agent-runtime-contract-validation.manual.md#parity-declaration-consumption-validation)核来源、范围、单维漂移、错误结论、64KiB边界、原请求和真实入口；原paired/scorecard仍各自取证，均不因本次静态接收算作运行通过。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业设计/方法；设计接收不改变原实现状态、实际支持或历史证据范围。
 - 实现状态：未核实
 - 实现与验证依据：[实际bench证据身份](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_provider_tools/src/bin/oasis7_provider_parity_bench.rs#L50-L53)固定simulator_world_kernel/not_certified；[报告输入校验](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/scripts/provider-parity-p0.sh#L269-L288)拒绝smoke冒充认证，[聚合与输出](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/scripts/provider-parity-p0.sh#L884-L978)区分benchmark/parity/release并输出blocked。这是已实现专业报告防过度claim能力，未核到报告成为产品支持声明发布源。[正式模型配置](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_model_client/config.rs#L10-L22)明确非public support attestation，[玩家表面](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7_viewer/software_safe_src/model_connection_panel.jsx#L146-L180)消费部署preset/技术状态；尚未建立声明provider组合、场景、权限、证据窗口→玩家受限表达的消费者。本轮未运行模型或验收。
 - 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
-- 剩余范围：待定位专业authority当前支持声明的正式发布源/版本，以及Launcher/Viewer/pure API读取声明组合与证据范围的连接；核清超范围/证据不足如何显示limited/degraded/blocked和真实下一步。报告自身blocked与实验模型UI真实存在，但不替代切换连续性的产品承诺边界；不把此报告称为不存在。
+- 剩余范围：设计链路已明确；仍须落实可信release/support manifest的发布/校验和真实入口消费接线，取得同候选/实际组合的PD01–08及原parity证据。已有bench报告的防过度claim能力保留；声明、一次探测或实验模型界面不证明正式支持、默认或发布就绪，原实现未核实状态不变。
 
 - 要求：provider 切换的连续性只能在专业 authority 已声明的 provider 组合、玩家场景、权限和证据范围内作出产品承诺；技术接通、一次成功或历史样本不能扩大当前支持、默认或发布结论。
 - 验收：AC-AGENT-PARITY-001
@@ -90,12 +92,14 @@ Trace refs: O7-REQ-21f1c7b1-8be0-438e-8f92-d4d1b34be0e6；承接[REQ-AGENT-PARIT
 Trace ID: O7-REQ-70188c23-ddbf-49ca-8a70-3fa05c152ba5
 
 - 功能点：[REQ-AGENT-PARITY-002](#req-agent-parity-002)；适用范围沿本条原条件与 [AC-AGENT-PARITY-002](#ac-agent-parity-002)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-003)：原请求身份、持久 handoff、迟到结果隔离与不重放；玩家可读状态与各真实 provider/入口的全范围承接须另行核对。
+- 系统设计状态：已覆盖
+- 系统设计依据：[身份与绑定](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-001)、[切换生效点](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-002)、[候选/在途及持久handoff](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-003)、[PSW验证范围](../../world-simulator/llm/provider-switch-intent-continuity.design.md#des-psw-004)与[执行方围栏](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-004)、[原操作port](../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port)、[迁移/历史恢复](../../world-simulator/llm/agent-game-client-boundary.design.md#des-agc-006)保留candidate、真实pending/unknown和terminal区别；切换只准合法后续新意图，未知按原件查询，迟到结果不污染新操作或产生第二次世界效果。
+- 设计验证方法：[原操作幂等](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-idempotency)、[执行方围栏](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-bind)与[真实切换](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cutover)组合PSW01–09及原持久恢复方法，分别核身份、权限、丢包/重启、迟到结果和同候选真实provider；未执行。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业设计/方法；设计接收不改变原实现状态、实际支持或历史证据范围。
 - 实现状态：部分实现
 - 实现与验证依据：[先扫描原操作且pending/unknown阻塞](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_agent_harness/src/native_task.rs#L231-L277)与[共享SDK恢复#4768](https://github.com/nil-studio/oasis7/pull/4768#issuecomment-6202399190)确认重连/不确定投递原件恢复切片；#4768 reviewed source bb2149f230d2e5a68b61376cc5ac44e708ef1d39、合入2f6ba83a246cf871d8cb06c378d406aaa5291b73的实际handler/Node及CI只沿记录范围。[PSW验证计划](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/world-simulator/llm/provider-switch-intent-continuity.design.md#L171-L196)仍将PSW-01..09区分为计划；原件恢复不代签跨provider cutover、durable pending handoff或真实provider配对。
 - 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
-- 剩余范围：已交付重连/不确定投递时原操作身份保持与unknown阻塞的有界native/SDK切片；provider/lane切换绑定、持久pending handoff、迟到结果隔离、玩家状态投影及PSW-01..09真实配对证据仍未核清。
+- 剩余范围：必要专业规则已承接；原native/SDK原件恢复切片仍为部分实现。provider/lane绑定、durable pending handoff、实际玩家状态与跨真实provider/入口接线仍须完成并取得PSW01–09、AGC及paired组合证据；没有把原件恢复、历史测试或新方法当实际切换已通过。
 
 - 要求：provider 切换、重连或体验降级必须保留候选、待决、已结算和已拒绝请求的真实区别，不得自动重放旧请求、伪造取消或产生第二次世界效果。
 - 验收：AC-AGENT-PARITY-002

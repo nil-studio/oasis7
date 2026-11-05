@@ -84,6 +84,10 @@
 | [REQ-AGENT-SURFACE-002](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-002)；Trace refs: O7-REQ-d7081137-94a9-4524-b08a-fc3fbfcb9f64 | 现有按钮禁用，仅可读边界；不计为资产转账/治理提交已实现 | [R-CMD-12](viewer-account-agent-uiux.design.md#r-cmd-12) | 对应产品owner；当前runtime/identity权限与发布字段 | 仅承接此表面读写边界，不覆盖该REQ其他入口或全部运行组合 |
 | [REQ-PROMPT-007](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-007)；Trace refs: O7-REQ-458146d9-d3c2-4e14-935d-29a91594e8dd | 仅 feedback.code=control_lost 且提供真实 recoveryAction；恢复不隐式重发 | [R-CMD-13](viewer-account-agent-uiux.design.md#r-cmd-13) | 对应产品owner；当前runtime/identity权限与发布字段 | 仅承接此表面读写边界，不覆盖该REQ其他入口或全部运行组合 |
 | [REQ-AGENT-SURFACE-004](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-004)；Trace refs: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4 | 仅 feedback.code=control_lost 且提供真实 recoveryAction；恢复不隐式重发 | [R-CMD-13](viewer-account-agent-uiux.design.md#r-cmd-13) | 对应产品owner；当前runtime/identity权限与发布字段 | 仅承接此表面读写边界，不覆盖该REQ其他入口或全部运行组合 |
+| [REQ-PROMPT-003](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-003)；Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d | 五源标识、clear/no-op与完整三字段影响的提交前解释 | [五源与恢复](#prompt-source-clear-stale-consumer) | 原授权值投影/patch authority；Viewer；QA | 仅实际支持的 Prompt 表面；不升级旧稿/实现或跨会话保存 |
+| [REQ-PROMPT-008](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-008)；Trace refs: O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159 | 仍有控制时保草稿、读取/比较最新值及显式重编，失败不自动提交 | [五源与恢复](#prompt-source-clear-stale-consumer) | 原授权值投影/patch authority；Viewer；QA | 仅实际支持的 Prompt 表面；不升级旧稿/实现或跨会话保存 |
+| [REQ-PROMPT-006](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-006)；Trace refs: O7-REQ-6f348a2d-cb87-4838-8447-21c8eebf6d07 | Chat/Prompt 的窄屏、低高度、IME/焦点和主动作/结果可达 | [输入与失败接收](#prompt-input-and-failure-consumer) | 原整体布局/输入、请求生命周期和权限；Viewer/QA | 不新增快捷键/模式/写权，不以旧输入测试或安全替代单例代签全部 |
+| [REQ-PROMPT-010](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-010)；Trace refs: O7-REQ-3bbcade1-3f73-4899-b324-f857fd27b245 | 非 control_lost 的真实拒绝、有限下一步及恢复再次失败 | [输入与失败接收](#prompt-input-and-failure-consumer) | 原整体布局/输入、请求生命周期和权限；Viewer/QA | 不新增快捷键/模式/写权，不以旧输入测试或安全替代单例代签全部 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -608,6 +612,52 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - prompt-overrides：字段 system override；short term goal；long term goal；approval code when eligible；rollback version；动作 show/hide overrides；preview；apply；rollback；状态规范 hidden default；no authority；preview not apply；accepted not applied；stale/blocked。规范并非全部已画状态。
   - 未证明：Shown form/state examples only; all remaining source combinations and runtime behavior unverified.。
 
+<a id="prompt-source-clear-stale-consumer"></a>
+### Prompt 五种来源、清除与过期草稿的具体接收
+
+Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d；O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159。本节是 R-CMD-09/11 对 REQ-PROMPT-003/008 的目标补充，消费[授权值投影](viewer-control-plane-split-live-playback.design.md#prompt-authorized-value-projection)。现有 `03-command.svg#prompt` 只画出了三项 override 与动作框架；下列新增来源行、清除说明及 stale 比较是 `text_spec_only` 的具体字段/状态规格，不声称旧 SVG 或当前页面已包含它们。不增加新的主导航、持续存储承诺或所有入口的 Prompt 修改能力。
+
+**展开后的结构。** 沿 R-CMD-01 保持当前 Agent/控制资格在前，接当前来源与三字段编辑，之后才是完整变化、Preview/Apply/Rollback、结果和恢复。每项字段的来源与值相邻；默认/当前值在输入框外只读显示，不能将 placeholder 当当前配置。宽屏可并列来源与草稿，窄屏按同一顺序堆叠；长文本折叠/内部滚动仍须提供可达的全文和复制，按钮、原因及恢复路径保持可见。键盘、IME 与多行输入继续沿原整体设计，不新增 Enter 提交。
+
+| 来源 | 必须展示的内容与目标文案 | 允许交互及不能混同的含义 |
+| --- | --- | --- |
+| 配置默认 | “已加载配置默认 / Loaded configuration default”、安全来源标签与 revision；值由投影 producer 提供 | 只读参考；不从本机当前文件/常量猜测，不把初始化覆盖称为 config 默认，不自动填入 `set` |
+| 当前 effective | “Runner 当前已确认值 / Confirmed runner value”、实际来源与读取时点；更新未消费时另标“等待 runner 更新 / Awaiting runner update” | 仅展开该层获权值；与 authority profile 已应用分开，不能说正在执行的旧模型调用已切换 |
+| profile override | “当前覆盖 / Current override”、profile 版本及三字段值；合法 None 显示“未设置 / Not set” | 编辑基准来自当前 profile。hidden/unavailable 显示其状态，不用空输入冒充 None；rollback 仍只指原 Prompt 历史版本 |
+| 本地 draft | “草稿，尚未提交 / Draft; not submitted”、原 Agent 与加载版本、dirty 状态 | 编辑只改本地 draft；刷新不覆盖 dirty 内容。切换观察对象不重定向草稿，显式换收件人仍遵循原权限规则 |
+| preset | 在实际支持该功能的表面显示“预设填充的草稿 / Draft from preset”及当前模板来源 | 填充不是已发送或配置已应用，随后编辑仍是 draft；沿原存储范围，不给缺此能力的入口补造 preset 或跨会话保存保证 |
+
+**清除的明确表达。** “清除覆盖 / Clear override”只创建原 clear patch；“恢复默认”只有在本次真实候选确会回到已显示 config 值时才能用作解释。输入 trim 后为空时，就地显示“此操作将清除覆盖，不保存空字符串 / This clears the override; it does not store an empty string”，等待显式 Preview/Apply；未编辑字段保持 unchanged。
+
+- profile 已有 C、Builtin config 为 A：清除候选显示“C → 未设置；成功下发后使用 A”，A 有来源与版本；不能显示回到初始化 B。
+- profile 已是 None、当前 effective 是初始化 B，且其他字段不变：显示“没有 profile 变更；runner 仍使用初始化值 B”，不把该操作标为默认恢复。UI 可将单独清除显示为无须操作；协议收到该 exact patch 时仍按原 `accepted/no_change` 解释。
+- 任何另一字段改变会触发原完整 profile 下发。完整变化区必须同时列出例如“system：当前值 → 新覆盖；short-term：profile 未设置保持不变，runner B → config A”，并区分 profile changed fields 和预计 effective 变化。不能只列用户点击字段、只看 `applied_fields` 或用笼统“应用成功”隐藏附带影响。
+- 本地预告标记“预计，尚未应用”；显式 Preview 的原结果也不是实际应用。Apply 后按原 scope 呈现 authority 结果，runner 未读回时保留等待，不提前把预告涂成当前生效值。unsupported、尚未初始化或读取失败提供原配置/检查/重读入口，不能自动启动模型来补齐默认值。
+
+**stale 与恢复。** 若当前仍有 control 且最新 V+1 取代基准 V，保留 D，错误区显示“当前配置已变化，草稿未应用 / Configuration changed; draft not applied”。“查看变化 / Compare”只比较当前有权显示的基准/最新 profile、effective 与 D；“重新编辑 / Re-edit”显式采用新基准后仍保持草稿；“重载 / Reload”须明确将放弃哪些未提交编辑；“放弃 / Discard”只丢草稿。任何选择都不自动 Apply，不将新版本 patch 当旧请求 retry。
+
+读取失败时显示具体可披露原因及“重新读取 / Read again”或安全退出；保持本地 D、将旧值标为先前记录，不虚构最新值或差异。恢复动作本身失败时继续明确保留该失败与下一步，不回到无限 pending。control_lost/session 失效优先：隐藏无权再见的 default/profile/effective 与差异，只保留原规则允许的未提交安全草稿和重新认证/重新选择或放弃；不提供重放/转移。账号切换清除旧私有读回，迟到旧响应不更新新表面。ProviderBacked production 不支持、canonical 私有目标不可由 snapshot 取得等情况，均使用原明确边界，不借新来源区绕过它们。
+
+**方法与交付接点。** 当前读 producer、runtime/runner 关联和原写规则由上游投影设计拥有；本表提供具体位置、字段、文案、动作和状态，不再定义第二份计算规则。按[来源/清除/恢复验收](viewer-manual.manual.md#prompt-source-clear-stale-validation)在同一候选的真实表面核对 PV01–PV10，保留桌面与窄屏的前态、完整预告、结果和失败恢复；文本规格、旧固定源码和原 SVG 不作为新交互已实施证据。
+
+<a id="prompt-input-and-failure-consumer"></a>
+### 对话/Prompt 输入与真实失败下一步的组合接收
+
+Trace refs: O7-REQ-6f348a2d-cb87-4838-8447-21c8eebf6d07；O7-REQ-3bbcade1-3f73-4899-b324-f857fd27b245。本节接收 REQ-PROMPT-006/010；R-CMD-02 的多行 Chat、R-CMD-09/11 的 Prompt 编辑和本节来源区共同沿[原布局样本](viewer-page-module-design-2026-06-18.design.md#104-响应式和可用空间)与[输入/焦点规范](viewer-page-module-design-2026-06-18.design.md#uiux-input-access)工作，不新增快捷键、CSS 断点或模态。
+
+在声明适用的桌面、窄屏、低高度与软键盘状态，保持“Agent/控制资格→输入/来源→显式主动作→结果/恢复”的可达顺序；长 CJK 与文本放大允许换行/纵向滚动，不把结果推到不可达区。Command 非模态时不加焦点锁；真正模态按原规范隔离背景，关闭返回原 invoker 或仍存在的导航。IME 组合态及 keyCode 229 不发送/关闭，Enter/Shift+Enter 继续编辑；只由已有显式 Send Chat/Preview/Apply 等对应动作提交。点击、选择复制、滚轮和拖拽编辑区不触发世界相机/拾取，切换尺寸和观察对象不暗中改草稿收件人。
+
+所有失败先按[原请求生命周期](viewer-control-plane-split-live-playback.design.md#viewer-client-request-lifecycle-design)关联 operation/目标/玩家/连接与等待实例，之后才改变该请求的反馈。无归属错误只作受限协议诊断；旧错误不能结束新请求。非 control_lost 失败消费原 reason/code 与实际支持的 next_step，给出以下有限映射，不从文案推断权限：
+
+| 原失败事实 | 当前表面给出的下一步 | 恢复再次失败时 |
+| --- | --- | --- |
+| 字段、未知 operation 或原 rollback target 被拒绝 | 就地说明错误；允许仍获权的重新编辑/选择有效原版本，或放弃；新编辑是新请求 | 保留原拒绝和新恢复错误，不覆盖已确认结果、不自动换目标/版本 |
+| 认证/批准、session 或 binding 不满足 | 只提供该入口真实已有的重新认证/绑定检查；control_lost 仍按前节 hidden 优先 | 不借 UI 恢复授予新权限。原允许的 `session_not_found` 自动恢复预算至多一次，第二次失败停止自动循环；手动后续也核原结果/当前资格 |
+| runner/模式不支持、尚未初始化或真实依赖失败 | 显示具体能力边界；已有配置/检查/授权读取可用时提供，或安全退出 | 不自动启动模型、切 Provider、转旧通道或合造成功；原独立可读能力保留 |
+| 原结果未知、读取失败或 result ledger/容量受限 | 当前仍有读权时核对原身份；没有该协议的安全原结果读取就明确保持未知并停止本件新提交，可查看当前合法状态 | 读当前 profile 成功不证明旧请求结果；重连/重载不清原 nonce/ledger，不用新键绕过缓存满或 unknown。错误与安全停止持续可见，不能永久转圈 |
+
+结果区始终区分原请求失败和本次恢复失败，并保留原对象、可披露原因与下一步；accepted/applied 及 scope 仍由原 authority 结果决定。具体执行沿[来源与输入/失败方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)的 PV06–PV12；原 S6/Chat IME 方法继续适用，真实输入、低高度和失败恢复没有运行时保持未验证。
+
 <a id="r-cmd-12"></a>
 ### R-CMD-12 资产 / 治理后置通道占位
 
@@ -728,6 +778,10 @@ loading、empty、unavailable、permission denied、pending、unknown与明确�
 | [REQ-AGENT-SURFACE-002](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-002)；Trace refs: O7-REQ-d7081137-94a9-4524-b08a-fc3fbfcb9f64 | [R-CMD-12](viewer-account-agent-uiux.design.md#r-cmd-12) | 现有按钮禁用，仅可读边界；不计为资产转账/治理提交已实现 | 按 [Viewer Target QA](viewer-manual.manual.md#target-qa-evidence-checklist) 核对对应交互/状态；源与设计静态审读不代替真实入口、权限与平台的独立验证 | [字段/动作/条件派生证据](assets/ui-ux/full-function/coverage-catalog.json) 的 R-CMD-12；实际运行证据待后续 | 不证明部署、动态全部变体、跨入口与世界结果 |
 | [REQ-PROMPT-007](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-007)；Trace refs: O7-REQ-458146d9-d3c2-4e14-935d-29a91594e8dd | [R-CMD-13](viewer-account-agent-uiux.design.md#r-cmd-13) | 仅 feedback.code=control_lost 且提供真实 recoveryAction；恢复不隐式重发 | 按 [Viewer Target QA](viewer-manual.manual.md#target-qa-evidence-checklist) 核对对应交互/状态；源与设计静态审读不代替真实入口、权限与平台的独立验证 | [字段/动作/条件派生证据](assets/ui-ux/full-function/coverage-catalog.json) 的 R-CMD-13；实际运行证据待后续 | 不证明部署、动态全部变体、跨入口与世界结果 |
 | [REQ-AGENT-SURFACE-004](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-004)；Trace refs: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4 | [R-CMD-13](viewer-account-agent-uiux.design.md#r-cmd-13) | 仅 feedback.code=control_lost 且提供真实 recoveryAction；恢复不隐式重发 | 按 [Viewer Target QA](viewer-manual.manual.md#target-qa-evidence-checklist) 核对对应交互/状态；源与设计静态审读不代替真实入口、权限与平台的独立验证 | [字段/动作/条件派生证据](assets/ui-ux/full-function/coverage-catalog.json) 的 R-CMD-13；实际运行证据待后续 | 不证明部署、动态全部变体、跨入口与世界结果 |
+| [REQ-PROMPT-003](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-003)；Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d | [五源与恢复](#prompt-source-clear-stale-consumer) | 五源标识、clear/no-op与完整三字段影响的提交前解释 | [来源/清除/恢复方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)：PV01–PV10，同候选真实桌面/窄屏及原协议接点 | 五源、完整预告、真实结果、stale/失权/刷新失败与恢复可达 | text_spec_only 与旧 SVG 不代签新 UI、真实模型或另一表面 |
+| [REQ-PROMPT-008](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-008)；Trace refs: O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159 | [五源与恢复](#prompt-source-clear-stale-consumer) | 仍有控制时保草稿、读取/比较最新值及显式重编，失败不自动提交 | [来源/清除/恢复方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)：PV01–PV10，同候选真实桌面/窄屏及原协议接点 | 五源、完整预告、真实结果、stale/失权/刷新失败与恢复可达 | text_spec_only 与旧 SVG 不代签新 UI、真实模型或另一表面 |
+| [REQ-PROMPT-006](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-006)；Trace refs: O7-REQ-6f348a2d-cb87-4838-8447-21c8eebf6d07 | [输入与失败接收](#prompt-input-and-failure-consumer) | Chat/Prompt 的窄屏、低高度、IME/焦点和主动作/结果可达 | [输入/失败方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)：PV10–PV11，真实声明表面与受控异步故障分别核对 | 输入事件/请求数、焦点/可达性、原原因与恢复再失败、零越权重发 | 方法未执行；真实桌面/窄屏/低高度与当前权限分别留证 |
+| [REQ-PROMPT-010](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-010)；Trace refs: O7-REQ-3bbcade1-3f73-4899-b324-f857fd27b245 | [输入与失败接收](#prompt-input-and-failure-consumer) | 非 control_lost 的真实拒绝、有限下一步及恢复再次失败 | [输入/失败方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)：PV06–PV12，真实声明表面与受控异步故障分别核对 | 输入事件/请求数、焦点/可达性、原原因与恢复再失败、零越权重发 | 方法未执行；真实桌面/窄屏/低高度与当前权限分别留证 |
 
 ## 12. 决策、长期风险与未决问题
 

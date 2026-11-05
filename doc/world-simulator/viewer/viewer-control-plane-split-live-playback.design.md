@@ -74,6 +74,80 @@ authority 先解析 operation/request ID，再验证 proof、session/binding/epo
 
 该合同只覆盖 AC-PROMPT-004、AC-PROMPT-007、AC-PROMPT-009 与 AC-PROMPT-011 的系统边界。它不引入 durable Prompt recovery、cross-session replication、cross-entry sync、production-supervisor activation 或新的 race endpoint。实现与证据分别由 protocol/runtime、Agent/runner、Viewer、QA leaf 消费，并在 W2 trusted merge 后才可发布 system leaf。
 
+<a id="prompt-authorized-value-projection"></a>
+## Prompt 默认值、生效值与来源的授权读投影
+
+Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d；O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159。本节承接 REQ-PROMPT-003/008，给出现有 Prompt authority 的目标读消费者，不改变上述写入、幂等、强认证或 `runtime_instance/none/none` 合同。当前 `AgentPromptProfile`/snapshot 主要包含三项 override 与版本；仅有该 map 不能证明 runner 当前 effective，也不能从 null 推出默认值。完整投影、Builtin 读回接点及其 UI 尚待实现，以下正常、失败和恢复规则是实施输入。
+
+### 唯一生产者与读取身份
+
+目标 `PromptValueProjectionV1` 是**现有 current-player 授权 snapshot/Prompt 读回适配层的可选私有扩展**，schema revision 固定为 1；不写入公共 World model、公开事件、共享广播缓存或 Prompt mutation ledger。普通 snapshot 请求可请求/接收当前合法绑定 Agent 的投影，不借自动 Preview 消耗写 nonce、强认证或 256 条结果槽位。没有该扩展的客户端仍按原协议工作，但不能声称已展示 default/effective 或本节清除预告。
+
+producer 先核当前连接的真实主体与 session/key、当前 Agent binding/control、允许的字段和原可见性政策；输入的 player/Agent ID、历史 profile、曾有 owner 身份都不授予读取。读取完成后及敏感回包前再次核对原身份/代际，失权即按原 hidden 边界丢弃正文；不能因旧 read 开始时合法而交付给新 owner、另一个 Agent 或另一个账号。已有 world-service 对私有 short-term goal 的隐藏继续有效；canonical goal 的正文与 intent/receipt 仍从其原受保护读面取得，不能借新增 Prompt default 字段补露或把它改称 sidecar override。
+
+| 投影部分 | 实际来源与必须保留的字段 | 消费含义 |
+| --- | --- | --- |
+| 当前读取绑定 | 原 world/authority 实例、Agent、经认证的当前 player/session/binding epochs、原 profile version/digest；本次 read correlation 与读取时点 | 绑定本次获权读取，不是新写授权。与当前客户端目标/连接/身份不符的迟到回包不替换当前值 |
+| 配置默认值 | Builtin 在 `ensure_runner_initialized` 为该 Agent 实际加载并交给 `LlmAgentBehavior` 的 `LlmAgentConfig` 三个文本；每字段安全来源标签（常量、加载配置、环境或 Agent 专属选择）及同次非秘密配置 revision | 使用**已加载的**值，不在页面或读请求时重新读取环境/配置文件。revision 绑定这三项值、解析版本与 Agent 选择，不包括 API key、endpoint secret 或私有文件路径 |
+| 权威 profile override | sidecar 当前 `AgentPromptProfile` 的三项 `Option<String>`、version/digest 与原 provenance | `None` 表示该 profile 未设置 override，不能据此推断 runner 已使用 config；空值也不等于缺字段/被隐藏 |
+| runner 当前 effective | 对同一已注册 Builtin runner 的只读观察：runner/配置实例关联、最近实际消费的完整 profile 关联或初始化关联、三项实际 override 与 `effective_*` 解析结果 | 与 authority profile 分开；只有真实已消费/读取到的值可称该 runner 当前 effective。effective 是此层供后续 Prompt 组装使用的三项值，不代表在途模型请求已更改、完整 assembled Prompt、私有记忆或 canonical goal |
+| 来源与可用性 | 每字段的 config/profile/初始化来源及有权读取的值，完整读取、等待 runner 读回、不可用或 hidden 的原因；被隐藏/未实现不是合法 null | 初始化短期目标标明 `runtime_live_phase1_short_term_goal` 来源；显示层不能假称它是当前 config 默认或玩家配置。缺真实读取时给有界未确认原因，不伪造值 |
+
+真实接点是[配置与 effective 解析](../../../crates/oasis7/src/simulator/llm_agent/behavior_prompt.rs)、[配置/override 处理](../../../crates/oasis7/src/simulator/llm_agent.rs)、[runner 初始化与完整 profile 下发](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/llm_sidecar_runner.rs)、[当前 profile/history](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/prompt_profile.rs)及 current-player snapshot 构建。目标 Agent/runner adapter 在初始化时保留三项安全配置来源，在真正消费 Prompt 更新时记录对应 profile 关联，并提供只读返回；不能用“已 enqueue”补一份 fake runner ACK。原 source 尚无这份完整投影，这不免除该正常 producer 的实现义务。
+
+### 同一读取切点与当前配置
+
+Runtime 先在原序列化边界固定身份、profile version/digest 与 runner/config 实例，再向该 runner 读取；回包必须匹配该实例及最近消费的初始化/profile 关联。profile、配置实例或权限已变化时不拼接新 profile 与旧 effective：保留各自真实时点，报告等待重读；当前仍合法才允许显式刷新。native async runner 已 enqueue 而尚未消费时，可分别显示“authority profile 已应用”“runner 当前已确认值/等待更新”，不能把 enqueued 当模型已采用；同步 Builtin 也须从真实 behavior 读取。
+
+本目标首版的已加载三项 config 在该 runner/authority 实例内不可热改。确需更换配置或重建影响来源的 runner，沿原实例更换/重启流程取得新的 authority epoch，再接受新增强请求；旧 epoch 的结果按原 `result_unknown`/历史恢复处理，不重新执行。它不新增配置热更入口，也不要求普通 Prompt patch 轮换 epoch。若适配器会在同 epoch 偷换配置/runner，却无法保证该读取和提交基准，则不能启用本目标投影；必须先接通这一实例边界，而不是让客户端用新默认值覆盖旧提交含义。
+
+本地草稿和 preset **不是 authority 记录的一部分**。客户端给草稿保存原 Agent、读取绑定、基准 profile 和安全来源引用；preset 仅标记本地模板来源，填充之后仍是 draft。原字段只读、不支持或被隐藏时不填入伪默认；当前读取正常的合法 Builtin 路径必须返回上述真实来源和值，不能以统一 unknown 占位取代 producer。
+
+### 完整 patch 的清除与预览算法
+
+沿用[原 patch helper](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane.rs)：`unchanged` 保留原 profile 字段；`clear` 变为 `None`；`set(x)` 按原 trim 后空串转 `None`、非空保留规则。`changed` 仍比较完整 profile 的三项 override。新增读投影不改该规范化、签名 preimage、`applied_fields`、版本或 mutation 计数。
+
+1. 页面以完整当前 profile 克隆候选，对三个字段应用本地 patch，分别列出 **profile 差异** 和 **runner effective 影响预告**。默认值只作带来源的只读参考，不自动复制为 `set`；未修改默认/override 发送 `unchanged`，不制造新版本。
+2. 若候选三字段均未变，原 enhanced authority 返回 `accepted/no_change`、`mutation_count=0`，不下发 driver；effective 保持真实当前值。因此 profile short-term 为 `None`、runner 因初始化实际为 B 时，单独 clear 该空字段不会恢复 config A，不能把按钮或结果写成“已恢复默认”。
+3. 若任一字段变化，原路径将**完整三字段候选**下发 runner。Builtin 各字段按候选 override 或其已加载 config 解析；例如只改 system，short-term 候选仍为 `None`，也可能使该字段从初始化 B 变为 config A。预览须列出这种间接影响，不能只列 `applied_fields` 或玩家点击的字段。预计结果标记为尚未应用；实际 effective 仍待匹配的 runner 读回。
+4. 原 profile 已有 override C 时，明确 clear 后候选为 `None`；当整 profile 确有变化并成功被 Builtin 消费，effective 回到该字段当前已加载 config A，不恢复历史初始化 B。空白 `set` 经原规范化等同 clear，应在提交前明确说明；产品不提供“保存空字符串”的另一语义。
+5. 用户显式 Preview/Apply/Rollback 继续使用原完整身份、expected version 与权限；本地计算不是 authority 预检。原 Preview 零 mutation，原 Apply 的 accepted/applied scope 不扩大。driver 不支持/拒绝/尚未初始化时显示原原因，不能用本地预告制造成功。ProviderBacked 的 production Prompt 注入仍 unsupported；原 Hosted local-mock 仅属其已准入测试范围，不能作为生产支持证明。
+
+### 合法 stale、失权及恢复
+
+仍有当前 control、但 profile version/digest 已变时，保留原草稿 D 与原基准，按原 `stale/latest_allowed` 重新读取当前投影；成功后可比较有权读取的旧基准、最新 profile/effective 与 D，并选择重新编辑、重载或放弃。重新编辑必须显式基于最新版本形成新请求，不替换旧请求身份，也不因刷新成功自动 Apply。刷新失败保留 D 及未确认说明，不从缓存拼“最新值”，可在仍获权时重试同类读取或退出。
+
+control/session/binding 丢失优先于 stale；清理当前页面中无权再显示的 profile/default/effective 与差异，草稿只按产品原规则保持未提交的安全本地内容，不提供重发/转移；敏感原文不写公共诊断，也不自动写入持久 preset；显式本地 preset 操作仍服从其原存储范围。原请求结果未知按原 ledger/epoch 合同核对，scope 缺失不升级为永久保存。迟到 A 的读取/Preview/Apply 不清 B 的等待状态、不覆盖 B 草稿，直接复用[客户端请求生命周期](#viewer-client-request-lifecycle-design)。
+
+### 读取容量、兼容和交接
+
+每个当前页面/读取上下文至多一个 runner 值读取在途，使用原读取 deadline，超时只结束该次观察；不取消模型或重发 Prompt。每条完整私有投影限 64 KiB（包含三字段、来源、身份和封套），实际 transport/host 更小上限取严；超限返回有界不可用原因，不截断文本后说完整，不修改原值/配置/写入限额。每次 snapshot 可复用身份与实例仍匹配的已确认投影，但必须标实际时点；变更/撤权使其失去当前资格。查询不消耗模型调用、世界模块费用或 Prompt mutation/result-ledger 容量；既有读取鉴权、速率与资源限制继续适用。
+
+协议/Runtime owner 实施可选私有投影及当前权限过滤，Agent owner 实施真实 config/effective 读取与异步关联，Viewer owner 按[五源交互](viewer-account-agent-uiux.design.md#prompt-source-clear-stale-consumer)展示，QA 执行[独立来源/清除/恢复方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)。新增读取不能改变旧客户端 wire 解码或当前 unsupported 范围；未接线的层如实保持未实现，现有 profile snapshot 或静态稿不代签完整链路。
+
+<a id="prompt-command-entry-applicability"></a>
+### Prompt/Chat 的实际入口接收
+
+Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36；O7-REQ-a82f1ee8-9d70-442c-9972-5f49f6665293；O7-REQ-b6140b6c-ca2c-4734-84ce-7963f9385fff。分别承接 [REQ-PROMPT-001](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-001) 的目标/当前控制、[REQ-PROMPT-002](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-002) 的内容类型及 [REQ-PROMPT-005](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-005) 的能力收窄。复用上文六个 PromptControl 合同、[授权值投影](#prompt-authorized-value-projection)及 [API 正式入口接收](../llm/external-agent-game-api.design.md#api-primary-entry-applicability)，不改变 patch、签名、权限或 scope。
+
+**适用单位与有限目录。** 以下接点核对固定于 `d53e6e745d68c88f59d9aca009cd94451fb6be44`。接收单位是实际 build、入口/适配器、endpoint/world、后端及已协商协议的组合；在该组合原有界面或结构化输出中逐项区分 Chat、preset 填充、本地草稿、profile 读取、Preview、Apply、Rollback 和原结果恢复的实际支持/受阻状态。该能力记录是消费规则，不新增 wire 字段、全局能力注册表或第三种 mode。只有原已采纳且适用的能力才要求接通；未提供 preset/编辑器的入口不用造 GUI，有能力但未接完整消费者则如实留作实施差距。
+
+| 实际入口 / 接点 | 目标、身份和内容消费者 | 能力、回执与接收边界 |
+| --- | --- | --- |
+| canonical Web Command/Chat 与 Advanced Prompt Settings：[页面](../../../crates/oasis7_viewer/software_safe_src/viewer_app.jsx)、[控制模块](../../../crates/oasis7_viewer/software_safe_src/viewer_prompt_control_module.js)、[草稿/选择](../../../crates/oasis7_viewer/software_safe_src/legacy_core.js) | 当前选中 Agent 与当前账号绑定/控制分开显示；Chat draft 与三字段 Prompt draft 分离。实际注册、绑定及能力读回控制可操作状态；共享世界的可见对象不因此可控制 | 已有 Preview/Apply/Rollback 和协议协商接点；实际 backend、版本/历史、hosted strong-auth 仍分别准入。未选增强能力只按 legacy 结果解释；缺 epoch/当前绑定不能冒充增强就绪。新五源投影尚须真实接线，不能由页面默认空值推导 authoritative default |
+| native 交付及确实支持的 native 适配 | 当前 native Launcher 的 [打开游戏页](../../../crates/oasis7_client_launcher/src/main_app_shell.rs)调用 `open_browser(current_game_url)`；到达的实际 Web build 沿上一行接收。另有明确声明且实际实现的 native 协议消费者时，按下列真实 legacy/enhanced 路径逐项核其目标/身份与输出 | Launcher 运行、native SDK 存在或诊断 fallback 不证明另有完整 Prompt 编辑器；已退役 Standard-3D/egui Viewer 不恢复为支持入口。真实 native 包装只承担其已声明能力，缺预览/回滚/回执必须明确，不能将打开页面或重新加载叫恢复成功 |
+| TCP/JSON legacy；当前 `oasis7_pure_api_client` 的 `prompt-preview/apply/rollback`：[命令](../../../crates/oasis7_client_cli/src/bin/oasis7_pure_api_client.rs)、[构造及 matcher](../../../crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/support.rs) | 显式 agent/player、签名、expected version/rollback target 按原命令绑定；命令参数/本地待发内容是用户意图，不是当前获权证明或已生效 profile。原 authority 执行当前身份与目标检查，输出保留原命令/目标及真实结果 | 固定源码只协商 canonical chat，增强四身份字段为空，terminal 按 ACK/error 类型；这些命令真实存在，但不能据此宣称增强关联、原件持久恢复或同步已接通。preview/rollback 按实际 legacy handler 能力与错误分别保留，不因缺增强字段一概称整个协议不支持 |
+| 已协商 enhanced TCP/JSON；使用原协议的实际适配器 | [协议分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/prompt_control_enhanced.rs)选择 `prompt_control_result_v1` 后，完整 request ID、player/Agent、session/binding/authority epoch、expected version 与原操作必须进入签名；当前授权先于 cache/version。只提供部分增强字段不能降级后执行 | 原 Preview、Apply、Rollback 各守原状态/可见性/ledger；未协商却发送增强字段按原 capability 错误拒绝，已协商缺字段按原缺项拒绝。适配器的当前读权、原结果关联和下面的未知恢复必须实际消费；服务端支持不代签旧 CLI 已接线 |
+| HTTP/API/SDK 或其他包装 | 当前 HTTP `/v1/game` 引导面 `writes_available=false`；SDK 的 [Viewer 协议类型](../../../crates/oasis7_client_api/src/viewer_protocol.rs)、[Prompt 签名函数](../../../crates/oasis7_client_api/src/viewer_auth/prompt_control.rs)与 GameClient 的 Chat/task 能力分别记录，类型/签名函数不能代替一个可调用 Prompt route | 当前只读 HTTP 不发送 Prompt 写请求；提供 Chat 的 SDK 不自动支持 profile Apply。实际包装若已接原 Prompt route，则按该 route 的上述协议、权限和结果接收；未提供时明确未提供及真实可用读面/入口，不伪造字段、成功、历史或完整恢复，也不要求所有包装补齐 CLI flag |
+
+**共同消费者规则。** 进入或切换目标时，先把目标 Agent、当前请求主体及实际控制来源对应起来；本地选择、参数、旧绑定或另一入口的成功均不能充当当前控制。读面不足以判定时明确待核/受阻，使用原入口真实提供的认证、绑定同步或授权读取，不以自动试写获取权限，也不新增统一 preflight 协议。显式请求仍由原 authority 复核；控制丢失隐藏私有值、阻止草稿自动转移。迟到 A 的响应只归属 A 的原请求，不能覆盖当前 B 或终止 B 的等待。
+
+内容始终标明其用途和来源：一次 Chat 是本次显式消息操作；preset 只在实际提供的表面填入本地草稿；本地编辑不发送、不改变 profile；持续 Prompt/目标改变只沿各自原 authority。canonical Chat 可能按原意图合同形成持续目标，不能把“一次消息”误写成保证无后续业务效果，也不能把它自动复制为 Prompt override。Preview 只表示候选检查，Apply/rollback 的接受、authority 更新和 runner 实际消费沿上文区分；新增/清除/未改变仍遵守原三态 patch，不能把未提供/隐藏的值当作 clear。
+
+缺能力和缺结果分别处理。仅展示该组合真实可用的 Preview/Rollback、历史与 scope；原 Rollback 需要当前授权、当前版本和原 authority 可解析的 target，不能用本地撤销、Reload current 或重新填入旧文本冒充。增强结果保持 `runtime_instance/none/none`；legacy 回包没有的字段不得用默认值补成增强证明。收到未关联 ACK、断连/超时或结果缺失时保留原操作与最后已核身份，显示该原结果未知；授权读取当前 profile 不裁决原操作成功或未发生。同 instance 且完整原身份/缓存仍适用时，才按原 same-key 合同精确重试；换 instance/epoch、缓存丢失、原件或当前读权缺失则保持受阻并给出实际安全检查/退出路径，不换 nonce 自动重发、不把 canonical chat 专用重试推广给 Prompt。恢复再失败保留各自原因，不能以轮询次数或入口切换宣布成功。
+
+接收采用 [PV13–PV15 跨入口方法](viewer-manual.manual.md#prompt-command-entry-validation)。原产品条件只覆盖实际支持且已声明的表面；缺消费者是实施剩余、缺执行是验证剩余，均不以本节文字代签当前可玩或支持升阶。
+
 <a id="viewer-infrastructure-evidence-join"></a>
 ### Infrastructure result visibility and evidence join
 
@@ -96,6 +170,11 @@ read outage 只改变可见性，不改变权威 W/history/effects；retry/repla
 | Trace refs: O7-REQ-458146d9-d3c2-4e14-935d-29a91594e8dd；[REQ-PROMPT-007](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-007) | control loss 优先、hidden 值与重新校验 | [PromptControl system contract](viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract) | protocol/runtime、Agent、Viewer、QA；沿用本节六个专业合同入口 | 不证明各入口完整 UI 消费、实际实现或跨会话持久性 |
 | Trace refs: O7-REQ-92124092-6021-49e4-8def-33038e20b637；[REQ-PROMPT-009](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-009) | 当前身份/版本再校验、竞态和同键幂等 | [PromptControl system contract](viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract) | protocol/runtime、Agent、Viewer、QA；沿用本节六个专业合同入口 | 不证明各入口完整 UI 消费、实际实现或跨会话持久性 |
 | Trace refs: O7-REQ-36cc9e9d-eaa7-436f-b16b-6f6af089b04c；[REQ-PROMPT-011](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-011) | runtime_instance 应用，不推导持久化或同步 | [PromptControl system contract](viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract) | protocol/runtime、Agent、Viewer、QA；沿用本节六个专业合同入口 | 不证明各入口完整 UI 消费、实际实现或跨会话持久性 |
+| [REQ-PROMPT-003](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-003)；Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d | 五源中的权威 default/profile/effective 生产者、完整 patch/no-op 与清除含义 | [授权值投影](#prompt-authorized-value-projection) | Runtime/Agent runner；Viewer；QA | 不改原 patch/权限，不扩大 ProviderBacked 或持久化/同步 |
+| [REQ-PROMPT-008](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-008)；Trace refs: O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159 | 当前读权、同版本关联、合法 stale 最新值与失败恢复 | [授权值投影](#prompt-authorized-value-projection) | Runtime/Agent runner；Viewer；QA | 不改原 patch/权限，不扩大 ProviderBacked 或持久化/同步 |
+| [REQ-PROMPT-001](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-001)；Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36 | 实际支持入口的目标、当前控制与迟到结果归属 | [跨入口接收](#prompt-command-entry-applicability) | 原 Runtime/身份 authority；实际 Web/native/API 适配器；QA | 不由可见对象/本地参数授予控制，不新增入口或协议 |
+| [REQ-PROMPT-002](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-002)；Trace refs: O7-REQ-a82f1ee8-9d70-442c-9972-5f49f6665293 | 实际支持入口区分一次 Chat、preset、草稿与持续 profile/目标 | [跨入口接收](#prompt-command-entry-applicability) | 原 Chat/Prompt authority；实际适配器；QA | 不强制未提供的 preset/GUI，不改变 canonical Chat 意图效果 |
+| [REQ-PROMPT-005](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-005)；Trace refs: O7-REQ-b6140b6c-ca2c-4734-84ce-7963f9385fff | 逐入口真实预览/回滚/回执/scope 与缺结果安全下一步 | [跨入口接收](#prompt-command-entry-applicability) | 原协议/ledger 与当前读权；实际适配器；QA | 不补造增强结果、持久化、跨实例重放或无能力入口的写支持 |
 
 ### 11.1 验证映射表
 
@@ -110,6 +189,11 @@ read outage 只改变可见性，不改变权威 W/history/effects；retry/repla
 | Trace refs: O7-REQ-458146d9-d3c2-4e14-935d-29a91594e8dd；[REQ-PROMPT-007](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-007) | [PromptControl system contract](viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract) | control loss 优先、hidden 值与重新校验 | 按既有合同执行：同一候选编辑后使 binding/session 失效，再提交过期版本；核对 control_lost 优先、latest value/diff 隐藏、无 mutation 与安全 re-auth 下一步；具体运行入口依 [testing-manual S6](../../../testing-manual.md) 选择 protocol/runtime 与真实 Viewer 表面；这是验证方法，不声明测试已经存在或执行 | 实际实现 PR 的固定提交、结果与适用表面记录；本轮未核实 | 本轮无行为执行，不代签完整产品验收或发行 |
 | Trace refs: O7-REQ-92124092-6021-49e4-8def-33038e20b637；[REQ-PROMPT-009](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-009) | [PromptControl system contract](viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract) | 当前身份/版本再校验、竞态和同键幂等 | 按既有合同执行：同一候选两合法客户端在同版本提交，核对一个 applied 与一个 stale；同key同digest重试不得二次mutation，不同digest conflict，控制丢失竞态保持hidden blocked；具体运行入口依 [testing-manual S6](../../../testing-manual.md) 选择 protocol/runtime 与真实 Viewer 表面；这是验证方法，不声明测试已经存在或执行 | 实际实现 PR 的固定提交、结果与适用表面记录；本轮未核实 | 本轮无行为执行，不代签完整产品验收或发行 |
 | Trace refs: O7-REQ-36cc9e9d-eaa7-436f-b16b-6f6af089b04c；[REQ-PROMPT-011](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-011) | [PromptControl system contract](viewer-control-plane-split-live-playback.design.md#promptcontrol-system-contract) | runtime_instance 应用，不推导持久化或同步 | 按既有合同执行：同一候选核对 actual apply 的 scope tuple 为 runtime_instance/none/none；重连、reload与旧instance重试不能把结果升级为永久保存或跨入口同步；具体运行入口依 [testing-manual S6](../../../testing-manual.md) 选择 protocol/runtime 与真实 Viewer 表面；这是验证方法，不声明测试已经存在或执行 | 实际实现 PR 的固定提交、结果与适用表面记录；本轮未核实 | 本轮无行为执行，不代签完整产品验收或发行 |
+| [REQ-PROMPT-003](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-003)；Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d | [授权值投影](#prompt-authorized-value-projection) | 五源中的权威 default/profile/effective 生产者、完整 patch/no-op 与清除含义 | [来源/清除/恢复方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)：PV01–PV10，固定真实配置/profile/runner及当前身份，在同候选逐层对照独立前后值 | source/权限/版本、profile与effective、完整影响及零/一次 mutation/driver 更新 | 方法待实施执行；原 snapshot、fixture 或文稿不代签完整 producer/真实表面 |
+| [REQ-PROMPT-008](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-008)；Trace refs: O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159 | [授权值投影](#prompt-authorized-value-projection) | 当前读权、同版本关联、合法 stale 最新值与失败恢复 | [来源/清除/恢复方法](viewer-manual.manual.md#prompt-source-clear-stale-validation)：PV01–PV10，固定真实配置/profile/runner及当前身份，在同候选逐层对照独立前后值 | source/权限/版本、profile与effective、完整影响及零/一次 mutation/driver 更新 | 方法待实施执行；原 snapshot、fixture 或文稿不代签完整 producer/真实表面 |
+| [REQ-PROMPT-001](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-001)；Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36 | [跨入口接收](#prompt-command-entry-applicability) | 进入/切目标的当前控制与原结果归属 | [跨入口方法](viewer-manual.manual.md#prompt-command-entry-validation)：PV13，固定 catalog、真实身份/目标，合法/失权/迟到结果独立对照 | 每实际组合的目标/权限读回、签名和原关联、零/一次实际请求及可见状态 | 方法待执行；本地参数、退役表面或无 route 包装不代签支持 |
+| [REQ-PROMPT-002](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-002)；Trace refs: O7-REQ-a82f1ee8-9d70-442c-9972-5f49f6665293 | [跨入口接收](#prompt-command-entry-applicability) | 一次 Chat/preset/草稿/profile 的来源和提交分离 | [跨入口方法](viewer-manual.manual.md#prompt-command-entry-validation)：PV14，固定不同文本、profile 及独立请求/变更计数，核恢复不自动重投 | 实际消费者输出与 Chat/Prompt 各自原件、profile 前后版本、草稿隔离 | 不强制未提供的 preset/编辑器；Chat receipt 不代签世界效果 |
+| [REQ-PROMPT-005](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md#req-prompt-005)；Trace refs: O7-REQ-b6140b6c-ca2c-4734-84ce-7963f9385fff | [跨入口接收](#prompt-command-entry-applicability) | legacy/enhanced/无能力组合的真实 scope、回滚和未知结果 | [跨入口方法](viewer-manual.manual.md#prompt-command-entry-validation)：PV15，真实协商/路由、合法 target、缺 ACK/换 epoch/恢复再失败的独立 oracle | 实际回包/原件与 ledger/mutation 差量、只读和零新写、每组合能力说明 | 不由单元 fixture 代签 UI/CLI 完成、持久化或跨入口同步 |
 
 ## Gameplay 反馈归属与提交资格设计
 
