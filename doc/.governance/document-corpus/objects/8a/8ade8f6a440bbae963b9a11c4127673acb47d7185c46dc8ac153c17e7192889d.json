@@ -2,7 +2,7 @@
   "record": {
     "authority_entry": "doc/game/README.md",
     "authority_layer": "professional_domain",
-    "content_sha256": "c27d55d0b251f83b3e6c6b5a126ab983a577d842c51b8e88c6d36e106ccb92ea",
+    "content_sha256": "e7b86e9aa9ca96ce5fcdf212dc3284d4ae9d627f9401ea76298fdd1f754b764f",
     "inventory_disposition": "retain_for_owner_review",
     "lifecycle_candidate": "active_candidate",
     "object_kind": "design",
