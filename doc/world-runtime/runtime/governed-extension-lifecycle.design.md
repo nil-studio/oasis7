@@ -3,10 +3,10 @@
 - 生命周期：`active`；本文是首版目标合同，不是已实现功能、已批准政策或运行验收结果。
 - Owner role：`runtime_engineer`；`gameplay_designer` 拥有期限、处分和替代政策；`producer_system_designer` 拥有产品边界；治理、工业、WASM、持久化、Viewer 与 QA 分别提供适用 authority、执行和验证。
 - 审读日期：2026-11-05；固定静态基线：`9f332f2973c31f5948269b970c7aa5d4e7a6fe82`，repository `nil-studio/oasis7`。
-- 唯一玩法政策：[GAME-018 governed-recipe-lifecycle-policy-v1](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)。本文补执行合同与工程上限，不从技术发布状态产生治理权限。
+- 原 recipe 首版政策：[GAME-018 governed-recipe-lifecycle-policy-v1](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)。本文补执行合同与工程上限，不从技术发布状态产生治理权限。
 - 验证入口：[受治理扩展生命周期手册](../../testing/manual/governed-extension-lifecycle.manual.md)。本轮只做文档与静态源码审读，未运行 Rust、WASM、游戏、模型、浏览器、真实发布或玩家验收。
 
-Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911, O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965
+Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911, O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965, O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47
 
 <a id="des-wr-gr-lifecycle-001"></a>
 ## 1. 问题、目标与非目标
@@ -15,7 +15,11 @@ PPE 的精确工件 freeze 已能阻止该工件的新准入；模块 active、�
 
 首版 `governed_recipe_factory_v1` 仅承接一个已完成[提案、模拟、试点和准入](industrial-creation-simulation-and-admission.design.md#creation-admission)的 exact Pure recipe/artifact，至多两个显式工厂，每厂至多一个未闭合 job，每 job 至多两批。首个受支持 binding 就是 §9.2 的 PPE 新 ID 铁锭候选及其明确产品验证闭包；其他 Pure recipe、输入/产物或 validator 组合须另有完整 adapter，不能套用本篇铁锭上限。只支持本地原输入、原输出 ledger 和一次原计划完成；不支持新 product/factory、物流、替代材料、转换、迁移或收费许可。适用许可须有原 authority 的有效零费或 `not_required` 决定；没有决定不能当成免费。普通工厂、原生内置配方和既有合法资产不因这个 profile 自动变为可撤销扩展。
 
-本专题承接 GR-002/003 的这个有界切片，不覆盖任意插件、区域服务、一般基础设施或全部工业许可。模块兼容/迁移、配方六态、四阶段证据、版税、原资产和合同 authority 继续由原专题拥有。本文没有构建示例工件、实现新状态字段或验证持久化底座；产品覆盖保持 `partial`。
+本专题原 recipe 首版只承接 GR-002/003 的这个有界切片，不覆盖任意插件、区域服务、一般基础设施或全部工业许可。该切片形成时产品设计为 `partial`；本次普通类型补充与原专题组合的覆盖见 §11.3，不能把设计覆盖变化写成实现完成。模块兼容/迁移、配方六态、四阶段证据、版税、原资产和合同 authority 继续由原专题拥有。本文没有构建示例工件、实现新状态字段或验证持久化底座。
+
+普通 product / factory 的共同合同补在 §§4.3、5.5、6.1、7.3、8.1、9.3、10.1 和 11.3，沿 [GAME-018 普通类型政策](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ordinary-product-factory-lifecycle-policy)。它覆盖已采纳的产品定义/验证/正式产出接收、工厂建设及明确受限的持续能力，包括其许可、依赖、原义务、升级与恢复；不再用上面的铁锭接收器代签普通类型。一般 recipe 的六态、工作图、替代/转换和许可仍由原专题拥有；所有受治理 recipe 都与下述共同身份、当前守卫、处分及完整依赖规则合取，包括只使用已有产品/工厂的配方，不以同时新增 Product/Factory 为前提。普通物料定义是准确产品内容的一部分，独立实物资产不是可随 creator 授权删除的制度状态。
+
+这里没有把“等价工业能力”变成任意 WASM effects：当前 M4 的 Recipe / Product / Factory 类型与真实消费者形成正向注册边界；已有类型中的每个入口均列入 §5.5。新增类型须在原四阶段登记自己的效果、完整消费者、原义务和退出 adapter 后采用，未知类型明确不准入，不能借 alias、module command 或 native 标签成为隐式第四种权限。游戏内 IDE、自由上传和美术分发仍是原明确非目标。
 
 ## 2. 上游约束与相关角色
 
@@ -23,7 +27,7 @@ PPE 的精确工件 freeze 已能阻止该工件的新准入；模块 active、�
 
 ### 2.1 需求承接与分配表
 
-本表按八个 GAME-018 professional AC 分配唯一的上游/本设计关系。各 AC 的原声明及下列 Trace refs 反向承接 [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002)、[AC-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-002)、[REQ-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-003) 与 [AC-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-003)：保留完整授权、当前发布/激活、期限处分、历史与单一重叠授权的原产品义务，仅覆盖本 profile，不扩展为全部扩展类型。
+前八行保留原 GAME-018 professional AC 与 exact recipe 首版的分配；后续直接按原产品 requirement / AC 分配普通类型和一般 recipe 的共同合同，不新增重复 AC。各行保留完整授权、当前发布/激活、期限处分、历史与单一重叠授权的原义务；范围以该行条款和正向类型目录为准。
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
@@ -35,6 +39,16 @@ PPE 的精确工件 freeze 已能阻止该工件的新准入；模块 active、�
 | [AC-GAME-018-12](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-12)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911, O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965 | 完整 stock、调用、资源和输出容量有界；退出预算不被新生产耗尽 | [预算](#extension-budget) | exact manifest、metering、受保护资源 hold、工业容量 | 无实测吞吐承诺，不以单次 call cap 代替总预算 |
 | [AC-GAME-018-13](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-13)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911, O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965 | 并发、重复、未知提交和恢复保持单次效果、不续期、不补当前来源 | [事务与恢复](#extension-recovery) | authoritative journal、durable publication、schema reader | 不将未合入存储实现或兼容默认值当授权 |
 | [AC-GAME-018-14](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-14)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911, O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965 | 玩家看到当前 scope、依据、旧工作、成本、blocked 与合法下一步 | [读面](#extension-read) | Viewer/pure API/Agent、QA | UI 与文案不形成执行证据 |
+| [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911 | 已采纳 Recipe/Product/Factory 的内容、当前授权和独立资产身份分别绑定；一般 recipe 不以新增产品/工厂为前提 | [普通身份](#extension-ordinary-identity) | 原四阶段/PPE、RecipeVersion、资产/材料来源 | 未登记类型不凭名字扩权；不宣称目标 schema 已实现 |
+| [AC-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-002)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911 | 每次实际发布/激活及 Reserve/Evaluate/CommitEffect 消费当前完整资格，旧批准无保留权 | [普通当前授权](#extension-ordinary-authority) | 原治理/许可/技术 activation 与真实工业 gate | 不把技术成功或任一子阶段当完整生效 |
+| [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911 | direct/module/native/自动/无模块/维护/制造和最终 reducer 不丢行为来源或漏检受限效果 | [完整消费者](#extension-ordinary-consumers) | 原工业/制造/物流/产品验证 writers 与读面 | 原独立能力保留；接口清单不能排除同效果新入口 |
+| [REQ-WR-GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)；Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47 | 普通 product/factory 显式零费/开放或有据不适用，一般付费 recipe 消费原许可完整批次/收益合同 | [许可消费](#extension-ordinary-license) | 原许可 authority、硬开放、root/fee unit/原资金 | 不新增按件/厂/验证收费单位，不把未返回许可当免费 |
+| [REQ-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-003)；Trace refs: O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965 | 原建设/在制/物品/物流/第三方责任全量处分，首次截止及已耗事实不可重置 | [普通处分](#extension-ordinary-disposition) | 原工作图、资产/tenure、实际 custody/receiver | 没有 adapter 不假定可回收；不退款已耗或删除独立资产 |
+| [AC-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-003)；Trace refs: O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965 | 全部 artifact/实例依赖结清或原合法迁移后单次替代，非重叠范围保留，Profile append-only | [普通升级](#extension-ordinary-upgrade) | 原模块 migration/retirement、原新旧 owner/payer | 不发明任意 transform，不用一个使用者批准全局替换 |
+| [AC-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-002)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911 | 目标记录/可信 stamp/完整索引与错误使全部阶段身份可核，同键不同内容冲突 | [普通接口](#extension-ordinary-interfaces) | SR2 canonical/schema、原请求/工作/调用身份 | 目标字段不是现有 wire 类型；caller 不能自签 stamp |
+| [AC-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-003)；Trace refs: O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965 | 三阶段事实、同代全部来源与原结果恢复；G1 unknown 隔离整个旧 World，replay 不再执行 | [普通恢复](#extension-ordinary-recovery) | ExecutionTransaction、G1/G2/G3、原 journal/retention | 缺来源不拼 cache；设计不证明存储实现 |
+| [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911 | 完整消费者/调用/资金/来源图有界，最坏退出独立保留，原付费依赖按调用身份并集计费 | [普通预算](#extension-ordinary-budget) | manifest、真实 metering/hold/来源索引与处理能力 | 不从模板常量或单入口费用推导整体足额，不承诺实测 SLA |
+| [AC-GAME-018-06](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-06)；Trace refs: O7-REQ-ce8c31b1-5294-4acd-a65f-2012bcbef911, O7-REQ-ac12295b-63a5-4440-9924-deaedafd7965, O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47 | 同一受权读面区分定义/技术可用/当前权利/资产/原义务与实际费用，解释合法下一步 | [普通读面](#extension-ordinary-read) | Viewer/API/Agent、原受众和准入复查 | 展示不产生权利；不以静态设计代签玩家理解 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -50,6 +64,21 @@ PPE 的精确工件 freeze 已能阻止该工件的新准入；模块 active、�
 | 完成与重试 | pending/receipt/settled job 比较；产品验证保存 attempt/decision；未决旧 attempt 不重跑 | 精确 validator identity、当前处分和 job stamp 随完成持久化 | 产品 receipt 目前只有 module ID；with/no modules 两路必须一起适配 | [完成准备器](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs)、[产品记录](../../../crates/oasis7_world_state/src/state/industry_state.rs)、[due](../../../crates/oasis7_runtime/src/world/economy.rs) |
 | 模块计费 | 按 artifact owner 收 Data/Electricity；找不到 owner/Agent 的现有分支不收费；trusted command 有最坏费用预检 | extension 执行前必须找到合法 payer、预算和 closure hold | 普通 economy call 未复用该预检，不能把缺 owner 当零费 | [metering](../../../crates/oasis7_runtime/src/world/module_runtime_metering.rs)、[trusted command](../../../crates/oasis7_runtime/src/world/capability_authorization_command.rs)、[fee](../../../crates/oasis7_runtime/src/world/incremental_module_fee.rs) |
 | 现有工业专题 | 四阶段、配方六态/六类处置和许可已有目标合同及部分代码 | 合取这些 authority，只补扩展授权生命周期 | 不重复实现原工作图、许可状态机，也不代签其完成 | [四阶段](industrial-creation-simulation-and-admission.design.md#creation-admission)、[配方](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-lifecycle)、[许可](industrial-license-and-royalty-settlement.design.md#license-lifecycle) |
+
+### 3.1 普通 product / factory 的补充源核对
+
+以下固定于 4f6f20ece923c5705e26ef879c2b83e0e637b3f9；只陈述实际读取的函数和字段，不将代码缺少目标接线等同于产品未采纳。
+
+| 实际来源 | 已有事实 | 普通生命周期仍需的组合 |
+| --- | --- | --- |
+| [M4 类型](../../../crates/oasis7_wasm_abi/src/economy.rs) | EconomyModuleKind 只有 Recipe / Product / Factory；ProductProfile 有 maintenance_sink/tradable/unlock_stage，FactoryProfile 有 tier/recipe_slots/tags | 不可变内容、准确行为来源与当前 grant 分开；Profile 不是授权 |
+| [模块建设解析](../../../crates/oasis7_runtime/src/world/economy.rs)、[建设准入](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_economy_factory.rs) | 先核 site/location/Profile/construction-power source，再调用模块；计划转为普通 BuildFactory，decision 可改变实际 consume/duration | 传播精确行为/批准 spec/grant 与调用结果；前后同一当前范围，不能丢 stamp 后走普通入口 |
+| [建设 prepared reducer](../../../crates/oasis7_world_state/src/state/industry_transition/factory_lifecycle.rs) | 建设 start 保存 site/power 义务、真实 sink；built 核 pending/payload/ready_at 后形成原 factory 和 receipt；已回收 ID 不复用 | start 与 built 都读当前扩展处分和原物理权利；到期后不能仅因 ready_at 已到而自动建成 |
+| [产品模块与 due](../../../crates/oasis7_runtime/src/world/economy.rs)、[结果转换](../../../crates/oasis7_runtime/src/world/event_processing/product_validation_result.rs) | standalone validation 与 due 输出验证是两条实际路径；结果核 product_id/量/stack_limit；resolver 可按 active module 名后缀选择，找不到时 due 可跳过 | 正向 exact validator/版本/范围绑定、必须验证或有权 not_required；ProductValidated 不等于产物入账 |
+| [产品 attempt/恢复](../../../crates/oasis7_runtime/src/world/economy_product_validation.rs)、[历史 prepared](../../../crates/oasis7_world_state/src/state/industry_history_transition.rs) | 已确认 validation receipt 可恢复；旧 attempt 无 decision 不重新调用；实际记录尚非完整 artifact/grant/许可 stamp | 原 attempt、真实计量、版本、结果和后继 current gate 同一身份；未知不能选最新模块再试 |
+| [maintenance 合并](../../../crates/oasis7_world_state/src/state/apply_domain_event_industry_helpers.rs)、[排程](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_economy.rs)、[工业 start](../../../crates/oasis7_world_state/src/world_rules/industrial_work_start.rs) | 输出量乘 ProductProfile maintenance_sink，并核 stage/其他工业条件；factory Profile 与 spec 的 ID/tier/slots/tags 匹配 | 内容 revision 与新产出权限进入原计划和 sink；不能只保护 standalone validate |
+| [factory 维护/回收](../../../crates/oasis7_world_state/src/state/industry_transition/factory_lifecycle.rs)、[其他制造负载](../../../crates/oasis7_runtime/src/world_rules/industrial.rs) | 已建资产有 durability、parts 消耗、回收 receipt/retired identity；制造中 Agent order 也占 factory workload | 完整 stock 不只 pending_recipe_jobs；维护/普通资产处置与持续扩展新效果分开，不能因缺扩展 grant 删除原资产 |
+| [只读产品 quote](../../../crates/oasis7_runtime/src/world/product_validation_quote.rs)、[Profile reader](../../../crates/oasis7_runtime/src/world/resources.rs) | 可读取/预览原 Profile | 标注来源、当前可执行与 historical/unknown；不把 bootstrap fallback 或 quote 当新准入 |
 
 ## 4. 边界与结构
 
@@ -71,6 +100,23 @@ extension recipe 的每个新发布 ID 必须正向登记 binding。别名和改
 ### 4.2 既有 schema 来源与目标记录
 
 当前模块结构来自 [WASM ABI](../../../crates/oasis7_wasm_abi/src/economy.rs)、[模块生命周期](../module/module-lifecycle.md#sr2-activation-contract)及其发布记录。目标 binding/grant/stock/receipt 必须各有 schema version、canonical encoding、精确字段许可、内容摘要及受支持 reader，按既有 [SR2 类型与身份](../wasm/wasm-interface.md#sr2-types)发布。原工件、完整 manifest、产品 validator 和政策 bytes 是可达的不可变输入；读取声明 schema/hash 并正向验证 producer 来源，不能从模块名、普通 WorldRule receipt 或 `serde(default)` 补授权。
+
+<a id="extension-ordinary-identity"></a>
+### 4.3 普通类型的身份、效果范围与来源目录
+
+普通合同复用 §4.1 的完整 world/branch/authority/instance/schema/revision/digest，不把 factory Profile ID 当工厂类型通配符。目标 IndustrialExtensionBinding 明确 type、protected capability slot、creation/admission lineage、不可变 Profile 与适用 MaterialProfile、精确行为 artifact/manifest/activation、定义与物理实体的关系、允许 effect facets、原维护/输入输出/建设规则、许可来源和支持的消费者/处置 adapter。没有 WASM 的受信原生行为显式给原实现/规则版本，不填假 module hash。binding 是有权发布的事实，caller 的字符串或缺字段不是 builtin/legacy 证明。
+
+product 的 product_id 与物料 kind、原数量单位/stack_limit、维护耗材、可交易性及解锁阶段分别验证；验证模块还绑定 exact input schema、判断规则和输出 schema。factory 分别保存 Profile/完整 FactoryModuleSpec、planned factory_id、site/anchor/tenure、建造者、construction-power profile/revision，以及已建实体的代际/原 identity。ModuleFactorySpec 的 cost/duration 与建设电力的原 authority 不互相代签；新 module 返回不同物料、数量或工期必须在已审核 behavior envelope 内。超出已准入行为不能靠“模块接受”覆盖。
+
+一般 Recipe binding 同样固定原 RecipeVersion/causal fingerprint、不可变 Profile、实际 Pure 或受信原生 plan 来源、已采用的替代/转换、全部 input/output/validator、工厂/外部性/物流/终端及许可依赖。RecipeVersion 的原六态不会被本 grant 替代；新排程与每个后继效果同时消费两者，任一 unknown/失效都不能由另一个 active 补齐。其 scope atom 的 facet 为原声明的发布、排程/生产或具体有限处置，target 为确切原工厂/工作范围；不用 product 新定义缺席来省略当前授权。§4.1 的 exact recipe v1 仍取其更严格固定参数，不把其两厂/两批/四 tick 限额套成所有配方政策。
+
+每个 scope atom 是原目录认可的 (protected_capability_slot, effect_facet, exact target kind/identity/generation)。target 明确为定义发布范围、给定地点/计划建设 ID、已建 factory，或给定 producer/consumer 的产品验证/接收范围；不接受动态“所有工厂”、模糊区域、任意未来实例。唯一键再加 world/branch，但不加 grant、caller、module/version、Profile alias 或 authority domain；跨域同一实际 slot 必须解析到同一目录。所有原普通、模块、内部和治理消费者使用这个当前索引，不能各立一份可执行范围。非重叠 atom 可以独立运行。
+
+保留三个不同身份：内容版本、当前可执行授权、已经产生的资产/工作。产品 lot 的原 producer/完成 receipt/输出 ordinal/quantity slice 与 ledger 关联；建设 job 关联原 spec/材料 sink/site，而建成后 physical factory 保留自己的原 ID。没有 source-lot 颗粒度的现有余额不能凭 caller 自报分出“新/旧合法货”；目标 writer 必须提供可验证数量索引和消费键。原余额本身不被清空，无法证明的后继效果保持 blocked。
+
+扩展决定和当前范围属于受治理 L2 institution，沿 [native 分类冻结](../prd.md#native-surface-分类与冻结规则)。普通类型不新增专属 WorldRuleCommand、核心 Action 或顶层制度状态来代替 governance；module-owned schema/状态产生有限候选，Kernel/原工业 adapter 强制验证原资产、资源、输入输出、当前范围与完整写集。§4 的原 recipe native adapter仍只组合其既有事实；不是可由任何 creator 调用的授权发行器。
+
+当前 scope/work/dependency 索引由每个实际 writer 在同一事务维护。查询以确切 slot/target 或 artifact dependency 为键，返回同 cut 的 membership、complete range、watermark 和缺项证明；旧列表或只读第一页不是完整 stock。Profile 发布、建设/生产 start、validation attempt、物流/终端关联、许可和 module activation 变更均不得绕过此索引。索引缺失可在隔离恢复中按原 committed records 重建并验证；正式入口不全扫 World、journal 或所有 ledger 后截断。
 
 ## 5. 关键运行流程
 
@@ -141,6 +187,83 @@ normal 是待实现的静态 fixture，真实前置包含四阶段、PPE 发布/
 | [module command/tick](../../../crates/oasis7_runtime/src/world/module_runtime.rs)、[效果路由](../../../crates/oasis7_runtime/src/world/module_routing_runtime.rs) | 本 Pure profile 不接受自主 tick、通用 effect、额外 hook 或 command 发起生产；实际命中 recipe 仍落同一最终 guard | 通过 intent/effect/原生适配器跳过 schedule 检查 |
 | [artifact 销毁/转让](../../../crates/oasis7_runtime/src/world/module_actions/release_actions.rs)、依赖读面与恢复 | 未完 job 引用的精确 bytes/schema、原收费同意和当前 owner 必须可用；关联变更纳入依赖校验/保留 | deactivate 后销毁 validator、缺 owner 免费运行、较新 cache 补旧来源 |
 
+<a id="extension-ordinary-authority"></a>
+### 5.5 普通类型的完整当前执行与生命周期
+
+#### 5.5.1 当前准入和一次效果
+
+每个普通 binding 先具有原四阶段和 PPE 技术发布事实。Grant 的字段与 §5.1 相同，但范围按 §4.3 的 typed atoms，而非只含两个 recipe 工厂。允许效果、期限、初次到期处分、原存量最大闭包和所有 payer/接收者在首次生效前固定；unknown、未支持类型/adapter、未声明处分或超限不得形成部分资格。所有当前门是合取：governance/admission、exact binding、单一 scope owner、允许 effect/时间、技术 activation、原工业/recipe/资产/tenure/安全、适用许可及资源/容量。原 authority 明确的不适用才可省略；没有字段不能当作不适用。
+
+真正的发布、安装、激活、升级或 rollback TO 同时核其完整 actual scope；一次全局 artifact 改变会影响多个绑定时读取全部依赖。PPE required roles、owner、commitment、append-only 与 exact freeze 均继续独立成立。失效旧批准不能静默缩成子集成功、自动挂 successor 或重新分配 Profile ID。原声明仅 stop-new-admission 时继续允许的现存效果仍逐次核原条件；限制/退出时该受影响 scope 不新增发布或控制权。
+
+先从当前可信来源计算共同允许边界，再验证原完整请求的每个 scope atom、effect 和整个 [begin,end) 都被包含；结果只接受原 exact payload 或整项拒绝，不能把请求与边界求交后提交另一份内容。允许生成不带执行权的较窄建议，须由请求方明确另建请求、经过其必要审核后确认新 payload；保留原拒绝与来源，不能修改旧请求或复用旧批准冒充新同意。
+
+普通工作采用明确的三个阶段，避免既丢行为来源又把必要调用藏成免费验证：
+
+1. **Reserve。** 用稳定原 work/call key，当前重验后登记一次执行 attempt、不可变请求/行为/plan envelope、费用上界、真实资源/输出容量、有限正常/closure 图和原许可引用。登记本身不建厂、不生成货物、不消费生产投入。必要 lifecycle/许可 instance 调用纳入 §9.3；前置拒绝不进入 sandbox。
+2. **Evaluate。** 只调用已 pin 的一个必要 Pure 行为模块，或使用已证明的原生结果；输入为完整有界受权视图，effects/new_state 不属于 Pure 输出。按原 call identity 保存实际计量和返回内容。拒绝、trap、无输出和结果未知均有自己的事实，不能重调求成功；不要从模板 output_bytes 常量计算实际费用。
+3. **CommitEffect。** 在同一当前事务验证原结果/请求摘要与全部现行条件；提交原领域效果、工作状态/消费索引、真实费用和剩余 hold、receipt。建设 start 与材料/电力 sink 一起，产品结果只是一次验证事实，产出仍须原生产 completion。许可/范围在 Evaluate 后失效则不提交非法业务；已获权实际计算最多收费一次，原未消费资源按原决定释放或保留。
+
+每一后继真实步骤重复相同当前 gate，消费原节点身份和剩余次数，不重新执行整个工作图。没有行为模块的步骤省去 Evaluate 并保留准确“未调用”事实，不伪造零费 module receipt。到期不等待 sweep；只读当前时间已能拒绝新普通效果。费用或持久化状态 unknown 先恢复原 attempt，不将其当零成本失败再开新根。
+
+<a id="extension-ordinary-consumers"></a>
+#### 5.5.2 全部实际消费者与效果边界
+
+| 类型/真实消费者 | 必须消费的当前事实与提交点 | 原义务和独立结果 |
+| --- | --- | --- |
+| PPE Apply、direct install/upgrade、ModuleChangeSet、rollback TO；来源沿 §5.4 | 所有拟变更 Profile/manifest、完整 scope/依赖、当前授权、freeze/owner/role；最终 publication 同根安装 binding/index | 上传、Approved、registry active 不授予物理能力；不覆盖既有 Profile |
+| BuildFactoryWithModule → BuildFactory；[建设准入](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_economy_factory.rs) | Reserve 前及 FactoryBuildStarted 最终准备核 exact builder/site/anchor/tenure、Profile/spec、behavior result、construction-power/source、材料与 current grant；resolved action必须携带受信 stamp | module最低可用电力不是实际 sink；材料/实际建设电力与原 job 一次提交 |
+| with/no-modules due → FactoryBuilt；[建设 reducer](../../../crates/oasis7_world_state/src/state/industry_transition/factory_lifecycle.rs) | 两路及 raw/内部 event 最终 prepare 都核原 build stamp、pending payload、ready_at、当前原物理权及 ordinary 或有限 completion 授权 | 已 sink 不退；原 job 只能形成一次原工厂，不能换 spec/地点/owner 或提前 built |
+| ValidateProductWithModule → ValidateProduct / ProductValidated；[结果 converter](../../../crates/oasis7_runtime/src/world/event_processing/product_validation_result.rs) | exact validator/activation、原源片段或明确只读候选、用途/范围、current grant/许可、输入量、决策product_id/stack_limit与已审核内容 | 普通观测不 mint/转权/发收益；caller传入decision或裸module_id不能伪造可信结果 |
+| ScheduleRecipe/模块/native/essential/内部排程 → RecipeStarted；[原排程](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_economy.rs)与[工业 start](../../../crates/oasis7_world_state/src/world_rules/industrial_work_start.rs) | recipe原准入/六态之外，核每个新product输出的准确定义、stage、maintenance_sink、validator及当前product接收范围；受限factory持续能力按实际facet核 | maintenance真实投入在原 sink，不能只保护validator却让另一入口造货；内置正向身份仍按自己的合法规则 |
+| with/no-modules due、validation attempt/receipt恢复、RecipeCompleted最终 reducer | 原job/output ordinal、完整validator manifest/hash/version、原结果与当前接收/有限处分；不按module名后缀选最新，不以缺module跳过必须验证 | 原decision复用不重算品级；RecipeCompleted与实际ledger/terminal义务才证明完成，no-modules入口不能绕开 |
+| [原制造订单](../../../crates/oasis7_runtime/src/world_rules/industrial.rs)及factory capacity/owner消费者 | 原制造authority、厂内真实工作和引用的具体能力进入同一完整stock；若实际消费本受限facet，每个first sink/后继提交都合取current gate | 不用“没有recipe job”证明空厂；本合同不改变Agent制造的recipe、资格或资产归属 |
+| 普通维护/回收、折旧、材料转移/运输、库存与终端结算 | 先分辨独立资产动作或新扩展效果；原物理规则/owning domain及source数量当前有效，涉及受限新能力才核该facet | 已有库存/设施不因creator到期删除；真正处置必须用原writer/receipt，不能跳过物流或把产品结果当到货 |
+| module command/tick/effect、direct/trusted/internal producer和恢复后待决动作 | 最终共同原领域 gate 验完整binding/原node，不能借“内部”免验；未登记consumer/未知effect拒绝 | 已提交replay只应用原事件；恢复pending是当前新提交，不能重放旧授权执行 |
+| Viewer/API/Agent、Profile和product quote | 相同受权projection，标清历史定义/当前authority/观察cut | quote/bootstrap fallback、按钮或建议不创建当前权利 |
+
+所有受支持普通类型必须交付这张实际消费者集合和最终 reducer 防线才可激活。原 recipe 六态、manufacturing、物流、外部性和 tenure 不被统一成一个扩展状态机；各自当前结果继续独立否决。新增入口只要可以产生相同效果，就属于同一合同，不能因不在旧 API 名单而免检。
+
+<a id="extension-ordinary-license"></a>
+#### 5.5.3 许可消费、零费与原有付费依赖
+
+普通 product/factory 的每次 Reserve/CommitEffect消费[完整许可 authority](industrial-license-and-royalty-settlement.design.md#license-authority)：同world/lineage、精确能力/版本、原使用主体、用途/区域/对象、原条款接受、维护及[当前生命周期](industrial-license-and-royalty-settlement.design.md#license-lifecycle)。只有已验证零版税/开放条款或原authority明确不适用才可通过。零版税不会省掉技术执行、资源和退出费；不创建fee unit、pending-earned或虚假零收入receipt来掩盖未知来源。
+
+原条款到期且未硬开放时停止相应新使用；续期需要原明确接受和当前资格。到硬开放后读取原单调rights_open及原lineage，不因新产品/Profile/许可ID、维护版本或受益者改变重置最早A；保留原应计/已付款。已有工作若需换绑，只沿许可专题的原root单次原子交接，保留sink/量/资金与当前工业处分；许可换绑不激活受限扩展，也不允许两份重叠使用权。
+
+依赖另一个合法付费recipe时，继续使用其原完整批次use root、保护款、notice、案件和结算；产品的多个validator/副产物、建厂和运输均不是新增收费单位。一次产品接收能证明的只有本产品节点；不能从它补造recipe完成或从任意escrow receipt推导版税。该依赖的费用、payer和全部原程序/closure预算必须在原root首次sink前合并保护；不能使用本普通零费的较小预算替代原许可预算。本文只定义合取与同根接缝，不复制许可的价格、期限、分配、裁判或原状态机。
+
+<a id="extension-ordinary-disposition"></a>
+#### 5.5.4 全量存量与有限退出
+
+变更基于同cut完整索引，逐项冻结原work/node、类型/数量、已消费/未消费、物理位置、owner/recipient、原hold、依赖/许可/第三方义务和已选处置。对每项分配一个原节点的处置键；选择hold不是完成，后续实际finish/return各有自己的原子receipt。每个节点保存first_cutoff=T、原已接受L、所有适用原hard deadline及D；D=min(T+L, applicable deadlines)，只有原authority已接受且当前仍合法的具体动作在[T,D)执行。重复决定、换grant或actor不更新T或已用次数。
+
+| 具体存量 | 可实施的有限动作 | 完成/拒绝判据 |
+| --- | --- | --- |
+| 已Reserve、未生产/建设sink | 取消或保留原attempt，解除确实未消费且无其他义务的材料/容量/费用hold | unknown调用仍保留原费用占用；不得退已经计量或已消费的量 |
+| 未建成construction | 以原pending job/spec/site/投入执行一次原built；或消费启用前已验证的construction保全/拆解adapter | built需当前tenure/site/安全及原授权；拆解逐项从原construction物量扣去实际恢复量/损耗，保存custody，不冒用FactoryRecycled、不按原建设价全退 |
+| 已建factory | 仅关闭被限制facet的新工作；原recipe/制造节点按各自合同finish/hold/实际移交；资产owner可按原维护/回收规则选择保全或回收 | 原回收还须完整证明所有recipe/制造/第三方工作可关闭、真实recycle ledger/容量；实际回收receipt后才退休ID；维护不扩scope |
+| 产品验证/生产待接收 | 确认原attempt结果；以原job/output/quantity、pin validator或明确not_required及当前原接收权限结算一次 | unknown不重调；错误品种/范围/版本或接收者失效不造合格产品；新validator不得改判旧已确认结果 |
+| 在途/buffer/terminal | 沿[原工业处分](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)及物流/交付合同做已支持的finish/hold/return/reroute/handoff | 原source/qty/location/loss守恒、当前receiver与费用齐备才写真实结果；选择退出不瞬移、不取消已发生route loss或原第三方债务 |
+| 已完成独立产品/工厂/收益 | 原身份、数量、来源、历史和原权利可读，未付合法款仍沿原合同结清 | 不要求删除历史资产来令scope closed；未来独立操作仍依其原authority，不从旧receipt获得新扩展能力 |
+
+建设保全/拆解不是现有factory回收的别名。其目标adapter必须在首sink前给出原construction input lots、已耗/剩余构件及固定可回收规则、实际拆解操作/时间/成本、接收/custody权限、原site占用与完成receipt；Kernel逐资源/同单位验 source=returned+declared_loss+remaining，跨材料只沿已批准conversion。没有这一adapter，只能以真实原built或其他原专业已支持的保全路径证明可闭合，不能假定未建成对象可以免费recycle。需要新能力的创建候选在原四阶段给足这种完整图，未知路径在初次准入拒绝。
+
+普通资产移交和地点腾空沿[地点实际处分](location-tenure-and-disposition.design.md#tenure-disposition)。extension scope closed表示它的可执行权、未决effects、费用/hold和原终端义务已终结或已被当前合法独立owner明确接收，不表示physical factory、物料或地点消失。移交必须有receiver同意、真实容量/费用、原责任与source key连续的同根receipt；仍需原扩展执行的工作不能伪装成独立custody绕过单一授权。
+
+若后来丧失必要权限/接收/预算、到D或出现unknown，停止下一不可逆效果，保留真实资产、已sink、占用及明确blocker。初始闭合证明不保证外部条件永不变化；新的合法处理可引用原责任另立有界决定，但不重开旧普通权、不重置原累计，也不授予无限免费保管。原维护/保管若有费用和期限继续显示，缺合法路径如实保持未结。
+
+<a id="extension-ordinary-upgrade"></a>
+#### 5.5.5 续期、授权替代、行为升级和停用
+
+先区分四件事：普通grant续期、同内容授权替代、行为/activation升级、实际资产变更。续期也是当前新决定，不能回填gap；同内容替代关闭旧重叠新工作、结清原执行依赖后，一次CAS改变旧新grant/selector/许可绑定和旧pending disposition。独立历史物品不算未完成执行依赖；相反，unknown attempt、未付计算或仍需旧validator的产出不能从闭包漏掉。原recipe v1继续遵守§5.3的严格先结清规则。
+
+行为或module升级先经适用四阶段、当前technical生命周期和新授权，读取artifact→binding→scope→未结work/实例的完整反向索引。只改变一个产品的grant不能替所有使用同module的工厂批准全局activate。存在仍需旧版本的原工作时，默认先用原有限合法路径结清；没有原[迁移合同](../module/module-lifecycle.md#sr2-migration-publication)支持并逐对象验证的迁移就不切换它的唯一执行依赖。可独立注册但pending的候选没有生产权；把新module_id包装成另一发布不能绕过原slot。
+
+切换前核新activation、当前owner/payer、schema/readers、source/维护/许可、资源及真实物理scope。一次事务共同更新受影响bindings/selectors、合法技术activation/实例迁移、旧请求确定处置、原义务交接/费用与receipt；任何一步失败不留下新code配旧grant、半迁移Profile或旧新同时执行。真正迁移仍须原精确from/to/schema/migration输入和完整预算；本合同不发明通用transform函数或任意旧state拷贝。
+
+Profile内容变化保留旧ID定义并发布新ID；既有factory不因新Profile tier/slots/tags而自动扩容，既有物料不被重命名为新product或重估品级。仅行为版本变化但Profile不变也绑定新因果版本证据。升级完成后旧历史按旧输入/结果可恢复，新请求按当前activation；已确认旧结果不调用新代码重判。停用/销毁影响未完依赖或历史retention时按[共享工件保留](../module/module-lifecycle.md#module-retirement-and-shared-content)拒绝或先有权关闭；不能先移除bytes再声称安全退出。
+
 ## 6. 接口与数据合同
 
 <a id="extension-interfaces"></a>
@@ -157,6 +280,23 @@ normal 是待实现的静态 fixture，真实前置包含四阶段、PPE 发布/
 | `ExtensionScopeViewV1` | 授权投影 → Viewer/API/Agent；当前 scope/期限、来源、最小处置、旧请求结果、成本、blocker 与允许下一步 | snapshot 标注 observed revision/time；陈旧读面不得驱动新效果 |
 
 receipt core 的 canonical commitment 排除自身摘要/签名与外层 finality wrapper，按[既有 SR2 receipt](../wasm/wasm-interface.md#sr2-types)规则区分内容地址与执行身份；wrapper 证明该 core 的 canonical inclusion。不能把本次 block hash 递归放进其自身待确认 payload。exact manifest、schema、plan、request、source revision 与 receipt 引用不能互换。
+
+<a id="extension-ordinary-interfaces"></a>
+### 6.1 普通类型的目标记录与错误合同
+
+以下记录沿 SR2 canonical/schema 规则，都是目标设计，不宣称已存在同名Rust或wire类型。一个稳定lifecycle实例拥有其精确能力范围的当前grant、pending替代和有限work槽；原资产/工业工作仍在原owner，不复制物理账。一个普通阶段最多调用 lifecycle 一次和原许可所需的最多两次制度 invoke；只读零费许可不强行调用。付费 recipe 的原 root/池等双调用不能被压成一个，跨实例升级另按 §9.3 完整调用预算。
+
+| 记录/接口 | 必需内容与生产者 → 消费者 | 单次结果与拒绝 |
+| --- | --- | --- |
+| IndustrialExtensionBinding | 原准入/发布owner → 所有类型adapter；完整§4.3身份、type/facets、Profile/MaterialProfile/spec、行为/validation refs、scope atoms、consumer与closure schema | binding不可覆盖；不同因果版本重新取得证据；未知type/缺来源不猜成builtin |
+| ExtensionUseRecord | lifecycle实例 → 原build/recipe/validation消费者；原work的domain/ref、主体/对象、grant/scope revision、许可、原有限normal/closure图、数量/源片段/目的地、holds、dependency refs、T/L/D和原结果键 | 不替代原work identity；每node/effect role一次消费；parent/alias变更不复制投入或重开root |
+| ExtensionCallAttempt | 受信执行入口 → sandbox/结果恢复；原work/node/call role、exact artifact/activation/input digest、payer/真实上界、attempt ordinal、metering/decision refs和持久判定 | 同key同输入读原结果；不同输入冲突；unknown不再次dispatch |
+| ExtensionEffectStamp | trusted prepare → 原最终reducer；实际producer、binding/grant、原root/node/source量、同cut authority/资源/许可read-set、原plan/decision digest及允许effect | caller传入相同字段不构成证据；最终重验且必须与原payload一致 |
+| PrepareExtensionDisposition / Cutover | 原当前governance与工业owner → Runtime；完整stock/index、原work/数量/费用、每项真正adapter/receiver、first cutoff/remaining、旧新scope与pending处置 | 超限/漏项/unsupported/过时不发布半份；原责任不被错误返回删除 |
+| ExtensionDependencyIndex | 全部真实writers → lifecycle/upgrade/retention；artifact/Profile/slot→consumer/实体/work/attempt/历史执行依赖，精确generation与完整coverage证明 | 缺索引/冲突/无穷扫描不返回“无依赖”；变更与membership同根 |
+| ReadExtensionLifecycle | 权威投影 → 有权三面读者；当前scope/原因/期限、定义/资产/工作分别状态、原费用/已耗/held、pending/unknown、允许下一步 | 只读、固定observed cut和权限；不创建新许可或从读状态续期 |
+
+错误至少区分 missing_binding、authority_unavailable、scope_conflict、definition_or_behavior_mismatch、publication_frozen、expired、effect_restricted、license_unavailable、product_validation_required、construction_authority_changed、stock_incomplete、unsupported_disposition、dependency_in_use、budget_exhausted、source_over_budget、stale_revision、idempotency_conflict、outcome_unknown。返回原operation/work、已确认结果、当前可公开原因及缺项，不泄露私有source/签名。业务拒绝、技术Faulted及持久StatusUnknown分别沿原事务合同表达，不把未知执行写成“安全失败，可重新开始”。
 
 ## 7. 状态、事务与持久化
 
@@ -181,6 +321,19 @@ Runtime 在 immutable base 上读取 world/authority/slot/index/grant/recipe/job
 
 prepared 但未 durable commit 的候选丢弃；durable commit 已确认而响应丢失的请求返回原 receipt；结果未知先按原 request key 查 authoritative outcome。恢复与重启不改变 `first_applicable_cutoff`、deadline、pending successor、scope revision 或已用 call count。当前底座的 store/checkpoint/schema 适配须另行实现和验收；未合入 #5439 的增量存储工作不是本合同已成立的前提或证据。
 
+### 7.3 普通类型的事务、未知结果与恢复
+
+<a id="extension-ordinary-recovery"></a>
+Reserve、Evaluate结果记录和CommitEffect是三个独立的原操作阶段，各有稳定key与durable结果；它们不被包装成一个能回滚已实际计算的跨阶段事务。Reserve成功只有有限占用，未生产；Evaluate只产生实际调用/计量结果；CommitEffect才可以产生相应物理效果。某阶段已提交而下一阶段拒绝时，前者仍是历史事实，剩余资源和原义务按明确处分处理。操作身份由受信原请求、work/node和phase/call role派生，换transport/request别名不能新增业务节点。
+
+每次最终提交通过[统一ExecutionTransaction](../design.md#62-unified-executiontransaction-architecture-p0)，在同一base/authority cut准备当前grant/selector、exact来源、原工业work/量/位置、必要lifecycle/许可state、holds/真实费用、effect与receipt/journal/sequence/outbox，最后CAS所有相关read-set和索引generation。两份相同target的建设、两份产品接收、撤销/到期与完成、升级与旧调用、资产转让与原资金用途都按canonical顺序重验。后者不能使用旧余额/旧scope；非重叠合法范围不被粗粒度业务停机。
+
+同一committed generation保存binding/所有schema与source闭包、grant/index、工作stamp/原物理refs、attempt与原decision/metering、T/D/累计量、hold/费用/消耗键、receipt和完整accepted tail。只有已结束且无原恢复义务的工作可从当前实例有界槽移出；原operation/source消费tombstone、数量与结果ref必须同根进入可验证历史索引并保留原runtime retention，不因腾槽删除去重。old work ref查原结果是有界exact lookup，不重新枚举全history。
+
+普通保存沿[原G1/G2/G3](runtime-storage-footprint-governance.prd.md#storage-generation-g1)：NotCommitted才可丢候选并保留原可写状态；Committed安装或恢复该候选，后续维护失败不撤销；StatusUnknown时整个旧World禁止再发布，使用原operation/候选generation核定后才解fence，不能只把本scope标unknown而让旧全局writer继续。来源缺失、混代、未知schema或索引不完整保持受权诊断，不拼当前cache补旧证明。
+
+Replay只应用原已提交事件和费用/结果，不能调用当前validator/factory模块、重新评估stage或按新价格收费。已有decision只复用原结果；尚无确定decision的attempt先核原durable状态，不能通过换artifact再调用。即使后来取得原late result，后续CommitEffect仍核当前范围、许可、原node剩余量和截止；late result不回填过去effect。恢复后的pending不是历史已完成，技术active/当前新grant不能自动接收缺可信旧stamp的工作。
+
 ## 8. 部署、安全与运行约束
 
 profile 只有在全部消费者、原生 lifecycle adapter、来源/hold/容量/persistence reader 都支持同一版本时才能启用。部署不能只打开 release UI 或某个 API；旧 writer/reader 未识别新 schema 时明确 unavailable。签发、变更、替代由当前原 governance authority；工业 disposition owner 验实际可行性；factory/ledger owner 与实际 payer 分别同意。任何角色只有自己的权限，PPE owner、required roles 或 creator 无权为别人资金、许可、目的地续授。
@@ -190,6 +343,14 @@ profile 只有在全部消费者、原生 lifecycle adapter、来源/hold/容量
 每次开始前，原 owner 明确同意保留该 job 完成所需的 exact validator/source/schema 及 closure 费用到固定期限。artifact active 检查不足以证明未完 job 的依赖安全。artifact ownership revision、当前 payer 身份、资源账户 revision、hold owner/purpose 和收费同意全部进入 prepare/commit 的 read-set。关联 owner transfer、销毁、activation 替换必须同时重验引用与 payer；本首版不支持未完 job 的隐式 payer/validator 迁移，故影响该闭包的变更拒绝或先走有权关闭。已经发生来源漂移则 completion blocked：不从新 owner 无同意扣款，不假装旧 hold 可支付当前第三方账户，不重复释放旧 hold；任何独立合法重准备引用原 attempt/hold/费用 receipt，不能借新 grant 重收。没有未完 stock 时可按原市场/发布规则变更，后续使用重新正向确认新 payer/来源。它不没收 artifact、不冻结无关实例或改变已结历史。
 
 current artifact owner/Agent 缺失时，本 profile 明确失败，不使用现有 metering 的免收费分支。移除扩展文件、换 module ID、恢复旧 snapshot、直接提交 raw Profile/事件或从已失效来源复制同一 plan 都不能创建合法 stamp。可见性遵循原 authority：公开 scope/当前原因和允许下一步，原始签名、私有源包、资产细目仅向有权 reader 提供。
+
+### 8.1 普通类型的部署与依赖保护
+
+启用前同时提供当前admission/许可source、完整scope/work/dependency索引、所有§5.5.2最终消费者、受保护hold、三阶段真实计量、当前schema readers和durable恢复。不能只部署binding API或只堵with-module路径。原governance决定仍来自已授权的工业准入轨道；本合同没有借用许可panel或PPE role作为扩展撤销/申诉authority。现行复查/申诉入口及其管辖ref由原准入记录提供，待决不暂停普通expiry；缺当前权不能执行处分。
+
+开工前各实际artifact owner/payer明确接受精确调用和有限closure费用，必要bytes/reader/activation依赖保留到原工作闭合。owner转让、销毁、upgrade或fee schedule变化必须核未完引用及原同意：不能把旧hold拿去付新owner、让缺owner计量分支免收费，或用提高收费迫使已接受义务无预算退出。需要合法迁移payer时原owner、新payer分别同意，原已花费用保持、未花用途同根交接；否则影响依赖的管理变更不生效。当前非法来源漂移则阻断相关后继并保留原责任。
+
+Pure factory/product只返回bounded decision，不直接I/O、mint、写state或发通用EffectIntent。制度controller的有限resource候选仍需Kernel exact scope/purpose、当前capability和守恒校验；被拒模块输出不能绕final reducer。对原始来源、资产/收款身份和工作细节按原受众授权读取；在返回前再验当前受众，旧缓存不延长可见性。
 
 ## 9. 质量与容量
 
@@ -232,6 +393,37 @@ current artifact owner/Agent 缺失时，本 profile 明确失败，不使用现
 
 J1 在tick18开始并在19闭合；tick20 J2/J3各开始，tick21各闭合。因此 planner/validator 分别最多同tick两次；并发closure始终≤2份，而三次累计调用预算仍全计。若 V 只能支付 planner 之外的一次验证或输出容量不足，下一 start 不能开始；已经保留的 J1 closure 不被新工作挪用。重复请求、断线、重放、换grant和到期不增加材料、输出、剩余call或可退款量。
 
+<a id="extension-ordinary-budget"></a>
+### 9.3 普通类型的完整容量与费用
+
+这是共同工程接收上界，覆盖普通 product/factory、一般受治理 recipe 及其声明的原工业依赖，不是另一个铁锭产品配方或实测 SLA。实际 manifest、原领域规则和本表取更严格者；任一完整对象/调用/写集超限，在首个相关新承诺前整体拒绝，不截取前 N 项冒充全量。扩大工程容量须重新验证完整编码/费用/消费者，不能改变原产品权利或自动扩 grant。
+
+| 对象/处理 | 明确上界 | 完整性条件 |
+| --- | --- | --- |
+| 一次发布与一个lifecycle实例 | 原PPE合计≤50 Profile变更；≤32精确scope atoms；≤4未终结use roots；一个pending替代计划可覆盖其中多个atoms | 所有活跃/待决grants和别名共用原slot索引；attempt未决也占原root，不只数已sink jobs |
+| 每use root | ≤32 normal nodes与≤32已预定closure nodes，合计≤64；≤8材料/资源种类、≤8精确行为/验证依赖；数量用原checked整数与真实容量 | 生产/建设、每个产品validator、原transport/terminal/费用步骤分别入图；循环/无有界终态图拒绝 |
+| 当前编码state | 单实例≤128 KiB；scope条目≤256B、定义ref≤256B、node当前记录≤256B、root header≤1KiB | 32×256 + 50×256 + 4×64×256 + 4×1024 + 16×128 + 16KiB其他头/依赖/hold/计数=106.5KiB；逐条编码限额含字段与容器开销，128KiB是真正总门，不凭估算放行 |
+| 普通三阶段调用 | Reserve/CommitEffect 各≤3个制度 invoke（lifecycle 一次、确需的原许可最多两次）；Evaluate≤1 Pure 行为 invoke；阶段分开提交 | 每节点最多7次实际 invoke，省去的阶段明确未调用；实际只读许可不能凭此报价额外收费 |
+| 控制/升级调用 | 每实例最多8普通控制迁移和8独立保留的撤销/关闭迁移；每迁移≤8个已声明invoke，含实际跨实例决定/迁移/必要hook | 关闭8槽中7槽可作普通关闭，第8槽只给一次最终全实例停新 fence，不能提前消耗；它覆盖该实例全部atoms，不需逐root再取得普通名额。原closure仍按已接受最小权限继续，fence本身不伪造完成。超过8次invoke或有未声明hook不启用该切换 |
+| module输入输出 | 制度单invoke完整input≤256KiB、output≤256KiB（含new_state/emit）、max_effects=1/max_emits=1；Pure单invoke完整input≤64KiB、output≤16KiB、effects=0/emits≤1/no new_state | 所有code/schema/source/proof真实可验证；输出声明不替代executor计量，实际更小manifest限制继续适用 |
+| 读取/事务 | 普通阶段原始+解码+code/proof读量≤32MiB；控制/升级≤96MiB；非code证据≤4MiB；≤512实际源对象、≤2048索引/字段访问、≤256逻辑写项、request≤64KiB、receipt/journal增量≤512KiB | 所有嵌套正/负证据、目录、缺项证明和旧新依赖计入；最多8个实际artifact且每件仍受PPE≤10MB上限；不先全扫再截断 |
+| 时间/并发 | 当前 prepare 普通2s、控制5s有界服务预算，逾时返回 incomplete；4普通准备槽与1控制槽；单 sandbox≤16MiB，制度/Pure 单调用 gas 分别≤2,000,000/1,000,000，每实例每 tick≤16调用并同时服从原 artifact rate | 取实际 manifest 更严格者；这些是工程拒绝门，不是业务时钟宽限。准备 buffer 至多4×32+96=224MiB，五个 sandbox 合计≤80MiB，共304MiB本路径上界；进程其他常驻存储另计 |
+| 原结果与安全尾部 | 2个独立exact-result读取槽，每槽≤1MiB；原closed/unknown恢复和已接受closure具有保留处理份额 | 新请求/失败候选不抢占原结果与安全关闭；队列ACK不表示canonical已受理，不补写旧tick |
+
+最终停新 fence 与原稳定 slot/实例 lineage 同根持久化，不因新 grant ID、alias 或同 slot 重建实例而失效；只有旧执行依赖已合法闭合、原当前 authority 通过明确替代 receipt 转出 selector 后，新独立授权才可执行。原普通控制槽耗尽不影响这份最终停新额度，到期也直接按当前世界时间拒绝，无需清理调用续授。
+
+完整normal/closure图在接受时固定node identity、允许action、前置、费用payer和剩余次数；最坏分支都计入，互斥分支可共享上界但不能同时执行。已消费节点不能换root/版本再收费；新合法工作只有在旧槽/原责任真实闭合后重新接受。独立付费recipe的收益案件/资金/池闭合仍按许可专题的更大预算和存活槽位保持；只有确定移交receipt后才释放本图对应占用，不能在这里将它删掉。
+
+实际事件分派的 subscriber、恢复 delivery、on-register/migration hook 和其他必要同步或派生调用也在完整闭包内。可按原因果合同成为独立后继节点的，预先登记其 node/call identity、权限、资源及有限次数；不能拆为后继的必须计入本次完整阶段/控制调用上限，超限则拒绝该新候选。输出一次 emit 不等于其消费者免费，重放已确认 delivery 不得重新 dispatch 产生第二份业务。最大原工作图必须连同这些调用在其已接受 L/manifest/rate 内有可验证处理能力；只在空闲例中能完成不足以激活。
+
+按[原费用公式](../../../crates/oasis7_runtime/src/world/incremental_module_fee.rs)，u(x)=ceil(x/1024)。制度单 invoke 上界为 Data=256+256+2×1+1=515，Electricity=1+1+1+1=4；Pure 单 invoke 上界 Data=64+16+1=81，预检 Electricity=3（真实正常无 new_state 单 emit 为2）。因此最宽节点六次制度加一次 Pure 为3171 Data/27 E，64节点为202944 Data/1728 E。独立控制保留按16×8次制度调用为65920 Data/512 E；它包含8个关闭迁移，不得挪入新经营。4个最大 root 与一份完整控制预算合计上界877696 Data/7424 E，原生产/建设、物流、维护/保管、补偿及许可净版税另外按自己的原单位和真实金额保护。
+
+本普通零费路线没有需写许可状态时，一个节点实际接收上界可采用两次制度+一次Pure，即1111 Data/11 E；不得为省预算删去真正需要的原许可invoke。数字是完整费用报价上界，实际按每条metering收费，不把上界当已花。完整图引用exact call key；与原许可预算合并时按同一调用身份取一次覆盖，不能重复收/保护同一invoke，也不能将其其他程序/闭合调用漏算。
+
+每个实际payer独立列向量和当前artifact owner/source同意：lifecycle controller、Pure行为、原许可、生产/建设可能是不同主体。先按同一账户合并全部本金/普通执行/保留closure/控制义务再验余额；按原原生资源hold合同保护，所有普通转移、维护、费用和内部writer均不得消费保留款。第一次控制调用前即有可核的当前fee预检与资金授权，不能靠controller自己承诺未来钱。actual收费、费用目的账、原hold剩余和未花释放守恒；unknown无计量不能按零结算，拒绝后的已授权真实计算也不免费回滚。
+
+当前material_stacks_by_ledger、pending集合扫描、名称resolver与普通due尚不证明这些界限。目标adapter按完整key/range和当前索引取精确源，先查条目/字节描述并累计实际预算，后读取/解码；原WASM bytes和迁移依赖也计入code读量。索引/adapter未实现或真实候选无法在预算内处理最大合法已接受图时，相关能力不可激活；文档算术不是性能结果。
+
 ## 10. 兼容、迁移与回滚
 
 本 profile 不从旧无 binding/无 stamp 的 recipe/job 自动补治理权。已提交旧历史按原 record 可读/重放；旧 pending 或未闭合 extension job 缺可信 binding/stamp 时保持 blocked，不能凭当前 module ID、registry、同名 Profile 或缺字段猜成 native 后继续。启用前须由完整旧来源证据和原 authority 支持显式迁移/绑定适配，或保持该工作 blocked 等待原合法处置；本首版不提供自动迁移，也不把未支持的迁移当启用前置已完成。正向确认的原合法 builtin 仍沿自己的 identity/plan/authority 执行，不因新 guard 全局失效。
@@ -239,6 +431,12 @@ J1 在tick18开始并在19闭合；tick20 J2/J3各开始，tick21各闭合。因
 PPE `rollback_stop_new_admission` 继续是精确 artifact 的新准入硬门，[既有 rollback](../module/player-published-entities.design.md#ppe-rollback-disposition)不等于本篇最小退出。rollback TO 也检查当前资格；不同 artifact/recipe、activation 或 schema 的 successor 需原四阶段/兼容/授权，不能只复用 G1 的名字。global active、其他实例和 F2 的合法 scope 不因 F1 决定隐式改变。
 
 回退部署不能读取不懂的 grant/stamp 后按旧开放路径继续；先保留完整 committed generation 与可用 reader，停用新的不受支持执行，继续提供历史查询。已 committed 的授权替代和合法生产不倒写未发生；修正只能另有当前合法决定与关联 receipt。未提交候选可以丢弃，不能回滚真实已确认经济效果或重置 deadline。
+
+### 10.1 普通类型的兼容接收
+
+普通旧Profile、工厂和产品历史继续按原来源可读；没有新binding不能默认把原生资产变成可撤销扩展，也不能把未知旧extension当builtin免验。显式迁移只接收原可证明creation/release/owner/工作/数量和当前合法决定，保存legacy原件与新增绑定的时间；已消费量、验证结果和建成身份不重新生成。缺证明隔离受影响新效果，原无关合法能力继续，不全局封停世界。
+
+新reader和共同final gate先部署，再按原治理激活写入。旧版本不能理解已写schema时只能在其原只读/隔离范围运行，不能从default补active或把pending successor当旧grant。回退只改变后续合法activation，不能删除新代committed Profile/receipt、撤销真实建设/产出或重用retired ID。PPE exact freeze继续独立成立，工业零费/开放也不解除冻结。原技术迁移/历史材料保留由module/persistence合同继续拥有，本次不宣称其实现或跨节点验收完成。
 
 ## 11. 验证策略
 
@@ -256,6 +454,16 @@ PPE `rollback_stop_new_admission` 继续是精确 artifact 的新准入硬门，
 | [AC-GAME-018-12](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-12) | [完整预算](#extension-budget) | 全stock、调用、分payer资源和输出容量有界；新工作不挪用closure预算 | [GEL-M06](../../testing/manual/governed-extension-lifecycle.manual.md#gel-m06)：test_tier_required上限/+1、分payer/closure，test_tier_full真实manifest/容量；同手册GEL-M03提供独立normal总账 | 六次真实I/O/fuel/费用、各owner、生产与hold、输出、scope read/write计数；不得把512当实测 | 工程初值非性能测试 |
 | [AC-GAME-018-13](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-13) | [事务/恢复](#extension-recovery) | 并发、重复、未知提交与恢复保持原结果、单次效果和不可重置期限 | [GEL-M07](../../testing/manual/governed-extension-lifecycle.manual.md#gel-m07)：test_tier_required重复/冲突、test_tier_full各写点故障及generation/tail/重启；固定同一真实存储候选 | before/after roots、原key结果、完整source/stock/holds、无重复收费/产物/续期；unknown先查询 | 不以未合入storage或mock恢复代签 |
 | [AC-GAME-018-14](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-14) | [统一读面](#extension-read) | 同一authority投影解释scope、期限、旧责任、成本、blocked和合法下一步 | [GEL-M08](../../testing/manual/governed-extension-lifecycle.manual.md#gel-m08)：test_tier_full同候选Viewer/pure API/Agent parity与玩家解释；业务前态沿同手册§1 | 三面同scope/revision/原因/成本/下一步，pending/exit_blocked不显示ready或safe stop | 本轮未运行UI、Agent或玩家验收 |
+| [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002) | [普通身份](#extension-ordinary-identity) | Recipe/Product/Factory 内容和当前权利分别有精确来源；仅用既有资产的一般 recipe 仍消费 grant | [GEL-PF01](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-publication)：test_tier_required 的正向类型/别名/当前发布矩阵；按 GEL-PF scope 固定真实三类型候选和前态 | exact bindings、原六态/准入与唯一 scope，缺项/旧批准拒绝差值 | 本轮 S0；不把 builtin 模板当已发布扩展 |
+| [AC-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-002) | [普通当前授权](#extension-ordinary-authority) | 每阶段当前合取；批准后漂移、准备后漂移、边界同 tick 都不能继承权利 | [GEL-PF01](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-publication)：required 全实际发布/激活入口、三阶段时序及独立普通能力控制组 | 原各阶段结果、当前 read-set、零非法生产/发布效果与真实已发生费用 | 正式 producer/适配器未实现时 blocked，不用 fixture 补权 |
+| [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002) | [完整消费者](#extension-ordinary-consumers) | 建设、实际产品接收、一般配方、维护与其他制造均经过共同最终 gate | [GEL-PF02](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-factory)：required 工厂全入口，并以同手册 GEL-PF03 产品矩阵补齐；每个消费者独立前后账 | build start/built、所有 job/订单、maintenance 与产品接收 receipt、无模块/原始事件反例 | 任一未登记实际 writer 不得标整体实现完成 |
+| [REQ-WR-GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010) | [许可消费](#extension-ordinary-license) | 有据零费/开放、原到期与 hard-open；依赖付费 recipe 不按验证/副产物重复版税 | [GEL-PF04](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-license)：required 单根/期限/费用拒绝，full 原付费许可/收益组合 | 原 terms/use、lineage、batch/fee unit、逐源 held/sunk/paid 与释放 | 许可程序沿原 IL 方法，不由本普通类型单次成功代签 |
+| [REQ-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-003) | [普通处分](#extension-ordinary-disposition) | 完整 stock 与 first cutoff，真实建成/拆解/移交才终结，不免费恢复已耗 | [GEL-PF05](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-exit-upgrade)：required 逐类存量和半开边界，full 物流/terminal/第三方组合 | 原数量/位置/损耗、费用、T/L/D、真实 receiver/closure receipt及 blocked | 没有实际拆解/迁移适配器时记录缺口，不假造运行通过 |
+| [AC-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-003) | [普通升级](#extension-ordinary-upgrade) | 原执行依赖齐全后单一原子替代，旧 validator/资料保留，非重叠继续 | [GEL-PF05](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-exit-upgrade)：required 双 successor/并发、全局依赖/原 Profile，full 原合法技术迁移 | 全反向索引、新旧 activation/selector、原 pending处置与唯一 receipt | 无原迁移能力时先闭合，不以新文件名伪迁移 |
+| [AC-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-002) | [普通接口](#extension-ordinary-interfaces) | 原 work/node/call/stamp 防重与精确错误，不可把缺来源转换为 active | [GEL-PF06](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-recovery-budget)：required 跨入口重复/改 payload、缺 schema/来源/索引 | canonical 原键/内容、错误类型、零重复调用/扣减/产出 | 结构存在不证明所有实际 consumer 已消费 |
+| [AC-WR-GR-003](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-003) | [普通恢复](#extension-ordinary-recovery) | NotCommitted/Committed/StatusUnknown 各自处理，整个旧 World fence，replay不复算 | [GEL-PF06](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-recovery-budget)：required 原阶段故障；full 正式 G1 保存/重启/追赶及 late结果 | generation/tail/原结果、完整索引和费用 tombstone；无旧世界继续写/旧权限复活 | 不把文档或未运行故障 fixture 当持久化证明 |
+| [REQ-WR-GR-002](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-002) | [普通预算](#extension-ordinary-budget) | 全normal/closure/控制/subscriber/许可调用按真实payer计费，源读取/状态/并发有硬界 | [GEL-PF06](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-recovery-budget)：required 独立算术/上限+1/分payer；full 最大合法图与干扰并发 | 逐call实际输入输出/费用、完整源读/写集、保留closure和原结果可处理 | 目标初值非实测；更大原许可预算不能被普通图替换 |
+| [AC-GAME-018-06](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#ac-game-018-06) | [普通读面](#extension-ordinary-read) | 相同权限/切点下三面事实一致，定义/资产/当前权/未结费用分别可读 | [GEL-PF03](../../testing/manual/governed-extension-lifecycle.manual.md#gel-pf-product)：full 产品与工厂对照三面；其他 PF 方法同步采集相同观察切点 | 非 owner 受众限制、明确 blocker/期限/原责任与下一步，validation不显示到货 | 本轮未运行 UI/Agent/玩家理解验证 |
 
 <a id="extension-read"></a>
 ### 11.2 玩家与消费者读面
@@ -264,10 +472,21 @@ PPE `rollback_stop_new_admission` 继续是精确 artifact 的新准入硬门，
 
 发布目录、模块 active 图标、工厂生产按钮和Agent建议均消费相同projection；缓存显示observed revision/time，真正操作仍重验。读面可建议补证、缩小未来范围、查询原结果、明确重提、等旧工作关闭后替代或选择独立合法builtin路线；不能把建议自动改成新授权/新请求。未知权限、持久化或最终提交结果按unknown展示，而非“可重试即会成功”。
 
+<a id="extension-ordinary-read"></a>
+### 11.3 普通类型的玩家读面与完成边界
+
+同一read anchor分别呈现content/Profile、技术publication/activation、当前grant/许可、实际物品/设施、原work/attempt/费用和退出/替代。至少给出确切允许effect/对象、期限/首次截止、独立资产保留、已sink/未用/held/已付、真实blocker、待决请求原结果，以及等待原结果、当前补证/复查、明确重提、合法原处置或独立路线。厂已建不等于所有持续扩展权仍在；validator接受不等于货已产生；stop-new-admission不显示已停现存设施。
+
+发布者、使用者、资产owner及审阅者按原受众分别取数，返回前校验权限。相同来源在Viewer/API/Agent可有不同排版但不能不同事实；旧目录/quote附observed revision/time，实际操作仍fresh。原复查/申诉只进入其真实管辖，不承诺自动宽限、免费新版本或消失的损失。
+
+本次结束条件是原GR-002/003/010的普通类型义务与每条实际consumer、normal/负例、有限资金和恢复边界有可导航的设计/方法。实现结束另须同候选正式producer、全部final gate、真实调用/账本/收尾、持久故障及三面理解证据。普通类型和一般recipe的原专业合同组合后覆盖本段正向M4集合；未提供新效果/adapter的未知创作仍按原产品允许的明确不支持处理，不能把当前缺少某个已列consumer写成产品非目标。
+
 ## 12. 决策、权衡与风险
 
 首版选择单recipe/artifact、有限工厂、本地完成和先闭合后替代，换取可列全的工作/费用/权限闭包。代价是不能在旧WIP未结时无缝迁移，也不能把通用六类动作词当成已有能力；真实玩家仍能保留F2生产、在F1合法收尾后换授权，或在失败原因可见时停止扩张。
 
 稳定slot而非版本决定重叠，使换ID/domain不能逃避限制；代价是原authority必须提供跨domain一致的能力来源与可验证索引。四tick处置、一次validator attempt和预留预算限制新风险；它不保证在所有合法目的地/authority同时失效时强制完工。`exit_blocked`保留可核查责任是必要结果，不能用无限宽限或伪退款隐藏。
 
-实现顺序必须闭合：原来源/schema与selector producer → 有界当前解析 → publication/activation与recipe双重守卫 → 所有due/最终完成 → 费用/依赖保护 → durable generation与恢复 → 三面读面和同候选手册。任一关键消费者不支持时，profile保持不可用。未覆盖的物流、转换、不同artifact迁移、收费许可或更大scope，继续由原专题和后续独立组合设计承接；本文件不改变其产品状态，也不宣称#5409整体完成。
+原 exact recipe 实现顺序必须闭合：原来源/schema与selector producer → 有界当前解析 → publication/activation与recipe双重守卫 → 所有due/最终完成 → 费用/依赖保护 → durable generation与恢复 → 三面读面和同候选手册。任一关键消费者不支持时，该 profile 保持不可用。它未覆盖的物流、转换、不同 artifact 迁移、收费许可或更大 scope，采用本次共同合同与原专业完整合同组合；不能仅凭这个窄算例代签，也不能把本次共同合同尚未实现的消费者继续改称未采纳。本文件不宣称 #5409 整体完成。
+
+普通类型选择不可变定义、准确facet和三阶段真实调用，代价是升级必须等待完整旧依赖结清或取得原专业迁移证据；它避免将创建者授权误当独立资产所有权。共同工程容量允许不同product/factory内容沿同一合同接入，不把例子中的资源/validator或首版2工厂上限复制成所有内容规则。当前最大风险是writer/index漏项、直接/自动路径丢失stamp、跨scope全局activation以及预算缺真实payer；这些都有对应拒绝门和独立方法，不能靠更多文档profile规避实现义务。
