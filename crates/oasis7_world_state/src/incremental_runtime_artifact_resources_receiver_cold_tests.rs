@@ -187,3 +187,6 @@ fn runtime_artifact_resources_cold_rejects_wrong_delta_variant_tag() {
 
 #[path = "incremental_runtime_artifact_resources_receiver_general_tests.rs"]
 mod general_tests;
+
+#[path = "incremental_runtime_artifact_resources_current_manifest_tests.rs"]
+mod current_manifest_tests;

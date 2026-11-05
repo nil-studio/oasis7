@@ -99,6 +99,30 @@ where
     }
     Ok(())
 }
+/// Revalidate a genuine source against this transaction's actual Current
+/// pointer. This creates no new source or qualification; unrelated transaction
+/// contributions do not invalidate an unchanged order branch.
+pub fn validate_current_agent_orders_v1<M, R, E, C>(
+    source: &ReservedValue<CurrentAgentOrdersV1>,
+    ctx: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let result = validate(source, ctx, guard, live);
+    if result.is_err() {
+        let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+            ctx.transaction.contribute(|_| {
+                Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+            });
+    }
+    result
+}
 /// Read the actual Current outer pointer, then validate only its changed typed
 /// closure against the complete parent. No whole-map DTO is retained.
 #[allow(clippy::too_many_arguments)]

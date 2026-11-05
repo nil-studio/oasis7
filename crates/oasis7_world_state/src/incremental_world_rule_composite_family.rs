@@ -361,5 +361,5 @@ pub use orders_current::{
     AgentOrderDirectoryWorkV1, CurrentAgentOrderIndexV1, CurrentAgentOrdersV1,
     bind_current_agent_orders_v1, collect_changed_agent_order_ids_v1,
     collect_parent_agent_order_ids_v1, read_current_agent_order_index_v1,
-    read_current_agent_order_v1,
+    read_current_agent_order_v1, validate_current_agent_orders_v1,
 };
