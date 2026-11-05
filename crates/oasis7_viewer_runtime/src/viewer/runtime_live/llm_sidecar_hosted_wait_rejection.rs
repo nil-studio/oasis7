@@ -418,10 +418,9 @@ impl RuntimeLlmSidecar {
                 {
                     return Err("restored rejected Wait local state is not absent; fenced".into());
                 }
+                let digests: Option<[String; 5]> = None;
                 #[cfg(any(test, feature = "test_tier_required"))]
-                let digests = Some(native.rejected_wait_test_ledger_digests());
-                #[cfg(not(any(test, feature = "test_tier_required")))]
-                let digests = None;
+                let digests = digests.or_else(|| Some(native.rejected_wait_test_ledger_digests()));
                 persist(digests)
             } else {
                 #[cfg(any(test, feature = "test_tier_required"))]
