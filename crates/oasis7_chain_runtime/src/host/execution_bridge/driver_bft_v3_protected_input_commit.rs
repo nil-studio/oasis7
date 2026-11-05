@@ -176,6 +176,11 @@ impl NodePrivateStore {
             .map_err(|e| e.to_string())?;
         let proof =
             ReservedSourceInputV1::from_observation(binding, role, &reference, &fact, &reserved)?;
+        // The successful exact Reserved readback confirms that the original
+        // backend owns this Input. Release only its temporary ingress encoding;
+        // later WAL/Ready failure resumes through the authorized original reader.
+        // Unknown Reserve or failed readback above must retain that encoding.
+        io.clear(&reference)?;
         Ok((plan, reference, fact, proof, None))
     }
 }
