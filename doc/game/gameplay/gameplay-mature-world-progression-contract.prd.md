@@ -1,8 +1,8 @@
 # 成熟世界小玩家成长合同
 
 - 上层产品映射：本合同承接 `doc/product/world-rules-core-gameplay/mature-world-progression.prd.md` 的成熟世界产品承诺与 `doc/game/prd.md` 的 `PRD-GAME-015`。
-- 产品叶子入口：[`REQ-WR-MW-001`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；生产目标恢复比较承接 [`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002) / [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)；认可/机会专业叶子另承接 [`REQ-WR-MW-004`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)。本文保留成熟世界 lane、checkpoint、专业化、认可/机会玩家动作、生命周期、失败恢复与专业验收语义。
-- 主题 authority：本文件拥有 generic recognition/opportunity 的 mature-world 适用性、事实/审核、作用域/用途/期限、预览/待决/receipt、重验、失效/复核/恢复与 anti-abuse 详细玩法语义，同时保留成熟世界 lane、checkpoint、专业化与恢复选择；不覆盖产品承诺、runtime schema、数值或 Viewer 布局。
+- 产品叶子入口：[`REQ-WR-MW-001`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；生产目标恢复比较承接 [`REQ-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002) / [`AC-WR-MW-002`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)；认可/机会专业叶子另承接 [`REQ-WR-MW-004`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-004)；有界经济审计承接 [`REQ-WR-MW-005`](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)。本文保留成熟世界 lane、checkpoint、专业化、认可/机会玩家动作、生命周期、失败恢复与专业验收语义。
+- 主题 authority：本文件拥有 generic recognition/opportunity 的 mature-world 适用性、事实/审核、作用域/用途/期限、预览/待决/receipt、重验、失效/复核/恢复与 anti-abuse 详细玩法语义，同时保留成熟世界 lane、checkpoint、专业化与恢复选择，并定义经济审计的范围、结果解释与专业验收；不覆盖产品承诺、runtime schema、数值或 Viewer 布局。
 - 可变执行状态：对应 GitHub Project task 与 issue evidence comments；当前实现完成度不得由本合同单独宣称。
 
 ## 2.9 成熟世界中的小玩家成长线
@@ -342,3 +342,135 @@ Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；声明：[REQ-WR-MW-00
 承接：[正式消费者与证据边界设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-consumers)；方法：[RO-08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-08)。
 
 本叶子的细节验收不改变产品分册的非目标：不新增首局认可或经济旁路，不拍数值，不把 generic recognition 变成治理/资产 authority，也不替代 CR/FI/GR 专题或任何专业实现与验证结论。
+
+<a id="prd-game-015-mature-world-economic-audit"></a>
+## 2.11 同候选经济审计与治理影响解释
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+当玩家、治理参与者或 QA 需要判断“一段世界历史里，资源去了哪里，政策改变了什么”时，只看库存上涨、某次发行告警为空或一次长跑成功不足以回答。本节要求把实际资源变化、原规则和治理效果放在同一候选、同一完整窗口中核对，并说明读者还不能据此判断什么。原 [OC 内部审计](../../../crates/oasis7_runtime/src/world/main_token_economy_audit.rs)与 [longrun 判定](../../../crates/oasis7_runtime/src/world/operability_release_gate.rs)提供真实但有限的子结果；下面是目标专业合同，不把这些子机制写成已经接通的成熟世界审计入口。
+
+### 2.11.1 首版范围与读者动作
+
+首版 `native_economic_window_v1` 选择一个有界的原执行窗口：核对 native 生产及零距离材料转移的非 levy 资源变化，并将 OC 的原发行、财库分发、转账及相关政策效果作为另一组独立单位核对。耐久、可生产状态等原规则导致的能力变化也在窗口内保留，不能因为资源余额未变就跳过。具体事件、账本、适配器、公式和预算由[系统设计](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-identity)唯一规定，受控算例由[验收手册](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-01)给出；算例输入不改变正式世界参数。
+
+读者先选定要核对的候选、世界/分支、完整起止切点及资源/账本范围，再检查实际覆盖和缺项。只有范围内证据充分，才能读到“本批输入在何处消费、产物进入哪个账本、转移由谁收取、发行和财库付款各改变了什么”；若证据不全，则先看到无法解释的类别、已知事实和可行的补证出口。范围选择不授权读取他人私有余额，也不触发新的生产、征费或治理。
+
+| 首版核对对象 | 读者应能判断的结果 | 继续保留的边界 |
+| --- | --- | --- |
+| 原生产与材料转移 | 区分投入已消费、生产待决/完成与实际收料/产出账本；生产完成和最终交付分别说明，转移不重复计为全域新增产出 | 建厂、生产或转入不自动满足原目标、区域需求或认可条件；仍以那些原 authority 的真实结果判断 |
+| OC 政策、发行与财库分发 | 区分政策被接受、适用发行索引、实际发行、财库转出及接收方余额变化；原转账不增加总供给 | OC 与 Electricity、Data、材料保持独立单位，不折算为世界购买力、玩家成长或治理权 |
+| 原耐久与生产能力变化 | 说明窗口内能力为何下降或受限，以及它与原生产/时间推进的关系 | 不能只看材料余额平衡就声称能力无损、生产可持续或经济长期健康 |
+
+同一窗口若出现会影响上述资源、账本、能力或治理解释的其他写入，必须纳入已支持的来源闭包；尚未适配时明确阻断相应审计结论。不得通过删事件、缩小已声明范围或选择未受影响账户隐藏异常。只支持局部范围时，报告保留这一范围，其他资源、组织、地区、长期窗口和跨节点组合不会随之通过。
+
+### 2.11.2 分账、来源与关键变化
+
+每一种材料与资源分别核对期初、期末、真实形成、消耗、内部转移、结算和损失，并保留所有者与实际账本。生产是按原配方发生的不同材料变化，不把不同材料数量直接相加；Electricity/Data 资源账与同名材料、OC 账户与财库也不能混成一笔。请求、报价和计划中的数量不进入实际变化。WIP、在途、escrow、受保护余额和已结算持有量按原权威区分，不能将同一批资源同时算作自由库存和待交付资产。
+
+来源既要解释正向产出，也要解释已发生但没有形成产出的消耗、转出和损失。例如原生产启动已经消费输入，随后完成或产物验证失败时，只能按实际事件解释期末状态，不能为了配平补造产物、退款或补偿。全域内一次转移的两端可以分别解释账户变化，但不能重复算成全域新增与销毁。
+
+关键变化以起止状态及窗口内真实执行为依据，至少覆盖所选 profile 的资源变动、能力变化和政策生效结果。比较原指标时保留其公式、分母、时间范围、阈值来源、取整或钳制含义；累计指标不能改写成窗口流量，发行请求中的 `epoch_index` 不能当作 World 当前时间或正式候选窗口。旧报告的零值或空告警只有在来源证明相应事实时才有“没有发生”的含义；零发行需要完整范围的无事件依据，不能由缺记录的默认零推断。
+
+### 2.11.3 治理决定与实际经济后果
+
+审计应沿原机制读取提案/授权、原接受结果、实际采用政策及执行事件，说明是谁按哪项有效规则改变了哪些资源、资格、成本、义务、权限或替代路线。政策被批准、被安排生效、被执行使用及资源实际变化分别表述。首版正常对照应展示：政策变化前后按各自适用规则发行、财库向明确接收方分发、个人之间转账，以及它们对供给、流通和各账本的不同影响。
+
+只存在批准记录不证明所有申请内容已执行，执行 receipt 也不证明更广泛的宪制或法定治理已通过。审计只在原接受机制的实际范围内说明授权和效果；申请参数、实际处理时间与生效索引分别核对，历史授权不能推断为当前可再次执行的权利。需要解释的批准、适用规则或实际效果缺失时，保留缺口，不按余额变化反推一项不存在的治理决定。
+
+审计不代替原事件产生者补充扣费主体或资金来源。若原费用记录只有金额/供给/财库变化而没有可核对的付款账户及配对写入，不能把它包装成完整现金流，不能从“供给减少”反推出某玩家已经付款。缺失付款来源/配对的缺口与已取证账本能证明的不平分别记录；账户闭包完整且已证明残差不为零时必须保留异常，不能因缺少付款来源而将已知异常降为未知。
+
+### 2.11.4 结果、失败与继续方式
+
+报告分别呈现“声明范围内核对完成”“证据不足，暂不能判断”和“已发现可定位的异常”。核对完成表示来源覆盖、账目和已声明解释在该范围内成立，不表示资源分配公平、玩法平衡、没有其他滥用或世界长期健康。完整来源下发现的异常继续是异常；缺失或冲突的来源不能用其他正常子项抵消。具体 `blocked/hold` 或窄结论由消费入口沿原合同表达，不新增世界 Action 准入门禁。
+
+读者应能从异常回到原事实、受影响范围和下一步：补齐指定来源、核对冲突版本、联系原权限 owner，或只使用已证明的窄结论。无权取得材料时显示允许披露的缺失类别，不能泄露他人余额、身份关联或隐藏请求。未知结果先核对已有审计任务和已保存结果；不自动重做世界操作、重新结算或改变窗口来得到更好结果。
+
+### 2.11.5 有界读取与补证恢复
+
+审计请求只消费当前读权允许的来源，在明确的记录、字节、证明、时间和并发预算内工作。达到上限时说明尚未覆盖部分及合法继续方式；不得截断后仍报告完整，也不以审计名义无界遍历历史、复制完整 World 或持有无限缓存。分段读取只有在同一窗口、完整性和去重条件都可核验时才能合并，隐藏或无法取得的部分仍算缺口。
+
+补证重核保留原候选、世界/分支、窗口、范围及历史结论，关联新增的权威材料并明确哪些缺口得到解决。缺失材料无法取回时保持原限制；换用新候选、窗口或范围时形成可区分的新核对，不覆写旧异常。读取被取消、进程重启或历史恢复不授权再次产生业务效果，也不恢复已撤销的读权。
+
+### 2.11.6 实际消费者与完成边界
+
+正式审计消费者必须读取同一份有来源的范围、结论、异常与恢复关联；玩家可读解释、QA 核对和发布 evidence 输入不能各自重新计算出相互矛盾的“正常”。界面或 API 接收请求、生成文件、原 OC 告警为空和单次组件测试均不足以证明该消费者已采用完整合同。报告只能证明其实际证据层，原 S8/S9/S10、跨节点/恢复、真人理解与公开 claim 仍须适用的同候选组合证据。
+
+本节不新增货币、收费、补偿、制裁、授权或统一发行开关，不修改原指标阈值。有限窗口及受控 fixture 用于验证来源和核算，不能独自宣称长期经济、MW-005 整卡或发行通过。正式实现、运行与玩家证据按原产品状态维护。
+
+<a id="economic-audit-acceptance"></a>
+### 2.11.7 专业验收
+
+下列八项分别承接原产品验收，正常、拒绝与恢复都以所声明的同一候选和来源范围判断；只通过任一子项不能代签其余项。
+
+<a id="ac-ea-01"></a>
+#### AC-EA-01 候选、窗口与覆盖完整
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+给定固定候选、世界/分支、起止切点和资源/账本范围，审计必须证明初态、完整窗口写入、终态与所用规则来自同一组合。漏事件、未知 writer、混用 root/版本、仅有截断 journal 或缺覆盖水位时，不得报告范围完整；原发行索引不能替代这些身份。无关范围正常不能掩盖所审范围缺口。
+
+承接：[身份与完整窗口](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-identity)；方法：[EA-01](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-01)。
+
+<a id="ac-ea-02"></a>
+#### AC-EA-02 非 levy 分账与资源变化可复算
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+给定原生产、材料转移和独立 OC 账本，按原单位/所有者分别重算期初、形成、消耗、转移、损失及期末，并与实际状态相符。原真实非 levy 效果不可由 OC 报告代签；不同材料不能直接抵销，内部转移不能重复创造全域资源，待决或被占用量不能充当已结算自由余额。缺付款账户/配对写入不得补造完整扣费链。
+
+承接：[来源与分账核算](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-accounting)；方法：[EA-02](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-02)。
+
+<a id="ac-ea-03"></a>
+#### AC-EA-03 关键变化和原指标具有准确含义
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+正常样例须解释实际生产、材料转移、能力变化和政策前后经济结果；余额变化为零的原耐久/能力写入仍要说明。指标名称、公式、分母、适用窗口、取整/钳制与阈值来源可追溯，累计数、预测数、发行索引与窗口流量不混用。缺记录或零采样不能被读为“没有异常”，未执行的政策效果不能记作变化。
+
+承接：[变化与指标解释](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-changes)；方法：[EA-03](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-03)。
+
+<a id="ac-ea-04"></a>
+#### AC-EA-04 治理影响连接原授权与实际效果
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+同一窗口中，原批准/授权、政策适用边界、实际发行/财库分发及受影响账本可相互核对；申请、原接受、已安排生效与真实效果分别报告。正常例和“获批未执行、执行被拒绝、治理来源缺失”的对照应得到不同解释，不按余额倒推授权、不把旧 helper 状态或局部执行推成更广的治理合法性，也不由审计触发再次执行。
+
+承接：[治理实际影响](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-governance)；方法：[EA-04](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-04)。
+
+<a id="ac-ea-05"></a>
+#### AC-EA-05 缺证和异常不能由局部正常抵消
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+来源缺失、冲突、过期、不适配及可定位的核算异常必须分别保留。OC 正常但材料异常、单节点/单专题/短时正常、应有的 epoch 记录缺失或只有生成文件等对照均不能得到完整通过；窄结论明确其资源、账本和窗口，不暗含未覆盖部分正常。阻断的是相应审计/claim 结论，不新增原游戏行为的限制或惩罚。
+
+承接：[结论与失败分类](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-verdict)；方法：[EA-05](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-05)。
+
+<a id="ac-ea-06"></a>
+#### AC-EA-06 来源读取有界且服从当前读权
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+给定正常预算、超限、来源分页及读权撤回的对照，所有读取和中间结果均受已声明预算与当前权限约束；超限或覆盖不完整时明确停止或按合法同窗口分段继续，不能截断成功、隐式全历史扫描或泄露隐藏主体。读取与解释不调用会产生新经济效果的业务动作。
+
+承接：[权限与工程预算](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-budget)；方法：[EA-06](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-06)。
+
+<a id="ac-ea-07"></a>
+#### AC-EA-07 补证与恢复保留原身份和缺口历史
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+缺证、取消、重启或结果未知后，先恢复原核对及已知结果；补证只在原候选/窗口/范围下重核并关联旧缺口，撤回的读权仍有效。换候选或窗口必须区分为新的核对；原材料不可得则保留未核验，不能静默补零、覆写异常、重做原生产/转账/治理或产生新的 release verdict。
+
+承接：[补证与持久恢复](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-recovery)；方法：[EA-07](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-07)。
+
+<a id="ac-ea-08"></a>
+#### AC-EA-08 正式消费者保留证据层级与全域边界
+
+Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5；声明：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)；产品验收：[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。
+
+同一报告经正式读取/导出、QA 及适用解释入口消费时，身份、范围、事实、异常与下一步一致且可回到来源；receipt、UI 状态或文件生成不替代其真实采用证据。首版单窗口、受控输入、内部 API、单节点与局部指标结果分别说明，未取得适用的 S8/S9/S10、恢复、跨角色和公开 claim 组合证据时，不宣称 MW-005 完整审计、长期健康或发行通过。
+
+承接：[消费者与组合边界](../../world-runtime/runtime/mature-world-economic-audit.design.md#economic-audit-consumers)；方法：[EA-08](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-08)。

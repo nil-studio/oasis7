@@ -37,6 +37,7 @@
 
 - [同目标生产恢复比较](gameplay/gameplay-mature-world-progression-contract.prd.md#production-recovery-comparison)、[Runtime 设计](../world-runtime/runtime/production-recovery-comparison.design.md)及[验收手册](../testing/manual/production-recovery-comparison-acceptance.manual.md)：以原目标和真实阻塞比较 repair/rebuild/pivot 的可行性、成本与价值；目标改写、未支持和未知分别表达，不把现有单配方 quote 当完整恢复。
 - [有界认可与有限机会政策](gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-recognition-opportunity)、[Runtime 设计](../world-runtime/runtime/recognition-opportunity-settlement.design.md)及[验收手册](../testing/manual/recognition-opportunity-acceptance.manual.md)：从真实本地交付和显式审核进入一次有限物流机会，核双人竞争、连续授权、同域容量及实际运输；失败方保留普通独立路径，目标协议仍待实现。
+- [成熟世界经济审计政策](gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-mature-world-economic-audit)、[Runtime 设计](../world-runtime/runtime/mature-world-economic-audit.design.md)及[验收手册](../testing/manual/mature-world-economic-audit-acceptance.manual.md)：同候选/完整窗口内按资源与账本核非 levy 生产、转移和 OC 发行/财库分发，解释治理实际影响、缺证与异常；有限首版和原内部报表均不代签完整长期健康。
 
 - [内容制作范围、来源与成本](gameplay/content-production-and-rights.design.md)与[核对手册](gameplay/content-production-and-rights.manual.md)：统一已有内容的计数、权利资料、源与交付关系、变更传播及角色成本；复用原内容 authority，不从文件数推定完整游戏或生产能力。
 - [有限检查点供能服务政策](gameplay/gameplay-checkpoint-power-service-contract.prd.md)：个人供需双方的 Electricity/Data 服务条款、部分履行、修复、结清、争议与显式继受；执行由 [Runtime 履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接，不代表当前已启用。

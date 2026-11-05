@@ -46,6 +46,7 @@
 
 - [生产目标恢复比较验收](manual/production-recovery-comparison-acceptance.manual.md)：同一目标与前态下独立计算真实候选、时间/资源和保留价值，核当前权限、目标变更、未知恢复、有限读取及玩家判断；原动作和正式入口分别取证。
 - [认可与有限机会验收](manual/recognition-opportunity-acceptance.manual.md)：成熟阶段和原交付、当前审核授权、完整竞争集合、单次机会与真实物流使用、普通容量旁路、失效和未知恢复；静态方法、目标协议与正式消费者的证据分别保留。
+- [成熟世界经济审计验收](manual/mature-world-economic-audit-acceptance.manual.md)：同候选/完整窗口的原生生产、转移、OC 发行与财库分发独立复算，核治理影响、缺证/异常、读权与预算及补证恢复；区分原内部计算、目标审计消费者与全域长期证据。
 
 - [工业创建四阶段验收](manual/industrial-creation-simulation-and-admission.manual.md)：同输入模拟、试点预算/退出、当前准入和原请求恢复。
 - [有限许可与版税验收](manual/industrial-license-and-royalty-settlement.manual.md)：真实批次、托管、通知与最小保全、累计整数分配及开放。
