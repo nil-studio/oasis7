@@ -293,6 +293,7 @@ pub mod incremental_world_native_complete;
 pub mod incremental_world_raw_complete;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_result_router;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_result_router_accepted;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_rules_family;

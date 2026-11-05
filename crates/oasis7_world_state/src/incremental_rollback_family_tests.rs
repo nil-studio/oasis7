@@ -341,3 +341,6 @@ mod recovery;
 mod large_delta;
 #[path = "incremental_rollback_family_transition_tests.rs"]
 mod transition;
+
+#[path = "incremental_rollback_family_foreign_tests.rs"]
+mod foreign_domain;

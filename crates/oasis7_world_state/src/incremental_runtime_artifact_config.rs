@@ -644,7 +644,10 @@ pub use json::{
 };
 #[path = "incremental_runtime_artifact_config_selected.rs"]
 mod selected;
-pub use selected::{ArtifactConfigSelectedBodyRequestV1, open_artifact_config_body_overlay_v1};
+pub use selected::{
+    ArtifactConfigSelectedBodyRequestV1, open_artifact_config_body_overlay_v1,
+    require_empty_artifact_registry_overlay_v1,
+};
 #[path = "incremental_runtime_artifact_config_module_read.rs"]
 mod module_read;
 pub use module_read::{

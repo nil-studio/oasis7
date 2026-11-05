@@ -6,8 +6,11 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 
 #[path = "incremental_world_native_read.rs"]
 mod read;
+#[path = "incremental_world_native_selected.rs"]
+mod selected;
 #[cfg(test)]
 pub(crate) use read::{read_body_v1, recover_world_native_record_v1};
+pub use selected::recover_gameplay_policy_overlay_v1;
 
 pub(crate) enum WorldNativeKeyRefV1<'a> {
     Unit,

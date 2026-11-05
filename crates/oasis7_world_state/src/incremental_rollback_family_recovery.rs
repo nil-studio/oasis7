@@ -205,6 +205,14 @@ pub fn recover_rollback_controls_v1<M: MerkleNodeReader, R: ValueNodeReader, C: 
         .visit_entries(
             roots.state_root(StateNamespaceV1::Authorization),
             |entry| -> Result<(), ValueTreeError> {
+                // This namespace also contains independently registered raw
+                // Agent keys (including absent IntentPresent). This owner
+                // proves only the three rollback fields; the complete router
+                // remains responsible for every other domain. Keep malformed
+                // generic v1 keys strict, including a damaged NUL separator.
+                if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1") {
+                    return Ok(());
+                }
                 let key =
                     WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
                 if key.owner != FieldOwner::Runtime {

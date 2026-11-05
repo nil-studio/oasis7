@@ -182,6 +182,24 @@ fn native_all23_scope_qualifies_replays_and_selects_original_value_without_gener
                 .unwrap();
         }
     }
+    // The parent still contains the old policy: the current getter must read
+    // the transaction entry written above before any after-root is sealed.
+    let current = recover_gameplay_policy_overlay_v1(
+        &mut transaction,
+        &live,
+        &mut context(
+            &memory,
+            &pages,
+            roots.state_root(StateNamespaceV1::Business),
+            &mut quota,
+            &mut keys,
+        ),
+        &mut scan(),
+        &mut work.typed,
+    )
+    .unwrap();
+    assert_eq!(current.value().value().electricity_tax_bps, 65123);
+    drop(current);
     let guard = transaction.guard();
     let prepared = transaction.seal(&guard, &live, 1).unwrap();
     for node in &prepared.new_nodes {
