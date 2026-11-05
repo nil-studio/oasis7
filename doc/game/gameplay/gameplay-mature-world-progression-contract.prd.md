@@ -36,6 +36,8 @@ Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；声明：[`REQ-WR-MW-0
 
 以下专业条款落实其中一个完整切片：首次持续能力之后，一个仍有效的生产目标被真实输入、能源、设施、站点或物流前置阻断时，玩家在同一目标和同一来源时点比较恢复方案、选择下一步，并在原执行结果后判断是否恢复。`repair / rebuild / pivot` 是方案分类，不是新增世界 Action。比较不会修复工厂、创建资源、冻结价格、替玩家选择或授予新的机会。一般据点攻防、组织站队、系统性危机恢复项目与尚无专业能力的迁移/改造不由本切片补齐；MW-002 的总体状态继续按其完整适用范围记录。
 
+当前已采纳交付目标和路线失效另由[成熟交付恢复组合](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-delivery-recovery-comparison)与[来源适配](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-recovery-source-adapters)接收原需求、服务、运输与未结义务；[组合方法](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-08)核同目标正常分叉及失效恢复。冲突、区域危机和一般经营损坏继续使用[原损坏恢复](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-recovery)及其方法，不由生产比较重复定义。各组合保留原目标的交付条件、旧已完成量/在途/费用和原提交结果；不以换方案自动取消或重放旧动作。
+
 | 依赖权威 | 本比较复用的边界 |
 | --- | --- |
 | [M4 报价账本](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#industrial-quote-ledger-semantics)与该文件的“工业方案成本与价值归因合同” | 实际消费账本、逐材料净缺口、原电力/材料规则、`planned / admissible / committed / actual` 与成本/价值归因；世界或其他主体的余额不能清除本工厂的缺口 |
@@ -175,6 +177,8 @@ Viewer、pure API 与 Agent 对同一允许披露范围给出同义比较，未�
 每个 small-player lane checkpoint 还必须展示 `leverage_checkpoint_summary`：`checkpoint_id`、`previous_leverage_class`、`new_leverage_class`、`new_option_unlocked`、`regional_usefulness_delta`、`recovery_resilience_delta`、`negotiation_position_delta`、`same_loop_repeat_count`、`grind_risk_reason`、`recommended_next_branch`、`leverage_checkpoint_class`。该 summary 需要将结果归类为 `new_option_unlocked / resilience_improved / negotiation_position_improved / regional_usefulness_increased / grind_only`；如果只展示 throughput、库存或同一产线重复执行，而没有新选择、恢复弹性、议价位或区域用途，不能判定为 small-player lane progression。
 
 - 中期新增产能必须先给出 `expand_capacity_preview`：玩家比较 `add_parallel_line`、`upgrade_existing_line`、`stabilize_before_expand` 与 `defer`，并看到当前需求、输入/电力/物流可达性、预期新选择或区域用途、承诺/暴露的机会成本和回退动作。成功收益是打开不同的产能或服务路线；容量、权限、输入或电力不足时不得静默扩张、透支现有产线或伪造吞吐，玩家可修复、降载、等待或改道。preview 只读、不生成免费产出/重复里程碑；正向只形成一次可归因能力变化，负向/重连/replay 保持原产能。详细的已建工厂能力升级、重配置与退役选择见 [工厂能力生命周期合同](./gameplay-industrial-factory-capability-lifecycle-contract.prd.md)，仅在 profile 支持时表达且不改变本行扩容语义；该补充不冻结容量/产率/物流公式、状态机或当前实现声明。
+持续交付、扩容及上述 checkpoint 共同由[成熟成长组合](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-continuing-growth)和[有限来源预算](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-growth-composition-budget)承接，采用已有服务、工厂能力和有界机会的真实 authority，不由成长读面发放资源、许可或机会。正常和失效的独立方法见 [MRC-M09](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m09) / [MRC-M10](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m10)。一笔供给、一次服务、扩容完成与有限影响分别沿原效果核实，不能通过换订单或标签清零重复历史。
+
 这里所谓 `protected first industrial win`，保护的不是“不会被碰”，而是：
 
 - 早期 footprint 小，不应一开始就与 major-power 主战略面重叠。
@@ -350,6 +354,22 @@ Viewer、pure API 与 Agent 对同一允许披露范围给出同义的需求、�
 Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；唯一声明仍在上述产品要求。
 
 本合同拥有玩家可操作的认可/机会循环、结果边界、失败恢复和可玩性验收；产品分册仍拥有玩家承诺与适用条件，runtime、Agent、Viewer/API、blockchain 与 QA 保留各自的状态、实现和证据 authority。下述首版只冻结地方交付认可及一次物流机会的专业政策与有限竞争规则，不制定全世界工业分配参数、费用或容量数值、runtime/API/schema 字段或 UI 布局。[系统设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md)与[专用验收方法](../../testing/manual/recognition-opportunity-acceptance.manual.md)承接实现义务；这些目标合同不宣称当前实现或发行已就绪。
+
+<a id="recognition-adopted-consumers"></a>
+### 已采纳用途与专业接收
+
+Trace refs: O7-REQ-33e8fa74-7e9d-45ae-82e9-93274f84f026；承接 [AC-WR-MW-004](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-004)。
+
+本专题接收下表中发生在成熟阶段的用途；原 claim、制造、普通物流或各专门权利不因此增加成熟阶段前置。来源可读、用途资格、当前接受与实际使用分别核对，不能把完整情境来源目录当成全部机会都已获采用。
+
+| 当前已采纳用途 | 承接设计与独立方法 | 保留的专业边界 |
+| --- | --- | --- |
+| 地方交付认可与一次物流机会 | [原认可结算设计](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-stage)及 [RO01–08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-01) | 原 program 必须事先声明用途并实际审核；同源索引不替代成熟阶段、个人归因、当前权限、完整竞争集合与原 claim/Use/运输结果。一般供应用途或声誉咨询不能倒签该认可。 |
+| 明确采用的 Agent 取得用途 | [当前来源依据](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)、[原 claim 接收](gameplay-agent-claim-economy-contract.design.md#claim-purpose-source)、[原制造取得](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-002)与 [REP10](../../testing/manual/contextual-reputation-acceptance.manual.md#rep10-acquisition) | 只用原同版签署用途、真实双向履行及当前有效来源；quote 与最终消费者共同重验，全部取得入口共用原容量。来源不直接发 Agent、免除资金/材料或转换成地方物流认可；来源不足或未知仍保留原首槽独立路径。 |
+| 合作、岗位与服务/R&D 续作咨询 | [真实来源与主体](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-source-families)、[消费者及复核](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)，方法为 [REP09](../../testing/manual/contextual-reputation-acceptance.manual.md#rep09-all-subjects)、[REP11](../../testing/manual/contextual-reputation-acceptance.manual.md#rep11-consumers)、[REP12](../../testing/manual/contextual-reputation-acceptance.manual.md#rep12-review-recovery) | 咨询保留原作用域、任期、受众和当前读权；邀请、offer、任命或新义务仍需原有权主体实际决定和接受，不由咨询自动生成。旧作者、当前收益 holder 或组织名不取得他人的认可、资格与执行权。 |
+| pioneer、区域设施与工业等专门权利 | [全消费者接收](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)与 [REP11](../../testing/manual/contextual-reputation-acceptance.manual.md#rep11-consumers)，继续调用各原 FI/GR/工业方法 | 保留原权利、scope、期限、当前 gate 及普通通路；没有额外声誉折价、免税、许可、政治加成或容量。FI 的专门转让许可不被 generic 禁转让规则覆盖，也不使个人认可可随份额转让。 |
+
+后继实际部署的新来源或消费者须由其原 authority 明确采用并提供相应方法；本表不预授权未来插件。各来源的有效更正、到期、未知与原请求恢复继续进入其真实消费者，保留历史及已发生费用/义务，不因重新查询、换主体视图或更新采用版本产生第二次效果。设计与方法完成不代表已取得正式消费者或真人验收结果。
 
 ### 2.10.1 玩家动作与生命周期边界
 
