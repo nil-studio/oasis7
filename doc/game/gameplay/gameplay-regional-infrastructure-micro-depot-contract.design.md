@@ -54,6 +54,8 @@ WASM proposes, runtime validates / applies / signs.
 | --- | --- | --- | --- | --- |
 | [REQ-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | micro_depot 的报价无预留、明确提交、有限库存服务、维护/耗尽与回收恢复切片。 | [有限库存生命周期](#micro-depot-measured-lifecycle) | gameplay / Simulator / runtime / Viewer / QA | 不承接全部区域设施；区域压力引用仍是 opaque，非真实 provenance 认证；不承诺补货、epoch reset 或独立吞吐耗尽玩法。 |
 | [AC-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | 受支持 micro_depot 同步服务按当前 owner、upkeep、库存、范围及 module proposal 校验，拒绝不得部分扣减。 | [有限库存生命周期](#micro-depot-measured-lifecycle) | Simulator/runtime effect 与玩家读面 | 不证明独立 preview-confirm 并发协议、其他设施或完整区域资格。 |
+| [REQ-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | 当前设施动作的原请求、领域结果与合法下一步相连；结果未知沿原操作核对。 | [提交与结果接收](#micro-depot-current-submission-recovery) | 原入口/操作 authority、Simulator/runtime、Viewer/API、QA | 正式 adapter 按实际能力适用；不把内核动作、最新快照或字符串 ID 当成远端原结果查询。 |
+| [AC-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | 提交始终重验当前条件；proposal hash 仅校验身份，拒绝、待决与已确认领域结果分别表达。 | [提交与结果接收](#micro-depot-current-submission-recovery) | 原准入/提交与当前读取授权 | 不新增报价预留、独立预览并发或无关 revision 变化的拒绝规则。 |
 
 ## 3. 解锁阶段与准入流程
 
@@ -143,7 +145,8 @@ repair/logistics quote request
   -> runtime validates proposal
   -> runtime emits canonical preview
   -> player confirms action
-  -> runtime validates again or checks proposal_hash
+  -> runtime revalidates all current permissions and preconditions
+  -> runtime checks proposal_hash for input/proposal identity
   -> runtime applies accounting/state mutation
   -> runtime emits events and receipt
   -> viewer / pure API render canonical DTO
@@ -346,6 +349,26 @@ RegionalInfrastructure {
 - `resource_debits[] / inventory_units_before_by_kind / inventory_units_after_by_kind`
 - `throughput_units_before / throughput_units_after`
 
+<a id="micro-depot-current-submission-recovery"></a>
+### 7.4 当前提交与原结果接收
+
+Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8。承接 [REQ-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001) 与 [AC-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-001) 的明确提交、当前校验和结果连续性；适用范围仍是原 PRD 的当前 micro_depot 切片。
+
+**当前校验与报价身份。** 玩家查看 quote 后，提交仍按 §7.1.1 重验当前 owner/claim、upkeep、范围、module/schema、资源与 proposal。hash 匹配只证明 evaluator 输入和 proposal 的对应关系，不能代替这些检查；quote 不授予资源、容量或资格。当前条件成立才接受一次对应动作，否则保持原原子拒绝并返回实际 blocker、取舍和可用下一步。本节不把每次无关 revision 变化改成新的拒绝条件，也不增加独立 preview-confirm 协议。旧请求内容和签名已经固定后，不得把新报价或新版本填进旧原件。
+
+**操作与领域记录分层。** 当前 [内核入口](../../../crates/oasis7_simulator/src/kernel/step.rs) 每次 submit 分配新的 `ActionEnvelope.id`；返回的 `WorldEvent.id` 是事件身份，不与 action ID 自动相等。下表按[原 micro_depot producer](../../../crates/oasis7_simulator/src/kernel/micro_depot.rs)接收已有结果；原入口负责保留完整请求、主体/设施/目标和对应提交结果的关联。仅凭 latest receipt、库存变化或设施不存在，不能补造这个关联。
+
+| 设施动作 | 原领域结果与核对内容 | 下一步与恢复边界 |
+| --- | --- | --- |
+| `InstallMicroDepot` | `MicroDepotInstalled` 的 facility、installer、location、owner claim、模块及 commissioning 分账；该事件没有通用 `receipt_id` 字段，须连原提交/事件关联读取 | 已确认安装后检查原设施；原结果未知时不换 facility ID 再装。设施已存在的拒绝不单独证明是哪次请求安装成功 |
+| `ServiceRepairFromDepot` / `ServiceLogisticsFromDepot` | 当前内核分别为 `ServiceMicroDepotRepair` / `ServiceMicroDepotLogistics`；`MicroDepotServiceApplied` 保留 action、facility、agent、target、原 `receipt_id`、module/proposal 及库存/吞吐前后值 | 只表达本次原 service 和它实际证明的效果；不凭同名 repair/logistics 宣称另一 Runtime 的维修或运输已完成。继续服务另作明确新选择，不以再次 submit 当原请求回查 |
+| `PayDepotUpkeep` | 当前内核为 `PayMicroDepotUpkeep`；`MicroDepotUpkeepPaid` 的 facility、agent、原 `receipt_id` 与实际资源 debit，或原拒绝 | 尚有库存时按原维护规则处理；零库存拒绝且不收费。旧 receipt 不证明后续维护仍有效，重连不产生新维护付款 |
+| `ReclaimDepot` | 当前内核为 `ReclaimMicroDepot`；`MicroDepotReclaimed` 的 facility、agent 与原提交/事件关联，结合原前态核销毁余量和零退款 | 已确认回收与随后全额新安装分别关联；不能将本地对象消失当回收成功，也不在原事件中伪造通用 receipt 字段或退款 |
+
+**正式入口的条件接收。** 声明支持这些动作的 adapter 才按[原入口适用合同](../../world-simulator/llm/external-agent-game-api.design.md#api-primary-entry-applicability)接收本表：Game API 使用原 [稳定操作身份与提交](../../world-simulator/llm/external-agent-game-api.design.md#api-actions)、结果读取及该 API 设计的 §6.3；Gameplay 入口使用其[原请求查询](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-original-result-lookup)。各自原 namespace、认证、payload、读取权限和允许重投条件不互换。原 adapter 必须把自己的操作结果关联到实际领域记录，不能把 WorldKernel action/event ID 直接冒作 World Service operation 或 finality。底层动作和通用 API 合同存在，不证明该设施的正式路由、签名、持久关联或 UI 已接通。
+
+请求可能已发而回复丢失时，保留原件和最后已证阶段，先依当前读权查询原操作；只有原协议明示允许且其条件成立时才精确重投。当前无查询能力、历史不可得、world/身份错配或当前读取失权时，如实保留 unknown/受阻及合法下一步，不再次调用内核 submit、不换 nonce/操作键、不用新报价推断旧动作未发生。已确认的领域结果不被迟到错误改成未执行；读取历史也不恢复旧执行权限。这里消费原操作合同，不为设施另建恢复账本。
+
 ## 8. Viewer / Pure API DTO
 
 Viewer 和 pure API 不读取 WASM，不猜测收益，只渲染 runtime DTO。
@@ -436,6 +459,8 @@ Runtime 必须：
 | --- | --- | --- | --- | --- | --- |
 | [REQ-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | [有限库存生命周期](#micro-depot-measured-lifecycle) | micro_depot 单次 commissioning、有限服务、耗尽、upkeep 拒绝及 destructive reclaim/reinstall 的真实成本。 | 以 [measured supply 回归](../../../crates/oasis7_simulator/src/tests/micro_depot_measured_supply.rs) 的 service debit/receipt 为局部基础，按本设计 §11–12 在固定候选执行 install→库存耗尽→upkeep 无收费拒绝→reclaim→全额新装并对账。 | 实施 PR 的同候选事件、库存与资源前后值、实际玩家入口结果。 | 本映射为验证方法；本次文档审查未运行测试，不证明 refill、长期可玩性或全部设施。 |
 | [AC-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | [有限库存生命周期](#micro-depot-measured-lifecycle) | 当前同步服务失效时无部分库存/吞吐扣减；quote 不 reserve/debit。 | [同一 measured supply 回归](../../../crates/oasis7_simulator/src/tests/micro_depot_measured_supply.rs)中的 insufficient inventory 负例与本设计 §7.1.1/§10 的 owner、range、upkeep、module/schema/proposal 各自负例；按 §8 分别核 Viewer/API。 | 实施 PR 的拒绝前后状态、receipt 与各入口 captures。 | fixture 注入的 throughput exhaustion 只是内部防御，不是自然可达玩家 blocker；独立 preview-confirm 并发合同不在当前切片。 |
+| [REQ-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | [提交与结果接收](#micro-depot-current-submission-recovery) | Install / Service / Upkeep / Reclaim 的原请求与领域结果相连，unknown 沿原操作核对。 | [设施操作验证方法](../../testing/manual/agent-runtime-self-playtest.manual.md#micro-depot-operation-validation)的 MD01、MD03、MD04；先核设计与独立对账，再按实际支持的 adapter 分别执行 contract / live 层。 | 固定候选的原请求、提交/事件关联、领域结果及库存/资源独立对账；恢复样本保留最后已证阶段。 | 方法定义不证明已运行；未接入的正式 adapter 不以裸内核动作或最新快照补证。 |
+| [AC-WR-GR-001](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#ac-wr-gr-001) Trace refs: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8 | [提交与结果接收](#micro-depot-current-submission-recovery) | hash 不能代替当前校验；当前无效条件原子拒绝，已确认结果与 unknown 分别接收。 | [设施操作验证方法](../../testing/manual/agent-runtime-self-playtest.manual.md#micro-depot-operation-validation)的 MD02、MD04，逐个改变当前条件并独立核拒绝前后状态与原结果恢复；设计 / contract / live 证据分别记录。 | 当前条件、拒绝与扣减前后值，以及丢回复、失权或缺查询能力时的原请求与可用下一步。 | 不新增无关 revision 的 stale gate，不证明独立 preview-confirm 并发、跨协议重投或未声明支持的入口。 |
 
 ## 12. Post-first-capability 10 分钟验证切片
 

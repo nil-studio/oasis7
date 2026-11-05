@@ -187,3 +187,37 @@
 - 执行：按报告分诊；确认 bug 转普通测试，验证旧版本能失败、新版本通过，然后用新 tester 对同等初始条件复测。
 - 判定：原失败与新尝试均保留，候选/Skill/profile 清楚；未复现不伪造已修复，未执行不算 pass，不降低判据或改测试世界过关；达到轮数/预算上限收口反馈。
 - 输出：PR 上描述定位、修复、回归命令/结果、实玩结论、费用和仍未覆盖项，不另建放行证书。
+
+<a id="agency-domain-composition-validation"></a>
+## IA-C：间接决策与原领域结果的组合方法
+
+依据：[领域因果接收](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agency-domain-causal-reception)，承接 IA-001/002/003 原要求和 Trace。以下是 ST-03/04/05 可选择的业务组合，沿用本手册的触发、授权、预算与分层规则，不增加所有 PR 的自动试玩门禁。
+
+**固定输入与独立预期。** 每次锁定候选/实际测试树、world/branch、领域 authority/version、actor/Agent、canonical intent/decision、原 request/operation、完整对象修订/digest、原结果与当前 audience。先由负责人从原签署正文、合法来源、账本、事件和实际窗口独立列出接受、效果、费用、纠正切点及下一步，再与 Agent/Viewer/API 投影比较；不用被测投影、时间相邻或余额变化自证关联。一次意图可合法产生多个领域效果，每个效果保留自己的原件和完成角色，不把“只执行原操作一次”误读为整个业务只能有一个效果。
+
+设计审读使用明确标为构造的输入与权威顺序，只检查合同和独立预期能否闭合，记录 `design_review`，不计 contract/live 运行通过。实际 contract 使用 `test_tier_required`，live 使用 `test_tier_full`，分别按既有矩阵执行和留存；原 producer、入口、权限或环境缺失即保留对应 `blocked/not_run`，不能以全部拒绝、mock 或另一个领域替代正常分支。下表所引原方法继续拥有其完整场景和验收，组合检查不取代它们。
+
+| 场景 | 正向输入与执行 | 独立判据与配对反例 |
+| --- | --- | --- |
+| IA-C01：记忆与工业行动 | 按 [DES-ADOPT-002](../../game/gameplay/gameplay-decision-delegation-return.design.md#des-adopt-002) 固定意图 I、实际使用的 memory revision M、纠正 C、prepared decision P 和匹配 committed result R；先记录原观察/可读记忆、真实成本和替代，再跟踪最早可用的纠正点与原工业动作 | 被接受意图、理由/证据、stakes/预期后果、真实替代、打断/纠正、最早生效点、实际结果分别取其原来源；C 被接受但尚未进入 P、R 绑定另一 decision/M、纠正后动作未变而没有原因、用预期产物冒充实际产物均不得写“纠正已应用”。合法未采用/尚未生效可保留准确原因，旧结算不重做；不要求所有动作先有长期记忆，也不读取私有推理链 |
+| IA-C02：完整合同族 | 联用 [CF-07](agent-mediated-contract-formation-acceptance.manual.md#cf-07-read)、[CF-12](agent-mediated-contract-formation-acceptance.manual.md#cf-12-family-handoff)、[CF-13](agent-mediated-contract-formation-acceptance.manual.md#cf-13-revocation-succession)、[CF-16](agent-mediated-contract-formation-acceptance.manual.md#cf-16-consumers)；逐族关联 intent、agreement revision、terms/render digest、principal/代表/mandate、原接受和领域结果；核真实 D/O/C、成本/替代和纠正后的下一步 | 每个已采纳族分别有正向形成与实际结果，不以即时交换代签原个人供能、持续供能/维护/运输/共同工作、R&D/epoch/份额转移。安排撤回先于激活、激活先于撤回及条款修订后三种顺序：旧接受不能签新版，后撤权不抹旧义务；激活≠服务已履行、arrival≠商业交付、签署≠新贡献或成果收益。原件未知和继受不洗历史责任 |
+| IA-C03：普通与保护治理 | 从 [GOV-M10](ordinary-and-protective-governance-acceptance.manual.md#gov-10-bounds-surfaces) 的同 C0、source cut、事项/主体/原操作与当前读者开始，分别取得普通 matter/ballot/审查及保护 case/执行/救济的正常原件；沿实际建议说明成本、替代和最早有效点 | 普通 passed、申诉受理、保护 ready 与实际执行/救济分列；最终化后的 redress 不倒写原 winning option，代表退出不删旧票。按 [GOV-M08 多案前态](ordinary-and-protective-governance-acceptance.manual.md#gov-08-protective-authority) 独立核 `100−10−7+10=93`，不回到 100、不抹另一案限制，重复裁决不再加 10。数值只用于原规则支持的该样例；当前受众失权不泄露旧案私有来源，也不捏造处分权限 |
+| IA-C04：冲突、防御与恢复 | 联用原[防御方法](chartered-conflict-recovery-and-soft-season-acceptance.manual.md#conflict-defense-cases)与 [CF-06 恢复方法](chartered-conflict-recovery-and-soft-season-acceptance.manual.md#loss-recovery-cases)，固定 conflict/participant、稳定 defense lineage、hostile effect、资产/损失/原目标及恢复候选；分别安排合法响应与最终 Revoke 的先后顺序，再比较原规则真实支持的修复/重建 | 先撤则不产生后续新响应，先已提交的效果保留；比较本身不修复/扣费，实际新能力须对应原动作与结果。CF-06 的部件、E、时长只在原测试规则支持时采用，不能将样例变成新平衡规则。合法 pivot 须明确接受新目标，不能称原目标成功；结束、退出或季节刷新不抹在途、待付、未知原件和旧责任，无安全路时返回准确缺口与重新决策 |
+| IA-C05：身份、原件与当前读取 | 对 IA-C01–04 每一类保留 canonical intent/decision 与原领域 request/result 的完整关联，按当前合法读者从原协议恢复相同原件；独立核来源、world/branch、主体、版本、效果角色与可披露范围 | 分别换成 feedback label、相邻时间的另一动作、错误 world/revision/blob、当前已撤读权和缺页来源；不得猜同链、用旧缓存泄密或把缺页当空集。未知结果查询原操作，不以新 nonce/身份/业务键探测；无当前合法查询时保留最后已证阶段和实际下一步，不伪造“未发生”或完整续接 |
+| IA-C06：等待、离开及跨入口回流 | 同一已验证权威事实分别由实际支持的 Viewer/API 读取，核意图接受、推进/主阻塞、最近后果、可执行下一步及适用的七类因果信息；让原等待 trigger 失效，再按原条件重分类，并从真实旧版本/断连状态恢复 | 两入口布局可异、事实一致；弱理由无限等待、失效 trigger 仍称安全、empty/reload 冒充未执行、旧缓存复活失效授权均不通过。缺必要历史关联时给有界历史与准确重新决策；只有某入口、mock、world tick 或字段齐全不能代签另一入口、真实 provider 或玩家理解 |
+
+**记录与读者检查。** 原 PR 留每个实际适用领域的固定输入、独立预期、原件关联矩阵、纠正前后权威顺序、真实差量、当前可用动作及未运行层级。观察玩家能否据当前允许内容说明“接受了什么、实际改变什么、为什么、还能改什么、未知时怎么办”，真实观察与设计文案检查分别记录；表格齐全和模型自评不证明理解、信任、留存或完整产品验收。
+
+<a id="micro-depot-operation-validation"></a>
+## MD：有限设施的当前提交与原结果方法
+
+依据：[有限库存生命周期](../../game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-measured-lifecycle)与[提交及结果接收](../../game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-current-submission-recovery)，承接 GR-001 原要求和 Trace。此组是 ST-03/04/05 的可选 micro_depot 场景；沿用上述固定候选、独立 oracle、设计审读 / contract / live 分层和既有触发授权。当前内核能力、正式 adapter 与玩家入口分别记录，不能以裸内核成功或通用 API 设计证明设施已正式接通。
+
+| 场景 | 准备与执行 | 独立判据与配对反例 |
+| --- | --- | --- |
+| MD01：原操作与领域结果 | 固定 world/source、原 owner/Agent、facility/target、完整请求与实际入口；分别跟踪 Install、Repair/Logistics Service、Upkeep、Reclaim 的提交与返回记录，先由原提交链独立列出关联 | 区分 Kernel 的 `ActionEnvelope.id`、`WorldEvent.id`、实际存在的 service/upkeep `receipt_id` 以及正式 adapter 原操作身份。Install/Reclaim 的事件没有通用 receipt 字段，不补造。latest receipt、同名设施、库存变化和对象消失不证明某原请求成功；另一个 Runtime 的维修/运输不由本内核 service 自动完成 |
+| MD02：当前重验与原子拒绝 | 从同一合法 quote 前态分别只改变当前 owner/claim、upkeep、range、资源或 module/schema/proposal 条件，再按原同步动作形成当前 evaluator input/proposal 并提交；另取条件仍合法及无关 revision 改变的对照 | 始终按当前规则决定；hash 只证明输入/proposal 身份，不能替权限与前置校验。合法动作按原链执行一次；任一必需条件不成立则设施库存/吞吐与 service world effect 零变化，并有真实 blocker/取舍/下一步。无关 revision 不凭本方法成为新 stale gate；不对未知旧请求改签、塞新报价或增加报价预留 |
+| MD03：有限账本与耗尽恢复 | 按原 v2 接受一次安装，独立记录玩家扣 10 Data、sink 2、设施库存 8、throughput 16 / epoch 0；从实际合法 proposal 取得精确 Data debit `d`，分别手算库存和吞吐的 `before−d`，逐次对账到库存耗尽，再验证 upkeep、reclaim 与新安装 | quote 不预留/扣减；`d` 由原 module/proposal 决定，不新定默认 debit、维修比例或物流损耗。零库存 upkeep 拒绝且不收费，reclaim 零退款并销毁余量，新装再付全额 10，不继承旧库存/吞吐。v1 原 wire/hash 与旧回放保持，不补发 v2 库存；当前库存先于吞吐自然耗尽，不以注入 throughput 耗尽证明新玩法，也不测试未采纳的补货或 epoch reset |
+| MD04：可能已发、丢回复与当前读权 | 在实际支持该动作的原 adapter 上分别固定“可能已发但回复未知”“已证已执行后迟到错误”“当前读权撤销”“原查询不可用”“另一入口查询同原件”样例；依原 protocol 查询相同操作，保留最后已证阶段 | 仅原协议明确允许且条件满足时才精确重投；Kernel 每次 submit 产生新 action ID，不能用再次 submit 当原件回查。无查询/历史/权限时准确 unknown/受阻，不换 nonce、facility ID、操作键或新报价；已确认结果不被迟到错误倒改。跨入口须是该原协议实际支持且授权的读取，不互换 namespace/签名。未接 adapter 标 blocked，不用静态推演、快照或别的动作补通过 |
+
+原 PR 分别保留 quote 与当前提交条件、原请求/事件关系、独立资源前后值、实际服务效果、恢复与当前可用下一步。当前区域压力引用的 opaque/insufficient 状态照实呈现；本方法不新增压力认证、预测生产者、补货、长期 epoch 循环或其它设施。原 §11–12 的 measured-supply 局部测试与玩家观察仍分别有效，方法存在不表示它们已在本候选执行。

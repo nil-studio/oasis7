@@ -71,12 +71,14 @@
 
 Trace ID: O7-REQ-d34e2dec-9ad4-44a8-9ba7-7931956e39b8
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[micro_depot 有限库存生命周期](../../game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-measured-lifecycle)承接该设施的无预留报价、有限服务、耗尽与回收边界；承接表和验证映射反向关联本要求与 AC-WR-GR-001，不代表全部区域设施已覆盖。
+- 系统设计依据：[micro_depot 有限库存生命周期](../../game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-measured-lifecycle)与[当前提交及原结果接收](../../game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md#micro-depot-current-submission-recovery)承接当前采纳的代表性有限设施循环：压力/不足照实可读、报价不预留、明确提交时始终重验、有限服务、维护/耗尽、零退款回收和全额新装。原请求、领域事件与当前合法恢复分层；hash 不替代当前校验，内核 action/event 不冒作正式 API 的 operation。设计覆盖沿原 micro_depot 当前验收，不升级为全部设施或未来持续供给。
+- 系统设计验证方法：[设施操作方法](../../testing/manual/agent-runtime-self-playtest.manual.md#micro-depot-operation-validation)的 MD01–04 按原件身份、当前条件单变量漂移、独立资源账本、丢回复和当前读权分别核对；原 measured-supply 测试与玩家观察保持各自证据层，未运行不计通过。
+- 设计接收核对：2026-11-05（北京时间）；基线 `25b3e4d658616e453f2773c34b5b3e56a6729597` 加本次专业条款/方法增量。未改变原 REQ/AC、经济/ABI、实施判断、历史源码或核对日期；本次无业务运行结果。
 - 实现与验证依据：已交付 micro_depot v2 的单次 commissioning、有限库存服务、耗尽后 upkeep 拒绝和 destructive reclaim；属于消耗型设施切片。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/simulator/kernel/micro_depot.rs#L485-L612)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/simulator/kernel/micro_depot.rs#L667-L920)、[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/simulator/kernel/micro_depot.rs#L922-L1013)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/simulator/tests/micro_depot_measured_supply.rs#L90-L151)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：仅 micro_depot single-commission 消耗型设施有本轮代码核对；区域压力仍是 opaque reference，正式压力认证、其他设施与长期补货/epoch 周期不在已证明范围。
+- 剩余范围：仅 micro_depot single-commission 消耗型设施有本轮代码核对；区域压力仍是 opaque reference，正式压力认证、其他设施与长期补货/epoch 周期不在已证明范围。当前正式 adapter、持久原操作关联及玩家入口仍按实际能力核验，部分实现结论不变。正式压力生产者、补货/epoch reset 与其它设施沿原专业 PRD 的后续范围管理，不将其改写为本次代表性消耗设施必须新增的机制。
 
 - 要求：设施从区域压力发现到报价、明确提交、有限服务、维护/耗尽、恢复或退役，每一步都要让玩家看到成本、取舍、失败边界和下一步；报价不预留资源、容量、资格或排队顺位。
 - 专业权威：[`区域设施合同`](../../game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)
