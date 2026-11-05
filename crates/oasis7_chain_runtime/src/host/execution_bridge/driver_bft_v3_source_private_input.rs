@@ -37,12 +37,18 @@ pub(in super::super) enum SourceSlotKindV1 {
     Received,
 }
 impl SourceSlotKindV1 {
-    fn from_data(data: &Data) -> Result<Self, String> {
+    pub(super) fn from_data(data: &Data) -> Result<Self, String> {
         match data.schema_version {
-            9 | 11 => Ok(Self::Local),
-            10 | 12 => Ok(Self::Received),
+            3 | 6 | 9 | 11 => Ok(Self::Local),
+            4 | 7 | 10 | 12 => Ok(Self::Received),
             _ => Err("protected source original slot kind absent".into()),
         }
+    }
+    fn from_protected_data(data: &Data) -> Result<Self, String> {
+        if !matches!(data.schema_version, 9..=12) {
+            return Err("protected source original slot kind absent".into());
+        }
+        Self::from_data(data)
     }
 }
 impl NodePrivateStore {
@@ -75,7 +81,7 @@ impl NodePrivateStore {
             .transpose()
     }
     fn source_slot(&self, data: &Data) -> Result<Option<&Slot>, String> {
-        Ok(match SourceSlotKindV1::from_data(data)? {
+        Ok(match SourceSlotKindV1::from_protected_data(data)? {
             SourceSlotKindV1::Local => self.candidates.get(&data.height),
             SourceSlotKindV1::Received => self.values.get(&(
                 data.height,
@@ -87,7 +93,7 @@ impl NodePrivateStore {
         })
     }
     fn insert_source_slot(&mut self, data: Data, complete: bool) -> Result<(), String> {
-        match SourceSlotKindV1::from_data(&data)? {
+        match SourceSlotKindV1::from_protected_data(&data)? {
             SourceSlotKindV1::Local => {
                 self.candidates.insert(data.height, Slot { data, complete });
             }
@@ -440,7 +446,7 @@ pub(super) fn private_pin_bound(data: &Data) -> Result<usize, String> {
 pub(in super::super) fn source_admission_slot_kind(
     input: &Input,
 ) -> Result<SourceSlotKindV1, String> {
-    SourceSlotKindV1::from_data(&input_data(input)?)
+    SourceSlotKindV1::from_protected_data(&input_data(input)?)
 }
 pub(in super::super::super) fn validate_source_admission_slot_kind(
     input: &Input,
@@ -547,7 +553,7 @@ pub(in super::super::super) fn verify_source_admission_ready(
         .join(storage::DIRECTORY)
         .join(storage::NODE_PRIVATE_DIRECTORY)
         .join(
-            if SourceSlotKindV1::from_data(&data)? == SourceSlotKindV1::Local {
+            if SourceSlotKindV1::from_protected_data(&data)? == SourceSlotKindV1::Local {
                 format!("candidate-{:020}.cbor", data.height)
             } else {
                 format!("candidate-{:020}-{}.cbor", data.height, input.key.header_id)
@@ -961,7 +967,7 @@ impl NodePrivateStore {
             return Err("recovered protected input fact changed".into());
         }
         let data = input_data(input)?;
-        let kind = SourceSlotKindV1::from_data(&data)?;
+        let kind = SourceSlotKindV1::from_protected_data(&data)?;
         let old = match kind {
             SourceSlotKindV1::Local => self.candidates.remove(&input.key.height),
             SourceSlotKindV1::Received => self

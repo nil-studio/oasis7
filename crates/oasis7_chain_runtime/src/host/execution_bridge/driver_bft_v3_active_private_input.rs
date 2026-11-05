@@ -301,7 +301,7 @@ impl NodePrivateStore {
             return Err("Active exact retry original fact changed".into());
         }
         let data = active_data(input)?;
-        let kind = SourceSlotKindV1::from_data(&data)?;
+        let kind = SourceSlotKindV1::from_protected_data(&data)?;
         let old = match kind {
             SourceSlotKindV1::Local => self.candidates.remove(&input.key.height),
             SourceSlotKindV1::Received => self
@@ -492,7 +492,7 @@ impl NodePrivateStore {
 pub(in super::super::super::super) fn active_admission_slot_kind(
     input: &Input,
 ) -> Result<SourceSlotKindV1, String> {
-    SourceSlotKindV1::from_data(&active_data(input)?)
+    SourceSlotKindV1::from_protected_data(&active_data(input)?)
 }
 
 pub(in super::super::super::super) fn active_admission_candidate(

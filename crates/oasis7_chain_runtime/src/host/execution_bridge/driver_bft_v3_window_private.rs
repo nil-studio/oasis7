@@ -94,6 +94,20 @@ impl WindowPrivateStore {
         origin: &super::super::window_storage::WindowOrigin,
         initial: bool,
     ) -> Result<(), String> {
+        Self::verify_ready_with_current(directory, records, store, base, origin, initial, None)
+    }
+
+    pub(in super::super) fn verify_ready_with_current(
+        directory: PathBuf,
+        records: &Path,
+        store: LocalCasStore,
+        base: &VerifiedPrivateSuccessorBaseV1,
+        origin: &super::super::window_storage::WindowOrigin,
+        initial: bool,
+        current: Option<
+            &oasis7_distfs::protected_bft_v3::BftPrivateRetentionVerificationContextV1<'_>,
+        >,
+    ) -> Result<(), String> {
         let source: Arc<dyn BusinessIndexNodeReader + Send + Sync> =
             base.execution.retained_nodes.clone();
         let (mut private, _) = NodePrivateStore::open_window(
@@ -141,8 +155,12 @@ impl WindowPrivateStore {
                 return Err("active original pending candidate changed".into());
             }
         }
-        if initial && private.inventory_count() != base.pending.len() {
-            return Err("active preparation contains unproved private candidates".into());
+        if initial {
+            if let Some(current) = current {
+                private.verify_current_active_inventory(base, &origin.digest()?, current)?;
+            } else if private.inventory_count() != base.pending.len() {
+                return Err("active preparation contains unproved private candidates".into());
+            }
         }
         Ok(())
     }

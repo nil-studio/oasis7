@@ -134,7 +134,7 @@ impl NodePrivateStore {
         let (slot, _) = self
             .source_slot_for_key(&proof.reference.key)?
             .ok_or("selected protected original absent")?;
-        if SourceSlotKindV1::from_data(&slot.data)? == SourceSlotKindV1::Local {
+        if SourceSlotKindV1::from_protected_data(&slot.data)? == SourceSlotKindV1::Local {
             if selection_proof.local_identity_digest != slot.data.digest()?
                 || selection_proof.local_identity_bytes != slot.data.bytes()?.len() as u64
             {
@@ -260,6 +260,6 @@ impl NodePrivateStore {
         let (slot, _) = self
             .source_slot_for_key(&reference.key)?
             .ok_or("original protected source slot absent")?;
-        SourceSlotKindV1::from_data(&slot.data)
+        SourceSlotKindV1::from_protected_data(&slot.data)
     }
 }

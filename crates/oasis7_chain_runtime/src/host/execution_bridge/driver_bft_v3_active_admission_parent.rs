@@ -111,7 +111,15 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             .installation_root
             .as_ref()
             .ok_or("Active installation root absent")?;
-        self.verify_adopted_readback(root, &base, immutable, state, evidence, deadline)?;
+        self.verify_adopted_readback_with_current(
+            root,
+            &base,
+            immutable,
+            state,
+            evidence,
+            deadline,
+            Some(context),
+        )?;
         let (origin, reference) = root.read_window_origin(&base, deadline)?;
         if &reference != active.active_segment_origin() {
             return Err("Active actual Origin differs from signed ancestry".into());

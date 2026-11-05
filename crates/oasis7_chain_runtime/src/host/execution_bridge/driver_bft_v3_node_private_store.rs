@@ -290,6 +290,145 @@ impl NodePrivateStore {
         }
         Ok(())
     }
+    /// Current backend context may authenticate later Active WAL originals;
+    /// it cannot admit unrelated files beside the immutable C0 carry set.
+    pub(super) fn verify_current_active_inventory(
+        &self,
+        base: &super::super::successor_verifier::VerifiedPrivateSuccessorBaseV1,
+        namespace: &str,
+        current: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionVerificationContextV1<'_>,
+    ) -> Result<(), String> {
+        if base.original_retention_attestor()? != current.attestor() {
+            return Err("Active WAL current capability differs from original C0".into());
+        }
+        #[cfg(test)]
+        let mut active_originals = Vec::new();
+        let mut carry_seen = BTreeSet::new();
+        for (kind, slot) in self
+            .candidates
+            .values()
+            .map(|slot| (SourceSlotKindV1::Local, slot))
+            .chain(
+                self.values
+                    .values()
+                    .map(|slot| (SourceSlotKindV1::Received, slot)),
+            )
+        {
+            let active = self.verify_current_active_slot(
+                base,
+                namespace,
+                current,
+                slot,
+                kind,
+                &mut carry_seen,
+            )?;
+            #[cfg(test)]
+            if active {
+                active_originals.push(slot);
+            }
+            let _ = active;
+        }
+        if carry_seen.len() != base.pending.len() {
+            return Err("active preparation lacks an exact unique carry slot".into());
+        }
+        #[cfg(test)]
+        if !active_originals.is_empty() {
+            current_inventory_negative_controls::verify(
+                self,
+                base,
+                namespace,
+                current,
+                &active_originals,
+            );
+        }
+        Ok(())
+    }
+
+    fn verify_current_active_slot(
+        &self,
+        base: &super::super::successor_verifier::VerifiedPrivateSuccessorBaseV1,
+        namespace: &str,
+        current: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionVerificationContextV1<'_>,
+        slot: &Slot,
+        kind: SourceSlotKindV1,
+        carry_seen: &mut BTreeSet<usize>,
+    ) -> Result<bool, String> {
+        if SourceSlotKindV1::from_data(&slot.data)? != kind
+            || slot.data.ledger_origin_digest != namespace
+        {
+            return Err("active preparation contains unproved private candidates".into());
+        }
+        for (index, (roles, package)) in base.pending.iter().enumerate() {
+            let expected =
+                if roles.contains(&super::super::successor_archive::PendingRoleV1::RetainedLocal) {
+                    SourceSlotKindV1::Local
+                } else {
+                    SourceSlotKindV1::Received
+                };
+            if kind == expected
+                && slot.data.height == package.candidate.public_value.execution_commitment.height
+                && slot.data.value.as_ref() == Some(&package.candidate.public_value)
+                && slot.data.actions_cbor == package.candidate.actions_cbor
+            {
+                if !carry_seen.insert(index) {
+                    return Err("active preparation contains duplicate carry slot".into());
+                }
+                return Ok(false);
+            }
+        }
+        if !matches!(slot.data.schema_version, 11 | 12)
+            || slot.data.ledger_origin_digest != namespace
+            || !slot.complete
+        {
+            return Err("active preparation contains unproved private candidates".into());
+        }
+        let value = slot
+            .data
+            .value
+            .as_ref()
+            .ok_or("Active WAL candidate absent")?;
+        let header = value.block_id()?;
+        let mut originals = current.original_inputs().filter(|input| {
+            input.key.ledger_origin_digest == namespace
+                && input.key.height == slot.data.height
+                && input.key.header_id == header
+        });
+        let input = originals
+            .next()
+            .ok_or("Active WAL lacks authenticated current original")?;
+        if originals.next().is_some() {
+            return Err("Active WAL current original is ambiguous".into());
+        }
+        let entry = current
+            .original_entry(&input.key)
+            .map_err(|e| e.to_string())?
+            .ok_or("Active WAL current entry absent")?;
+        let reference =
+            oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputRefV1::from_entry(
+                &current.attestor().source,
+                entry,
+            )
+            .map_err(|e| e.to_string())?;
+        reference.validate_input(input).map_err(|e| e.to_string())?;
+        let candidate = source_input::active_admission_candidate(input)?;
+        let oasis7_distfs::protected_bft_v3::BftPrivateRetentionFactV1::Some {
+            original_data_ref,
+            ..
+        } = &entry.fact
+        else {
+            return Err("Active WAL current fact is not Some".into());
+        };
+        if source_input::active_admission_slot_kind(input)? != kind
+            || slot.data.digest()? != *original_data_ref
+        {
+            return Err(
+                "Active WAL kind or bytes differ from authenticated current original".into(),
+            );
+        }
+        self.verify_ready_active_candidate(&candidate, &reference, &entry.fact)?;
+        Ok(true)
+    }
+
     pub(super) fn inventory_count(&self) -> usize {
         self.candidates.len() + self.values.len()
     }
@@ -1039,3 +1178,7 @@ fn bounded_references<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Stri
 #[cfg(test)]
 #[path = "driver_bft_v3_node_private_store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "driver_bft_v3_current_inventory_negative_controls.rs"]
+mod current_inventory_negative_controls;

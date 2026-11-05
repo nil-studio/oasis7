@@ -838,6 +838,24 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
         evidence: &BftSuccessorWindowAdoptedEvidenceV1,
         deadline: Instant,
     ) -> Result<(), String> {
+        self.verify_adopted_readback_with_current(
+            root, origin, original, installed, evidence, deadline, None,
+        )
+    }
+
+    #[inline(never)]
+    fn verify_adopted_readback_with_current(
+        &self,
+        root: &super::successor_carriers::InstallationRootV1,
+        origin: &VerifiedPrivateSuccessorBaseV1,
+        original: &BftSuccessorWindowStoredRequestV1,
+        installed: &BftSignerStateV3,
+        evidence: &BftSuccessorWindowAdoptedEvidenceV1,
+        deadline: Instant,
+        current: Option<
+            &oasis7_distfs::protected_bft_v3::BftPrivateRetentionVerificationContextV1<'_>,
+        >,
+    ) -> Result<(), String> {
         let pointer = root.read_installed(&origin.origin, original, installed, deadline)?;
         let expected_origin = evidence
             .active_segment_origin
@@ -852,7 +870,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             return Err("successor active Origin differs from adoption commitment".into());
         }
         let records = root.path();
-        super::node_execution::WindowPrivateStore::verify_ready(
+        super::node_execution::WindowPrivateStore::verify_ready_with_current(
             super::window_execution::layout::segment_path(records, origin)?
                 .join(super::window_storage::DIRECTORY)
                 .join(storage::NODE_PRIVATE_DIRECTORY),
@@ -861,6 +879,7 @@ impl ActualBftSuccessorWindowDriverVerifierV1 {
             origin,
             &actual_origin,
             true,
+            current,
         )?;
         if root.read_window_origin(origin, deadline)?.1 != actual_ref {
             return Err("successor active Origin changed during independent ready readback".into());
