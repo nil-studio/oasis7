@@ -82,7 +82,7 @@ Agent 团队资产扩张、容量与转让后的经济义务由玩法模块的[A
 
 ## 既有统一生成合同的有限产品接收
 
-本节为 [unified 原需求](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#3-requirements)中的既有消费者承诺登记精确身份；各卡范围由原句来源限定，不新增世界生成、出生、字段、参数或资源承载选择。已有专业目标不是新的实现完成声明；正式 profile 的 [四个未决问题](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-decision-profile)继续未定，已采用的本地子范围不重新列为待选。原产品组合、叶项状态与验收层级保持不变。
+本节为 [unified 原需求](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#3-requirements)中的既有消费者承诺登记精确身份；各卡范围由原句来源限定，本节保留原产品范围；正式接线现由[统一设计的四项选择](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-decisions)承接，产品层不重复定义参数或权限。已采用的本地子范围继续沿原边界，设计覆盖、代码接线与实际验收分别判断。
 
 <a id="canonical-seed-consumer"></a>
 ### 功能状态卡：统一世界种子的跨入口引用
@@ -92,12 +92,14 @@ Trace ID: O7-REQ-f8497929-34dc-4193-a435-7dbe60bf0e4c
 - 主责范围与成功标准：每个大世界有唯一 canonical world_seed；genesis/manifest/runtime snapshot 有可验证引用，local/public testnet、launcher、Viewer 与 provider 引用同一世界种子或派生证明。
 - 原义接收来源：[原 R1](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#r1-统一世界种子)；本卡只接收该段玩家/Agent/入口结果，原专业约束、条件及排除项保持。
 - 对应验收：原 [AC1/AC5](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#5-acceptance-criteria) 中与本卡对应的切片，不能用其他 AC 的局部通过代签。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#31-seed-manifest)；原目标已存在，正式接线与四项未决仍限制覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[固定输入与 checkpoint 绑定](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-seed-binding)；覆盖canonical seed、完整生成上下文及原初始化授权的唯一来源。该结论仅为本卡原范围的设计覆盖，正式实现与实际验收仍按下列状态。
+- 验证方法：[原 requirement 的反向分配与独立正反例](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan)；按同一候选、实际消费者和原适用范围分别执行，本次未运行。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-18固定源码只读复核：Simulator沿chunk_runtime.world_seed生成manifest；Runtime普通投影仍由world/chain/config hash派生独立seed并标记runtime_agent_chunk_v1。正式初始入口接外部snapshot/journal，校验world/chain/genesis身份，已绑定资源上下文会保留，不能把普通派生路径外推为所有正式工件。 定位：[Simulator账本投影](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_simulator/src/chain_resource.rs#L23-L128)；[Runtime资源派生](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/chain_resource.rs#L21-L103)；[外部初始工件](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/world_initialization.rs#L49-L82)；[正式初始检查点边界](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_initial.rs#L182-L215)；[外部资源上下文保留](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/world/persistence.rs#L306-L324)。本次未执行业务测试或现场验收；测试定义不等于通过。
-- 核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
-- 剩余范围：只接收R1原同世界引用结果，不选择genesis字段或seed提供者。尚缺实际正式初始工件的canonical seed权威来源与launcher、local/public testnet、Viewer、Provider各自引用的同候选对账；已见多种seed机制不是跨入口一致验收。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行生成器、世界或业务验收，历史实现证据沿原候选保留。
+- 历史实现核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
+- 剩余范围：R1 的正式 seed 来源与承载已由专业设计选定；尚缺实际正式初始工件的canonical seed权威来源与launcher、local/public testnet、Viewer、Provider各自引用的同候选对账；已见多种seed机制不是跨入口一致验收。
 
 <a id="formal-generated-world-entry"></a>
 ### 功能状态卡：正式入口消费生成世界事实
@@ -107,12 +109,14 @@ Trace ID: O7-REQ-212aa59b-6d97-43a7-8fd7-35d441489281
 - 主责范围与成功标准：runtime live 不自造独立资源世界；正式可玩入口不把 runtime 坐标锚点当正式资源地点；starter-safe chunk 提供 starter spawn、nearby resource pocket 与初始可见目标。
 - 原义接收来源：[原 R3](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#r3-runtime-live-消费世界生成事实)；本卡只接收该段玩家/Agent/入口结果，原专业约束、条件及排除项保持。
 - 对应验收：原 [AC2](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#5-acceptance-criteria) 中与本卡对应的切片，不能用其他 AC 的局部通过代签。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#51-world-bootstrap)；原目标已存在，正式接线与四项未决仍限制覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[中心 starter、真实地点与失败边界](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#51-world-bootstrap)；覆盖固定几何中心、已提交资源、逻辑 frag 地点与空世界阻塞。该结论仅为本卡原范围的设计覆盖，正式实现与实际验收仍按下列状态。
+- 验证方法：[原 requirement 的反向分配与独立正反例](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan)；按同一候选、实际消费者和原适用范围分别执行，本次未运行。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-18固定源码只读复核：入口明确区分WorldService、generated sidecar、scenario和本地默认；sidecar真实加载Simulator地点，普通默认仍使用seed-model坐标加固定物料bootstrap。WorldService优先返回空的本地镜像等待权威读取，不经sidecar生成；正式激活只接外部身份绑定工件。sidecar测试定义只覆盖其局部映射。 定位：[入口分流](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/support.rs#L365-L406)；[sidecar加载](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/support.rs#L435-L458)；[本地默认初始化](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/support.rs#L575-L654)；[正式初始检查点边界](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_initial.rs#L182-L215)；[sidecar测试定义](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/tests/snapshot_generated_world.rs#L14-L80)。本次未执行业务测试或现场验收；测试定义不等于通过。
-- 核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
-- 剩余范围：只接收R3原正式入口目标，不替选starter中心/manifest优先级。待核正式工件生成者与启用配置、starter-safe地点/附近资源/初始目标及compat锚点标识；本地bootstrap与sidecar有实际接线，但不能代签正式可玩入口。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行生成器、世界或业务验收，历史实现证据沿原候选保留。
+- 历史实现核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
+- 剩余范围：R3 的中心 starter 与失败边界已由专业设计选定；待核正式工件生成者与启用配置、starter-safe地点/附近资源/初始目标及compat锚点标识；本地bootstrap与sidecar有实际接线，但不能代签正式可玩入口。
 
 <a id="first-claim-generated-context"></a>
 ### 功能状态卡：首次认领的生成来源与失败边界
@@ -122,11 +126,13 @@ Trace ID: O7-REQ-7853375e-94b6-4c6c-8d6b-c486a4277dd4
 - 主责范围与成功标准：claim_first_agent 绑定统一大世界 starter-safe spawn；OC/LLM 可为 onboarding grant，世界物料与可采资源来自 starter chunk；生成失败显示明确阻塞错误，不展示空快照或假地点。
 - 原义接收来源：[原 R4](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#r4-新用户入口)；本卡只接收该段玩家/Agent/入口结果，原专业约束、条件及排除项保持。
 - 对应验收：原 [AC2/AC3](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#5-acceptance-criteria) 中与本卡对应的切片，不能用其他 AC 的局部通过代签。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-claim-flow)；原目标已存在，正式接线与四项未决仍限制覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[原注册/绑定与独立 grant](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-claim-flow)；覆盖正式来源、当前前置重验、原操作恢复与分别成立的注册/领取结果。该结论仅为本卡原范围的设计覆盖，正式实现与实际验收仍按下列状态。
+- 验证方法：[原 requirement 的反向分配与独立正反例](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan)；按同一候选、实际消费者和原适用范围分别执行，本次未运行。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-18固定源码只读复核：本地/legacy新注册映射从固定本地seed-model取spawn，失败返回starter_spawn_location_missing；已存在未绑定starter可直接绑定而跳过生成。WorldService在该映射之前独立提交并返回，因此此错误不证明正式service的生成失败边界，亦不证明正式world_seed/commit/物料来源绑定。 定位：[本地首次注册映射](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/gameplay_actions.rs#L84-L95)；[固定本地seed模型](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/gameplay_actions.rs#L278-L327)；[WorldService先行分支](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/player_gameplay.rs#L479-L518)；[既有Agent绑定与legacy提交](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/player_gameplay.rs#L686-L765)。本次未执行业务测试或现场验收；测试定义不等于通过。
-- 核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行生成器、世界或业务验收，历史实现证据沿原候选保留。
+- 历史实现核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
 - 剩余范围：只接收R4原生成上下文与失败反馈，不改变claim经济合同。需补正式WorldService执行包及其starter生成来源→注册/绑定→资源context的证据，并验证生成失败如何返回且在页面阻塞；现有本地错误传播不覆盖这条正式链，也不推断所有首次绑定都重新生成。
 
 <a id="shared-snapshot-resource-observation"></a>
@@ -137,11 +143,13 @@ Trace ID: O7-REQ-fd8b7e31-afa8-4361-81f0-849c07099dfd
 - 主责范围与成功标准：Viewer locations、fragment terrain、资源摘要与 provider observation 来自同一 snapshot，location/resource IDs 一致；可隐藏低层 frag 细节，不把派生锚点误标为正式资源地点。
 - 原义接收来源：[原 R5](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#r5-viewer-与-provider-观察一致)；本卡只接收该段玩家/Agent/入口结果，原专业约束、条件及排除项保持。
 - 对应验收：原 [AC4](../../world-simulator/scenario/unified-world-seed-fragment-runtime.prd.md#5-acceptance-criteria) 中与本卡对应的切片，不能用其他 AC 的局部通过代签。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[unified 原设计条款](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-observation)；原目标已存在，正式接线与四项未决仍限制覆盖。
+- 系统设计状态：已覆盖
+- 系统设计依据：[同切点、同身份与受权资源观察](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-observation)；覆盖Viewer/Provider 的共同 provenance、资源身份、当前余额及缺证/失权处理。该结论仅为本卡原范围的设计覆盖，正式实现与实际验收仍按下列状态。
+- 验证方法：[原 requirement 的反向分配与独立正反例](../../world-simulator/scenario/unified-world-seed-fragment-runtime.design.md#unified-verification-plan)；按同一候选、实际消费者和原适用范围分别执行，本次未运行。
 - 实现状态：未核实
 - 实现与验证依据：2026-10-18固定源码只读复核：Viewer以runtime snapshot复制资源manifest/delta；Provider shadow从Runtime state或canonical service projection重建，共用地点mapper，但shadow资源manifest/delta及chunk_runtime仍为Default；Provider resource_summary实际取Agent self_resources。共享地点ID机制不等于同一snapshot identity或附近fragment remaining摘要。 定位：[Viewer资源投影](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L445-L467)；[Provider shadow输入](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runtime_support.rs#L9-L47)；[地点映射](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/mapping.rs#L40-L83)；[Provider自资源摘要](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/llm_sidecar_provider_observation.rs#L125-L138)。本次未执行业务测试或现场验收；测试定义不等于通过。
-- 核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行生成器、世界或业务验收，历史实现证据沿原候选保留。
+- 历史实现核对日期与基线：2026-10-18；需求、设计与源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；引用文件本地字节已与Git tree blob逐一核对；只读静态审查，实际正式工件及业务执行未验证。
 - 剩余范围：只接收R5原观察一致性，不新增权限或DTO模型。待取得同一正式snapshot/record切点下Viewer locations/terrain/资源摘要与Provider真实输出、共同seed/version和location/resource IDs，以及派生锚点不会误标正式资源的证据；自资源摘要和共享mapper不代签组合。
 
 ## 4. 路线图

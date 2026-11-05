@@ -2,6 +2,7 @@
 
 - 对应设计文档: `doc/world-simulator/scenario/unified-world-seed-fragment-runtime.design.md`
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history；本文与 design 保留 chain-authoritative seed、resource manifest、delta 与 replay 合同。
+- 2026-11-05 设计选择：[配对设计 §9](unified-world-seed-fragment-runtime.design.md#unified-decisions)已明确原四项接线问题；原要求与 AC 保留。静态基线 `cca8cda97cf121ebc1e25e96d6b0204a421323ea`，不表示正式工件、实施或验收完成。
 
 ## 1. Executive Summary
 - 统一大世界、local testnet、public testnet 与 runtime live 必须共享同一套 `world_seed -> chunk -> fragment -> resource budget` 生成语义。
@@ -23,6 +24,8 @@
 - `ChunkResourceManifest` / `oasis7.world_resource_manifest.v1.generated_chunks`: chunk coord、`chunk_seed`、`chunk_status`（`committed` / `chain_pending` / `provisional` / `exhausted`）、fragment ids、profile hash、budget total hash、budget remaining hash、commit ref。
 - `ResourceDelta` / `oasis7.world_resource_delta.v1`: delta id、action/event id、ordering key、fragment/location/chunk ref、material/resource key、delta amount、commit height/hash、base/result manifest hash、actor/source/replay status。
 - `/v1/chain/status.world_resource`: testnet readiness 必须暴露 `schema_version`、`delta_schema_version`、`world_id`、`chain_id`、`world_seed`、`chunk_generation_schema_version`、seed/starter/latest commit hash、committed/provisional/pending delta counters、`readiness_status` 与 `failed_gates[]`。
+
+上述是原信息义务，不宣称当前 DTO 每个字段都已提供或组合已接通。现选择 canonical seed 由正式初始 snapshot 的现有 `chain_resource_manifest.world_seed` 承载，并由原 checkpoint/state root 可验证引用；资源内容随原正式 action/result/commit 发布，不新增专用 execution-record 类型。缺少 fragment 明细、固定生成上下文或真实消费者时保持实施缺口，不能以 aggregate delta 或 status 字段代签。
 
 ## 里程碑
 - M1: 文档合同冻结，明确资源生成必须链上化。
@@ -53,7 +56,7 @@ Trace refs: O7-REQ-f8497929-34dc-4193-a435-7dbe60bf0e4c；产品唯一声明沿�
 - `world_seed` 必须写入 genesis / manifest / runtime snapshot 可验证字段。
 - local testnet、public testnet、launcher、viewer 与 provider observation 必须引用同一世界种子或其派生证明。
 
-产品承诺接收：[既有统一世界种子的跨入口引用](../../product/agents-world-simulation/prd.md#canonical-seed-consumer)；仅上述 R1 原消费者结果，工程字段/算法仍归本专题，不改变适用 profile 或正式未决答案。
+产品承诺接收：[既有统一世界种子的跨入口引用](../../product/agents-world-simulation/prd.md#canonical-seed-consumer)；仅上述 R1 原消费者结果，专业接线按[固定输入与绑定](unified-world-seed-fragment-runtime.design.md#unified-seed-binding)；不新增 profile 或改变原适用条件。
 
 ### R2 复用现有 chunk/fragment/resource 生成
 
@@ -63,7 +66,7 @@ Trace refs: O7-REQ-112440b1-da55-4443-b513-58dbf9056511；产品唯一声明沿�
 - `chunk_seed(world_seed, coord)` 是 chunk 内 fragment/resource 的唯一随机根。
 - 资源可采量必须使用 `fragment_budget` / `chunk_resource_budgets` 的 total/remaining 账本，不允许运行时临时重算。
 
-产品承诺接收：[既有生成地点与资源预算的同一来源](../../product/world-rules-core-gameplay/prd.md#generated-resource-source)；仅上述 R2 原消费者结果，工程字段/算法仍归本专题，不改变适用 profile 或正式未决答案。
+产品承诺接收：[既有生成地点与资源预算的同一来源](../../product/world-rules-core-gameplay/prd.md#generated-resource-source)；仅上述 R2 原消费者结果，派生和预算沿[专业设计](unified-world-seed-fragment-runtime.design.md#32-seed-派生)；不新增 profile 或修改生成算法。
 
 ### R3 Runtime live 消费世界生成事实
 
@@ -73,7 +76,7 @@ Trace refs: O7-REQ-212aa59b-6d97-43a7-8fd7-35d441489281；产品唯一声明沿�
 - `runtime:x:y:z` Location 只能作为短期兼容锚点或调试 fallback；可玩入口不得把它当作正式资源地点。
 - formal release 默认世界应加载或生成 starter-safe chunk，并从该 chunk 派生 starter spawn、nearby resource pocket 与初始可见目标。
 
-产品承诺接收：[既有正式入口消费生成世界事实](../../product/agents-world-simulation/prd.md#formal-generated-world-entry)；仅上述 R3 原消费者结果，工程字段/算法仍归本专题，不改变适用 profile 或正式未决答案。
+产品承诺接收：[既有正式入口消费生成世界事实](../../product/agents-world-simulation/prd.md#formal-generated-world-entry)；仅上述 R3 原消费者结果，按[中心 starter 与失败边界](unified-world-seed-fragment-runtime.design.md#51-world-bootstrap)实施；不增加首工业输入保证或改变原适用条件。
 
 ### R4 新用户入口
 
@@ -83,7 +86,7 @@ Trace refs: O7-REQ-7853375e-94b6-4c6c-8d6b-c486a4277dd4；产品唯一声明沿�
 - 初始 OC / LLM 预算仍可以是 onboarding grant，但世界物料与可采资源应来自 starter chunk。
 - 如果 starter chunk 生成失败，页面必须阻塞并显示明确世界生成错误，而不是展示空快照或假地点。
 
-产品承诺接收：[既有首次认领的生成来源与失败边界](../../product/agents-world-simulation/prd.md#first-claim-generated-context)；仅上述 R4 原消费者结果，工程字段/算法仍归本专题，不改变适用 profile 或正式未决答案。
+产品承诺接收：[既有首次认领的生成来源与失败边界](../../product/agents-world-simulation/prd.md#first-claim-generated-context)；仅上述 R4 原消费者结果，按[真实 frag 绑定、原请求恢复与独立 grant](unified-world-seed-fragment-runtime.design.md#unified-claim-flow)实施；不修改原身份/领取经济合同。
 
 ### R5 Viewer 与 Provider 观察一致
 
@@ -93,7 +96,7 @@ Trace refs: O7-REQ-fd8b7e31-afa8-4361-81f0-849c07099dfd；产品唯一声明沿�
 - Provider 不能看到与玩家 viewer 不一致的 location/resource ids。
 - UI 可以隐藏低层 frag 细节，但不能把派生锚点误标成正式资源地点。
 
-产品承诺接收：[既有Viewer与Provider的同快照资源观察](../../product/agents-world-simulation/prd.md#shared-snapshot-resource-observation)；仅上述 R5 原消费者结果，工程字段/算法仍归本专题，不改变适用 profile 或正式未决答案。
+产品承诺接收：[既有Viewer与Provider的同快照资源观察](../../product/agents-world-simulation/prd.md#shared-snapshot-resource-observation)；仅上述 R5 原消费者结果，按[同切点观察](unified-world-seed-fragment-runtime.design.md#unified-observation)实施；不扩大可披露范围或改变原适用条件。
 
 ### R6 资源生成全部链上化
 
@@ -105,7 +108,7 @@ Trace refs: O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c；产品唯一声明沿�
 - `fragment_budget.remaining_*` 的减少必须由链上 action / commit 驱动；runtime/viewer 不得把本地重算结果当成 authoritative remaining balance。
 - testnet readiness 必须能证明 viewer/runtime/provider 读取的是同一个链上 resource provenance，而不是各自本地重新生成后碰巧一致。
 
-产品承诺接收：[既有正式资源的提交来源与余额连续性](../../product/world-rules-core-gameplay/prd.md#committed-resource-continuity)；仅上述 R6 原消费者结果，工程字段/算法仍归本专题，不改变适用 profile 或正式未决答案。
+产品承诺接收：[既有正式资源的提交来源与余额连续性](../../product/world-rules-core-gameplay/prd.md#committed-resource-continuity)；仅上述 R6 原消费者结果，按[原正式记录承载](unified-world-seed-fragment-runtime.design.md#unified-resource-record)及[余额恢复](unified-world-seed-fragment-runtime.design.md#43-资源变更权威)实施；不新增资源权限、另一账本或正式 profile。
 
 ## 4. Non-Goals
 - 本专题不新增复杂分布 DSL；继续复用现有 `AsteroidFragmentConfig`、material distribution 和 replenish 策略。
@@ -125,7 +128,7 @@ Trace refs: O7-REQ-2b3769ae-078a-4123-a0de-e20405b42c7c；产品唯一声明沿�
 
 ## 6. 既有采用子范围的身份与适用性
 
-本节只登记 R1–R6 的现有采用子机制及其真实边界，不改变原要求、AC1–AC8、schema 或里程碑。正式统一世界的消费者义务不因局部工程身份而成为不适用；完整 chain-authoritative 接线仍按配对设计的四项 Open Decisions 与原验收逐 profile 核实。这里的“采用”表示已有合同/采用记录，不表示本次执行业务验证或整个正式目标完成。
+本节只登记 R1–R6 的现有采用子机制及其真实边界，不改变原要求、AC1–AC8、schema 或里程碑。正式统一世界的消费者义务不因局部工程身份而成为不适用；完整接线按[已选方案与真实实施边界](unified-world-seed-fragment-runtime.design.md#unified-decision-profile)和原验收核实。这里的“采用”表示已有合同/采用记录，不表示本次执行业务验证或整个正式目标完成。
 
 <a id="uws-simulator-facts"></a>
 ### 既有专业条款身份：Simulator 生成事实与双级预算
@@ -162,4 +165,4 @@ Trace refs: O7-REQ-4d98352e-f146-4672-b159-b99545708c78, O7-REQ-3bef4fa6-57cd-41
 <a id="uws-consumer-boundaries"></a>
 ### 原消费者义务与剩余范围
 
-R1 的 canonical seed 跨入口可验证引用、R3/R4 的正式 starter/claim 接线、R5 的 Viewer/provider 同 snapshot、R6 的资源 committed/provisional 与恢复 remaining 都仍为适用要求，不能用上面三个工程身份替代。原 AC1–AC8 分别保留，具体目标分配与未选接线见[设计分配表](unified-world-seed-fragment-runtime.design.md#unified-allocation)。固定场景初始化只有限关联[SC-1](../../product/agents-world-simulation/prd.md#sc-agent-001)；[舞台事实来源](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)只提供 Viewer 读取依赖；[无效果待决](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-002)只提供 committed 前消费者边界。它们均不替代全套统一 seed 产品接收，不把 SC-1 当正式链资源、claim 或 provider 的万能身份。
+R1 的 canonical seed 跨入口可验证引用、R3/R4 的正式 starter/claim 接线、R5 的 Viewer/provider 同 snapshot、R6 的资源 committed/provisional 与恢复 remaining 都仍为适用要求，不能用上面三个工程身份替代。原 AC1–AC8 分别保留，具体目标分配见[设计分配表](unified-world-seed-fragment-runtime.design.md#unified-allocation)，已选规则的成功/拒绝/恢复方法见[§11.3](unified-world-seed-fragment-runtime.design.md#unified-decision-validation)。固定场景初始化只有限关联[SC-1](../../product/agents-world-simulation/prd.md#sc-agent-001)；[舞台事实来源](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)只提供 Viewer 读取依赖；[无效果待决](../../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-002)只提供 committed 前消费者边界。它们均不替代全套统一 seed 产品接收，不把 SC-1 当正式链资源、claim 或 provider 的万能身份。
