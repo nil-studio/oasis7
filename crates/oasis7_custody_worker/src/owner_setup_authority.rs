@@ -42,11 +42,21 @@ pub(super) async fn observe(
     signed: &SignedApprovalVerificationV1,
     inspection_only: bool,
 ) -> Result<authority::Observations> {
+    observe_traced(env, saved, input, signed, inspection_only, None).await
+}
+pub(super) async fn observe_traced(
+    env: &Env,
+    saved: &ProvisionApprovalSnapshot,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+    inspection_only: bool,
+    trace: Option<&'static str>,
+) -> Result<authority::Observations> {
     let world = enabled(env)?;
     if saved.state.draft().plan.world_identity != world.world_id {
         return Err(denied());
     }
-    authority::observe(env, saved.state.draft(), input, signed, inspection_only).await
+    authority::observe_traced(env, saved.state.draft(), input, signed, inspection_only, trace).await
 }
 /// Only Delegation/Bind/FinalObservation result callbacks whose local once reservation has
 /// already committed can overlap these two independent readonly inputs.

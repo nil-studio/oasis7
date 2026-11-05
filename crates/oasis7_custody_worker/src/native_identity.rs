@@ -215,6 +215,13 @@ impl NativeIdentityConfig {
         &self,
         request: &ApprovalVerifyRequestV1,
     ) -> Result<SignedApprovalVerificationV1> {
+        self.verify_approval_traced(request, None).await
+    }
+    pub(crate) async fn verify_approval_traced(
+        &self,
+        request: &ApprovalVerifyRequestV1,
+        trace: Option<&'static str>,
+) -> Result<SignedApprovalVerificationV1> {
         let proof = &request.approval.proof;
         self.identity(&proof.identity_namespace, proof.identity_instance_epoch)?;
         checked(
@@ -246,7 +253,7 @@ impl NativeIdentityConfig {
             .with_body(Some(body.into()));
         let outbound =
             Request::new_with_init(&format!("{}{PREFIX}/approvals/verify", self.origin), &init)?;
-        let signed: SignedApprovalVerificationV1 = read_native(outbound).await?;
+        let signed: SignedApprovalVerificationV1 = read_native_body(send_native_status_traced(outbound, false, trace).await?).await?;
         let value = &signed.verification;
         self.identity(&value.identity_namespace, value.identity_instance_epoch)?;
         checked(
@@ -296,6 +303,9 @@ async fn send_native(request: Request) -> Result<worker::Response> {
     send_native_status(request, false).await
 }
 async fn send_native_status(request: Request, allow_not_found: bool) -> Result<worker::Response> {
+    send_native_status_traced(request, allow_not_found, None).await
+}
+async fn send_native_status_traced(request: Request, allow_not_found: bool, trace: Option<&'static str>) -> Result<worker::Response> {
     let constructor =
         js_sys::Reflect::get(&js_sys::global(), &"AbortSignal".into()).map_err(|_| rejected())?;
     let timeout: js_sys::Function = js_sys::Reflect::get(&constructor, &"timeout".into())
@@ -307,8 +317,8 @@ async fn send_native_status(request: Request, allow_not_found: bool) -> Result<w
         .map_err(|_| rejected())?
         .dyn_into()
         .map_err(|_| rejected())?;
-    let response = Fetch::Request(request)
-        .send_with_signal(&AbortSignal::from(signal))
+    let response = crate::owner_setup_physical_trace::edge(trace, "native.call", Fetch::Request(request)
+        .send_with_signal(&AbortSignal::from(signal)))
         .await
         .map_err(|_| rejected())?;
     checked(

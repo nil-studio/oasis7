@@ -94,17 +94,22 @@ fn fresh(observed_at: DecimalU64, now: u64) -> Result<()> {
     Ok(())
 }
 async fn gate(env: &Env, rpc: &ApproveRpc, draft: &AccountDraftV1) -> Result<ProvisionGateView> {
+    gate_traced(env, rpc, draft, None).await
+}
+async fn gate_traced(env: &Env, rpc: &ApproveRpc, draft: &AccountDraftV1, trace: Option<&'static str>,
+) -> Result<ProvisionGateView> {
     let request = ProvisionGateRpc {
         manager_session: rpc.manager_session.clone(),
         provision_id: rpc.provision_id.clone(),
         custody_account_id: draft.entry.custody_account_id.clone(),
     };
     let raw = serde_json::to_string(&request)?;
-    let raw = crate::owner_directory::call_directory(
+    let raw = crate::owner_directory::call_directory_traced(
         env,
         "/internal/provision-gate",
         &raw,
         &rpc.manager_session,
+        trace,
     )
     .await?;
     if raw.len() > MAX_BYTES {
@@ -129,11 +134,14 @@ fn check_gate(view: &ProvisionGateView, draft: &AccountDraftV1, now: u64) -> Res
     Ok(())
 }
 async fn fence(env: &Env) -> Result<(RecoveryFence, DecimalU64)> {
+    fence_traced(env, None).await
+}
+async fn fence_traced(env: &Env, trace: Option<&'static str>) -> Result<(RecoveryFence, DecimalU64)> {
     // The response has no remote timestamp. Start before RPC as a conservative
     // lower bound on observation time; slow transport cannot renew freshness.
     let observed_at = DecimalU64(clock()?);
     let fence: RecoveryFence =
-        serde_json::from_str(&text(read_fence(env).await.map_err(|_| denied())?)?)
+        serde_json::from_str(&text(if cfg!(feature = "owner-setup-physical-trace-harness") && trace.is_some() { crate::owner_setup_physical_trace::read_fence(env, trace).await } else { read_fence(env).await }.map_err(|_| denied())?)?)
             .map_err(|_| denied())?;
     Ok((fence, observed_at))
 }

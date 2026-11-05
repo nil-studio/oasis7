@@ -949,7 +949,11 @@ Account 存储适配器可在单个 store 实例内复用一份已完整严格�
 
 #### Execution：World 公开派生证明与私密正文隔离
 
-本组件只提供 Native task context 的 World producer、SDK 强验与 Native 固定传输；后续真实 V2 批准/激活及 paid caller 独立接线，不能将 V1 Prepared/Session 静默升级，不以此代替 Transfer/Build/Schedule。World 的真实 `PrivateGoalStore` 持有并读取 PreparedGoal/PreparedTaskContext 明文，既有 snapshot/load_captured 路径从实际 pinned World 构造 Native authority、actor observation 和 base binding，既有 fresh read 在初始及投递前检查 task、prefix、lease 和完整 CommitRef。Identity 独占 custody 侧 Context AEAD KEK。Account 与 Executor 均不得接收两个私密 slot 的正文，包括瞬时 RPC；“不持久化”不是例外。新增证明由实际 World 服务签名 key 生产，明确证明 World 已完成完整私密 SDK 图的验证。Account 验证新 domain 的强签和精确公开 tuple，不声称独立验证它不可见的私密正文及其嵌套签名。裸 digest、Identity/Native 自报 verified、普通 bool 或序列化成功标记不能替代该证明。
+本组件提供 Native task context 的 World producer、SDK 强验与 Native 固定传输；paid caller 须按实际批准版本独立接线。资源 V2 及后继扩大权限仍须真实新批准/激活，不能将 V1 Prepared/Session 静默升级，不以单 Move 代替 Transfer/Build/Schedule。World 的真实 `PrivateGoalStore` 持有并读取 PreparedGoal/PreparedTaskContext 明文，既有 snapshot/load_captured 路径从实际 pinned World 构造 Native authority、actor observation 和 base binding，既有 fresh read 在初始及投递前检查 task、prefix、lease 和完整 CommitRef。Identity 独占 custody 侧 Context AEAD KEK。Account 与 Executor 均不得接收两个私密 slot 的正文，包括瞬时 RPC；“不持久化”不是例外。新增证明由实际 World 服务签名 key 生产，明确证明 World 已完成完整私密 SDK 图的验证。Account 验证新 domain 的强签和精确公开 tuple，不声称独立验证它不可见的私密正文及其嵌套签名。裸 digest、Identity/Native 自报 verified、普通 bool 或序列化成功标记不能替代该证明。
+
+**原 V1 单 Move 的保权接线。** 公开证明的 V2 是事实 codec 版本，不自行发行新的 custody 权利。允许在真实已批准、已激活且持有原凭据的 V1 TestSession 中，仅为原已批准的唯一 Move、business_limit=0，使用这些固定 World attestation 与显式 `FullSignedResponseV2/AttestedSlotRefV2` 正文格式；不改原 V1 plan/intent/token/domain、Executor/Owner/goal/fence、Source/期限或400/300预算，不新增Model、资源动作、machine注册或第二原件终态权限。每个实际HTTP/Actor/Native/World边仍从对应原purpose先持久预扣，不能借Control或Native160。Account必须在本地强验实际 configured World 签名、原Prepare/Get/Prefix关联与同一V1批准范围，Identity独占完整正文并执行全部SDK验证及AEAD；不把 `ValidatedContextBody` 的正文经RPC传入Account，也不接受裸digest/ref/verified。新public-fact持久记录使用明确闭合tag并与原mandatory账/原件交叉验证，旧ContextRef及旧待核记录不自动转换，不从历史恢复usable权限。完整Prepare→Prefix→Captured→Cognition→onceSubmit→原件lookup/fresh准入/权威usage及故障图通过前，该窄caller仍默认关闭。此适配只证明托管技术路径，不能关闭#5076或代替CT-008工业目标。
+
+该窄路径的业务 nonce 使用独立闭合 `POST /v1/account-provisions/{provision}/accounts/{account}/client/test-sessions/{session}/action-challenges`，按 `CustodyChallenge` PoP 精确绑定完整 URI、session、Host、原请求与用途；返回的 `kind=Tool` 只属于已批准的 Execution 或 ReconcileRead。原 `proof-challenges` 的 Control／ToolMetadata 语义不变，metadata nonce 不升级为业务权限。新 issuer 使用独立 purpose 流水，公开 HTTP 与实际 Identity→Owner service→Account 两条路由分别结算，后续每条 Source、Directory、RF、SID、LF、signer 与 World 边均在出站前持久预扣对应400／300账；不能复用无条件扣 Control 的管理流水。挑战必须与可信 ingress、已付端口、固定 operation target、generation 和原期限形成不可覆盖关联；内部同一 ingress 回调精确幂等，新入口重放另收费，冲突整次拒绝且不改账。预算不足、陈旧 Current 或凭据失效均不发行业务 nonce；已付失败不退款、不重试或续期。新路由与其消费者、强签公开事实恢复及真实用量图必须在同一候选验证后才能开放。
 
 旧 Prepare/Get/Live 请求、响应、签名 domain 和 preimage 保持不变；只新增闭合 V2 DTO/route，不向旧 deny_unknown_fields DTO 添字段，不迁移 Owner/Executor/Native/Host key 或 approval secret。新的 observation_nonce 必须是64位小写十六进制，只是观察挑战，不新增权限；后续 custody caller 必须在实际出站前由服务生成、登记并一次绑定尝试，不把 World read 服务不消费 nonce 当作可复用旧观察。World 仍完整验证原 signed Prepare/Get、Native 模式、当前 task/Owner/Executor/lineage、prefix 和 lease；domain 的强签绑定整个新请求。
 
@@ -1204,6 +1208,10 @@ nonce 原件须与首次 creating ingress、实际已付三次记录、完整原
 
 一次关闭依次记录 `closing`、`write_closed`、各自 stop_status/revoke_status、pending 原件核对和自有资源回收；不是第二套世界状态机。仅当 Stop/Revoke 已按当前权威证明（完整 V2 收尾另须按本节证明实际 World Task Closed 与原子撤销）、可能派发的 canonical 原件已核清、私有准备/纯读取按 §12.17 明确分类、业务预留已结算/有明确终态、客户端及本轮自有资源回收已记录，才标 `closed`。可能有世界效果而未核清的原件保持 `closing/recovery_required/cleanup_blocked`，保留原件/预留并报告下一步；不能要求 Owner 读取其协议不允许的私有准备结果才能关闭。未关闭测试阻止同账号再次起测；人工处理可以继续独立获准核对/收尾，不能清空记录开新会话。正常 closed 可保留剩余期限内的只读证据访问；显式全会话/账号/身份撤销则连读取也关闭。
 
+**后继批准版本的兼容边界。** 本节 V3 仅用于需要改变批准原件或扩大权限的后继完整链；前述保持原批准的 V1 单 Move 事实适配不因此升级。 main 已发布的 `OwnerSetupPlanV2`、`TestSessionPlanV2`、资源 selection/scope、旧 intent tag、canonical bytes、plan/intent digest 与 Native 原批准验证分支保持原样。新增 Move 技术路径、完整 machine/Source 账、mandatory nullable Model 字段或独立终止原件等范围，不得原地扩充同名 V2 原件后继续使用旧签名域；字段为 null 也可能改变 canonical 编码，不能视为字节兼容。后继完整链使用独立 `OwnerSetupPlanV3` / `TestSessionPlanV3`、`OwnerSetupV3` / `TestSessionV3` intent tag及独立 `.v3` plan/intent 域；资源事实和 World 业务原件的既有域不随 custody 版本改变。
+
+新 authority 仅接受真实新 V3 批准，不将 V1/V2批准、旧unknown原件或开发候选的较早V2状态静默迁成新 machine、Source、Model或终止权限。Native options、WebAuthn complete、proof summary与原批准记录须绑定同一完整V3 intent与新摘要合同；Viewer、Worker及Host消费者各自显式支持后才开放，未支持时拒绝，不靠可选字段或summary投影兼容。恢复结构保留所需mandatory账与强验，旧持久状态的合法迁移须显式识别旧版本并证明未发行新权限，不能用默认空账掩盖新状态字段被删除。新V3终止预算仍须满足前述完整图与精确新批准，不把保全候选中的24或模型预算字段当作资格。验收同时固定旧V2合法JSON/canonical/digest/signing bytes不变、新V3缺字段拒绝及跨版本不能授新权；真实Native生产者到Worker消费者组合通过前保持新入口关闭。
+
 **World 与会话关闭的状态组合。** Trace refs: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede；O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb。World Closed 是第二原件的世界效果；TestSession closed 还要求上段账、原件与资源义务全部完成。下表的世界结论须有强签事实及适用 delivery-current，不从 HTTP ACK 或本地标记推断。
 
 | 第一份 Stop 的实际处置 | 第二原件的权威结果 | World 结论 | TestSession 收尾条件 |
@@ -1219,21 +1227,21 @@ nonce 原件须与首次 creating ingress、实际已付三次记录、完整原
 
 “核清”与“成功”分别记录：未派发须有可信持久分配／发送库存证明，Rejected 须验精确原件的强签拒绝，committed 须验原件、事实和当前准入。对于已派发而结果未知的 Stop，本版尚无将永久终态屏障作为独立最终处置的 Account 合同；因此即使 World 已 Closed 也不能自动关闭会话。这是会话验收的保守边界，不是运行时死锁结论，也不限制第二安全槽独立关闭 World。
 
-**来源复用子图的逐边口径。** 下表只核算复用 OwnerSetup 来源／私有会话路径的至少29跳，不是已实现 Termination dispatcher 的图，也不含外层公开入口和 Account 协调回传。Directory 是 Account 直达 Directory DO 的一次边；Fence 是到 RF service 再到 RF DO 的两次边，不能统一将二者各算一次或各算两次。
+**来源复用子图的逐边口径。** 下表只核算复用 OwnerSetup 来源／私有会话路径的至少28跳，不是已实现 Termination dispatcher 的图，也不含外层公开入口和 Account 协调回传。Directory 是 Account 直达 Directory DO 的一次边；Fence 是到 RF service 再到 RF DO 的两次边，不能统一将二者各算一次或各算两次。
 
 | 来源阶段 | 实际边及重复次数 | 至少成本 |
 | --- | --- | ---: |
 | prepare_source 前置 | Account→Directory DO；Account→RF service→RF DO | 3 |
-| Native approval verify | Account→Identity NativeApproval service；Native challenge、call 各一次 | 3 |
+| Native approval verify | Account→Identity NativeApproval service；Identity→Native approval verify HTTP 一次，无 challenge 或 manifest actor | 2 |
 | source 完成后置 | Account→Directory DO；Account→RF service→RF DO | 3 |
 | 启动 Identity driver | Account→Identity service→manifest actor | 2 |
 | 两次 Session observe | 每次 role→Owner service→Account、Account→Directory DO、Account→RF service→RF DO、role→RF service→RF DO，分别2＋1＋2＋2 | 14 |
 | SID／CSRF 私读 | 两份 cipher 各前后读取 | 4 |
-| 合计 | 尚缺 LF、fresh access、签名、World 与最终回传 | 29 |
+| 合计 | 尚缺 LF、fresh access、签名、World 与最终回传 | 28 |
 
 代码边界来自 Worker 的 `owner_setup_drive`、`platform/provision_drive_rpc.mjs`、`owner_setup_dispatch::prepare_source`、`identity_owner_setup_runtime::{rpc,observe}`、`identity_owner_setup_private` 私读、`owner_setup_entrypoints` 服务转发及 `owner_directory` 直 DO 读取。它们用于验证旧流程不能原样复用，不能作为尚无 paid caller 的新 Termination 流程的执行计数。23跳模板的每个 oracle 同样是 role→Owner service→Account（2）、Directory DO（1）、RF service→RF DO（2）；每个独立 Fence 是 role→RF service→RF DO（2）。GetPermit 的 Account oracle 预扣必须先持久成功才进入观察；不得把独立 Fence 提前到这次付款之前。相同已付请求中的独立只读观察可否重叠，必须另证各自保守观察起点、失败仍收费及后置当前性，不自动套用到来源、签名或效果后的回读。
 
-**预算可实施性结论与后继准入。** 旧冷签模板的两原件下界为至少46次，尚缺来源与 World；另一非 World 来源／私有会话子图单独至少29次，尚缺 LF、签名与 World。两者是不同候选的下界，不能相加为完整总数。它们各自已超过24，故沿用这些模板的完整 Cleanup24 没有可实施性或正余量。并发只能减少关键路径耗时，不能减少真实调用成本；来源五秒边界、先持久付款再出站及最终权威检查不能为装入24而删除。
+**预算可实施性结论与后继准入。** 旧冷签模板的两原件下界为至少46次，尚缺来源与 World；另一非 World 来源／私有会话子图单独至少28次，尚缺 LF、签名与 World。两者是不同候选的下界，不能相加为完整总数。它们各自已超过24，故沿用这些模板的完整 Cleanup24 没有可实施性或正余量。并发只能减少关键路径耗时，不能减少真实调用成本；来源五秒边界、先持久付款再出站及最终权威检查不能为装入24而删除。
 
 后继架构或独立版本预算须以同一生产者／消费者候选列明：两份原件各自取得来源、签名、发送、查询、归档、当前准入与会话结算的逐物理边；正常、已派发丢响应、lookup丢响应、来源失效和预算耗尽各分支；每边预扣位置与失败不退款；必须顺序的付款、原件分配／签名、效果／后状态关系及可并发的独立付费观察；原观察起点到最后强验的最坏耗时与余量。原V1/V2已批准的24不迁移或自动提额，新版本须重新精确批准自己的上限与期限；在完整图和恢复分支真实验证前保持 dispatcher disabled。现有 Core 强签恢复测试、Runtime 原子关闭或 Node 编码接缝各自通过，只证明局部能力，不构成该完整图的验收。
 
@@ -1250,7 +1258,7 @@ nonce 原件须与首次 creating ingress、实际已付三次记录、完整原
 
 Closed 必须进入现 canonical task history/retained chain 的严格重建和 state commitment，不能通过 serde(default) 丢弃 tombstone。新 V2 task-state/receipt 显式表示 Closed；旧 V1 读取不具备该枚举时明确 unsupported，不能假报 Suspended 或 None。严格 snapshot、cold retention、重放、prune/恢复均须保留终端事实；旧快照只能以显式版本迁移并从已认证 canonical history 恢复，缺终端历史不得复活任务。
 
-此组件不启用 Native/Account dispatcher：现有非 World 一次 Source/private-session 获取子图已至少 29 个实际调用，超过 Cleanup24，且尚未计 LF/签名/World；原冷签名单原件 23 的另一成本问题也未解决。不得把本地调用合为一个 HTTP、隐藏 batch/缓存旧授权、删非 World 强验或提高 cap 宣称闭图。新的 Account orchestration/Native 限定 purpose/Identity 私有代证明/Vault exact once 协议及每个物理 hop 必须另行闭合并实测，完整图未满足 24 时执行仍 disabled。
+此组件不启用 Native/Account dispatcher：现有非 World 一次 Source/private-session 获取子图已至少 28 个实际调用，超过 Cleanup24，且尚未计 LF/签名/World；原冷签名单原件 23 的另一成本问题也未解决。不得把本地调用合为一个 HTTP、隐藏 batch/缓存旧授权、删非 World 强验或提高 cap 宣称闭图。新的 Account orchestration/Native 限定 purpose/Identity 私有代证明/Vault exact once 协议及每个物理 hop 必须另行闭合并实测，完整图未满足 24 时执行仍 disabled。
 
 **Closed 的 Formal commitment。** 实际关闭后，Formal writer 不能因 legacy task current 必须拒绝 Closed 而失去构造下一权威 publication 的能力。永久 terminal index 已严格验证且当前完整 Owner/history scope 精确选择该 Closed task 时，原私有 audience leaf 使用明确版本化的 `ClosedTaskFormalProjectionV2 { api_revision: 2, closed: GameTaskClosedV2 }`；它只证明该 audience 的终态事实，不含或复活 task context、quote、grant、executor 或工具权限。public 与所有 Open/合法新 scope 的 V1 projection/leaf/tree codec 和 bytes 不变。旧 V1 current/read formatter 仍明确 unsupported_closed_task，绝不把终态投影成 Suspended/None；新 typed payload 不通过旧 V1 HTTP response 返回。新观察消费者按 exact audience/typed payload 核对实际 qualified anchor 的 projection inclusion，不能只验 packet 自带 root。实现必须以 Active publication 正控→实际 Runtime Close→V1 unsupported 仍成立→新 terminal commitment/qualified local publication 成功的有效回归验证；此组件证据不替代实际 Formal writer producer、Native/Account 付款、全部 BFT profile 或 Cleanup24 闭合。
 #### V2 目录、known lookup 与交付当前性组件
@@ -1265,7 +1273,7 @@ V2 known lookup 精确携同一 Owner signed original、固定 World 与新 obse
 
 当前实际 Native V1 entry-owner/control 在每 Submit/Lookup 前先读 Owner view，再 await 后重核 SID 后转发，不能将它直接包装为新的省 hop cleanup gateway，也不能用其裸 SID、普通 ceremony 或旧 flag 开放 V2。新 Native purpose/认证、每实际 HTTP 预扣/once、当前 Source/RootLF/DFRF、预算和 lookup/archive/admit Caller 仍欠实现，production route 保持零出站拒绝。本组件的 WorldService 纯 typed builder 由实际 Runtime 状态 fixture 调用；SDK codec 测试使用明确的本地 Node 角色测试 key 验强签。实际 Node Service 的 current/history/delivery pin 与配置 service key 签发 adapter 尚未接线，也没有对应生产 caller 或 Service adapter 集成测试，不能把本地强签 codec 证明当实际 Node 交付、Native caller、MFA、付费账或生产 HTTP 已可用。
 
-正式 adapter 尚未实现；单次拟议 Node lookup 内最多 current、历史、delivery 三次本地权威 pin，不是三个被隐藏的远程 HTTP，也不把本地读取当新预算权限。真正 Native/World Submit、Lookup、失败和重试都必须计实际 transport；完整 non-World 至少29/总24的缺口仍在，不提高 cap、不免费 cache/刷新 authority、不因组件通过宣称 cleanup 可开启。后续 Node adapter 必须对最终 signed envelope 实际序列化检查64KiB，本组件不声称该 Node serializer gate 已实现；尚未实现的 Native 外层同样须在其最终 serializer 实测，不凭空预留4KiB。当前组件不声明 full BFT qualified receipt、外部最终性回放或生产-ready。
+正式 adapter 尚未实现；单次拟议 Node lookup 内最多 current、历史、delivery 三次本地权威 pin，不是三个被隐藏的远程 HTTP，也不把本地读取当新预算权限。真正 Native/World Submit、Lookup、失败和重试都必须计实际 transport；完整 non-World 至少28/总24的缺口仍在，不提高 cap、不免费 cache/刷新 authority、不因组件通过宣称 cleanup 可开启。后续 Node adapter 必须对最终 signed envelope 实际序列化检查64KiB，本组件不声称该 Node serializer gate 已实现；尚未实现的 Native 外层同样须在其最终 serializer 实测，不凭空预留4KiB。当前组件不声明 full BFT qualified receipt、外部最终性回放或生产-ready。
 
 #### prepared_world targeted Agent 自测
 

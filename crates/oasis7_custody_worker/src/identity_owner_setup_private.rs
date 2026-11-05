@@ -2,7 +2,7 @@
 use super::{Observation, check};
 use crate::{
     envelope_crypto,
-    identity_native_runtime::{CipherRead, actor, clock, js_denied, record_name},
+    identity_native_runtime::{CipherRead, actor_traced, clock, js_denied, record_name},
     native_identity::provision_transport::{PrivateCookie, PrivateCookieKind},
     native_private_store::{
         NativePrivateConfig,
@@ -58,10 +58,10 @@ pub(super) async fn read(
     }
     let config = NativePrivateConfig::load(env)?;
     let mut secrets = Vec::with_capacity(2);
-    for (scope, digest) in [
+    for (index, (scope, digest)) in [
         (&refs.cookie, &refs.cookie_digest),
         (&refs.csrf, &refs.csrf_digest),
-    ] {
+    ].into_iter().enumerate() {
         check(env, selector, first)?;
         if scope.role_scope != session.scope.role_scope
             || scope.identity_namespace != session.scope.identity_namespace
@@ -69,14 +69,15 @@ pub(super) async fn read(
         {
             return Err(js_denied());
         }
-        let envelope: Option<KeyEnvelopeV1> = actor(
+        let envelope: Option<KeyEnvelopeV1> = actor_traced(
             env,
             &record_name(scope)?,
             "/internal/cipher-read",
             &CipherRead {
                 scope: scope.clone(),
             },
-        )
+        Some((crate::owner_setup_physical_trace::stage(Some(selector.stage)), if index == 0 { "private.cookie.before" } else { "private.csrf.before" })),
+)
         .await?;
         check(env, selector, first)?;
         let envelope = envelope.ok_or_else(js_denied)?;
@@ -90,14 +91,15 @@ pub(super) async fn read(
         if bytes_digest(secret.as_bytes()) != *digest || secret.as_bytes().len() > 12 * 1024 {
             return Err(js_denied());
         }
-        let after: Option<KeyEnvelopeV1> = actor(
+        let after: Option<KeyEnvelopeV1> = actor_traced(
             env,
             &record_name(scope)?,
             "/internal/cipher-read",
             &CipherRead {
                 scope: scope.clone(),
             },
-        )
+        Some((crate::owner_setup_physical_trace::stage(Some(selector.stage)), if index == 0 { "private.cookie.after" } else { "private.csrf.after" })),
+)
         .await?;
         check(env, selector, first)?;
         if after.as_ref() != Some(&envelope) {

@@ -106,6 +106,16 @@ pub(super) async fn observe(
     signed: &SignedApprovalVerificationV1,
     inspection_only: bool,
 ) -> Result<Observations> {
+    observe_traced(env, draft, input, signed, inspection_only, None).await
+}
+pub(super) async fn observe_traced(
+    env: &Env,
+    draft: &oasis7_custody_core::provisioning::AccountDraftV1,
+    input: ApprovalAdmissionInput,
+    signed: &SignedApprovalVerificationV1,
+    inspection_only: bool,
+    trace: Option<&'static str>,
+) -> Result<Observations> {
     reject_resource_v2(&input)?;
     let manager = manager(&input, signed);
     let gate = if inspection_only {
@@ -114,7 +124,7 @@ pub(super) async fn observe(
             provision_id: draft.entry.provision_id.clone(),
             custody_account_id: draft.entry.custody_account_id.clone(),
         };
-        let raw = crate::owner_directory::call_inspection_directory(env, &rpc).await?;
+        let raw = crate::owner_directory::call_inspection_directory_traced(env, &rpc, trace).await?;
         let view = serde_json::from_str(&raw).map_err(|_| denied())?;
         check_gate(&view, draft, clock()?)?;
         view
@@ -127,9 +137,9 @@ pub(super) async fn observe(
                 input: input.clone(),
             },
         };
-        gate(env, &rpc, draft).await?
+        super::super::gate_traced(env, &rpc, draft, trace).await?
     };
-    let (fence, fence_started) = fence(env).await?;
+    let (fence, fence_started) = super::super::fence_traced(env, trace).await?;
     Ok(Observations {
         input,
         manager,

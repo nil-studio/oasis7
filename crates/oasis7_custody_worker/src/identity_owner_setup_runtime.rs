@@ -8,7 +8,7 @@ mod private;
 mod transport;
 use crate::native_identity::provision_transport::NativePrivateRoute;
 use crate::{
-    identity_native_runtime::{clock, js_denied, raw_text, read_fence},
+    identity_native_runtime::{clock, js_denied, raw_text},
     owner_setup_rpc::*,
 };
 use oasis7_client_api::world_service::{self as ws, SignedServiceResponse};
@@ -54,7 +54,7 @@ async fn rpc<T: DeserializeOwned>(
     if raw.len() > 128 * 1024 {
         return Err(js_denied());
     }
-    serde_json::from_str(&raw_text(owner_call(env, &raw).await?, 128 * 1024)?)
+    serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(selector.stage))), "owner.permit.service", owner_call(env, &raw)).await?, 128 * 1024)?)
         .map_err(|_| js_denied())
 }
 
@@ -155,7 +155,7 @@ async fn observe(
     }
     let fence_started = clock()?;
     let fence =
-        serde_json::from_str(&raw_text(read_fence(env).await?, 4096)?).map_err(|_| js_denied())?;
+        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::read_fence(env, Some(crate::owner_setup_physical_trace::stage(Some(selector.stage)))).await?, 4096)?).map_err(|_| js_denied())?;
     let result = Observation {
         view,
         fence,
@@ -172,7 +172,7 @@ async fn returned(
 ) -> JResult<Observation> {
     let fence_started = clock()?;
     let fence =
-        serde_json::from_str(&raw_text(read_fence(env).await?, 4096)?).map_err(|_| js_denied())?;
+        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::read_fence(env, Some(crate::owner_setup_physical_trace::stage(Some(selector.stage)))).await?, 4096)?).map_err(|_| js_denied())?;
     let observation = Observation {
         view,
         fence,
@@ -422,7 +422,7 @@ async fn execute(
         })
         .map_err(|_| js_denied())?;
         let published: OwnerSetupPublished = serde_json::from_str(&raw_text(
-            owner_sign(env, &raw)
+            crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(selector.stage))), "owner.factory.service", owner_sign(env, &raw))
                 .await
                 .map_err(|e| report("owner.sign", e))?,
             128 * 1024,
@@ -585,7 +585,7 @@ pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
         &selector.request.custody_account_id,
         &selector.request.provision_id,
     )?;
-    let progress: serde_json::Value = super::actor(env, &name, "/internal/owner-setup", &selector)
+    let progress: serde_json::Value = super::actor_traced(env, &name, "/internal/owner-setup", &selector, Some((crate::owner_setup_physical_trace::stage(Some(selector.stage)), "identity.manifest.actor")))
         .await
         .map_err(|_| super::denied())?;
     Ok(serde_json::to_string(&progress)?)

@@ -649,6 +649,15 @@ pub(crate) async fn call_directory(
     raw: &str,
     session: &CustodySessionStatusV1,
 ) -> Result<String> {
+    call_directory_traced(env, path, raw, session, None).await
+}
+pub(crate) async fn call_directory_traced(
+    env: &Env,
+    path: &str,
+    raw: &str,
+    session: &CustodySessionStatusV1,
+    trace: Option<&'static str>,
+) -> Result<String> {
     if raw.len() > 32768 {
         return Err(denied());
     }
@@ -664,12 +673,12 @@ pub(crate) async fn call_directory(
         .get_stub()?;
     let mut init = RequestInit::new();
     init.with_method(Method::Post).with_body(Some(raw.into()));
-    let response = stub
+    let response = crate::owner_setup_physical_trace::edge(trace, "directory.actor", stub
         .fetch_with_request(Request::new_with_init(
             &format!("https://directory.internal{path}"),
             &init,
         )?)
-        .await?;
+        ).await?;
     if response.status_code() != 200 {
         return Err(denied());
     }
@@ -680,6 +689,13 @@ pub(crate) async fn call_directory(
 pub(crate) async fn call_inspection_directory(
     env: &Env,
     rpc: &ProvisionInspectGateRpc,
+) -> Result<String> {
+    call_inspection_directory_traced(env, rpc, None).await
+}
+pub(crate) async fn call_inspection_directory_traced(
+    env: &Env,
+    rpc: &ProvisionInspectGateRpc,
+    trace: Option<&'static str>,
 ) -> Result<String> {
     let config = DirectoryConfig::from_env(env)?.ok_or_else(denied)?;
     let principal = config.inspection_reference_principal(&rpc.manager_reference)?;
@@ -697,12 +713,12 @@ pub(crate) async fn call_inspection_directory(
     }
     let mut init = RequestInit::new();
     init.with_method(Method::Post).with_body(Some(raw.into()));
-    let response = stub
+    let response = crate::owner_setup_physical_trace::edge(trace, "directory.actor", stub
         .fetch_with_request(Request::new_with_init(
             "https://directory.internal/internal/provision-inspect-gate",
             &init,
         )?)
-        .await?;
+        ).await?;
     if response.status_code() != 200 {
         return Err(denied());
     }

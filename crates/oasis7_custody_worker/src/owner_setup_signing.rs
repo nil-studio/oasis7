@@ -26,11 +26,6 @@ extern "C" {
     #[wasm_bindgen(catch,js_name=ownerSetupKeyCall)]
     async fn account(env: &Env, raw: &str) -> JResult<JsValue>;
 }
-#[wasm_bindgen(module = "/platform/role_provision_rpc.mjs")]
-extern "C" {
-    #[wasm_bindgen(catch,js_name=readRecoveryFence)]
-    async fn read_fence(env: &Env) -> JResult<JsValue>;
-}
 #[wasm_bindgen(module = "/platform/sql.mjs")]
 extern "C" {
     #[wasm_bindgen(catch,js_name=readBoundedText)]
@@ -50,15 +45,15 @@ async fn rpc<T: DeserializeOwned>(
     if raw.len() > 32768 {
         return Err(rejected());
     }
-    let value = account(env, &raw).await?.as_string().ok_or_else(rejected)?;
+    let value = crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(selector.stage))), "owner.permit.service", account(env, &raw)).await?.as_string().ok_or_else(rejected)?;
     if value.len() > 32768 {
         return Err(rejected());
     }
     serde_json::from_str(&value).map_err(|_| rejected())
 }
-async fn fence(env: &Env) -> JResult<(RecoveryFence, u64)> {
+async fn fence(env: &Env, stage: oasis7_custody_core::provisioning::OwnerSetupStageV1) -> JResult<(RecoveryFence, u64)> {
     let started = clock().map_err(|_| rejected())?;
-    let raw = read_fence(env).await?.as_string().ok_or_else(rejected)?;
+    let raw = crate::owner_setup_physical_trace::read_fence(env, Some(crate::owner_setup_physical_trace::stage(Some(stage)))).await?.as_string().ok_or_else(rejected)?;
     if raw.len() > 4096 {
         return Err(rejected());
     }
@@ -142,7 +137,7 @@ async fn observe(
         },
     )
     .await?;
-    let (fence, fence_started) = fence(env).await?;
+    let (fence, fence_started) = fence(env, selector.stage).await?;
     let value = Observation {
         view,
         fence,
@@ -188,7 +183,7 @@ pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
     let mut req =
         Request::new_with_init("https://role-key.internal/internal/owner-setup-sign", &init)?;
     req.headers_mut()?.set("Content-Type", "application/json")?;
-    let response = stub.fetch_with_request(req).await?;
+    let response = crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(selector.stage))), "owner.vault.actor", stub.fetch_with_request(req)).await?;
     if response.status_code() != 200 {
         return Err(denied());
     }
@@ -242,7 +237,7 @@ pub(crate) async fn sign_in_vault(state: JsValue, env: &Env, raw: &str) -> Resul
             },
         )
         .await?;
-        let (fresh, started) = fence(env).await?;
+        let (fresh, started) = fence(env, selector_ref.stage).await?;
         let now = clock().map_err(|_| rejected())?;
         if started > now
             || now - started > 5000

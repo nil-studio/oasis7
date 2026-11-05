@@ -123,6 +123,10 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
     let lostBindingReply=false;
     let lostLoginReply=false;
     let lostParticipantReply=false;
+    let lostDelegationReplies=0;
+    let lostDelegationLookupReplies=0;
+    let delegationOriginal=null;
+    const controlCalls=[];
     const bridge=async request=>{
       const url=new URL(request.url);
       if(mode.startsWith('native-participant-owner-setup-real-fence-reconcile') && url.href==='https://fixture.test/_after-setup-submit-archive') {
@@ -152,6 +156,22 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
         '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup','/custody/managed-bindings/session-status','/custody/managed-bindings/session-lifetime',
         ...(worldProcess?['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view',...(mode.startsWith('native-participant-owner-setup')?['/entry-owner/control']:[])]:[])].includes(suffix));
       nativeRequests[suffix]=(nativeRequests[suffix]??0)+1;
+      let delegationSubmit=false;
+      let delegationLookup=false;
+      if(suffix==="/entry-owner/control" && mode==="native-participant-owner-setup-real-fence-lost-delegation") {
+        const q=await request.clone().json(), operation=q.operation;
+        if(operation.kind==="submit") {
+          const original=operation.request;
+          delegationSubmit=original.signed_payload?.kind==="delegation";
+          if(delegationSubmit && delegationOriginal===null) delegationOriginal=original;
+          controlCalls.push({operation:"submit",kind:delegationSubmit?"delegation":"other",exactOriginal:delegationSubmit && JSON.stringify(original)===JSON.stringify(delegationOriginal)});
+        } else if(operation.kind==="lookup") {
+          const original=operation.request;
+          const isDelegation=original.original?.kind==="delegation";
+          delegationLookup=isDelegation;
+          controlCalls.push({operation:"lookup",kind:isDelegation?"delegation":"other",exactOriginal:isDelegation && delegationOriginal!==null && savedDelegationLookupMatches(persist,original)});
+        }
+      }
       if(accessStatusBarrier)await accessStatusBarrier.before(suffix,suffix==='/custody/managed-bindings/session-status'?await request.clone().json():{});
       if(nativeUnavailable)throw new Error('fixed test native provider unavailable');
       if(!management) {
@@ -162,6 +182,14 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       const headers=new Headers();for(const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) {const value=request.headers.get(name);if(value!==null) headers.set(name,value);}
       const response=await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
       if(accessStatusBarrier)accessStatusBarrier.after(suffix,response.status);
+      if(delegationSubmit && response.status===200 && lostDelegationReplies===0) {
+        await response.arrayBuffer();lostDelegationReplies++;
+        throw new Error("fixture loses only actual Delegation submit reply");
+      }
+      if(delegationLookup && response.status===200 && lostDelegationReplies===1 && lostDelegationLookupReplies===0) {
+        await response.arrayBuffer();lostDelegationLookupReplies++;
+        throw new Error("fixture loses only first actual Delegation lookup reply");
+      }
       if(mode==='native-participant-lost-submit' && suffix==='/participant/submit' && response.status===200 && !lostParticipantReply) {
         await response.arrayBuffer();lostParticipantReply=true;
         throw new Error('fixture loses only the original submit response; canonical World may commit');
@@ -269,8 +297,11 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       activationReadDelayStatus:async()=>{const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/fixture/activation-read-delay-status',{method:'POST'});assert.equal(response.status,200,'fixed readonly delay status unavailable');return response.json();},
       accountAlarmFixture:async(kind,sessionId)=>{const paths={observe:'/fixture/account-alarm-observe',early:'/fixture/account-alarm-early',unknown:'/fixture/account-alarm-unknown'};assert.ok(Object.hasOwn(paths,kind));const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal'+paths[kind],{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({session_id:sessionId})});assert.equal(response.status,200,'fixed actual Account alarm fixture unavailable');return response.json();},
       probeClientCloseTrap:async()=>{const {NATIVE_SESSIONS}=await mf.getBindings('identity');const stub=NATIVE_SESSIONS.get(NATIVE_SESSIONS.idFromName('fixed-close-trap-probe'));const denied=await stub.fetch('https://native-session.internal/internal/paired-private',{method:'POST'});const count=await (await stub.fetch('https://native-session.internal/fixture/close-trap-count',{method:'POST'})).json();await stub.fetch('https://native-session.internal/fixture/close-trap-reset',{method:'POST'});const after=await (await stub.fetch('https://native-session.internal/fixture/close-trap-count',{method:'POST'})).json();return {rejected:denied.status,attempts:count.attempts,after_reset:after.attempts};},
+      nativeControlCalls:()=>controlCalls.map(v=>({...v})),
+      lostSubmitCount:()=>lostDelegationReplies,
+      lostLookupCount:()=>lostDelegationLookupReplies,
       setNativeUnavailable:value=>{assert.equal(typeof value,'boolean');nativeUnavailable=value;},
-      publicClientFetch:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/);const incoming=new Headers(init.headers);for(const key of ['cookie','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public client never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
+      publicClientFetch:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort|action-challenges))$/);const incoming=new Headers(init.headers);for(const key of ['cookie','x-oasis7-csrf'])assert.equal(incoming.get(key),null,'public client never inherits manager credentials');return mf.dispatchFetch('https://localhost'+path,init);},
       publicClientHostFault:async(path,init)=>{assert.match(path,/^\/v1\/account-provisions\/[^/]+\/accounts\/[^/]+\/client\/(?:proof-challenges|client-enrollments\/[^/]+\/claim|test-sessions\/[^/]+\/(?:initialize|tools-list|heartbeat|finish|abort))$/);return mf.dispatchFetch('https://localhost/fixture/client-wrong-host'+path,init);},
       testClientAdmission:async(kind,body)=>{const paths={drain:'/internal/performance/client-source-drain',direct_admit:'/internal/performance/client-direct-admit'};assert.ok(Object.hasOwn(paths,kind),'closed client admission fixture port');const {ACCOUNTS}=await mf.getBindings('owner');return ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal'+paths[kind],{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});},
       readAccountRestoreCallbacks:async()=>{const {ACCOUNTS}=await mf.getBindings('owner');const response=await ACCOUNTS.get(ACCOUNTS.idFromName(original.entry.custody_account_id)).fetch('https://account.internal/internal/performance/account-restore-observed',{method:'POST'});const raw=await response.text();assert.equal(response.status,200,'actual Account diagnostic callback port unavailable');return JSON.parse(raw);},
@@ -358,6 +389,28 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
 
 // Only non-secret facts leave the isolated SQLite files; no envelope/seed/session
 // is printed. Corruption is injected only while the owning workerd is disposed.
+// Test-only local observation: compare the complete typed lookup to the actual
+// immutable Account slot. No original, ID, signature or payload leaves Python.
+function savedDelegationLookupMatches(persist, received) {
+  const program=`
+import json,sqlite3,sys
+from pathlib import Path
+received=json.load(sys.stdin)
+matches=0
+for p in Path(sys.argv[1]).rglob("*.sqlite"):
+ try:
+  with sqlite3.connect(p.as_uri()+"?mode=ro",uri=True) as db:
+   row=db.execute("SELECT payload FROM custody_records WHERE id='custody-provision-approval-v1'").fetchone()
+   if not row: continue
+   state=json.loads(row[0])["state"]
+   for setup in state.get("owner_setups",{}).values():
+    original=(setup.get("stages",{}).get("delegation",{}).get("original") or {})
+    if original.get("kind")=="canonical" and original.get("original",{}).get("lookup")==received: matches+=1
+ except sqlite3.Error: pass
+print(json.dumps(matches==1))
+`;
+  return JSON.parse(execFileSync("python3",["-c",program,persist],{input:JSON.stringify(received),encoding:"utf8"}));
+}
 export function persistedRuntime(persist, account, corruptIdentity=false) {
   return JSON.parse(execFileSync('python3',['-c',`
 import hashlib,json,sqlite3,sys

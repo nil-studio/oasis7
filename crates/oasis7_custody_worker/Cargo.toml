@@ -19,6 +19,8 @@ recovery-fence = []
 approval-harness = ["oasis7_custody_core/signature-metrics"]
 # Identity manifest fixtures only; never enabled by deployment role builds.
 native-runtime-harness = []
+# Fixed low-cardinality observations only; never a deployment profile.
+owner-setup-physical-trace-harness = []
 
 [dependencies]
 oasis7_custody_core = { path = "../oasis7_custody_core" }

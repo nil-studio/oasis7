@@ -5,7 +5,7 @@ mod private;
 mod transport;
 use crate::native_identity::provision_transport::NativePrivateRoute;
 use crate::{
-    identity_native_runtime::{clock, js_denied, raw_text, read_fence},
+    identity_native_runtime::{clock, js_denied, raw_text},
     owner_setup_reconcile_rpc::*,
 };
 use oasis7_client_api::world_service::{self as ws, SignedServiceResponse};
@@ -38,7 +38,7 @@ async fn rpc<T: DeserializeOwned>(
     if raw.len() > 128 * 1024 {
         return Err(js_denied());
     }
-    serde_json::from_str(&raw_text(owner_call(env, &raw).await?, 128 * 1024)?)
+    serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::edge(Some("reconcile"),"owner.permit.service",owner_call(env, &raw)).await?, 128 * 1024)?)
         .map_err(|_| js_denied())
 }
 struct Observation {
@@ -116,7 +116,7 @@ async fn returned(
 ) -> JResult<Observation> {
     let fence_started = clock()?;
     let fence =
-        serde_json::from_str(&raw_text(read_fence(env).await?, 4096)?).map_err(|_| js_denied())?;
+        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::read_fence(env,Some("reconcile")).await?, 4096)?).map_err(|_| js_denied())?;
     let o = Observation {
         view,
         fence,
@@ -245,7 +245,7 @@ async fn execute(
         .map_err(|_| js_denied())?,
     );
     let published: ReconcilePublished =
-        serde_json::from_str(&raw_text(owner_sign(env, &raw).await?, 128 * 1024)?)
+        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::edge(Some("reconcile"),"owner.factory.service",owner_sign(env, &raw)).await?, 128 * 1024)?)
             .map_err(|_| js_denied())?;
     if published.permit.kind != OwnerSetupReconcilePermitKindV1::Preflight
         || published.permit.participant != second.view.participant
@@ -432,7 +432,7 @@ pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
     let name =
         super::manifest_name_parts(env, &selector.custody_account_id, &selector.provision_id)?;
     let value: serde_json::Value =
-        super::actor(env, &name, "/internal/owner-setup-reconcile", &selector)
+        super::actor_traced(env, &name, "/internal/owner-setup-reconcile", &selector, Some(("reconcile", "identity.manifest.actor")))
             .await
             .map_err(|_| super::denied())?;
     Ok(serde_json::to_string(&value)?)

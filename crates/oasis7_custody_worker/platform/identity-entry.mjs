@@ -21,6 +21,7 @@ export default {
 };
 export class IdentityNativeApproval extends WorkerEntrypoint {
   async verifyApproval(raw) { return new RustWorker(this.ctx, this.env).native_verify_approval(this.env, raw); }
+  async verifyApprovalTraced(raw, stage) { return new RustWorker(this.ctx, this.env).native_verify_approval_traced(this.env, raw, stage); }
 }
 export class RoleKeyProvision extends WorkerEntrypoint {
   async ensureKey(raw) { return new RustWorker(this.ctx, this.env).ensure_role_key(this.env, raw); }

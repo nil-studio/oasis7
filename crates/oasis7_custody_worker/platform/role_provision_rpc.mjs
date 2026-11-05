@@ -10,3 +10,5 @@ export async function readRecoveryFence(env) {
 export async function verifyParticipantKeyPermit(env, raw) {
   return env.ACCOUNT_KEY_PERMITS.verifyParticipantPermit(raw);
 }
+
+export async function readRecoveryFenceTraced(env, stage) { return env.RECOVERY_FENCE.readTraced(stage); }

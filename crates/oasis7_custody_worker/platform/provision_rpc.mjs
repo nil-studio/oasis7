@@ -5,3 +5,5 @@ export async function verifyNativeApproval(env, raw) {
 export async function readRecoveryFence(env) {
   return env.RECOVERY_FENCE.read();
 }
+
+export async function verifyNativeApprovalTraced(env, raw, stage) { return env.IDENTITY_NATIVE_APPROVAL.verifyApprovalTraced(raw, stage); }

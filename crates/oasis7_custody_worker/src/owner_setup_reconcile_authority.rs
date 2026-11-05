@@ -40,7 +40,7 @@ pub(super) async fn observe(
     let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
     let saved = store.snapshot().map_err(|_| denied())?;
     let (input, signed) = source(&saved, id, attempt)?;
-    setup_authority::observe(env, &saved, input, &signed, inspection_only).await
+    setup_authority::observe_traced(env, &saved, input, &signed, inspection_only, Some("reconcile")).await
 }
 pub(super) async fn prepare_source(
     state: &JsValue,
@@ -74,13 +74,13 @@ pub(super) async fn prepare_source(
         .map_err(|_| denied())?;
     let raw = serde_json::to_string(&request)?;
     let signed = serde_json::from_str(&super::super::super::super::text(
-        super::super::super::super::verify_native(env, &raw)
+        crate::owner_setup_physical_trace::verify_source(env, &raw, "reconcile")
             .await
             .map_err(|_| denied())?,
     )?)
     .map_err(|_| denied())?;
     let (input, _) = source(&saved, id, attempt)?;
-    let after = setup_authority::observe(env, &saved, input, &signed, false).await?;
+    let after = setup_authority::observe_traced(env, &saved, input, &signed, false, Some("reconcile")).await?;
     store
         .complete_owner_setup_reconcile_source(id, attempt, signed, || {
             setup_authority::current(state, env, &after, true)

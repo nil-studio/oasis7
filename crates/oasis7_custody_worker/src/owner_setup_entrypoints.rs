@@ -34,6 +34,15 @@ async fn fetch_account(
     path: &'static str,
     raw: &str,
 ) -> Result<String, JsValue> {
+    fetch_account_traced(env, account, path, raw, None).await
+}
+async fn fetch_account_traced(
+    env: &Env,
+    account: &str,
+    path: &'static str,
+    raw: &str,
+    trace: Option<&'static str>,
+) -> Result<String, JsValue> {
     let stub = env
         .durable_object("ACCOUNTS")
         .map_err(|_| denied())?
@@ -50,9 +59,9 @@ async fn fetch_account(
         .map_err(|_| denied())?
         .set("Content-Type", "application/json")
         .map_err(|_| denied())?;
-    let response = stub
+    let response = crate::owner_setup_physical_trace::edge(trace,"owner.permit.account",stub
         .fetch_with_request(request)
-        .await
+        ).await
         .map_err(|_| denied())?;
     if response.status_code() != 200 {
         return Err(denied());
@@ -139,7 +148,7 @@ pub(super) async fn runtime(
         oasis7_custody_core::http::Role::Owner => "/internal/owner-setup-owner",
         _ => return Err(denied()),
     };
-    fetch_account(env, &rpc.request.custody_account_id, path, raw).await
+    fetch_account_traced(env, &rpc.request.custody_account_id, path, raw, Some(crate::owner_setup_physical_trace::stage(Some(rpc.stage)))).await
 }
 
 pub(super) async fn approve(env: &Env, raw: &str) -> Result<String, JsValue> {

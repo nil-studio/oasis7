@@ -142,3 +142,52 @@ test(rollback?'reconcile final SQL failure rolls back both old and new results a
 });
 
 }
+
+// The real settling World fixture processes submit before the bridge loses its reply.
+// Native HTTP 200 alone is not a committed proof; recovery must admit the signed lookup.
+// No signer seed, synthetic receipt, or deadline renewal is introduced here.
+test("fresh paid reconciliation restores lost Delegation submit and automatic lookup replies using the saved signed lookup", {timeout:240000},async()=>{
+  await withRoleRuntime("native-participant-owner-setup-real-fence-lost-delegation",async runtime=>{
+    assert.equal((await runtime.drive("lost-delegation-participant")).stage,"participant_bound");
+    const plan=setupPlan(await runtime.setupBasis());
+    await runtime.approveSetup(plan);
+    const stopped=await runtime.continueSetup(plan.setup_id);
+    const stoppedText=await stopped.text();assert.equal(stopped.status,200,stoppedText);
+    assert.equal(JSON.parse(stoppedText).stage,"ready_for_setup","lost submit and automatic lookup replies must leave setup pending");
+    assert.equal(runtime.lostSubmitCount(),1,"the bridge must lose exactly one actual submit reply");
+    assert.equal(runtime.lostLookupCount(),1,"the separately prepaid automatic original lookup reply must also be lost");
+    const sent=runtime.nativeControlCalls();
+    assert.equal(sent.filter(v=>v.kind==="delegation"&&v.operation==="submit").length,1);
+    assert.deepEqual(sent.filter(v=>v.kind==="delegation"&&v.operation==="lookup"),[{operation:"lookup",kind:"delegation",exactOriginal:true}],"the original automatic lookup is a real separate request");
+    await runtime.suspend();
+    const pending=persistedRuntime(runtime.persist,runtime.account).setups[0].stages.find(v=>v.stage==="delegation");
+    assert.equal(pending.has_original,true,"the exact signed original survives the lost reply");
+    assert.equal(pending.has_result,false,"HTTP acceptance cannot be admitted as a committed result");
+    assert.notEqual(pending.claimed_at,null,"send claim must persist before the actual request");
+    await runtime.restart("native-participant-owner-setup-real-fence-lost-delegation");
+    const basis=await runtime.reconcileBasis(plan.setup_id,"delegation");
+    const reconcile={api_version:1,reconcile_id:"lost-delegation-reconcile",setup_id:basis.setup_id,
+      provision_id:basis.provision_id,stage:basis.stage,setup_plan_digest:basis.setup_plan_digest,
+      original_digest:basis.original_digest,correlation_digest:basis.correlation_digest,
+      world_identity:basis.world_identity,owner_key_ref:basis.owner_key_ref,executor_key_ref:basis.executor_key_ref,
+      original_deadline:basis.original_deadline,deadline:basis.original_deadline,attempt_limit:1,transport_limit:"112"};
+    await runtime.approveReconcile(reconcile);
+    const before=runtime.nativeControlCalls().length;
+    const recovered=await runtime.continueReconcile(reconcile.reconcile_id,"lost-reply-read");
+    const recoveredText=await recovered.text();assert.equal(recovered.status,200,recoveredText);
+    assert.deepEqual(JSON.parse(recoveredText).completed_attempts,["lost-reply-read"],recoveredText);
+    assert.deepEqual(runtime.nativeControlCalls().slice(before),[{operation:"lookup",kind:"delegation",exactOriginal:true}],"recovery must send only the saved signed lookup for the original Delegation");
+    const replayBefore=runtime.nativeControlCalls().length;
+    const replay=await runtime.continueReconcile(reconcile.reconcile_id,"lost-reply-read");
+    assert.equal(replay.status,200,await replay.text());
+    assert.equal(runtime.nativeControlCalls().length,replayBefore,"same paid callback attempt cannot issue another HTTP");
+    assert.equal(runtime.nativeControlCalls().filter(v=>v.kind==="delegation"&&v.operation==="submit").length,1,"fresh recovery never resubmits the effect");
+    assert.equal(runtime.lostSubmitCount(),1);
+    assert.equal(runtime.lostLookupCount(),1);
+    await runtime.suspend();
+    const saved=persistedRuntime(runtime.persist,runtime.account);
+    const delegation=saved.setups[0].stages.find(v=>v.stage==="delegation");
+    assert.equal(delegation.has_result,true);
+    assert.deepEqual(delegation.result_provenance,{kind:"reconcile",reconcile_id:reconcile.reconcile_id,attempt_id:"lost-reply-read"});
+  },{settleSubmits:true});
+});

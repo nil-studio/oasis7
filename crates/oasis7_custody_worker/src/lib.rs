@@ -28,6 +28,12 @@ compile_error!("custody requires exactly one role feature; never use --all-featu
 #[cfg(all(feature = "approval-harness", not(feature = "owner")))]
 compile_error!("approval-harness requires owner and is not a deployment profile");
 
+#[cfg(all(feature = "owner-setup-physical-trace-harness", not(any(feature = "owner", feature = "identity", feature = "recovery-fence"))))]
+compile_error!("owner setup trace requires an observation-capable role and is not a deployment profile");
+
+#[cfg(all(target_arch = "wasm32", any(feature = "owner", feature = "identity", all(feature = "recovery-fence", feature = "owner-setup-physical-trace-harness"))))]
+mod owner_setup_physical_trace;
+
 // Pure Rust adapter API only: no JS export and no production fetch/RPC caller.
 #[cfg(all(
     target_arch = "wasm32",

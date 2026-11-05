@@ -5,6 +5,7 @@ export default { fetch(request, env, ctx) { return new RustWorker(ctx, env).fetc
 // Read only. There is no activation, epoch selection or request-selected namespace.
 export class RecoveryFenceReader extends WorkerEntrypoint {
   async read() { return new RustWorker(this.ctx, this.env).read_recovery_fence(this.env); }
+  async readTraced(stage) { return new RustWorker(this.ctx, this.env).read_recovery_fence_traced(this.env, stage); }
 }
 // No ordinary role binds this capability. It additionally requires fixed offline quorum proofs.
 export class RecoveryFenceControl extends WorkerEntrypoint {

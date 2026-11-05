@@ -26,11 +26,6 @@ extern "C" {
     #[wasm_bindgen(catch,js_name=ownerSetupReconcileKeyCall)]
     async fn account(env: &Env, raw: &str) -> JResult<JsValue>;
 }
-#[wasm_bindgen(module = "/platform/role_provision_rpc.mjs")]
-extern "C" {
-    #[wasm_bindgen(catch,js_name=readRecoveryFence)]
-    async fn read_fence(env: &Env) -> JResult<JsValue>;
-}
 #[wasm_bindgen(module = "/platform/sql.mjs")]
 extern "C" {
     #[wasm_bindgen(catch,js_name=readBoundedText)]
@@ -49,7 +44,7 @@ async fn rpc<T: DeserializeOwned>(
     if raw.len() > 32768 {
         return Err(rejected());
     }
-    let value = account(env, &raw).await?.as_string().ok_or_else(rejected)?;
+    let value = crate::owner_setup_physical_trace::edge(Some("reconcile"),"owner.permit.service",account(env, &raw)).await?.as_string().ok_or_else(rejected)?;
     if value.len() > 32768 {
         return Err(rejected());
     }
@@ -57,7 +52,7 @@ async fn rpc<T: DeserializeOwned>(
 }
 async fn fence(env: &Env) -> JResult<(RecoveryFence, u64)> {
     let started = clock().map_err(|_| rejected())?;
-    let raw = read_fence(env).await?.as_string().ok_or_else(rejected)?;
+    let raw = crate::owner_setup_physical_trace::read_fence(env,Some("reconcile")).await?.as_string().ok_or_else(rejected)?;
     if raw.len() > 4096 {
         return Err(rejected());
     }
@@ -192,7 +187,7 @@ pub(crate) async fn sign(env: &Env, raw: &str) -> Result<String> {
         &init,
     )?;
     req.headers_mut()?.set("Content-Type", "application/json")?;
-    let response = stub.fetch_with_request(req).await?;
+    let response = crate::owner_setup_physical_trace::edge(Some("reconcile"),"owner.vault.actor",stub.fetch_with_request(req)).await?;
     if response.status_code() != 200 {
         return Err(denied());
     }
