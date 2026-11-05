@@ -33,6 +33,8 @@ Gameplay 拥有阶段、贡献、首次/重复用途和继续选择的含义；S
 | [AC-MRC-06](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-06) | 供应后仍可持有、退出或按真实 quote 独立继续；新需求须显式重新选择 | [回访与独立继续](#contribution-continuation) | 原当前能力/预算/可选动作、用途 producer | 非成员标签、虚构订单或未付费用不证明独立可继续 |
 | [AC-MRC-07](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-07) | 当前权限和历史归因分开；未知先对账，恢复不复制业务或延长窗口 | [状态、事务与恢复](#contribution-recovery) | 正式执行、当前 audience、原持久 generation 和索引覆盖 | 旧 owner 不授予当前权限，重放不补造新贡献或授权 |
 | [AC-MRC-08](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-08) | 同一候选的 Runtime、World Service、Viewer、pure API、Agent 消费同源事实与真实下一步 | [正式消费者](#contribution-consumers) | 各入口 adapter、QA 同候选证据 | 共用 DTO、静态算例、文档检查和旧 CI 不代签正式闭环 |
+| [REQ-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce | 原成熟阶段的持续交付、扩容取舍与实际新选择/用途，不重做原领域规则 | [成长组合](#contribution-continuing-growth) | 原SC-31/服务、SC-25/Build、认可/权利authority | 原v1仍只证明有限用途；组合不发奖励、升级参数或新认可 |
+| [REQ-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce | 四方向有界来源、旧义务/首次历史、当前读权及原operation恢复 | [组合预算与验证](#contribution-growth-composition-budget) | 同cut来源、原authority/恢复、Viewer/API/Agent | 不按profile增开资源池，不以未知默认零或缺候选证明必须赞助 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -300,6 +302,8 @@ SC-31和U producer只接受当前B对其工厂/目的Site及用途的声明；A�
 | [AC-MRC-06](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-06) | [回访与独立继续](#contribution-continuation) | 持有/退出与真实未来quote可比较，满足后不自动续供 | [MRC-M06](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m06)：A剩余资产、V真实payer/预算、不可用quote及显式新用途；required下一步层 | 当前原quote/来源明细、≤3候选、无reserve/validator调用/隐含续单 | 不证明未执行未来生产、长期收益或独立恢复 |
 | [AC-MRC-07](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-07) | [状态、事务与恢复](#contribution-recovery) | 当前权利、窗口、未知对账和非空journal恢复保留单次原效果 | [MRC-M07](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m07)：同候选在各提交点注入失败/丢响应，G/U/owner竞争、过窗、snapshot+suffix与完整/缺失索引；required/full恢复层 | 同generation原receipt/账本/目标/归因、无双扣/双减/重跑及unknown诊断 | 不证明未测部署或跨节点finality |
 | [AC-MRC-08](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-08) | [正式消费者](#contribution-consumers) | 正式多入口同义、当前最小读权、预算完整性和实际产物可核 | [MRC-M08](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m08)：同一候选真实World Service/Viewer/pure API/Agent，切换audience，达到/超过共享预算；full组合层 | 每入口原请求/结果/ref、私有字段拒绝、counts/bytes/fetch与原世界事实对照 | 静态DTO、文档、fixture不代签全部正式入口 |
+| [REQ-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce | [成长组合](#contribution-continuing-growth) | 续单/服务、扩容四选择、真实checkpoint和有限影响，各依原源 | [MRC-M09](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m09)：同候选成熟前态，续单、原CSF服务、PRC扩容及RO机会；required/full组合与独立判别 | 原goal/unit/receipt、逐资源成本、新可用选择及重复/错源反例 | 方法及静态算术不证明实际业务、全部入口或玩家体验通过 |
+| [REQ-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001)；Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce | [组合预算与验证](#contribution-growth-composition-budget) | 旧工作/费用、同cut完整性、原未知与共享有界宿主 | [MRC-M10](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m10)：固定candidate/authority，关键失败cut、各limit与limit+1、正式三入口及读权；required/full恢复层 | 原operation/generation、无重复业务/收费、240对象分配与真实bytes/调用、当前合法下一步 | 未实跑不证明性能、跨节点finality或当前mature-world验收 |
 
 ## 12. 决策、长期风险与未决问题
 
@@ -316,3 +320,76 @@ SC-31和U producer只接受当前B对其工厂/目的Site及用途的声明；A�
 | 三入口未闭合或独立未来quote缺预算 | World Service/Viewer/Agent、QA | 同候选正式产物、最小披露、真实原quote及V预算；任何缺项保留未实现/未验证，不以设计存在结项 |
 
 本专题属于原成熟玩法的供应用途技术接缝；相邻恢复比较、认可机会、经济审计和区域扩展合同继续各自承接原要求。实施或验证范围扩大时按这些实际authority逐项复核，不把一次gear用途推广为整个区域经济、治理或成熟世界成长已完成。
+
+<a id="contribution-continuing-growth"></a>
+## 13. 持续服务、扩容与有限影响的成长组合
+
+Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce；上游仍为 [REQ-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001) / [AC-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-001)及[成熟成长合同](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#29-成熟世界中的小玩家成长线)中持续交付、expand_capacity_preview 和 checkpoint 的原义务。
+
+### 13.1 组合范围与来源
+
+目标读面 mature_growth_composition_v1 接续首次持续能力之后的原成熟阶段，连接本地立足、区域专业化与有限影响；不是必须逐级完成的职业树，也不是新正式入口或新业务执行器。§1–12 的 native_regional_supply_use_v1、其两个主体/一单用途/八 tick 窗口及全部原方法保持原范围。组合请求固定同一 world/branch、当前受益主体及控制来源、原已接受目标/需求或服务义务、明确地点/作用域、当前 cut、比较阶段和适用规则版本；不把其他主体的目标合成自己的主目标。
+
+| 原来源与唯一 authority | 成长消费者可读取的事实与真实下一步 | 不可作出的替代 |
+| --- | --- | --- |
+| [原供应用途](#contribution-use)、SC-31 的原 G/匹配结果 | 本次实际交付、实际用途、首次/重复及原需求剩余；显式选择另一份真实需求或保留库存 | 旧 G 改名不是新需求，供出不等于使用；不重复发首次成长 |
+| [持续服务原单位](continuing-service-fulfillment-and-remedies.design.md#service-obligations)及[原领域结果](continuing-service-fulfillment-and-remedies.design.md#service-domain-evidence) | 已采纳的供能、维护/修复、物料运输、共同工作；当前 required 单元、真实结果、受益范围、正常/安全退出工作图、价款/责任/费用及各自 source；续作仍经原共同形成或原有效义务准入 | accepted、active、请求维修量、arrival、某个 child 完成不代表 whole 履约；performed_unsettled 先核原 outbox，不重做物理工作 |
+| [能力生命周期](../../game/gameplay/gameplay-industrial-factory-capability-lifecycle-contract.prd.md)、[原 cutover](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-cutover) | 当前可服务范围、profile 支持的扩展/升级/重配、真实成本与旧工作处置；原 Build/能力动作及原 receipt | 不补造 upgrade 动作、迁移或吞吐公式；建成不自动完成生产/区域交付，successor 不继承旧 W/receipt/顺位 |
+| [地方认可及真实 Use](recognition-opportunity-settlement.design.md#opportunity-once-settlement)、[明确采用的情境用途](contextual-reputation-evidence-and-review.design.md#reputation-all-consumers) | 原审核/采用政策允许的当前机会、资格、可见事实及有效期；使用仍走其自己的 claim/Use/执行口 | 咨询、贡献或 checkpoint 不签认可；agent_acquisition 不是地方物流资格，FI/GR/RD/治理不相互兑换 |
+| [恢复项目原里程碑](bounded-recovery-projects-and-contribution-settlement.design.md#recovery-milestone)、[RD 原工作与权利](rd-charter-provenance-and-share-transfer.design.md#rd-contribution-source) | 已采纳且当事人有权读取的实际贡献、恢复效果、工作与当前可用权利；只在它确实改变本人的有限选择时解释 | 原维护不是项目完成；研究、holder、个人作者和可用权利分开，不开新奖励、岗位或许可 |
+
+source adapter 固定原 schema、查询选择器、规则/采用版本、实际 writer 与当前受众，返回对应 cut 的完整有限投影及其覆盖依据。需要原 authority 验证的私有材料，使用其有权出具且绑定原对象/cut/谓词的最小断言，保留 service assertion 与正式证明的原等级；hash、聚合分数和过滤后的空集不能代替完整来源。新源未适配只限制相应比较/成长结论，不封锁原规则允许的普通行动，不以无限未来插件作为本组合已采纳范围。
+
+### 13.2 续作的四种选择
+
+每次只比较一个明确需求/义务集合，按原单位分别列出已完成、已接受未完成、已损失、可用库存/容量及实际费用。下表四种方向均解释适用性；只有有真实动作及完整前后条件的方向才显示可执行，不能把缺能力写成零成本。新一期/新单必须有当前原需求或完整同版接受，不由到期、回访或历史成功自动滚动。
+
+| 方向 | 必需来源、结果与退出代价 |
+| --- | --- |
+| fulfill_next_order | 原新 G 或已接受服务下一未完成单元、实际受益需求、完整输入/容量/权限与费用；只按其原完成 predicate 和一次结果计量。旧已完成单元不能重开 |
+| reserve_capacity_for_local_need | 仅使用原 allocator/服务合同已支持的有界预留操作；明确 owner、容量单位/窗口、既有占用、成本、到期与释放条件。没有合法预留 producer 时保留持有/延期方向，预览或本地标记不造 hold |
+| reroute_or_pause_service | 原物流、服务或工业 profile 支持的确切残余范围、当前路线/接收/安全处置与必要重新接受；已发生 sink、在途、earned/unpaid、原费用和责任保留。不能把暂停当退款或把另一个目的地当原目标完成 |
+| exit_specialization | 停止本人尚未承诺的新风险，逐原领域处置旧义务；可以保留库存/设施/合法普通经营。原资金、在途或未知结果未结时明确退出经营与结算未完分别存在，不要求入会或接受赞助 |
+
+每条预览说明服务哪个真实需求、第一项或下一项实际交付、主要增量投入、阶段/截止、保留与失去的价值、可能打开的选择及下一次回访触发。原已签价款、保证金、实际花费 D、残余业务 O 与未来费用 C 沿原键分开；退款不重置 D，未来收入不支付当前原费用。原出价/工作图有模块、验证者、许可或关闭费用时引用其完整报价与 payer，不在成长查询中执行模块或用缺 owner 解释免费。
+
+### 13.3 中期扩容的四种选择
+
+expand_capacity_preview 固定原需求/目标及 current factory/capability，而非从产量增长反推需求。比较 add_parallel_line、upgrade_existing_line、stabilize_before_expand、defer；各方向分别绑定原 Build、SC-25 profile 或当前维护/生产/安全处置动作。并行新建使用合法新 ID/站点/输入来源，不能免费复制旧厂；upgrade 只在原 profile 明确支持时可选，绝不让比较器生成升级参数。stabilize 说明具体阻断、原动作能改变什么及到哪个真实边界再比较；defer 不预留容量、不延长报价或承诺不存在的订单。
+
+每个方案从同一初态独立求值，检查原厂与新增候选共同需要的输入、电力、物流、terminal/共享容量以及仍存旧义务。按原规则逐步计算增量、峰值与阶段，不用净收益掩盖先付不足，也不把两候选同时花同一资源。旧工作沿原 cutover/disposition：accepted-unstarted、WIP、transit、buffer、terminal-pending 均保留原权利/数量/费用；未发生的选项不改变当前能力。原目标不接受新地点/产物/用途时明确需要原目标修改，不能为让扩容胜出而扩 scope。
+
+同目标方案先排除真实阻断、缺关键来源及不支持路径，再展示成本/阶段/保留价值的可核差异。没有原统一价值/价格依据时保持资源向量和明确取舍；不以总吞吐、静态推荐词或外部赞助标签排序。有限范围内没有可行方案不证明只能依附强组织。成功后的当前能力及下一原目标须重新读取，不能将预期新产能投影成实际产出。
+
+### 13.4 checkpoint 的事实和历史
+
+leverage_checkpoint_summary 仍是只读解释。每项结论保存原 beneficiary/world/branch/规范地点或事项、原效果/权利身份、当时与当前规则、前后可用条件、历史覆盖及当前合法下一步：
+
+| 原成长分类 | 足够的正向依据 | 独立反例 |
+| --- | --- | --- |
+| new_option_unlocked | 原已提交能力/权利确实增加一项此前不具备、当前仍可使用的明确选择，并保留其成本/期限/权限 | 仅 quote、建厂受理、分数上升、当前资格无实际可消费结果，均不补成可用机会 |
+| resilience_improved | 原能力/处置结果使一个明确故障条件下新增合法恢复分支；前后条件及原动作均可核 | condition 增加但原 blocker 未改变，不宣称消除缺料/物流/权限风险 |
+| negotiation_position_improved | 原有效协议/权利明确改变本人有限协商选择、期限或可退出条件 | 收款、名气、组织名字或模型赞誉不推导市场议价权；无原依据保持未证 |
+| regional_usefulness_increased | 原真实受益需要、本人可归因贡献及实际用途/服务 predicate 完成；解释确切新用途或范围 | 重复同用途合法经营可以有价值，但不是每次新增成长；一项 child 不代表整组完成 |
+| grind_only / unverified | 分别为已证只有原重复量增长，或缺少上述必要来源/历史 | 不能以缺页判零历史，不能因无法证明成长抹去真实交付或禁止普通操作 |
+
+沿 §5.4 的供应用途首次键不变。其他原已采纳服务的用途类别固定为原 typed obligation kind、目标 predicate 和规范事项/地点；actor、请求、接收者别名、合同编号、epoch 或政策改名不创造新类别。历史等价关系由原 authority/schema 迁移提供；缺原键/前态/完整索引时只报告本次实际结果，first/new-growth 未核实。服务/RD 多视图只引用同一原 effect，已完成单位不能换角色再计；已有 same_loop_repeat_count 与 >=3 且 throughput_only/unclassified 的停止强化规则保持，比较不重置它。
+
+有限影响只解释原已生效的局部权利/机会及实际可见性。原供应例给 B 的 Site 送 iron，不自动符合地方认可的预声明 program 与 agent:O 接收条件；如要走该路线，须在原政策下明确选择新的合法贡献/审核/申领，旧贡献不倒签。受益人仍可继续普通生产/运输、持有、退出或恢复；认可失效、来源到期或未赢得容量不把其降为旁观者。
+
+### 13.5 消费、选择与恢复
+
+Runtime 的有界来源组合提供同一 read envelope，World Service 保持当前读权及证明等级，Viewer/pure API/Agent 按声明能力显示同义的原需求、四方向适用性、成本、已发生/未发生、checkpoint 和下一步。原 v1 DTO、静态 branch 文案、聊天或 SDK 局部能力不能代签新读面已接通；缺接线为明确未提供，不伪造可执行 action。Agent 的建议只读，显式选择后仍逐步经原权限、quote、签名及 authority 执行；不强制普通动作必须先运行本查询。
+
+每步保留原 operation/action/receipt；未知先走[原操作恢复](../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port)，不得因旧回应丢失改为新订单、另一扩容或新机会。原物理已 committed 而服务/成长投影落后时保留原结果，只补核未完成投影，不再生产/供电/运输/计费。业务 G1 StatusUnknown 继续按原 authority 隔离整个旧 World；纯只读报告丢失不创造该世界状态。查询重试重新核当前读权与 cut，不发布新业务事实；来源/目标/授权变更撤下当前推荐，已发生结果按原版本保留。
+
+<a id="contribution-growth-composition-budget"></a>
+### 13.6 有界组合与验证
+
+组合只接一个明确阶段（续作或扩容）及同一当前目标/原义务，至多四方向、每方向一个显式候选；每候选至多八个原动作/完成边界合计，不搜索全世界，不在后台遍历任意模块图。来源包含所有适用原占用、目标/义务、历史/费用、背景 writer 与返回重核；未知范围不能作为空范围。
+
+采用[比较宿主的来源/内存/并发/取消计量](production-recovery-comparison.design.md#production-recovery-budget)：请求32KiB、256对象、存活原始+解码 source 4MiB、10批读取、1024次索引/proof访问；本组合最多40次有界原规则求值，响应256KiB，overlay512KiB。单槽请求32+source4096+scratch256+overlay512+response256+工作128=5280KiB，仍在6MiB内；两个原 v1 与后继组合共享同宿主4槽/24MiB、每主体1槽、无内队列和3秒取消边界，不按 profile 另开池。工程初值不代表实测性能。原 source reader 的嵌套读取同样计入，不能调用各自满预算接口后只计一条摘要。
+
+作为正常组合的适配容量分配，目标/身份/地点24对象、原结果与历史32、当前候选依赖64、权限/真实费用48、独立证明节点64、返回重核8，合计240；各组含逐项业务集合与实际证明，剩余16不能藏无限历史/费用图。每条实际大小、总4MiB、10批和40次求值仍需同时验证，分配表不是已测编码或完整性证明。精确当前索引与原 authority 的有界范围证明缺失、单个闭包超限时返回 incomplete 与原合法下一步；不得删旧义务、把完整图上界当实收或扩大 scope。
+
+本节补足原成长组合职责，不提升现有实现或真实 mature-world 证据。原 v1 的细粒度用途证明不被组合摘要替代，既有专业事务和费用也不由比较器重写。

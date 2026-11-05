@@ -185,3 +185,34 @@ G/U窗口到限、当前scope/owner改变、gear失败或新validator/维护要�
 用A、B、无授权第三方以及权限刚撤回的会话分别读取全部字段、分页、缓存、错误与导出。A只得到B明确授权的最小用途、数量、期限及证明，不取得私有goal全文、上下文或额外行动权；每次当前audience重验，proof链接不能绕过读权。禁止以两次页面tick相同推同一个权威切点。
 
 真人层沿原成熟世界与受控试玩方案，令参与者从本次真实读面解释：为什么需要这2铁、自己承担什么、到货和实际使用有何区别、哪份库存仍归自己、是否真的首次新增用途、失败后何时和如何继续。记录原任务、实际回答及误解，按原试玩判据与样本限制评估，不新造通过率。Viewer取实际界面、状态和视口证据，Agent正式执行按[原自测手册](agent-runtime-self-playtest.manual.md)核世界结果。最终在原Task/PR分别记录八项实际证据、未运行层次及整体MW-001未覆盖范围；静态算例不能替代完整成熟世界、真人或发行结论。
+
+<a id="mrc-m09"></a>
+## 4. MRC-M09：持续服务、扩容与真实成长组合
+
+Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce；依据[成长组合](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-continuing-growth)。仍以原首次持续能力之后为前置。以下是可执行的目标方法及独立预期，未运行；直接构造前态只能验证组件。每条选择固定真实原目标/义务、合法 profile/来源/费用、当前 cut、执行者与受益人、正式入口及独立结果账；没有来源或实现则逐层 blocked，不用另一类型成功代签。
+
+### 4.1 真实续单、重复与服务结果
+
+1. 完成 §2 原 G/U 后，以真实原权威接受新的 G2/U2；仍需 iron2 用于 B 的另一批 gear，而非把已满足 G 改名。取前例 t13 业务本体：A iron7/E18，B gear1/E8。其他全部前置与费用仍成立，且新窗口足够；按原运输 tariff2E、B 生产4E及独立背景 W 核算：第二轮 A iron5/E16，B gear2/E6。历史窗口和 W 分开保存。第二次真实用途可以成立，原 canonical purpose 的首次成长只能仍为一次，不因新 G/U/Agent/request 重发。
+2. 在续作、原有界容量预留、改道/暂停、退出四方向中逐一核支持性与原动作。没有新需求、没有原预留 producer 或原 pause 不适用于 WIP 时，说明该方向不可执行及替代；不能由 UI 建 hold。退出后原未付、在途、受保护输入和费用仍在，原正常持有/生产通路不因此消失。
+3. 另用 [CSF-01](continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-01-domain-results) 的独立合法维护前态：condition950000、每 part25000、max1000000，真实持有并请求3 parts，条款购买50000净恢复及200Data价款。独立预期实际 sink2、余1、condition1000000、价款按原一次服务结果结算，费用另按其实际完整图。成长只可解释这次新维护用途；同 effect、另一角色/合同或后来再损坏不重发旧成长。请求3但只持有2按原准入拒绝，不能被成长层裁成2。
+4. 分别按 CSF-01 原供能3+5E、运输10=9收到+1损失、own/joint completion 方法核其他已采纳服务；只引用原真实结果与其精确 predicate。active、arrival、child成功、未知源和 performed_unsettled 均不得成为整单完成。没有统一可归因新用途/恢复/权利证据时，实际经营成功与新增成长未证分开。
+
+### 4.2 扩容选择与有限影响
+
+- 独立采用[PRC原正常前态](production-recovery-comparison-acceptance.manual.md#2-同一前态的两个正常分支)：已具原成熟历史的 F0，允许 S0/S1 的同一原目标，A有E18及该例全部合法建材/生产材料。stabilize/保留原能力沿R分支需生产8E，结束E10；add_parallel_line沿B分支建造10E+生产8E，结束E0，新F1及原F0分别保存。两者均有实际产物3，但新增F1的合法可用选择要靠真实建成、profile/输入/权限及当前后续条件证明，不能用“产量3”或建造受理签成长。新厂不继承旧W/receipt/已占用容量。
+- 把E改为17，B整链不足而R仍可能可行；再撤S0合法前置、保留S1且恢复真实E18，推荐应按新来源变化。upgrade_existing_line没有原支持profile时明确不支持，不借Build改名；若选实际支持升级的候选，独立沿其原成本/旧工作处置方法验证，不套上例建造价格。defer不产生hold，缺可观察触发不显示无限等待。
+- 成长收益分别核新可用选择、明确故障下新增恢复分支、原合同支持的协商条件及实际新用途；没有依据的维度保持未证，禁止根据收款/分数自动声称议价力。只有重复库存/吞吐的分支为grind-only；旧same_loop_repeat_count和>=3规则不被新订单名、profile版本或报告重置。
+- 有限影响另沿[RO-04](recognition-opportunity-acceptance.manual.md#recognition-opportunity-04)的真实成熟前态、预声明program/贡献、审核和两合格竞争者。一次occurrence最多1个allocation，另一个0；真实Use只将该原L转为T_rec，不能L和在途各再加一份容量。费用及ordinary floor按原账核。此处取得的是其有界可用机会，不是交付保证或治理权。
+- 用§2的Site→Site供料receipt直接申请要求agent:O接收及预声明program的认可，预期不适用；不得倒签program或偷偷改目的地。CR003咨询/agent_acquisition、FI/GR或RD holder亦不替代该资格。未获机会、认可到期或历史缺页时仍能按原权限执行真实独立动作。
+
+<a id="mrc-m10"></a>
+## 5. MRC-M10：原义务、未知恢复与正式组合消费
+
+依据[组合预算与验证](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-growth-composition-budget)。沿MRC-M07及各原服务/能力/机会方法固定操作，在真实准备前、持久未知、committed回复丢失及派生投影落后注入失败；独立保存before/after、原receipt、旧义务、全部实际费用及当前权限。
+
+- 持久NotCommitted只丢弃该原候选；Committed返回原结果；G1 StatusUnknown隔离旧World并查原候选。客户端超时不能当未提交。已物理完成但服务/成长未核定时仅补原outbox/读面，不再生产、供电、维修、运输或收费。换下一单/扩容/报告ID不能覆盖原未知；只读查询失败不生成业务原件。
+- 在同一cut构造accepted-unstarted、WIP、transit、buffer、terminal-pending及已赚未付结果，检查续作/扩容每一候选引用同一原处置与费用事实。源已sink、仍hold、可释放分别列；不能两方案共享未来回收、移走旧受益人资金或把退款重置原D。选择以后每步fresh重验；新目标/来源或读权漂移撤下旧推荐，不改写已发生结果。
+- 检查候选4/5、每候选8/9原边界、对象256/257、I/O10/11、source4MiB、完整请求/响应、40/41求值及1024/1025访问；集合entry与proof逐项计量，所有profile共享4宿主槽/每主体1槽。取消/迟到I/O/慢响应结束前保留原槽；比较满槽不阻原操作查询。正常适配分配24+32+64+48+64+8=240对象只用于静态容量核，真实对象、字节和完整范围必须另测，不能拿摘要替代原件。
+- Viewer、pure API与Agent读取同一受权原需求、四方向、逐资源成本、checkpoint、已发生/未发生及next_action。分别使用受益人、资源owner、前owner和无权读者，核最小披露；“未接线”“无读权”“确实无可行候选”分开。实际选择必须走原业务入口，不能在测试中直接写新成长记录。
+- 独立玩家先看去掉推荐标签的来源/候选，说明新用途与重复、为何选续作/稳定/扩容/退出、哪些仍未结及何时重查，再对照真实一次结果。方法/静态算术、组件fixture、正式消费者和真人理解分别记证，不把三个入口相同的文案当成熟成长已通过。
