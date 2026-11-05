@@ -113,21 +113,25 @@ if args[:1] == ["run"]:
         fail("missing run image")
     ref = args[i]
     (root / (role + "-run.json")).write_text(json.dumps({"image":ref,"env":env,"mounts":mounts,"payload":args[i+1:]}))
-    registry_mounts = [value for value in mounts if ",dst=/tmp/oasis7-cargo-home/registry" in value]
-    if registry_mounts:
-        if len(registry_mounts) != 1:
-            fail("expected exactly one candidate Cargo registry mount")
-        fields = dict(field.split("=", 1) for field in registry_mounts[0].split(","))
-        registry = pathlib.Path(fields.get("src", ""))
-        if fields.get("type") != "bind" or registry.is_symlink() or not registry.is_dir():
-            fail("candidate Cargo registry source is not a real directory")
-        seen_path = root / "candidate-registry-mounts.jsonl"
+    cargo_home_mounts = []
+    for mount in mounts:
+        fields = dict(field.split("=", 1) for field in mount.split(","))
+        if fields.get("dst") == "/tmp/oasis7-cargo-home":
+            cargo_home_mounts.append((mount, fields))
+    if cargo_home_mounts:
+        if len(cargo_home_mounts) != 1:
+            fail("expected exactly one candidate Cargo home mount")
+        _, fields = cargo_home_mounts[0]
+        cargo_home = pathlib.Path(fields.get("src", ""))
+        if fields.get("type") != "bind" or cargo_home.is_symlink() or not cargo_home.is_dir():
+            fail("candidate Cargo home source is not a real directory")
+        seen_path = root / "candidate-cargo-home-mounts.jsonl"
         seen = seen_path.read_text().splitlines() if seen_path.exists() else []
-        if str(registry) in seen or any(registry.iterdir()):
-            fail("candidate Cargo registry is reused or not fresh")
+        if str(cargo_home) in seen or any(cargo_home.iterdir()):
+            fail("candidate Cargo home is reused or not fresh")
         with seen_path.open("a") as stream:
-            stream.write(str(registry) + "\n")
-        (registry / ".fixture-cargo-cache-entry").write_text("private to one candidate container")
+            stream.write(str(cargo_home) + "\n")
+        (cargo_home / ".fixture-cargo-cache-entry").write_text("private to one candidate container")
     if role == "A":
         (root / "A-selected").touch()
         wait("A-run")
@@ -221,7 +225,7 @@ class BuilderLifecycleTest(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in outside.iterdir()), ["marker"])
         self.assertEqual(self.calls(), [])
 
-    def test_candidate_registry_mount_is_private_and_cleaned_for_each_build(self):
+    def test_candidate_cargo_home_mount_is_private_and_cleaned_for_each_build(self):
         cargo = self.bin / "cargo"
         cargo.write_text(FAKE_CARGO)
         cargo.chmod(0o755)
@@ -236,35 +240,37 @@ class BuilderLifecycleTest(unittest.TestCase):
         run_calls = [json.loads(path.read_text())["args"] for path in self.state.glob("call-*.json")
                      if json.loads(path.read_text())["args"][:1] == ["run"]]
         self.assertEqual(len(run_calls), 2)
-        registry_paths = []
+        cargo_home_paths = []
         for args in run_calls:
             mounts = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--mount"]
-            registry_mounts = [mount for mount in mounts
-                               if ",dst=/tmp/oasis7-cargo-home/registry" in mount]
-            self.assertEqual(len(registry_mounts), 1)
-            fields = dict(field.split("=", 1) for field in registry_mounts[0].split(","))
-            registry = Path(fields["src"])
+            cargo_home_mounts = [mount for mount in mounts
+                                 if dict(field.split("=", 1) for field in mount.split(","))
+                                 .get("dst") == "/tmp/oasis7-cargo-home"]
+            self.assertEqual(len(cargo_home_mounts), 1)
+            fields = dict(field.split("=", 1) for field in cargo_home_mounts[0].split(","))
+            cargo_home = Path(fields["src"])
             self.assertEqual(fields["type"], "bind")
-            self.assertEqual(fields["dst"], "/tmp/oasis7-cargo-home/registry")
-            self.assertEqual(registry.name, "registry")
-            self.assertTrue(registry.parent.name.startswith(".candidate-builder."))
-            self.assertTrue(registry.parent.is_relative_to(out))
-            self.assertFalse(registry.exists())
-            registry_paths.append(str(registry))
+            self.assertEqual(fields["dst"], "/tmp/oasis7-cargo-home")
+            self.assertEqual(cargo_home.name, "cargo-home")
+            self.assertTrue(cargo_home.parent.name.startswith(".candidate-builder."))
+            self.assertTrue(cargo_home.parent.is_relative_to(out))
+            self.assertFalse(cargo_home.exists())
+            cargo_home_paths.append(str(cargo_home))
             destinations = [field.split("=", 1)[1] for mount in mounts
                             for field in mount.split(",") if field.startswith("dst=")]
-            self.assertNotIn("/tmp/oasis7-cargo-home", destinations)
+            self.assertIn("/tmp/oasis7-cargo-home", destinations)
+            self.assertFalse(any(destination.startswith("/tmp/oasis7-cargo-home/")
+                                 for destination in destinations))
             self.assertNotIn("/tmp/oasis7-home", destinations)
             self.assertIn("CARGO_HOME=/tmp/oasis7-cargo-home", args)
             self.assertIn("HOME=/tmp/oasis7-home", args)
-        self.assertEqual(len(registry_paths), 2)
-        self.assertEqual(len(set(registry_paths)), 2)
-        recorded_registry_paths = self.state.joinpath("candidate-registry-mounts.jsonl").read_text().splitlines()
-        self.assertEqual(len(recorded_registry_paths), 2)
-        self.assertEqual(set(recorded_registry_paths), set(registry_paths))
-        self.assertFalse((out / ".candidate-cargo-registry").exists())
+        self.assertEqual(len(cargo_home_paths), 2)
+        self.assertEqual(len(set(cargo_home_paths)), 2)
+        recorded_cargo_home_paths = self.state.joinpath("candidate-cargo-home-mounts.jsonl").read_text().splitlines()
+        self.assertEqual(len(recorded_cargo_home_paths), 2)
+        self.assertEqual(set(recorded_cargo_home_paths), set(cargo_home_paths))
 
-    def test_candidate_registry_is_cleaned_when_container_fails(self):
+    def test_candidate_cargo_home_is_cleaned_when_container_fails(self):
         cargo = self.bin / "cargo"
         cargo.write_text(FAKE_CARGO)
         cargo.chmod(0o755)
@@ -279,10 +285,11 @@ class BuilderLifecycleTest(unittest.TestCase):
         self.assertEqual(len(run_calls), 1)
         args = run_calls[0]
         mounts = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--mount"]
-        registry_mount = next(mount for mount in mounts
-                              if ",dst=/tmp/oasis7-cargo-home/registry" in mount)
-        registry = Path(dict(field.split("=", 1) for field in registry_mount.split(","))["src"])
-        self.assertFalse(registry.exists())
+        cargo_home_mount = next(mount for mount in mounts
+                                if dict(field.split("=", 1) for field in mount.split(","))
+                                .get("dst") == "/tmp/oasis7-cargo-home")
+        cargo_home = Path(dict(field.split("=", 1) for field in cargo_home_mount.split(","))["src"])
+        self.assertFalse(cargo_home.exists())
         self.assertEqual(list(out.glob(".candidate-builder.*")), [])
 
     def tearDown(self):

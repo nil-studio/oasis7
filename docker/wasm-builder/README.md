@@ -37,9 +37,9 @@ docker build \
 - repo 内模块默认以仓库根目录作为 workspace root。
 - `ModuleSourcePackage` 这类临时源码包应在其临时 workspace root 下调用该脚本。
 
-`--candidate-build` 为每次构建在输出目录下创建私有临时 registry，
-挂载到容器内固定的 `/tmp/oasis7-cargo-home/registry`，退出时随本次临时目录清理。
-这样依赖提取占用任务工作区的磁盘，不占 Docker 临时可写层；registry、Cargo 配置与凭据均不跨构建复用。
+`--candidate-build` 为每次构建在输出目录下创建空的私有临时 Cargo home，
+挂载到容器内固定的 `/tmp/oasis7-cargo-home`，退出时随本次临时目录清理。
+这样 registry 与 git 依赖提取占用任务工作区的磁盘，不占 Docker 临时可写层；Cargo 状态、配置与凭据均不跨构建复用。
 输出目录不能通过符号链接指向其他工作区。锁文件、实际 image ID、producer recipe 与 build receipt 校验保持生效。
 
 
