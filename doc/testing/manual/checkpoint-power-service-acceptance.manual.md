@@ -7,6 +7,8 @@
 
 本手册定义未来验收方法，未执行下列业务、故障、跨节点或玩家样例。当前 native Service 的拒绝、旧 AtomicExchange、静态面板和文档 CI 均不能代签目标服务可用。
 
+本手册保留两个个人主体与 Electricity/Data 的原算例及 PS01–08。组织、多方、维护、物料运输和协作按[完整服务验收](continuing-service-fulfillment-and-remedies-acceptance.manual.md)使用其真实 family、条款、费用图和证据；不能把那些输入改标为供电 v1 获得更少接受或更低预算。组合验收还须证明旧供电原件及未结义务仍按原版本恢复，新 family 缺适配器时明确拒绝，两个版本的单位/费用/责任账本不互相代签。
+
 ## 1. 固定候选、来源与通用判据
 
 执行者先固定 source/build、world/genesis/branch、当前权威 root/tick、profile/schema、instance/activation manifest、原条款和接受摘要、合法费用政策/计量 schedule、hold 适配器完整覆盖、panel 权限/名册/抽签来源及正式入口。保存实际使用的命令、原 request、结果、receipt、资源/责任差分及未覆盖项至对应 PR/测试记录；不得把下列例子填成真实运行结果。
