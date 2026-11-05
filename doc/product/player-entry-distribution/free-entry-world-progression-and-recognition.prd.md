@@ -94,12 +94,14 @@ Trace ID: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898
 
 - 功能点：[REQ-ENTRY-FREE-001](#req-entry-free-001)；验收 [AC-ENTRY-FREE-001](#ac-entry-free-001)。
 - 适用范围：免费基础进入、可选 hosting/storage/support 的权力隔离及中断恢复；沿用本条原有阶段和前置条件。
-- 系统设计状态：未核实
-- 系统设计依据：已核对本专题列出的专业权威入口，尚未核清本功能全部义务的准确系统设计承接；产品语义及根 PRD 导航不作为技术覆盖证明。
+- 系统设计状态：部分覆盖
+- 系统设计依据：[既有服务表面的有限接收](../../readme/governance/player-support-and-service-lifecycle.design.md#support-existing-surface-reception)接回 hosted_public_join 身份/设备会话、Launcher 反馈至 DistFS/本地材料与原 Issue、LetAI 既有订单的当前权限、历史与恢复边界。技术会话、反馈链路和旧订单并不证明已销售某项 hosting/storage/support，也不能代签全部服务生命周期；服务状态仍不得改变世界权力。
+- 设计验证方法：[既有表面接收方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-existing-service-surfaces)逐原身份、请求、历史结果和真实责任检查正常独立路径、故障未知与安全停止，保留 hosted release / feedback 失败可能已有局部效果及 LetAI credited 只核验的边界；方法未执行。
+- 本次设计核对：2026-11-05；已合基线 `69f8483182d3427bbd5964f1b8d655a8583ec450` 与本次专业接收；仅接收三类既有技术表面的有限设计，原要求、实现判断与历史证据不升格。
 - 实现状态：未核实
 - 实现与验证依据：新追到共享 hosted contract 的实际范围是[deployment合同边界](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_hosted_access/src/lib.rs#L138-L172)和[当前公开路由](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_hosted_access/src/lib.rs#L296-L340)，它表达 deployment、session、action auth 与账户/世界会话路由；[session refresh](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs#L332-L340)及[session slot释放](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs#L853-L875)处理 refresh、token/slot释放，未形成 hosting/storage/support 购买、到期、取消、续费失败或换商迁移消费者。这些已读路径不能直接证明免费/付费隔离，也不能由路径未出现商业字段推定全仓未实现。 本轮为静态实现认定，不记同候选运行 PASS。
 - 核对日期与基线：2026-10-18；需求、设计映射与源码固定 main `bca169a97393da6cb9b8c0a28246a4efc6d813db`；逐 Git blob 与有效行号核验，仅静态文本审读。未运行安装、模型、Runtime、浏览器或业务/测试验收；测试定义、历史记录及其他候选 CI 不代签本候选。系统设计轴及原阶段、前置条件保持不变。
-- 剩余范围：具体未核清的是可选 hosting/storage/support 订单/权益生命周期 producer，经真实世界权限与历史消费者，到独立读取/等待/重新进入/行动或安全停止的对应链；服务降级、失效、取消、续费失败及重购/换商不得扩权的同候选证据仍缺。普通 session expiry/refresh/release 不属于此服务合同；产品层不承诺服务已上线，不据此次有限文本检索判未实现。
+- 剩余范围：尚须接收具体提供者向哪些用户、按哪个已公布条款版本提供何种可选服务，以及已经接受的服务义务；据此确认订单/权益到真实权限与历史消费者的完整链、降级/到期/取消/续费失败及重购/换商的处置。基本成长、独立恢复和已确认历史读取的正常独立路径仍须逐实际服务证明；hosted 的同身份替代未确认，DevLocal/新 issuer 或故障安全停止不能替代该正向义务。三类既有表面不构成商业服务全集，普通 session expiry/refresh/release 不属于商业取消；技术实现与上述同候选证据仍须逐项核实，不据有限文本接收判未实现或已上线。
 
 - 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
@@ -151,11 +153,13 @@ Trace ID: O7-REQ-c95314c6-feb1-40cd-8c0f-499830f09c3f
 - 适用范围：被决定缩减或结束的具体服务、提供者和受影响候选/用户；关闭一次测试、一个官网或单一节点不自动等于关闭整个 P2P 世界。
 - 要求：在提供该服务前明确其支持和退出能力；实际退出时逐项说明停止新增受理、通知、剩余读取或适用数据交接窗口、玩家可采取的步骤、未结行动和服务义务、资料处置以及剩余联系/复核方式。普通计划退出按已公布条款保留履行窗口；紧急停止说明实际原因和受影响范围，不能静默改写已接受的义务。没有可用导出、迁移、替代访问或退款执行时如实说明缺口并由对应主责处置，不能以结束通知代替实际交付。服务状态与世界身份、控制权、已确认历史及仍有效的世界义务保持 [REQ-ENTRY-FREE-001](#req-entry-free-001) 的分离。
 - 系统设计状态：部分覆盖
-- 系统设计依据：[持续服务退出](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit)承接通知、角色交接和材料判据；具体服务的导出/迁移/账务/数据执行尚须由原专业合同支持。
+- 系统设计依据：[持续服务退出](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit)承接通知、角色交接和材料判据；[既有表面的有限接收](../../readme/governance/player-support-and-service-lifecycle.design.md#support-existing-surface-reception)进一步区分 hosted 身份/会话、反馈材料与 LetAI 旧订单中能停止的便利交付、仍有效的世界/账务义务及真实责任。具体服务的导出、迁移、账务和数据执行仍由原专业合同支持。
+- 设计验证方法：[原退出核对 EX01–06](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-service-exit)与[既有表面接收方法](../../readme/governance/player-support-and-service-lifecycle.manual.md#verify-existing-service-surfaces)组合核验实际下一步、原请求/结果不明和未结责任；静态方法不能代替真实退出演练，未执行。
+- 本次设计核对：2026-11-05；已合基线 `69f8483182d3427bbd5964f1b8d655a8583ec450` 与本次专业接收；保持部分覆盖，不把开发暂停、技术 session 失效或反馈关闭改写为商业服务已退出。
 - 实现状态：未核实
 - 实现与验证依据：本条不声明可选服务已销售或上线，也不把 DevLocal 身份核查工具当作玩家自助导出。尚未取得实际服务清单、退出条款和完整执行证据。
 - 核对日期与基线：2026-11-04；固定文档/源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3`；仅设计审读，未停止服务、通知用户或处理真实数据。
-- 剩余范围：每项实际服务的支持者、条款和履行窗口、技术退出路径、未结义务处理、成本与真实演练。不能由内容方法代签世界恢复、支付、迁移或正式全服务结束。
+- 剩余范围：仍须由实际提供者给出受影响服务/用户、已公布条款版本与已接受义务，以及可履行的通知、剩余读取/适用交接和残留联系/复核窗口；通用材料保留期不自动成为服务 SLA。按该具体采用范围验证已有导出/迁移/账务/数据能力、未结请求责任、成本与真实演练；缺少能力时如实记录并交原主责，不把安全停止写成完整独立恢复。LetAI 开发暂停不注销既有订单、款项或旧义务，也不授权新开发；内容方法不代签世界恢复、支付、迁移或正式全服务结束。
 - 验收：[AC-ENTRY-SERVICE-EXIT-001](#ac-entry-service-exit-001)。
 
 <a id="ac-entry-service-exit-001"></a>
