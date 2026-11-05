@@ -851,13 +851,8 @@ run_full_support_tier_tests() {
 }
 
 run_shared_native_cache_builds() {
-  # Bundle consumers do not populate this runner's target. Reuse the ordinary
-  # producer's exact variants, then fill the Release-only root-workspace gaps.
-  run python3 "$driver_dir/ci-test-artifacts.py" cache-build --scope ordinary --repo-root "$repo_root"
-  run_oasis7_package_tests wasmtime --lib --bins --no-run --locked
-  run_cargo build --locked -p oasis7_chain_runtime --bin oasis7_chain_runtime
-  run_cargo build --locked -p oasis7_distfs --bin hydrate_builtin_wasm
-  run_cargo build --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity
+  # Independent trusted cache runners start with no full-test target outputs.
+  run python3 "$driver_dir/ci-shared-native-cache.py" --repo-root "$repo_root"
 }
 
 run_full_required_superset() {

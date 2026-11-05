@@ -184,7 +184,8 @@ main push 保留快速组合验证，不因每次合入重复启动完整重回�
 
 - 区分未命中、命中后校验成功、缓存损坏和恢复错误；只有验证合格的工具可进入构建。损坏缓存不得作为成功的冷/热样本，也不得回退到未经验证的 binary。
 - 描述实际生产者与消费者的 workflow、事件、ref/scope、平台、架构、工具版本和安装策略。若跨 tag 复用需要默认分支 seed，必须确认有效 main writer、实际保存结果及后续消费者可达性；不能仅凭 key 不含 tag 或名称相同宣称可跨 tag 复用。
-- 读取同类构建依赖的消费者使用可信 producer 的缓存身份，不因工作流或 gate 名称重复保存相同依赖。普通 Rust CI 与 Release / Mainnet 的 core、support、sync、soak 共享一个原生依赖快照，由可信 main 完整回归任务统一生产；并行消费者保持只读。producer 显式编译各消费者需要的 feature 组合，完整成功后才保存，不能把功能超集、下载的测试 binary 或首先结束的 shard 当作完整 target。生产覆盖变化须更新共享缓存版本。不同 target/profile 的产物可以共存，Cargo 仍按实际输入判断复用；WASM 发布包、ECS 与 Formal workspace 保留其生产频率和恢复合同适用的专用缓存。
+- 读取同类构建依赖的消费者使用可信 producer 的缓存身份，不因工作流或 gate 名称重复保存相同依赖。普通 Rust CI 与 Release / Mainnet 的 core、support、sync、soak 共享一个原生依赖快照，由独立的可信 main 定时或手动完整预热任务统一生产；并行消费者保持只读。producer 显式编译各消费者需要的 feature 组合，全部编译成功后才保存，不能把功能超集、下载的测试 binary 或首先结束的 shard 当作完整 target。生产覆盖变化须更新共享缓存版本。不同 target/profile 的产物可以共存，Cargo 仍按实际输入判断复用；WASM 发布包、ECS 与 Formal workspace 保留其生产频率和恢复合同适用的专用缓存。
+- 原生依赖预热只构建，不执行或代替产品验收，也不生成完整结果凭证。完整回归不等待其补编译或缓存上传，不因可丢弃缓存的失败、取消或超时丢失已完成的测试结果；完整回归自身的所有选中任务和整条 workflow 仍须真实成功。缓存 writer 只能使用自身固定的当前 main source/workflow SHA，保留精确事件、job、REST run 身份及最终归档容量准入；PR、候选和历史 source 不获得该写权限。
 - 共享须对齐工具链、环境指纹、路径与 cache version。临时 GitHub-hosted runner 的无关预装 Rust 工具链不参与共享身份，固定的实际构建工具链仍校验并参与 hash。registry、target 的库存节省与每个消费者恢复大包的传输成本分别量测；没有 hosted 数据时不承诺耗时收益。缺少缓存或缺少对应产物时，消费者继续原构建和测试。
 - 跨 tag 命中须有真实 writer 和 reader 的运行记录；尚未 seed、没有可达缓存或未执行 reader 时如实记为未验证，允许通过正确的冷路径完成必要工作。
 - 冷/热对比包含恢复、准备/验证和保存成本，不能只统计省去的安装时间。

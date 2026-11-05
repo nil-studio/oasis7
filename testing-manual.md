@@ -299,7 +299,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 ### CI 工具缓存与 local-signer 验证
 
 - Viewer 的 `viewer-js-required`、`viewer-performance-report` 只恢复当前 Cargo.lock 版本的 wasm-bindgen CLI 目录；key 包含 OS、架构、Rust 版本和两个安装 helper 的 hash，不使用宽松恢复。精确命中必须验证目录内 binary，损坏命中直接失败；冷目录以 `--ensure-cache --print-bin` 安装并验证。普通 PR 不保存该工具缓存。
-- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存身份为 `ci-shared-native-trusted-v3`。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
+- 现有 main schedule/manual-full `full-regression` 是唯一工具 writer，准备成功后立即保存，再运行 full tests。Rust 依赖缓存由独立 `rust-cache.yml/shared-native-cache` 的 main schedule/manual-full 生产，身份为 `ci-shared-native-trusted-v4`；完整测试只读该缓存。首次写入与后续自然 Viewer PR 的热命中需分别从日志核实；热路径应无 CLI 源码安装，缓存成功不代表 full 回归通过。
+- 共享依赖预热的验证：运行 `python3 scripts/ci-rust-cache-build.test.py`、`python3 scripts/ci-rust-cache-admission.test.py`、`python3 scripts/ci-cache-maintenance.test.py` 和 `bash scripts/package-workflow-cache-reuse-contract.test.sh`，核对独立 producer 的全部 build-only 组合、精确 fast features、首编译失败停止、真实 checkout 身份及 v3 退役保护。精确 v4 hit 只省去重复预热，前缀 hit 或 miss 必须完整编译。
+- hosted 分别核对 Rust full 的全部选中结果与独立缓存 run 的准备、编译、实际保存；缓存 run 不产 full receipt。完整回归保持原成功/失败/取消判定及发布消费者的整条 run 成功要求，不能把缓存成功算成测试通过。补齐 fast 依赖后的普通 PR 收益须包含首次 v4 冷恢复、后续实际命中和测试执行成本。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
 - fleet-health 的 Linux/Windows/macOS 原生分片执行 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access`，覆盖永久 OS 锁、双 stale 回收者、崩溃释放与 nonce 原件并发消费；仅适用于受信本地文件系统，不证明网络共享盘或多机互斥。该包的修改选中 fleet-health。
 - fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
@@ -342,7 +344,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - 冷暖量测：区分实际下载、跨 run 恢复、本地已有和恢复异常后下载；分别记录恢复、下载、验证安装、总准备及 writer 保存成本。日志只有 step 级时间时保持该粒度。附 runner image/OS/arch、source、Trunk 版本/摘要、helper 指纹、样本窗口与数量；失败和取消单列，排队和整个 Release 耗时另报。样本不足时报告原始观察，不预写提速百分比。
 - apt 先观察索引更新、下载、安装、锁等待和失败分布。本次没有新增 apt helper；后续确需预算治理时，使用假命令与临时进程 fixture 验证正常/瞬态/永久错误、总预算、挂起或忽略终止信号的子进程、父进程先退出、取消与无受控遗留进程。不得在真实 apt/dpkg 上故障注入；强制终止后的包状态不明确时应失败并使用新 runner。
 
-本地合同测试只证明其实际范围；main 合入、hosted 构建、跨 tag 恢复与性能收益分别核实，不新增通用 required check、预热工作流或验收回执。
+Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构建、跨 tag 恢复与性能收益分别核实，不为 Trunk 新增通用 required check、预热工作流或验收回执。
 
 <a id="engineering-telemetry-validation"></a>
 ### 工程遥测报告核验
