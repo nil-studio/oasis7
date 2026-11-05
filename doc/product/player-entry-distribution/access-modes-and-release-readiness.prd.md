@@ -158,7 +158,7 @@ Trace ID: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264
 - 功能点：[REQ-ENTRY-MODE-001](#req-entry-mode-001)；验收 [AC-ENTRY-MODE-001](#ac-entry-mode-001)。
 - 适用范围：viewer/pure_api 入口的唯一模式、阶段、能力及独立证据表达；沿用本条原有阶段和前置条件。
 - 系统设计状态：部分覆盖
-- 系统设计依据：[逐账号首次绑定与恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)经专业 REQ/AC 承接同世界首次注册、已绑定账号返回及其 blocked/未知结果的逐入口证据和失败恢复；这是后继设计目标，不是已开放准入。
+- 系统设计依据：[逐账号首次绑定与恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)经专业 REQ/AC 承接同世界首次注册、已绑定账号返回及其 blocked/未知结果的逐入口证据和失败恢复；这是后继设计目标，不是已开放准入。 本轮 [Launcher 状态与双语文案](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-state-copy)承接交付表面可见的模式与阶段边界；现有按钮只打开真实支持的目标，不新增 pure_api 启动入口，也不从链 observer 推导玩家模式。
 - 本次补充系统设计依据：[Viewer 决策模式](../../p2p/viewer-live/oasis7-viewer-live-decision-mode.design.md#vl-des-observer)仅承接direct viewer Script observer/debug 与 launcher/gameplay/release 的证据隔离；其余原剩余范围保留，系统设计仍为部分覆盖，原实现状态和历史核对基线不变。
 - 实现状态：部分实现
 - 实现与验证依据：直接子义务是受限入口的显式能力/失败边界：[launcher拒绝与observer下一步](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/scripts/run-launcher-stack.sh#L464-L467)在缺 LLM 时退出并给 direct observer/debug 下一步；[no-LLM参数](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs#L324-L328)经[direct配置消费者](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs#L185-L196)锁定 Script，[direct受限能力说明](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs#L568-L582)明确 observer/debug only、gameplay blocked；[game-launcher硬拒绝](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L340-L344)阻止 launcher 成功回退。此处不把缺 LLM、provider 或 deployment 推导成 primary mode。[viewer URL与deployment独立参数](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher.rs#L967-L985)仅显式 viewer render 参数与 hosted context；另已核到真正[pure API签名动作与响应](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_client_cli/src/bin/oasis7_pure_api_client.rs#L213-L231)、[独立连接与HelloV2](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_client_cli/src/bin/oasis7_pure_api_client.rs#L550-L582)及[JSON消费者](https://github.com/nil-studio/oasis7/blob/bca169a97393da6cb9b8c0a28246a4efc6d813db/crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/support.rs#L330-L341)，不能再将 pure_api 独立消费者整体列作未知，但这些协议能力仍非完整 primary-mode/阶段/证据分类。 本轮为静态实现认定，不记同候选运行 PASS。
@@ -166,6 +166,8 @@ Trace ID: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264
 - 剩余范围：已实现仅 direct observer/debug 与 launcher 无 LLM 拒绝的显式受限能力边界。所有正式 viewer/pure_api 入口对唯一 primary mode、当前阶段、能力集合与独立 evidence/verdict 的完整绑定仍未核清；pure API 的 HelloV2/JSON 和可签名动作不等于正式可玩、parity 或同候选验收。首次注册/返回仍遵守原后继目标及未开放准入条件。
 
 - 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
+
+- 本轮局部设计核对：2026-11-05；已合入源码 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 与本次文档候选，仅核 Launcher 引导表面的具体交接。系统设计仍为部分覆盖，完整跨入口/权限/凭据/世界组合须沿原范围逐项核对；原实现状态及历史证据保留，未新增运行或真人验收。
 
 <a id="ac-entry-mode-001"></a>
 ### AC-ENTRY-MODE-001：入口证据独立证明模式能力
@@ -186,12 +188,14 @@ Trace ID: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270
 - 功能点：[REQ-ENTRY-MODE-002](#req-entry-mode-002)；验收 [AC-ENTRY-MODE-002](#ac-entry-mode-002)。
 - 适用范围：前置、身份/会话、provider、模式和后端失败时的分类与真实恢复；沿用本条原有阶段和前置条件。
 - 系统设计状态：部分覆盖
-- 系统设计依据：[逐账号首次绑定与恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)经专业 REQ/AC 承接同世界首次注册、已绑定账号返回及其 blocked/未知结果的逐入口证据和失败恢复；这是后继设计目标，不是已开放准入。
+- 系统设计依据：[逐账号首次绑定与恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-entry-001)经专业 REQ/AC 承接同世界首次注册、已绑定账号返回及其 blocked/未知结果的逐入口证据和失败恢复；这是后继设计目标，不是已开放准入。 本轮 [Launcher 状态与文案](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-state-copy)及[失败恢复](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-recovery)为该表面的真实 blocker 给出已有动作、双语提示及重验条件；无可执行恢复时保持明确受阻，不制造新的登录或 observer fallback。
 - 本次补充系统设计依据：[Viewer 决策模式](../../p2p/viewer-live/oasis7-viewer-live-decision-mode.design.md#vl-des-launcher)仅承接launcher 无 LLM fail-fast、禁止 Script 成功 fallback 及 direct observer/debug 提示；其余原剩余范围保留，系统设计仍为部分覆盖，原实现状态和历史核对基线不变。
 - 实现状态：部分实现
 - 实现与验证依据：Launcher 对配置无效、禁用和启动失败给出 ConfigError/Disabled/Unreachable；会话请求失败清空旧 authority 快照。 [源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane/tests.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_client_launcher/src/main_chain_status.rs)；[核验任务](https://github.com/eng-cc/oasis7/issues/4696)。本轮为固定源码审读，回归定义不等于实际通过。
 - 核对日期与基线：2026-10-15；需求与实现源码 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；GitHub 固定源码审读；入口与已核对范围见上，未执行运行、浏览器、部署或真人验收；本条原验收条件与层级不变。
 - 剩余范围：设计仍按上述准确承接及其未覆盖边界；实现与验证方面，全部 viewer/pure_api 的 provider、身份、模式与后端失败及真实恢复尚未核清；局部错误分类不证明完整可玩路径。
+
+- 本轮局部设计核对：2026-11-05；已合入源码 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 与本次文档候选，仅核 Launcher 引导表面的具体交接。系统设计仍为部分覆盖，完整跨入口/权限/凭据/世界组合须沿原范围逐项核对；原实现状态及历史证据保留，未新增运行或真人验收。
 
 <a id="ac-entry-mode-002"></a>
 ### AC-ENTRY-MODE-002：blocked 与可玩不会被静默互换
