@@ -1,6 +1,6 @@
 # 代表性工业配方执行 Walkthrough 合同
 
-- 上层产品映射：承接 [`world-rules-core-gameplay` 的代表性配方执行档案](../../product/world-rules-core-gameplay/prd.md#代表性配方执行档案把分散规则收成一条可验收工业链) 与 SC-28；本合同把跨域档案转成玩家可执行、可复盘的单一路径。
+- 上层产品映射：承接 [`world-rules-core-gameplay` 的代表性配方执行档案](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile) 与 SC-28；本合同把跨域档案转成玩家可执行、可复盘的单一路径。
 - Authority 分工：产品层拥有档案形状与完成承诺，M4 拥有材料账本、批次、物流边、容量、损耗、buffer 与 terminal 事实，`world-runtime` 拥有状态、事件、receipt、持久化与 replay；gameplay 只拥有玩家顺序、取舍、收益、失败恢复与 progression 语义。
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history；本文件是玩法合同，不把目标规则或未来组合验证写成当前实现事实。
 
@@ -8,7 +8,7 @@
 
 产品 SC-28 已要求一份把工厂、配方、两类原料、物流、合法执行单位、主/副产物、终端用途与 progression 收成完整只读投影的代表性档案。Gameplay 还需回答“玩家先看什么、比较什么、确认后何时获得什么、失败后如何恢复、为什么继续”。否则，即使各条规则可独立验收，玩家仍无法走完一条工业链。
 
-本合同只定义一个不绑定具体材料名称的 deterministic walkthrough。它不创建第二套 recipe、材料或物流权威；所有字段必须回指产品、Recipe/Factory、M4 与 `world-runtime` 的当前 authority。缺任一关键 authority 时，整条路径按 `incomplete/unknown/blocked` 处理，不得由 surface 以默认值补齐。
+本合同的共通 walkthrough 不绑定所有配方必须使用的材料名称；§2.1 另选定一份具体代表档案供本合同验收。它不创建第二套 recipe、材料或物流权威；所有字段必须回指产品、Recipe/Factory、M4 与 `world-runtime` 的当前 authority。缺任一关键 authority 时，整条路径按 `incomplete/unknown/blocked` 处理，不得由 surface 以默认值补齐。
 
 ## 2. 代表性 fixture
 
@@ -17,6 +17,25 @@
 验收 fixture 固定覆盖形状：一座具备目标 capability 的 factory、一个 `active` 或作用域内 `restricted` recipe version、两类独立 required inputs、至少一条有容量约束或损耗的有效 logistics edge、一个 canonical executable cycle/quantum、一个主产物与至少一个必须处置的副产物 branch，以及一个明确 purpose/recipient 的 terminal。固定的是覆盖形状，不冻结材料、配比、产率、价格、绝对容量、tick 或字段编码。
 
 fixture 档案必须同时提供 factory/recipe authority 与 fit、两类 input 的 provenance/适用性/join 结论、path/loss/capacity 与复查边界、合法 cycle 的 full/partial policy 与 power mode、output bundle/branch 的 owner/destination/policy、terminal admission 边界、当前 blocker、已占用/将消费价值、`next_action`、`next_recheck` 与 `progression_effect`。未选路径不取得 hold、吞吐顺位、input sink 或稳定进度。
+
+<a id="representative-profile-policy"></a>
+### 2.1 本轮选定的具体代表档案与用途
+
+Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117；准确上游为 [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)。本 PR 提议采用 RIE-IRON-1/v1 作为当前 SC-28 的最小完整设计样本；owner 采纳后成为该样本的设计基线。新增的样本路线、容量、qualification 标签、观察窗口和终端用途是本次明确选择，不写成历史已批准或当前入口已支持的政策，也不成为其他配方/首局的默认值。
+
+[唯一完整可编辑档案](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-profile)选用既有原生 Smelter 与 exact iron 配方一批；两类输入先核真实来源、到达与独立quality/custody，再经原共享escrow一次齐套消费。有限有损输入物流、合法full-only量子、原power/验证费用、主iron与mandatory slag的原子bundle、有限终端和正常预算在同一版本中逐项给出；不再以“以后由profile补齐”代替这份样本。
+
+| 本例选择 | 玩家得到什么、仍承担什么 | 完成与下一步 |
+| --- | --- | --- |
+| P：production_only | 在合法有限I账本中得到iron3和必须保留的slag1；承担实际输入运输损耗、生产/验证费用与空间占用 | 匹配全bundle production receipt才为produced/undelivered；单批不stable。之后可以保留成果，或对真实合法T用途作新的明确选择 |
+| T：terminal_admission | 使用相同生产规则，额外把本批iron送到自身T有限库存；slag仍有独立合法去向，额外运输和T容量有成本 | arrival只证明到货；原terminal writer匹配owner/recipient/T/quantity/purpose/capacity及parent receipts后才完成库存接收，不二次credit、减需求、发奖励或自动生产 |
+| 缺前置时保留/延期 | 未发生投入不新增；已发生的损耗、费用、escrow、WIP或在途保持原归属 | 原支持的同因果修复/等待后fresh重查；无安全路径时停止新承诺。改变recipe、required edge、输出或terminal用途走新candidate、W=0 |
+
+P 与 T 分别从相同完整初态的独立副本验证，不能在旧root已有production receipt后改完成方式再领取一次结果。owner_inventory_acceptance/rie-v1 只选择 M4 已允许的 owner-bound 有限存储用途；没有商业买家、SC-31需求或奖励消费者。当前原生output容量字段只核有限output room，不因此成为terminal接收能力；缺初始binding、全writer容量守卫或独立接收接口时明确blocked。
+
+稳定继续复用原canonical生产判据和当前candidate匹配，不由quality标签、到货、终端接收或重复读取推断。代表例只生产一批，完整档案明确它尚不稳定；后续周期要有新的真实投入、空间、费用和匹配receipt。玩家可以有效地停在首产或库存接收，不能为了证明继续动力补造市场、免费恢复或当前不可用的后继。
+
+原 test_tier_full 保持，并由 [RIE-IRON-GEAR-MOTOR/v1 三阶段扩展](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-full)具体声明原生iron→gear→motor、原维护投入、残余/副产物、有限物流与终端、共享容量、cutover和跨窗口lineage。它是独立target样本，不原地扩大基础例或首局。正常、失败、恢复、三入口与人类理解的准确方法见 [RIE-M01～04](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m01)；当前没有执行通过结论。
 
 ## 3. 五阶段玩家 walkthrough
 
@@ -92,7 +111,7 @@ fixture 档案必须同时提供 factory/recipe authority 与 fit、两类 input
 
 - **已有 starter 实现入口**：[固定源码的 profile 与持久 milestone](https://github.com/nil-studio/oasis7/blob/9df20824f3f0418eef7bd732782bf99205ab7b5d/crates/oasis7_runtime/src/state/starter_industrial.rs)及[生产生命周期](https://github.com/nil-studio/oasis7/blob/9df20824f3f0418eef7bd732782bf99205ab7b5d/crates/oasis7_runtime/src/state/industry_transition/recipe_lifecycle.rs)承载 Smelter 首笔匹配正量铁锭结算与 Assembler 候选边界。这是源码定位，不等于当前所有玩家入口验收通过。
 - **历史局部运行证据**：[2026-10-13 prepared-world 样本](../../testing/evidence/native-task-starter-chain-2026-10-13/bounded-retry/README.md)记录其特定 source/build/Skill 的建厂、供料、首产物及原结果恢复；不能代签当前候选、冷启动、GUI、稳定链或部署。
-- **仍需组合证明的目标**：本合同完整两输入 join、受限物流、output bundle、多阶段/terminal 与 progression 的同候选跨入口 walkthrough 仍按目标合同核验。缺哪一段就保留哪一段未知，不能用 starter milestone 或普通 CI 填平。
+- **已具体化的设计与仍需组合证明的目标**：§2.1 与配对专业档案给出基础P/T及full三阶段的实际可编辑样本、数量/预算和失败恢复方法；本合同完整两输入 join、受限物流、output bundle、多阶段/terminal 与 progression 的同候选跨入口执行仍按目标合同核验。缺哪一段实现/实际证据就保留哪一段未知，不能用 starter milestone、设计接收或普通 CI 填平。
 
 目标 evidence 需要一份 fresh composite runtime + QA fixture：同一 candidate 从档案读取、玩家选择、提交、执行、production/terminal receipt 到下一动作均可追溯，并能证明 profile/authority 缺失时 fail closed。Viewer、pure API 与 Agent 需从同一 snapshot/revision 得到等义档案与结果后，才能把该 walkthrough 标为 current-evidence-backed。
 
