@@ -103,12 +103,12 @@ export async function nativeLiveContextAuthority(directory,worldData) {
   assert.equal(worldData.live_context_read,true);
   return authority(directory,true,worldData);
 }
-export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits=false}={}) {
+export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits=false,settleBaseline=false}={}) {
   const directory=mkdtempSync(resolve(tmpdir(),'oasis7-role-runtime-negative-'));
   let native,mf,worldProcess;
   try {
     const nativeMode=mode.startsWith('native-');
-    if(mode.startsWith('native-participant')) worldProcess=await worldAuthority(directory,{settleSubmits});
+    if(mode.startsWith('native-participant')) worldProcess=await worldAuthority(directory,{settleSubmits,settleBaseline});
     native=await authority(directory,nativeMode,worldProcess?{...worldProcess.data,owner_setup:mode.startsWith('native-participant-owner-setup')}:undefined);
     const world=worldProcess?.data.world??defaultWorld;
     const routes={...defaultRoutes,world_identity:world.world_id};
@@ -351,8 +351,9 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
         const descriptor=await response.json();accessStatusBarrier=freshAccessStatusBarrier(descriptor.access_nonces,barrierMode);
       },
       accessStatusBarrierFacts:()=>({...accessStatusBarrier.facts}),
+      disableBaselineSettlement:()=>worldProcess?.disableBaselineSettlement(),
       nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults],approvalFacts:()=>[...approvalFacts]});
-  } finally {await mf?.dispose();await native?.close();await worldProcess?.close();rmSync(directory,{recursive:true,force:true});}
+  } finally {worldProcess?.disableBaselineSettlement();await mf?.dispose();await native?.close();await worldProcess?.close();rmSync(directory,{recursive:true,force:true});}
 }
 
 // Only non-secret facts leave the isolated SQLite files; no envelope/seed/session

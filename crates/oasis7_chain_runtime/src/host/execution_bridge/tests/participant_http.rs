@@ -515,7 +515,7 @@ fn custody_happy_submit_barrier_preserves_unknown_and_settles_exact_originals() 
         };
         scope.spawn(|| {
             transport::serve_with_private_settlement(
-                listener, &node, &root, &signer, &stop, &dropped, None, true,
+                listener, &node, &root, &signer, &stop, &dropped, None, true, None,
             )
         });
         for (account, operation, key_byte) in [
@@ -560,6 +560,147 @@ fn custody_happy_submit_barrier_preserves_unknown_and_settles_exact_originals() 
             .unwrap();
             assert_eq!(result.request, original);
             assert!(result.rejected.is_none());
+        }
+    });
+    baseline_barrier_disables_before_pending_original();
+}
+
+fn baseline_barrier_disables_before_pending_original() {
+    let (dir, mut driver, identity, _, _) = canonical_agent_chat::driver_fixture_without_provider();
+    governance::install(&mut driver.execution_world, &identity, 1, true);
+    empty_commit(&mut driver);
+    let root = dir.canonicalize().unwrap();
+    let node = Arc::new(Mutex::new(runtime(&root, driver)));
+    let signer = crate::feedback_submit_api::FeedbackSubmitSigner {
+        public_key_hex: sign_read_request("fixture", (), &hex::encode([9; 32]))
+            .unwrap()
+            .subject_public_key,
+        private_key_hex: hex::encode([9; 32]),
+    };
+    let marker = root.join("baseline-only-settlement");
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&marker)
+            .unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let stop = AtomicBool::new(false);
+    let dropped = AtomicBool::new(true);
+    std::thread::scope(|scope| {
+        let _stop = Stop {
+            stop: &stop,
+            node: node.clone(),
+        };
+        scope.spawn(|| {
+            transport::serve_with_private_settlement(
+                listener,
+                &node,
+                &root,
+                &signer,
+                &stop,
+                &dropped,
+                None,
+                false,
+                Some(&marker),
+            )
+        });
+        let key = hex::encode([74; 32]);
+        let api = client(&endpoint, &identity, &signer, &key);
+        let baseline = request(
+            &identity,
+            payload(
+                &root,
+                &identity,
+                "baseline-account",
+                "baseline-register",
+                &key,
+            ),
+        );
+        assert!(
+            matches!(api.submit(baseline.clone()).unwrap(), SubmitObservation::Response(ref reply) if matches!(reply.outcome, IntentOutcome::Received { .. }))
+        );
+        let lookup = |original: &SubmitIntentRequest<WorldServicePayloadV1>| LookupIntentRequest {
+            contract_version: 1,
+            key: original.correlation.key.clone(),
+        };
+        let committed = api
+            .lookup(lookup(&baseline), baseline.signed_payload.clone())
+            .unwrap();
+        assert!(matches!(committed.outcome, IntentOutcome::Committed { .. }));
+        // Freeze real consensus before the target original is admitted. A
+        // baseline barrier accidentally left enabled must not turn it green.
+        fs::remove_file(&marker).unwrap();
+        node.lock().unwrap().stop().unwrap();
+        let bootstrap = super::super::super::local_bootstrap::derive_service_execution_bootstrap(
+            &root.join("world"),
+            &root.join("records"),
+            &root.join("store"),
+            "w1",
+        )
+        .unwrap();
+        {
+            let mut stopped = node.lock().unwrap();
+            let previous = std::mem::replace(
+                &mut *stopped,
+                oasis7_node::NodeRuntime::new(
+                    oasis7_node::NodeConfig::new("node-a", "w1", NodeRole::Sequencer).unwrap(),
+                ),
+            );
+            *stopped = previous.with_local_execution_bootstrap(bootstrap);
+        }
+        let key = hex::encode([75; 32]);
+        let api = client(&endpoint, &identity, &signer, &key);
+        let original = request(
+            &identity,
+            payload(
+                &root,
+                &identity,
+                "pending-account",
+                "pending-register",
+                &key,
+            ),
+        );
+        let response = api.submit(original.clone()).unwrap();
+        assert!(
+            matches!(response, SubmitObservation::Response(ref reply) if matches!(reply.outcome, IntentOutcome::Received { .. }))
+        );
+        let pending = api
+            .lookup(lookup(&original), original.signed_payload.clone())
+            .unwrap();
+        assert_eq!(pending.correlation, original.correlation);
+        assert!(
+            matches!(pending.outcome, IntentOutcome::Unknown),
+            "disabled baseline scheduling must preserve the actual uncommitted original"
+        );
+        // A late real commit is allowed without another Submit or new key.
+        node.lock().unwrap().start().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let digest = correlation::key_digest(&original.correlation.key).unwrap();
+        loop {
+            let current = pin(&root, &identity);
+            if let Some(value) = current
+                .world
+                .capability_revocation_state()
+                .world_service_results
+                .get(&digest)
+            {
+                let result: CanonicalIntentResultV1 =
+                    serde_json::from_value(value.clone()).unwrap();
+                assert_eq!(result.request, original);
+                assert!(result.rejected.is_none());
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "same pending original must eventually commit"
+            );
+            std::thread::sleep(Duration::from_millis(5));
         }
     });
 }
