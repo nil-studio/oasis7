@@ -288,6 +288,8 @@ pub mod incremental_world_current_limits;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_event_decode;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_event_owned;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_format;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_key_router;

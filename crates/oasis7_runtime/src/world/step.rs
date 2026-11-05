@@ -97,7 +97,7 @@ impl World {
         Ok(self.journal.events.last().cloned())
     }
 
-    fn should_emit_action_accepted(action: &Action) -> bool {
+    pub(super) fn should_emit_action_accepted(action: &Action) -> bool {
         if matches!(
             action,
             Action::OpenEconomicContract {

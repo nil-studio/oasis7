@@ -72,57 +72,7 @@ pub fn decode_world_event_original_v1<C: FnMut() -> bool>(
     work: &mut WorldEventDecodeWorkV1,
     mut cancelled: C,
 ) -> Result<ReservedValue<DecodedWorldEventV1>, ValueTreeError> {
-    crate::incremental_original_decode::assert_json_owned_layout_features_v1();
-    if cancelled() {
-        return Err(ValueTreeError::Cancelled);
-    }
-    // A changed transitive DTO/default/Deserialize graph invalidates this
-    // implementation inventory until its layout proof is re-audited.
-    {
-        let _inventory_phase = memory.reserve(8192, class)?;
-        if !inventory::world_event_layout_inventory_matches_v1() {
-            return Err(ValueTreeError::Invalid(
-                "WorldEvent decode layout inventory changed",
-            ));
-        }
-    }
-    if raw.len() > work.max_original_bytes {
-        return Err(ValueTreeError::ResourceLimited("WorldEvent original bytes"));
-    }
-    let shape = preflight_definite_cbor_v1(raw, &mut work.structure, &mut cancelled).map_err(
-        |e| match e {
-            CborPreflightErrorV1::Invalid => invalid(),
-            CborPreflightErrorV1::Cancelled => ValueTreeError::Cancelled,
-            CborPreflightErrorV1::ResourceLimited => {
-                ValueTreeError::ResourceLimited("WorldEvent structure")
-            }
-        },
-    )?;
-    work.structure.values_remaining = work
-        .structure
-        .values_remaining
-        .checked_sub(shape.values)
-        .ok_or(ValueTreeError::ResourceLimited("WorldEvent typed visits"))?;
-    work.structure.bytes_remaining = work
-        .structure
-        .bytes_remaining
-        .checked_sub(raw.len() as u64)
-        .ok_or(ValueTreeError::ResourceLimited("WorldEvent typed bytes"))?;
-    let bytes = match module_state_budget::module_state_world_event_heap_bound_v1(
-        raw,
-        &mut work.structure,
-        &mut cancelled,
-    )? {
-        Some(bytes) => bytes,
-        None => shared_owned_heap_bound_v1(&shape, std::mem::size_of::<DecodedWorldEventV1>())?,
-    };
-    if bytes > work.max_heap_bytes {
-        return Err(ValueTreeError::ResourceLimited("WorldEvent heap allowance"));
-    }
-    let charge = memory.reserve(bytes, class)?;
-    if cancelled() {
-        return Err(ValueTreeError::Cancelled);
-    }
+    let charge = admit_world_event_original_heap_v1(raw, memory, class, work, &mut cancelled)?;
     let event: WorldEvent = serde_cbor::from_slice(raw).map_err(|_| invalid())?;
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
@@ -213,4 +163,66 @@ pub(crate) fn shared_owned_heap_bound_v1(
         })
         .and_then(|n| n.checked_add(8192))
         .ok_or_else(limit)
+}
+
+/// Shared original admission, preserving the ModuleState fast path and work.
+pub(crate) fn admit_world_event_original_heap_v1(
+    raw: &[u8],
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    work: &mut WorldEventDecodeWorkV1,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<oasis7_proto::memory_budget::MemoryReservation, ValueTreeError> {
+    crate::incremental_original_decode::assert_json_owned_layout_features_v1();
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    // A changed transitive DTO/default/Deserialize graph invalidates this
+    // implementation inventory until its layout proof is re-audited.
+    {
+        let _inventory_phase = memory.reserve(8192, class)?;
+        if !inventory::world_event_layout_inventory_matches_v1() {
+            return Err(ValueTreeError::Invalid(
+                "WorldEvent decode layout inventory changed",
+            ));
+        }
+    }
+    if raw.len() > work.max_original_bytes {
+        return Err(ValueTreeError::ResourceLimited("WorldEvent original bytes"));
+    }
+    let shape = preflight_definite_cbor_v1(raw, &mut work.structure, &mut cancelled).map_err(
+        |e| match e {
+            CborPreflightErrorV1::Invalid => invalid(),
+            CborPreflightErrorV1::Cancelled => ValueTreeError::Cancelled,
+            CborPreflightErrorV1::ResourceLimited => {
+                ValueTreeError::ResourceLimited("WorldEvent structure")
+            }
+        },
+    )?;
+    work.structure.values_remaining = work
+        .structure
+        .values_remaining
+        .checked_sub(shape.values)
+        .ok_or(ValueTreeError::ResourceLimited("WorldEvent typed visits"))?;
+    work.structure.bytes_remaining = work
+        .structure
+        .bytes_remaining
+        .checked_sub(raw.len() as u64)
+        .ok_or(ValueTreeError::ResourceLimited("WorldEvent typed bytes"))?;
+    let bytes = match module_state_budget::module_state_world_event_heap_bound_v1(
+        raw,
+        &mut work.structure,
+        &mut cancelled,
+    )? {
+        Some(bytes) => bytes,
+        None => shared_owned_heap_bound_v1(&shape, std::mem::size_of::<DecodedWorldEventV1>())?,
+    };
+    if bytes > work.max_heap_bytes {
+        return Err(ValueTreeError::ResourceLimited("WorldEvent heap allowance"));
+    }
+    let charge = memory.reserve(bytes, class)?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(charge)
 }

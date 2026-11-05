@@ -102,6 +102,29 @@ impl World {
         Self::contribute_iws_agent_event_core(now, event, txn, context, false)
     }
 
+    pub(super) fn contribute_iws_accepted_event_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    >(
+        now: u64,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        scope: &super::incremental_action_execution::AcceptedActorScopeV1<'_>,
+    ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            event,
+            txn,
+            context,
+            false,
+            Some(scope),
+        )
+    }
+
     fn contribute_iws_agent_event_core<
         R: MerkleNodeReader,
         V: ValueNodeReader,
@@ -115,6 +138,30 @@ impl World {
         context: &mut AgentEventContext<'_, V, W, C, F>,
         registration_created: bool,
     ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_agent_event_qualified_core(
+            now,
+            event,
+            txn,
+            context,
+            registration_created,
+            None,
+        )
+    }
+
+    fn contribute_iws_agent_event_qualified_core<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter,
+        C: FnMut() -> bool,
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    >(
+        now: u64,
+        event: &WorldEvent,
+        txn: &mut ExecutionTransaction<'_, R>,
+        context: &mut AgentEventContext<'_, V, W, C, F>,
+        registration_created: bool,
+        accepted_scope: Option<&super::incremental_action_execution::AcceptedActorScopeV1<'_>>,
+    ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let WorldEvent {
                 id: _,
@@ -127,8 +174,18 @@ impl World {
                     "unsupported incremental agent event",
                 ));
             };
+            if let DomainEvent::ActionAccepted { actor_id, .. } = domain {
+                accepted_scope
+                    .ok_or(BodyMutationError::Invalid(
+                        "accepted event requires actual actor scope",
+                    ))?
+                    .validate(txn, actor_id)?;
+            }
             let agent_id = match domain {
-                DomainEvent::BodyAttributesUpdated { agent_id, .. }
+                DomainEvent::ActionAccepted {
+                    actor_id: agent_id, ..
+                }
+                | DomainEvent::BodyAttributesUpdated { agent_id, .. }
                 | DomainEvent::AgentMoved { agent_id, .. } => agent_id,
                 DomainEvent::AgentRegistered { agent_id, .. } if registration_created => agent_id,
                 _ => {
@@ -164,6 +221,67 @@ impl World {
             let (allocated, next, era) = Self::preview_next_event_id(sequence.next, sequence.era);
             if event.id != allocated {
                 return Err(BodyMutationError::Invalid("event allocator precondition"));
+            }
+            // Legacy ActionAccepted routes only to an existing actor. A missing
+            // actor still produces the audit original and allocator successor.
+            if matches!(domain, DomainEvent::ActionAccepted { .. }) {
+                let body_key = AgentBodyKeyV1::new(agent_id).map_err(BodyMutationError::Invalid)?;
+                let body_exists = txn.read(Ns::Business, body_key.as_bytes())?.is_some();
+                if body_exists
+                    != accepted_scope
+                        .expect("Accepted scope checked above")
+                        .existing()
+                {
+                    return Err(BodyMutationError::Invalid("accepted actor scope changed"));
+                }
+                if !body_exists {
+                    let frontier_key =
+                        MailboxKeyV1::new(agent_id, None).map_err(BodyMutationError::Invalid)?;
+                    if txn.read(Ns::Scheduler, frontier_key.as_bytes())?.is_some() {
+                        return Err(BodyMutationError::Invalid(
+                            "absent accepted actor has mailbox",
+                        ));
+                    }
+                    let measured = original::measure(
+                        event,
+                        context.mutation.memory,
+                        &mut context.original_work,
+                        &mut context.mutation.cancelled,
+                        context.max_event_bytes,
+                    )?;
+                    let original_id = measured.id();
+                    let next_ref = write_field_bytes(
+                        &EventSequenceV1 { next, era }.canonical_bytes(),
+                        &mut context.mutation,
+                    )?;
+                    txn.write(Ns::Allocator, EVENT_SEQUENCE_KEY_V1, Some(next_ref))?;
+                    let mut producer = original::Producer::new(
+                        measured,
+                        context.mutation.memory,
+                        &mut context.original_work,
+                        &mut context.mutation.cancelled,
+                    );
+                    (context.persist_original)(&mut producer)?;
+                    producer.check_complete()?;
+                    drop(producer);
+                    if (context.mutation.cancelled)() {
+                        return Err(
+                            oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled
+                                .into(),
+                        );
+                    }
+                    txn.append_fact(ExecutionFactRefV1 {
+                        kind: ExecutionFactKindV1::Event,
+                        id: original_id,
+                    })?;
+                    if (context.mutation.cancelled)() {
+                        return Err(
+                            oasis7_formal_protocol::incremental_value::ValueTreeError::Cancelled
+                                .into(),
+                        );
+                    }
+                    return Ok(());
+                }
             }
             let frontier_key =
                 MailboxKeyV1::new(agent_id, None).map_err(BodyMutationError::Invalid)?;
@@ -248,6 +366,7 @@ impl World {
                         &mut context.mutation,
                     )?;
                 }
+                DomainEvent::ActionAccepted { .. } => {}
                 DomainEvent::AgentRegistered { .. } if registration_created => {}
                 _ => unreachable!("event kind was checked before any contribution"),
             }

@@ -55,8 +55,18 @@ enum PersistedEventOwnerV1<'event> {
         identity: oasis7_formal_protocol::incremental_execution::PreparedGuard,
     },
     Agent(super::incremental_step::PersistedAgentEventV1<'event>),
+    ActionAudit(&'event super::incremental_action_execution::SelectedActionAuditV1),
 }
 impl<'event> PersistedWorldEventV1<'event> {
+    /// The audit owner can only be created by the real selected-action sink,
+    /// after counted publication and admitted immutable DTO normalization.
+    pub(super) fn from_action_audit(
+        owner: &'event super::incremental_action_execution::SelectedActionAuditV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::ActionAudit(owner),
+        }
+    }
     pub(super) fn from_agent(
         owner: super::incremental_step::PersistedAgentEventV1<'event>,
     ) -> Self {
@@ -68,6 +78,7 @@ impl<'event> PersistedWorldEventV1<'event> {
         match &self.owner {
             PersistedEventOwnerV1::Module { event, .. } => event,
             PersistedEventOwnerV1::Agent(owner) => owner.event(),
+            PersistedEventOwnerV1::ActionAudit(owner) => owner.event(),
         }
     }
     pub(super) fn validate<M: MerkleNodeReader>(
@@ -79,6 +90,7 @@ impl<'event> PersistedWorldEventV1<'event> {
                 tx.validate_transaction_identity(identity)
             }
             PersistedEventOwnerV1::Agent(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::ActionAudit(owner) => owner.validate(tx),
         }
     }
 }
