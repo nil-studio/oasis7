@@ -117,9 +117,34 @@ fn verify_active_admission_material(
         || input.key.height != data.height
         || input.key.header_id != candidate.public_value.block_id()?
     {
-        return Err(
-            "Active input differs from original namespace/parent/candidate/dependencies".into(),
-        );
+        // Bounded identity diagnostics expose only mismatch positions/counts,
+        // never the original payload, namespace digests or private material.
+        let mismatches = [
+            data.bytes().as_deref() != Ok(original.bytes.as_slice()),
+            !matches!(data.schema_version, 11 | 12),
+            data.origin,
+            data.protected_source_origin_ref.as_ref() != origin.digest().ok().as_ref(),
+            data.ledger_origin_digest != origin.ledger_origin_digest,
+            data.material_identity != origin.material_identity,
+            data.instance_id != origin.instance_id,
+            data.value.as_ref() != Some(&candidate.public_value),
+            data.actions_cbor != candidate.actions_cbor,
+            data.references != nodes.keys().cloned().collect::<Vec<_>>(),
+            input.key.ledger_origin_digest != data.ledger_origin_digest,
+            input.key.height != data.height,
+            candidate.public_value.block_id().as_deref() != Ok(input.key.header_id.as_str()),
+        ];
+        let mask = mismatches
+            .iter()
+            .enumerate()
+            .fold(0u16, |mask, (bit, differs)| {
+                mask | (u16::from(*differs) << bit)
+            });
+        return Err(format!(
+            "Active input differs from original namespace/parent/candidate/dependencies: mismatch_mask={mask} original_refs={} replay_refs={}",
+            data.references.len(),
+            nodes.len(),
+        ));
     }
     let identity = publication_identity(&data)?;
     let publication = PublicationReservationV1::from_plan(&identity, plan)?;

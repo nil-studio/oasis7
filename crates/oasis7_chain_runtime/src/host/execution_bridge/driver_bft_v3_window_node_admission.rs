@@ -120,8 +120,11 @@ impl ActiveNodeDriver {
         {
             return Err("Active observation differs from fixed original role/provider".into());
         }
-        let executed = Box::new(self.window.execution.execute(&candidate.actions_cbor)?);
-        let reader = self.window.execution.retained_nodes.clone();
+        // Preview/prefix reads remain owned by the parent. The actual candidate
+        // and its metadata use one independent exact access scope.
+        let actual = self.window.execution.fork_for_candidate()?;
+        let executed = Box::new(actual.execute(&candidate.actions_cbor)?);
+        let reader = actual.retained_nodes.clone();
         let io = self
             .admission_input_io
             .as_ref()

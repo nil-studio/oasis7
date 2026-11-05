@@ -592,3 +592,39 @@ fn completed_derived_inventory_moves_to_strict_and_retires_live_aliases() {
     let child = RecordingBusinessIndexReaderV1::new_closed_layer(closed, Vec::new()).unwrap();
     assert_eq!(child.read_node(&digest).unwrap(), Some(bytes));
 }
+
+#[test]
+fn candidate_access_scope_keeps_inventory_but_excludes_prior_reads_without_fallback() {
+    let external = Arc::new(MemoryReader::default());
+    let inherited = seeded(b"verified closed ancestor");
+    let prior = seeded(b"previous prefix read");
+    let unvisited = seeded(b"current inventory not yet visited");
+    let missing = external.insert(b"outside authenticated inventory".to_vec());
+    let parent =
+        RecordingBusinessIndexReaderV1::new_strict(external.clone(), vec![inherited.clone()])
+            .unwrap();
+    let original = RecordingBusinessIndexReaderV1::new_closed_layer(
+        parent,
+        vec![prior.clone(), unvisited.clone()],
+    )
+    .unwrap();
+    assert_eq!(original.read_node(&prior.0).unwrap(), Some(prior.1.clone()));
+    let original_nodes = original.recorded_nodes().unwrap();
+    let original_accesses = original.accessed_nodes().unwrap();
+    let scope = original.live_candidate_layer().unwrap();
+    assert_eq!(scope.recorded_nodes().unwrap(), original_nodes);
+    assert!(scope.accessed_nodes().unwrap().is_empty());
+    assert_eq!(
+        scope.read_node(&unvisited.0).unwrap(),
+        Some(unvisited.1.clone())
+    );
+    assert_eq!(scope.accessed_nodes().unwrap(), BTreeMap::from([unvisited]));
+    assert_eq!(scope.read_node(&inherited.0).unwrap(), Some(inherited.1));
+    assert_eq!(scope.read_node(&missing).unwrap(), None);
+    assert_eq!(scope.read_cached_node(&missing).unwrap(), None);
+    assert_eq!(external.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cached_reads.load(Ordering::SeqCst), 0);
+    assert_eq!(external.cache_writes.load(Ordering::SeqCst), 0);
+    assert_eq!(original.recorded_nodes().unwrap(), original_nodes);
+    assert_eq!(original.accessed_nodes().unwrap(), original_accesses);
+}

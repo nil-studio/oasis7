@@ -164,6 +164,16 @@ impl RecordingBusinessIndexReaderV1 {
         Self::with_mode(parent.clone(), seed, false, Some(parent))
     }
 
+    /// A candidate reads the same bounded current inventory and closed parent,
+    /// but prior replay/preview accesses are not this candidate's dependencies.
+    pub(super) fn live_candidate_layer(&self) -> Result<Arc<Self>, String> {
+        let parent = self
+            .closed_parent
+            .clone()
+            .ok_or("candidate dependency layer lacks closed parent")?;
+        Self::new_live_closed_layer(parent, self.recorded_nodes()?)
+    }
+
     /// Derive local new nodes over the same closed parent without growing the
     /// ancestry chain for every preview or retry within one segment.
     pub(super) fn live_closed_layer(&self) -> Result<Arc<Self>, String> {
