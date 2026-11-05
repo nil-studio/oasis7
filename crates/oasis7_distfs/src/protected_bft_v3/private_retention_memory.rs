@@ -43,27 +43,9 @@ pub struct BftPrivateRetentionMemoryBackendV1 {
     clock_floor: i64,
 }
 
-pub(super) struct Memory {
-    material_epoch: u64,
-    validated_inputs: ValidatedMemoryInputs,
-    #[cfg(test)]
-    hash_probe: Arc<hash_probe::Counts>,
-    _preparation: Option<Arc<FreshPreparation>>,
-    creation: Option<BftPrivateRetentionCreationMarkerV1>,
-    signer: BftSignerBackendSnapshotV3,
-    /// Exact original operation snapshot, distinct from the current lease/state.
-    /// A subsequent retention operation is permitted only after its predecessor
-    /// is read back. Older receipts/maps belong to the immutable archive chain.
-    original: Option<Arc<BftPrivateRetentionSnapshotV1>>,
-    original_observed: bool,
-    operations: std::collections::BTreeMap<String, Arc<BftPrivateRetentionSnapshotV1>>,
-    history: super::private_retention_history::BftPrivateRetentionHistoryV1,
-    seals: std::collections::BTreeMap<
-        String,
-        Arc<super::private_retention_seal::BftPrivateRetentionSealV1>,
-    >,
-    sealed_inputs: BftPrivateRetentionInputInventoryV1,
-}
+#[path = "private_retention_backend_state.rs"]
+mod backend_state;
+pub(super) use backend_state::BackendState as Memory;
 
 impl BftPrivateRetentionMemoryBackendV1 {
     /// Restores an uncovered software snapshot. This path never creates source

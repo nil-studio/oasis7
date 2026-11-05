@@ -369,3 +369,28 @@ fn private_retention_sealed_reopen_load_is_atomic_and_never_acquires() {
             .is_err()
     );
 }
+
+#[test]
+fn transaction_state_staging_preserves_original_arc_and_isolates_control_state() {
+    let (mut backend, request) = backend();
+    let committed = backend.compare_and_swap_private_retention(&request).unwrap();
+    let guard = backend.lock().unwrap();
+    let mut staged = (*guard).clone();
+    let original = staged.original.as_ref().unwrap();
+    let receipt_id = super::super::crypto::digest_hex(
+        "oasis7.bft.private-retention.v1.receipt",
+        &committed.retention.receipt,
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(original, guard.original.as_ref().unwrap()));
+    assert!(Arc::ptr_eq(original, staged.history.get(&receipt_id).unwrap()));
+    for (id, input) in &committed.inputs {
+        assert!(Arc::ptr_eq(input, original.inputs.get(id).unwrap()));
+    }
+    staged.signer.lease_generation += 1;
+    staged.signer.protected_time_floor_ms += 1;
+    staged.original_observed = false;
+    assert_eq!(guard.signer, committed.signer);
+    assert!(guard.original_observed);
+    assert_ne!(staged.signer, guard.signer);
+}
