@@ -130,10 +130,18 @@ pub(super) fn prepare<E>(
         .expect("actual protected Active stage: open original installed namespace"),
     );
     let carry_height = window.schedule().height();
-    assert!(
-        window.pending_candidate().unwrap().is_some(),
-        "original carry must be selected"
-    );
+    // This fixed Local11/Received12 fixture intentionally exercises nonempty
+    // C0 carry. Empty-carry remains valid outside this fixture.
+    {
+        let original_c0_carry = window
+            .pending_candidate()
+            .unwrap()
+            .expect("fixed Active cold fixture requires a nonempty original C0 carry");
+        assert_eq!(
+            original_c0_carry.public_value.execution_commitment.height,
+            carry_height
+        );
+    }
     let (hook, cold) = if MODE.with(Cell::get) != CaseMode::Normal {
         let reopen = cold_session::Reopen::prepare(case, window);
         (

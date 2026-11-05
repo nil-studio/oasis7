@@ -61,6 +61,11 @@ pub(super) fn verify(
             )
             .unwrap()
     );
+    // Empty carry is a valid C0. Extra-original controls above still run;
+    // only the carry-specific controls require an inherited candidate.
+    if base.pending.is_empty() {
+        return;
+    }
     let carry = store
         .candidates
         .values()
