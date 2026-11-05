@@ -52,6 +52,27 @@
   - 不做 CI 缓存优化与并行矩阵调优。
   - 不引入 UI 真实渲染端到端依赖。
 
+<a id="local-check-entry-requirement"></a>
+### 显式本地检查入口
+
+Trace ID: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3
+
+产品适用性：N/A；reason=统一开发者本地验证入口与结果含义，不改变玩家功能；scope=本地检查选择、只读执行与结果报告。
+
+开发者需要先获得低成本、范围明确的反馈，再按改动选择受影响检查或正式验收。三种 profile 按用途独立调用，不要求每次依次运行。普通提交的兼容 hook 保持 no-op；本地结果只证明实际执行范围，不代替 PR CI、full 或真实环境验收。
+
+- LOCAL-AC-1：当前入口说明与真实行为一致。文档检查、按包开发反馈、显式 `commit` 诊断、PR required 和 full/真实验收分别说明职责；自动格式化并暂存的修复入口不得成为默认检查。
+- LOCAL-AC-2：薄入口显式选择 quick、affected 或 formal，列出实际检查、未执行范围及成功条件。quick 复用固定 baseline，不以完整影响分析为前置；affected 复用现有可信 planner 与 driver，不建立第二套路径规则、case 清单或选测权威；formal 保留 canonical 验收。
+- LOCAL-AC-3：输入范围与 profile 相符。quick 如实记录 baseline 读取的工作树与比较基线，不声称完成 dirty 精确选测；affected 最终覆盖 base→HEAD、暂存、未暂存及未跟踪变更，处理重命名、删除和清单/依赖变化；formal 要求干净源码与明确 tier。未支持的输入、缺少必要基线、解析不确定或工具缺失必须诊断，不能静默忽略后报通过；运行中输入变化使相关结果失效。
+- LOCAL-AC-4：人读摘要与机器报告来自同一结果，包含适用的 source/base/policy、工作树状态、选择原因、实际命令、pass/fail/skipped、退出/取消、执行数量、日志及未覆盖项。未调用 planner 时明确标记，不伪造计划或 policy。计划存在、命令零退出和测试零匹配分别报告，不合并为有效测试通过。
+- LOCAL-AC-5：检查默认不格式化、暂存、checkout、安装工具或改写用户文件；允许的构建/报告输出明确列出。每个交付阶段验证自身完整接线、只读性和失败/零执行边界，保留开发 wrapper 和 canonical 验收的不同证明范围。
+
+先交付能真实执行的 quick 及共同结果/只读底线；再交付可信 affected，先支持干净提交、后补 dirty 精确输入；formal 可在自身前置具备后独立接入。复杂输入适配不阻塞 quick，但缺失能力必须显式拒绝，不能以计划代替执行。最终 LOCAL-AC-1–5 全部适用义务保留在原任务；阶段完成不等于整项验收。
+
+系统设计状态：已覆盖；[本地检查设计](ci-tiered-execution.design.md#local-check-entry-design)承接分阶段交付及 LOCAL-AC-1–5，具体操作与验证见[测试手册](../../../testing-manual.md#local-check-entry)。
+
+实现状态：部分实现。现有 no-op `pre-commit.sh`、显式 tier driver、开发 wrapper 与 Git refs planner 可用；统一三 profile 入口、dirty 精确输入与完整报告仍需实现。后续实现和实际结果沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 追踪；准备性 dry-run 只能证明规划范围，不计为检查执行。hosted 十分钟/P95 与周期完整回归仍由 [CI 分级要求](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)拥有。
+
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本任务为测试覆盖治理）。
 - Evaluation Strategy: 不适用。

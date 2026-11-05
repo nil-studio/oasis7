@@ -21,6 +21,16 @@ impl World {
             &self.cognition,
         )
     }
+    /// Original null/absent cognition remains an explicit disabled History
+    /// source. This does not fabricate default events or confer readiness.
+    pub fn borrow_iws_cognition_history_source_v1(
+        &self,
+    ) -> Result<
+        oasis7_world_state::incremental_cognition_history::CognitionHistorySourceRefV1<'_>,
+        &'static str,
+    > {
+        oasis7_world_state::incremental_cognition_history::CognitionHistorySourceRefV1::from_original(Some(&self.cognition))
+    }
 }
 
 impl World {

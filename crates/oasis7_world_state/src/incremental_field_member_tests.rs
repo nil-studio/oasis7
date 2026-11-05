@@ -1,7 +1,9 @@
 use super::*;
 use crate::incremental_projection::{FieldDestination, FieldOwner, FieldShape};
 use oasis7_formal_protocol::{
+    incremental_record_root::RecordRootRefV1,
     incremental_state::StateNamespaceV1 as Ns,
+    incremental_state::StateRootV1,
     incremental_value::{ValueNodeReader, ValueReadContext, write_value},
 };
 use oasis7_proto::memory_budget::ReservedValue;
@@ -12,6 +14,7 @@ use std::{
 };
 
 type PageMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
+
 struct Pages {
     nodes: ReservedValue<RefCell<PageMap>>,
     reads: Cell<usize>,
@@ -265,6 +268,20 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
     let _output = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
     let ledger = MaterialLedgerId::Factory("甲".into());
+    let key = [
+        b"oasis7.iws.semantic-key.v1\0".as_slice(),
+        &[1],
+        &2_u64.to_be_bytes(),
+        "é".as_bytes(),
+    ]
+    .concat();
+    let record_root = RecordRootRefV1::new(
+        [7; 32],
+        *blake3::hash(&key).as_bytes(),
+        StateRootV1::empty(Ns::Business).unwrap(),
+    )
+    .unwrap();
+    let record_root_bytes = record_root.canonical_bytes().unwrap().to_vec();
     let cases = [
         (MemberPayloadRefV1::Unit, 1, Vec::new()),
         (
@@ -306,14 +323,20 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
             ]
             .concat(),
         ),
+        (
+            MemberPayloadRefV1::RecordRoot(&record_root),
+            10,
+            record_root_bytes,
+        ),
+        (
+            MemberPayloadRefV1::FixedU64x7([0, 1, 2, u64::MAX, 4, 5, 6]),
+            11,
+            [0, 1, 2, u64::MAX, 4, 5, 6]
+                .into_iter()
+                .flat_map(u64::to_be_bytes)
+                .collect(),
+        ),
     ];
-    let key = [
-        b"oasis7.iws.semantic-key.v1\0".as_slice(),
-        &[1],
-        &2_u64.to_be_bytes(),
-        "é".as_bytes(),
-    ]
-    .concat();
     for (payload, codec, payload_bytes) in cases {
         let mut pages = Pages::new(&memory);
         let kind = if codec == 7 {
@@ -361,6 +384,7 @@ fn exact_frame_contains_original_key_and_all_closed_payload_profiles() {
         assert_eq!(payload_out, payload_bytes);
     }
 }
+
 #[test]
 fn framing_limits_wrong_fields_and_key_hash_fail_before_payload_output() {
     let memory = MemoryBudget::new(2 << 20, 4096).unwrap();
@@ -1049,3 +1073,6 @@ fn world_u64_genesis_stops_on_record_limit_or_sink_rejection() {
 
 #[path = "incremental_delivery_cursor_tests.rs"]
 mod delivery_cursor;
+
+#[path = "incremental_field_member_fixed_tests.rs"]
+mod fixed_profiles;

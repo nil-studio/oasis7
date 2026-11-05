@@ -116,6 +116,8 @@ pub(super) fn resolve<
     if records.values.class != MemoryClass::Ordinary
         || !tx.uses_budget(records.values.memory)
         || !query.qualification.uses_budget(records.values.memory)
+        || query.qualification.reserved_bytes() < 512
+        || query.qualification.allocation_class() != MemoryClass::Ordinary
     {
         return Err(invalid().into());
     }

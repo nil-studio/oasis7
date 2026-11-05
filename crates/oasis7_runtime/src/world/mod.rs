@@ -72,8 +72,8 @@ pub use formal_tick_consensus::FormalTickConsensusArchivePlanV1;
 mod formal_retention_candidate_restore;
 mod formal_retention_tick;
 mod formal_retention_tick_reads;
-mod runtime_support;
 mod rolling_sequence;
+mod runtime_support;
 pub use formal_retention::FormalWorldRetentionPlanV1;
 #[cfg(test)]
 use oasis7_wasm_router::PreparedSubscription;
@@ -273,66 +273,8 @@ fn default_tick_consensus_authority_source() -> String {
 
 pub use oasis7_world_state::world::runtime_values::*;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LogisticsSlaMetrics {
-    pub completed_transits: u64,
-    pub fulfilled_transits: u64,
-    pub breached_transits: u64,
-    pub total_delay_ticks: u64,
-    pub urgent_completed_transits: u64,
-    pub urgent_fulfilled_transits: u64,
-    pub urgent_breached_transits: u64,
-    pub urgent_total_delay_ticks: u64,
-}
-
-impl LogisticsSlaMetrics {
-    fn record_completion(
-        &mut self,
-        expected_ready_at: WorldTime,
-        completed_at: WorldTime,
-        priority: MaterialTransitPriority,
-    ) {
-        self.completed_transits = self.completed_transits.saturating_add(1);
-        if priority == MaterialTransitPriority::Urgent {
-            self.urgent_completed_transits = self.urgent_completed_transits.saturating_add(1);
-        }
-        if completed_at > expected_ready_at {
-            let delay = completed_at.saturating_sub(expected_ready_at);
-            self.breached_transits = self.breached_transits.saturating_add(1);
-            self.total_delay_ticks = self.total_delay_ticks.saturating_add(delay);
-            if priority == MaterialTransitPriority::Urgent {
-                self.urgent_breached_transits = self.urgent_breached_transits.saturating_add(1);
-                self.urgent_total_delay_ticks = self.urgent_total_delay_ticks.saturating_add(delay);
-            }
-        } else {
-            self.fulfilled_transits = self.fulfilled_transits.saturating_add(1);
-            if priority == MaterialTransitPriority::Urgent {
-                self.urgent_fulfilled_transits = self.urgent_fulfilled_transits.saturating_add(1);
-            }
-        }
-    }
-
-    pub fn breach_rate(&self) -> f64 {
-        if self.completed_transits == 0 {
-            return 0.0;
-        }
-        self.breached_transits as f64 / self.completed_transits as f64
-    }
-
-    pub fn fulfillment_rate(&self) -> f64 {
-        if self.completed_transits == 0 {
-            return 1.0;
-        }
-        self.fulfilled_transits as f64 / self.completed_transits as f64
-    }
-
-    pub fn average_delay_ticks(&self) -> f64 {
-        if self.completed_transits == 0 {
-            return 0.0;
-        }
-        self.total_delay_ticks as f64 / self.completed_transits as f64
-    }
-}
+mod logistics_sla_metrics;
+pub use logistics_sla_metrics::LogisticsSlaMetrics;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReleaseSecurityPolicy {
@@ -1163,9 +1105,18 @@ pub use participant_devlocal::DevLocalParticipantAuthority;
 
 pub mod incremental_body;
 pub mod incremental_body_event;
+mod incremental_module_fee;
+pub(crate) mod incremental_module_fee_accounts;
+pub(crate) mod incremental_module_fee_contribution;
+pub mod incremental_module_state;
+pub mod incremental_module_state_family;
+pub mod incremental_module_state_recovery;
+pub mod incremental_step;
 
 pub mod incremental_agent_genesis;
+pub mod incremental_agent_verified_genesis;
 pub mod incremental_scheduler;
+pub mod incremental_scheduler_recovery;
 mod incremental_scheduler_index;
 
 pub mod incremental_projection;
@@ -1180,14 +1131,27 @@ pub mod incremental_controls;
 
 pub(super) mod incremental_clock;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod incremental_effect_records;
 mod incremental_artifact_config;
 pub mod incremental_artifact_content;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_artifact_resources;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_effect_records;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod incremental_scheduler_controls;
-#[cfg(not(target_arch = "wasm32"))]
 mod incremental_capability_records;
+pub mod incremental_module_instance_change;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_family;
+pub mod incremental_module_instance_genesis;
+mod incremental_module_instance_genesis_state;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_receiver;
+pub mod incremental_module_instance_recovery;
+pub mod incremental_module_invocation;
+pub mod incremental_module_read;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_scheduler_controls;
+
+#[cfg(test)]
+mod incremental_module_instance_tests;

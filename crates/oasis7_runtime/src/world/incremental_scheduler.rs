@@ -77,9 +77,25 @@ impl World {
         values: &V,
         context: &mut BodyMutationContext<'_, W, C>,
     ) -> Result<(), BodyMutationError> {
+        Self::contribute_iws_module_wake_at(self.state.time, instance, wake, txn, values, context)
+    }
+
+    pub(super) fn contribute_iws_module_wake_at<
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter + ValueNodeReader + SchedulePageWriter,
+        C: FnMut() -> bool,
+    >(
+        now: u64,
+        instance: &str,
+        wake: Option<u64>,
+        txn: &mut ExecutionTransaction<'_, R>,
+        values: &V,
+        context: &mut BodyMutationContext<'_, W, C>,
+    ) -> Result<(), BodyMutationError> {
         txn.contribute(|txn| {
             let key = ModuleWakeKeyV1::new(instance).map_err(BodyMutationError::Invalid)?;
-            check_clock(self.state.time, txn, values, context)?;
+            check_clock(now, txn, values, context)?;
             let before = read_wake(key.as_bytes(), txn, values, context)?;
             index::stage(instance, before, wake, txn, values, context)?;
             cancelled(context)
@@ -110,9 +126,38 @@ impl World {
             &mut BodyMutationContext<'b, W, C>,
         ) -> Result<Option<ModuleTickLifecycleDirective>, BodyMutationError>,
     {
+        Self::contribute_iws_due_module_tick_at(
+            self.state.time,
+            instance,
+            txn,
+            values,
+            context,
+            execute,
+        )
+    }
+
+    pub(super) fn contribute_iws_due_module_tick_at<'a, 'b, R, V, W, C, F>(
+        now: u64,
+        instance: &str,
+        txn: &mut ExecutionTransaction<'a, R>,
+        values: &V,
+        context: &mut BodyMutationContext<'b, W, C>,
+        execute: F,
+    ) -> Result<bool, BodyMutationError>
+    where
+        R: MerkleNodeReader,
+        V: ValueNodeReader,
+        W: ValueNodeWriter + ValueNodeReader + SchedulePageWriter,
+        C: FnMut() -> bool,
+        F: FnOnce(
+            &str,
+            u64,
+            &mut ExecutionTransaction<'a, R>,
+            &mut BodyMutationContext<'b, W, C>,
+        ) -> Result<Option<ModuleTickLifecycleDirective>, BodyMutationError>,
+    {
         txn.contribute(|txn| {
             let key = ModuleWakeKeyV1::new(instance).map_err(BodyMutationError::Invalid)?;
-            let now = self.state.time;
             check_clock(now, txn, values, context)?;
             let wake = read_wake(key.as_bytes(), txn, values, context)?;
             if wake.is_none_or(|wake| wake > now) {

@@ -11,6 +11,7 @@ use oasis7_client_api::world_service::*;
 
 #[path = "agent_service_phase_direct.rs"]
 mod direct;
+use direct::original_settlement_requires_replay;
 
 #[cfg(any(test, feature = "test_tier_required"))]
 #[path = "agent_service_replay_probe.rs"]
@@ -18,6 +19,7 @@ mod replay_probe;
 
 #[derive(Clone, PartialEq)]
 pub(super) enum HostedServicePhase {
+    Orphan(super::control_plane::llm_sidecar::service_orphan_recovery::OrphanPhase),
     Act {
         pending: PendingProviderServiceIntent,
         submit: bool,
@@ -178,6 +180,11 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         {
             return Err("hosted service original configuration changed; checkpoint fenced".into());
         }
+        if self.llm_sidecar.hosted_service_phase.is_none()
+            && self.llm_sidecar.provider_service_pending.is_empty()
+        {
+            self.llm_sidecar.begin_hosted_orphan_recovery();
+        }
         if self.llm_sidecar.hosted_wait.is_some() {
             return profiled!(62, self.prepare_hosted_wait_io());
         }
@@ -268,6 +275,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         let Some(mut phase) = profiled!(67, self.llm_sidecar.hosted_service_phase.clone()) else {
             return Ok(AgentServiceProgress::Idle);
         };
+        phase.verify_original_disposition(&self.llm_sidecar)?;
         self.llm_sidecar
             .hosted_service_config_binding
             .get_or_insert(current_config);
@@ -329,6 +337,7 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         #[cfg(any(test, feature = "test_tier_required"))]
         let operation_phase =
             crate::viewer::runtime_live::stream_budget_diagnostics::phase(match &phase {
+                HostedServicePhase::Orphan(_) => 89,
                 HostedServicePhase::Act { .. } => 80,
                 HostedServicePhase::ActView { .. } => 81,
                 HostedServicePhase::ActSettle { .. } => 82,
@@ -340,6 +349,9 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                 HostedServicePhase::Finalize { .. } => 88,
             });
         let operation = match &phase {
+            HostedServicePhase::Orphan(orphan) => {
+                self.llm_sidecar.hosted_orphan_operation(orphan)?
+            }
             HostedServicePhase::Act { pending, submit } => {
                 original_intent_io(&pending.correlation, &pending.payload, *submit)
             }
@@ -578,8 +590,12 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         if result.token.phase_digest != identity? {
             return Err("hosted service phase identity mismatch".into());
         }
+        phase.verify_original_disposition(&self.llm_sidecar)?;
         let response = result.response?;
         match phase {
+            HostedServicePhase::Orphan(orphan) => {
+                return self.apply_hosted_orphan_response(orphan, response);
+            }
             HostedServicePhase::Act { pending, .. } => {
                 let Some(response) = original_response(response)? else {
                     return Ok(AgentServiceProgress::Advanced);
@@ -595,7 +611,8 @@ impl crate::viewer::ViewerRuntimeLiveServer {
                     IntentOutcome::Committed { commit, receipt } => {
                         let receipt: ProviderServiceCognitionReceipt =
                             decode_provider_service_receipt(receipt)?;
-                        validate_provider_service_receipt(&pending, &receipt)?;
+                        self.llm_sidecar
+                            .verify_hosted_original_disposition(&pending, &receipt)?;
                         self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::ActView {
                             pending,
                             receipt,
@@ -1047,6 +1064,8 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         pending: PendingProviderServiceIntent,
         receipt: ProviderServiceCognitionReceipt,
     ) -> Result<(), String> {
+        self.llm_sidecar
+            .verify_hosted_original_disposition(&pending, &receipt)?;
         let request = &pending.cognition.request.request_context;
         if self
             .llm_sidecar
@@ -1069,6 +1088,14 @@ impl crate::viewer::ViewerRuntimeLiveServer {
             .strip_prefix("action:")
             .and_then(|id| id.parse::<u64>().ok())
             .ok_or("canonical action ID is not numeric")?;
+        self.llm_sidecar
+            .verify_provider_original_materials(&pending.cognition)?;
+        self.llm_sidecar
+            .mark_provider_original_materials_committed(
+                &pending.cognition,
+                receipt.lineage.receipt_id.as_str(),
+                action_id,
+            )?;
         self.llm_sidecar.track_action(
             action_id,
             request.agent_subject.clone(),
@@ -1149,15 +1176,6 @@ pub(super) fn original_act_requires_replay(
     Ok(matches!(response.outcome, IntentOutcome::Unknown))
 }
 
-fn original_settlement_requires_replay(
-    response: &IntentResponse<serde_json::Value>,
-    original: &RequestCorrelation,
-) -> Result<bool, String> {
-    response
-        .validate(original)
-        .map_err(|error| error.to_string())?;
-    Ok(matches!(response.outcome, IntentOutcome::Unknown))
-}
 fn original_settlement_io(
     correlation: &RequestCorrelation,
     payload: &crate::world_service::WorldServicePayloadV1,

@@ -45,6 +45,9 @@ REQUIRED_FIXED_TESTS = json.loads(r'''
     "TrustedContracts.test_procedural_scenario_failure_caught_by_main_is_still_failure",
     "TrustedContracts.test_inline_procedural_scenarios_have_stable_required_identities",
     "TrustedContracts.test_baseline_test_helpers_cannot_be_replaced_by_candidate_noops",
+    "TrustedContracts.test_support_shell_uses_candidate_transitive_helpers_and_keeps_baseline_assertions",
+    "TrustedContracts.test_support_shell_injection_is_limited_to_its_independent_fixture",
+    "TrustedContracts.test_legacy_support_driver_keeps_the_original_fixture_path",
     "TrustedContracts.test_fixed_safety_inventory_exists_in_current_repository",
     "SelectionAndMigration.test_registered_test_path_alone_selects_the_complete_baseline_contract",
     "SelectionAndMigration.test_target_only_policy_advance_does_not_authorize_source_migration",
@@ -168,6 +171,101 @@ if __name__ == '__main__':
             self.run_contract(retain_candidate=True)
         self.write(self.root, self.TEST, self.SOURCE + '\nclass Added(Parent):\n    pass\n')
         self.assertEqual(self.run_contract(retain_candidate=True), 2)
+
+    SUPPORT_TEST = 'scripts/ci-support-profiles.test.py'
+    SUPPORT_SOURCE = '''from pathlib import Path
+import subprocess
+import sys
+import unittest
+ROOT = Path(__file__).resolve().parent.parent
+DRIVER = (ROOT / 'scripts/ci-tests.sh').read_text()
+FUNCTION = DRIVER.split('run_selected_workspace_support() {', 1)[1].split('\\n}', 1)[0]
+class Profiles(unittest.TestCase):
+    def test_recorded_candidate_command(self):
+        script = 'set -euo pipefail\\nci_python="$1"; driver_dir="$2"\\n'
+        script += 'run_cargo() { echo "cargo $*"; }\\n'
+        script += 'run_selected_workspace_support() {' + FUNCTION + '\\n}\\n'
+        script += 'run_selected_workspace_support\\n'
+        result = subprocess.run(['bash', '-c', script, 'test', sys.executable,
+                                 str(ROOT / 'scripts'), '["fixture"]'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'cargo test -p fixture --lib\\n')
+'''
+    SUPPORT_DRIVER = '''#!/usr/bin/env bash
+# ci-driver-library: functions-v1
+run_new_support_helper() {
+  run_transitive_support_helper
+}
+run_transitive_support_helper() {
+  bash -c '[[ -z "${BASH_ENV+x}" ]] && ! declare -F run_new_support_helper >/dev/null'
+  run_cargo test -p fixture --lib
+}
+run_selected_workspace_support() {
+  run_new_support_helper
+}
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
+echo 'CLI must not execute while loading functions' >&2
+exit 91
+'''
+
+    def support_fixture(self, driver, source=None):
+        self.write(self.root, 'scripts/ci-tests.sh', driver)
+        self.write(self.snapshot, self.SUPPORT_TEST, source or self.SUPPORT_SOURCE)
+        # Candidate assertions are deliberately unusable: the old BASE source
+        # must still own the expected command and its failure assertions.
+        self.write(self.root, self.SUPPORT_TEST, 'raise SystemExit(0)\n')
+        return controls.run_contract(self.root, self.snapshot, self.SUPPORT_TEST)
+
+    def test_support_shell_uses_candidate_transitive_helpers_and_keeps_baseline_assertions(self):
+        self.assertEqual(self.support_fixture(self.SUPPORT_DRIVER), 1)
+        variants = {
+            'missing helper': self.SUPPORT_DRIVER.replace('run_transitive_support_helper() {',
+                                                         'removed_helper() {'),
+            'wrong candidate command': self.SUPPORT_DRIVER.replace('-p fixture', '-p wrong'),
+            'real command failure': self.SUPPORT_DRIVER.replace('run_cargo test', 'bash -c "exit 23"\n  run_cargo test'),
+            'early success exit': self.SUPPORT_DRIVER.replace('run_new_support_helper\n}', 'exit 0\n}'),
+            'source failure': self.SUPPORT_DRIVER.replace('then return 0;', 'then return 24;'),
+        }
+        for label, driver in variants.items():
+            with self.subTest(label=label), self.assertRaisesRegex(ValueError, 'did not completely execute'):
+                self.support_fixture(driver)
+
+    def test_support_shell_injection_is_limited_to_its_independent_fixture(self):
+        source = self.SUPPORT_SOURCE.replace('import subprocess', 'import os\nimport subprocess') + '''
+    def test_unrelated_bash_does_not_import_candidate_functions(self):
+        result = subprocess.run(['bash', '-c',
+                                 '[[ -z "${BASH_ENV+x}" ]] && ! declare -F run_new_support_helper >/dev/null'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+    def test_explicit_environment_keeps_values_and_unrelated_startup(self):
+        startup = ROOT / 'custom-bash-env.sh'
+        startup.write_text('export EXISTING_STARTUP=preserved\\n')
+        environment = dict(os.environ, BASH_ENV=str(startup), EXPLICIT_VALUE='kept')
+        for caller, scripts, extra in [('unrelated', str(ROOT / 'scripts'), ['[]']),
+                                       ('test', str(ROOT / 'other-scripts'), ['[]']),
+                                       ('test', str(ROOT / 'scripts'), []),
+                                       ('full-support', str(ROOT / 'scripts'), ['[]'])]:
+            result = subprocess.run(['bash', '-c',
+                '[[ "$EXPLICIT_VALUE" == kept && "$EXISTING_STARTUP" == preserved ]]',
+                caller, sys.executable, scripts, *extra], env=environment)
+            self.assertEqual(result.returncode, 0)
+        for caller, extra in [('test', ['[]']), ('full-support', [])]:
+            result = subprocess.run(['bash', '-c',
+                '[[ "$EXPLICIT_VALUE" == kept && -z "${BASH_ENV+x}" ]] && declare -F run_new_support_helper >/dev/null',
+                caller, sys.executable, str(ROOT / 'scripts'), *extra], env=environment)
+            self.assertEqual(result.returncode, 0)
+        self.assertEqual(environment['BASH_ENV'], str(startup))
+'''
+        self.assertEqual(self.support_fixture(self.SUPPORT_DRIVER, source), 3)
+        self.write(self.snapshot, self.TEST, self.SUPPORT_SOURCE)
+        with self.assertRaisesRegex(ValueError, 'did not completely execute'):
+            self.run_contract()
+
+    def test_legacy_support_driver_keeps_the_original_fixture_path(self):
+        legacy = self.SUPPORT_DRIVER.replace('# ci-driver-library: functions-v1\n', '')
+        legacy = legacy.replace('  run_new_support_helper\n}', '  run_cargo test -p fixture --lib\n}')
+        self.assertEqual(self.support_fixture(legacy), 1)
 
     def test_procedural_main_executes_real_assertions_and_rejects_early_exit(self):
         source = '''from pathlib import Path

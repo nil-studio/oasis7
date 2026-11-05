@@ -80,6 +80,52 @@ impl StatePageSession<'_> {
                 .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
         )
     }
+    /// Prepare actual artifact catalog pages in CAS. This does not publish a
+    /// root, admit an executable or create a durability/serving qualification.
+    pub fn persist_artifact_pages(
+        &mut self,
+        delta: &ReservedValue<
+            oasis7_formal_protocol::incremental_artifacts::ArtifactCatalogDeltaV1,
+        >,
+    ) -> Result<()> {
+        use oasis7_formal_protocol::incremental_artifacts::{ArtifactEntryV1, ArtifactPageWriteV1};
+        let bound = || PageStoreError::Corrupt("artifact producer admission");
+        let base = 512usize
+            .checked_add(
+                delta
+                    .entries
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<ArtifactEntryV1>())
+                    .ok_or_else(bound)?,
+            )
+            .and_then(|bytes| {
+                bytes.checked_add(
+                    delta
+                        .new_nodes
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<ArtifactPageWriteV1>())?,
+                )
+            })
+            .ok_or_else(bound)?;
+        let minimum = delta
+            .new_nodes
+            .iter()
+            .try_fold(base, |bytes, node| {
+                bytes
+                    .checked_add(node.bytes.capacity())?
+                    .checked_add(node.digest.capacity())
+            })
+            .ok_or_else(bound)?;
+        if !delta.uses_budget(&self.store.memory) || delta.reserved_bytes() < minimum {
+            return Err(bound());
+        }
+        self.persist_nodes(
+            delta
+                .new_nodes
+                .iter()
+                .map(|node| (node.digest.as_str(), node.bytes.as_slice())),
+        )
+    }
     fn persist_nodes<'a>(
         &mut self,
         nodes: impl Iterator<Item = (&'a str, &'a [u8])>,

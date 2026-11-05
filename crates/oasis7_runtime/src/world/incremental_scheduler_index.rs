@@ -65,6 +65,9 @@ impl<'a, V> IndexReader<'a, V> {
                 .unwrap_or(BodyMutationError::Execution(error))),
         }
     }
+    pub(super) fn take_error(&self) -> Option<ValueTreeError> {
+        self.error.borrow_mut().take()
+    }
 }
 impl<V: ValueNodeReader> MerkleNodeReader for IndexReader<'_, V> {
     type Node = Charged;

@@ -1,3 +1,4 @@
+import { registerViewerLiveControlTests } from "./test_support/viewer_live_control_cases.jsx";
 import { bindLocalTestAgent, bindFirstSnapshotAgentForTest, bindUnboundLocalPlayerForTest } from "./test_support/viewer_player_auth_fixture.js";
 import { fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1102,6 +1103,8 @@ describe("viewer web ui automation baseline", () => {
       .toBeInTheDocument();
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
+  registerViewerLiveControlTests({ installMockWebSocket, sampleSnapshot, renderViewerApp, HEAVY_UI_TEST_TIMEOUT_MS });
+
   it("keeps published live-control recovery actions clickable while first-agent sync is pending", async () => {
     await renderViewerApp({
       snapshot: sampleSnapshot({
@@ -1141,6 +1144,12 @@ describe("viewer web ui automation baseline", () => {
               protocol_action: "live_control.play",
               disabled_reason: null,
             },
+            {
+              action_id: "pause_play",
+              label: "Pause live play",
+              protocol_action: "live_control.pause",
+              disabled_reason: null,
+            },
           ],
         },
       }),
@@ -1162,6 +1171,8 @@ describe("viewer web ui automation baseline", () => {
     expect(stepButtons.some((button) => !button.disabled)).toBe(true);
     const playButtons = screen.getAllByTestId("viewer-available-action-play");
     expect(playButtons.some((button) => !button.disabled)).toBe(true);
+    const pauseButtons = screen.getAllByTestId("viewer-available-action-pause");
+    expect(pauseButtons.some((button) => !button.disabled)).toBe(true);
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
   it("moves presentation notes into the stage help tip instead of the right details rail", async () => {

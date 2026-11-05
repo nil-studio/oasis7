@@ -640,5 +640,13 @@ mod json;
 pub use json::{
     ArtifactConfigJsonChangeResultV1, ArtifactConfigJsonChangeV1, ArtifactConfigJsonParentsV1,
     ArtifactConfigJsonQualificationV1, change_qualified_artifact_config_json_v1,
-    open_artifact_config_json_v1,
+    materialize_artifact_config_json_v1, open_artifact_config_json_v1,
+};
+#[path = "incremental_runtime_artifact_config_selected.rs"]
+mod selected;
+pub use selected::{ArtifactConfigSelectedBodyRequestV1, open_artifact_config_body_overlay_v1};
+#[path = "incremental_runtime_artifact_config_module_read.rs"]
+mod module_read;
+pub use module_read::{
+    SelectedModuleManifestLimitsV1, SelectedModuleManifestV1, read_selected_module_manifest_v1,
 };

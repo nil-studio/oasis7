@@ -190,8 +190,13 @@ fn wait_for_memory_recovery_summary(
     deadline: Instant,
 ) -> serde_json::Value {
     loop {
-        let summary = shared.lock().unwrap().test_canonical_provider_summary();
-        if summary["terminal_states"]["agent-a"]["status"] == "committed"
+        let summary = shared
+            .lock()
+            .unwrap()
+            .test_canonical_provider_diagnostic_summary();
+        if (summary["terminal_states"]["agent-a"]["status"] == "committed"
+            && summary["publication_pending"] == false
+            && summary["publication_capture_failed"] == false)
             || (mode.starts_with("memory-reject-")
                 && summary["hosted_service_memory_failure"] == "restored_memory_checkpoint_invalid")
             || Instant::now() >= deadline
@@ -445,6 +450,18 @@ fn verify_memory_process_inner(client: &RemoteWorldServiceClient, mode: &str) {
             std::env::var("PRE2_EXPECT_MEMORY_REVISION").unwrap(),
             "actual repeated process recovery must preserve memory revision exactly"
         );
+    }
+    // Joining the stream worker does not stop the independent service pump.
+    // Retire its last server owner before reopening the same lineage path.
+    let retired = Arc::downgrade(&shared);
+    drop(shared);
+    let shutdown_deadline = Instant::now() + Duration::from_secs(10);
+    while retired.strong_count() != 0 {
+        assert!(
+            Instant::now() < shutdown_deadline,
+            "previous application server must stop before lineage recreation"
+        );
+        thread::sleep(Duration::from_millis(10));
     }
     let recreated = ViewerRuntimeLiveServer::new(config).unwrap();
     assert_eq!(

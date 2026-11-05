@@ -58,6 +58,7 @@ impl IncrementalObjectStore<'_> {
         cancelled: &mut dyn FnMut() -> bool,
         produce: impl FnOnce(&mut dyn Write) -> std::result::Result<(), E>,
     ) -> std::result::Result<[u8; 32], ObjectStreamWriteError<E>> {
+        reclaim::check_publication(&self.pages.root)?;
         let _workspace = self
             .pages
             .memory

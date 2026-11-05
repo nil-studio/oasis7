@@ -9,11 +9,11 @@
 - Product PRD-ID：`PRD-PRODUCT-001`
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：`2026-10-15`
+- Last reviewed：`2026-11-03`
 - 后继文档：`无`
 - 下层专业域：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-runtime/prd.md`](../../world-runtime/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/p2p/prd.md`](../../p2p/prd.md)
 
-本文只定义玩家目标、间接能动性、核心循环、成长与资源压力的产品承诺。玩法规则、数值平衡、专题 PRD-ID 与测试证据由 `game` 专业域拥有。
+本文只定义世界前提、玩家位置、玩家目标、间接能动性、核心循环、成长与资源压力的产品承诺。玩法规则、数值平衡、专题 PRD-ID 与测试证据由 `game` 专业域拥有。
 
 ### 活跃产品专题
 
@@ -38,6 +38,8 @@
 
 玩家通过可读、有代价、有反馈的行动持续影响同一个持久世界，并在权威规则内与其他玩家、Agent 和区域系统产生可审计的涌现结果。产品不设置全体玩家共享的胜利或通关终局；玩家持续完成有边界、可归因的阶段成果，并在同一世界中形成新的能力、区域价值或下一阶段方向。
 
+<a id="world-premise-and-player-position"></a>
+
 **世界前提与玩家位置。** oasis7 是一款 AI Agent 文明模拟游戏，舞台位于破碎的小行星带；玩家从文明之外设定方向，Agent 在持续世界中作出选择并留下可追溯的历史后果。本定义只界定题材与玩家位置，不规定具体机制或实现状态，也不代表当前发行可用性。Agent/provider、世界模拟与进入世界后的交互产品组合见[智能体、世界模拟与交互 PRD](../agents-world-simulation/prd.md)；世界规则、玩家目标与核心玩法承诺仍由本 PRD 拥有。
 
 长期推荐围绕三条相连但不强制线性的抱负轴展开：建立并守住可恢复的能力、用该能力服务区域需求、获得有限且可审计的区域影响。组织、协议或治理等文明尺度项目只作为玩家自愿进入的共同扩展，不能取代独立成长或成为唯一有效路线。
@@ -49,6 +51,66 @@
 产品面向愿意逐步承担系统深度的玩家，不只面向首局就能同时掌握工业、组织、外交和治理全貌的玩家。正式体验先将当前世界状态归纳为一个可理解的目标、主要阻塞和下一步；玩家可以在准备好时自主展开区域专业化、市场/物流、组织、外交和治理。渐进披露只能重排与解释复杂性，不能隐藏会改变当前损失、锁定、权利、风险或恢复路径的真实取舍，也不能把深层系统削成没有后果的模板或纯自动化。
 
 持续世界的常态节奏是混合的：日常短命令与结果复盘足以维持普通目标，已授权且有边界的 Agent 工作包可在玩家离开时推进；深度建设、外交、区域项目和其他自愿共同扩展可以支持较长会话。高风险竞争或其他需要回应的事项必须给出有界、可预期的窗口与授权/恢复路径，不得把持续在线、在线时长或无止境值守变成取得基本成长、独立恢复或资格的前提。
+
+### 世界前提与事实叙事的有限接收
+
+以下两项只为已有世界前提及专业玩法 PRD §6.3 的事实叙事边界建立稳定的产品验收身份。历史记录的四类专业对象仍由[玩法历史记录系统](../../game/gameplay/gameplay-top-level-design.prd.md#63-历史记录系统)拥有；官网展示、小说标识、观察来源与行动归属继续复用各自产品专题，不由本节重新定义。这里不承诺自动生成摘要、为每个事件编写故事或建立新的叙事系统。
+
+<a id="req-wr-narrative-001"></a>
+#### REQ-WR-NARRATIVE-001：题材表述保留世界前提与玩家位置
+
+Trace ID: O7-REQ-5bde78bc-7ce9-48f3-820b-8415dc02ee00
+
+- 要求：介绍游戏世界与玩家位置的内容应保持[本节既有世界前提](#world-premise-and-player-position)的含义；“文明之外设定方向”不产生全知视角、直接修改世界或越过授权的能力。题材说明不代替具体玩法、实现状态与当前可用性的证明。
+- 系统设计状态：已覆盖
+- 系统设计依据：[世界前提内容](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-premise-content)给出逐项来源、可编辑表述和内容适用范围。
+- 验证方法：[前提核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-premise-check)覆盖语义保留及越界反例。
+- 实现状态：部分实现
+- 实现与验证依据：固定基线的[中文官网](../../../site/index.html)与[英文官网](../../../site/en/index.html)已有题材及玩家／Agent 分工表述；新内容稿及其他消费面的采用尚未逐项验证。本次仅静态审读，不代表玩家理解验收已完成。
+- 核对日期与基线：2026-11-03；`74867d54d92a771d968e91be8ba991abc81e5775`；新设计与方法随本次变更审查。
+- 剩余范围：内容采用后的实际展示与目标玩家理解，仍按[官网首次理解验收](../player-entry-distribution/public-site-discovery-and-showcase.prd.md#ac-site-discovery-001)验证；不能由本文稿件数量或静态检查代签。
+- 验收：[AC-WR-NARRATIVE-001](#ac-wr-narrative-001)
+
+<a id="ac-wr-narrative-001"></a>
+#### AC-WR-NARRATIVE-001：表达变化不改变题材、角色或可用性
+
+Trace refs: O7-REQ-5bde78bc-7ce9-48f3-820b-8415dc02ee00；声明：[REQ-WR-NARRATIVE-001](#req-wr-narrative-001)。
+
+- 给定：一份向玩家解释世界与玩家位置的内容及其来源、用途和消费入口。
+- 当：审查者逐项核对其世界前提，并对照实际展示内容。
+- 则：AI Agent 文明模拟、破碎小行星带、玩家设定方向与 Agent 在持续世界中选择并产生可追溯后果的语义保持一致；删减或改写不暗示额外操控能力，不把题材、小说或未采用样稿当作当前已实现能力。静态稿件与实际入口分别记录结论。
+
+<a id="req-wr-narrative-002"></a>
+#### REQ-WR-NARRATIVE-002：事实叙事不得创造世界结果
+
+Trace ID: O7-REQ-5f3a2585-c3f2-4bce-9da6-08ac6638cf4f
+
+- 要求：当制作或展示陈述当前或历史世界事实的叙事摘要时，玩家关心的故事先来自具体对象、承诺、选择与真实后果；摘要不能凭空增加关系、债务、功劳或世界状态，也不把制度日志的存在当作人物故事已成立。对象、承诺、选择与后果是事实审查方向，不要求每条记录必须具备同一组字段。
+- 虚构边界：小说、概念说明与未执行示意可以存在，但不能冒充已发生的权威事实或进入当前权利、债务、功劳和状态判定；官网的具体素材标识仍由[展示案例](../player-entry-distribution/public-site-discovery-and-showcase.prd.md#req-site-discovery-002)及[小说入口](../player-entry-distribution/public-site-discovery-and-showcase.prd.md#req-site-discovery-005)拥有。世界舞台的观察来源、时效和权限继续遵守[观察事实切片](../agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-002)，不从摘要反推事实。
+- 系统设计状态：已覆盖
+- 系统设计依据：[事实叙事边界](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-fact-boundaries)规定来源、归因、未知与虚构内容的处理，并提供完整组合样例。
+- 验证方法：[事实核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-fact-check)覆盖没有因果、主体、位置或个人结果依据的反例。
+- 实现状态：部分实现
+- 实现与验证依据：固定基线的[公共事件投影](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_feed.rs)、[公共事件来源](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/world_feed_source.rs)与[World Feed 面板](../../../crates/oasis7_viewer/software_safe_src/world_feed_panel.jsx)已有受限公共投影、来源与回执区分；这只证明相应消费子范围存在，不代表四类长期历史记录或全部摘要已经实现。本次未运行 Viewer 或真实世界验收。
+- 核对日期与基线：2026-11-03；`74867d54d92a771d968e91be8ba991abc81e5775`；新设计与方法随本次变更审查。
+- 剩余范围：新稿在各消费入口的实际采用、消息与结果绑定、实时及历史组合的运行验收；专业历史记录的实现范围另行验证。
+- 验收：[AC-WR-NARRATIVE-002](#ac-wr-narrative-002)
+
+<a id="ac-wr-narrative-002"></a>
+#### AC-WR-NARRATIVE-002：故事中的世界断言可回到原事实
+
+Trace refs: O7-REQ-5f3a2585-c3f2-4bce-9da6-08ac6638cf4f；声明：[REQ-WR-NARRATIVE-002](#req-wr-narrative-002)。
+
+- 给定：一份声称描述当前或历史世界事实的摘要，以及它实际可以读取的事实、观察或操作结果；另取一份明确标识的虚构或示意样例作为对照。
+- 当：逐句核对其中的对象、行动、承诺、因果、时间和结果归属。
+- 则：每项事实断言都能回到适用来源；未能证明的关系、债务、功劳、因果或状态不写成已发生事实，制度日志本身不构成人物故事的证明。虚构或示意保留其身份；历史记录不被改写为当前事实，公共事件不凭当前焦点变成个人行动结果，其行动归属继续由[舞台与结果主体要求](../agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)拥有。静态样稿审查不代替消费入口的实际绑定验收。
+
+#### 既有叙事义务的验收追踪
+
+| 需求 / 验收 | Owner role | 专业权威 / 设计 | 证据与剩余范围 | 测试层级 |
+| --- | --- | --- | --- | --- |
+| [REQ-WR-NARRATIVE-001](#req-wr-narrative-001) / [AC-WR-NARRATIVE-001](#ac-wr-narrative-001) | `producer_system_designer` | [世界前提内容](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-premise-content) | [前提核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-premise-check)；当前仅静态出处与稿件审查，采用后另做入口及玩家理解验证 | `test_tier_required`；文档门禁及手工内容检查不代签实际展示 |
+| [REQ-WR-NARRATIVE-002](#req-wr-narrative-002) / [AC-WR-NARRATIVE-002](#ac-wr-narrative-002) | `producer_system_designer` | [事实叙事边界](../../game/gameplay/world-narrative-content-delivery.design.md#narrative-fact-boundaries) | [事实核对方法](../../game/gameplay/world-narrative-content-delivery.manual.md#narrative-fact-check)；已有投影子范围，采用与运行组合尚待验证 | `test_tier_required`；按实际消费面追加运行验收 |
 
 ## 2. 范围与玩家边界
 

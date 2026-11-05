@@ -96,7 +96,7 @@ required/full、稳定 check context、changed-path 剪裁、launcher Web 构建
   - PRD-TESTING-011: As a UI / Viewer owner, I want screenshot-based model visual review to be the default routine visual reviewer, so that most manual visual review is replaced by reproducible evidence and humans only handle escalations.
   - PRD-TESTING-012: As a QA reviewer, I want an auditable source-to-scene receiver and per-object evidence-retention map, so that deterministic, integration, and full-environment evidence cannot be conflated or silently dropped.
 - Critical User Flows:
-  1. Flow-TST-001: `识别改动类型 -> 匹配 S0~S10 -> 日常提交先执行 commit baseline，再按风险升级到 required/full -> 输出结果`
+  1. Flow-TST-001: `识别改动类型 -> 匹配 S0~S10 -> 按需显式执行本地 commit 诊断或适用 required/full（普通提交 hook 为 no-op） -> 输出实际结果与未覆盖项`
   2. Flow-TST-002: `发布前执行 full 套件 -> 按 Viewer/launcher 选择正确驱动链路 -> 汇总命令/日志/截图 -> 生成证据包`
   3. Flow-TST-003: `线上问题复盘 -> 回填触发矩阵 -> 增加回归用例 -> 验证闭环`
   4. Flow-TST-004: `逐篇阅读 legacy 专题文档 -> 按 strict schema 人工重写 -> 按需求/设计/手册职责命名 -> 回归校验`
@@ -121,7 +121,7 @@ required/full、稳定 check context、changed-path 剪裁、launcher Web 构建
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| 分层测试触发 | 改动类型、测试层级、命令集合、changed-path scope | 依据矩阵选择最小必跑集合；PR `required-gate` 先规划 `minimal / targeted / full` 再执行命中的重型组件，必要时追加 launcher Web `trunk build` | `planned -> scoped -> running -> passed/failed` | 默认先 `commit`，按风险升级到 `required`，发布加跑 `full`；docs-only / 无关元数据 PR 允许在 stable context 下退化为 governance/fmt-only；`oasis7_client_launcher` / launcher shared runtime 命中时 required-gate 追加 launcher Web 构建覆盖 | 开发者可执行，发布者可放行 |
+| 分层测试触发 | 改动类型、测试层级、命令集合、changed-path scope | 依据矩阵选择最小必跑集合；PR `required-gate` 先规划 `minimal / targeted / full` 再执行命中的重型组件，必要时追加 launcher Web `trunk build` | `planned -> scoped -> running -> passed/failed` | 本地 `commit` 为按需显式诊断，普通提交 hook 为 no-op；按风险执行 `required`，发布加跑 `full`；docs-only / 无关元数据 PR 允许在 stable context 下退化为 governance/fmt-only；`oasis7_client_launcher` / launcher shared runtime 命中时 required-gate 追加 launcher Web 构建覆盖 | 开发者可执行，发布者可放行 |
 | Web UI 驱动分流 | `surface_type`、`driver`、`evidence_mode` | Viewer 页面通用闭环默认走 `agent-browser`；真实本地栈 + 玩家 UI 操作流程回归走 Playwright 实跑系列；`oasis7_web_launcher` 产品动作默认走 GUI Agent，页面仅做状态/字段校验 | `selected -> driven -> verified` | 先按 surface 分流，再决定是否补充 Canvas/页面采样；Playwright 实跑用例按 `PWT-###` 编号管理 | QA/发布与产品 owner 共同遵循 |
 | 模型视觉评审 | `visual_change_trigger`、`screenshot_set`、`expected_visual_contract`、`automated_evidence`、`verdict`、`confidence`、`human_escalation_needed` | 任何可视化相关代码、样式、资源或可见输出改动默认触发截图评审；对截图执行固定 rubric，输出 visual review card；`verdict=pass` 且 `confidence=high` 可替代 routine 人工视觉 review；`verdict=watch/block/human_escalation` 或 `confidence=medium/low` 必须升级人类 owner，并写明 owner action | `visual_change_detected -> captured -> model_reviewed -> pass/watch/block/escalated` | 先跑确定性测试，再让模型判断视觉；只有明确不影响任何可见 surface 的改动才能豁免且需记录理由；模型只替代截图/布局/可读性类人工 review，不替代 GitHub required review、发布放行、L5 真实玩家验证或对外 claim 审批 | `producer_system_designer` / `qa_engineer` 守边界，命中的 UI owner 处理 findings |
 | Viewer release 语义门禁 | `renderMode`、`lastControlFeedback.stage`、`deltaLogicalTime`、`deltaEventSeq` | `viewer` 下允许 `play/pause` 先返回 `queued`；formal progress 以后续 `step` 的 `completed_advanced` + 正向 world delta 判定；`software_safe` 仅作为 compat alias 覆盖 | `queued -> completed_advanced` 或 `queued -> blocked` | 主 Web 入口不再要求 `play` 立刻涨 tick，也不再强制 `selectedKind=agent`；若 `llm_required` 显式阻断则按 blocker 合约留痕 | QA/发布维护者维护 |
@@ -283,6 +283,7 @@ The receiver includes the GWSC `MIG-01` specimen with structurally valid declare
   - AC-14: `required-gate` 必须在命中 `crates/oasis7_client_launcher/**`、`crates/oasis7_launcher_ui/**`、`crates/oasis7_proto/**`、`crates/oasis7_wasm_abi/**` 或 `crates/oasis7/**` 的 launcher shared runtime 改动时按需执行 launcher Web `trunk build`，避免仅在 release `build-web-dist` 才暴露 wasm 编译错误。
   - AC-14A: 仓库必须提供轻量 Web/UI automation smoke，允许 `qa_engineer` 在不启动完整 runtime 栈的前提下，用 fixture 页面复用真 `agent-browser` 验证 `viewer-software-safe-step-regression.sh` 的最小浏览器链路与 summary/state 产物契约；该 smoke 只用于 tooling 预检，不替代正式 S6 证据。
   - AC-14B: 仓库必须维护 Playwright 实跑测试系列入口，记录 `PWT-###` 用例矩阵、真实本地栈/真实 provider/真实 UI 输入的覆盖边界、mock 禁用规则、证据产物要求和新增用例规则；首个用例为 `PWT-001 Real Agent Chat`，后续玩家操作流程必须从该入口扩展。
+  - [AC-14C：真实前端与可控时序浏览器回归](#browser-functional-regression)：在现有 JS-required、JS-browser 与真实闭环之间，明确受控依赖的浏览器功能证据和适用边界。
   - AC-15: 正式 gameplay/trust evidence 至少要有 1 条代表性样本明确记录 `player_action`、`world_change_due_to_player`、`player_leverage_score` 与 `world_activity_only`，否则不得宣称“玩家已有 meaningful participation”。
   - AC-16: durable root authority defines `L1/L2/L3/L4A/L4B/L5`, combination rules, current anchors, and that automation cannot prove fun alone.
   - AC-17: durable root authority defines standard roles, review packet/card contract, triggers, sequencing and stop conditions.
@@ -295,6 +296,23 @@ The receiver includes the GWSC `MIG-01` specimen with structurally valid declare
 - Non-Goals:
   - 不在本 PRD 中替代业务模块的功能设计。
   - 不承诺所有测试都进入 CI 默认路径。
+
+<a id="browser-functional-regression"></a>
+### AC-14C：真实前端与可控时序浏览器回归
+
+Trace ID: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78
+
+产品适用性：N/A；reason=确定性前端回归支撑，不新增玩家行为或权限；scope=真实组件加载、受控传输、浏览器执行、隔离与证据。试点的业务预期仍由对应 Viewer/Runtime 合同拥有。
+
+- BROWSER-AC-1：复用当前 JS-required/component、浏览器 fixture smoke 和 S6 分层，提供显式 fixture-functional profile。至少一条试点在真实浏览器中加载生产组件与状态逻辑，通过可见控件操作；测试只控制依赖边界，不能复制一套 UI/reducer 或直接写入期望的终态。不依赖真实 LLM 或完整后端栈。
+- BROWSER-AC-2：响应、事件与必要的时钟推进由有界 barrier 控制，记录请求关联和交付顺序；成功、拒绝、旧结果晚到、乱序/重复、断线恢复、卸载重挂及 loading/空态按场景适用性验证。不靠长 sleep 或反复重试把竞态变绿。
+- BROWSER-AC-3：首个试点候选为 Viewer 的 Prompt Overrides 输入/提交/反馈；正式选定前由 QA 与对应 owner 对齐试点和具体 oracle。独立预期检查 accepted 与 applied、当前请求/身份、草稿与权威值及安全恢复；不把拒绝处理写成先显示 applied 再回滚。旧响应不得覆盖新请求，测试揭示的域缺陷仍交原 owner 修复。
+- BROWSER-AC-4：每场景隔离浏览器上下文、端口、存储、合成身份和产物，禁止意外访问真实服务；有共享构建/模块状态的场景按实际边界串行。结果绑定候选、构建、场景、实际浏览器/viewport、事件 trace、截图、console/network、断言与未覆盖项；缺依赖、零执行或缺产物不能报告通过。
+- BROWSER-AC-5：复用现有选测权威接入适用 CI 范围，保留 JS-required 和真实 S6/full 义务。fixture 通过只证明相应组件在已列合成输入下的功能，不证明真实认证、Runtime 应用、provider、世界效果、跨浏览器或实玩；首个实现片与真实集成承接可独立验收。
+
+系统设计状态：已覆盖；[测试层分配](design.md#browser-functional-layer)与[受控浏览器合同](manual/web-ui-playwright-closure-manual.design.md#browser-functional-fixture-contract)承接 BROWSER-AC-1–5，验证方法见[手册入口](../../testing-manual.md#browser-functional-regression-validation)。
+
+实现状态：部分实现。2026-11-03 静态核查 `d4cdabe4c9011ebc66b6376b1dce96f0d8b2cc39`：已有 Vitest/jsdom 的 `viewer_prompt_control_protocol.test.jsx`、真实 Viewer shell 的 `player-visual-feedback-browser-smoke.mjs` 及 tooling fixture smoke；它们不是本条全时序矩阵已执行的证据。统一 fixture-functional runner、可控传输/时钟、隔离与完整产物/CI 接线仍待 [#5387](https://github.com/nil-studio/oasis7/issues/5387) 实现。本次仅交付设计，没有运行浏览器或补齐生产缺陷。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: `scripts/ci-tests.sh`、agent-browser 闭环工具、Playwright 实跑脚本、`oasis7_web_launcher` GUI Agent 接口、长跑脚本、结果汇总工具、`scripts/prepare-playability-l4-review.sh`。
@@ -364,6 +382,25 @@ The receiver includes the GWSC `MIG-01` specimen with structurally valid declare
   - NFR-TST-12: simulated persona panel 的使用者必须能在 5 分钟内决定该开哪几个 persona，以及它们的结论最终归谁收口。
   - NFR-TST-13: 任何正式玩法结论都必须能在 30 秒内回答“这是 `L4A`、`L4B` 还是 `L5` 前的内部校准，以及为什么”。
 - Security & Privacy: 测试日志与产物需避免泄露凭据；外部 API 测试使用最小化数据并执行脱敏。
+
+<a id="compile-reuse-measurement"></a>
+### 跨入口构建复用测量
+
+Trace ID: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b
+
+QA 与构建维护者应能判断普通 PR、Formal/测试产物、ECS workspace cache 和本地开发之间重复编译的来源、兼容范围与总成本，再决定保留现状、调整已有机制或补充设计。[跨入口测量设计](performance/compile-metrics-v2-warm-check.design.md#cross-entry-build-reuse-measurement) 承接该要求；既有 cold/warm check、ECS 构建量测和本地 wrapper 继续保留各自的输入与证据边界。
+
+- **系统设计状态：已覆盖有界测量方法。** 入口/兼容矩阵、样本、命令、成本和退出判据由上述设计承接。
+- **执行状态：跨入口真实对照尚未执行。** 现有工具只覆盖其各自场景；本次文档不宣称净收益、P95 或优化已实施。
+
+验收要求：
+
+1. 固定源码、计划、工具链、runner、target/profile/features/flags、jobs 与缓存初态，输出实际配置/产物兼容矩阵；当前预算以配置及库存为准，未知库存显式保留。
+2. 优先复用已有工件，区分冷依赖、温依赖/workspace 冷、同源 no-op、普通源码/公共依赖失效和跨工作区样本；精确 Cargo argv 与 Fresh/rebuilt 单元证据须解释定向计划到实际编译目标的映射。
+3. 最多对照两个有明确收益假设的候选；不得预先决定 feature 统一、输入裁剪、Nix/Hakari、新缓存服务或扩容。真实依赖变化应拒绝旧产物，编译命中不替代测试执行或发布验证。
+4. 净收益覆盖恢复/下载、解压校验、构建/链接、打包保存及必要后验成本，说明 producer 分摊、存储、样本数量、环境与未测平台；失败、退化、不可比和未知数据全部保留，不以局部或单次样本代签 P95。
+5. 报告给出采用、不采用或补证及停止原因。环境/预算有限时交付已测范围与缺口；候选无收益时停止，行为或基础设施变化回到对应设计。原 ECS 缓存消费和 hosted 时延验收仍由各自任务负责，不新增默认 gate 或生产部署步骤。
+
 
 ## 5. Risks & Roadmap
 - Phased Rollout:

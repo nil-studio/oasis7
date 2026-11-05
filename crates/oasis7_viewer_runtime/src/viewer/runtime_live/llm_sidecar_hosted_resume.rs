@@ -33,6 +33,13 @@ pub(in crate::viewer::runtime_live) struct HostedResume {
     budget_predecessor: Option<crate::runtime::AgentContinuation>,
 }
 impl HostedResume {
+    pub(in crate::viewer::runtime_live) fn owns_provider_context(
+        &self,
+        active: &ProviderContextState,
+    ) -> bool {
+        super::service_orphan_recovery::same_provider_context(active, &self.context)
+    }
+
     fn operation(&self) -> SchedulerOperationV1 {
         let request = &self.context.request_context;
         SchedulerOperationV1::ResumeWake {

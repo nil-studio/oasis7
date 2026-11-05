@@ -20,6 +20,9 @@
 - 想先看线上模块发布合法性与 binary-only 边界：`doc/world-runtime/module/online-module-release-legality-closure-2026-03-08.prd.md`
 - 想进入治理事件、审计导出或收据安全专题：`doc/world-runtime/governance/README.md`
 - 想确认治理、charter、工业工作、替代、levy、外部性、恢复项目或安全确认的权威协议：从[玩法权威协议设计](prd.index.md#gameplay-authority-protocols)按问题进入；各专题定义目标合同，实现与实际验收仍单独核对。
+- 想确认同目标生产恢复比较、有界认可与有限物流机会、工业创建的模拟/试点/准入、有限许可与版税、合作前情境声誉、组织/岗位托管返还履历或 R&D 归因/份额转让：同样从[玩法权威协议设计](prd.index.md#gameplay-authority-protocols)进入各自专题；复用原工业工作、治理与合同来源，读取或发布不产生使用权和收益。
+- 想核对有限扩展授权的当前有效范围、退出和原子替代：读[授权生命周期设计](runtime/governed-extension-lifecycle.design.md#des-wr-gr-lifecycle-001)，沿发布/激活、排程、后继完成与恢复消费者检查；原 PPE freeze、recipe 六态和许可保留独立职责。
+- 想核对同候选/窗口的非 levy 资源流、经济变化及治理因果：读[成熟世界经济审计设计](runtime/mature-world-economic-audit.design.md)，使用完整且有界的权威来源，按原资源/账本独立核算；正式查询与 evidence 接线仍为目标能力。
 
 - 想确认额外 Agent 的制造报价、资源与产能预留、生产、身份和控制权原子交付及恢复：[Agent 工业制造设计](runtime/agent-industrial-manufacturing.design.md)。
 - 想确认紧急保供的授权包、冻结批次、跨授权需求记录、结算与退出：[紧急保供系统设计](runtime/emergency-supply-authorization-and-settlement.design.md)。

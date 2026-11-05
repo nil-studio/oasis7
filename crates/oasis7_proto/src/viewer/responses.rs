@@ -1,5 +1,36 @@
 use serde::{Deserialize, Serialize};
 
+pub const LIVE_CONTROL_STATE_SCOPE: &str = "viewer_new_decisions";
+pub const LIVE_CONTROL_STATE_MAX_REVISION: u64 = 9_007_199_254_740_991;
+
+/// Process-local observation. It is not a canonical world action receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveControlState {
+    pub scope: String,
+    pub epoch: String,
+    pub revision: u64,
+    pub paused: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<u64>,
+}
+impl LiveControlState {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.scope != LIVE_CONTROL_STATE_SCOPE
+            || self.epoch.len() != 64
+            || !self
+                .epoch
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || self.revision == 0
+            || self.revision > LIVE_CONTROL_STATE_MAX_REVISION
+        {
+            return Err("invalid Viewer live control observation".into());
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlCompletionStatus {

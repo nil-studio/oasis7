@@ -17,6 +17,7 @@ unicode-normalization = "0.1"
 
 [features]
 schema = ["dep:schemars"]
+test-support = []
 
 [lints]
 workspace = true

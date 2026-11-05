@@ -15,6 +15,24 @@ struct Output<'a, W> {
     amount_bytes: usize,
     error: Option<ValueTreeError>,
 }
+enum ReadRequest<'a, K: Write> {
+    Profile {
+        profile: MemberReadProfileV1,
+        key_output: &'a mut K,
+    },
+    Raw {
+        limits: MemberRecordLimitsV1,
+        key_output: &'a mut K,
+    },
+}
+impl<K: Write> ReadRequest<'_, K> {
+    fn limits(&self) -> MemberRecordLimitsV1 {
+        match self {
+            Self::Profile { profile, .. } => profile.limits,
+            Self::Raw { limits, .. } => *limits,
+        }
+    }
+}
 impl<W: Write> Write for Output<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if self.error.is_some() {
@@ -69,8 +87,59 @@ pub(crate) fn read_identity_amounts<R: ValueNodeReader>(
     output: &mut impl Write,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(u64, [u64; 3]), ValueTreeError> {
-    let max_identity = profile
-        .limits
+    let mut key_output = io::sink();
+    let (info, identity_bytes, amounts) = read_inner(
+        root,
+        key,
+        context,
+        ReadRequest::Profile {
+            profile,
+            key_output: &mut key_output,
+        },
+        output,
+        cancelled,
+    )?;
+    if info.codec != MemberPayloadCodecV1::IdentityU64Triple
+        || info.semantic_bytes != profile.semantic_bytes
+    {
+        return Err(ValueTreeError::Invalid("balance member profile"));
+    }
+    Ok((identity_bytes, amounts))
+}
+
+pub(crate) fn read_identity_amounts_record_v1<R: ValueNodeReader>(
+    root: &[u8; 32],
+    key: &WorldFieldKeyV1,
+    context: &mut ValueReadContext<'_, R>,
+    limits: MemberRecordLimitsV1,
+    key_output: &mut impl Write,
+    output: &mut impl Write,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(MemberRecordInfoV1, u64, [u64; 3]), ValueTreeError> {
+    let (info, identity_bytes, amounts) = read_inner(
+        root,
+        key,
+        context,
+        ReadRequest::Raw { limits, key_output },
+        output,
+        cancelled,
+    )?;
+    if info.codec != MemberPayloadCodecV1::IdentityU64Triple {
+        return Err(ValueTreeError::Invalid("balance member codec"));
+    }
+    Ok((info, identity_bytes, amounts))
+}
+
+fn read_inner<R: ValueNodeReader, K: Write>(
+    root: &[u8; 32],
+    key: &WorldFieldKeyV1,
+    context: &mut ValueReadContext<'_, R>,
+    request: ReadRequest<'_, K>,
+    output: &mut impl Write,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(MemberRecordInfoV1, u64, [u64; 3]), ValueTreeError> {
+    let limits = request.limits();
+    let max_identity = limits
         .payload_bytes
         .checked_sub(32)
         .ok_or(ValueTreeError::ResourceLimited("balance identity limit"))?;
@@ -85,15 +154,29 @@ pub(crate) fn read_identity_amounts<R: ValueNodeReader>(
         amount_bytes: 0,
         error: None,
     };
-    let result = read_member_record_profile_v1(
-        root,
-        key,
-        context,
-        profile,
-        &mut io::sink(),
-        &mut decoded,
-        &mut *cancelled,
-    );
+    let result = match request {
+        ReadRequest::Profile {
+            profile,
+            key_output,
+        } => read_member_record_profile_v1(
+            root,
+            key,
+            context,
+            profile,
+            key_output,
+            &mut decoded,
+            &mut *cancelled,
+        ),
+        ReadRequest::Raw { limits, key_output } => read_member_record_v1(
+            root,
+            key,
+            context,
+            limits,
+            key_output,
+            &mut decoded,
+            &mut *cancelled,
+        ),
+    };
     if let Some(error) = decoded.error.take() {
         return Err(error);
     }
@@ -117,5 +200,5 @@ pub(crate) fn read_identity_amounts<R: ValueNodeReader>(
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok((decoded.identity_bytes, amounts))
+    Ok((info, decoded.identity_bytes, amounts))
 }

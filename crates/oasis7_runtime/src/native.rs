@@ -62,23 +62,26 @@ pub use snapshot_delta::{
     resolve_snapshot_artifact_with_depth,
 };
 mod state;
-pub use oasis7_world_state::types;
-pub use oasis7_world_state::incremental_ledger_value;
+pub use oasis7_world_state::incremental_cognition_control_overlay;
+pub use oasis7_world_state::incremental_cognition_family;
+pub use oasis7_world_state::incremental_cognition_groups;
+pub use oasis7_world_state::incremental_cognition_json_overlay;
+pub use oasis7_world_state::incremental_cognition_json_receiver;
 pub use oasis7_world_state::incremental_field_member;
 pub use oasis7_world_state::incremental_field_presence;
-pub use oasis7_world_state::incremental_inventory_genesis;
-pub use oasis7_world_state::incremental_cognition_json_overlay;
-pub use oasis7_world_state::incremental_cognition_family;
-pub use oasis7_world_state::incremental_cognition_control_overlay;
-pub use oasis7_world_state::incremental_cognition_groups;
-pub use oasis7_world_state::incremental_cognition_json_receiver;
-pub use oasis7_world_state::{incremental_cognition_fields, incremental_cognition_genesis, incremental_cognition_read, incremental_cognition_json, incremental_cognition_json_read};
-pub use oasis7_world_state::incremental_inventory_read;
 pub use oasis7_world_state::incremental_inventory_change;
-pub use oasis7_world_state::incremental_inventory_transaction;
-pub use oasis7_world_state::incremental_inventory_overlay_read;
+pub use oasis7_world_state::incremental_inventory_genesis;
 pub use oasis7_world_state::incremental_inventory_overlay_change;
+pub use oasis7_world_state::incremental_inventory_overlay_read;
+pub use oasis7_world_state::incremental_inventory_read;
+pub use oasis7_world_state::incremental_inventory_transaction;
+pub use oasis7_world_state::incremental_ledger_value;
+pub use oasis7_world_state::types;
 pub use oasis7_world_state::util;
+pub use oasis7_world_state::{
+    incremental_cognition_fields, incremental_cognition_genesis, incremental_cognition_json,
+    incremental_cognition_json_read, incremental_cognition_read,
+};
 mod world;
 pub use oasis7_world_state::world_event;
 
@@ -139,12 +142,20 @@ pub(crate) use formal_retained_history::{
 pub use formal_retained_history::{
     FormalRetainedHistoryRootV1, RetainedHistoryReadError, VerifiedFormalRetainedHistoryParentV1,
 };
+pub use oasis7_world_state::incremental_agent_body;
 pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields};
 pub use world::incremental_agent_genesis;
+pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
-pub use world::incremental_body_event::AgentEventContext;
-pub use oasis7_world_state::incremental_agent_body;
+pub use world::incremental_body_event::{
+    AgentEventContext, AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1,
+};
+pub use world::incremental_module_state::{ModuleStateContentBudgetV1, read_iws_module_state};
+pub use world::incremental_module_state_recovery::{
+    ModuleStateRecoveryContextV1, VerifiedModuleStateContentV1,
+};
 pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1};
+pub use world::incremental_step::IwsStepContext;
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
 };
@@ -498,34 +509,74 @@ pub use world::incremental_commit::{
     CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
 };
 
-pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
-pub use oasis7_world_state::incremental_world_text_maps;
 pub use oasis7_world_state::incremental_factory_authority_records;
 pub use oasis7_world_state::incremental_factory_records;
 pub use oasis7_world_state::incremental_industry_jobs;
-pub use oasis7_world_state::incremental_material_records;
-pub use oasis7_world_state::incremental_logistics_records;
 pub use oasis7_world_state::incremental_installed_module_targets;
+pub use oasis7_world_state::incremental_logistics_records;
+pub use oasis7_world_state::incremental_material_records;
 pub use oasis7_world_state::incremental_world_balances;
+pub use oasis7_world_state::incremental_world_text_maps;
+pub use world::incremental_allocators::{RuntimeAllocatorV1, RuntimeSequenceV1};
 
 pub use oasis7_world_state::incremental_fixed_economy_records;
 pub use oasis7_world_state::incremental_runtime_artifact_resources;
 
 pub use oasis7_world_state::incremental_agent_authority_records;
-pub use oasis7_world_state::incremental_runtime_effect_records;
 pub use oasis7_world_state::incremental_runtime_controls;
+pub use oasis7_world_state::incremental_runtime_effect_records;
 
 pub use oasis7_world_state::incremental_json_records;
 pub use oasis7_world_state::incremental_runtime_artifact_config;
 
 pub use oasis7_world_state::incremental_agent_subtree;
 
-pub use oasis7_world_state::incremental_runtime_artifact_content;
 pub use oasis7_world_state::incremental_reward_budget_records;
+pub use oasis7_world_state::incremental_runtime_artifact_content;
 
 pub use oasis7_world_state::incremental_governance_records;
 
 pub use oasis7_world_state::incremental_main_token_policy_records;
 
-pub use oasis7_world_state::incremental_runtime_scheduler_controls;
 pub use oasis7_world_state::incremental_runtime_capability_records;
+pub use oasis7_world_state::incremental_runtime_scheduler_controls;
+pub use oasis7_world_state::incremental_world_rule_effects;
+pub use oasis7_world_state::incremental_world_rule_lineages;
+pub use oasis7_world_state::incremental_world_rule_organization;
+pub use oasis7_world_state::incremental_world_rule_shipments;
+pub use oasis7_world_state::incremental_world_rule_supply_root;
+
+pub use oasis7_world_state::incremental_diplomacy;
+pub use world::incremental_module_instance_change::contribute_module_instance_change;
+pub use world::incremental_module_instance_change::{
+    ModuleInstanceFieldChangeV1, change_module_instance_field_v1,
+};
+pub use world::incremental_module_instance_family::{
+    ModuleInstanceFamilyQualificationV1, readmit_module_instance_family_ordinary_v1,
+};
+pub use world::incremental_module_instance_receiver::accept_module_instance_transition_v1;
+pub use world::incremental_module_instance_recovery::{
+    InstanceScratchBudget, ModuleInstanceRecoveryContext, VerifiedModuleInstanceContent,
+};
+pub use world::incremental_module_invocation::*;
+pub use world::incremental_module_read::{ModuleReadContext, PreparedModuleInstanceFields};
+
+pub use oasis7_world_state::incremental_module_fields;
+
+pub use world::incremental_module_state_family::{
+    ModuleStateFamilyQualificationV1, accept_module_state_transition_v1,
+    readmit_module_state_family_ordinary_v1,
+};
+
+pub use world::incremental_module_fee_accounts::{
+    PreparedRootModuleFeeV1, RootModuleFeeErrorV1, RootModuleFeeOutcomeV1, RootModuleFeeRequestV1,
+    check_root_module_fee_resources_v1, prepare_root_module_fee_v1,
+};
+pub use world::incremental_module_fee_contribution::{
+    RootModuleFeeWriteContextV1, contribute_root_module_fee_v1,
+};
+pub use world::incremental_scheduler_recovery::{
+    ModuleScheduleReadContext, VerifiedModuleScheduleContent,
+};
+
+pub use oasis7_world_state::incremental_cognition_history;

@@ -24,6 +24,7 @@ SAMPLE_PATHS = (
 )
 COMMENT = b'\n// Synthetic CI budget preview baseline; production behavior is unchanged.\n'
 EXPECTED_GROUPS = frozenset(('baseline', 'rust_baseline', 'oasis7_required'))
+NATIVE_CONSUMER_GROUPS = frozenset(('consensus', 'distfs', 'net', 'node'))
 EXPECTED_TARGETS = frozenset((
     ('oasis7_runtime', 'lib', 'oasis7_runtime'),
     ('oasis7_runtime', 'test', 'pr_fast_incremental'),
@@ -39,6 +40,44 @@ def git(repo, *args, data=None, env=None):
 
 def resolve(repo, ref):
     return git(repo, 'rev-parse', '--verify', '--end-of-options', ref + '^{commit}').decode().strip()
+
+
+def changed_paths(repo, base, head):
+    """Match the required selector's NUL records and both rename endpoints."""
+    records = git(repo, 'diff', '--name-status', '--find-renames', '-z', base, head).split(b'\0')
+    if records.pop() != b'':
+        raise ValueError('incomplete name-status diff')
+    paths = []
+    while records:
+        status = records.pop(0).decode('ascii')
+        count = 2 if status.startswith(('R', 'C')) else 1
+        if len(records) < count:
+            raise ValueError('incomplete rename record')
+        for _ in range(count):
+            paths.append(records.pop(0).decode('utf-8', 'surrogateescape'))
+    return paths
+
+
+def preview_comparisons(repo, base, source, tested):
+    """Use the required selector's PR ranges, retaining merge-only changes.
+
+    Source-only calls keep their event range. A tested PR merge must identify
+    the real source as its second parent and a target descended from that base;
+    unreadable or ambiguous identities fail instead of silently disabling work.
+    """
+    if source == tested:
+        return [(base, source)], None, base
+    parents = git(repo, 'show', '-s', '--format=%P', tested).decode().split()
+    if len(parents) != 2 or parents[1] != source:
+        raise ValueError('tested commit is not a target/source merge')
+    target = parents[0]
+    if git(repo, 'merge-base', base, target).decode().strip() != base:
+        raise ValueError('event base is not an ancestor of tested target')
+    forks = git(repo, 'merge-base', '--all', target, source).decode().split()
+    if len(forks) != 1:
+        raise ValueError('ambiguous source/target merge base')
+    source_base = forks[0]
+    return [(source_base, source), (target, tested)], target, source_base
 
 
 def synthetic_baseline(repo, source):
@@ -77,7 +116,8 @@ def validate_plan(plan, source):
             or plan.get('oasis7_required_wasm_packages') != []):
         raise ValueError('preview did not select the expected bounded native execution')
     groups = plan.get('groups')
-    if not isinstance(groups, list) or len(groups) != len(EXPECTED_GROUPS) or set(groups) != EXPECTED_GROUPS:
+    if (not isinstance(groups, list) or any(not isinstance(group, str) for group in groups)
+            or len(groups) != len(set(groups)) or not EXPECTED_GROUPS <= set(groups)):
         raise ValueError('preview selected unexpected groups; do not silently omit work')
     architecture = plan.get('architecture')
     if (not isinstance(architecture, dict)
@@ -87,6 +127,25 @@ def validate_plan(plan, source):
             or architecture.get('mode') != 'targeted'
             or architecture.get('packages') != ['oasis7_runtime', 'oasis7_world_state']):
         raise ValueError('preview did not select the expected architecture compile policy')
+    extra_groups = set(groups) - EXPECTED_GROUPS
+    consumers = architecture.get('consumer_groups', {})
+    if (not extra_groups <= NATIVE_CONSUMER_GROUPS or not isinstance(consumers, dict)
+            or set(consumers) != extra_groups):
+        raise ValueError('preview extra groups require exact native reverse-consumer evidence')
+    if extra_groups:
+        affected = plan.get('affected_packages')
+        if (not isinstance(affected, list) or not affected
+                or any(not isinstance(package, str) for package in affected)
+                or len(affected) != len(set(affected))):
+            raise ValueError('preview reverse consumers require an affected-package inventory')
+        for names in consumers.values():
+            if (not isinstance(names, list) or not names
+                    or any(not isinstance(name, str) or not name for name in names)
+                    or len(names) != len(set(names))
+                    or not set(names) <= set(affected) - set(architecture['packages'])):
+                raise ValueError('preview has unproved native reverse consumers')
+    # The architecture consumer verifies fixed policy mappings and real Cargo
+    # reachability. Every selected consumer group also runs in the preview DAG.
     for key in ('source_sha', 'tested_sha', 'policy_sha'):
         if plan.get(key) != source:
             raise ValueError('preview source/tested/policy identity mismatch: ' + key)
@@ -115,12 +174,23 @@ def write_outputs(path, values):
                 output.write(key + '=' + value + '\n')
 
 
-def plan_preview(repo, base_ref, head_ref, output, github_output=None):
+def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source_ref=None):
+    # Existing benchmark source/tested identities both name the exact checkout.
+    # The separate source ref supplies the real PR head for trigger attribution.
     base, source = resolve(repo, base_ref), resolve(repo, head_ref)
+    pr_source = resolve(repo, source_ref) if source_ref is not None else source
     if resolve(repo, 'HEAD') != source:
         raise ValueError('preview must use its exact candidate checkout')
-    changed = set(git(repo, 'diff', '--name-only', '-z', base, source).decode().split('\0'))
-    if not changed.intersection(POLICY_INPUTS):
+    comparisons, target, source_base = preview_comparisons(repo, base, pr_source, source)
+    changed = {path for before, after in comparisons for path in changed_paths(repo, before, after)}
+    inputs = {
+        'actual_pr_base_sha': base, 'actual_pr_source_sha': pr_source,
+        'actual_target_sha': target, 'source_base_sha': source_base,
+        'comparisons': [{'base': before, 'head': after} for before, after in comparisons],
+        'trigger_paths': sorted(changed.intersection(POLICY_INPUTS)),
+    }
+    print('preview_inputs=' + json.dumps(inputs, ensure_ascii=False))
+    if not inputs['trigger_paths']:
         write_outputs(github_output, {'enabled': 'false'})
         print('No product Rust preview input changed: candidate fast preview is not selected.')
         return None
@@ -138,16 +208,17 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None):
     metadata = {
         'schema_version': 1, 'authority': 'diagnostic-only',
         'workload': 'synthetic-comment-diff', 'cache': 'cold-no-restore',
-        'actual_pr_base_sha': base, 'source_sha': source, 'tested_sha': source,
+        **inputs, 'source_sha': source, 'tested_sha': source,
         'policy_sha': source, 'source_tree': git(repo, 'rev-parse', source + '^{tree}').decode().strip(),
         'synthetic_base_sha': synthetic, 'synthetic_base_tree': tree,
-        'paths': list(SAMPLE_PATHS),
+        'paths': list(SAMPLE_PATHS), 'groups': selected['groups'],
         'limitation': 'Current real tests and compilation footprint; not PR authorization, regression quality, or P95 evidence.',
     }
     metadata_path = Path(str(output) + '.metadata.json')
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
     write_outputs(github_output, {'enabled': 'true', 'source_sha': source, 'tested_sha': source,
-        'synthetic_base_sha': synthetic, 'metadata_path': metadata_path, 'plan_path': output})
+        'synthetic_base_sha': synthetic, 'metadata_path': metadata_path, 'plan_path': output,
+        'groups': json.dumps(selected['groups'], separators=(',', ':'))})
     print(json.dumps(metadata, ensure_ascii=False))
     return metadata
 
@@ -175,14 +246,16 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     plan = commands.add_parser('plan')
     plan.add_argument('--base-ref', required=True)
-    plan.add_argument('--head-ref', required=True)
+    plan.add_argument('--head-ref', required=True, help='exact tested checkout for the diagnostic benchmark')
+    plan.add_argument('--source-ref', help='real PR source HEAD; required when testing a PR merge')
     plan.add_argument('--output', required=True)
     plan.add_argument('--github-output')
     restore = commands.add_parser('restore')
     restore.add_argument('--metadata', required=True)
     args = parser.parse_args()
     if args.command == 'plan':
-        plan_preview(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output, args.github_output)
+        plan_preview(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output, args.github_output,
+                     source_ref=args.source_ref)
     else:
         restore_baseline(args.repo_root.resolve(), json.loads(Path(args.metadata).read_text()))
 

@@ -37,7 +37,14 @@ impl RuntimeLlmSidecar {
             else {
                 continue;
             };
-            if self.pending_runtime_wakes.contains_key(wake_id) {
+            if self.pending_runtime_wakes.contains_key(wake_id)
+                || self
+                    .provider_active_turns
+                    .contains_key(&signed.request.agent_id)
+                || self
+                    .provider_recovery_pending
+                    .contains_key(&signed.request.agent_id)
+            {
                 continue;
             }
             let original = checkpoint
@@ -49,6 +56,33 @@ impl RuntimeLlmSidecar {
                 .as_ref()
                 .ok_or("pending ResumeWake current context missing; fenced")?;
             let request = &original.request_context;
+            Self::validate_scheduler_checkpoint_integrity(
+                &checkpoint.correlation.key.world,
+                &id,
+                &checkpoint,
+            )?;
+            if request.agent_subject != signed.request.agent_id {
+                return Err("retained ResumeWake subject mismatch; fenced".into());
+            }
+            if self.provider_terminal_matches_request(&signed.request.agent_id, request) {
+                // A persisted authoritative terminal owns this exact turn.
+                self.provider_scheduler_pending.remove(&id);
+                self.persist_provider_lineage()?;
+                continue;
+            }
+            if self
+                .provider_service_pending
+                .contains_key(&signed.request.agent_id)
+                || self
+                    .provider_held_decisions
+                    .contains_key(&signed.request.agent_id)
+                || self
+                    .provider_completed_decisions
+                    .iter()
+                    .any(|d| d.agent_id == signed.request.agent_id)
+            {
+                continue;
+            }
             request
                 .validate_production_lane()
                 .map_err(|error| error.to_string())?;
@@ -156,11 +190,9 @@ impl RuntimeLlmSidecar {
                 .insert(request.agent_subject.clone(), original.clone());
             self.provider_continuation_proposals
                 .remove(&result.continuation.continuation_proposal_id);
-            self.provider_scheduler_pending.remove(&id);
-            if let Err(error) = self.persist_provider_lineage() {
-                self.provider_scheduler_pending.insert(id, checkpoint);
-                return Err(error);
-            }
+            // Keep the signed ResumeWake capsule until this exact turn is
+            // terminal. A worker crash must still Lookup its original dispatch.
+            self.persist_provider_lineage()?;
         }
         Ok(())
     }
