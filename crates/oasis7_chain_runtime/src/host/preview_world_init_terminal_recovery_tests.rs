@@ -331,7 +331,6 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
         options,
         receipt,
         driver,
-        &captured,
         &prefix,
         &executor,
         generation,

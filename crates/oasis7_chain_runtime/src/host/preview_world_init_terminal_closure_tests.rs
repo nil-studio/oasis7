@@ -17,12 +17,20 @@ pub(super) fn run(
     options: &Options,
     receipt: &Receipt,
     driver: bridge::NodeRuntimeExecutionDriver,
-    original: &oasis7_agent_api::ContinuousAgentRequestContextV1,
     prefix: &SubmitIntentRequest<WorldServicePayloadV1>,
     executor: &str,
     generation: u64,
     deadline: Instant,
 ) {
+    let WorldServicePayloadV1::Scheduler(signed) = &prefix.signed_payload else {
+        panic!("terminal closure requires the exact signed Prefix")
+    };
+    let SchedulerOperationV1::ProviderPrefix {
+        request: original, ..
+    } = &signed.request.operation
+    else {
+        panic!("terminal closure requires the original ProviderPrefix request")
+    };
     // This is the unknown model-outcome lane, not a fabricated ProviderError.
     // Its private recovery classification is executor_lost_after_dispatch:model_outcome_unknown;
     // the canonical Failure below deliberately keeps the allowed cognition_failed code.
