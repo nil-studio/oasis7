@@ -932,13 +932,6 @@ prepare_full_provider_artifact() {
 }
 
 run_full_extended_tier_tests() {
-  local provider_bundle provider_env
-  mkdir -p "$repo_root/target"
-  provider_bundle=$(mktemp -d "$repo_root/target/ci-preview-provider.XXXXXX")
-  provider_env="$provider_bundle/environment.sh"
-  run "$ci_python" "$driver_dir/ci-test-artifacts.py" prepare-provider --repo-root "$repo_root" \
-    --bundle "$provider_bundle" --output "$provider_env"
-  source "$provider_env"
   run_oasis7_full_tier_tests
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke
