@@ -3092,7 +3092,12 @@ class Selection(unittest.TestCase):
         self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
         self.assertIn('distfs', plan['groups'])
-        for expression in ('windows', 'feature="optional_lane"',
+        self.write(path, '#[test] fn original() {}\n'
+                   '#[cfg(target_os="linux")] #[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertIn('distfs', plan['groups'])
+        for expression in ('windows', 'target_os="windows"', 'not(target_os="linux")',
+                           'feature="optional_lane"',
                            'all(unix, feature="test_tier_full")'):
             with self.subTest(expression=expression):
                 self.write(path, '#[test] fn original() {}\n'
@@ -3180,6 +3185,92 @@ class Selection(unittest.TestCase):
         self.write(path, '#[cfg(feature = "test_tier_full")]\n#[test]\nfn regression() {}\n')
         with self.assertRaisesRegex(selector.TestPolicyError, 'not declared by its executing package'):
             selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_fast_production_import_alias_cfg_preserves_actual_test_mount(self):
+        config = self.fast_config()
+        self.write("crates/core/src/lib.rs", "mod production; mod history;\n#[cfg(test)] mod test_bridge;\n")
+        self.write("crates/core/src/production.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/test_bridge.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/history.rs", "#[test] fn history() {}\n")
+        base = self.commit()
+        for test_gate in ("test", 'all(test, any(target_os = "linux", target_os = "macos"))'):
+            self.write("crates/core/src/history.rs", f"#[cfg(not(test))] use super::production as bridge;\n#[cfg({test_gate})] use super::test_bridge as bridge;\n#[test] fn history() {{ bridge::value(); }}\n")
+            with self.subTest(test_gate=test_gate):
+                plan = selector.select(config, base, self.commit(), profile="pr-fast")
+                self.assertEqual(plan["scope"], "full")
+                self.assertIn("world-history", plan["formal_suites"])
+                self.assertTrue(any("production cfg changed" in reason for reason in plan["reasons"]))
+
+    def test_fast_production_import_cfg_allows_proven_alternative_mounts(self):
+        config = self.fast_config()
+        self.write("crates/core/src/lib.rs", 'mod production; #[cfg(not(test))] mod history;\n#[cfg(test)] #[path="history.rs"] mod history_tests;\n#[cfg(test)] mod test_bridge;\n')
+        self.write("crates/core/src/production.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/test_bridge.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/history.rs", "pub fn existing() {}\n")
+        base = self.commit()
+        self.write("crates/core/src/history.rs", '#[cfg(not(test))] use super::production as bridge;\n#[cfg(all(test,any(target_os="linux",target_os="macos")))] use super::test_bridge as bridge;\n#[test] fn history() { bridge::value(); }\n')
+        plan = selector.select(config, base, self.commit(), profile="pr-fast")
+        self.assertEqual(plan["scope"],"full")
+        self.assertIn("world-history",plan["formal_suites"])
+
+    def test_fast_production_import_cfg_uses_real_default_features(self):
+        config = self.fast_config()
+        manifest = Path("crates/core/Cargo.toml")
+        self.write(str(manifest), manifest.read_text().replace('[features]\n', '[features]\ndefault=["native"]\nnative=[]\n'))
+        self.write("crates/core/src/lib.rs", '#[cfg(all(not(target_arch="wasm32"), feature="native"))] mod host;\n')
+        self.write("crates/core/src/host.rs", 'mod production; #[cfg(not(test))] mod history;\n#[cfg(all(test, unix))] #[path="host/history.rs"] mod history_tests;\n')
+        self.write("crates/core/src/host/production.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/host/history.rs", "pub fn existing() {}\n")
+        base = self.commit()
+        self.write("crates/core/src/host/history.rs", "#[cfg(not(test))] use super::production as bridge;\n#[test] fn existing() {}\n")
+        plan = selector.select(config, base, self.commit(), profile="pr-fast")
+        self.assertEqual(plan["scope"], "full")
+        self.assertTrue(any("production cfg changed" in reason for reason in plan["reasons"]))
+
+    def test_fast_production_import_cfg_requires_real_feature_driver(self):
+        config = self.fast_config()
+        config['oasis7_required_packages'].remove('core')
+        self.write("crates/core/src/lib.rs", 'mod production; #[cfg(not(test))] mod history;\n#[cfg(all(test, feature="test_tier_full"))] #[path="history.rs"] mod history_tests;\n')
+        self.write("crates/core/src/production.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/history.rs", "pub fn existing() {}\n")
+        base = self.commit()
+        self.write("crates/core/src/history.rs", "#[cfg(not(test))] use super::production as bridge;\n#[test] fn hidden() {}\n")
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile="pr-fast")
+
+    def test_fast_production_import_cfg_keeps_unknown_and_hidden_tests_rejected(self):
+        config = self.fast_config()
+        self.write("crates/core/src/lib.rs", "mod production; mod history;\n#[cfg(test)] mod test_bridge;\n")
+        self.write("crates/core/src/production.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/test_bridge.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/history.rs", "#[test] fn history() {}\n")
+        base = self.commit()
+        alternatives = [
+            "#[cfg(not(test))] use super::missing as bridge;\n",
+            "#[cfg_attr(not(test), cfg(any()))] use super::production as bridge;\n",
+            "#[cfg(all(not(test), mystery))] use super::production as bridge;\n",
+            "#[cfg(all(not(test), any()))] use super::production as bridge;\n",
+            "#[cfg(all(not(test), feature=\"undeclared\"))] use super::production as bridge;\n",
+            "fn helper() { #[cfg(not(test))] use super::production as bridge; }\n",
+            "macro_rules! inject { () => { #[cfg(not(test))] use super::production as bridge; } }\n",
+            "#[cfg(not(test))] use super::production::{value};\n",
+            "#[cfg(not(test))] #[test] fn hidden() {}\n",
+            "#[cfg(not(test))] mod hidden { #[test] fn hidden() {} }\n",
+        ]
+        for addition in alternatives:
+            self.write("crates/core/src/history.rs", addition + "#[test] fn history() {}\n")
+            with self.subTest(addition=addition), self.assertRaises(selector.TestPolicyError):
+                selector.select(config, base, self.commit(), profile="pr-fast")
+
+    def test_fast_production_import_cfg_requires_actual_test_mount(self):
+        config = self.fast_config()
+        self.write("crates/core/src/lib.rs", "mod production; #[cfg(not(test))] mod history;\n")
+        self.write("crates/core/src/production.rs", "pub fn value() {}\n")
+        self.write("crates/core/src/history.rs", "pub fn existing() {}\n")
+        base = self.commit()
+        self.write("crates/core/src/history.rs", "#[cfg(not(test))] use super::production as bridge;\n#[test] fn hidden() {}\n")
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile="pr-fast")
 
     def test_fast_production_platform_cfg_expands_without_test_policy_rejection(self):
         config = self.fast_config()

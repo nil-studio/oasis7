@@ -13,6 +13,8 @@
 
 本切片部分承接 CR001/CR002，不覆盖组织签约、多人合同、物料运输/目的地保管、设施维护、信用借贷、外部付款、一般法院或所有持续服务。旧 native `Service` 不因此变得可用；不选择 SC-32 pilot，不新增制度专属核心 `Action` 或 `WorldState` 顶层字段。
 
+原采纳的组织、多方及维护、运输、协作已由[完整持续服务合同](continuing-service-fulfillment-and-remedies.design.md#service-obligations)承接，普通形成复用[通用合同形成](agent-mediated-contract-formation.design.md)。本文仍是独立的双人供电版本，保留原 terms 域、费用图、单位账本、裁决与继受上限；新服务 family 不得通过该版本绕过所需接受、实物来源或责任条件。旧版本的历史和未结义务按原条款继续，新版本采用须有其本身的当前能力、授权与同版接受，不按文件更新自动迁移。
+
 ## 2. 上游约束与相关角色
 
 业务政策来自 [条款](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-terms)、[检查点](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-checkpoints)、[恢复](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-remedies)、[争议](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-disputes)和[继受](../../game/gameplay/gameplay-checkpoint-power-service-contract.prd.md#service-policy-succession)。本文固定这些规则的身份、权限、资源、事务与恢复接缝，不另设价格、罚金、期限或抽样规则。

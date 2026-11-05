@@ -706,6 +706,13 @@ class ParallelNativeExecution(unittest.TestCase):
                                       for index in range(count)],
         }
 
+    def mixed_selection(self):
+        selected = self.selection(5)
+        for index, package in ((1, 'oasis7_viewer_codec'), (3, 'oasis7_runtime')):
+            selected['ordinary_fast_targets'][index].update(
+                package=package, target_kind='lib', target_name=package)
+        return selected
+
     def manifest(self, selected):
         return dict(scope='ordinary', execution_plan=selected, binaries={
             'harness-' + str(index): FastTargetInventory().binary(target, 'required-fast-' + str(index)) |
@@ -752,6 +759,85 @@ class ParallelNativeExecution(unittest.TestCase):
         self.assertEqual(sorted(record['test_name'] for record in records),
                          ['harness-0', 'harness-1', 'harness-2'])
         self.assertTrue(all(record['passed'] for record in records))
+
+    def test_inline_starts_complete_libraries_together_before_integrations(self):
+        selected = self.mixed_selection()
+        entered = threading.Barrier(2)
+        lock = threading.Lock()
+        calls, active = [], [0, 0]
+        libraries = {'harness-1', 'harness-3'}
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            self.assertEqual(len(command), 1)
+            self.assertEqual(expected_count, 2)
+            self.assertEqual(env['RUST_TEST_THREADS'], '2')
+            with lock:
+                active[0] += 1
+                active[1] = max(active)
+                calls.append(name)
+            try:
+                if name in libraries:
+                    entered.wait(timeout=2)
+                return self.receipt(suite, name, results, expected_count)
+            finally:
+                with lock:
+                    active[0] -= 1
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            results = Path(temporary) / 'results.jsonl'
+            artifacts.execute(Path(temporary), 'ordinary', results, plan=selected)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(set(calls[:2]), libraries)
+        self.assertEqual(active[1], 2)
+        self.assertEqual(sorted(calls), ['harness-' + str(i) for i in range(5)])
+        self.assertEqual(sorted(record['test_name'] for record in records), sorted(calls))
+        self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
+
+    def test_library_priority_keeps_stable_order_and_complete_cases_with_one_cpu(self):
+        selected = self.mixed_selection()
+        calls = []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            self.assertEqual(len(command), 1)
+            self.assertEqual(expected_count, 2)
+            self.assertEqual(env['RUST_TEST_THREADS'], '1')
+            calls.append(name)
+            return self.receipt(suite, name, results, expected_count)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=1), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+        self.assertEqual(calls, ['harness-' + str(i) for i in (1, 3, 0, 2, 4)])
+
+    def test_failed_priority_library_cancels_other_owner_without_starting_integrations(self):
+        selected = self.mixed_selection()
+        entered = threading.Barrier(2)
+        calls = []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            calls.append(name)
+            if name not in ('harness-1', 'harness-3'):
+                return self.receipt(suite, name, results, expected_count)
+            entered.wait(timeout=2)
+            if name == 'harness-1':
+                return self.receipt(suite, name, results, expected_count, passed=False, exit_code=7)
+            self.assertTrue(kwargs['cancellation_event'].wait(timeout=2))
+            return self.receipt(suite, name, results, expected_count,
+                                passed=False, cancelled=True, exit_code=-signal.SIGTERM)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {})), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            results = Path(temporary) / 'results.jsonl'
+            with self.assertRaisesRegex(RuntimeError, 'ordinary failed'):
+                artifacts.execute(Path(temporary), 'ordinary', results, plan=selected)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(sorted(calls), ['harness-1', 'harness-3'])
+        self.assertEqual(len(records), 2)
+        failed = next(record for record in records if record['test_name'] == 'harness-1')
+        self.assertEqual(failed['exit_code'], 7)
+        self.assertFalse(failed['passed'])
+        self.assertTrue(next(record for record in records if record['test_name'] == 'harness-3')['cancelled'])
 
     def test_first_failure_stops_pending_and_cancels_active_without_retry(self):
         selected = self.selection()
@@ -803,19 +889,23 @@ class ParallelNativeExecution(unittest.TestCase):
                     artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
 
     def test_legacy_targets_keep_sequential_execution_and_environment(self):
-        selected = self.selection()
-        del selected['fast_execution_version']
-        calls = []
-        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
-            self.assertNotIn('cancellation_event', kwargs)
-            self.assertEqual(env.get('RUST_TEST_THREADS'), '3')
-            calls.append(name)
-            return self.receipt(suite, name, results, expected_count)
-        with tempfile.TemporaryDirectory() as temporary, \
-             patch.object(artifacts, 'load', return_value=(self.manifest(selected), {'RUST_TEST_THREADS': '3'})), \
-             patch('ci_process_runner.run', side_effect=invoke):
-            artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
-        self.assertEqual(calls, ['harness-0', 'harness-1', 'harness-2'])
+        for version in (None, 2):
+            selected = self.mixed_selection()
+            if version is None:
+                del selected['fast_execution_version']
+            else:
+                selected['fast_execution_version'] = version
+            calls = []
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                self.assertNotIn('cancellation_event', kwargs)
+                self.assertEqual(env.get('RUST_TEST_THREADS'), '3')
+                calls.append(name)
+                return self.receipt(suite, name, results, expected_count)
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(self.manifest(selected), {'RUST_TEST_THREADS': '3'})), \
+                 patch('ci_process_runner.run', side_effect=invoke):
+                artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results.jsonl', plan=selected)
+            self.assertEqual(calls, ['harness-' + str(i) for i in range(5)])
 
     def test_inline_respects_one_cpu_and_existing_lower_thread_limit(self):
         selected = self.selection()
@@ -2554,11 +2644,12 @@ class Process(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'build failed'):
                     artifacts.build(root / 'expanded', 'ordinary', plan=plan)
 
-    def prepare_target_workspace(self, root, source, integration=None):
+    def prepare_target_workspace(self, root, source, integration=None, unrelated_source=None):
         (root / 'Cargo.toml').write_text('[workspace]\nmembers=["codec","unrelated"]\nresolver="2"\n')
         for directory, package, text in (
             ('codec', 'oasis7_viewer_codec', source),
-            ('unrelated', 'oasis7_runtime', 'compile_error!("unselected package was compiled");'),
+            ('unrelated', 'oasis7_runtime', unrelated_source if unrelated_source is not None
+             else 'compile_error!("unselected package was compiled");'),
         ):
             member = root / directory
             (member / 'src').mkdir(parents=True)
@@ -2713,6 +2804,82 @@ class Process(unittest.TestCase):
                 self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
                 self.assertTrue(all((root / (name + suffix)).is_file()
                                     for name in ('lib', 'integration') for suffix in ('.started', '.new')))
+
+    def test_real_inline_libraries_start_together_before_validated_integrations(self):
+        def source(name, other=None):
+            barrier = ('''
+        std::fs::write(root.join("SELF.started"), b"started").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !root.join("OTHER.started").is_file() {
+            assert!(std::time::Instant::now() < deadline, "other library never started");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+''' if other else '''
+        assert!(root.join("codec.started").is_file(), "codec library was delayed");
+        assert!(root.join("runtime.started").is_file(), "runtime library was delayed");
+''')
+            return ('''
+#[cfg(feature="default")] compile_error!("default feature was incorrectly enabled");
+#[cfg(all(test,feature="test_tier_required"))] mod required {
+    #[test] fn round_trip() {
+        let root = std::path::PathBuf::from(std::env::var("OASIS7_CI_NATIVE_PRIORITY_FIXTURE").unwrap());
+        BARRIER
+    }
+    #[test] fn newly_added() {
+        let root = std::path::PathBuf::from(std::env::var("OASIS7_CI_NATIVE_PRIORITY_FIXTURE").unwrap());
+        assert_eq!(std::env::var("RUST_TEST_THREADS").unwrap(), "1");
+        std::fs::write(root.join("SELF.new"), b"executed").unwrap();
+    }
+    #[test] #[ignore] fn expensive() { panic!("ignored test ran"); }
+}
+'''.replace('BARRIER', barrier).replace('SELF', name).replace('OTHER', other or 'unused'))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root, source('codec', 'runtime'),
+                source('integration'), unrelated_source=source('runtime', 'codec'))
+            target = FastTargetInventory().target
+            selected = InlineExecutionSelection().selection() | {
+                'architecture': dict(source=sha, tested=sha),
+                'ordinary_fast_targets': [target(),
+                    target(target_kind='lib', target_name='oasis7_viewer_codec'),
+                    target(package='oasis7_runtime', target_kind='lib', target_name='oasis7_runtime')],
+            }
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=2), \
+                 patch.dict(os.environ, SOURCE_SHA=sha, OASIS7_CI_NATIVE_PRIORITY_FIXTURE=str(root)):
+                bundle = root / 'bundle'
+                artifacts.build(bundle, 'ordinary', plan=selected)
+                manifest_path = bundle / 'manifest.json'
+                manifest = json.loads(manifest_path.read_text())
+                # Compiler completion order is not the desired dispatch order.
+                # Reproduce the hosted integration-before-library inventory.
+                manifest['binaries'] = dict(sorted(manifest['binaries'].items(),
+                    key=lambda item: item[1]['target_kind'] == ['lib']))
+                manifest_path.write_text(json.dumps(manifest))
+                results = root / 'results.jsonl'
+                artifacts.execute(bundle, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 3)
+                self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
+                self.assertTrue(all((root / (name + '.new')).is_file()
+                                    for name in ('codec', 'runtime', 'integration')))
+                integration = next(name for name, binary in manifest['binaries'].items()
+                                   if binary['target_kind'] == ['test'])
+                # Deferred integration validation must still finish before any
+                # priority library can launch, including its actual --list data.
+                for damage in ('inventory', 'features', 'source'):
+                    altered = copy.deepcopy(manifest)
+                    if damage == 'inventory':
+                        altered['binaries'][integration]['tests'].append('invented_case')
+                    elif damage == 'features':
+                        altered['binaries'][integration]['features'].append('default')
+                    else:
+                        altered['source_sha'] = '0' * 40
+                    manifest_path.write_text(json.dumps(altered))
+                    with self.subTest(damage=damage), patch('ci_process_runner.run') as execute_test:
+                        with self.assertRaises(ValueError):
+                            artifacts.execute(bundle, 'ordinary', root / 'bad-results.jsonl', plan=selected)
+                        execute_test.assert_not_called()
 
     def test_real_full_bundle_runs_default_and_no_default_variants_of_same_lib(self):
         with tempfile.TemporaryDirectory() as temporary:

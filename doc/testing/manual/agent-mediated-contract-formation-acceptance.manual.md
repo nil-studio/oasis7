@@ -1,5 +1,7 @@
 # Agent 代表的原子交换合同形成验收手册
 
+> 范围阅读：原 §1、CF01–CF08 保持个人双边 v1 的方法和历史边界。新增 §2、CF09–CF17 验证一般组织、多方、长期受托以及各原履约族的共同形成；不把旧 v1 的 unsupported 当成新版正向覆盖。
+
 - 状态：`active`（目标合同的验收方法，不是实现或业务验收通过记录）。
 - Owner role：`qa_engineer`；协作：`runtime_engineer`、`gameplay_designer`、`agent_engineer`。
 - 技术合同：[合同形成设计](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-scope)。
@@ -152,3 +154,306 @@
 - 服务拒绝判定：上述不支持或正文不一致的请求不能转换成 Electricity/Data 转账、把付款当交货或接受后等待未来完成。拒绝不生成绑定、资产/货物/容量占用、任何腿或费用、collateral、债务、奖励、声誉效果或优先级。
 - 其他负例：组织/长期受托主体、未支持资产、交付 Data grant 本身、未披露费用接收方、未定义 sink/奖励/声誉政策或超出部署支持范围的 profile 均不能静默降级。明确不可用或拒绝，并保留安全的重新选择/暂缓路径；不虚构当前服务修复、争端、继受或退款按钮。
 - 证据：旧原件与重放差分、两种协议身份/版本的可辨识读面、目标负例的原请求和零业务差分。旧协议测试定义、目标拒绝正确或设计审读均不证明 CR-002、完整 CR-001、GD-13、正式 UI 或发行 readiness 已完成。
+
+## 2. 一般形成的独立验证准备
+
+核对日期与基线：2026-11-05；设计输入 ebd9b8431f2dc084c4ef6be3bcea9ca054ab2a81。本节对应[一般形成政策](../../game/gameplay/gameplay-agent-mediated-contract-formation-policy.prd.md#formation-policy-principals)及[一般形成设计](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-terms)，承接 [REQ-WR-CR-001](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-001) / [AC-WR-CR-001](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-001)。Trace refs: O7-REQ-16ef3247-1587-4cd8-84ab-03a9bb18a17f。
+
+先固定实际实施候选和 world/branch、family/policy/activation、条款及 renderer、普通组织来源/mandate、原 usage/source/obligation 索引、各真实费用和当前受众。对每种正向族分别记录 producer、正式入口、exact command、full encoded input/output、authority、费用 graph 与原结果；当前缺功能则该项未执行，不用人工写余额、合成 receipt、旧 native 单腿或静态 UI 补签。以下命令名是目标语义，实施 PR 指明实际入口，手册不虚构可运行 CLI。
+
+独立 oracle 来自签署的完整义务、提交前资源、原授权上限、领域原件及权威顺序；不能用被测实现生成的 summary 再断言它自己正确。每例记录全部受影响主体/资源/hold/usage/费用/权限/原领域状态差分；原始私有 proofs 按原权限保存，公共证据只保留必要关联和结论。实际运行、持久恢复、跨节点和玩家观察分别判定。
+
+<a id="cf-09-organization"></a>
+## CF-09：普通组织签约、代表任期与资金来源
+
+设计依据：[主体与 mandate](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-principals-mandates)。
+
+- 正例：固定一个已存在组织、准确 charter、完整当前成员/controller snapshot；首次普通业务附件得到当前 founder、全部去重成员主体和准确治理 payload 的合法确认。附件有明确批准 roster/门槛、source/对象/累计 cap、代表任期。按该来源授予具体 mandate，由当前代表对一份实际完整合同接受，并与所有其他必需方同版激活；核对组织 principal、实际资金权利人、代表与 Agent 分别记录。
+- 原资金检验：组织使用成员个人 Agent 或其他人的资源时，列出实际 source owner 的授权及本次所需接受。未有该授权时不应扣钱；组织成员身份、职位、组织受益和代表自己签名都不能替个人 source owner 同意。组织已存在 held-in-trust、restricted support 或其他 hold 时不能计入自由余额。
+- 分别移除首次 founder 证明、一名成员同意、正确 charter hash、准确治理 payload；替换成任意 Passed 提案、普通成员身份、OC continuity grant 或历史角色。每个反例都应无新合同、hold、usage 或费用；保留具体 blocker。
+- 后续更新：在已经有效的业务附件下更换代表/mandate，按原批准人门槛办理；修改附件/批准 roster 则用上一附件全体批准主体及准确治理更新。只提供 founder 签名应失败，证明 founder 没有永久后门；当前合法来源满足时不因旧 founder 离线而额外要求其永久批准。
+- 在接受后、激活前分别改组织风险状态、charter/source revision、代表任期、批准人当前控制或必要资金授权。旧签名不能继续绑定；当前来源恢复也不自动重放旧激活。已先合法激活的责任按 CF13 保留。
+- 证据：当前组织/来源/控制事实、明确接受、准确治理绑定、原 source owner、拒绝差分及唯一 activation receipt；组织名称或 UI 有“管理员”标签不算证明。
+
+<a id="cf-10-multiparty"></a>
+## CF-10：完整多方、同版正文、零业务效果与不取交集
+
+设计依据：[共同条款](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-terms)、[必需接受](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-required-acceptances)。
+
+- 正例：至少三个独立 principal，包含实际 provider、beneficiary、fee payer 与有必要新许可的权利人。独立从完整 obligations/effects/费用/权利清单计算必需集合；组织多代表只形成其一份 bundle，个人多 Agent 不多计主体。全部同版接受后仍保持 pending，明确 Activate 才有世界结果。
+- 逐阶段读取普通聊天、草稿、offer、一方接受、部分方接受、全部接受、重连以及等待到期。对照初态验证本金、fee、hold、D/O/C、业务 slot、顺位、权限、声誉、债务和义务全部不变。协议元数据/CPU防滥用限额可变化，但不得转为玩法扣费/优先级。最后一份接受到达不自动激活，过期不会调用旧 native expiry 声誉效果。
+- 缺任一必要付款人、权利人或受影响继受方，或混用 revisions/render digests、添加隐藏费用/用途/义务、删除某责任方，整份拒绝。接受 nonce 的消费只能与实际激活同根，失败或纯接受不消费。
+- 完整请求反例：授权动作包含 {维护、交付} 但请求另含运输；授权对象 {F1,F2} 而请求 {F2,F3}；授权资源上限10而请求11。另组合三维均有非空交集、但各含一个未授权成员的请求；不能少执行一部分、换对象、删义务或缩量后继续。合法缩小须新条款/新修订和完整重新接受。
+- 摘要独立计算：先原 family body/digest，再 common body/digest、固定双语 render bundle/digest、接受证明、完整 request digest。改变 record_version 只改变请求/CAS，不改变未修订条款；任一源/义务/payer/风险/用途改变须改变 terms/render 并使旧接受失效，禁止 family/common 互嵌派生 ID 造成循环。
+- 可读性：当事人可以读完整签署义务、费用和风险；隐藏无关余额/私有证据原件不能删去必要共同条款。缺读权只可返回不可接受和真实下一步。选择中英显示不改相同 bundle 的签署内容；模型润色不能成为正文。
+
+<a id="cf-11-mandate-exposure"></a>
+## CF-11：长期授权的实际花费、业务承诺与全部费用
+
+设计依据：[累计暴露](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-cumulative-exposure)。
+
+以原 grant/source/object/period 为 oracle key，独立从领域单位、价格/风险 cap、实际费用和关闭机会重算 D/O/C，不相信一个聚合“剩余额度”字段。对 Electricity、Data、每种材料及适用权利各用自己的原单位；跨独立 grant 不新设总账户。
+
+1. 固定上限10，初态全0。合同甲形成 O=4、C=2；记录同一次 nonce、hold、usage 与领域激活。
+2. 合同乙要 O=4、C=1，总暴露11，拒绝且原量不变。令甲乙并发并安排两个权威顺序：至多允许先提交且有额度的完整合同，另一份拒绝；两个入口都读旧余额不能让二者成功。
+3. 甲实际支付3、实际费用1后，应为 D=4、O=1、C=1，合计6。只有原剩余义务合法解除、程序/闭合已完成且无未付责任时，O/C才归0；D仍4。
+4. 真实收到3退款后仍D=4，不能重获原10额度。新承诺使用剩余6以内；换 request、terms revision、Agent、代表、credential、period显示或合同ID不消除原D及未结负担。
+5. 分别留下有效未付债权、unknown结果、返还账户无法解析、仍可能合法判付或未完关闭费用；即使页面显示 terminated/工作结束，也不能释放相应O/C。拆分已完成单位和重复原receipt不重记支出或释放。
+6. 所有后续 writer 分别刺激：正常支付、真实材料/电力sink、业务赔付、执行费、每 actor 程序费与final close。要求原资金、对应purpose的O/C、D和同一effect receipt一次更新。一个无适配publisher或不完整source root使本范围新承诺不可执行，不能把未知量归0。
+
+权利/风险单位若是有状态的许可占用而非货币，应以其原消费/解除证明执行同样的原范围判据；不得通过模糊风险分值相抵。授权内正常自动签约不逐次再询问owner，真正新增范围/累计承诺才需要新明确授权。
+
+<a id="cf-12-family-handoff"></a>
+## CF-12：全部已采纳族的正向形成与真实领域结果
+
+设计依据：[family handoff](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-family-handoff)、[同根激活](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-activation)。
+
+| 独立正向例 | 形成时验证 | 形成之后不能伪造的事实 |
+| --- | --- | --- |
+| 三方即时交换 | 全部主体/来源/同版接受、预先资金、所有有向腿和费用同次提交 | 单方到账、两个旧Settle、ACK不证明整体原子完成 |
+| 原个人供能v1与一般组织/多方供能 | v1保留原两个人限制；一般供能使用服务族的完整单位/责任/预算/组织来源 | active不证明已经供能或价款已付 |
+| 维护/维修 | 明确设施/实际维护动作与输入、接收/验收predicate、时界、承担者和真实payer | 维护意图或施工开始不证明维护完成；只有原producer的真实效果算数 |
+| 物料运输 | 原cargo/ledger/数量、路线/目的地、保管/所有权里程碑、损耗/返回责任与费用 | 发出、在途、arrival、入库和商业交付分别判断；不自动返还丢失货物 |
+| 一般共同工作 | 有限单位/依赖、每方具体工作与真实原receipt、独立责任及程序机会 | 聊天“合作完成”、模型输出或一方工作成功不能代表全部履行 |
+| 组织/多方R&D、成员epoch和显式份额转移 | 原charter/角色/贡献来源/使用权、当期必需方完整接受和费用；同一RD executor消费common输入 | 签署不代表新贡献/成果许可/经济收益；新成员不迁走旧贡献、slot/bps/E或个人credential |
+
+每族至少一个实际正向形成和一个晚到拒绝/来源变化；缺某族实现时单列未执行，不能用unsupported负例宣称原完整范围已验收。服务继续按 [原领域义务](../../world-runtime/runtime/continuing-service-fulfillment-and-remedies.design.md#service-obligations)和 [领域证据](../../world-runtime/runtime/continuing-service-fulfillment-and-remedies.design.md#service-domain-evidence)，R&D继续按 [原激活](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-charter-activation)与 [有限epoch](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-charter-membership-epochs)；只核本次形成与交接，履约/归因各有自己的完整验收。
+
+即时资产单独取正例：Electricity/Data逐方向权限和共址；原direct条件成立的材料ledger；同世界native MainToken自由liquid balance及原auth/nonce。反例分别为错误Data方向、显式path伪direct、不可转让材料、token nonce重放/错链/未签token auth、vested或restricted/指定starter来源、外部OC桥到账、把credential/设施控制/R&D份额塞进即时腿。MainToken的quote fee metadata不能被当成合法新收费。
+
+多方独立算例依设计给定P/Q/R三方及真实合法费用：P→Q 6E、Q→R 4E、R→P 2E，每腿示例交易费1E。根据实际完整输入/输出、3 effects、1 emit、new_state的计量求runtime Data/E，再逐source复算全部余额与treasury；不能照抄局部payload的计数。设计中的数值只在实际fixture确有该合法完整封套时使用，否则先按本fixture真实字节重新列出oracle。P提交前总支出聚合，不能用来自R的本次到账融资。
+
+在所有准备已通过但安装前分别令最后一个authority、source余额、nonce、接收容量、费用payer或domain write set失败。要求原领域记录、全部资源/hold、D/O/C、接受nonce、业务赢家、event/receipt全体无部分安装；确定未提交的形成失败也不能留下module费用。提交结果未知转CF15，不当作失败。复用原family，不增加一个可变formation实例；R&D/许可原两invoke仍明确计为两次。
+
+<a id="cf-13-revocation-succession"></a>
+## CF-13：撤回、撤权、代表替换与原责任继受
+
+设计依据：[共同恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-recovery)、[退出政策](../../game/gameplay/gameplay-agent-mediated-contract-formation-policy.prd.md#formation-policy-exit)。
+
+分别安排撤回/撤权先于激活及激活先于撤回的权威顺序。先撤回或来源失效时完整激活无效果；先合法激活时后来Stop Agent/撤销mandate/关闭页面只影响新代理行为，原义务、费用、未付责任和receipt保留。原Data grant撤销不取消已经明确授予的窄范围资金处置权，也不能被该处分权反向扩成新生产/新Data访问权限。
+
+同一组织换代表，组织仍是原principal；新代表不继承旧签名或已耗授权，必须有当前有效角色/mandate。换principal或服务provider则依据原domain范围作显式继受，所有受影响方及新方同版接受，旧方历史D/责任和程序机会不迁走。
+
+使用16个当前服务方加1名新主体的完整必需集合检验17方继受；另把历史未受改动责任方保留在原账，其不需被强迫重签新未来工作但仍能补证/查自己原件。测试缺一新payer、旧单位未知、合法保全、不可分工作、重叠旧新执行范围和旧新费用不同；不能先撤旧后靠后台开新，也不能洗原单位、case时界、fee累计或责任cap。
+
+对退休、组织保护/解散/资不抵债、控制权转让与受益账户不可解析分别验证：冻结对应新风险，按原履约/救济保留历史和顺序；无法安全返还时保持hold/return_pending，不把资金释放给新owner。旧域需要先结清才能处分时，完整拒绝资产转让而非删除义务。
+
+<a id="cf-14-bounded-cost"></a>
+## CF-14：完整编码、所有调用费用及不被耗尽的退出
+
+设计依据：[费用与容量](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-budget)。
+
+### 完整封套而非原始payload
+
+对实际codec独立序列化完整输入/输出，包含旧/新state、terms、proof/签名、refs、操作、family参数、返回值和外层wrapper。先用32字节全255与64字节全255作长度检查：若编码为CBOR uint8数组，完整长度分别是66和130，不是32/64；若为byte string，按真正bstr编码另算。内层已经编码为bytes后再次包为数组，还会再扩大；不以raw state上限代替调用上限。
+
+先独立核对[实际 ABI 类型](../../../crates/oasis7_wasm_abi/src/lib.rs)和[命令 route](../../../crates/oasis7_runtime/src/world/module_runtime.rs)：typed payload 编码后进入 `ModuleCommandEnvelope.payload: Vec<u8>`，完整命令再进入 `ModuleCallInput.action: Vec<u8>`，存在**两层数组扩大**；旧state另按原Vec编码。只把typed body直接放到一个自造input字段的单层结果不是合法容量证据。以下正例采用设计明确的内部Hash32/Signature64=bstr和接受/批准tuple，host payload/action/state/new_state仍按原uint8数组，不能改host wire来凑大小。
+
+哈希32字节、签名64字节，内容全255；这些哨兵只验证结构最大元素长度，不是合法签名、真实来源或已实现adapter。完整terms与所有512份批准签名仍在typed payload中。渲染、组织roster/mandate和来源的完整原件由所绑定exact refs解析，不能只看hash就放行；真实候选还须证明它们在同一合法root可验证、可受权取回，实际需要新增proof字节时重新序列化完整调用。正常业务正向仍由CF09/CF12的真实合法来源证明。
+
+| 完整形状 | 必需主体 / 每组织批准签名 / 即时腿 | terms / 接受bundle / typed payload / 命令封套 bytes | 完整ModuleCallInput / ModuleOutput bytes | 判定 |
+| --- | --- | --- | --- | --- |
+| 小型双层形状 | 3 / 1 / 3 | 2,217 / 631 / 3,843 / 7,746 | 16,567 / 1,823 | 全部host字段与两层数组计入；实际费用按完整大小 |
+| 最大接受集合形状 | 32 / 16 / 32 | 13,542 / 39,370 / 58,835 / 116,686 | 233,407 / 11,809 | 32 principal和512签名可完整编码；仍须真实权限、资金、来源及domain条件 |
+| 子上限不能同时用满 | 32 / 16 / 64 | 18,998 / 39,370 / 69,747 / 138,352 | 276,576 / 18,561 | input超过262,144，完整拒绝；另有64 effects超过单节点32的拒绝 |
+| 内部binary误用Vec的反例 | 32 / 16 / 32 | 19,174 / 76,234 / 104,563 / 208,144 | 416,514 / 16,161 | 保持同样tuple及host wire，只将内部binary误作数组已超界；不能沿用bstr正例 |
+
+下列纯静态脚本完整规定该形状，可从方法正文直接独立复算；只实现这些固定输入需要的CBOR基本类型和确定map排序，不是生产codec、签名验证器或业务测试。`U8Array`明确区分host的Vec与制度内部bstr；输出的数值`output_bytes`取完整结构长度的不动点，不能装入业务payload。真实sandbox必须自己度量实际输出，不能信该字段自报。ModuleOutput的effect名称/params是目标shape示意，不能证明某effect已由Kernel采纳。字段省略规则沿ABI：此命令route无event，tick_lifecycle未设置；新实际可选字段、状态或proof须重新计量。
+
+```python
+class U8Array(bytes):
+    pass
+
+def head(major, n):
+    if n < 24:
+        return bytes([(major << 5) | n])
+    if n < 256:
+        return bytes([(major << 5) | 24, n])
+    if n < 65536:
+        return bytes([(major << 5) | 25]) + n.to_bytes(2, 'big')
+    if n < 2**32:
+        return bytes([(major << 5) | 26]) + n.to_bytes(4, 'big')
+    return bytes([(major << 5) | 27]) + n.to_bytes(8, 'big')
+
+def enc(value):
+    if value is None:
+        return b'\xf6'
+    if isinstance(value, bool):
+        return b'\xf5' if value else b'\xf4'
+    if isinstance(value, int):
+        return head(0, value)
+    if isinstance(value, str):
+        raw = value.encode()
+        return head(3, len(raw)) + raw
+    if isinstance(value, U8Array):
+        return head(4, len(value)) + b''.join(enc(x) for x in value)
+    if isinstance(value, bytes):
+        return head(2, len(value)) + value
+    if isinstance(value, list):
+        return head(4, len(value)) + b''.join(enc(x) for x in value)
+    if isinstance(value, dict):
+        pairs = sorted(((enc(k), enc(v)) for k, v in value.items()),
+                       key=lambda pair: (len(pair[0]), pair[0]))
+        return head(5, len(pairs)) + b''.join(k + v for k, v in pairs)
+    raise TypeError(type(value))
+
+def fixture(n, signatures, leg_count, internal_arrays=False):
+    h = bytes([255]) * 32
+    sig = bytes([255]) * 64
+    if internal_arrays:
+        h, sig = U8Array(h), U8Array(sig)
+    principals = [{
+        'principal': ['organization', f'org-{i:02}'],
+        'roles': ['provider', 'payer'], 'agent': f'agent-{i:02}',
+        'source': h, 'tenure': 1, 'mandate': h,
+        'cap_e': 100000, 'cap_d': 100000, 'read_scope': 'full-contract'
+    } for i in range(n)]
+    legs = [{
+        'slot': i, 'kind': 'electricity', 'from': i % n,
+        'to': (i + 1) % n, 'source': h, 'target': h,
+        'amount': 10, 'permission': h
+    } for i in range(leg_count)]
+    terms = {
+        'schema': 2, 'world': h, 'branch': h, 'genesis': h,
+        'family': 'immediate_exchange_v2', 'instance': h, 'agreement': h,
+        'revision': 1, 'previous': None, 'policy': h, 'activation': h,
+        'manifest': h, 'schedule': h, 'quote_root': h,
+        'not_before': 1, 'expires': 101, 'principals': principals,
+        'required': list(range(n)), 'obligations': legs, 'dependencies': [],
+        'fee_graph': [{
+            'node': 0, 'artifact': h, 'instance': h, 'payer': 0,
+            'schedule': h, 'input_max': 262144, 'output_max': 262144,
+            'effects_max': 32, 'emits_max': 16, 'fuel_max': 1000000,
+            'count': 1, 'purpose': 'instant'
+        }],
+        'fee_policy': h, 'resource_caps': [[i, 100000, 100000] for i in range(n)],
+        'renderer': h, 'remedy': 'query-original-final-result',
+        'alternative': 'decline-or-requote', 'family_body_digest': h,
+        'source_projection_use': None
+    }
+    accepts = [[i, h, 1, h, h, h, 101,
+                [[j, sig] for j in range(signatures)]] for i in range(n)]
+    body = {
+        'schema': 2, 'operation': 'activate', 'business': h,
+        'request_id': 'r' * 128, 'requester': 0,
+        'expected_record_version': 1 + n, 'terms': terms,
+        'acceptances': accepts, 'source_root': h, 'usage_root': h,
+        'family_body': {'legs': legs, 'fee_policy': h},
+        'new_effects_expected': leg_count, 'nonce_root': h
+    }
+    payload = enc(body)
+    command = {
+        'namespace': 'oasis7.formation', 'name': 'activate',
+        'schema_version': 2, 'schema_hash': 'ff' * 32,
+        'payload': U8Array(payload)
+    }
+    old = {
+        'version': 2,
+        'proposal': {'business': h, 'revision': 1,
+                     'terms_ref': h, 'acceptance_root': h},
+        'active': [], 'usage_refs': [], 'nonce_refs': []
+    }
+    limits = {
+        'max_mem_bytes': 67108864, 'max_gas': 1000000,
+        'max_call_rate': 64, 'max_output_bytes': 262144,
+        'max_effects': 32, 'max_emits': 16
+    }
+    ctx = {
+        'v': 'wasm-1', 'module_id': 'formation-family-v2',
+        'trace_id': 'r' * 128, 'time': 1,
+        'origin': {'kind': 'module_command', 'id': 'r' * 128},
+        'caller': {'kind': 'agent', 'agent_id': 'agent-00'},
+        'limits': limits, 'stage': 'module_command',
+        'world_config_hash': 'ff' * 32, 'manifest_hash': 'ff' * 32,
+        'journal_height': 1, 'module_version': '2',
+        'module_kind': 'reducer', 'module_role': 'mechanism'
+    }
+    inp = {'ctx': ctx, 'action': U8Array(enc(command)),
+           'state': U8Array(enc(old))}
+    state = {
+        'version': 2,
+        'activated': {'business': h, 'terms': h,
+                      'acceptance_root': h, 'receipt_ref': h},
+        'units': [[i, 'fulfilled'] for i in range(leg_count)],
+        'usage_refs': [h] * n, 'nonce_refs': [h] * n
+    }
+    out = {
+        'new_state': U8Array(enc(state)),
+        'effects': [{
+            'kind': 'formation.transfer',
+            'params': {'slot': i, 'resource': 'electricity', 'amount': 10,
+                       'from': f'agent-{i % n:02}',
+                       'to': f'agent-{(i + 1) % n:02}'},
+            'cap_ref': 'ff' * 32, 'cap_slot': f'leg-{i:02}'
+        } for i in range(leg_count)],
+        'emits': [{'kind': 'formation', 'payload': {
+            'business': 'ff' * 32, 'terms': 'ff' * 32,
+            'outcome': 'fulfilled', 'receipt': 'ff' * 32,
+            'source_projection_use': None
+        }}],
+        'output_bytes': 0
+    }
+    while True:
+        size = len(enc(out))
+        if out['output_bytes'] == size:
+            break
+        out['output_bytes'] = size
+    return {
+        'terms': len(enc(terms)), 'acceptances': len(enc(accepts)),
+        'payload': len(payload), 'command': len(enc(command)),
+        'input': len(enc(inp)), 'output': len(enc(out)),
+        'old_state': len(enc(old)), 'new_state': len(enc(state))
+    }
+
+for args in [(3, 1, 3, False), (32, 16, 32, False),
+             (32, 16, 64, False), (32, 16, 32, True)]:
+    print(args, fixture(*args))
+print('primitive', len(enc(U8Array(bytes([255]) * 32))),
+      len(enc(U8Array(bytes([255]) * 64))),
+      len(enc(bytes([255]) * 32)), len(enc(bytes([255]) * 64)))
+```
+
+所有容器头、键名、内层编码和两次再包装均计入。64腿反例还须拆成合法完整调用图才能满足单节点32-effect界限，修正调用图不会自动消除输入超界；任何合法替代仍需一次权威提交、完整新报价与同意，不能分两次生效。512签名正例不意味着其他子上限也能同时取满。原先单层推演的13,506/238,739/272,691等数值不再作为ABI容量或费用依据。
+
+### 费用与机会的独立闭包
+
+- 枚举实际根调用图的每个invoke，包括相同module的不同ordinal、原license两调用、所有收费hook/订阅、后续真实工作、修复/返程及RD程序。common validation嵌原family，不额外算一个虚构module；host不复制institution解释器来声称0调用。每项核真实artifact owner/payer、计量schedule、完整bytes/effects/emits/fuel、实际和最大次数。
+- 节点最大256KiB输入/输出、32 effects、16 emits时，上界592 Data/50 Electricity，64节点上界37,888 Data/3,200 Electricity；这是受签保守上界，实际成功按真实计量。小型双层形状input16,567/output1,823、3 effects/1 emit/new_state=true，结构计量为17+2+6+1=26 Data及1+3+1+1=6 Electricity；最大接受集合input233,407/output11,809、32 effects/1 emit/new_state=true时为228+12+64+1=305 Data/35 Electricity。不能把上界直接收费，也不能用局部payload、原单层推演或另一fixture的1KiB计数。
+- 对每个payer把整个生命周期最大成功/明确可计费attempt次数、程序actor/阶段和close完整展开，独立与signed cap、D/O/C及真实可用资金比较；源相同的原调用按完整effect/ordinal去重，不把两个invoke误并。实现配置/旧数据超过已签完整envelope时应在发布前失败。
+- 逐一取principal、proof数、bytes、obligation/edge/source、invoke/fuel、活跃合同/历史初次序号的边界和超一；再取嵌套子项各自合法但完整envelope超限。要求稳定拒绝、零部分业务状态，旧原件/关闭机会不被删。
+- 耗尽一方普通执行或自己的证据份额，另一方及最终系统close仍有其独立预算和机会；同一人改ID不能重装机会。预算不是共享可任意消费池。真实domain close未完成，不得先退其唯一资金再说“以后补费”。
+- 让普通请求占满4在途和ordinary rate，原件查询用完独立16次，再令只读long-poll占优先槽；第一次合法Stop/撤回/原授权停止仍有按原proposal/grant和revision的独立机会，可抢占自己的long-poll并经正确权威入口送达，不依赖剩余执行预算或普通查询额度。相同控制换request ID只能恢复原键，不创建无限份额。协议限额仍保护CPU/通信，不能用控制槽执行免费付款。根writer unknown时只报告真实pending/恢复，不越过fence假装已停止。
+- 分清非绑定登记、激活暂存计算、active之后已明确接受的attempt费。前两者无已发布失败业务费；active后原合法attempt按operation/node ordinal一次计费，其原责任不由形成层取消。每一类的真实费用/零费用来源及后果必须各有证据。
+
+<a id="cf-15-recovery-audience"></a>
+## CF-15：原结果、根未知与当前受众
+
+设计依据：[共同恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-recovery)。
+
+按真实候选分别注入准备中、全部准备完成但持久决定前、决定未知、已提交回复前及投影/GC后失败。确认未提交时nonce、义务、资源、usage、费用及winner全体未生效；确认提交只返回原receipt；持久决定未知则fence整个旧writer，连同所有后续mutator、世界tick推进、save及依赖派发停止，并恢复精确候选，不只冻结当前合同。
+
+重连、换request ID、重发原payload、不同payload复用原ID、改revision、key轮换、artifact升级、停用/回滚分别核同business/nonce/effect去重。not_found_at_root不证明无在途提交；旧身份来源不可读或当前授权失效不触发重新执行。snapshot/journal恢复要包含全部来源、接受、nonce、usage、holds、unit/case/fee counters、必要原工件及当前查询权限；缺一保持不可写/明确unknown。
+
+当前受众分别为原个人、组织有权代表、已离任代表、新owner、新继受方、原资金权利人和旁观者。读取自己原责任所需原件不授新写权，不泄露新方无关余额/私有prompt；仅持有旧合同ID不能读取全部内容。原合法资金处分与历史读权分开检查，source变化不清旧责任。
+
+<a id="cf-16-consumers"></a>
+## CF-16：同源协商、真实后果和已声明下游用途
+
+设计依据：[共同读面](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-read)、[共同条款](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-terms)。
+
+用同一candidate/root在实际Agent/API/Viewer核对完整签署正文、principal/代表/任期、接受来源、D/O/C可见部分、主要成本/风险、无合同替代和真实next_action。逐项区分ACK、pending acceptance、activation、work started、partial/fulfilled、responsibility final、paid/return_pending和unknown。API/Viewer可以不同布局，不能不同事实；缺正式consumer就记录未覆盖。
+
+用源过期、缺授权、资金不足、未知原结果、无合法继受和当前读权不足分别刺激，检查呈现的是准确刷新、修改新条款、重新授权、原件查询、等待或停止，不虚构可执行按钮。可见理由沿原causal receipt关联实际世界结果；模型建议不补接受，停止建议不证明旧义务已取消。
+
+即使交易看起来成功，普通聊天、offered、全部接受及激活都不能自行产生声誉/资格。对immediate_exchange_v2分别测试明确source_projection_use、明确null、字段缺失/非法、接受后改变policy/purpose/audience和旧v1原件。仅完全签署的合法声明及原政策认可的实际双向非零receipt可交 [source families](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-source-families)，[purpose admission](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)与 [实际消费者](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)按其原规则只读计算。形成/支付executor不写score/资格/额外资源奖励；一份receipt不证明原主体/控制独立性，消费者仍核真实source。CR003的数值、期限、申诉和完整消费者方法由其手册另验。
+
+<a id="cf-17-integration-compatibility"></a>
+## CF-17：三个领域的组合与旧合同兼容
+
+设计依据：[族交接](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-family-handoff)、[共同恢复](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-recovery)。
+
+选择同一组织mandate及其真实资金来源，先形成一般服务，再在该授权剩余额度内形成R&D合作；各自义务/费用仍在原domain，common引用同一原usage。服务未付责任或R&D未闭合工作仍占原暴露时，新承诺不得因切family而获新额度。形成host不复制服务归责或R&D贡献逻辑，原executor完整调用图计费且所有相应common/source关系同根。
+
+服务继受、RD成员epoch/份额转移分别消费完整必需接受，历史工作/责任/原分配不重置；当受合法保全的原scope存在时，只处理允许的无争议范围，不令形成层替领域解冻。未来结果反馈只沿原effect lineage进入其适用声誉/用途，原accepted、控制切换或common metadata不成为新事实来源。
+
+最后对旧native EconomicContract、owner_atomic_resource_exchange_v1及个人power v1运行其原方法和兼容oracle，保留原字段、费用、到期与历史重放；新组织/长期受托仍不能伪装成旧v1输入。未知版本、缺制度activation/合法fee/source、破坏性upgrade或丢恢复字段分别拒绝写入且保留原件/drain。设计静态链接/表格检查只证明结构，不能代签这组真实组合、节点最终性或玩家理解。

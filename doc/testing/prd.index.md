@@ -44,9 +44,17 @@
 
 ## 活跃补充文档
 
+- [生产目标恢复比较验收](manual/production-recovery-comparison-acceptance.manual.md)：同一目标与前态下独立计算真实候选、时间/资源和保留价值，核当前权限、目标变更、未知恢复、有限读取及玩家判断；原动作和正式入口分别取证。
+- [认可与有限机会验收](manual/recognition-opportunity-acceptance.manual.md)：成熟阶段和原交付、当前审核授权、完整竞争集合、单次机会与真实物流使用、普通容量旁路、失效和未知恢复；静态方法、目标协议与正式消费者的证据分别保留。
+- [成熟世界经济审计验收](manual/mature-world-economic-audit-acceptance.manual.md)：同候选/完整窗口的原生生产、转移、OC 发行与财库分发独立复算，核治理影响、缺证/异常、读权与预算及补证恢复；区分原内部计算、目标审计消费者与全域长期证据。
+
 - [工业创建四阶段验收](manual/industrial-creation-simulation-and-admission.manual.md)：同输入模拟、试点预算/退出、当前准入和原请求恢复。
 - [有限许可与版税验收](manual/industrial-license-and-royalty-settlement.manual.md)：真实批次、托管、通知与最小保全、累计整数分配及开放。
 - [情境声誉验收](manual/contextual-reputation-acceptance.manual.md)：合同来源、主体/情境/时效、补救、更正和旧分数消费者隔离。
+- [社会动作后果预览验收](manual/social-action-consequence-preview-acceptance.manual.md)：五动作的来源与声明边界、逐资源后果、当前受众、实际消费者、陈旧/未知恢复和有限读取；区分 kernel、seed 夹具与正式玩家入口的证据。
+- [组织与岗位履历验收](manual/organization-custody-role-reputation-acceptance.manual.md)：登记/接替/真实托管返还到组织与原任期咨询的来源、权限、时效、派生更正及恢复；方法与实际运行证据分开。
+- [R&D 归因与份额转让验收](manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)：预工作时序、贡献与使用权、冻结分配、有限程序和原槽转让；不把方法或静态复算写成真实业务通过。
+- [外部 Runtime 私有上下文恢复](manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)：原 run/operation 核对、完整任务基线、告知/重规划与双 Agent 隔离；真实 Runtime 分别取证。
 - [外部 Runtime 自主试玩与开发自测设计](governance/agent-runtime-self-playtest.design.md)：承接现有 L4B、真实 subagent、玩家 Skill、自主游玩、权威验真及修复回归，不新增通用门禁。
 - [开发 Agent 自测操作手册](manual/agent-runtime-self-playtest.manual.md)：唯一操作入口，集中维护预检、启动、派工、七组场景、反馈与清理；试玩者读取正式游戏 Skill。
 - [首局真人试玩手册](manual/first-session-human-playtest.manual.md)：复用现行证据层级与首局要求，提供受控目标玩家的筛选、两次会话、主持话术、提示规则、原始记录和复测方法；真实执行与结论在原 PR/证据入口分别留证。

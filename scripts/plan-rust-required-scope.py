@@ -1496,7 +1496,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 or (owner[0] == 'mod'
                     and (short_name == 'tests' or short_name.startswith('test_') or short_name.endswith('_tests'))))
 
-    def gate_value(attribute, native_linux, enabled=None, wasm_compile=False):
+    def gate_value(attribute, native_linux, enabled=None, wasm_compile=False, test_build=True):
         # Accept only a known expression that is actually true in the expanded
         # driver feature and native target combination. Mentioning an allowed
         # feature is insufficient: all(feature="test_tier_full", any()) is false.
@@ -1510,7 +1510,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 raise ValueError('missing cfg predicate')
             value = values[cursor]
             if value == 'test':
-                return not wasm_compile, cursor + 1
+                return test_build and not wasm_compile, cursor + 1
             if wasm_compile and value in ('unix', 'windows'):
                 return False, cursor + 1
             if native_linux and value in ('unix', 'windows'):
@@ -1945,6 +1945,93 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 return False
         return True
 
+    def production_import_proves(path, attribute, owner):
+        # Only a direct sibling-module alias, mounted in both real Cargo
+        # contexts, may use the production (test=false) compilation tuple.
+        # This never witnesses a fn/mod test execution gate.
+        if owner[0] != "use" or attribute[0] != "cfg" or "feature" in attribute:
+            return False
+        info = parsed(path, True)
+        tokens, closing, items = info[7], info[8], info[9]
+        starts = [index for index, item in items.items() if item == owner]
+        if len(starts) != 1:
+            return False
+        start = starts[0]
+        if any(left < start < right and tokens[left][1] == "{" for left, right in closing.items()):
+            return False
+        declaration = [value for _, value, _ in tokens[start:start + 8]]
+        if (len(declaration) != 8 or declaration[:4] != ["use", "super", ":", ":"]
+                or declaration[5] != "as" or declaration[7] != ";"
+                or tokens[start + 4][0] != "identifier" or tokens[start + 6][0] != "identifier"):
+            return False
+        if gate_value(attribute, True, set(), test_build=False) is not True or gate_value(attribute, True, set()) is not False:
+            return False
+        local = [gate for gate, _ in lexical_attributes(info, start)]
+        if any(gate[0] == "cfg_attr" or (gate[0] == "cfg" and (
+                "feature" in gate or gate_value(gate, True, set(), test_build=False) is not True))
+                or (gate[0] not in ("cfg", "cfg_attr") and not ordinary_attribute(gate, True))
+                for gate in local):
+            return False
+        def tuple_features(packages, test_build):
+            defaults = source_inputs.get("default_features", {})
+            features = set.intersection(*(set(defaults.get(package, ())) for package in packages)) if packages else set()
+            declared = set.intersection(*(set(available_features.get(package, ())) for package in packages)) if packages else set()
+            if test_build and packages and packages.issubset(feature_packages):
+                features |= enabled_features & declared
+            return features
+        def compile_route(roots, test_build):
+            routes = inherited_paths(path, True, roots=roots)
+            if not routes:
+                return False
+            values = []
+            for gates, proven, opaque, packages in routes:
+                features = tuple_features(packages, test_build)
+                current = [gate_value(gate, True, features, test_build=test_build) for gate in gates]
+                if not proven or opaque or any(value is None for value in current):
+                    return False
+                values.append(all(current))
+            # Alternative literal mounts may be disabled in this tuple; one
+            # actual route must execute, and no unresolved route is hidden.
+            return any(values)
+        if not compile_route(ordinary_roots, True) or not compile_route(production_roots, False):
+            return False
+        parents(path, True)  # Populate literal provenance, independently of cfg truth.
+        provenance = reference_cache[(path, True, None)]
+        if any(not known or opaque or not resolved for _, known, opaque, resolved, _ in provenance):
+            return False
+        references = sorted({parent for parent, _, _, _, gates in provenance
+                             if all(gate_value(gate, True, tuple_features(source_owners(parent), False), test_build=False) is True for gate in gates)})
+        if not references:
+            return False
+        # The imported sibling must have a literal declaration and actual source;
+        # an unresolved import cannot become a compiler-coverage exemption.
+        name = declaration[4]
+        for parent in references:
+            parent_info = parsed(parent, True)
+            matches = []
+            for index, item in parent_info[9].items():
+                if item[0] != "mod" or parent_info[7][index + 1][1] != name:
+                    continue
+                if any(left < index < right and parent_info[7][left][1] == "{" for left, right in parent_info[8].items()):
+                    continue
+                gates = [gate for gate, _ in lexical_attributes(parent_info, index) if gate[0] in ("cfg", "cfg_attr")]
+                if any(gate_value(gate, True, tuple_features(source_owners(parent), False), test_build=False) is not True for gate in gates):
+                    continue
+                if parent_info[7][index + 2][1] == "{":
+                    matches.append(True)
+                else:
+                    paths = [gate for gate, target in parent_info[6] if target == item and gate[0] == "path"]
+                    if paths and not (len(paths) == 1 and len(paths[0]) == 3 and rust_literal_path(paths[0][2]) is not None):
+                        continue
+                    directory = posixpath.dirname(parent) if parent in production_roots or posixpath.basename(parent) in ("mod.rs", "main.rs", "lib.rs") else parent.removesuffix(".rs")
+                    candidates = ([posixpath.normpath(posixpath.join(posixpath.dirname(parent), rust_literal_path(paths[0][2])))]
+                        if len(paths) == 1 and len(paths[0]) == 3 and rust_literal_path(paths[0][2]) is not None
+                        else [posixpath.join(directory,name + ".rs"),posixpath.join(directory,name,"mod.rs")])
+                    matches.append(sum(candidate in sources for candidate in candidates) == 1)
+            if matches != [True]:
+                return False
+        return True
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
@@ -2032,6 +2119,9 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             raise TestPolicyError('new ignored test lacks a trusted execution mapping: ' + path
                                   + '; keep it executable or register its actual ignored-test runner')
         for attribute, owner in added_attrs:
+            if production_import_proves(path, attribute, owner):
+                production_cfg_paths.append(path)
+                continue
             worker = 'oasis7_custody_worker'
             manifest = source_inputs.get('manifests', {}).get(worker, {})
             worker_root = posixpath.join(directories.get(worker, ''), 'src/lib.rs')
@@ -2053,7 +2143,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             ordinary_gate = enabled_gate(attribute, native, inherited_defaults)
             if not ordinary_gate and features and not mapped_native_driver:
                 raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
-            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver, inherited_expanded):
+            if not ordinary_gate and not enabled_gate(attribute, native, inherited_expanded):
                 raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
             if features and (not feature_owners.get(path) or any(
                     not features.issubset(available_features.get(package, set()))

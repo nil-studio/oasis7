@@ -23,6 +23,7 @@
 - 想继续按文件名或子域精确下钻：直接使用下方完整清单
 
 ## 活跃补充文档
+- [社会动作后果预览](kernel/social-fact-ledger-declarative-reputation.prd.md#social-preview-contract)、[来源与执行设计](kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-source)及[验收手册](../testing/manual/social-action-consequence-preview-acceptance.manual.md)：区分声明与证据、直接状态及逐资源质押后果、实际消费者和当前可见范围；五动作分别核来源、新鲜度、只读恢复和有界读取，不以固定提示或 seed 夹具代签正式能力。
 - `doc/world-simulator/viewer/README.md`：`viewer/` 热点子域 landing page，适合先做簇级分流，再决定进入 `manual`、`viewer` canonical / `software_safe` compat alias 或 runtime live 专题。
 - `doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md`：Viewer / player-facing surface 的 canonical 视觉设计规范，覆盖视觉方向、层级、pixel-world 可读性、响应式/可访问性与视觉 review gate。
 - `doc/world-simulator/viewer/viewer-brand-system-2026-06-05.design.md`：Viewer 视觉规范 companion，覆盖 brand book、语义 token、icon/status vocabulary、资产语言、稳定 DOM hook 与扩展截图矩阵。

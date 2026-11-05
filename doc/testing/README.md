@@ -6,7 +6,7 @@
 - 了解 testing 模块覆盖的测试层级、门禁和证据边界：`doc/testing/prd.md`
 - 查找好玩性证据、`L4A/L4B/L5` 边界、角色 subagent review 或 simulated player persona 的 canonical topic：`doc/testing/governance/README.md`
 - 在一个 worktree 中准备 `L4A + L4B` 验证：先经 `doc/testing/governance/README.md` 确认所需证据层，再读 [L4 工具链合同与验收](../../testing-manual.md#l4-toolchain-validation)。`./scripts/prepare-playability-l4-review.sh` 只生成 scaffold；L4B 还需实际 release/UI、Hosted 执行会话与当前尝试证据，旧 runner 的实现差距见总手册 L4B 章节。
-- 执行工业创建/许可、合作/声誉、Web UI、Playwright、public-testnet attach 或模型视觉评审手册：先读 [manual 入口](manual/README.md)，再按问题进入对应 manual；各目标合同的方法与实际通过记录分开。
+- 执行成熟世界经济审计、生产目标恢复比较、认可与有限机会、工业创建/许可、合作/声誉、社会动作预览、组织/岗位托管返还履历、R&D 归因/转让、Runtime 上下文恢复、Web UI、Playwright、public-testnet attach 或模型视觉评审手册：先读 [manual 入口](manual/README.md)，再按问题进入对应 manual；各目标合同的方法与实际通过记录分开。
 - 查看当前测试策略、覆盖缺口与 QA 证据边界：`doc/testing/prd.md`；可变任务状态和历史以 PR、实际 CI 与评审记录（Issue 按需）为准。
 - 选择测试套件或查操作步骤：先读 `testing-manual.md`；涉及专项操作再进入 `doc/testing/manual/README.md`。
 - 进入 `evidence` 热点子域，按 release gate / hosted access / public-testnet readiness evidence / legacy p2p rehearsal / governance drill / claim-audit 问题分流：`doc/testing/evidence/README.md`

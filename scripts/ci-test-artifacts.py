@@ -1784,6 +1784,14 @@ def execute(bundle, suite, results, shard=None, plan=None):
         entries = selected_entries(manifest, formal_configuration(), suite if not shard else None, shard)
     if not entries:
         raise ValueError('selected test execution is empty')
+    inline = (suite == 'ordinary' and not shard and fast_plan(plan) is not None
+              and plan.get('fast_execution_version') == 1)
+    if inline:
+        # All manifests and actual inventories have passed load() validation.
+        # Start complete component libraries before short integration harnesses
+        # so the latter do not delay the longest runners. Keep each target and
+        # the original relative order within both kinds.
+        entries.sort(key=lambda entry: manifest['binaries'][entry['binary']]['target_kind'] != ['lib'])
     jobs = []
     for entry in entries:
         logical_suite = entry.get('suite', suite)
@@ -1811,8 +1819,7 @@ def execute(bundle, suite, results, shard=None, plan=None):
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         jobs.append(dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
                          name=name, count=count))
-    if (suite == 'ordinary' and not shard and fast_plan(plan) is not None
-            and plan.get('fast_execution_version') == 1):
+    if inline:
         execute_inline_jobs(jobs, results)
         return
     failed = False

@@ -25,10 +25,12 @@ Agent owner 维护 Runtime 驱动和版本兼容；Runtime owner 验证 task/exe
 | Trace refs: O7-REQ-b3e367c3-c72d-4959-b599-613ac652dab8；[AC-EXT-001](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-001) | 声明 Runtime 必须确实执行且兼容方式可复现 | [adapter-drivers](#adapter-drivers) | agent_engineer / qa_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-bd792456-4b98-4891-b5e3-e24b1de4f1a1；[AC-EXT-004](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-004) | 在自身会话和工具能力中自主多轮决策 | [adapter-loop](#adapter-loop) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | 无 GUI 时独立运行，停止 Runtime 不伪装继续 | [adapter-liveness](#adapter-liveness) | agent_engineer / viewer_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
+| Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[AC-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-008) | 私有上下文无法接续时明确来源、当前限制和可信重规划路径，保留原运行及世界操作 | [adapter-private-context-recovery](#adapter-private-context-recovery) | agent_engineer / runtime_engineer / viewer_engineer；既有任务快照、原操作恢复与报告消费者 | 不承诺私有记忆无损迁移，不重定义世界恢复协议或以新计划证明世界效果 |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 计量、预算和超时边界诚实且可执行 | [adapter-budget](#adapter-budget) | agent_engineer / qa_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [adapter-skill](#adapter-skill) | agent_engineer / liveops_community | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 机器冷入场、必要确认停点、owner/executor 隔离和原阶段恢复 | [adapter-autonomous-entry](#adapter-autonomous-entry) | identity / agent_engineer / runtime_engineer | 不扩张默认 GameRequest 权限，不表示公开入口已开放 |
 | Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | 问题/回复先持久接收再回答/报告处理，未知原结果不重复启动 | [adapter-question-delivery](#adapter-question-delivery) | agent_engineer / runtime_engineer / viewer_engineer | 不把 worker 收到当作模型理解或世界效果 |
+| Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | 原反馈验真、持久接收、同代交付、实际 Runtime 输入与后续决策分别成立 | [adapter-result-feedback](#adapter-result-feedback) | Runtime 原反馈/水位、API、两 driver 与 Viewer | 不新立世界事实账，不把接收当语义理解或新的世界效果 |
 
 ### 显式 task context 权威模式与恢复
 
@@ -74,8 +76,34 @@ operation 原件在网络前持久化。重试及重启复用原 schema、mode�
 
 Runtime 可以在一次本地推理中调用多个只读工具；等待、阻塞或放弃当前轮次时使用 Game API context outcomes 收口，不能一直占用活动 turn。每次副作用都经 Game API 当前 context/fence/goal/grant 校验。目标变化时允许完成旧本地计算，但旧 context 的新 action 必须被阻断；worker 给出新的上下文后才能重新规划。对硬撤销立即停止新的工具出站，并请求 driver 中断，世界侧 fence 才是最终防线。
 
+<a id="adapter-result-feedback"></a>
+### 5.1.1 原结果进入后续真实 Runtime 输入
+
+Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7。承接 [REQ-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-005) / [AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005)。核对日期与基线：2026-11-05；`cca8cda97cf121ebc1e25e96d6b0204a421323ea`；本节为待实施组合，不改变历史 driver 支持结论。
+
+当前 [NativeTaskRunner](../../../crates/oasis7_agent_harness/src/native_task.rs)将本次工具结果交回 provider，并独立收集已核对的 stale 拒绝；恢复已结算 slot 与计数不单独证明其完整反馈已进入一个重启后的外部 Runtime。目标接续复用 [API 原结果](external-agent-game-api.design.md#api-result-feedback)、Runtime 的 `AuthorizedFeedbackRecord` 和[反馈水位合同](continuous-agent-harness.prd.md#harness-feedback-session-watermark)，扩充既有受保护 inbox/outbox 的交付关联，不另立世界事实、receipt 或反馈序列。
+
+| 阶段与原记录 | 必须完成的检查或提交 | 该阶段能证明什么 |
+| --- | --- | --- |
+| 原世界操作已知 | 发送前已有稳定 client operation/context/request 与原完整 task fence；查原结果时当前读授权有效，验证 service/world binding、disposition 和 receipt lineage | 原操作身份与真实状态；不证明结果已经送到 Runtime |
+| 原反馈可用于投影 | 正向匹配 Agent、世界/branch、原 session/turn/request/digest 与 action/receipt；按原 feedback_seq 消费，gap 有界等待、同序同内容去重、异内容冲突阻断 | 受权、顺序一致的反馈；不是对最新 goal/fence 的自动授权 |
+| 本地接收已持久 | 将原 record/digest、来源切点、去重水位与尚待送达目标写入同一受保护 inbox 事务后，才在当前确有 ACK 权限时走原 Runtime FeedbackAck 合同；只读权限不授予 ACK，玩家读取不代发 | 可在进程崩溃后重新取得原反馈；ACK 不代表模型已看到，ACK 被拒绝不抹去原结果 |
+| 已准备下一输入 | 将有界结果和其原身份关联到下一 context、invocation_key、runtime_session_ref 及 driver 的实际工具调用/输入项；持久保存此关联后才发送 | 发送意图已记录；没有上游确认时仍是待交付/未知 |
+| 实际 Runtime 已接收 | driver 以对应的工具结果接收确认、受信会话历史或协议可核的输入项关联确认原 run/request 收到该内容；回读来源并持久保存交付位点 | 仅证明交给所声明的 Runtime 输入；不证明理解、采纳、记住或成功执行 |
+| 后续决策与玩家反馈 | 新决策引用其当前 context 与实际 run；世界新效果另按 admission/receipt 判定。Web/native/pure_api 读同一原结果和有来源的交付报告 | 原结果、输入已接收、下一决策与新世界结果可以分别核查，不能互相代签 |
+
+每次后续决策先核原已提交操作和必须送达的反馈，再核完整当前 task/goal/fence、权限与剩余预算。一个真实 settled 结果不能因报告队列拥挤被永久丢弃；新目标可以读取当前仍获权的旧结果作为带原目标的历史，但不能把旧结果重新标成新目标进度。旧 session 的迟到记录不得注入新 session 的活动请求；可信恢复只按[私有上下文恢复](#adapter-private-context-recovery)把已验证历史作为新基线，保留其原身份，不重编号或伪造一个“新反馈”。换 owner/audience、Agent 身份代际或世界分支时先拒绝旧私有缓存，重新取得当前有权的基线。
+
+实际 driver 有两种交付位置：仍活跃的工具调用接收对应 call ID 的结果；该 run 已明确结束后，新调用的首个受控输入携带尚未交付的受权反馈。它们使用同一持久交付关联，不双送到两个活动 run。崩溃发生在发送后、接收确认前时，以原 invocation/run/input identity 查上游；能证明已接收就恢复位点，能证明尚未接收且原 run 仍允许相同输入才重送原件。上游不能证明时保持 `run_unknown`，不为补送反馈启动第二次付费调用或另一个 Runtime。只读原结果仍可独立查询；界面写“世界结果已确认，Runtime 接收未确认”。
+
+对于明确拒绝或失败，输入包含权威 reason 和已确认的实际成本，下一决策必须重新观察当前条件；不能从 transport error 造失败反馈。普通 pending 可向当前 Runtime 说明等待，但不释放旧活动 turn；`recovery_required` 暂停相关新副作用并查原件，不靠新模型调用“试一次”恢复。无进展、未知或 history_unavailable 都不得生成成功摘要、补零费用或删除原责任。
+
+**容量与同代恢复。** 每条投影沿用 Harness 的 16 KiB 上限；单次待送达批次至多 32 条且总编码不超过 128 KiB，每个任务最多暂存 256 条未交付投影及 4 MiB 正文，身份/水位另计为有界元数据。达到较低上限即在新 turn 准入前 backpressure，继续有界回查和排空；不能淘汰未交付结果、跳过 gap 或无限拼 Prompt。读页、buffer、已 ACK 水位、交付输入和原 invocation 必须从同一已提交本地代际恢复，原始结果继续从世界 authority 验真。分裂代际、缺水位或 outbox 丢失使 projection 暂停；不把缺记录当 sequence=0 或全部已交付。已 ACK 的摘要可按原保留合同压缩，仍有效 session 的水位不能随摘要淘汰；超出可恢复窗口时明确阻塞并走受支持的 session 重建，不重用旧身份。
+
+本节上限是初始目标，不证明当前实现产能。状态 schema 与 driver 输入能力同版本发布；旧本地记录没有交付位点时为未确认，不能升级成已消费。机械持久接收和结果回查不启动模型；交付是否需要新调用仍受既有模型预算和当前执行权限约束。
+
 <a id="adapter-autonomous-entry"></a>
-### 5.1.1 自主入场编排与 owner 控制隔离
+### 5.1.2 自主入场编排与 owner 控制隔离
 
 Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；承接 [REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) / [AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018)。可信客户端 `cold-entry` 编排按本节实现，操作入口见正式 Skill 的 `references/cold-entry.md`；executor worker 不承担 owner 操作，真实 Runtime 与公开部署支持仍须按各自证据判定。
 
@@ -174,9 +202,44 @@ worker 运行记录必须先持久保存 invocation_key，再启动 driver；若
 
 世界操作返回 `OperationViewV1.status=recovery_required` 与模型 run_unknown 分开处理：保留原 client_operation_id/context/关联，阻断该 Agent 新副作用，不以重新启动模型或轮次绕过；继续按 Game API retry_advice 查询同一操作。只有权威结果已对账且当前许可有效，才决定下一轮。context 到期或 worker stop 不意味着旧世界操作已取消。
 
-重复通知按 event_id 与固定关联去重；本机 inbox 持久后才 ack。恢复先核对世界 binding、当前 executor epoch、最新目标与未决 operation，再考虑 resume 本地 session。允许会话丢失后重新规划，但必须声明 memory unavailable，不能导入其他 Runtime 的私有记忆或复活旧批准。
+重复通知按 event_id 与固定关联去重；本机 inbox 持久后才 ack。恢复先核对世界 binding、当前 executor epoch、最新目标与未决 operation，再按[私有上下文恢复](#adapter-private-context-recovery)决定接续本地 session 或依据当前事实重新规划。
 
 问答另保存完整当前线程及 received/processed 的原操作身份和待发正文，按 §6.1.1 对账；有限事件窗口压缩不能删掉已保存未处理答案。若模型已经接受调用但处理报告尚未持久形成，先 reconcile 原 invocation_key/run_ref，仍未知则保留 run_unknown；不由接收报告推导模型已处理，也不为补一条处理报告自动再次运行。服务端私有写入 recovery_required 与模型 run_unknown、世界操作 recovery_required 分开显示并各查原件。
+
+<a id="adapter-private-context-recovery"></a>
+### 7.1 私有上下文状态与可信重规划
+
+本节设计补核：2026-11-04；固定输入 `c3862d479ba835bddde3539e8e8e97c5cb563166`。新增合同与验证方法不更新本文其他专题的历史审读范围，不代表实现或真实 Runtime 已通过。
+
+Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；承接 [AC-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-008)。本节适用于声明支持的 supervised 或 attached Runtime/profile，消费既有[任务恢复切点](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-recovery)、[同切点分页](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-snapshot-pages)和原操作恢复合同，不增加世界 journal、授权或会话迁移协议。这里的外部 driver 运行核对不改写[认知生命周期](../../world-runtime/runtime/agent-cognition-lifecycle.design.md#53-commit-and-delivery-guarantees)对同 provider_invocation_key 的既有 at-least-once 投递、journal 恢复及 profile 语义。
+
+**先分清丢失的对象。** 私有上下文指实际 Runtime 自己保存的会话、记忆和本地计划；服务端完整目标正文、当前授权、未完协作义务及原世界结果仍是任务恢复的必需输入。私有上下文不可接续不等于任务或世界历史丢失；缺少必需目标正文也不能降格为“只丢了记忆，可以继续”。世界服务没有读取外部私有记忆的 authority，心跳、保存目标或打开旧 session 都不证明记忆内容已恢复。
+
+**有来源的恢复摘要。** driver 依据实际 inspect/open/reconcile 结果报告，worker 保留受保护来源记录和观察顺序；模型自述不能替代这些记录。摘要经既有 [Report](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-content) 的 phase、summary、blocker、next_actor 和 evidence_refs 承载，沿原 task、目标版本、来源执行方及私有受众投递，不新增协议枚举。绑定必须能核对到 world/genesis/branch、Agent/task、owner revision、executor/epoch、goal revision、当前 audience/读权限版本及实际 Runtime/profile；本机另保存原 session/run/invocation 的关联。来源执行方取自认证绑定，不能由模型在报告正文里切换。
+
+| 摘要内容 | 来源与可表达的事实 | 不能推导的结论 |
+| --- | --- | --- |
+| 私有会话可接续、不可接续或待核对 | driver 已确认的专用会话接续结果及限制；未找到、格式不兼容、无 resume 能力等原因与暂时无法查询分开 | 可接续不保证所有旧记忆完整；暂时超时、缺报告或观战断连不等于记忆已丢失 |
+| 当前任务基线与阻塞 | 当前获权快照的切点、目标及控制版本，完整度和原操作核对状态 | 旧计划、缓存摘要、收到 ACK 或空的未决列表不能替代完整当前态 |
+| 重规划进展 | 尚未开始、实际 Runtime 已开始、已产生关联的新计划/明确阻塞；说明旧私有上下文是否参与 | 新计划不证明旧记忆恢复、模型理解、授权增加或世界效果 |
+
+报告保留原观察时间、reported_at 和服务端 received_at；重试复用原稳定消息身份与原内容，不能把重发时间当重新核验时间。worker 不把旧 session/run 的迟到输出改标为当前恢复结果；消费者结合当前 scope 与可核对的来源先后展示，不能只取最后到达的文字覆盖现状。无法判断来源先后时保留“最近已知/待核对”。通信过期沿 [adapter-liveness](#adapter-liveness) 降为未知；owner、goal、executor、branch 或读权限变化后，旧报告仅按当前资格保留历史，不成为新范围的恢复证明。
+
+**从原任务继续。** 控制同步独立于模型调用，先核对身份和原件，再闭合以下恢复依赖。完整基线不足只阻断依赖它的新决策；当前获权的原操作核对和 Stop 仍走原通道。
+
+1. 核对当前身份、世界绑定与读取资格，恢复本机原 invocation/run、operation、inbox/outbox 及预算记录。只查询本案受权专用会话；缺原件或无法判断原调用是否已接受时保留未知，不以新 session、目录、nonce 或 operation ID 消除它。无需模型参与的状态核对不启动付费调用。
+2. 读齐同一 S 的全部 snapshot 页并接续 after-S，验证完整 active_goal 正文、激活版本、当前执行许可及预算，取得当前能力和受权观察。恢复未答及已答未处理线程、待决申请、未结算 operation 和当前报告；旧批准、已处理答复及历史报告不按事件顺序重演。缺正文、坏摘要、缺页、过期游标或无法接续的历史缺口按原合同重新同步或 recovery_required，不能以空目标/摘要继续。
+3. 分别核对原模型调用和世界操作。原 run 仍 active 时追读同一次调用；run_unknown 时暂停新调用。已完成/失败的 run 先回收原结果，不能据此认定它提交的世界操作成功或失败。世界 pending/recovery_required 仍按原键查询，并保持原合同的新副作用限制；当前获权的只读查询、任务沟通和原结果核对可以继续。无法恢复计量状态或开销仍未知时保留原预留及相应预算限制。
+4. 原运行已核清、当前世界操作允许继续且基线完整后，把当前事实交给实际 Runtime。可接续的会话也须接收新目标、授权和已确认结果；旧记忆只能提供非权威背景。旧私有上下文不可接续，或仅其内容仍待核对时，可以不使用它，以当前受支持 profile 建立隔离的新会话重新规划；报告明确“旧私有上下文未接续”。现有委托允许同设备续接且权限/预算有效时无需统一增加人工确认；失权、到期、换设备或超范围则走原授权路径，不能复活旧批准或自动切换 Runtime/费用路由。
+5. 新模型调用前持久保存这次调用的 invocation 原件和基线关联；输出与同次实际 session/run/result 对账后，才报告新计划或明确阻塞。保留基线切点、goal/fence、输入送达和真实输出的受保护关联，不保存推理链作为证据。每次新的受限工具出站继续重验当前 context/goal/fence/grant；恢复中发生目标、权限或分支变化时重新同步，旧输入和迟到结果不能换标签后使用。模型未运行、无输出或只有 heartbeat 时仍显示相应阻塞，不生成默认计划或成功。
+
+摘要原件与关联先写入原受保护 outbox，再经现有 reports 发送；断连或保存响应未知保留原消息身份和待核对状态，不假称玩家已收到。报告投递不产生新执行许可，接收确认也不授予额外权限。Viewer/pure_api 消费者分别展示执行方说明、当前限制和可继续的下一步；只有实际新输出关联闭合才可说明重规划已有结果，原私有上下文未接续的限制仍在恢复历史可查。后续成果独立读世界 receipt，计划出现不替代它。
+
+**隔离与有限恢复。** 不自动复制另一个 Runtime、Agent、owner 或 executor 的私有记忆；同一进程中的 A/B 也分别绑定来源、目标、预算和原操作。新 owner 不默认取得旧私有历史，切身份或失去读权清除玩家 surface 的受限内存，沿原协作合同重读，不新增私有正文持久缓存。当前 audience/读权收窄后，不能继续使用含已失权资料的缓存或旧 session；停止向其注入新输入和受限工具出站，重新取得合法基线后才可在隔离会话继续，不把旧正文或摘要搬入新会话。停止复用不承诺删除第三方 Runtime 已持有的历史。
+
+报告只含有界脱敏摘要和获准关联，不上传完整会话/Prompt、私有记忆片段、推理链、凭据、本机路径、可枚举私有 digest、可重放 cursor/签名或任意结果 URL；原来源证据只留受保护记录。沿现有 report 8 KiB 正文和完整编码限制，不把快照/历史打包进报告。读取、对账、报告和重规划均消费同一任务剩余请求、时间与模型预算，不清零累计用量或预留。
+
+旧 reader 或 driver 只能提供无来源的一般文字时，保留为执行方说明并标明无法核对，不能转换成“恢复完成”或完整能力声明。两 Runtime 各自的版本、resume/result-query 能力、私有会话不可接续与可信重规划实际链路，按 [adapter-private-context-recovery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery) 分别验证。
 
 ## 8. 部署、安全与运行约束
 
@@ -187,14 +250,54 @@ worker 运行记录必须先持久保存 invocation_key，再启动 driver；若
 
 本机工具审批与游戏授权分开呈现；Game API 批准建设工厂不能批准读取用户文件或购买模型额度。日志默认脱敏，模型账户 secrets 不发给游戏服务器；用户选择任何额外模型路由均需明示费用来源，不自动选择其他账户或套餐。
 
+Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e。以下四层组成 [AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) 的同一状态解释，分别有来源和新鲜度；不能合成为一个“在线”布尔值。
+
+| 独立层 | 唯一来源与有效事实 | Web/native / pure_api 的共同消费 |
+| --- | --- | --- |
+| 玩家观察连接 | 对应 observer 的真实连接/订阅及最近成功读取；不同窗口分别计 | 只说明这个观察端可否取得当前数据；关窗/断开只释放自有视图资源 |
+| Runtime 执行 | driver 的实际 run/session、started/completed/failed/unknown 及最后可核事件；控制 sync/heartbeat 另外标时 | 正在推理须有匹配活动 run 的证据；只同步控制、安装成功或健康检查不能写 thinking；来源过期写未知 |
+| Agent 执行资格 | Runtime task 状态、当前 owner/delegation/fence、期限、额度及必须的本机批准 | 只说明目前可否开始对应工作；执行诊断不能续期，历史 grant/本机缓存不能代表当前权力 |
+| 世界原结果 | 原 operation 的持久 disposition、receipt/finality 和相应工业结果 | 原已受理工作由世界继续处理；网络/renderer/模型状态不能把它改为取消、失败或成功 |
+
+状态投影使用既有 task snapshot/events、受限 report、driver 诊断和原 operation 读取；报告保留 world/Agent/task、原/当前 fence、来源时间与序号，不新设 liveness authority。相互来源尚未同步时各层标明时点/未知，不声称形成同一原子世界快照；权限先于详细诊断展示。pure_api 返回同样四类可消费事实和下一步，Viewer 用玩家语言展示，无一端的截图或 ACK 能替另一端证明。
+
+无 GUI 的持续条件是：原 worker/attached Runtime 的实际宿主仍运行、网络可达、独立于观察会话的合法绑定有效、本机审批与预算允许。`viewer` 关闭窗口、`pure_api` 断开观察客户端都不改变这些条件；如果实际部署的执行器寄生于该页面，必须如实标为不具备此独立组合，而不能宣称首期无 GUI 已满足。网页不能暗中启动后台进程以补齐条件。
+
+| 变化 | 允许继续的范围与必须显示的结果 |
+| --- | --- |
+| 只关闭观察端，独立条件仍成立 | worker 可继续真实决策；重新观察核当前快照和离开期间原结果，不重启任务或重做动作 |
+| worker/driver 停止或 run 状态未知 | 停止新启动；已受理世界操作继续可查；控制 heartbeat 不能填补一个消失的推理进程 |
+| 执行资格到期/撤销或模型预算耗尽 | 停止对应新模型/工具/行动，best-effort 取消仅属本机请求；不能保证云端已取消或费用立即停止 |
+| 世界/授权读取不可用或响应过期 | 不发新副作用，分别保留最后可信状态与未知；恢复后重核原件与当前资格，不能把 world 断连视作 worker 已退出 |
+| 读取资格也消失 | 按 [当前读权](external-agent-game-api.design.md#api-result-feedback)隐藏旧私有投影、停止无权回查，提供有权 owner 的合法路径或明确阻塞；不自动接管 owner 身份 |
+
+回访和重启都先恢复原 operation、反馈水位与实际 run，再按完整当前绑定决定是否恢复执行；仅 observer 重连不会增加预算、创建新 executor 或重新授权。已授权同设备可按既有 CAS 取得新执行代际，旧迟到请求仍拒绝。正常无 GUI、关闭观察、停止执行、失权、重启分别是独立验收，不以其中一种替代其他。
+
 ## 9. 质量与容量
 
 <a id="adapter-budget"></a>
-所有网络请求和 driver 调用消费同一任务剩余预算；retry 不重新获得完整 deadline。控制 long-poll 使用 Game API 上限；空闲轮询初值 2 秒并可指数退避，心跳无需调用模型。模型 turn 的初始 deadline 可设 600 秒但必须有有限用户配置；本机中断宽限初值 5 秒，之后只结束自有进程。
+新执行的网络请求和 driver 调用消费同一任务剩余执行预算；retry 不重新获得完整 deadline。Stop、当前控制读取和原结果回查使用独立有界的控制/读取配额，不消耗新的行动或模型调用额度，仍受当前读权、有限超时与服务限流。控制 long-poll 使用 Game API 上限；空闲轮询初值 2 秒并可指数退避，心跳无需调用模型。模型 turn 的初始 deadline 可设 600 秒但必须有有限用户配置；本机中断宽限初值 5 秒，之后只结束自有进程。
 
 可强制限制的 worker 请求数、并发、时间和出站工具调用数与“runtime/provider 报告 token/费用”分开。无法拦截 Runtime 内部子调用时，报告 budget_enforcement=partial，达到外层限额停止新启动，但不能声称下游费用已被硬封顶。严重费用未知或上游 run_unknown 时保留保守预留，先人工/可信状态核对，不重复启动以试探。
 
 预算视图按任务汇总不重叠 meter 的实际已报告用量，并分别呈现估计、保守预留和未知部分；重放通知、流式中间累计值与最终累计值不能重复扣减。现有任务 report 只发布有界、脱敏的计量摘要及来源关联，不上传本机私有 ledger 路径或凭据；driver 报告仍不是世界结算或账单审计证明。未知/未终结用量保留预留，无法拦截的下游消费仍为 partial enforcement。
+
+Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43。承接 [AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) 的两类成本及停权后结果读取。下表只是现有来源的联合读面，不创建统一扣费账或把世界电力换算成货币。
+
+| 成本/限制 | 实际来源与归因 | 未知、拒绝和停止边界 |
+| --- | --- | --- |
+| 外部模型/工具用量 | 原 invocation/run 的 UsageReportV1、稳定 meter、单位/币种和报告覆盖；实际值、估计、预留分别显示 | token 不推导实际费用；取消不证明 final；同币种无重叠来源才可相加，未知不记零 |
+| worker 可执行限制 | 当前用户配置与已持久预留的调用次数/并发/时间/出站工具数；原任务恢复不重置 | 内部不可拦截调用保持 partial enforcement；没有新的批准不加额、不换账号或另开 run |
+| 世界资源投入与占用 | 原 operation/request 与业务 job/root、实际 payer/owner/ledger、资源单位、当前授权、匹配生产/费用 receipt；报价、hold/reserved、consumed、released 各保留身份 | cognition accepted/committed 不代替业务生产或成本；一个拒绝可能已有另一个合法费用/预留结果，须查原 authority，不能自动退款或报零 |
+| 未来维护及继续成本 | 当前玩法/设施合同的条件化报价、维护义务与有效期，明确为未来估计 | 不与已消费值相加成实际总额；新条件/期限变化重新报价，不靠旧预算展示授权新效果 |
+
+世界成本读取沿 Game API 的受权观察/工业 query 和原 operation 结果，以原业务 receipt 的行项或稳定 effect identity 去重；同一批生产的排程、completion 和显示摘要不能各算一次。原生资源、模块调用 Data/Electricity、材料与外部货币分别按真实 authority 归因，不从全局余额差估算“这个任务花了多少”。缺 payer、lineage、金额或完整成本范围时保留已知分项并标未知，不能宣称总成本已齐。一次读面只使用一个可核世界切点；另有晚到费用时在原身份下追加当前事实，不逆写历史消费，也不因跨切点重读重复加总。
+
+达到限制先持久记录已用/预留及原运行关联，再关闭新启动和对应受限工具出站；仍按当前读权保留原请求和费用回查。后续收据到达只完善原成本与结果，不自动释放上游未知预留或触发新认知。若执行权限撤销但 owner 仍可读取，由原受保护 owner 路径查询；executor 不借这一需求选择 owner signer。读取也失权、配额到限或服务不可用时明确相应阻塞及 retry_after，保留原件，不强行保证“仍可读到”。
+
+控制/原结果的后台读取初始共用至多 1 个在途调用、2 秒最小轮询间隔和 30 秒单请求 deadline，可按服务 retry_after 延长间隔。合法 Stop 使用独立、至多 1 个在途的优先控制槽，单请求 deadline 10 秒；它不等待后台 long-poll、退避计时或模型/行动额度，可取消本客户端自有只读 long-poll 释放资源，但不能因此丢弃原结果定位。Stop 重试保留同一稳定请求身份；收到不等于已失效，仍回读权威 task/fence，网络失败明确保持停止待确认。服务器的控制优先队列与有界配额同样独立于新 action 和历史读取队列，不能让普通请求排满后永远无法受理合法 Stop。
+
+任务控制授权持续有效时可继续有界观察，执行预算不会因此恢复。每次实际请求均在发送前再验权限，本机请求数/字节仍计诊断；断网后不得无限并发重试。控制恢复不调用模型，未知模型 run 的取消/核对仍使用原身份。世界、控制和本地预算代际分别复核；旧备份不能复活已耗调用、旧 fence 或已释放的世界占用。
 
 首期一个 Agent 一个决策执行器，stdout/stderr/event 缓冲必须有界；超出时停止该 run 并保留操作关联，不截掉最后错误后误报成功。计划报告可以合并，授权/停止/结果确认不得被降采样丢失。
 
@@ -217,10 +320,12 @@ worker 运行记录必须先持久保存 invocation_key，再启动 driver；若
 | Trace refs: O7-REQ-b3e367c3-c72d-4959-b599-613ac652dab8；[AC-EXT-001](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-001) | [adapter-drivers](#adapter-drivers) | 声明 Runtime 必须确实执行且兼容方式可复现 | [adapter-connect](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-connect)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-bd792456-4b98-4891-b5e3-e24b1de4f1a1；[AC-EXT-004](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-004) | [adapter-loop](#adapter-loop) | 在自身会话和工具能力中自主多轮决策 | [adapter-loop](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-loop)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | [adapter-liveness](#adapter-liveness) | 无 GUI 时独立运行，停止 Runtime 不伪装继续 | [adapter-liveness](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-liveness)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
+| Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；[AC-EXT-008](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-008) | [adapter-private-context-recovery](#adapter-private-context-recovery) | 私有上下文有来源告知、原运行及世界操作核对后可信重规划，当前权限与跨 Agent 隔离 | [adapter-private-context-recovery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)；按该场景区分确定性故障与每个真实 Runtime/profile 的同案恢复 | 候选、原请求/基线/实际输出/报告关联、调用及世界效果次数与权限负例 | fake 不证明真实会话；新计划不证明旧记忆恢复、模型理解或世界效果 |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [adapter-budget](#adapter-budget) | 计量、预算和超时边界诚实且可执行 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a5bbf6e4-3e71-4d48-9eba-68c50867c95c；[AC-EXT-011](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-011) | [adapter-skill](#adapter-skill) | 两个 Runtime 分别通过可信 Skill 完成自助接入 | [skill-release](../../testing/manual/external-agent-runtime-contract-validation.manual.md#skill-release)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | [adapter-autonomous-entry](#adapter-autonomous-entry) | 按真实身份/关系编排入场、确认与恢复 | [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry) | 两真实 Runtime 各自的阶段与原回执记录 | 不以预置角色或 mock 代签冷入场 |
 | Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | [adapter-question-delivery](#adapter-question-delivery) | 执行端持久接收、真实输出关联、响应丢失及未知运行恢复 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的 inbox/outbox/新进程/未知操作用例 | scripted driver 与实际持久存储故障记录；真实组合另按 collab-session | fake 不证明真实 Runtime、玩家已读或模型理解 |
+| Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | [adapter-result-feedback](#adapter-result-feedback) | 原结果到实际输入的关联、去重、水位、同代恢复与容量完整性 | [adapter-result-feedback](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-result-feedback)；RF01–RF09，required 持久故障与 scripted driver，full 两真实 Runtime/声明表面 | 原反馈/ACK/输入/实际运行关联分层证据及未知/失败；静态方法不是运行通过 | 不证明模型理解、首局全部义务或另一 Runtime |
 
 ## 12. 决策、长期风险与未决问题
 
