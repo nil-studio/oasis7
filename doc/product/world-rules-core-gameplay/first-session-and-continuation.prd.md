@@ -188,9 +188,11 @@
 
 Trace ID: O7-REQ-68214dc7-c00b-4c0d-8c3b-c1c24fb52502
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[同一初态的前向可行性组合](../../game/gameplay/industrial-native-content-delivery.design.md#starter-fresh-forward-gate)与[实际初态关系](../../game/gameplay/industrial-native-content-delivery.design.md#starter-and-initial-state-applicability)承接当前已采纳profile的完整有限路径、累计材料/电力/授权、候选绑定、无副作用和漂移后重验；单步quote不构成整链证明。
+- 设计验证方法：[IC-STARTER-GATE FG01/03–07](../../game/gameplay/industrial-native-content-delivery.manual.md#ic-starter-forward-gate)分别核已建/待建、累计不足、target/unknown、绑定/恢复及两入口；完整评估者和适用运行证据仍须交付。
+- 本次设计核对：2026-11-06；输入为已合入 `4c80cd131adb1b3a37323a42bad847c2d7836ce2`，结合本条专业增量核设计；原实现与历史证据保持，未运行游戏、Runtime或真人验收。
 - 实现与验证依据：已交付 canonical Smelter→Assembler 的只读 feasibility，生成 authority_snapshot，返回 candidate_available/no_safe_starter_chain 与 blocker/next_action。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/state/starter_industrial.rs#L106-L216)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/tests/industrial_progression_readiness/starter_chain_prerequisite.rs#L27-L74)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
 - 剩余范围：当前核对 canonical Smelter→Assembler 只读 feasibility；推荐前所有目标/profile 的安全可行性与正式入口调用覆盖仍需验收。
@@ -226,9 +228,11 @@ Trace ID: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95
 
 Trace ID: O7-REQ-d4944a59-ccf3-4f96-95ac-45c0ca50cf51
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：未核实
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[当前直接输入与条件来源链](../../game/gameplay/industrial-native-content-delivery.design.md#starter-canonical-source-boundary)已核清已采纳canonical路径的三类合法初态账本、direct空route/path及不额外生成source/handoff receipt的条件；对真正依赖来源链但authority未知的候选仍拒绝。此接收不表示未选定条件profile的来源/精炼/物流全链已设计完成。
+- 设计验证方法：[IC-STARTER-GATE FG02/04/05](../../game/gameplay/industrial-native-content-delivery.manual.md#ic-starter-forward-gate)核当前直接输入正向与真实依赖缺失的反例；未来选定条件profile后沿原M4条款独立验证来源结果、handoff、lineage与到达/适用性。
+- 本次设计核对：2026-11-06；输入为已合入 `4c80cd131adb1b3a37323a42bad847c2d7836ce2`，结合本条专业增量核设计；原实现与历史证据保持，未运行游戏、Runtime或真人验收。
 - 实现与验证依据：已追真实报价入口：[Viewer refine报价](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/player_gameplay.rs#L398-L430)将Runtime模型投影后调用兼容WorldKernel报价；[旧Data账本报价](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_simulator/src/kernel/actions_refine_quote.rs#L22-L49)仍将compound/hardware记在Data余额。[Simulator实际精炼结算](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_simulator/src/kernel/actions_core.rs#L812-L888)确有扣Data/电力与CompoundRefined，但不能据此认定source/owner handoff及lineage material batch；[完整provider动作映射边界](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/llm_sidecar_runtime_support.rs#L93-L379)未映射MineCompound/RefineCompound而以None结束，[实际消费与拒绝](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7/src/viewer/runtime_live/control_plane/provider_action.rs#L385-L405)区分可映射提交和不可映射动作。[后续物流独立验证](https://github.com/nil-studio/oasis7/blob/d0b1a039c2056c2f13703093862582984c7c3601/crates/oasis7_runtime/src/world/event_processing/action_to_event_core.rs#L587-L700)有库存、路径、运费及MaterialTransitStarted等独立逻辑，但尚未与本条条件适用的source-settled→handoff→ready批次绑定。 本轮仅静态源码核查，不宣称运行验收。
 - 核对日期与基线：2026-10-18；需求、设计及源码固定 `d0b1a039c2056c2f13703093862582984c7c3601`；逐文件Git blob与行号核对。本轮只读静态审查，未运行模型、Runtime、测试或真人验收；core拆分和存储合入不作为业务完成证明。
 - 剩余范围：必须先定位明确适用source/refinement与handoff的真实profile/生产入口，再核source/refinement receipt、owner ledger交接、实际数量/损耗、lineage及ready_for_logistics batch，并把transfer submit/in-transit/arrival独立重验。canonical已合法输入/production_only不自动适用该前置；普通物流、旧Data转换或production receipt均不能代签。当前未闭合该profile入口及领域receipt生产消费链，不作全仓未实现断言。
@@ -316,9 +320,11 @@ Trace ID: O7-REQ-df0617cf-2ab6-40ca-934b-f050d6a66812
 
 Trace ID: O7-REQ-757636b1-c9e9-4e7a-97d1-460de105daf3
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[viewer-gameplay-release-experience-overhaul.design / starter-plan-interaction](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#starter-plan-interaction)。已承接：同一方案的查询/提交、事实漂移/未知结果或成果后继交互。
+- 系统设计依据：[当前可选持续目标](../../game/gameplay/gameplay-decision-delegation-return.design.md#first-capability-continuation)与[成果、自然停点和回访](../../game/gameplay/gameplay-decision-delegation-return.design.md#des-adopt-004)承接原成果、真实分账用途、重复产线、低电后的明确选择与后继扩展；技术stable、首次持续能力、信任、分支和继续意愿分别判定，不增加首产物门槛。
+- 设计验证方法：[IC-CONTINUATION CN01–09](../../game/gameplay/industrial-native-content-delivery.manual.md#ic-first-capability-continuation)给三账/电力独立预期、真实拒绝与合法减量、入口能力差异、未知原结果和回访/真人分项观察；原12批Viewer不能由native小批样例代签。
+- 本次设计核对：2026-11-06；输入为已合入 `4c80cd131adb1b3a37323a42bad847c2d7836ce2`，结合本条专业增量核设计；原实现与历史证据保持，未运行游戏、Runtime或真人验收。
 - 实现与验证依据：已交付匹配持久 milestone 后的 build_factory_assembler_mk1 候选和明确 next_action/progression_effect；只证明候选承接切片。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/state/starter_industrial.rs#L155-L200)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/tests/industrial_progression.rs#L514-L528)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
 - 剩余范围：canonical milestone 可开放 Assembler 候选；持续能力、一次动作成功、首局信任和安全停止后的下一决策需分别验收，静态阶段文案不能代签。
