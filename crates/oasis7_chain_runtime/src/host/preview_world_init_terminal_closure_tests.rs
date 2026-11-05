@@ -18,6 +18,7 @@ pub(super) fn run(
     receipt: &Receipt,
     driver: bridge::NodeRuntimeExecutionDriver,
     original: &oasis7_agent_api::ContinuousAgentRequestContextV1,
+    prefix: &SubmitIntentRequest<WorldServicePayloadV1>,
     executor: &str,
     generation: u64,
     deadline: Instant,
@@ -55,7 +56,7 @@ pub(super) fn run(
     std::thread::scope(|scope| {
         let worker = scope.spawn(|| {
             // One signed View before each original Submit, then its Lookup and final View.
-            for _ in 0..7 {
+            for _ in 0..9 {
                 let mut stream = loop {
                     match listener.accept() {
                         Ok((stream, _)) => break stream,
@@ -67,7 +68,7 @@ pub(super) fn run(
                 let raw = read_request(&mut stream);
                 let first = std::str::from_utf8(&raw).unwrap().lines().next().unwrap();
                 let path = first.split_whitespace().nth(1).unwrap();
-                assert!(matches!(path, VIEW_PATH | SUBMIT_PATH | LOOKUP_PATH));
+                assert!(matches!(path, VIEW_PATH | SUBMIT_PATH | LOOKUP_PATH | TERMINAL_LOOKUP_PATH));
                 let before_height = driver.lock().unwrap().state.last_applied_committed_height;
                 assert!(super::super::super::super::super::world_service_api::maybe_handle_with_context(
                     &mut stream, &raw, &node, "POST", path, &options.world_id,
@@ -105,6 +106,40 @@ pub(super) fn run(
             },
         )
         .unwrap();
+        let initial_view = client.read_view(view_request(receipt, None)).unwrap();
+        let unavailable = client
+            .lookup(
+                LookupIntentRequest {
+                    contract_version: 1,
+                    key: prefix.correlation.key.clone(),
+                },
+                prefix.signed_payload.clone(),
+            )
+            .unwrap();
+        assert!(matches!(
+            unavailable.outcome,
+            IntentOutcome::HistoryUnavailable
+        ));
+        assert!(unavailable.terminal_recovery_authority.is_none());
+        let terminal = client
+            .lookup_terminal_original(
+                LookupIntentRequest {
+                    contract_version: 1,
+                    key: prefix.correlation.key.clone(),
+                },
+                prefix.signed_payload.clone(),
+                &initial_view.version().commit,
+            )
+            .unwrap();
+        assert!(matches!(
+            terminal.outcome,
+            IntentOutcome::HistoryUnavailable
+        ));
+        let proof = terminal.terminal_recovery_authority.as_ref().unwrap();
+        assert_eq!(proof.schema_version, 2);
+        assert!(proof.prefix_commit.is_none());
+        assert!(proof.current_authenticated_journal.is_some());
+        let mut first_view = Some(initial_view);
         let mut last_commit = None;
         for (id, operation) in [
             (
@@ -122,9 +157,11 @@ pub(super) fn run(
                 },
             ),
         ] {
-            let view = client
-                .read_view(view_request(receipt, last_commit.clone()))
-                .unwrap();
+            let view = first_view.take().unwrap_or_else(|| {
+                client
+                    .read_view(view_request(receipt, last_commit.clone()))
+                    .unwrap()
+            });
             assert!(
                 view.projection().agent_context.is_none(),
                 "expired grant must never regain fresh dispatch authority"

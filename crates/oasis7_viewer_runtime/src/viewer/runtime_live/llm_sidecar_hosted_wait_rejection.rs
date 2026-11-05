@@ -368,6 +368,7 @@ impl RuntimeLlmSidecar {
             .transpose()?;
         #[cfg(any(test, feature = "test_tier_required"))]
         let mut test_persist_attempted = false;
+        let mut retired_raw = Vec::new();
         let mut runner = self.runner.take().ok_or("rejected Wait runner missing")?;
         let result = (|| {
             let native = runner
@@ -375,7 +376,7 @@ impl RuntimeLlmSidecar {
                 .ok_or("rejected Wait native runner missing")?;
             let restored = self.hosted_restored_wait.is_some();
             let mut persist = |_digests: Option<[String; 5]>| {
-                self.stage_rejected_wait_cleanup(
+                retired_raw = self.stage_rejected_wait_cleanup(
                     &wait,
                     "canonical_wait_admission_rejected".into(),
                 )?;
@@ -450,6 +451,7 @@ impl RuntimeLlmSidecar {
         })();
         self.runner = Some(runner);
         if let Err(error) = result {
+            self.restore_wait_raw_outcomes(retired_raw);
             (
                 self.provider_cognition_leases,
                 self.provider_completed_decisions,
@@ -500,7 +502,7 @@ impl RuntimeLlmSidecar {
         &mut self,
         wait: &HostedWait,
         reason: String,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<(usize, crate::simulator::AsyncAgentTurnOutcome)>, String> {
         let cognition = wait
             .decision
             .cognition
@@ -514,6 +516,8 @@ impl RuntimeLlmSidecar {
                 .as_ref()
                 .ok_or("rejected Wait lease missing")?,
         )?;
+        let retired_raw =
+            self.retire_wait_raw_outcomes(request, cognition.cognition_lease.as_ref())?;
         self.provider_completed_decisions.pop_front();
         self.provider_active_turns.remove(&request.agent_subject);
         self.provider_contexts.remove(&request.agent_subject);
@@ -538,7 +542,7 @@ impl RuntimeLlmSidecar {
                 feedback: None,
             },
         );
-        Ok(())
+        Ok(retired_raw)
     }
 }
 

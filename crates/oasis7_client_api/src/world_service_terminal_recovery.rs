@@ -20,6 +20,28 @@ pub struct TerminalLeaseIdentityV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct TerminalPrefixReceiptV1 {
+    pub dispatched: bool,
+    pub request_digest: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CurrentAuthenticatedJournalV1 {
+    pub prefix_event_id: u64,
+    pub prefix_event_time: u64,
+    pub prefix_receipt: TerminalPrefixReceiptV1,
+    #[serde(deserialize_with = "strict_nested")]
+    pub reserve_correlation: RequestCorrelation,
+    pub reserve_full_result_digest: String,
+    pub reserve_receipt_digest: String,
+    pub reserve_committed_height: u64,
+    pub reserve_event_id: u64,
+    pub reserve_event_time: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TerminalRecoveryAuthorityV1 {
     pub schema_version: u16,
     pub role: TerminalRecoveryRoleV1,
@@ -44,8 +66,12 @@ pub struct TerminalRecoveryAuthorityV1 {
     pub prefix_action_id: u64,
     pub prefix_deadline_unix_ms: Option<u64>,
     pub prefix_committed_height: u64,
-    #[serde(deserialize_with = "strict_nested")]
-    pub prefix_commit: CommitRef,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "strict_nested"
+    )]
+    pub prefix_commit: Option<CommitRef>,
     pub admitted_at_tick: u64,
     pub writer_public_key: String,
     pub delegation_generation: u64,
@@ -55,28 +81,73 @@ pub struct TerminalRecoveryAuthorityV1 {
     pub current_task_fence: Option<oasis7_agent_api::game::GameTaskFenceV1>,
     #[serde(deserialize_with = "strict_nested")]
     pub read_commit: CommitRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_authenticated_journal: Option<CurrentAuthenticatedJournalV1>,
 }
 impl TerminalRecoveryAuthorityV1 {
     /// Shape only. The SDK must additionally authenticate the complete service
     /// envelope and compare the original request, lease and current View watermark.
     pub fn validate(&self, expected: &RequestCorrelation) -> Result<(), ContractError> {
-        if self.schema_version != 1 || self.role != TerminalRecoveryRoleV1::TerminalOnly {
+        if self.role != TerminalRecoveryRoleV1::TerminalOnly {
             return Err(ContractError("unsupported terminal recovery authority"));
         }
         self.world.validate()?;
-        self.prefix_commit.validate()?;
         self.read_commit.validate()?;
         expected.validate()?;
+        match (
+            self.schema_version,
+            &self.prefix_commit,
+            &self.current_authenticated_journal,
+        ) {
+            (1, Some(commit), None) => {
+                commit.validate()?;
+                if commit.world != self.world || commit.position != self.prefix_committed_height {
+                    return Err(ContractError("terminal historical commit mismatch"));
+                }
+            }
+            (2, None, Some(evidence)) => {
+                evidence.reserve_correlation.validate()?;
+                if evidence.prefix_event_id == 0
+                    || evidence.reserve_event_id == 0
+                    || evidence.reserve_event_id >= evidence.prefix_event_id
+                    || evidence.prefix_event_time != self.admitted_at_tick
+                    || evidence.reserve_event_time > evidence.prefix_event_time
+                    || evidence.reserve_event_time != self.lease.reserved_at_tick
+                    || evidence.reserve_committed_height == 0
+                    || self.prefix_committed_height == 0
+                    || evidence.reserve_event_time < self.grant_issued_at_tick
+                    || evidence.reserve_event_time > self.grant_expires_at_tick
+                    || evidence.reserve_committed_height > self.prefix_committed_height
+                    || self.prefix_committed_height > self.read_commit.position
+                    || evidence.reserve_correlation.key.world != self.world
+                    || evidence.reserve_correlation.key.operation_domain
+                        != expected.key.operation_domain
+                    || evidence.reserve_correlation.key.nonce_scope != expected.key.nonce_scope
+                    || evidence.reserve_correlation.key.verified_subject
+                        != expected.key.verified_subject
+                    || !evidence.prefix_receipt.dispatched
+                    || evidence.prefix_receipt.request_digest != self.request_digest
+                    || self.prefix_deadline_unix_ms.is_some()
+                {
+                    return Err(ContractError("terminal current Journal evidence mismatch"));
+                }
+                required(&evidence.reserve_full_result_digest)?;
+                required(&evidence.reserve_receipt_digest)?;
+            }
+            _ => {
+                return Err(ContractError(
+                    "unsupported or mixed terminal recovery evidence",
+                ));
+            }
+        }
         if &self.prefix_correlation != expected
             || self.world != expected.key.world
-            || self.prefix_commit.world != self.world
             || self.read_commit.world != self.world
             || self.current_runtime_binding.world_id != self.world.world_id
             || self.grant_issued_at_tick > self.admitted_at_tick
             || self.admitted_at_tick > self.grant_expires_at_tick
             || self.lease.reserved_amount != 1
             || self.lease.reserved_at_tick > self.admitted_at_tick
-            || self.prefix_committed_height != self.prefix_commit.position
             || self.transport_attempt == 0
         {
             return Err(ContractError(

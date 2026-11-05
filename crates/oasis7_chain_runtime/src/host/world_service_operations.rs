@@ -195,6 +195,28 @@ pub(super) fn submit(
 }
 
 pub(super) fn lookup(service: &Service<'_>, request: AuthenticatedLookup) -> Result<Value, String> {
+    lookup_with_mode(service, request, false)
+}
+
+pub(super) fn lookup_terminal(
+    service: &Service<'_>,
+    request: AuthenticatedLookup,
+) -> Result<Value, String> {
+    if service.guarded.is_some()
+        || !service
+            .restore_context
+            .permits_local_provider_terminal_recovery()
+    {
+        return Err("terminal Lookup requires verified ordinary DevLocal service".into());
+    }
+    lookup_with_mode(service, request, true)
+}
+
+fn lookup_with_mode(
+    service: &Service<'_>,
+    request: AuthenticatedLookup,
+    terminal: bool,
+) -> Result<Value, String> {
     request.request.validate().map_err(|e| e.to_string())?;
     let correlation = derive_correlation(service.identity.clone(), &request.original)?;
     if correlation.key != request.request.key {
@@ -203,27 +225,31 @@ pub(super) fn lookup(service: &Service<'_>, request: AuthenticatedLookup) -> Res
     let pinned = service.pin(None)?;
     let mut historical = None;
     let existing = outcome_with_historical(service, &pinned, &correlation, &mut historical)?;
-    let terminal_recovery_authority = historical
-        .as_ref()
-        .map(|historical| {
-            terminal_recovery::authority(
-                service,
-                &pinned,
-                historical,
-                &request.original,
-                &correlation,
-            )
-        })
-        .transpose()?
-        .flatten()
-        .map(Box::new);
+    let terminal_recovery_authority = if historical.is_some()
+        || (terminal && matches!(existing, IntentOutcome::HistoryUnavailable))
+    {
+        terminal_recovery::authority(
+            service,
+            &pinned,
+            historical.as_ref(),
+            &request.original,
+            &correlation,
+        )?
+    } else {
+        None
+    }
+    .map(Box::new);
     if matches!(existing, IntentOutcome::Unknown) {
         service.check_payload(&pinned, &request.original)?;
     } else {
         service.check_replay_payload(&pinned, &request.original)?;
     }
     service.signed(
-        LOOKUP_PATH,
+        if terminal {
+            TERMINAL_LOOKUP_PATH
+        } else {
+            LOOKUP_PATH
+        },
         &request,
         IntentResponse {
             terminal_recovery_authority,

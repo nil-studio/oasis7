@@ -652,7 +652,8 @@ fn terminal_orphan_proof(
         prefix_action_id: 1,
         prefix_deadline_unix_ms: None,
         prefix_committed_height: 3,
-        prefix_commit: commit.clone(),
+        prefix_commit: Some(commit.clone()),
+        current_authenticated_journal: None,
         read_commit: commit,
         writer_public_key: signed.subject_public_key.clone(),
         delegation_generation: signed.request.delegation_generation,
@@ -750,6 +751,145 @@ fn terminal_orphan_identity_rejects_changed_original_lease_owner_signer_and_runt
             "grant_expires_at_tick" => {
                 changed.grant_expires_at_tick = 0;
                 changed.admitted_at_tick = 1;
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            sidecar
+                .test_validate_orphan_terminal_identity("agent-a", &changed)
+                .is_err(),
+            "accepted changed {field}"
+        );
+    }
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn current_journal_orphan_advances_without_manufacturing_a_historical_commit() {
+    use crate::viewer::runtime_live::agent_service_io::{
+        AgentServiceIoResponse, AgentServiceProgress,
+    };
+    use oasis7_client_api::world_service::*;
+    let (mut sidecar, world, _, lease, path) = orphan_service_fixture();
+    let proof = current_journal_orphan_proof(&sidecar);
+    sidecar
+        .provider_service_projection
+        .as_mut()
+        .unwrap()
+        .agent_context = None;
+    let id = sidecar.test_original_orphan_dispatch("agent-a").unwrap();
+    let phase = sidecar.test_orphan_lookup_at("agent-a", id.clone(), proof.read_commit.clone());
+    let mut server = ViewerRuntimeLiveServer::new(
+        ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
+            .with_decision_mode(ViewerLiveDecisionMode::Llm),
+    )
+    .unwrap();
+    server.world = world;
+    *server.llm_sidecar = sidecar;
+    // This isolates the post-authentication consumer. Real signature/full-result
+    // validation is covered by the SDK and actual HTTP fixture, not this raw DTO.
+    let result = server
+        .apply_hosted_orphan_response(
+            phase,
+            AgentServiceIoResponse::Intent(IntentResponse {
+                terminal_recovery_authority: Some(Box::new(proof.clone())),
+                formal_profile: None,
+                execution_evidence_scope: None,
+                contract_version: 1,
+                correlation: proof.prefix_correlation.clone(),
+                outcome: IntentOutcome::HistoryUnavailable,
+            }),
+        )
+        .unwrap();
+    assert!(matches!(result, AgentServiceProgress::Advanced));
+    let crate::viewer::runtime_live::agent_service_phase::HostedServicePhase::Orphan(retained) =
+        server.llm_sidecar.hosted_service_phase.as_ref().unwrap()
+    else {
+        panic!("original orphan phase missing")
+    };
+    let retained = serde_json::to_value(retained).unwrap();
+    assert_eq!(retained["stage"], "failure");
+    assert_eq!(
+        retained["commit"],
+        serde_json::to_value(&proof.read_commit).unwrap()
+    );
+    assert!(
+        retained["terminal_authority"]
+            .get("prefix_commit")
+            .is_none()
+    );
+    assert_eq!(
+        server.llm_sidecar.provider_cognition_lease("agent-a"),
+        Some(lease)
+    );
+    assert!(server.llm_sidecar.runner.is_none());
+    let _ = std::fs::remove_file(path);
+}
+
+fn current_journal_orphan_proof(
+    sidecar: &RuntimeLlmSidecar,
+) -> oasis7_client_api::world_service::TerminalRecoveryAuthorityV1 {
+    use oasis7_client_api::world_service::*;
+    let mut proof = terminal_orphan_proof(sidecar);
+    proof.schema_version = 2;
+    proof.prefix_commit = None;
+    proof.read_commit.position = 9;
+    proof.current_authenticated_journal = Some(CurrentAuthenticatedJournalV1 {
+        prefix_event_id: 71,
+        prefix_event_time: proof.admitted_at_tick,
+        prefix_receipt: TerminalPrefixReceiptV1 {
+            dispatched: true,
+            request_digest: proof.request_digest.clone(),
+        },
+        reserve_correlation: proof.prefix_correlation.clone(),
+        reserve_full_result_digest: "result".into(),
+        reserve_receipt_digest: "receipt".into(),
+        reserve_committed_height: 2,
+        reserve_event_id: 70,
+        reserve_event_time: proof.lease.reserved_at_tick,
+    });
+    proof
+}
+
+#[test]
+fn current_journal_identity_rejects_original_lease_quote_account_time_and_signer_changes() {
+    let (mut sidecar, _, _, _, path) = orphan_service_fixture();
+    sidecar
+        .provider_service_projection
+        .as_mut()
+        .unwrap()
+        .canonical_agent_owner = None;
+    let proof = current_journal_orphan_proof(&sidecar);
+    assert!(
+        sidecar
+            .test_validate_orphan_terminal_identity("agent-a", &proof)
+            .is_ok()
+    );
+    for field in [
+        "quote",
+        "account",
+        "reserved_time",
+        "lease",
+        "writer",
+        "manifest",
+    ] {
+        let mut changed = proof.clone();
+        match field {
+            "quote" => changed.lease.quote_digest.push_str("other"),
+            "account" => changed.lease.account_id.push_str("other"),
+            "reserved_time" => {
+                changed.lease.reserved_at_tick += 1;
+                changed
+                    .current_authenticated_journal
+                    .as_mut()
+                    .unwrap()
+                    .reserve_event_time += 1;
+            }
+            "lease" => changed.lease.lease_id.push_str("other"),
+            "writer" => changed.writer_public_key.push_str("other"),
+            "manifest" => {
+                changed.current_runtime_binding.runtime_manifest_hash =
+                    oasis7_agent_api::Digest32(format!("blake3:{}", "99".repeat(32)))
             }
             _ => unreachable!(),
         }

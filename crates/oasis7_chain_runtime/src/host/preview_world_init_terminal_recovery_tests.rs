@@ -258,7 +258,7 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
                     &raw,
                     runtime,
                     "POST",
-                    LOOKUP_PATH,
+                    TERMINAL_LOOKUP_PATH,
                     &options.world_id,
                     &options.root.join("world"),
                     &options.root.join("records"),
@@ -300,6 +300,8 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
         );
         let response = response.unwrap();
         let proof = response.terminal_recovery_authority.as_ref().unwrap();
+        assert_eq!(proof.schema_version, 1);
+        assert!(proof.prefix_commit.is_some());
         assert_eq!(proof.admitted_at_tick, admitted_tick);
         assert_ne!(proof.admitted_at_tick, captured_tick);
         assert_eq!(proof.prefix_committed_height, result.committed_height);
@@ -309,11 +311,28 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
             captured.provider_invocation_key().to_string()
         );
     });
+    // Exercise the real ordinary retention path, not fabricated old proof bytes.
+    driver.hot_window_heights = StorageProfileConfig::default().execution_hot_head_heights;
+    driver.retention_reconcile_pending = true;
+    driver.retention_reconcile_next_height = None;
+    commit(&mut driver, &receipt.world, None);
+    assert!(
+        bridge::world_service_read::pin_retained_at_height_with_context(
+            &options.root.join("records"),
+            &options.root.join("store"),
+            &receipt.world,
+            result.committed_height,
+            &restore,
+        )
+        .unwrap()
+        .is_none()
+    );
     terminal_closure::run(
         options,
         receipt,
         driver,
         &captured,
+        &prefix,
         &executor,
         generation,
         http_deadline,

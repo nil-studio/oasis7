@@ -615,6 +615,7 @@ impl RuntimeLlmSidecar {
             .transpose()?;
         #[cfg(any(test, feature = "test_tier_required"))]
         let mut test_persist_attempted = false;
+        let mut retired_raw = Vec::new();
         let cleanup = (|| {
             if self
                 .provider_completed_decisions
@@ -635,6 +636,8 @@ impl RuntimeLlmSidecar {
                     .as_ref()
                     .ok_or("hosted Wait lease missing")?,
             )?;
+            retired_raw =
+                self.retire_wait_raw_outcomes(request, cognition.cognition_lease.as_ref())?;
             self.provider_completed_decisions.pop_front();
             self.provider_active_turns.remove(&request.agent_subject);
             self.provider_contexts.remove(&request.agent_subject);
@@ -664,6 +667,7 @@ impl RuntimeLlmSidecar {
             self.persist_provider_lineage()
         })();
         if let Err(error) = cleanup {
+            self.restore_wait_raw_outcomes(retired_raw);
             self.provider_cognition_leases = leases_backup;
             self.provider_completed_decisions = queue_backup;
             self.provider_active_turns = active_backup;

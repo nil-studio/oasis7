@@ -19,7 +19,13 @@ fn identity(
     outcome: &AsyncAgentTurnOutcome,
     active: &cognition_context::ProviderContextState,
 ) -> Result<(String, String, String, String, String), String> {
-    let request = &active.request_context;
+    identity_for_request(outcome, &active.request_context)
+}
+
+fn identity_for_request(
+    outcome: &AsyncAgentTurnOutcome,
+    request: &crate::simulator::ContinuousAgentRequestContextV1,
+) -> Result<(String, String, String, String, String), String> {
     if outcome.agent_id != request.agent_subject
         || outcome.prepared_context.as_ref().is_some_and(|context| {
             context.agent_session_id != request.agent_session_id
@@ -46,6 +52,47 @@ fn identity(
 }
 
 impl RuntimeLlmSidecar {
+    /// Retire only the escrow whose exact Wait has already been accepted or
+    /// compensated by authority. The caller restores these moved originals if
+    /// its surrounding disposition/checkpoint transaction fails.
+    pub(in crate::viewer::runtime_live) fn retire_wait_raw_outcomes(
+        &mut self,
+        request: &crate::simulator::ContinuousAgentRequestContextV1,
+        lease: Option<&crate::runtime::CognitionLeaseV1>,
+    ) -> Result<Vec<(usize, AsyncAgentTurnOutcome)>, String> {
+        let mut indices = Vec::new();
+        for (index, outcome) in self.provider_raw_outcomes.iter().enumerate() {
+            if outcome.agent_id != request.agent_subject {
+                continue;
+            }
+            identity_for_request(outcome, request)?;
+            if outcome.prepared_context.is_none()
+                || outcome.prepared_request_context.is_none()
+                || lease.is_none()
+                || outcome.cognition_lease.as_ref() != lease
+            {
+                return Err("Wait raw escrow original lease/context differs".into());
+            }
+            indices.push(index);
+        }
+        if indices.len() > 1 {
+            return Err("duplicate Wait raw escrow original identity".into());
+        }
+        Ok(indices
+            .into_iter()
+            .rev()
+            .map(|index| (index, self.provider_raw_outcomes.remove(index)))
+            .collect())
+    }
+
+    pub(in crate::viewer::runtime_live) fn restore_wait_raw_outcomes(
+        &mut self,
+        removed: Vec<(usize, AsyncAgentTurnOutcome)>,
+    ) {
+        for (index, outcome) in removed.into_iter().rev() {
+            self.provider_raw_outcomes.insert(index, outcome);
+        }
+    }
     pub(in crate::viewer::runtime_live) fn validate_raw_escrow(
         outcomes: &[AsyncAgentTurnOutcome],
         active: &BTreeMap<String, cognition_context::ProviderContextState>,

@@ -19,14 +19,25 @@ pub(super) fn validate_prefix_result<H: ClientWorldProfile>(
     proof
         .validate(&response.correlation)
         .map_err(|e| fail(&e.to_string()))?;
-    let IntentOutcome::Committed { commit, receipt } = &response.outcome else {
-        return Err(fail(
-            "terminal recovery requires the committed original Prefix",
-        ));
+    let receipt = match (&response.outcome, proof.schema_version) {
+        (IntentOutcome::Committed { commit, receipt }, 1) => {
+            if proof.prefix_commit.as_ref() != Some(commit.as_ref())
+                || commit.position != proof.prefix_committed_height
+            {
+                return Err(fail("terminal Prefix commit differs from full result"));
+            }
+            receipt.clone()
+        }
+        (IntentOutcome::HistoryUnavailable, 2) => serde_json::to_value(
+            &proof
+                .current_authenticated_journal
+                .as_ref()
+                .ok_or_else(|| fail("terminal Journal evidence missing"))?
+                .prefix_receipt,
+        )
+        .map_err(|e| fail(&e.to_string()))?,
+        _ => return Err(fail("terminal recovery original evidence mode differs")),
     };
-    if commit.as_ref() != &proof.prefix_commit || commit.position != proof.prefix_committed_height {
-        return Err(fail("terminal Prefix commit differs from full result"));
-    }
     let legacy: oasis7_client_api::legacy_world_service::WorldServicePayloadV1 =
         serde_json::from_value(serde_json::to_value(original).map_err(|e| fail(&e.to_string()))?)
             .map_err(|_| fail("terminal recovery requires an original legacy ProviderPrefix"))?;
@@ -70,7 +81,7 @@ pub(super) fn validate_prefix_result<H: ClientWorldProfile>(
             "terminal recovery differs from the exact original request authority",
         ));
     }
-    validate_full_result::<H>(response, original, proof, receipt)
+    validate_full_result::<H>(response, original, proof, &receipt)
 }
 
 fn validate_full_result<H: ClientWorldProfile>(
@@ -117,6 +128,51 @@ fn validate_watermark(
 }
 
 impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
+    pub(super) fn lookup_ordinary_at(
+        &self,
+        path: &str,
+        request: LookupIntentRequest,
+        original: Payload<H>,
+        terminal: bool,
+    ) -> Result<IntentResponse<Value>, WorldServiceClientError> {
+        self.reader.require_unproved_operation_profile(None)?;
+        request
+            .validate()
+            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
+        let expected = H::derive_correlation(self.reader.config.expected_world.clone(), &original)
+            .map_err(WorldServiceClientError::Assurance)?;
+        if expected.key != request.key {
+            return Err(WorldServiceClientError::Assurance(
+                "lookup key differs from signed payload".into(),
+            ));
+        }
+        let response: IntentResponse<Value> = self.call(
+            path,
+            &AuthenticatedLookup::<H> {
+                request,
+                original: original.clone(),
+            },
+        )?;
+        self.reader
+            .check_evidence_scope(response.execution_evidence_scope.as_deref())?;
+        self.reader
+            .require_unproved_operation_profile(response.formal_profile.as_ref())?;
+        response
+            .validate(&expected)
+            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
+        if !terminal
+            && response
+                .terminal_recovery_authority
+                .as_ref()
+                .is_some_and(|proof| proof.schema_version != 1)
+        {
+            return Err(WorldServiceClientError::Assurance(
+                "current Journal evidence requires terminal Lookup".into(),
+            ));
+        }
+        terminal_recovery::validate_prefix_result::<H>(&response, &original)?;
+        Ok(response)
+    }
     /// Authenticate an exact original Lookup. The watermark is local verified
     /// read state, not an alteration of the immutable Lookup wire request.
     pub fn lookup_terminal_original(
@@ -130,13 +186,16 @@ impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
                 "formal terminal recovery is unsupported".into(),
             ));
         }
-        let response = self.lookup(request, original)?;
+        minimum
+            .validate()
+            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
+        if minimum.world != self.reader.config.expected_world {
+            return Err(WorldServiceClientError::Assurance(
+                "terminal recovery minimum belongs to another world".into(),
+            ));
+        }
+        let response = self.lookup_ordinary_at(TERMINAL_LOOKUP_PATH, request, original, true)?;
         if let Some(proof) = &response.terminal_recovery_authority {
-            if minimum.world != self.reader.config.expected_world {
-                return Err(WorldServiceClientError::Assurance(
-                    "terminal recovery minimum belongs to another world".into(),
-                ));
-            }
             validate_watermark(proof, minimum)?;
         }
         Ok(response)
@@ -260,6 +319,84 @@ mod tests {
                 "accepted {case}"
             );
         }
+    }
+
+    #[test]
+    fn current_journal_receipt_rebuilds_full_result_and_has_separate_signature_domain() {
+        let (mut response, original) = fixture();
+        let proof = response.terminal_recovery_authority.as_mut().unwrap();
+        proof.schema_version = 2;
+        proof.prefix_commit = None;
+        proof.current_authenticated_journal = Some(CurrentAuthenticatedJournalV1 {
+            prefix_event_id: 2,
+            prefix_event_time: proof.admitted_at_tick,
+            prefix_receipt: TerminalPrefixReceiptV1 {
+                dispatched: true,
+                request_digest: proof.request_digest.clone(),
+            },
+            reserve_correlation: proof.prefix_correlation.clone(),
+            reserve_full_result_digest: "reserve-result".into(),
+            reserve_receipt_digest: "reserve-receipt".into(),
+            reserve_committed_height: 6,
+            reserve_event_id: 1,
+            reserve_event_time: proof.lease.reserved_at_tick,
+        });
+        response.outcome = IntentOutcome::HistoryUnavailable;
+        response.validate(&response.correlation).unwrap();
+        let proof = response.terminal_recovery_authority.as_ref().unwrap();
+        let mut future = proof.read_commit.clone();
+        future.position += 1;
+        assert!(validate_watermark(proof, &future).is_err());
+        let receipt = serde_json::to_value(
+            &proof
+                .current_authenticated_journal
+                .as_ref()
+                .unwrap()
+                .prefix_receipt,
+        )
+        .unwrap();
+        // The original fixture hash is independently encoded from all result
+        // fields. HistoryUnavailable supplies no receipt to silently reuse.
+        assert!(validate_full_result::<TestProfile>(&response, &original, proof, &receipt).is_ok());
+        let mut changed = receipt.clone();
+        changed["dispatched"] = json!(false);
+        assert!(
+            validate_full_result::<TestProfile>(&response, &original, proof, &changed).is_err()
+        );
+        let query = AuthenticatedLookup::<TestProfile> {
+            request: LookupIntentRequest {
+                contract_version: 1,
+                key: response.correlation.key.clone(),
+            },
+            original,
+        };
+        let digest = request_digest(TERMINAL_LOOKUP_PATH, &query).unwrap();
+        let private = "11".repeat(32);
+        let public = hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[0x11; 32])
+                .verifying_key()
+                .to_bytes(),
+        );
+        let signed =
+            sign_service_response(TERMINAL_LOOKUP_PATH, digest.clone(), response, &private)
+                .unwrap();
+        assert!(verify_service_response(TERMINAL_LOOKUP_PATH, &digest, &signed, &public).is_ok());
+        let mut changed = signed.clone();
+        changed
+            .payload
+            .terminal_recovery_authority
+            .as_mut()
+            .unwrap()
+            .current_authenticated_journal
+            .as_mut()
+            .unwrap()
+            .reserve_receipt_digest
+            .push_str("other");
+        assert!(verify_service_response(TERMINAL_LOOKUP_PATH, &digest, &changed, &public).is_err());
+        assert!(verify_service_response(LOOKUP_PATH, &digest, &signed, &public).is_err());
+        assert!(
+            verify_service_response(TERMINAL_LOOKUP_PATH, "other-query", &signed, &public).is_err()
+        );
     }
 
     #[test]

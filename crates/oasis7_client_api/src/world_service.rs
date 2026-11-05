@@ -15,7 +15,8 @@ pub mod participant_identity_snapshot;
 #[path = "world_service_terminal_recovery.rs"]
 mod terminal_recovery;
 pub use terminal_recovery::{
-    TerminalLeaseIdentityV1, TerminalRecoveryAuthorityV1, TerminalRecoveryRoleV1,
+    CurrentAuthenticatedJournalV1, TerminalLeaseIdentityV1, TerminalPrefixReceiptV1,
+    TerminalRecoveryAuthorityV1, TerminalRecoveryRoleV1,
 };
 
 pub const WORLD_SERVICE_CONTRACT_VERSION: u32 = 1;
@@ -315,7 +316,10 @@ impl<T> IntentResponse<T> {
         }
         if let Some(proof) = &self.terminal_recovery_authority {
             if self.formal_profile.is_some()
-                || !matches!(&self.outcome, IntentOutcome::Committed { .. })
+                || !matches!(
+                    (&self.outcome, proof.schema_version),
+                    (IntentOutcome::Committed { .. }, 1) | (IntentOutcome::HistoryUnavailable, 2)
+                )
             {
                 return Err(ContractError(
                     "terminal recovery requires ordinary committed Lookup",
@@ -323,7 +327,7 @@ impl<T> IntentResponse<T> {
             }
             proof.validate(expected)?;
             if let IntentOutcome::Committed { commit, .. } = &self.outcome
-                && proof.prefix_commit != **commit
+                && proof.prefix_commit.as_ref() != Some(commit.as_ref())
             {
                 return Err(ContractError(
                     "terminal Prefix commit differs from committed result",
@@ -581,6 +585,7 @@ pub use authority::*;
 pub const DESCRIBE_PATH: &str = "/v1/world/describe";
 pub const SUBMIT_PATH: &str = "/v1/world/submit";
 pub const LOOKUP_PATH: &str = "/v1/world/lookup";
+pub const TERMINAL_LOOKUP_PATH: &str = "/v1/world/lookup-terminal";
 pub const VIEW_PATH: &str = "/v1/world/view";
 pub const CHANGES_PATH: &str = "/v1/world/changes";
 

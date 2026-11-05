@@ -669,3 +669,180 @@ fn assert_raw_schema_compatibility(raw: &serde_json::Value) {
     unknown["schema_version"] = serde_json::json!(4);
     assert!(decode(&unknown).is_err());
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wait_raw_fixture(
+    id: u64,
+    cognition: &crate::viewer::runtime_live::control_plane::llm_sidecar::RuntimeProviderActionContext,
+) -> crate::simulator::AsyncAgentTurnOutcome {
+    use crate::simulator::{
+        AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnLifecycle, AsyncWorldEffect,
+    };
+    AsyncAgentTurnOutcome {
+        turn_id: serde_json::from_value(serde_json::json!(id)).unwrap(),
+        agent_id: cognition.request.request_context.agent_subject.clone(),
+        lifecycle: AsyncTurnLifecycle::Completed,
+        feedback: AsyncTurnFeedback::Wait,
+        world_effect: AsyncWorldEffect::NoEffect,
+        decision: Some(AgentDecision::Wait),
+        decision_trace: None,
+        prepared_context: Some(cognition.request.turn_context.clone()),
+        prepared_request_context: Some(cognition.request.request_context.clone()),
+        prepared_response_context: Some(cognition.response.clone()),
+        provider_original_material_refs: None,
+        provider_response_context_lease: None,
+        cognition_lease: cognition.cognition_lease.clone(),
+        memory_write_intents: Vec::new(),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn wait_raw_escrow_retirement_preserves_other_originals_and_rolls_back_exactly() {
+    let mut world =
+        lineage_recovery_tests::bound_provider_lease_test_world(&["raw-wait", "raw-other"]);
+    let wait = queued_wait_cognition(&mut world, "raw-wait");
+    let other = queued_wait_cognition(&mut world, "raw-other");
+    let mut owner = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
+    owner.provider_raw_outcomes = vec![wait_raw_fixture(1, &other), wait_raw_fixture(2, &wait)];
+    let original = owner.provider_raw_outcomes.clone();
+    let request = &wait.request.request_context;
+    for changed in 0..7 {
+        let mut wrong = request.clone();
+        match changed {
+            0 => wrong.agent_subject.push_str("-wrong"),
+            1 => wrong.agent_session_id.push_str("-wrong"),
+            2 => wrong.agent_turn_id.push_str("-wrong"),
+            3 => wrong.decision_request_id.push_str("-wrong"),
+            4 => wrong.request_digest = crate::simulator::h_v1("wrong", &"request"),
+            5 => wrong.retry_seq += 1,
+            _ => wrong.transport_attempt += 1,
+        }
+        // A different Agent is never selected for deletion; a same-Agent
+        // conflicting original fails closed with every escrow unchanged.
+        let result = owner.retire_wait_raw_outcomes(&wrong, wait.cognition_lease.as_ref());
+        if changed == 0 {
+            assert!(result.unwrap().is_empty());
+        } else {
+            assert!(result.is_err());
+        }
+        assert_eq!(owner.provider_raw_outcomes, original);
+    }
+    assert!(
+        owner
+            .retire_wait_raw_outcomes(request, other.cognition_lease.as_ref())
+            .is_err()
+    );
+    assert_eq!(owner.provider_raw_outcomes, original);
+    let retired = owner
+        .retire_wait_raw_outcomes(request, wait.cognition_lease.as_ref())
+        .unwrap();
+    assert_eq!(owner.provider_raw_outcomes, vec![original[0].clone()]);
+    owner.restore_wait_raw_outcomes(retired);
+    assert_eq!(
+        owner.provider_raw_outcomes, original,
+        "failed checkpoint restores exact order and bytes"
+    );
+    owner
+        .retire_wait_raw_outcomes(request, wait.cognition_lease.as_ref())
+        .unwrap();
+    let mut later = wait.request.clone();
+    later.request_context.agent_turn_id.push_str("-later");
+    owner.provider_active_turns.insert("raw-wait".into(), later);
+    owner
+        .provider_active_turns
+        .insert("raw-other".into(), other.request);
+    assert_eq!(
+        owner.hosted_raw_outcomes().unwrap(),
+        vec![original[0].clone()]
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn service_wait_disposition_checkpoint_failure_restores_raw_owner_and_original_lease() {
+    let agent = "raw-service-wait";
+    let mut world = lineage_recovery_tests::bound_provider_lease_test_world(&[agent]);
+    let wait = queued_wait_cognition(&mut world, agent);
+    let request = &wait.request.request_context;
+    let lease = wait.cognition_lease.as_ref().unwrap();
+    // Authority has already settled. A failed local checkpoint must never
+    // roll that fact back, and must retain the originals needed to retry.
+    world
+        .settle_cognition_lease(&lease.lease_id, lease.reserved_amount)
+        .unwrap();
+    let settled = world.cognition_economy().unwrap().leases[&lease.lease_id].clone();
+    let root = std::env::temp_dir().join(format!(
+        "service-wait-disposition-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let checkpoint = root.join("lineage.json");
+    std::fs::create_dir(&checkpoint).unwrap(); // real rename-to-directory failure
+    let mut owner = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
+    owner.configure_provider_lineage_store(&checkpoint);
+    owner.provider_raw_outcomes.push(wait_raw_fixture(1, &wait));
+    owner
+        .provider_active_turns
+        .insert(agent.into(), wait.request.clone());
+    owner
+        .provider_contexts
+        .insert(agent.into(), wait.request.clone());
+    owner.bind_provider_cognition_lease(agent, lease.clone());
+    owner
+        .provider_continuation_recovery_pending
+        .insert(agent.into(), "original-proposal".into());
+    let original_raw = owner.provider_raw_outcomes.clone();
+    assert!(
+        owner
+            .checkpoint_compensated_service_wait(request, "original-proposal", Some(lease))
+            .is_err()
+    );
+    assert_eq!(owner.provider_raw_outcomes, original_raw);
+    assert_eq!(owner.provider_active_turns.get(agent), Some(&wait.request));
+    assert_eq!(owner.provider_contexts.get(agent), Some(&wait.request));
+    assert_eq!(owner.provider_cognition_lease(agent).as_ref(), Some(lease));
+    assert_eq!(
+        owner.provider_continuation_recovery_pending[agent],
+        "original-proposal"
+    );
+    assert_eq!(
+        owner.hosted_raw_outcomes().unwrap(),
+        original_raw,
+        "restored raw must retain its exact active owner"
+    );
+    assert_eq!(
+        world.cognition_economy().unwrap().leases[&lease.lease_id],
+        settled
+    );
+    std::fs::remove_dir(&checkpoint).unwrap();
+    owner
+        .checkpoint_compensated_service_wait(request, "original-proposal", Some(lease))
+        .unwrap();
+    assert!(owner.provider_raw_outcomes.is_empty());
+    assert!(!owner.provider_active_turns.contains_key(agent));
+    assert!(owner.provider_cognition_lease(agent).is_none());
+    assert!(
+        !owner
+            .provider_continuation_recovery_pending
+            .contains_key(agent)
+    );
+    assert_eq!(
+        world.cognition_economy().unwrap().leases[&lease.lease_id],
+        settled
+    );
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&checkpoint).unwrap()).unwrap();
+    assert!(
+        saved["provider_active_turns"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(saved["provider_raw_outcomes"].is_null());
+    std::fs::remove_dir_all(root).unwrap();
+}

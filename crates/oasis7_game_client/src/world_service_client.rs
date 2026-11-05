@@ -202,33 +202,7 @@ impl<H: ClientWorldProfile> WorldServicePort<H> for RemoteWorldServiceClient<H> 
         if self.reader.formal_read.is_some() {
             return self.lookup_formal(request, original);
         }
-        self.reader.require_unproved_operation_profile(None)?;
-        request
-            .validate()
-            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
-        let expected = H::derive_correlation(self.reader.config.expected_world.clone(), &original)
-            .map_err(WorldServiceClientError::Assurance)?;
-        if expected.key != request.key {
-            return Err(WorldServiceClientError::Assurance(
-                "lookup key differs from signed payload".into(),
-            ));
-        }
-        let response: IntentResponse<Value> = self.call(
-            LOOKUP_PATH,
-            &AuthenticatedLookup::<H> {
-                request,
-                original: original.clone(),
-            },
-        )?;
-        self.reader
-            .check_evidence_scope(response.execution_evidence_scope.as_deref())?;
-        self.reader
-            .require_unproved_operation_profile(response.formal_profile.as_ref())?;
-        response
-            .validate(&expected)
-            .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
-        terminal_recovery::validate_prefix_result::<H>(&response, &original)?;
-        Ok(response)
+        self.lookup_ordinary_at(LOOKUP_PATH, request, original, false)
     }
 
     fn read_view(

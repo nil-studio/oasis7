@@ -708,10 +708,9 @@ fn changes_reject_over_max_items_with_otherwise_valid_continuation() {
     response.validate(&request).unwrap();
 }
 
-#[test]
-fn terminal_authority_rejects_nested_unknown_fields_without_changing_legacy_readers() {
+fn terminal_authority_fixture() -> Value {
     let digest = format!("blake3:{}", "11".repeat(32));
-    let value = json!({
+    json!({
         "schema_version":1,"role":"terminal_only","world":world(),"agent_id":"agent-a","owner_binding":"owner-a","identity_generation":1,
         "agent_session_id":"session-a","agent_turn_id":"turn-a","decision_request_id":"request-a","request_digest":digest,
         "retry_seq":1,"transport_attempt":1,"grant_id":"grant-a","grant_issued_at_tick":2,"grant_expires_at_tick":302,
@@ -721,7 +720,13 @@ fn terminal_authority_rejects_nested_unknown_fields_without_changing_legacy_read
         "current_runtime_binding":{"world_id":"world-a","branch_id":"branch-a","finality_epoch":0,"finality_block_hash":digest,
             "finality_status":"verified","base_tick":2052,"base_world_hash":digest,"reorg_epoch":0,"runtime_manifest_hash":digest},
         "current_task_fence":null,"read_commit":commit(2052)
-    });
+    })
+}
+
+#[test]
+fn terminal_authority_rejects_nested_unknown_fields_without_changing_legacy_readers() {
+    let digest = format!("blake3:{}", "11".repeat(32));
+    let value = terminal_authority_fixture();
     let proof: TerminalRecoveryAuthorityV1 = serde_json::from_value(value.clone()).unwrap();
     proof.validate(&correlation()).unwrap();
     // The former inline field is an independent serialization oracle. Boxing
@@ -804,3 +809,6 @@ fn terminal_authority_rejects_nested_unknown_fields_without_changing_legacy_read
         "old DTO compatibility remains independent"
     );
 }
+
+#[path = "support/world_service_terminal_contract.rs"]
+mod terminal_current_contract;

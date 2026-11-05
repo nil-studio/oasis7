@@ -351,6 +351,7 @@ fn maybe_handle_configured(
         DESCRIBE_PATH,
         SUBMIT_PATH,
         LOOKUP_PATH,
+        TERMINAL_LOOKUP_PATH,
         VIEW_PATH,
         oasis7_client_api::world_service::VIEW_JSON_PATH,
         CHANGES_PATH,
@@ -404,6 +405,7 @@ fn maybe_handle_configured(
             executor_api::EXECUTOR_LOOKUP_PATH => executor_api::lookup(&service, parse(body)?),
             SUBMIT_PATH => operations::submit(&service, parse(body)?),
             LOOKUP_PATH => operations::lookup(&service, parse(body)?),
+            TERMINAL_LOOKUP_PATH => operations::lookup_terminal(&service, parse(body)?),
             VIEW_PATH => operations::view(&service, parse(body)?),
             oasis7_client_api::world_service::VIEW_JSON_PATH => {
                 operations::view_json(&service, parse(body)?)

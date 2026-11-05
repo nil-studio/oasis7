@@ -633,7 +633,13 @@ impl crate::viewer::ViewerRuntimeLiveServer {
         response
             .validate(&pending.correlation)
             .map_err(|e| e.to_string())?;
-        if phase.stage == "dispatch" && matches!(&response.outcome, IntentOutcome::Committed { .. })
+        if phase.stage == "dispatch"
+            && (matches!(&response.outcome, IntentOutcome::Committed { .. })
+                || (matches!(&response.outcome, IntentOutcome::HistoryUnavailable)
+                    && response
+                        .terminal_recovery_authority
+                        .as_ref()
+                        .is_some_and(|proof| proof.schema_version == 2)))
         {
             if let Some(proof) = &response.terminal_recovery_authority {
                 let minimum = phase
@@ -666,6 +672,20 @@ impl crate::viewer::ViewerRuntimeLiveServer {
             // Install only after all comparisons; absence retains the full live path.
             self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase.clone()));
             self.llm_sidecar.validate_orphan_authority(&phase.agent)?;
+        }
+        if phase.stage == "dispatch"
+            && let Some(proof) = response
+                .terminal_recovery_authority
+                .as_ref()
+                .filter(|proof| proof.schema_version == 2)
+        {
+            // Current Journal authority closes only this original dispatch. It
+            // does not manufacture an old Committed receipt or historical cut.
+            phase.stage = "failure".into();
+            phase.commit = Some(proof.read_commit.clone());
+            phase.submit = false;
+            self.llm_sidecar.hosted_service_phase = Some(HostedServicePhase::Orphan(phase));
+            return Ok(AgentServiceProgress::Advanced);
         }
         match response.outcome {
             IntentOutcome::Committed { commit, receipt } => {
