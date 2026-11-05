@@ -3092,7 +3092,12 @@ class Selection(unittest.TestCase):
         self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
         self.assertIn('distfs', plan['groups'])
-        for expression in ('windows', 'feature="optional_lane"',
+        self.write(path, '#[test] fn original() {}\n'
+                   '#[cfg(target_os="linux")] #[test] fn added() {}\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertIn('distfs', plan['groups'])
+        for expression in ('windows', 'target_os="windows"', 'not(target_os="linux")',
+                           'feature="optional_lane"',
                            'all(unix, feature="test_tier_full")'):
             with self.subTest(expression=expression):
                 self.write(path, '#[test] fn original() {}\n'
