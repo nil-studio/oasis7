@@ -383,20 +383,24 @@ impl NodePrivateStore {
         if retention_required(&path)? || pins {
             verify_material(&self.store, &plan.data)?;
         }
-        self.insert_source_slot(plan.data.clone(), false)?;
-        live()?;
-        verify_owner()?;
-        files::publish(
-            &path.with_extension("reservation.cbor"),
-            &plan.data.bytes()?,
-        )?;
-        live()?;
-        verify_owner()?;
-        common_storage::put_cas_durable(
-            &self.store,
-            &plan.publication.bytes()?,
-            super::super::super::super::publication_reservation::MAX_PUBLICATION_METADATA,
-        )?;
+        if !complete {
+            // A completed exact WAL is read back on Pending recovery. Recreating
+            // its consumed reservation would make a new foreign transaction.
+            self.insert_source_slot(plan.data.clone(), false)?;
+            live()?;
+            verify_owner()?;
+            files::publish(
+                &path.with_extension("reservation.cbor"),
+                &plan.data.bytes()?,
+            )?;
+            live()?;
+            verify_owner()?;
+            common_storage::put_cas_durable(
+                &self.store,
+                &plan.publication.bytes()?,
+                super::super::super::super::publication_reservation::MAX_PUBLICATION_METADATA,
+            )?;
+        }
         publish_checked(
             &self.store,
             &path,

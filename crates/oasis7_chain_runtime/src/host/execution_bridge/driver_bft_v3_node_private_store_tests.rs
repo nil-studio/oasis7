@@ -132,3 +132,21 @@ fn formal_read_private_covered_origin_is_old_codec_fail_closed_and_none_bytes_un
         "schema8 cannot downgrade by omitting activation"
     );
 }
+
+#[test]
+fn completed_private_record_rejects_recreated_reservation_even_with_exact_bytes() {
+    let root = Scratch::new();
+    let path = root.path().join("origin.cbor");
+    let bytes = data().bytes().unwrap();
+    files::publish(&path, &bytes).unwrap();
+    assert!(read_slot(&path).unwrap().unwrap().complete);
+    let reservation = path.with_extension("reservation.cbor");
+    files::publish(&reservation, &bytes).unwrap();
+    assert_eq!(
+        read_slot(&path).err().as_deref(),
+        Some("completed Node record has foreign pending material"),
+    );
+    // The guard must preserve both originals for explicit investigation.
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(fs::read(&reservation).unwrap(), bytes);
+}
