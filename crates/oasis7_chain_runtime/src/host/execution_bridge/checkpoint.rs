@@ -803,8 +803,11 @@ fn run_execution_bridge_incremental_retention_maintenance_inner(
         && checkpoint_interval_heights > 0
         && record.height.is_multiple_of(checkpoint_interval_heights)
     {
-        let retained_span =
-            checkpoint_interval_heights.saturating_mul(checkpoint_keep_latest.max(1) as u64);
+        // A hot service view still needs its original archive/proof dependencies.
+        // Keep the cadence unchanged, and sweep every height after both windows expire.
+        let retained_span = checkpoint_interval_heights
+            .saturating_mul(checkpoint_keep_latest.max(1) as u64)
+            .max(retained_hot_window);
         if let Some(pruned_height) = record.height.checked_sub(retained_span) {
             let prune_start = pruned_height
                 .saturating_sub(checkpoint_interval_heights.saturating_sub(1))
