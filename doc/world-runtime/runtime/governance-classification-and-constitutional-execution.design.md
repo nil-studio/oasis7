@@ -12,7 +12,7 @@
 
 目标是普通事项具备可检查的白名单与授权来源，其他合法宪制事项具备独立合取闸门，并可从声明、审查、异议追溯到唯一结果。不可改写的保护在所有路径都先检查，不能把受保护事项送入另一轨道后绕过禁止。
 
-本设计承接 GCB-001/002；不接管 GCB-004/005 的主体聚合、OC 权利或额度桥实现，也不接管 GCB-006 的紧急保护权限。GCB-003 的普通事项后续执行只消费其现有保护优先、当前重验和单次结果约束，不将本设计视为该要求所有消费者的完整实现。阈值、期限、超多数与独立确认集合由经授权的版本化制度政策提供，不在此新增经济或政治参数。
+本设计承接 GCB-001/002/003：普通事项的精确批准、当前重验、唯一执行槽、实际领域消费者及恢复由 §5.3–5.4 和 §7 共同约束；这些是目标设计，不是消费者已完成实现的声明。GCB-004/005 的主体聚合、事项 OC 权利与额度桥隔离由[普通治理主体设计](ordinary-governance-subject-and-oc-rights.design.md)拥有，GCB-006 的原有限保护动作由[保护权限设计](protective-governance-authority-and-recovery.design.md)拥有；本文只消费各自有效的 authority。阈值、期限、超多数与独立确认集合由经授权的版本化制度政策提供，不在此新增经济或政治参数。
 
 ## 2. 上游约束与相关角色
 
@@ -25,6 +25,9 @@
 | [REQ-WR-GCB-002](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002)；Trace refs: O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06 | 可修改的宪制事项须同时具有审议、延迟/复核、适用超多数、独立确认、审计、申诉及连续 receipt；执行前授权失效或任一条件缺失均无部分效果。 | [宪制合取](#constitutional-conjunction) | 现行宪制政策、独立审查角色/受影响主体、权威世界时间 | 不改变保护底线，不把技术 manifest 治理或 BFT finality 当宪制批准。 |
 | [REQ-WR-GCB-002](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002)；Trace refs: O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06 | 可修改的宪制事项须同时具有审议、延迟/复核、适用超多数、独立确认、审计、申诉及连续 receipt；执行前授权失效或任一条件缺失均无部分效果。 | [提交边界](#governance-commit) | 现行宪制政策、独立审查角色/受影响主体、权威世界时间 | 不改变保护底线，不把技术 manifest 治理或 BFT finality 当宪制批准。 |
 | [REQ-WR-GCB-002](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002)；Trace refs: O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06 | 可修改的宪制事项须同时具有审议、延迟/复核、适用超多数、独立确认、审计、申诉及连续 receipt；执行前授权失效或任一条件缺失均无部分效果。 | [恢复](#governance-persistence) | 现行宪制政策、独立审查角色/受影响主体、权威世界时间 | 不改变保护底线，不把技术 manifest 治理或 BFT finality 当宪制批准。 |
+| [REQ-WR-GCB-003](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003)；Trace refs: O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595 | 已通过事项只取得有限执行机会；精确批准内容、当前授权/范围/反滥用条件和单次执行槽共同约束本次效果。 | [提交边界](#governance-commit) | 原批准与当前 authority；同根事务及语义结果索引 | 任一 Passed、旧票局、客户端 request ID 不代签本案授权。 |
+| [REQ-WR-GCB-003](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003)；Trace refs: O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595 | 政策、财库与既有 charter 的全部 typed 效果在各原领域重验；复合越界不得先提交合法子项。 | [实际消费者](#governance-execution-consumers) | 原政策、OC 财库、charter 及受保护资产 authority | 不扩大三类白名单，不自动接通旧 native API 或新角色。 |
+| [REQ-WR-GCB-003](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003)；Trace refs: O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595 | 并发、失权、到期、丢响应和持久化未知不重复效果；历史与精确结果保持可恢复。 | [状态与恢复](#governance-persistence) | 原完整 generation、G1 判定、当前读权 | 静态方法不代签业务、跨节点 finality 或正式 serving。 |
 
 身份绑定、签名与实际控制关系由 P2P 专业 authority 提供最小化可验证断言；本组件消费其结果，不以 Agent ID、余额或自报身份补齐资格。普通财库拨款和区域操作仍须由相应账本、[charter authority](regional-charter-authority-and-recovery.design.md#charter-authority-interfaces) 在执行点确认其专业条件。
 
@@ -86,7 +89,26 @@
 
 有效提交原子写入规则/限定业务 delta、按授权合同确需消费的额度或使用标记、案例终态、语义去重结果、事件和执行 receipt。可复用授权不得被误删；每个已通过事项/案例修订具有唯一 `ExecutionSlotV1=(world_id,module_instance_id,matter_or_case_id,approved_revision,execution)`，`execution` 由执行器固定，调用者不能更换 operation ID/kind 再执行一次。禁止创建一般“已通过额度”，再由另一路径不带本案限制地消费。
 
-确定未提交的失败丢弃 staged 业务变化；不能持久化拒绝记录时返回基础设施错误，不伪造稳定 receipt。持久化状态不明时围住本次操作并查询其确切提交点，不能换身份再试。提交后响应丢失只返回原结果。申诉在生效前可按政策阻断本案；生效后以独立裁决和明确授权的纠正/补偿动作追加 linked receipt，不改写已确认历史，不取得修改 finality 或独立资产的额外权力。
+确定未提交的失败丢弃 staged 业务变化；不能持久化拒绝记录时返回基础设施错误，不伪造稳定 receipt。只有调用者丢失响应或查询未完成时，按原事项/操作身份查询准确结果，不据此推断整个 World 已进入持久化未知。若底层持久化 disposition 确为 `StatusUnknown`，必须沿[原 G1](runtime-storage-footprint-governance.design.md#storage-generation-g1-design)围住整个旧 World 的后续写入及其原适用发布边界，不能缩成单事项锁；完成原提交核对并安装正确 generation 后才解除。任何一类未知都不能换身份再试。已确认提交后响应丢失只返回原结果。申诉在生效前可按政策阻断本案；生效后以独立裁决和明确授权的纠正/补偿动作追加 linked receipt，不改写已确认历史，不取得修改 finality 或独立资产的额外权力。
+
+<a id="governance-execution-consumers"></a>
+### 5.4 精确批准到实际消费者
+
+本节以已合入 `2731f781536018a857e5daf2cfa7ede504e9cd69` 的当前消费者核对 GCB-003 接缝，不改写 §3 的历史源码基线。[政策入口](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_gameplay_policy.rs)当前调用[任一 Passed 提案判断](../../../crates/oasis7_runtime/src/world/event_processing.rs)，实际 Action 没有本案 approved revision/payload 绑定；[财库入口](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_core_main_token.rs)有 `proposal_id`、批准状态、桶与余额校验和 `distribution_id` 去重，但后者不证明同一普通事项只消费一次。这些是静态源码事实，不是已验证的远程绕过或新运行记录。
+
+目标 adapter 必须从已鉴权的 `ExecuteGovernedMatter` 接收同一完整 `MatterDeclaration`、批准版本及 `ExecutionSlotV1`，逐项绑定到以下原领域操作；不能先调用旧 native mutator，再补事项 receipt。正式请求的签名/调用者、world/branch、操作身份、完整 payload digest、有效窗口与原 task/delegation（适用时）均由原统一入口验证；业务 authority 还须在同一 staged cut 重验，不从旧角色字符串或 passed 状态反造。本节不新建可直接写 World 的路由，未接通某一正式消费者时，该 route 明确 unsupported/blocked。
+
+| 原普通类别与消费者 | 本案必须精确绑定及当前重验 | 单根结果与不能代签的部分 |
+| --- | --- | --- |
+| `policy_runtime`：原政策参数/对象更新 | 批准的完整参数、对象集合、原/新政策版本与 effect digest；沿原税率/费用/合同配额边界逐项校验，原目标存在且当前处于合法 scope。`blocked_agents`、`forbidden_location_ids` 等字段按其实际冻结/排除效果分类，即使包装在同一旧 Action 中也须有保护/宪制等独立 authority；普通 Passed 不能为混合效果补签。 | 原政策 delta、事项槽、授权用量、receipt 与结果索引同根；任一子效果越界整体零业务变化，不悄悄丢掉不合法字段。已有普通政策值不因此自动取得更改他人资格的能力。 |
+| `treasury_use`：原 OC 公共财库拨付 | 明确同一 matter 对应的原 `proposal_id`、精确 `distribution_id`、原受支持 bucket、完整受益者/正整数金额集合、总量、项目用途与批准 digest；当前原财库 authority、余额、原供应约束及所有受益账户条件有效。原[三桶边界](../../p2p/token/mainchain-token-allocation-mechanism.design.md#tam-buckets-design)与[原分发身份](../../p2p/token/mainchain-token-allocation-mechanism.design.md#tam-idempotency-design)保持。 | 原财库/受益账户/供应 delta、原 distribution 记录与事项槽及 receipt 同根；换 distribution/request/operation label 仍指向已消费的同一事项槽。新的合法拨付必须是新批准事项或实质新修订，不能只换 ID 继续旧授权；普通票局不代签奖励资格、私有资产或不受支持的桶。 |
+| `existing_charter_operations`：既有区域的有限日常动作 | 精确 charter identity/revision、动作、目标/空间范围、当前状态与 authorization revision、本次资格和适用本地贡献、原费用/资源及子领域条件，沿[原 charter authority](regional-charter-authority-and-recovery.design.md#charter-authority-interfaces)逐项消费。 | 原 charter/子领域 typed delta 与事项槽同根；不从普通通过创建新 charter、恢复已失效权力、征收 levy、收回 tenure 或取消合同。需要物理后继工作的事项只一次创建合法原工作义务，后续动作仍按原工作身份恢复，不能重放事项再派一份工作。 |
+
+每个受支持 consumer adapter 在模块/运行版本中登记完整效果类型、authority/source adapter、当前版本 read-set 与原 publication participant；所有正式 API、Agent、Viewer、module command 及适用旧 native 路径都须使用同一登记和 guard。对无法证明覆盖的旧旁路，只禁用该新增受治理调用路径；不得在仍允许旧路径操作同一活动域时宣称接入完成。纯 legacy 世界及旧票局保持原版本解释；启用新域前必须完成其所有可达 writer 的覆盖核验，不能以本设计扩大旧权限。
+
+一次执行按已批准事项及完整 effect/target 索引键读取，不全世界寻找任意 Passed 或全扫 journal；source 缺失、范围不全、依赖或完整编码超过原 ABI/版本化预算时整体 incomplete/拒绝，不取首批作为全部批准。所有原领域费用、完整验证/编码和原结果查询成本纳入已有 runtime 计量及显式承担者，比较或分类无业务费用不等于真实制度执行免费。共享事务故障、已确认与 G1 未知的判定沿 §5.3 和 §7，不按消费者拆成相互独立的部分成功。
+
+[GOV-M01](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-01-approved-execution)以独立前后账验证精确批准和换 ID 不能二次拨付；[GOV-M02](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-02-current-revalidation)逐项改变本案授权/范围/版本及混合效果；[GOV-M09](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-09-recovery)核丢响应与真实 G1 的差别。方法、组件正例与正式可达性分别记录。
 
 ## 6. 接口与数据合同
 
@@ -159,6 +181,9 @@
 | [REQ-WR-GCB-002](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002)；Trace refs: O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06 | [合取](#constitutional-conjunction) | 任一条件缺失/过期/失效不产生规则、资产、权限或历史改写；独立确认不可代签。 | [系统测试手册](../../../testing-manual.md)；按本文场景 GOV-VERIFY-002、003、004；固定独立角色、政策、时间与世界版本的正负样例；专用合同回归由实现提供，本文仅规定验收。 | 各条件原始证明、申诉链、原子提交/拒绝与恢复结果；实际 PR 证据 | 不证明未提供的政策、身份机制或线上自定义模块。 |
 | [REQ-WR-GCB-002](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002)；Trace refs: O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06 | [提交](#governance-commit) | 任一条件缺失/过期/失效不产生规则、资产、权限或历史改写；独立确认不可代签。 | [系统测试手册](../../../testing-manual.md)；按本文场景 GOV-VERIFY-002、003、004；固定独立角色、政策、时间与世界版本的正负样例；专用合同回归由实现提供，本文仅规定验收。 | 各条件原始证明、申诉链、原子提交/拒绝与恢复结果；实际 PR 证据 | 不证明未提供的政策、身份机制或线上自定义模块。 |
 | [REQ-WR-GCB-002](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-002)；Trace refs: O7-REQ-79b6687e-3b8c-42a3-a266-df4d191fec06 | [恢复](#governance-persistence) | 任一条件缺失/过期/失效不产生规则、资产、权限或历史改写；独立确认不可代签。 | [系统测试手册](../../../testing-manual.md)；按本文场景 GOV-VERIFY-002、003、004；固定独立角色、政策、时间与世界版本的正负样例；专用合同回归由实现提供，本文仅规定验收。 | 各条件原始证明、申诉链、原子提交/拒绝与恢复结果；实际 PR 证据 | 不证明未提供的政策、身份机制或线上自定义模块。 |
+| [REQ-WR-GCB-003](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003)；Trace refs: O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595 | [提交](#governance-commit) | 精确批准内容、当前重验和 ExecutionSlotV1 同根，换请求不取得第二次世界效果。 | [GOV-M01](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-01-approved-execution)、GOV-M02；同候选/同政策独立前后账和单变量拒绝 | 原批准、完整效果/authority、唯一槽和 receipt；失败零部分业务变化 | 不证明正式 adapter 已实现或当前在途代码安全。 |
+| [REQ-WR-GCB-003](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003)；Trace refs: O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595 | [消费者](#governance-execution-consumers) | 三类原领域逐项绑定本案；原 distribution 去重不代签事项一次消费，混合效果不得先执行子项。 | [GOV-M01](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-01-approved-execution)、GOV-M02、GOV-M10；分别固定真实原consumer和完整预算 | 政策/财库/charter原件、授权/版本、同根delta、完整拒绝及当前读面 | 缺源保持unknown；组件fixture不代签strict formal可达。 |
+| [REQ-WR-GCB-003](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-003)；Trace refs: O7-REQ-4f6597ff-8e34-4d12-bb60-060df0e09595 | [恢复](#governance-persistence) | 原身份、已确认结果和完整generation保留；普通丢响应不冒称G1，真实StatusUnknown不缩小旧World fence。 | [GOV-M09](../../testing/manual/ordinary-and-protective-governance-acceptance.manual.md#gov-09-recovery)、GOV-M10；提交各故障窗、非空tail、重启、当前读权、过期与重放 | 原/候选/恢复root、事项槽、receipt、journal与有界来源闭包 | 静态设计不证明真实持久化、跨节点或平台运行。 |
 
 ## 12. 决策、长期风险与未决问题
 
