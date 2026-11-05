@@ -19,7 +19,7 @@ test('actual V1 Host CLI crosses trusted TLS and isolated H/M Control with cold 
   w.durableObjects={...w.durableObjects,CLIENT_ENROLLMENTS:{className:'ClientEnrollmentAuthority',useSQLite:true,...(w.name==='owner'?{scriptName:'identity'}:{})}};
   if(w.name==='identity'){w.serviceBindings={...w.serviceBindings,TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'},TEST_SESSION_NATIVE_HISTORY:{name:'identity',entrypoint:'NativeProvisionHistory'}};w.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_runtime.mjs')},...w.modules.filter(m=>!m.path.endsWith('/native_revocation_scheduler.mjs'))];}
   else w.serviceBindings={...w.serviceBindings,IDENTITY_TEST_SESSIONS:{name:'identity',entrypoint:'IdentityTestSessions'},TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'}};
- }}
+ }return options;}
  try{driver=hostControlDriver({directory,fixtureSource:resolve(root,'tests/fixtures'),port:tls.port});
  await withRoleRuntime(mode,async runtime=>{tls.bind(runtime);
   assert.equal((await runtime.drive('host-control-participant')).stage,'participant_bound');
@@ -46,5 +46,5 @@ test('actual V1 Host CLI crosses trusted TLS and isolated H/M Control with cold 
   const heartbeats=tls.facts().filter(v=>v.path.endsWith('/heartbeat'));assert.equal(heartbeats.length,2);assert.ok(heartbeats.every(v=>v.status===200));assert.ok(heartbeats[0].body.equals(heartbeats[1].body),'same retained original body after actual dropped response and Host restart');
   console.log(JSON.stringify({host_control_evidence:{actual_https:true,actual_cli:true,distinct_h_m_uid:true,cold_unknown_original_restored:true,world_fixture:true,world_closed:false,real_agent_gameplay:false}}));
  },{configureOptions});
- }finally{if(driver)await driver.close();await tls.close();rmSync(directory,{recursive:true,force:true});}
+ }catch(error){console.error(JSON.stringify({host_tls_failure_summary:tls.summary()}));throw error;}finally{if(driver)await driver.close();await tls.close();rmSync(directory,{recursive:true,force:true});}
 });
