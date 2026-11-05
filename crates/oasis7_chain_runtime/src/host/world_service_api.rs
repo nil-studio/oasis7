@@ -23,6 +23,16 @@ mod participant_api;
 #[path = "world_service_private_goal.rs"]
 pub(super) mod private_goal;
 
+#[cfg(test)]
+std::thread_local! {
+    static LAST_SERVICE_ERROR: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn take_last_service_error() -> Option<String> {
+    LAST_SERVICE_ERROR.with(|slot| slot.borrow_mut().take())
+}
+
 pub(super) struct Service<'a> {
     restore_context: world_service_read::RestoreContext,
     records: &'a Path,
@@ -403,6 +413,13 @@ fn maybe_handle_configured(
             _ => unreachable!(),
         }
     })();
+    #[cfg(test)]
+    LAST_SERVICE_ERROR.with(|slot| {
+        *slot.borrow_mut() = result
+            .as_ref()
+            .err()
+            .map(|reason| reason.chars().take(4096).collect());
+    });
     let (status, value) = match result {
         Ok(value) => (200, value),
         Err(reason) if reason == UNSUPPORTED_REQUEST_FIELD => (

@@ -267,6 +267,8 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
                 )
                 .unwrap()
             );
+            super::super::super::super::world_service_api::take_last_service_error()
+                .map(|reason| persist_service_diagnostic(&reason))
         });
         let client = oasis7::world_service::client::RemoteWorldServiceClient::new(
             oasis7::world_service::client::WorldServiceClientConfig {
@@ -281,16 +283,21 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
             },
         )
         .unwrap();
-        let response = client
-            .lookup_terminal_original(
-                LookupIntentRequest {
-                    contract_version: 1,
-                    key: prefix.correlation.key.clone(),
-                },
-                prefix.signed_payload.clone(),
-                &pin.commit,
-            )
-            .unwrap();
+        let response = client.lookup_terminal_original(
+            LookupIntentRequest {
+                contract_version: 1,
+                key: prefix.correlation.key.clone(),
+            },
+            prefix.signed_payload.clone(),
+            &pin.commit,
+        );
+        let diagnostic = worker.join().unwrap();
+        assert!(
+            response.is_ok(),
+            "terminal Lookup failed; private diagnostic: {:?}",
+            diagnostic
+        );
+        let response = response.unwrap();
         let proof = response.terminal_recovery_authority.as_ref().unwrap();
         assert_eq!(proof.admitted_at_tick, admitted_tick);
         assert_ne!(proof.admitted_at_tick, captured_tick);
@@ -300,7 +307,6 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
             proof.lease.idempotency_key,
             captured.provider_invocation_key().to_string()
         );
-        worker.join().unwrap();
     });
 }
 
@@ -345,4 +351,46 @@ fn captured_request(
     request.request_digest = request.request_digest();
     request.validate_production_lane().unwrap();
     request
+}
+
+fn persist_service_diagnostic(reason: &str) -> std::path::PathBuf {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.tmp/5265-terminal-http-diagnostics");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&directory)
+        .unwrap();
+    let metadata = std::fs::symlink_metadata(&directory).unwrap();
+    assert!(metadata.is_dir() && !metadata.file_type().is_symlink());
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    loop {
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = directory.join(format!(
+            "lookup-{}-{timestamp}-{sequence}.private.txt",
+            std::process::id()
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                file.write_all(reason.as_bytes()).unwrap();
+                file.sync_all().unwrap();
+                return path;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("private diagnostic creation failed: {:?}", error.kind()),
+        }
+    }
 }
