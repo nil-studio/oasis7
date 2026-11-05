@@ -148,6 +148,28 @@ Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-45
 
 最终证据按入口记录正例、代表失败、实际安全下一步与未接通处，并把原件 digest/correlation、authority 结果、效果次数、授权变化及客户端可消费状态对齐。原始签名文件、凭据和私有目标保留在获准存储，公开记录仅含脱敏关联及必要摘要。协议/adapter 故障向量、真实 TCP CLI/HTTP 消费与 Runtime/full 首局分别列结论；前两者不代签真实模型自主游玩，Viewer 图形/窄屏/键盘证据仍由其专用方法取得。本节只定义方法，源码审读与文档检查不改变各运行项的 not_run 或未覆盖状态。
 
+<a id="parity-declaration-consumption-validation"></a>
+### 场景 parity-declaration-consumption-validation：声明来源与逐入口接收
+
+Trace refs: O7-REQ-21f1c7b1-8be0-438e-8f92-d4d1b34be0e6。对应[声明消费设计](../../world-simulator/llm/provider-agent-experience-parity.design.md#parity-declaration-consumption)，复用原 parity 判据、可信 Skill/driver 发布链及本手册逐入口方法；本节只增加这些合同的组合验证，不建立新认证或改变支持范围。
+
+**前置与层次。** 固定 source/build、受信发行根、实际 manifest/声明 schema、入口/adapter/platform、世界及权限范围。确定性层由受控发行 fixture 提供记录 R1：Runtime/version、model/profile、driver/schema/Skill、mode/surface/lane、场景与权限均有明确值，发布 revision=1，原结论为 experimental，证据引用完整；另备只改一个维度的 R2，以及缺项、坏 hash、撤回和超限原件。这些是验证材料，不是实际 Runtime 获准或模型通过。实现后，必须把同一材料送进真实发布记录 loader、入口组合匹配器和最终呈现/结构化输出消费者，不能只手工造 UI 状态。当前缺接线就记录该层未实施；现有 parity 聚合脚本只作指标层回归，不能替代这些接收者。
+
+full 层使用实际获准发布物及其对应真实 paired/Runtime recovery/QA/producer 材料，逐声明组合执行，不借 fixture 的完整引用宣称真实证据存在。真实模型和外部服务仍按原授权运行；只验证声明消费时不应调用模型或提交世界行动。保留声明原件与验证来源、实际观察、各独立结论及下一步；凭据和私有 Prompt 不进入记录。
+
+| 方法 | 输入与操作 | 独立预期与观察点 |
+| --- | --- | --- |
+| PD01 精确接收 | 将 R1 及完全匹配的实际组合/合法能力输入 Launcher、Viewer、pure_api 中本次实际声明支持的接收者 | 三端保留相同声明 ID/revision/hash、组合和 experimental 范围；样式可不同，本地启动成功不升级 stage/default/parity。模型调用和业务提交均为 0；当前权限仍由原 authority 决定 |
+| PD02 单维漂移 | 分别只改 Runtime version、model、profile revision、adapter/schema、mode、Web/native、平台、lane 或必要能力；再用发布者明确列入的兼容范围作正例 | 未被声明覆盖的变体不得借 R1 通过；输出具体不匹配与真实下一步。原明确兼容范围内的值按原规则匹配，不由测试擅自要求所有版本字节相同；恢复匹配后重新读取确认，不自动开始 |
+| PD03 来源与修订 | R1 内容 hash 错、来源非可信发布链、同 ID/revision 冲突、当前读取失败；再发布合法 R2 明确替代/撤回 R1 | 错误记录不进入有效声明；旧缓存只标历史，当前未确认/不适用。未被撤回且仍匹配原固定组合的旧版本不因存在较新版本被任意失效。修复来源后沿同发布链读取；不删除任务或原操作 |
+| PD04 证据不足 | 分别删除 paired、Runtime restart/reconnect、QA 或 producer 评分；保留 benchmark passed/latency A；另测原批准为 B 的完整受限记录 | 任一缺项不得显示完整 parity 或默认通过；输出缺项和适用限制。B 只承接原受限许可，A 也不自行产生默认发布；另一 Runtime/场景证据不能补缺 |
+| PD05 能力与声明分层 | R1 匹配但 Provider 故障/权限撤销/必要动作不可用；另使用无需 Runtime/Provider 的普通 HTTP 只读组合 | 仅真实依赖失败的组合/动作 blocked，并提供原检查/认证/配置入口；普通 HTTP 不因无模型而整体 blocked。parity 缺证据与当前合法读取可用可同时成立，不凭支持声明授予写权 |
+| PD06 完整字节与秘密 | 向真实 loader 输入编码后恰为 65,536 bytes 和 65,537 bytes 的完整记录；再配置更小的实际下层限制；证据引用中夹带秘密或非受信来源 | 只有满足完整 schema、来源和所有更小限制的前者可被消费；后者拒绝，不能截去能力/缺项后通过。原始 trace、Prompt/密钥不作为公开声明正文；没有因为记录刷新增加模型调用或世界费用 |
+| PD07 旧请求与刷新 | 固定已提交但结果未知的原操作 O，切换声明/Provider 选择并使声明读取暂时失败；恢复后读取 O 的原结果 | O 身份、签名、digest、原声明 provenance 不变；0 次新业务重发。只在当前读权下查询同 O；真实 committed 仍属 O，声明恢复不能覆盖其结果或替代 PSW 原切换合同 |
+| PD08 实际表面和失败恢复 | 在每个被声明的表面分别打开选择/配置、检查、显式开始前摘要及失败详情；读取超时后再修复实际源 | 对应 source/build/adapter 的真实消费者输出来源、版本、范围、限制和可执行下一步。不存在选择能力的表面不被凭空要求新增按钮；safe query 不存在时明确停止，不用另端截图、Hello、SDK 或旧记录补签本端 |
+
+通过判据是以上身份、分类、范围和零额外副作用逐条符合设计；技术 consumer 通过不代表真实 parity 或发行。报告分别标记 fixture 接收、真实发布源、各实际表面和真实 Provider 证据，缺一层保留该层未完成，不能反向改原声明让测试通过。
+
 <a id="api-wire"></a>
 ### 场景 api-wire
 
