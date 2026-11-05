@@ -49,6 +49,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() || args == ["--help"] {
         println!("{HELP}");
         #[cfg(unix)]
+        println!("{}", crate::custody_tool_host::cli::HELP);
+        #[cfg(unix)]
         println!("{}", crate::identity_cli::HELP);
         #[cfg(unix)]
         println!("{}", crate::participant_cli::HELP);
