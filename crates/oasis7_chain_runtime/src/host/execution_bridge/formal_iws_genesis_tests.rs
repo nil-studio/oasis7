@@ -45,6 +45,7 @@ fn real_genesis_without_snapshot_material_transfers_pages_and_originals_to_both_
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 64 << 20,
     };
+    let mut transfer = transfer_work();
     let result = prepare_iws_genesis_for_endpoints_v1(
         &world,
         &stores[0],
@@ -59,9 +60,21 @@ fn real_genesis_without_snapshot_material_transfers_pages_and_originals_to_both_
         },
         &mut work::work(),
         work::physical(),
-        &mut transfer_work(),
+        &mut transfer,
     )
-    .unwrap();
+    .unwrap_or_else(|error| {
+        panic!(
+            "GEN transfer: {error:?}; remaining objects={:?}, publish={:?}, outer={:?}, scan={:?}",
+            transfer.objects_physical,
+            transfer.page_publish,
+            transfer.outer_reads,
+            (
+                transfer.outer_scan.nodes_remaining,
+                transfer.outer_scan.read_bytes_remaining,
+                transfer.outer_scan.leaves_remaining
+            ),
+        )
+    });
     assert_eq!(result.summary.typed.runtime_fields, 46);
     for store in &stores[1..] {
         let pool = store.memory_budget();

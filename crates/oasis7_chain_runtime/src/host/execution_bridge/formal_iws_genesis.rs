@@ -138,7 +138,14 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
     let memory = context.memory;
     let max_original = work.max_original_bytes;
     let mailbox_steps = &mut work.mailbox_search_steps;
-    let targets = pages::Targets::new(targets, &mut work.page_publish, cancelled);
+    let mut first_cancel = || cancelled.load(std::sync::atomic::Ordering::Acquire);
+    let mut second_cancel = || cancelled.load(std::sync::atomic::Ordering::Acquire);
+    let targets = pages::Targets::new(
+        targets,
+        &mut work.page_publish,
+        cancelled,
+        [&mut first_cancel, &mut second_cancel],
+    )?;
     let RuntimeGenesisPhysicalBudgetsV1 {
         producer_pages,
         index_reads,
@@ -233,7 +240,7 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
         return Err(IwsGenesisTransferErrorV1::Body(error));
     }
     let result = result.map_err(IwsGenesisTransferErrorV1::Genesis)?;
-    targets.check_complete()?;
+    targets.check_healthy()?;
     // Move the allowance out before IO. Even a poisoned read account cannot
     // leave the original allowance available for an implicit retry.
     let outer_io = std::mem::replace(
@@ -267,6 +274,8 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
     }
     remaining?;
     transferred?;
+    targets.finish()?;
+    targets.check_complete()?;
     Ok(result)
 }
 /// Install only the actual transferred namespace. The endpoint still performs

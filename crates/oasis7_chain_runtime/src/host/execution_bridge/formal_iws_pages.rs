@@ -1,6 +1,8 @@
 //! Bounded GEN page transfer. Every destination owns its admitted byte copy;
 //! successful copying never selects a head or qualifies an execution.
-use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageIoBudget, PageStoreError};
+use oasis7_distfs::incremental_page_store::{
+    BufferedPageWriter, IncrementalPageStore, PageIoBudget, PageStoreError,
+};
 use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StatePageWriter, StateScanBudget, StateScanContext},
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
@@ -13,24 +15,48 @@ use std::{
 
 pub(super) struct Targets<'a, 'quota> {
     pub(super) stores: [&'a IncrementalPageStore; 2],
-    pub(super) io: RefCell<&'quota mut [PageIoBudget; 2]>,
+    writers: RefCell<Option<[BufferedPageWriter<'quota>; 2]>>,
     pub(super) cancelled: &'a AtomicBool,
     failed: Cell<bool>,
     error: RefCell<Option<PageStoreError>>,
 }
-impl<'a, 'quota> Targets<'a, 'quota> {
+impl<'a, 'quota: 'a> Targets<'a, 'quota> {
     pub(super) fn new(
-        stores: [&'a IncrementalPageStore; 2],
+        stores: [&'quota IncrementalPageStore; 2],
         io: &'quota mut [PageIoBudget; 2],
-        cancelled: &'a AtomicBool,
-    ) -> Self {
-        Self {
+        cancelled: &'quota AtomicBool,
+        checks: [&'quota mut dyn FnMut() -> bool; 2],
+    ) -> Result<Self, PageStoreError> {
+        let [first, second] = io;
+        let [check_first, check_second] = checks;
+        let writers = [
+            stores[0].buffered_page_writer(first, cancelled, check_first)?,
+            stores[1].buffered_page_writer(second, cancelled, check_second)?,
+        ];
+        Ok(Self {
             stores,
-            io: RefCell::new(io),
+            writers: RefCell::new(Some(writers)),
             cancelled,
             failed: Cell::new(false),
             error: RefCell::new(None),
+        })
+    }
+    pub(super) fn finish(&self) -> Result<(), PageStoreError> {
+        if self.failed.replace(true) {
+            return Err(PageStoreError::Corrupt(
+                "IWS replica page transfer poisoned",
+            ));
         }
+        let writers = self
+            .writers
+            .borrow_mut()
+            .take()
+            .ok_or(PageStoreError::Corrupt("IWS replica already finished"))?;
+        for writer in writers {
+            writer.finish()?;
+        }
+        self.failed.set(false);
+        Ok(())
     }
     pub(super) fn send(&self, id: [u8; 32], bytes: &[u8]) -> Result<(), ValueTreeError> {
         if self.failed.replace(true) {
@@ -51,10 +77,23 @@ impl<'a, 'quota> Targets<'a, 'quota> {
                     MemoryClass::Ordinary,
                 )?;
                 let copy = charge.retain(bytes.to_vec());
-                if let Err(error) =
-                    store.put_page(id, &copy, &mut self.io.borrow_mut()[index], self.cancelled)
+                if let Err(error) = self
+                    .writers
+                    .borrow_mut()
+                    .as_mut()
+                    .ok_or(ValueTreeError::Invalid("IWS replica writer finished"))?[index]
+                    .put_node_with_store_error_v1(id, copy)
                 {
-                    *self.error.borrow_mut() = Some(error);
+                    match error {
+                        oasis7_distfs::incremental_page_store::BufferedPageWriteErrorV1::Store(
+                            error,
+                        ) => {
+                            *self.error.borrow_mut() = Some(error);
+                        }
+                        oasis7_distfs::incremental_page_store::BufferedPageWriteErrorV1::Value(
+                            error,
+                        ) => return Err(error),
+                    }
                     return Err(ValueTreeError::Invalid("IWS destination page write failed"));
                 }
             }
@@ -65,7 +104,7 @@ impl<'a, 'quota> Targets<'a, 'quota> {
         }
         result
     }
-    pub(super) fn check_complete(&self) -> Result<(), ValueTreeError> {
+    pub(super) fn check_healthy(&self) -> Result<(), ValueTreeError> {
         if self.failed.get() {
             Err(ValueTreeError::Invalid(
                 "IWS page transfer did not complete",
@@ -73,6 +112,13 @@ impl<'a, 'quota> Targets<'a, 'quota> {
         } else {
             Ok(())
         }
+    }
+    pub(super) fn check_complete(&self) -> Result<(), ValueTreeError> {
+        self.check_healthy()?;
+        if self.writers.borrow().is_some() {
+            return Err(ValueTreeError::Invalid("IWS page transfer not finished"));
+        }
+        Ok(())
     }
     pub(super) fn take_error(&self) -> Option<PageStoreError> {
         self.error.borrow_mut().take()
@@ -170,3 +216,7 @@ pub(super) fn send_outer_indexes<R: MerkleNodeReader>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "formal_iws_pages_tests.rs"]
+mod tests;

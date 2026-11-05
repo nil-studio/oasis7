@@ -506,7 +506,7 @@ pub use state_store::{ChargedMerklePage, StatePageSession};
 
 #[path = "incremental_buffered_page_writer.rs"]
 mod buffered_writer;
-pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriter};
+pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriteErrorV1, BufferedPageWriter};
 
 #[path = "incremental_object_store.rs"]
 pub mod objects;
