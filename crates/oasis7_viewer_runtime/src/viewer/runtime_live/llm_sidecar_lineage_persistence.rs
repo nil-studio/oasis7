@@ -12,6 +12,7 @@ use std::path::Path;
 
 const LEGACY_PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 1;
 const PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 2;
+const RAW_PROVIDER_LINEAGE_SCHEMA_VERSION: u16 = 3;
 
 pub(in crate::viewer::runtime_live) use service_checkpoint::{
     PendingProviderSchedulerIntent, PendingProviderServiceIntent,
@@ -66,75 +67,12 @@ pub(in crate::viewer::runtime_live) struct ProviderWakeRecoveryPending {
     pub(in crate::viewer::runtime_live) reason: String,
 }
 
-pub(super) fn provider_context_matches_wake(
-    context: &cognition_context::ProviderContextState,
-    wake: &crate::runtime::SchedulerWakeV1,
-) -> bool {
-    context.request_context.agent_subject == wake.agent_id
-        && context.request_context.agent_session_id == wake.agent_session_id
-        && context.request_context.agent_turn_id == wake.agent_turn_id
-        && context.request_context.decision_request_id == wake.decision_request_id
-        && !wake.request_digest.is_empty()
-        && context.request_context.request_digest.to_string() == wake.request_digest
-}
-
-pub(super) fn runtime_binding_advances_same_lineage(
-    original: &crate::simulator::RuntimeBindingV1,
-    current: &crate::simulator::RuntimeBindingV1,
-) -> bool {
-    original.world_id == current.world_id
-        && original.branch_id == current.branch_id
-        && original.finality_epoch == current.finality_epoch
-        && original.finality_block_hash == current.finality_block_hash
-        && original.finality_status == current.finality_status
-        && original.reorg_epoch == current.reorg_epoch
-        && original.runtime_manifest_hash == current.runtime_manifest_hash
-        && current.base_tick >= original.base_tick
-        && (current.base_tick != original.base_tick
-            || current.base_world_hash == original.base_world_hash)
-}
-
-pub(super) fn handoff_checkpoint_binding_matches_origin_and_wake(
-    original: &crate::simulator::RuntimeBindingV1,
-    wake: &crate::runtime::SchedulerWakeV1,
-    captured: &crate::runtime::RuntimeCognitionBaseBindingV1,
-) -> bool {
-    let original_finality_hash = original
-        .finality_block_hash
-        .as_ref()
-        .map(ToString::to_string);
-    let captured_finality_hash = captured.finality_block_hash.as_deref();
-    wake.world_id == original.world_id
-        && wake.branch_id == original.branch_id
-        && wake.finality_epoch == original.finality_epoch
-        && wake.finality_block_hash == original_finality_hash
-        && wake.finality_status == original.finality_status
-        && wake.reorg_epoch == original.reorg_epoch
-        && wake.runtime_manifest_hash == original.runtime_manifest_hash.to_string()
-        && captured.world_id == original.world_id
-        && captured.branch_id == original.branch_id
-        && captured.finality_epoch == original.finality_epoch
-        && captured_finality_hash == original_finality_hash.as_deref()
-        && captured.finality_status == original.finality_status
-        && captured.reorg_epoch == original.reorg_epoch
-        && captured.runtime_manifest_hash == original.runtime_manifest_hash.to_string()
-        && captured.base_tick >= original.base_tick
-        && (captured.base_tick != original.base_tick
-            || captured.base_world_hash == original.base_world_hash.to_string())
-}
-
-pub(super) fn handoff_checkpoint_matches_verified_binding(
-    original: &crate::simulator::RuntimeBindingV1,
-    wake: &crate::runtime::SchedulerWakeV1,
-    captured: &crate::runtime::RuntimeCognitionBaseBindingV1,
-    current: &crate::simulator::RuntimeBindingV1,
-) -> bool {
-    handoff_checkpoint_binding_matches_origin_and_wake(original, wake, captured)
-        && runtime_binding_advances_same_lineage(original, current)
-        && captured.base_tick <= current.base_tick
-        && (captured.base_tick != current.base_tick
-            || captured.base_world_hash == current.base_world_hash.to_string())
-}
+#[path = "llm_sidecar_lineage_binding.rs"]
+mod checkpoint_binding;
+pub(super) use checkpoint_binding::{
+    handoff_checkpoint_matches_verified_binding, provider_context_matches_wake,
+    runtime_binding_advances_same_lineage,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct PersistedProviderLineageV1 {
@@ -179,6 +117,8 @@ struct PersistedProviderLineageV1 {
     provider_feedback_seq_by_session: BTreeMap<String, u64>,
     #[serde(default)]
     provider_memory_store: MemoryWriteStore,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    provider_raw_outcomes: Vec<crate::simulator::AsyncAgentTurnOutcome>,
     provider_completed_decisions: VecDeque<async_support::RuntimeLlmDecision>,
     provider_held_decisions: BTreeMap<String, async_support::RuntimeLlmDecision>,
     provider_stale_replans: BTreeMap<String, ProviderStaleReplanState>,
@@ -304,6 +244,22 @@ fn validate_persisted_provider_cognition_leases(
 #[path = "llm_sidecar_service_checkpoint.rs"]
 mod service_checkpoint;
 use service_checkpoint::decode_provider_lineage_checkpoint;
+
+#[cfg(test)]
+pub(in crate::viewer::runtime_live) fn validate_test_provider_lineage_checkpoint(
+    bytes: &[u8],
+) -> Result<(), String> {
+    let (checkpoint, _) = decode_provider_lineage_checkpoint(bytes)?;
+    if checkpoint.provider_raw_outcomes.is_empty() {
+        let rewritten = serde_json::to_value(&checkpoint).map_err(|error| error.to_string())?;
+        if rewritten["schema_version"] != PROVIDER_LINEAGE_SCHEMA_VERSION
+            || rewritten.get("provider_raw_outcomes").is_some()
+        {
+            return Err("empty escrow must retain legacy schema and field omission".into());
+        }
+    }
+    Ok(())
+}
 
 pub(super) fn committed_runtime_record_for_request(
     world: &RuntimeWorld,
@@ -595,9 +551,24 @@ impl RuntimeLlmSidecar {
         self.provider_feedback_seq = checkpoint.provider_feedback_seq;
         self.provider_feedback_seq_by_session = checkpoint.provider_feedback_seq_by_session;
         self.provider_memory_store = checkpoint.provider_memory_store;
+        self.provider_raw_outcomes = checkpoint.provider_raw_outcomes;
+        if self.hosted_raw_outcomes()?.len() != self.provider_raw_outcomes.len() {
+            return Err(
+                "restored raw outcomes lack exact active owners or contain duplicates".into(),
+            );
+        }
         self.provider_completed_decisions = checkpoint.provider_completed_decisions;
         self.provider_transport_exhausted = checkpoint.provider_transport_exhausted;
         self.provider_terminal_states = checkpoint.provider_terminal_states;
+        self.hosted_terminal_feedback_publications.clear();
+        let restored_feedbacks = self
+            .provider_terminal_states
+            .values()
+            .filter_map(|terminal| terminal.feedback.clone())
+            .collect::<Vec<_>>();
+        for feedback in restored_feedbacks {
+            self.retain_feedback_publication(&feedback, None)?;
+        }
         self.provider_completed_decisions = std::mem::take(&mut self.provider_completed_decisions)
             .into_iter()
             .filter(|decision| !self.provider_decision_is_terminalized(decision))
@@ -913,6 +884,11 @@ impl RuntimeLlmSidecar {
                 self.pending_actions
                     .values()
                     .map(|pending| pending.agent_id.clone()),
+            )
+            .chain(
+                self.provider_raw_outcomes
+                    .iter()
+                    .map(|outcome| outcome.agent_id.clone()),
             )
             .chain(self.provider_wait_until.keys().cloned())
             .chain(self.provider_wake_recovery_pending.keys().cloned())

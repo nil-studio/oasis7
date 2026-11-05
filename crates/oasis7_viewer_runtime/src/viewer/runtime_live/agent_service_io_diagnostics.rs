@@ -138,7 +138,8 @@ impl IoDiagnostics {
         self.current_operation.store(
             match job.operation {
                 AgentServiceIoOperation::Submit(_) => 1,
-                AgentServiceIoOperation::Lookup { .. } => 2,
+                AgentServiceIoOperation::Lookup { .. }
+                | AgentServiceIoOperation::TerminalLookup { .. } => 2,
                 AgentServiceIoOperation::View(_) => 3,
                 AgentServiceIoOperation::Feedback { .. } => 4,
                 AgentServiceIoOperation::Metadata(_) => 5,

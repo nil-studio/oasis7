@@ -239,6 +239,7 @@ pub(super) fn captured_artifact(
         ws::SUBMIT_PATH,
         ws::request_digest(ws::SUBMIT_PATH, &submit).unwrap(),
         ws::IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: None,
             contract_version: 1,
