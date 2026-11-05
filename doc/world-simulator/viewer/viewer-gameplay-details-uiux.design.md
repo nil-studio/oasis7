@@ -153,12 +153,12 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/claim-ready.svg)；区域：named visible cards: 目标 Agent / 认领前核对。
   - 已画状态：可提交 · 示例数据。
   - 区域「目标 Agent」：候选 A ▾；位置 120, 0, 40 cm；Body / frame：已发布类型；专长：以 canonical 路线理由为准
-  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 12 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch；数字为设计示例，不是运行时事实
+  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 14 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch · 首期已计入 Upfront；数字为设计示例，不是运行时事实
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 - 表示：`normal_frame`。
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/claim-lifecycle.svg)；区域：named visible cards: 费用构成 · OC / 时间与风险 / 释放动作未发布。
   - 已画状态：只读生命周期。
-  - 区域「费用构成 · OC」：Upfront 12 = Activation 4 + Bond 8；Eligible 20 · Liquid 8 · Restricted 12；Auto starter 0；Bond locked：restricted 8 / liquid 0
+  - 区域「费用构成 · OC」：Upfront 14 = Activation 4 + Bond 8 + First upkeep 2；Eligible 20 · Liquid 8 · Restricted 12；Auto starter 0；Bond locked：restricted 8 / liquid 0
   - 区域「时间与风险」：Upkeep 2 OC / epoch · Paid through 20；Release ready in 2 epochs；Grace 3 · Idle warning 5 epochs；Forced reclaim 10 epochs · Penalty 500 bps；Reclaim terms：以已发布条款为准
   - 区域「释放动作未发布」：当前仅状态指导，不显示释放按钮。；已发布但阻塞时，应从正式动作列表查看原因。
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
@@ -177,7 +177,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/claim-ready.svg)；区域：named visible cards: 目标 Agent / 认领前核对。
   - 已画状态：可提交 · 示例数据。
   - 区域「目标 Agent」：候选 A ▾；位置 120, 0, 40 cm；Body / frame：已发布类型；专长：以 canonical 路线理由为准
-  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 12 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch；数字为设计示例，不是运行时事实
+  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 14 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch · 首期已计入 Upfront；数字为设计示例，不是运行时事实
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
 <a id="r-game-06"></a>
@@ -353,8 +353,8 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 #### 具体稿字段与状态映射
 
 - 表示：`normal_frame`。
-  - [具体frame](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)；区域：named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用。
-  - 已画状态：只读 · 所有已发布选项保留。
+  - [具体frame](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)；标题：比较恢复方案（只读）；区域：named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用。
+  - 已画状态：仅比较，不提交 · 所有已发布选项保留。
   - 区域「等待 safe_wait · 不可用」：原因：当前条件不能安全等待；保留：已提交进度；成本：已发布成本；机会成本：错过当前窗口
   - 区域「修复 repair_now · 可用 / 推荐」：原因：运行时推荐的恢复路径；保留：已发布保留进度；成本：已发布本地投入；机会成本：延后其他计划
   - 区域「改道 reroute_now · 可用」：原因：运行时发布的替代路径；保留 / 成本 / 机会成本：以各字段为准；可用与推荐是标签；此组件没有执行按钮。
