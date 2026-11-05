@@ -40,6 +40,18 @@ pub fn retain_world_event_owned_v1(
     memory: &MemoryBudget,
     class: MemoryClass,
     work: &mut WorldEventDecodeWorkV1,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<WorldEvent>, ValueTreeError> {
+    let result = retain_serialized_world_event(&event, memory, class, work, cancelled);
+    drop(event);
+    result
+}
+
+fn retain_serialized_world_event<T: serde::Serialize + ?Sized>(
+    event: &T,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    work: &mut WorldEventDecodeWorkV1,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<WorldEvent>, ValueTreeError> {
     if cancelled() {
@@ -77,7 +89,7 @@ pub fn retain_world_event_owned_v1(
             std::mem::replace(&mut work.canonical, empty),
             &mut cancelled,
         );
-        let result = stream_canonical_cbor_v1(&event, &mut context, &mut raw);
+        let result = stream_canonical_cbor_v1(event, &mut context, &mut raw);
         (result, context.work)
     };
     work.canonical = spent;
@@ -119,10 +131,69 @@ pub fn retain_world_event_owned_v1(
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }
-    // Input capacities remain under the caller's live reservation until here.
-    drop(event);
     Ok(fee.retain(normalized))
 }
+/// Admit the genuine borrowed override DTO fields without cloning either Action.
+/// Metadata is plain event data; this function grants no occurrence or authority.
+#[allow(clippy::too_many_arguments)]
+pub fn retain_action_override_event_v1(
+    id: crate::WorldEventId,
+    time: crate::WorldTime,
+    action_id: crate::ActionId,
+    original_action: &crate::Action,
+    override_action: &crate::Action,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    work: &mut WorldEventDecodeWorkV1,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<WorldEvent>, ValueTreeError> {
+    #[derive(serde::Serialize)]
+    struct Event<'a> {
+        id: crate::WorldEventId,
+        time: crate::WorldTime,
+        caused_by: Option<crate::CausedBy>,
+        body: Body<'a>,
+    }
+    #[derive(serde::Serialize)]
+    #[serde(tag = "kind", content = "payload")]
+    enum Body<'a> {
+        ActionOverridden(Record<'a>),
+    }
+    #[derive(serde::Serialize)]
+    struct Record<'a> {
+        action_id: crate::ActionId,
+        original_action: &'a crate::Action,
+        override_action: &'a crate::Action,
+    }
+    // Exhaustive field guards, plus the existing source inventory and canonical
+    // typed recheck, make this narrowly mirrored wire fail closed on drift.
+    fn closed_fields(event: &WorldEvent, record: &crate::ActionOverrideRecord) {
+        let WorldEvent {
+            id: _,
+            time: _,
+            caused_by: _,
+            body: _,
+        } = event;
+        let crate::ActionOverrideRecord {
+            action_id: _,
+            original_action: _,
+            override_action: _,
+        } = record;
+    }
+    let _closed_fields = closed_fields;
+    let event = Event {
+        id,
+        time,
+        caused_by: Some(crate::CausedBy::Action(action_id)),
+        body: Body::ActionOverridden(Record {
+            action_id,
+            original_action,
+            override_action,
+        }),
+    };
+    retain_serialized_world_event(&event, memory, class, work, cancelled)
+}
+
 #[cfg(test)]
 #[path = "incremental_world_event_owned_tests.rs"]
 mod tests;

@@ -663,3 +663,6 @@ mod rule_resources_tests;
 
 #[path = "incremental_module_execution_rule_phase_tests.rs"]
 mod rule_phase;
+
+#[path = "incremental_module_execution_override_tests.rs"]
+mod override_audit;

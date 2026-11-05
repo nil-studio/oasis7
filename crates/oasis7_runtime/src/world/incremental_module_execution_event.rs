@@ -45,7 +45,7 @@ where
 }
 
 /// A borrowed event minted only after its original and ordered fact succeed.
-/// No constructor is exposed outside this producer module.
+/// Every constructor requires a private receipt from a real producer.
 pub(super) struct PersistedWorldEventV1<'event> {
     owner: PersistedEventOwnerV1<'event>,
 }
@@ -56,8 +56,16 @@ enum PersistedEventOwnerV1<'event> {
     },
     Agent(super::incremental_step::PersistedAgentEventV1<'event>),
     ActionAudit(&'event super::incremental_action_execution::SelectedActionAuditV1),
+    RuleOverride(&'event super::incremental_module_invocation::RootRuleOverrideAuditV1),
 }
 impl<'event> PersistedWorldEventV1<'event> {
+    pub(super) fn from_rule_override(
+        owner: &'event super::incremental_module_invocation::RootRuleOverrideAuditV1,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::RuleOverride(owner),
+        }
+    }
     /// The audit owner can only be created by the real selected-action sink,
     /// after counted publication and admitted immutable DTO normalization.
     pub(super) fn from_action_audit(
@@ -79,6 +87,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::Module { event, .. } => event,
             PersistedEventOwnerV1::Agent(owner) => owner.event(),
             PersistedEventOwnerV1::ActionAudit(owner) => owner.event(),
+            PersistedEventOwnerV1::RuleOverride(owner) => owner.event(),
         }
     }
     pub(super) fn validate<M: MerkleNodeReader>(
@@ -91,6 +100,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             }
             PersistedEventOwnerV1::Agent(owner) => owner.validate(tx),
             PersistedEventOwnerV1::ActionAudit(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::RuleOverride(owner) => owner.validate(tx),
         }
     }
 }
@@ -110,7 +120,6 @@ where
 {
     txn.contribute(|txn| {
         ctx.world_events.validate(txn)?;
-        let before = txn.ordered_fact_count();
         if !matches!(
             &event.body,
             WorldEventBody::PolicyDecisionRecorded(_)
@@ -130,6 +139,55 @@ where
             if event.caused_by != Some(crate::CausedBy::Action(record.action_id)) {
                 return Err(BodyMutationError::Invalid("rule audit action binding"));
             }
+        }
+        persist_counted_event_original_v1(now, event, txn, ctx)
+    })
+}
+
+/// A rule override requires the private candidate built from the actual
+/// Selected/RuleOutcome pair; the generic module sink never accepts it.
+pub(super) fn contribute_rule_override_event_v1<M, V, W, C, F>(
+    now: u64,
+    prepared: &super::incremental_module_invocation::PreparedRuleOverrideEventV1,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    txn: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut ModuleOutputEventContextV1<'_, V, W, C, F>,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    txn.contribute(|txn| {
+        prepared.validate(txn, ctx.mutation.memory, now, live)?;
+        persist_counted_event_original_v1(now, prepared.event(), txn, ctx).map(|_| ())
+    })
+}
+
+/// The two producer wrappers validate their own body/source scope first.
+/// This private shared path owns clock, allocator, original and fact ordering.
+fn persist_counted_event_original_v1<'event, M, V, W, C, F>(
+    now: u64,
+    event: &'event WorldEvent,
+    txn: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut ModuleOutputEventContextV1<'_, V, W, C, F>,
+) -> Result<PersistedWorldEventV1<'event>, BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    txn.contribute(|txn| {
+        ctx.world_events.validate(txn)?;
+        let before = txn.ordered_fact_count();
+        if event.time != now || !txn.uses_budget(ctx.mutation.memory) {
+            return Err(BodyMutationError::Invalid(
+                "module output event original scope",
+            ));
         }
         if (ctx.mutation.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());

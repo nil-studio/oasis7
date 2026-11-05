@@ -109,6 +109,10 @@ fn actual_rule_wrong_id_first_of_two_emits_preserves_first_error() {
     run_rule_fixture(6);
 }
 fn run_rule_fixture(case: u8) {
+    run_rule_fixture_with_override(case, false);
+}
+
+pub(super) fn run_rule_fixture_with_override(case: u8, publish_override: bool) {
     let with_regex = false;
     let memory = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
     let workspace = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
@@ -232,6 +236,33 @@ fn run_rule_fixture(case: u8) {
     let mut rule_oracle = RuleOracle { case, last: None };
     let expected_rule = reference.evaluate_rule_decisions(&envelope, &mut rule_oracle);
     let final_rule_input = rule_oracle.last;
+    let expected_override = if publish_override {
+        assert_eq!(case, 1);
+        let replacement = expected_rule
+            .as_ref()
+            .unwrap()
+            .0
+            .override_action
+            .as_ref()
+            .unwrap();
+        reference
+            .record_action_override(
+                crate::ActionOverrideRecord {
+                    action_id: envelope.id,
+                    original_action: envelope.action.clone(),
+                    override_action: replacement.clone(),
+                },
+                Some(crate::CausedBy::Action(envelope.id)),
+            )
+            .unwrap();
+        Some(
+            oasis7_wasm_abi::encode_canonical_cbor(reference.journal.events.last().unwrap())
+                .unwrap(),
+        )
+    } else {
+        None
+    };
+
     drop(reference);
     // The legacy oracle is independently initialized: a failed legacy route
     // may append journal events and must never contaminate the GEN source.
@@ -494,6 +525,18 @@ fn run_rule_fixture(case: u8) {
     rule_work.enumeration.instance_scan.nodes_remaining = 0;
     rule_work.enumeration.registry_scan.nodes_remaining = 0;
     let mut observed = None;
+    let mut override_audit = None;
+    let mut override_work =
+        oasis7_world_state::incremental_world_event_decode::WorldEventDecodeWorkV1 {
+            structure: oasis7_proto::cbor_decode_preflight::CborPreflightWorkV1 {
+                bytes_remaining: 2 << 20,
+                values_remaining: 100000,
+                max_depth: 64,
+            },
+            canonical: genesis::canonical(),
+            max_original_bytes: 64 << 10,
+            max_heap_bytes: 64 << 20,
+        };
     let result = {
         let mut target = RootModuleExecutionContextV1 {
             families: RootModuleExecutionFamiliesV1 {
@@ -524,12 +567,24 @@ fn run_rule_fixture(case: u8) {
             #[cfg(test)]
             input_observation: Some(&mut observed),
         };
-        target.execute_pre_action_rule_phases_v1(
-            &selected,
-            &directory,
-            &mut rule_work,
-            &mut live_owner,
-        )
+        target
+            .execute_pre_action_rule_phases_v1(
+                &selected,
+                &directory,
+                &mut rule_work,
+                &mut live_owner,
+            )
+            .and_then(|outcome| {
+                if publish_override {
+                    override_audit = target.publish_action_override_v1(
+                        &selected,
+                        &outcome,
+                        &mut override_work,
+                        &mut live_owner,
+                    )?;
+                }
+                Ok(outcome)
+            })
     };
     assert_eq!(observed, Some(expected_input));
     if cfg!(target_os = "linux") {
@@ -568,6 +623,34 @@ fn run_rule_fixture(case: u8) {
             return;
         }
         let outcome = result.unwrap();
+        if publish_override {
+            let audit = override_audit
+                .as_ref()
+                .expect("actual Modify must publish its original audit");
+            audit.validate(overlay.transaction).unwrap();
+            let expected = expected_override.as_ref().unwrap();
+            assert_eq!(
+                &oasis7_wasm_abi::encode_canonical_cbor(audit.event()).unwrap(),
+                expected
+            );
+            let last = *saved.borrow().last().unwrap();
+            assert_eq!(&fixture.objects.original(&last), expected);
+            let unrelated = ExecutionTransaction::begin(
+                fixture.parent.clone(),
+                [177; 32],
+                &reader,
+                &memory,
+                TransactionLimits {
+                    max_reads: 2048,
+                    max_writes: 1024,
+                    max_facts: 32,
+                    max_pending_node_bytes: 16 << 20,
+                },
+            )
+            .unwrap();
+            assert!(audit.validate(&unrelated).is_err());
+        }
+
         let expected_rule = expected_rule.unwrap();
         assert_eq!(outcome.decision, expected_rule.0);
         assert_eq!(outcome.movement_rejection_cost, expected_rule.1);
@@ -599,7 +682,11 @@ fn run_rule_fixture(case: u8) {
         );
         assert_eq!(
             counter.journal_height(overlay.transaction).unwrap(),
-            if case == 1 { 12 } else { 6 }
+            if case == 1 {
+                12 + u64::from(publish_override)
+            } else {
+                6
+            }
         );
     } else {
         assert!(matches!(

@@ -837,3 +837,8 @@ pub use rule_phase::{RootRulePhaseOutcomeV1, RootRulePhaseWorkV1};
 #[cfg(test)]
 #[path = "incremental_module_execution_envelope_tests.rs"]
 mod envelope_tests;
+
+#[path = "incremental_module_execution_override.rs"]
+mod action_override;
+pub(in crate::world) use action_override::PreparedRuleOverrideEventV1;
+pub use action_override::RootRuleOverrideAuditV1;

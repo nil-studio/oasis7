@@ -787,9 +787,11 @@ fn encode_input<T: serde::Serialize>(
 #[path = "incremental_module_execution_target_entry.rs"]
 mod entry;
 pub use entry::{
-    RootModuleExecutionContextV1, RootModuleTickOutcomeV1, RootRulePhaseOutcomeV1,
-    RootRulePhaseWorkV1,
+    RootModuleExecutionContextV1, RootModuleTickOutcomeV1, RootRuleOverrideAuditV1,
+    RootRulePhaseOutcomeV1, RootRulePhaseWorkV1,
 };
 
 #[path = "incremental_module_execution_rule_capture.rs"]
 mod rule_capture;
+
+pub(in crate::world) use entry::PreparedRuleOverrideEventV1;

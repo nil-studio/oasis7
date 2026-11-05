@@ -511,6 +511,7 @@ pub use route::{prepare_root_module_invocation_v1, prepare_root_module_registry_
 
 #[path = "incremental_module_execution_target.rs"]
 mod target;
+pub(in crate::world) use target::{PreparedRuleOverrideEventV1, RootRuleOverrideAuditV1};
 pub use target::{
     RootModuleExecutionContextV1, RootModuleExecutionErrorV1, RootModuleExecutionFamiliesV1,
     RootModuleExecutionWorkV1, RootModuleTickOutcomeV1, RootRulePhaseOutcomeV1,
