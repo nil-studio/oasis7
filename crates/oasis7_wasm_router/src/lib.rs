@@ -1,7 +1,8 @@
+pub mod bounded;
 mod filtering;
 mod metrics;
-pub mod bounded;
 
+pub use bounded::{BoundedRouterErrorV1, RouterWorkV1, pre_action_matches_serialized_bounded_v1};
 #[cfg(test)]
 use filtering::ruleset_matches;
 use filtering::{
@@ -11,7 +12,6 @@ use filtering::{
 pub use filtering::{validate_subscription_filters, validate_subscription_stage};
 pub use metrics::WasmRouterMetricsSnapshot;
 pub use metrics::snapshot_global_wasm_router_metrics;
-pub use bounded::{BoundedRouterErrorV1, RouterWorkV1, pre_action_matches_serialized_bounded_v1};
 
 use oasis7_wasm_abi::{BoundedFifoCache, ModuleSubscription, ModuleSubscriptionStage};
 use serde::Deserialize;
