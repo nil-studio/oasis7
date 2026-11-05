@@ -405,10 +405,16 @@ J1 在tick18开始并在19闭合；tick20 J2/J3各开始，tick21各闭合。因
 | 当前编码state | 单实例≤128 KiB；scope条目≤256B、定义ref≤256B、node当前记录≤256B、root header≤1KiB | 32×256 + 50×256 + 4×64×256 + 4×1024 + 16×128 + 16KiB其他头/依赖/hold/计数=106.5KiB；逐条编码限额含字段与容器开销，128KiB是真正总门，不凭估算放行 |
 | 普通三阶段调用 | Reserve/CommitEffect 各≤3个制度 invoke（lifecycle 一次、确需的原许可最多两次）；Evaluate≤1 Pure 行为 invoke；阶段分开提交 | 每节点最多7次实际 invoke，省去的阶段明确未调用；实际只读许可不能凭此报价额外收费 |
 | 控制/升级调用 | 每实例最多8普通控制迁移和8独立保留的撤销/关闭迁移；每迁移≤8个已声明invoke，含实际跨实例决定/迁移/必要hook | 关闭8槽中7槽可作普通关闭，第8槽只给一次最终全实例停新 fence，不能提前消耗；它覆盖该实例全部atoms，不需逐root再取得普通名额。原closure仍按已接受最小权限继续，fence本身不伪造完成。超过8次invoke或有未声明hook不启用该切换 |
-| module输入输出 | 制度单invoke完整input≤256KiB、output≤256KiB（含new_state/emit）、max_effects=1/max_emits=1；Pure单invoke完整input≤64KiB、output≤16KiB、effects=0/emits≤1/no new_state | 所有code/schema/source/proof真实可验证；输出声明不替代executor计量，实际更小manifest限制继续适用 |
+| module输入输出 | 制度单invoke完整input≤512KiB、output≤512KiB（含new_state/effects/emits），max_effects=1/max_emits=1；输入event/action原始字节合计≤64KiB，单effect与单emit各自完整编码≤64KiB，输入/输出各自其余封套编码≤16KiB；Pure单invoke完整input≤64KiB、output≤16KiB、effects=0/emits≤1/no new_state | 下文按现有CBOR外层计算；制度输入限额由目标host适配检查，不是新增manifest字段。所有code/schema/source/proof真实可验证；实际更小world/manifest/executor/command/transport限制继续适用 |
 | 读取/事务 | 普通阶段原始+解码+code/proof读量≤32MiB；控制/升级≤96MiB；非code证据≤4MiB；≤512实际源对象、≤2048索引/字段访问、≤256逻辑写项、request≤64KiB、receipt/journal增量≤512KiB | 所有嵌套正/负证据、目录、缺项证明和旧新依赖计入；最多8个实际artifact且每件仍受PPE≤10MB上限；不先全扫再截断 |
-| 时间/并发 | 当前 prepare 普通2s、控制5s有界服务预算，逾时返回 incomplete；4普通准备槽与1控制槽；单 sandbox≤16MiB，制度/Pure 单调用 gas 分别≤2,000,000/1,000,000，每实例每 tick≤16调用并同时服从原 artifact rate | 取实际 manifest 更严格者；这些是工程拒绝门，不是业务时钟宽限。准备 buffer 至多4×32+96=224MiB，五个 sandbox 合计≤80MiB，共304MiB本路径上界；进程其他常驻存储另计 |
+| 时间/并发 | 当前 prepare 普通2s、控制5s有界服务预算，逾时返回 incomplete；4普通准备槽与1控制槽；单 sandbox≤16MiB，制度/Pure 单调用 gas 分别≤2,000,000/1,000,000，每实例每 tick≤16调用并同时服从原 artifact rate | 取实际 manifest 更严格者；这些是工程拒绝门，不是业务时钟宽限。准备buffer峰值含原始/解码来源、完整I/O编码及候选临时对象，至多4×32+96=224MiB，五个sandbox合计≤80MiB，二者304MiB；另加下行两个结果读取槽2MiB，本路径有界buffer合计306MiB，进程其他常驻存储另计 |
 | 原结果与安全尾部 | 2个独立exact-result读取槽，每槽≤1MiB；原closed/unknown恢复和已接受closure具有保留处理份额 | 新请求/失败候选不抢占原结果与安全关闭；队列ACK不表示canonical已受理，不补写旧tick |
+
+这里的128KiB是制度自身已编码state的原始字节长度，不是整个ModuleCallInput或ModuleOutput长度。现[SDK wire与encode_output](../../../crates/oasis7_wasm_sdk/src/lib.rs)及[host ABI](../../../crates/oasis7_wasm_abi/src/lib.rs)把state/new_state声明为没有serde_bytes适配的Vec<u8>；CBOR外层按整数数组编码，单个u8最坏2B，不能按同长byte string估算。原始state上限131072B的外层至多262149B（2×131072+5B数组头），单独已经超过旧256KiB完整封套；不能为保留这个错误上限而把106.5KiB必要记录容量裁小。
+
+制度完整输入的独立保守上界为：state外层262149B，event/action两份原始字节的合计至多65536B、外层合计至多131082B（2×65536+两份各至多5B数组头），ctx、字段名、顶层容器及其余编码合计至多16384B，共409615B，即400KiB+15B，小于512KiB。完整输出的new_state外层同样至多262149B；一个effect和一个emit各按其**完整**编码至多65536B计（含各自字段、嵌套payload的实际编码），其余字段/容器、output_bytes及适用tick_lifecycle合计至多16384B，共409605B，即400KiB+5B。缺省字段只会减少编码量；schema必需字段不能截掉或搬到不计费的侧通道。最终仍对真实完整输入/输出复验512KiB，额外余量不开放更多effects/emits、原始请求或状态容量。原Pure路径不改参数，也对其真实完整封套取严。
+
+这是新制度工件及host适配的目标预算：[现有ModuleLimits](../../../crates/oasis7_wasm_abi/src/lib.rs)只有max_output_bytes等字段，没有max_input_bytes。host须在调用前检查完整编码输入、预检真实费用，output由新manifest的max_output_bytes和executor共同约束；旧工件不自动获得512KiB。现[executor默认值与限额检查](../../../crates/oasis7_wasm_executor/src/lib.rs)、[受控执行策略](../../../crates/oasis7_chain_runtime/src/host/controlled_execution_policy.rs)的4MiB输出上限可容纳512KiB，但实际还服从[world module_limits_max](../../../crates/oasis7_runtime/src/world/base_layer.rs)、真实executor、调用command及承载transport的更严限额。512KiB进程内封套不调大公开请求/Provider额度，上表request仍至多64KiB。下层过小或最大合法工作图的必需编码放不下时，在接受新承诺前判候选不适用；只有原治理合法版本化适配或已有受支持的完整分页/分阶段合同可接收，不能默认改ABI、临时加限额、删字段或拆原子操作。输入输出及其解码临时对象同计准备峰值，不能以序列化另分配不计入304MiB的缓冲。
 
 最终停新 fence 与原稳定 slot/实例 lineage 同根持久化，不因新 grant ID、alias 或同 slot 重建实例而失效；只有旧执行依赖已合法闭合、原当前 authority 通过明确替代 receipt 转出 selector 后，新独立授权才可执行。原普通控制槽耗尽不影响这份最终停新额度，到期也直接按当前世界时间拒绝，无需清理调用续授。
 
@@ -416,9 +422,11 @@ J1 在tick18开始并在19闭合；tick20 J2/J3各开始，tick21各闭合。因
 
 实际事件分派的 subscriber、恢复 delivery、on-register/migration hook 和其他必要同步或派生调用也在完整闭包内。可按原因果合同成为独立后继节点的，预先登记其 node/call identity、权限、资源及有限次数；不能拆为后继的必须计入本次完整阶段/控制调用上限，超限则拒绝该新候选。输出一次 emit 不等于其消费者免费，重放已确认 delivery 不得重新 dispatch 产生第二份业务。最大原工作图必须连同这些调用在其已接受 L/manifest/rate 内有可验证处理能力；只在空闲例中能完成不足以激活。
 
-按[原费用公式](../../../crates/oasis7_runtime/src/world/incremental_module_fee.rs)，u(x)=ceil(x/1024)。制度单 invoke 上界为 Data=256+256+2×1+1=515，Electricity=1+1+1+1=4；Pure 单 invoke 上界 Data=64+16+1=81，预检 Electricity=3（真实正常无 new_state 单 emit 为2）。因此最宽节点六次制度加一次 Pure 为3171 Data/27 E，64节点为202944 Data/1728 E。独立控制保留按16×8次制度调用为65920 Data/512 E；它包含8个关闭迁移，不得挪入新经营。4个最大 root 与一份完整控制预算合计上界877696 Data/7424 E，原生产/建设、物流、维护/保管、补偿及许可净版税另外按自己的原单位和真实金额保护。
+按[原费用公式](../../../crates/oasis7_runtime/src/world/incremental_module_fee.rs)，u(x)=ceil(x/1024)。制度单 invoke 上界为 Data=512+512+2×1+1=1027，Electricity=1+1+1+1=4；Pure 单 invoke 上界 Data=64+16+1=81，预检 Electricity=3（真实正常无 new_state 单 emit 为2）。因此最宽节点六次制度加一次 Pure 为6243 Data/27 E，64节点为399552 Data/1728 E。独立控制保留按16×8次制度调用为131456 Data/512 E；它包含8个关闭迁移，不得挪入新经营。4个最大 root 与一份完整控制预算合计上界1729664 Data/7424 E，原生产/建设、物流、维护/保管、补偿及许可净版税另外按自己的原单位和真实金额保护。
 
-本普通零费路线没有需写许可状态时，一个节点实际接收上界可采用两次制度+一次Pure，即1111 Data/11 E；不得为省预算删去真正需要的原许可invoke。数字是完整费用报价上界，实际按每条metering收费，不把上界当已花。完整图引用exact call key；与原许可预算合并时按同一调用身份取一次覆盖，不能重复收/保护同一invoke，也不能将其其他程序/闭合调用漏算。
+本普通零费路线没有需写许可状态时，一个节点实际接收上界可采用两次制度+一次Pure，即2135 Data/11 E；不得为省预算删去真正需要的原许可invoke。数字是完整费用报价上界，实际按每条metering收费，不把上界当已花。完整图引用exact call key；与原许可预算合并时按同一调用身份取一次覆盖，不能重复收/保护同一invoke，也不能将其其他程序/闭合调用漏算。
+
+上述1027及全图数值按512/512KiB工程cap给保守保留报价，不是每次调用应扣数。原upper_bound使用真实完整input_bytes与该manifest的max_output_bytes；在本组合输入≤400KiB+15B时，输入计费单位至多401，若manifest输出cap为512KiB且effects/emits均为1，则该次preflight至多916 Data。实际结果再按真实完整output_bytes、effects/emits及new_state计量；未用报价余量依原hold目的释放，不伪造执行支出或借给新经营。
 
 每个实际payer独立列向量和当前artifact owner/source同意：lifecycle controller、Pure行为、原许可、生产/建设可能是不同主体。先按同一账户合并全部本金/普通执行/保留closure/控制义务再验余额；按原原生资源hold合同保护，所有普通转移、维护、费用和内部writer均不得消费保留款。第一次控制调用前即有可核的当前fee预检与资金授权，不能靠controller自己承诺未来钱。actual收费、费用目的账、原hold剩余和未花释放守恒；unknown无计量不能按零结算，拒绝后的已授权真实计算也不免费回滚。
 
