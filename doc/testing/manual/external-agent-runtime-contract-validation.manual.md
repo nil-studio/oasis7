@@ -148,6 +148,25 @@ Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-45
 
 最终证据按入口记录正例、代表失败、实际安全下一步与未接通处，并把原件 digest/correlation、authority 结果、效果次数、授权变化及客户端可消费状态对齐。原始签名文件、凭据和私有目标保留在获准存储，公开记录仅含脱敏关联及必要摘要。协议/adapter 故障向量、真实 TCP CLI/HTTP 消费与 Runtime/full 首局分别列结论；前两者不代签真实模型自主游玩，Viewer 图形/窄屏/键盘证据仍由其专用方法取得。本节只定义方法，源码审读与文档检查不改变各运行项的 not_run 或未覆盖状态。
 
+<a id="api-independent-entry-validation"></a>
+### 场景 api-independent-entry-validation：便利停止后的正常链与原请求恢复
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；对应 [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) / [AC-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#ac-entry-free-001)，验证[同身份独立入口](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)。与 [HI01–HI05](hosted-passkey-account.manual.md#hosted-independent-continuation-validation)使用同一候选和基础依赖；原 FS、PE、PR 场景继续拥有各自协议判据。
+
+执行前固定实际基本 Viewer 或已采纳 native gateway/SDK/Runtime 组合、模式/阶段、schema/能力、同 namespace 的原主体、world/genesis、Agent/task/goal/fence、当前资源/授权，以及原受保护请求存储。完整初次入场沿 api-cold-entry；从既有角色继续时保存其合法来源，不能用测试侧预造角色、grant、资源或原件补齐被测客户端。普通协议、真实 Runtime 与真实玩家体验分开取证；以下方法尚未执行。
+
+| 样例 | 正常或故障操作 | 必须核对的结果 |
+| --- | --- | --- |
+| AI01 正常成长与回访 | 取得健康前态后停用 Hosted 附加便利，在 T1/T2 后从所声明免费基本入口恢复同身份/原角色，读取目标和资源，按 production_only 路线完成实际必需的移动、建设、转运、排产及结果读取，再离开重入。 | 真实 parser、当前授权和执行消费者均成立；原请求关联的 RecipeCompleted 与 owner-bound 产物证明该阶段成果，重入读到原历史。一次 GET、移动、排产 accepted 或 fixture 成功不足以判完整正常链。只有 Passkey 的 Viewer 正例与具备完整原生证明的 SDK 正例分别记录。 |
+| AI02 固定基础网关 | 核对 SDK 实际使用原身份 HTTPS discovery/participant/owner/executor 路径及配置的 service_public_key/world，随后令便利通知包含另一 endpoint/issuer 或令所需入口开关缺失。 | 正例仍经固定 gateway 到受信 literal-loopback WorldService；错误信任根和未启用能力明确拒绝，不直连任意节点、不临时开放 private listener、不从 DevLocal 或另一个世界取得替代通过。 |
+| AI03 已提交后丢回复 | 对有确定资源后果且具备原结果查询的 R，在 authority 确认提交后阻断回复，结束便利进程并重启合法客户端；从受保护原件查询，再重复查询。 | 原 payload/signature/nonce/correlation、主体和世界关联不变；恢复查询零业务 submit，R 的效果/费用及回执只出现一次。Unknown 不触发新报价、新 context、新注册或新业务键；若原领域允许 exact replay，另按其原向量核对，不推广成通用重送。 |
+| AI04 执行方停止与 owner 历史读 | 使用当前 owner 按原权限已合法取得的 E1 已提交原件，按原控制合同停止/替换执行方；owner 用原 LookupExecutor 读取，必要的新 E2 执行由独立合法授权开始。 | 核历史 E1 signer/binding 与当前 canonical owner、完整 task fence；Suspended 不要求重启 E1。E1 失去私有读权时不得读缓存或继续轮询；owner 不自动解密其私有 outbox，缺合法原件的另一例明确受阻。换执行方不复制预算、续 grant 或遗漏待决旧请求。 |
+| AI05 原件持有与交接边界 | 分别恢复用户侧 SDK cache 和同 origin/tab 浏览器 capsule；使唯一副本留在已退出便利服务，或换 origin/设备/native 消费者、损坏原件。 | 正例按各原存储/用途/授权读取。负例明确具体缺失的原件或消费者，保留最后已验证关联；不能导出 cookie/长期 key、自动解密另一存储、补签原件或凭新快照猜原结果。无真实受权查回/交接的组合不判独立恢复通过。 |
+| AI06 能力及原结果错配 | 使用 GET-only bootstrap、缺 actor/lookup 协商的旧 CLI，或将另一请求/世界/Agent 的回执、旧 fence/迟到响应混入 R。 | 真实缺项保持 blocked/未覆盖，不能删必需动作凑完整组合。终态只由匹配原件与当前合法读取的权威结果成立，ACK 类型、当前余额、空列表及另一入口的成功不代签。 |
+| AI07 基础故障与重新进入 | 在原请求未明时使 identity/gateway/world 不可达，耗尽新执行预算，另测读权撤销；恢复支持条件后重新进入。 | 基础不可达沿原新鲜度停止受影响新操作；仍有独立读权者按有界原 lookup 核结果，失读权者不泄露私有内容。恢复只重读原身份/角色/请求，不重置额度、自动恢复写权或把安全停止计入 AI01。 |
+
+独立判定侧对账身份/控制变更、业务提交、世界效果与领域完成的分别差量，并保留自然推进的真实原因；不要求只读时整个世界静止。公开证据只记录安全关联和必要摘要。缺实际消费者、受保护原件、当前读权或生产 profile 的格逐项记缺口；文档和普通协议层通过不使默认关闭入口、P1、完整 HTTP 写路由或真实 Runtime 自动就绪。
+
 <a id="parity-declaration-consumption-validation"></a>
 ### 场景 parity-declaration-consumption-validation：声明来源与逐入口接收
 
