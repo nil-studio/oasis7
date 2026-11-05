@@ -391,7 +391,7 @@ where
             .unwrap_or(0);
         let mut index = if let Some(base) = base {
             prepare_runtime_history_index_promotion_v1(
-                base.index(lane),
+                base.history_index(lane),
                 ctx.values.memory,
                 &mut ctx.cancelled,
             )?

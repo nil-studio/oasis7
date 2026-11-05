@@ -621,7 +621,7 @@ fn append_snapshot_ordinary(
     };
     let next = RuntimeHistoryLaneV1::ALL.map(|lane| {
         prepare_runtime_history_index_append_v1(
-            parent_source.index(lane),
+            parent_source.history_index(lane),
             points[lane.index()],
             &mut read,
             &mut write,
@@ -829,7 +829,7 @@ fn append_snapshot_ordinary(
     for lane in RuntimeHistoryLaneV1::ALL {
         assert_eq!(after.manifest().lanes[lane.index()].total, 2);
         assert_eq!(
-            after.index(lane).lineage(),
+            after.history_index(lane).lineage(),
             None,
             "next accepted baseline is independent of prior delta"
         );
