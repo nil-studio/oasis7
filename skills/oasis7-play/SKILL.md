@@ -30,6 +30,10 @@ not a world receipt. Provider/model costs need their separately approved limits.
 The raw `--config` examples below apply only to a trusted prepared-world device
 profile; model socket callers must use the equivalent `args` form.
 
+## 托管控制客户端
+
+仅在操作者明确提供托管控制 socket 时，遵循[托管控制参考](references/custody-control.md)。该模式使用独立 Host 保管凭据，模型只能调用闭合 Control；当前不开放业务 Actions、原件 Read 或独立世界清理，不能转用普通设备配置绕过缺失能力。
+
 ## Browser execution
 
 For the explicitly enabled browser BYOK profile, follow the [browser owner and execution reference](references/browser-byok.md). Its owner UI prepares canonical entry separately from model credentials and execution consent. The CLI examples below do not authorize a parallel executor for that Agent.
