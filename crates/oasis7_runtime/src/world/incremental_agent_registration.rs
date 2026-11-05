@@ -14,6 +14,10 @@ use oasis7_world_state::{
 impl World {
     /// The step supplies its authenticated reducer clock. Only qualified absent
     /// cells can be created; all errors poison the caller's entire transaction.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The authenticated reducer clock, qualified source, bounded IO and original event writer are independent obligations."
+    )]
     pub(in crate::world) fn contribute_iws_agent_registration_at<
         M: MerkleNodeReader,
         V: ValueNodeReader,
@@ -94,7 +98,7 @@ impl World {
                         class: values.class,
                         io: &mut *values.io,
                     },
-                    key_work: &mut **key_work,
+                    key_work,
                     semantic_bytes: *semantic_bytes,
                     record_bytes: *record_bytes,
                     take_state_error: &mut *take_state_error,

@@ -55,6 +55,8 @@ where
             manifest_cache,
             manifest_work,
             work,
+            #[cfg(test)]
+                input_observation: _,
         } = self;
         let WorldFieldOverlayContextV1 {
             transaction,
@@ -94,7 +96,7 @@ where
                         class: values.class,
                         io: &mut *values.io,
                     },
-                    key_work: &mut **key_work,
+                    key_work,
                     semantic_bytes: *semantic_bytes,
                     record_bytes: *record_bytes,
                     take_state_error: &mut *take_state_error,
@@ -127,7 +129,7 @@ where
                 };
                 let mut event = ModuleOutputEventContextV1 {
                     values: *event_values,
-                    world_events: *world_events,
+                    world_events,
                     mutation: BodyMutationContext {
                         sink: &mut *body.sink,
                         memory: body.memory,
@@ -142,8 +144,8 @@ where
                 // pool allocator, cancellation and finite limits; no process,
                 // cache or separate budget is created by copying these refs.
                 let executable = match &worker.executable {
-                    WorkerExecutableV1::SealedFd(file) => WorkerExecutableV1::SealedFd(*file),
-                    WorkerExecutableV1::FixturePath(path) => WorkerExecutableV1::FixturePath(*path),
+                    WorkerExecutableV1::SealedFd(file) => WorkerExecutableV1::SealedFd(file),
+                    WorkerExecutableV1::FixturePath(path) => WorkerExecutableV1::FixturePath(path),
                 };
                 let mut backend = BoundedWorkerSandboxV1 {
                     executable,
@@ -167,9 +169,11 @@ where
                         events: &mut event,
                         originals: &mut **originals,
                         worker: &mut backend,
-                        manifest_cache: *manifest_cache,
-                        manifest_work: &mut **manifest_work,
-                        work: &mut **work,
+                        manifest_cache,
+                        manifest_work,
+                        work,
+                        #[cfg(test)]
+                        input_observation: None,
                     };
                     actual.execute_tick_invocation_v1(instance, live_owner)
                 };

@@ -41,17 +41,31 @@ impl ResourceDelta {
 
     pub fn deficits(&self, balances: &BTreeMap<ResourceKind, i64>) -> BTreeMap<ResourceKind, i64> {
         let mut deficits = BTreeMap::new();
-        for (kind, delta) in &self.entries {
-            if *delta >= 0 {
+        self.visit_deficits(
+            |kind| balances.get(&kind).copied().unwrap_or(0),
+            |kind, shortfall| {
+                deficits.insert(kind, shortfall);
+            },
+        );
+        deficits
+    }
+
+    /// Shared allocation-free affordability kernel. Callers own the storage
+    /// used by balance lookup and any emitted deficits.
+    pub fn visit_deficits(
+        &self,
+        mut balance: impl FnMut(ResourceKind) -> i64,
+        mut emit: impl FnMut(ResourceKind, i64),
+    ) {
+        for (&kind, &delta) in &self.entries {
+            if delta >= 0 {
                 continue;
             }
-            let available = balances.get(kind).copied().unwrap_or(0);
-            let remaining = available.saturating_add(*delta);
+            let remaining = balance(kind).saturating_add(delta);
             if remaining < 0 {
-                deficits.insert(*kind, remaining.saturating_abs());
+                emit(kind, remaining.saturating_abs());
             }
         }
-        deficits
     }
 
     pub fn ensure_affordable(

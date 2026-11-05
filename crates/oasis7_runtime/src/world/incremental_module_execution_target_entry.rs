@@ -31,6 +31,8 @@ pub struct RootModuleExecutionContextV1<
     pub manifest_cache: &'a ReservedValue<AcceptedWorldManifestHashV1>,
     pub manifest_work: &'a mut RootWorldManifestHashWorkV1,
     pub work: &'a mut RootModuleExecutionWorkV1,
+    #[cfg(test)]
+    pub input_observation: Option<&'a mut Option<(usize, [u8; 32])>>,
 }
 impl<'a, 't, 's, 'v, M, R, E, C, W, F, O>
     RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>
@@ -55,11 +57,41 @@ where
         invocation_id: &str,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
-        let result = self.execute_tick_inner(invocation_id, live_owner);
+        let result = self.execute_invocation_inner(invocation_id, None, live_owner);
         match result {
             Ok(output) => Ok(output),
-            Err(error) => self.ctx.transaction.contribute(|_| Err(error)),
+            Err(error) => {
+                // An inner owner may already have poisoned this transaction.
+                // Rejection must retain its first concrete error rather than
+                // replace it with contribute's subsequent Aborted sentinel.
+                let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                    self.ctx.transaction.contribute(|_| {
+                        Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                    });
+                Err(error)
+            }
         }
+    }
+    pub(in crate::world) fn execute_pre_action_invocation_v1(
+        &mut self,
+        invocation_id: &str,
+        action: &crate::world::incremental_action_execution::SelectedPendingActionV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
+        let result = self.ctx.transaction.contribute(|tx| {
+            action
+                .validate(tx)
+                .map_err(RootModuleExecutionErrorV1::from)
+        });
+        result?;
+        let result = self.execute_invocation_inner(invocation_id, Some(action), live_owner);
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
     }
     fn select(
         &mut self,
@@ -89,9 +121,10 @@ where
         )
         .map_err(RootModuleExecutionErrorV1::Invocation)
     }
-    fn execute_tick_inner(
+    fn execute_invocation_inner(
         &mut self,
         invocation_id: &str,
+        action: Option<&crate::world::incremental_action_execution::SelectedPendingActionV1>,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
         let live = live_owner();
@@ -123,14 +156,22 @@ where
         let Some(first) = self.select(invocation_id, &live)? else {
             return Ok(None);
         };
-        if !crate::world::module_tick_runtime::module_has_tick_subscription(first.manifest()) {
+        if action.is_none()
+            && !crate::world::module_tick_runtime::module_has_tick_subscription(first.manifest())
+        {
             return Ok(None);
         }
         let memory = self.ctx.values.memory;
+        // A pre-action owns both the nested action bytes and the final input
+        // at the same time. Reserve both Vec capacities before either encode.
+        let input_copies = if action.is_some() { 2 } else { 1 };
+        let input_bytes = self.work.max_input_bytes.checked_mul(input_copies).ok_or(
+            ValueTreeError::ResourceLimited("root module input workspace"),
+        )?;
         let phase_bytes = self
             .work
             .max_state_bytes
-            .checked_add(self.work.max_input_bytes)
+            .checked_add(input_bytes)
             .and_then(|n| {
                 self.work
                     .selection_limits
@@ -191,7 +232,7 @@ where
         } else {
             None
         };
-        let input = ModuleCallInput {
+        let mut input = ModuleCallInput {
             ctx: ModuleContext {
                 v: "wasm-1".to_owned(),
                 module_id: first.module_id().to_owned(),
@@ -228,6 +269,39 @@ where
             action: None,
             state,
         };
+        if let Some(action) = action {
+            // The strict router owns its admitted arena through matching, never
+            // constructs a serde_json BTreeMap or uses the process-wide regex
+            // cache. All selected invocations share this work across actions.
+            let subscribed = oasis7_wasm_router::bounded::pre_action_matches_serialized_bounded_v1(
+                action.envelope(),
+                &first.manifest().subscriptions,
+                &first.manifest().module_id,
+                crate::world::module_runtime_labels::action_kind_label(&action.envelope().action),
+                &mut self.work.routing,
+                &mut self.ctx.cancelled,
+                |bytes| memory.reserve(bytes, MemoryClass::Ordinary),
+            )
+            .map_err(RootModuleExecutionErrorV1::Routing)?;
+            if !subscribed {
+                return Ok(None);
+            }
+            input.ctx.trace_id = format!("action-{}-{}", action.envelope().id, first.instance_id());
+            input.ctx.origin = ModuleCallOrigin {
+                kind: "action".into(),
+                id: action.envelope().id.to_string(),
+            };
+            input.ctx.caller = ModuleCallCaller::LegacyUnspecified;
+            input.ctx.stage = Some("pre_action".into());
+            input.action = Some(encode_input(
+                action.envelope(),
+                memory,
+                &mut self.work.input,
+                self.work.max_input_bytes,
+                &mut self.ctx.cancelled,
+            )?);
+        }
+        let trace_id = input.ctx.trace_id.clone();
         let input = encode_input(
             &input,
             memory,
@@ -267,6 +341,13 @@ where
             limits: selected.manifest().limits.clone(),
             wasm_bytes: Arc::clone(&selected.wasm),
         };
+        #[cfg(test)]
+        if let Some(observation) = self.input_observation.as_mut() {
+            **observation = Some((
+                request.input.len(),
+                *blake3::hash(&request.input).as_bytes(),
+            ));
+        }
         let output = match execute_root_module_worker_v1(
             self.ctx.transaction,
             self.worker,
@@ -315,8 +396,8 @@ where
             .reserve(bytes, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
         let legacy_executable: WorkerExecutableV1<'v> = match &self.worker.executable {
-            WorkerExecutableV1::SealedFd(file) => WorkerExecutableV1::SealedFd(*file),
-            WorkerExecutableV1::FixturePath(path) => WorkerExecutableV1::FixturePath(*path),
+            WorkerExecutableV1::SealedFd(file) => WorkerExecutableV1::SealedFd(file),
+            WorkerExecutableV1::FixturePath(path) => WorkerExecutableV1::FixturePath(path),
         };
         // The shared old kernel carries its sandbox argument to the target.
         // Supply the same real backend, never an FnOk/fake execution callback.

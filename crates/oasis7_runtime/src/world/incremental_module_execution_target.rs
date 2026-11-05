@@ -53,6 +53,11 @@ pub enum RootModuleExecutionErrorV1<OE> {
     Worker(RootModuleWorkerErrorV1),
     Body(BodyMutationError),
     Manifest(RootWorldManifestHashErrorV1),
+    Routing(
+        oasis7_wasm_router::bounded::BoundedRouterErrorV1<
+            oasis7_proto::memory_budget::MemoryLimitExceeded,
+        >,
+    ),
     Business(ReservedValue<WorldError>),
 }
 impl<OE> From<ValueTreeError> for RootModuleExecutionErrorV1<OE> {
@@ -71,6 +76,7 @@ impl<OE> From<oasis7_formal_protocol::incremental_execution::ExecutionError>
 /// Continuous work belongs to the caller, including rejected attempts.
 pub struct RootModuleExecutionWorkV1 {
     pub input: oasis7_wasm_abi::CanonicalCborWorkV1,
+    pub routing: oasis7_wasm_router::bounded::RouterWorkV1,
     pub max_input_bytes: usize,
     pub max_policy_selections: usize,
     pub max_prepared_effects: usize,
@@ -261,7 +267,7 @@ where
                         .values
                         .memory
                         .reserve(self.work.transient_heap_bytes, MemoryClass::Ordinary)
-                        .map_err(|e| ValueTreeError::Memory(e))?
+                        .map_err(ValueTreeError::Memory)?
                         .retain(WorldError::ModuleCallFailed {
                             module_id: failure.module_id.clone(),
                             trace_id: failure.trace_id.clone(),
@@ -714,6 +720,20 @@ fn encode_input<T: serde::Serialize>(
             Ok(())
         }
     }
+    // Match util::to_canonical_cbor at the legacy ModuleCallTarget boundary.
+    // ActionOriginal identities deliberately use the separate untagged ABI
+    // encoder; VM inputs (including nested action/event inputs) retain tag 55799.
+    const SELF_DESCRIBE: &[u8] = &[0xd9, 0xd9, 0xf7];
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if max_bytes < SELF_DESCRIBE.len() {
+        return Err(ValueTreeError::ResourceLimited("root module input bytes"));
+    }
+    work.bytes_remaining = work
+        .bytes_remaining
+        .checked_sub(SELF_DESCRIBE.len() as u64)
+        .ok_or(ValueTreeError::ResourceLimited("root module input bytes"))?;
     // Caller retains max_bytes through the shared kernel's owned Vec API.
     let allocator = RootModuleWorkerAllocatorV1::new(memory);
     let placeholder = oasis7_wasm_abi::CanonicalCborWorkV1 {
@@ -732,6 +752,7 @@ fn encode_input<T: serde::Serialize>(
         bytes: Vec::with_capacity(max_bytes),
         max: max_bytes,
     };
+    output.bytes.extend_from_slice(SELF_DESCRIBE);
     let result = oasis7_wasm_abi::stream_canonical_cbor_v1(input, &mut context, &mut output);
     *work = context.work;
     result.map_err(|error| match error {

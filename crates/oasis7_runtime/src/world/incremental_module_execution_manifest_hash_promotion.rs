@@ -18,10 +18,6 @@ pub struct PreparedWorldManifestHashPromotionV1 {
     selected: PreparedFactPromotionV1,
     charge: MemoryReservation,
 }
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Actual after-owner/selected Result and existing cache scope remain explicit before acceptance."
-)]
 pub fn prepare_world_manifest_hash_promotion_v1<M, R, E, C>(
     base: Option<WorldManifestHashCandidateBaseV1<'_>>,
     core: &ReservedValue<CheckedCommitCore>,

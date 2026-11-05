@@ -203,3 +203,6 @@ mod complete;
 
 #[path = "incremental_world_raw_complete_tests.rs"]
 mod raw_complete;
+
+#[path = "incremental_module_execution_tests.rs"]
+mod module_execution;

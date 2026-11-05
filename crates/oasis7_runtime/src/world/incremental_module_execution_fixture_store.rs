@@ -1,5 +1,4 @@
 //! Bounded authenticated CAS used by the combined real-executor fixture.
-use super::*;
 use oasis7_formal_protocol::{
     incremental_material::*, incremental_schedule::SchedulePageWriter, incremental_state::*,
     incremental_value::*,
@@ -10,6 +9,7 @@ struct State {
     memory: MemoryBudget,
     nodes: BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>,
     fault: Option<ValueTreeError>,
+    last_state: Option<Arc<ReservedValue<Vec<u8>>>>,
     _metadata: MemoryReservation,
 }
 #[derive(Clone)]
@@ -29,11 +29,20 @@ impl Cas {
             memory: memory.clone(),
             nodes: BTreeMap::new(),
             fault: None,
+            last_state: None,
             _metadata: fee,
         })))
     }
     pub fn error(&self) -> Option<ValueTreeError> {
         self.0.borrow_mut().fault.take()
+    }
+    pub fn last_state_hex(&self) -> String {
+        self.0
+            .borrow()
+            .last_state
+            .as_ref()
+            .map(|bytes| hex::encode(&bytes[..bytes.len().min(1200)]))
+            .unwrap_or_default()
     }
 }
 impl ValueNodeWriter for Cas {
@@ -123,7 +132,10 @@ impl MerkleNodeReader for Reader<'_> {
             .cas
             .read_node(id.as_bytes(), max, self.memory, MemoryClass::Ordinary)
         {
-            Ok(bytes) => Ok(Some(Node(bytes))),
+            Ok(bytes) => {
+                self.cas.0.borrow_mut().last_state = Some(Arc::clone(&bytes));
+                Ok(Some(Node(bytes)))
+            }
             Err(error) => {
                 self.cas.0.borrow_mut().fault = Some(error);
                 Err("combined fixture typed state failure".to_owned())
@@ -178,7 +190,7 @@ pub(super) struct Originals<'a> {
     pub memory: &'a MemoryBudget,
 }
 impl OriginalObjectReader for Originals<'_> {
-    type Error = &'static str;
+    type Error = ValueTreeError;
     fn allocation_class(&self) -> MemoryClass {
         MemoryClass::Ordinary
     }
@@ -192,17 +204,23 @@ impl OriginalObjectReader for Originals<'_> {
         memory: &MemoryBudget,
     ) -> Result<Arc<ReservedValue<Vec<u8>>>, Self::Error> {
         let store = self.objects.0.borrow();
-        let bytes = store.values.get(id).ok_or("missing combined original")?;
+        let bytes = store
+            .values
+            .get(id)
+            .ok_or(ValueTreeError::Invalid("missing combined original"))?;
         if !memory.same_pool(self.memory)
+            || !memory.same_pool(&store.memory)
             || bytes.len() > max
             || max > oasis7_formal_protocol::incremental_execution::EXECUTION_MAX_RECORD_BYTES
             || !bytes.starts_with(b"oasis7.iws.")
         {
-            return Err("combined bounded Formal header route");
+            return Err(ValueTreeError::Invalid(
+                "combined bounded Formal header route",
+            ));
         }
         let fee = memory
             .reserve(bytes.len() + 128, MemoryClass::Ordinary)
-            .map_err(|_| "combined Formal header admission")?;
+            .map_err(ValueTreeError::Memory)?;
         Ok(Arc::new(fee.retain(bytes.to_vec())))
     }
 }
@@ -213,26 +231,19 @@ impl OriginalObjectStreamReader for Originals<'_> {
         max: u64,
         memory: &MemoryBudget,
         output: &mut dyn Write,
-        cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<u64, Self::Error> {
         let store = self.objects.0.borrow();
         let bytes = store
             .values
             .get(id)
-            .ok_or("missing combined stream original")?;
+            .ok_or(ValueTreeError::Invalid("missing combined stream original"))?;
         if !memory.same_pool(self.memory) || bytes.len() as u64 > max {
-            return Err("combined original stream bound/pool");
+            return Err(ValueTreeError::Invalid(
+                "combined original stream bound/pool",
+            ));
         }
         for chunk in bytes.chunks(64 << 10) {
-            if cancelled() {
-                return Err("combined original cancelled");
-            }
-            output
-                .write_all(chunk)
-                .map_err(|_| "combined original sink")?;
-        }
-        if cancelled() {
-            return Err("combined original final cancelled");
+            output.write_all(chunk).map_err(ValueTreeError::Io)?;
         }
         Ok(bytes.len() as u64)
     }

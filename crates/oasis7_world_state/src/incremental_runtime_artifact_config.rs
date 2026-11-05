@@ -655,3 +655,7 @@ pub use module_read::{
 };
 
 pub(crate) use receiver::accept_artifact_config_verified_v1;
+
+#[path = "incremental_runtime_artifact_config_current_keys.rs"]
+mod current_keys;
+pub use current_keys::read_current_registry_active_id_v1;

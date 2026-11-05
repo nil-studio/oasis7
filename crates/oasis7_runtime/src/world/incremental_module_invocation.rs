@@ -515,3 +515,11 @@ pub use target::{
     RootModuleExecutionContextV1, RootModuleExecutionErrorV1, RootModuleExecutionFamiliesV1,
     RootModuleExecutionWorkV1, RootModuleTickOutcomeV1,
 };
+
+#[path = "incremental_module_invocation_enumerate.rs"]
+mod enumerate;
+pub use enumerate::{
+    AcceptedInvocationDirectoryV1, CurrentInvocationEnumerationErrorV1,
+    CurrentInvocationEnumerationWorkV1, build_accepted_invocation_directory_v1,
+    collect_current_module_invocation_ids_v1,
+};

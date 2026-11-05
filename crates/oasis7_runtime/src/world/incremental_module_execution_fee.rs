@@ -25,10 +25,6 @@ use oasis7_world_state::{
 /// preparation's strict revision guard is intentionally not weakened. World
 /// clock is checked after contribution, before Event publication, inside the
 /// same outer contribute so a mismatch aborts all provisional balance writes.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Real fee preparation, owner IO, same-transaction event original and live fence are independent obligations."
-)]
 pub fn contribute_root_module_fee_and_event_v1<M, R, E, C, W, WC, V, EW, EC, F>(
     prepared: &ReservedValue<PreparedRootModuleFeeV1>,
     agents: &ReservedValue<AgentSubtreeStructureQualificationV1>,

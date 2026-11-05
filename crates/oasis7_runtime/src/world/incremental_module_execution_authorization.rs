@@ -102,10 +102,6 @@ fn text(cell: Cell) -> Result<String, ValueTreeError> {
 }
 /// Returns a charged actual grant, never an authorization boolean. Its existing
 /// business `allows`/`is_expired` kernel remains the sole capability policy.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Independent owner/fence/IO budgets are not hidden behind a success callback."
-)]
 pub fn read_root_module_capability_v1<M, R, E, C>(
     cap_ref: &str,
     family: &ReservedValue<ModuleAuthorizationFamilyQualificationV1>,

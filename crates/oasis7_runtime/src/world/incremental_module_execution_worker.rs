@@ -81,10 +81,6 @@ impl ModuleSandboxRawOutputV1 for TypedWorker<'_, '_> {
 /// VM frame can retain the established business ModuleCallFailure semantics.
 /// The worker itself rejects FixturePath on this typed entry; the final driver
 /// must additionally bind its SealedFd to the authenticated Native baseline.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "The actual transaction, sealed backend, admitted request and independent finite output work stay explicit."
-)]
 pub fn execute_root_module_worker_v1<M, C>(
     transaction: &mut ExecutionTransaction<'_, M>,
     worker: &mut BoundedWorkerSandboxV1<'_, RootModuleWorkerAllocatorV1>,

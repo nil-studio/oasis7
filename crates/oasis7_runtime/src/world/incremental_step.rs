@@ -207,6 +207,10 @@ where
     }
 
     /// Register a qualified absent cell using this step's authenticated clock.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Qualified registration keeps the same transaction, read budgets, event writer and live fence explicit."
+    )]
     pub fn dispatch_agent_registration<F, E>(
         &mut self,
         qualification: &oasis7_proto::memory_budget::ReservedValue<

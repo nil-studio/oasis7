@@ -1104,6 +1104,7 @@ pub use participant_devlocal::DevLocalParticipantAuthority;
 
 mod incremental_action_execution;
 mod incremental_action_execution_applicability;
+mod incremental_action_execution_core;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_action_original;
 pub mod incremental_body;
@@ -1189,3 +1190,6 @@ pub mod incremental_module_execution_emit;
 pub mod incremental_module_execution_visual_anchor;
 pub mod incremental_module_execution_visual_decode;
 pub mod incremental_module_execution_worker;
+
+mod resource_balance_kernel;
+mod incremental_rule_resources;

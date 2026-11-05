@@ -233,6 +233,10 @@ where
     }
     Ok(hex::encode(hash))
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The qualified body and independent physical, semantic and hash work budgets remain explicit."
+)]
 fn baseline<M, R, E, C>(
     body: ReservedValue<ArtifactConfigBodyQualificationV1>,
     state: &M,
@@ -272,10 +276,6 @@ where
 }
 /// GEN/cold point recovery, bound to a genuine accepted Runtime selected Fact.
 /// Only this selected Manifest is read; no World or History is reconstructed.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Actual accepted scope, typed owner and bounded readers are separate obligations."
-)]
 pub fn recover_world_manifest_hash_v1<M, R, E, C>(
     parent: &ReservedValue<AcceptedRuntimeHistorySourceV1>,
     head: &VerifiedFormalCommitV1,
@@ -412,10 +412,6 @@ where
 }
 /// Recovery A allocates fresh Ordinary body qualification and string/carriers;
 /// no Recovery Arc is retained, and the true accepted parent is checked again.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "A retains actual accepted scope rather than caller-reported parent IDs."
-)]
 pub fn readmit_world_manifest_hash_ordinary_v1(
     source: &ReservedValue<AcceptedWorldManifestHashV1>,
     parent: &ReservedValue<AcceptedRuntimeHistorySourceV1>,
