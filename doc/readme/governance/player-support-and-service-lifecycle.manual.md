@@ -236,6 +236,33 @@
 
 实际退出验收必须补充通知与回读、停止新增的真实结果、数据取得/处置、未结承接和各技术动作的证据。纯文档设计、模拟输入、身份导出命令存在或单节点停止均不代签正式全服务结束。
 
+<a id="verify-existing-service-surfaces"></a>
+### 12.1 既有技术表面的正常路径与未结恢复
+
+按[既有技术表面接收](player-support-and-service-lifecycle.design.md#support-existing-surface-reception)核对固定候选与真实入口。以下是有限方法和独立预期，不是本轮已运行的服务验收，也不假设已经存在付费 hosting/storage/support 订单。先读原 producer 及其方法，再决定当前能执行静态审校、离线故障场景还是获授权的实际验收；缺接线/前置如实记 blocked。不得为取得正例调用付费服务、操作真实账号/订单、发送通知或解除 LetAI hold。
+
+| 读取的原合同与方法 | 本节实际消费及证据边界 |
+| --- | --- |
+| [hosted 原方法](../../testing/manual/hosted-passkey-account.manual.md#world-control)，连用同手册 contract-suite / release-gates | 按原两设备、credential/session/epoch、原 join attempt 与 unknown 恢复场景；虚拟认证器、静态代码及真实部署分别记录，旧 release 的持久失败需单列，不以账号登录代 world control |
+| [本手册原反馈方法](#support-entry-check)，对照 Launcher 结果边界及 DistFS public-read/outbox | Ready / 未 Ready、native / Web、本地包 / 远端 / Issue 分开；原 DistFS 记录回归及后写错误方法不能冒充全部网络交付和人工受理 |
+| [bridge 原生命周期方法](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#10-生命周期验收与交付边界)及原回滚 runbook | 稳定外部身份、持久 Credited、过期尝试和原订单 unknown 的原离线故障输入；现有测试入口不证明新增故障用例已实现，持久恢复设计不代真实 operator 部署或资金验收 |
+
+共同前置：记录 source/candidate、primary mode、实际表面与适配版本、world/账号和当前权限的安全定位、原操作关联及最后已证阶段；不记录 bearer、release token、私钥、真实付款细节或私密正文。当前能力表必须分别列出正常读写/恢复路径与故障时可停止的范围；没有原权限或入口的“替代路径”不得补造。除明确变化项外保持同一原对象和原请求；A/S1/o1 等是虚构样本标识，不是当前玩家或订单，次数预期来自原合同。
+
+| ID / 独立输入 | 必须观察、拒绝及下一步 |
+| --- | --- |
+| EX07：原 hosted v2 合法输入为同账号 A、凭证 P 下的 S1/W1 与未接管的 S2，备用凭证 Q 下为 S3；先在健康前态读取并进行一个当前获权动作，再退出 S2 | 原映射与 S1/W1 不变，S2 退出不是账号删除或 W1 取消；S3 按原权限登录/恢复，不自动接管。另作当前权限失效的单变量反例：不以旧缓存、另一 issuer/player/world 继续原私有读写。正常进入/原结果核对与故障等待分别记；它只证明该候选同身份合同，不能外推跨托管迁移 |
+| EX08：W1 原世界请求 r 已发但回执丢失；身份来源暂不可读；另在兼容 release 已移除内存 slot 后让 ledger 保存失败并返回 `session_ledger_persist_failed` | 达原 proof 新鲜度边界后拒绝新的受认证动作，不缓存续权；r 保留原关联且不换 nonce 重发，已证世界 receipt 不回退。release 的 `ok=false` 不证明未释放或已持久完成；由原 owner 核当前 slot/ledger/world，读取受阻则仍未确认。恢复时先核当前 session、原 join attempt/epoch 与 r；只在其原条件满足后继续，不把支持回复当解除 fence，也不声称 guest observation 可读私有历史 |
+| EX09：native 已 Ready，反馈 f 的 store mutation 已完成，随后 audit 或 enqueue 失败；helper 返回实际本地包路径。对照成功返回 f/event e 的正常分支 | 正常回执只确认反馈阶段；故障分支只能称本地保存及远端结果未确认，不推断远端零写入、不自动重投。沿实际已知 f/e 与原公开读/存储核对，读取失败不宣布无记录；没有可用定位则交原 owner 待核，不编造查询按钮。重启丢内存队列不抹账本，tombstone 仍可含原文。仍合法的世界入口可独立继续，但反馈回执/Issue 不代任何世界结果 |
+| EX10：native 链未 Ready/禁用，或 Web 代理请求失败且窗口尚可编辑；选取当前真实可用的原 GitHub Issue 入口提交最小安全摘要，再停止该反馈窗口 | native 门控失败前无本地包；Web 不宣称 native 包或刷新后草稿持久。仅实际 Issue URL 证明记录创建，不替原世界请求查询；没有真实可用替代反馈入口则说明未提交/待核。关闭窗口不取消已写反馈或世界请求，复用摘要须保留已知关联且不全量公开原包。正常世界读写必须以仍有效的原权限/能力另验，不能靠 GitHub 可达判其通过 |
+| EX11：按原目标故障方法给 o1 已持久 Credited/receipt c1，下一轮 user/project/query 暂失败后恢复，再重载；对照原已 Reconciled 的终态与实际受支持的非 LetAI Provider 组合 | 目标预期为 o1/c1 与成功事实不变；只恢复 verification，topup 成功调用总数仍为 1，query 成功后才称 Reconciled。旧 consumer 的前置失败可降为 Failed/ManualReview，原健康 restart 例不能代签本例；若候选呈现该冲突则保持待核，不照新预期报告已实现或再次 topup。迟到失败不能退回业务状态或重开额度；切配置不删除 o1，也不提供 OC/世界权利。其他组合仅在当前声明能力、配置和授权均具备时另验正常路径；不存在的替代能力保持缺项，HTTP GET-only 不代成长动作 |
+| EX12：首次外部创建或 o2 topup 成功后丢回复、本地成功标记未持久；随后有人以“开发 hold/服务停止”为由要求删 binding、换 external ID、关单当退款；对照已授权停止新 route/自动 reconcile 的原运行场景 | 保留原 binding/project、external identity/order 与链上证据，按原查询/幂等合同核同一原件，不能报未入账或创建新单。暂停不自动发生操作；实际停用仍由原 operator 按原权限执行。来源不可用则待核且责任不消失；`mark_resolved/close` 只按原语义记录，不证明退款、补款、世界取消或充值成功。恢复处理也不解除开发 hold，不由复核者创建新权限 |
+| EX13：三技术表面已有上述方法，但未取得某具体提供者的采用决定、条款/履行窗口或同身份独立读取能力；另有一项原已接受义务尚无接手确认 | 只能接收有证据的技术组合；FREE001 完整正常独立路径及具体商业退出仍未覆盖/待核，不填 N/A/Future 或宣传已就绪。明确缺失的是哪一服务/主体/条款/窗口/能力及原 owner；7/30/90 日运营副本规则、slot TTL、一个健康演示均不补该事实。未确认交接仍归原责任方；若以后有真实提供者合同，再沿 EX01–EX06 核通知、读取/交接及未结履行，不能拿本表代签 |
+
+分别让未参与制作者阅读健康、失败和恢复样本，指出：哪项便利表面不可用、世界结果是已证还是未知、当前还能合法读取/行动的对象、停止后仍由谁承担什么义务、下一步为何不会新建业务原件或扩大权限。必须能区分正常独立路径与只能安全停止的样本；若读者把重新登录、Issue 关闭或 operator close 理解成补偿/世界成功，即记录具体误读并修正文案。桌面问答只评价这些材料，不能证明真人长期成长、所有免费入口或实际服务可用。
+
+通过条件为三域各有来源、正常/失败/恢复的不同判定、当前读权、未结责任及实际下一步；同时保留其技术适用和商业事实缺口。静态审读、原离线用例、本次实际执行与未执行项分列；不因原方法存在写运行通过，不因安全停止可解释宣称 FREE001 / SERVICE-EXIT001 整体设计已覆盖。
+
 <a id="verify-support-capacity"></a>
 ## 13. 运营容量与成本手算
 
