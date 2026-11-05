@@ -482,6 +482,7 @@ fn build_execution_bridge_pin_set(
         collect_execution_bridge_record_retained_refs(
             &record,
             record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
+                || record.height >= hot_window_start_height
                 || protected.contains(&record.height)
                 || pin_set
                     .archive_window_start_height
@@ -531,6 +532,9 @@ pub(super) fn sync_execution_bridge_pin_set(
             execution_bridge_record_path(execution_records_dir, height).as_path(),
         )?;
         let retain_archive = record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
+            || pin_set
+                .hot_window_start_height
+                .is_some_and(|start_height| height >= start_height)
             || protected.contains(&height)
             || pin_set
                 .archive_window_start_height
@@ -1086,6 +1090,7 @@ fn compact_execution_bridge_records(
             }
         }
         let retain_archive = record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
+            || retain_hot_window
             || protected.contains(&height)
             || pin_set
                 .archive_window_start_height
