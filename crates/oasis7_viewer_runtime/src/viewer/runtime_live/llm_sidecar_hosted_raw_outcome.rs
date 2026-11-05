@@ -86,10 +86,10 @@ impl RuntimeLlmSidecar {
                 continue;
             };
             let key = identity(outcome, active)?;
-            if let Some(previous) = originals.insert(key, outcome.clone()) {
-                if previous != *outcome {
-                    return Err("raw outcome identity collision; originals retained".into());
-                }
+            if let Some(previous) = originals.insert(key, outcome.clone())
+                && previous != *outcome
+            {
+                return Err("raw outcome identity collision; originals retained".into());
             }
         }
         if originals.len() > 128 {

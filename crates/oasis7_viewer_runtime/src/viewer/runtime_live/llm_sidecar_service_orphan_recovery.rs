@@ -27,7 +27,7 @@ pub(in crate::viewer::runtime_live) struct OrphanPhase {
     pub(in crate::viewer::runtime_live) submit: bool,
     commit: Option<CommitRef>,
     original_id: Option<String>,
-    terminal_authority: Option<TerminalRecoveryAuthorityV1>,
+    terminal_authority: Option<Box<TerminalRecoveryAuthorityV1>>,
 }
 impl OrphanPhase {
     pub(in crate::viewer::runtime_live) fn identity(&self) -> Result<String, String> {
@@ -312,16 +312,15 @@ impl RuntimeLlmSidecar {
                 "orphan terminal assertion differs from original or current authority".into(),
             );
         }
-        if let Some(owner) = &view.canonical_agent_owner {
-            if owner.agent_id != agent
+        if let Some(owner) = &view.canonical_agent_owner
+            && (owner.agent_id != agent
                 || owner.player_id != proof.owner_binding
                 || owner.canonical_authority.agent_identity_generation != proof.identity_generation
                 || owner.world_id != binding.world_id
                 || owner.reorg_epoch != binding.reorg_epoch
-                || owner.canonical_authority.branch_id != binding.branch_id
-            {
-                return Err("orphan current owner or identity generation changed".into());
-            }
+                || owner.canonical_authority.branch_id != binding.branch_id)
+        {
+            return Err("orphan current owner or identity generation changed".into());
         }
         Ok(())
     }

@@ -202,7 +202,7 @@ mod tests {
                 contract_version: 1,
                 formal_profile: None,
                 execution_evidence_scope: None,
-                terminal_recovery_authority: Some(proof),
+                terminal_recovery_authority: Some(Box::new(proof)),
                 correlation,
                 outcome: IntentOutcome::Committed {
                     commit: Box::new(commit),

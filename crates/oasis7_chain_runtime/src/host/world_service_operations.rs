@@ -215,7 +215,8 @@ pub(super) fn lookup(service: &Service<'_>, request: AuthenticatedLookup) -> Res
             )
         })
         .transpose()?
-        .flatten();
+        .flatten()
+        .map(Box::new);
     if matches!(existing, IntentOutcome::Unknown) {
         service.check_payload(&pinned, &request.original)?;
     } else {

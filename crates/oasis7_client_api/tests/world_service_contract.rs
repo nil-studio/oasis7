@@ -724,6 +724,53 @@ fn terminal_authority_rejects_nested_unknown_fields_without_changing_legacy_read
     });
     let proof: TerminalRecoveryAuthorityV1 = serde_json::from_value(value.clone()).unwrap();
     proof.validate(&correlation()).unwrap();
+    // The former inline field is an independent serialization oracle. Boxing
+    // must preserve both old None bytes and the complete signed Some payload.
+    #[derive(serde::Serialize)]
+    struct InlineTerminalResponse<'a> {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        terminal_recovery_authority: Option<&'a TerminalRecoveryAuthorityV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        formal_profile: Option<FormalReadProfileV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        execution_evidence_scope: Option<String>,
+        contract_version: u32,
+        correlation: RequestCorrelation,
+        outcome: IntentOutcome<Value>,
+    }
+    for terminal in [None, Some(&proof)] {
+        let outcome = IntentOutcome::Committed {
+            commit: Box::new(commit(227)),
+            receipt: json!({"dispatched":true}),
+        };
+        let inline = InlineTerminalResponse {
+            terminal_recovery_authority: terminal,
+            formal_profile: None,
+            execution_evidence_scope: None,
+            contract_version: 1,
+            correlation: correlation(),
+            outcome: outcome.clone(),
+        };
+        let boxed = IntentResponse {
+            terminal_recovery_authority: terminal.cloned().map(Box::new),
+            formal_profile: None,
+            execution_evidence_scope: None,
+            contract_version: 1,
+            correlation: correlation(),
+            outcome,
+        };
+        let old_bytes = serde_json::to_vec(&inline).unwrap();
+        assert_eq!(old_bytes, serde_json::to_vec(&boxed).unwrap());
+        assert_eq!(
+            serde_json::from_slice::<IntentResponse<Value>>(&old_bytes).unwrap(),
+            boxed
+        );
+        assert_eq!(
+            signing_bytes(LOOKUP_PATH, &(&digest, &inline)).unwrap(),
+            signing_bytes(LOOKUP_PATH, &(&digest, &boxed)).unwrap(),
+            "boxing must preserve the entire service-signature canonical payload",
+        );
+    }
     for pointer in [
         "",
         "/lease",

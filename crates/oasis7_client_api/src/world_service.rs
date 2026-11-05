@@ -296,7 +296,7 @@ pub enum IntentOutcome<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntentResponse<T> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub terminal_recovery_authority: Option<TerminalRecoveryAuthorityV1>,
+    pub terminal_recovery_authority: Option<Box<TerminalRecoveryAuthorityV1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formal_profile: Option<FormalReadProfileV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
