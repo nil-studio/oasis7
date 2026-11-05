@@ -1,6 +1,7 @@
 //! A current ordinary DevLocal assertion beside the immutable Prefix receipt.
 use super::*;
-use oasis7_runtime::{CapabilityAuthorizationEvent, ProviderCapabilityAvailability};
+use oasis7_runtime::CapabilityAuthorizationEvent;
+use oasis7_runtime::world::ProviderCapabilityAvailability;
 
 pub(super) fn authority(
     service: &Service<'_>,
@@ -50,7 +51,7 @@ pub(super) fn authority(
     if result.rejected.is_some()
         || result.request.correlation != *correlation
         || result.request.signed_payload != *original
-        || result.committed_height != historical.record.height
+        || result.committed_height != historical.committed_height()
     {
         return Err("terminal historical original result differs".into());
     }

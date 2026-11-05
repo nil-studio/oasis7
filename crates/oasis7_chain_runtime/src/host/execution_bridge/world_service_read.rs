@@ -82,6 +82,12 @@ pub(crate) struct PinnedWorld {
     pub commit: CommitRef,
 }
 
+impl PinnedWorld {
+    pub(crate) fn committed_height(&self) -> u64 {
+        self.record.height
+    }
+}
+
 pub(crate) fn identity(world_dir: &Path, expected_world_id: &str) -> Result<WorldIdentity, String> {
     let bytes = std::fs::read(world_dir.join("world-service-identity.json"))
         .map_err(|_| "service identity configuration unavailable")?;
