@@ -47,6 +47,11 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
 | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385；[REQ-ENTRY-CLAIM-003](../../product/player-entry-distribution/release-communications-and-public-claims.prd.md#req-entry-claim-003) | 认领经济说明区分当前事实、产品目标、假设与证据边界，缺少同窗依据不发布 | [公开口径边界](#public-claim-boundary) | 产品 / LiveOps / QA / 根 README | 只覆盖认领经济输入，不替代其他专业领域、全渠道审核或实际发布证据 |
 | Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[`REQ-WR-AOS-001`](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) | 首个经济 Agent 认领必须展示非零承诺包，并保持成本、资金来源与后续回收可审计。 | [`DES-CLAIM-ECONOMY-001`](#des-claim-economy-001) | `producer_system_designer` / `runtime_engineer` | 不证明具体实现、部署或公开 claim。 |
+| Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[REQ-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) | 同候选确认前逐项说明用途、差异、首个目标帮助、风险、完整 upfront/runway 与实际替代选择 | [候选承诺包](#claim-choice-commitment) | runtime 权威 producer / Viewer、API、Agent consumer | 不从模块名、候选唯一或 UI 存在推导正式适用；不新增经济参数或布局 |
+| Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[AC-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-001) | 只读预览无预留，确认时对同一目标、条款、来源、资格、容量与资金当前重验，漂移/争抢不半扣费 | [确认重验](#claim-confirmation-revalidation) | claim publication / current authority / 共享取得守卫 | 保留制造、首次注册及首次支持各自原准入，不让普通 ClaimAgent 绕工业供给 |
+| Trace refs: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；[REQ-WR-AOS-002](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-002) | 原因、范围、费用与仍存责任分别接收主动释放、欠费/闲置回收和真正适用的限制 | [失去控制与连续性](#claim-loss-continuity) | 原 claim、身份、制造、合同与适用保护 authority | 不新增罚则、通用申诉、资产转让或让治理资格限制变成全 Agent 禁用 |
+| Trace refs: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；[AC-WR-AOS-002](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-002) | 重认领、恢复、原案救济与安全停止分别核当前来源；旧结果、旧义务和一次效果不断链 | [当前恢复](#claim-current-recovery) | 原请求查询 / 当前读权 / 原领域终结器 / G1 | 不把旧 receipt、余额变化或 active 列表缺项当作新取得资格 |
+| Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[REQ-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) | 确认丢 ACK、重连、来源失效后仍定位原目标和原结果，不静默重认领 | [当前恢复](#claim-current-recovery) | 原 GameplayAction / 正式结果回读 / QA | 查询不重新消费业务 nonce 或创建第二次 claim/support |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264, O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-AGC-ENTRY-001](gameplay-agent-claim-economy-contract.prd.md#req-agc-entry-001) | 同世界新账号的显式首次注册不依赖既有 claimer，返回账号恢复旧绑定；两者与经济 Claim 分开。 | [DES-CLAIM-ENTRY-001](#des-claim-entry-001) | `runtime_engineer` / identity / `viewer_engineer` / `qa_engineer` | 后继目标，当前固定 starter 与空世界测试不证明逐账号准入；不修改经济 Claim Prepare/Confirm。 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264, O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[AC-AGC-ENTRY-001](gameplay-agent-claim-economy-contract.prd.md#ac-agc-entry-001) | 同世界新账号的显式首次注册不依赖既有 claimer，返回账号恢复旧绑定；两者与经济 Claim 分开。 | [DES-CLAIM-ENTRY-001](#des-claim-entry-001) | `runtime_engineer` / identity / `viewer_engineer` / `qa_engineer` | 后继目标，当前固定 starter 与空世界测试不证明逐账号准入；不修改经济 Claim Prepare/Confirm。 |
 | [REQ-AGC-CHAT-001](gameplay-agent-claim-economy-contract.prd.md#req-agc-chat-001) | 已交付文案切片按 OR 条件披露，保留余额耗尽后记录仍有效与其他独立 gate 的区别。 | [DES-CLAIM-CHAT-002](#des-claim-chat-002) | `runtime_engineer` / `viewer_engineer` | 该切片不改 OC 额度、领取资格、账本或现有 chat gate。 |
@@ -106,7 +111,7 @@ quote 与最终 claim publication 必须核对同一适用 policy、主体、wor
 - release / forced reclaim 时：
   - 先按 canonical 规则结清 arrears 与 penalty。
   - 再把剩余 bond 按 provenance 拆成 `restricted refund` 与 `liquid refund`。
-  - restricted 来源的 refund 只能回 restricted bucket，不能洗成 liquid。
+  - restricted 来源的 refund 按原 provenance 与有效期回原 restricted balance 或原 source treasury bucket，不能洗成 liquid；准确分流见[失去控制与连续性](#claim-loss-continuity)。
 - 若 upfront 为 mixed funding，则 activation fee / upkeep 属于已消耗成本，不参与退款；只有 bond 部分需要保留来源拆分。
 
 ## 5. 回收与退款
@@ -271,6 +276,69 @@ DevLocal policy 由显式启用的本地 operator 管理来源授权，使用独
 
 **兼容。** 旧六字段 preview 继续可读为静态规则/历史说明，但不具备新投影的完整性与来源证明，后继消费者将动态资格保持 unknown 并提示刷新；不将旧 DTO 的缺省零、缺省 false 或 `None` 解释成账本事实。新服务与消费者先协商支持的投影版本；不能理解资格版本的组合保持 unavailable，不把未知编码为余额哨兵。当前切片的经济维护说明及 restricted/liquid provenance 规则不变，fragment refill 与 named scenario 投影不在本协议范围。
 
+<a id="claim-choice-commitment"></a>
+### 6.6 同候选的完整认领承诺包
+
+Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；承接 [REQ-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) 与专业 PRD §2.2.1。本节细化既有 quote/choice 的生产与消费，不增加 claim 状态、经济字段、数值或 Viewer 布局。它适用于实际形成经济 claim 的入口；注册/会话绑定仅依其真实结果解释，已绑定主 Agent 也不能据此认领任意世界背景实体。
+
+**真实生产者与已知缺项。** [claim_snapshot.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/claim_snapshot.rs) 的 `build_player_agent_claim_snapshot` 产生成本/runway，`build_slot_1_claim_choice_quote` 枚举候选并调用 `build_candidate_rationale`；当前实现仅在恰有一个已知理由候选时填充五个共同理由字段，多候选则保留 `compare_candidates_first` 但这些字段为空。现有候选按 body/frame 和模块 ID 过滤，不含完整正式能力/取得准入证明。[选择回归](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/claim_choice.rs)与[runway 回归](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/claim_runway.rs)是本地兼容 snapshot fixture，不能据此签署正式多候选比较、Service 接线或所有入口已实现。
+
+最小目标 producer 仍使用原五个 `candidate_starting_location / candidate_specialty_summary / first_industrial_goal_help / candidate_risk_summary / candidate_recommendation_reason` 字符串。每名候选先独立生成五项；单候选沿原表达，多候选在每个字段内按候选 ID 稳定顺序分段，五项各段的 ID 必须精确指向同一 cut 的候选条目。字段不能只保留一条无对象的共享理由，也不能只列 module 名充当用途差异。客户端完整显示这些来源文本，不解析段落来授权、排序或构造新 action。现有多候选空理由需要 producer/consumer 接线后验证，不能以 `unknown` 作为完成设计的替代。
+
+| 必需信息 | 唯一事实输入与确定性生成 | 缺项、比较与消费边界 |
+| --- | --- | --- |
+| 对象、位置与可取得性 | 同一可信 World/branch/commit 的候选 ID、当前 AgentCell、适用原取得来源与当前可见范围；位置用原坐标和单位，目标以原 ID 选择 | 主绑定、经济 claim、制造来源分别验证；未获读权不泄露其他主体私有目标/配置。可见实体不等于当前可 claim |
+| 用途、能力与差异 | 原 body/frame 及当前采用版本的能力目录、实际绑定/安装/激活与可用状态；从原能源、感知、移动、cargo 等支持能力说明可承担的工作 | [Body/附件能力合同](../../world-runtime/module/agent-default-modules.design.md#adm-body-binding)拥有实体/能力规则。默认模块 ID、未知 manifest 或本地占位只可报告其窄事实，不能证明实际 capability；缺 cargo 与已知完整配置应得到不同理由 |
+| 首个工业目标帮助 | 当前已发布的工业阶段/目标及其已有前置，逐项对应该候选已证明能力；Bootstrap 只消费该版本已支持的第一目标 | 不读取他人 private goal，不由 LLM/客户端补目标，不保证产出、路线到达或设施权限；已知能力缺口明确列出，未知目标/来源明确待刷新 |
+| 风险与推荐 | 原配置确有的限制、已证明缺失能力、当前取得 blocker、完整费用/runway；比较列出实际差异，不发明得分、价格优惠或“最佳”排名 | 只有已知完整集合中恰一名适用且能力齐全、无已证明高风险、资金足且 runway 达原建议阈值时，才能沿原 `claim_now_route_fit` 建议。多名保持比较，缺资金/低 runway 沿原 wait/fund 建议；建议不改变动作资格 |
+| 后续义务和替代选择 | 同一目标的 activation/bond/首个 upkeep、后续每 epoch 维护、原 release/grace/idle 条件，以及当前可执行的比较、等待、补足或保持现有经营 | 预览不锁候选、扣费或授支持；低 runway 是风险提示，不凭此添加经济硬门槛。没有合法替代动作时准确给 blocker/下一次核对条件，不伪造恢复按钮 |
+
+producer 先固定一次当前已授权读取范围和一致 view，再生成全部字段；候选数据、成本、用途来源和推荐不能混用不同 commit、账号或 source revision。有限入口必须遵守原读取/载荷预算和当前权限；分段/分页只描述该范围，未读部分不得当作无其他候选，部分集合一律不能形成“全局唯一”或 `claim_now_route_fit` 结论。若当前入口没有可验证完整范围/版本，仍可给已知事实和明确 incomplete，不发布可执行完整承诺；不得为凑完整包额外扫描全世界、展开私有记忆或调用模型猜测。
+
+成本继续原规则：默认 slot-1 `100 + 200 + 25 = 325`，资金消耗顺序和自动受限支持只按 §3–5 真实来源。已知 eligible=375 时，确认后50支持2个完整 upkeep epoch；374时49只支持1个，均能支付325，后者警告不变成拒绝理由。下一次义务是原 `paid_through + 1`，预估 grace 只是假定未来无其他收入/支出的条件预测；不能借刷新延长维护。已到账合法 liquid 沿原可用语义，首聊解锁记录、未来未发支持或 bridge quota 不能再次算作付款余额。
+
+<a id="claim-confirmation-revalidation"></a>
+### 6.7 显式确认、来源漂移与一次取得
+
+Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；承接 [AC-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-001)。Prepare/比较/查询只生成原决策输入。确认继续使用正式原请求及目标 ID，不从候选文本导出身份、授权或价格；接收端绑定其实际 world、当前主体、目标和所确认的条款，按原请求协议保留签名/nonce/原件，不另造业务 receipt。
+
+1. 先选择真实入口 profile，核当前 principal→claimer→target、session/owner/source/identity 和原用途读写权限。`ClaimAgent` 的 [industrial acquisition guard](../../../crates/oasis7_runtime/src/world_rules/industrial.rs) 对已绑定或已有 claim 的主体限制额外非制造取得，制造 actor 不可递归取得；候选可见、primary 已绑定或有余额都不能旁路它。制造交付/后继合法 claim 依各自原来源，首次注册仍不产生经济 claim。
+2. 在同一可发布 parent/staged view 重验目标未被他人认领、原 policy/费用/资金 provenance、[取得情境来源](#claim-purpose-source)、当前去重容量、真实可用资金及相关预留。来源撤销/更正、目标变化、相关条款漂移或资金不足，撤下旧确认并返回当前 blocker/重新读取；不得自动换候选、降费、补省略来源或重领支持。若本入口只重算当前费用而不能绑定此前确认条款，则它尚不满足本确认合同，不能用 accepted 响应代签。
+3. 无关世界推进不是换价依据，但实际 epoch、资格窗口或完整条件已改变时必须依原规则核对。明确已知无来源和未知覆盖分别处理；采用新来源政策的入口不得用 legacy `unwrap_or(0)`、客户端 tier 或历史 receipt 补足未知。
+4. [原 claim publication](../../../crates/oasis7_world_state/src/world/agent_claim_economic_publication.rs) 拥有本次完整资金分拆、原支持发放、bond、claim 及适用控制来源/取得序号的原子结果；任何拒绝无部分 claim、扣款、支持或容量效果。两个合法主体争同一 target、同一主体争最后一个容量/同一份资金时，按 canonical 顺序仅允许满足全部条件的结果；失方保留真实拒绝，不另收费完成一次失败的 claim。
+5. 世界规则/技术调用原本适用的 Data、Electricity 或 capability 计量仍按各自合同结算，不能把“未产生 claim 经济效果”写成所有入口无协议/运行成本。原请求重复查询、重放和新业务请求分开；一次原 claim 成功不会因换 request、重启或 UI 重开而再次产生效果。
+
+<a id="claim-loss-continuity"></a>
+### 6.8 失去控制的原因、资金与原责任
+
+Trace refs: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；承接 [REQ-WR-AOS-002](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-002)。结果包由原 domain result 与当前受众允许的状态组合，至少说明 target/原关系、原因、当前生效范围、原费用/退款出处、保留的成果和未结义务、下一合法动作及 blocker。阶段、控制可用性、资金结算、合同责任分别表达；`owned_claims` 只是当前集合，空列表或旧 active snapshot 均不能证明历史已终结、欠费清零或可以重领。
+
+| 原因/来源 | 真实生效与资金边界 | 当前下一步及连续性 |
+| --- | --- | --- |
+| 主动 ReleaseAgentClaim | [原请求](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_gameplay_claims.rs) 将接受时 epoch 记为 `release_requested_at_epoch`，ready=requested+原 cooldown，默认3；非 claim 起点。重复请求拒绝，不刷新 ready；请求本身未释放名额、控制来源或退款 | 冷却内 upkeep 继续。实际 epoch processor 先用可用 restricted/liquid 结当前 upkeep，满足 ready 且无欠费才发布 Released；不能套新处置的 bond 抵欠规则提前完成旧 Release |
+| 欠费 grace / forced reclaim | [原 epoch producer](../../../crates/oasis7_runtime/src/world/agent_claims.rs) 以首次实际缺付检查点 e 设 deadline=e+grace−1，current>deadline 才强收；grace 中补足按实际累计 due 结算，不重置历史 | paid_through=0、逐 epoch 检查且默认25/2：e1缺25、deadline2，e2未回收，e3欠75；bond200先收75，再对余125罚25，余100按原 provenance 返还。跳 epoch 使用其实际检查点，不套本逐步 fixture |
+| 闲置 warning / forced reclaim | 按目标 Agent 的原有效活动时间，默认7 warning、10 forced；到期、原罚和退款来自原事件，不用页面刷新/重连假造有效活动 | warning 可报告原合法控制/维护途径；是否恢复由真实后态判断。终态保留历史和原责任，不能把主动退出显示为惩罚或把强收称为自愿释放 |
+| restricted 发放到期/撤销 | 它先改变该资金源可用性和原退款 sink，不自动等于 Agent claim 终态。原 claim 的固定 restricted source bucket 优先原路返回；否则有效 grant/无 grant 走原 restricted balance，Expired/Revoked 走原 source treasury bucket | 不将退回受限来源洗成 liquid，也不把尚锁在 bond 的金额当当前可付 upkeep。普通 Released 不收新罚；欠费/闲置处罚仅消费原已采纳规则 |
+| 当前身份/来源、授权或争议限制 | 精确原 scope 决定哪些后续动作受阻，经济 claim、会话、grant 与治理资格不合并成一个所有权布尔值。[保护目录](../../world-runtime/runtime/protective-governance-authority-and-recovery.design.md#protective-action-catalog) 的治理 freeze/demotion 不能被解释成所有 Agent 行为禁用；实际个人/地点限制另核其已批准 policy | 原案有适用[救济入口](../../world-runtime/runtime/protective-governance-authority-and-recovery.design.md#protective-review-expiry)才展示本人当前可用 query/appeal。申诉/到期仅解除本件原范围，其他有效限制继续；没有原适用救济时提供准确阻断/安全停止，不新建通用 appeal |
+| 制造控制来源终结 / 独立经济处置 | 制造 release/reclaim 沿 [DES-AGENT-MFG-004](../../world-runtime/runtime/agent-industrial-manufacturing.design.md#des-agent-mfg-004) 撤旧来源并推进 identity/acquisition generation；[独立处置](../../world-runtime/runtime/agent-economic-transfer-and-disposition.design.md#ad-effective-owner-generation) 只在其新 family、双方完整接受和 Final 合同内成立 | 初次注册、Release+Claim、制造 WIP Scrap 与 Agent 转让/报废互不替代。已完成交付、原配置/责任历史保留，新 owner/source 不自动继承旧 grant、待决意图或私有上下文 |
+
+当前 claim 结束不删除其真实关联业务。[原合同责任](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-common-recovery)继续以原 principal、source、对象和义务键承担；已付、已交付、未履行、费用 hold、争议中责任和未知结果分别保留，不能把已完成工作重记为收入或把未结项转嫁新 claimer。仅当原领域实际证明解除/结清，才可按其狭义 authority 释放相应 hold；这不为旧普通 Release 增加“先关闭全世界所有合同”的新门槛，也不把新处置独有的债务接收/退款政策追溯应用到旧路径。
+
+结果与义务读取沿目标/原请求/原义务的准确索引与原分页、权限和预算，消费原 canonical refs；不新增全世界债务扫描或第二份债务账。索引缺失、私有部分不可读、来源冲突时分别表达当前可见范围与 unknown，不据此清除责任。世界历史的可审计性不自动授予新主体旧 owner 的完整私有读权。
+
+<a id="claim-current-recovery"></a>
+### 6.9 当前重认领、原件恢复与安全停止
+
+Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf, O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；分别承接 [REQ-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) 的未知确认与 [AC-WR-AOS-002](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-002) 的当前恢复。恢复先识别原操作及真实来源，不以“再次 Claim”覆盖所有失败。
+
+- 尚存 claim 的支付/身份恢复只沿其当前原合同；制造 suspended 来源可按原专用 Refresh 接收合法当前根，不能复活旧 grant。终态后新 claim 是新准入，必须重新验证当时资格、取得工业来源/容量、资源、原 restricted 用途与反滥用条件；旧收据、曾有主绑定或短暂退出都不足以授予新效果。
+- 首次支持发放记录、绑定、制造 order/lot、claim acquisition sequence、原接受/业务 nonce 和历史结果保持各自原键。旧请求重复不发第二份支持、不创建第二个 Agent、不重复退 bond；真正新的授权发放仅按原发放条件处理，不能从“重新选择”推导一次补贴，也不能把合法历史 liquid 重标为不可转让资产。
+- 断线/重启/丢 ACK 先走[原 GameplayAction 结果回读](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-original-result-lookup)，核原签名、当前读权、world/branch、目标、身份 fence 和原 nonce；query-only 不再次 submit 或消费原业务 nonce，仍保留原读取鉴权、限频和有限协议成本。当前余额或 owned 列表不能代替原请求结果。入口未接查询/历史不可得时保留原件与 unknown，明确恢复原权限/连接/受支持 reader 或安全停止；不换 nonce 猜测重试。
+- 原 committed/rejected/expired 结果与当前控制状态分别显示；replay 可按原 delta 重建应有 claim/余额/序号，不发起第二次实时业务或外部副作用。丢 ACK 不等于 World 故障。[G1](../../world-runtime/prd.md#runtime-generation-persistence-contract) 真正 StatusUnknown 时保留完整 staged/base generation，隔离整个旧 World 的写入、tick、save 与依赖 dispatch，先查原 generation；NotCommitted 保留该次原前态，Committed 只发布其既有结果。迟到读面先追平再依赖，不能回滚已提交经济效果。
+- Viewer、pure API、获准 Agent 对同一对象、原结果和当前 cut 的原因/资金/义务/下一步保持同义。换账号、世界、主绑定、当前读权或来源 revision 后撤下旧可执行建议；不得跨主体展示旧私有内容。静态示意图、旧字符串、本地 fixture 和 UI 测试各保留其证明范围，不因本设计/方法补齐而宣称所有 UI 资产、正式 producer 或实玩已交付。
+
+方法由[候选与承诺](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-01-choice)、[确认重验](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-02-confirmation)、[失去控制](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-03-loss)、[当前恢复](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-04-recovery)分别给同候选独立前后态与正反例；本次是设计/静态审读，不产生运行或发行结论。
+
 ## 7. 设计边界
 - 这不是现实货币付费功能，也不是永久产权出售。
 - 这不是 agent 市场或 NFT 化系统。
@@ -314,6 +382,11 @@ DevLocal policy 由显式启用的本地 operator 管理来源授权，使用独
 | --- | --- | --- | --- | --- | --- |
 | Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385；[REQ-ENTRY-CLAIM-003](../../product/player-entry-distribution/release-communications-and-public-claims.prd.md#req-entry-claim-003) | [公开口径边界](#public-claim-boundary) | 设计事实不得冒充认领能力已部署、账户已获准或渠道已发布 | 按 AC-ENTRY-CLAIM-003 人工审核同候选认领说明的四层字段，与根 README、专业规则及受限发放 runbook 同窗对账；加入缺证、历史样本与目标冒充事实负例。文档结构按 [testing-manual 文档验证入口](../../../testing-manual.md) 的 S0/docs-only 合同检查；该自动检查不代签口径审核 | 对应 PR/候选的 QA 与 LiveOps 审核记录；此处为方法，未新增执行结果 | 不证明当前上线、一般账户资格、结算就绪或其他领域/渠道的 claim |
 | Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[`REQ-WR-AOS-001`](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) | [`DES-CLAIM-ECONOMY-001`](#des-claim-economy-001) | 验证首个 claim 的非零成本、受限资金用途与回收边界保持同一规则链。 | [`agent claim runtime tests`](../../../crates/oasis7_runtime/src/tests/agent_claims.rs) | PR 与实际验证记录 / QA result | 不证明生产部署、公开资格或最终价格平衡。 |
+| Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[REQ-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) | [候选承诺包](#claim-choice-commitment) | 真实逐候选用途/差异、非零承诺、runway 与替代选择 | [CLAIM-01](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-01-choice)：同 source/profile/cut 的单候选、多候选、能力缺项及375/374独立算例；required producer 与 full 真实适用入口分层 | 原来源输入、字段分段、金额/时期 oracle 与真实读面 | 旧多候选空理由、静态 UI/素材或模块 ID 不代签完整正式承诺 |
+| Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[AC-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-001) | [确认重验](#claim-confirmation-revalidation) | 只读零业务效果、同目标条款当前重验、竞争和漂移原子拒绝 | [CLAIM-02](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-02-confirmation)：正式适用 claim producer，固定前态逐一改当前资格/资金/容量/目标/来源并竞争 | 前后 claim/余额/bond/支持/容量、原结果及拒绝差分 | 不绕工业取得守卫，不把 received 或 lookup 当取得 |
+| Trace refs: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；[REQ-WR-AOS-002](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-002) | [失去控制与连续性](#claim-loss-continuity) | 原生命周期原因、端点、退款 provenance 与旧责任/适用限制 | [CLAIM-03](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-03-loss)：旧 claim 的 release/grace/idle 与真实受限来源、原领域限制对照；required/full 各记适用范围 | 原事件、时期、费用/退款、source generation 与未结义务 | 不新增通用处罚/救济，不将新处置政策套旧 Release |
+| Trace refs: O7-REQ-8b94a27c-bbae-4349-94c1-f1f40f46e287；[AC-WR-AOS-002](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#ac-wr-aos-002) | [当前恢复](#claim-current-recovery) | 新准入、旧结果保留、当前权限、重启/replay 与真实安全下一步 | [CLAIM-04](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-04-recovery)：同世界原件查询/重认领、来源失效与 snapshot+非空 suffix；区分丢 ACK/G1 | 原请求/结果、受众、恢复切点及一次效果 oracle | 不以缺历史证明未提交或复活旧 grant，不代签实际恢复运行 |
+| Trace refs: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf；[REQ-WR-AOS-001](../../product/world-rules-core-gameplay/agent-ownership-and-stewardship.prd.md#req-wr-aos-001) | [当前恢复](#claim-current-recovery) | 未知确认不重复经济 claim、支持发放或原 nonce | [CLAIM-04](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-04-recovery)：同原件丢 ACK/查询、错主体及 reader 不可用的零业务重投对照 | 查询与提交计数、原 nonce 和当前权威结果 | 只读认证/限额仍适用；不把协议存在当每入口已接线 |
 | [REQ-AGC-CHAT-001](gameplay-agent-claim-economy-contract.prd.md#req-agc-chat-001) | [DES-CLAIM-CHAT-002](#des-claim-chat-002) | OR gate、余额耗尽后记录保留，以及资源字段独立披露。 | [首聊 snapshot 回归](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/snapshot_first_chat_unlock_preview.rs) 的 `compat_snapshot_projects_first_chat_unlock_preview_only_for_zero_liquid_without_starter_oc`；同一 source HEAD 的本地 required Rust 层。通过条件：零余额且无记录才有预览，两个文案字段均说明 OR 和余额用尽；这些组合区分实际 gate 与旧文案。 | PR 记录命令、HEAD、本地输入来源与实际测试 verdict。 | 不证明 service 余额投影与真实 gate 正确、provider 可用、重复领取资格或已完成真实对话。 |
 | [REQ-AGC-CHAT-002](gameplay-agent-claim-economy-contract.prd.md#req-agc-chat-002) | [DES-CLAIM-CHAT-003](#des-claim-chat-003) | 实际注册与经济认领的义务区分。 | [首聊 snapshot 回归](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/snapshot_first_chat_unlock_preview.rs) 的 `first_chat_unlock_preview_distinguishes_registration_from_economic_claims`；同一 source HEAD 的 action → snapshot 层。通过条件：真实 RegisterAgent 无经济 claim，真实 ClaimAgent 有 owner/upkeep，其他 Agent 的 claim 不污染文案；同时检查世界记录和说明，避免仅有字符串自证。 | PR 记录世界状态断言与实际测试 verdict。 | 不改变经济状态机或证明所有历史未决义务已结清。 |
 | [REQ-AGC-CHAT-003](gameplay-agent-claim-economy-contract.prd.md#req-agc-chat-003) | [DES-CLAIM-CHAT-004](#des-claim-chat-004) | 两种语言、旧版与缺失义务说明、预览更新保持相同含义。 | [首聊 Viewer 测试](../../../crates/oasis7_viewer/software_safe_src/first_chat_unlock_preview.test.jsx)；同一 source HEAD 的组件层并构建生成产物。通过条件：EN/ZH 对应、旧版和缺失说明为 unknown、无翻译保留来源、输入更新替换旧说明；覆盖精确字符串映射最易遗漏的兼容分支。 | PR 记录组件测试 verdict、构建结果与证据范围。 | 不证明新鲜度检测、全场景可玩性、真实留存或发行就绪。 |
