@@ -137,8 +137,14 @@ pub(crate) async fn run(
                 .verify_approval(&request)
                 .await
                 .map_err(|_| js_denied())?;
-        diagnostic.fact("source_observed_at", Some(signed.verification.observed_at.0));
-        diagnostic.fact("source_expires_at", Some(signed.verification.proof_expires_at.0));
+        diagnostic.fact(
+            "source_observed_at",
+            Some(signed.verification.observed_at.0),
+        );
+        diagnostic.fact(
+            "source_expires_at",
+            Some(signed.verification.proof_expires_at.0),
+        );
         stage.set("client.record_source");
         let _: () = rpc(
             env,
@@ -266,7 +272,7 @@ async fn execute(
                 &serde_json::to_string(
                     &serde_json::json!({"nonce":current.descriptor.lifetime_nonce}),
                 )
-                    .map_err(|_| js_denied())?,
+                .map_err(|_| js_denied())?,
                 Some(&secrets.cookie),
                 Some(std::str::from_utf8(secrets.csrf.as_bytes()).map_err(|_| js_denied())?),
             )

@@ -81,9 +81,7 @@ impl OwnerProvisionApprovalStore {
             diagnostic.fail(stage);
             error
         };
-        let initial = self
-            .snapshot()
-            .map_err(|e| report("proof.snapshot", e))?;
+        let initial = self.snapshot().map_err(|e| report("proof.snapshot", e))?;
         diagnostic.session(&initial.state, &rpc.http.selector.session_id, None);
         selector(&initial.state, rpc).map_err(|e| report("proof.selector", e))?;
         let configuration =

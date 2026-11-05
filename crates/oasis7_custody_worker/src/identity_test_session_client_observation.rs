@@ -68,7 +68,8 @@ impl Observation {
     pub fn check(&self, env: &Env, selector: &TestSessionSelectorV1) -> Result<()> {
         let now = clock()?;
         let report = |error| {
-            let diagnostic = crate::rejection_diagnostic::Trace::new(env, "client", Some(now), None);
+            let diagnostic =
+                crate::rejection_diagnostic::Trace::new(env, "client", Some(now), None);
             self.diagnostic_facts(&diagnostic);
             diagnostic.at("client.current", now);
             error

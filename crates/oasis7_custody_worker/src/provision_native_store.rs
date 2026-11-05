@@ -223,13 +223,7 @@ impl OwnerProvisionApprovalStore {
             u64,
         ) -> Result<R>,
     {
-        self.native_step_traced(
-            current,
-            event,
-            reference,
-            transition,
-            None,
-        )
+        self.native_step_traced(current, event, reference, transition, None)
     }
     fn native_step_traced<F, R, T>(
         &self,

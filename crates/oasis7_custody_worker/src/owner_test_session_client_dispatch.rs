@@ -91,7 +91,8 @@ pub(crate) async fn dispatch(
                 stage.set("account.record_source");
                 let saved = store.snapshot().map_err(|_| denied())?;
                 let input = session_authority::input(&saved, selector)?;
-                let current = session_authority::observe(env, &saved, input, &signed, false).await?;
+                let current =
+                    session_authority::observe(env, &saved, input, &signed, false).await?;
                 store
                     .complete_test_session_source(id, &source, *signed, || {
                         session_authority::current(state, env, &current, true)

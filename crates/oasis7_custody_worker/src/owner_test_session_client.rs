@@ -66,9 +66,9 @@ async fn live(
             lifetime: lifetime.clone(),
         })?;
         stage.set("live.attestation");
-        let proof: TestSessionPrivateAttestation = serde_json::from_str(&super::super::super::text(
-            attest(env, &raw).await.map_err(|_| denied())?,
-        )?)
+        let proof: TestSessionPrivateAttestation = serde_json::from_str(
+            &super::super::super::text(attest(env, &raw).await.map_err(|_| denied())?)?,
+        )
         .map_err(|_| denied())?;
         if proof.session_ref != session.session.session_ref
             || proof.private_sid_generation != session.session.private_sid_generation
