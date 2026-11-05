@@ -15,6 +15,7 @@ mod restore_cache;
 pub(crate) struct RestoreContext {
     release: oasis7_runtime::ReleaseSecurityPolicy,
     local: Option<oasis7_runtime::DevLocalParticipantAuthority>,
+    local_provider_terminal_recovery: bool,
 }
 impl RestoreContext {
     pub(crate) fn new(
@@ -29,8 +30,31 @@ impl RestoreContext {
                 "WorldService restore authority differs from effective release policy".into(),
             );
         }
-        Ok(Self { release, local })
+        Ok(Self {
+            release,
+            local,
+            local_provider_terminal_recovery: false,
+        })
     }
+    pub(crate) fn with_local_provider_terminal_recovery(
+        mut self,
+        profile: oasis7_proto::storage_profile::StorageProfile,
+    ) -> Result<Self, String> {
+        if profile != oasis7_proto::storage_profile::StorageProfile::DevLocal
+            || self.release.is_production_hardened()
+            || !self.release.allow_local_finality_signing
+        {
+            return Err("terminal provider recovery requires explicit DevLocal host policy".into());
+        }
+        self.local_provider_terminal_recovery = true;
+        Ok(self)
+    }
+    pub(crate) fn permits_local_provider_terminal_recovery(&self) -> bool {
+        self.local_provider_terminal_recovery
+            && !self.release.is_production_hardened()
+            && self.release.allow_local_finality_signing
+    }
+
     pub(crate) fn restore(
         &self,
         snapshot: Snapshot,

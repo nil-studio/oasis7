@@ -285,6 +285,7 @@ fn starter_receipt_requires_real_matching_agent_owner_and_positive_claim() {
 fn owner_result_signature_is_bound_to_exact_original_path_and_pinned_service_key() {
     let original = task_original();
     let response = IntentResponse::<Value> {
+        terminal_recovery_authority: None,
         contract_version: 1,
         formal_profile: None,
         execution_evidence_scope: None,
@@ -423,6 +424,7 @@ fn restart_retains_original_fence_and_wire_before_any_network_and_isolates_vault
     assert!(status.canonical_commit.is_none());
     assert!(status.receipt_ref.is_none());
     let settlement: IntentResponse<Value> = IntentResponse {
+        terminal_recovery_authority: None,
         contract_version: 1,
         formal_profile: None,
         execution_evidence_scope: None,

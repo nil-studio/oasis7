@@ -12,6 +12,11 @@ pub mod entry_control;
 pub mod entry_executor;
 pub mod participant_discovery;
 pub mod participant_identity_snapshot;
+#[path = "world_service_terminal_recovery.rs"]
+mod terminal_recovery;
+pub use terminal_recovery::{
+    TerminalLeaseIdentityV1, TerminalRecoveryAuthorityV1, TerminalRecoveryRoleV1,
+};
 
 pub const WORLD_SERVICE_CONTRACT_VERSION: u32 = 1;
 
@@ -291,6 +296,8 @@ pub enum IntentOutcome<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IntentResponse<T> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_recovery_authority: Option<TerminalRecoveryAuthorityV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formal_profile: Option<FormalReadProfileV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_evidence_scope: Option<String>,
@@ -305,6 +312,23 @@ impl<T> IntentResponse<T> {
         expected.validate()?;
         if &self.correlation != expected {
             return Err(ContractError("request correlation conflict"));
+        }
+        if let Some(proof) = &self.terminal_recovery_authority {
+            if self.formal_profile.is_some()
+                || !matches!(&self.outcome, IntentOutcome::Committed { .. })
+            {
+                return Err(ContractError(
+                    "terminal recovery requires ordinary committed Lookup",
+                ));
+            }
+            proof.validate(expected)?;
+            if let IntentOutcome::Committed { commit, .. } = &self.outcome
+                && proof.prefix_commit != **commit
+            {
+                return Err(ContractError(
+                    "terminal Prefix commit differs from committed result",
+                ));
+            }
         }
         if let IntentOutcome::Committed { commit, .. } = &self.outcome {
             commit.validate()?;

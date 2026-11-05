@@ -92,6 +92,12 @@ pub(super) fn start_chain_status_server(
         release_security_policy.clone(),
         super::cli::devlocal_participant_config(&options)?.authority,
     )?;
+    let restore_context =
+        if options.storage_profile == oasis7_proto::storage_profile::StorageProfile::DevLocal {
+            restore_context.with_local_provider_terminal_recovery(options.storage_profile)?
+        } else {
+            restore_context
+        };
     let listener = match prebound_listener {
         Some(listener) => listener,
         None => TcpListener::bind((host, port))

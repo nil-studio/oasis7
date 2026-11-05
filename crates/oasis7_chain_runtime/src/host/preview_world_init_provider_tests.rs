@@ -1,6 +1,9 @@
 //! Explicit inputs only; actual-module test never loads model credentials.
 use super::super::provider;
 use super::*;
+#[cfg(feature = "test_tier_full")]
+#[path = "preview_world_init_terminal_recovery_tests.rs"]
+mod terminal_recovery;
 
 fn input(root: &Directory) -> provider::Inputs {
     provider::Inputs {
@@ -181,6 +184,7 @@ fn provider_preview_actual_module_commit_agent_read_and_immutable_rerun() {
         fs::read(options.root.join("initialization-receipt.json")).unwrap(),
         original_receipt
     );
+    terminal_recovery::run(&options, &receipt);
 }
 
 fn authenticated_agent_http_read(options: &Options, receipt: &Receipt) {

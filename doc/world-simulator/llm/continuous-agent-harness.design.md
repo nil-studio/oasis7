@@ -306,6 +306,9 @@ Observation、memory、goal、capability schema 等大字段以已验证的 cont
 
 同一 lineage checkpoint 的 raw actor 原件 escrow 非空时使用 schema 3；旧 reader 的 schema 1/2 version gate 必须拒绝该文件，不能忽略新增字段后把已返回结果当作进程丢失。无 raw 原件时仍写 schema 2（省略空字段）；当前 reader 可读取旧 schema 1/2 的无 escrow 文件，但拒绝携带 raw 字段的降级文件、未知版本以及 schema 3 的空、畸形或无精确 active owner 原件。此格式演进沿用本节既有持久化与恢复要求。
 
+已准入请求跨 command grant 到期的恢复遵循 [终态专用 Lookup 证明合同](../../world-runtime/runtime/agent-cognition-lifecycle.design.md#expired-grant-terminal-recovery)（Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330）。Harness 不续期、不改原 grant/request/budget，也不从 `agent_context=None` 合成派发能力；仅在原历史 Prefix、lease 和当前授权的终态证明验证后继续原 Failure/Settle。unknown 原结果保持 unknown，缺 proof/history/current authority 时保留原件并停止，不新增模型调用。
+
+
 
 离线验收通过真实 HTTP bridge 与 adapter、隔离 mock invoker：第一次可重试错误，第二次分别返回合法 Wait 和 Act；session/turn/request/request_digest 不变，仅 `transport_attempt` 增长，不能得到 collision/400。另证不可重试和耗尽停止、终态重放无新 invocation、不同成功语义仍碰撞，以及配置持久化后的 attempt 重启和最终反馈关联。这些样例不调用真实 provider。
 

@@ -144,6 +144,7 @@ fn capabilities_default_unavailable_and_unknown_version_fails() {
 #[test]
 fn missing_terminal_material_and_unknown_status_fail_deserialization() {
     let response = IntentResponse {
+        terminal_recovery_authority: None,
         formal_profile: None,
         execution_evidence_scope: None,
         contract_version: 1,
@@ -168,6 +169,7 @@ fn missing_terminal_material_and_unknown_status_fail_deserialization() {
 #[test]
 fn correlation_digest_conflict_and_wrong_world_are_rejected() {
     let mut response = IntentResponse {
+        terminal_recovery_authority: None,
         formal_profile: None,
         execution_evidence_scope: None,
         contract_version: 1,
@@ -486,6 +488,7 @@ fn describe_and_lookup_full_wire_samples_are_pinned() {
         "verified_subject":"key-a","operation_domain":"gameplay","nonce_scope":"player-key","request_id_or_nonce":"12"});
     assert_wire(&lookup, json!({"contract_version":1,"key":key}));
     let response = IntentResponse {
+        terminal_recovery_authority: None,
         formal_profile: None,
         execution_evidence_scope: None,
         contract_version: 1,
@@ -634,6 +637,7 @@ fn every_operation_rejects_unsupported_request_and_response_versions() {
         // Submit and Lookup share the same response contract.
         assert!(
             IntentResponse {
+                terminal_recovery_authority: None,
                 formal_profile: None,
                 execution_evidence_scope: None,
                 contract_version: version,
@@ -702,4 +706,54 @@ fn changes_reject_over_max_items_with_otherwise_valid_continuation() {
     response.changes.pop();
     response.next_cursor = cursor(12);
     response.validate(&request).unwrap();
+}
+
+#[test]
+fn terminal_authority_rejects_nested_unknown_fields_without_changing_legacy_readers() {
+    let digest = format!("blake3:{}", "11".repeat(32));
+    let value = json!({
+        "schema_version":1,"role":"terminal_only","world":world(),"agent_id":"agent-a","owner_binding":"owner-a","identity_generation":1,
+        "agent_session_id":"session-a","agent_turn_id":"turn-a","decision_request_id":"request-a","request_digest":digest,
+        "retry_seq":1,"transport_attempt":1,"grant_id":"grant-a","grant_issued_at_tick":2,"grant_expires_at_tick":302,
+        "lease":{"lease_id":"lease-a","idempotency_key":"key-a","account_id":"owner-a","quote_digest":digest,"reserved_amount":1,"reserved_at_tick":224},
+        "prefix_correlation":correlation(),"prefix_result_digest":digest,"prefix_action_id":1,"prefix_deadline_unix_ms":null,"prefix_committed_height":227,
+        "prefix_commit":commit(227),"admitted_at_tick":224,"writer_public_key":"key-a","delegation_generation":1,
+        "current_runtime_binding":{"world_id":"world-a","branch_id":"branch-a","finality_epoch":0,"finality_block_hash":digest,
+            "finality_status":"verified","base_tick":2052,"base_world_hash":digest,"reorg_epoch":0,"runtime_manifest_hash":digest},
+        "current_task_fence":null,"read_commit":commit(2052)
+    });
+    let proof: TerminalRecoveryAuthorityV1 = serde_json::from_value(value.clone()).unwrap();
+    proof.validate(&correlation()).unwrap();
+    for pointer in [
+        "",
+        "/lease",
+        "/world",
+        "/prefix_correlation",
+        "/prefix_correlation/key",
+        "/prefix_correlation/key/world",
+        "/prefix_commit",
+        "/prefix_commit/world",
+        "/prefix_commit/binding",
+        "/read_commit",
+        "/read_commit/binding",
+        "/current_runtime_binding",
+    ] {
+        let mut altered = value.clone();
+        altered
+            .pointer_mut(pointer)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("unknown_authority".into(), json!(true));
+        assert!(
+            serde_json::from_value::<TerminalRecoveryAuthorityV1>(altered).is_err(),
+            "unknown nested field at {pointer}"
+        );
+    }
+    let mut legacy = serde_json::to_value(commit(227)).unwrap();
+    legacy["future_optional"] = json!(true);
+    assert!(
+        serde_json::from_value::<CommitRef>(legacy).is_ok(),
+        "old DTO compatibility remains independent"
+    );
 }

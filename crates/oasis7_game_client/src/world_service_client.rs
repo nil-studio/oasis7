@@ -59,6 +59,8 @@ pub struct FormalAuthenticatedChangesV1 {
 mod changes;
 #[path = "world_service_client_operations.rs"]
 mod operations;
+#[path = "world_service_client_terminal_recovery.rs"]
+mod terminal_recovery;
 pub trait WorldServicePort<H: ClientWorldProfile> {
     fn describe(&self) -> Result<DescribeWorldResponse, WorldServiceClientError>;
     fn submit(
@@ -171,7 +173,9 @@ impl<H: ClientWorldProfile> WorldServicePort<H> for RemoteWorldServiceClient<H> 
         let correlation = request.correlation.clone();
         match self.call::<_, IntentResponse<Value>>(SUBMIT_PATH, &request) {
             Ok(response) => {
-                if response.formal_profile.is_some() {
+                if response.formal_profile.is_some()
+                    || response.terminal_recovery_authority.is_some()
+                {
                     return Ok(SubmitObservation::OutcomeUnknown(correlation));
                 }
                 self.reader
@@ -209,8 +213,13 @@ impl<H: ClientWorldProfile> WorldServicePort<H> for RemoteWorldServiceClient<H> 
                 "lookup key differs from signed payload".into(),
             ));
         }
-        let response: IntentResponse<Value> =
-            self.call(LOOKUP_PATH, &AuthenticatedLookup::<H> { request, original })?;
+        let response: IntentResponse<Value> = self.call(
+            LOOKUP_PATH,
+            &AuthenticatedLookup::<H> {
+                request,
+                original: original.clone(),
+            },
+        )?;
         self.reader
             .check_evidence_scope(response.execution_evidence_scope.as_deref())?;
         self.reader
@@ -218,6 +227,7 @@ impl<H: ClientWorldProfile> WorldServicePort<H> for RemoteWorldServiceClient<H> 
         response
             .validate(&expected)
             .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
+        terminal_recovery::validate_prefix_result::<H>(&response, &original)?;
         Ok(response)
     }
 

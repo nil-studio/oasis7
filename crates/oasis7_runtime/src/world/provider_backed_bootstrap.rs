@@ -86,6 +86,13 @@ impl World {
         input: &ProviderBackedBootstrapAuthorityV1,
     ) -> Result<CognitionProvisioningReceiptV1, WorldError> {
         self.validate_provider_backed_bootstrap_input(input)?;
+        if input
+            .grant
+            .expires_at_tick
+            .is_some_and(|expiry| self.state.time > expiry)
+        {
+            return self.replay_expired_provider_bootstrap(input);
+        }
 
         self.install_capability_agent_identity(
             input.agent_id.as_str(),
@@ -183,6 +190,77 @@ impl World {
         }
 
         Ok(receipt)
+    }
+
+    /// Exact historical replay is not a capability installation or new allowance.
+    fn replay_expired_provider_bootstrap(
+        &self,
+        input: &ProviderBackedBootstrapAuthorityV1,
+    ) -> Result<CognitionProvisioningReceiptV1, WorldError> {
+        self.validate_provider_grant_for_terminal(
+            &input.agent_id,
+            &input.grant.grant_id,
+            input.grant.issued_at_tick,
+        )?;
+        let encoded = serde_json::to_value(&input.grant)
+            .map_err(|_| bootstrap_denied("expired bootstrap grant cannot be encoded"))?;
+        if self.current_agent_identity(&input.agent_id).as_ref() != Some(&input.identity)
+            || self.capability_grants_v2.get(&input.grant.grant_id) != Some(&encoded)
+            || self
+                .capability_revocation_state
+                .authority_records
+                .get(&input.authority_record.issuer_id)
+                != Some(&input.authority_record)
+            || self
+                .capability_revocation_state
+                .authority_finality_proofs
+                .get(&input.authority_record.issuer_id)
+                != Some(&input.authority_finality_proof)
+            || self
+                .capability_invocation_contexts
+                .values()
+                .filter(|context| context.grant_id == input.grant.grant_id)
+                .count()
+                != 1
+            || !self
+                .capability_invocation_contexts
+                .values()
+                .any(|context| context == &input.invocation_context)
+        {
+            return Err(bootstrap_denied(
+                "expired bootstrap is not an exact installed authority replay",
+            ));
+        }
+        let economy = self.cognition_economy()?;
+        let provision = economy
+            .provisions
+            .get(&input.provision_id)
+            .ok_or_else(|| bootstrap_denied("expired bootstrap original provision missing"))?;
+        let receipt = economy
+            .provision_receipts
+            .get(&provision.receipt_id)
+            .ok_or_else(|| bootstrap_denied("expired bootstrap original receipt missing"))?;
+        let expected = CognitionProvisioningRequestV1::new(
+            input.provision_id.clone(),
+            input.owner_binding.clone(),
+            input.owner_binding.clone(),
+            input.owner_generation,
+            input.world_id.clone(),
+            input.branch_id.clone(),
+            input.reorg_epoch,
+            input.allowance,
+            input.authority_context.clone(),
+        );
+        if provision.request != expected
+            || receipt.request != expected
+            || receipt.request.authority_digest != input.authority_digest
+            || receipt.request.provisioning_digest != input.provisioning_digest
+        {
+            return Err(bootstrap_denied(
+                "expired bootstrap original provision identity changed",
+            ));
+        }
+        Ok(receipt.clone())
     }
 
     fn validate_provider_backed_bootstrap_input(
@@ -283,8 +361,8 @@ fn bootstrap_denied(reason: impl Into<String>) -> WorldError {
 
 #[cfg(test)]
 mod tests {
-    use oasis7_agent_api::world_action::GeoPos;
     use crate::{Action, ChainResourceDerivationContext, World};
+    use oasis7_agent_api::world_action::GeoPos;
     use oasis7_wasm_abi::CapabilityPresenter;
     use std::fs;
 

@@ -43,6 +43,8 @@ mod capability_authorization_state;
 mod capability_authorization_transaction;
 mod capability_authorization_validation;
 mod capability_catalog;
+mod provider_terminal_authority;
+pub use provider_terminal_authority::ProviderCapabilityAvailability;
 mod capability_effect_receipt_projection;
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
 mod capability_test_fixture;
@@ -83,8 +85,8 @@ mod gameplay_layer;
 mod gameplay_loop;
 mod governance;
 mod governance_authorization;
-mod governance_finality_key_rotation;
 mod governance_bft_parent;
+mod governance_finality_key_rotation;
 mod governance_history;
 mod governance_history_snapshot;
 mod governance_identity_penalty;
@@ -1096,8 +1098,8 @@ pub mod incremental_step;
 pub mod incremental_agent_genesis;
 pub mod incremental_agent_verified_genesis;
 pub mod incremental_scheduler;
-pub mod incremental_scheduler_recovery;
 mod incremental_scheduler_index;
+pub mod incremental_scheduler_recovery;
 
 pub mod incremental_projection;
 

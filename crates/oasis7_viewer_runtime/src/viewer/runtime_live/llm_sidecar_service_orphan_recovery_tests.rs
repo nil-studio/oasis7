@@ -187,6 +187,7 @@ fn hosted_orphan_unavailable_original_reports_blocker_without_authorizing_replay
                 .test_orphan_phase("agent-a", "dispatch", Some(id.clone()));
         phase.submit = false;
         let response = IntentResponse {
+            terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: None,
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,
@@ -373,6 +374,7 @@ fn hosted_orphan_unknown_terminal_replays_same_signed_original_and_rejection_fen
         .correlation
         .clone();
     let response = |outcome| IntentResponse {
+        terminal_recovery_authority: None,
         formal_profile: None,
         execution_evidence_scope: None,
         contract_version: WORLD_SERVICE_CONTRACT_VERSION,
@@ -494,6 +496,7 @@ fn hosted_orphan_failed_checkpoint_write_never_authorizes_undurable_submit() {
                     .find(|p| p.payload == original)
                     .unwrap();
                 let response = IntentResponse {
+                    terminal_recovery_authority: None,
                     formal_profile: None,
                     execution_evidence_scope: None,
                     contract_version: WORLD_SERVICE_CONTRACT_VERSION,
@@ -575,4 +578,187 @@ fn hosted_orphan_classification_does_not_hide_agent_b_behind_agent_a_admission()
         "executor_lost_after_dispatch:model_outcome_unknown"
     );
     assert!(sidecar.runner.is_none());
+}
+
+fn terminal_orphan_proof(
+    sidecar: &RuntimeLlmSidecar,
+) -> oasis7_client_api::world_service::TerminalRecoveryAuthorityV1 {
+    use oasis7_client_api::world_service::*;
+    let agent = "agent-a";
+    let request = &sidecar.provider_active_turns[agent].request_context;
+    let invocation = request
+        .base_decision_request
+        .capability_invocation_context
+        .as_ref()
+        .unwrap();
+    let oasis7_wasm_abi::CapabilitySubject::Agent {
+        owner_binding,
+        generation,
+        ..
+    } = &invocation.subject
+    else {
+        panic!("Agent fixture subject required")
+    };
+    let original = sidecar.test_original_orphan_dispatch(agent).unwrap();
+    let pending = &sidecar.provider_scheduler_pending[&original];
+    let crate::world_service::wire::WorldServicePayloadV1::Scheduler(signed) = &pending.payload
+    else {
+        unreachable!()
+    };
+    let lease = &sidecar.provider_cognition_leases[agent];
+    let binding = &request.runtime_binding;
+    let commit = CommitRef {
+        world: pending.correlation.key.world.clone(),
+        binding: ExecutionBinding {
+            provider_world_id: binding.world_id.clone(),
+            branch_id: binding.branch_id.clone(),
+            finality_ref: "fixture-finality".into(),
+            reorg_generation: binding.reorg_epoch,
+            governing_manifest_ref: binding.runtime_manifest_hash.to_string(),
+            authority_generation: 1,
+            permission_generation: 1,
+        },
+        position: 3,
+        execution_block_hash: "fixture-block".into(),
+        state_root_ref: "fixture-root".into(),
+    };
+    TerminalRecoveryAuthorityV1 {
+        schema_version: 1,
+        role: TerminalRecoveryRoleV1::TerminalOnly,
+        world: pending.correlation.key.world.clone(),
+        agent_id: agent.into(),
+        owner_binding: owner_binding.clone(),
+        identity_generation: *generation,
+        agent_session_id: request.agent_session_id.clone(),
+        agent_turn_id: request.agent_turn_id.clone(),
+        decision_request_id: request.decision_request_id.clone(),
+        request_digest: request.request_digest.to_string(),
+        retry_seq: request.retry_seq,
+        transport_attempt: request.transport_attempt,
+        grant_id: invocation.grant_id.clone(),
+        grant_issued_at_tick: 0,
+        grant_expires_at_tick: lease.reserved_at_tick,
+        admitted_at_tick: lease.reserved_at_tick,
+        lease: TerminalLeaseIdentityV1 {
+            lease_id: lease.lease_id.clone(),
+            idempotency_key: lease.idempotency_key.clone(),
+            account_id: lease.account_id.clone(),
+            quote_digest: lease.quote.quote_digest.clone(),
+            reserved_amount: lease.reserved_amount,
+            reserved_at_tick: lease.reserved_at_tick,
+        },
+        prefix_correlation: pending.correlation.clone(),
+        prefix_result_digest: "fixture-result".into(),
+        prefix_action_id: 1,
+        prefix_deadline_unix_ms: None,
+        prefix_committed_height: 3,
+        prefix_commit: commit.clone(),
+        read_commit: commit,
+        writer_public_key: signed.subject_public_key.clone(),
+        delegation_generation: signed.request.delegation_generation,
+        current_runtime_binding: binding.clone(),
+        current_task_fence: sidecar
+            .provider_service_projection
+            .as_ref()
+            .unwrap()
+            .game_task_control
+            .as_ref()
+            .map(oasis7_agent_api::game::GameTaskFenceV1::from_control),
+    }
+}
+
+#[test]
+fn expired_orphan_without_proof_can_only_lookup_exact_original() {
+    use crate::viewer::runtime_live::agent_service_io::AgentServiceIoOperation;
+    let (mut sidecar, _, _, lease, path) = orphan_service_fixture();
+    let id = sidecar.test_original_orphan_dispatch("agent-a").unwrap();
+    let proof = terminal_orphan_proof(&sidecar);
+    sidecar
+        .provider_service_projection
+        .as_mut()
+        .unwrap()
+        .agent_context = None;
+    let before = serde_json::to_value(&sidecar.provider_scheduler_pending).unwrap();
+    let phase = sidecar.test_orphan_lookup_at("agent-a", id.clone(), proof.read_commit.clone());
+    let AgentServiceIoOperation::TerminalLookup {
+        request,
+        original,
+        minimum,
+    } = sidecar.hosted_orphan_operation(&phase).unwrap()
+    else {
+        panic!("expired recovery must begin with a read-only exact Lookup")
+    };
+    assert_eq!(
+        request.key,
+        sidecar.provider_scheduler_pending[&id].correlation.key
+    );
+    assert_eq!(original, sidecar.provider_scheduler_pending[&id].payload);
+    assert_eq!(minimum, proof.read_commit);
+    let failure = sidecar.test_orphan_phase("agent-a", "failure", Some(id));
+    assert!(sidecar.hosted_orphan_operation(&failure).is_err());
+    assert_eq!(
+        serde_json::to_value(&sidecar.provider_scheduler_pending).unwrap(),
+        before
+    );
+    assert_eq!(sidecar.provider_cognition_lease("agent-a"), Some(lease));
+    assert!(sidecar.runner.is_none());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn terminal_orphan_identity_rejects_changed_original_lease_owner_signer_and_runtime() {
+    let (mut sidecar, _, _, _, path) = orphan_service_fixture();
+    let proof = terminal_orphan_proof(&sidecar);
+    // Test only identity comparisons. This raw fixture grants no service-signature authority.
+    sidecar
+        .provider_service_projection
+        .as_mut()
+        .unwrap()
+        .canonical_agent_owner = None;
+    assert!(
+        sidecar
+            .test_validate_orphan_terminal_identity("agent-a", &proof)
+            .is_ok()
+    );
+    for field in [
+        "owner_binding",
+        "identity_generation",
+        "agent_session_id",
+        "request_digest",
+        "grant_id",
+        "writer_public_key",
+        "delegation_generation",
+        "transport_attempt",
+        "lease",
+        "current_runtime_binding",
+        "grant_expires_at_tick",
+    ] {
+        let mut changed = proof.clone();
+        match field {
+            "owner_binding" => changed.owner_binding.push_str("-other"),
+            "identity_generation" => changed.identity_generation += 1,
+            "agent_session_id" => changed.agent_session_id.push_str("-other"),
+            "request_digest" => changed.request_digest.push_str("-other"),
+            "grant_id" => changed.grant_id.push_str("-other"),
+            "writer_public_key" => changed.writer_public_key = "22".repeat(32),
+            "delegation_generation" => changed.delegation_generation += 1,
+            "transport_attempt" => changed.transport_attempt += 1,
+            "lease" => changed.lease.quote_digest.push_str("-other"),
+            "current_runtime_binding" => {
+                changed.current_runtime_binding.branch_id.push_str("-other")
+            }
+            "grant_expires_at_tick" => {
+                changed.grant_expires_at_tick = 0;
+                changed.admitted_at_tick = 1;
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            sidecar
+                .test_validate_orphan_terminal_identity("agent-a", &changed)
+                .is_err(),
+            "accepted changed {field}"
+        );
+    }
+    let _ = std::fs::remove_file(path);
 }
