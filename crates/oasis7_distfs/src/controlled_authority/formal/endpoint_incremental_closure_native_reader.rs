@@ -7,6 +7,7 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::{
+    fmt,
     io::{self, Write},
     path::Path,
     sync::Arc,
@@ -30,6 +31,29 @@ pub(crate) enum NativeChunkReadErrorV1<E> {
     Invalid(&'static str),
     Cancelled,
     Io(io::Error),
+}
+impl<E: fmt::Display> fmt::Display for NativeChunkReadErrorV1<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Original(error) => write!(f, "native original read failed: {error}"),
+            Self::Storage(error) => write!(f, "native durable storage read failed: {error}"),
+            Self::Memory(error) => write!(f, "native chunk memory admission failed: {error}"),
+            Self::Invalid(reason) => write!(f, "invalid native chunk read: {reason}"),
+            Self::Cancelled => f.write_str("native chunk read cancelled"),
+            Self::Io(error) => write!(f, "native chunk output failed: {error}"),
+        }
+    }
+}
+impl<E: std::error::Error + 'static> std::error::Error for NativeChunkReadErrorV1<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Original(error) => Some(error),
+            Self::Storage(error) => Some(error),
+            Self::Memory(error) => Some(error),
+            Self::Io(error) => Some(error),
+            Self::Invalid(_) | Self::Cancelled => None,
+        }
+    }
 }
 /// The owner holds the real native physical pin throughout this bridge's life.
 pub(crate) struct NativeChunkBridgeV1<'a, O, C> {

@@ -9,12 +9,30 @@ use crate::incremental_page_store::{
 use oasis7_formal_protocol::incremental_material::{
     OriginalObjectReader, OriginalObjectStreamReader,
 };
-use std::{io::Write, sync::Arc};
+use std::{fmt, io::Write, sync::Arc};
 #[derive(Debug)]
 pub(crate) enum DurableOriginalErrorV1<E> {
     Original(E),
     Store(PageStoreError),
     Limit(&'static str),
+}
+impl<E: fmt::Display> fmt::Display for DurableOriginalErrorV1<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Original(error) => write!(f, "retained original read failed: {error}"),
+            Self::Store(error) => write!(f, "retained original durability failed: {error}"),
+            Self::Limit(reason) => write!(f, "retained original admission failed: {reason}"),
+        }
+    }
+}
+impl<E: std::error::Error + 'static> std::error::Error for DurableOriginalErrorV1<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Original(error) => Some(error),
+            Self::Store(error) => Some(error),
+            Self::Limit(_) => None,
+        }
+    }
 }
 pub(crate) struct DurableOriginalWorkV1 {
     pub(crate) occurrences_remaining: u64,

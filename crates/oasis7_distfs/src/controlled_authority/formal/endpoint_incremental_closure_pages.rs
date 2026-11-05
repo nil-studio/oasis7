@@ -101,10 +101,10 @@ impl Publisher<'_> {
             .map_err(|_| PageStoreError::Corrupt("closure publish lock"))
             .and_then(|mut io| self.pages.put_page(id, bytes, &mut io, self.cancelled));
         result.map_err(|error| {
-            if let Ok(mut slot) = self.error.lock() {
-                if slot.is_none() {
-                    *slot = Some(error);
-                }
+            if let Ok(mut slot) = self.error.lock()
+                && slot.is_none()
+            {
+                *slot = Some(error);
             }
             ValueTreeError::Invalid("physical closure page synchronization failed")
         })?;

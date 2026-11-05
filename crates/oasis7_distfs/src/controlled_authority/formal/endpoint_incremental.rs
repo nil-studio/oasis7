@@ -320,13 +320,13 @@ impl FileFormalEndpoint {
             candidate.branch,
         )?;
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(capability) = &self.iws_page_store {
-            if capability.jobs.matches(candidate, cancelled)? {
-                if cancelled() {
-                    return Err(invalid("IWS candidate reuse cancelled"));
-                }
-                return Ok(context);
+        if let Some(capability) = &self.iws_page_store
+            && capability.jobs.matches(candidate, cancelled)?
+        {
+            if cancelled() {
+                return Err(invalid("IWS candidate reuse cancelled"));
             }
+            return Ok(context);
         }
         self.verify_iws_page_backed_material(candidate, &context, cancelled)?;
         Ok(context)
@@ -501,6 +501,9 @@ impl IwsPageStoreCapabilityV1 {
     }
 }
 
+// Complete closure consumers use native owner qualification and physical leases.
+// Wasm retains the explicit unsupported verification entry above.
+#[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_closure.rs"]
 mod closure;
 

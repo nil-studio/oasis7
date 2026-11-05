@@ -8,11 +8,25 @@ use std::{
 };
 /// No public constructor/Clone. The owning static baseline also retains the
 /// actual native namespace pin. Borrowing this file cannot outlive that owner.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "The sealed executable holder is Linux-only; its guarded Host consumer is still pending."
+    )
+)]
 pub(crate) struct VerifiedNativeExecutableV1 {
     file: std::fs::File,
     digest: [u8; 32],
     bytes: u64,
 }
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "These accessors are consumed by the Linux-only sealed executable Host path."
+    )
+)]
 impl VerifiedNativeExecutableV1 {
     pub(crate) fn file(&self) -> &std::fs::File {
         &self.file

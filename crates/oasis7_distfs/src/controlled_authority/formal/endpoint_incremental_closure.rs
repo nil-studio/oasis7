@@ -16,7 +16,9 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 /// loading, current executable equivalence, or a business execution result.
 pub(super) struct DeclaredExecutionMaterial {
     pub(super) native: ReservedValue<CheckedNativeEnvironment>,
-    pub(super) artifacts: ReservedValue<CheckedExecutionArtifacts>,
+    // Retain the opaque cold verification result and its reservation with the
+    // static baseline, including when unchanged inventories are inherited.
+    pub(super) _artifacts: ReservedValue<CheckedExecutionArtifacts>,
     // Keep the existing profile-two immutable object namespace pinned while
     // the endpoint retains the actual native original-byte verification proof.
     _native_pin: std::fs::File,

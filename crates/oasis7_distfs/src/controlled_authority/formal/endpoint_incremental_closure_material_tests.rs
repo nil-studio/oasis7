@@ -347,7 +347,10 @@ fn signed_genesis_material_retains_real_native_artifact_proofs_and_rejects_wrong
         let mut file = executable.file();
         assert!(file.write_all(b"mutate sealed executable").is_err());
     }
-    assert_eq!(proof.sealed_executable().is_some(), cfg!(target_os = "linux"));
+    assert_eq!(
+        proof.sealed_executable().is_some(),
+        cfg!(target_os = "linux")
+    );
     let other = f::setup();
     assert!(check(&mut m, Some((&other.commit, &proof))).is_err());
     let same = formal::verify_formal_qualified(&m.s.proof, &m.s.authority, None, None).unwrap();
@@ -624,7 +627,7 @@ fn signed_ordinary_static_inheritance_reads_no_unchanged_inventory_and_rejects_r
         .extend([refs.native, refs.wasm, refs.rules, m.manifest.policy.id]);
     let proof = check(&mut m, Some((&parent, &baseline))).unwrap();
     assert_eq!(proof.candidate_record_id(), accepted.verified_record_id());
-    assert!(Arc::ptr_eq(proof.baseline(), baseline.baseline()));
+    assert!(Arc::ptr_eq(&proof.baseline, &baseline.baseline));
     m.objects.forbidden.clear();
     let native_dir = m.directory.0.join("formal-objects-v1");
     let guard = native_dir.join(".physical-guard-v1");

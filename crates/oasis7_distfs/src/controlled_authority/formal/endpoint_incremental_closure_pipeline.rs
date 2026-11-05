@@ -394,7 +394,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
             &runtime_request, &mut objects, &mut owner_ctx, &mut write_ctx,
             &mut source_work.runtime,
         ).map_err(|e| invalid(format!("IWS Runtime History readers: {e:?}")))?;
-        drop(objects);
+        // The original adapter is no longer borrowed; its IO account remains live.
         let mut cognition_sync_io = crate::incremental_page_store::objects::ObjectIo {
             physical: &mut source_work.cognition_sync_physical,
             logical: &mut source_work.cognition_sync_values,
@@ -415,7 +415,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
             parent_cache.map(|p| &p.cognition), &mut owner_ctx, &mut write_ctx,
             &mut durable_history, &mut cognition_work,
         ).map_err(|e| invalid(format!("IWS Cognition History readers: {e:?}")))?;
-        drop(owner_ctx);
+        // End the read adapter borrow; retain the underlying sessions and quotas.
         let provisional = provisional::ProvisionalCandidate::checked(
             core,
             current_qualification,

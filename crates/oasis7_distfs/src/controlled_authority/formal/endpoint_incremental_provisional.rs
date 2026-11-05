@@ -56,6 +56,10 @@ pub(super) struct PreparedCandidateInstall {
     complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
     local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
 }
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Candidate ownership stays inline in the existing admitted cache; boxing would add a separate uncharged allocation."
+)]
 pub(super) enum AcceptedCurrentOwner {
     Candidate(ProvisionalCandidate),
     Cold {
@@ -223,14 +227,13 @@ impl AcceptedCandidateCache {
         {
             return Err(ValueTreeError::Invalid("IWS private exact accepted parent"));
         }
-        if let AcceptedCurrentOwner::Cold { results, .. } = &self.current_owner {
-            if !results.uses_budget(memory)
+        if let AcceptedCurrentOwner::Cold { results, .. } = &self.current_owner
+            && (!results.uses_budget(memory)
                 || results.allocation_class() != oasis7_proto::memory_budget::MemoryClass::Ordinary
                 || results.record_id() != self.commit_record
-                || results.body_id() != self.runtime.occurrence().head_body_id()
-            {
-                return Err(ValueTreeError::Invalid("IWS accepted cold Result binding"));
-            }
+                || results.body_id() != self.runtime.occurrence().head_body_id())
+        {
+            return Err(ValueTreeError::Invalid("IWS accepted cold Result binding"));
         }
         let _phase = memory.reserve(8192, oasis7_proto::memory_budget::MemoryClass::Ordinary)?;
         let body = next

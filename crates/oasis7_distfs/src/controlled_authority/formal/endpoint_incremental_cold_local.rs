@@ -123,7 +123,7 @@ fn read_record(
 /// The caller retains the actual guard returned by FileFormalEndpoint::guard()
 /// across its reload, full cold Q/A and this function. Evidence is independently
 /// cryptographically checked here, so a trait's claimed checkpoint is not proof.
-pub(crate) fn recover_authenticated_local_closure_v1(
+pub(in super::super) fn recover_authenticated_local_closure_v1(
     endpoint: &FileFormalEndpoint,
     guard: &dyn fencing::MonotonicEndpointGuard,
     head: &VerifiedFormalCommitV1,

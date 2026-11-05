@@ -167,84 +167,87 @@ impl FileFormalEndpoint {
             head,
             roots: &roots,
         };
-        let mut read = WorldFieldReadContextV1 {
-            root: roots.state_root(StateNamespaceV1::Allocator),
-            state: &state,
-            values: ValueReadContext {
-                source: &values,
-                memory,
-                class: MemoryClass::Recovery,
-                io: &mut work.read_recovery,
-            },
-            key_work: &mut work.keys_recovery,
-            semantic_bytes: work.semantic_bytes,
-            record_bytes: work.record_bytes,
-            take_state_error: || {
-                state.take_read_error().map(|e| {
-                    oasis7_formal_protocol::incremental_value::ValueTreeError::Io(
-                        std::io::Error::other(e),
-                    )
-                })
-            },
-            cancelled: || (*stop.borrow_mut())(),
-        };
+        // Keep the charged scratch owner live across the full recovery path;
+        // only the borrowing read/fact adapters end in the following scope.
         let scratch = scratch::Scratch::new(memory, MemoryClass::Recovery, work.scratch_pages)
             .map_err(invalid)?;
-        let current = {
-            let mut mailbox = cold_mailbox::HistoricalMailboxReader::new(
+        let (current, runtime, cognition) = {
+            let mut read = WorldFieldReadContextV1 {
+                root: roots.state_root(StateNamespaceV1::Allocator),
+                state: &state,
+                values: ValueReadContext {
+                    source: &values,
+                    memory,
+                    class: MemoryClass::Recovery,
+                    io: &mut work.read_recovery,
+                },
+                key_work: &mut work.keys_recovery,
+                semantic_bytes: work.semantic_bytes,
+                record_bytes: work.record_bytes,
+                take_state_error: || {
+                    state.take_read_error().map(|e| {
+                        oasis7_formal_protocol::incremental_value::ValueTreeError::Io(
+                            std::io::Error::other(e),
+                        )
+                    })
+                },
+                cancelled: || (*stop.borrow_mut())(),
+            };
+            let current = {
+                let mut mailbox = cold_mailbox::HistoricalMailboxReader::new(
+                    head,
+                    &roots,
+                    &state,
+                    mailbox_hint,
+                    &mut work.core,
+                    &mut work.facts,
+                    work.mailbox_decode,
+                    work.mailbox_occurrences,
+                    memory,
+                    MemoryClass::Recovery,
+                )
+                .map_err(|e| invalid(format!("IWS cold mailbox admission: {e}")))?;
+                qualify_world_current_state_v1(
+                    &roots,
+                    presence,
+                    &scope,
+                    &mut read,
+                    &mut work.current,
+                    &scratch,
+                    &mut reader,
+                    &mut mailbox,
+                )
+                .map_err(|e| invalid(format!("IWS actual cold Current: {e:?}")))?
+            };
+            let mut facts = FactReadContextV1 {
+                originals: &mut reader,
+                catalog_pages: &state,
+                memory,
+                class: MemoryClass::Recovery,
+                core_budget: &mut work.core,
+                fact_budget: &mut work.facts,
+                cancelled: &mut poll,
+            };
+            let runtime = cold_runtime::recover_runtime(
                 head,
                 &roots,
-                &state,
-                mailbox_hint,
-                &mut work.core,
-                &mut work.facts,
-                work.mailbox_decode,
-                work.mailbox_occurrences,
-                memory,
-                MemoryClass::Recovery,
-            )
-            .map_err(|e| invalid(format!("IWS cold mailbox admission: {e}")))?;
-            qualify_world_current_state_v1(
-                &roots,
-                presence,
-                &scope,
+                hints.runtime,
+                &mut facts,
                 &mut read,
-                &mut work.current,
-                &scratch,
-                &mut reader,
-                &mut mailbox,
-            )
-            .map_err(|e| invalid(format!("IWS actual cold Current: {e:?}")))?
+                &mut work.runtime_index,
+            )?;
+            let cognition = cold_cognition::recover_cognition(
+                head,
+                &roots,
+                hints.cognition,
+                &current,
+                &mut facts,
+                &mut read,
+                &mut work.cognition_index,
+                &mut work.hashes,
+            )?;
+            (current, runtime, cognition)
         };
-        let mut facts = FactReadContextV1 {
-            originals: &mut reader,
-            catalog_pages: &state,
-            memory,
-            class: MemoryClass::Recovery,
-            core_budget: &mut work.core,
-            fact_budget: &mut work.facts,
-            cancelled: &mut poll,
-        };
-        let runtime = cold_runtime::recover_runtime(
-            head,
-            &roots,
-            hints.runtime,
-            &mut facts,
-            &mut read,
-            &mut work.runtime_index,
-        )?;
-        let cognition = cold_cognition::recover_cognition(
-            head,
-            &roots,
-            hints.cognition,
-            &current,
-            &mut facts,
-            &mut read,
-            &mut work.cognition_index,
-            &mut work.hashes,
-        )?;
-        drop(read);
-        drop(facts);
         // Earlier selected/Core reads and this closed dispatch consume one
         // continuous fact allowance; the separate configured cap can tighten it.
         work.router.facts.facts_remaining = work

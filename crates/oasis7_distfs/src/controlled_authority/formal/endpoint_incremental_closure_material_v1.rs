@@ -30,6 +30,13 @@ pub(crate) struct StaticExecutionMaterialV1 {
     pages: IncrementalPageStore,
     page_identity: (u64, u64),
     native_identity: (u64, u64),
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(
+            dead_code,
+            reason = "The sealed executable is retained for the Linux-only Host consumer, which is still pending."
+        )
+    )]
     executable: Option<ReservedValue<executable::VerifiedNativeExecutableV1>>,
 }
 pub(crate) struct CandidateExecutionMaterialV1 {
@@ -58,13 +65,17 @@ impl CandidateExecutionMaterialV1 {
     pub(crate) fn native_namespace_identity(&self) -> (u64, u64) {
         self.baseline.native_identity
     }
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(
+            dead_code,
+            reason = "The accessor exposes the Linux-only sealed executable to its pending Host consumer."
+        )
+    )]
     pub(crate) fn sealed_executable(
         &self,
     ) -> Option<&ReservedValue<executable::VerifiedNativeExecutableV1>> {
         self.baseline.executable.as_ref()
-    }
-    pub(crate) fn baseline(&self) -> &Arc<ReservedValue<StaticExecutionMaterialV1>> {
-        &self.baseline
     }
 }
 fn file_identity(file: &std::fs::File) -> Result<(u64, u64), FormalError> {
@@ -480,7 +491,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
         let executable = executable::prepare(&native, &descriptor, &mut bridge, memory)?;
         let proof = proof_charge.retain(DeclaredExecutionMaterial {
             native,
-            artifacts,
+            _artifacts: artifacts,
             _native_pin: native_pin,
         });
         let store = IncrementalPageStore::open(
