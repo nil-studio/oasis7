@@ -6,6 +6,82 @@ use crate::incremental_field_overlay::{
 use crate::incremental_inventory_value_read::InventoryValueReader;
 use oasis7_formal_protocol::incremental_execution::{ExecutionFence, PreparedGuard};
 use oasis7_proto::memory_budget::ReservedValue;
+
+/// Authenticate the unchanged current body before using its qualified empty
+/// safe-alternative count. A changed body needs the full current dispatcher.
+pub fn require_current_safe_alternatives_empty_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    qualification: &ReservedValue<RuntimeRevocationQualificationV1>,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<(), WorldFieldOverlayErrorV1> {
+    context.transaction.contribute(|transaction| {
+        transaction.validate_guard(guard, live)?;
+        if context.values.class != MemoryClass::Ordinary
+            || qualification.allocation_class() != MemoryClass::Ordinary
+            || !qualification.uses_budget(context.values.memory)
+            || qualification.reserved_bytes() < 512
+            || !transaction.uses_budget(context.values.memory)
+        {
+            return Err(invalid().into());
+        }
+        qualification.validate_digest(&transaction.parent_fence().parent_roots)?;
+        if (context.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if let Some(error) = (context.take_state_error)() {
+            return Err(error.into());
+        }
+        let _phase = context
+            .values
+            .memory
+            .reserve(8192, MemoryClass::Ordinary)
+            .map_err(oasis7_formal_protocol::incremental_execution::ExecutionError::Memory)?;
+        let mut records = InventoryValueReader {
+            values: &mut context.values,
+            key_work: &mut *context.key_work,
+            semantic_bytes: context.semantic_bytes,
+            record_bytes: context.record_bytes,
+            cancelled: &mut context.cancelled,
+        };
+        let field = family::outer();
+        let meta = WorldFieldKeyV1::new(field, WorldFieldRecordKindV1::Metadata, None)
+            .map_err(ValueTreeError::Invalid)?;
+        let metadata = lookup(
+            transaction,
+            &meta,
+            &mut records,
+            &mut context.take_state_error,
+        )?
+        .ok_or_else(invalid)?;
+        records.presence(&metadata, &meta, 0)?;
+        let (key, _) = records.key(field, WorldFieldRecordKindV1::Entry, &())?;
+        let value = lookup(
+            transaction,
+            &key,
+            &mut records,
+            &mut context.take_state_error,
+        )?
+        .ok_or_else(invalid)?;
+        let current = family::child_records(&key, &value, &mut records)?;
+        if current != *qualification.body() || qualification.safe_alternatives_len() != 0 {
+            return Err(ValueTreeError::Invalid("unsupported current safe alternatives").into());
+        }
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        if let Some(error) = (context.take_state_error)() {
+            return Err(error.into());
+        }
+        Ok(())
+    })
+}
+
 /// Replaces the exact qualified parent body with a closed original typed root.
 /// Subsequent ordinary edits require the private current token below. This
 /// adapter grants no revocation/business authorization or head installation.

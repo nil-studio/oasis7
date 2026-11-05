@@ -481,3 +481,26 @@ pub(crate) fn require_json_immediate_records_v1<R: ValueNodeReader, C: FnMut() -
     }
     Ok(())
 }
+
+pub(crate) fn require_empty_object_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    proof: &ReservedValue<JsonSubtreeQualificationV1>,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    require_json_container_records_v1(profile, proof, false, records, work)?;
+    work.cells_remaining = work
+        .cells_remaining
+        .checked_sub(5)
+        .ok_or(ValueTreeError::ResourceLimited("JSON empty-object cells"))?;
+    let frame = read::frame(profile, proof.root(), records, work)?;
+    if frame.length != 0 {
+        return Err(ValueTreeError::Invalid(
+            "nonempty delegation grants unsupported",
+        ));
+    }
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(())
+}

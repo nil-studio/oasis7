@@ -409,3 +409,6 @@ fn misplaced_original_metadata_or_unit_and_missing_outer_records_never_qualify()
 
 #[path = "incremental_runtime_revocation_path_tests.rs"]
 mod path_tests;
+
+#[path = "incremental_runtime_revocation_empty_tests.rs"]
+mod empty_guard;

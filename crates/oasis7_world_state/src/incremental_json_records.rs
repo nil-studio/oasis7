@@ -192,3 +192,5 @@ pub(crate) use change::{
     JsonImmediateShapeV1, advance_json_scalar_subtree_records_constrained_v1,
     advance_json_subtree_records_v1, require_json_immediate_records_v1,
 };
+
+pub(crate) use change::require_empty_object_records_v1;

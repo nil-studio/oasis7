@@ -79,27 +79,34 @@ pub(super) fn child<
     value: &[u8; 32],
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<StateRootV1, ValueTreeError> {
-    let (expected, _) = ctx
-        .records()
-        .key(outer(), WorldFieldRecordKindV1::Entry, &())?;
+    child_records(key, value, &mut ctx.records())
+}
+
+pub(super) fn child_records<R: ValueNodeReader, C: FnMut() -> bool>(
+    key: &WorldFieldKeyV1,
+    value: &[u8; 32],
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+) -> Result<StateRootV1, ValueTreeError> {
+    let (expected, _) = records.key(outer(), WorldFieldRecordKindV1::Entry, &())?;
     if *key != expected {
         return Err(invalid());
     }
-    ctx.values
-        .verify_closure(value, ctx.record_bytes, &mut ctx.cancelled)?;
+    records
+        .values
+        .verify_closure(value, records.record_bytes, &mut *records.cancelled)?;
     let mut bytes = [0; RECORD_ROOT_BYTES];
     let info = read_member_record_v1(
         value,
         key,
-        &mut ctx.values,
+        &mut *records.values,
         MemberRecordLimitsV1 {
-            semantic_bytes: ctx.semantic_bytes,
+            semantic_bytes: records.semantic_bytes,
             payload_bytes: RECORD_ROOT_BYTES as u64,
-            record_bytes: ctx.record_bytes,
+            record_bytes: records.record_bytes,
         },
         &mut std::io::sink(),
         &mut &mut bytes[..],
-        &mut ctx.cancelled,
+        &mut *records.cancelled,
     )?;
     if info.codec != MemberPayloadCodecV1::RecordRoot
         || info.payload_bytes != RECORD_ROOT_BYTES as u64
