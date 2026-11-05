@@ -350,8 +350,9 @@ fn build_current(
     // deadline/proof and current source bound it; an expired Provision plan grants
     // no new rights and must not suppress this independently approved recovery.
     let authority_deadline = match &observed.input.request.intent {
-        // Core contracts do not enable V2 source or paid read production paths.
-        oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
+        // These contracts do not enable source or paid read production paths.
+        oasis7_custody_core::approval::CustodyIntentV1::TerminationPlanV3 { .. }
+        | oasis7_custody_core::approval::CustodyIntentV1::OwnerSetupV2 { .. }
         | oasis7_custody_core::approval::CustodyIntentV1::TestSessionV2 { .. } => {
             return Err(denied());
         }

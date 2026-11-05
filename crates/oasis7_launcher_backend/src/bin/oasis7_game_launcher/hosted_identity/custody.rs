@@ -22,6 +22,8 @@ pub(super) mod managed_binding;
 mod complete;
 #[path = "custody_revocation.rs"]
 pub(super) mod revocation;
+#[path = "custody_termination_v3.rs"]
+mod termination_v3;
 
 pub(super) struct CustodyConfig {
     key: SigningKey,
@@ -260,8 +262,25 @@ impl IdentityService {
         source: &str,
         now: u64,
     ) -> Result<Value, StoreError> {
+        self.custody_options_profile(
+            sid,
+            payload,
+            source,
+            now,
+            termination_v3::TerminationApprovalProfile::Production,
+        )
+    }
+    fn custody_options_profile(
+        &mut self,
+        sid: Option<&str>,
+        payload: &Value,
+        source: &str,
+        now: u64,
+        profile: termination_v3::TerminationApprovalProfile,
+    ) -> Result<Value, StoreError> {
         let request: ApprovalOptionsRequestV1 =
             serde_json::from_value(payload.clone()).map_err(|_| reject("invalid_request"))?;
+        termination_v3::enforce_profile(&request, profile, now)?;
         let config = self
             .custody
             .as_ref()
@@ -310,7 +329,7 @@ impl IdentityService {
             if record.intent_digest != digest || record.manager_session_ref != session.session_id {
                 return Err(reject("idempotency_conflict"));
             }
-            return record_response(&record, now);
+            return termination_v3::response(&record, now, profile);
         }
         request
             .validate(now)
@@ -380,7 +399,7 @@ impl IdentityService {
             )?;
             audit(tx, &a, "custody_approval_requested", now)
         })?;
-        record_response(&record, now)
+        termination_v3::response(&record, now, profile)
     }
     pub(super) fn custody_verify_route(
         &mut self,
@@ -389,6 +408,24 @@ impl IdentityService {
         payload: &Value,
         _source: &str,
         now: u64,
+    ) -> Result<Value, StoreError> {
+        self.custody_verify_route_profile(
+            method,
+            headers,
+            payload,
+            _source,
+            now,
+            termination_v3::TerminationApprovalProfile::Production,
+        )
+    }
+    fn custody_verify_route_profile(
+        &mut self,
+        method: &str,
+        headers: &str,
+        payload: &Value,
+        _source: &str,
+        now: u64,
+        profile: termination_v3::TerminationApprovalProfile,
     ) -> Result<Value, StoreError> {
         let config = self
             .custody
@@ -413,12 +450,32 @@ impl IdentityService {
         }
         let request: ApprovalVerifyRequestV1 =
             serde_json::from_value(payload.clone()).map_err(|_| reject("invalid_request"))?;
-        self.verify_approval(&request, now)
+        match profile {
+            termination_v3::TerminationApprovalProfile::Production => {
+                self.verify_approval(&request, now)
+            }
+            #[cfg(test)]
+            termination_v3::TerminationApprovalProfile::DevelopmentOnlyFixture => {
+                self.verify_approval_profile(&request, now, profile)
+            }
+        }
     }
     fn verify_approval(
         &mut self,
         request: &ApprovalVerifyRequestV1,
         now: u64,
+    ) -> Result<Value, StoreError> {
+        self.verify_approval_profile(
+            request,
+            now,
+            termination_v3::TerminationApprovalProfile::Production,
+        )
+    }
+    fn verify_approval_profile(
+        &mut self,
+        request: &ApprovalVerifyRequestV1,
+        now: u64,
+        profile: termination_v3::TerminationApprovalProfile,
     ) -> Result<Value, StoreError> {
         let config = self
             .custody
@@ -459,6 +516,7 @@ impl IdentityService {
                 .get::<ApprovalRecord>(&approval_key(&proof.approval_id))?
                 .ok_or_else(|| reject("approval_history_unavailable"))?
                 .value;
+            termination_v3::enforce_profile(&saved.request, profile, now)?;
             let original: SignedCustodyApprovalV1 =
                 serde_json::from_slice(saved.proof_bytes.as_deref().ok_or(StoreError::Corrupt)?)
                     .map_err(|_| StoreError::Corrupt)?;

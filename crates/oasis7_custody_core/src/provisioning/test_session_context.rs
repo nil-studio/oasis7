@@ -227,7 +227,7 @@ impl AccountProvisionApprovalState {
             .requests
             .charge(1)
             .map_err(|_| invalid())?;
-        s.context = Some(SessionContextRecordV1::Legacy(SessionContextV1 {
+        s.context = Some(SessionContextRecordV1::Legacy(Box::new(SessionContextV1 {
             original,
             prepared_source: current.source_operation_id.into(),
             registered_at: now,
@@ -237,7 +237,7 @@ impl AccountProvisionApprovalState {
             slots: BTreeMap::new(),
             attempts: BTreeMap::new(),
             live_reads: BTreeMap::new(),
-        }));
+        })));
         next.validate_persistence()?;
         *self = next;
         Ok(())

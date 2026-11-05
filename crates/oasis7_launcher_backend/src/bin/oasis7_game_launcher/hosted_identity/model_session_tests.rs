@@ -339,3 +339,17 @@ fn model_executor_ownership_uses_existing_scoped_player_binding_without_allocati
         .unwrap();
     assert!(!f.service.model_account_owns_player("a", "player-a"));
 }
+
+// Append in model_session_tests.rs: owns fixture and actually drops old DB handle.
+impl Fixture {
+    pub(crate) fn cold_reopen(self) -> Self {
+        let Fixture { service: old, token, _directory } = self;
+        let IdentityService { config, store, custody, custody_management_enabled, participant_entry, .. } = old;
+        drop(store);
+        let mut reopened = service(config);
+        reopened.custody = custody;
+        reopened.custody_management_enabled = custody_management_enabled;
+        reopened.participant_entry = participant_entry;
+        Self { service: reopened, token, _directory }
+    }
+}

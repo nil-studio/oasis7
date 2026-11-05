@@ -23,6 +23,9 @@ pub struct ApprovalContextV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CustodyIntentV1 {
+    TerminationPlanV3 {
+        plan: Box<crate::provisioning::TerminationPlanV3>,
+    },
     OwnerSetupV2 {
         plan: Box<crate::provisioning::OwnerSetupPlanV2>,
     },
@@ -363,7 +366,9 @@ pub fn complete_body_digest<T: Serialize>(value: &T) -> Result<String, String> {
 }
 impl ApprovalOptionsRequestV1 {
     pub fn intent_digest(&self) -> Result<String, String> {
-        let domain = if matches!(
+        let domain = if matches!(&self.intent, CustodyIntentV1::TerminationPlanV3 { .. }) {
+            crate::provisioning::TERMINATION_APPROVAL_DOMAIN_V3
+        } else if matches!(
             &self.intent,
             CustodyIntentV1::OwnerSetupV2 { .. } | CustodyIntentV1::TestSessionV2 { .. }
         ) {
@@ -389,6 +394,11 @@ impl ApprovalOptionsRequestV1 {
             return Err("invalid approval context".into());
         }
         let valid = match &self.intent {
+            CustodyIntentV1::TerminationPlanV3 { plan } => {
+                plan.validate_at(now).is_ok()
+                    && plan.custody_account_id == self.context.custody_account_id
+            }
+
             CustodyIntentV1::OwnerSetupV2 { plan } => {
                 plan.validate().is_ok()
                     && plan.deadline.0 > now

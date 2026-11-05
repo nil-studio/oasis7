@@ -1,0 +1,104 @@
+{
+  "approval_request_id": "fresh-term-v3",
+  "context": {
+    "environment": "test",
+    "custody_account_id": "custody-a",
+    "audience": "account-authority:test",
+    "policy_version": "1",
+    "security_version": "1",
+    "service_epoch": "1"
+  },
+  "intent": {
+    "kind": "termination_plan_v3",
+    "plan": {
+      "api_version": 3,
+      "subject_session_id": "subject-session",
+      "custody_account_id": "custody-a",
+      "provision_id": "provision",
+      "setup_id": "setup",
+      "subject_v1_approval_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "subject_v1_termination_plan_digest": "acacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac",
+      "prepared_result_digest": "abababababababababababababababababababababababababababababababab",
+      "world": {
+        "world_id": "world",
+        "genesis_digest": "genesis",
+        "branch_id": "main",
+        "reorg_epoch": "0",
+        "service_public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+      },
+      "owner_key_ref": "owner-key",
+      "executor_key_ref": "executor-key",
+      "initial_fence": {
+        "world_id": "world",
+        "genesis_digest": "genesis",
+        "branch_id": "main",
+        "reorg_epoch": "0",
+        "agent_id": "agent",
+        "owner_binding": "owner",
+        "owner_generation": "1",
+        "owner_public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "task_id": "task",
+        "task_revision": "1",
+        "task_status": "active",
+        "latest_goal_revision": "1",
+        "active_goal_revision": "1",
+        "active_goal_reference": {
+          "goal_revision": "1",
+          "goal_ref": "adadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad",
+          "prepare_operation_id": "goal-prepare",
+          "publish_operation_id": "goal-publish",
+          "activation_committed_height": "1"
+        },
+        "executor_epoch": "1",
+        "executor_binding": {
+          "executor_id": "executor",
+          "executor_public_key": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+          "delegation_generation": "1",
+          "executor_epoch": "1"
+        }
+      },
+      "original_delegation": {
+        "world_id": "world",
+        "branch_id": "main",
+        "agent_id": "agent",
+        "owner_binding": "owner",
+        "agent_identity_generation": "1",
+        "generation": "1",
+        "delegate_public_key": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+        "revoked": false,
+        "nonce": "1"
+      },
+      "stop_operation_id": "5d73beeca20ad5a8bec8312f3468de4d7fa4eaa4d5d3fd6654f6cbb82730f0bd",
+      "close_operation_id": "2c157800735678e674718da436d3a554d169739cb0717f8f6cbdefcd5d01dc22",
+      "cleanup_until": "100000",
+      "request_limit": "2",
+      "transport_limit": "24",
+      "transport_policy": {
+        "kind": "development_measured_graph_v1",
+        "stop_lookup_limit": 2,
+        "close_lookup_limit": 2
+      },
+      "trigger": "closing_only_v1",
+      "nonce_policy": "account_allocated_high_water_v1",
+      "stop_policy": "guarded_committed_utc_stop_v2",
+      "close_policy": "literal_persistent_closed_v3",
+      "allowed_predecessors": "initial_active_or_exact_own_guarded_stop_v3",
+      "owner_signing_recovery_policy": {
+        "kind": "exact_original_ed25519_recovery_v1",
+        "max_recomputations_per_effect": "1"
+      },
+      "native_subject": {
+        "identity_namespace": "native-test",
+        "identity_instance_epoch": "1",
+        "native_account_id": "native-machine-account",
+        "native_credential_ref": "native-machine-credential",
+        "native_credential_version": "1",
+        "native_account_security_epoch": "0",
+        "native_session_ref": "native-session-ref-not-a-cookie",
+        "login_key_ref": "identity-key-ref",
+        "login_public_key": "278117fc144c72340f67d0f2316e8386ceffbf2b2428c9c51fef7c597f1d426e",
+        "native_binding_receipt_digest": "adadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad"
+      }
+    }
+  }
+}

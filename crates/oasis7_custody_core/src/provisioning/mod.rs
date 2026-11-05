@@ -19,3 +19,9 @@ pub use crate::context_body::*;
 
 mod resource_v2_contract;
 pub use resource_v2_contract::*;
+
+mod native_subject_v3;
+pub use native_subject_v3::*;
+
+mod termination_plan_v3;
+pub use termination_plan_v3::*;

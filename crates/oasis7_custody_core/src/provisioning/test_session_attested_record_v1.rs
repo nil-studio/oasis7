@@ -4,8 +4,8 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionContextRecordV1 {
-    Legacy(SessionContextV1),
-    Attested(AttestedMoveContextLedgerV1),
+    Legacy(Box<SessionContextV1>),
+    Attested(Box<AttestedMoveContextLedgerV1>),
 }
 impl SessionContextRecordV1 {
     pub(in crate::provisioning) fn legacy(&self) -> Result<&SessionContextV1> {

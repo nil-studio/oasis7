@@ -471,6 +471,7 @@ fn check_current_context(
 }
 fn deadline(input: &ApprovalAdmissionInput, context: &ApprovalAdmissionContext) -> u64 {
     let plan_deadline = match &input.request.intent {
+        CustodyIntentV1::TerminationPlanV3 { plan } => plan.cleanup_until.get(),
         CustodyIntentV1::Provision { deadline, .. }
         | CustodyIntentV1::OwnerSetup { deadline, .. }
         | CustodyIntentV1::ManagedLogin { deadline, .. } => deadline.0,

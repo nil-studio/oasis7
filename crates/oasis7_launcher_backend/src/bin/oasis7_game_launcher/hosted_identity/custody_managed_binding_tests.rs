@@ -649,3 +649,83 @@ fn managed_lifetime_http_requires_origin_csrf_and_the_managed_session() {
     assert_eq!(rejected.body["error_code"], "origin_rejected");
     assert!(rejected.cookies.is_empty());
 }
+
+// Append within custody_managed_binding_tests (existing private helpers available).
+pub(in super::super) fn termination_managed_machine_fixture(
+    f: &mut super::super::super::model_session::model_session_tests::Fixture,
+    now: u64,
+) -> String {
+    f.service.config.registration_enabled = true;
+    f.service.config.machine_registration_enabled = true;
+    let login = SigningKey::from_bytes(&[71; 32]);
+    let owner = SigningKey::from_bytes(&[72; 32]);
+    let environment = f.service.config.namespace.environment_id.clone();
+    let config = f.service.custody.as_mut().unwrap();
+    config.managed_binding_state = ManagedBindingConfigState::Ready;
+    config.managed_binding = Some(ManagedBindingConfig {
+        rotation: None,
+        owner: NativeBindingPinV1 { key_id: "owner-binding".into(), public_key: hex::encode(owner.verifying_key().to_bytes()), environment, service_identity: "owner-service".into(), service_epoch: DecimalU64(7) },
+    });
+    let context = digest(
+        &f.service.config.session_key,
+        "preauth",
+        &URL_SAFE_NO_PAD.encode([75u8; 32]),
+    );
+    let op = random_token();
+    let options = f.service.machine_registration_route("POST", "/machine-registration/options", &context, &json!({"operation_id":op,"public_key":hex::encode(login.verifying_key().to_bytes()),"display_name":"managed"}), "source", "https://localhost", now).unwrap().unwrap();
+    let bytes = URL_SAFE_NO_PAD
+        .decode(options["options"]["signed_bytes"].as_str().unwrap())
+        .unwrap();
+    let proof = json!({"operation_id":op,"ceremony_id":op,"signature":URL_SAFE_NO_PAD.encode(login.sign(&bytes).to_bytes())});
+    f.service
+        .machine_registration_route(
+            "POST",
+            "/machine-registration/complete",
+            &context,
+            &proof,
+            "source",
+            "https://localhost",
+            now + 1,
+        )
+        .unwrap()
+        .unwrap();
+    let c = challenge_at(&mut f.service, &op, &context, now);
+    let signed = statement(&f.service, c.challenge.clone(), &owner);
+    complete(&mut f.service, &signed, &context, now + 4).unwrap();
+    let login_key = SigningKey::from_bytes(&[71; 32]);
+    let options = f.service.native_key_route("POST", "/native-key/options", None, &context, &json!({"public_key":hex::encode(login_key.verifying_key().to_bytes()),"intent":"login"}), "source", "https://localhost", now + 5).unwrap().unwrap().0;
+    let bytes = URL_SAFE_NO_PAD
+        .decode(options["options"]["signed_bytes"].as_str().unwrap())
+        .unwrap();
+    let proof = json!({"operation_id":options["operation_id"],"ceremony_id":options["ceremony_id"],"signature":URL_SAFE_NO_PAD.encode(login_key.sign(&bytes).to_bytes())});
+    let (_, sid) = f
+        .service
+        .native_key_route(
+            "POST",
+            "/native-key/complete",
+            None,
+            &context,
+            &proof,
+            "source",
+            "https://localhost",
+            now + 6,
+        )
+        .unwrap()
+        .unwrap();
+    let sid = sid.unwrap();
+    sid
+}
+fn challenge_at(s: &mut IdentityService, op: &str, context: &str, now: u64) -> SignedNativeBindingChallengeV1 {
+    serde_json::from_value(
+        s.managed_binding_route(
+            "POST",
+            "/custody/managed-bindings/options",
+            context,
+            &json!({"registration_operation_id":op,"binding_operation_id":"bind-1"}),
+            "https://localhost",
+            now + 2,
+        )
+        .unwrap(),
+    )
+    .unwrap()
+}

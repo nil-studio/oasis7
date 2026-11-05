@@ -630,3 +630,6 @@ fn management_status_requires_passkey_and_post_keeps_native_origin_csrf_contract
 
 #[path = "custody_browser_uv_fixture.rs"]
 mod browser_uv_fixture;
+
+#[path = "custody_termination_v3_tests.rs"]
+mod termination_v3_tests;

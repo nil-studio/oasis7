@@ -193,7 +193,7 @@ impl AccountProvisionApprovalState {
             .requests
             .charge(1)
             .map_err(|_| invalid())?;
-        s.context = Some(SessionContextRecordV1::Attested(ledger));
+        s.context = Some(SessionContextRecordV1::Attested(Box::new(ledger)));
         next.validate_persistence()?;
         *self = next;
         Ok(prepare)

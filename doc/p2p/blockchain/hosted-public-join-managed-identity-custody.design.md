@@ -1263,7 +1263,23 @@ journal 的不可变身份只包含原批准、action/context、candidate/domain
 
 公开 prepared/captured/move projection 的强签证明实际 producer 读取时的 World 谓词，不单独证明恢复时的 Current。当前性必须绑定实际付费 read-start 与 Source/LF 的共同最早起点，最后使用仍在五秒内；接收时间、新 Source、重启或归档不能重置该起点。captured/move 的末次 pin 与 read commit 一致性不能自动套到 prepared。签名后置门要求重新读取 World 时，不能复用前置 projection；必须闭合另一次真实固定只读 producer 及其签名、费用与依赖，不能让尚未产出的业务签名作为其自身后置读取的前置。此路径和阶段跨窗口的实际成本属于 W/S，未闭合前不得声明预算可行或开放业务。
 
+**Move 结果与直接业务用量。** cognition committed 不是动作成功。权威 producer 应复用同事务执行 `step()` 后按 exact action causality 持久化的 `AgentCausalReceiptV1`，核对原 request/action、commit/receipt、事件引用、历史 from/to 及 applied/not_applied；不能以查询时位置或 accepted 回执代替实际 AgentMoved。新增独立版本的 `MoveDirectUsageV1`／读取证明，不改旧 V1/V2 canonical 结果或另造效果 submit 身份；只按已保存原请求查询相同事实，费用计入 U，事实归档与当前准入分开。
+
+该证明必须包含实际动作分支在 builtin reducer 前执行的 rule decision.cost 与 apply_resource_delta 结果，分别保留 requested delta、实际 applied delta、单位和拒绝／余额不足／应用失败／应用成功状态；后续动作拒绝不抹去已经实际收取的费用。只有完整直接业务收费 scope 的真实政策、执行路径与 causal 结果均证明无扣费时，才可报告零，不能缩成 reducer 单步而漏前置费用。自定义 rule、override、module 有未覆盖收费时拒绝完整结算断言，不能根据 AgentMoved 名称、模块注册表为空或报价猜零。整 tick 能源、模块、模型、传输及其他未覆盖用量明确分列，不能填零或称已结算。Account 核 configured World 强签、完整原件／commit／目标／scope 与原批准，双索引去重并记录已有权威结果，不再次 debit。not_applied 保留真实拒绝而不报告 Move 成功。此窄 scope 不代工业转运账本、完整用量或 CT-008。
+
+**完整 Move 调用图超出旧预算时的新批准。** 分开每个真实 Native 父阶段的 Source，并保留业务签名后的实际 World current 读取时，当前保守计划图的已列成本至少623，尚须核实私有持久化与权威用量输入；它不是实测上界。旧 V1 的400不能承载此图，不能通过改旧票数、借 Read／Control／Native 或重打来源时钟开放该适配路径。
+
+测量阶段采用独立 `AttestedSingleMoveGraphV3` 批准及域，精确绑定原会话／批准、同一唯一 Move/business0、实际 World／Owner／Executor／fence／goal、Host、Term3安装与 Runtime/Skill 身份；不追加工业／Model 权限，不给已分配或未知动作另开一次执行。新鲜 custody UV consume 建立独立费用账；实验 Exec1024、Read512、每段 Source16次观察及固定阶段各一次 Source尝试均须进入完整签字摘要与 plan digest，旧400／300／24／240／160、旧Source8票及原绝对截止不变。数字只用于有限图测量，不是正式生产预算。独立新账不得默认为旧记录迁移或为空后重新授权；缺账、双向关联不符及降级恢复均拒绝。
+
+普通生产 Native／Worker 必须硬拒开发策略，只有不可由 HTTP 参数或配置选择的内部 typed fixture 可以使用真实新批准和实际安装开展测量。先跑真实 Source→profile安装→只读 Prepare完整前缀，再接 World写与故障恢复；所有阶段仍受原五秒共同最早起点及最终权威检查，不因新cap放宽。若该前缀或完整写阶段不能满足五秒，必须继续修订调用图，不能只提高预算。正式生产cap须在同候选的有限故障图、实际逐边费用、用量结算及余量验证后另行冻结并精确批准；测量策略不授予可部署资格。
+
 **独立终止批准 V3 的实施边界。** 新设 `TerminationPlanV3`、`termination_plan_v3` intent 及独立 `.v3` plan/approval domain；旧 V1/V2 字节、预算及恢复语义不变。新批准使用独立 GameTaskStopV2 原件与独立 TaskCleanupV3 关闭原件：后者以新 domain、Node body 和强签 witness 接受受最终 UTC 门保护的 StopV2，不修改旧 CleanupV2 的 ownStop 字段或验证谓词。可以绑定真实 V1 TestSession subject，但须另一次正式 Native custody options→WebAuthn UV get→complete→独立 consume，不能升级原 Session 的执行/资源/模型权限。摘要明确永久关闭不可逆、exact signer 撤销与 Executor detach、两份原件、有限 lookup 次数、费用上限和绝对截止；旧 proof 与普通登录 ceremony 均不能批准此效果。
+
+Term3 必须签入 Account 从真实同一 V1 subject、强签 Native lifetime/binding 与 Identity manifest 派生的 `NativeSubjectRefV3`：identity namespace/instance epoch、native account、credential ref/version、account security epoch、session ref、Identity login key ref/public key、exact binding receipt digest。Account 在准备及最终 consume SQL 重派生并比较；Native gateway 对实际 managed session／credential／binding 逐项核对。security epoch 等字段按真实 producer 语义比较，不混用 CF private SID generation 或捏造 Native 不知道的 generation。session ref 是与随机 Cookie 独立生成的非 bearer 引用，批准不含 raw Cookie／SID token／CSRF，秘密仍只由 Identity 私有持有。
+
+独立 Native 终止入口须复用实际 managed-session observation 的 NativeKey／当前 owner pin／无 pending invalidation 检查，并要求 credential 来自 machine registration、exact binding receipt 的 custody account/provision/environment/login key 与已签 subject 一致。普通 manager WebAuthn cookie、导入 public_key NativeKey、以 session ref 冒 Cookie、subject/credential/version/session/receipt 漂移，均在 World I/O 和效果／lookup准入前拒绝。Native 本地 quota 是独立滥用控制，不冒全 CF T 账；固定 Identity caller 仍先持久逐边预扣。
+
+独立 Close 所需当前 Owner／delegation／HWM 元数据使用封闭 `CurrentReadV3`，不能依赖 Stop 已签出或其回包。它只有固定 World/agent/task/Owner/Executor 元数据读权，无 private goal 或效果写权；新批准明确最多两个新只读 nonce 尝试及实际费用。只读 journal 不占两个效果槽，opaque read nonce 不进入 delegation HWM；一次只读签名／回包 unknown 后，可在仍有效窗口与新付费下使用第二个独立只读请求。可信 closed route 库存可将只读结果未知以 charged/no-world-effect 单独结算，不冒业务成功或清除 Stop/Close unknown。两次都失败而无法取得 HWM 时仍阻断 Close。普通 fixture-only OwnerView 不能代正式 guarded producer；安装 receipt 只证明安装，不自动变成读 capability。新 typed producer、强签归档、原 read-start 与 fresh准入落地前保持阻断。
 
 V3 第一份 Stop 必须使用独立版本的封闭原件，将 cleanupUntil 与 exact Owner、初始 Active fence、World 及 operation 一并签入，并在 Runtime 最终执行点使用正式 execution context 的 committed_at_unix_ms 核验截止；缺少权威时间或提交已过期均拒绝。入口接收时间、Native 当前性、Source 五秒及 SubmitIntent 的 deadline 字段本身不能代替最终执行检查。旧 GameExecutorControlV1 Stop 仅保留旧兼容语义，不具备该最终 UTC 门，不能作为 V3 的受截止保护 Stop。新 codec、Node body/domain、签名核验与 Runtime guard 必须成套落地并验证晚到／丢响应／关闭水位交错；未闭合前 V3 Stop 派发保持关闭，不能仅凭第二份 Close 的时间门宣称两原件都有保护。
 

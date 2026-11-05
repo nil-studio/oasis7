@@ -29,8 +29,8 @@ pub enum AttestedExecutorCandidateV1 {
     PrepareContext(TaskContextPrepareV1),
     ReadContext(TaskContextGetV1),
     AccessView(ReadWorldViewRequest),
-    Prefix(TaskSchedulerIntentV1),
-    MoveCognition(CognitionIntentV1),
+    Prefix(Box<TaskSchedulerIntentV1>),
+    MoveCognition(Box<CognitionIntentV1>),
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

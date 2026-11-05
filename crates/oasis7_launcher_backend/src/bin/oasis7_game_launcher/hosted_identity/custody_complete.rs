@@ -24,6 +24,22 @@ impl IdentityService {
         source: &str,
         now: u64,
     ) -> Result<Value, StoreError> {
+        self.custody_complete_profile(
+            sid,
+            payload,
+            source,
+            now,
+            termination_v3::TerminationApprovalProfile::Production,
+        )
+    }
+    pub(super) fn custody_complete_profile(
+        &mut self,
+        sid: Option<&str>,
+        payload: &Value,
+        source: &str,
+        now: u64,
+        profile: termination_v3::TerminationApprovalProfile,
+    ) -> Result<Value, StoreError> {
         let request: ApprovalCompleteRequestV1 =
             serde_json::from_value(payload.clone()).map_err(|_| reject("invalid_request"))?;
         if request.approval_id.is_empty()
@@ -61,6 +77,7 @@ impl IdentityService {
                 &session_key,
                 &request.intent_digest,
             )?;
+            termination_v3::enforce_profile(&saved.value.request, profile, now)?;
             if saved
                 .value
                 .complete_digest

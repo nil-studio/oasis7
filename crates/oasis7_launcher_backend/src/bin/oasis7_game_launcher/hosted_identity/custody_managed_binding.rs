@@ -594,7 +594,11 @@ impl IdentityService {
 
 #[cfg(test)]
 #[path = "custody_managed_binding_tests.rs"]
-mod tests;
+pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "custody_termination_subject_v3.rs"]
+mod termination_subject_v3;
 
 /// Local durable pending work, never a manager directory event or a closure ACK.
 #[derive(Clone, Serialize, Deserialize)]
