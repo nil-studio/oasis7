@@ -111,22 +111,15 @@ fn real_worker_is_bounded_or_explicitly_unsupported() {
         calls: 0,
     };
     let result = sandbox.call_to(&request(false), &mut sink);
-    #[cfg(all(
+    if cfg!(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64"),
         feature = "wasmtime"
-    ))]
-    {
+    )) {
         result.unwrap();
         assert_eq!(sink.calls, 1);
         assert_eq!(sink.bytes, vec![0xa0]);
-    }
-    #[cfg(not(all(
-        target_os = "linux",
-        any(target_arch = "x86_64", target_arch = "aarch64"),
-        feature = "wasmtime"
-    )))]
-    {
+    } else {
         assert!(result.is_err());
         assert_eq!(sink.calls, 0);
     }
