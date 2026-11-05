@@ -56,7 +56,15 @@ pub(super) async fn observe_traced(
     if saved.state.draft().plan.world_identity != world.world_id {
         return Err(denied());
     }
-    authority::observe_traced(env, saved.state.draft(), input, signed, inspection_only, trace).await
+    authority::observe_traced(
+        env,
+        saved.state.draft(),
+        input,
+        signed,
+        inspection_only,
+        trace,
+    )
+    .await
 }
 /// Only Delegation/Bind/FinalObservation result callbacks whose local once reservation has
 /// already committed can overlap these two independent readonly inputs.

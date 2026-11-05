@@ -49,6 +49,11 @@ pub(super) async fn continue_attempt(
     };
     // A failed/unknown single workflow keeps its attempt and budget. Only a new
     // explicitly requested paid attempt may repeat these readonly observations.
-    let _response = crate::owner_setup_physical_trace::edge(Some("reconcile"),"identity.driver.service",run_attempt(env, &serde_json::to_string(&selector)?)).await;
+    let _response = crate::owner_setup_physical_trace::edge(
+        Some("reconcile"),
+        "identity.driver.service",
+        run_attempt(env, &serde_json::to_string(&selector)?),
+    )
+    .await;
     progress()
 }

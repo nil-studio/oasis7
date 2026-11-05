@@ -577,18 +577,36 @@ pub async fn owner_query_parents(env: Env, raw: String) -> std::result::Result<S
     .map_err(|_| rejected())
 }
 
-#[cfg(all(feature = "recovery-fence", feature = "owner-setup-physical-trace-harness"))]
+#[cfg(all(
+    feature = "recovery-fence",
+    feature = "owner-setup-physical-trace-harness"
+))]
 #[wasm_bindgen]
-pub async fn read_recovery_fence_traced(env: Env, stage: String) -> std::result::Result<String, JsValue> {
+pub async fn read_recovery_fence_traced(
+    env: Env,
+    stage: String,
+) -> std::result::Result<String, JsValue> {
     crate::owner_setup_physical_trace::read_actor(env, stage).await
 }
 #[cfg(all(feature = "identity", feature = "owner-setup-physical-trace-harness"))]
 #[wasm_bindgen]
-pub async fn native_verify_approval_traced(env: Env, raw: String, stage: String) -> std::result::Result<String, JsValue> {
-    if raw.len() > 32768 { return Err(rejected()); }
+pub async fn native_verify_approval_traced(
+    env: Env,
+    raw: String,
+    stage: String,
+) -> std::result::Result<String, JsValue> {
+    if raw.len() > 32768 {
+        return Err(rejected());
+    }
     let stage = crate::owner_setup_physical_trace::fixed_stage(&stage)?;
-    let request: oasis7_custody_core::approval::ApprovalVerifyRequestV1 = serde_json::from_str(&raw).map_err(|_| rejected())?;
-    let config = crate::native_identity::NativeIdentityConfig::from_env(&env).map_err(|_| rejected())?.ok_or_else(rejected)?;
-    let response = config.verify_approval_traced(&request,Some(stage)).await.map_err(|_| rejected())?;
+    let request: oasis7_custody_core::approval::ApprovalVerifyRequestV1 =
+        serde_json::from_str(&raw).map_err(|_| rejected())?;
+    let config = crate::native_identity::NativeIdentityConfig::from_env(&env)
+        .map_err(|_| rejected())?
+        .ok_or_else(rejected)?;
+    let response = config
+        .verify_approval_traced(&request, Some(stage))
+        .await
+        .map_err(|_| rejected())?;
     serde_json::to_string(&response).map_err(|_| rejected())
 }

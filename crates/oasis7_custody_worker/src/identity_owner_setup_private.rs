@@ -61,7 +61,10 @@ pub(super) async fn read(
     for (index, (scope, digest)) in [
         (&refs.cookie, &refs.cookie_digest),
         (&refs.csrf, &refs.csrf_digest),
-    ].into_iter().enumerate() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         check(env, selector, first)?;
         if scope.role_scope != session.scope.role_scope
             || scope.identity_namespace != session.scope.identity_namespace
@@ -76,8 +79,15 @@ pub(super) async fn read(
             &CipherRead {
                 scope: scope.clone(),
             },
-        Some((crate::owner_setup_physical_trace::stage(Some(selector.stage)), if index == 0 { "private.cookie.before" } else { "private.csrf.before" })),
-)
+            Some((
+                crate::owner_setup_physical_trace::stage(Some(selector.stage)),
+                if index == 0 {
+                    "private.cookie.before"
+                } else {
+                    "private.csrf.before"
+                },
+            )),
+        )
         .await?;
         check(env, selector, first)?;
         let envelope = envelope.ok_or_else(js_denied)?;
@@ -98,8 +108,15 @@ pub(super) async fn read(
             &CipherRead {
                 scope: scope.clone(),
             },
-        Some((crate::owner_setup_physical_trace::stage(Some(selector.stage)), if index == 0 { "private.cookie.after" } else { "private.csrf.after" })),
-)
+            Some((
+                crate::owner_setup_physical_trace::stage(Some(selector.stage)),
+                if index == 0 {
+                    "private.cookie.after"
+                } else {
+                    "private.csrf.after"
+                },
+            )),
+        )
         .await?;
         check(env, selector, first)?;
         if after.as_ref() != Some(&envelope) {

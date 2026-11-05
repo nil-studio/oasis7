@@ -38,8 +38,16 @@ async fn rpc<T: DeserializeOwned>(
     if raw.len() > 128 * 1024 {
         return Err(js_denied());
     }
-    serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::edge(Some("reconcile"),"owner.permit.service",owner_call(env, &raw)).await?, 128 * 1024)?)
-        .map_err(|_| js_denied())
+    serde_json::from_str(&raw_text(
+        crate::owner_setup_physical_trace::edge(
+            Some("reconcile"),
+            "owner.permit.service",
+            owner_call(env, &raw),
+        )
+        .await?,
+        128 * 1024,
+    )?)
+    .map_err(|_| js_denied())
 }
 struct Observation {
     view: OwnerSetupReconcilePermitV1,
@@ -115,8 +123,11 @@ async fn returned(
     view: OwnerSetupReconcilePermitV1,
 ) -> JResult<Observation> {
     let fence_started = clock()?;
-    let fence =
-        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::read_fence(env,Some("reconcile")).await?, 4096)?).map_err(|_| js_denied())?;
+    let fence = serde_json::from_str(&raw_text(
+        crate::owner_setup_physical_trace::read_fence(env, Some("reconcile")).await?,
+        4096,
+    )?)
+    .map_err(|_| js_denied())?;
     let o = Observation {
         view,
         fence,
@@ -244,9 +255,16 @@ async fn execute(
         })
         .map_err(|_| js_denied())?,
     );
-    let published: ReconcilePublished =
-        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::edge(Some("reconcile"),"owner.factory.service",owner_sign(env, &raw)).await?, 128 * 1024)?)
-            .map_err(|_| js_denied())?;
+    let published: ReconcilePublished = serde_json::from_str(&raw_text(
+        crate::owner_setup_physical_trace::edge(
+            Some("reconcile"),
+            "owner.factory.service",
+            owner_sign(env, &raw),
+        )
+        .await?,
+        128 * 1024,
+    )?)
+    .map_err(|_| js_denied())?;
     if published.permit.kind != OwnerSetupReconcilePermitKindV1::Preflight
         || published.permit.participant != second.view.participant
         || published.permit.original_lookup_bytes != second.view.original_lookup_bytes
@@ -431,9 +449,14 @@ pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
     selector.request.validate().map_err(|_| super::denied())?;
     let name =
         super::manifest_name_parts(env, &selector.custody_account_id, &selector.provision_id)?;
-    let value: serde_json::Value =
-        super::actor_traced(env, &name, "/internal/owner-setup-reconcile", &selector, Some(("reconcile", "identity.manifest.actor")))
-            .await
-            .map_err(|_| super::denied())?;
+    let value: serde_json::Value = super::actor_traced(
+        env,
+        &name,
+        "/internal/owner-setup-reconcile",
+        &selector,
+        Some(("reconcile", "identity.manifest.actor")),
+    )
+    .await
+    .map_err(|_| super::denied())?;
     Ok(serde_json::to_string(&value)?)
 }

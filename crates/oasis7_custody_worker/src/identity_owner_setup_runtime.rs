@@ -54,8 +54,18 @@ async fn rpc<T: DeserializeOwned>(
     if raw.len() > 128 * 1024 {
         return Err(js_denied());
     }
-    serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(selector.stage))), "owner.permit.service", owner_call(env, &raw)).await?, 128 * 1024)?)
-        .map_err(|_| js_denied())
+    serde_json::from_str(&raw_text(
+        crate::owner_setup_physical_trace::edge(
+            Some(crate::owner_setup_physical_trace::stage(Some(
+                selector.stage,
+            ))),
+            "owner.permit.service",
+            owner_call(env, &raw),
+        )
+        .await?,
+        128 * 1024,
+    )?)
+    .map_err(|_| js_denied())
 }
 
 struct Observation {
@@ -154,8 +164,17 @@ async fn observe(
         return Err(js_denied());
     }
     let fence_started = clock()?;
-    let fence =
-        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::read_fence(env, Some(crate::owner_setup_physical_trace::stage(Some(selector.stage)))).await?, 4096)?).map_err(|_| js_denied())?;
+    let fence = serde_json::from_str(&raw_text(
+        crate::owner_setup_physical_trace::read_fence(
+            env,
+            Some(crate::owner_setup_physical_trace::stage(Some(
+                selector.stage,
+            ))),
+        )
+        .await?,
+        4096,
+    )?)
+    .map_err(|_| js_denied())?;
     let result = Observation {
         view,
         fence,
@@ -171,8 +190,17 @@ async fn returned(
     view: OwnerSetupPermitViewV1,
 ) -> JResult<Observation> {
     let fence_started = clock()?;
-    let fence =
-        serde_json::from_str(&raw_text(crate::owner_setup_physical_trace::read_fence(env, Some(crate::owner_setup_physical_trace::stage(Some(selector.stage)))).await?, 4096)?).map_err(|_| js_denied())?;
+    let fence = serde_json::from_str(&raw_text(
+        crate::owner_setup_physical_trace::read_fence(
+            env,
+            Some(crate::owner_setup_physical_trace::stage(Some(
+                selector.stage,
+            ))),
+        )
+        .await?,
+        4096,
+    )?)
+    .map_err(|_| js_denied())?;
     let observation = Observation {
         view,
         fence,
@@ -422,9 +450,15 @@ async fn execute(
         })
         .map_err(|_| js_denied())?;
         let published: OwnerSetupPublished = serde_json::from_str(&raw_text(
-            crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(selector.stage))), "owner.factory.service", owner_sign(env, &raw))
-                .await
-                .map_err(|e| report("owner.sign", e))?,
+            crate::owner_setup_physical_trace::edge(
+                Some(crate::owner_setup_physical_trace::stage(Some(
+                    selector.stage,
+                ))),
+                "owner.factory.service",
+                owner_sign(env, &raw),
+            )
+            .await
+            .map_err(|e| report("owner.sign", e))?,
             128 * 1024,
         )?)
         .map_err(|_| js_denied())?;
@@ -585,8 +619,17 @@ pub(crate) async fn run(env: &Env, raw: &str) -> worker::Result<String> {
         &selector.request.custody_account_id,
         &selector.request.provision_id,
     )?;
-    let progress: serde_json::Value = super::actor_traced(env, &name, "/internal/owner-setup", &selector, Some((crate::owner_setup_physical_trace::stage(Some(selector.stage)), "identity.manifest.actor")))
-        .await
-        .map_err(|_| super::denied())?;
+    let progress: serde_json::Value = super::actor_traced(
+        env,
+        &name,
+        "/internal/owner-setup",
+        &selector,
+        Some((
+            crate::owner_setup_physical_trace::stage(Some(selector.stage)),
+            "identity.manifest.actor",
+        )),
+    )
+    .await
+    .map_err(|_| super::denied())?;
     Ok(serde_json::to_string(&progress)?)
 }

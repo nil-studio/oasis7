@@ -295,7 +295,7 @@ async fn actor<T: DeserializeOwned, S: Serialize>(
     path: &str,
     value: &S,
 ) -> JResult<T> {
-    actor_traced(env,name,path,value,None).await
+    actor_traced(env, name, path, value, None).await
 }
 async fn actor_traced<T: DeserializeOwned, S: Serialize>(
     env: &Env,
@@ -327,10 +327,13 @@ async fn actor_traced<T: DeserializeOwned, S: Serialize>(
         .map_err(|_| js_denied())?
         .set("Content-Type", "application/json")
         .map_err(|_| js_denied())?;
-    let response = crate::owner_setup_physical_trace::edge(trace.map(|t|t.0), trace.map_or("identity.manifest.actor",|t|t.1), stub
-        .fetch_with_request(request)
-        ).await
-        .map_err(|_| js_denied())?;
+    let response = crate::owner_setup_physical_trace::edge(
+        trace.map(|t| t.0),
+        trace.map_or("identity.manifest.actor", |t| t.1),
+        stub.fetch_with_request(request),
+    )
+    .await
+    .map_err(|_| js_denied())?;
     if response.status_code() != 200 {
         return Err(js_denied());
     }

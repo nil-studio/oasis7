@@ -673,12 +673,15 @@ pub(crate) async fn call_directory_traced(
         .get_stub()?;
     let mut init = RequestInit::new();
     init.with_method(Method::Post).with_body(Some(raw.into()));
-    let response = crate::owner_setup_physical_trace::edge(trace, "directory.actor", stub
-        .fetch_with_request(Request::new_with_init(
+    let response = crate::owner_setup_physical_trace::edge(
+        trace,
+        "directory.actor",
+        stub.fetch_with_request(Request::new_with_init(
             &format!("https://directory.internal{path}"),
             &init,
-        )?)
-        ).await?;
+        )?),
+    )
+    .await?;
     if response.status_code() != 200 {
         return Err(denied());
     }
@@ -713,12 +716,15 @@ pub(crate) async fn call_inspection_directory_traced(
     }
     let mut init = RequestInit::new();
     init.with_method(Method::Post).with_body(Some(raw.into()));
-    let response = crate::owner_setup_physical_trace::edge(trace, "directory.actor", stub
-        .fetch_with_request(Request::new_with_init(
+    let response = crate::owner_setup_physical_trace::edge(
+        trace,
+        "directory.actor",
+        stub.fetch_with_request(Request::new_with_init(
             "https://directory.internal/internal/provision-inspect-gate",
             &init,
-        )?)
-        ).await?;
+        )?),
+    )
+    .await?;
     if response.status_code() != 200 {
         return Err(denied());
     }

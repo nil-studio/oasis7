@@ -1,4 +1,6 @@
 use super::*;
+#[path = "physical_port_counter.rs"]
+mod physical_port_counter;
 use std::{io::Read, net::TcpStream};
 thread_local! {
     static LIVE_CONTEXT_PORTS: std::cell::RefCell<Option<Arc<[std::sync::atomic::AtomicUsize; 2]>>> = const { std::cell::RefCell::new(None) };
@@ -64,6 +66,22 @@ pub(super) fn serve_with_private_settlement(
     settle_submits: bool,
     baseline_marker: Option<&Path>,
 ) {
+    serve_with_private_settlement_observed(listener,node,root,signer,stop,dropped,private,settle_submits,baseline_marker,None);
+}
+#[expect(clippy::too_many_arguments, reason = "Test-only physical receiver evidence preserves the existing transport and defaults")]
+pub(super) fn serve_with_private_settlement_observed(
+    listener: TcpListener,
+    node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
+    root: &Path,
+    signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
+    stop: &AtomicBool,
+    dropped: &AtomicBool,
+    private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
+    settle_submits: bool,
+    baseline_marker: Option<&Path>,
+    physical_ports: Option<&Path>,
+) {
+    let mut physical = physical_port_counter::PhysicalPortCounter::new(physical_ports);
     while !stop.load(Ordering::SeqCst) {
         let (mut stream, _) = match listener.accept() {
             Ok(v) => v,
@@ -90,6 +108,7 @@ pub(super) fn serve_with_private_settlement(
         let mut first = headers.split_whitespace();
         let method = first.next().unwrap().to_string();
         let path = first.next().unwrap().to_string();
+        physical.record(&method, &path);
         count_live_context_port(&method, &path);
         let length = headers
             .split("\r\n")

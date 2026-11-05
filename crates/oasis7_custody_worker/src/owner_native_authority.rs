@@ -124,7 +124,8 @@ pub(super) async fn observe_traced(
             provision_id: draft.entry.provision_id.clone(),
             custody_account_id: draft.entry.custody_account_id.clone(),
         };
-        let raw = crate::owner_directory::call_inspection_directory_traced(env, &rpc, trace).await?;
+        let raw =
+            crate::owner_directory::call_inspection_directory_traced(env, &rpc, trace).await?;
         let view = serde_json::from_str(&raw).map_err(|_| denied())?;
         check_gate(&view, draft, clock()?)?;
         view

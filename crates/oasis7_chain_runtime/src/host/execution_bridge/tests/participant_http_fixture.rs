@@ -13,6 +13,7 @@ impl Drop for FixtureDirectory {
 fn serve_custody_world_http_fixture() {
     let ready = std::env::var_os("OASIS7_CUSTODY_WORLD_HTTP_READY").expect("isolated ready path");
     let stop_file = std::env::var_os("OASIS7_CUSTODY_WORLD_HTTP_STOP").expect("isolated stop path");
+    let physical_ports = std::env::var_os("OASIS7_CUSTODY_WORLD_PHYSICAL_PORTS").map(PathBuf::from);
     let settle_submits =
         std::env::var("OASIS7_CUSTODY_WORLD_SETTLE_SUBMITS").is_ok_and(|v| v == "true");
     let baseline_marker =
@@ -63,7 +64,7 @@ fn serve_custody_world_http_fixture() {
             node: node.clone(),
         };
         let server = scope.spawn(|| {
-            transport::serve_with_private_settlement(
+            transport::serve_with_private_settlement_observed(
                 listener,
                 &node,
                 &root,
@@ -73,6 +74,7 @@ fn serve_custody_world_http_fixture() {
                 Some(&private),
                 settle_submits,
                 baseline_marker.as_deref(),
+                physical_ports.as_deref(),
             )
         });
         let mut output = std::fs::OpenOptions::new()

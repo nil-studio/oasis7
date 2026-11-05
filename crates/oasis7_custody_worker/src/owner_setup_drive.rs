@@ -77,7 +77,14 @@ pub(super) async fn continue_setup(
             request: rpc.request.clone(),
             stage,
         })?;
-        if crate::owner_setup_physical_trace::edge(Some(crate::owner_setup_physical_trace::stage(Some(stage))), "identity.driver.service", run_stage(env, &raw)).await.is_err() {
+        if crate::owner_setup_physical_trace::edge(
+            Some(crate::owner_setup_physical_trace::stage(Some(stage))),
+            "identity.driver.service",
+            run_stage(env, &raw),
+        )
+        .await
+        .is_err()
+        {
             let original = store.owner_setup_outbox(id, stage).map_err(|_| denied())?;
             if matches!(
                 original.operation.state(),
