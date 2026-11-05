@@ -192,6 +192,15 @@ impl NoiseFixture {
         binding: &BftSignerBindingV3,
         hook: NodeBftSharedExecutionHookV3,
     ) -> Self {
+        Self::new_with_hook_and_original_reader(binding, hook, None)
+    }
+    pub(super) fn new_with_hook_and_original_reader(
+        binding: &BftSignerBindingV3,
+        hook: NodeBftSharedExecutionHookV3,
+        recovery_reader: Option<
+            Arc<dyn oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputReaderV1>,
+        >,
+    ) -> Self {
         let networks = std::array::from_fn(|_| {
             Arc::new(Libp2pNetwork::new(Libp2pNetworkConfig {
                 listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
@@ -236,9 +245,11 @@ impl NoiseFixture {
             grants: Mutex::new(BTreeMap::new()),
             revoked: std::sync::atomic::AtomicBool::new(false),
         });
-        let publisher = Arc::new(NodeBftAdmissionInputPublisherV1::new(
-            private.transport_buffers(),
-        ));
+        let publisher = NodeBftAdmissionInputPublisherV1::new(private.transport_buffers());
+        let publisher = Arc::new(match recovery_reader {
+            Some(reader) => publisher.with_original_reader(reader),
+            None => publisher,
+        });
         hook.lock()
             .unwrap()
             .configure_bft_v3_admission_input_io(Arc::new(publisher.clone()))

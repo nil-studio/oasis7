@@ -281,9 +281,14 @@ impl ActiveNoiseFixtureForTest {
         binding: &BftSignerBindingV3,
         hook: oasis7_node::NodeBftSharedExecutionHookV3,
     ) -> Self {
+        let reader = Arc::new(noise::DeferredOriginalReader::default());
         Self {
-            noise: noise::NoiseFixture::new_with_hook(binding, hook),
-            reader: Arc::new(noise::DeferredOriginalReader::default()),
+            noise: noise::NoiseFixture::new_with_hook_and_original_reader(
+                binding,
+                hook,
+                Some(reader.clone()),
+            ),
+            reader,
             egress: None,
         }
     }
