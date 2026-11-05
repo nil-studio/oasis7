@@ -73,7 +73,7 @@ CI 后续把该 profile 登记到现有 planner/Viewer driver，按真实组件�
 - 发行与治理验证进入 `governance/`、`launcher/`
 
 <a id="qa-infrastructure-evidence-method"></a>
-### QA infrastructure evidence method
+### 基础设施证据的组合验证方法
 
 The [QA receiver contract](prd.md#qa-infrastructure-receiver) is the stable entry for combining product obligations, professional contracts, scenes, and test-tier evidence. For each scene/cell/specimen, freeze the exact clause fragment and source identity, candidate/base/tested tree, world/branch/root/window/configuration, applicable domain owner, execution state, dependency/topology and provider identity, ordered phases, artifact locator/bytes/digest, oracle, verdict, and residual proof boundary. Keep `planned`, `located`, `implemented`, and `executed` as independent state fields.
 

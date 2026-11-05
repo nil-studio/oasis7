@@ -1006,7 +1006,9 @@ while installation remains unrouted and replay shares the same raw reducer seman
 
 <a id="runtime-pending-design"></a>
 ### 待决持久化与恢复重审
-提交接收与 canonical execution 是两个状态边界。无 finality 的 signed intent 必须由 runtime/P2P 批准的持久化 owner 保留 identity、原 payload、关联和 truthful no-effect disposition；字段/schema 尚待专业合同批准，不能用 effect queue/cognition journal 冒充通用实现。入队/重连/status read 不扣资源、不授予资格、不推进工业/W 或后续依赖。恢复必须先通过服务闸门，再从 fresh canonical snapshot 读取当前权限、资源、期限、manifest 和前置条件，在 canonical 顺序重审，原子产生生效 receipt 或无效果拒绝/过期/重规划处置。crash 前后不能静默丢失、结算或改变原请求；pending 持久状态、winner 和 receipt 应落在 §6.2.3 同一完整 generation/历史边界，不能拼接混合 generations。消费者读取 committed receipt 与 truthful pending，无完成时间或退款新承诺；withdrawal/replacement 不获单方面取消权。
+提交接收与 canonical execution 是两个状态边界。通用目标字段已由 [PendingIntentV1 / IntentDecisionV1](module/module-lifecycle.md#sr2-pending-contract) 唯一定义；[持久准入与恢复](module/module-lifecycle.md#sr2-pending-admission-recovery)进一步绑定 exact signed 原件、admitted hash、原请求/去重索引、owner/stream 内的 admission 位置及后续 canonical decision。Runtime persistence owner 负责成组保存与恢复，P2P 负责适用 profile 的持久和证明条件；现有 effect queue/cognition journal 或 volatile Received 不冒充这组目标实现。
+
+入队/重连/status read 不扣资源、不授予资格、不推进工业/W 或后续依赖。恢复必须先通过服务闸门，再从 fresh canonical snapshot 读取当前权限、资源、原期限、manifest 和前置条件，在 canonical 顺序重审，原子产生生效 receipt 或无效果拒绝/过期/重规划处置。crash 前后不能静默丢失、结算或改变原请求；pending 原件、去重、winner/losers 和 receipt 应落在 §6.2.3 同一完整 generation/历史边界，不能拼接混合 generations。原件/历史缺失时保留恢复阻塞，不能推断没有发生。消费者按 [API 目标处置与关系映射](../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)读取真实状态；无效果决定没有 module success receipt，无完成时间或退款新承诺，withdrawal/replacement 不获单方面取消权。
 
 上述“无效果、恢复后当前条件重审”只适用于尚无固定 execution continuation 且已核实无效果
 的 pending；没有 finality 回应或原回应丢失不构成该事实。Unknown 先核对原持久记录，
@@ -1037,7 +1039,11 @@ Runtime 仅从验证后的 ActiveAuthority 和同记录 proof 构造正式 Commi
 
 <a id="runtime-lineage-design"></a>
 ### 互斥胜者与原子处置
-专业域负责标记同 lineage 的互斥成员及允许的 withdrawal/replacement；runtime 不从相同 payload、ActionId 或 retry 推断互斥。canonical ordering 后在一个 root transaction 内检查尚无 effect-bearing winner、当前成员有效，暂存业务效果、winner、其 receipt 和其余成员终止处置，全部 prepare 成功后统一 publish；没有 inner commit 或业务效果先行的 loser repair。若首个成员仅被 rejected/expired，终止它自身，不占 effect winner，不取消其他/独立请求。失败/commit uncertainty 服从 §6.2.2；retry/replay 读取原 winner/disposition，不产生新 effect/receipt。持久重启必须恢复一致 winner+effect+loser 状态，否则 fail closed。既有单操作 idempotency/签名验证是必要子能力，不能代替此目标仲裁；具体标记/schema/排序依赖 P2P、domain owner 与 QA 评审。
+专业域负责标记同 lineage 的互斥成员及允许的 withdrawal/replacement；Runtime 按 [领域关系与原子发表](module/module-lifecycle.md#sr2-lineage-publication)验证显式 `exclusive_set_id`、原前驱 identity/hash、checked generation 及当前授权，不从相同 payload、ActionId 或 retry 推断互斥。字段/编码仍由该页及 WASM 原 authority 定义，排序复用 P2P 的 canonical ordered input；admission 位置与关系名称不提供优先级。
+
+canonical ordering 后在一个 root transaction 内检查尚无 effect-bearing winner、当前成员有效，暂存业务效果、winner、其 receipt、全部已登记且仍待决互斥成员的终止处置和同集合不能再次生效的 winner 索引，全部 prepare 成功后统一 publish；没有 inner commit 或业务效果先行的 loser repair。迟到/重复先查原终态，已有终态保留原决定不变；首次尚待决原件受同一已提交 winner 约束，只能无效果处理，不能借未建 loser 行再执行。若首个成员仅被 rejected/expired/replan 或无效果终止，只结束它自身，不占 effect winner，不取消其他/独立请求，也不被后来的 winner 改写为 loser。失败/commit uncertainty 服从 §6.2.2；retry/replay 读取原 winner/disposition，不产生新 effect/receipt。持久重启必须恢复一致 winner+effect+loser 状态，否则 fail closed。既有单操作 idempotency/签名验证是必要子能力，不能代替此目标仲裁。
+
+上述 pending/lineage 目标的设计核对输入为 `4c80cd131adb1b3a37323a42bad847c2d7836ce2`；2026-11-06 补充跨域桥接，未运行实现。验证沿 [GWSC PL01–09](../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)及 [API/Agent/Viewer 原结果方法](../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results)，分别核持久接缝、当前重审、双序/同块仲裁、已知/迟到成员、独立正例和当前读权；不以单叶局部回归关闭根 SC-5。
 
 <a id="runtime-version-design"></a>
 ### Manifest activation 与历史回放

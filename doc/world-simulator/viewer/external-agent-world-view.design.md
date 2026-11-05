@@ -35,6 +35,8 @@ Runtime拥有世界、控制版本、观察资格、admission及持久结果；A
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | 四层事实各有来源/时效，回访不复活或重做执行 | [view-runtime-results](#view-runtime-results) | task/fence、driver、observer 与原结果 authority | 不以页面或健康检查代签独立 Runtime |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 外部用量与世界投入/占用按原来源显示，当前读权失效清私有投影 | [view-runtime-results](#view-runtime-results) | adapter cost、业务 receipt/ledger、读取权限 | 不另算事实总账或承诺完整账单 |
 | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | renderer 失败保留获准文本/原操作，安全恢复不重放指导或效果 | [view-recovery](#view-recovery) | 可信资源、当前 audience、原 operation 与逐端 host | 不从 renderer 恢复推导后端/Runtime/另一端就绪 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | 通用 pending/未知及拒绝、过期、重规划和已生效分别可读，安全下一步不重提原件 | [view-intent-results](#view-intent-results) | API SR2 目标映射、Runtime decision/proof 与当前读权 | 不把当前五态 UI 或 Chat 替代升级为通用实现，不新增撤回动作 |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | 各原成员与获权前驱/胜者关系分别可读，旧终态不被后来的 winner 改写 | [view-intent-results](#view-intent-results) | API SR2 目标映射、Runtime decision/proof 与当前读权 | 不把当前五态 UI 或 Chat 替代升级为通用实现，不新增撤回动作 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -122,6 +124,17 @@ Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7, O7-REQ-c5c90e09-ae74-4d
 费用显示消费[预算与成本来源](../llm/external-agent-runtime-adapter.design.md#adapter-budget)：外部实际 token/工具/币种、估计及未知分开；世界资源按原业务身份、payer、单位和 reserved/consumed/released 阶段显示。Viewer 不从余额差或模型摘要另算事实总账，不叠加重放行或把控制 ACK 当生产消耗。未确认总额如实标未知；外部费用或资源余量不形成继续执行许可。
 
 执行失权后按当前读取权限保留可读原结果。读取也失权时清除私有图形、文本、费用、搜索及在途旧响应；原结果在权威历史保留不等于当前页面仍有权展示。owner 可沿原受保护路径核对，不能由 Viewer 借新 token 或最新选中 Agent 自动接管。超限、分页未完、受众/切点变化和来源缺口按[分页与代际](#view-query)及[恢复](#view-recovery)处理；关键结果不可静默裁掉后宣称完整。
+
+<a id="view-intent-results"></a>
+#### 通用 intent 的独立处置与关联
+
+本节是 [API SR2 结果映射](../llm/external-agent-game-api.design.md#api-intent-results) 的待实施消费者，只在该真实能力和 schema 已协商时使用。现有原生任务/Gameplay/Chat/Prompt 等原结果仍按各自合同，不能把当前控件或五态 registry 当作已接入这组新态。
+
+当前原操作保持自身 world/Agent/task/goal 与 operation/intent 的来源关联，分别表达“等待权威结果”“结果待恢复确认”“已提交的原效果”“被拒绝”“已过期”“需要重新规划”“本请求无效果终止”及真实原因。已提交仍保留业务后续阶段；无效果终止不写成全部关联请求取消。过期须来自权威决定，不能由页面倒计时产生；查询/读取失败也不能替原请求生成终态。
+
+原成员始终保留自己的结果卡/结构化项。linked replacement 或 withdrawal 以只读“关联原请求”入口连接其直接前驱；exclusive loser 以只读“生效的关联请求”入口连接已验证 winner，不覆盖原卡。对 available 关系才显示其真实原对象与状态；not_readable 只说明当前无法读取关联详情，history_unavailable 说明原关联资料不可得，两者不泄漏 ID/hash/私有原因，也不推断没有关联。单次不展开整条 lineage；打开下一原件仍执行当前读权，跨主体、分支和迟到响应按原 scope 隔离。
+
+查看、等待、返回目标与原结果回查都是原合法只读路径；需要新计划时回到当前目标/能力，只有 domain 已支持且当前有权时才展示其明确撤回/替代入口。状态变更、关闭页面、停止 Runtime 或关系卡点击不自动重提、换 nonce、启模型或释放费用/资源。API 能力未支持或原件不足时显示具体阻塞，保留原请求身份与安全返回，不用旧 pending 徽标掩盖新态。pure_api 使用同一原语义；Web/native 的文本、关系导航和恢复各自按 [IR01–06](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) 验证。
 
 <a id="view-admission"></a>
 ### 5.4 从观察到生效的权威重验
@@ -330,6 +343,8 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 | Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | [view-runtime-results](#view-runtime-results) | 四层事实各有来源/时效，回访不复活或重做执行 | [adapter-liveness](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-liveness)；LV01–LV06；声明 viewer/pure_api，Web/native 独立环境 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不以页面或健康检查代签独立 Runtime |
 | Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [view-runtime-results](#view-runtime-results) | 外部用量与世界投入/占用按原来源显示，当前读权失效清私有投影 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；BG01–BG06；原成本去重、未知和执行/读取资格各自变化 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不另算事实总账或承诺完整账单 |
 | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | [view-recovery](#view-recovery) | renderer 失败保留获准文本/原操作，安全恢复不重放指导或效果 | [viewer-guidance](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-guidance)；boot/context-loss/断连、显式重试、换主体/撤权与迟到响应；正式 Web/native 分开 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不从 renderer 恢复推导后端/Runtime/另一端就绪 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | [view-intent-results](#view-intent-results) | 原请求真实处置、未知与未支持分别显示，导航和重连无新效果 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR01–03/06；同候选实际 Web/native 与原 API，双主体/双序/重启/旧响应 | 原结果 proof/当前读权、各表面文本和关系导航、零隐式重提/取消记录 | 目标未实施；API fixture 不代签真实界面，关系显示不证明底层仲裁 |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | [view-intent-results](#view-intent-results) | 原成员/前驱/胜者的真实关系和当前读权分别成立，关联导航无新效果 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR02–06；同候选实际 Web/native 与原 API，双主体/双序/重启/旧响应 | 原结果 proof/当前读权、各表面文本和关系导航、零隐式重提/取消记录 | 目标未实施；API fixture 不代签真实界面，关系显示不证明底层仲裁 |
 
 补充验证 [5.6](#public-feed-history-source)：固定同一 world/epoch，比较历史与实时公共事件身份、顺序和允许字段；以历史不可用、真实空窗口、分页未完及换源测试不同展示；用合成 canary 检查匿名/A/B 的公共 DTO 与错误均无私有内容。重连覆盖旧 socket 迟到、新 hello 后首读失败/重试、当前首 snapshot 接纳和 scope 变化，断言 stale 到 ready 的条件及零副作用重发。此映射尚待确定性回归与真实 Viewer 同候选验证，不证明实现完成。
 
