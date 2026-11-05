@@ -5,6 +5,17 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 
+type CognitionHistoryDecodedPartsV3 = (
+    ReservedValue<CognitionHistoryViewV1>,
+    CognitionHistoryDerivedRefsV2,
+    ReservedValue<Box<CognitionHistorySourceSummaryV3>>,
+);
+pub(super) type CognitionHistoryDecodedProfileV3 = (
+    ReservedValue<CognitionHistoryViewV1>,
+    Option<CognitionHistoryDerivedRefsV2>,
+    Option<ReservedValue<Box<CognitionHistorySourceSummaryV3>>>,
+);
+
 pub const COGNITION_HISTORY_VIEW_V3_MAGIC: &[u8] = b"oasis7.cognition.history-view.v3\0";
 pub const COGNITION_HISTORY_SOURCE_CAPSULE_V3_BYTES: usize = 436;
 pub const COGNITION_HISTORY_VIEW_V3_BYTES: usize = COGNITION_HISTORY_VIEW_V3_MAGIC.len()
@@ -82,14 +93,7 @@ fn decode_parts_v3(
     memory: &MemoryBudget,
     class: MemoryClass,
     mut cancelled: impl FnMut() -> bool,
-) -> Result<
-    (
-        ReservedValue<CognitionHistoryViewV1>,
-        CognitionHistoryDerivedRefsV2,
-        ReservedValue<Box<CognitionHistorySourceSummaryV3>>,
-    ),
-    ValueTreeError,
-> {
+) -> Result<CognitionHistoryDecodedPartsV3, ValueTreeError> {
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
     }
@@ -212,14 +216,7 @@ pub(super) fn decode_profile_with_source_v3(
     memory: &MemoryBudget,
     class: MemoryClass,
     cancelled: impl FnMut() -> bool,
-) -> Result<
-    (
-        ReservedValue<CognitionHistoryViewV1>,
-        Option<CognitionHistoryDerivedRefsV2>,
-        Option<ReservedValue<Box<CognitionHistorySourceSummaryV3>>>,
-    ),
-    ValueTreeError,
-> {
+) -> Result<CognitionHistoryDecodedProfileV3, ValueTreeError> {
     if bytes.starts_with(COGNITION_HISTORY_VIEW_V3_MAGIC) {
         let (view, derived, source) = decode_parts_v3(bytes, memory, class, cancelled)?;
         Ok((view, Some(derived), Some(source)))

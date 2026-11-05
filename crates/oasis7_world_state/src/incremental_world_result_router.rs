@@ -276,6 +276,10 @@ fn runtime_label<C: FnMut() -> bool>(
 
 /// Shared bounded stream/hash admission. Failure spends its whole admitted
 /// bound; success refunds only the unused bound. No read_original shortcut.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The object id, per-object bound, exactness, memory pool/class, aggregate byte allowance, and cancellation state are independent physical-read controls."
+)]
 pub(super) fn read_world_router_original_v1<O: OriginalObjectStreamReader, C: FnMut() -> bool>(
     objects: &mut O,
     id: &[u8; 32],

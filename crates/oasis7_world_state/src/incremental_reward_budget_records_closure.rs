@@ -43,11 +43,7 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<RewardRecordQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(RewardRecordQualificationV1 {
-            key,
-            root,
-            class: class,
-        }))
+        .retain(RewardRecordQualificationV1 { key, root, class }))
 }
 pub(super) fn cell<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: RewardRecordKindV1,

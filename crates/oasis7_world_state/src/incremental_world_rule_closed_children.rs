@@ -50,42 +50,43 @@ pub fn world_rule_child_from_semantic_v1(
         }
         _ => return Err(bad()),
     };
-    let valid = match (name, id, column) {
+    let valid = matches!(
+        (name, id, column),
         (
             "requests"
-            | "organization_continuity"
-            | "emergency_supply"
-            | "agent_orders"
-            | "industrial_work"
-            | "substitution",
+                | "organization_continuity"
+                | "emergency_supply"
+                | "agent_orders"
+                | "industrial_work"
+                | "substitution",
             SemanticKeyRefV1::Unit,
             None,
-        ) => true,
-        (
+        ) | (
             "governance_effects"
-            | "organization_cases"
-            | "organization_estate"
-            | "supply_authorizations"
-            | "supply_batches",
+                | "organization_cases"
+                | "organization_estate"
+                | "supply_authorizations"
+                | "supply_batches",
             SemanticKeyRefV1::Text(_),
             None,
-        ) => true,
-        (
+        ) | (
             "supply_lineages",
             SemanticKeyRefV1::Text(_),
             None | Some("target" | "fulfilled" | "reserved"),
-        ) => true,
-        (
+        ) | (
             "supply_shipments",
             SemanticKeyRefV1::Unsigned(_),
-            None
-            | Some(
-                "authorization_id" | "batch_id" | "beneficiary_id" | "lineage_id" | "input_amount"
-                | "delivered_amount" | "settled",
+            None | Some(
+                "authorization_id"
+                    | "batch_id"
+                    | "beneficiary_id"
+                    | "lineage_id"
+                    | "input_amount"
+                    | "delivered_amount"
+                    | "settled",
             ),
-        ) => true,
-        _ => false,
-    };
+        )
+    );
     if !valid {
         return Err(bad());
     }

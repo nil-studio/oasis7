@@ -274,7 +274,7 @@ pub(super) fn mint(
         .retain(AgentAuthorityFamilyQualificationV1 {
             roots,
             counts,
-            class: class,
+            class,
         }))
 }
 

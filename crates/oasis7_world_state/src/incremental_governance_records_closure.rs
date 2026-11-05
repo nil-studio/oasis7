@@ -60,7 +60,7 @@ pub(super) fn mint(
             kind,
             owner,
             root,
-            class: class,
+            class,
         }))
 }
 fn spend(cells: &mut u64) -> Result<(), ValueTreeError> {

@@ -49,7 +49,7 @@ pub(super) fn mint(
             roots,
             counts,
             mint_length,
-            class: class,
+            class,
         }))
 }
 pub(super) enum Outer {

@@ -168,14 +168,13 @@ pub fn decode_world_event_original_v1<C: FnMut() -> bool>(
                 })
                 .ok_or_else(limit)?;
             let stages = shape.max_depth.checked_add(3).ok_or_else(limit)?;
-            let bytes = phase
+            phase
                 .checked_mul(stages as u64)
                 .and_then(|n| usize::try_from(n).ok())
                 .and_then(|n| n.checked_add(l.root))
                 .and_then(|n| n.checked_add(std::mem::size_of::<DecodedWorldEventV1>()))
                 .and_then(|n| n.checked_add(8192))
-                .ok_or_else(limit)?;
-            bytes
+                .ok_or_else(limit)?
         }
     };
     if bytes > work.max_heap_bytes {

@@ -271,7 +271,7 @@ pub(super) fn mint(
         .retain(MaterialFamilyQualificationV1 {
             roots,
             counts,
-            class: class,
+            class,
         }))
 }
 

@@ -131,13 +131,13 @@ pub(crate) fn accept_inventory_verified_v1<
         }
         for k in touched {
             ctx.check()?;
-            if let Some(meta) = groups.get(k, &mut iw, &mut ctx.cancelled)? {
-                if !meta.present {
-                    if meta.members != 0 {
-                        return Err(invalid().into());
-                    }
-                    groups = groups.remove(k, &mut iw, &mut ctx.cancelled)?;
+            if let Some(meta) = groups.get(k, &mut iw, &mut ctx.cancelled)?
+                && !meta.present
+            {
+                if meta.members != 0 {
+                    return Err(invalid().into());
                 }
+                groups = groups.remove(k, &mut iw, &mut ctx.cancelled)?;
             }
         }
         if groups.len() as u64 != counts[2] {

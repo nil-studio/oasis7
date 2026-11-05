@@ -223,7 +223,7 @@ fn recover_selected_value(
     let mut bytes = [0; RECORD_ROOT_BYTES];
     let info = read_member_record_v1(
         &id,
-        &key,
+        key,
         &mut ctx.values,
         MemberRecordLimitsV1 {
             semantic_bytes: ctx.semantic_bytes,

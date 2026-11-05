@@ -62,6 +62,10 @@ fn formal(error: CoreError<std::convert::Infallible>) -> ValueTreeError {
 /// Checks active source provenance, not permission to reset business state,
 /// skip terminal recovery, publish a receipt, or call providers/effects.
 /// Both contexts share the caller's actual pool and continuous IO/work limits.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The selected candidate, current and parent sources, read/write contexts, original reader, and continuous work counters are independent proof and IO inputs."
+)]
 pub fn check_candidate_complete_cognition_history_from_readers_v3<M, R, E, C, W, D, O>(
     request: &CognitionHistorySelectionRequestV1<'_>,
     selected: ReservedValue<CheckedCognitionHistoryViewV1>,
@@ -286,9 +290,9 @@ where
                     let strings = originals.with_original(
                         &row.location.original,
                         row.encoded_bytes,
-                        |mut input| {
+                        |input| {
                             keys::read_keys(
-                                &mut input,
+                                input,
                                 row.encoded_bytes,
                                 memory,
                                 work.cbor,

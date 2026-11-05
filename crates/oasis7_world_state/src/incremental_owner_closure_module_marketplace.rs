@@ -1047,6 +1047,10 @@ where
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The field, outer entry, parsed key, state/value readers, semantic-key budget, per-value cap, and cancellation control authenticate distinct parts of the closure proof."
+)]
 pub(super) fn validate_member<M, R, C>(
     field: FieldDescriptor,
     entry: &StateEntryV1,

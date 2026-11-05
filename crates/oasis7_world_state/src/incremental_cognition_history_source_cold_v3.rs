@@ -3,6 +3,10 @@
 use super::*;
 use crate::incremental_cognition_history::attested_index_v3::validate_accepted_v3_current;
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Recovery verifies the selected field/view/current binding/cache/last-point against the caller's pool, finite hash work, and cancellation signal."
+)]
 pub fn recover_attested_cognition_head_source_v3(
     field: CognitionHistoryFieldV1,
     view: &ReservedValue<AcceptedCognitionHistoryViewV1>,

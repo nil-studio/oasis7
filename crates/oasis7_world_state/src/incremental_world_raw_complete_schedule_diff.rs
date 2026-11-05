@@ -267,20 +267,21 @@ pub(super) fn advance<
                 |old, new, path, ctx, _work| {
                     let old = instance(old, path)?;
                     let new = instance(new, path)?;
-                    if let (Some(a), Some(b)) = (&old, &new) {
-                        if a != b {
-                            return Err(invalid().into());
-                        }
+                    if let (Some(a), Some(b)) = (&old, &new)
+                        && a != b
+                    {
+                        return Err(invalid().into());
                     }
-                    if let Some(id) = old.as_ref() {
-                        if new.is_none() && scalar(id, roots, record, ctx)? == Some(wake) {
-                            return Err(invalid().into());
-                        }
+                    if let Some(id) = old.as_ref()
+                        && new.is_none()
+                        && scalar(id, roots, record, ctx)? == Some(wake)
+                    {
+                        return Err(invalid().into());
                     }
-                    if let Some(id) = new.as_ref() {
-                        if scalar(id, roots, record, ctx)? != Some(wake) {
-                            return Err(invalid().into());
-                        }
+                    if let Some(id) = new.as_ref()
+                        && scalar(id, roots, record, ctx)? != Some(wake)
+                    {
+                        return Err(invalid().into());
                     }
                     count += i128::from(new.is_some()) - i128::from(old.is_some());
                     Ok(())

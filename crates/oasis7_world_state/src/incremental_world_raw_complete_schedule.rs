@@ -138,14 +138,13 @@ fn after_value<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<[u8; 32]>, ValueTreeError> {
     check(ctx)?;
-    if let Some(record) = record {
-        if let Some(w) = record
+    if let Some(record) = record
+        && let Some(w) = record
             .writes
             .iter()
             .find(|w| w.namespace == StateNamespaceV1::Scheduler && w.mutation.key == key)
-        {
-            return Ok(w.mutation.after);
-        }
+    {
+        return Ok(w.mutation.after);
     }
     ctx.lookup_raw(roots.state_root(StateNamespaceV1::Scheduler), key)
 }

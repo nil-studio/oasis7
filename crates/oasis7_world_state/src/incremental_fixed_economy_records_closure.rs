@@ -45,11 +45,7 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<FixedEconomyRecordQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(FixedEconomyRecordQualificationV1 {
-            field,
-            root,
-            class: class,
-        }))
+        .retain(FixedEconomyRecordQualificationV1 { field, root, class }))
 }
 /// One exact child only. This does not authenticate the owning RootSet/family.
 pub fn qualify_fixed_economy_body_v1<

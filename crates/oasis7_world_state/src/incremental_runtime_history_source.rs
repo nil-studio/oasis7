@@ -62,7 +62,7 @@ impl AcceptedRuntimeHistorySourceV1 {
     pub fn occurrence(&self) -> &ReservedValue<VerifiedFactOccurrenceV1> {
         &self.selected
     }
-    pub fn index(
+    pub fn history_index(
         &self,
         lane: RuntimeHistoryLaneV1,
     ) -> &ReservedValue<RuntimeHistoryIndexQualificationV1> {
@@ -93,6 +93,10 @@ fn check<
 /// The selected ordinal is supplied by the enclosing closed Result router.
 /// Every new row is checked against actual observed candidate facts and its
 /// private canonical type binding, never a source-success callback.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Candidate fact, committed core, originals, selected ordinal, indexes, parent, rows, read context, and work counters are separate authenticated inputs to this proof boundary."
+)]
 pub fn check_candidate_runtime_history_source_v1<M, R, E, C>(
     candidate: &VerifiedCandidateContextV1,
     core: &ReservedValue<CheckedCommitCore>,
@@ -125,6 +129,10 @@ where
         work,
     )
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "This proof boundary keeps the verified candidate, core, originals, ordinal, indexes, parent/prefix, rows, read context, and finite work allowance explicit."
+)]
 pub fn check_candidate_runtime_history_source_with_prefix_v1<M, R, E, C>(
     candidate: &VerifiedCandidateContextV1,
     core: &ReservedValue<CheckedCommitCore>,

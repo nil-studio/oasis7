@@ -321,10 +321,10 @@ impl<M: MerkleNodeReader, R: ValueNodeReader, G: FnMut() -> bool, C: FnMut() -> 
         } else {
             None
         };
-        if let Some(old) = old {
-            if Some(old) != new {
-                self.membership(after, old, id, false, next)?;
-            }
+        if let Some(old) = old
+            && Some(old) != new
+        {
+            self.membership(after, old, id, false, next)?;
         }
         if let Some(new) = new {
             self.membership(after, new, id, true, next)?;
@@ -377,6 +377,10 @@ fn valid_business(name: &str, value: ChildValue) -> bool {
             | ("price_amount", ChildValue::I64(_))
     ) || matches!((name, value), ("price_kind", ChildValue::U64(0 | 1)))
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Before/after roots, group identity, structural/value readers, descriptor, member-cell budget, and sequence bounds are distinct delta-proof inputs."
+)]
 fn group_delta<M: MerkleNodeReader, R: ValueNodeReader, G: FnMut() -> bool, C: FnMut() -> bool>(
     before: &StateRootV1,
     after: &StateRootV1,
@@ -494,10 +498,7 @@ fn group_delta<M: MerkleNodeReader, R: ValueNodeReader, G: FnMut() -> bool, C: F
                                 }
                                 match (actual, value) {
                                     (ChildSemantic::Field("length"), ChildValue::U64(n))
-                                        if n == nm.len =>
-                                    {
-                                        ()
-                                    }
+                                        if n == nm.len => {}
                                     (
                                         ChildSemantic::Field("sequence_root_id"),
                                         ChildValue::U64(n),
@@ -529,12 +530,11 @@ fn group_delta<M: MerkleNodeReader, R: ValueNodeReader, G: FnMut() -> bool, C: F
                                     if !r.shape(after, bid_id)? {
                                         return Err(bad());
                                     }
-                                    if old_entry.is_none()
-                                        || !r.identity_same(before, after, bid_id)?
+                                    if (old_entry.is_none()
+                                        || !r.identity_same(before, after, bid_id)?)
+                                        && r.pair(after, bid_id)? != digest
                                     {
-                                        if r.pair(after, bid_id)? != digest {
-                                            return Err(bad());
-                                        }
+                                        return Err(bad());
                                     }
                                 }
                             }
@@ -563,6 +563,10 @@ fn group_delta<M: MerkleNodeReader, R: ValueNodeReader, G: FnMut() -> bool, C: F
         }
     }
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The marketplace bid delta requires distinct before/after roots, structural/value contexts, and per-group/member work budgets."
+)]
 pub(crate) fn bids_delta<
     M: MerkleNodeReader,
     R: ValueNodeReader,

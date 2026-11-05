@@ -309,7 +309,7 @@ where
     }
     let point = CognitionHistoryIndexPointV1 {
         root: root.clone(),
-        field: field,
+        field,
         ordinal,
         row: CognitionHistoryIndexRowV1::decode(&bytes),
         class: context.values.class,

@@ -150,6 +150,10 @@ impl Write for Text {
 }
 /// Reads one current immutable child binding and its module_id scalar only.
 /// Its family bootstrap/changed-path receiver remains the structural authority.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The transaction, value/key budgets, byte limits, state error, cancellation, and work account remain separate controls for this current-child proof."
+)]
 fn owner<M, R, E, C>(
     entity: &str,
     state: &M,

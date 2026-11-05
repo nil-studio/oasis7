@@ -52,7 +52,7 @@ pub(super) fn mint(
             schema: kind.schema(),
             owner,
             root,
-            class: class,
+            class,
         }))
 }
 fn invalid() -> ValueTreeError {

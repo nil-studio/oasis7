@@ -191,7 +191,7 @@ pub fn qualify_logistics_family_v1<
     Ok(charge.retain(LogisticsFamilyQualificationV1 {
         roots: digest,
         records: counts,
-        class: class,
+        class,
     }))
 }
 

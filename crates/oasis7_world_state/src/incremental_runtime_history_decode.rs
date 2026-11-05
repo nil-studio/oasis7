@@ -20,6 +20,10 @@ pub enum RuntimeHistoryDecodeKindV1 {
     Tick,
     Audit,
 }
+#[allow(
+    clippy::large_enum_variant,
+    reason = "The closed decoded DTO stays inline in the single pre-reserved admission; boxing its largest variant would introduce another allocation that must be charged and retained."
+)]
 pub enum DecodedRuntimeHistoryOriginalV1 {
     Snapshot(SnapshotRecord),
     Tick(TickConsensusRecord),
@@ -45,6 +49,7 @@ fn invalid() -> ValueTreeError {
 /// * Tick: inline Header/Digest/Certificate, String/Option<String>/unit enum,
 ///   Vec<u64> and BTreeMap<String,String>;
 /// * Audit: String, Option<unit enum>, u64.
+///
 /// There is no serde Content-buffered enum or arbitrary JSON in these graphs.
 /// Definite strings are borrowed by serde_cbor's slice reader before copying.
 /// 16*string bytes conservatively covers owned storage and error formatting:

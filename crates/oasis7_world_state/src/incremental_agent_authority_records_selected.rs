@@ -14,10 +14,7 @@ use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
 /// Authenticate the actual outer edge and qualify precisely its current body.
 /// The bounded body scan is over this selected record, never the family or H.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "The genuine parent family, current transaction and separate finite body limits remain explicit."
-)]
+
 pub fn open_agent_authority_body_overlay_v1<M, R, E, C>(
     key: AgentAuthorityRecordKeyV1<'_>,
     family: &ReservedValue<AgentAuthorityFamilyQualificationV1>,
@@ -57,29 +54,31 @@ where
             .memory
             .reserve(32 << 10, MemoryClass::Ordinary)
             .map_err(oasis7_formal_protocol::incremental_execution::ExecutionError::Memory)?;
-        let mut records = InventoryValueReader {
-            values: &mut *values,
-            key_work: &mut *keys,
-            semantic_bytes,
-            record_bytes,
-            cancelled: &mut *cancelled,
+        let (child, owner) = {
+            let mut records = InventoryValueReader {
+                values: &mut *values,
+                key_work: &mut *keys,
+                semantic_bytes,
+                record_bytes,
+                cancelled: &mut *cancelled,
+            };
+            point::metadata(key, tx, &mut records, error)?;
+            let outer = read::outer_key(key, &mut records)?;
+            let value = lookup(tx, &outer.0, &mut records, error)?;
+            let Some(value) = value else {
+                if (records.cancelled)() {
+                    return Err(ValueTreeError::Cancelled.into());
+                }
+                return Ok(None);
+            };
+            // The existing owner/schema decoder validates this actual current edge.
+            let child = read::outer(key.kind, &outer, &value, &mut records)?;
+            let owner = WorldFieldKeyV1::from_bytes(outer.0.as_bytes())
+                .map_err(ValueTreeError::Invalid)?
+                .semantic_key
+                .ok_or(ValueTreeError::Invalid("agent authority current owner"))?;
+            (child, owner)
         };
-        point::metadata(key, tx, &mut records, error)?;
-        let outer = read::outer_key(key, &mut records)?;
-        let value = lookup(tx, &outer.0, &mut records, error)?;
-        let Some(value) = value else {
-            if (records.cancelled)() {
-                return Err(ValueTreeError::Cancelled.into());
-            }
-            return Ok(None);
-        };
-        // The existing owner/schema decoder validates this actual current edge.
-        let child = read::outer(key.kind, &outer, &value, &mut records)?;
-        let owner = WorldFieldKeyV1::from_bytes(outer.0.as_bytes())
-            .map_err(ValueTreeError::Invalid)?
-            .semantic_key
-            .ok_or(ValueTreeError::Invalid("agent authority current owner"))?;
-        drop(records);
         let mut body = WorldFieldReadContextV1 {
             root: &child,
             state,

@@ -668,7 +668,7 @@ fn append_snapshot_ordinary(
         },
         cancelled: || false,
     };
-    let old = parent_source.index(RuntimeHistoryLaneV1::Snapshot);
+    let old = parent_source.history_index(RuntimeHistoryLaneV1::Snapshot);
     let index_ordinal = old.window().total;
     let next = if attack {
         let mut forged = old.window().clone();

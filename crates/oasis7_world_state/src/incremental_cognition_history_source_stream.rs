@@ -58,6 +58,10 @@ impl AuthenticatedHeadStreamV1 {
             last_record: None,
         })
     }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Each stream row needs its authenticated original/view, reader, shared pool, canonical and hash work, and cancellation signal as separate bounded inputs."
+    )]
     pub fn push<R: Read, C: FnMut() -> bool>(
         &mut self,
         original: &oasis7_proto::memory_budget::ReservedValue<IndexedCognitionOriginalV1>,

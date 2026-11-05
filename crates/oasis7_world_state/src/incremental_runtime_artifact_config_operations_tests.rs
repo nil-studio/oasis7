@@ -519,7 +519,6 @@ fn bootstrap_registry_guard_rejects_genuine_nonempty_parent() {
             epoch: 3,
         },
     };
-    let live = parent.fence().unwrap();
     let source = pages.clone();
     let mut state_io = io();
     let state_io = RefCell::new(&mut state_io);

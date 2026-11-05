@@ -472,7 +472,7 @@ pub(crate) fn accept_agent_subtree_verified_v1<
                         max_scalar_bytes: work.max_scalar_bytes,
                     };
                     let references =
-                        closure::verify_lifecycle_actor(&verified, agent, *added, ctx, &mut scope)?;
+                        closure::verify_lifecycle_actor(verified, agent, *added, ctx, &mut scope)?;
                     work.cells_remaining = scope.cells_remaining;
                     let direction = if *added { 1i128 } else { -1i128 };
                     agent_delta += direction;

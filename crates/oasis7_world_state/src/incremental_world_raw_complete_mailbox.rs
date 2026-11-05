@@ -10,6 +10,10 @@ pub(super) struct MailboxOriginalQualificationV1 {
     pub(super) class: MemoryClass,
     pub(super) references: u64,
 }
+pub(super) type AgentMailboxOriginalQualificationV1 = (
+    ReservedValue<agents::AgentSubtreeStructureQualificationV1>,
+    ReservedValue<MailboxOriginalQualificationV1>,
+);
 fn occurrence(remaining: &mut u64) -> Result<(), ValueTreeError> {
     *remaining = remaining
         .checked_sub(1)
@@ -32,13 +36,7 @@ pub(super) fn qualify<
     work: &mut WorldRawCompleteWorkV1,
     objects: &mut O,
     originals: &mut B,
-) -> Result<
-    (
-        ReservedValue<agents::AgentSubtreeStructureQualificationV1>,
-        ReservedValue<MailboxOriginalQualificationV1>,
-    ),
-    WorldRawCompleteErrorV1<O::Error>,
-> {
+) -> Result<AgentMailboxOriginalQualificationV1, WorldRawCompleteErrorV1<O::Error>> {
     check(ctx)?;
     let memory = ctx.values.memory;
     let anchor = scope.anchor(memory, ctx.values.class)?;

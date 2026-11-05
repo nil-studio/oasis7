@@ -96,6 +96,10 @@ impl<'a> CognitionHeadSourceSuccessorV1<'a> {
             failed: false,
         })
     }
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Successor admission combines the selected original with distinct read/write contexts and independent index, canonical, and hash work counters."
+    )]
     pub fn push<M, R, E, C, W, CW, I: Read>(
         &mut self,
         original: &ReservedValue<IndexedCognitionOriginalV1>,

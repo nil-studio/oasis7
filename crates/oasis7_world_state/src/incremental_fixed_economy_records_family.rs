@@ -35,10 +35,7 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<FixedEconomyFamilyQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(FixedEconomyFamilyQualificationV1 {
-            roots,
-            class: class,
-        }))
+        .retain(FixedEconomyFamilyQualificationV1 { roots, class }))
 }
 type Outer = (FixedEconomyFieldV1, Option<ReservedValue<StateRootV1>>);
 pub(super) fn outer<

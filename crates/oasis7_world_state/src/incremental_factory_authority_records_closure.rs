@@ -29,7 +29,7 @@ pub(super) fn mint(
             kind,
             owner,
             root,
-            class: class,
+            class,
         }))
 }
 impl FactoryAuthorityQualificationV1 {

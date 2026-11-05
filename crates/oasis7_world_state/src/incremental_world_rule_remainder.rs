@@ -100,7 +100,7 @@ fn shape<
             exists += 1;
         }
     }
-    if (exists != 0 && exists != cols.len()) || (!present && exists != 0) {
+    if exists != 0 && (exists != cols.len() || !present) {
         return Err(invalid());
     }
     Ok(())

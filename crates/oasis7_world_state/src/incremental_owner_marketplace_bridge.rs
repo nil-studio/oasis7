@@ -128,11 +128,11 @@ pub(crate) fn listing_delta<R: ValueNodeReader, C: FnMut() -> bool>(
     }
     let mut original = None;
     let result = record_diff::visit(before, after, records, cells, LABELS, |_, new, records| {
-        if let Some(new) = new {
-            if let Err(error) = listing_row(new, field, records.values, max, records.cancelled) {
-                original = Some(error);
-                return Err(ValueTreeError::Invalid("marketplace listing changed row"));
-            }
+        if let Some(new) = new
+            && let Err(error) = listing_row(new, field, records.values, max, records.cancelled)
+        {
+            original = Some(error);
+            return Err(ValueTreeError::Invalid("marketplace listing changed row"));
         }
         Ok(())
     });
