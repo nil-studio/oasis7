@@ -306,6 +306,43 @@ fn active_window_adopt_preserves_locked_journal_then_cold_continues_and_rebases_
     let journal = locked.state.journal.clone();
     let count = calls.load(Ordering::SeqCst);
     let (_, after) = install(lease.as_mut(), &binding);
+    let first_original = after
+        .state
+        .successor_window
+        .as_ref()
+        .unwrap()
+        .requests
+        .last()
+        .unwrap();
+    let mut original_chain = super::active_window::BftSuccessorArchiveChainVerifierV1::new();
+    original_chain
+        .verify_next(
+            &binding,
+            &public(33),
+            first_original,
+            &archive
+                .load_public_state(&first_original.original_public_state)
+                .unwrap(),
+        )
+        .unwrap();
+    let first_context = original_chain.context().unwrap().clone();
+    assert!(
+        super::state::validate_state_with_active_context(
+            &binding,
+            Some(&public(33)),
+            &after.state,
+            None,
+        )
+        .is_err(),
+        "Active operation metadata must not authenticate with the legacy None context"
+    );
+    super::state::validate_state_with_active_context(
+        &binding,
+        Some(&public(33)),
+        &after.state,
+        Some(first_context.clone()),
+    )
+    .unwrap();
     assert!(after.state.history.is_empty());
     assert!(after.state.completed_journals.is_empty());
     assert!(after.state.applied_installs.is_empty());
@@ -379,6 +416,16 @@ fn active_window_adopt_preserves_locked_journal_then_cold_continues_and_rebases_
         schedule.height() + 1
     );
     let (_, twice) = install(lease.as_mut(), &binding);
+    assert!(
+        super::state::validate_state_with_active_context(
+            &binding,
+            Some(&public(33)),
+            &twice.state,
+            Some(first_context),
+        )
+        .is_err(),
+        "a different C0 cannot authenticate original Active operation metadata"
+    );
     assert!(twice.state.history.is_empty());
     assert_eq!(
         twice

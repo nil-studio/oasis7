@@ -356,6 +356,7 @@ pub(crate) fn validate_original_selection(
     state: &super::state::BftSignerStateV3,
     original: &super::private_retention_backend::BftPrivateRetentionLedgerV1,
     selected: &BftPrivateRetentionSelectionV1,
+    active_context: Option<std::sync::Arc<super::active_window::VerifiedBftActiveWindowContextV1>>,
 ) -> Result<(), BftSignerErrorV3> {
     validate_ledger(current)?;
     validate_ledger(original)?;
@@ -364,7 +365,12 @@ pub(crate) fn validate_original_selection(
         original,
         original.map.coverage_start_height,
     )?;
-    state.validate(binding, &trusted.provider_public_key)?;
+    super::state::validate_state_with_active_context(
+        binding,
+        Some(&trusted.provider_public_key),
+        state,
+        active_context,
+    )?;
     let body = &original.receipt.body;
     let (revision, digest, head) = selected.operation.expected();
     super::private_retention::hash_value(head)?;

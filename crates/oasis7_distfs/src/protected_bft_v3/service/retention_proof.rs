@@ -61,7 +61,11 @@ impl BftSignerServiceV3 {
             runtime.input_view_epoch.invalidate()?;
             return Err(invalid("retention proof atomic current changed"));
         }
-        if let Err(error) = sealed.validate_inventory(&self.binding, &support.attestor) {
+        if let Err(error) = sealed.validate_inventory_with_verified_state(
+            &self.binding,
+            &support.attestor,
+            runtime.verified.as_ref(),
+        ) {
             runtime.input_view_epoch.invalidate()?;
             return Err(error);
         }
@@ -93,6 +97,10 @@ impl BftSignerServiceV3 {
                     &original.signer.state,
                     &original.retention,
                     selected,
+                    runtime
+                        .verified
+                        .as_ref()
+                        .and_then(|verified| verified.active_context.clone()),
                 )?;
                 canonical_chunk(
                     &OperationBorrow {

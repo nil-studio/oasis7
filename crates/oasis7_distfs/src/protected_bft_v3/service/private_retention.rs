@@ -706,7 +706,7 @@ impl BftSignerServiceV3 {
                         &snapshot.lease_token_digest,
                         &operation,
                     )?;
-                    crate::protected_bft_v3::private_retention_selection::validate_original_selection(&self.binding, &support.attestor, previous_ledger, &original.signer.state, &original.retention, selected)?;
+                    crate::protected_bft_v3::private_retention_selection::validate_original_selection(&self.binding, &support.attestor, previous_ledger, &original.signer.state, &original.retention, selected, runtime.verified.as_ref().and_then(|verified| verified.active_context.clone()))?;
                     crate::protected_bft_v3::private_retention_selection::preflight_original_operation(&original.signer.state, &original.retention)?;
                     live(deadline)?;
                     return self.private_retention_reply_with_anchor(

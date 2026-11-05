@@ -54,6 +54,7 @@ impl RemoteBftSignerLeaseV3 {
             &proof.state,
             &proof.ledger,
             &selected,
+            self.active_context.clone(),
         )?;
         if proof.ledger.receipt.body.operation_digest != operation
             || proof.ledger.receipt.body.original_lease_generation > self.credential.generation
