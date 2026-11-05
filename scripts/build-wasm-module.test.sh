@@ -132,6 +132,24 @@ if args[:1] == ["run"]:
         with seen_path.open("a") as stream:
             stream.write(str(cargo_home) + "\n")
         (cargo_home / ".fixture-cargo-cache-entry").write_text("private to one candidate container")
+    temp_mounts = [dict(field.split("=", 1) for field in mount.split(","))
+                   for mount in mounts if dict(field.split("=", 1) for field in mount.split(",")).get("dst") == "/tmp/oasis7-compiler-tmp"]
+    if cargo_home_mounts:
+        if len(temp_mounts) != 1 or env.get("TMPDIR") != "/tmp/oasis7-compiler-tmp":
+            fail("candidate compiler TMPDIR must have one dedicated mount")
+        fields = temp_mounts[0]
+        temporary = pathlib.Path(fields.get("src", ""))
+        if fields.get("type") != "bind" or temporary.is_symlink() or not temporary.is_dir():
+            fail("candidate compiler temporary source is not a real directory")
+        if temporary.parent != cargo_home.parent or temporary == cargo_home:
+            fail("candidate compiler temporary source must be separate and invocation-private")
+        seen_path = root / "candidate-compiler-temp-mounts.jsonl"
+        seen = seen_path.read_text().splitlines() if seen_path.exists() else []
+        if str(temporary) in seen or any(temporary.iterdir()):
+            fail("candidate compiler temporary source is reused or not fresh")
+        with seen_path.open("a") as stream:
+            stream.write(str(temporary) + "\n")
+        (temporary / ".fixture-rustc-temp-entry").write_text("private to one compiler invocation")
     if role == "A":
         (root / "A-selected").touch()
         wait("A-run")
@@ -241,6 +259,7 @@ class BuilderLifecycleTest(unittest.TestCase):
                      if json.loads(path.read_text())["args"][:1] == ["run"]]
         self.assertEqual(len(run_calls), 2)
         cargo_home_paths = []
+        compiler_temp_paths = []
         for args in run_calls:
             mounts = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--mount"]
             cargo_home_mounts = [mount for mount in mounts
@@ -262,6 +281,19 @@ class BuilderLifecycleTest(unittest.TestCase):
             self.assertFalse(any(destination.startswith("/tmp/oasis7-cargo-home/")
                                  for destination in destinations))
             self.assertNotIn("/tmp/oasis7-home", destinations)
+            temp_mounts = [dict(field.split("=", 1) for field in mount.split(","))
+                           for mount in mounts if dict(field.split("=", 1) for field in mount.split(",")).get("dst") == "/tmp/oasis7-compiler-tmp"]
+            self.assertEqual(len(temp_mounts), 1)
+            temporary = Path(temp_mounts[0]["src"])
+            self.assertEqual(temp_mounts[0]["type"], "bind")
+            self.assertEqual(temporary.parent, cargo_home.parent)
+            self.assertEqual(temporary.name, "compiler-tmp")
+            self.assertNotEqual(temporary, cargo_home)
+            self.assertFalse(temporary.exists())
+            compiler_temp_paths.append(str(temporary))
+            self.assertIn("TMPDIR=/tmp/oasis7-compiler-tmp", args)
+            self.assertNotIn("/tmp", destinations)
+            self.assertFalse(any(destination.startswith("/tmp/oasis7-compiler-tmp/") for destination in destinations))
             self.assertIn("CARGO_HOME=/tmp/oasis7-cargo-home", args)
             self.assertIn("HOME=/tmp/oasis7-home", args)
         self.assertEqual(len(cargo_home_paths), 2)
@@ -269,6 +301,9 @@ class BuilderLifecycleTest(unittest.TestCase):
         recorded_cargo_home_paths = self.state.joinpath("candidate-cargo-home-mounts.jsonl").read_text().splitlines()
         self.assertEqual(len(recorded_cargo_home_paths), 2)
         self.assertEqual(set(recorded_cargo_home_paths), set(cargo_home_paths))
+
+        self.assertEqual(len(set(compiler_temp_paths)), 2)
+        self.assertEqual(set(self.state.joinpath("candidate-compiler-temp-mounts.jsonl").read_text().splitlines()), set(compiler_temp_paths))
 
     def test_candidate_cargo_home_is_cleaned_when_container_fails(self):
         cargo = self.bin / "cargo"
@@ -290,6 +325,10 @@ class BuilderLifecycleTest(unittest.TestCase):
                                 .get("dst") == "/tmp/oasis7-cargo-home")
         cargo_home = Path(dict(field.split("=", 1) for field in cargo_home_mount.split(","))["src"])
         self.assertFalse(cargo_home.exists())
+        temp_mount = next(dict(field.split("=", 1) for field in mount.split(",")) for mount in mounts
+                          if dict(field.split("=", 1) for field in mount.split(",")).get("dst") == "/tmp/oasis7-compiler-tmp")
+        self.assertFalse(Path(temp_mount["src"]).exists())
+        self.assertIn("TMPDIR=/tmp/oasis7-compiler-tmp", args)
         self.assertEqual(list(out.glob(".candidate-builder.*")), [])
 
     def tearDown(self):

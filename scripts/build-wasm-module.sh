@@ -658,7 +658,10 @@ PY_OUTPUT
   # Mount the whole empty home so Docker cannot create its parent as root and
   # prevent the unprivileged builder from creating sibling git directories.
   local candidate_cargo_home="$evidence_dir/cargo-home"
-  mkdir "$candidate_cargo_home"
+  local candidate_tmp="$evidence_dir/compiler-tmp"
+  mkdir "$candidate_cargo_home" "$candidate_tmp"
+  # rustc temporary output must also avoid the container writable layer. This
+  # separate empty directory shares only this invocation's cleanup lifetime.
   # Host Cargo runs only the producer recipe utility; guest WASM always uses Docker.
   candidate_tool() {
     (cd "$ROOT_DIR" && env -u RUSTC_WRAPPER cargo run --quiet --locked -p wasm_build_suite -- "$@")
@@ -698,13 +701,14 @@ PY_OUTPUT
     --user "$(id -u):$(id -g)" --workdir "$CONTAINER_WORKSPACE_DIR" \
     --mount "type=bind,src=$ROOT_DIR,dst=$CONTAINER_WORKSPACE_DIR" \
     --mount "type=bind,src=$candidate_cargo_home,dst=/tmp/oasis7-cargo-home" \
+    --mount "type=bind,src=$candidate_tmp,dst=/tmp/oasis7-compiler-tmp" \
     --env OASIS7_WASM_BUILD_IN_CONTAINER=1 \
     --env "OASIS7_WASM_SOURCE_WORKSPACE_DIR=$CONTAINER_WORKSPACE_DIR" \
     --env "OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE=$(containerize_path "$ROOT_DIR" "$evidence_dir/evidence.json")" \
     --env CARGO_BUILD_JOBS=2 \
     --env "OASIS7_WASM_CANONICAL_CONTAINER_PLATFORM=$CANONICAL_CONTAINER_PLATFORM_TOKEN" \
     --env "OASIS7_WASM_CANONICALIZER_VERSION=$WASM_CANONICALIZER_VERSION" \
-    --env HOME=/tmp/oasis7-home --env CARGO_HOME=/tmp/oasis7-cargo-home --env RUSTUP_HOME=/rustup \
+    --env HOME=/tmp/oasis7-home --env CARGO_HOME=/tmp/oasis7-cargo-home --env TMPDIR=/tmp/oasis7-compiler-tmp --env RUSTUP_HOME=/rustup \
     "$SELECTED_BUILDER_IMAGE_ID" "${TRANSLATED_ARGS[@]}"
   candidate_tool producer-recipe "$ROOT_DIR" "$evidence_dir/recipe-final.json"
   cmp "$evidence_dir/recipe.json" "$evidence_dir/recipe-final.json"

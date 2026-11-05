@@ -40,6 +40,8 @@ docker build \
 `--candidate-build` 为每次构建在输出目录下创建空的私有临时 Cargo home，
 挂载到容器内固定的 `/tmp/oasis7-cargo-home`，退出时随本次临时目录清理。
 这样 registry 与 git 依赖提取占用任务工作区的磁盘，不占 Docker 临时可写层；Cargo 状态、配置与凭据均不跨构建复用。
+同次构建另建空的私有编译临时目录，挂载到 `/tmp/oasis7-compiler-tmp` 并设为
+`TMPDIR`，使 rustc 临时文件也使用任务工作区。该目录与 Cargo home 独立，退出时一并清理，不挂载整个容器 `/tmp`。
 输出目录不能通过符号链接指向其他工作区。锁文件、实际 image ID、producer recipe 与 build receipt 校验保持生效。
 
 
