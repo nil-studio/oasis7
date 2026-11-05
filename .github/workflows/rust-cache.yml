@@ -1,0 +1,118 @@
+name: Rust dependency cache
+
+on:
+  schedule:
+    - cron: "47 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: "Populate complete native dependency cache (no test validation)"
+        required: true
+        default: full
+        type: choice
+        options: [full]
+
+concurrency:
+  group: ci-shared-native-cache-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+cache-mode: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  PYTHONDONTWRITEBYTECODE: "1"
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
+  CARGO_NET_RETRY: 10
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  RUST_TOOLCHAIN: 1.96.0
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: "1"
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+
+jobs:
+  shared-native-cache:
+    cache-mode: write
+    permissions:
+      contents: read
+      actions: read
+    if: >-
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify current main cache source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install viewer web dependencies
+        run: npm ci --prefix crates/oasis7_viewer
+      - name: Install pinned Rust toolchains
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup toolchain install "${OASIS7_WASM_TOOLCHAIN}" --profile minimal --component rust-src
+          rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
+          rustup target add wasm32-unknown-unknown
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            llvm \
+            pkg-config \
+            libwayland-dev \
+            wayland-protocols \
+            libxkbcommon-dev \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libasound2-dev \
+            libudev-dev
+          clang --print-targets | grep -w wasm32
+          llvm-ar --version
+      - name: Stabilize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Install dependency cache admission
+        id: dependency-cache-tools
+        continue-on-error: true
+        run: python3 scripts/ci-rust-cache-admission.py install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        id: native-cache
+        if: steps.dependency-cache-tools.outcome == 'success'
+        env:
+          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: shared-native
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-on-failure: false
+      - name: Complete shared native cache
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: CI_VERBOSE=1 ./scripts/ci-tests.sh cache-native
