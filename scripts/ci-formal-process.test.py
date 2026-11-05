@@ -5,6 +5,7 @@ from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
+import itertools
 import json
 import os
 from pathlib import Path
@@ -1280,20 +1281,24 @@ class FormalBuildComponents(unittest.TestCase):
 
     def test_formal_debug_profile_keeps_assertions_and_endpoint_release_contract(self):
         with patch.dict(os.environ, RUSTC_WRAPPER='must-not-wrap',
-                        CARGO_PROFILE_DEV_OPT_LEVEL='0', CARGO_PROFILE_TEST_OPT_LEVEL='0'):
-            for scope in ('formal', 'formal-debug', 'formal-endpoint', 'storage'):
+                        CARGO_PROFILE_DEV_OPT_LEVEL='2', CARGO_PROFILE_TEST_OPT_LEVEL='2',
+                        CARGO_PROFILE_DEV_DEBUG_ASSERTIONS='false', CARGO_PROFILE_TEST_DEBUG_ASSERTIONS='false',
+                        CARGO_PROFILE_DEV_OVERFLOW_CHECKS='false', CARGO_PROFILE_TEST_OVERFLOW_CHECKS='false'):
+            for scope, level in (('formal', '0'), ('formal-debug', '0'),
+                                 ('formal-endpoint', '0'), ('storage', '2')):
                 with self.subTest(scope=scope):
                     environment = artifacts.build_environment(scope)
                     self.assertNotIn('RUSTC_WRAPPER', environment)
                     for profile in ('DEV', 'TEST'):
-                        self.assertEqual(environment['CARGO_PROFILE_' + profile + '_OPT_LEVEL'], '2')
+                        self.assertEqual(environment['CARGO_PROFILE_' + profile + '_OPT_LEVEL'], level)
                         self.assertEqual(environment['CARGO_PROFILE_' + profile + '_DEBUG_ASSERTIONS'], 'true')
                         self.assertEqual(environment['CARGO_PROFILE_' + profile + '_OVERFLOW_CHECKS'], 'true')
-            self.assertEqual(artifacts.build_environment('ordinary')['CARGO_PROFILE_DEV_OPT_LEVEL'], '0')
-        debug = dict(profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
-        for scope in ('formal', 'formal-debug', 'storage'):
+            self.assertEqual(artifacts.build_environment('ordinary')['CARGO_PROFILE_DEV_OPT_LEVEL'], '2')
+        for scope, level in (('formal', '0'), ('formal-debug', '0'), ('storage', '2')):
+            debug = dict(profile=dict(opt_level=level, debug_assertions=True, overflow_checks=True))
             artifacts.validate_profile('runtime-tests', debug, scope)
-            for field, wrong in (('opt_level', '0'), ('debug_assertions', False), ('overflow_checks', False)):
+            for field, wrong in (('opt_level', '2' if level == '0' else '0'),
+                                 ('debug_assertions', False), ('overflow_checks', False)):
                 altered = copy.deepcopy(debug)
                 altered['profile'][field] = wrong
                 with self.subTest(scope=scope, field=field), self.assertRaises(ValueError):
@@ -1318,7 +1323,10 @@ class RealFormalComponents(unittest.TestCase):
         stack.enter_context(patch.object(artifacts, 'FORMAL_AUTHORITY', None))
         stack.enter_context(patch.dict(os.environ, SOURCE_SHA=cls.sha, GITHUB_RUN_ID='42',
             GITHUB_RUN_ATTEMPT='2', CARGO_INCREMENTAL='0', CARGO_NET_OFFLINE='true',
-            CARGO_PROFILE_DEV_DEBUG='0', CARGO_PROFILE_TEST_DEBUG='0'))
+            CARGO_PROFILE_DEV_DEBUG='0', CARGO_PROFILE_TEST_DEBUG='0',
+            CARGO_PROFILE_DEV_OPT_LEVEL='2', CARGO_PROFILE_TEST_OPT_LEVEL='2',
+            CARGO_PROFILE_DEV_DEBUG_ASSERTIONS='false', CARGO_PROFILE_TEST_DEBUG_ASSERTIONS='false',
+            CARGO_PROFILE_DEV_OVERFLOW_CHECKS='false', CARGO_PROFILE_TEST_OVERFLOW_CHECKS='false'))
         return stack
 
     @classmethod
@@ -1416,6 +1424,23 @@ fn rendezvous(name: &str, peer: &str) {
         shutil.copytree(self.endpoint, endpoint)
         return debug, endpoint
 
+    @staticmethod
+    def failed_observer(mode):
+        original = artifacts.subprocess.Popen
+        observed = []
+
+        def launch(command, *args, **kwargs):
+            if len(command) > 1 and Path(command[1]).name == 'package-ecs-resource-monitor.py':
+                observed.append(command)
+                if mode == 'spawn-error':
+                    raise OSError('fixture observer unavailable')
+                process = original([sys.executable, '-c', 'raise SystemExit(19)'], *args, **kwargs)
+                process.wait(timeout=5)
+                return process
+            return original(command, *args, **kwargs)
+
+        return patch.object(artifacts.subprocess, 'Popen', side_effect=launch), observed
+
     def test_real_split_merge_matches_original_full_inventory_and_executes_every_case(self):
         merged = self.case / 'merged'
         artifacts.merge_formal(self.debug, self.endpoint, merged)
@@ -1426,6 +1451,10 @@ fn rendezvous(name: &str, peer: &str) {
             for field in ('package', 'variant', 'target', 'target_kind', 'requested_features',
                           'features', 'profile', 'tests', 'ignored_tests', 'cwd'):
                 self.assertEqual(binary.get(field), original['binaries'][logical].get(field), (logical, field))
+            self.assertEqual(binary['profile']['opt_level'], '3' if logical == 'endpoint' else '0')
+            if logical != 'endpoint':
+                self.assertIs(binary['profile']['debug_assertions'], True)
+                self.assertIs(binary['profile']['overflow_checks'], True)
         self.assertEqual(manifest['suites'], original['suites'])
         self.assertEqual(manifest['formal_execution_version'], 1)
         self.assertEqual({role: value['producer_attempt'] for role, value in manifest['components'].items()},
@@ -1517,8 +1546,22 @@ fn rendezvous(name: &str, peer: &str) {
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return result
         debug, endpoint, merged = (self.case / name for name in ('cli-debug', 'cli-endpoint', 'cli-merged'))
-        call('build', '--scope', 'formal-debug', '--bundle', debug)
-        call('build', '--scope', 'formal-endpoint', '--bundle', endpoint)
+        for scope, bundle, variants in (
+                ('formal-debug', debug, ('formal-required', 'runtime', 'distfs-tests')),
+                ('formal-endpoint', endpoint, ('endpoint',))):
+            diagnostics = self.case / (scope + '-diagnostics')
+            call('build', '--scope', scope, '--bundle', bundle, '--build-diagnostics', diagnostics)
+            self.assertEqual({path.name for path in diagnostics.iterdir()}, set(variants))
+            for variant in variants:
+                report = json.loads((diagnostics / variant / 'build.json').read_text())
+                self.assertEqual(report['variant'], variant)
+                self.assertEqual(report['status'], 'success')
+                self.assertEqual(report['cargo_exit_code'], 0)
+                self.assertGreaterEqual(report['elapsed_seconds'], 0)
+                self.assertTrue(report['timings'], report)
+                for name in report['timings']:
+                    self.assertTrue(name.startswith('cargo-timing') and name.endswith('.html'))
+                    self.assertIn('<html', (diagnostics / variant / name).read_text().lower())
         call('merge-formal', '--debug-bundle', debug, '--endpoint-bundle', endpoint, '--bundle', merged)
         archives = self.case / 'archives'
         call('pack', '--bundle', merged, '--split-formal', '--output', archives)
@@ -1540,6 +1583,126 @@ fn rendezvous(name: &str, peer: &str) {
             text=True, capture_output=True)
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse((self.case / 'wrong-plan').exists())
+
+    def test_observer_failure_cannot_turn_a_successful_real_build_into_failure(self):
+        for mode in ('spawn-error', 'nonzero-exit'):
+            observer, observed = self.failed_observer(mode)
+            diagnostics = self.case / (mode + '-diagnostics')
+            bundle = self.case / (mode + '-bundle')
+            with self.subTest(observer=mode), observer:
+                artifacts.build(bundle, 'formal-endpoint', diagnostics_dir=diagnostics)
+            self.assertEqual(len(observed), 1)
+            self.assertEqual(observed[0][-4:], ['--label', 'endpoint', '--heartbeat-seconds', '20'])
+            self.assertIn('--pid', observed[0])
+            report = json.loads((diagnostics / 'endpoint/build.json').read_text())
+            self.assertEqual((report['status'], report['cargo_exit_code']), ('success', 0))
+            self.assertTrue((bundle / 'manifest.json').is_file())
+
+    def test_failed_real_cargo_records_its_exit_and_never_starts_later_variants(self):
+        checkout = self.case / 'broken-checkout'
+        shutil.copytree(self.root, checkout, ignore=shutil.ignore_patterns('target', '.git'))
+        (checkout / 'world/src/lib.rs').write_text('compile_error!("intentional build failure");\n')
+        diagnostics, bundle = self.case / 'failed-diagnostics', self.case / 'failed-bundle'
+        observer, observed = self.failed_observer('nonzero-exit')
+        with patch.object(artifacts, 'ROOT', checkout), \
+             patch.object(artifacts, 'CONFIG', checkout / 'scripts/ci-formal-process-suites.json'), observer:
+            with self.assertRaisesRegex(RuntimeError, 'build failed: formal-required'):
+                artifacts.build(bundle, 'formal-debug', diagnostics_dir=diagnostics)
+        self.assertEqual(len(observed), 1)
+        self.assertEqual({path.name for path in diagnostics.iterdir()}, {'formal-required'})
+        report = json.loads((diagnostics / 'formal-required/build.json').read_text())
+        self.assertEqual(report['cargo_exit_code'], 101)
+        self.assertEqual(report['status'], 'failure')
+        self.assertEqual(report['error_type'], 'RuntimeError')
+        self.assertFalse((bundle / 'manifest.json').exists())
+
+    def test_real_opt2_artifacts_are_rejected_before_merge_or_case_execution(self):
+        environment, validate = artifacts.build_environment, artifacts.validate_profile
+
+        def previous_environment(scope):
+            result = environment(scope)
+            for profile in ('DEV', 'TEST'):
+                result[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2'
+            return result
+
+        def previous_profile(logical, binary, scope=None):
+            # Reproduce the former opt2 contract through the unchanged storage
+            # profile. Cargo, executable bytes, metadata and hashes remain real.
+            return validate(logical, binary, 'storage' if scope in
+                            ('formal', 'formal-debug', 'formal-endpoint') else scope)
+
+        debug, endpoint, complete = (self.case / name for name in
+                                     ('old-opt2-debug', 'old-opt2-endpoint', 'old-opt2-formal'))
+        with patch.object(artifacts, 'build_environment', side_effect=previous_environment), \
+             patch.object(artifacts, 'validate_profile', side_effect=previous_profile):
+            artifacts.build(debug, 'formal-debug')
+            artifacts.build(endpoint, 'formal-endpoint')
+            artifacts.build(complete, 'formal')
+        old = json.loads((complete / 'manifest.json').read_text())
+        self.assertEqual({binary['profile']['opt_level'] for logical, binary in old['binaries'].items()
+                          if logical != 'endpoint'}, {'2'})
+        self.assertEqual(old['binaries']['endpoint']['profile']['opt_level'], '3')
+
+        for label, left, right in (('debug-environment', debug, self.endpoint),
+                                    ('endpoint-environment', self.debug, endpoint)):
+            with self.subTest(component=label):
+                destination = self.case / label
+                with self.assertRaisesRegex(ValueError, 'compiler_environment'):
+                    artifacts.merge_formal(left, right, destination)
+                self.assertFalse(destination.exists())
+        # A forged current environment cannot make actual opt2 target profiles
+        # acceptable. The merger must reject before executing any --list call.
+        manifest = json.loads((debug / 'manifest.json').read_text())
+        manifest['compiler_environment'] = artifacts.compiler_environment(environment('formal'))
+        (debug / 'manifest.json').write_text(json.dumps(manifest))
+        with self.subTest(component='target-profile'), \
+             patch.object(artifacts, 'inventory', wraps=artifacts.inventory) as listing:
+            with self.assertRaisesRegex(ValueError, 'artifact'):
+                artifacts.merge_formal(debug, self.endpoint, self.case / 'profile-forgery')
+            listing.assert_not_called()
+            self.assertFalse((self.case / 'profile-forgery').exists())
+
+        archive, consumer = self.case / 'old-opt2.tar.gz', self.case / 'old-opt2-consumer'
+        artifacts.pack(complete, archive, shard='runtime-protocol')
+        with tarfile.open(archive) as payload:
+            payload.extractall(consumer, filter='data')
+        downloaded = json.loads((consumer / 'manifest.json').read_text())
+        for version, schema in itertools.product((1, None, 999), (2, None, 1, 99, 2.0)):
+            altered = copy.deepcopy(downloaded)
+            if version is None:
+                altered.pop('formal_execution_version')
+            else:
+                altered['formal_execution_version'] = version
+            if schema is None:
+                altered.pop('schema_version')
+            else:
+                altered['schema_version'] = schema
+            (consumer / 'manifest.json').write_text(json.dumps(altered))
+            results = self.case / ('old-opt2-results-' + str(version) + '-' + str(schema) + '.jsonl')
+            with self.subTest(execution_version=version, schema=schema), \
+                 patch('ci_process_runner.run', side_effect=AssertionError('old opt2 case started')) as run_case, \
+                 patch.object(artifacts, 'inventory', wraps=artifacts.inventory) as listing:
+                with self.assertRaisesRegex(ValueError, 'artifact'):
+                    artifacts.execute(consumer, 'ordinary', results, shard='runtime-protocol')
+                run_case.assert_not_called()
+                listing.assert_not_called()
+            self.assertFalse(results.exists())
+
+    def test_named_formal_bundle_requires_current_schema_even_with_valid_opt0_profiles(self):
+        bundle = self.case / 'invalid-schema'
+        shutil.copytree(self.base / 'single', bundle)
+        original = json.loads((bundle / 'manifest.json').read_text())
+        for schema in (None, 1, 99, 2.0):
+            manifest = copy.deepcopy(original)
+            if schema is None:
+                manifest.pop('schema_version')
+            else:
+                manifest['schema_version'] = schema
+            (bundle / 'manifest.json').write_text(json.dumps(manifest))
+            with self.subTest(schema=schema), patch.object(artifacts, 'inventory') as listing:
+                with self.assertRaisesRegex(ValueError, 'schema 2'):
+                    artifacts.load(bundle, shard='runtime-protocol')
+                listing.assert_not_called()
 
     def test_merge_rejects_identity_profile_target_and_inventory_damage_before_output(self):
         debug, endpoint = self.copy_components()
@@ -1637,6 +1800,35 @@ fn rendezvous(name: &str, peer: &str) {
             with self.subTest(key=key), patch.dict(os.environ, {key: value}):
                 with self.assertRaisesRegex(ValueError, 'compiler_environment'):
                     artifacts.merge_formal(self.debug, self.endpoint, self.case / ('changed-' + key))
+
+
+class BuildDiagnostics(unittest.TestCase):
+    def test_only_current_timing_files_are_published_with_start_and_end_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            timings, diagnostics = root / 'timings', root / 'diagnostics'
+            timings.mkdir()
+            diagnostics.mkdir()
+            stale = timings / 'cargo-timing-previous.html'
+            stale.write_text('<html>stale previous command</html>')
+            alias = timings / 'cargo-timing.html'
+            alias.write_text('<html>old alias</html>')
+            with artifacts.BuildObservation('current', diagnostics, timings) as observation:
+                start = json.loads((diagnostics / 'current/build.json').read_text())
+                self.assertEqual((start['status'], start['cargo_exit_code']), ('running', None))
+                self.assertEqual(start['timings'], [])
+                alias.write_text('<html>updated current command alias</html>')
+                new = timings / 'cargo-timing-current.html'
+                new.write_text('<html>current command</html>')
+                # The real Cargo exit object is tested by the standalone Rust
+                # fixtures; this case isolates changed-file collection.
+                observation.process = type('CompletedCargo', (), {'returncode': 0})()
+            report = json.loads((diagnostics / 'current/build.json').read_text())
+            self.assertEqual((report['status'], report['cargo_exit_code']), ('success', 0))
+            self.assertCountEqual(report['timings'], [alias.name, new.name])
+            self.assertEqual((diagnostics / 'current' / alias.name).read_text(), alias.read_text())
+            self.assertEqual((diagnostics / 'current' / new.name).read_text(), new.read_text())
+            self.assertFalse((diagnostics / 'current' / stale.name).exists())
 
 
 class ParallelFormalExecution(unittest.TestCase):
@@ -1965,7 +2157,7 @@ class BuildAndBundles(unittest.TestCase):
                 messages.append(dict(reason='compiler-artifact', manifest_path=str(manifest_path),
                     package_id='path+file://' + str(package) + '#0.1.0', fresh=False,
                     target=dict(name='oasis7_chain_runtime', kind=[kind]),
-                    profile=dict(test=True, opt_level='2', debug_assertions=True, overflow_checks=True),
+                    profile=dict(test=True, opt_level='0', debug_assertions=True, overflow_checks=True),
                     features=[], executable=str(executable)))
             class CargoOutput:
                 def __enter__(self):
@@ -3729,6 +3921,7 @@ class Process(unittest.TestCase):
                     destination.chmod(0o755)
                 binaries[name] = dict(path=name, sha256=artifacts.digest(destination),
                     original_executable=str(original), test=name == 'runtime-tests', ordinary=False,
+                    profile=dict(opt_level='0', debug_assertions=True, overflow_checks=True),
                     cwd='.', tests=artifacts.inventory(destination) if name == 'runtime-tests' else [],
                     ignored_tests=artifacts.inventory(destination, True) if name == 'runtime-tests' else [],
                     libraries=[])

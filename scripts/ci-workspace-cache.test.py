@@ -121,6 +121,26 @@ class Workspace(unittest.TestCase):
                     self.assertEqual(cache.identity('ordinary')['prefix'], original['prefix'])
                 for scope in ('ordinary', 'formal', 'formal-debug', 'formal-endpoint'):
                     baseline = cache.identity(scope)['prefix']
+                    if scope != 'ordinary':
+                        # Freeze every other input: profile alone must separate
+                        # the abandoned opt2 Formal cache from opt0 restoration.
+                        effective = cache.units.build_environment(scope)
+                        self.assertEqual(effective['CARGO_PROFILE_DEV_OPT_LEVEL'], '0')
+                        self.assertEqual(effective['CARGO_PROFILE_TEST_OPT_LEVEL'], '0')
+                        old_environment = dict(effective, CARGO_PROFILE_DEV_OPT_LEVEL='2',
+                                               CARGO_PROFILE_TEST_OPT_LEVEL='2')
+                        with patch.object(cache.units, 'build_environment', return_value=old_environment):
+                            old = cache.identity(scope)
+                        self.assertNotEqual(old['prefix'], baseline)
+                        requested = cache.identity(scope)['key']
+                        args = SimpleNamespace(scope=scope, requested_key=requested,
+                                               matched_key=old['key'], cache_hit='false')
+                        report = {}
+                        with patch.object(cache.archive, 'unpack_archive') as unpack:
+                            with self.assertRaisesRegex(ValueError, 'incompatible action matched key'):
+                                cache.restore_cache(args, report)
+                        self.assertFalse(report['restored'])
+                        unpack.assert_not_called()
                     for variable in ('RUSTFLAGS', 'CARGO_PROFILE_TEST_DEBUG', 'OASIS7_WASM_TOOLCHAIN'):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                             self.assertNotEqual(cache.identity(scope)['prefix'], baseline)

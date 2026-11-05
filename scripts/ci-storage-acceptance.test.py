@@ -68,19 +68,20 @@ class Contracts(unittest.TestCase):
             storage = acceptance.artifacts.build_environment('storage')
         self.assertNotIn('RUSTC_WRAPPER', storage)
         self.assertEqual(ordinary['CARGO_PROFILE_TEST_DEBUG_ASSERTIONS'], 'false')
-        for environment in (storage, formal):
+        for environment, level in ((storage, '2'), (formal, '0')):
             for profile in ('DEV', 'TEST'):
-                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], '2')
+                self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OPT_LEVEL'], level)
                 self.assertEqual(environment[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'], 'true')
                 self.assertEqual(environment[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'], 'true')
         self.assertEqual(storage.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'),
                          ordinary.get('CARGO_PROFILE_RELEASE_OPT_LEVEL'))
 
     def test_storage_artifact_profile_is_verified_at_consumption(self):
-        binary = dict(profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
-        for scope in ('storage', 'formal', 'formal-debug'):
+        for scope, level in (('storage', '2'), ('formal', '0'), ('formal-debug', '0')):
+            binary = dict(profile=dict(opt_level=level, debug_assertions=True, overflow_checks=True))
             acceptance.artifacts.validate_profile('runtime-tests', binary, scope)
-            for key, value in [('opt_level', '0'), ('debug_assertions', False), ('overflow_checks', False)]:
+            for key, value in [('opt_level', '0' if level == '2' else '2'),
+                               ('debug_assertions', False), ('overflow_checks', False)]:
                 changed = copy.deepcopy(binary)
                 changed['profile'][key] = value
                 with self.assertRaises(ValueError):

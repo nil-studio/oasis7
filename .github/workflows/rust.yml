@@ -777,10 +777,10 @@ jobs:
       contents: read
       actions: read
     env:
-      CARGO_PROFILE_DEV_OPT_LEVEL: "2"
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
       CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_DEV_OVERFLOW_CHECKS: "true"
-      CARGO_PROFILE_TEST_OPT_LEVEL: "2"
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
     needs: select
@@ -904,7 +904,7 @@ jobs:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         shell: bash
         run: |
-          python3 scripts/ci-test-artifacts.py build --scope formal-debug --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-debug-tests" --cache-state "$RUNNER_TEMP/formal-debug-cache-state.json"
+          python3 scripts/ci-test-artifacts.py build --scope formal-debug --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-debug-tests" --cache-state "$RUNNER_TEMP/formal-debug-cache-state.json" --build-diagnostics "$RUNNER_TEMP/formal-debug-build-diagnostics"
           tar -C "$RUNNER_TEMP/formal-debug-tests" -I 'gzip -1' -cf "$RUNNER_TEMP/formal-debug-tests.tar.gz" .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -913,6 +913,15 @@ jobs:
           compression-level: 0
           overwrite: true
           if-no-files-found: error
+          retention-days: 2
+      - name: Upload formal-debug build diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-debug-build-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/formal-debug-build-diagnostics
+          if-no-files-found: warn
           retention-days: 2
       - name: Measure formal-debug workspace cache footprint
         run: |
@@ -960,10 +969,10 @@ jobs:
       contents: read
       actions: read
     env:
-      CARGO_PROFILE_DEV_OPT_LEVEL: "2"
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
       CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_DEV_OVERFLOW_CHECKS: "true"
-      CARGO_PROFILE_TEST_OPT_LEVEL: "2"
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
     needs: [select, cache-bootstrap-maintenance]
@@ -989,10 +998,10 @@ jobs:
       contents: read
       actions: read
     env:
-      CARGO_PROFILE_DEV_OPT_LEVEL: "2"
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
       CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_DEV_OVERFLOW_CHECKS: "true"
-      CARGO_PROFILE_TEST_OPT_LEVEL: "2"
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
     needs: select
@@ -1116,7 +1125,7 @@ jobs:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         shell: bash
         run: |
-          python3 scripts/ci-test-artifacts.py build --scope formal-endpoint --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-endpoint-tests" --cache-state "$RUNNER_TEMP/formal-endpoint-cache-state.json"
+          python3 scripts/ci-test-artifacts.py build --scope formal-endpoint --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/formal-endpoint-tests" --cache-state "$RUNNER_TEMP/formal-endpoint-cache-state.json" --build-diagnostics "$RUNNER_TEMP/formal-endpoint-build-diagnostics"
           tar -C "$RUNNER_TEMP/formal-endpoint-tests" -I 'gzip -1' -cf "$RUNNER_TEMP/formal-endpoint-tests.tar.gz" .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1125,6 +1134,15 @@ jobs:
           compression-level: 0
           overwrite: true
           if-no-files-found: error
+          retention-days: 2
+      - name: Upload formal-endpoint build diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formal-endpoint-build-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/formal-endpoint-build-diagnostics
+          if-no-files-found: warn
           retention-days: 2
       - name: Measure formal-endpoint workspace cache footprint
         run: |
@@ -1172,10 +1190,10 @@ jobs:
       contents: read
       actions: read
     env:
-      CARGO_PROFILE_DEV_OPT_LEVEL: "2"
+      CARGO_PROFILE_DEV_OPT_LEVEL: "0"
       CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_DEV_OVERFLOW_CHECKS: "true"
-      CARGO_PROFILE_TEST_OPT_LEVEL: "2"
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
       CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: "true"
       CARGO_PROFILE_TEST_OVERFLOW_CHECKS: "true"
     needs: [select, cache-bootstrap-maintenance]

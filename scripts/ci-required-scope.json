@@ -1111,7 +1111,8 @@
         "scripts/ci-formal-process.test.py",
         "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
-        "scripts/ci-workspace-cache.test.py"
+        "scripts/ci-workspace-cache.test.py",
+        "scripts/package-ecs-resource-monitor.test.py"
       ]
     },
     "scripts/ci-workflow.test.py": {

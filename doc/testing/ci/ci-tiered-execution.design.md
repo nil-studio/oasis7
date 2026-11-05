@@ -846,7 +846,9 @@ Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7
 
 正式 harness 的最小构建显式启用 `oasis7/ci_formal_required_features`，通过 native target 与 host build 的 optional dependency aliases 保留完整 required 根包共同构建时的依赖 feature 集合。该标记不参与业务 `cfg`，不自动启用，也不加入 production runtime、ordinary 或 default-feature snapshot 的原命令；依赖版本复用现有锁文件。验证比较完整构建与正式最小构建保留的完整依赖子树，并分别核对 host/build 与 target context 的实际 feature 组合，不能只比较根包上的 `test_tier_required` 字符串或把同包不同 context 合并后判断等价。
 
-正式构建按 profile 拆成并行的两路。`formal-debug-build` / `formal-debug-build-trusted` 构建原有 required core、production runtime 与 default-feature distfs harness；`formal-endpoint-build` / `formal-endpoint-build-trusted` 只构建原有 release endpoint。每一路只读与可信入口互斥。debug 的 DEV/TEST 使用 opt-level 2，同时显式保留 debug assertions 和 overflow checks；endpoint 保持 release opt-level 3 及原校验。新 profile 只有可信 main 的完整运行使用 writer，`pr-fast`/`main-fast` 与其他候选保持只读；旧 BASE 回退保留原 main push 条件。
+正式构建按 profile 拆成并行的两路。`formal-debug-build` / `formal-debug-build-trusted` 构建原有 required core、production runtime 与 default-feature distfs harness；`formal-endpoint-build` / `formal-endpoint-build-trusted` 只构建原有 release endpoint。每一路只读与可信入口互斥。Formal 的 DEV/TEST 显式使用原有 opt-level 0，保留 debug assertions 和 overflow checks；已有少数 package 的独立优化保持原配置，storage 专项继续使用自己的 opt-level 2，endpoint 保持 release opt-level 3 及原校验。构建、缓存身份、组件合并与消费校验使用同一配置，拒绝混入原全局 opt-level 2 的 Formal 产物。扩大优化范围必须先比较相同源码、features、runner 和缓存状态下的构建加真实用例关键路径。新 profile 只有可信 main 的完整运行使用 writer，`pr-fast`/`main-fast` 与其他候选保持只读；旧 BASE 回退保留原 main push 条件。
+
+两路构建为每个 Cargo 上下文输出开始、持续进度和结束状态，并启用稳定的 `--timings` HTML 报告。进度包含已耗时长和可取得的编译进程 CPU/RSS、主机内存及 swap 摘要，不读取或输出进程环境；未知指标保留为空。诊断按本轮独立目录保存，已产生的摘要与 timing 在成功或失败后上传，不能把旧缓存中的报告冒充本轮数据。观察器退出或缺少指标不改写 Cargo 的实际退出结果；心跳只表示观察器与进程状态，不证明编译有进展。缓存仍按实际 profile 隔离，不以新建缓存族或 rerun 次数作为预热证据。
 
 原 `formal-test-build` / `formal-test-build-trusted` job 名保留，职责改为下载两路精确输出 artifact、执行 `merge-formal` 完整核验并分包，不编译或写 workspace 缓存。选中的合并入口须在对应两组件均 success、另一对均 skipped 后才可运行；任一必选组件失败、取消、缺失或跳过均阻断。矩阵和固定汇总继续要求两个合并入口恰有一项 success 且另一项 skipped，保持可信 BASE 汇总合同。
 
@@ -882,7 +884,7 @@ producer 核对完整清单后，为普通组及各物理分片输出独立 tar.
 
 正式 workspace 缓存使用官方 restore/save 的独立步骤。先恢复既有可信依赖缓存，再恢复本次正式构建实际使用的仓库内 path package 编译单位；不重复保存整个第三方依赖 target。
 
-优化 debug 和 release endpoint 使用独立依赖 namespace `ci-formal-debug-deps-trusted-v1` / `ci-formal-endpoint-deps-trusted-v1`，由各自真实组件构建自然准备其精确 Cargo context。旧 shared-native 的 opt0 依赖命中不能证明 opt2 或 release 已预热。两路 reader/writer 使用相同 namespace、工具链与显式 profile 环境；候选只恢复，可信 main schedule/manual-full 的对应 component writer 仅在 job 成功后保存。上传前复用现有实际压缩归档准入，校验 writer/job/key/run/platform 和完整仓库额度；准入安装或容量检查失败时跳过保存，完整构建与测试照常执行。维护按各 namespace/environment/cache version 保留完整恢复锚点，不把 debug、endpoint 或旧 shared-native 互相视为替代。
+Formal debug 和 release endpoint 使用独立依赖 namespace `ci-formal-debug-deps-trusted-v1` / `ci-formal-endpoint-deps-trusted-v1`，由各自真实组件构建自然准备其精确 Cargo context。shared-native 的命中不能代签这两份独立缓存已准备；是否复用必须依据本组件真实恢复结果与 Cargo fresh/rebuilt。两路 reader/writer 使用相同 namespace、工具链与显式 profile 环境；候选只恢复，可信 main schedule/manual-full 的对应 component writer 仅在 job 成功后保存。上传前复用现有实际压缩归档准入，校验 writer/job/key/run/platform 和完整仓库额度；准入安装或容量检查失败时跳过保存，完整构建与测试照常执行。维护按各 namespace/environment/cache version 保留完整恢复锚点，不把 debug、endpoint 或旧 shared-native 互相视为替代。
 
 构建从 Cargo 的 compiler-artifact 与 build-script-executed 消息确定具体产物 hash，保存对应 deps、完整 .fingerprint、build-script 编译与执行输出目录以及公共可执行文件。内容和纳秒时间戳原样保留，不改写 Cargo fingerprint 来强制命中。缓存目录位于 RUNNER_TEMP，恢复前校验绝对 checkout/target 身份、路径、文件类型、长度、权限和摘要，完整校验通过才叠加到依赖 target。
 

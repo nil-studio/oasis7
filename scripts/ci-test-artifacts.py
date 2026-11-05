@@ -714,10 +714,11 @@ def build_environment(scope):
     env = dict(os.environ)
     env.pop('RUSTC_WRAPPER', None)
     if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
-        # Keep test checks while avoiding debug-code cost in multi-hour workloads.
-        # Release endpoint policy is independent and remains unchanged.
+        # Formal keeps the original cheap debug profile. Optimizing its entire
+        # dependency graph and large test harnesses greatly increases cold cost.
+        # Storage retains its established profile; release endpoint is separate.
         for profile in ('DEV', 'TEST'):
-            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2'
+            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2' if scope == 'storage' else '0'
             env[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'] = 'true'
             env[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'] = 'true'
     return env
@@ -751,12 +752,101 @@ def validate_profile(logical, binary, scope=None):
             raise ValueError('expected optimized release endpoint artifact')
     elif scope in ('formal', 'formal-debug', 'storage'):
         profile = binary.get('profile', {})
-        if (profile.get('opt_level') != '2' or profile.get('debug_assertions') is not True
+        expected_opt = '2' if scope == 'storage' else '0'
+        if (profile.get('opt_level') != expected_opt or profile.get('debug_assertions') is not True
                 or profile.get('overflow_checks') is not True):
-            raise ValueError('expected optimized ' + scope + ' artifact with assertions and overflow checks')
+            policy = 'optimized storage' if scope == 'storage' else 'unoptimized ' + scope
+            raise ValueError('expected ' + policy + ' artifact with assertions and overflow checks')
 
 
-def build(bundle, scope='all', cache_state_path=None, plan=None):
+class BuildObservation:
+    """Optional diagnostics; never take over Cargo output or its exit result."""
+
+    def __init__(self, variant, directory=None, timing_directory=None):
+        self.variant = variant
+        self.directory = directory / variant if directory else None
+        self.timing_directory = timing_directory
+        self.process = self.observer = None
+        self.before = {}
+        self.started = time.monotonic()
+        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[])
+
+    def warn(self, error):
+        print(f'::warning::Build diagnostics for {self.variant}: {type(error).__name__}', flush=True)
+
+    def timing_files(self):
+        if self.timing_directory is None:
+            return {}
+        return {path: (path.stat().st_mtime_ns, path.stat().st_size)
+                for path in self.timing_directory.glob('cargo-timing*.html')
+                if path.is_file() and not path.is_symlink()}
+
+    def write(self):
+        if self.directory is not None:
+            try:
+                self.report['elapsed_seconds'] = round(time.monotonic() - self.started, 3)
+                temporary = self.directory / 'build.json.tmp'
+                temporary.write_text(json.dumps(self.report, indent=2) + '\n')
+                temporary.replace(self.directory / 'build.json')
+            except OSError as error:
+                self.warn(error)
+
+    def __enter__(self):
+        if self.directory is not None:
+            try:
+                self.directory.mkdir(parents=True, exist_ok=False)
+                self.before = self.timing_files()
+            except OSError as error:
+                self.warn(error)
+                self.directory = None
+            else:
+                self.write()
+                print('native_build_start=' + json.dumps(self.report), flush=True)
+        return self
+
+    def attach(self, process):
+        self.process = process
+        if self.directory is not None:
+            try:
+                self.observer = subprocess.Popen([
+                    sys.executable, str(Path(__file__).with_name('package-ecs-resource-monitor.py')),
+                    '--out', str(self.directory / 'resources.json'), '--pid', str(process.pid),
+                    '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
+            except OSError as error:
+                self.warn(error)
+
+    def __exit__(self, kind, value, traceback):
+        if self.observer is not None:
+            try:
+                if self.observer.poll() is None:
+                    self.observer.terminate()
+                try:
+                    self.observer.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.observer.kill()  # Only our observer, never the build.
+                    self.observer.wait(timeout=3)
+                if self.observer.returncode:
+                    print(f'::warning::Build resource observer exited {self.observer.returncode}', flush=True)
+            except (OSError, subprocess.SubprocessError) as error:
+                self.warn(error)
+        if self.directory is not None:
+            try:
+                for path, identity in self.timing_files().items():
+                    if self.before.get(path) != identity:
+                        shutil.copy2(path, self.directory / path.name)
+                        self.report['timings'].append(path.name)
+            except OSError as error:
+                self.warn(error)
+            self.report['cargo_exit_code'] = self.process.returncode if self.process else None
+            self.report['status'] = 'success' if kind is None and self.report['cargo_exit_code'] == 0 else 'failure'
+            if kind is not None:
+                self.report['error_type'] = kind.__name__
+            self.write()
+            print('native_build_end=' + json.dumps(self.report), flush=True)
+        return False
+
+
+def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None):
     validate_plan_identity(plan)
     if scope != 'ordinary' and FORMAL_AUTHORITY is not None:
         formal_shards(plan)
@@ -764,6 +854,20 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
     (bundle / 'bin').mkdir()
     (bundle / 'lib').mkdir()
     env = build_environment(scope)
+    timing_directory = None
+    if diagnostics_dir is not None:
+        diagnostics_dir = Path(diagnostics_dir).resolve()
+        try:
+            diagnostics_dir.mkdir(parents=True, exist_ok=False)
+        except OSError as error:
+            print(f'::warning::Build diagnostics unavailable: {type(error).__name__}', flush=True)
+            diagnostics_dir = None
+        if diagnostics_dir is not None:
+            try:
+                metadata = json.loads(output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1']))
+                timing_directory = Path(metadata['target_directory']) / 'cargo-timings'
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+                print(f'::warning::Cargo timing directory unavailable: {type(error).__name__}', flush=True)
     cache_state = None
     if cache_state_path:
         selection = 'libraries' if scope == 'ordinary' else 'all'
@@ -790,8 +894,12 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
         started = time.monotonic()
         local_units = local_fresh = dependency_units = dependency_fresh = 0
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
+        if diagnostics_dir is not None:
+            command.append('--timings')
         print('+ ' + ' '.join(command), flush=True)
-        with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+        with BuildObservation(variant, diagnostics_dir, timing_directory) as observation, \
+                subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+            observation.attach(process)
             for line in process.stdout:
                 try:
                     artifact = json.loads(line)
@@ -1743,8 +1851,9 @@ def load(bundle, suite=None, shard=None, plan=None):
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     validate_ordinary_selection(manifest)
-    if manifest.get('scope') == 'storage' and manifest.get('schema_version') != 2:
-        raise ValueError('expected schema 2 storage artifact')
+    if manifest.get('scope') in ('formal', 'storage') and (
+            type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 2):
+        raise ValueError('expected schema 2 ' + manifest['scope'] + ' artifact')
     config = formal_configuration()
     expected = dict(tested_sha=output(['git', 'rev-parse', 'HEAD']),
                     source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -1771,12 +1880,10 @@ def load(bundle, suite=None, shard=None, plan=None):
         if not os.access(path, os.X_OK):
             raise ValueError('missing, invalid or corrupt executable')
         if manifest.get('schema_version') == 2:
-            scope = manifest.get('scope')
-            # Prior same-run artifacts retain their original debug profile and
-            # serial execution. New Formal producers declare the checked profile.
-            if scope == 'formal' and manifest.get('formal_execution_version') != 1:
-                scope = None
-            validate_profile(name, entry, scope)
+            # Execution capability controls scheduling, never profile identity.
+            # Original Formal bundles also used opt0; old opt2 must not be
+            # accepted by stripping or changing the execution-version marker.
+            validate_profile(name, entry, manifest.get('scope'))
     # env!(CARGO_BIN_EXE_*) embeds Cargo's original absolute binary path.
     # Restore only recorded executables under this checkout's target directory.
     for entry in selected.values():
@@ -2098,6 +2205,7 @@ def main():
     parser.add_argument('--max-bytes', type=int, default=8 * 1024 ** 3)
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--cache-state', type=Path)
+    parser.add_argument('--build-diagnostics', type=Path, help='new directory for per-Cargo timing and resource reports')
     parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
@@ -2162,7 +2270,7 @@ def main():
         args.output.write_text(''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in environment.items()))
         args.output.chmod(0o600)
     elif args.action == 'build':
-        build(args.bundle.resolve(), args.scope, args.cache_state, plan)
+        build(args.bundle.resolve(), args.scope, args.cache_state, plan, args.build_diagnostics)
     elif args.action == 'merge-formal':
         if not args.debug_bundle or not args.endpoint_bundle:
             parser.error('merge-formal requires --debug-bundle and --endpoint-bundle')

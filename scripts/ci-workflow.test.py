@@ -45,9 +45,9 @@ JOBS = workflow_jobs(WORKFLOW)
 
 
 def without_optional_dependency_cache_install(workflow):
-    # Only these exact optional installers may fail into a cold build. The
-    # component anchors include a strict writer condition; removing it, renaming
-    # the command, adding another copy or swallowing another step is not exempt.
+    # Only these exact optional installers and diagnostics uploads may fail.
+    # Removing a writer condition, renaming the command or swallowing any build,
+    # required artifact, merge or test failure is never exempt.
     for name in ('formal-debug-build', 'formal-endpoint-build'):
         job = re.search(r'^  ' + name + r':\n.*?(?=^  [a-z][a-z0-9-]*:|\Z)', workflow, re.M | re.S)
         if not job:
@@ -61,7 +61,18 @@ def without_optional_dependency_cache_install(workflow):
                      '        id: dependency-cache-tools\n' + condition +
                      '        continue-on-error: true\n'
                      '        run: python3 scripts/ci-rust-cache-admission.py install\n')
-        workflow = workflow[:job.start()] + job[0].replace(installer, '', 1) + workflow[job.end():]
+        component = name.removesuffix('-build')
+        diagnostics = (f'      - name: Upload {component} build diagnostics\n'
+                       '        if: always()\n'
+                       '        continue-on-error: true\n'
+                       '        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2\n'
+                       '        with:\n'
+                       f'          name: {component}-build-diagnostics-${{{{ github.sha }}}}-${{{{ github.run_attempt }}}}\n'
+                       f'          path: ${{{{ runner.temp }}}}/{component}-build-diagnostics\n'
+                       '          if-no-files-found: warn\n'
+                       '          retention-days: 2\n')
+        workflow = (workflow[:job.start()] + job[0].replace(installer, '', 1).replace(diagnostics, '', 1)
+                    + workflow[job.end():])
     return workflow
 
 
@@ -649,11 +660,40 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             with self.subTest(debug=debug, endpoint=endpoint):
                 self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
 
+    def test_formal_build_diagnostics_are_optional_without_hiding_required_failures(self):
+        for component, suffix in itertools.product(('debug', 'endpoint'), ('', '-trusted')):
+            job = JOBS[f'formal-{component}-build{suffix}']
+            build = job.split(f'      - name: Build and archive formal-{component} component\n', 1)[1].split('      - ', 1)[0]
+            self.assertIn(f'--build-diagnostics "$RUNNER_TEMP/formal-{component}-build-diagnostics"', build)
+            self.assertNotIn('continue-on-error:', build)
+            self.assertNotIn('|| true', build)
+            upload = job.split(f'      - name: Upload formal-{component} build diagnostics\n', 1)[1].split('      - ', 1)[0]
+            self.assertIn('        if: always()\n', upload)
+            self.assertIn('        continue-on-error: true\n', upload)
+            self.assertIn(f'          path: ${{{{ runner.temp }}}}/formal-{component}-build-diagnostics\n', upload)
+            self.assertIn(f'          name: formal-{component}-build-diagnostics-${{{{ github.sha }}}}-${{{{ github.run_attempt }}}}\n', upload)
+            self.assertIn('          if-no-files-found: warn\n', upload)
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+        mutations = (
+            WORKFLOW.replace('      - name: Build and archive formal-debug component\n',
+                             '      - name: Build and archive formal-debug component\n        continue-on-error: true\n', 1),
+            WORKFLOW.replace('      - name: Merge and pack formal process dependencies\n',
+                             '      - name: Merge and pack formal process dependencies\n        continue-on-error: true\n', 1),
+            WORKFLOW.replace('      - name: Upload formal-debug build diagnostics\n        if: always()\n',
+                             '      - name: Upload formal-debug build diagnostics\n        if: success()\n', 1),
+            WORKFLOW.replace('          path: ${{ runner.temp }}/formal-debug-build-diagnostics\n',
+                             '          path: ${{ runner.temp }}/formal-debug-tests.tar.gz\n', 1),
+        )
+        for workflow in mutations:
+            self.assertNotEqual(workflow, WORKFLOW, 'failure-propagation mutation did not change the workflow')
+            with self.assertRaisesRegex(ValueError, 'failure propagation'):
+                validate_candidate_graph(workflow, CONFIG)
+
     def test_formal_dependency_caches_match_the_real_component_profile_environment(self):
         import runpy
         build_environment = runpy.run_path(str(ROOT / 'scripts/ci-test-artifacts.py'))['build_environment']
         expected = {f'CARGO_PROFILE_{profile}_{field}': value for profile in ('DEV', 'TEST')
-                    for field, value in (('OPT_LEVEL', '2'), ('DEBUG_ASSERTIONS', 'true'),
+                    for field, value in (('OPT_LEVEL', '0'), ('DEBUG_ASSERTIONS', 'true'),
                                          ('OVERFLOW_CHECKS', 'true'))}
         for component in ('debug', 'endpoint'):
             bodies = []
