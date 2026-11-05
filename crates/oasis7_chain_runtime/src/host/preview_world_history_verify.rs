@@ -289,7 +289,7 @@ mod tests {
             &source,
             "deterministic_execution",
             17,
-            &"sensitive-local-detail".repeat(2000),
+            "sensitive-local-detail".repeat(2000),
         );
         let original = fs::read(&path).unwrap();
         assert_eq!(original.len(), 16 * 1024);

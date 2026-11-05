@@ -57,11 +57,13 @@ pub(super) fn verify(client: &RemoteWorldServiceClient) {
             == "Agent service preparation is blocked; original work remains pending";
         let pending = summary["publication_pending"] == true
             && summary["publication_capture_failed"] == false;
-        if !capture_seen && exact_prepare && pending {
-            if let Some(ticket) = summary["publication_ticket"].as_u64().filter(|v| *v != 0) {
-                capture_seen = true;
-                capture_drain = Some((ticket, summary.clone()));
-            }
+        if !capture_seen
+            && exact_prepare
+            && pending
+            && let Some(ticket) = summary["publication_ticket"].as_u64().filter(|v| *v != 0)
+        {
+            capture_seen = true;
+            capture_drain = Some((ticket, summary.clone()));
         }
         if let Some((ticket, original_error)) = &capture_drain {
             if exact_prepare && pending && summary["publication_ticket"].as_u64() == Some(*ticket) {
@@ -345,7 +347,7 @@ fn matches_capture_transition(
         || raw["prepared_request_context"] != recovery["active"]["request_context"]
         || raw["cognition_lease"]["agent_id"] != "agent-a"
         || raw["cognition_lease"]["lease_id"] != origin["lease_id"]
-        || !origin["lease_id"].as_str().is_some_and(|v| !v.is_empty())
+        || origin["lease_id"].as_str().is_none_or(|v| v.is_empty())
     {
         return false;
     }
@@ -399,9 +401,9 @@ fn expected_failed_publication(root: &std::path::Path, summary: &serde_json::Val
             != serde_json::json!({"ProviderError":{"code":"qa_known_nonretryable"}})
         || feedback["status"] != "failed"
         || feedback["reject_reason"] != "cognition_failed"
-        || !feedback["feedback_id"]
+        || feedback["feedback_id"]
             .as_str()
-            .is_some_and(|v| !v.is_empty())
+            .is_none_or(|v| v.is_empty())
         || terminal["feedback_id"] != feedback["feedback_id"]
     {
         return false;
@@ -521,9 +523,9 @@ fn durable_original_cleanup_complete(root: &std::path::Path, summary: &serde_jso
         || terminal["reject_reason"] != "cognition_failed"
         || terminal["feedback"]["status"] != "failed"
         || terminal["feedback"]["reject_reason"] != "cognition_failed"
-        || !terminal["feedback_id"]
+        || terminal["feedback_id"]
             .as_str()
-            .is_some_and(|v| !v.is_empty())
+            .is_none_or(|v| v.is_empty())
         || terminal["feedback_id"] != terminal["feedback"]["feedback_id"]
     {
         return false;
