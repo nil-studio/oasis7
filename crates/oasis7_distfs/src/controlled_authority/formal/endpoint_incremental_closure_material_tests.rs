@@ -347,8 +347,7 @@ fn signed_genesis_material_retains_real_native_artifact_proofs_and_rejects_wrong
         let mut file = executable.file();
         assert!(file.write_all(b"mutate sealed executable").is_err());
     }
-    #[cfg(not(target_os = "linux"))]
-    assert!(proof.sealed_executable().is_none());
+    assert_eq!(proof.sealed_executable().is_some(), cfg!(target_os = "linux"));
     let other = f::setup();
     assert!(check(&mut m, Some((&other.commit, &proof))).is_err());
     let same = formal::verify_formal_qualified(&m.s.proof, &m.s.authority, None, None).unwrap();
