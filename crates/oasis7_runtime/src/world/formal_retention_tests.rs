@@ -317,16 +317,14 @@ fn only_unreferenced_terminal_intents_are_candidates() {
         "open-effect".into(),
         intent("open-effect", "completed", Some("effect")),
     );
-    world
-        .pending_effects
-        .push_back(crate::EffectIntent {
-            birth_era: None,
-            intent_id: "effect".into(),
-            kind: "test".into(),
-            params: serde_json::Value::Null,
-            cap_ref: "cap".into(),
-            origin: crate::EffectOrigin::System,
-        });
+    world.pending_effects.push_back(crate::EffectIntent {
+        birth_era: None,
+        intent_id: "effect".into(),
+        kind: "test".into(),
+        params: serde_json::Value::Null,
+        cap_ref: "cap".into(),
+        origin: crate::EffectOrigin::System,
+    });
 
     let candidates = agent_intent_candidates(&world).unwrap();
     assert_eq!(

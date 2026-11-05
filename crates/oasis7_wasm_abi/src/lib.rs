@@ -7,6 +7,7 @@ mod canonical_cbor;
 mod canonical_cbor_stream;
 mod capability_v2;
 mod economy;
+pub mod module_raw_output;
 mod recipe_substitution;
 pub use canonical_cbor::encode_canonical_cbor;
 pub use canonical_cbor_stream::{

@@ -1,9 +1,9 @@
 use super::*;
-use oasis7_agent_api::world_action::GeoPos;
 use crate::{
     Action, CausedBy, DomainEvent, MaterialLedgerId, ProtocolPowerReserve, RewardAssetConfig,
     WorldEventBody,
 };
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_agent_api::world_action::ResourceKind;
 
 fn register(world: &mut World, id: &str) {

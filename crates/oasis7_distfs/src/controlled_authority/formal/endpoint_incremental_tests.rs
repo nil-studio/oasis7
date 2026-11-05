@@ -302,7 +302,9 @@ fn signed_iws_genesis_and_cancelled_prepare_never_write_incomplete_owner_receipt
         .unwrap();
     let rejected = endpoint.prepare(candidate).unwrap_err();
     assert!(
-        rejected.to_string().contains("IWS typed owner coverage"),
+        rejected
+            .to_string()
+            .contains("IWS complete Current limits required"),
         "{rejected}"
     );
     assert!(matches!(

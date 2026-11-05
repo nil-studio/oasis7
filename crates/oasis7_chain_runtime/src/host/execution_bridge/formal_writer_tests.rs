@@ -74,8 +74,9 @@ impl FormalDurabilityEndpoint for Endpoint {
         if !memory.closure_readback {
             return invalid();
         }
-        let Some(FormalRequestStateV1::Qualified { candidate, proof }) =
-            memory.entries.get(request)
+        let Some(FormalRequestStateV1::Qualified {
+            candidate, proof, ..
+        }) = memory.entries.get(request)
         else {
             return invalid();
         };
@@ -302,7 +303,11 @@ impl FormalDurabilityEndpoint for Endpoint {
         let candidate = m.candidate(&request)?;
         m.entries.insert(
             request,
-            FormalRequestStateV1::Qualified { candidate, proof },
+            FormalRequestStateV1::Qualified {
+                candidate,
+                proof,
+                ..
+            },
         );
         m.parent = verified;
         Ok(m.parent.head())

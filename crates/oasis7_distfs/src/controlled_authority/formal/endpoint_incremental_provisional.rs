@@ -87,17 +87,35 @@ pub(super) struct PreparedCandidateInstall {
     roots: ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
     cognition: PreparedCompleteCognitionHistoryPromotionV3,
     runtime: PreparedRuntimeHistorySourceV1,
+    complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
+    local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
 }
 pub(super) enum AcceptedCurrentOwner {
-    Candidate(ProvisionalCandidate), Cold(ReservedValue<oasis7_world_state::incremental_world_current_complete::WorldCurrentStateQualificationV1>) }
+    Candidate(ProvisionalCandidate),
+    Cold {
+        current: ReservedValue<oasis7_world_state::incremental_world_current_complete::WorldCurrentStateQualificationV1>,
+        results: ReservedValue<oasis7_world_state::incremental_world_result_router_accepted::AcceptedWorldResultRoutingV1>,
+    },
+}
 pub(super) struct AcceptedCandidateCache {
     pub(super) commit_record: [u8; 32],
     pub(super) current_owner: AcceptedCurrentOwner,
     pub(super) roots: ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
     pub(super) cognition: ReservedValue<CompleteCognitionHistorySourceV3>,
     pub(super) runtime: ReservedValue<AcceptedRuntimeHistorySourceV1>,
+    pub(super) complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
+    pub(super) local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
 }
 impl PreparedCandidateInstall {
+    pub(super) fn local_data_reference(
+        &self,
+        commit: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+    ) -> Result<Option<String>, super::FormalError> {
+        self.local_closure
+            .as_ref()
+            .map(|local| local.reference_for(commit).map(str::to_owned))
+            .transpose()
+    }
     pub(super) fn candidate_record_id(&self) -> [u8; 32] {
         self.provisional.core.candidate_record_id()
     }
@@ -142,7 +160,26 @@ impl PreparedCandidateInstall {
             roots,
             cognition,
             runtime,
+            complete_data: None,
+            local_closure: None,
         })
+    }
+    /// Only the private full consumer can supply this opaque byte closure.
+    pub(super) fn with_complete_data(
+        mut self,
+        data: ReservedValue<super::closure::CompleteDataClosureEvidenceV1>,
+        local: super::local_closure::PreparedLocalDataClosureV1,
+    ) -> Result<Self, super::FormalError> {
+        if local.candidate_record_id() != data.candidate_record_id()
+            || data.candidate_record_id() != self.provisional.core.candidate_record_id()
+            || data.body_id() != self.provisional.source.runtime().occurrence().body_id()
+            || data.roots_id() != self.provisional.source.runtime().occurrence().roots_id()
+        {
+            return Err(super::invalid("IWS prepared complete data binding"));
+        }
+        self.complete_data = Some(data);
+        self.local_closure = Some(local);
+        Ok(self)
     }
     /// Consumes an already genuinely verified commit; no output admission or IO.
     pub(super) fn finish(
@@ -160,11 +197,19 @@ impl PreparedCandidateInstall {
             roots: self.roots,
             cognition,
             runtime,
+            complete_data: self.complete_data,
+            local_closure: self.local_closure,
         })
     }
 }
 
 impl AcceptedCandidateCache {
+    pub(super) fn complete_data(
+        &self,
+    ) -> Option<&ReservedValue<super::closure::CompleteDataClosureEvidenceV1>> {
+        self.complete_data.as_ref()
+    }
+
     pub(super) fn current(
         &self,
     ) -> &ReservedValue<
@@ -172,7 +217,7 @@ impl AcceptedCandidateCache {
     > {
         match &self.current_owner {
             AcceptedCurrentOwner::Candidate(p) => p.source.current(),
-            AcceptedCurrentOwner::Cold(p) => p,
+            AcceptedCurrentOwner::Cold { current, .. } => current,
         }
     }
 
@@ -186,6 +231,15 @@ impl AcceptedCandidateCache {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
+        if self
+            .local_closure
+            .as_ref()
+            .is_some_and(|local| local.candidate_record_id() != self.commit_record)
+        {
+            return Err(ValueTreeError::Invalid(
+                "IWS accepted local data record binding",
+            ));
+        }
         if !self.current().uses_budget(memory)
             || !self.roots.uses_budget(memory)
             || !next.uses_budget(memory)
@@ -193,6 +247,15 @@ impl AcceptedCandidateCache {
             || next.parent_roots() != Some(&*self.roots)
         {
             return Err(ValueTreeError::Invalid("IWS private exact accepted parent"));
+        }
+        if let AcceptedCurrentOwner::Cold { results, .. } = &self.current_owner {
+            if !results.uses_budget(memory)
+                || results.allocation_class() != oasis7_proto::memory_budget::MemoryClass::Ordinary
+                || results.record_id() != self.commit_record
+                || results.body_id() != self.runtime.occurrence().head_body_id()
+            {
+                return Err(ValueTreeError::Invalid("IWS accepted cold Result binding"));
+            }
         }
         let _phase = memory.reserve(8192, oasis7_proto::memory_budget::MemoryClass::Ordinary)?;
         let body = next

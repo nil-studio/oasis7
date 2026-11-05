@@ -48,7 +48,7 @@ fn recipe_fixture() -> WorldState {
 
 fn recipe_started(job_id: ActionId, now: WorldTime) -> DomainEvent {
     DomainEvent::RecipeStarted {
-            emergency_power_obligation: None,
+        emergency_power_obligation: None,
         committed_recipe_origin: None,
         job_id,
         requester_agent_id: AGENT_ID.to_string(),

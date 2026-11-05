@@ -83,8 +83,8 @@ mod gameplay_layer;
 mod gameplay_loop;
 mod governance;
 mod governance_authorization;
-mod governance_finality_key_rotation;
 mod governance_bft_parent;
+mod governance_finality_key_rotation;
 mod governance_history;
 mod governance_history_snapshot;
 mod governance_identity_penalty;
@@ -1102,10 +1102,10 @@ mod participant_devlocal_tests;
 mod participant_devlocal;
 pub use participant_devlocal::DevLocalParticipantAuthority;
 
-pub mod incremental_body;
-pub mod incremental_body_event;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_action_original;
+pub mod incremental_body;
+pub mod incremental_body_event;
 mod incremental_module_fee;
 pub(crate) mod incremental_module_fee_accounts;
 pub(crate) mod incremental_module_fee_contribution;
@@ -1117,8 +1117,8 @@ pub mod incremental_step;
 pub mod incremental_agent_genesis;
 pub mod incremental_agent_verified_genesis;
 pub mod incremental_scheduler;
-pub mod incremental_scheduler_recovery;
 mod incremental_scheduler_index;
+pub mod incremental_scheduler_recovery;
 
 pub mod incremental_projection;
 
@@ -1141,27 +1141,33 @@ mod incremental_effect_records;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_capability_records;
-pub mod incremental_module_instance_change;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_module_instance_family;
-pub mod incremental_module_instance_genesis;
+pub mod incremental_genesis;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_genesis_instances;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_genesis_raw;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_genesis_typed;
+pub mod incremental_module_execution_authorization;
+pub mod incremental_module_execution_effects;
+mod incremental_module_execution_event;
+pub mod incremental_module_execution_fee;
+pub mod incremental_module_execution_manifest_hash;
+pub mod incremental_module_execution_output;
+pub mod incremental_module_instance_change;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod incremental_genesis;
-pub mod incremental_runtime_history_original;
-pub mod incremental_runtime_history_decode;
-pub mod incremental_runtime_history_source;
+pub mod incremental_module_instance_family;
+pub mod incremental_module_instance_genesis;
 mod incremental_module_instance_genesis_state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_module_instance_receiver;
 pub mod incremental_module_instance_recovery;
 pub mod incremental_module_invocation;
 pub mod incremental_module_read;
+pub mod incremental_runtime_history_decode;
+pub mod incremental_runtime_history_original;
+pub mod incremental_runtime_history_source;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_scheduler_controls;
 

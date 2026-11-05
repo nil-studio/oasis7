@@ -69,6 +69,22 @@ impl EndpointIwsState {
             .map_err(|_| invalid("IWS material reuse admission"))?;
         Ok(staged.material == material_digest(candidate, &mut staged.hash_bytes, cancelled)?)
     }
+    pub(super) fn local_data_reference(
+        &self,
+        commit: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+    ) -> Result<Option<String>, FormalError> {
+        let slot = self
+            .staged
+            .try_borrow()
+            .map_err(|_| invalid("IWS staged local closure borrow"))?;
+        let staged = slot
+            .as_ref()
+            .ok_or_else(|| invalid("IWS staged local closure missing"))?;
+        if staged.record != commit.verified_record_id() {
+            return Err(invalid("IWS staged local closure exact commit"));
+        }
+        staged.install.local_data_reference(commit)
+    }
     pub(super) fn ready(&self, record: [u8; 32]) -> Result<bool, FormalError> {
         Ok(self
             .staged
@@ -151,4 +167,31 @@ fn material_digest(
         return Err(invalid("IWS material digest poisoned"));
     }
     Ok(*sink.hash.finalize().as_bytes())
+}
+
+impl EndpointIwsState {
+    pub(super) fn restore_cold(
+        &self,
+        cache: AcceptedCandidateCache,
+        head: &VerifiedFormalCommitV1,
+    ) -> Result<(), FormalError> {
+        if cache.commit_record != head.verified_record_id() {
+            return Err(invalid("IWS cold install exact accepted head"));
+        }
+        let staged = self
+            .staged
+            .try_borrow()
+            .map_err(|_| invalid("IWS cold staged job borrow"))?;
+        if staged.is_some() {
+            return Err(invalid(
+                "IWS cold restore cannot replace a staged candidate",
+            ));
+        }
+        let mut parent = self
+            .accepted
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS cold parent cache borrow"))?;
+        *parent = Some(cache);
+        Ok(())
+    }
 }

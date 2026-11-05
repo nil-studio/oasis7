@@ -927,7 +927,8 @@ impl World {
         }
         if self.devlocal_participant_authority.is_some() {
             return Err(WorldError::DistributedValidationFailed {
-                reason: "rollback authority conflicts with explicit DevLocal participant authority".into(),
+                reason: "rollback authority conflicts with explicit DevLocal participant authority"
+                    .into(),
             });
         }
         self.rollback_authority_registry = registry;

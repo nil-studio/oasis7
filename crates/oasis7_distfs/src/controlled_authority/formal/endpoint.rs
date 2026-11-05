@@ -38,6 +38,10 @@ pub use archive_file::FileFormalArchiveSourceV1;
 mod business;
 #[path = "endpoint_incremental.rs"]
 mod incremental;
+#[cfg(not(target_arch = "wasm32"))]
+pub use incremental::{
+    IwsCandidateSourceWorkV1, IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1,
+};
 pub use incremental::{IwsEndpointVerificationBudgetsV1, IwsPageStoreCapabilityV1};
 #[path = "endpoint_durable_set_install.rs"]
 mod durable_set_install;
@@ -298,7 +302,10 @@ impl FileFormalEndpoint {
         provider: &fencing::MonotonicProviderEvidenceV1,
     ) -> Result<(), FormalError> {
         if let Some(entry) = self.store.head_entry()? {
-            let FormalRequestStateV1::Qualified { candidate, proof } = entry else {
+            let FormalRequestStateV1::Qualified {
+                candidate, proof, ..
+            } = entry
+            else {
                 return Err(invalid("formal checkpoint qualified entry"));
             };
             verify_record_material(&proof.decision.record, &candidate.material)?;
@@ -433,6 +440,7 @@ impl FileFormalEndpoint {
                 let FormalRequestStateV1::Qualified { proof, .. } = &entry else {
                     return Err(invalid("formal qualified state"));
                 };
+                next.data_closure = entry.local_data_closure_reference().map(str::to_owned);
                 next.head = FormalHeadRefV1 {
                     position: proof.decision.record.position,
                     record_id: proof.decision.record.record_id()?,
@@ -1115,8 +1123,21 @@ impl FileFormalEndpoint {
         // Any allocating Formal compatibility outputs are prepared before
         // the durable accepted checkpoint; IWS refinement itself only moves.
         let installed_head = verified.head();
+        #[cfg(not(target_arch = "wasm32"))]
+        let data_closure = if iws {
+            self.iws_local_data_reference(&verified)?
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let data_closure = None;
+
         self.write(
-            FormalRequestStateV1::Qualified { candidate, proof },
+            FormalRequestStateV1::Qualified {
+                candidate,
+                proof,
+                data_closure,
+            },
             true,
             guard.as_mut(),
         )?;

@@ -34,6 +34,8 @@ use std::{
     path::PathBuf,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
+#[path = "support/world_result_router_accepted.rs"]
+mod accepted_router;
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Directory(PathBuf);
 impl Directory {
@@ -390,6 +392,19 @@ fn actual_signed_genesis_result_router_requires_unique_both_views_and_closed_pro
         )
         .unwrap();
 
+        accepted_router::exercise(
+            mode,
+            &objects,
+            &store,
+            &mut io,
+            &memory,
+            &proof,
+            &s.authority,
+            &s.roots,
+            &genesis,
+            runtime_id,
+            &s.commit,
+        );
         let routed = route_checked_world_results_v1(
             &WorldResultRouterRequestV1 {
                 candidate: &candidate,

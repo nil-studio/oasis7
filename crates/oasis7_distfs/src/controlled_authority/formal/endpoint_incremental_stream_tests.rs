@@ -1,5 +1,6 @@
 use super::*;
 use oasis7_formal_protocol::controlled_authority::replicated_protocol::ArtifactObject;
+use oasis7_formal_protocol::incremental_value::ValueIoBudget;
 use std::io::{self, Write};
 
 struct PartialSink {
@@ -126,7 +127,8 @@ fn iws_endpoint_original_reader_joins_candidate_and_reopened_retained_objects() 
     };
     let cancelled = AtomicBool::new(false);
     {
-        let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
+        // Zstd encoding admits its fixed 16MiB workspace before page buffers.
+        let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let pages =
             IncrementalPageStore::create(&path, memory.clone(), PageCompression::Zstd).unwrap();
         let mut physical = quota();

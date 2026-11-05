@@ -26,7 +26,9 @@ const FRAME: usize = 65536;
 const MAX_OBJECTS: usize = 65536;
 #[path = "physical_batch.rs"]
 mod batch;
-pub(crate) use batch::read_durable_batch;
+#[path = "physical_metadata_preflight.rs"]
+mod metadata_preflight;
+pub(crate) use batch::{read_durable_batch, read_durable_batch_uncached};
 struct Span {
     id: String,
     start: u64,
@@ -574,7 +576,9 @@ pub use generation::FormalGenerationProgress;
 pub(crate) use generation::{
     GenerationBudget, GenerationSession, advance_with_budget, advance_with_session,
 };
-pub(super) use generation::{ids as logical_ids, selected_path, visit_ids as visit_logical_ids};
+pub(super) use generation::{
+    ids as logical_ids, selected_path, selected_path_uncached, visit_ids as visit_logical_ids,
+};
 
 #[path = "physical_span.rs"]
 mod span;
@@ -598,4 +602,9 @@ pub(super) fn publication_recovery_count_reset() {
 #[cfg(test)]
 pub(super) fn publication_recovery_count() -> u64 {
     publication::FULL_RECOVERY_PASSES.with(|count| count.get())
+}
+
+#[cfg(test)]
+pub(super) fn admitted_cache_accesses() -> (u64, u64) {
+    (recipe::cache_accesses(), generation::cache_accesses())
 }

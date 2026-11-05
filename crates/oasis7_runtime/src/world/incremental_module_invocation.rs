@@ -488,3 +488,7 @@ where
         }))
     })
 }
+
+#[path = "incremental_module_execution_selected.rs"]
+mod execution;
+pub use execution::execute_selected_root_module_output_v1;

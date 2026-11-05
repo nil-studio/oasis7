@@ -58,7 +58,7 @@ impl ModuleMarketplaceFamilyQualificationV1 {
         Ok(())
     }
 }
-fn identify(
+pub(super) fn identify(
     raw: &[u8],
 ) -> Result<Option<(usize, FieldDescriptor, WorldFieldKeyV1)>, WorldStateOwnerError> {
     if !raw.starts_with(b"oasis7.iws.world-field-key.v1\0") {

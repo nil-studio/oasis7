@@ -147,6 +147,7 @@ impl Corpus {
                 FormalRequestStateV1::Qualified {
                     candidate: candidate.clone(),
                     proof: proof.clone(),
+                    ..
                 },
             ];
             if let Some(frozen) = &candidate.frozen {

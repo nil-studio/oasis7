@@ -8,7 +8,8 @@ use oasis7_formal_protocol::{
     incremental_artifacts::OriginalArtifactRefV1,
     incremental_execution::RootSetV1,
     incremental_history::GenesisConfigV1,
-    incremental_value::{ValueIoBudget, ValueTreeError},
+    incremental_state::StatePageWriter,
+    incremental_value::{ValueIoBudget, ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
 use oasis7_runtime::{
@@ -82,6 +83,57 @@ pub(crate) fn prepare_runtime_genesis_index_v1<
     persist_action: &mut A,
     mailbox_original: &mut L,
 ) -> Result<ProvisionalRuntimeGenesisIndexV1, RuntimeGenesisPhysicalErrorV1> {
+    let RuntimeGenesisPhysicalBudgetsV1 {
+        producer_pages,
+        index_reads,
+        index_writes,
+        index,
+    } = physical;
+    let mut pages = store.value_session_with_cancelled(producer_pages, context.cancelled);
+    prepare_runtime_genesis_index_with_writer_v1(
+        world,
+        store,
+        config,
+        context,
+        work,
+        RuntimeGenesisIndexBudgetsV1 {
+            index_reads,
+            index_writes,
+            index,
+        },
+        &mut pages,
+        persist_artifact,
+        persist_action,
+        mailbox_original,
+    )
+}
+/// The same actual GEN kernel with a caller-owned charged page writer. This
+/// allows the Host to stream every nested record/value page to both replicas.
+pub(crate) struct RuntimeGenesisIndexBudgetsV1 {
+    pub index_reads: PageIoBudget,
+    pub index_writes: PageIoBudget,
+    pub index: GenesisIndexWorkV1,
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_runtime_genesis_index_with_writer_v1<
+    W: StatePageWriter
+        + ValueNodeReader
+        + oasis7_formal_protocol::incremental_schedule::SchedulePageWriter,
+    P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
+    A: FnMut(u64, &ActionEnvelope) -> Result<OriginalArtifactRefV1, ValueTreeError>,
+    L: FnMut(&str, u64, &DomainEvent) -> Result<[u8; 32], BodyMutationError>,
+>(
+    world: &World,
+    store: &IncrementalPageStore,
+    config: &GenesisConfigV1,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    work: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisIndexBudgetsV1,
+    pages: &mut W,
+    persist_artifact: &mut P,
+    persist_action: &mut A,
+    mailbox_original: &mut L,
+) -> Result<ProvisionalRuntimeGenesisIndexV1, RuntimeGenesisPhysicalErrorV1> {
     if context.cancelled.load(Ordering::Acquire) {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -96,12 +148,11 @@ pub(crate) fn prepare_runtime_genesis_index_v1<
         physical.index_writes,
         cancelled,
     )?;
-    let mut pages = store.value_session_with_cancelled(physical.producer_pages, cancelled);
     let mut summary = None;
     index.contribute::<RuntimeGenesisPhysicalErrorV1>(|sink| {
         let result = world.prepare_iws_genesis_v1(
             &mut MemberRecordWriteContext {
-                sink: &mut pages,
+                sink: &mut *pages,
                 memory: context.memory,
                 io: &mut *context.values,
                 key_work: &mut *context.keys,

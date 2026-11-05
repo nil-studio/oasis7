@@ -1,62 +1,158 @@
 //! Proof-bearing administration; issuer attests external completeness, quorum authorizes trust.
-use super::{World,WorldError};
-use crate::{CapabilityAuthorizationEvent,capability_authorization::CapabilityRevocationState};
-use crate::service_admission::{participant::*,participant_policy::*,request_digest};
+use super::{World, WorldError};
+use crate::service_admission::{participant::*, participant_policy::*, request_digest};
+use crate::{CapabilityAuthorizationEvent, capability_authorization::CapabilityRevocationState};
 use oasis7_client_api::world_service::private_goal::verify_owner_signature_strict;
 use std::collections::BTreeSet;
-fn error(s:impl Into<String>)->WorldError {WorldError::DistributedValidationFailed {reason:s.into()}}
+fn error(s: impl Into<String>) -> WorldError {
+    WorldError::DistributedValidationFailed { reason: s.into() }
+}
 impl World {
-    pub fn participant_registry_digest(&self)->Result<String,String> { request_digest("participant-registry",&self.capability_revocation_state.participants) }
-    /// Pins every legacy control source, including unbound Agents, without inferring external accounts.
-    pub fn participant_legacy_owner_state_digest(&self)->Result<String,String> {
-        request_digest("participant-legacy-owner-state",&(&self.state.agents.keys().collect::<Vec<_>>(),&self.state.starter_oc_claims,
-            &self.state.agent_claims,&self.capability_revocation_state.agent_identities,&self.state.world_rules))
+    pub fn participant_registry_digest(&self) -> Result<String, String> {
+        request_digest(
+            "participant-registry",
+            &self.capability_revocation_state.participants,
+        )
     }
-    pub fn install_participant_policy_with_finality_proof(&mut self,policy:ParticipantEntryPolicyV1,proof:ParticipantPolicyProofV1)->Result<(),WorldError> {
+    /// Pins every legacy control source, including unbound Agents, without inferring external accounts.
+    pub fn participant_legacy_owner_state_digest(&self) -> Result<String, String> {
+        request_digest(
+            "participant-legacy-owner-state",
+            &(
+                &self.state.agents.keys().collect::<Vec<_>>(),
+                &self.state.starter_oc_claims,
+                &self.state.agent_claims,
+                &self.capability_revocation_state.agent_identities,
+                &self.state.world_rules,
+            ),
+        )
+    }
+    pub fn install_participant_policy_with_finality_proof(
+        &mut self,
+        policy: ParticipantEntryPolicyV1,
+        proof: ParticipantPolicyProofV1,
+    ) -> Result<(), WorldError> {
         self.verify_capability_authorization_root()?;
-        self.append_capability_authorization_event_batch(vec![CapabilityAuthorizationEvent::ParticipantPolicyInstalled {policy,proof:Some(proof)}])?;
+        self.append_capability_authorization_event_batch(vec![
+            CapabilityAuthorizationEvent::ParticipantPolicyInstalled {
+                policy,
+                proof: Some(proof),
+            },
+        ])?;
         Ok(())
     }
-    pub(crate) fn validate_participant_policy_proof(&self,policy:&ParticipantEntryPolicyV1,proof:&ParticipantPolicyProofV1,install:bool)->Result<(),WorldError> {
-        let c=&proof.certificate;
-        if !self.governance_finality_epoch_snapshots.contains_key(&c.epoch_id) {return Err(error("participant policy historical finality snapshot missing"));}
-        let proposal=self.proposals.get(&c.proposal_id).ok_or_else(||error("participant policy finality proposal missing"))?;
-        let hash=match &proposal.status {
-            crate::governance::ProposalStatus::Approved {manifest_hash,..}|crate::governance::ProposalStatus::Applied {manifest_hash}=>manifest_hash,
-            _=>return Err(error("participant policy proposal is not approved"))
+    pub(crate) fn validate_participant_policy_proof(
+        &self,
+        policy: &ParticipantEntryPolicyV1,
+        proof: &ParticipantPolicyProofV1,
+        install: bool,
+    ) -> Result<(), WorldError> {
+        let c = &proof.certificate;
+        if !self
+            .governance_finality_epoch_snapshots
+            .contains_key(&c.epoch_id)
+        {
+            return Err(error(
+                "participant policy historical finality snapshot missing",
+            ));
+        }
+        let proposal = self
+            .proposals
+            .get(&c.proposal_id)
+            .ok_or_else(|| error("participant policy finality proposal missing"))?;
+        let hash = match &proposal.status {
+            crate::governance::ProposalStatus::Approved { manifest_hash, .. }
+            | crate::governance::ProposalStatus::Applied { manifest_hash } => manifest_hash,
+            _ => return Err(error("participant policy proposal is not approved")),
         };
         if crate::util::hash_json(&proposal.manifest)? != *hash {
-            return Err(error("participant policy approved proposal manifest hash mismatch"));
+            return Err(error(
+                "participant policy approved proposal manifest hash mismatch",
+            ));
         }
-        self.validate_governance_finality_certificate(c.proposal_id,hash,c.epoch_id,c)?;
-        if proposal.manifest.content.get("participant_policy_authorization") != Some(&policy_proposal_commitment(policy,&proof.manifest).map_err(error)?) {
-            return Err(error("participant policy proof is not committed by its approved proposal"));
+        self.validate_governance_finality_certificate(c.proposal_id, hash, c.epoch_id, c)?;
+        if proposal
+            .manifest
+            .content
+            .get("participant_policy_authorization")
+            != Some(&policy_proposal_commitment(policy, &proof.manifest).map_err(error)?)
+        {
+            return Err(error(
+                "participant policy proof is not committed by its approved proposal",
+            ));
         }
-        let signers:BTreeSet<_>=proof.signatures.keys().collect();
-        if signers != c.signatures.keys().collect() {return Err(error("participant policy proof signer set mismatch"));}
-        let domain=if install {PARTICIPANT_POLICY_INSTALL_DOMAIN} else {PARTICIPANT_POLICY_UPDATE_DOMAIN};
-        for (node,sig) in &proof.signatures {
-            let public=self.node_identity_public_key(node).ok_or_else(||error("participant policy signer unavailable"))?;
-            verify_owner_signature_strict(domain,&policy_signing_payload(policy,proof),public,sig).map_err(error)?;
+        let signers: BTreeSet<_> = proof.signatures.keys().collect();
+        if signers != c.signatures.keys().collect() {
+            return Err(error("participant policy proof signer set mismatch"));
+        }
+        let domain = if install {
+            PARTICIPANT_POLICY_INSTALL_DOMAIN
+        } else {
+            PARTICIPANT_POLICY_UPDATE_DOMAIN
+        };
+        for (node, sig) in &proof.signatures {
+            let public = self
+                .node_identity_public_key(node)
+                .ok_or_else(|| error("participant policy signer unavailable"))?;
+            verify_owner_signature_strict(
+                domain,
+                &policy_signing_payload(policy, proof),
+                public,
+                sig,
+            )
+            .map_err(error)?;
         }
         self.validate_participant_manifest(policy, &proof.manifest)
     }
-    pub(crate) fn validate_participant_manifest(&self,policy:&ParticipantEntryPolicyV1,manifest:&crate::service_admission::SignedReadRequest<ParticipantMigrationManifestV1>)->Result<(),WorldError> {
-        if manifest.subject_public_key != policy.issuer_public_key {return Err(error("participant migration issuer differs from policy"));}
-        verify_owner_signature_strict(PARTICIPANT_MIGRATION_MANIFEST_DOMAIN,&manifest.request,&manifest.subject_public_key,&manifest.signature_hex).map_err(error)?;
-        let m=&manifest.request;
-        if policy.api_rev != 1 || policy.generation == 0 || !policy.registry_complete
-            || policy.max_grant_ticks == 0 || policy.max_grant_ticks > 256 || policy.max_participants == 0
-            || policy.identity_namespace.instance_epoch.0 == 0 || policy.identity_namespace.service_id.trim().is_empty()
-            || policy.identity_namespace.environment_id.trim().is_empty() || policy.world_id != self.chain_resource_manifest.world_id
+    pub(crate) fn validate_participant_manifest(
+        &self,
+        policy: &ParticipantEntryPolicyV1,
+        manifest: &crate::service_admission::SignedReadRequest<ParticipantMigrationManifestV1>,
+    ) -> Result<(), WorldError> {
+        if manifest.subject_public_key != policy.issuer_public_key {
+            return Err(error("participant migration issuer differs from policy"));
+        }
+        verify_owner_signature_strict(
+            PARTICIPANT_MIGRATION_MANIFEST_DOMAIN,
+            &manifest.request,
+            &manifest.subject_public_key,
+            &manifest.signature_hex,
+        )
+        .map_err(error)?;
+        let m = &manifest.request;
+        if policy.api_rev != 1
+            || policy.generation == 0
+            || !policy.registry_complete
+            || policy.max_grant_ticks == 0
+            || policy.max_grant_ticks > 256
+            || policy.max_participants == 0
+            || policy.identity_namespace.instance_epoch.0 == 0
+            || policy.identity_namespace.service_id.trim().is_empty()
+            || policy.identity_namespace.environment_id.trim().is_empty()
+            || policy.world_id != self.chain_resource_manifest.world_id
             || self.chain_resource_manifest.genesis_ref.as_ref() != Some(&policy.genesis_digest)
-            || m.api_rev != 1 || !m.complete || m.identity_namespace != policy.identity_namespace
-            || m.world_id != policy.world_id || m.genesis_digest != policy.genesis_digest
-            || m.policy_digest != policy_digest(policy).map_err(error)? || m.source_snapshot_epoch == 0
-            || m.source_watermark.trim().is_empty() || m.source_watermark.len()>256
-            || !m.source_snapshot_digest.strip_prefix("blake3:").is_some_and(|h|h.len()==64 && h.bytes().all(|b|b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-            || m.entries.len()>4096 {
-            return Err(error("participant migration completeness or policy evidence invalid"));
+            || m.api_rev != 1
+            || !m.complete
+            || m.identity_namespace != policy.identity_namespace
+            || m.world_id != policy.world_id
+            || m.genesis_digest != policy.genesis_digest
+            || m.policy_digest != policy_digest(policy).map_err(error)?
+            || m.source_snapshot_epoch == 0
+            || m.source_watermark.trim().is_empty()
+            || m.source_watermark.len() > 256
+            || !m
+                .source_snapshot_digest
+                .strip_prefix("blake3:")
+                .is_some_and(|h| {
+                    h.len() == 64
+                        && h.bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                })
+            || m.entries.len() > 4096
+        {
+            return Err(error(
+                "participant migration completeness or policy evidence invalid",
+            ));
         }
         Ok(())
     }
@@ -250,33 +346,78 @@ pub(super) fn project_authorized_policy(
     } else if policy.generation != 1 || !registry.participants.is_empty() {
         return Err(error("participant initial policy registry conflict"));
     }
-    let mut accounts=BTreeSet::new();let mut agents=BTreeSet::new();
-    let mut imports=Vec::new();
+    let mut accounts = BTreeSet::new();
+    let mut agents = BTreeSet::new();
+    let mut imports = Vec::new();
     for signed in &m.entries {
-        let entry=&signed.request;let r=&entry.registration;r.validate().map_err(error)?;
-        verify_owner_signature_strict(PARTICIPANT_MIGRATION_OWNER_DOMAIN,entry,&signed.subject_public_key,&signed.signature_hex).map_err(error)?;
-        let key=account_key(r).map_err(error)?;let op=operation_key(r).map_err(error)?;
-        let owner=world.current_agent_owner(&entry.agent_id).ok_or_else(||error("participant migration current owner unavailable"))?;
-        let identity=world.current_agent_identity(&entry.agent_id).ok_or_else(||error("participant migration current identity unavailable"))?;
-        if r.world_id != policy.world_id || r.genesis_digest != policy.genesis_digest || r.identity_namespace != policy.identity_namespace
-            || signed.subject_public_key != r.owner_public_key || owner.public_key.as_ref()!=Some(&r.owner_public_key)
-            || owner.player_id != entry.owner_binding || identity.owner_binding != entry.owner_binding || identity.generation != entry.owner_generation
+        let entry = &signed.request;
+        let r = &entry.registration;
+        r.validate().map_err(error)?;
+        verify_owner_signature_strict(
+            PARTICIPANT_MIGRATION_OWNER_DOMAIN,
+            entry,
+            &signed.subject_public_key,
+            &signed.signature_hex,
+        )
+        .map_err(error)?;
+        let key = account_key(r).map_err(error)?;
+        let op = operation_key(r).map_err(error)?;
+        let owner = world
+            .current_agent_owner(&entry.agent_id)
+            .ok_or_else(|| error("participant migration current owner unavailable"))?;
+        let identity = world
+            .current_agent_identity(&entry.agent_id)
+            .ok_or_else(|| error("participant migration current identity unavailable"))?;
+        if r.world_id != policy.world_id
+            || r.genesis_digest != policy.genesis_digest
+            || r.identity_namespace != policy.identity_namespace
+            || signed.subject_public_key != r.owner_public_key
+            || owner.public_key.as_ref() != Some(&r.owner_public_key)
+            || owner.player_id != entry.owner_binding
+            || identity.owner_binding != entry.owner_binding
+            || identity.generation != entry.owner_generation
             || world.state.is_manufactured_agent(&entry.agent_id)
-            || world.state.agent_claims.get(&entry.agent_id).is_some_and(|claim|claim.claim_owner_id!=entry.agent_id || claim.control_source.is_some())
-            || !accounts.insert(key.clone()) || !agents.insert(entry.agent_id.clone())
-            || registry.participants.bindings.contains_key(&key) || registry.participants.operations.contains_key(&op)
-            || registry.participants.bindings.values().any(|b|b.agent_id==entry.agent_id) {
-            return Err(error("participant migration duplicate, owner or scope conflict"));
+            || world
+                .state
+                .agent_claims
+                .get(&entry.agent_id)
+                .is_some_and(|claim| {
+                    claim.claim_owner_id != entry.agent_id || claim.control_source.is_some()
+                })
+            || !accounts.insert(key.clone())
+            || !agents.insert(entry.agent_id.clone())
+            || registry.participants.bindings.contains_key(&key)
+            || registry.participants.operations.contains_key(&op)
+            || registry
+                .participants
+                .bindings
+                .values()
+                .any(|b| b.agent_id == entry.agent_id)
+        {
+            return Err(error(
+                "participant migration duplicate, owner or scope conflict",
+            ));
         }
-        let receipt=migration_receipt(entry,world.state.time).map_err(error)?;
-        imports.push((key,op,entry.clone(),receipt));
+        let receipt = migration_receipt(entry, world.state.time).map_err(error)?;
+        imports.push((key, op, entry.clone(), receipt));
     }
-    if registry.participants.bindings.len()+imports.len()>policy.max_participants as usize {return Err(error("participant migrated registry exceeds quota"));}
-    registry.participants.policy=Some(policy.clone());
-    for (key,op,entry,receipt) in imports {
-        registry.participants.migrated_bindings.insert(key.clone(),entry.clone());
-        registry.participants.bindings.insert(key,receipt.clone());
-        registry.participants.operations.insert(op,ParticipantOperationV1 {request:entry.registration,receipt});
+    if registry.participants.bindings.len() + imports.len() > policy.max_participants as usize {
+        return Err(error("participant migrated registry exceeds quota"));
+    }
+    registry.participants.policy = Some(policy.clone());
+    for (key, op, entry, receipt) in imports {
+        registry
+            .participants
+            .migrated_bindings
+            .insert(key.clone(), entry.clone());
+        registry.participants.bindings.insert(key, receipt.clone());
+        registry.participants.operations.insert(
+            op,
+            ParticipantOperationV1 {
+                request: entry.registration,
+                receipt,
+            },
+        );
     }
     Ok(())
 }

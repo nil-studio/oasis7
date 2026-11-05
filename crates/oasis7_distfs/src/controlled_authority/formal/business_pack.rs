@@ -361,8 +361,7 @@ pub(crate) fn persist(
 }
 // The physical selector was absent inside the caller's pinned batch. Inspect
 // raw/legacy pack bounds before allocating a logical object, not afterwards.
-#[cfg(any(not(unix), test))]
-pub(super) fn read_legacy_durable_expected(
+pub(crate) fn read_legacy_durable_expected(
     path: &Path,
     id: &str,
     expected: usize,

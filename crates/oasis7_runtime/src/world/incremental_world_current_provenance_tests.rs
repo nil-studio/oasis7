@@ -11,6 +11,75 @@ use oasis7_formal_protocol::{
     incremental_history::*,
     incremental_material::*,
 };
+/// Local protocol adapter: only fixed-format Formal wire objects may use
+/// bounded owned reads. Large WorldEvent/other business CBOR must still stream.
+pub(crate) struct HeaderOriginals<'a> {
+    pub values: &'a BTreeMap<[u8; 32], ReservedValue<Vec<u8>>>,
+    pub memory: &'a MemoryBudget,
+    pub class: MemoryClass,
+    pub calls: usize,
+}
+impl OriginalObjectReader for HeaderOriginals<'_> {
+    type Error = &'static str;
+    fn allocation_budget(&self) -> &MemoryBudget {
+        self.memory
+    }
+    fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
+    fn read_original(
+        &mut self,
+        id: &[u8; 32],
+        max: usize,
+        memory: &MemoryBudget,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, Self::Error> {
+        if !memory.same_pool(self.memory) {
+            return Err("Formal header pool");
+        }
+        let bytes = self.values.get(id).ok_or("missing Formal header")?;
+        // Formal typed wire has this explicit domain prefix. A canonical
+        // WorldEvent CBOR map can never acquire the header owned-read route.
+        if !bytes.starts_with(b"oasis7.iws.") {
+            return Err("business original must stream");
+        }
+        if bytes.len() > max
+            || max > oasis7_formal_protocol::incremental_execution::EXECUTION_MAX_RECORD_BYTES
+        {
+            return Err("Formal header bound");
+        }
+        let charge = memory
+            .reserve(
+                bytes
+                    .len()
+                    .checked_add(128)
+                    .ok_or("Formal header allocation overflow")?,
+                self.class,
+            )
+            .map_err(|_| "Formal header memory")?;
+        Ok(Arc::new(charge.retain(bytes.to_vec())))
+    }
+}
+impl OriginalObjectStreamReader for HeaderOriginals<'_> {
+    fn stream_original(
+        &mut self,
+        id: &[u8; 32],
+        max: u64,
+        memory: &MemoryBudget,
+        out: &mut dyn std::io::Write,
+    ) -> Result<u64, Self::Error> {
+        self.calls += 1;
+        if !memory.same_pool(self.memory) {
+            return Err("original pool");
+        }
+        let bytes = self.values.get(id).ok_or("missing original")?;
+        if bytes.len() as u64 > max {
+            return Err("original bound");
+        }
+        out.write_all(bytes).map_err(|_| "original output")?;
+        Ok(bytes.len() as u64)
+    }
+}
+
 pub(crate) struct Frame {
     _catalog_charge: oasis7_proto::memory_budget::MemoryReservation,
     pub config: GenesisConfigV1,
@@ -116,7 +185,7 @@ fn checked(
         memory,
         class: MemoryClass::Ordinary,
     };
-    let mut objects = Originals {
+    let mut objects = HeaderOriginals {
         values: objects,
         memory,
         class: MemoryClass::Ordinary,

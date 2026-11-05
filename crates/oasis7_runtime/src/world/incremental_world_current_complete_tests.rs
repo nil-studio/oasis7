@@ -121,7 +121,7 @@ pub(super) fn exercise(
             class: MemoryClass::Ordinary,
         };
         let scratch = Scratch::new(memory, MemoryClass::Ordinary);
-        let mut objects = Originals {
+        let mut objects = protocol::HeaderOriginals {
             values: &all_originals,
             memory,
             class: MemoryClass::Ordinary,
@@ -294,7 +294,7 @@ pub(super) fn exercise(
         let once = counted.reads.replace(0);
         assert!(once > 0);
         let scratch = Scratch::new(memory, MemoryClass::Ordinary);
-        let mut objects = Originals {
+        let mut objects = protocol::HeaderOriginals {
             values: &all_originals,
             memory,
             class: MemoryClass::Ordinary,
@@ -331,7 +331,7 @@ pub(super) fn exercise(
             class: MemoryClass::Recovery,
         };
         let scratch = Scratch::new(memory, MemoryClass::Recovery);
-        let mut objects = Originals {
+        let mut objects = protocol::HeaderOriginals {
             values: &all_originals,
             memory,
             class: MemoryClass::Recovery,

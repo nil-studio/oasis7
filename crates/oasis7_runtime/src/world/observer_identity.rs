@@ -134,7 +134,10 @@ pub struct ObserverAuthorityIdentity {
 }
 impl World {
     pub fn observer_authority_identity(&self) -> Result<ObserverAuthorityIdentity, WorldError> {
-        Ok(ObserverAuthorityIdentity { authority_digest: self.observer_authority_digest()?, position: self.last_journal_event_position() })
+        Ok(ObserverAuthorityIdentity {
+            authority_digest: self.observer_authority_digest()?,
+            position: self.last_journal_event_position(),
+        })
     }
     pub(crate) fn observer_authority_digest(&self) -> Result<String, WorldError> {
         let mut output = HashWriter(blake3::Hasher::new());

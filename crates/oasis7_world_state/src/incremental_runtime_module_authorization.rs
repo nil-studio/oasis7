@@ -286,3 +286,9 @@ mod tests {
 }
 
 pub(crate) use family::accept_module_authorization_verified_v1;
+
+#[path = "incremental_runtime_module_authorization_selected.rs"]
+mod selected;
+pub use selected::{
+    open_module_authorization_body_overlay_v1, read_module_policy_length_overlay_v1,
+};

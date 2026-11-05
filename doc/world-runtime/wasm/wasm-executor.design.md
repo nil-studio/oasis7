@@ -35,6 +35,27 @@
 - `max_gas=0` 回退到配置 fuel；epoch 与 memory limiter 保证可抢占和有界资源。
 - compiled cache 按 engine/OS/arch 隔离，损坏缓存降级为 miss；storage lifecycle 仍由 root world-runtime authority 拥有。
 
+### 根存储模块调用的原始输出与内存边界
+
+Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；适用预算由
+[增量世界存储 §8.2](../runtime/incremental-world-state-storage.design.md#iws-resource-budgets) 声明。
+
+根存储调用使用独立的 `ModuleSandboxRawOutputV1` 能力。真实执行器复用原 VM
+执行段，在 typed 输出解码前将实际结果交给 `ModuleRawOutputSinkV1`；旧
+`ModuleSandbox` 实现不自动获得该能力。接收端只接受一次完整输出，未回调、重复
+回调、取消、限额和解码失败均不能取得输出。调用、结构扫描及原件工作额度连续
+消费；typed 分配前按闭合 DTO 布局准入，返回的输出及诊断持有自身费用。
+
+两条执行入口共用原 effects/emits/output 限额判定，保留原业务失败身份和错误
+语义。根事务 owner 还须完成授权、费用、状态、effects、事件及生命周期贡献，
+并在封存前重新读取实际 live fence。存储或准入错误不得被通用业务错误映射吞掉，
+从而作为正常 `ModuleCallFailed` 接受；原始输出本身不授予调用或发布权限。
+
+线性内存和输出 buffer 的预付只覆盖对应工作集。`max_cache_entries` 只是条目
+上限；fuel、epoch 和 StoreLimits 不提供编译器、JIT、磁盘 compiled artifact
+解码及缓存字节的统一进程预算。完整启用仍须使这些实际消费者符合上述预算合同，
+不能以输出准入、缓存条目数或组件测试替代该条件。
+
 ### Wasmtime Cargo 功能选择与执行兼容
 
 执行器使用 Core WASM、Cranelift 和同步 `Module/Store/Linker/TypedFunc` 调用。

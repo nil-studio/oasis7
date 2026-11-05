@@ -985,3 +985,9 @@ pub use family::{
 };
 
 pub(crate) use family::accept_module_marketplace_family_verified_v1;
+
+#[path = "incremental_module_marketplace_visual.rs"]
+mod visual;
+pub use visual::{
+    ModuleVisualOverlayErrorV1, ModuleVisualOverlayWorkV1, change_module_visual_overlay_v1,
+};

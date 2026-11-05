@@ -18,9 +18,14 @@ impl World {
         match event {
             GovernanceEvent::ValidatorFinalityKeyRotated { authorization } => {
                 let record = self.prepare_finality_key_rotation(
-                    &authorization.action, &authorization.authorization,
+                    &authorization.action,
+                    &authorization.authorization,
                 )?;
-                let id = record.body().map_err(|reason| WorldError::GovernancePolicyInvalid { reason })?.rotation_id.clone();
+                let id = record
+                    .body()
+                    .map_err(|reason| WorldError::GovernancePolicyInvalid { reason })?
+                    .rotation_id
+                    .clone();
                 rotations.insert(id, record);
             }
             GovernanceEvent::RestrictedStarterClaimAdminRegistryUpdated {

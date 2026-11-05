@@ -388,8 +388,7 @@ impl World {
         }
         let mut transaction = self.clone();
         let envelope = AgentDecisionEnvelopeV1 {
-            schema_version: crate::cognition::AGENT_DECISION_ENVELOPE_V1_SCHEMA
-                .to_string(),
+            schema_version: crate::cognition::AGENT_DECISION_ENVELOPE_V1_SCHEMA.to_string(),
             world_id: base_binding.world_id.clone(),
             agent_id: request.agent_id,
             branch_id: base_binding.branch_id.clone(),

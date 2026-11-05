@@ -267,6 +267,69 @@ impl Store {
         }
         decode(&bytes)
     }
+    /// Fixed local metadata uses a fresh admitted uncached physical read; it
+    /// cannot export parsed recipes into the old unmetered process cache.
+    pub(super) fn put_local_closure_record(
+        &self,
+        value: &super::incremental::local_closure::LocalDataClosureRecordV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<String, FormalError> {
+        use oasis7_proto::memory_budget::MemoryClass;
+        if cancelled() {
+            return Err(invalid("local closure write cancelled"));
+        }
+        let directory = self.path.join("formal-objects-v1");
+        // Actual physical metadata has the same fixed 2*65536-entry and 16MiB
+        // parse bounds as the native exact chunk bridge. No cache escapes.
+        let physical = super::super::physical::enabled(&directory)?;
+        let phase_bytes = if physical {
+            128usize * 1024 * 1024
+        } else {
+            16usize * 1024
+        };
+        let _phase = memory
+            .reserve(phase_bytes, MemoryClass::Ordinary)
+            .map_err(|_| invalid("local closure uncached physical admission"))?;
+        let bytes = encode(value)?;
+        if bytes.len() > 4096 {
+            return Err(invalid("local closure fixed record bound"));
+        }
+        let id = blake3::hash(&bytes).to_hex().to_string();
+        let target = directory.join(&id);
+        let _writer = super::super::physical::publication_guard(&directory)?;
+        let previous = if physical {
+            super::super::physical::read_durable_batch_uncached(
+                &directory,
+                &[(target.clone(), id.clone(), bytes.len())],
+            )?
+            .pop()
+            .ok_or_else(|| invalid("local closure physical read coverage"))?
+        } else {
+            None
+        };
+        let previous = match previous {
+            Some(previous) => Some(previous),
+            None => super::super::business_pack::read_legacy_durable_expected(
+                &target,
+                &id,
+                bytes.len(),
+            )?,
+        };
+        match previous {
+            Some(previous) if previous == bytes => sync(&directory)?,
+            Some(_) => return Err(invalid("local closure immutable bytes differ")),
+            None => Self::atomic(&directory, &target, &bytes)?,
+        }
+        if physical {
+            super::super::physical::roots::retain(&directory, std::slice::from_ref(&id))?;
+        }
+        if cancelled() {
+            return Err(invalid("local closure write final cancellation"));
+        }
+        Ok(id)
+    }
+
     pub fn put<T: Serialize>(&self, value: &T) -> Result<String, FormalError> {
         let bytes = encode(value)?;
         let id = blake3::hash(&bytes).to_hex().to_string();
@@ -341,6 +404,16 @@ impl Store {
         self.validate_refs(&self.body)
     }
     fn validate_refs(&self, body: &HotBody) -> Result<(), FormalError> {
+        if let Some(reference) = &body.data_closure {
+            hash_hex(reference)?;
+            if body.head_node.is_none() {
+                return Err(invalid("local data closure requires local Qualified head"));
+            }
+            let record: super::incremental::local_closure::LocalDataClosureRecordV1 =
+                self.get(reference)?;
+            record.validate_scope(body)?;
+        }
+
         if body.head.position > 0
             && (body.index.is_none()
                 || (body.head_node.is_none() && body.imported_head_node.is_none()))
@@ -374,6 +447,9 @@ impl Store {
                 return Err(invalid("formal head/node"));
             }
             let entry: FormalRequestStateV1 = self.get(&node.entry)?;
+            if entry.local_data_closure_reference() != body.data_closure.as_deref() {
+                return Err(invalid("local data closure checkpoint/Qualified mismatch"));
+            }
             if !matches!(entry, FormalRequestStateV1::Qualified { .. })
                 || entry.position() != node.head.position
                 || entry.request_digest() != node.request

@@ -161,8 +161,8 @@ pub use world::{
 };
 pub use world::{
     incremental_action_original, incremental_genesis, incremental_genesis_raw,
-    incremental_genesis_typed, incremental_runtime_history_original, incremental_runtime_history_source,
-    incremental_runtime_history_decode,
+    incremental_genesis_typed, incremental_runtime_history_decode,
+    incremental_runtime_history_original, incremental_runtime_history_source,
 };
 
 // Consensus
@@ -512,6 +512,7 @@ pub use oasis7_world_state::incremental_authorization_mapsets;
 
 pub use world::incremental_commit::{
     CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
+    prepare_iws_runtime_commit_v1,
 };
 
 pub use oasis7_world_state::incremental_factory_authority_records;
@@ -585,3 +586,9 @@ pub use world::incremental_scheduler_recovery::{
 };
 
 pub use oasis7_world_state::incremental_cognition_history;
+
+pub use world::incremental_module_execution_authorization::*;
+pub use world::incremental_module_execution_effects::*;
+pub use world::incremental_module_execution_fee::contribute_root_module_fee_and_event_v1;
+pub use world::incremental_module_execution_manifest_hash::*;
+pub use world::incremental_module_execution_output::*;

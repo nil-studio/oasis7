@@ -17,8 +17,13 @@ pub struct ObserverLoadControl {
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 impl ObserverLoadControl {
-    pub fn from_shared_cancellation(cancelled: Arc<std::sync::atomic::AtomicBool>) -> Self { Self { cancelled } }
-    pub fn cancel(&self) { self.cancelled.store(true, std::sync::atomic::Ordering::SeqCst); }
+    pub fn from_shared_cancellation(cancelled: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        Self { cancelled }
+    }
+    pub fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 #[derive(Debug)]
 pub enum ObserverLoadError {

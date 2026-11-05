@@ -273,6 +273,103 @@ fn runtime_label<C: FnMut() -> bool>(
         _ => None,
     })
 }
+
+/// Shared bounded stream/hash admission. Failure spends its whole admitted
+/// bound; success refunds only the unused bound. No read_original shortcut.
+pub(super) fn read_world_router_original_v1<O: OriginalObjectStreamReader, C: FnMut() -> bool>(
+    objects: &mut O,
+    id: &[u8; 32],
+    bound: usize,
+    exact: bool,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    remaining: &mut u64,
+    cancelled: &mut C,
+) -> Result<ReservedValue<Vec<u8>>, WorldResultRouterErrorV1<O::Error>> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    if objects.allocation_class() != class || !objects.allocation_budget().same_pool(memory) {
+        return Err(invalid().into());
+    }
+    *remaining = remaining
+        .checked_sub(bound as u64)
+        .ok_or(ValueTreeError::ResourceLimited("Result original bytes"))?;
+    let charge = memory
+        .reserve(bound.checked_add(1024).ok_or_else(invalid)?, class)
+        .map_err(ValueTreeError::Memory)?;
+    let mut raw = Vec::with_capacity(bound);
+    let mut allowance = bound as u64;
+    let mut sink = Sink {
+        bytes: &mut raw,
+        expected: bound,
+        hash: blake3::Hasher::new(),
+        remaining: &mut allowance,
+        cancelled,
+        stopped: None,
+    };
+    let observed = objects.stream_original(id, bound as u64, memory, &mut sink);
+    if let Some(error) = sink.stopped.take() {
+        return Err(error.into());
+    }
+    let observed = observed.map_err(WorldResultRouterErrorV1::Original)?;
+    let hash = sink.hash.finalize();
+    if observed != raw.len() as u64 || (exact && raw.len() != bound) || hash.as_bytes() != id {
+        return Err(invalid().into());
+    }
+    *remaining = remaining.checked_add(allowance).ok_or_else(invalid)?;
+    Ok(charge.retain(raw))
+}
+
+/// The single closed classification kernel for candidate and accepted results.
+/// Callers must first authenticate the actual original ID/length and occurrence.
+pub(super) fn classify_world_result_original_v1<C: FnMut() -> bool>(
+    mut raw: &[u8],
+    id: [u8; 32],
+    roots: [u8; 32],
+    memory: &MemoryBudget,
+    class: MemoryClass,
+    work: &mut WorldResultRouterWorkV1,
+    cancelled: &mut C,
+) -> Result<WorldResultProfileV1, ValueTreeError> {
+    let profile = if raw.starts_with(COGNITION_HISTORY_VIEW_V3_MAGIC) {
+        let decoded = decode_cognition_history_view_v3(raw, memory, class, cancelled)?;
+        if decoded.view.roots != roots {
+            return Err(invalid());
+        }
+        WorldResultProfileV1::CognitionHistoryV3
+    } else if raw.starts_with(RUNTIME_HISTORY_MAGIC_V1) {
+        let decoded = RuntimeHistoryManifestV1::from_canonical_bytes(raw)?;
+        if decoded.roots != roots {
+            return Err(invalid());
+        }
+        WorldResultProfileV1::RuntimeHistoryV1
+    } else if let Some(kind) = runtime_label(raw, &mut work.envelope, cancelled)? {
+        let profile = match kind {
+            RuntimeHistoryDecodeKindV1::Snapshot => WorldResultProfileV1::SnapshotV1,
+            RuntimeHistoryDecodeKindV1::Tick => WorldResultProfileV1::TickV1,
+            RuntimeHistoryDecodeKindV1::Audit => WorldResultProfileV1::AuditV1,
+        };
+        decode_runtime_history_original_v1(kind, raw, memory, class, &mut work.runtime, cancelled)?;
+        profile
+    } else {
+        verify_cognition_history_original_record_schema_v1(
+            CognitionOriginalCborRequestV1 {
+                field: CognitionHistoryFieldV1::Responses,
+                id,
+                bytes: raw.len() as u64,
+            },
+            &mut raw,
+            memory,
+            class,
+            &mut work.cognition,
+            cancelled,
+        )?;
+        WorldResultProfileV1::CognitionResponseV1
+    };
+    Ok(profile)
+}
+
 pub fn route_checked_world_results_v1<O: OriginalObjectStreamReader, C: FnMut() -> bool>(
     request: &WorldResultRouterRequestV1<'_>,
     objects: &mut O,
@@ -334,78 +431,34 @@ pub fn route_checked_world_results_v1<O: OriginalObjectStreamReader, C: FnMut() 
             return Err(ValueTreeError::ResourceLimited("Result original limit").into());
         }
         let length = usize::try_from(length).map_err(|_| invalid())?;
-        let _raw_charge = memory
-            .reserve(
-                length.checked_add(1024).ok_or_else(invalid)?,
-                MemoryClass::Ordinary,
-            )
-            .map_err(ValueTreeError::Memory)?;
-        let mut raw = Vec::with_capacity(length);
-        let mut sink = Sink {
-            bytes: &mut raw,
-            expected: length,
-            hash: blake3::Hasher::new(),
-            remaining: &mut work.facts.original_bytes_remaining,
-            cancelled: &mut cancelled,
-            stopped: None,
-        };
-        let observed = objects.stream_original(&fact.id, length as u64, memory, &mut sink);
-        if let Some(error) = sink.stopped.take() {
-            return Err(error.into());
-        }
-        let observed = observed.map_err(WorldResultRouterErrorV1::Original)?;
-        let streamed_hash = sink.hash.finalize();
-        if observed != length as u64 || raw.len() != length || streamed_hash.as_bytes() != &fact.id
-        {
-            return Err(invalid().into());
-        }
-        let profile = if raw.starts_with(COGNITION_HISTORY_VIEW_V3_MAGIC) {
-            let decoded = decode_cognition_history_view_v3(
-                &raw,
-                memory,
-                MemoryClass::Ordinary,
-                &mut cancelled,
-            )?;
-            if decoded.view.roots != roots || cognition.replace(rows.len()).is_some() {
+        let raw = read_world_router_original_v1(
+            objects,
+            &fact.id,
+            length,
+            true,
+            memory,
+            MemoryClass::Ordinary,
+            &mut work.facts.original_bytes_remaining,
+            &mut cancelled,
+        )?;
+        let profile = classify_world_result_original_v1(
+            &raw,
+            fact.id,
+            roots,
+            memory,
+            MemoryClass::Ordinary,
+            work,
+            &mut cancelled,
+        )?;
+        match profile {
+            WorldResultProfileV1::CognitionHistoryV3 if cognition.replace(rows.len()).is_some() => {
                 return Err(invalid().into());
             }
-            WorldResultProfileV1::CognitionHistoryV3
-        } else if raw.starts_with(RUNTIME_HISTORY_MAGIC_V1) {
-            let decoded = RuntimeHistoryManifestV1::from_canonical_bytes(&raw)?;
-            if decoded.roots != roots || runtime.replace(rows.len()).is_some() {
+            WorldResultProfileV1::RuntimeHistoryV1 if runtime.replace(rows.len()).is_some() => {
                 return Err(invalid().into());
             }
-            WorldResultProfileV1::RuntimeHistoryV1
-        } else if let Some(kind) = runtime_label(&raw, &mut work.envelope, &mut cancelled)? {
-            let profile = match kind {
-                RuntimeHistoryDecodeKindV1::Snapshot => WorldResultProfileV1::SnapshotV1,
-                RuntimeHistoryDecodeKindV1::Tick => WorldResultProfileV1::TickV1,
-                RuntimeHistoryDecodeKindV1::Audit => WorldResultProfileV1::AuditV1,
-            };
-            decode_runtime_history_original_v1(
-                kind,
-                &raw,
-                memory,
-                MemoryClass::Ordinary,
-                &mut work.runtime,
-                &mut cancelled,
-            )?;
-            profile
-        } else {
-            verify_cognition_history_original_record_schema_v1(
-                CognitionOriginalCborRequestV1 {
-                    field: CognitionHistoryFieldV1::Responses,
-                    id: fact.id,
-                    bytes: length as u64,
-                },
-                &mut raw.as_slice(),
-                memory,
-                MemoryClass::Ordinary,
-                &mut work.cognition,
-                &mut cancelled,
-            )?;
-            WorldResultProfileV1::CognitionResponseV1
-        };
+            _ => {}
+        }
         if rows.len() >= count {
             return Err(invalid().into());
         }

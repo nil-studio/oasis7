@@ -51,7 +51,8 @@ pub struct RuntimeTypedGenesisWorkV1 {
     pub governance: RuntimeGovernanceWorkV1,
     pub rollback: RollbackWorkV1,
     pub scheduler_controls: RuntimeSchedulerControlsWorkV1,
-    pub pending_actions: oasis7_world_state::incremental_runtime_pending_action_record::PendingActionWriteWorkV1,
+    pub pending_actions:
+        oasis7_world_state::incremental_runtime_pending_action_record::PendingActionWriteWorkV1,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuntimeTypedGenesisSummaryV1 {
@@ -312,7 +313,10 @@ impl World {
         W: StatePageWriter + ValueNodeReader,
         C: FnMut() -> bool,
         P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
-        A: FnMut(u64, &oasis7_world_state::ActionEnvelope) -> Result<OriginalArtifactRefV1, ValueTreeError>,
+        A: FnMut(
+            u64,
+            &oasis7_world_state::ActionEnvelope,
+        ) -> Result<OriginalArtifactRefV1, ValueTreeError>,
         S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
     >(
         &self,

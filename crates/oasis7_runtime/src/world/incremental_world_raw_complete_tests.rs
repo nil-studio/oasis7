@@ -1,5 +1,5 @@
 //! Actual Runtime raw GEN, mixed raw transaction, cold qualification and admission.
-use super::complete::{Originals, Reader, context, io};
+use super::complete::{Reader, context, io};
 use super::*;
 use oasis7_formal_protocol::{
     incremental_execution::*,
@@ -15,6 +15,7 @@ use oasis7_world_state::{
     incremental_runtime_allocators_family::RuntimeAllocatorsWorkV1,
     incremental_world_raw_complete::*,
 };
+use protocol::HeaderOriginals as Originals;
 use std::{cell::RefCell, sync::Arc};
 fn scan() -> StateScanBudget {
     StateScanBudget {
@@ -182,6 +183,39 @@ impl<'a> Binder<'a> {
         }
     }
 }
+struct EventBytesSink<'a> {
+    bytes: &'a mut Vec<u8>,
+    bound: usize,
+    cancelled: &'a mut dyn FnMut() -> bool,
+    failed: bool,
+}
+impl std::io::Write for EventBytesSink<'_> {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        if self.failed {
+            return Err(std::io::Error::other("Event stream poisoned"));
+        }
+        self.failed = true;
+        if (self.cancelled)() {
+            return Err(std::io::Error::other("Event stream cancelled"));
+        }
+        let b = &b[..b
+            .len()
+            .min(oasis7_formal_protocol::incremental_value::VALUE_CHUNK_BYTES)];
+        if b.len() > self.bound.saturating_sub(self.bytes.len()) {
+            return Err(std::io::Error::other("Event stream bound"));
+        }
+        self.bytes.extend_from_slice(b);
+        self.failed = false;
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.failed {
+            Err(std::io::Error::other("Event stream poisoned"))
+        } else {
+            Ok(())
+        }
+    }
+}
 impl<O: oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader>
     MailboxWorldEventOriginalReaderV1<O> for Binder<'_>
 {
@@ -201,15 +235,47 @@ impl<O: oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader
         use oasis7_formal_protocol::incremental_material::*;
         use oasis7_world_state::incremental_world_event_decode::*;
         self.calls += 1;
-        let raw = objects
-            .read_original(
-                &reference.original,
-                usize::try_from(work.max_original_bytes).map_err(|_| {
-                    MailboxWorldEventOriginalErrorV1::Invalid("mailbox original bound")
-                })?,
-                memory,
+        let bound = usize::try_from(
+            work.max_original_bytes
+                .min(self.facts.original_bytes_remaining),
+        )
+        .map_err(|_| MailboxWorldEventOriginalErrorV1::Invalid("mailbox original bound"))?;
+        if bound == 0 {
+            return Err(MailboxWorldEventOriginalErrorV1::Value(
+                ValueTreeError::ResourceLimited("mailbox stream bytes"),
+            ));
+        }
+        self.facts.original_bytes_remaining -= bound as u64;
+        let raw_charge = memory
+            .reserve(
+                bound
+                    .checked_add(128)
+                    .ok_or(MailboxWorldEventOriginalErrorV1::Invalid(
+                        "mailbox stream allocation",
+                    ))?,
+                class,
             )
+            .map_err(|e| MailboxWorldEventOriginalErrorV1::Value(ValueTreeError::Memory(e)))?;
+        let mut bytes = Vec::with_capacity(bound);
+        let mut sink = EventBytesSink {
+            bytes: &mut bytes,
+            bound,
+            cancelled,
+            failed: false,
+        };
+        let observed = objects
+            .stream_original(&reference.original, bound as u64, memory, &mut sink)
             .map_err(MailboxWorldEventOriginalErrorV1::Source)?;
+        if sink.failed
+            || observed != bytes.len() as u64
+            || blake3::hash(&bytes).as_bytes() != &reference.original
+        {
+            return Err(MailboxWorldEventOriginalErrorV1::Invalid(
+                "mailbox stream identity",
+            ));
+        }
+        self.facts.original_bytes_remaining += (bound - bytes.len()) as u64;
+        let raw = raw_charge.retain(bytes);
         let zero = oasis7_wasm_abi::CanonicalCborWorkV1 {
             visits_remaining: 0,
             bytes_remaining: 0,
@@ -544,7 +610,10 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
         )
         .unwrap();
         assert_eq!(binder.calls, 1);
-        assert_eq!(objects.calls, 1);
+        assert_eq!(
+            objects.calls, 1,
+            "one actual mailbox WorldEvent; Action cause is identity only"
+        );
         assert_eq!(result.mailbox_reference_count(), 1);
         assert_eq!(result.schedule().entries(), 1);
         result
@@ -711,7 +780,10 @@ fn runtime_raw_complete_nonempty_genesis_mixed_wake_state_instance_mailbox_and_r
     after.validate_binding(&sealed.record.after).unwrap();
     assert_eq!(after.mailbox_reference_count(), 2);
     assert_eq!(binder.calls, 1, "unchanged old mailbox original inherited");
-    assert_eq!(objects.calls, 1);
+    assert_eq!(
+        objects.calls, 1,
+        "one actual mailbox WorldEvent; Action cause is identity only"
+    );
     assert_eq!(after.schedule().entries(), 1);
     let rec_reader = Reader {
         pages: &pages,

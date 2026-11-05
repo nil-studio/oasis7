@@ -1,5 +1,6 @@
 //! Sandbox execution scaffolding for WASM modules.
 
+mod incremental_output;
 mod metrics;
 
 pub use metrics::{
@@ -36,13 +37,6 @@ use std::time::Instant;
 const COMPILED_CACHE_MAGIC: &[u8; 8] = b"O7CWASM1";
 #[cfg(feature = "wasmtime")]
 const COMPILED_CACHE_VERSION: u32 = 1;
-
-fn count_exceeds_limit(count: usize, limit: u32) -> bool {
-    match u32::try_from(count) {
-        Ok(value) => value > limit,
-        Err(_) => true,
-    }
-}
 
 /// A sandbox stub that always returns a fixed result.
 #[derive(Debug, Clone)]
@@ -601,29 +595,8 @@ impl WasmExecutor {
         request: &ModuleCallRequest,
         output: &ModuleOutput,
     ) -> Result<(), ModuleCallFailure> {
-        let limits = &request.limits;
-        if count_exceeds_limit(output.effects.len(), limits.max_effects) {
-            return Err(self.failure(
-                request,
-                ModuleCallErrorCode::EffectLimitExceeded,
-                "effects exceeded",
-            ));
-        }
-        if count_exceeds_limit(output.emits.len(), limits.max_emits) {
-            return Err(self.failure(
-                request,
-                ModuleCallErrorCode::EmitLimitExceeded,
-                "emits exceeded",
-            ));
-        }
-        if output.output_bytes > limits.max_output_bytes {
-            return Err(self.failure(
-                request,
-                ModuleCallErrorCode::OutputTooLarge,
-                "output bytes exceeded",
-            ));
-        }
-        Ok(())
+        oasis7_wasm_abi::module_raw_output::validate_module_output_limits_v1(request, output)
+            .map_err(|(code, detail)| self.failure(request, code, detail))
     }
 
     #[cfg_attr(not(feature = "wasmtime"), allow(dead_code))]
@@ -664,6 +637,35 @@ impl WasmExecutor {
 
 impl ModuleSandbox for WasmExecutor {
     fn call(&mut self, request: &ModuleCallRequest) -> Result<ModuleOutput, ModuleCallFailure> {
+        self.call_with_raw_output(request, |output_buf| {
+            #[cfg(feature = "wasmtime")]
+            let decode_started = Instant::now();
+            let mut output: ModuleOutput = serde_cbor::from_slice(output_buf).map_err(|err| {
+                #[cfg(feature = "wasmtime")]
+                #[cfg(feature = "wasmtime")]
+                metrics::observe_wasm_executor_decode(&self.metrics, elapsed_ms(decode_started));
+                self.failure(
+                    request,
+                    ModuleCallErrorCode::InvalidOutput,
+                    format!("output CBOR decode failed: {err}"),
+                )
+            })?;
+            #[cfg(feature = "wasmtime")]
+            metrics::observe_wasm_executor_decode(&self.metrics, elapsed_ms(decode_started));
+            output.output_bytes = output_buf.len() as u64;
+            self.validate_output_limits(request, &output)?;
+            Ok(output)
+        })
+    }
+}
+impl WasmExecutor {
+    fn call_with_raw_output<T>(
+        &self,
+        request: &ModuleCallRequest,
+        consume: impl FnOnce(&[u8]) -> Result<T, ModuleCallFailure>,
+    ) -> Result<T, ModuleCallFailure> {
+        #[cfg(not(feature = "wasmtime"))]
+        let _ = &consume;
         let total_started = Instant::now();
         #[cfg(feature = "wasmtime")]
         {
@@ -931,23 +933,7 @@ impl ModuleSandbox for WasmExecutor {
                         "execution exceeded max_call_ms",
                     ));
                 }
-                let decode_started = Instant::now();
-                let mut output: ModuleOutput =
-                    serde_cbor::from_slice(&output_buf).map_err(|err| {
-                        metrics::observe_wasm_executor_decode(
-                            &self.metrics,
-                            elapsed_ms(decode_started),
-                        );
-                        self.failure(
-                            request,
-                            ModuleCallErrorCode::InvalidOutput,
-                            format!("output CBOR decode failed: {err}"),
-                        )
-                    })?;
-                metrics::observe_wasm_executor_decode(&self.metrics, elapsed_ms(decode_started));
-                output.output_bytes = output_buf.len() as u64;
-                self.validate_output_limits(request, &output)?;
-                Ok(output)
+                consume(&output_buf)
             })();
             metrics::observe_wasm_executor_call_result(
                 &self.metrics,

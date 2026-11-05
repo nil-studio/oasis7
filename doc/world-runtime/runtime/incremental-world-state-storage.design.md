@@ -267,6 +267,17 @@ Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-2d77214a-6c57-4
 
 枚举次数、成员/引用数、逻辑读取字节、内存和删除操作分别有显式上限；排序/集合仅在已预付的固定上界内执行。删除前完整预检，建立固定域的耐久 retire 标记后禁止新页面发布；中断重开允许读取原页，但新写继续受标记阻止。恢复重新验证全部当前 recipe/闭包，不复用旧删除列表。标记初始化的原 magic 真前缀可在独占锁下完成，其他内容明确拒绝；每次实际 unlink 后同步目录；恢复已有标记时，即使当前孤立库存为空，也须重新同步 frames 目录后才可解除隔离。标记 open 尚未成功的初始化失败返回 NotStarted，不声称 writer 已隔离；已创建或已有标记的失败保留 Incomplete。返回已执行数量与同步状态，取消/失败不得报成未改变。最终移除 retire 标记后，root 同步错误或末取消独立返回 Finalization：安全删除已结束，但最终化未正常回执，标记可能已经解除，不能再宣称 writer 仍隔离；重做须完整重验现闭包。原件能力创建、单页/批量页及原件 locator 发布均服从相同 retire fence。多轮继续后无引用 frame 名称收敛；pack 共享 inode 仍有其他名称时不宣称物理空间已释放。完整逻辑 GC、在线并行根保护和 staging 作业清理仍按本节总合同另行接通。
 
+<a id="iws-local-durable-closure"></a>
+#### 本域完整数据闭包的冷恢复凭据
+
+Trace refs: O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接本节保留与恢复合同。
+
+逻辑 accepted head、进程内校验进度或重新打开的 lease 不单独证明本域已有完整持久闭包。需要冷恢复继承时，本域数据闭包记录只能由同一真实候选的完整 Current、双 History、闭合 Result 分派、native/artifact 原件及实际页面、原件 locator 和目录增量同步结果构造。记录分别绑定 Formal record ID、CommitBody ID、RootSet ID、所选 History 来源及受保护页面/native 命名空间身份；不得用其中一个 ID 代替另一个，不保存覆盖全部历史的展开清单。
+
+闭包记录先在本域受保护控制存储中持久化，其摘要再与真正 Qualified checkpoint 的本地元数据在同一 monotonic publication fence 下绑定。该绑定不修改共识 wire；旧格式无该绑定时的编码保持不变。未完成数据闭包不得生成承诺，已有进程内 proof 或 unsigned 诊断文件不能补作该承诺；数据闭包也不授予业务执行或 receipt 权限。
+
+冷读者核验原本域签名/fence、精确 accepted head 与闭包摘要，并以实际打开的句柄核对同一受保护命名空间及有效 lease。只有已证明保持全部引用的发布、替代表示和保留操作可延续该闭包。未知维护状态、退休、替换的命名空间或不完整复制阻止继承；需要完整同步或重建时如实执行并报告，不能称为 C<T 恢复。后继 Ordinary 只继承这份真实父闭包，并核验和持久化新增引用，不重新扫描未变的 S/H。原件流能够读完并通过 hash 仍不足替代 locator、获胜物理表示及目录的持久同步。
+
 <a id="iws-resource-budgets"></a>
 ### 8.2 页面、事务与操作预算
 

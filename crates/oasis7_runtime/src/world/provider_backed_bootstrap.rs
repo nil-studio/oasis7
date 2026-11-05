@@ -283,8 +283,8 @@ fn bootstrap_denied(reason: impl Into<String>) -> WorldError {
 
 #[cfg(test)]
 mod tests {
-    use oasis7_agent_api::world_action::GeoPos;
     use crate::{Action, ChainResourceDerivationContext, World};
+    use oasis7_agent_api::world_action::GeoPos;
     use oasis7_wasm_abi::CapabilityPresenter;
     use std::fs;
 

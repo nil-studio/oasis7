@@ -23,7 +23,8 @@ mod header_parent;
 pub(super) struct BftGovernanceParentV2 {
     pub(super) schedule: BftGovernanceSchedule,
     pub(super) controller_registry: Option<GovernanceMainTokenControllerRegistry>,
-    pub(super) rotation_parent: super::governance_finality_key_rotation::FinalityKeyRotationParentV1,
+    pub(super) rotation_parent:
+        super::governance_finality_key_rotation::FinalityKeyRotationParentV1,
     pub(super) formal_handoff: Option<FormalBftHandoffBinding>,
     execution: Option<(RuntimeCommittedTickContext, bool)>,
 }

@@ -72,6 +72,7 @@ fn manifest(root: &Path, id: &str) -> Result<Manifest, FormalError> {
     if blake3::hash(&bytes).to_hex().as_str() != id {
         return Err(invalid("generation manifest checksum"));
     }
+    metadata_preflight::check(&bytes, META_LIMIT)?;
     let value: Manifest = serde_cbor::from_slice(&bytes).map_err(io)?;
     if value.version != 3 {
         return Err(invalid("generation manifest schema"));
@@ -81,6 +82,12 @@ fn manifest(root: &Path, id: &str) -> Result<Manifest, FormalError> {
     Ok(value)
 }
 pub(crate) fn selected_path(path: &Path, id: &str) -> Result<PathBuf, FormalError> {
+    selected_path_inner(path, id, true)
+}
+pub(crate) fn selected_path_uncached(path: &Path, id: &str) -> Result<PathBuf, FormalError> {
+    selected_path_inner(path, id, false)
+}
+fn selected_path_inner(path: &Path, id: &str, use_cache: bool) -> Result<PathBuf, FormalError> {
     hash_hex(id)?;
     let root = path
         .parent()
@@ -90,7 +97,7 @@ pub(crate) fn selected_path(path: &Path, id: &str) -> Result<PathBuf, FormalErro
     };
     let selected = manifest(root, &generation)?;
     let dir = root.join(GENERATIONS).join(generation);
-    if catalog::contains(&dir, &selected.catalogs, id)? {
+    if catalog::contains_with_cache(&dir, &selected.catalogs, id, use_cache)? {
         let logical = dir.join(id);
         let regular = |path: &Path| -> Result<bool, FormalError> {
             match fs::symlink_metadata(path) {
@@ -488,3 +495,8 @@ fn advance_inner(
 #[cfg(test)]
 #[path = "physical_generation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(super) fn cache_accesses() -> u64 {
+    catalog::cache_accesses()
+}

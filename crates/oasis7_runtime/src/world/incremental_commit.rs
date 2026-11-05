@@ -164,89 +164,101 @@ impl ParentCommitView<'_> {
 }
 
 impl World {
-    /// All nested runtime entrypoints in apply borrow this same transaction.
-    /// Facts persist through their actual owner; this never clones World or
-    /// reads the hot journal. The live fence comes from the original adapter.
+    /// Compatibility adapter for callers which still own a materialized World.
+    /// Root-backed drivers use prepare_iws_runtime_commit_v1 directly.
     pub fn prepare_iws_commit<R: MerkleNodeReader, E: From<ExecutionError>>(
         &self,
         request: &CommitPreparationRequest<'_>,
         source: &R,
         memory: &MemoryBudget,
-        mut live_fence: impl FnMut() -> Result<ExecutionFence, E>,
+        live_fence: impl FnMut() -> Result<ExecutionFence, E>,
         apply: impl FnOnce(&World, &mut ExecutionTransaction<'_, R>) -> Result<(), E>,
     ) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
-        let mut workspace = memory
-            .reserve(64 * 1024, MemoryClass::Ordinary)
-            .map_err(ExecutionError::Memory)?;
-        if source
-            .allocation_budget()
-            .is_some_and(|pool| !pool.same_pool(memory))
-        {
-            return Err(ExecutionError::Invalid("driver source memory pool").into());
-        }
-        let parent_commit =
-            request
-                .parent
-                .validate(source, memory, request.limits.max_pending_node_bytes)?;
-        let parent = ExecutionParent {
-            commit: parent_commit,
-            roots: request.parent.roots.clone(),
-            authority: request.parent.authority,
-        };
-        let mut txn =
-            ExecutionTransaction::begin(parent, request.operation, source, memory, request.limits)?;
-        let fence = txn.parent_fence();
-        if fence != live_fence()? {
-            return Err(ExecutionError::ParentConflict.into());
-        }
-        txn.contribute(|txn| apply(self, txn))?;
-        let guard = txn.guard();
-        let transition = txn.seal(&guard, &live_fence()?, request.next_tick)?;
-        let history = HeaderPreparation {
-            config: request.parent.config,
-            catalog: request.parent.catalog,
-            roots: &transition.record.after,
-            parent: Some(request.parent.body),
-            parent_history: Some(request.parent.history),
-            transition: Some(&transition.record),
-            genesis_facts: &[],
-            operation: request.operation,
-            authority: request.parent.authority,
-            execution_environment: request.execution_environment,
-            checkpoint: request.checkpoint,
-        }
-        .prepare(memory)?;
-        let catalog = request.parent.catalog.extend(
-            &history.body,
-            source,
-            memory,
-            request.limits.max_pending_node_bytes,
-        )?;
-        let mut encoding = memory
-            .reserve(4096, MemoryClass::Ordinary)
-            .map_err(ExecutionError::Memory)?;
-        let roots = transition.record.after.canonical_bytes()?;
-        let root_charge = encoding
-            .split(roots.capacity())
-            .map_err(ExecutionError::Invalid)?;
-        let root_set_bytes = root_charge.retain(roots);
-        let bytes = catalog.after.canonical_bytes()?;
-        let catalog_charge = encoding
-            .split(bytes.capacity())
-            .map_err(ExecutionError::Invalid)?;
-        let catalog_bytes = catalog_charge.retain(bytes);
-        let prepared = PreparedRuntimeCommit {
-            transition,
-            history,
-            catalog,
-            root_set_bytes,
-            catalog_bytes,
-            fence,
-        };
-        prepared.validate_live_fence(&live_fence()?)?;
-        let charge = workspace
-            .split(std::mem::size_of::<PreparedRuntimeCommit>() + 64)
-            .map_err(ExecutionError::Invalid)?;
-        Ok(charge.retain(prepared))
+        prepare_iws_runtime_commit_v1(request, source, memory, live_fence, |txn| apply(self, txn))
     }
+}
+
+/// Prepare one parent-bound candidate without constructing or retaining World.
+/// The caller supplies real root-backed business contributions in this sole
+/// transaction. This does not issue execution legality, acceptance or a head.
+pub fn prepare_iws_runtime_commit_v1<R: MerkleNodeReader, E: From<ExecutionError>>(
+    request: &CommitPreparationRequest<'_>,
+    source: &R,
+    memory: &MemoryBudget,
+    mut live_fence: impl FnMut() -> Result<ExecutionFence, E>,
+    apply: impl FnOnce(&mut ExecutionTransaction<'_, R>) -> Result<(), E>,
+) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
+    let mut workspace = memory
+        .reserve(64 * 1024, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    if source
+        .allocation_budget()
+        .is_some_and(|pool| !pool.same_pool(memory))
+    {
+        return Err(ExecutionError::Invalid("driver source memory pool").into());
+    }
+    let parent_commit =
+        request
+            .parent
+            .validate(source, memory, request.limits.max_pending_node_bytes)?;
+    let parent = ExecutionParent {
+        commit: parent_commit,
+        roots: request.parent.roots.clone(),
+        authority: request.parent.authority,
+    };
+    let mut txn =
+        ExecutionTransaction::begin(parent, request.operation, source, memory, request.limits)?;
+    let fence = txn.parent_fence();
+    if fence != live_fence()? {
+        return Err(ExecutionError::ParentConflict.into());
+    }
+    txn.contribute(apply)?;
+    let guard = txn.guard();
+    let transition = txn.seal(&guard, &live_fence()?, request.next_tick)?;
+    let history = HeaderPreparation {
+        config: request.parent.config,
+        catalog: request.parent.catalog,
+        roots: &transition.record.after,
+        parent: Some(request.parent.body),
+        parent_history: Some(request.parent.history),
+        transition: Some(&transition.record),
+        genesis_facts: &[],
+        operation: request.operation,
+        authority: request.parent.authority,
+        execution_environment: request.execution_environment,
+        checkpoint: request.checkpoint,
+    }
+    .prepare(memory)?;
+    let catalog = request.parent.catalog.extend(
+        &history.body,
+        source,
+        memory,
+        request.limits.max_pending_node_bytes,
+    )?;
+    let mut encoding = memory
+        .reserve(4096, MemoryClass::Ordinary)
+        .map_err(ExecutionError::Memory)?;
+    let roots = transition.record.after.canonical_bytes()?;
+    let root_charge = encoding
+        .split(roots.capacity())
+        .map_err(ExecutionError::Invalid)?;
+    let root_set_bytes = root_charge.retain(roots);
+    let bytes = catalog.after.canonical_bytes()?;
+    let catalog_charge = encoding
+        .split(bytes.capacity())
+        .map_err(ExecutionError::Invalid)?;
+    let catalog_bytes = catalog_charge.retain(bytes);
+    let prepared = PreparedRuntimeCommit {
+        transition,
+        history,
+        catalog,
+        root_set_bytes,
+        catalog_bytes,
+        fence,
+    };
+    prepared.validate_live_fence(&live_fence()?)?;
+    let charge = workspace
+        .split(std::mem::size_of::<PreparedRuntimeCommit>() + 64)
+        .map_err(ExecutionError::Invalid)?;
+    Ok(charge.retain(prepared))
 }
