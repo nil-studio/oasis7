@@ -141,7 +141,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -218,7 +218,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -285,7 +285,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true
@@ -432,7 +432,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           save-if: false
           cache-on-failure: false
           add-rust-environment-hash-key: true

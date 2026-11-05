@@ -76,7 +76,7 @@ def observed_inventory():
     for number, size, group in ((5, 865_504_918, 'b'), (6, 865_609_559, 'b'),
                                 (7, 897_049_399, 'a')):
         result.append(entry('ecs', number, key=key('ecs', number, group), size_in_bytes=size))
-    fixed = ((8, 'v0-rust-ci-shared-native-trusted-v3-Linux-x64-aaaaaaaa-bbbbbbbb', 2_461_139_163),
+    fixed = ((8, 'v0-rust-ci-shared-native-trusted-v4-Linux-x64-aaaaaaaa-bbbbbbbb', 2_461_139_163),
              (9, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-aaaaaaaa-bbbbbbbb', 689_000_000),
              (10, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-cccccccc-bbbbbbbb', 689_559_258),
              (11, 'node-cache-audit-fixture', 120_724_290), (12, 'trunk-archive-audit-fixture', 1),
@@ -106,7 +106,7 @@ def dependency_growth_inventory():
                         size_in_bytes=722_718_920,
                         created_at='2026-10-23T00:00:00Z', last_accessed_at='2026-10-23T00:00:00Z')
     entries.append(entry('ordinary', 15,
-        key='v0-rust-ci-shared-native-trusted-v3-Linux-x64-aaaaaaaa-cccccccc',
+        key='v0-rust-ci-shared-native-trusted-v4-Linux-x64-aaaaaaaa-cccccccc',
         size_in_bytes=2_463_911_046,
         created_at='2026-10-23T01:00:00Z', last_accessed_at='2026-10-23T01:00:00Z'))
     return entries
@@ -129,7 +129,7 @@ def release_growth_inventory():
         (3, 'wasm-bindgen-audit', 8_685_766, 'wasm-bindgen'),
         (4, 'node-cache-audit', 103_942_381, 'node'),
         (5, 'v0-rust-oasis7-ecs-native-linux-ecs-v2-Linux-x64-0f3c0684-d1b19d89', 722_718_920, 'linux-dependency'),
-        (6, 'v0-rust-ci-shared-native-trusted-v3-Linux-x64-74e29871-d1b19d89', 2_463_911_046, 'linux-dependency'),
+        (6, 'v0-rust-ci-shared-native-trusted-v4-Linux-x64-74e29871-d1b19d89', 2_463_911_046, 'linux-dependency'),
         (7, 'v0-rust-release-packages-web-wasm-trusted-v3-Linux-x64-c417280c-d3e1a87f', 578_693_347, 'linux-dependency'),
         (8, 'v0-rust-release-packages-package-native-Windows-native-trusted-v2-Windows_NT-x64-c3622651-5afab5d8',
          594_105_718, 'windows-dependency'),
@@ -545,15 +545,15 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
         environment = dict(GITHUB_ACTIONS='true', RUNNER_OS='Linux', RUNNER_ARCH='X64',
             GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main',
             GITHUB_SHA=sha, GITHUB_WORKFLOW_SHA=sha, GITHUB_RUN_ID='42', GITHUB_EVENT_NAME='schedule',
-            GITHUB_JOB='full-regression',
-            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            GITHUB_JOB='shared-native-cache',
+            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main',
             OASIS7_DEPENDENCY_CACHE_FAMILY='shared-native',
             OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES=str(REPOSITORY_LIMIT))
-        environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v3'
+        environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v4'
         api = capacity_api({'max_cache_size_gb': 10}, entries)
         api.repository = 'nil-studio/oasis7'
         run = dict(id=42, head_sha=sha, head_branch='main', event='schedule',
-                   path='.github/workflows/rust.yml', repository={'full_name': api.repository})
+                   path='.github/workflows/rust-cache.yml', repository={'full_name': api.repository})
 
         def request(method, path):
             if method == 'GET' and path == '/actions/runs/42':
@@ -569,7 +569,8 @@ class ReleaseCapacityLifecycleTests(unittest.TestCase):
             # estimate. No original cache data or remote upload is reproduced.
             with archive.open('wb') as output:
                 output.truncate(2_463_911_046)
-            result = admission.check_archive(archive, environment, api)
+            with patch.object(admission.subprocess, 'check_output', return_value=sha):
+                result = admission.check_archive(archive, environment, api)
         api.delete_cache.assert_not_called()
         return result
 

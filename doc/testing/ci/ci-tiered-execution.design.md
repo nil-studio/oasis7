@@ -286,7 +286,7 @@ periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、�
 
 有界 inline 计划通过 `ordinary_clippy_group=rust_baseline` 将 strict Clippy 移到已有并行任务，缩短 native 构建和测试前的串行路径；不新增 job，也不改变 target、features 或 lint 参数。两个执行组都读取同一可信计划，核对 source/tested 身份后再判断唯一执行方；迁移要求计划同时选择 `rust_baseline` 与 `oasis7_required`，任一组失败仍由原 required gate 阻断。已知能力中的非法执行组、缺失所需组或不适用 profile 必须失败；缺少该字段时保留 ordinary 组内 Clippy，未知整数能力与旧计划继续使用原执行路径，不能让两个组都跳过。full 保留原 Clippy 全集及精确快速变体补充。
 
-完整构建清单通过核验后，inline 的独立 harness 可最多两个并行执行，全部 libtest 线程的预算按可用 CPU 分配。每个 harness 仍执行全部非 ignored 用例并独立核对计数、退出、超时及后代清理；不拆分或截短单个场景。任一失败保留原失败，停止启动待执行项并取消、回收本轮已启动任务；后续成功不能覆盖失败或取消，未执行项不能算通过。进程监督器的可选取消信号只作用于本次拥有的进程树，默认串行调用和完整 profile 保留原行为。
+完整构建清单通过核验后，inline 的独立 harness 可最多两个并行执行，全部 libtest 线程的预算按可用 CPU 分配。经完整身份与实际库存核验的 library harness 优先派发，避免短 integration 先占 worker 推迟长库的完成；两类各自保持原顺序，未知或旧 capability 保留原调度。每个 harness 仍执行全部非 ignored 用例并独立核对计数、退出、超时及后代清理；不拆分或截短单个场景。任一失败保留原失败，停止启动待执行项并取消、回收本轮已启动任务；后续成功不能覆盖失败或取消，未执行项不能算通过。进程监督器的可选取消信号只作用于本次拥有的进程树，默认串行调用和完整 profile 保留原行为。
 
 `rust-baseline` 的格式、架构、RustSec 与文件约束继续执行。NewAPI accounting 仅在其真实 package/依赖输入受影响时执行；独立工具锁文件检查在相应 manifest/lock、检查器或共享构建输入变化时执行。选择来自可信计划及完整差异，不靠候选环境变量自由关闭；没有新能力的旧计划和完整 profile 保留原检查。周期 full 仍执行这些专项全部原命令。
 
@@ -316,7 +316,7 @@ Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证�
 
 兼容的同 run、同 tested commit、同编译输入产物可复用；消费者核对工具链、平台、profile/features、测试清单与摘要，执行被选中的真实用例。缺产物、输入不符、零匹配、错误 feature/target 和意外跳过均失败。长历史与恢复场景保持原断言和操作长度，在周期层或相应定向验证中执行。
 
-保持可信 main producer、只读 PR 和已有仓库缓存预算；新快速 profile 的 main push 同样只读，完整 main profile 承担可信缓存生产。旧 BASE 回退保留原权限分支，候选始终不能借 full 名称取得写权限。缓存缺失走同一正确冷构建。记录实际 Cargo fresh/rebuilt、恢复与准备成本，不把 cache hit 当作复用或十分钟达标；沿用已有可信生产入口，不新增独立预热 workflow。
+保持可信 main producer、只读 PR 和已有仓库缓存预算；新快速 profile 的 main push 同样只读，完整 main profile 保留 workspace 与工具缓存生产，共享原生依赖由独立 main schedule/manual-full 预热任务生产。旧 BASE 回退保留原权限分支，候选始终不能借 full 名称取得写权限。缓存缺失走同一正确冷构建。记录实际 Cargo fresh/rebuilt、恢复与准备成本，不把 cache hit 当作复用或十分钟达标；独立预热的覆盖与写入边界见[缓存设计](#ci-install-cache-design)。
 
 ### 完整集合与结果汇总
 
@@ -487,7 +487,7 @@ affected 的最终 dirty 适配保守合并 base→HEAD、暂存、未暂存和�
 | 对象 | 审读基线事实 | 本设计的变化与限制 |
 | --- | --- | --- |
 | Release Web 工具准备 | [原工作流](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/release-packages.yml)恢复 `~/.cargo/bin/trunk`，未命中时 `cargo install trunk`。 | 恢复预编译归档并无条件调用共享验证安装器，去掉重复源码编译。 |
-| 普通 CI 与 main writer | [Rust 工作流](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/rust.yml)已使用归档；main schedule/manual-full 的 `full-regression` 可写入。 | 复用已有 writer、路径与 key，不新增预热工作流。 |
+| 普通 CI 与 main writer | [Rust 工作流](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/rust.yml)已使用归档；main schedule/manual-full 的 `full-regression` 可写入。 | Trunk 复用已有 writer、路径与 key，不为该工具新增预热工作流。 |
 | 安装器 | [原安装器](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/scripts/install-ci-trunk.sh)固定 Trunk 0.21.14、官方归档摘要及 Linux x86_64。 | 继续由该脚本集中拥有版本、来源、摘要、平台与失败规则。 |
 | apt | 原工作流直接执行 `apt-get update/install`，本轮没有当前卡死或遗留进程的运行证据。 | 先核实阶段耗时与失败，再决定预算和重试参数。 |
 
@@ -514,13 +514,17 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 安装器来自已核验的计划 source；key 中的版本、平台、架构和安装器内容指纹共同描述本次工具输入。升级脚本或 pin 会产生正常冷启动。缓存路径、归档格式及 cache action 的兼容实现也必须一致；仅对齐 key 字符串不充分。GitHub 的 cache version 包含路径与压缩方式，tag 间不能直接读取彼此缓存，可恢复默认分支范围内的缓存，见 [GitHub 缓存引用](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching)。
 
-现有 main `full-regression` 的 schedule/manual-full 是共享归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
+现有 main `full-regression` 的 schedule/manual-full 保留 Trunk 归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
 
-普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v3`。唯一 producer 是 main schedule/manual-full 的 `full-regression`；这些 Release / Mainnet gate 仅有只读 cache token，所有消费者显式禁止保存。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，完整成功后保存一次，禁止失败保存。
+普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v4`。唯一依赖 producer 是独立 `rust-cache.yml` 的 `shared-native-cache`，仅接受 main 的四小时 schedule 或 `run_mode=full` 手动触发；不接受 source 覆盖，也不从候选 workflow、产物或分支取得代码。checkout、workflow SHA、事件 SHA、精确 job 和 REST run 身份须一致。Release / Mainnet gate 仅有只读 cache token，Rust `full-regression` 也只读这份依赖缓存；其原有 Trunk、wasm-bindgen 和 npm 工具缓存合同保留。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，全部编译成功后保存一次，禁止失败保存。
 
 新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
 
-producer 运行 `full-extended` 构建并验证 core 扩展和适用 support features，再由 `cache-native` 的 build-only 准备补齐 ordinary producer 的真实构建变体、纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 使用的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。下载的测试 binary 和其他 runner 的通过结果不算本地 target 预热；具体复用覆盖以这些真实命令为准，缺少单位时 reader 正常补编。准备失败使 job 失败且不保存。
+独立 producer 的 `cache-native` 入口通过 `ci-shared-native-cache.py` 编译自足的闭合并集：原 `full-extended` 的 core 扩展、Viewer、适用 support features、LLM fixture 和 production mock 所需构建；旧 ordinary 的四个变体；纯 `wasmtime --lib --bins --no-run`、默认 features 的 chain runtime，以及 sync 的 `hydrate_builtin_wasm` 和带 `sync-builtin-wasm-identity` 的 host helper。所有 `cargo test` 都带 `--no-run`，不运行 fixture、mock 断言或测试进程。support features 与现有 driver 使用同一包清单和 feature 解析，保留两个 WASM 构建工具的 `OASIS7_WASM_BUILD_STD=0` 环境。
+
+v4 另外从可信 checkout 的完整 fast target 清单补齐精确 `default_features`、features 和 target；同包且 feature 策略相同的 target 可合并一次 Cargo 调用，不能用更宽 feature 构建替代窄组合。旧 v3 不保证这些依赖 context，因此不能作为 v4 的精确命中；容量维护仅在完整 v4 后继、相同平台/架构/环境 hash 与 cache version、两次库存稳定身份及活动保护条件成立时退役 v3。下载的测试 binary 和其他 runner 的通过结果不算本地 target 预热，缺少单位时 reader 正常补编；任一构建失败使预热 job 失败且不保存。
+
+共享缓存预热与 Rust 验证分属两条 workflow，使用独立并发组且不取消进行中的可信预热。完整回归保留原 26 组、full-extended、210 分钟测试预算、显式 full gate 和整条 Rust run 成功条件，不再在测试后补编译或保存 Rust 依赖。Rust 的 workspace 缓存维护只等待 ordinary/formal producer 保存，不再等待 full 测试收尾；跨 workflow 的正在运行任务仍纳入全仓活动保护，新缓存 writer 不获得删除权限。v4 精确命中已经完整保存的不可变归档时，缓存任务跳过重复编译；前缀命中、未命中或恢复未执行仍编译全部上下文。该条件只属于缓存 producer，不能跳过任何 Rust 验证。预热不生产验证凭证，不给 source 代签测试，也不进入 required/full 的依赖图；失败、取消和容量拒绝分别可见，消费者仍走正确冷路径。四小时内完成及普通 PR 的实际冷暖收益以 hosted 样本验收，单次本地合同或调度优化不证明十分钟/P95 达标。
 
 各 reader 继续原测试、sync 和 soak；没有以预热代替验收。builtin 模块的独立 workspace / Docker target 不属于根 target 缓存，仍走 canonical 构建，不为扩大归档改写其目标目录。
 
@@ -581,9 +585,9 @@ ordinary/Formal 的 compact 归档使用单线程 zstd level 3、8 MiB window �
 
 zstd decoder 使用 64 MiB 窗口/内存参数上限（非进程 RSS 承诺），压缩输入、物理 payload、逻辑展开和 tar 终止均有界；拒绝附加帧、截断、校验失败、路径穿越及多余成员。共享 reader 保留 gzip 支持供 ECS 使用。归档与外层 actions/cache 上传包装分别量测，不能直接把压缩文件大小当上传上界。
 
-额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v3` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。该规则不删除替代族；替代族的同环境依赖冗余由下面的独立规则处理。近似命名、其他 ref 和其他族只统计，不按最新时间推断整个环境 hash 可删。
+额外的退役白名单只接受完整 `v0-rust-{family}-Linux-x64-{8hex environment}-{8hex dependencies}` 与 main ref：旧 `ci-shared-native-trusted-v3`、`ci-full-regression-trusted-v2` 及四个 `release-packages-release-gate-{runtime-core,runtime-support,runtime-sync,soak}-trusted-v2` 由 `ci-shared-native-trusted-v4` 替代；旧 Web `release-packages-web-wasm-trusted-v2` 由同名 v3 替代；ECS `oasis7-ecs-native-linux-{packaging,ecs}-v1` 由 `oasis7-ecs-native-linux-ecs-v2` 替代。只有对应替代族存在非零、合法 main 条目且两次完整清点中身份不变，才允许退役该旧命名空间。该规则不删除替代族；替代族的同环境依赖冗余由下面的独立规则处理。近似命名、其他 ref 和其他族只统计，不按最新时间推断整个环境 hash 可删。
 
-依赖冗余白名单包括 `ci-shared-native-trusted-v3`、`oasis7-ecs-native-linux-ecs-v2`、`release-packages-web-wasm-trusted-v3`、`oasis7-package-native-Linux-native-packaging-trusted-v2`、`release-packages-package-native-Windows-native-trusted-v2` 和 `release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2`。解析器为每个已知命名空间枚举实际宿主平台/架构（Linux-x64、Windows_NT-x64、Darwin-arm64/x64），不将 macOS 的 x86_64 编译目标误作宿主架构；未知组合不受管。
+依赖冗余白名单包括 `ci-shared-native-trusted-v4`、`oasis7-ecs-native-linux-ecs-v2`、`release-packages-web-wasm-trusted-v3`、`oasis7-package-native-Linux-native-packaging-trusted-v2`、`release-packages-package-native-Windows-native-trusted-v2` 和 `release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2`。解析器为每个已知命名空间枚举实际宿主平台/架构（Linux-x64、Windows_NT-x64、Darwin-arm64/x64），不将 macOS 的 x86_64 编译目标误作宿主架构；未知组合不受管。
 
 按去掉最后一个 8hex 依赖 hash 后的完整 restore 前缀与 cache version 分组，与固定 Swatinem action 已有的回退边界一致，不扩大消费者恢复范围。每组保留唯一最新非零条目及活动保护集，只回收更旧的依赖快照；不跨环境、平台或 archive version 回收。
 
@@ -603,7 +607,7 @@ Release 的跨平台 writer 使用同一 helper 的归档准入规则，通过�
 
 上传前验证当前可信 main 的仓库、workflow、source、job、事件及 REST run 身份，然后复用完整库存与额度规则；最终归档已经包含 action 的 tar/压缩包装，不再以比例推测，也不重复加一层不存在的包装。清点后重新确认文件身份和长度，只有实际库存加该归档不超过有效预算才允许 tar 调用返回成功。
 
-Rust `full-regression` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。
+Rust cache 的 `shared-native-cache` 与 ECS `native-trusted` 仅需 `actions: read`，删除权限仍留在既有维护 job；安装适配器失败则跳过该可选缓存 action，继续冷构建。
 
 Release writer 另外核对 source plan、实际 checkout 与 event SHA 一致，且仅成功构建保存。Release 保留既有 cache token scope；tag、历史 source 和失败构建由这些 action 的保存条件与准入拒绝写入，不将此行为等同于只读 token 隔离；同一 Linux packaging 命名空间的 Testnet 可信 Linux-only/packaging writer 也接入原 Linux tar 适配器，保留原候选只读分流；其他依赖 writer、工具缓存和跨 job 写入没有原子互斥，库存是此次上传前观察值；不为此串行化所有构建。
 
@@ -611,7 +615,7 @@ Release writer 另外核对 source plan、实际 checkout 与 event SHA 一致�
 
 Rust 启动维护 `cache-bootstrap-maintenance` 在选中构建的可信 main 完整 profile 使用 `--recover --apply`；旧 BASE 回退保留原 main push 条件，新 `main-fast` 不启动写维护。该步骤无需本轮保存结果；trusted producer 等待其结束，但显式允许维护失败或跳过后继续构建。
 
-Rust 结束维护直接等待普通、Formal debug 与 Formal endpoint 的可信 producer，只要一个成功即可进入，不再等待完整测试或合并分包，也不要求其保存确认；各族仅传入本轮成功且 API 确认的精确 current key。维护的完整库存和活动保护仍适用，后续依赖 post 保存不能被当成已预留空间。ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
+Rust 结束维护直接等待普通、Formal debug 与 Formal endpoint 的可信 producer，只要一个成功即可进入，不再等待完整测试、合并分包或独立原生依赖预热，也不要求其保存确认；各族仅传入本轮成功且 API 确认的精确 current key。维护的完整库存和跨 workflow 活动保护仍适用，独立依赖 writer 在上传前检查最终归档与库存，其后续 post 保存不能被当成已预留空间。ECS 结束维护只要求可信 native producer 成功，不依赖 Web。
 
 Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SHA 时增加启动与结束恢复；启动由 plan 后进入，writer 显式允许维护失败或跳过后继续原构建，结束等待 Web/native writer（含 post）完成并使用空 current keys。维护不成为发布成功门槛，tag 或非当前 source 没有新增删除权限。
 

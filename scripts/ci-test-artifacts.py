@@ -2017,6 +2017,14 @@ def execute(bundle, suite, results, shard=None, plan=None):
         raise ValueError('selected test execution is empty')
     formal = manifest.get('scope') == 'formal' and manifest.get('formal_execution_version') == 1
     resources = formal_parallel_cases(formal_configuration()) if formal else {}
+    inline = (suite == 'ordinary' and not shard and fast_plan(plan) is not None
+              and plan.get('fast_execution_version') == 1)
+    if inline:
+        # All manifests and actual inventories have passed load() validation.
+        # Start complete component libraries before short integration harnesses
+        # so the latter do not delay the longest runners. Keep each target and
+        # the original relative order within both kinds.
+        entries.sort(key=lambda entry: manifest['binaries'][entry['binary']]['target_kind'] != ['lib'])
     jobs = []
     for entry in entries:
         logical_suite = entry.get('suite', suite)
@@ -2047,8 +2055,7 @@ def execute(bundle, suite, results, shard=None, plan=None):
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
-    if formal or (suite == 'ordinary' and not shard and fast_plan(plan) is not None
-            and plan.get('fast_execution_version') == 1):
+    if formal or inline:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard)
         return
     failed = False

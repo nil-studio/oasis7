@@ -48,11 +48,11 @@ def without_optional_dependency_cache_install(workflow):
     # Only these exact optional installers may fail into a cold build. The
     # component anchors include a strict writer condition; removing it, renaming
     # the command, adding another copy or swallowing another step is not exempt.
-    for name in ('full-regression', 'formal-debug-build', 'formal-endpoint-build'):
+    for name in ('formal-debug-build', 'formal-endpoint-build'):
         job = re.search(r'^  ' + name + r':\n.*?(?=^  [a-z][a-z0-9-]*:|\Z)', workflow, re.M | re.S)
         if not job:
             continue
-        condition = '' if name == 'full-regression' else (
+        condition = (
             '        if: >-\n'
             f"          github.job == '{name}-trusted' && github.ref == 'refs/heads/main' &&\n"
             "          github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&\n"
@@ -104,6 +104,14 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def shared_cache_workflow(self):
+        path = ROOT / '.github/workflows/rust-cache.yml'
+        self.assertTrue(path.is_file(), 'dependency warming must have an independent workflow')
+        workflow = path.read_text()
+        jobs = workflow_jobs(workflow)
+        self.assertEqual(set(jobs), {'shared-native-cache'})
+        return workflow, jobs['shared-native-cache']
+
     def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='', real_receipt=False):
         """Execute the real workflow shell against immutable local Git fixtures."""
         repo = Path(directory) / 'repo'
@@ -1216,20 +1224,27 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('CI_VERBOSE=1 ./scripts/ci-tests.sh full', candidate)
 
     def test_candidate_full_preserves_full_setup_and_execution(self):
-        # Candidate tests preserve the execution body; only the trusted writer
-        # additionally compiles cache variants and saves caches/sentinels.
+        # Both lanes run the same full validation. Only the trusted main lane
+        # additionally saves its existing tool caches and sentinel.
         writer = JOBS['full-regression'].split('    steps:\n', 1)[1]
         candidate = JOBS['candidate-full-regression'].split('    steps:\n', 1)[1]
+        for job in (writer, candidate):
+            self.assertNotIn('cache-native', job)
+            self.assertNotIn('dependency-cache-tools', job)
+        caches = []
+        for job in (writer, candidate):
+            matches = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                       if 'uses: Swatinem/rust-cache@' in step]
+            self.assertEqual(len(matches), 1)
+            caches.append(matches[0])
+        # Action input order is immaterial; compare every setting before
+        # comparing the remaining compiler setup, tests and diagnostics.
+        self.assertEqual(sorted(caches[0].splitlines()), sorted(caches[1].splitlines()))
+        writer = writer.replace(caches[0], '', 1)
+        candidate = candidate.replace(caches[1], '', 1)
         candidate = re.sub(r'      - name: Record exact candidate identity\n.*?(?=      - name: Resolve)', '', candidate, flags=re.S)
         writer = re.sub(r'      - name: Prepare trusted cache sentinel\n.*?(?=      - (?:name: Run full|uses: actions/download-artifact))', '', writer, flags=re.S)
-        writer = re.sub(r'      - name: Complete shared native cache\n.*?(?=      - name:)', '\n', writer, flags=re.S)
         writer = re.sub(r'      - name: Save prepared wasm-bindgen tool cache\n.*?(?=      - name:)', '', writer, flags=re.S)
-        writer = re.sub(r'^      - name: Install dependency cache admission\n.*?(?=^      - |\Z)', '', writer, flags=re.M | re.S)
-        # Cache identity and writer admission have separate contracts; retain
-        # equality for the compiler setup, build, test and artifact steps.
-        writer = re.sub(r'^      - uses: Swatinem/rust-cache@.*?(?=^      - |\Z)', '', writer, flags=re.M | re.S)
-        candidate = re.sub(r'^      - uses: Swatinem/rust-cache@.*?(?=^      - |\Z)', '', candidate, flags=re.M | re.S)
-        candidate = candidate.replace('          save-if: false\n', '')
         candidate = candidate.replace('actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0',
                                       'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0')
         self.assertEqual(candidate.strip(), writer.strip())
@@ -1845,21 +1860,112 @@ run_cargo() {
             self.assertLess(writer.index(tool), writer.index('Run full test tier'))
 
     def test_trusted_writer_only_runs_on_protected_main(self):
-        writer = JOBS['full-regression']
-        self.assertIn("github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))", writer)
+        workflow, writer = self.shared_cache_workflow()
+        on = re.search(r'^on:\n(.*?)(?=^[^\s#]|\Z)', workflow, re.M | re.S)[1]
+        self.assertEqual(set(re.findall(r'^  ([a-z_]+):', on, re.M)), {'schedule', 'workflow_dispatch'})
+        self.assertIn('options: [full]', on)
+        self.assertNotIn('source_ref', on)
+        self.assertNotIn('workflow_run', on)
         self.assertIn('cache-mode: write', writer)
         self.assertIn('test "$GITHUB_REF" = refs/heads/main', writer)
         self.assertNotIn('test "$ACTIONS_CACHE_MODE"', writer)
+        header = writer.split('    runs-on:', 1)[0]
+        expression = ' '.join(header.split('    if:', 1)[1].strip().removeprefix('>-').split())
+        for event in ('schedule', 'workflow_dispatch', 'push', 'pull_request', 'workflow_run'):
+            for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge', 'refs/tags/v1'):
+                for matching in (False, True):
+                    for mode in ('full', '', 'newapi_bridge_package'):
+                        values = {'github.event_name': event, 'github.ref': ref,
+                                  'github.workflow_sha': 'a' if matching else 'b',
+                                  'github.sha': 'a', 'inputs.run_mode': mode}
+                        predicate = expression
+                        for token, value in values.items():
+                            predicate = predicate.replace(token, repr(value))
+                        predicate = predicate.replace('&&', ' and ').replace('||', ' or ')
+                        with self.subTest(event=event, ref=ref, matching=matching, mode=mode):
+                            self.assertEqual(eval(predicate, {'__builtins__': {}}, {}),
+                                ref == 'refs/heads/main' and matching
+                                and (event == 'schedule' or event == 'workflow_dispatch' and mode == 'full'))
+
+    def test_shared_cache_workflow_is_independent_of_full_validation(self):
+        workflow, writer = self.shared_cache_workflow()
+        self.assertNotIn('shared-native-cache', JOBS)
+        self.assertNotIn('needs:', writer.split('    steps:', 1)[0])
+        self.assertIn('group: ci-shared-native-cache-main', workflow)
+        self.assertIn('cancel-in-progress: false', workflow)
+        self.assertNotIn('ci-shared-native-cache-main', WORKFLOW)
+        self.assertIn('timeout-minutes: 210', writer)
+        self.assertIn('permissions:\n      contents: read\n      actions: read', writer)
+        self.assertNotIn('actions: write', workflow)
+        for forbidden in ('ci-full-result.py', 'ci-required-result.py',
+                          'actions/upload-artifact@', 'actions/download-artifact@',
+                          'full-extended', 'OASIS7_CI_TEST_BUNDLE'):
+            self.assertNotIn(forbidden, workflow)
+        for name in ('required-gate', 'explicit-full-gate'):
+            self.assertNotIn('shared-native-cache', JOBS[name])
+            self.assertNotIn('rust-cache.yml', JOBS[name])
+        for name in ('full-regression', 'candidate-full-regression'):
+            job = JOBS[name]
+            self.assertIn('timeout-minutes: 210', job)
+            self.assertIn('./scripts/ci-tests.sh full-extended', job)
+            self.assertNotIn('cache-native', job)
+            self.assertNotIn('dependency-cache-tools', job)
+            cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                         if 'uses: Swatinem/rust-cache@' in step)
+            self.assertIn('save-if: false', cache)
+            self.assertNotIn('GH_TOKEN:', cache)
+            full = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                        if './scripts/ci-tests.sh full-extended' in step)
+            self.assertNotIn('if:', full)
+            self.assertNotIn('continue-on-error:', full)
+
+    def test_shared_cache_checkout_verifies_actual_current_main_source(self):
+        _, writer = self.shared_cache_workflow()
+        self.assertIn('ref: ${{ github.sha }}', writer)
+        self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', writer)), 1)
+        self.assertIn('persist-credentials: false', writer)
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', writer, re.M | re.S)
+                    if 'name: Verify current main cache source\n' in step)
+        self.assertNotIn('if:', step)
+        self.assertNotIn('continue-on-error:', step)
+        self.assertLess(writer.index(step), writer.index('uses: Swatinem/rust-cache@'))
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(['git', 'init', '-q', '-b', 'main', str(root)], check=True)
+            subprocess.run(['git', '-C', str(root), '-c', 'user.name=CI fixture',
+                            '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                            '--allow-empty', '-m', 'current cache source'], check=True)
+            sha = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+            for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge'):
+                for event_matches in (False, True):
+                    for workflow_matches in (False, True):
+                        environment = dict(os.environ, GITHUB_REF=ref,
+                            GITHUB_SHA=sha if event_matches else 'b' * 40,
+                            GITHUB_WORKFLOW_SHA=sha if workflow_matches else 'b' * 40)
+                        result = subprocess.run(['bash', '-c', script], cwd=root,
+                                                env=environment, capture_output=True, text=True)
+                        with self.subTest(ref=ref, event_matches=event_matches, workflow_matches=workflow_matches):
+                            self.assertEqual(result.returncode == 0,
+                                ref == 'refs/heads/main' and event_matches and workflow_matches,
+                                result.stdout + result.stderr)
 
     def test_readers_share_compatible_trusted_writer_identity(self):
-        writer = JOBS['full-regression']
+        cache_workflow, writer = self.shared_cache_workflow()
         self.assertIn('cache-mode: write', writer)
-        self.assertIn('shared-key: ci-shared-native-trusted-v3', writer)
+        self.assertIn('shared-key: ci-shared-native-trusted-v4', writer)
         self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', writer)
+        environments = []
+        for text in (WORKFLOW, cache_workflow):
+            block = re.search(r'^env:\n(.*?)(?=^[^\s#]|\Z)', text, re.M | re.S)[1]
+            environments.append(dict(re.findall(
+                r'^  ((?:CARGO|RUST|OASIS7_WASM)[A-Z0-9_]*): (.+)$', block, re.M)))
+        self.assertEqual(environments[0], environments[1],
+                         'shared dependency contexts require the same pinned compiler and Cargo/WASM environment')
         for name, job in JOBS.items():
             if 'save-if: false' in job and 'Swatinem/rust-cache@' in job:
                 component = re.fullmatch(r'formal-(debug|endpoint)-build(?:-trusted)?', name)
-                namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v3'
+                namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
                 self.assertIn('shared-key: ' + namespace, job, name)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
         self.assertNotIn('ordinary-required-v2', WORKFLOW)
@@ -1873,7 +1979,8 @@ run_cargo() {
         self.assertEqual(revision[1], 'd1527c8f67ef9af357290475d4af4b0fab8f12e0')
         ecs_text = (ROOT / '.github/workflows/ecs-packages.yml').read_text()
         ecs_jobs = workflow_jobs(ecs_text)
-        lanes = ((JOBS['full-regression'], 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
+        cache_workflow, shared_writer = self.shared_cache_workflow()
+        lanes = ((shared_writer, 'shared-native', 'CI_CACHE_REPOSITORY_BUDGET_BYTES'),
                  (ecs_jobs['native'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'),
                  (ecs_jobs['native-trusted'], 'ecs', 'ECS_CACHE_REPOSITORY_BUDGET_BYTES'))
         for job, family, budget in lanes:
@@ -1908,7 +2015,9 @@ run_cargo() {
                         self.assertNotIn('steps.dependency-cache-tools.outputs.path', step)
                         self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
                 self.assertNotIn('steps.dependency-cache-tools.outputs.path', job.split('    steps:', 1)[0])
-        self.assertIn('permissions:\n      contents: read\n      actions: read', JOBS['full-regression'])
+        self.assertIn('permissions:\n      contents: read\n      actions: read', shared_writer)
+        self.assertEqual(cache_workflow.count('continue-on-error:'), 1)
+        self.assertNotIn('dependency-cache-tools', JOBS['full-regression'])
         self.assertNotIn('dependency-cache-tools', JOBS['candidate-full-regression'])
         self.assertNotIn('dependency-cache-tools', ecs_jobs['web'])
         governance = (ROOT / 'scripts/ci-tests.sh').read_text().split(
@@ -1919,7 +2028,8 @@ run_cargo() {
         # GitHub permits status functions in step `if`, not action inputs.
         # The `job` context is available in `with`, so save-if uses job.status.
         ecs_jobs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
-        for name, job in (('full-regression', JOBS['full-regression']),
+        _, shared_writer = self.shared_cache_workflow()
+        for name, job in (('shared-native-cache', shared_writer),
                           ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
             cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                          if 'uses: Swatinem/rust-cache@' in step)
@@ -1930,7 +2040,8 @@ run_cargo() {
 
     def test_dependency_save_requires_success_and_current_trusted_source(self):
         ecs_jobs = workflow_jobs((ROOT / '.github/workflows/ecs-packages.yml').read_text())
-        for name, job in (('full-regression', JOBS['full-regression']),
+        _, shared_writer = self.shared_cache_workflow()
+        for name, job in (('shared-native-cache', shared_writer),
                           ('native', ecs_jobs['native']), ('native-trusted', ecs_jobs['native-trusted'])):
             cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                          if 'uses: Swatinem/rust-cache@' in step)
@@ -1952,27 +2063,34 @@ run_cargo() {
                                              and matching_source and name != 'native')
 
     def test_shared_cache_is_populated_completely_before_successful_save(self):
-        writer = JOBS['full-regression']
-        cache = re.search(r'      - uses: Swatinem/rust-cache@.*?(?=      - name:)', writer, re.S)[0]
+        _, writer = self.shared_cache_workflow()
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', writer, re.M | re.S)
+        cache = next(step for step in steps if 'uses: Swatinem/rust-cache@' in step)
+        self.assertIn('id: native-cache', cache)
         self.assertIn('cache-on-failure: false', cache)
         self.assertNotIn('save-if: false', cache)
-        completion = re.search(r'      - name: Complete shared native cache\n.*?(?=      - name:)', writer, re.S)[0]
+        completion = next(step for step in steps if 'name: Complete shared native cache\n' in step)
         self.assertIn('./scripts/ci-tests.sh cache-native', completion)
         self.assertNotIn('continue-on-error', completion)
-        self.assertNotIn('if:', completion)
-        self.assertLess(writer.index('./scripts/ci-tests.sh full-extended'), writer.index(completion))
+        self.assertLess(steps.index(cache), steps.index(completion))
+        condition = re.search(r'^        if: (.*)$', completion, re.M)[1]
+        for hit in ('true', 'false', '', 'unknown'):
+            with self.subTest(cache_hit=hit):
+                expression = condition.replace('steps.native-cache.outputs.cache-hit', repr(hit))
+                self.assertEqual(eval(expression, {'__builtins__': {}}, {}), hit != 'true')
+        self.assertNotIn('full-extended', writer)
         for name, job in JOBS.items():
-            if name != 'full-regression' and 'shared-key: ci-shared-native-trusted-v3' in job:
+            if 'shared-key: ci-shared-native-trusted-v4' in job:
                 self.assertIn('save-if: false', job, name)
-                # The trusted Formal producer writes only its separate curated
-                # workspace snapshot while reading this dependency archive.
-                if name not in ('formal-debug-build-trusted', 'formal-endpoint-build-trusted',
-                                'oasis7-test-build-trusted'):
+                # Full validation still writes tool caches; the ordinary producer
+                # writes its workspace snapshot, not shared dependencies.
+                if name not in ('full-regression', 'oasis7-test-build-trusted'):
                     self.assertNotIn('cache-mode: write', job, name)
 
     def test_shared_cache_normalization_runs_after_install_before_restore(self):
-        for name, job in JOBS.items():
-            if re.search(r'shared-key: (?:ci-shared-native-trusted-v3|ci-formal-(?:debug|endpoint)-deps-trusted-v1)\n', job):
+        _, shared_writer = self.shared_cache_workflow()
+        for name, job in (*JOBS.items(), ('shared-native-cache', shared_writer)):
+            if re.search(r'shared-key: (?:ci-shared-native-trusted-v4|ci-formal-(?:debug|endpoint)-deps-trusted-v1)\n', job):
                 prepare = job.index('python3 scripts/ci-rust-cache-toolchains.py')
                 self.assertIn('"$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"', job, name)
                 self.assertLess(job.index('rustup default'), prepare, name)
@@ -1987,7 +2105,7 @@ run_cargo() {
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
         for name,job in JOBS.items():
             if 'Swatinem/rust-cache@' in job and name in {g.replace('_', '-') for g in CONFIG['groups']}:
-                self.assertIn('shared-key: ci-shared-native-trusted-v3',job)
+                self.assertIn('shared-key: ci-shared-native-trusted-v4',job)
                 self.assertIn('add-rust-environment-hash-key: true',job)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',job)
                 self.assertLess(job.index('rustup default'),job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
@@ -2081,8 +2199,7 @@ run_cargo() {
         self.assertEqual(len(re.findall(r'uses: actions/checkout@[0-9a-f]{40}\b', WORKFLOW)), WORKFLOW.count('persist-credentials: false'))
         self.assertNotIn('secrets.', WORKFLOW)
         without_admitted_uploads = WORKFLOW
-        for name, family in (('full-regression', 'shared-native'),
-                             ('formal-debug-build', 'formal-debug'), ('formal-endpoint-build', 'formal-endpoint')):
+        for name, family in (('formal-debug-build', 'formal-debug'), ('formal-endpoint-build', 'formal-endpoint')):
             dependency_cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
                                                                  JOBS[name], re.M | re.S)
                                     if 'uses: Swatinem/rust-cache@' in step
@@ -2090,6 +2207,13 @@ run_cargo() {
             self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
             without_admitted_uploads = without_admitted_uploads.replace(dependency_cache, '', 1)
         self.assertNotIn('GH_TOKEN:', without_admitted_uploads)
+        cache_workflow, writer = self.shared_cache_workflow()
+        dependency_cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
+                                                             writer, re.M | re.S)
+                                if 'uses: Swatinem/rust-cache@' in step)
+        self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
+        self.assertNotIn('GH_TOKEN:', cache_workflow.replace(dependency_cache, '', 1))
+        self.assertNotIn('secrets.', cache_workflow)
         self.assertNotIn('scripts/pm/', WORKFLOW)
         self.assertNotIn('task_uid', WORKFLOW)
         self.assertIn('permissions:\n  contents: read', WORKFLOW)
@@ -2274,10 +2398,13 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                      WORKFLOW.replace('scripts/ci-rust-cache-admission.py install', 'scripts/ci-tests.sh full'),
                      WORKFLOW.replace("          github.job == 'formal-debug-build-trusted' && github.ref",
                                       "          github.job != 'formal-debug-build-trusted' && github.ref", 1),
+                     WORKFLOW.replace('      - name: Run full test tier\n',
+                                      '      - name: Run full test tier\n        continue-on-error: true\n', 1),
                      WORKFLOW.replace(' --host-smoke', ''),
                      WORKFLOW.replace('    if: always()', '    if: success()'),
                      WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1)]
         for workflow in mutations:
+            self.assertNotEqual(workflow, WORKFLOW, 'mutation must exercise the current workflow')
             with self.subTest(workflow=workflow[-100:]), self.assertRaises(ValueError):
                 validate_candidate_graph(workflow, CONFIG)
         new_config = dict(CONFIG, groups=[*CONFIG['groups'], 'new_group'])

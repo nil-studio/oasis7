@@ -282,6 +282,7 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
 release = workflow_paths[2].read_text()
 mainnet = workflow_paths[1].read_text()
 rust = (root / ".github/workflows/rust.yml").read_text()
+native_cache = (root / ".github/workflows/rust-cache.yml").read_text()
 bridge = (root / ".github/workflows/newapi-bridge-service-package.yml").read_text()
 ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 
@@ -290,7 +291,8 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 # contract for the checked-in block-style env declarations, not a YAML parser.
 repository_budget = '20000000000'
 budget_entries = {
-    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
@@ -341,7 +343,7 @@ def reject_budget_mutation(workflows, label):
         raise AssertionError(('budget regression was not detected', label))
 
 
-for name, (variable, _) in budget_entries.items():
+for name, (variable, dependency_steps) in budget_entries.items():
     text = budget_workflows[name]
     declaration = re.search(rf'^  {variable}: [^\n]+\n', text, re.M)[0]
     for label, replacement in (
@@ -357,13 +359,17 @@ for name, (variable, _) in budget_entries.items():
               '    steps:\n      - run: "true"\n')
     reject_budget_mutation(budget_workflows | {name: text.replace('\njobs:\n', shadow, 1)},
                            (name, 'job override'))
-    forwarded = re.search(r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)[0]
-    for label, replacement in (
-        ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
-        ('missing upload budget', ''),
-    ):
-        reject_budget_mutation(budget_workflows | {name: text.replace(forwarded, replacement, 1)},
-                               (name, label))
+    if not dependency_steps:
+        continue
+    for index, forwarded in enumerate(re.finditer(
+            r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)):
+        for label, replacement in (
+            ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
+            ('missing upload budget', ''),
+            ('duplicate upload budget', forwarded[0] + forwarded[0]),
+        ):
+            mutated = text[:forwarded.start()] + replacement + text[forwarded.end():]
+            reject_budget_mutation(budget_workflows | {name: mutated}, (name, index, label))
 reject_budget_mutation({name: text.replace(repository_budget, '10000000000')
                         for name, text in budget_workflows.items()}, 'all entrypoints consistently wrong')
 reject_budget_mutation(budget_workflows | {
@@ -373,13 +379,13 @@ reject_budget_mutation(budget_workflows | {
 reject_budget_mutation(budget_workflows | {
     'unregistered-budget.yml': 'env:\n  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"\n'},
     'new budget-bearing workflow')
-print(f'ok: four repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
+print(f'ok: five repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
 
 assert "\ncache-mode: read\n" in mainnet
 native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
                 "release_gate_runtime_sync", "release_gate_soak")
 for name in native_gates:
-    assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v3", name
+    assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v4", name
 for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync",
              "release_gate_soak", "release_gate_web", "build-web-dist"):
     expected = cache_identity(release, name)
@@ -388,7 +394,7 @@ for name in ("release_gate_runtime_core", "release_gate_runtime_support", "relea
     assert "save-if: false" in job_body(mainnet, name)
     assert "cache-mode: write" not in job_body(mainnet, name)
     if name in native_gates:
-        assert expected == cache_identity(rust, "full-regression"), (name, "native writer identity differs")
+        assert expected == cache_identity(native_cache, "shared-native-cache"), (name, "native writer identity differs")
         assert "save-if: false" in job_body(release, name)
         assert "    cache-mode: read\n" in job_body(release, name)
 assert cache_identity(mainnet, "package-native", True) == cache_identity(release, "package-native", True)

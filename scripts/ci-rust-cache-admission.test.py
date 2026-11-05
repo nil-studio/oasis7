@@ -15,7 +15,6 @@ from urllib.error import HTTPError
 spec = importlib.util.spec_from_file_location('admission', Path(__file__).with_name('ci-rust-cache-admission.py'))
 admission = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(admission)
-SHA = 'a' * 40
 
 
 class AdmissionTests(unittest.TestCase):
@@ -25,22 +24,28 @@ class AdmissionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.workspace = self.root / 'workspace'
         self.workspace.mkdir()
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(self.workspace)], check=True)
+        subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=CI fixture',
+                        '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                        '--allow-empty', '-m', 'trusted cache source'], check=True)
+        self.source_sha = subprocess.check_output(
+            ['git', '-C', str(self.workspace), 'rev-parse', 'HEAD'], text=True).strip()
         self.archive_dir = self.root / 'cache-run'
         self.archive_dir.mkdir()
         self.archive = self.archive_dir / 'cache.tgz'
         self.archive.write_bytes(b'x' * 100)
         (self.archive_dir / 'manifest.txt').write_text('payload\n')
         self.environment = dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux', RUNNER_ARCH='X64',
-            GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main', GITHUB_SHA=SHA,
-            GITHUB_WORKFLOW_SHA=SHA, GITHUB_RUN_ID='42', GITHUB_EVENT_NAME='schedule',
-            GITHUB_JOB='full-regression', GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main', GITHUB_SHA=self.source_sha,
+            GITHUB_WORKFLOW_SHA=self.source_sha, GITHUB_RUN_ID='42', GITHUB_EVENT_NAME='schedule',
+            GITHUB_JOB='shared-native-cache', GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main',
             GITHUB_WORKSPACE=str(self.workspace), RUNNER_TEMP=str(self.root), GH_TOKEN='fixture-secret',
             OASIS7_DEPENDENCY_CACHE_FAMILY='shared-native', OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES='1000')
-        self.environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v3'
+        self.environment['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v4'
         self.api = Mock()
         self.api.repository = 'nil-studio/oasis7'
-        self.run = dict(id=42, head_sha=SHA, head_branch='main', event='schedule',
-                        path='.github/workflows/rust.yml', repository={'full_name': 'nil-studio/oasis7'})
+        self.run = dict(id=42, head_sha=self.source_sha, head_branch='main', event='schedule',
+                        path='.github/workflows/rust-cache.yml', repository={'full_name': 'nil-studio/oasis7'})
         self.api.request.side_effect = lambda method, path: self.run if path == '/actions/runs/42' else {'max_cache_size_gb': 10}
         self.api.list_caches.return_value = []
 
@@ -70,19 +75,26 @@ class AdmissionTests(unittest.TestCase):
             family = 'formal-' + component
             namespace = 'ci-' + family + '-deps-trusted-v1'
             environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY=family,
-                                                  GITHUB_JOB=family + '-build-trusted')
+                                                  GITHUB_JOB=family + '-build-trusted',
+                                                  GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main')
             environment['INPUT_SHARED-KEY'] = namespace
             self.run['event'] = 'schedule'
+            self.run['path'] = '.github/workflows/rust.yml'
             with self.subTest(component=component):
                 self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
                 for change in ({'GITHUB_JOB': family + '-build'}, {'GITHUB_JOB': 'formal-test-build-trusted'},
                                {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v3'},
+                               {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v4'},
+                               {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main'},
                                {'INPUT_SHARED-KEY': 'ci-formal-' + ('endpoint' if component == 'debug' else 'debug') + '-deps-trusted-v1'},
                                {'GITHUB_EVENT_NAME': 'push'}, {'GITHUB_EVENT_NAME': 'pull_request'},
                                {'GITHUB_REF': 'refs/pull/1/merge'}, {'RUNNER_ARCH': 'ARM64'},
                                {'GITHUB_WORKFLOW_SHA': 'b' * 40}):
                     with self.subTest(change=change):
                         self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+                self.run['path'] = '.github/workflows/rust-cache.yml'
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.run['path'] = '.github/workflows/rust.yml'
                 event = self.root / (component + '-event.json')
                 environment.update(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
                 self.run['event'] = 'workflow_dispatch'
@@ -134,13 +146,43 @@ class AdmissionTests(unittest.TestCase):
 
     def test_candidate_stale_workflow_wrong_job_and_wrong_family_cannot_upload(self):
         for change in ({'GITHUB_REF': 'refs/pull/5/merge'}, {'GITHUB_WORKFLOW_SHA': 'b' * 40},
-                       {'GITHUB_JOB': 'candidate-full-regression'}, {'GITHUB_EVENT_NAME': 'push'},
+                       {'GITHUB_JOB': 'candidate-full-regression'}, {'GITHUB_JOB': 'full-regression'},
+                       {'GITHUB_EVENT_NAME': 'push'}, {'GITHUB_EVENT_NAME': 'workflow_run'},
                        {'GITHUB_ACTIONS': 'false'}, {'INPUT_SHARED-KEY': 'another-cache'},
+                       {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v3'},
+                       {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main'},
+                       {'GITHUB_WORKFLOW_REF': 'nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/topic'},
                        {'OASIS7_DEPENDENCY_CACHE_FAMILY': ''}, {'RUNNER_OS': 'Windows'}):
             with self.subTest(change=change):
                 self.assertFalse(admission.check_archive(self.archive, self.environment | change, self.api)['allowed'])
         self.run['head_sha'] = 'b' * 40
         self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
+
+    def test_shared_native_writer_verifies_real_checkout_before_upload(self):
+        # The event and workflow can agree while the workspace contains another
+        # source. Check the actual local Git boundary, not a forged HEAD string.
+        self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
+        subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=CI fixture',
+                        '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                        '--allow-empty', '-m', 'different unchecked source'], check=True)
+        self.api.list_caches.reset_mock()
+        rejected = admission.check_archive(self.archive, self.environment, self.api)
+        self.assertFalse(rejected['allowed'])
+        self.api.list_caches.assert_not_called()
+        (self.workspace / '.git').rename(self.workspace / 'unavailable-git')
+        self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
+
+    def test_shared_native_writer_requires_exact_rest_run_identity(self):
+        original = self.run.copy()
+        self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
+        for changes in ({'path': '.github/workflows/rust.yml'}, {'id': 43},
+                        {'head_branch': 'topic'}, {'event': 'workflow_run'},
+                        {'head_sha': 'b' * 40}, {'repository': {'full_name': 'another/oasis7'}}):
+            with self.subTest(changes=changes):
+                self.run = original | changes
+                self.api.list_caches.reset_mock()
+                self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
+                self.api.list_caches.assert_not_called()
 
     def test_manual_full_event_and_ecs_native_are_verified(self):
         event = self.root / 'event.json'
@@ -148,8 +190,11 @@ class AdmissionTests(unittest.TestCase):
         self.environment.update(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
         self.run['event'] = 'workflow_dispatch'
         self.assertTrue(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
-        event.write_text(json.dumps({'inputs': {'run_mode': 'newapi_bridge_package'}}))
-        self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
+        for payload in ({'inputs': {'run_mode': 'newapi_bridge_package'}},
+                        {'inputs': {'run_mode': ''}}, {'inputs': {}}, {}, {'inputs': None}):
+            event.write_text(json.dumps(payload))
+            with self.subTest(payload=payload):
+                self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])
         self.environment.update(OASIS7_DEPENDENCY_CACHE_FAMILY='ecs', GITHUB_JOB='native-trusted',
             GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/ecs-packages.yml@refs/heads/main')
         self.environment['INPUT_SHARED-KEY'] = 'oasis7-ecs-native-linux-ecs-v2'
@@ -168,10 +213,10 @@ class AdmissionTests(unittest.TestCase):
             environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY=family,
                 GITHUB_JOB=job, RUNNER_OS=runner, RUNNER_ARCH=arch, GITHUB_EVENT_NAME='workflow_dispatch',
                 GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/release-packages.yml@refs/heads/main',
-                OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=SHA)
+                OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=self.source_sha)
             environment['INPUT_SHARED-KEY'] = namespace
             environment['INPUT_CACHE-PROVIDER'] = 'github'
-            with self.subTest(family=family), patch.object(admission.subprocess, 'check_output', return_value=SHA + '\n'):
+            with self.subTest(family=family), patch.object(admission.subprocess, 'check_output', return_value=self.source_sha + '\n'):
                 self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
                 for bad in ({'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': 'b' * 40},
                             {'GITHUB_WORKFLOW_SHA': 'b' * 40}, {'GITHUB_REF': 'refs/tags/v1'},
@@ -196,11 +241,11 @@ class AdmissionTests(unittest.TestCase):
         self.run.update(event='workflow_dispatch', path='.github/workflows/testnet-packages.yml')
         environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY='testnet-linux',
             GITHUB_JOB='package-native-trusted', GITHUB_EVENT_NAME='workflow_dispatch',
-            GITHUB_EVENT_PATH=str(event), OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=SHA,
+            GITHUB_EVENT_PATH=str(event), OASIS7_DEPENDENCY_CACHE_SOURCE_SHA=self.source_sha,
             GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/testnet-packages.yml@refs/heads/main')
         environment['INPUT_SHARED-KEY'] = 'oasis7-package-native-Linux-native-packaging-trusted-v2'
         environment['INPUT_CACHE-PROVIDER'] = 'github'
-        with patch.object(admission.subprocess, 'check_output', return_value=SHA + '\n') as git:
+        with patch.object(admission.subprocess, 'check_output', return_value=self.source_sha + '\n') as git:
             for scope, profile, allowed in (('linux_only', 'packaging', True),
                     ('all_existing', 'packaging', False), ('linux_only', 'dev', False)):
                 event.write_text(json.dumps({'inputs': {'package_scope': scope, 'build_profile': profile}}))

@@ -32,7 +32,7 @@ policy = maintenance.policy
 ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0'
 DENIED = 78
 FAMILIES = {
-    'shared-native': ('ci-shared-native-trusted-v3', '.github/workflows/rust.yml', 'full-regression'),
+    'shared-native': ('ci-shared-native-trusted-v4', '.github/workflows/rust-cache.yml', 'shared-native-cache'),
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
     'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
     'ecs': ('oasis7-ecs-native-linux-ecs-v2', '.github/workflows/ecs-packages.yml', 'native-trusted'),
@@ -135,6 +135,7 @@ def trusted_writer(environment, api):
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
+    if family == 'shared-native' or family.startswith('release-') or family == 'testnet-linux':
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()
@@ -143,9 +144,9 @@ def trusted_writer(environment, api):
                 cwd=environment.get('GITHUB_WORKSPACE'), env=git_environment,
                 text=True, stderr=subprocess.DEVNULL, timeout=10).strip()
         except (OSError, subprocess.SubprocessError):
-            raise AdmissionError('package source HEAD could not be verified') from None
+            raise AdmissionError('dependency source HEAD could not be verified') from None
         if head != sha:
-            raise AdmissionError('package source HEAD does not match the planned main source')
+            raise AdmissionError('dependency source HEAD does not match the trusted main source')
     if family == 'testnet-linux':
         try:
             inputs = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text()).get('inputs', {})
