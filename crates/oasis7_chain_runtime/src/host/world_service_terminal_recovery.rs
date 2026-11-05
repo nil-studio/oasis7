@@ -1,7 +1,7 @@
 //! A current ordinary DevLocal assertion beside the immutable Prefix receipt.
 use super::*;
 use oasis7_runtime::CapabilityAuthorizationEvent;
-use oasis7_runtime::world::ProviderCapabilityAvailability;
+use oasis7_runtime::ProviderCapabilityAvailability;
 
 pub(super) fn authority(
     service: &Service<'_>,
