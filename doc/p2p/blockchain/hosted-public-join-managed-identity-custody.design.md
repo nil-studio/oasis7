@@ -1154,7 +1154,7 @@ fetch/构造恢复中的维护若因严格库存读取或恢复失败而不能�
 | 固定签名 factory 与 Vault actor 交接 | 2 | World fresh access/read、Stop/Revoke submit、unknown lookup、结果及最终状态回读 |
 | 以上未完整子图 | 23 | 仍不是两个独立写原件的完整冷路径；任何实际图必须重新逐 port 计数 |
 
-可继续设计仅限本 TerminationPlan 的固定双原件通道，但在证明保留全部强签/当前来源/Fence/私读隔离/前置预扣、精确原件与独立恢复语义且完整图不超过 24 之前，不能将“合并一次读取/签名”当成已获授权的优化，也不能宣称该候选方案成立。若无法在原批准额度内完成，保留原模板、所有已 claim/unknown、事实槽与分配水位并报告阻断；Closing Ack、自然 session 到期或其中一个操作的 committed 都不等于 Closed。最终关闭必须分别证明 Stop 与 Revoke 的成功权威结果和所需当前 World 后状态，不能用普通 CI 或组件状态代签。
+可继续设计仅限本 TerminationPlan 的固定双原件通道，但在证明保留全部强签/当前来源/Fence/私读隔离/前置预扣、精确原件与独立恢复语义且完整图不超过 24 之前，不能将“合并一次读取/签名”当成已获授权的优化，也不能宣称该候选方案成立。若无法在原批准额度内完成，保留原模板、所有已 claim/unknown、事实槽与分配水位并报告阻断；Closing Ack、自然 session 到期或其中一个操作的 committed 都不等于 Closed。legacy V1 的成功收尾必须分别证明 Stop 与 Revoke 的成功权威结果和所需当前 World 后状态；V2 的 World Closed 与 TestSession closed 则按下述状态组合及核清合同分别判定，不能把要求第一份 Stop 成功套到允许 initialActive 的第二原件。不能用普通 CI 或组件状态代签。
 
 所有期限和三目的预算在首次批准时可见、固定且计入初批总账。明示批准30min就发至同一 write_deadline 的凭据，无每5min重批或周期续领；只有私密领取丢响应/重启时允许原登记key在有效权限内rotate credential generation，deadline、预算不变。ExecutionGrant 到期后只可领取预批 ReconcileReadGrant 的凭据，不发新执行凭据；read_until 到期后停止客户端查询。增加预算、延期、换key/scope或恢复被撤销会话必须fresh approval，新批不能覆盖旧unknown reservation。首版每账号仅1个未关闭TestSession，3个目的占现有4个root的上限，不新增不计数的旁路根。
 
@@ -1203,6 +1203,39 @@ nonce 原件须与首次 creating ingress、实际已付三次记录、完整原
 `GET /v1/test-sessions/{id}` 返回当前获准主体的非秘密 purpose 截止/余额、write_closed、Stop/Revoke 原件状态和 pending 引用。执行写期限后，登记客户端只能用独立 read 凭据做本次原件/close 查询，以及只会缩权的 finish/abort；普通工具包括 task/industry/context/quote/outcome 全部停止，不新读私有目标。只读 root 的读取上限是 100 次/300 次传输，Owner 查询不扣 execute 预算；预批 cleanup 原件由内部计划生成，客户端读凭据不能请求任意 Owner 签名。
 
 一次关闭依次记录 `closing`、`write_closed`、各自 stop_status/revoke_status、pending 原件核对和自有资源回收；不是第二套世界状态机。仅当 Stop/Revoke 已按当前权威证明（完整 V2 收尾另须按本节证明实际 World Task Closed 与原子撤销）、可能派发的 canonical 原件已核清、私有准备/纯读取按 §12.17 明确分类、业务预留已结算/有明确终态、客户端及本轮自有资源回收已记录，才标 `closed`。可能有世界效果而未核清的原件保持 `closing/recovery_required/cleanup_blocked`，保留原件/预留并报告下一步；不能要求 Owner 读取其协议不允许的私有准备结果才能关闭。未关闭测试阻止同账号再次起测；人工处理可以继续独立获准核对/收尾，不能清空记录开新会话。正常 closed 可保留剩余期限内的只读证据访问；显式全会话/账号/身份撤销则连读取也关闭。
+
+**World 与会话关闭的状态组合。** Trace refs: O7-REQ-26945890-45d8-4be4-81af-5fe82c85aede；O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb。World Closed 是第二原件的世界效果；TestSession closed 还要求上段账、原件与资源义务全部完成。下表的世界结论须有强签事实及适用 delivery-current，不从 HTTP ACK 或本地标记推断。
+
+| 第一份 Stop 的实际处置 | 第二原件的权威结果 | World 结论 | TestSession 收尾条件 |
+| --- | --- | --- | --- |
+| 未分配、未签出且未派发 | V2 initialActive 成功 | Closed、revoked、detached | 无第一原件待核；其他核清、结算及回收完成后可 closed |
+| committed 成功 | V1 Revoke 成功 | Suspended、revoked；不证明 World Closed | 仅满足明确的 V1 收尾合同，不报告 V2 目标完成 |
+| committed 成功 | V2 OwnStopSuspended 成功 | Closed、revoked、detached | 两份事实强验、当前准入及其余义务完成后可 closed |
+| 已派发但 unknown／HistoryUnavailable | V2 initialActive 成功 | 第二原件可证明 World Closed；不证明 Stop 成功 | 保持 closing/recovery_required，继续核清原 Stop；不把终态屏障自动当作未知原件已核清 |
+| Account unknown，但 World 已有自己的 Stop committed | V2 OwnStopSuspended 成功 | Closed，并携完整 predecessor witness | Account 必须对 witness 完成精确归档与准入，不能仅凭第二原件成功清除 unknown |
+| 强签 Rejected | V2 initialActive 成功 | Closed；Stop 是已知失败 | 保留失败事实，核清该原件无未决效果后再完成其他义务；不虚报 Stop 成功 |
+| 任意 | 第二原件 unknown／HistoryUnavailable | 尚无充分当前 Closed 证明 | 保持 closing/recovery_required，按原件独立查询，不重签、不换 operation 或水位 |
+| 任意 | 第二原件 Rejected 或当前 scope 漂移 | 不证明 World Closed | cleanup_blocked，保留两槽及预留，不能以自然到期标 closed |
+
+“核清”与“成功”分别记录：未派发须有可信持久分配／发送库存证明，Rejected 须验精确原件的强签拒绝，committed 须验原件、事实和当前准入。对于已派发而结果未知的 Stop，本版尚无将永久终态屏障作为独立最终处置的 Account 合同；因此即使 World 已 Closed 也不能自动关闭会话。这是会话验收的保守边界，不是运行时死锁结论，也不限制第二安全槽独立关闭 World。
+
+**来源复用子图的逐边口径。** 下表只核算复用 OwnerSetup 来源／私有会话路径的至少29跳，不是已实现 Termination dispatcher 的图，也不含外层公开入口和 Account 协调回传。Directory 是 Account 直达 Directory DO 的一次边；Fence 是到 RF service 再到 RF DO 的两次边，不能统一将二者各算一次或各算两次。
+
+| 来源阶段 | 实际边及重复次数 | 至少成本 |
+| --- | --- | ---: |
+| prepare_source 前置 | Account→Directory DO；Account→RF service→RF DO | 3 |
+| Native approval verify | Account→Identity NativeApproval service；Native challenge、call 各一次 | 3 |
+| source 完成后置 | Account→Directory DO；Account→RF service→RF DO | 3 |
+| 启动 Identity driver | Account→Identity service→manifest actor | 2 |
+| 两次 Session observe | 每次 role→Owner service→Account、Account→Directory DO、Account→RF service→RF DO、role→RF service→RF DO，分别2＋1＋2＋2 | 14 |
+| SID／CSRF 私读 | 两份 cipher 各前后读取 | 4 |
+| 合计 | 尚缺 LF、fresh access、签名、World 与最终回传 | 29 |
+
+代码边界来自 Worker 的 `owner_setup_drive`、`platform/provision_drive_rpc.mjs`、`owner_setup_dispatch::prepare_source`、`identity_owner_setup_runtime::{rpc,observe}`、`identity_owner_setup_private` 私读、`owner_setup_entrypoints` 服务转发及 `owner_directory` 直 DO 读取。它们用于验证旧流程不能原样复用，不能作为尚无 paid caller 的新 Termination 流程的执行计数。23跳模板的每个 oracle 同样是 role→Owner service→Account（2）、Directory DO（1）、RF service→RF DO（2）；每个独立 Fence 是 role→RF service→RF DO（2）。GetPermit 的 Account oracle 预扣必须先持久成功才进入观察；不得把独立 Fence 提前到这次付款之前。相同已付请求中的独立只读观察可否重叠，必须另证各自保守观察起点、失败仍收费及后置当前性，不自动套用到来源、签名或效果后的回读。
+
+**预算可实施性结论与后继准入。** 旧冷签模板的两原件下界为至少46次，尚缺来源与 World；另一非 World 来源／私有会话子图单独至少29次，尚缺 LF、签名与 World。两者是不同候选的下界，不能相加为完整总数。它们各自已超过24，故沿用这些模板的完整 Cleanup24 没有可实施性或正余量。并发只能减少关键路径耗时，不能减少真实调用成本；来源五秒边界、先持久付款再出站及最终权威检查不能为装入24而删除。
+
+后继架构或独立版本预算须以同一生产者／消费者候选列明：两份原件各自取得来源、签名、发送、查询、归档、当前准入与会话结算的逐物理边；正常、已派发丢响应、lookup丢响应、来源失效和预算耗尽各分支；每边预扣位置与失败不退款；必须顺序的付款、原件分配／签名、效果／后状态关系及可并发的独立付费观察；原观察起点到最后强验的最坏耗时与余量。原V1/V2已批准的24不迁移或自动提额，新版本须重新精确批准自己的上限与期限；在完整图和恢复分支真实验证前保持 dispatcher disabled。现有 Core 强签恢复测试、Runtime 原子关闭或 Node 编码接缝各自通过，只证明局部能力，不构成该完整图的验收。
 
 <a id="cloud-custody-world-closed-atomic-v2"></a>
 #### World Closed V2 的原子条件与交付当前性
