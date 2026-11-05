@@ -25,8 +25,11 @@ mod family;
 mod receiver;
 pub use family::{qualify_inventory_family_v1, readmit_inventory_family_ordinary_v1};
 pub use receiver::accept_inventory_transition_v1;
+#[path = "incremental_inventory_group_overlay.rs"]
+mod group_overlay;
 #[path = "incremental_inventory_material_scope.rs"]
 mod material_scope;
+pub use group_overlay::{InventoryWorldGroupWorkV1, ensure_world_ledger_group_overlay_v1};
 pub use material_scope::{
     CurrentInventoryMaterialScopeV1, InventoryMaterialScopeWorkV1, MaterialQuantityV1,
     ParentInventoryMaterialScopeV1, build_parent_inventory_material_scope_v1,
