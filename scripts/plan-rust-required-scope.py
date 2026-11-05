@@ -2143,7 +2143,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             ordinary_gate = enabled_gate(attribute, native, inherited_defaults)
             if not ordinary_gate and features and not mapped_native_driver:
                 raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
-            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver, inherited_expanded):
+            if not ordinary_gate and not enabled_gate(attribute, native, inherited_expanded):
                 raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
             if features and (not feature_owners.get(path) or any(
                     not features.issubset(available_features.get(package, set()))
