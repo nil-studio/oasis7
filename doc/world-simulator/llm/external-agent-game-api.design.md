@@ -136,6 +136,13 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 | Trace refs: O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73；[AC-EXT-014](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-014) | 关闭旧 Provider Bridge 后新主路径仍可运行 | [api-cutover](#api-cutover) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | 无预置 Agent/task/grant 的合法机器入场、原结果恢复与准入安全 | [api-autonomous-entry](#api-autonomous-entry) | identity / runtime_engineer / agent_engineer / gameplay_designer | 不开放现有私有端点，不把 import_only 或 prepared-world 当冷入场 |
 | Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | 同一私有问答的接收/处理端点、原结果回查与当前接收者校验可由客户端完整消费 | [api-question-delivery](#api-question-delivery) | runtime_engineer / agent_engineer / viewer_engineer | 不将私有 persisted 回执当世界 committed 或新增授权 |
+| Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | 原 disposition/feedback/原归属与玩家及下一认知输入分离，缺口不造成功 | [api-result-feedback](#api-result-feedback) | Runtime feedback/receipt 与 adapter、Viewer | 不证明实际 Runtime 接收或模型理解 |
+| Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 停止新执行后按当前独立读权核原结果，读取有界且不泄露历史 | [api-result-feedback](#api-result-feedback) | 身份/owner/executor、Runtime 与限流消费者 | 不授予失权 executor 或缺原件 owner 隐式读取能力 |
+| Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d；[AC-EXT-010](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-010) | 同一世界/Agent/task 的两 Runtime 首局、blocker、新目标、回访与双类恢复 | [api-first-session-composition](#api-first-session-composition) | 玩法首局/生产结算、agent、Viewer、QA | production_only 不代签稳定生产、交付或发行 |
+| Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b；[AC-EXT-012](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-012) | 普通 HTTP 的动态目录、参数、真实消费者与完整可恢复首局能力闭环 | [api-first-session-composition](#api-first-session-composition) | Runtime registry、工业消费者、SDK/CLI/MCP | 普通客户端不代签真实 Runtime 或图形体验 |
+| Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 单 Agent 活动 turn、context 幂等与新目标/授权漂移时重新决策 | [api-context](#api-context) | Harness/Runtime context 与当前控制 | 只读并发不授予第二副作用 turn |
+| Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 稳定原键、durable ingress/outbox、同键冲突与唯一世界效果 | [api-actions](#api-actions) | Runtime admission/commit、operation 历史 | 不同键语义重复仍依玩法约束 |
+| Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 错误类别、限流和并发共用当前额度，未知请求不换键 | [api-retry-safety](#api-retry-safety) | API ingress、身份、Runtime 与控制队列 | HTTPS/普通 CI 不证明业务授权或公开部署 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -186,6 +193,25 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 业务幂等 digest 不包含 token、transport_attempt 或 actor_proof；同一个操作在 prepare 时固定其待签 canonical payload 和底层 correlation，重试返回原 challenge/operation，不能通过重新签名重置 nonce、预算或重复 World Service submit。状态漂移导致原请求不可用时先 lookup 原结果，再明确生成新业务操作与 context。pairing 的 owner 批准仅是开始世界委托注册，只有对应 Delegation 提交和受权回读成立后才进入 execution_ready。设备配对通过、API token 有效或 proof prepare 成功都不代签此点。
 
 复用验证入口为 `crates/oasis7/tests/world-service-conformance.manual.md` 与 `crates/oasis7/scripts/world-service-conformance.sh`。这些现有测试可证明其实际覆盖的基础服务合同；不代签新的 Game API、协作控制或真实外部 Runtime 体验。私有正文仍由协作设计所述 Runtime 受控存储保存，应用不获取世界存储挂载权。
+
+<a id="api-first-session-composition"></a>
+### 4.3 首局、合法能力与恢复的同一组合
+
+Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b。承接 [AC-EXT-010](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-010) 和 [AC-EXT-012](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-012)。以下为目标组合，核对日期与基线为 2026-11-05、`cca8cda97cf121ebc1e25e96d6b0204a421323ea`；不改变上文已实施子集、`writes_available=false` 或真实 Runtime 尚待验证的事实。
+
+每个声明的组合固定 Runtime/version/driver/schema/Skill、模型与本机权限 profile、世界候选及 `starter-industrial-smelter-to-assembler-v1 / production_only`、primary mode 和实际表面。同一 Runtime 的 `viewer` 与 `pure_api`、Web 与 native 各有适用结果；普通 HTTP 客户端先核协议闭环，随后 Codex/OpenClaw 各自执行自己的完整经历，不能拼接另一组合的成功。
+
+| 玩家经历与实际消费者 | 权威输入、调用和成立条件 | 失败或恢复后的下一步 |
+| --- | --- | --- |
+| Skill 引导合法接入 | `/info` 的能力/schema 与真实部署相符；身份、准入、owner/独立 executor、当前 task/goal/fence 分别由原 authority 确认；无预置主体按 [bootstrap](#api-autonomous-entry) | 缺能力、身份或必要确认保持对应 blocker；安装完成与配对成功不代签 execution_ready |
+| 理解当前目标、资源和合法路线 | 完整任务快照与 [context](#api-context) 同一合法绑定；能力来自 registry，工业查询返回当前 profile/revision、feasibility、库存/能源/设施和主要 blocker | 缺 profile、正文或必要可调用能力不把空目录表示成可玩；保持 `no_safe_starter_chain` 或准确缺项 |
+| 自主完成必要动作 | 移动/合法转运、建厂、输入/电力与排产等按当前路线实际需要发现参数和调用；context、资源 owner、grant 与原 operation 进入既有 admission | 仅发现名称、CLI 帮助或工具 schema 不算具备能力；每个宣告可调用项必须有相同版本 parser、权限检查与真实执行消费者 |
+| 取得并理解首产物 | [原结果与反馈](#api-result-feedback)保留提交与业务结果区别；按[工业五阶段](../../game/gameplay/gameplay-industrial-starter-completion-contract.prd.md#3-五阶段结算表)核对匹配 production receipt 与 owner-bound 产物 | scheduled/cognition committed 不等于 production_settled；首产物只能记 produced/undelivered，不能推进稳定窗口、交付或奖励 |
+| 真实 blocker 与新目标 | 资源/生产前置漂移产生当前 blocker；Runtime 在合法选项中查询、补条件、等待或重规划；新目标按[目标发布到决策](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-goal)实际进入新 context | 未授权补料/增费或 owner 决定不能由 executor 自动补齐；旧 pending 原件仍核对，目标接受不取消旧效果 |
+| 离开观察并回访 | 按[四层存续](external-agent-runtime-adapter.design.md#adapter-liveness)保持独立执行条件；回访读当前快照及离开期间原结果，在当前权限下呈现目标、成果、blocker、成本 | 观察端重连不自动重启 worker、续权或重放行动；缺历史、失权和实际无执行分别说明 |
+| 断连与进程恢复 | 两种故障分别恢复原世界/Agent/task、原请求和反馈；按[adapter 反馈接续](external-agent-runtime-adapter.design.md#adapter-result-feedback)与既有私有上下文规则核对，再决定下一轮 | 不能证明原运行或原结果时保持阻塞；无需恢复同一私有会话 ID，但不得丢失原世界历史或重复调用来猜结果 |
+
+`capabilities` 与 `queries` 的目录项必须区分只读、提案和业务完成条件，发布同一 schema revision、权限及不可用原因。`GameRequest`、CLI/MCP 包装只翻译参数和结构化结果；不能为补缺项直接写 World、调用 operator 入口、提升 signer、预造资源或静默改用旧 Provider。目录被过滤不等于世界不存在该能力；提交仍重新验证当前条件。动态 catalog、query 与真实 route 任一不一致时，该组合保持未就绪，不能靠固定动作数量验收。
 
 ## 5. 关键运行流程
 
@@ -298,6 +324,37 @@ context 创建也必须携带 client_operation_id；超时重试返回原 contex
 
 如果 admission 已成功而 HTTP 回复丢失，重试必须先找到原操作；授权改变后仍先验证当前主体是否允许读取该历史，不能借幂等回放绕过读权限。资源扣减、grant 消费及 effect/receipt 在 Runtime 的同一提交边界处理；入口缓存仅是加速，不能作为去重唯一来源。不同 client_operation_id 的重复业务意图仍需世界规则限制，本设计不声称任意语义操作全局 exactly-once。
 
+<a id="api-result-feedback"></a>
+### 5.4 原结果、认知反馈与当前读取权限
+
+Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7, O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43。承接 [AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) 与 [AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009)。API 适配既有 Runtime operation、[反馈映射](../../world-runtime/runtime/agent-cognition-lifecycle.design.md#feedbackenvelope-mapping)和[反馈关联/水位](continuous-agent-harness.prd.md#7-feedback-correlation-与-isolation)，不从 HTTP、模型文本或库存变化合成另一份世界结果。
+
+当前 [VerifiedTaskWorldView](../../../crates/oasis7_game_client/src/verified_task_view.rs) 校验受权反馈身份与 receipt lineage，[原结果客户端](../../../crates/oasis7_game_client/src/device_client_poll.rs)查询原 correlation，[stale 拒绝读取](../../../crates/oasis7_game_client/src/device_client_stale_rejection.rs)核对原 task fence。这些是上述固定基线的复用接点；不是下列完整 Game API 或两个外部 driver 已实施的证明。
+
+1. `GET operations/{id}` 与 `by-client-id` 先执行当前读取授权，再从原 ingress/request、Runtime disposition、receipt/finality 和业务结果生成 §6.3 的 `OperationView`。原 task/goal/executor 身份固定在提交关联中，不能从当前选中 Agent、最新目标或查询者替换。只有 cognition 原件才附其真实 `AuthorizedFeedbackRecord`；记录沿用现有 `FeedbackEnvelopeV1 / original_envelope_digest / receipt_lineage`，完整受信响应验证后才消费，不把脱敏投影重新计算为原 envelope digest。
+2. 目标 `OperationView` 的 `feedback` 投影包含 `availability=available|pending|history_unavailable|not_applicable`、原 `task_fence`、原 context/request 关联及可用时的上述记录。available 要求原操作、Agent/session/turn/request/digest、action/receipt lineage 与世界 binding 一致；非 cognition 原件才可 not_applicable。操作 committed 而反馈尚未持久可读时保持 committed + feedback pending，不降为失败，也不伪造 envelope；缺保留材料用 history_unavailable，不将其表示为没有发生。
+3. 玩家结果读取与后续认知消费各自成立。Web/native/pure_api 可以展示已确认的原结果及明确业务阶段；adapter 只有在原反馈验真、顺序与当前 audience 合法后，才能按[结果输入接续](external-agent-runtime-adapter.design.md#adapter-result-feedback)交给真实 Runtime。反馈 outbox 已 ACK 只表示其接收合同成立，不能表示模型已经理解、玩家已经看见或后续行动成功。
+4. `pending` 只表达权威仍待决；`recovery_required` 是原结果未能确认的 API 恢复状态，不是第五种 canonical Feedback status。Runtime 真实 recovery feedback 仍按原合同为 pending；API 没有该记录时只返回恢复状态，不制造反馈 ID/sequence。终态反馈遵循原 committed/rejected/failed 及 reason，晚到的持久 committed 不能被后来的投影错误覆盖。
+5. 预算耗尽、Stop、executor 撤销/到期阻止新受限 action/context 和模型启动，**不以执行资格作为唯一历史读取资格**。当前仍获 `receipt:read` 的主体可以只读核对原件；旧 executor 同时失去读取权时返回不泄露对象存在性的拒绝，保留本地原件定位但不得显示缓存私有正文或继续轮询。合法 owner 使用既有受保护 owner 原结果读取；该路径独立验证当前 canonical owner、原 signer/历史 binding 和资源身份，不重新启用 executor、不共享或自动解密其私有 outbox。若没有可合法交接的原件，说明读取阻塞，不能声称保证读到所有历史。
+6. 普通只读限流与新执行预算分开计量；原结果回查不调用模型、不花新的行动额度，也没有无限免费读取承诺。部署为授权原结果 lookup/控制读取保留独立有界队列与配额，优先于新 action 准入；过载返回 429/503 与 `retry_after_ms`，只重试原查询，不生成新 operation。Stop 请求使用其独立控制权限，不能被耗尽的模型/行动预算阻止。
+
+**有界完整性。** 单个反馈沿用原 16 KiB envelope、32 条事件、事件摘要 512 bytes 与 delta 摘要 1024 bytes 上限；超限或不能安全脱敏时只保留可验证身份/状态/原因并标 projection 不可用，不能声称已交付完整结果。通过既有 `queries` 目录提供目标只读 `feedback_history` 查询，用原 Runtime session 与 sequence 范围找回缺口；输入/响应 schema 明确 `world/branch/Agent/audience`、固定读取切点、范围、页上限和下页 cursor。复用[同切点分页规则](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-snapshot-pages)：一页最多 100 条且不超过 2 MiB，同页/跨页身份去重，末页前不声称范围完整。查询只读取原 feedback history，不另立序列或事实账。原操作仍可逐件 lookup；历史窗口缺失、切点失效、权限/branch 变化或未知 schema 时保留缺口并重新同步，不能跳序或用最新余额补历史。
+
+<a id="api-retry-safety"></a>
+### 5.5 并发、限流和未知提交的共同恢复边界
+
+Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458。承接 [AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013)，组合 [认证](#api-auth)、[context](#api-context)、[唯一效果](#api-actions)及 §6.3。多连接共享同一主体/Agent 的并发和累计授权额度；限流不按连接重置，一 Agent 的活动 turn 也不能靠另一 token/context 绕过。入口拒绝与 Runtime 最终提交重验分别执行，缓存 allow 不代替当前 grant/owner/goal/fence。
+
+| 可观察结果 | 安全下一步与禁止推论 |
+| --- | --- |
+| 401/403 或读取 authority 不可确认 | 先恢复合法身份/权限；不泄露私有操作存在性，不自动重放写入或换 actor |
+| 409 同键异内容、context/goal/fence 漂移 | 保留原件；核原结果和当前上下文后，由仍有权主体明确作出新的决策；不编辑原签名/nonce |
+| 429/503、连接超时、回复丢失 | 读请求按有限退避查询原件；写请求先按原键 lookup，不能从网络错误推断未登记/未生效；只有 §6.3 已核实的原请求安全重投条件才可重送 |
+| pending / recovery_required / 历史不可用 | 原请求、预算预留和关联保留；禁止通过新连接、新目标、outcome=abandoned 或换键遗忘未知副作用 |
+| 已证终态 | 回读原 disposition、receipt 与实际费用；终态拒绝也不是无条件免费重试，后续新意图重验当前资格 |
+
+准入队列、JSON/响应大小、每身份读并发与每 Agent 活动 turn 采用 §9 的已公布上限；`LimitsV1` 明确读取/新执行配额和 backoff，超限不截断目标或反馈。远程 HTTPS/CORS/CSRF 与 loopback 认证继续按 §8，两种部署分别验收。并发和恢复只保证同一稳定操作身份下的原结果；不同键的重复业务意图仍由玩法规则约束，不能宣传任意语义 exactly-once。
+
 ## 6. 接口与数据合同
 
 <a id="api-wire"></a>
@@ -340,7 +397,10 @@ ActionSubmissionV1 = {api_revision, client_operation_id, task_id,
 OperationViewV1 = {api_revision, operation_id, client_operation_id,
   status: pending|recovery_required|committed|rejected|failed, disposition_reason,
   receipt_ref?, world_binding, observed_at,
-  retry_advice: lookup_original|wait|none, recovery?: OperationRecoveryV1}
+  retry_advice: lookup_original|wait|none, recovery?: OperationRecoveryV1,
+  feedback?: OperationFeedbackV1}
+OperationFeedbackV1 = {availability: available|pending|history_unavailable|not_applicable,
+  original_task_fence?, original_context_ref?, record?: AuthorizedFeedbackRecord}
 OperationRecoveryV1 = {reason, last_known_status: registered|pending,
   reconciliation: queued|running|blocked, last_attempt_at?, next_lookup_after_ms?}
 ErrorV1 = {code, message, request_trace_id, operation_id?, retryable,
@@ -350,6 +410,8 @@ ErrorV1 = {code, message, request_trace_id, operation_id?, retryable,
 `operation_id`、world/Agent/task/executor ID 是不透明字符串；u64 revision/tick/epoch 在 JSON 使用十进制字符串，避免 JS 精度损失。严格校验请求的未知字段、类型、深度和重复 JSON key；响应可以增添可选字段，未知状态必须阻塞而非默认成功。HTTP 401/403 不作为业务失败的自动重放信号；409 表示版本/幂等冲突，410 表示已退出的协议版本，413/429/503 分别为大小、配额、服务不可用。
 
 完整 WorldBinding/finality、ActionCatalogEntry、请求 digest、反馈和 receipt lineage 复用共享 crate 与 Runtime 合同，不在此另定哈希算法。客户端不能凭 receipt_ref 字符串自证提交成功，必须权威回读。
+
+`OperationFeedbackV1` 是 §5.4 的目标投影，非现有线上 DTO。cognition 原件必须有可核对的原 fence/context 关联；available 必有且只消费匹配的 record，其他 availability 不带伪造 record。目标 schema 对此能力显式协商；不支持的客户端保持反馈未接通，不把字段缺失当 not_applicable。旧客户端的原结果查询不因此获得新权限。原 `AuthorizedFeedbackRecord` 的 delivery_state 表达 Runtime outbox 的状态，不作为外部 Runtime 输入已消费的证据。
 
 ### 6.3 操作状态、回查和恢复协议
 
@@ -460,6 +522,13 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 | Trace refs: O7-REQ-68ffc843-8679-4ad9-8cef-10a239a29c73；[AC-EXT-014](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-014) | [api-cutover](#api-cutover) | 关闭旧 Provider Bridge 后新主路径仍可运行 | [api-cutover](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cutover)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-018) | [api-autonomous-entry](#api-autonomous-entry) | 身份/准入/角色/owner/task/executor 各阶段独立确认，未知结果无重复效果 | [api-cold-entry](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-cold-entry)；普通客户端与真实 Runtime 分层执行 | 原阶段 operation/receipt、初始预置清单和实际确认停点 | 文档合同与 prepared-world 不证明公开上线或冷入场通过 |
 | Trace refs: O7-REQ-2f463269-c3c0-4da1-95f8-90011c35799a；[AC-COLLAB-004](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-004) | [api-question-delivery](#api-question-delivery) | 双向写入角色、先接收再回答/处理、原键回查和具体错误可实施 | [collab-question-delivery](../../testing/manual/external-agent-runtime-contract-validation.manual.md#collab-question-delivery) 的合同/错误/故障窗口用例 | 请求分支、原私有结果、线程版本和拒绝无额外效果 | 不代签已上线端点、真实客户端或世界最终性 |
+| Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | [api-result-feedback](#api-result-feedback) | 原 disposition/feedback/原归属与玩家及下一认知输入分离，缺口不造成功 | [adapter-result-feedback](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-result-feedback)；RF01–RF08：受权原件、序列、完整性及晚到/缺失；真实 Runtime 另验 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 不证明实际 Runtime 接收或模型理解 |
+| Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [api-result-feedback](#api-result-feedback) | 停止新执行后按当前独立读权核原结果，读取有界且不泄露历史 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；BG04–BG06：预算/执行失权、读权分支、控制限流和原件恢复 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 不授予失权 executor 或缺原件 owner 隐式读取能力 |
+| Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d；[AC-EXT-010](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-010) | [api-first-session-composition](#api-first-session-composition) | 同一世界/Agent/task 的两 Runtime 首局、blocker、新目标、回访与双类恢复 | [api-first-session](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-first-session)；FS01–FS07：同候选真实 Codex/OpenClaw 各自及所声明入口 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | production_only 不代签稳定生产、交付或发行 |
+| Trace refs: O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b；[AC-EXT-012](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-012) | [api-first-session-composition](#api-first-session-composition) | 普通 HTTP 的动态目录、参数、真实消费者与完整可恢复首局能力闭环 | [api-wire](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-wire)；普通 HTTP 无模型/旧 Bridge；并按 api-catalog 对照每个所需动作 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 普通客户端不代签真实 Runtime 或图形体验 |
+| Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-context](#api-context) | 单 Agent 活动 turn、context 幂等与新目标/授权漂移时重新决策 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；多连接同 Agent、原 context 超时/漂移与当前授权竞争 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 只读并发不授予第二副作用 turn |
+| Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-actions](#api-actions) | 稳定原键、durable ingress/outbox、同键冲突与唯一世界效果 | [api-idempotency](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-idempotency)；原进程持久故障/重复/未知与恢复，核前后资源和 receipt | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 不同键语义重复仍依玩法约束 |
+| Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-retry-safety](#api-retry-safety) | 错误类别、限流和并发共用当前额度，未知请求不换键 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；本地及 HTTPS 远程分别执行错误/并发/权限/配额负例 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | HTTPS/普通 CI 不证明业务授权或公开部署 |
 
 ## 12. 决策、长期风险与未决问题
 
