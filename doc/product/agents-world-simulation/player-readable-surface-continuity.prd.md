@@ -233,12 +233,14 @@ Trace ID: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34
 - 适用范围：提供世界观察与间接指导的 Web/native Viewer；`pure_api` 保留同一结果语义，不产生声音交付义务。Launcher、官网和工程控制台不继承 Viewer 的声音开关或事件。
 - 要求：声音默认为关闭，只有玩家在当前 Viewer 会话明确开启后才播放。提示只消费当前身份有权读取、已有可读解释且来源明确的事件；声音不能补造可见性、请求结果、空间关系或控制资格。未确认、断连、重放和历史重新读取不能伪装成新的成功提示。关闭声音、设备不可用或播放失败时，目标、阻塞、反馈和下一步仍有完整文本或视觉表达；音频失败不阻断世界观察与合法操作，也不触发世界重试。
 - 体验取舍：当前工业指挥舞台采用简短功能提示，保持长时间观察安静、可自主控制；不制作持续背景音乐、环境循环、空间世界声或配音。这里是当前声音方案的明确内容取舍，不是因为缺素材而宣称整个声音领域不适用。新增叙事台词、空间声源玩法或音乐体验时，重新评估对应内容、设置与替代表达。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[音频事件与事实来源](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-event-contract)和[设置、播放与降级](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-settings-lifecycle)承接内容和消费合同；具体平台音频适配、控件接入和运行验证仍须按该专业设计落实。
+- 系统设计状态：已覆盖
+- 系统设计依据：[入口与内容取舍](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-surface-scope)、[事件与原操作关联](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-event-contract)、[设置、播放与生命周期](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-settings-lifecycle)及[有界提示调度](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-mix-budget)共同承接 Web/native 的默认静音与显式开启、当前身份与原操作匹配、先展示完整文字再提示、重复/历史不补播、失活/切换/退出停止旧提示及局部播放失败；不由声音改变原权限、反馈或世界请求。
+- 验证方法：[AU-EVENT AE01～13](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-event-cases)、[AU-STATE AS01～12](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-state-cases)及[AU-EQUIVALENCE](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-equivalence-cases)核事实、归属、重复/迟到、设备失败及静音/双语/输入等价；[AU-ASSET](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-asset-check)、[AU-RUNTIME](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-runtime-cases)与[AU-CANDIDATE](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-candidate-binding)分别核实际声波、同候选 Web/native 播放和内容消费，不把方法记为已执行。
+- 设计核对日期与基线：2026-11-06；已合入 `4c80cd131adb1b3a37323a42bad847c2d7836ce2` 的本条要求、完整音频专业设计及手册。仅核设计承接与验收方法，未制作素材、运行播放器或执行真人验证。
 - 实现状态：未核实
 - 实现与验证依据：固定源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3` 的 Viewer、pixel-world bridge、Launcher 和官网入口审读未定位到本条可选音频接入；所审路径和检索边界见[音频当前基线](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-current-baseline)。这不证明全部部署、第三方依赖或未经审读入口没有声音。
 - 核对日期与基线：2026-11-04；上述固定源码和本条设计输入；仅静态审读，未制作音频、执行播放器或取得真实试听/可访问性证据。
-- 剩余范围：实际提示素材、平台播放与设置消费者、身份/世界切换及重连恢复组合、目标设备试听和静音等价验证；既有页面布局没有这些控件，不能由设计新增推定已提供。
+- 剩余范围：本条声音目的、内容、消费与主要失败边界已有设计和验证方法；实际生成器/参考声波、反馈与设置/播放接入、身份/世界切换及重连恢复组合、目标设备试听、静音等价和真人理解仍须分别交付核验。既有页面布局没有这些控件，设计覆盖不改变原实现未核实状态。
 - 验收：[AC-AGENT-SURFACE-006](#ac-agent-surface-006)。
 
 <a id="ac-agent-surface-006"></a>
