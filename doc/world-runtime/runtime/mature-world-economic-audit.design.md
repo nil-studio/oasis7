@@ -1,8 +1,8 @@
-# 成熟世界同窗口经济审计设计
+# 成熟世界经济审计与长窗口组合设计
 
 - 状态：active；本文是目标技术合同，正式来源适配、报告服务与消费者接线尚未验证。
 - Owner role：runtime_engineer；共同审读：gameplay、qa、blockchain、agent、viewer。
-- 适用范围：`native_economic_window_v1`，核对同一候选、同一 World/branch、有界 C0→C1 窗口的原生生产、零距离材料转移、Runtime OC 发行/财库分发/转账、原耐久与生产状态变化及其治理依据。
+- 适用范围：`native_economic_window_v1` 保留原有界核对；[全资源与长窗口合同](#economic-audit-full-scope)以同一候选、固定历史范围覆盖全部适用资源、writer 和跨段义务。两种范围使用不同显式 profile，均为待实现的只读审计目标。
 - 审读基线：源码 `f4a3b3919d8a86a8617b551ec031b0809e1b268d`，tree `5b345136ca019c73308356a1fa82412dd13ff9b9`；这是源码静态核对，不是实现、实跑或发布证据。
 - 产品依据：[REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005)、[AC-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-005)。专业规则：[同候选经济审计与治理影响解释](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-mature-world-economic-audit)。
 
@@ -14,7 +14,7 @@ Trace refs: O7-REQ-65c69f9e-3752-4b41-b2de-ed99092994e5。
 
 本设计补齐一个有限但完整的首版技术责任：在明确的候选、历史切点、资源/账本/能力范围和读权下，取得完整有界原件，逐种资源与真实账本核对期初、实际变化和期末，并解释适用政策到实际结果的因果链。成功结果是可复算的**声明范围内结论**及其来源、缺口、异常和恢复关联；来源不足时必须保留未知，已知异常不能被未知覆盖。
 
-首版使用原 canonical native recipe、direct `TransferMaterial`、Runtime OC 原政策/发行/分发/转账及原 factory 状态，不增加经济规则。正常例只占四 tick，足以验证转换、分配、治理规则适用和被动能力下降同时可解释；它不能证明长期稳态、资源稀缺合理性、经济公平或成熟世界整体健康。MW-005 的全资源、长窗口、其他 writer、跨节点与玩家理解义务继续保留，产品设计覆盖只能记为部分覆盖。
+首版使用原 canonical native recipe、direct `TransferMaterial`、Runtime OC 原政策/发行/分发/转账及原 factory 状态，不增加经济规则。正常例只占四 tick，足以验证转换、分配、治理规则适用和被动能力下降同时可解释；它不能证明长期稳态、资源稀缺合理性、经济公平或成熟世界整体健康。全资源、长窗口及其他 writer 由 §13 接续；跨节点和玩家理解按同一完整范围核验，实际来源适配、组合运行与产品验收仍未完成。
 
 非目标：不新增货币、收费、补偿、征费或结算 authority；不重跑 World、WASM、LLM 或治理以生成证据；不更改旧 OC 算法、阈值或 longrun gate；不把审计 `blocked/hold` 接成世界 Action 门禁；不将 Runtime OC 与真实链上同名币种、receipt 或外部资金账合并；不生成发行或 release verdict。
 
@@ -36,6 +36,10 @@ gameplay 拥有读者承诺、作用域和解释义务；Runtime 拥有本设计
 | [AC-EA-06](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-ea-06) | 当前读权、精确范围、记录/字节/证明/时限与并发均有界 | [权限与预算](mature-world-economic-audit.design.md#economic-audit-budget) | 原 current-root reader binding；有界存储/历史 reader | 不先 clone World、扫描 values/journal 再截断；不自动提高权限 |
 | [AC-EA-07](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-ea-07) | 同候选同窗口补证、版本化重核及持久保留旧缺口/异常 | [恢复与历史](mature-world-economic-audit.design.md#economic-audit-recovery) | 原历史保留与受权报告存储；QA evidence owner | 新候选/新窗口不是旧报告恢复，不重放经济效果 |
 | [AC-EA-08](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-ea-08) | 正式只读消费者共享同一来源、范围和结论，保留全域/发行边界 | [消费者边界](mature-world-economic-audit.design.md#economic-audit-consumers) | Viewer/Agent/QA、WorldService 与原发布 evidence authority | 静态图、文件、请求 ACK、helper green 不证明正式接线或整卡通过 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | 全资源、全部 writer、逐单位账本与完整因果来源 | [全资源与来源](#economic-audit-full-scope) | 原资源/治理/历史 authority；Runtime 来源 adapter | 目标方法；不证明实际source适配、正式消费者、长期运行或发行 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | 长窗口、完整分区、相邻根及跨段义务和全部异常 | [分段与跨段义务](#economic-audit-segments) | 原 commit/history authority；Runtime/QA | 目标方法；不证明实际source适配、正式消费者、长期运行或发行 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | 跨plan预算、并发预留、崩溃计量、补证与版本/节点身份连续 | [有界续办与恢复](#economic-audit-long-recovery) | 受权 evidence store、来源/存储 owner；Runtime/QA | 目标方法；不证明实际source适配、正式消费者、长期运行或发行 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | 各正式消费者使用同一父范围、来源、证明层、缺口及异常 | [完整范围消费者](#economic-audit-long-consumers) | Viewer/Agent/QA/发布 evidence owner | 目标方法；不证明实际source适配、正式消费者、长期运行或发行 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -259,7 +263,7 @@ raw/decoded/proof/workspace/report/request 的预算合计为 `1+2+2+1+0.125+0.0
 
 上述数目是待验证的最大输入包络，不是对当前未知正式证明编码的测量。读取依赖依次是身份/权限与根→完整范围描述→同 cut 窗口及端点→精确原因/规则→核算→一次 evidence publication。C0/C1 点读可在已验证身份后并行；range 页依原 continuation 顺序。以每页16条计，256条至多16数据页，连同身份/证明/补充点读仍须≤64 calls；不能以“一次 API”隐藏更多 IO。
 
-4096 proof nodes/2 MiB 的真实可行性、2 s 内完成率、allocator 开销与正式存储网络延迟均未实测。若根证明/成熟前置无法在共同上限内取得，应返回明确 budget/source gap，由 Runtime/storage owner 修改工程预算或另行设计可验证分段；不改原 fixture 事实、不忽略前置、也不以这张算术表宣称性能达标。分段合并仍要证明同 cut、无重叠/无缺口和完整 writer 覆盖，当前 v1 不提供跨任意窗口自动合并。
+4096 proof nodes/2 MiB 的真实可行性、2 s 内完成率、allocator 开销与正式存储网络延迟均未实测。若根证明/成熟前置无法在共同上限内取得，应返回明确 budget/source gap，由 Runtime/storage owner 修改工程预算或另行设计可验证分段；不改原 fixture 事实、不忽略前置、也不以这张算术表宣称性能达标。分段合并仍要证明同 cut、无重叠/无缺口和完整 writer 覆盖，当前 v1 不提供跨任意窗口自动合并；§13 的显式长窗口另有完整来源、分段及续办合同，不直接合并任意旧报告。
 
 | 场景 | 环境、规模与资源 | 预期响应 | 指标/阈值来源 | 验证入口 | 当前范围 |
 | --- | --- | --- | --- | --- | --- |
@@ -291,6 +295,10 @@ raw/decoded/proof/workspace/report/request 的预算合计为 `1+2+2+1+0.125+0.0
 | [AC-EA-06](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-ea-06) | [权限与预算](mature-world-economic-audit.design.md#economic-audit-budget) | 当前读权、完整有界来源、预分配/读取/证明/取消均计费于预算 | [EA-06](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-06)：受权/撤权、cap+1、嵌套/坏proof，记录真实读取和峰值 | 调用计数、字节/节点/内存/时长、权限拒绝及无World写入证据 | 设计初值不是生产性能/隐私/跨平台实测 |
 | [AC-EA-07](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-ea-07) | [恢复与历史](mature-world-economic-audit.design.md#economic-audit-recovery) | 同候选补证、新revision及旧缺口/异常不可变保留 | [EA-07](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-07)：同window补证、换window、保存未知/重启/撤权 | request/report digest、原件与revision链、重核差异 | 不承诺未实现存储或原历史无限保留 |
 | [AC-EA-08](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-ea-08) | [消费者边界](mature-world-economic-audit.design.md#economic-audit-consumers) | 正式只读consumer共享范围与结果，保留更广义务 | [EA-08](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-08)：同candidate的Viewer/Agent/QA读取同report；按实际层核端到端证据 | 正式入口、受权投影、同revision对照和未证层清单 | SVG、静态文件、组件通过不证明真人/S8–S10/发行 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | [全资源与来源](#economic-audit-full-scope) | 全资源、全部 writer、逐单位账本与完整因果来源 | [EA-09](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-09)：逐family独立全集、形成/消费/转移/费用与缺writer反例 | 候选全集、原件与独立逐单位oracle | 本轮未运行；局部fixture、静态算术或单节点不代签完整审计 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | [分段与跨段义务](#economic-audit-segments) | 长窗口、完整分区、相邻根及跨段义务和全部异常 | [EA-10](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-10)：160tick合法切点、完整写集、跨段投入与反向异常不抵消 | plan/leaf/父报告、相邻根与全部findings | 本轮未运行；局部fixture、静态算术或单节点不代签完整审计 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | [有界续办与恢复](#economic-audit-long-recovery) | 跨plan预算、并发预留、崩溃计量、补证与版本/节点身份连续 | [EA-11](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-11)：并发及I/O前后崩溃、cap+1、撤权、补证和累计预算不清零 | 实际读取/内存/时间计量、attempt与revision链 | 本轮未运行；局部fixture、静态算术或单节点不代签完整审计 |
+| [REQ-WR-MW-005](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-005) | [完整范围消费者](#economic-audit-long-consumers) | 各正式消费者使用同一父范围、来源、证明层、缺口及异常 | [EA-12](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-12)：版本/节点原件一致性与真实入口对照、重连/撤权及真人理解 | 原件、受权消费结果、未完成层与实际参与者观察 | 本轮未运行；局部fixture、静态算术或单节点不代签完整审计 |
 
 <a id="economic-audit-consumers"></a>
 ### 11.2 正式消费者与完成边界
@@ -310,6 +318,87 @@ Agent/QA 消费同 report revision 的结构化事实/限制，而不是各跑�
 | 保留原 fee 事实与不平 | 不在审计设计里修货币写入；付款归因缺口和已证 residual 都必须暴露 | Runtime/QA；payer/扣款机制若正式改变，按新实际 schema/历史兼容另审 |
 | 原生受控路径与正式入口分层 | 最小例可依据现有原 reducer/验证算清；不能冒充完整 signed governance/economy producer | Runtime/Agent/blockchain；补齐各 action 正式来源与合法授权后再声称相应层ready |
 | 有界 source/证明/持久化仍为目标 | 预算可计算但真实 proof size、网络时长、内存与恢复尚未验证；不足时结束审计，不牺牲完整性 | Runtime/storage/QA；实际 reader 和存储实现后记录同条件测量及必要工程初值调整 |
-| 全域长期与其余 writer 继续未覆盖 | first profile 不覆盖复杂物流、其他工业/claim/治理影响、跨节点长期组合及真人理解 | gameplay/对应 domain/QA；选新profile时复用原MW-005义务，不能用本文件存在代签整卡 |
+| 全域长期采用独立显式合同 | §13 覆盖全部适用资源/writer、分段、跨版本/节点与消费者方法；原 v1 仍保留其窄范围 | gameplay/对应 domain/QA；完整 reader/各源适配和运行证据仍待交付，按 EA-09～12 核对 |
 
 本设计没有待用的新增经济规则或批准开关。未决的是上表具名来源/适配/验证的交付与证据；解除条件分别回到原 owner 和同候选方法，不通过降低上游义务、静默缩窗或把缺证字段改成零解除。
+
+<a id="economic-audit-full-scope"></a>
+## 13. 全资源与长窗口的完整核对
+
+本节承接原 MW-005 与 AC-EA-01～08，定义目标 `complete_economic_window_v2`；它扩大来源和组合方法，保留原生产、货币、授权与发行规则。原 `native_economic_window_v1` 的方程、限制与结果继续独立有效，若干 v1 正常报告不能直接拼成全域结论。
+
+### 13.1 固定全集与逐来源适配
+
+请求先固定 §4.2 的 candidate、World/genesis/branch、原证明等级与 `(C0,Cn]`，并绑定 `scope_revision`、`source_schema_manifest`、`writer_mapping_revision`、`algorithm_revision` 及有限总预算。声明全资源时，范围取该候选实际可写状态家族、该世界期初/期末成员及窗口内新增/删除成员的全集。物料种类来自同根目录与账本，不能只硬编码正常例里的配方或两个 ResourceKind。
+
+适配的最小输出是原提交/阶段/实际写入身份、同根 old/new 或不存在证明、原单位与真实持有类别、实际变化、原因与当时规则、能力/权限变化和覆盖缺口。每个规范化变化以 `(world, branch, commit, original_effect, field_key, occurrence)` 唯一标识；event、receipt、状态差和兼容镜像作为不同证据关联同一次变化，不重复入账。没有独立 effect ID 时使用原提交内稳定位置及字段绑定，不能用描述或当前 hash 猜造历史身份。
+
+| 来源家族与实际入口 | 适配及独立核对责任 | 必须保留的区别 |
+| --- | --- | --- |
+| Electricity / Data | [ResourceKind](../../../crates/oasis7_agent_api/src/world_action/support.rs)、[core reducer](../../../crates/oasis7_world_state/src/state/apply_domain_event_core.rs)、[命令投影](../../../crates/oasis7_world_state/src/state/command_projection.rs)：World/Agent 余额、形成、消耗、转移、预留与返还 | DataCollected 的 E 消耗/Data 产出、PowerRedeemed、模块/认知/行动实际计量均需原件；私有 power module 的 capacity/level 是能力状态，未实际改变公共资源时不另加为电量 |
+| 各种 material 与实体库存 | [material_ledgers](../../../crates/oasis7_world_state/src/state.rs)、[四类 ledger](../../../crates/oasis7_agent_api/src/world_action/ledger.rs)、实际 cargo/碎片来源：按 kind、owner、位置和原单位分开 | 同 site input/output 和兼容 materials 镜像去重；实体数、碎片剩余量和已入账材料只按原转换/来源合同关联，不自动相加 |
+| 建造、生产、运输与经济合同 | [industry transition](../../../crates/oasis7_world_state/src/state/industry_transition)、[DomainEvent](../../../crates/oasis7_world_state/src/events/domain_event.rs)：启动投入、完成产出、byproduct、maintenance sink、损耗/tariff、维护回收、escrow 和失败/到期处置 | 计划投入不算资产；已消费 WIP 只保留未完义务，不补造可用库存；某一次失败也可能已有合法计算费用 |
+| Runtime OC 全持有类别 | 原 monetary/governance publication、[account/supply/bucket](../../../crates/oasis7_world_state/src/main_token.rs)与[实际状态](../../../crates/oasis7_world_state/src/state.rs)：liquid、vested、实际 restricted/claim/bond、treasury 的归属和变化 | 窗口内 genesis/vesting、发行、fee、分发、转账、restricted 到期/撤销、claim/upkeep/refund 全部分类；grant/bucket/receipt 元数据不是另一份资产，归属按实际 writer 判断 |
+| Node points、奖励资产、Power reserve | [reward asset](../../../crates/oasis7_world_state/src/reward_asset.rs)、[power redemption](../../../crates/oasis7_world_state/src/world/power_redemption_publication.rs)、NodePointsSettlementApplied 及 bridge 原件 | credits burn、reserve 减少、E 发放与 Runtime OC bridge 各端单独核；单位不混合，桥接按实际供给/财库来源计，不能按名称认作新发行 |
+| module/product/factory、机体及能力 | 原注册/激活/交易/计量、profile/validation、body/factory 状态与实际效果 | 资源扣取、交易双方、产品库存及建造结果分别核；验证成功、已注册、槽位占位或报价本身不创造库存、物品或可用能力 |
+| 治理、组织、冲突、授权与成长 | 原 governance/gameplay/organization/claim 阶段、policy 和 authority 变化 | 资格、控制、成本、义务、tenure、损失/恢复与能力即使无余额 delta 也须解释；报告不发奖惩、认可或恢复授权 |
+| 其他 canonical 写入及 command/effect | [WorldEventBody](../../../crates/oasis7_world_state/src/world_event.rs)、全部 DomainEvent、[step](../../../crates/oasis7_runtime/src/world/step.rs)自动阶段和实际提交写集 | raw publication、预算/receipt、隐藏状态和扩展同样分类；拒绝事件不能一律视为无费用/无效果 |
+
+上表划分来源家族；实际完整性由固定候选的穷举映射和原范围证明决定。每个 canonical event/reducer/command variant 与可写 field 都要有明确归属，或有依据的无经济/能力影响分类，不允许“其余均无影响”的默认分支。模块输出按实际提交字段、当时模块/schema 解释；新增 variant、动态输出或不认识的字段不能沿用旧完整标记。
+
+完整性必须覆盖期初、全部实际写入、期末以及因果/规则依赖。来源索引须同 canonical 提交发布或具有可验证绑定；代码枚举、目录或某事件存在证明都不能代替全集证明。无权读取、源不支持与真正无事件分别记录；只有同根成员与无事件证明才允许把某家族记为本窗未发生。无法识别或证明无关的原件阻断所需全域结论，并只披露当前读权允许的缺口。
+
+### 13.2 分账与实际规则
+
+各来源继续使用 §5.2 的逐 ledger/unit 方程。formed/consumed/lost 必须来自实际 writer，不能以余额差补一个原因。内部转移连两端，跨范围保留边界流；liquid、locked、escrow、transit 之间按原持有关系重分类，同一资产只计一次。原实现没有保存 WIP 资产时，仅记录已消费输入及未完义务，不增一个虚构余额配平。
+
+长窗口 OC supply 方程区分 `genesis_formed + actual_issued + other_proven_supply_increase - actual_burned - other_proven_supply_decrease`；每个 other 必须有明确 writer、当时规则和原前后值，不能吸收残差。vesting、财库分发、restricted 重分类不重复增发；bridge 按真实供给/财库来源计。全持有类别合计另作独立对照，旧 issued counter 保持原含义。§5.4 的 fee 无 payer 与已证差额仍并列保留。
+
+每次舍入和上限按原发生时点验证，再整数累加实际结果，不能合量后重新舍入。窗口比率使用总窗口分子和 C0 分母，不平均各段 bps。跨 schema 单位仅凭原显式迁移关系连接；缺映射时分列并显示中断。不同 World、chain 或币种保持向量，无原换算 authority 时不输出统一净值。
+
+<a id="economic-audit-segments"></a>
+### 13.3 分段计划与组合不变量
+
+`EconomicAuditPlanV2` 固定终点 Cn、请求身份、来源全集/映射、分段算法、有限 leaf 数及总工作预算，不追随实时 head 延长。时间段沿同一合法 branch 的已提交切点 `C0 < C1 < … < Cn` 构成 `(Ci,Ci+1]`；同 tick 不同 commit 不互换，原提交的原子效果不能切开。较大提交可以分页取原件，分页不成为新的交易边界。
+
+必要的 ledger/key 分区取同根 census 的不重叠有序范围，覆盖该段全部 key；边界流、全局 supply、治理/能力及交易关联仍要跨分区核。分页/leaf 允许只读投影，但原 commit 的完整写集、两端与因果关系全部核齐后，才能计为一次已解释效果；分区不拆业务事务，也不要求将大事务全部载入同一内存页。缺前驱、交叠/倒置/重复段、漏分区、水位落后或终点不等 Cn 都阻断完整结论。重复原件读取按其身份去重；重叠子报告不能被静默删掉后算原计划成功。
+
+每个 `EconomicAuditSegmentV2` 原子保存 plan/leaf 身份、起止根、覆盖证明、逐单位 opening/actual movements/closing、未完义务原身份/额度/期限、规则变化和全部 findings。相邻段同 ledger/unit 的 closing 必须等于下一段同根 opening；新增/删除成员核原存在/不存在和创建/删除事实。同一项由唯一 key 分区拥有，其关联可引用但不重计。
+
+组合以 checked 加法逐单位核首尾等式，并按原因果位置连接跨段 transfer、job、escrow、claim 和治理决定/效果。上段已消费、下段才完成的生产不再扣输入；已在途的资源不再从源扣一次。跨 Cn 未结清时保留真实期末义务，不假定未来交付/退款。中间义务即使最后消失，也保存其产生与实际处置链。
+
+父报告合并原 findings 集合及来源，不只看最终净残差。两段分别出现 +10 与 -10 即使总和为0，两项已证异常仍在；缺证也不由其他正常段抵消。只有所有必需段、key 分区、跨段关联、规则解释和受权披露满足时，父范围才能记核对完成；分项可读，但始终标明范围和未完成部分。
+
+<a id="economic-audit-long-recovery"></a>
+### 13.4 有界执行、续办与跨版本/节点恢复
+
+v2 以逐页读取、按 key 的有界排序归并及受权 evidence 暂存工作，不把完整 World、journal、计划或所有段摘要同时装入内存。计划生成也计预算；缺可验证分页、成员或切点来源时返回 source gap，不使用无界扫描兜底。下列是待实测的单 host 工程初值，不改变经济参数：
+
+| 资源 | 上限和结束行为 |
+| --- | --- |
+| 计划 | 编码≤1 MiB、最多4096 leaf；leaf 为时间段及必要 key 分区。超限需显式重设有限计划，不能截断尾部 |
+| 单 leaf | 256 logical items/128 events、64 calls、raw1 MiB/decoded2 MiB/proof2 MiB/4096 nodes、总保留8 MiB、2 s单次deadline；v2不限制为64 tick，长空区间也要完整证明。单提交无法在合法分区内覆盖则受阻，不拆原子效果 |
+| 单次执行 | 显式选择至多32 leaf；calls≤2048、raw≤32 MiB、proof≤64 MiB；同host所有plan/attempt共享并发≤4 leaf、resident≤48 MiB（32 MiB leaf＋16 MiB归并/plan/发布），host deadline≤60 s，无隐式重试；无槽立即busy，不建无界排队 |
+| 暂存/输出 | plan≤1 MiB；每leaf摘要/关联/findings≤256 KiB，父摘要≤128 KiB；原件/证明暂存合计≤32 MiB每次执行。空间不足前停止，摘要超量不丢异常，可显式进一步合法分区 |
+| 总任务 | 接收前固定有限累计 calls/raw/proof/evidence/时间预算与期限并核容量；计划、失败、重读和所有执行累计计入，续办不清零用量。超限保存未完成范围与暂停原因 |
+
+proof 获取/解码/校验、索引、排序、发布与取消计入相应预算，各上限同时满足。潜在 raw+proof 总量可能超过暂存上限，必须先核容量，按原保留合同释放可重取临时页或减少本次 leaf 数；不能把各个最大值说成可同时存下。60 s 是失败边界，不是已测 SLA。
+
+每次执行在任何来源 I/O 前，以 plan revision 条件写入原子预留 leaf 范围和累计 calls/raw/proof/时间额度，形成唯一 attempt。并发冲突者先查询已有 attempt，不另取预算。同范围只允许一个仍可读取的 attempt；原读取支持取消/期限及有界退出，接替者在确认旧 attempt 已停止前不开始新读取。消耗逐步持久，崩溃后无法确定的消耗按原预留上界计入；结果未知不释放额度。没有可靠持久计量时只能保守计满，不把重启变成免费重读。
+
+`resume(plan, expected_revision, next_leaf_range, budget)` 是当前有权读者的显式只读续办，只推进固定计划未完成部分。先查旧执行/保存结果，再以原 evidence store 条件写入关联 leaf；同 leaf/同输入摘要返回同结果，异内容冲突。重启只恢复元数据和续点；撤权、源丢失、取消或容量不足均不自动续跑。扩充累计预算须有显式额度记录，保留原用量和失败，不能默默扩大 Cn。
+
+已完成 leaf 同输入可复用，异输入不能覆盖。缺证/失败 leaf 的补证沿 §7.2 使用新请求及追加 revision，绑定前一缺口、同 plan/cuts/算法与新增原件，旧异常和计量保留；只有核实的新 revision 才可更新父组合引用。换算法、候选或窗口是新核对，不伪称补证。
+
+所有 leaf 固定同一候选、算法与 writer/schema 映射集合。窗口内规则升级按实际 commit 绑定版本选对应映射；跨版本段保留两侧身份、迁移/linked replacement 及原决定关系，不按最新规则解释旧效果。pending 跨段/版本保留原数量、已用预算、期限和结算身份；缺历史工件或可核迁移关系时留下缺口，不重执行模块补造结果。
+
+不同节点的材料分别核 root/era、qualified commit、范围和原证明等级与固定计划一致；换节点不换 World，两副本重复原件只计一次，冲突仍保留。多个 service assertion 不合成为原要求的 formal proof。多 World/chain 范围分别固定单位、终点、最终性及真实跨域关联；缺对应只能分别报告，不能声称跨世界已配平。
+
+<a id="economic-audit-long-consumers"></a>
+### 13.5 消费与具体验收
+
+原 Viewer/Agent/QA/发布 evidence 继续读取同一报告。读者先看到父范围、覆盖缺口、全部异常及证明层，再查看某账本、时间段或跨段义务。显示“160 tick中2/3段已核对”只描述覆盖，不能显示整个经济正常；玩家流程不暴露 leaf、CAS 等实现术语。下一步是读允许披露的来源、显式续办、取得所需权限/原件，或发起明确不同范围的新核对。
+
+[EA-09](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-09)核全部来源，[EA-10](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-10)核分段/跨段，[EA-11](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-11)核预算/续办，[EA-12](../../testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-12)核版本/节点与消费者。它们接续原八项 AC，不替代原正常例和失败方法。
+
+本节确定全资源范围、源适配责任、长窗口组合及恢复方法；完整 reader、各 writer 适配和正式消费仍待实现。真实长期负载、多节点、恢复及真人理解按原层级取证。账目可核不等于经济平衡或长期健康，发行仍由原 authority 判断。
