@@ -263,6 +263,8 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       const summary={stage:saved.provision_stage,setups:saved.setups.map(setup=>({stages:setup.stages.map(stage=>Object.fromEntries(keys.map(key=>[key,stage[key]])))}))};
       assert.fail(JSON.stringify({baseline_prepared:false,summary}));
     }
+    // Only the happy baseline may await real World commit; all target faults remain asynchronous.
+    runtime.disableBaselineSettlement();
     if(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true'||process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true') {
       // Preserve the actual production Account/SQLite; only target operations use diagnostic Wasm.
       ownerDiagnosticActive=process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true';
@@ -322,7 +324,7 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     await runtime.suspend();const finalState=stored(runtime,basis.session_id);assert.deepEqual(finalState.roots,['execution','reconcile_read','termination_plan']);assert.equal(finalState.credentials,0);assert.equal(finalState.terminations,0);assert.equal(finalState.reads,5);assert.deepEqual(finalState.source_reads,[7]);assert.deepEqual(finalState.steps,['fresh_access_pair','lifetime','owner_read']);
     await runtime.restart(selectedMode);const count=runtime.nativeRequests();const retry=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));assert.equal(retry.stage,'active');assert.deepEqual(runtime.nativeRequests(),{...count,'/custody/management-session-status':(count['/custody/management-session-status']??0)+1},'history does not repeat source or preflight business HTTP');
     await run(runtime,basis,selectedMode,blocked);
-  },{configureOptions});
+  },{configureOptions,settleBaseline:true});
   } finally {
     ({ownerDiagnosticActive,identityDiagnosticActive,identitySecretsDisabled,identityCloseReadTrap,accountAlarmFixtureActive,accountAlarmFault,activationReadDelay,paidDirectoryBarrier,toolNonceFixtureActive,toolNonceFaultMode,toolNonceSignals,toolNoncePorts}=previousFixtureState);
   }
