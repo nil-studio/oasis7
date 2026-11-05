@@ -143,3 +143,7 @@ impl From<ExecutionError> for RootModuleWorkerErrorV1 {
         Self::Transaction(error)
     }
 }
+
+#[path = "incremental_module_execution_regex.rs"]
+mod regex;
+pub(super) use regex::RootRegexBackendV1;

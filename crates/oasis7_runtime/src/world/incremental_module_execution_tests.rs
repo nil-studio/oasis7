@@ -660,3 +660,6 @@ mod enumerate;
 
 #[path = "incremental_rule_resources_tests.rs"]
 mod rule_resources_tests;
+
+#[path = "incremental_module_execution_rule_phase_tests.rs"]
+mod rule_phase;

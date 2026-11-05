@@ -41,6 +41,61 @@ where
     C: FnMut() -> bool,
     F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
 {
+    persist_module_output_event_v1(now, event, txn, ctx).map(|_| ())
+}
+
+/// A borrowed event minted only after its original and ordered fact succeed.
+/// No constructor is exposed outside this producer module.
+pub(super) struct PersistedWorldEventV1<'event> {
+    owner: PersistedEventOwnerV1<'event>,
+}
+enum PersistedEventOwnerV1<'event> {
+    Module {
+        event: &'event WorldEvent,
+        identity: oasis7_formal_protocol::incremental_execution::PreparedGuard,
+    },
+    Agent(super::incremental_step::PersistedAgentEventV1<'event>),
+}
+impl<'event> PersistedWorldEventV1<'event> {
+    pub(super) fn from_agent(
+        owner: super::incremental_step::PersistedAgentEventV1<'event>,
+    ) -> Self {
+        Self {
+            owner: PersistedEventOwnerV1::Agent(owner),
+        }
+    }
+    pub(super) fn event(&self) -> &WorldEvent {
+        match &self.owner {
+            PersistedEventOwnerV1::Module { event, .. } => event,
+            PersistedEventOwnerV1::Agent(owner) => owner.event(),
+        }
+    }
+    pub(super) fn validate<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+    ) -> Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> {
+        match &self.owner {
+            PersistedEventOwnerV1::Module { identity, .. } => {
+                tx.validate_transaction_identity(identity)
+            }
+            PersistedEventOwnerV1::Agent(owner) => owner.validate(tx),
+        }
+    }
+}
+
+pub(super) fn persist_module_output_event_v1<'event, M, V, W, C, F>(
+    now: u64,
+    event: &'event WorldEvent,
+    txn: &mut ExecutionTransaction<'_, M>,
+    ctx: &mut ModuleOutputEventContextV1<'_, V, W, C, F>,
+) -> Result<PersistedWorldEventV1<'event>, BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
     txn.contribute(|txn| {
         ctx.world_events.validate(txn)?;
         let before = txn.ordered_fact_count();
@@ -51,12 +106,18 @@ where
                 | WorldEventBody::ModuleEmitted(_)
                 | WorldEventBody::ModuleRuntimeCharged(_)
                 | WorldEventBody::ModuleCallFailed(_)
+                | WorldEventBody::RuleDecisionRecorded(_)
         ) || event.time != now
             || !txn.uses_budget(ctx.mutation.memory)
         {
             return Err(BodyMutationError::Invalid(
                 "module output event original scope",
             ));
+        }
+        if let WorldEventBody::RuleDecisionRecorded(record) = &event.body {
+            if event.caused_by != Some(crate::CausedBy::Action(record.action_id)) {
+                return Err(BodyMutationError::Invalid("rule audit action binding"));
+            }
         }
         if (ctx.mutation.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
@@ -111,7 +172,13 @@ where
         if (ctx.mutation.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        ctx.world_events.note_success(txn, before)
+        ctx.world_events.note_success(txn, before)?;
+        Ok(PersistedWorldEventV1 {
+            owner: PersistedEventOwnerV1::Module {
+                event,
+                identity: txn.guard(),
+            },
+        })
     })
 }
 
@@ -144,6 +211,40 @@ where
             time: now,
             caused_by: None,
             body,
+        },
+        tx,
+        events,
+    )
+}
+
+pub(super) fn append_rule_decision_audit_v1<M, V, W, C, F>(
+    now: u64,
+    record: crate::RuleDecisionRecord,
+    tx: &mut ExecutionTransaction<'_, M>,
+    events: &mut ModuleOutputEventContextV1<'_, V, W, C, F>,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    let seq = World::read_iws_allocator(
+        super::incremental_allocators::RuntimeAllocatorV1::Event,
+        tx,
+        events.values,
+        &mut events.mutation,
+    )?;
+    let (id, _, _) = World::preview_next_event_id(seq.next, seq.era);
+    let cause = Some(crate::CausedBy::Action(record.action_id));
+    contribute_module_output_event_original_v1(
+        now,
+        &WorldEvent {
+            id,
+            time: now,
+            caused_by: cause,
+            body: WorldEventBody::RuleDecisionRecorded(record),
         },
         tx,
         events,

@@ -6,6 +6,43 @@ use crate::world::incremental_module_execution_effects::heap::{
 use oasis7_wasm_abi::{ModuleCallCaller, ModuleCallInput, ModuleCallOrigin, ModuleContext};
 use oasis7_wasm_executor::bounded_worker::{WorkerExecutableV1, WorkerLimitsV1};
 
+#[derive(Clone, Copy)]
+struct PreActionEnvelopeV1<'a> {
+    original: &'a crate::ActionEnvelope,
+    action: &'a crate::Action,
+    retain_metadata: bool,
+}
+impl serde::Serialize for PreActionEnvelopeV1<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let crate::ActionEnvelope {
+            governance_authorization,
+            committed_recipe_origin,
+            id,
+            action: _,
+        } = self.original;
+        let governance_authorization = governance_authorization
+            .as_ref()
+            .filter(|_| self.retain_metadata);
+        let committed_recipe_origin = committed_recipe_origin
+            .as_ref()
+            .filter(|_| self.retain_metadata);
+        let mut out = serializer.serialize_struct(
+            "ActionEnvelope",
+            2 + usize::from(governance_authorization.is_some())
+                + usize::from(committed_recipe_origin.is_some()),
+        )?;
+        if let Some(value) = governance_authorization {
+            out.serialize_field("governance_authorization", value)?;
+        }
+        if let Some(value) = committed_recipe_origin {
+            out.serialize_field("committed_recipe_origin", value)?;
+        }
+        out.serialize_field("id", id)?;
+        out.serialize_field("action", self.action)?;
+        out.end()
+    }
+}
 pub struct RootModuleExecutionContextV1<
     'a,
     't,
@@ -57,7 +94,7 @@ where
         invocation_id: &str,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
-        let result = self.execute_invocation_inner(invocation_id, None, live_owner);
+        let result = self.execute_invocation_inner(invocation_id, None, None, live_owner);
         match result {
             Ok(output) => Ok(output),
             Err(error) => {
@@ -84,7 +121,16 @@ where
                 .map_err(RootModuleExecutionErrorV1::from)
         });
         result?;
-        let result = self.execute_invocation_inner(invocation_id, Some(action), live_owner);
+        let result = self.execute_invocation_inner(
+            invocation_id,
+            Some(PreActionEnvelopeV1 {
+                original: action.envelope(),
+                action: &action.envelope().action,
+                retain_metadata: true,
+            }),
+            None,
+            live_owner,
+        );
         if result.is_err() {
             let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
                 self.ctx.transaction.contribute(|_| {
@@ -93,6 +139,126 @@ where
         }
         result
     }
+    /// Route one genuine persisted Event through current invocation owners.
+    pub(in crate::world) fn route_persisted_event_v1(
+        &mut self,
+        event: &crate::world::incremental_module_execution_event::PersistedWorldEventV1<'_>,
+        product_validation_event_id_era: Option<u64>,
+        directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+        enumeration: &mut CurrentInvocationEnumerationWorkV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<usize, RootModuleExecutionErrorV1<O::Error>> {
+        self.route_completed_invocations(
+            None,
+            Some(event),
+            product_validation_event_id_era,
+            directory,
+            enumeration,
+            live_owner,
+        )
+    }
+
+    /// PostAction subscriptions match the selected action; its persisted result
+    /// is input only and never selects an Event subscription.
+    pub(in crate::world) fn route_post_action_v1(
+        &mut self,
+        action: &crate::world::incremental_action_execution::SelectedPendingActionV1,
+        result_event: Option<
+            &crate::world::incremental_module_execution_event::PersistedWorldEventV1<'_>,
+        >,
+        directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+        enumeration: &mut CurrentInvocationEnumerationWorkV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<usize, RootModuleExecutionErrorV1<O::Error>> {
+        self.ctx.transaction.contribute(|tx| {
+            action
+                .validate(tx)
+                .map_err(RootModuleExecutionErrorV1::from)
+        })?;
+        if let Some(result) = result_event {
+            self.ctx.transaction.contribute(|tx| {
+                result.validate(tx)?;
+                if result.event().caused_by != Some(crate::CausedBy::Action(action.envelope().id)) {
+                    return Err(RootModuleExecutionErrorV1::Value(ValueTreeError::Invalid(
+                        "post-action result action binding",
+                    )));
+                }
+                Ok(())
+            })?;
+        }
+        self.route_completed_invocations(
+            Some(PreActionEnvelopeV1 {
+                original: action.envelope(),
+                action: &action.envelope().action,
+                retain_metadata: true,
+            }),
+            result_event,
+            None,
+            directory,
+            enumeration,
+            live_owner,
+        )
+    }
+
+    fn route_completed_invocations(
+        &mut self,
+        action: Option<PreActionEnvelopeV1<'_>>,
+        event: Option<&crate::world::incremental_module_execution_event::PersistedWorldEventV1<'_>>,
+        era: Option<u64>,
+        directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
+        enumeration: &mut CurrentInvocationEnumerationWorkV1,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<usize, RootModuleExecutionErrorV1<O::Error>> {
+        let result = (|| {
+            if let Some(event) = event {
+                event.validate(self.ctx.transaction)?;
+            }
+            let live = live_owner();
+            let guard = self.ctx.transaction.guard();
+            let ids = collect_current_module_invocation_ids_v1(
+                directory,
+                self.families.instances,
+                self.families.config,
+                self.state,
+                self.ctx,
+                enumeration,
+                &guard,
+                &live,
+            )
+            .map_err(|_| ValueTreeError::Invalid("completed invocation directory"))?;
+            let stage = if action.is_some() {
+                oasis7_wasm_abi::ModuleSubscriptionStage::PostAction
+            } else {
+                oasis7_wasm_abi::ModuleSubscriptionStage::PostEvent
+            };
+            let mut invoked = 0usize;
+            for id in ids.iter() {
+                if self
+                    .execute_routed_invocation_inner(
+                        id,
+                        action,
+                        None,
+                        Some((stage, event, era)),
+                        live_owner,
+                    )?
+                    .is_some()
+                {
+                    invoked = invoked
+                        .checked_add(1)
+                        .ok_or(ValueTreeError::ResourceLimited("routed invocation count"))?;
+                }
+            }
+            Ok(invoked)
+        })();
+        if result.is_err() {
+            let _: Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> =
+                self.ctx.transaction.contribute(|_| {
+                    Err(oasis7_formal_protocol::incremental_execution::ExecutionError::Aborted)
+                });
+        }
+        result
+    }
+
     fn select(
         &mut self,
         invocation_id: &str,
@@ -124,7 +290,22 @@ where
     fn execute_invocation_inner(
         &mut self,
         invocation_id: &str,
-        action: Option<&crate::world::incremental_action_execution::SelectedPendingActionV1>,
+        action: Option<PreActionEnvelopeV1<'_>>,
+        capture: Option<&RefCell<rule_capture::RuleOutputCaptureV1>>,
+        live_owner: &mut dyn FnMut() -> ExecutionFence,
+    ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
+        self.execute_routed_invocation_inner(invocation_id, action, capture, None, live_owner)
+    }
+    fn execute_routed_invocation_inner(
+        &mut self,
+        invocation_id: &str,
+        action: Option<PreActionEnvelopeV1<'_>>,
+        capture: Option<&RefCell<rule_capture::RuleOutputCaptureV1>>,
+        route: Option<(
+            oasis7_wasm_abi::ModuleSubscriptionStage,
+            Option<&crate::world::incremental_module_execution_event::PersistedWorldEventV1<'_>>,
+            Option<u64>,
+        )>,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<Option<ReservedValue<ModuleOutput>>, RootModuleExecutionErrorV1<O::Error>> {
         let live = live_owner();
@@ -156,7 +337,11 @@ where
         let Some(first) = self.select(invocation_id, &live)? else {
             return Ok(None);
         };
+        if let Some((_, Some(event), _)) = route {
+            event.validate(self.ctx.transaction)?;
+        }
         if action.is_none()
+            && route.is_none()
             && !crate::world::module_tick_runtime::module_has_tick_subscription(first.manifest())
         {
             return Ok(None);
@@ -164,7 +349,9 @@ where
         let memory = self.ctx.values.memory;
         // A pre-action owns both the nested action bytes and the final input
         // at the same time. Reserve both Vec capacities before either encode.
-        let input_copies = if action.is_some() { 2 } else { 1 };
+        let input_copies = 1
+            + usize::from(action.is_some())
+            + usize::from(route.is_some_and(|(_, event, _)| event.is_some()));
         let input_bytes = self.work.max_input_bytes.checked_mul(input_copies).ok_or(
             ValueTreeError::ResourceLimited("root module input workspace"),
         )?;
@@ -270,36 +457,96 @@ where
             state,
         };
         if let Some(action) = action {
+            oasis7_world_state::incremental_world_event_decode::verify_module_output_layout_inventory_v1(memory,MemoryClass::Ordinary)?;
             // The strict router owns its admitted arena through matching, never
             // constructs a serde_json BTreeMap or uses the process-wide regex
             // cache. All selected invocations share this work across actions.
-            let subscribed = oasis7_wasm_router::bounded::pre_action_matches_serialized_bounded_v1(
-                action.envelope(),
-                &first.manifest().subscriptions,
-                &first.manifest().module_id,
-                crate::world::module_runtime_labels::action_kind_label(&action.envelope().action),
-                &mut self.work.routing,
-                &mut self.ctx.cancelled,
-                |bytes| memory.reserve(bytes, MemoryClass::Ordinary),
-            )
-            .map_err(RootModuleExecutionErrorV1::Routing)?;
+            // Retain bounded parent diagnostics if a child/process error escapes.
+            let error_fee = memory
+                .reserve(16 << 10, MemoryClass::Ordinary)
+                .map_err(ValueTreeError::Memory)?;
+            let mut regex =
+                crate::world::incremental_module_execution_worker::RootRegexBackendV1::new(
+                    &mut *self.worker,
+                    memory,
+                );
+            let subscribed =
+                oasis7_wasm_router::bounded::subscription_matches_serialized_bounded_with_regex_v1(
+                    &action,
+                    &first.manifest().subscriptions,
+                    &first.manifest().module_id,
+                    crate::world::module_runtime_labels::action_kind_label(action.action),
+                    route.map_or(oasis7_wasm_abi::ModuleSubscriptionStage::PreAction, |r| r.0),
+                    &mut self.work.routing,
+                    &mut self.ctx.cancelled,
+                    |bytes| memory.reserve(bytes, MemoryClass::Ordinary),
+                    &mut regex,
+                )
+                .map_err(|error| RootModuleExecutionErrorV1::Routing(error_fee.retain(error)))?;
             if !subscribed {
                 return Ok(None);
             }
-            input.ctx.trace_id = format!("action-{}-{}", action.envelope().id, first.instance_id());
+            input.ctx.trace_id = format!("action-{}-{}", action.original.id, first.instance_id());
             input.ctx.origin = ModuleCallOrigin {
                 kind: "action".into(),
-                id: action.envelope().id.to_string(),
+                id: action.original.id.to_string(),
             };
             input.ctx.caller = ModuleCallCaller::LegacyUnspecified;
-            input.ctx.stage = Some("pre_action".into());
+            input.ctx.stage = Some(
+                if route.is_some() {
+                    "post_action"
+                } else {
+                    "pre_action"
+                }
+                .into(),
+            );
             input.action = Some(encode_input(
-                action.envelope(),
+                &action,
                 memory,
                 &mut self.work.input,
                 self.work.max_input_bytes,
                 &mut self.ctx.cancelled,
             )?);
+        }
+        if let Some((stage, event, era)) = route {
+            if let Some(event) = event {
+                let event = event.event();
+                if stage == oasis7_wasm_abi::ModuleSubscriptionStage::PostEvent {
+                    let error_fee = memory
+                        .reserve(16 << 10, MemoryClass::Ordinary)
+                        .map_err(ValueTreeError::Memory)?;
+                    let mut regex =
+                        crate::world::incremental_module_execution_worker::RootRegexBackendV1::new(
+                            &mut *self.worker,
+                            memory,
+                        );
+                    if !oasis7_wasm_router::bounded::subscription_matches_serialized_bounded_with_regex_v1(
+                        event, &first.manifest().subscriptions, &first.manifest().module_id,
+                        crate::world::module_runtime_labels::event_kind_label(&event.body), stage,
+                        &mut self.work.routing, &mut self.ctx.cancelled,
+                        |bytes| memory.reserve(bytes, MemoryClass::Ordinary), &mut regex,
+                    ).map_err(|error| RootModuleExecutionErrorV1::Routing(error_fee.retain(error)))? { return Ok(None); }
+                    input.ctx.trace_id = era.map_or_else(
+                        || format!("event-{}-{}", event.id, first.instance_id()),
+                        |era| crate::world::economy_product_validation::product_validation_event_trace_id(era, event.id, first.instance_id()),
+                    );
+                    input.ctx.time = event.time;
+                    input.ctx.journal_height = Some(event.id);
+                    input.ctx.origin = ModuleCallOrigin {
+                        kind: "event".into(),
+                        id: event.id.to_string(),
+                    };
+                    input.ctx.caller = ModuleCallCaller::LegacyUnspecified;
+                    input.ctx.stage = Some("post_event".into());
+                }
+                input.event = Some(encode_input(
+                    event,
+                    memory,
+                    &mut self.work.input,
+                    self.work.max_input_bytes,
+                    &mut self.ctx.cancelled,
+                )?);
+            }
         }
         let trace_id = input.ctx.trace_id.clone();
         let input = encode_input(
@@ -380,6 +627,15 @@ where
             }
             Err(error) => return Err(RootModuleExecutionErrorV1::Worker(error)),
         };
+        let capture_slot = if let Some(capture) = capture {
+            Some(
+                capture
+                    .borrow_mut()
+                    .begin(selected.module_id(), &trace_id)?,
+            )
+        } else {
+            None
+        };
         drop(request);
         let live = live_owner();
         self.ctx
@@ -437,6 +693,7 @@ where
                 intents: Vec::with_capacity(effect_slots),
                 clones: Vec::with_capacity(clone_slots),
                 sticky: None,
+                capture,
             }),
         };
         let result = crate::world::module_runtime::process_module_output_for_target(
@@ -462,7 +719,12 @@ where
                     )
                     .into());
                 }
-                Ok(Some(output))
+                if let (Some(capture), Some(slot)) = (capture, capture_slot) {
+                    capture.borrow_mut().finish(slot, output)?;
+                    Ok(None)
+                } else {
+                    Ok(Some(output))
+                }
             }
             Err(error) => Err(RootModuleExecutionErrorV1::Business(phase.retain(error))),
         }
@@ -567,3 +829,11 @@ fn application_admission(
 #[path = "incremental_module_execution_target_due.rs"]
 mod due;
 pub use due::RootModuleTickOutcomeV1;
+
+#[path = "incremental_module_execution_rule_phase.rs"]
+mod rule_phase;
+pub use rule_phase::{RootRulePhaseOutcomeV1, RootRulePhaseWorkV1};
+
+#[cfg(test)]
+#[path = "incremental_module_execution_envelope_tests.rs"]
+mod envelope_tests;

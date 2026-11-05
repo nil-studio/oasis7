@@ -54,8 +54,11 @@ pub enum RootModuleExecutionErrorV1<OE> {
     Body(BodyMutationError),
     Manifest(RootWorldManifestHashErrorV1),
     Routing(
-        oasis7_wasm_router::bounded::BoundedRouterErrorV1<
-            oasis7_proto::memory_budget::MemoryLimitExceeded,
+        ReservedValue<
+            oasis7_wasm_router::bounded::BoundedRouterErrorV1<
+                oasis7_proto::memory_budget::MemoryLimitExceeded,
+                oasis7_wasm_executor::bounded_worker::RegexWorkerErrorV1,
+            >,
         >,
     ),
     Business(ReservedValue<WorldError>),
@@ -134,6 +137,7 @@ struct Owners<'a, 't, 's, 'v, M, R, E, C, W, F, O: OriginalObjectStreamReader> {
     intents: Vec<ReservedValue<PreparedRootModuleEffectV1>>,
     clones: Vec<MemoryReservation>,
     sticky: Option<RootModuleExecutionErrorV1<O::Error>>,
+    capture: Option<&'a RefCell<rule_capture::RuleOutputCaptureV1>>,
 }
 struct Target<'a, 't, 's, 'v, M, R, E, C, W, F, O: OriginalObjectStreamReader> {
     owners: RefCell<Owners<'a, 't, 's, 'v, M, R, E, C, W, F, O>>,
@@ -626,7 +630,19 @@ where
                     }
                 };
                 owners.clones.push(charge);
-                Ok((*output).clone())
+                let cloned = (*output).clone();
+                if let Some(capture) = owners.capture {
+                    let result = (|| {
+                        let mut capture = capture.borrow_mut();
+                        let slot = capture.begin(module_id, trace_id)?;
+                        capture.finish(slot, output)
+                    })();
+                    if let Err(error) = result {
+                        owners.failed(RootModuleExecutionErrorV1::Value(error));
+                        return Err(owners.failure(module_id, trace_id));
+                    }
+                }
+                Ok(cloned)
             }
             Err(RootModuleExecutionErrorV1::Worker(RootModuleWorkerErrorV1::Output(
                 RootModuleOutputErrorV1::Sandbox(failure),
@@ -770,4 +786,10 @@ fn encode_input<T: serde::Serialize>(
 
 #[path = "incremental_module_execution_target_entry.rs"]
 mod entry;
-pub use entry::{RootModuleExecutionContextV1, RootModuleTickOutcomeV1};
+pub use entry::{
+    RootModuleExecutionContextV1, RootModuleTickOutcomeV1, RootRulePhaseOutcomeV1,
+    RootRulePhaseWorkV1,
+};
+
+#[path = "incremental_module_execution_rule_capture.rs"]
+mod rule_capture;

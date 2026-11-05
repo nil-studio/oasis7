@@ -16,6 +16,23 @@ use oasis7_formal_protocol::{
 };
 use oasis7_wasm_abi::{CanonicalCborWorkV1, ModuleTickLifecycleDirective};
 
+/// Proof produced only after an agent event and its counted original succeed.
+pub(super) struct PersistedAgentEventV1<'event> {
+    event: &'event WorldEvent,
+    identity: oasis7_formal_protocol::incremental_execution::PreparedGuard,
+}
+impl PersistedAgentEventV1<'_> {
+    pub(super) fn event(&self) -> &WorldEvent {
+        self.event
+    }
+    pub(super) fn validate<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+    ) -> Result<(), oasis7_formal_protocol::incremental_execution::ExecutionError> {
+        tx.validate_transaction_identity(&self.identity)
+    }
+}
+
 /// Borrows, rather than begins or seals, the one parent-bound transaction.
 /// The private clock is minted only after authenticating the overlay's old
 /// clock and staging its successor. No materialized World is retained.
@@ -162,6 +179,37 @@ where
         *self.original_work = context.original_work;
         result?;
         self.finish_world_event(before)
+    }
+
+    pub(super) fn dispatch_persisted_agent_event<'event, F>(
+        &mut self,
+        event: &'event WorldEvent,
+        max_event_bytes: usize,
+        persist_original: F,
+    ) -> Result<
+        super::incremental_module_execution_event::PersistedWorldEventV1<'event>,
+        BodyMutationError,
+    >
+    where
+        F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+    {
+        self.transaction.contribute(|tx| {
+            self.world_events
+                .as_ref()
+                .ok_or(BodyMutationError::Invalid(
+                    "persisted agent event requires WorldEvent counter",
+                ))?
+                .validate(tx)
+        })?;
+        self.dispatch_agent_event(event, max_event_bytes, persist_original)?;
+        Ok(
+            super::incremental_module_execution_event::PersistedWorldEventV1::from_agent(
+                PersistedAgentEventV1 {
+                    event,
+                    identity: self.transaction.guard(),
+                },
+            ),
+        )
     }
 
     /// Contribute a ModuleStateUpdated event without creating or advancing an

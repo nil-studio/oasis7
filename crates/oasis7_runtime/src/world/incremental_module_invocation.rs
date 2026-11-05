@@ -513,7 +513,8 @@ pub use route::{prepare_root_module_invocation_v1, prepare_root_module_registry_
 mod target;
 pub use target::{
     RootModuleExecutionContextV1, RootModuleExecutionErrorV1, RootModuleExecutionFamiliesV1,
-    RootModuleExecutionWorkV1, RootModuleTickOutcomeV1,
+    RootModuleExecutionWorkV1, RootModuleTickOutcomeV1, RootRulePhaseOutcomeV1,
+    RootRulePhaseWorkV1,
 };
 
 #[path = "incremental_module_invocation_enumerate.rs"]
