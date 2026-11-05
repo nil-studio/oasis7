@@ -9,13 +9,20 @@ use oasis7_world_state::{
     },
 };
 fn transfer_work() -> IwsGenesisTransferWorkV1 {
+    let outer_nodes: u64 = 1_000_000;
+    let mut outer_reads = work::physical_io();
+    // An SMP node fits one Raw frame. Its read needs FORMAT plus recipe and
+    // frame lookup; each packed member needs prefix/header, at most nine
+    // comparisons (256 entries), and payload. Include one marker fallback:
+    // 1 + 12 + 12 + 1 = 26 physical reads per scanned node.
+    outer_reads.reads_remaining = outer_nodes.checked_mul(26).unwrap();
     IwsGenesisTransferWorkV1 {
         objects_physical: std::array::from_fn(|_| work::physical_io()),
         objects_logical: std::array::from_fn(|_| work::logical()),
         page_publish: std::array::from_fn(|_| work::physical_io()),
-        outer_reads: work::physical_io(),
+        outer_reads,
         outer_scan: StateScanBudget {
-            nodes_remaining: 1_000_000,
+            nodes_remaining: outer_nodes,
             read_bytes_remaining: 256 << 20,
             leaves_remaining: 100_000,
         },
