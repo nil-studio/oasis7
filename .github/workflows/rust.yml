@@ -639,6 +639,12 @@ jobs:
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Reclaim unused candidate SDK capacity
+        if: github.job == 'oasis7-test-build-candidate'
+        env:
+          OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --apply --min-free-bytes 1073741824 --min-free-inodes 10000
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
@@ -723,6 +729,15 @@ jobs:
           path: ${{ runner.temp }}/ordinary-cache-*.json
           if-no-files-found: ignore
           retention-days: 2
+      - name: Report candidate build capacity on failure
+        if: failure() && github.job == 'oasis7-test-build-candidate'
+        shell: bash
+        run: |
+          df -B1 "$GITHUB_WORKSPACE" "$RUNNER_TEMP" || true
+          df -i "$GITHUB_WORKSPACE" "$RUNNER_TEMP" || true
+          for path in "$GITHUB_WORKSPACE/target" "$RUNNER_TEMP/native-tests" "$RUNNER_TEMP/ordinary-workspace-cache"; do
+            if [[ -d "$path" && ! -L "$path" ]]; then timeout 30s du -sk "$path" || true; fi
+          done
 
   oasis7-test-build-trusted:
     cache-mode: write
