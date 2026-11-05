@@ -47,6 +47,8 @@ RUST_KEY = re.compile(r'v0-rust-(?P<family>[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)-'
 LEGACY_DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2'))
 DEPENDENCY_PLATFORMS = {
     **{name: frozenset({('Linux', 'x64')}) for name in LEGACY_DEPENDENCY_NAMESPACES},
+    'ci-formal-debug-deps-trusted-v1': frozenset({('Linux', 'x64')}),
+    'ci-formal-endpoint-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'release-packages-web-wasm-trusted-v3': frozenset({('Linux', 'x64')}),
     'oasis7-package-native-Linux-native-packaging-trusted-v2': frozenset({('Linux', 'x64')}),
     'release-packages-package-native-Windows-native-trusted-v2': frozenset({('Windows_NT', 'x64')}),
@@ -70,7 +72,8 @@ RETIRED_WORKSPACE_SCHEMAS = {
 }
 # These known schemas have fixed Linux X64 writers. Cache version alone is not
 # platform proof; a future writer platform must introduce a distinct schema.
-LINEAGE_WORKSPACE_SCHEMAS = frozenset(('ordinary-workspace-v1', 'formal-workspace-v3', 'ecs-workspace-v2'))
+LINEAGE_WORKSPACE_SCHEMAS = frozenset(('ordinary-workspace-v1', 'formal-workspace-v3', 'ecs-workspace-v2',
+                                     'formal-debug-workspace-v1', 'formal-endpoint-workspace-v1'))
 # Leave room in the shared request budget for inventories, active runs and DELETEs.
 MAX_ANCESTRY_REQUESTS = 20
 
@@ -836,7 +839,8 @@ def trusted_run_start(api, environment, current_key=None, *, bootstrap=False, re
     run_id = environment.get('GITHUB_RUN_ID', '')
     workflow_ref = environment.get('GITHUB_WORKFLOW_REF')
     if workflow_ref == f'{api.repository}/{WORKFLOW_PATH}@{MAIN_REF}':
-        workflow, allowed_families, events = WORKFLOW_PATH, {'formal', 'ordinary'}, ('push', 'schedule', 'workflow_dispatch')
+        workflow, allowed_families, events = (WORKFLOW_PATH,
+            {'formal', 'ordinary', 'formal-debug', 'formal-endpoint'}, ('push', 'schedule', 'workflow_dispatch'))
     elif workflow_ref == f'{api.repository}/{ECS_WORKFLOW_PATH}@{MAIN_REF}':
         workflow, allowed_families, events = ECS_WORKFLOW_PATH, {'ecs'}, ('workflow_dispatch',)
     elif workflow_ref == f'{api.repository}/{RELEASE_WORKFLOW_PATH}@{MAIN_REF}':

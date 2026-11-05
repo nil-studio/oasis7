@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Coverage, transition-gate and real libtest runner regressions."""
 import copy
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import importlib.util
 import json
 import os
@@ -1165,6 +1167,563 @@ if os.environ['FAILED'] == action:
         self.assertNotIn('run_pixel_world_bridge_lib_tests', result.stdout)
 
 
+class FormalBuildComponents(unittest.TestCase):
+    def test_components_preserve_each_original_compile_context_once(self):
+        # Frozen command oracle from b3658f94, independent of the new splitter.
+        required = ['test_tier_required']
+        formal = ['test_tier_required', 'ci_formal_required_features']
+        original = [
+            ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
+                '--lib', '--bins', '--features', ','.join(formal), '--no-run'], formal),
+            ('runtime', ['build', '-p', 'oasis7_chain_runtime', '--bin', 'oasis7_chain_runtime',
+                '--features', 'test_tier_required'], required),
+            ('endpoint', ['build', '-p', 'oasis7_distfs', '--bin', 'oasis7_durability_endpoint', '--release'], []),
+            ('distfs-tests', ['test', '-p', 'oasis7_distfs', '--lib', '--no-run'], []),
+        ]
+        self.assertEqual(artifacts.build_variants('formal'), original)
+        debug = artifacts.build_variants('formal-debug')
+        endpoint = artifacts.build_variants('formal-endpoint')
+        self.assertEqual(debug, [original[0], original[1], original[3]])
+        self.assertEqual(endpoint, [original[2]])
+        self.assertCountEqual(debug + endpoint, original)
+        self.assertEqual(len({name for name, _, _ in debug + endpoint}), 4)
+
+    def test_formal_debug_profile_keeps_assertions_and_endpoint_release_contract(self):
+        with patch.dict(os.environ, RUSTC_WRAPPER='must-not-wrap',
+                        CARGO_PROFILE_DEV_OPT_LEVEL='0', CARGO_PROFILE_TEST_OPT_LEVEL='0'):
+            for scope in ('formal', 'formal-debug', 'formal-endpoint', 'storage'):
+                with self.subTest(scope=scope):
+                    environment = artifacts.build_environment(scope)
+                    self.assertNotIn('RUSTC_WRAPPER', environment)
+                    for profile in ('DEV', 'TEST'):
+                        self.assertEqual(environment['CARGO_PROFILE_' + profile + '_OPT_LEVEL'], '2')
+                        self.assertEqual(environment['CARGO_PROFILE_' + profile + '_DEBUG_ASSERTIONS'], 'true')
+                        self.assertEqual(environment['CARGO_PROFILE_' + profile + '_OVERFLOW_CHECKS'], 'true')
+            self.assertEqual(artifacts.build_environment('ordinary')['CARGO_PROFILE_DEV_OPT_LEVEL'], '0')
+        debug = dict(profile=dict(opt_level='2', debug_assertions=True, overflow_checks=True))
+        for scope in ('formal', 'formal-debug', 'storage'):
+            artifacts.validate_profile('runtime-tests', debug, scope)
+            for field, wrong in (('opt_level', '0'), ('debug_assertions', False), ('overflow_checks', False)):
+                altered = copy.deepcopy(debug)
+                altered['profile'][field] = wrong
+                with self.subTest(scope=scope, field=field), self.assertRaises(ValueError):
+                    artifacts.validate_profile('runtime-tests', altered, scope)
+        endpoint = dict(target='oasis7_durability_endpoint', test=False,
+                        original_executable='/checkout/target/release/oasis7_durability_endpoint',
+                        profile=dict(opt_level='3', debug_assertions=False))
+        artifacts.validate_profile('endpoint', endpoint, 'formal-endpoint')
+        endpoint['profile']['opt_level'] = '2'
+        with self.assertRaises(ValueError):
+            artifacts.validate_profile('endpoint', endpoint, 'formal-endpoint')
+
+
+class RealFormalComponents(unittest.TestCase):
+    """The actual four Cargo contexts, reduced only to tiny standalone crates."""
+
+    @classmethod
+    def context(cls):
+        stack = ExitStack()
+        stack.enter_context(patch.object(artifacts, 'ROOT', cls.root))
+        stack.enter_context(patch.object(artifacts, 'CONFIG', cls.configuration))
+        stack.enter_context(patch.object(artifacts, 'FORMAL_AUTHORITY', None))
+        stack.enter_context(patch.dict(os.environ, SOURCE_SHA=cls.sha, GITHUB_RUN_ID='42',
+            GITHUB_RUN_ATTEMPT='2', CARGO_INCREMENTAL='0', CARGO_NET_OFFLINE='true',
+            CARGO_PROFILE_DEV_DEBUG='0', CARGO_PROFILE_TEST_DEBUG='0'))
+        return stack
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory(prefix='oasis7-formal-components-fixture-')
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.base = Path(cls.temporary.name)
+        cls.root = cls.base / 'checkout'
+        cls.root.mkdir()
+        (cls.root / 'Cargo.toml').write_text(
+            '[workspace]\nmembers=["world","runtime","distfs"]\nresolver="2"\n')
+        common = '''
+#[cfg(all(test, not(debug_assertions)))] compile_error!("test assertions were disabled");
+pub fn value() -> u8 { 7 }
+#[test] fn formal_contract() {
+    assert_eq!(value(), 7);
+    let value = std::hint::black_box(u8::MAX);
+    assert!(std::panic::catch_unwind(|| value + std::hint::black_box(1)).is_err());
+}
+#[test] #[ignore] fn acceptance() { assert_eq!(value(), 7); }
+'''
+        paired = '''
+fn rendezvous(name: &str, peer: &str) {
+    let Some(directory) = std::env::var_os("OASIS7_FORMAL_FIXTURE_RENDEZVOUS") else { return; };
+    let directory = std::path::PathBuf::from(directory);
+    std::fs::write(directory.join(name), b"started").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !directory.join(peer).exists() {
+        assert!(std::time::Instant::now() < deadline, "complete Formal cases did not overlap");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    if std::env::var_os("OASIS7_FORMAL_FIXTURE_FAIL").is_some() {
+        assert_ne!(name, "a", "real case failure");
+        std::thread::sleep(std::time::Duration::from_secs(30));
+    }
+}
+#[test] fn formal_parallel_a() { rendezvous("a", "b"); }
+#[test] fn formal_parallel_b() { rendezvous("b", "a"); }
+'''
+        for directory, package in (('world', 'oasis7'), ('runtime', 'oasis7_chain_runtime'),
+                                   ('distfs', 'oasis7_distfs')):
+            member = cls.root / directory
+            (member / 'src').mkdir(parents=True)
+            features = '[features]\ndefault=[]\ntest_tier_required=[]\nci_formal_required_features=[]\n'
+            (member / 'Cargo.toml').write_text('[package]\nname="' + package +
+                '"\nversion="0.1.0"\nedition="2021"\n' + features)
+            (member / 'src/lib.rs').write_text(common + (paired if directory == 'runtime' else ''))
+            if directory == 'runtime':
+                (member / 'src/main.rs').write_text('fn main() { println!("fixture runtime"); }\n')
+            if directory == 'distfs':
+                (member / 'src/bin').mkdir()
+                (member / 'src/bin/oasis7_durability_endpoint.rs').write_text(
+                    '#[cfg(debug_assertions)] compile_error!("endpoint is not release");\nfn main() {}\n')
+                (member / 'build.rs').write_text(
+                    'fn main() { println!("cargo:rerun-if-changed=src/lib.rs"); }\n')
+        config = dict(schema_version=2, suites={suite: [] for suite in artifacts.SHARDS},
+            legacy_ignored_filters={}, environment_formal_batches={}, shell_tests={},
+            binary_dependencies={'runtime-tests': ['runtime', 'endpoint'],
+                                 'oasis7-lib-tests': ['runtime', 'endpoint'],
+                                 'distfs-tests': ['endpoint']},
+            parallel_cases={'runtime-tests': {'formal_parallel_a': 1, 'formal_parallel_b': 1}})
+        for name, suite in (('runtime-tests', 'runtime-protocol'), ('oasis7-lib-tests', 'runtime-protocol'),
+                            ('distfs-tests', 'storage-recovery')):
+            config['suites'][suite].append(dict(binary=name, name='acceptance', ignored=True))
+            config['legacy_ignored_filters'][name] = ['acceptance']
+            config['environment_formal_batches'][name] = suite
+        cls.configuration = cls.root / 'scripts/ci-formal-process-suites.json'
+        cls.configuration.parent.mkdir()
+        cls.configuration.write_text(json.dumps(config))
+        subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=cls.root,
+                       check=True, capture_output=True)
+        # This temporary Git fixture is independent of the project worktree.
+        for command in (['git', 'init', '-q'], ['git', 'add', '.'],
+                        ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                         'commit', '-qm', 'fixture']):
+            subprocess.run(command, cwd=cls.root, check=True, capture_output=True)
+        cls.sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=cls.root, text=True).strip()
+        cls.debug, cls.endpoint = cls.base / 'debug', cls.base / 'endpoint'
+        with cls.context():
+            with patch.dict(os.environ, GITHUB_RUN_ATTEMPT='1'):
+                artifacts.build(cls.debug, 'formal-debug', cls.base / 'debug-state.json')
+            artifacts.build(cls.endpoint, 'formal-endpoint', cls.base / 'endpoint-state.json')
+            artifacts.build(cls.base / 'single', 'formal')
+
+    def setUp(self):
+        self.stack = self.context()
+        self.addCleanup(self.stack.close)
+        temporary = tempfile.TemporaryDirectory(dir=self.base, prefix='case-')
+        self.addCleanup(temporary.cleanup)
+        self.case = Path(temporary.name)
+
+    def copy_components(self):
+        debug, endpoint = self.case / 'debug', self.case / 'endpoint'
+        shutil.copytree(self.debug, debug)
+        shutil.copytree(self.endpoint, endpoint)
+        return debug, endpoint
+
+    def test_real_split_merge_matches_original_full_inventory_and_executes_every_case(self):
+        merged = self.case / 'merged'
+        artifacts.merge_formal(self.debug, self.endpoint, merged)
+        manifest = json.loads((merged / 'manifest.json').read_text())
+        original = json.loads((self.base / 'single/manifest.json').read_text())
+        self.assertEqual(set(manifest['binaries']), set(original['binaries']))
+        for logical, binary in manifest['binaries'].items():
+            for field in ('package', 'variant', 'target', 'target_kind', 'requested_features',
+                          'features', 'profile', 'tests', 'ignored_tests', 'cwd'):
+                self.assertEqual(binary.get(field), original['binaries'][logical].get(field), (logical, field))
+        self.assertEqual(manifest['suites'], original['suites'])
+        self.assertEqual(manifest['formal_execution_version'], 1)
+        self.assertEqual({role: value['producer_attempt'] for role, value in manifest['components'].items()},
+                         {'formal-debug': '1', 'formal-endpoint': '2'})
+        rendezvous = self.case / 'rendezvous'
+        rendezvous.mkdir()
+        count = 0
+        for shard in ('runtime-protocol', 'storage-recovery'):
+            archive = self.case / (shard + '.tar.gz')
+            artifacts.pack(merged, archive, shard=shard)
+            consumer = self.case / shard
+            with tarfile.open(archive) as package:
+                package.extractall(consumer, filter='data')
+            results = self.case / (shard + '.jsonl')
+            with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                 patch.dict(os.environ, OASIS7_FORMAL_FIXTURE_RENDEZVOUS=str(rendezvous)):
+                artifacts.execute(consumer, 'ordinary', results, shard=shard)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            expected = artifacts.selected_entries(manifest, artifacts.formal_configuration(), shard=shard)
+            self.assertCountEqual([(record['suite'], record['test_name']) for record in records],
+                                  [(entry['suite'], entry['name']) for entry in expected])
+            self.assertTrue(all(record['passed'] and record['count_ok'] and record['cleanup_result'] == 'clean'
+                                and record['shard'] == shard and record['expected_count'] == 1 for record in records))
+            count += len(records)
+        self.assertEqual(count, 8)
+        self.assertTrue((rendezvous / 'a').exists() and (rendezvous / 'b').exists())
+
+    def test_each_component_cache_restores_complete_real_units_without_rebuild(self):
+        for scope, component in (('formal-debug', 'debug'), ('formal-endpoint', 'endpoint')):
+            with self.subTest(scope=scope):
+                state = json.loads((self.base / (component + '-state.json')).read_text())
+                self.assertEqual(state['selection'], 'all')
+                self.assertTrue(state['complete'], state)
+                cache = self.case / (component + '-cache')
+                staged = artifacts.cache_stage(state, cache)
+                self.assertTrue(staged['save'], staged)
+                shutil.rmtree(self.root / 'target')
+                restored = artifacts.cache_restore(self.root, cache)
+                self.assertTrue(restored['restored'], restored)
+                bundle = self.case / (component + '-rebuilt')
+                artifacts.build(bundle, scope)
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                self.assertTrue(all(timing['local_rebuilt'] == 0 for timing in manifest['build_timings']), manifest['build_timings'])
+                # Restore the other profile before staging its original state.
+                if component == 'debug':
+                    artifacts.build(self.case / 'endpoint-for-cache', 'formal-endpoint')
+
+    def test_real_failed_case_cancels_running_peer_and_keeps_prior_completed_receipts(self):
+        merged = self.case / 'merged'
+        artifacts.merge_formal(self.debug, self.endpoint, merged)
+        rendezvous = self.case / 'rendezvous'
+        rendezvous.mkdir()
+        results = self.case / 'failed.jsonl'
+        with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+             patch.dict(os.environ, OASIS7_FORMAL_FIXTURE_RENDEZVOUS=str(rendezvous),
+                        OASIS7_FORMAL_FIXTURE_FAIL='1'):
+            with self.assertRaisesRegex(RuntimeError, 'formal failed'):
+                artifacts.execute(merged, 'ordinary', results, shard='runtime-protocol')
+        records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(len(records), 5)
+        failed = next(record for record in records if record['test_name'] == 'formal_parallel_a')
+        peer = next(record for record in records if record['test_name'] == 'formal_parallel_b')
+        self.assertFalse(failed['passed'])
+        self.assertEqual(failed['exit_code'], 101)
+        self.assertFalse(peer['passed'])
+        self.assertTrue(peer['cancelled'])
+        self.assertEqual(peer['exit_code'], -signal.SIGTERM)
+        self.assertTrue(all(record['cleanup_result'] == 'clean' for record in records))
+        # The existing runner records a live owner requiring termination as
+        # leaked, even when cancellation successfully reaps it. It cannot pass.
+        self.assertTrue(peer['leaked_processes'])
+        self.assertTrue(all(not record['leaked_processes'] for record in records if record is not peer))
+        self.assertTrue(all(record['passed'] for record in records
+                            if record['test_name'] not in ('formal_parallel_a', 'formal_parallel_b')))
+
+    def test_real_cli_components_merge_pack_and_consumer_use_the_identical_trusted_plan(self):
+        authority = self.case / 'authority.json'
+        authority.write_text(self.configuration.read_text())
+        selected = dict(fast_plan_version=1, execution_profile='pr-fast', scope='targeted',
+            groups=['formal_process'], formal_suites=['runtime-protocol', 'storage-recovery'],
+            formal_shards=['runtime-protocol', 'storage-recovery'],
+            architecture=dict(source=self.sha, tested=self.sha))
+        plan_path = self.case / 'selection.json'
+        plan_path.write_text(json.dumps(selected))
+        common = [sys.executable, str(HERE / 'ci-test-artifacts.py'), '--repo-root', str(self.root),
+                  '--plan', str(plan_path), '--formal-config', str(authority)]
+        def call(*args):
+            result = subprocess.run([*common, *map(str, args)], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result
+        debug, endpoint, merged = (self.case / name for name in ('cli-debug', 'cli-endpoint', 'cli-merged'))
+        call('build', '--scope', 'formal-debug', '--bundle', debug)
+        call('build', '--scope', 'formal-endpoint', '--bundle', endpoint)
+        call('merge-formal', '--debug-bundle', debug, '--endpoint-bundle', endpoint, '--bundle', merged)
+        archives = self.case / 'archives'
+        call('pack', '--bundle', merged, '--split-formal', '--output', archives)
+        self.assertEqual(sorted(path.name for path in archives.iterdir()),
+                         ['runtime-protocol.tar.gz', 'runtime-protocol.tar.size.json',
+                          'storage-recovery.tar.gz', 'storage-recovery.tar.size.json'])
+        consumer = self.case / 'cli-consumer'
+        with tarfile.open(archives / 'runtime-protocol.tar.gz') as archive:
+            archive.extractall(consumer, filter='data')
+        results = self.case / 'cli-results.jsonl'
+        call('run', '--bundle', consumer, '--shard', 'runtime-protocol', '--results', results)
+        records = [json.loads(line) for line in results.read_text().splitlines()]
+        self.assertEqual(len(records), 6)
+        self.assertTrue(all(record['passed'] for record in records))
+        selected['architecture']['source'] = 'f' * 40
+        plan_path.write_text(json.dumps(selected))
+        rejected = subprocess.run([*common, 'merge-formal', '--debug-bundle', str(debug),
+            '--endpoint-bundle', str(endpoint), '--bundle', str(self.case / 'wrong-plan')],
+            text=True, capture_output=True)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse((self.case / 'wrong-plan').exists())
+
+    def test_merge_rejects_identity_profile_target_and_inventory_damage_before_output(self):
+        debug, endpoint = self.copy_components()
+        original = (debug / 'manifest.json').read_text()
+        mutations = {
+            'source': lambda m: m.update(source_sha='f' * 40),
+            'tested': lambda m: m.update(tested_sha='f' * 40),
+            'run': lambda m: m.update(producer_run_id='other'),
+            'future-attempt': lambda m: m.update(producer_attempt='3'),
+            'bad-attempt': lambda m: m.update(producer_attempt='0'),
+            'authority': lambda m: m.update(formal_authority_sha256='wrong'),
+            'compiler': lambda m: m.update(rustc_version='wrong compiler'),
+            'target': lambda m: m.update(target_triple='wrong-target'),
+            'compiler-flags': lambda m: m['compiler_environment'].update(RUSTFLAGS='--cfg other_behavior'),
+            'scope': lambda m: m.update(scope='formal-endpoint'),
+            'missing-bin': lambda m: m['binaries'].pop('required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'),
+            'features': lambda m: m['binaries']['runtime-tests'].update(requested_features=[]),
+            'profile': lambda m: m['binaries']['runtime-tests']['profile'].update(overflow_checks=False),
+            'alias': lambda m: m['binaries'].update(alias=copy.deepcopy(m['binaries']['runtime-tests'])),
+            'variant': lambda m: m['binaries']['runtime-tests'].update(variant='runtime'),
+            'inventory': lambda m: m['binaries']['runtime-tests']['tests'].append('absent'),
+        }
+        for name, change in mutations.items():
+            with self.subTest(damage=name):
+                manifest = json.loads(original)
+                change(manifest)
+                (debug / 'manifest.json').write_text(json.dumps(manifest))
+                output = self.case / ('rejected-' + name)
+                with self.assertRaises((ValueError, KeyError)):
+                    artifacts.merge_formal(debug, endpoint, output)
+                self.assertFalse(output.exists())
+        (debug / 'manifest.json').write_text(original)
+
+    def test_consistent_forged_inventory_is_rejected_by_the_real_binary_listing(self):
+        debug, endpoint = self.copy_components()
+        manifest = json.loads((debug / 'manifest.json').read_text())
+        binary = manifest['binaries']['runtime-tests']
+        binary['tests'] = sorted([*binary['tests'], 'formal_absent_from_compiled_binary'])
+        binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+        (debug / 'manifest.json').write_text(json.dumps(manifest))
+        output = self.case / 'forged-inventory'
+        with patch.object(artifacts, 'inventory', wraps=artifacts.inventory) as listing:
+            with self.assertRaisesRegex(ValueError, 'actual test inventory mismatch'):
+                artifacts.merge_formal(debug, endpoint, output)
+        self.assertTrue(any(call.args[0] == debug / binary['path']
+                            for call in listing.call_args_list))
+        self.assertFalse(output.exists())
+
+    def test_merge_rejects_corrupt_nonexecutable_and_symlinked_files_before_listing(self):
+        debug, endpoint = self.copy_components()
+        file = endpoint / 'bin/endpoint'
+        original, mode = file.read_bytes(), file.stat().st_mode
+        for damage in ('bytes', 'mode', 'symlink'):
+            with self.subTest(damage=damage):
+                if damage == 'bytes':
+                    file.write_bytes(b'corrupted')
+                elif damage == 'mode':
+                    file.chmod(0o644)
+                else:
+                    file.unlink()
+                    file.symlink_to(self.endpoint / 'bin/endpoint')
+                with patch.object(artifacts, 'inventory') as listing:
+                    with self.assertRaises(ValueError):
+                        artifacts.merge_formal(debug, endpoint, self.case / ('rejected-' + damage))
+                    listing.assert_not_called()
+                file.unlink()
+                file.write_bytes(original)
+                file.chmod(mode)
+
+    def test_partial_and_unknown_scope_cannot_be_consumed_or_packed(self):
+        for component in (self.debug, self.endpoint):
+            with self.subTest(component=component.name), patch('ci_process_runner.run') as execute:
+                with self.assertRaisesRegex(ValueError, 'component'):
+                    artifacts.execute(component, 'ordinary', self.case / 'partial.jsonl', shard='runtime-protocol')
+                with self.assertRaisesRegex(ValueError, 'component'):
+                    artifacts.pack(component, self.case / 'partial.tar.gz', shard='runtime-protocol')
+                execute.assert_not_called()
+        unknown = self.case / 'unknown'
+        shutil.copytree(self.base / 'single', unknown)
+        manifest = json.loads((unknown / 'manifest.json').read_text())
+        manifest['scope'] = 'future-unchecked-scope'
+        (unknown / 'manifest.json').write_text(json.dumps(manifest))
+        for operation in (lambda: artifacts.load(unknown),
+                          lambda: artifacts.pack(unknown, self.case / 'unknown.tar.gz', shard='runtime-protocol')):
+            with self.assertRaisesRegex(ValueError, 'scope'):
+                operation()
+
+    def test_merge_binds_effective_compile_inputs_but_not_network_output_or_worker_count(self):
+        with patch.dict(os.environ, CARGO_BUILD_JOBS='1', CARGO_TERM_COLOR='never', CARGO_NET_RETRY='1',
+                        CARGO_REGISTRY_TOKEN='must-not-be-part-of-manifest'):
+            artifacts.merge_formal(self.debug, self.endpoint, self.case / 'execution-knobs')
+        for key, value in (('RUSTFLAGS', '--cfg changed'), ('CARGO_ENCODED_RUSTFLAGS', '--cfg\x1fchanged'),
+                           ('CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS', '--cfg changed'),
+                           ('CARGO_BUILD_TARGET', 'aarch64-unknown-linux-gnu'), ('CFLAGS', '-DCHANGED')):
+            with self.subTest(key=key), patch.dict(os.environ, {key: value}):
+                with self.assertRaisesRegex(ValueError, 'compiler_environment'):
+                    artifacts.merge_formal(self.debug, self.endpoint, self.case / ('changed-' + key))
+
+
+class ParallelFormalExecution(unittest.TestCase):
+    def execute(self, root, entries, invoke, weights=None, cpus=4, version=1, shard='runtime-protocol'):
+        config = dict(parallel_cases={'runtime-tests': weights or {}})
+        manifest = dict(scope='formal', formal_execution_version=version, binaries={
+            'runtime-tests': dict(path='bin/runtime-tests', cwd='.', test=True, ordinary=False)})
+        with patch.object(artifacts, 'load', return_value=(manifest, {})), \
+             patch.object(artifacts, 'formal_configuration', return_value=config), \
+             patch.object(artifacts, 'selected_entries', return_value=entries), \
+             patch.object(artifacts, 'native_cpu_budget', return_value=cpus), \
+             patch('ci_process_runner.run', side_effect=invoke):
+            artifacts.execute(root, 'ordinary', root / 'results.jsonl', shard=shard)
+
+    @staticmethod
+    def entry(name, ignored=False):
+        return dict(binary='runtime-tests', name=name, ignored=ignored, suite='runtime-protocol')
+
+    def test_weighted_exact_cases_overlap_and_unknown_case_runs_alone(self):
+        entries = [self.entry(name) for name in ('light-a', 'light-b', 'unknown', 'light-c')]
+        barrier = threading.Barrier(2)
+        lock = threading.Lock()
+        active, maximum, calls = {}, [0], []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            weight = {'light-a': 2, 'light-b': 2, 'light-c': 1}.get(name, 4)
+            self.assertEqual(command[1:], ['--exact', name, '--test-threads=1', '--nocapture'])
+            self.assertEqual(expected_count, 1)
+            self.assertEqual(env['RUST_TEST_THREADS'], '1')
+            with lock:
+                active[name] = weight
+                self.assertLessEqual(sum(active.values()), 4)
+                if name == 'unknown':
+                    self.assertEqual(list(active), ['unknown'])
+                maximum[0] = max(maximum[0], len(active))
+                calls.append(name)
+            try:
+                if name in ('light-a', 'light-b'):
+                    barrier.wait(timeout=2)
+                return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+            finally:
+                with lock:
+                    del active[name]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.execute(root, entries, invoke, {'light-a': 2, 'light-b': 2, 'light-c': 1})
+            records = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines()]
+        self.assertEqual(maximum[0], 2)
+        self.assertCountEqual(calls, [entry['name'] for entry in entries])
+        self.assertEqual(len(records), 4)
+        self.assertTrue(all(record['passed'] and record['shard'] == 'runtime-protocol' for record in records))
+
+    def test_parallel_case_allowance_cannot_exceed_four_workers_or_cpu(self):
+        for cpus, expected in ((1, 1), (2, 2), (8, 4)):
+            entries = [self.entry('case-' + str(index)) for index in range(8)]
+            barrier = threading.Barrier(expected)
+            active, maximum, calls = [0], [0], []
+            lock = threading.Lock()
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                with lock:
+                    active[0] += 1
+                    maximum[0] = max(maximum[0], active[0])
+                    calls.append(name)
+                try:
+                    barrier.wait(timeout=2)
+                    return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+                finally:
+                    with lock:
+                        active[0] -= 1
+            with self.subTest(cpus=cpus), tempfile.TemporaryDirectory() as temporary:
+                self.execute(Path(temporary), entries, invoke, {entry['name']: 1 for entry in entries}, cpus)
+            self.assertEqual(maximum[0], expected)
+            self.assertCountEqual(calls, [entry['name'] for entry in entries])
+
+    def test_formal_first_failure_cancels_active_and_never_launches_pending_case(self):
+        entries = [self.entry(name) for name in ('failure', 'active', 'pending')]
+        barrier = threading.Barrier(2)
+        calls = []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            calls.append(name)
+            barrier.wait(timeout=2)
+            if name == 'failure':
+                return ParallelNativeExecution.receipt(suite, name, results, expected_count,
+                    passed=False, exit_code=7)
+            self.assertTrue(kwargs['cancellation_event'].wait(timeout=2))
+            return ParallelNativeExecution.receipt(suite, name, results, expected_count,
+                passed=False, cancelled=True, exit_code=-signal.SIGTERM)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, 'formal failed'):
+                self.execute(root, entries, invoke, {entry['name']: 1 for entry in entries}, cpus=2)
+            records = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines()]
+        self.assertCountEqual(calls, ['failure', 'active'])
+        self.assertEqual(len(records), 2)
+        self.assertEqual(next(record for record in records if record['test_name'] == 'failure')['exit_code'], 7)
+        self.assertTrue(all(record['shard'] == 'runtime-protocol' for record in records))
+
+    def test_old_formal_bundle_keeps_original_serial_order_and_environment(self):
+        entries = [self.entry('first', True), self.entry('second')]
+        calls = []
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            self.assertNotIn('cancellation_event', kwargs)
+            self.assertNotIn('RUST_TEST_THREADS', env)
+            calls.append(name)
+            return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+        with tempfile.TemporaryDirectory() as temporary:
+            self.execute(Path(temporary), entries, invoke, {'first': 1, 'second': 1}, version=None)
+        self.assertEqual(calls, ['first', 'second'])
+
+    def test_malformed_weight_fails_before_any_case_starts(self):
+        for value in (0, -1, 3, True, '1', None):
+            calls = []
+            with self.subTest(weight=value), tempfile.TemporaryDirectory() as temporary:
+                with self.assertRaises(ValueError):
+                    self.execute(Path(temporary), [self.entry('first')], lambda *a, **k: calls.append(a), {'first': value})
+            self.assertEqual(calls, [])
+
+    def test_candidate_cannot_expand_or_reduce_a_trusted_case_weight(self):
+        base = dict(schema_version=2, suites={}, environment_formal_batches={}, shell_tests={},
+                    parallel_cases={'runtime-tests': {'known': 2}})
+        candidate = copy.deepcopy(base)
+        candidate['parallel_cases']['runtime-tests'] = {'known': 1, 'unreviewed': 1}
+        with tempfile.TemporaryDirectory() as temporary:
+            authority, source = Path(temporary) / 'base.json', Path(temporary) / 'candidate.json'
+            authority.write_text(json.dumps(base))
+            source.write_text(json.dumps(candidate))
+            with patch.object(artifacts, 'CONFIG', source), patch.object(artifacts, 'FORMAL_AUTHORITY', authority):
+                self.assertEqual(artifacts.formal_parallel_cases(artifacts.formal_configuration()),
+                                 {('runtime-tests', 'known'): 2})
+            with patch.object(artifacts, 'CONFIG', source), patch.object(artifacts, 'FORMAL_AUTHORITY', None):
+                self.assertEqual(artifacts.formal_parallel_cases(artifacts.formal_configuration()),
+                                 {('runtime-tests', 'known'): 1, ('runtime-tests', 'unreviewed'): 1})
+
+    def test_missing_duplicate_wrong_or_unclean_receipt_stops_dispatch(self):
+        for damage in ('missing', 'duplicate', 'identity', 'count', 'read-error', 'leak', 'late-exit-zero'):
+            calls = []
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                calls.append(name)
+                if damage == 'late-exit-zero':
+                    raise SystemExit(0)
+                result = ParallelNativeExecution.receipt(suite, name, results, expected_count)
+                if damage == 'missing':
+                    results.unlink()
+                elif damage == 'duplicate':
+                    with results.open('a') as stream:
+                        stream.write(json.dumps(result) + '\n')
+                else:
+                    field, value = {'identity': ('test_name', 'other'), 'count': ('expected_count', 0),
+                                    'read-error': ('output_read_error', 'OSError'),
+                                    'leak': ('leaked_processes', True)}[damage]
+                    result[field] = value
+                    results.write_text(json.dumps(result) + '\n')
+                return result
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temporary:
+                with self.assertRaisesRegex(RuntimeError, 'formal failed'):
+                    self.execute(Path(temporary), [self.entry('first'), self.entry('pending')], invoke, cpus=1)
+            self.assertEqual(calls, ['first'])
+
+    def test_later_failure_does_not_rewrite_a_completed_success(self):
+        completed = threading.Event()
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            if name == 'success':
+                result = ParallelNativeExecution.receipt(suite, name, results, expected_count)
+                completed.set()
+                return result
+            self.assertTrue(completed.wait(timeout=2))
+            time.sleep(0.02)
+            return ParallelNativeExecution.receipt(suite, name, results, expected_count, passed=False, exit_code=7)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, 'formal failed'):
+                self.execute(root, [self.entry('success'), self.entry('failure')], invoke,
+                             {'success': 1, 'failure': 1}, cpus=2)
+            records = [json.loads(line) for line in (root / 'results.jsonl').read_text().splitlines()]
+        self.assertTrue(next(record for record in records if record['test_name'] == 'success')['passed'])
+        self.assertFalse(next(record for record in records if record['test_name'] == 'failure')['passed'])
+
+
 class BuildAndBundles(unittest.TestCase):
     def test_build_timings_include_dependency_freshness_per_variant(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1295,7 +1854,8 @@ class BuildAndBundles(unittest.TestCase):
                 messages.append(dict(reason='compiler-artifact', manifest_path=str(manifest_path),
                     package_id='path+file://' + str(package) + '#0.1.0', fresh=False,
                     target=dict(name='oasis7_chain_runtime', kind=[kind]),
-                    profile=dict(test=True), features=[], executable=str(executable)))
+                    profile=dict(test=True, opt_level='2', debug_assertions=True, overflow_checks=True),
+                    features=[], executable=str(executable)))
             class CargoOutput:
                 def __enter__(self):
                     self.stdout = iter(json.dumps(message) + '\n' for message in messages)

@@ -65,6 +65,36 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(result['reason'], 'repository cache capacity gap')
         self.api.delete_cache.assert_not_called()
 
+    def test_formal_dependency_writers_bind_profile_namespace_and_main_full_events(self):
+        for component in ('debug', 'endpoint'):
+            family = 'formal-' + component
+            namespace = 'ci-' + family + '-deps-trusted-v1'
+            environment = self.environment | dict(OASIS7_DEPENDENCY_CACHE_FAMILY=family,
+                                                  GITHUB_JOB=family + '-build-trusted')
+            environment['INPUT_SHARED-KEY'] = namespace
+            self.run['event'] = 'schedule'
+            with self.subTest(component=component):
+                self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                for change in ({'GITHUB_JOB': family + '-build'}, {'GITHUB_JOB': 'formal-test-build-trusted'},
+                               {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v3'},
+                               {'INPUT_SHARED-KEY': 'ci-formal-' + ('endpoint' if component == 'debug' else 'debug') + '-deps-trusted-v1'},
+                               {'GITHUB_EVENT_NAME': 'push'}, {'GITHUB_EVENT_NAME': 'pull_request'},
+                               {'GITHUB_REF': 'refs/pull/1/merge'}, {'RUNNER_ARCH': 'ARM64'},
+                               {'GITHUB_WORKFLOW_SHA': 'b' * 40}):
+                    with self.subTest(change=change):
+                        self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+                event = self.root / (component + '-event.json')
+                environment.update(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_EVENT_PATH=str(event))
+                self.run['event'] = 'workflow_dispatch'
+                for mode in ('full', 'pr-fast', None):
+                    event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
+                    self.assertEqual(admission.check_archive(self.archive, environment, self.api)['allowed'], mode == 'full')
+                event.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+                self.api.list_caches.return_value = [self.entry(901)]
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.api.list_caches.return_value = []
+        self.api.delete_cache.assert_not_called()
+
     def test_archive_growth_during_inventory_cannot_reuse_admission(self):
         def changed():
             self.archive.write_bytes(b'x' * 101)

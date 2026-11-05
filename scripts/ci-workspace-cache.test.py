@@ -17,14 +17,16 @@ spec.loader.exec_module(cache)
 
 
 def key(scope='ordinary', source='b'):
-    version = 'v1' if scope == 'ordinary' else 'v3'
+    version = 'v3' if scope == 'formal' else 'v1'
     return f'{scope}-workspace-{version}-' + 'a' * 64 + '-' + source * 40
 
 
 def environment(scope='ordinary', **changes):
     value = dict(PATH=os.environ.get("PATH", os.defpath), GITHUB_ACTIONS='true', GITHUB_REF='refs/heads/main', GITHUB_SHA='b' * 40,
         GITHUB_WORKFLOW_SHA='b' * 40, GITHUB_EVENT_NAME='push', GITHUB_REPOSITORY='nil-studio/oasis7',
-        GITHUB_JOB='oasis7-test-build-trusted' if scope == 'ordinary' else 'formal-test-build-trusted',
+        GITHUB_JOB={'ordinary': 'oasis7-test-build-trusted', 'formal': 'formal-test-build-trusted',
+                    'formal-debug': 'formal-debug-build-trusted',
+                    'formal-endpoint': 'formal-endpoint-build-trusted'}[scope],
         ACTIONS_CACHE_MODE='write',
         GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main')
     return dict(value, **changes)
@@ -66,6 +68,24 @@ def fixture(directory, scope='ordinary'):
 
 
 class Workspace(unittest.TestCase):
+    def test_formal_components_have_exact_writer_and_reader_boundaries(self):
+        scopes = ('formal-debug', 'formal-endpoint')
+        for scope in scopes:
+            with self.subTest(scope=scope):
+                self.assertTrue(cache.current_key(scope, key(scope)))
+                with patch.dict(os.environ, environment(scope), clear=True):
+                    cache.trusted_writer(scope, key(scope))
+                for other in ('ordinary', 'formal', *scopes):
+                    if scope == other:
+                        continue
+                    self.assertFalse(cache.current_key(scope, key(other)))
+                    with patch.dict(os.environ, environment(other), clear=True), self.assertRaises(ValueError):
+                        cache.trusted_writer(scope, key(scope))
+                for changes in ({'GITHUB_JOB': scope + '-build'}, {'ACTIONS_CACHE_MODE': 'read'},
+                                {'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_EVENT_NAME': 'pull_request'}):
+                    with patch.dict(os.environ, environment(scope, **changes), clear=True), self.assertRaises(ValueError):
+                        cache.trusted_writer(scope, key(scope))
+
     def test_identity_is_scoped_and_tracks_configuration_but_not_source_contents(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -99,7 +119,7 @@ class Workspace(unittest.TestCase):
                 self.assertTrue(cache.identity('ordinary')['key'].endswith(source[0]))
                 with patch.dict(os.environ, CARGO_BUILD_JOBS='1', CARGO_TERM_COLOR='never'):
                     self.assertEqual(cache.identity('ordinary')['prefix'], original['prefix'])
-                for scope in ('ordinary', 'formal'):
+                for scope in ('ordinary', 'formal', 'formal-debug', 'formal-endpoint'):
                     baseline = cache.identity(scope)['prefix']
                     for variable in ('RUSTFLAGS', 'CARGO_PROFILE_TEST_DEBUG', 'OASIS7_WASM_TOOLCHAIN'):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
@@ -122,7 +142,7 @@ class Workspace(unittest.TestCase):
                     cache.identity('ordinary')
 
     def test_only_matching_trusted_main_lane_can_stage(self):
-        for scope in ('ordinary', 'formal'):
+        for scope in ('ordinary', 'formal', 'formal-debug', 'formal-endpoint'):
             for event in ('push', 'schedule'):
                 with patch.dict(os.environ, environment(scope, GITHUB_EVENT_NAME=event), clear=True):
                     cache.trusted_writer(scope, key(scope))
