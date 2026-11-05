@@ -294,6 +294,33 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         self.facts.len()
     }
 
+    /// Visit the final writes already admitted to this overlay, borrowing keys
+    /// without allocating or reading the parent tree. Every inspected entry,
+    /// including unchanged reads, consumes work. This does not seal the overlay
+    /// or replace the caller's live-fence check before publication.
+    pub fn visit_pending_writes<E: From<ExecutionError>>(
+        &self,
+        namespace: StateNamespaceV1,
+        remaining_entries: &mut usize,
+        mut check_cancelled: impl FnMut() -> Result<(), E>,
+        mut visit: impl FnMut(&[u8], Option<[u8; 32]>, Option<[u8; 32]>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if self.aborted {
+            return Err(ExecutionError::Aborted.into());
+        }
+        check_cancelled()?;
+        for (key, entry) in &self.entries[namespace_index(namespace)] {
+            *remaining_entries = remaining_entries
+                .checked_sub(1)
+                .ok_or(ExecutionError::ResourceLimited("pending write inspection"))?;
+            check_cancelled()?;
+            if entry.before != entry.after {
+                visit(key, entry.before, entry.after)?;
+            }
+        }
+        check_cancelled()
+    }
+
     pub fn append_fact(&mut self, value: ExecutionFactRefV1) -> Result<(), ExecutionError> {
         self.checked(|txn| txn.append_fact_inner(value))
     }
