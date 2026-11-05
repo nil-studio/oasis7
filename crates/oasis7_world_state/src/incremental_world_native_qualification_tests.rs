@@ -245,3 +245,6 @@ fn native_all23_scope_qualifies_replays_and_selects_original_value_without_gener
     assert_eq!(recovered.value().value().electricity_tax_bps, 65123);
     assert!(readmit_world_native_fields_ordinary_v1(&proof, &roots, &memory, || false).is_err());
 }
+
+#[path = "incremental_world_native_current_claims_tests.rs"]
+mod current_claims_tests;

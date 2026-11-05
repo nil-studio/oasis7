@@ -196,3 +196,7 @@ fields! {
 #[cfg(test)]
 #[path = "incremental_world_native_qualification_tests.rs"]
 mod tests;
+
+#[path = "incremental_world_native_current_claims.rs"]
+mod current_claims;
+pub use current_claims::{recover_current_agent_claim_v1, recover_current_starter_oc_claim_v1};

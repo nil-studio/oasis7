@@ -185,3 +185,7 @@ pub use pages::{
 mod tests;
 
 pub(crate) use receiver::accept_factory_authority_verified_v1;
+
+#[path = "incremental_factory_authority_records_selected.rs"]
+mod selected;
+pub use selected::open_factory_authority_body_overlay_v1;

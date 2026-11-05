@@ -126,20 +126,14 @@ pub(crate) fn manufactured_identity_generation(
     target: &str,
     acquisition_sequence: u64,
 ) -> Option<u64> {
-    if acquisition_sequence == 0 {
-        return None;
-    }
-    match revocation
-        .manufactured_identity_acquisition_sequences
-        .get(target)
-    {
-        None => Some(acquisition_sequence),
-        Some(checkpoint_sequence) => {
-            let checkpoint = revocation.agent_identities.get(target)?;
-            let delta = acquisition_sequence.checked_sub(*checkpoint_sequence)?;
-            checkpoint.generation.checked_add(delta).filter(|g| *g > 0)
-        }
-    }
+    oasis7_world_state::incremental_runtime_revocation::resolve_manufactured_identity_generation_v1(
+        revocation.agent_identities.get(target),
+        revocation
+            .manufactured_identity_acquisition_sequences
+            .get(target)
+            .copied(),
+        acquisition_sequence,
+    )
 }
 
 impl World {

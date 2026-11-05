@@ -103,3 +103,10 @@ mod tests;
 
 #[path = "incremental_runtime_revocation_bytes.rs"]
 mod bytes;
+
+#[path = "incremental_runtime_revocation_current_identity.rs"]
+mod current_identity;
+pub use current_identity::{
+    CurrentRevocationAgentIdentityV1, read_current_revocation_agent_identity_v1,
+    resolve_manufactured_identity_generation_v1,
+};
