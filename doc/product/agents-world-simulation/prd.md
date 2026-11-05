@@ -506,6 +506,30 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196（[REQ-EXT-018](external
 - 核对日期与基线：2026-10-17；状态卡按 A `0901927131b3e7c919fc6b092e77ae8895579989`，静态生产源码固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`，22个引用/闭包源逐 Git blob 校验；另比较 `5d503f0ca79bcc68708a32672a48a2786ad51395` 迁移前源码。未运行模型、Runtime、浏览器或行为验收，未把测试源码当本轮PASS。
 - 剩余范围：分别定位两Runtime实际版本/schema/平台/profile、首局与恢复生产接线，及同world/task/goal revision的Web/桌面接收采纳、TaskReport、question/in_reply_to、审批决定恢复。当前5卡静态闭包不完整；保留未核实，不以target设计、缺文件或搜索零结果宣布两driver不存在，不执行模型补证。
 
+<a id="req-agent-default-001"></a>
+### REQ-AGENT-DEFAULT-001：既有默认机体与能力目标具有准确状态和来源
+
+Trace ID: O7-REQ-f2da1c09-dedf-4118-b3ab-bce6828abb75
+
+本条将既有 [Agent 默认模块专业目标](../../world-runtime/module/agent-default-modules.prd.md)归入本产品模块：默认机体、七类基础能力、槽位/接口扩容与实体 cargo 的原框架义务继续有效，具体规格、数值、模块职责及后续范围仍由原专业条款维护。适用阶段是该原框架的设计、制作与采用，不把它提升为当前首局、所有入口或发行的已交付能力。
+
+- 要求：玩家与 Agent 使用默认机体或基础能力时，必须能区分机体/槽位存在、模块已安装/已激活和该操作实际可用；数量、容量、来源、权限、成本及失败原因以当前权威事实为准。扩容与实体存取遵循原消耗、所有权和容量规则，成功只产生一次实际变化；拒绝、未知、恢复和回放不能凭空增加物品、槽位、能量或权限。基础能力缺失或受限时，应说明受影响操作及当前合法下一步，不能用 installer 成功或模块名称代替完整能力。
+- 范围：原机体/槽位模型、七类默认能力与依赖/降级、实体 cargo 的存入/取出/查询、接口扩容的原子消耗及历史一致性。接口道具制造、交易、回收、奖励来源沿原专业 Non-Goals 保持后续；本条不选择来源机制，也不新增初始赠送。只有具有原合法来源的实体才能参与正式能力验收，测试注入单列为组件范围。
+- 系统设计状态：已覆盖
+- 系统设计依据：[安装与组合](../../world-runtime/module/agent-default-modules.design.md#adm-install-governance)、[机体与槽位](../../world-runtime/module/agent-default-modules.design.md#adm-body-binding)、[接口扩容](../../world-runtime/module/agent-default-modules.design.md#adm-interface-expansion)、[实体存取](../../world-runtime/module/agent-default-modules.design.md#adm-cargo-flow)、[供电与储能](../../world-runtime/module/agent-default-modules.design.md#adm-power-capability)、[感知](../../world-runtime/module/agent-default-modules.design.md#adm-sensor-capability)、[移动](../../world-runtime/module/agent-default-modules.design.md#adm-mobility-capability)、[记忆](../../world-runtime/module/agent-default-modules.design.md#adm-memory-capability)和[依赖降级](../../world-runtime/module/agent-default-modules.design.md#adm-degradation)逐项承接原框架目标；后续接口道具来源不由本条补定，正式消费者与真实运行另行取证。
+- 实现状态：部分实现
+- 实现与验证依据：固定源码 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 的 [AgentState](../../../crates/oasis7_world_state/src/agent_state.rs)、[机体扩容](../../../crates/oasis7_runtime/src/world/body.rs)和[原子事件投影](../../../crates/oasis7_world_state/src/state/core_policy_transition.rs)具有槽位初态、接口库存检查和消费/新增槽位子机制；[cargo 模块](../../../crates/oasis7_builtin_wasm_modules/m1_storage_cargo/src/lib.rs)的事件统计不能证明完整实体存取。此处为静态来源核对，未取得本产品组合运行结果。
+- 核对日期与基线：2026-11-05；已合入源码 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 与本次文档候选。仅作固定源码及设计关系核对，未运行游戏、模型、真实入口或恢复验收；具体当前机制和目标差距由专业设计逐项说明。
+- 剩余范围：原 ADM-1～ADM-4 的完整默认组合、合法初始化布局、有限能力配置/算法、原子库存及失败恢复已有具体设计和独立验收方法；完整七能力、新工件/适配、正式实体所有权/容量存取、真实入口及同候选恢复/玩家反馈仍须实现并验证，容量/性能和平衡初值尚未实测。原 ADM-5 道具来源仍属既有后续范围，在采用前单独完成其决定与实现，不据此推导当前来源或初始赠送。文档、设计初值与安装回归不代签当前可玩性。
+- 验收：[AC-AGENT-DEFAULT-001](#ac-agent-default-001)。专业消费者为 Runtime/WASM/Agent/Viewer，QA 沿原层级分别验证组件与正式组合。
+
+<a id="ac-agent-default-001"></a>
+### AC-AGENT-DEFAULT-001：能力与实体变化可核对
+
+Trace refs: O7-REQ-f2da1c09-dedf-4118-b3ab-bce6828abb75；声明：[REQ-AGENT-DEFAULT-001](#req-agent-default-001)。
+
+在固定候选、实际机体/模块配置和合法实体来源下，验证可用能力、槽位占用、容量与库存前后值和权威结果一致；扩容只消费一个原合法接口实体并增加一个允许槽位，存取不重复保留两端资产。覆盖超容量、缺物品、无权、模块未生效、拒绝、提交未知、重连与回放，失败不产生部分变化，未知先核原结果，恢复不复活已撤权限或重复消耗/产出。缺来源或实现时保留对应未完成层，不以人工注入或后态 snapshot 往返替代正式来源与事件后缀恢复。完整步骤与独立预期见[专业验收手册](../../world-runtime/module/agent-default-modules.manual.md)。
+
 ## 6. Non-Goals
 
 - 不在产品层决定 Viewer 组件、Launcher 协议、provider 或 runtime 实现。
