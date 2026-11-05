@@ -615,10 +615,8 @@ pub(in crate::viewer::runtime_live::control_plane::llm_sidecar) fn admit_provide
                 handle.as_ref().map(|handle| &handle.chain_id)
             ))
         } else {
-            #[cfg(test)]
+            // The production fault source is already fixed to None.
             let release_fault = provider_wait_fault() == ProviderWaitFault::Release;
-            #[cfg(not(test))]
-            let release_fault = false;
             let release_turn_id = if release_fault {
                 format!("{}-fault", request.agent_turn_id)
             } else {
