@@ -127,6 +127,7 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 
 | 上游条款 | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 排除与未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | 新采用 Hosted 便利入口停止后，以同身份、原世界权限完成实际正常读写、领域结果与重入恢复。 | [独立入口接续](#api-independent-entry-continuation) | 原身份/世界 authority、agent / viewer / runtime；支持侧服务范围与退出政策 | 不把 GET bootstrap、另一个 issuer、DevLocal、fixture 或故障停止视为正常链；不扩大旧消费者能力。 |
 | Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | 合法绑定、身份隔离与费用路由不能授予游戏权力 | [api-auth](#api-auth) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；[AC-EXT-003](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-003) | 首局能力目录、参数和实际执行一致 | [api-context](#api-context) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | 成功、拒绝、未知结果可恢复且不重复世界效果 | [api-actions](#api-actions) | agent_engineer / runtime_engineer | 不单独证明真实模型、客户端或公开发行就绪 |
@@ -248,6 +249,27 @@ Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264, O7-REQ-94ed85c5-c05d-43
 **失败后的消费顺序。** 前置、模型/provider 初始化、schema/协商能力或 backend 缺失时，输出当前模式/阶段、主要 blocker 与该入口真实支持的配置修复、重新验证、等待、选择已支持入口或安全返回；没有可执行恢复就明确受阻。模型/provider 失败只阻断实际依赖它的组合；普通 HTTP 客户端无模型的协议闭环及已有合法读/动作能力分别保留，不要求启动内置模型或旧 Provider。缺正式玩法所需 LLM 的 observer/debug 路径也不自动替换成可玩。切换入口不改变原操作身份或消除未知：先在当前合法读权下核原件，再按其原政策继续。已派发但未确认、原件缺失/损坏、历史不可用或读权限失效时保留最后已验证关联，停止依赖该未知结果的新副作用；不得补签原件、把查询失败显示为业务拒绝或用轮询次数宣布失败。允许的只读核对与修复不恢复旧写权，失权后不继续展示缓存私有正文。
 
 接收使用[逐入口验证方法](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)；缺可执行消费者或故障注入的格记录 blocked/not_run。普通 CI、同候选原协议核对和真实 Runtime/玩家经历分别取证，原首次注册、阶段与发行前置保持不变。
+
+<a id="api-independent-entry-continuation"></a>
+#### 4.4.1 同身份独立入口的正常读写与原请求接续
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；承接 [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) / [AC-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#ac-entry-free-001)。本节接收 [Hosted 便利入口 profile](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)的正常独立通路；核对基线为 2026-11-05、`4912e079baca375637fdd4eff36be58edec32c42`。新增的是原入口、身份、动作与恢复的组合义务，既有未实施项和发布结论不变。
+
+**固定基础接点。** [身份主责](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)保留同 namespace 的 IdentityStore/issuer、同 RP/来源基本 Viewer，以及原身份 HTTPS gateway。原生候选沿现有固定 `/entry/discovery`、`/participant/authorize|submit|lookup|owner-view|starter-eligibility`、`/entry-owner/control` 和 `/entry-executor/control` 接续；网关继续只连接已配置且校验服务公钥/world 的 literal-loopback WorldService。停止附加部署/入口便利不停止这些基础职责；T1/T2 不改账号、world、信任根、原结果或权限。客户端不从便利通知接受任意 endpoint，也不直接暴露私有 WorldService 监听。
+
+原仅 Passkey 玩家保留免费 Viewer 的原合法操作链。原生候选使用原同账号绑定/登录方式及分别持有的 owner/executor 证明；原生登录成功不产生这些世界证明。agent 与 viewer owner 对各自实际入口按 §4.4 声明能力、模式和适配版本；实现接点缺失时保留该入口缺项，由基本 Viewer 继续承担其已采纳正常范围，不能强迫玩家新开户或启用未发布 P1。
+
+| 接续阶段 | 实际消费者与原 authority | 必须成立的结果 |
+| --- | --- | --- |
+| 同主体进入 | 基本 Viewer 的 `/session`、原 join/控制；或可信 SDK 的身份登录、discovery、participant owner-view。沿原准入和首次角色合同核 service/environment/account/world/genesis 与原 player/Agent | 恢复已存在的映射、task/控制和当前资格；另一入口或关闭新注册不产生第二个主体、starter 或 owner。确无角色者仍执行原合法首次入场。 |
+| 先核旧请求与当前目标 | 原受保护 capsule/SDK outbox、原 operation port、当前任务/目标与授权观察；正文与 fence 仍由原协作 authority 验证 | 已确认结果保持原归属；未知请求按原件查询。不存在必须先续购便利服务才能查询原结果的附加权限条件；读权仍须当前有效。 |
+| 正常合法写入 | Viewer 原动作消费者，或已采纳 native gateway/SDK 的 task、`native_executor_v1` context 与实际动作。依当前路线发现并消费移动、转运、建厂/排产等必要能力，owner 与 executor 分权、资源和预算逐次重验 | 在所采纳的 `starter-industrial-smelter-to-assembler-v1 / production_only` 组合中实际推进所需生产步骤；能力缺失不删去必需步骤，便利状态不预造资源、续 grant、重置预算或替 owner 批准。 |
+| 领域结果与后续读取 | 原签名 payload/correlation、canonical receipt、反馈 lineage 与生产结果消费者 | received、任务/认知 committed、RecipeStarted 与实际 RecipeCompleted/产物分开核对；不能用一次 GET、排产 accepted 或库存差值代替关联成果。 |
+| 离开与重入 | 同身份当前认证、原角色/task 查询、受权历史读取和原结果恢复；需要改变执行方时由当前 owner 使用原控制合同 | 关闭观察不自动停止或续期执行；实际执行进程停止与世界在途效果分别呈现。显式替换执行方不遗忘旧请求，新执行方只在原未知已核对及当前完整授权成立后开始新意图。 |
+
+本 profile 采用[用户侧原件保管](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)：浏览器同 origin/tab capsule 与玩家设备上原 SDK 客户端持有的受保护 operation cache 各沿原域使用，不新增跨客户端凭证包；远程托管 executor 独占原件且缺该既有恢复路径的组合不在本次接收范围，原历史义务保留。native 原结果按原 payload/correlation lookup；撤销或暂停 executor 后，已合法取得原件的当前 canonical owner 可用 `LookupExecutor`，仍核历史 signer/binding 和当前完整 task fence，不重新启用 executor 或自动解密其私有 outbox。原件不可得、scope/权限不符或历史缺失分别记录恢复缺口，不能补签原件或重新入场猜结果；只有原领域明文允许的 exact replay 才能重送。
+
+所需 Runtime/模型 profile 继续按 §4.3 单独采用，Provider 故障不能自动切换 mode 或授权定义。`/v1/game` GET bootstrap 的 `writes_available=false`、旧 CLI 的 actor/协商/持久恢复缺项、原生/机器入口默认关闭、正式网络 policy 与 P1 条件全部保留；底层原生能力不升级这些消费者。原身份 authority、固定 gateway 或 WorldService 真正不可达时按原新鲜度和恢复边界受阻，这类样本不完成本节正常义务。接收方法为 [AI01–AI07](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)，连用身份侧 HI01–HI05；没有真实消费者的格保持未实施/未执行。
 
 ## 5. 关键运行流程
 
@@ -549,6 +571,7 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 
 | 上游条款 | 本设计条款 | 独立 obligation 与适用条件 | 准确验证方法与场景 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | [独立入口接续](#api-independent-entry-continuation) | 便利停止后同一主体/世界的真实成长写入、领域回执、重入和原请求恢复，权限与基础故障不混判。 | [AI01–AI07](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)，按该方法联用身份判据并对所声明 viewer/pure_api 组合分别执行。 | 同候选实际入口、基础依赖、原身份/请求、业务效果及历史差量；方法待执行。 | 不证明当前部署已开启、完整普通 HTTP 写路由、任意跨站迁移、真实模型/玩家或所有服务退出已通过。 |
 | Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61；[AC-EXT-002](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-002) | [api-auth](#api-auth) | 合法绑定、身份隔离与费用路由不能授予游戏权力 | [api-auth](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-auth)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-aad7b341-83b1-4402-8ebc-8540db36ccfb；[AC-EXT-003](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-003) | [api-context](#api-context) | 首局能力目录、参数和实际执行一致 | [api-catalog](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-catalog)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
 | Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | [api-actions](#api-actions) | 成功、拒绝、未知结果可恢复且不重复世界效果 | [api-idempotency](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-idempotency)；按该场景的候选、环境、故障注入和判据执行 | 对应 source HEAD 的 CI 输出或脱敏实测记录，保留世界回执关联 | 不单独证明真实模型、客户端或公开发行就绪 |
