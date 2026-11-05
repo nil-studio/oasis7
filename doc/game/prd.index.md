@@ -102,6 +102,7 @@
 | `doc/game/gameplay/gameplay-top-level-design.prd.md` | `doc/game/gameplay/gameplay-top-level-design.design.md` |
 | `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.prd.md` | `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.design.md` |
 | `doc/game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md` | PRD-only；本专题只承载区域制度的玩家动作、机会成本、失败恢复、申诉与验收，不新增实现结构 |
+| [gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md](gameplay/gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md) | 专业玩法政策；原 CC-001/002/004/005 的参战、损失、占领提取与软赛季由[冲突执行设计](../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md)承接，地点权利依赖[tenure 执行设计](../world-runtime/runtime/location-tenure-and-disposition.design.md)；保留原产品身份及战争重启条件 |
 | `doc/game/gameplay/gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md` | PRD-only；本专题只承载普通治理主体、事项权利与 OC 分离的玩家动作、机会成本、失败恢复与验收，不新增实现结构 |
 | [gameplay-organization-continuity-policy.prd.md](gameplay/gameplay-organization-continuity-policy.prd.md) | 专业政策 PRD；执行、事务与恢复由 [组织连续性设计](../world-runtime/runtime/organization-continuity-and-disposition.design.md)承接，不重复建立同名技术权威 |
 | [gameplay-checkpoint-power-service-contract.prd.md](gameplay/gameplay-checkpoint-power-service-contract.prd.md) | 专业玩法政策；执行、资源与恢复由 [供能服务履约设计](../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)承接 |

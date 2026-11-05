@@ -68,6 +68,8 @@
 | 新工业能力如何经历模拟、受限试点与准入 | [工业创建四阶段](runtime/industrial-creation-simulation-and-admission.design.md) | 同版证据、同输入隔离模拟、累计试点预算和当前准入；复用原工作图与配方六状态 |
 | 许可如何收费、到期开放并保持单次结算 | [有限许可与版税结算](runtime/industrial-license-and-royalty-settlement.design.md) | 当前使用 gate、真实批次、独立托管、有限争议和收益池；不以发布或物流 receipt 发版税 |
 | 区域如何成立、取得资格、退化与恢复 | [区域 charter 权威与恢复](runtime/regional-charter-authority-and-recovery.design.md) | 分层审查、双资格、受限权限及资产义务连续性 |
+| 地点建设权如何取得、续期、转让与有限收回 | [地点 tenure 与处置](runtime/location-tenure-and-disposition.design.md) | 规划期限与条件、通知申诉、迁移回收及适用补偿；公共通行、独立资产和合同持续保留 |
+| 冲突如何守住参战范围、结算损失与占领并恢复 | [冲突资产与软赛季连续性](runtime/chartered-conflict-assets-and-soft-season-continuity.design.md) | 有限防御、实际损坏、持续占有与物理提取独立判断；恢复投入和赛季资格刷新不重置身份或历史 |
 | 配方替代选择与实际转换如何结算 | [替代决策与 linked conversion](runtime/recipe-substitution-decision-and-conversion.design.md) | 决策不产生经济效果；转换与因果账本单次提交 |
 | 公共 levy 如何取得授权、收费及退出 | [公共 levy 授权与结算](runtime/public-levy-authorization-and-settlement.design.md) | 独立预算账本、到期与单次结算，不混同普通服务费 |
 | 工业外部性影响谁、由谁处置 | [工业外部性与处置](runtime/industrial-externality-and-mitigation.design.md) | 显式 profile、作用域与处置授权，生产和处置分别确认 |

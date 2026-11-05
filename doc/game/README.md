@@ -19,6 +19,7 @@
 - 想跟进最近最活跃的经济/运营规则变化：先读 `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`，再按需进入对应 design / project / runbook。
 - 想确认工业扩展何时到期、怎样收缩范围及替换授权：读[有限 recipe 授权政策](gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)；先结清受影响工作再交接，技术发布、工业准入与创作者许可继续分别核对。
 - 想确认制造、紧急保供和组织连续性的首版政策：从 [gameplay 入口](gameplay/README.md)进入各专题的唯一规则版本；配方、配给和处置参数不由 Runtime 或 Viewer 各自定义。
+- 想确认受区域规则约束的冲突、战损恢复和软赛季：读[冲突与连续性玩法政策](gameplay/gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md)，地点建设权沿[原区域制度政策](gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md)取得及处置；战争重启仍受当前主线的独立准入条件约束。
 
 ## 入口
 - PRD: `doc/game/prd.md`
