@@ -84,6 +84,11 @@
 | First Claim Onboarding | `owned_claim_count`、`next_claim_quote.slot_index`、`target_agent_id`、`blocked_reason`、`actor_agent_id` | 无 bound Agent 时进入显式首次注册/绑定或原身份恢复；已有 claimer 且 `owned_claim_count=0`、`slot_index=1` 时才展示经济 `slot-1` CTA，要求选目标后 `Prepare -> Confirm` | `no_agent_for_account -> registration_pending -> bound_agent_available`，或已有绑定上的 `quote_ready -> onboarding_visible -> confirmation_open -> claim_submitted` | 消费当前入口公布的注册能力或 canonical quote/blocker；未支持逐账号注册时显示缺口与恢复路径，不伪装可执行 | 首次注册以已认证账号和世界准入为前提，不要求先有 claimer；`ClaimAgent` 仍要求该玩家已注册的 claimer，会话主体、执行 actor 与 claim target 分开校验；2.1 节的后继目标不等于当前固定 starter 入口已支持 |
 | Player Session / Agent Visibility Boundary | `player_session.player_id`、`bound_agent_id`、`claim_owner_id`、`owned_claims`、`agent_player_bindings` | 进入共享世界时，Viewer 默认 Agent 控制列表只展示当前账号绑定或当前玩家绑定待同步 Agent；其他账号 Agent 与未绑定 Agent 不进入默认 Agent 列表，也不得看到 ready chat/command 主操作 | `no_agent_for_account -> bound_agent_available` 或 `no_agent_for_account -> slot_1_claim_visible` | “我的/可操作”只来自当前 session binding 或 canonical claim/owned fields；未绑定 Agent 视为数据不完整或迁移态，不作为正常玩家对象展示；其他账号活动若需要世界感，后续放地图实体、世界事件或只读 world layer，不混入控制列表 | 不得从全局第一个 Agent、左侧默认选中目标、隐藏的世界 Agent、未绑定 Agent 或 `state.agents.keys().next()` 推断当前账号 ownership |
 
+<a id="agent-acquisition-context-source"></a>
+Reputation Cap 的目标来源按[情境消费者政策](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)选择用途 `agent_acquisition`，并由[完整来源与当前资格](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)验证；原 `1/2/3` 档位上限、逐槽成本、资金来源和反囤积规则保持不变。该采用是本轮目标设计：其输入是签署时已明确该用途的真实当前合作事实，原两档数值阈值继续由本专题配对设计维护，当前窗口及合格单位只由情境政策维护。旧无主体/情境/时效的累计 `reputation_scores`、测试 setter、旧单腿付款或未声明该用途的原合同不被换名为合格输入；历史记录保留原义，不追溯授予新资格。
+
+已证明完整且没有合格来源时使用原最低档；来源、控制关系或更正覆盖未知时不能把未知当零，也不能用缓存授予额外槽。独立的原最低档取得路径仍按其自己的资金/身份/容量条件判断。用途值到期或更正只影响相应新增取得，不自动回收既有 Agent、抹去历史成本或免除 upkeep。真正认领仍在原权威提交点重验，不因咨询、报价或获得某档输入自动创建控制权；完整迁移及各入口判据见[全部消费者](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)。这些目标规则尚须同候选实施与验证，不提升当前 claim 或声誉的实现状态。
+
 - Acceptance Criteria:
   - AC-1: 首个 agent 认领没有任何免费分支；v1 必须显式校验 `activation_fee_amount > 0`、`claim_bond_amount > 0`、`upkeep_per_epoch > 0`。
   - AC-2: 认领成功后必须立即形成 `activation fee` 记账、`bond locked` 状态和下一次 upkeep 结算 epoch，不允许“先占坑后补票”。
@@ -244,6 +249,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928；承接产品 [REQ-WR-A
 #### 2.4.2 额外槽位、并发与计价
 
 制造资格按同一受益主体的**去重可控制 Agent 集合**计算：当前主绑定 Agent 与其经济 claim targets 的并集，再加未终结制造预留。主 Agent 即使只是注册绑定，也计入制造的已有经营规模；这不为主 Agent 新增经济 claim、扣费或维护责任。首版继续使用既有声誉档位 `cap=1/2/3`；制造必须保留主 Agent，且新增后不得超 cap。无主绑定或无法证明组织的取得主体时返回资格 blocker，不能创建替代主身份。
+
+采用情境来源后，本节与普通 claim 消费[同一取得用途](#agent-acquisition-context-source)的当前已验证档位，不建立制造专用声誉值或第二份额度。报价、确认预留与最终交付均重验同一主体/用途来源及上面的去重集合；旧全局分数、缺失默认值、换 Agent 或组织代表不能增加容量。资格失效时沿本节原有待交付、截止、报废与退款规则处理，已投入、原责任和既有 Agent 保持可追溯。
 
 制造报价的 `slot_index = 已有去重 Agent 数 + 未终结制造预留数 + 1`，至少为 `2`。使用既有逐项向上取整规则时，slot-2 为激活费 `150`、押金 `300`、首期/每期 upkeep `38`，确认需预留 `488` liquid OC；slot-3 分别为 `200/400/50`，预留 `650`。这些金额由[现有 claim 计价函数](../../../crates/oasis7_world_state/src/agent_claims.rs)派生，不另调现有基础费率；制造适配器必须将本节有效经营规模交给它，不能直接沿用只统计经济 claim 的旧调用。受限 starter bucket 与自动补足恒为零。
 

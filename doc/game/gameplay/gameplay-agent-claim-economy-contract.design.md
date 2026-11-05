@@ -92,6 +92,11 @@ Trace refs: O7-REQ-f9218cff-4a0e-4a40-8a2f-133d9c824385
   - 资金优先级：`slot-1` 先花 restricted，再补 liquid；`slot-2/3` 只花 liquid。
   - 发放来源：`allowlist / onboarding / qa_seed / liveops_campaign`；每笔发放都必须带 `issuance_reason / issuer_id / expires_at_epoch`。
 
+<a id="claim-purpose-source"></a>
+**情境来源采用。** 上述 `reputation_score` 是旧 runtime 输入的事实，不是无范围累计分继续授予新资格的目标合同。本轮接收[用途政策](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)：在明确启用的采用版本中，用当前稳定主体的 `agent_acquisition` 合格来源值进入原 `10/25` 阈值和 `1/2/3` cap；只读来源、签署用途、实际双向履行、完整覆盖、独立对手、到期及更正的具体计算归[来源准入](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)。不复制新的全局分数，不改费用、tier cap 或 restricted/liquid 规则。
+
+quote 与最终 claim publication 必须核对同一适用 policy、主体、world/branch、来源 root/有效窗口及当前容量；读取与提交间失效或更正后重新报价/拒绝。已证无来源和未知覆盖分别表达，不能在新入口沿用旧 `unwrap_or(0)` 解释未知，也不能由客户端传入 tier。制造取得复用同一来源与去重容量守卫；旧持有、bond、upkeep 和历史 receipt 不追溯重算。正向额外槽、重复/关联主体、失效、原件缺失及并发入口的方法由[情境声誉验收](../../testing/manual/contextual-reputation-acceptance.manual.md)与原 claim/制造方法组合验证；本次未运行这些业务场景。
+
 ## 4. 退款与 Provenance
 - claim 时要显式记录：
   - `upfront_restricted_spent_amount`

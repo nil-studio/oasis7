@@ -61,6 +61,8 @@ Trace refs: O7-REQ-e7deec0c-7c4b-4f08-a2df-db2839cda928
 | Service/Node | 受理结果与已提交世界状态的可信读面 | 传入授权上下文及预期版本；网络接受不等于应用或持久化；不改共识/正式世界闸门 |
 | Viewer/API/Agent | 决策预览、订单读面、受限历史 | 只读解释与显式请求；不本地生成 Agent、退款、进度或成功 receipt |
 
+取得资格沿[claim 的情境来源采用](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md#agent-acquisition-context-source)。当目标采用版本启用，制造 quote、reserve 与 delivery 和普通 claim 读取同一 `agent_acquisition` 主体/情境来源、当前原件覆盖及 cap；直接 `reputation_scores`、缺源默认值或测试注入不得成为新适配器。实际获取仍受主绑定/claim/在途制造并集的原容量守卫约束，不能两个入口各有一份上限。[来源准入](contextual-reputation-evidence-and-review.design.md#reputation-purpose-admission)的有效版本、当前授权、窗口与更正在提交时重验；失效或未知阻止依赖额外容量的新取得，保留已投入、原期限、已有控制与合法退款，按本文原待交付/退出处理。该接收不把目标来源或完整制造实现表述为当前已可用。
+
 <a id="des-agent-mfg-001"></a>
 ### DES-AGENT-MFG-001：冻结报价与完整承诺
 

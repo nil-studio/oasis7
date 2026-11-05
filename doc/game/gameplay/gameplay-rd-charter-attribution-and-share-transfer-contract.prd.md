@@ -1,12 +1,12 @@
 # Gameplay 预工作 R&D charter、贡献归因与份额转让合同
 
 - 生命周期：`active`（本轮提出的可评审目标政策；未治理激活、未实现，数值未经玩法或性能实测）。
-- Owner role：`gameplay_designer`；协作：`producer_system_designer`、`runtime_engineer`、`agent_engineer`、治理/P2P owner、`qa_engineer`；Last reviewed：2026-11-04。
-- 专业归属：game 的个人合作研究、发现和发明首版规则，承接 [REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) 和 [AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) 的 R&D 切片；工业收益接口消费 [REQ-WR-GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)。不另建产品模块、PRD-ID 或 Trace ID。
+- Owner role：`gameplay_designer`；协作：`producer_system_designer`、`runtime_engineer`、`agent_engineer`、治理/P2P owner、`qa_engineer`；Last reviewed：2026-11-05。
+- 专业归属：game 的合作研究、发现和发明规则，保留个人首版并完成组织、多方与有限开放参与，承接 [REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) 和 [AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) 的 R&D 切片；工业收益接口消费 [REQ-WR-GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)。不另建产品模块、PRD-ID 或 Trace ID。
 - 专业执行：[R&D charter、provenance 与转让设计](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md)；验证：[R&D 验收手册](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)。
 - 设计适用性：`simple-topic-exemption`（`PRD-only-sufficient`）。本文拥有目的、玩家选择及本 profile 的玩法参数；接口、权限、状态、费用上界、持久化和恢复由上述 Runtime design 承接。
 
-Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。本切片不完成一般社交事实、组织/岗位声誉、成熟世界机会或整个 CR-003。
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。本文与[完整情境声誉](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-full-applicability)、原五动作预览及机会合同组合承接 CR-003；不以 R&D 单项代签其他制度或实际实现。
 
 ## 1. 玩家目的与四种不同的事实
 
@@ -19,12 +19,12 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。本切片不完成一�
 | 经济分配 | 开工前同版接受的稳定 benefit slot、正整数 bps 和明确收益范围 | 不改写作者、贡献事实、个人身份或一般声誉 |
 | 个人 credential | 沿原身份、政治/社会资格及各情境 authority | 取得 Agent、成果或收益份额不继承他人的资格、责任或全球信用 |
 
-本首版支持同一 canonical world/branch 中，自然主体或其当时受权 Agent 的一个有界工作范围。组织、岗位代表、开放加入、跨世界归因、长期受托服务及现实著作权/专利裁判不在本 profile；不把个人签名或新的 charter 当作组织代表权。它们仍保留原产品义务，由对应 authority 另行承接，不能以本首版替代。
+原 personal-rd-charter-v1 支持同一 canonical world/branch 的自然主体或其受权 Agent；其旧签署与单阶段解释保持。原产品同时明确保留组织代表、开放加入及事前变更边界，故本轮在同一制度的后继版本完成 §2.1–2.3，不能再把这些原义务排除。跨世界归因与现实著作权/专利裁判仍不在本游戏合同；已有长期服务义务沿其原合同，不因 R&D 身份代签。
 
 <a id="rd-charter-policy-v1"></a>
-## 2. 首版政策：`personal-rd-charter-v1`
+## 2. 原首版政策及共同不变量：`personal-rd-charter-v1`
 
-Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。以下参数只在本文维护，Runtime 和手册按本版消费。
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。以下参数只在本文维护，Runtime 和手册按签署时版本消费。原 v1 只有自然人和一个阶段；后继的每个工作 epoch 继续16方/32单元、原工作/程序窗口、原8槽和全部来源/费用义务，差异仅由 §2.1–2.3 明示。
 
 | 规则 | 固定政策与边界 |
 | --- | --- |
@@ -42,6 +42,40 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[CR-003](../.
 所有窗口均采用 canonical world ticks、左闭右开区间及 checked 运算，不保证现实分钟或客户端送达时限。16 方包含实际需要本次同意的费用主体，不能假定调用者、贡献者和 metering payer 是同一个人。容量不足只阻断新承诺，不抹掉既有记录或程序机会。
 
 只读检索、比较旧成果、非绑定协商和登记工业提案不算本 scope 的实质工作；它们不能产生新的可归因研究结果。为本 scope 新生成模拟分析、实验、代码、训练/微调或其他研究成果，是实质工作，须先激活并沿受支持的工作来源执行。事后上传文件不证明它在 charter 后才被创作；无法证明时只能声明为先存来源，不能倒签贡献或补造旧收益。
+
+
+<a id="rd-charter-general-parties"></a>
+### 2.1 同一制度的组织、多方与真实代表
+
+后继政策支持自然 principal 与 ordinary organization principal 共同参与。每个 epoch 的必需集合仍至多16个去重 principal，包含全部新工作贡献/责任主体、当前全部收益槽 holder、需要本次新同意的来源/资产权利人以及实际执行/程序/闭合 payer；以集合并集计数，不按签名或Agent数。组织与其成员是不同principal；组织借用个人Agent/资金，真实owner须另为必需方同版接受，不能凭组织标签创造共有余额或委托。
+
+组织的原登记/charter-backed signing clause、批准门槛和当前mandate沿[通用形成](../../world-runtime/runtime/agent-mediated-contract-formation.design.md#contract-formation-principals-mandates)。初始业务签署附件、后续授权及来源/责任cap均须有原规定的有权主体明确同意，单独普通passed、OC托管grant或成员名单无权代表组织签研究。一个组织principal可按既有门槛有多个自然批准人；他们的证明不增加principal数，但只要个人另承担钱/资产/责任仍独立计数。无当前受权代表时停止新增承诺，原组织身份、旧责任与已提交记录保留。
+
+每项具体贡献保留实际自然/组织责任主体、当时Agent/controller、原工作角色与代表任期；组织的经济收益可以归组织，但不抹掉实际工作者的原贡献。不把组织成果自动变全体成员个人credential，也不把代表更换当收益转让。新代表必须重新证明当前权限，不能凭同组织名重用旧个人签名、私有目标、源许可或资金授权。
+
+<a id="rd-charter-open-participation"></a>
+### 2.2 正向加入、退出与最多四个工作 epoch
+
+后继 charter 在第一次激活前须声明采用本条，固定同一稳定charter lineage与最多4个顺序工作epoch。每个epoch有自己的同版完整terms/quote/接受、原工作scope/角色/来源规则、至多32单元、600tick工作期、原归因通知与一次有界案件、实际受保护费用。任一时刻同charter只允许一个尚未闭合工作/归因程序/费用的epoch，不自动续期；旧v1不能仅改版本或补一个字段变四阶段。
+
+开放加入在**下一个尚未激活的epoch**生效。上一epoch的已开工结果已确定终结或按原源合法fence、完整目录/notice/程序/费用已结清并归档后，玩家可以提出新加入、缩小/更改未来工作或改角色。原已启动scope中间不能插名册、倒签或挪旧预算；拒绝本次新条款只停止新承诺，不删旧贡献。退出者可随时撤销自己尚未开始工作的授权并安全结束已接受工作；该撤销不以所有人同意为条件，在本epoch保持停止标记；若希望重新工作，须在下一epoch取得新的明确接受，换代表/nonce不清标记。新epoch若仍要使用其资产/未来工作或改变其权利，必须取得新的明确接受。
+
+新epoch必须由新的完整必需集合全部明确接受，包括每个新加入者、当前收益人、实际新source owner和payer。旧接受、组织原代表的旧签名、无响应、之前贡献或已拿到slot不能代替。拒绝任一必需方或超16方使这次新激活不成立，草稿和接受登记没有资源/顺位/资格效果；既有权益仍按原规则读取/支付。
+
+原收益槽、bps、已付/未付、累计E、原capability lineage和许可池跨全部epoch保持。新参与者可以明确接受零收益角色，完整保留贡献、证据、退出和本epoch程序；也可在新epoch激活前依法完成一个原整槽转让后，以当前holder参加新接受。退出工作不自动交出槽，加入不自动分走旧人的份额；收益转让不使新人变旧作者或承担前人个人责任。旧许可的既有付款/收益案仍沿其原期限继续，不为新epoch重开；如其未知/权利争点实际影响本次当前holder或必要使用权，先解决该具体依赖。
+
+正例：epoch1由组织O与P工作，收益7000/3000。它按原程序闭合后，Q可在epoch2明确接受零收益并加入新工作；P可不再工作而保留3000和历史贡献，作为当前holder对新epoch明确接受。另一合法分支是P先完整转让3000给Q，实际当前rights/pool同根后，Q再参加新epoch；P旧合法已付和旧贡献不变。组织代表A换为B只更新O未来签署的当前mandate，不把O的7000、A的个人记录或epoch1工作归B。
+
+第四epoch之后拒绝同一charter lineage的第五次新工作激活，返回明确capacity结束及仍可用的历史、权益、来源更正和原请求入口；不截断第四阶段的原程序/关闭。重新命名charter、换Agent/组织代表、重装module、分叉工作ID或换nonce不能重置计数。独立新成果可另有其合法charter，必须由原工业/来源authority证明确实是独立capability lineage与新工作，不是原scope/成果的改名、后续使用或收益复制；即使是独立新案，也不迁移或洗掉旧权益、责任、许可池和历史。想继续同一已达上限的合作，需要未来明确政策变更与全旧义务兼容，不能由本版自动无限串联。
+
+<a id="rd-charter-change-boundary"></a>
+### 2.3 可变条款、冻结经济和历史可读性
+
+本轮明确选择：下一epoch可变的是未来工作目标/scope、角色、真实来源和费用/窗口内计划，必须新报价、同版接受且与当前授权相符；**同一charter/capability的收益槽与bps不因新epoch改变**。原归因可以有权客观纠正但不能以重签改历史事实。任意拆槽、合槽、有价出售或任意重新分配bps不是“开放加入”的默认含义，本版仍不支持；本选择保留原双方同意/已得权益，不承诺未来会开放任意经济重写。
+
+旧epoch的完整terms/render/接受、mandate/任期、实际工作/来源、程序/随机/截止/结论、费用、rights与receipt原件持续可检索。current state可以只保留已验证目录/root和当前head，但必须能够按原受众和当前读者授权取回完整原件；hash存在而正文不可解析不能当作完整保留。当前读者、新代表、旧个人与公开读者的范围分别验证，既不自动公开私有原件，也不因离职/退出取消原有合法历史读。
+
+原工作本身、过去已付、旧来源权利争议和旧程序不因归档或新epoch被重新执行/重算/续窗。因未知提交、源结果或合法最终结论尚不能核定而无法安全归档时，新epoch等待精确原件恢复，不能将未知当“已关闭”腾容量；这不授予任一参与者无限增加保全或收费权。
 
 <a id="rd-contribution-and-provenance"></a>
 ## 3. 贡献、来源与 Agent provenance
@@ -70,7 +104,7 @@ Agent 转让、重配置、退休、离线或报废后，旧控制期贡献、�
 
 交接保持历史贡献、成果使用范围、原冻结分配及当前持有人四项独立。登记提案只需当时有效的 charter 和已有证据，不强求尚未产生的最终交接。正式付费许可才消费完整、当前有效的交接；收入计量、硬开放、通知、累计 `E`、尾差、付款及收益案由 [GAME-018 许可政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#industrial-license-policy-v1)唯一决定。
 
-Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47；上游：[GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)。同 lineage 已有原分配时，新 charter 只能保留新增工作的真实归因，不能在本版另开付费向量或从 `E=0` 重算。需要改变 bps 的安排必须有另版政策及完整旧权益迁移，不能伪装成普通修改或份额转让。
+Trace refs: O7-REQ-0ec3d72f-51d1-4d64-9824-ebd9365f2d47；上游：[GR-010](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-010)。同 lineage 已有原分配时，新 charter 只能保留新增工作的真实归因，不能在本版另开付费向量或从 `E=0` 重算。本轮后继epoch也不改变bps；需要改变同lineage分配的安排仍必须另有合法政策及完整旧权益迁移，不能伪装成开放加入、普通修改或份额转让。
 
 <a id="rd-share-transfer"></a>
 ## 5. 整槽转让与旧权益连续性
@@ -98,7 +132,7 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[CR-003](../.
 
 排除所有本案当事方、其可核验关联控制者、相关来源/工业批准者和直接经济关系人；“未查到关联”不能证明无冲突。案件承诺先固定，再取已获授权且事前不可挑选的可验证随机源的首个合格结果，形成唯一排列。初审和复核使用不同的合格人，失格者沿原排列顺延；重开案、换 nonce、补位或转让不能重抽。候选不足时保持明确程序缺口，按原截止和硬尾部处理，不能改成管理员裁定。
 
-同一 charter 的这一归因通知只有一案；各方合格争点按原范围并入，不能由抢先者用尽后到者的窗口或预算。决定性 receipt 的错配、重复或授权错误先按完整原件重验，不把可确定错误交给任意多数。相同证据/争点的重复请求恢复原结果；新补证也不重置 `N/C`。
+同一 charter 的每个已签 epoch 归因通知只有一案；原 v1 只有一个 epoch。新 epoch 不能重审旧通知/争点；各方合格争点按原范围并入，不能由抢先者用尽后到者的窗口或预算。决定性 receipt 的错配、重复或授权错误先按完整原件重验，不把可确定错误交给任意多数。相同证据/争点的重复请求恢复原结果；新补证也不重置 `N/C`。
 
 | 阶段 | 固定窗口或截止 |
 | --- | --- |
@@ -121,7 +155,7 @@ Viewer、API 和 Agent 在同一权威快照/受众下，分别显示条款是�
 
 确认前至少比较继续合作、零收益参与、缩小开工前 scope、采用有权先存成果、独立重新研究、零费公开或停止的成本和限制。零费也不授予他人材料、私有数据或工业准入。可恢复错误展示补证/原请求查询；已冻结向量与当前不支持的拆槽等限制直接说明，不能用无效按钮暗示可以操作。
 
-完整程序的保守资源预留可能显著高于最终研究收益；实际执行费及完整闭合算例由 [Runtime 容量与费用](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-capacity)唯一给出。资金不是入场奖励或已经消费的费用，未使用量按原来源返还。首版的 600 tick 工作期、16 方/32 单元、程序等待及拒绝合槽是本次明确选择，尚未验证合作意愿、研究节奏、经济承受能力或世界吞吐；不得宣传成已经济可用。
+完整程序的保守资源预留可能显著高于最终研究收益；实际执行费及完整闭合算例由 [Runtime 容量与费用](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md#rd-capacity)唯一给出。资金不是入场奖励或已经消费的费用，未使用量按原来源返还。首版的 600 tick 工作期、每epoch16方/32单元、后继最多4epoch、程序等待及拒绝合槽是明确目标选择，尚未验证合作意愿、研究节奏、经济承受能力或世界吞吐；不得宣传成已经济可用。
 
 ## 8. 专业验收与剩余边界
 
@@ -134,5 +168,24 @@ Viewer、API 和 Agent 在同一权威快照/受众下，分别显示条款是�
 | <a id="ac-rd-05"></a>AC-RD-05 | receipt-first、随机无冲突本地 panel、有限程序申诉、最小保全和硬尾部；R&D/许可不双重裁决 | [RD05](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd05-review) |
 | <a id="ac-rd-06"></a>AC-RD-06 | 完整费用、当前执行权限、旧数据及未知请求恢复有界且不丢历史、不重复世界效果 | [RD06](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd06-recovery) |
 | <a id="ac-rd-07"></a>AC-RD-07 | 玩家能辨认状态、成本、原截止和可行选择；三入口同义，研究/转让不变成信用或资格 | [RD07](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd07-reading) |
+| [AC-RD-08](#ac-rd-08) | 组织与自然多方同版接受，当前mandate/真实source owner/历史任期独立；代表变更不继承个人身份与来源 | [RD08](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd08-organizations) |
+| [AC-RD-09](#ac-rd-09) | 正向加入/退出/未来条款变更与4epoch容量可执行，旧贡献/完整原件/固定收益/原程序不洗掉 | [RD09](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd09-membership-epochs) |
+| [AC-RD-10](#ac-rd-10) | 16方完整接受、512证据、归档/闭合及最多两invoke的真实完整编码和费用在有界容量内成立 | [RD10](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd10-encoded-capacity) |
+
+
+<a id="ac-rd-08"></a>
+### AC-RD-08：组织及多方的完整当前接受
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。以真实普通组织mandate、自然/组织必需方与source owner完成正向激活及工作；原代表任期、个人责任、组织收益与实际贡献分别可查。缺当前授权或完整接受时无效果拒绝；方法为 [RD08](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd08-organizations)。
+
+<a id="ac-rd-09"></a>
+### AC-RD-09：开放参与、未来变更与原权益连续
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。下一epoch的零收益加入、整槽转让后加入、退出未来工作及新条款接受有真实正向路径；至多4阶段，旧贡献、完整可回读原件、固定slot/bps/E及原程序不被重置。方法为 [RD09](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd09-membership-epochs)。
+
+<a id="ac-rd-10"></a>
+### AC-RD-10：全部原程序的完整编码与费用闭合
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；上游：[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。每epoch16方、两阶段512证据和全部原件、归档/关闭/下次激活在真实完整canonical封套与最多两invoke内有可编码正例和超限拒绝；不能用raw相加、删证据或免费隐藏调用达标。方法为 [RD10](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md#rd10-encoded-capacity)。
 
 以上条款沿用本专题两项上游 Trace，未新增独立产品要求。当前只交付政策、专业设计和方法；真实来源 adapter、治理授权/随机、资源保护、原子双消费者、正式表面与同候选验证仍须实现。缺前置记为 `blocked/not_run`，静态算例、文档检查或示意界面不代签实玩、吞吐、权利核实或发行 readiness。
