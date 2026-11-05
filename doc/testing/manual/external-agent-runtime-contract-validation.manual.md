@@ -81,6 +81,73 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 判定：首产物以主责生产回执判定，全部恢复义务分别留证；一次成功、mock、另一 Runtime 或另一 surface 不代签。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
+Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-458a-9c70-8121217e6f7b。按[首局组合设计](../../world-simulator/llm/external-agent-game-api.design.md#api-first-session-composition)，先用普通 HTTP 客户端验证协议与目录，然后对 Codex/OpenClaw 的每个声明 profile 分别完成下表。同一组合在原世界、Agent、task 历史上覆盖全部适用项；可用独立 attempt 注入故障，但必须保留起点、原件与该组合的失败，不能跨 Runtime 拼接。
+
+| ID / 操作 | 独立 oracle 与通过判据 |
+| --- | --- |
+| FS01 可信 Skill、版本与合法接入 | 真正 driver/session 和已公布 schema/能力相符；当前主体、goal、fence 分别回读。cold-entry 与预置合法 Agent 路径独立，不用 operator 代做待测步骤 |
+| FS02 当前 starter 条件及动态目录 | 固定 `starter-industrial-smelter-to-assembler-v1 / production_only` 及其 revision；逐项对照真实所需查询/转运/建造/排产与目录 schema、parser、admission。删一个实际必需能力、改 schema 或撤权限必须明确阻塞，不能靠固定名字继续 |
+| FS03 自主生产与原反馈 | Runtime 从获准观察自行选择动作；匹配 production receipt、owner-bound 铁锭及原 milestone 证明 produced/undelivered。scheduled、cognition committed、库存自然增长或模型“完成”均不通过；原结果进入该 Runtime 输入另按 RF01 |
+| FS04 真实资源/生产 blocker 后继续 | 在真实世界改变该路线一个前置；看到与 authority 一致的 blocker，Runtime 自主采取合法修复/等待/减量/重规划，并以其后实际结果证明继续；不能人工代补隐藏资源 |
+| FS05 目标接受与实际应用 | 新目标正文/revision 真正进入后续 context；旧 pending 保留原身份，迟到结果不归新目标。已保存、已读、已采纳、context-used 与新世界结果分别留证 |
+| FS06 声明入口离开与回访 | viewer 关闭/重开、pure_api 断开/重读分别执行；独立运行条件真实成立时，离开期间的成果由原 receipt 证明。没有成果时如实报告等待/阻塞，不预填继续 |
+| FS07 断连与实际进程重启 | 两种故障各一次；原操作/成本/反馈位点对账，无重复效果或新额度；私有会话不可恢复时用当前可信基线，不能要求保持原私有 session ID 才算恢复 |
+
+`test_tier_required` 的协议/受控故障只证明接缝；真实 Runtime 为 `test_tier_full`。Web/native 的指导、文本与图形恢复另按各表面执行，不能由纯 API 或另一端代签；本表不证明稳定生产、交付、真人喜欢继续或发行就绪。只读本手册或审查代码时所有运行项保持 not_run。
+
+<a id="api-primary-entry-validation"></a>
+### 场景 api-primary-entry-validation：逐入口能力与恢复适用性
+
+- Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；产品 [REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) / [AC-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#ac-entry-mode-001)：当前入口的唯一 primary mode、阶段、能力及独立证据。
+- Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；产品 [REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) / [AC-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#ac-entry-mode-002)：前置、身份、provider、模式或后端失败时的真实分类和恢复。
+- 系统条款：[实际入口适用性](../../world-simulator/llm/external-agent-game-api.design.md#api-primary-entry-applicability)。本方法补齐入口消费与失败组合；[FS01–07](#api-first-session)、[普通 HTTP](#api-wire)、[原操作幂等](#api-idempotency)及[共同安全边界](#api-safety)继续拥有其原验收范围。
+
+#### 固定候选、实际入口与独立判定
+
+对候选声明提供的每个入口，记录真实客户端及启动方式、transport、world/backend/profile、经验证主体与权限、实际协商能力、primary mode、当前阶段和可执行操作。primary mode 沿用 `viewer` / `pure_api`；observer、blocked 是该入口的能力/可用性结论，SDK、provider、部署方式和管理通道不成为新模式。把协议存在、生产者已实现、消费者已接通、当前实际执行四层分别记录；临时脚本或 mock 只能证明其接缝，不能填作正式消费者。
+
+2026-11-05 固定源码基线为 `c67298dcfc08ce0eaece293bd30c184980ac5327`。以下是该基线的静态接点和后续候选的验证方法，不是运行通过记录；候选改变接线后须按真实源码修正适用范围。
+
+| 已有接点 | 当前可确认的范围与必须保留的缺项 |
+| --- | --- |
+| [TCP CLI 主程序](../../../crates/oasis7_client_cli/src/bin/oasis7_pure_api_client.rs)与[JSON/终止条件](../../../crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/support.rs) | 已有 snapshot、step/play/pause、chat/chat-retry、gameplay-action、prompt apply/rollback、agency-control 及 register/reconnect/rotate/revoke session。HelloV2 当前只声明 canonical chat 能力。Step 匹配本地 request ID 的 completion ACK；Play/Pause 按收包时窗结束，Pause 不带 request ID；gameplay、Prompt、recovery 的通用终止谓词主要按响应类型，agency-control 的原始 JSON 通道只核响应类型。这些事实不证明全部结果已精确关联或具备持久恢复。 |
+| [canonical chat](../../../crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat.rs)及[原件保存](../../../crates/oasis7_client_cli/src/bin/oasis7_pure_api_client/canonical_chat_pending.rs) | 协商 canonical 能力后有发送前原件保存、原签名重送和对应 intent 回执校验；未协商时仍是独立 legacy 分支。此机制只适用于原 chat 合同；不能推广成其他命令的通用 retry，也不证明目标已经执行。 |
+| [玩法原结果查询](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-original-result-lookup) | Runtime/浏览器已有协商后的只读原请求通道；当前 CLI 没有接入 `LookupGameplayAction` 命令及其恢复消费。该行记为 CLI 当前恢复缺项，不能因协议可解码、另一消费者可查或补跑 snapshot 而记为通过。 |
+| [Game API 首局组合](../../world-simulator/llm/external-agent-game-api.design.md#api-first-session-composition)与[SDK 原操作 port](../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port) | 目标允许普通 HTTP 客户端独立消费 Game API；当前 `/v1/game` bootstrap 仍仅 GET、`writes_available=false`。底层原生写能力不开放该 HTTP 路由。SDK/adapter 提供窄原件与状态能力，需核实际调用者的存储、授权、transport 和编排。其合同不自动补齐上述旧 CLI，也不单独证明完整 pure_api 首局或两种真实 Runtime。 |
+
+沿“统一准备与判定”使用 A/B 两个合法主体及各自 Agent，在隔离候选里选择该入口实际支持的一个业务请求 R；测试侧先固定其完整参数和预期领域结果。客户端只能用公开且获准的观察，独立判定侧从适用 authority 的状态/日志/receipt 核实原请求身份、阶段、效果次数及权限。比较控制变更、业务提交、世界效果和领域后续完成这几类差量；只读的“零效果”指该请求没有新业务提交或效果，不要求正在运行的世界整体停止变化。
+
+#### 逐能力正常与失败样例
+
+每个实际声明的入口分别执行适用行的正常与负例；没有该能力就记录准确的未提供/受阻范围；完整组合必需的能力不能靠从清单删去来判通过，也不要求每个 proto 变体新增 CLI 命令、预检或权限。下表中的 readback 仅使用当前授权和该领域原有查询能力。
+
+| 样例与实际范围 | 正常操作及独立判定 | 失败、错配与恢复反例 |
+| --- | --- | --- |
+| PE01 模式、阶段与入口前置 | 在当前支持的客户端组合中完成发现、身份确认及一个可确认结果的操作；对照原声明阶段、能力及证据范围核对真实后端和结果；本地成功不自动升阶或扩大 claim。正式 pure_api 的完整首局继续按 FS01–07；同候选 Viewer 的结论另案记录。 | 分别移除必要凭据、令必需 provider 初始化失败、指定不支持模式、使后端不可达；缺哪个前置就如实阻塞依赖它的能力，仍获准的读取可继续。不得自动换 provider/模式后沿用原成功结论，也不得把链 observer、direct debug 或管理连接当成玩家 observer。恢复配置或身份后重新核当前范围；修复成功不补造故障期间进展。 |
+| PE02 snapshot / player_gameplay | 对同 candidate、world、身份及 as-of/cut 的获准投影，与 Viewer 比较 accepted intent、execution status、primary reason、next step，沿 [DES-WR-IA-008](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-008)。核对读取没有业务 submit；自然推进另按其原因归属。 | 注入较旧投影、A→B 身份切换、另一 world/reorg 及缺少原 R receipt；不同 cut 先标 freshness 差异，不能强行比作同一事实。新余额、空 mailbox 或当前 status 不证明 R 已提交或未提交；不得由 snapshot 结束未知原请求或泄露 A 的私有内容。 |
+| PE03 step / play / pause | 先按 `HelloAck.control_profile` 和真实 handler 确定适用控制语义。对 CLI 实际发送的 LiveControl Step，核对原 request ID、completion status 与真实进展；Play/Pause 按[新决策调度合同](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#live-control-state-design)核对当前连接/epoch/revision 与调度状态。Playback 若是被测入口，则另按其原 PlaybackControl 合同验证。 | 给 Step 混入另一 ID 的 ACK；给 Play/Pause 注入旧 epoch、较低 revision、迟到确认、断连或未协商 peer。不能把计时收包完成、任意 ACK 或零世界增量显示成动作成功；live Pause 只证明其调度作用域，不证明世界时钟/在途模型/已有任务均停止。当前 CLI 缺精确消费的部分保持未验证，不要求另造 playback 命令。 |
+| PE04 chat / chat-retry | canonical 能力下发送有明确意图的 R，在权威提交后丢弃回复并退出客户端；用获准保护的原件文件恢复。逐字节比较原签名 payload、nonce、world/branch/reorg、Agent 与 intent tick/seq；按原合同取得关联的 intent ID/accepted event sequence，独立确认只产生一个原 intent。accepted/blocked 的 intent 回执与后续 applied/领域完成分别判定。 | 在首次发送前使原件持久化失败应不发；恢复时损坏原件、换 endpoint/world/身份或撤权应停留在原身份/真实错误，不换 nonce 消除未知。混入另一 chat ACK/无关 AgentSpoke 不得完成 R。legacy 未协商路径单独登记，不能从 canonical 的原件保存、重送或回执合同推出 legacy 等价。原件含敏感内容，不放入公开测试记录。 |
+| PE05 gameplay-action / 已有原结果查询 | 选择当前入口真实支持的 action，固定 authenticated actor、action/target 和原签名 nonce；直接结果按精确原关联及领域 receipt 判定。对已接入 lookup 的消费者，在提交后丢回复、重启并取得当前读取身份，再用原 signed request 只读查回：查询 submit 次数为零，R 的效果总次数为一。结果 committed 与后续产出/交付分开。 | 错 actor、target、nonce、world/branch/reorg 或切换后的迟到回包均不能结束 R。仅声明身份的 ReconnectSync 不建立 gameplay 查询读权；缺 capability、历史不可用、限流或当前无读权保留原件与未知。当前 CLI 调用 builder 时 actor 固定为 None，对要求 actor 的 claim_agent/release_agent_claim 不能宣称已接通；按该真实前置得到拒绝，不代填别人的 Agent。通用 ACK/错误类型和随后 snapshot 不补齐精确原结果查询；不得把重新运行 gameplay-action 产生的新签名当成恢复。若该入口已有 quote，则按[原预检范围](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#preflight-family-applicability)核对同 authority/参数及漂移，不给未提供 quote 的动作补造预检。 |
+| PE06 prompt preview / apply / rollback | 在该候选实际协商的 [Prompt 合同](../../world-simulator/viewer/viewer-control-plane-split-live-playback.prd.md#prompt-control-request-identity)内，对同 Agent 与 expected_version 先 Preview、再显式 Apply，随后按原权限显式 Rollback；增强合同逐项核对 request ID、operation digest、authority/session/binding epoch、状态与 scope。以 authority 的 profile/version/ledger 判定 Preview 无配置应用、Apply/rollback 的真实 mutation；本实例应用不升格为持久化或跨入口同步。 | 同基线并发更新分别得到原合同的 applied/stale；撤权优先于版本检查，当前不可见值保持 hidden。原 ID 异内容为 conflict；实例重启后的旧 epoch 按原合同保持 result_unknown，不借 gameplay lookup 恢复 Prompt。Preview 可以消费自己的认证 nonce/有界结果元数据，不能消费另一次 Apply 的 nonce或修改实际 profile。当前 CLI 的 legacy builder/类型终止条件不能代签增强字段、关联或持久恢复已接通。 |
+| PE07 agency-control | 对当前 owner 的 signed Inspect 验证授权过滤的投影；对实际支持的本地 profile 用一个有限 grant 做 Install、同原件 exact replay、Revoke，核对原 grant ID/revision、预算与控制结果。沿[owner delegation 原合同](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#owner-delegation-result-replay-contract)区分新 nonce 应用与旧 nonce 只读匹配；Inspect/匹配不安装、不扣世界行动预算，Applied 只表示该控制变更。 | 用 B 身份读 A、旧 owner/source、同 ID 异 terms、错误 revision 或范围不支持分别核原拒绝；chain-linked local mutation 保持 `canonical_agency_control_unavailable`。被撤销的 install 不能借 replay 恢复为成功；不把 install/revoke 的当前历史匹配推广给 memory correction、interrupt/override 等其他命令。只核 JSON type 的 CLI 输出还需与当前 request/Agent/world 和 authority 结果对账。 |
+| PE07b 已采纳的记忆纠正与在途控制 | 在该 profile 原本支持的路径上，按[记忆纠正](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007)提交匹配 memory ID/revision 的 correction，核 correction identity、影响范围和后续真实结果；再对原 pending intent 按[在途控制](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-012)显式 interrupt/override，核原 intent/digest、control ID、当前 owner/grant revision 与控制处置。 | 错 memory revision、已完成 intent、旧 owner、撤销 grant 及实际世界/安全 hard blocker 各按原合同拒绝或报告 stale/ignored；纠正被接受不保证下一动作改变，owner override 不能跨越硬阻断。响应丢失时按各原命令可用的原件核对，不能套 install/revoke 的 matcher 或用新 control ID 消除未知。 |
+| PE08 register / reconnect / rotate / revoke 与恢复入口 | Register 按原 signed proof 及适用 registration grant 建立当前 session；核对获准绑定及 epoch。Reconnect 只按其合同读 cursor/reorg/session 信息，不把声明的 player/key 当作新认证。Rotate/Revoke 仅在当前 profile 已授权的管理入口验证：核对原目标 key、实际 epoch/撤销结果与新动作资格；与[会话和 intent 连续性](../../product/player-entry-distribution/prd.md#player-session-authorization-continuity)分开对账。 | 普通玩家连接不得借管理命令取得授权；仅 reconnect、旧 key、过期 grant、错 world/reorg 或身份切换不得恢复旧执行资格。会话变更的响应丢失也不能凭任意 recovery ACK 或 snapshot 断言原命令完成；先用原合同允许的当前状态/结果读取，无精确关联能力则报告原结果未知。已提交 intent/receipt 保留，重新登录不复活过期 Agent 委托，也不把新会话当成已取消原 R。Rollback 等其他 proto 运维变体按原适用入口验证，不因 CLI 的四条 session 命令而宣布全部 recovery 已支持。 |
+
+#### 原件、授权漂移与未知结果的组合
+
+下面各故障固定同一原 R 和独立 authority oracle；在实际提供该能力的消费者执行。没有原件持久化、当前读权、查询端口或精确关联能力的现有入口，记录具体缺项及安全下一步；不得借测试 helper 接通后覆盖该缺项。
+
+| 窗口/对照 | 注入与可核对的结果 |
+| --- | --- |
+| PR01 可靠未发与可能已发 | 分别在原件持久化失败、持久化后可靠未 dispatch、dispatch 后丢回复时停止。第一项业务 submit 为零；第二项只有该原操作政策允许且当前权限有效时，显式继续同一原件；第三项保持可能已发，优先查询原件。无 dispatch 记录的旧缓存一律不证明未发送。 |
+| PR02 提交后回复丢失 | 选有确定资源后果且支持原结果回读的 R，由 authority oracle 确认已提交后阻断回复。进程重启及会话恢复后查回同一结果，再重复查询或该领域允许的 exact replay；资源/费用/效果和适用 receipt 均不重复。不具备回读的 CLI 只获得“原结果未知、恢复受阻”的正确结论，不获得完成验收。 |
+| PR03 查询本身失败 | 对同 R 依次注入 timeout、服务不可达、单节点未找到、HistoryUnavailable、限流及读取权限撤销；业务结果不能改为 rejected/未提交/已取消。按真实原因给重新认证、等待/retry_after、查询同一原件或安全停止；无法查询时保留原身份，不承诺登录或刷新必然恢复能力，不自动换 endpoint/new nonce/new operation。 |
+| PR04 交叉关联与迟到结果 | 保留 A/R1 的 pending，从独立合法场景取得 A/R2、B/R3 的已有结果；不为构造负例绕过 pending/全 slot/Stop 屏障。把 R2/R3、旧 world/reorg、旧连接/epoch 的结果混入 R1。消费者只能更新匹配原件且当前仍允许读取的事实；合法查明终态不被迟到 pending/unknown 降级。无关消息可留诊断，不能充当完成 R1 的回执。 |
+| PR05 权限变化 | 在读取前与返回前分别撤销/切换 session、owner、task/fence 或 grant（按该入口实际字段），并分别检查原已提交结果和未决定的新动作。当前读权仍成立时可确认原历史；读权已失效时不泄露旧私有结果。新的执行权限按当前合同重验，已固定执行决定的续接沿原专业合同，不重新 admission 或改写已确认历史。 |
+| PR06 query-only 与显式继续 | 调用 [SDK 原操作 port](../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port) 或该入口真实只读查询，计数业务/Context/Action/Outcome 新原件及 submit 均为零；协议必要的读取鉴权签名可存在。Stop 后仅保留当前允许的读，不重送或终止写。另以显式继续为独立对照，仅验证原操作原本允许的首次发送或 exact replay；缺 phase、无结果和超时均不能赋予重投权。 |
+
+最终证据按入口记录正例、代表失败、实际安全下一步与未接通处，并把原件 digest/correlation、authority 结果、效果次数、授权变化及客户端可消费状态对齐。原始签名文件、凭据和私有目标保留在获准存储，公开记录仅含脱敏关联及必要摘要。协议/adapter 故障向量、真实 TCP CLI/HTTP 消费与 Runtime/full 首局分别列结论；前两者不代签真实模型自主游玩，Viewer 图形/窄屏/键盘证据仍由其专用方法取得。本节只定义方法，源码审读与文档检查不改变各运行项的 not_run 或未覆盖状态。
+
 <a id="api-wire"></a>
 ### 场景 api-wire
 
@@ -89,6 +156,7 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 执行：按发现→鉴权→task/context→query→action→operation→events 顺序请求，再验证 query-only 后用 context outcomes 进入等待/收口，覆盖非法 JSON、未知字段、超大整数和错误 schema。
 - 判定：状态/幂等/版本可消费，accepted 不代签 committed；只读无世界效果；旧 provider DTO 不被当新请求。
 - 消费 DTO：验证 active_goal 完整正文与 null 条件，以及 OperationView 的 recovery_required/recovery/retry_advice 能被严格解码；不识别这些必要语义的旧草案客户端应停止，不默认成功或盲重试。
+- 反馈与目录：协商 OperationFeedbackV1 的目标能力；available 必须有匹配原 cognition fence/context 的真实 record，pending/history_unavailable 不得夹带伪造 record，非 cognition 才允许 not_applicable。旧 schema 不支持时报告反馈未接通；空字段不当作完成。按目录发现的 feedback_history 查询验证同切点/原 session sequence 范围、100 条/2 MiB 分页、末页完整性、过期 cursor、跨 audience/branch 及未知 schema；只读无世界 mutation、反馈 ACK 或模型调用。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
 <a id="api-safety"></a>
@@ -98,6 +166,8 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 给定：两个主体、一个累计 grant、多个连接与并发动作，构造已提交的撤销和新目标。
 - 执行：并发消耗 grant，在 commit 前撤销或转让；重连重试，模拟 auth unavailable、跨 origin cookie 请求和任意 callback URL。
 - 判定：累计额度不复制；新受限动作在权威生效后拒绝；CORS/CSRF/route 限制生效，无新写 fallback。
+- 恢复矩阵：按[共同安全边界](../../world-simulator/llm/external-agent-game-api.design.md#api-retry-safety)分别注入发送前拒绝、登记后 429/503、commit 后回复丢失、同键异内容、多连接同时用一个 grant、context 过期和 authority 不可用。预期是原请求查询/明确拒绝或真实终态；不能因网络码、重连、换 token、目标或新键得到第二份 effect/receipt 或重置额度。不同键的重复业务意图另核其玩法约束，不以本测试宣称任意语义 exactly-once。
+- 有界回查：耗尽新执行配额时，已获权的原结果与 Stop 仍使用独立控制/读取队列；读取到限返回 retry_after，停止并发增长并查询同一原件。读取授权也撤销时拒绝且无对象存在性泄漏。分别检查本地与 HTTPS 远程；TLS 成功不代签主体权利。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
 <a id="api-cutover"></a>
@@ -304,6 +374,29 @@ question/answer → approval/decision/grant → context/operation → world rece
 - 恢复输入：首次运行没有本地目标缓存、历史激活事件已不在重放范围时，必须从 snapshot 正文而非仅 revision/digest 得到目标；收到 recovery_required 的世界操作则保持原关联并对账，不开新的副作用轮次。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
+<a id="adapter-result-feedback"></a>
+### 场景 adapter-result-feedback
+
+Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7。覆盖 [AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005)，对应 [API 原结果](../../world-simulator/llm/external-agent-game-api.design.md#api-result-feedback)、[adapter 输入](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-result-feedback)和[玩家投影](../../world-simulator/viewer/external-agent-world-view.design.md#view-runtime-results)。此处是新增目标方法，不是已运行记录；fixture 注册与实现由交付 PR 提供。
+
+固定同候选 API/Runtime/worker/driver schema 与合法临时世界。准备 A/B 两主体、各自 task/session/fence，原 operation 及由真实 authority 产生的 committed、rejected、failed、pending 与 recovery_required；状态不能只靠 fake HTTP 字符串。受控 driver 用接收日志和 input/run identity 观察交付，世界 oracle 另核原 receipt/资源/effect；两真实 Runtime 的协议接收/会话来源独立再测。公开证据只保留脱敏关联，不保存秘密、私有推理或完整 Prompt。
+
+| ID / 输入与故障 | 独立预期结果与必须核对的消费者 |
+| --- | --- |
+| RF01 原成功、拒绝、失败与未决逐项到达 | operation 原结果、Runtime authoritative feedback、worker 持久接收、实际 driver 输入确认、下一次 context/decision 与玩家显示分别留证。成功必须进入正确后续输入；ACK/HTTP/model 文本不生成新 receipt。pending/恢复未知不释放新副作用 |
+| RF02 A/B 交错、同一 A 新 goal、原 run 完成后晚到 | B 的记录不进入 A；旧 goal 保留原归属。旧 session 不进入新活动请求，可信恢复只引用受权历史；换选中对象不能改结果主体 |
+| RF03 seq 1、3、重复 1，再取得原 seq 2 | 3 先 held，不按到达时间排序；同序同 digest 去重，补 2 后按源序恢复。另以同序异 digest、错 request/receipt/finality、伪 committed、缺原 fence 作负例，必须阻断对应投影而不改世界终态 |
+| RF04 ACK 后淘汰摘要，随后回到仍有效旧 session | 原水位延续，不从 1 重启、不把正常高 seq 永久 held；删除水位或超保留窗口时准确停止投影，不能把较大 seq 当恢复起点 |
+| RF05 在 inbox 持久前/后、ACK 后、输入发送后/上游接收后但本地确认前崩溃 | 未持久不得 ACK；重启恢复同代位点。确认已接收恢复原位点，确认未收且协议允许才重送原输入；无法确认保留 run_unknown，不新建付费调用。原已 committed 世界效果始终至多一次 |
+| RF06 33 条或超过 128 KiB 输入批次，257 条或超过 4 MiB 未交付正文，超大/敏感单条 | 按 count/bytes 较低上限停止新 turn并有界排空；不裁掉关键结果后报完整，不无限 Prompt/缓存。超限单条显示可验证身份/状态和 projection 不可用，不伪造已交付 |
+| RF07 新旧本地代际拼接、同 operation 换 fence/branch、私有缓存换 audience | 原件与水位/交付位点必须一致；不一致暂停并从 authority 对账。旧 fence 不复活、原反馈不重编号，权限外内容从文本/图形/费用及迟到响应中全部隔离 |
+| RF08 operation 已 committed，但 feedback 尚不可读、页未全或历史缺失 | 玩家可以看到已获权的真实结果，同时显示 Runtime 接收未确认；不得降为失败、谎报全部反馈已消费或重新执行。末页前 partial，缺页/切点变化/未知 schema 不当作空历史 |
+| RF09 执行预算耗尽或 Stop，随后有原结果和晚到费用 | 新模型/行动停止，机械查询和当前获权结果仍可消费；输入需要新调用时保留待交付，不能为“补反馈”越权启动。owner 原结果读取与撤销 executor 分别核对，无当前读权不泄漏缓存 |
+
+每例保存各阶段的真实来源、原/当前身份、执行/读取权限、提交次数和结果数量；对于“实际 Runtime 已接收”，必须有其原 run/input 的可核接收依据。只有 tool response 已写入本地而上游无接收事实时不得通过该项。对后续决策观察实际输入/输出关联，不从同一句自然语言断言“理解正确”；新世界成果另验。
+
+先执行 required 的真实本地持久/权限/恢复接缝与 scripted driver，再对支持的 Codex/OpenClaw 实际协议及 Web/native/pure_api 消费分别取 full 证据。fake driver 不能证明真实 Runtime 输入、玩家理解或端到端首局。
+
 <a id="adapter-private-context-recovery"></a>
 ### 场景 adapter-private-context-recovery
 
@@ -350,6 +443,18 @@ question/answer → approval/decision/grant → context/operation → world rece
 - 给定：用户明确启动的 worker 和一个打开的 Viewer，另有不属于测试的运行进程。
 - 执行：先关 Viewer，再停 worker，再模拟健康检查成功但 driver 未启动及 heartbeat 过期。
 - 判定：关 Viewer 不停仍有效任务；停 worker 后不声称继续推理；不杀其他进程，健康与实际执行不同。
+- 四层输入：固定每个 observer 连接、实际 driver run/source time、当前 task/delegation/fence/额度，以及原 pending/committed operation；分别读取 [四层设计](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-liveness) 的来源，不能以一个 online 字段作 oracle。下列 LV01–LV06 在 `viewer` 与 `pure_api` 分别成案，Web/native 各有自己的实际入口证据。
+
+| ID / 改变的唯一条件 | 必须观察到的分层结果 |
+| --- | --- |
+| LV01 只关 Viewer / 断开观察客户端，其他独立条件有效 | observer 离线，实际 run 继续或按真实条件等待；原操作结果仍由世界产生。回访读取原结果，不自动启动第二个 worker/任务 |
+| LV02 停 owned worker/driver，但 grant 尚有效 | 新决策停止；资格可以仍有效，世界 pending 可继续，已确认成果保留。其他不属测试的进程存活 |
+| LV03 健康检查成功、控制 sync 正常，但没有 started run | 显示 awaiting/等待或实际诊断，不显示 thinking；没有模型调用事实也不报正在运行 |
+| LV04 heartbeat/driver 来源过期，之后重连 | 来源变未知/通信过期，不由墙钟撤销世界资格。恢复先核原 run/operation 与当前 fence，不复用旧报文填 fresh |
+| LV05 执行 grant 到期/撤销或模型额度归零，远端取消不可证 | 新受限请求停止，取消状态/费用未知保留；原结果按当前读权可查，不能宣称远端已停止计费或旧行动已取消 |
+| LV06 执行实际寄生于页面，或读取资格也撤销 | 前者明确不支持独立无 GUI 组合；后者清除旧私有图形/文本/费用并拒绝迟到结果。两种失败不能由另一个入口或其他 owner 的权限代签 |
+
+- 代际恢复：重启和只重连 observer 分开；前者按合法 CAS 恢复实际执行代际，后者不改变控制权。比较旧新 fence、预算与 feedback 位点，无复活旧授权或重复效果。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
 <a id="adapter-budget"></a>
@@ -362,6 +467,18 @@ question/answer → approval/decision/grant → context/operation → world rece
 - 量值与去重：fake driver 在同一 meter 依次报告累计 input_tokens=100/150、output_tokens=20/30、cached_input_tokens=40/60、cost=0.01/0.02 USD。交错 poll/stream/reconcile 重放、乱序旧 sequence、相同 measurement_id，以及消费持久化前后的崩溃恢复；结果应是 150/30/60 和 0.02 USD，而非相加后的 250/50/100 或 0.03 USD，总 token 不重复包含 cached 子集。
 - 范围与缺失：加入另一不重叠 meter 的 50/10 token 与 0.03 USD，任务已知合计为 input=200、output=40、cost=0.05 USD；其他币种单列，不叠加父运行汇总与已计入子项。只报告 token 而缺 cost 时保留已知 token 和未知费用；无 usage 不等于零。
 - 负例：同 ID/sequence 异内容、累计值倒退、冲突终值、非法单位/币种/小数、未知指标、超过条数/字节限制与无法证明作用域不重叠，必须拒绝或标计量未核对且不静默增加可用预算。delta-only driver 先持久去重后规范为累计值；本地 ledger 丢失不能重置消费。估计/预留与实际报告分列，计量完成不由取消请求推断。
+- 世界成本与读权按[预算合同](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-budget)再独立执行下表，不能只测 usage 字段。样例金额与资源数量是测试输入，不是游戏价格或产品参数。
+
+| ID / 固定输入或故障 | 独立预期与原记录核对 |
+| --- | --- |
+| BG01 原世界业务实际消费 4 ore、8 Electricity；另有 2 单位占用，其中实际释放 1、剩余 1。外部两无重叠 meter 分别 0.02/0.03 USD，另有 0.01 EUR | 显示世界消费 4/8、当前占用 1及原释放，不把 reserved 再算消费；外部已知 USD=0.05、EUR=0.01 分列，不换算为世界资源或一个完整总额。与原 payer/ledger/job/receipt 逐项对账 |
+| BG02 在 BG01 中重放排程、completion、查询和 UI 摘要，穿插另一无关任务余额变化 | 相同 effect/receipt 行只计一次；不从余额差归因本任务，不把模型自然语言成本当世界账。跨切点晚到费用保留原来源，不重复相加 |
+| BG03 有 token，无实际 cost；未来维护估计 0.08 USD；又有一个下游工具费用未知 | 保留已知 token/实际分项、估计与未知，总费用仍不完整；不能把未知写零、把估计记实际或声称全链硬限额 |
+| BG04 模型/行动预算耗尽，原世界 action 仍 pending，后来 committed | 停新模型/行动；原结果查询仅用独立有界读取配额，原结果和晚到成本可在当前读权下补齐。不得为读结果充值、重绑 executor或重发 action |
+| BG05 Stop/撤销 executor 执行权，再分别保留/撤销其读取权；owner 仍合法/也失权各一例 | 只按当下权限读取；无权不暴露历史存在性/旧缓存，owner 通过独立受保护原件查询且不复活 executor。缺可交接原件时明确阻塞，不共享旧私钥或私有 outbox |
+| BG06 控制查询限流/离线、正在 long-poll 时 Stop、重启或旧备份恢复 | 读取至多一个在途并按 retry_after 退避；Stop 不等模型/行动预算恢复。只查原件，无无限重试/新模型；已用预算/未知预留/世界占用及当前 fence 不被旧本地代际重置 |
+
+- 必须分别记录 worker 能强制限制的范围、Runtime 内部不可拦截范围、世界 authority 实际扣减和各数据缺项；完整账单审计与实际付费 Runtime 运行另有证据，不由 scripted meter 代签。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
 <a id="skill-release"></a>
@@ -398,6 +515,9 @@ question/answer → approval/decision/grant → context/operation → world rece
 - 给定：自己的 Agent、可见但不可控 Agent，pending/committed 与目标新旧版本。
 - 执行：从地图修改自己的目标、回答消息/审批，点击其他实体及资源地点。
 - 判定：仅高层有效写入；地图点击不发 action:submit，接受/应用/回执分开。
+- renderer 组合：按[恢复合同](../../world-simulator/viewer/external-agent-world-view.design.md#view-recovery)分别在 boot 失败、ready 后 context loss/fatal、断连及显式重试时，保持原 pending/committed 和当前目标。核对获准文本的来源、原 Agent/operation、unknown/stale 标记；高层指导、Stop 与原结果查询只按各自当前权限可用。自动恢复最多一次，重建后须真实命中/选择及当前授权投影可用才能 ready；没有新 action、第二份效果或自动重启 Runtime。
+- 权限竞态：图形失败期间先换选中 Agent，再换账号/audience 或撤读取权，并让旧 promise 晚到。前者原结果仍归原主体；后者清图形/文本/费用/缓存与旧命中，旧响应不得再显示。可读历史保留与当前无权展示分别判断；不能因 renderer 不可用放松授权。
+- 逐端证据：正式 Web 与受支持 native 嵌入容器各自执行上述路径，记录恢复前后文本/交互、实际容器、原请求与权威结果；受控 renderer 故障不代签真实 GPU 正常可用，另一端、外部浏览器跳转和截图不代签本端。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
 <a id="viewer-primary"></a>

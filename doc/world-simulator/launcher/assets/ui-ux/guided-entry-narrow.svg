@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1288" height="1088" viewBox="0 0 1288 1088" role="img" aria-labelledby="title desc">
+<title id="title">Launcher 引导与未知结果：窄屏目标稿</title>
+<desc id="desc">DESIGN TARGET。三个390×844目标帧：native缺项首屏、native英文配置引导、Web链启动回应未知。文字和矢量可编辑，不是运行截图。</desc>
+<metadata>DESIGN TARGET; editable SVG; source baseline 4f6f20ece923c5705e26ef879c2b83e0e637b3f9; no runtime screenshot; no external image or font asset.</metadata>
+<style>text{font-family:"Noto Sans CJK SC",sans-serif} .strong{font-weight:700}</style>
+<rect x="0" y="0" width="1288" height="1088" rx="0" fill="#edf2f7"/>
+<text x="24" y="34" font-size="26" fill="#173044" class="strong">Launcher / 窄屏与恢复</text>
+<rect x="978" y="14" width="286" height="28" rx="5" fill="#edf3ff"/>
+<text x="988" y="33" font-size="12" fill="#1f5fc7" class="strong">DESIGN TARGET · 可编辑源稿</text>
+<text x="24" y="65" font-size="14" fill="#536676">N1  native · 缺项首屏</text>
+<text x="449" y="65" font-size="14" fill="#536676">N2  native · 英文配置引导</text>
+<text x="874" y="65" font-size="14" fill="#536676">N3  Web · 当前回应未确认</text>
+<g id="narrow-native-blocked" transform="translate(24 100)">
+<rect x="0" y="0" width="390" height="844" rx="12" fill="#edf2f7" stroke="#c4cfda"/>
+<rect x="0" y="0" width="390" height="78" rx="12" fill="#ffffff"/>
+<text x="16" y="31" font-size="18" fill="#173044" class="strong">oasis7 Launcher</text>
+<rect x="268" y="12" width="106" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="282" y="40" font-size="14" fill="#173044" class="strong">中文</text>
+<text x="16" y="60" font-size="13" fill="#536676">Web/UI 入口 · viewer</text>
+<rect x="16" y="94" width="358" height="194" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<rect x="32" y="110" width="102" height="28" rx="5" fill="#fff4df"/>
+<text x="42" y="129" font-size="12" fill="#83500a" class="strong">当前下一步</text>
+<text x="32" y="163" font-size="23" fill="#173044" class="strong">修复游戏配置</text>
+<text x="32" y="193" font-size="15" fill="#536676">缺少游戏可执行文件。当前入口尚未启动。</text>
+<rect x="32" y="228" width="326" height="44" rx="6" fill="#1f5fc7" stroke="#1f5fc7"/>
+<text x="46" y="256" font-size="14" fill="#ffffff" class="strong">修复游戏配置</text>
+<rect x="16" y="306" width="358" height="248" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="32" y="337" font-size="17" fill="#173044" class="strong">启动步骤</text>
+<text x="32" y="363" font-size="13" fill="#536676" class="strong">01</text>
+<text x="70" y="363" font-size="15" fill="#173044" class="strong">区块链</text>
+<rect x="240" y="343" width="116" height="28" rx="5" fill="#edf3ff"/>
+<text x="250" y="362" font-size="12" fill="#1f5fc7" class="strong">已关闭</text>
+<path d="M32 388H358" stroke="#c4cfda"/>
+<text x="32" y="425" font-size="13" fill="#536676" class="strong">02</text>
+<text x="70" y="425" font-size="15" fill="#173044" class="strong">游戏服务</text>
+<rect x="240" y="405" width="116" height="28" rx="5" fill="#fff4df"/>
+<text x="250" y="424" font-size="12" fill="#83500a" class="strong">配置受阻</text>
+<path d="M32 450H358" stroke="#c4cfda"/>
+<text x="32" y="487" font-size="13" fill="#536676" class="strong">03</text>
+<text x="70" y="487" font-size="15" fill="#173044" class="strong">游戏页面</text>
+<rect x="240" y="467" width="116" height="28" rx="5" fill="#edf3ff"/>
+<text x="250" y="486" font-size="12" fill="#1f5fc7" class="strong">尚未打开</text>
+<rect x="16" y="572" width="358" height="136" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="32" y="603" font-size="17" fill="#173044" class="strong">现有工具</text>
+<rect x="32" y="622" width="202" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="46" y="650" font-size="14" fill="#173044" class="strong">高级配置</text>
+<rect x="246" y="622" width="112" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="260" y="650" font-size="14" fill="#173044" class="strong">更多 ▾</text>
+<text x="32" y="693" font-size="12" fill="#536676">引导可暂时关闭，配置入口始终可达。</text>
+<rect x="16" y="726" width="358" height="96" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="32" y="758" font-size="16" fill="#173044" class="strong">诊断与日志 ▸</text>
+<text x="32" y="786" font-size="13" fill="#536676">缺项详情保留；修复后再明确启动。</text>
+</g>
+<g id="narrow-native-config-guide" transform="translate(449 100)">
+<rect x="0" y="0" width="390" height="844" rx="12" fill="#ffffff" stroke="#c4cfda"/>
+<text x="16" y="31" font-size="18" fill="#173044" class="strong">Game configuration</text>
+<rect x="314" y="12" width="60" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="328" y="40" font-size="14" fill="#173044" class="strong">×</text>
+<path d="M16 70H374" stroke="#c4cfda"/>
+<rect x="20" y="90" width="160" height="28" rx="5" fill="#fff4df"/>
+<text x="30" y="109" font-size="12" fill="#83500a" class="strong">1 issue to fix</text>
+<text x="20" y="150" font-size="23" fill="#173044" class="strong">Fix game configuration</text>
+<text x="20" y="224" font-size="15" fill="#536676">Edit the missing field below. The game has not</text>
+<text x="20" y="247" font-size="15" fill="#536676">started.</text>
+<text x="20" y="310" font-size="15" fill="#173044" class="strong">Game executable</text>
+<rect x="20" y="326" width="350" height="54" rx="6" fill="#ffffff" stroke="#a22b34"/>
+<text x="34" y="360" font-size="15" fill="#536676">Not configured</text>
+<text x="20" y="410" font-size="14" fill="#a22b34">Enter an existing game executable path. A launcher</text>
+<text x="20" y="432" font-size="14" fill="#a22b34">GUI is not the game executable.</text>
+<rect x="20" y="502" width="350" height="138" rx="6" fill="#edf3ff"/>
+<text x="34" y="532" font-size="15" fill="#1f5fc7" class="strong">Draft only</text>
+<text x="34" y="560" font-size="14" fill="#173044">Editing changes the local draft. Close this</text>
+<text x="34" y="582" font-size="14" fill="#173044">window and start explicitly after checks pass.</text>
+<rect x="20" y="664" width="350" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="34" y="692" font-size="14" fill="#173044" class="strong">Open advanced config</text>
+<rect x="20" y="720" width="350" height="44" rx="6" fill="#1f5fc7" stroke="#1f5fc7"/>
+<text x="34" y="748" font-size="14" fill="#ffffff" class="strong">Close</text>
+<text x="20" y="790" font-size="13" fill="#536676">Closing keeps the current draft. It does not start a service.</text>
+</g>
+<g id="narrow-web-unconfirmed" transform="translate(874 100)">
+<rect x="0" y="0" width="390" height="844" rx="12" fill="#edf2f7" stroke="#c4cfda"/>
+<rect x="0" y="0" width="390" height="78" rx="12" fill="#ffffff"/>
+<text x="16" y="31" font-size="18" fill="#173044" class="strong">oasis7 Launcher</text>
+<rect x="268" y="12" width="106" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="282" y="40" font-size="14" fill="#173044" class="strong">中文</text>
+<text x="16" y="60" font-size="13" fill="#536676">Web/UI 入口 · viewer</text>
+<rect x="16" y="94" width="358" height="218" rx="8" fill="#fff4df"/>
+<rect x="32" y="110" width="130" height="28" rx="5" fill="#fff4df"/>
+<text x="42" y="129" font-size="12" fill="#83500a" class="strong">当前状态未确认</text>
+<text x="32" y="167" font-size="23" fill="#173044" class="strong">先核对链状态</text>
+<text x="32" y="199" font-size="15" fill="#173044">启动链的回应未收到。请先确认当前服务状态。</text>
+<rect x="32" y="252" width="326" height="44" rx="6" fill="#1f5fc7" stroke="#1f5fc7"/>
+<text x="46" y="280" font-size="14" fill="#ffffff" class="strong">重试状态探测</text>
+<rect x="16" y="330" width="358" height="182" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="32" y="361" font-size="17" fill="#173044" class="strong">本次请求 · 启动链</text>
+<text x="32" y="397" font-size="16" fill="#83500a" class="strong">结果：尚未确认</text>
+<text x="32" y="431" font-size="14" fill="#536676">先前记录：链状态探测成功。这不是本次状态。</text>
+<text x="32" y="495" font-size="12" fill="#536676">新的状态依据到达后，再显示当前结果。</text>
+<rect x="16" y="530" width="358" height="134" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="32" y="561" font-size="17" fill="#173044" class="strong">本地草稿仍保留</text>
+<text x="32" y="591" font-size="13" fill="#536676">配置未因连接中断被旧快照覆盖。</text>
+<rect x="32" y="606" width="326" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="46" y="634" font-size="14" fill="#173044" class="strong">高级配置</text>
+<rect x="16" y="682" width="358" height="140" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="32" y="713" font-size="16" fill="#173044" class="strong">诊断与日志 ▸</text>
+<rect x="32" y="734" width="126" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="46" y="762" font-size="14" fill="#173044" class="strong">更多 ▾</text>
+<text x="174" y="752" font-size="13" fill="#536676">状态探测只查询，不再次发起</text>
+<text x="174" y="772" font-size="13" fill="#536676">启动。</text>
+</g>
+<text x="24" y="984" font-size="15" fill="#173044" class="strong">390 × 844 目标帧；native-only 字段不复制到 Web。</text>
+<text x="24" y="1015" font-size="14" fill="#536676">窗口按真实可见空间排版。低高度、200% 文本、软键盘、Tab/Shift+Tab、IME 与 Escape 必须按手册实际操作；这三张静态帧不证明焦点或平台行为已经通过。图中的模式与状态来自各样例固定输入</text>
+<text x="24" y="1037" font-size="14" fill="#536676">，不由链角色推导。</text>
+</svg>

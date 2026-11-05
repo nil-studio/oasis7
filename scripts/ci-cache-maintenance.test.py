@@ -302,8 +302,8 @@ class BootstrapTests(unittest.TestCase):
         entries = [cache(1), cache(2),
                    *(WorkspaceRetentionTests.entry(i, name) for i, name in
                      ((3, 'formal'), (4, 'ordinary'), (5, 'ecs'))),
-                   rust_cache(6, 'ci-shared-native-trusted-v3'),
-                   rust_cache(7, 'ci-shared-native-trusted-v3', environment='c'),
+                   rust_cache(6, 'ci-shared-native-trusted-v4'),
+                   rust_cache(7, 'ci-shared-native-trusted-v4', environment='c'),
                    cache(8, ref='refs/pull/1/merge'), cache(9, ref='refs/tags/v1.0.0'),
                    cache(10, key=cache(10)['key'] + '-extra')]
         plan = maintenance.plan_bootstrap(entries, START)
@@ -381,7 +381,7 @@ class BootstrapTests(unittest.TestCase):
 
     def test_bootstrap_preserves_native_namespaces_even_with_complete_replacement(self):
         old = rust_cache(1, 'ci-full-regression-trusted-v2')
-        new = rust_cache(2, 'ci-shared-native-trusted-v3')
+        new = rust_cache(2, 'ci-shared-native-trusted-v4')
         entries = [old, new, cache(3), cache(4)]
         api = api_with(entries, entries, entries[1:])
         result = maintenance.maintain(api, run_started_at=START, bootstrap=True, apply=True)
@@ -408,10 +408,10 @@ class BootstrapTests(unittest.TestCase):
 
 
 class DependencyRetentionTests(unittest.TestCase):
-    NAMESPACES = ('ci-shared-native-trusted-v3', 'oasis7-ecs-native-linux-ecs-v2')
+    NAMESPACES = ('ci-shared-native-trusted-v4', 'oasis7-ecs-native-linux-ecs-v2')
 
     @staticmethod
-    def dependency(number, namespace='ci-shared-native-trusted-v3', *, environment='a', **changes):
+    def dependency(number, namespace='ci-shared-native-trusted-v4', *, environment='a', **changes):
         return cache(number, key=f'v0-rust-{namespace}-Linux-x64-{environment * 8}-{number:08x}', **changes)
 
     @staticmethod
@@ -588,8 +588,9 @@ class DependencyRetentionTests(unittest.TestCase):
 
 class RetiredNamespaceTests(unittest.TestCase):
     migrations = {
-        'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v3',
-        **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v3'
+        'ci-shared-native-trusted-v3': 'ci-shared-native-trusted-v4',
+        'ci-full-regression-trusted-v2': 'ci-shared-native-trusted-v4',
+        **{f'release-packages-release-gate-{shard}-trusted-v2': 'ci-shared-native-trusted-v4'
            for shard in ('runtime-core', 'runtime-support', 'runtime-sync', 'soak')},
         'release-packages-web-wasm-trusted-v2': 'release-packages-web-wasm-trusted-v3',
         'oasis7-ecs-native-linux-packaging-v1': 'oasis7-ecs-native-linux-ecs-v2',
@@ -603,6 +604,45 @@ class RetiredNamespaceTests(unittest.TestCase):
                 plan = maintenance.plan_retention(entries, entries[-1]['key'], START)
                 self.assertEqual([entry['id'] for entry in plan['delete']], [1])
                 self.assertEqual(plan['delete'][0]['replacement_family'], new)
+
+    def test_native_v4_retirement_preserves_each_environment_and_archive_version(self):
+        old = rust_cache(1, 'ci-shared-native-trusted-v3')
+        new = rust_cache(2, 'ci-shared-native-trusted-v4')
+        current = cache(3)
+        invalid = [[], [dict(new, size_in_bytes=0)], [dict(new, ref='refs/pull/1/merge')],
+                   [rust_cache(2, 'ci-shared-native-trusted-v4', environment='b')],
+                   [dict(new, version='another-archive')],
+                   [dict(new, key=new['key'].replace('Linux-x64', 'Linux-arm64'))]]
+        for replacements in invalid:
+            with self.subTest(replacements=replacements):
+                plan = maintenance.plan_retention([old, *replacements, current], current['key'], START)
+                self.assertEqual(plan['delete'], [])
+        for protected in (dict(old, last_accessed_at=START), dict(old, size_in_bytes=0)):
+            plan = maintenance.plan_retention([protected, new, current], current['key'], START)
+            self.assertEqual(plan['delete'], [])
+        plan = maintenance.plan_retention([old, new, current], current['key'], START,
+                                         active_runs=[active_run()])
+        self.assertEqual(plan['delete'], [])
+
+    def test_native_v4_retirement_revalidates_its_compatible_successor(self):
+        old = rust_cache(1, 'ci-shared-native-trusted-v3')
+        matching = rust_cache(2, 'ci-shared-native-trusted-v4')
+        unrelated = rust_cache(3, 'ci-shared-native-trusted-v4', environment='b')
+        current = cache(4)
+        first = [old, matching, unrelated, current]
+        for successors in ([], [dict(matching, size_in_bytes=0)],
+                           [dict(matching, version='different')], [dict(matching, id=5)],
+                           [dict(matching, size_in_bytes=matching['size_in_bytes'] + 1)]):
+            with self.subTest(successors=successors):
+                second = [old, *successors, unrelated, current]
+                api = api_with(first, second, second)
+                report = maintenance.maintain(api, current['key'], START, apply=True)
+                self.assertEqual(report['deleted_ids'], [])
+                api.delete_cache.assert_not_called()
+        api = api_with(first, first, first[1:])
+        report = maintenance.maintain(api, current['key'], START, apply=True)
+        api.delete_cache.assert_called_once_with(1)
+        self.assertEqual(report['deleted_ids'], [1])
 
     def test_missing_incomplete_other_ref_and_lookalike_replacements_do_not_authorize_retirement(self):
         old = rust_cache(1, 'oasis7-ecs-native-linux-packaging-v1')
@@ -619,15 +659,15 @@ class RetiredNamespaceTests(unittest.TestCase):
 
     def test_other_refs_unknown_namespaces_and_all_new_environment_keys_are_preserved(self):
         old = rust_cache(1, 'ci-full-regression-trusted-v2')
-        new = rust_cache(2, 'ci-shared-native-trusted-v3')
+        new = rust_cache(2, 'ci-shared-native-trusted-v4')
         entries = [dict(old, ref='refs/tags/v1.0.0'), new,
-                   rust_cache(3, 'ci-shared-native-trusted-v3', environment='c'),
+                   rust_cache(3, 'ci-shared-native-trusted-v4', environment='c'),
                    rust_cache(4, 'unregistered-trusted-v2'),
                    dict(old, id=5, key=old['key'] + '-suffix'), cache(6)]
         plan = maintenance.plan_retention(entries, entries[-1]['key'], START)
         self.assertEqual(plan['delete'], [])
         families = {entry['family'] for entry in maintenance.inventory_summary(entries)['groups']}
-        self.assertIn('rust/ci-shared-native-trusted-v3', families)
+        self.assertIn('rust/ci-shared-native-trusted-v4', families)
         self.assertEqual(maintenance.family(rust_cache(7, 'oasis7-ecs-native-linux-ecs-v2')['key']),
                          'rust/oasis7-ecs-native-linux-ecs-v2')
 
@@ -635,7 +675,7 @@ class RetiredNamespaceTests(unittest.TestCase):
         entries = [rust_cache(1, 'ci-full-regression-trusted-v2',
                               created='2026-10-19T06:00:00Z', accessed='2026-10-19T07:30:00Z'),
                    rust_cache(2, 'ci-full-regression-trusted-v2', size=0),
-                   rust_cache(3, 'ci-shared-native-trusted-v3'), cache(4)]
+                   rust_cache(3, 'ci-shared-native-trusted-v4'), cache(4)]
         plan = maintenance.plan_retention(entries, entries[-1]['key'], START,
                                           active_runs=[active_run()])
         self.assertEqual(plan['delete'], [])
@@ -669,7 +709,7 @@ class RetiredNamespaceTests(unittest.TestCase):
 
     def test_later_replacement_and_later_active_run_cannot_expand_the_deletion_set(self):
         old = rust_cache(1, 'ci-full-regression-trusted-v2')
-        new = rust_cache(2, 'ci-shared-native-trusted-v3')
+        new = rust_cache(2, 'ci-shared-native-trusted-v4')
         current = cache(3)
         first, second = [old, current], [old, new, current]
         api = api_with(first, second, second)
@@ -685,7 +725,7 @@ class RetiredNamespaceTests(unittest.TestCase):
 
     def test_either_active_run_inventory_failure_prevents_all_deletes(self):
         entries = [rust_cache(1, 'ci-full-regression-trusted-v2'),
-                   rust_cache(2, 'ci-shared-native-trusted-v3'), cache(3)]
+                   rust_cache(2, 'ci-shared-native-trusted-v4'), cache(3)]
         for snapshots in ([maintenance.MaintenanceError('active page two failed')],
                           [[], maintenance.MaintenanceError('active page two failed')]):
             with self.subTest(snapshots=snapshots):
@@ -713,7 +753,7 @@ class RecoveryTests(unittest.TestCase):
             (1, 'ordinary', 674_443_658), (2, 'ordinary', 674_568_948),
             (3, 'formal', 705_744_026), (4, 'formal', 705_666_025),
             (5, 'formal', 705_655_691), (6, 'ecs', 897_049_399))]
-        entries += [rust_cache(7, 'ci-shared-native-trusted-v3', size=2_463_911_046),
+        entries += [rust_cache(7, 'ci-shared-native-trusted-v4', size=2_463_911_046),
                     rust_cache(8, 'oasis7-ecs-native-linux-ecs-v2', size=722_718_920)]
         entries += [cache(i, key=key, size=size) for i, key, size in (
             (9, 'release-macos-fixture', 551_305_373),
@@ -798,24 +838,25 @@ class RecoveryTests(unittest.TestCase):
         env = dict(GITHUB_ACTIONS='true', RUNNER_OS='Linux', RUNNER_ARCH='X64',
             GITHUB_REPOSITORY='nil-studio/oasis7', GITHUB_REF='refs/heads/main',
             GITHUB_SHA='a' * 40, GITHUB_WORKFLOW_SHA='a' * 40, GITHUB_RUN_ID='42',
-            GITHUB_EVENT_NAME='schedule', GITHUB_JOB='full-regression',
-            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+            GITHUB_EVENT_NAME='schedule', GITHUB_JOB='shared-native-cache',
+            GITHUB_WORKFLOW_REF='nil-studio/oasis7/.github/workflows/rust-cache.yml@refs/heads/main',
             OASIS7_DEPENDENCY_CACHE_FAMILY='shared-native',
             OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES=str(self.LIMIT))
-        env['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v3'
+        env['INPUT_SHARED-KEY'] = 'ci-shared-native-trusted-v4'
         client = Mock(repository='nil-studio/oasis7')
         client.list_caches.return_value = remaining
         run = dict(id=42, head_sha='a' * 40, head_branch='main', event='schedule',
-                   path='.github/workflows/rust.yml', repository={'full_name': 'nil-studio/oasis7'})
+                   path='.github/workflows/rust-cache.yml', repository={'full_name': 'nil-studio/oasis7'})
         client.request.side_effect = lambda method, path: run if path == '/actions/runs/42' else {'max_cache_size_gb': 10}
         with tempfile.TemporaryDirectory() as directory:
             payload = Path(directory) / 'cache.tzst'
             with payload.open('wb') as stream:
                 stream.truncate(2_463_911_046)
-            allowed = admission.check_archive(payload, env, client)
+            with patch.object(admission.subprocess, 'check_output', return_value='a' * 40):
+                allowed = admission.check_archive(payload, env, client)
             self.assertTrue(allowed['allowed'])
             self.assertEqual(allowed['projected_repository_bytes'], 9_772_643_781)
-        newer = rust_cache(16, 'ci-shared-native-trusted-v3', dependencies='c', size=2_463_911_046)
+        newer = rust_cache(16, 'ci-shared-native-trusted-v4', dependencies='c', size=2_463_911_046)
         grown = [dict(entry, last_accessed_at=START) if entry['id'] == 7 else entry for entry in remaining]
         grown.append(newer)
         self.assertNotIn(7, [entry['id'] for entry in self.plan(grown)['delete']])
@@ -1071,8 +1112,8 @@ class CapacityClosureTests(unittest.TestCase):
     def test_ancestry_failures_prevent_deletion_including_other_planned_groups(self):
         entries = [self.entry(1, 'ordinary', compatibility='a'),
                    self.entry(2, 'ordinary', compatibility='b'),
-                   rust_cache(3, 'ci-shared-native-trusted-v3', dependencies='a'),
-                   rust_cache(4, 'ci-shared-native-trusted-v3', dependencies='b')]
+                   rust_cache(3, 'ci-shared-native-trusted-v4', dependencies='a'),
+                   rust_cache(4, 'ci-shared-native-trusted-v4', dependencies='b')]
         api = api_with(entries)
         api.request.return_value = {'max_cache_size_gb': 10}
         api.is_ancestor.side_effect = maintenance.MaintenanceError('source API permission or total budget failed')

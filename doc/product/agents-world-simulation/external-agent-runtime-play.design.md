@@ -96,6 +96,10 @@ Web/桌面玩家不直接控制 OpenClaw/Codex 的聊天进程，而是将有权
 
 多种状态并存时，主界面先显示影响下一步的资格/安全阻塞，再显示待核对世界结果、可执行恢复、当前目标进展；已结算成果始终保留。网络故障不能把成果归零，也不能将离线期间的推测填成最新事实。
 
+“离开后继续”以真正独立运行的 Runtime、连接、委托、本机批准和预算仍有效为条件。只关闭 Viewer 或断开 pure_api 观察端时，不自动停止任务；实际 Runtime 停止后，也不以在线心跳暗示仍在推理。回访将离开期间已确认成果、当前阻塞和未知部分分别展示。四种状态的来源及同义 API 表达由[持续执行设计](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-liveness)承接；页面寄生的执行器不能冒充独立后台组合。
+
+已确认历史不因失权消失，但当前页面仍须有读取资格。执行资格失效时说明停止的是哪些新决策/受限提交；若也无权读取原私有结果，改为清楚的权限阻塞和有权主体的核对路径，不能继续展示缓存秘密或自动切到 owner 身份。
+
 ### 3.2 主要故障的处理经历
 
 | 触发 | 保留什么 | 用户下一步 | 恢复后的判据 |
@@ -133,6 +137,20 @@ Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；承接 [REQ-EXT-008](e
 重规划提示只在有当前任务与目标关联的真实执行方结果后更新，不因心跳、HTTP 成功、报告入库或模型启动消失。后续正常工作时可将已完成的重规划说明收至可访问历史，当前阻塞继续前景化；历史明确保留原上下文未接续的事实。恢复中目标/权限/受众变化时，按当前资格重新取任务基线，旧会话晚到结果不得覆盖当前计划。
 
 默认层只提供可理解的原因与下一步；展开层按合法范围提供执行方、更新时间、使用的目标版本、已确认成果和未决义务关联。诊断细节不泄露私有对话正文、模型内部思维、其他 Agent 材料或凭据；当前角色失去读取资格时，相应内容不能因曾在同一设备展示过而继续返回。验证入口为[私有上下文恢复场景](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-private-context-recovery)，应分别验证 Viewer 与 pure API 表达及两个真实 Runtime 的实际能力。
+
+<a id="result-feedback-experience"></a>
+### 3.4 世界结果与 Runtime 接收分别可读
+
+Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7。承接 [REQ-EXT-005](external-agent-runtime-play.prd.md#req-ext-005) / [AC-EXT-005](external-agent-runtime-play.prd.md#ac-ext-005)。玩家先看到原行动真正发生了什么，再看执行方是否收到这一结果。成功关联原任务和 Agent；一次排程被接受不显示为首产物，一次首产物不显示为稳定生产或交付。拒绝保留主要原因及实际投入，未知保留原请求和核对下一步。
+
+| 可核事实 | 默认表达与玩家下一步 |
+| --- | --- |
+| 世界已有匹配结果，尚无 Runtime 接收确认 | “世界结果已确认，执行方接收未确认”；可查看原成果，等待原运行核对，不提示重新做一次 |
+| 执行方真实输入已接收 | “执行方已收到这一结果”；后续计划、当前资格和新的世界成果仍各自判定，不写“已理解/已完成下一步” |
+| 结果待决或待恢复确认 | 保留原行动身份、最后可信来源和等待/核对条件，不把超时变成失败或诱导换目标重试 |
+| 结果属于旧目标、旧运行或当前不可读范围 | 仍有权时注明原归属，只作历史；当前无权时不显示私有正文，由合法读取方核对，不挂到当前选中对象 |
+
+重启、消息重复和反馈积压不能使已确认成果消失，也不能让旧反馈重新成为一份新世界效果。反馈接收、真正进入 Runtime 输入以及模型是否使用它，是不同事实；当前方法只能按实际来源证明前两者，后续行为仍以其独立记录判断。专业交接由[原结果 API](../../world-simulator/llm/external-agent-game-api.design.md#api-result-feedback)、[真实 Runtime 输入](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-result-feedback)和[玩家投影](../../world-simulator/viewer/external-agent-world-view.design.md#view-runtime-results)共同承接。
 
 ## 4. 信息层级与入口一致性
 
@@ -175,6 +193,10 @@ Trace refs: O7-REQ-4a8be58c-bcda-4efe-b199-1cf9bd9b3330；承接 [REQ-EXT-008](e
 ## 5. 资源、取舍与验证
 
 世界维护和工业消耗遵循玩法与 Runtime 主责；外部模型/工具成本单独说明。开始前让用户理解“已知会消耗什么、哪些仅是估计、哪层能阻止新增开销”；执行中让用户根据实际进展决定继续、缩小目标、调整预算或停止后续委托。停止不回滚世界，也不保证已发出的推理立即停止计费。
+
+已用模型/工具量按实际来源和币种显示；世界材料、电力、资源占用及未来维护分别说明实际/预留/估计。未知费用不填零，重连后的同一结果不重复计入，报价不当作实际扣减。预算耗尽或委托失效时，用户仍可在当前读取权限内核对原结果和成本；没有读取权限、服务不可用或读取到限时明确其真实阻塞，不要求先充值、重启执行器或重新下达原动作。具体来源和有界读取由[专业预算合同](../../world-simulator/llm/external-agent-runtime-adapter.design.md#adapter-budget)承接。
+
+首局组合沿[专业首局接线](../../world-simulator/llm/external-agent-game-api.design.md#api-first-session-composition)核对同一世界/Agent/task 中的能力发现、首产物、真实 blocker 后继续、新目标实际应用、离开观察后回访、断连与进程重启。两 Runtime 与声明入口分别完成，普通 API 合同、历史 prepared-world 和单端截图只保留其实际范围。
 
 首期优先官方 Skill、独立可调用的 Game API、一条完整首局和两个真实 Runtime 的分别验收。更多工具、长期记忆迁移和多 Agent 协作可以扩展，但不能用扩大功能目录替代现有路径的反馈、目标生效和恢复完整性。
 

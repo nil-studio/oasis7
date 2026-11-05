@@ -164,3 +164,37 @@ API 当前有观察和窄 quote、Viewer 有现有只读 surface、Agent 有可�
 2. 正式运行：在已授权测试环境中，读者从实际入口选择 R 或 B 并显式逐步操作，核真实材料、电力、factory/recipe 状态与匹配的生产/交付原件。先补料/建成只能证明该步骤；完成一批也不自动证明长期稳定线或区域需求。若原 G 要交付，继续按原 terminal/recipient receipt 判定，不能拿本手册的 `production_only` 样例代签。
 
 Agent 正式执行沿[原自测手册](agent-runtime-self-playtest.manual.md)取真实工具与世界结果；Viewer 运行沿既有 S6 与 R-GAME-24 表面范围取证。本次文本方法不另定试玩目标、第一局 UI 或正式 seed 未决项。最终在原 Task/PR 记录七项适用结果、未运行层次与具体缺口；只有本次局部方法闭合，不能因此提升 MW-002、成熟世界产品或 #5409 的整体实现/验收状态。
+
+<a id="production-recovery-08"></a>
+## PRC-08：同交付目标、路线失效与两条真实候选
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；依据[交付恢复组合](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-delivery-recovery-comparison)。保留原PRC01–07和[CC002三类损坏恢复](chartered-conflict-recovery-and-soft-season-acceptance.manual.md#loss-recovery-cases)的各自范围；以下未运行，不以fixture替正式来源。
+
+1. 用原权威产生或在组件层明确构造同一成熟前态：G总iron5、已matching2、无承诺未结，允许S0已有库存/S1新产物及同一B接收，完整deadline和partial/whole规则可查。保存已完成2的原件/成本；不能通过本次比较修改G。S0 iron3；A frame12/coil4/brick6、ore4/fuel1、E24；S1新F1及建设power10合法。来源/权限/共享容量、原失效路径、两条已存在替代路径、原Medium10bps/decay0、完整费用和产品验证配置均按设计§13.4固定。
+   - 权限前置另列：S0/S1必须有真实Site authority且owner_agent_id=A；记录控制A的个人/签名来源、正authority_revision及精确Site→B:iron数量/路径。原[源权限合同](../../world-simulator/llm/external-agent-game-api.design.md#cognition-material-source-authority)下owner-signed无task正例仅限legacy/dev-local；该无native-grant分支还须完整证明A无任何native grant、无override。原Build/入料/Schedule的权限不能与此矛盾；需要安装grant却使后续Site出库不支持时，整条该profile标blocked，不中途删grant或绕trusted入口。
+   - 正式层单独按设计§13.2的current-owner适配验证原身份/完整签名请求、task/goal/executor/step/finality、当前Site revision/owner、精确source/destination/kind/量/费用与G范围；源接受同根关联原operation/action/job/G/受益者，matching和精确恢复只消费该原结果。先记录strict task/step拒绝，不能把提前拒绝当源guard已执行；合法正向须真由原owner入口通过全部原前置。现有正式入口无该接线时该层blocked，不以兼容两分支代签，也不虚构可调用CLI。
+   - 独立反例为错误Site owner、只有builder-access授权、stale authority_revision、另人签名、goal/接收范围漂移，以及任何带当前Agent-source grant的Site出货；均在sink前拒绝。不给出额外Site→Agent步骤作绕过，原两条资源oracle及8边界只有在声明的合法源profile满足时适用。新增权限/关联proof逐项占既定对象、bytes、I/O和原结果索引预算。
+
+2. 在同一C0的独立分支选择R或B，不先执行一条后借其结果计算另一条。R路2km/tariff2E每单位、R1路1km/tariff1E每单位；每条容量≥3并有完整原普通/工业/认可占用依据。零占用必须有同cut范围证明，不能由页面空列表推断。
+3. 独立结果账：R出库3、运费escrow6，原到货loss0、B新增matching3，A E18/S0 iron0；B建造扣frame12/coil4/brick6/E10，生产扣ore4/fuel1/E8、形成iron3/slag1，运输扣3E，完成A E3、S1 slag1、S0原iron3保留，B新增matching3。两者G满足量均2→5；全链的材料转移、形成、sink与费用分别核，不能把不同材料相加。真实背景W及原附加费用另列，期末按原实际量加W。
+4. 若使用原正常铁validator，V真实拥有其固定artifact且Data20/E10符合完整预检；仅B发生该次验证，实际1emit/无effect/new_state时V E10→8，Data为20−(ceil(I/1024)+ceil(O/1024)+1)，I/O取真实完整编码。预览与R无该次扣费。实际required hook/goal matching/关闭节点若另收费或需额外调用，须记录同一原图并重算各payer可用量；无法证明正常图完整则该层blocked，不删掉节点凑上例。
+5. 每步回读真实accepted/start/complete及原matching；B最多8个原动作/完成边界，等待以真实ready_at和原截止为准，不把每条命令固定成一秒或保证在期限前成功。R保留较少投入/阶段，B保留新F1选择与维护负担；独立玩家能说明为何当前推荐和何种变化会反转。
+6. 三个分离反例：A E20使B业务本体21即不足而R可行；S0处分权失效、S1链和E24仍完整时R不能继续而B可行；G原不接受S1或替代产物时相应方向needs_goal_change，不能改scope/收货人使其通过。另提供pivot到不匹配产物，必须显式改目标而非把旧G判成功。
+7. 新产物、转移、arrival、storage acceptance、title/terminal及matching逐层对照；只到前一层的失败注入不能填后一层。既有已完成2仍保持。原目的地有无库存不能代替原匹配量；接收方后来消耗这2也不能重新开放同一需求。
+8. 在原可执行范围实际完成所选路线；缺合法Build授权、SC-31 goal producer、来源reader或正式适配时分别blocked。不能只交付两个好看的比较卡片，也不能用全部负例拒绝代签两条正常方案。
+
+<a id="production-recovery-09"></a>
+## PRC-09：旧服务/多阶段工作、Unknown与完整消费者
+
+依据[来源适配](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-recovery-source-adapters)和本手册PRC03/05/06。使用同一原目标、原单位/lot/工作/费用账及既有合法case；不为试验新造免费refund、route authority或原件。
+
+- 在G剩余3中加入真实已接受未结1，独立新承诺上限只有2；原1未知则依赖它的整目标完成不能判定。一次请求仍要新发3应整项拒绝，不偷偷裁剪；whole不允许拆分时沿原whole规则。重复原operation、同effect换role/新合同/新query不能洗去旧量。
+- 依原工业方法分别加入accepted-unstarted、已sink WIP、transit、buffer、terminal-pending。每个候选输出的旧工作清单必须与独立来源全表一致；逐项核原选择和后续执行。切换目的地、successor、recipe或服务继受不能继承W/顺位/原完成量，不能同时退款和完成；原goal或service不允许的handoff应在first sink前阻止。
+- 原运输10、实际收到9、损失1的服务样例复用[CSF-01](continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-01-domain-results)：部分每单位30时只赚270，损失归因另核。修复只能处理原未满足量并使用真实新材料/费用；arrival/tariff不代title或whole完成，未知不能免费补运。paid、earned/unpaid、collateral、执行/程序/关闭费和原D/O/C分账，已经发生的费用不重收，refund不重置D。
+- 一个CR002物理结果已committed、service为performed_unsettled时，只追原source-use/outbox及未执行节点；不重做运输/维修/实验。原request未知则用原端口核原identity/payload，不能换repair/rebuild/pivot来创建新业务原件；明确NotCommitted和Committed分别保全原结果。G1 StatusUnknown隔离整个旧World与tick，普通查询缺证不伪称G1结论。
+- 查询snapshot+非空tail/授权变化/迟到回复后，原目标版本、历史已完成量、在途/终端/未付、费用、业务去重及当前读权全部回读一致。业务状态有效而派生比较索引落后时明确source_unavailable；不能改原历史或以查询重新运行模块。真实新选择重新读取当前cut，不能把旧hold当释放。
+- 对三候选、每候选8/9总边界、32/33求值、256/257对象、4MiB源、10/11批、proof/嵌套集合和取消作边界核。正常目标分配12+24+32+32+36+36+64+8=244对象；实际原件/解码/访问须同时合格，不能各用一个不同小fixture证明总体。R两边界、B八边界及原阻断/适配检查按真实计量；必需额外节点超限时诚实incomplete，不隐藏在“quote一次”中。
+- Viewer、pure API、Agent以同一原目标/cut显示相同的候选状态、每payer成本、已发生/未发生、独立路线、原请求与下一步；未接入/无读权/确实不可行分开。由独立玩家先解释不带推荐标签的两条方案及保留/失去价值，再选择并读回一次真实效果；单个CLI或SDK能力不代签其他正式入口。
+- 继续执行原CC002三类损坏的两路线、无安全路线及退出方法；它们已有准确权限/维修参数，不套本例运输费用。系统恢复项目须有原containment与资格，普通修复不强制参加。原下一步不足时可以补证、持有、退出或明确改目标，不把有限未找到推成必须赞助。
+
+每项保留固定candidate/build、完整来源与独立oracle、实际入口、故障切点、逐原操作结果、真实费用和未测层级。上述方法补齐MW002已采纳组合设计；正式实现、真实恢复及真人理解仍须分别取证。

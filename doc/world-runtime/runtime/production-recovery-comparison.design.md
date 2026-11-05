@@ -29,6 +29,8 @@ Gameplay 拥有方案含义、目标适配和玩家结果。原 goal authority �
 | [AC-PRC-05](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-05) | 只读比较、当前权限、漂移及原提交未知恢复 | [执行与恢复](#production-recovery-execution) | 原任务、GameClient、World Service 恢复 | 无跨动作原子提交或比较器写路径 |
 | [AC-PRC-06](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-06) | 完整有界读取、求值、等待停止和不完整范围 | [预算](#production-recovery-budget) | 有界原件 adapter、宿主资源计量 | 分页拼完整、无限未来模拟、自动反复等待 |
 | [AC-PRC-07](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-07) | 三入口同义消费，独立判别与真实恢复证据 | [消费者](#production-recovery-consumers) | Viewer/API/Agent、QA | 静态卡片、fixture 或单个 quote 不代签正式实玩 |
+| [REQ-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182 | 原交付目标/路线失效下两条真实条件链、成本/价值及独立选择 | [交付恢复比较](#mature-delivery-recovery-comparison) | SC-31、原物流、Build/产品规则及原goal authority | 原native v1仍仅production_only，不新造道路/价格/升级/统一迁移 |
+| [REQ-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182 | 接收已有三类损坏恢复、服务/旧工作、Unknown与跨入口消费 | [领域适配](#mature-recovery-source-adapters) | CC002、CR002、工业cutover、原operation/G1 | 依原权限/精确剩余处理，不用新目标或新请求清旧义务 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -290,9 +292,82 @@ Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182。
 | [AC-PRC-05](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-05) | [执行与恢复](#production-recovery-execution) | 只读、失权不泄露、source漂移非新Worldgate、原operation未知恢复 | [05](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-05)：无写对照、迟到/失权、合法原动作仍可执行、原请求恢复后重比 | 原request/事件/单次扣款、当前授权检查 | 不声称跨动作原子或自动回滚 |
 | [AC-PRC-06](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-06) | [预算](#production-recovery-budget) | 同一完整闭包满足所有资源限，等待/清理有界 | [06](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-06)：178对象共同样例、各边界组合、慢I/O/响应/满槽、等待停止 | 原件/节点/调用/内存计量、取消及恢复时间线 | 尚无真实性能测量或bounded adapter |
 | [AC-PRC-07](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-07) | [消费者](#production-recovery-consumers) | 三入口同义、独立判断与真实新增产物 | [07](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-07)：正式Viewer/API/Agent同goal/source、去推荐判别、选择一链到真实RecipeCompleted | 消费记录、独立判别、原完成与ledger证明 | 不以fixture/文案证明实玩或MW-002整体完成 |
+| [REQ-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182 | [交付恢复比较](#mature-delivery-recovery-comparison) | 同交付目标下repair/rebuild/pivot、当前资源与原完成边界 | [PRC-08](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-08)：同candidate/C0成熟前态，已匹配2/残余3、两路线、费用/授权/goal漂移；required/full原动作层 | 原接受/匹配与逐payer资源账、真实R/B结果、独立取舍 | 正常fixture不证明正式来源、当前完整实现或必然交期 |
+| [REQ-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002)；Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182 | [领域适配](#mature-recovery-source-adapters) | 原旧工作/服务单位、损坏恢复、同身份Unknown和有界消费 | [PRC-09](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-09)：同cut五类旧工作/原CSF与CC002、丢响应/G1/limit/读权/三入口；required/full组合层 | 原lot/unit/receipt、残余/earned/unpaid/费用、原结果恢复和完整源计量 | 未执行故障域、性能及真人方法不以静态文档代签 |
 
 ## 12. 风险、取舍与实施顺序
 
 首先补原goal authority的typed接受版本；否则“同一个目标”仍无法机器核验。两路正式验收还要求原owner delegation producer提供合法BuildFactory grant来源：当前signed install缺该scope，须由原producer在原owner签名、object/period/limit及native quote校验下增加明确支持并验证恢复，不由比较器发grant；此前B只可在明确预装grant的受控fixture验证。其次补当前代码没有的bounded keyed/range adapter，把grant选择、pending/root/制造/占用集合、模块解析、market依赖和正式证明纳入同一预算，并将原admission/reducer纯化为共享接缝；不以旧全量quote临时绕过。随后用§6.3同一源样例完成两条可达链的差分/故障核对，再接正式三入口及独立玩家判别。
 
 初版主动限制 candidate数量、零距离direct准备与可证明的native完成，换取可复算、可停止的整条路径。非零物流、补电、维护、回收、delivery或因果迁移后续只有在各自原authority、当前正式入口、完整来源和预算齐备时才扩profile；本设计不替它们作已实现声明。即使本文所有静态关系检查通过，typed goal、bounded source、共享求值、正式集成、性能与玩家验收仍为待交付，不能据此改写SC-25或MW-002的全量覆盖。
+
+<a id="mature-delivery-recovery-comparison"></a>
+## 13. 同一交付目标、路线失效与原义务的恢复比较
+
+Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；承接 [REQ-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002) / [AC-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)在已采纳交付与服务范围的原义务。本节是目标 bounded_delivery_recovery_v2；§1–12 的 native_production_recovery_v1 及其 production_only/直接转移限制继续有效，不将旧客户端或单个 quote 宣称为新组合已实现。
+
+### 13.1 已接受目标与当前阻断
+
+请求只读引用原 goal/服务 authority 已接受的稳定目标、revision/digest、主体、产物/服务单位、数量区间、允许来源/用途、接收者/目的地、partial/whole predicate、截止及必要依赖；这些约束既不能从自然语言补出，也不能为让新候选可行临时增加。普通生产目标仍走原 v1；交付目标使用原 SC-31 匹配边界，持续服务则引用其原 obligation/checkpoint/unit 和 own/joint completion。服务价格、责任、治理程序及工业目标都不由本比较器新设。
+
+从同一当前 cut 建立原目标的数量与义务账：已合法匹配/完成、已接受未完成、原不可逆 sink、实际在途/custody/loss、可用与被保护资源、earned/paid/unpaid、正常/关闭费用以及原结果未知分别读取。同一原单位可以有多个证据引用，不能因 receipt/outbox/服务读面各有一条而计算多次；原 held 金额是同一 gross 的负担，不是额外余额。新供应额度按原目标未完成量和已承诺未结量的原规则计算；不可将仍在途或未知单位当作可重新生产、交付、扣款的空缺。
+
+route unavailable、接收准入失效、容量不足、缺料、已损失、原工作受阻及来源未知分别解释。路线失败不自动证明货物丢失、原费用可退或目的地可换；到达不等于 storage acceptance、title/terminal 或 SC-31 matching。只因范围缺证不能宣称“全部独立路径不可行”或强制赞助。
+
+<a id="mature-recovery-source-adapters"></a>
+### 13.2 复用的完整领域适配
+
+| 已采纳范围与原 authority | 比较必须接收的完整有限事实 | 保持的原行为 |
+| --- | --- | --- |
+| [SC-31 目标/匹配](../../product/world-rules-core-gameplay/industrial-demand-goals-and-settlement.design.md)、[有限供应用途](mature-world-regional-contribution.design.md#contribution-need) | 已接受完成准则、原 allowed scope、匹配单位/承诺未结量、取消/到期与当前接收；必要的G/U各有原身份 | 生产不补交付，改变目的地/用途须原目标修改；匹配G不自动运行U |
+| [跨区物流/条件结算](cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-001)及[原恢复](cross-region-delivery-and-escrow-settlement.design.md#des-wr-cr-002) | 当前路径逐边权限/可用性/容量/损耗/运费、源/目标账本、真实dispatch/arrival/custody/title/terminal、原safe disposition | 现有已知替代路径可被显式选择；没有原支持的reroute/return不展示。返回也是实际运输，不瞬移、不退款补料 |
+| [持续服务](continuing-service-fulfillment-and-remedies.design.md#service-obligations)及[恢复范围](continuing-service-fulfillment-and-remedies.design.md#service-scoped-recovery) | 原未完成单位、依赖、repair window、当前mandate、价款/风险/费用图、受保护责任、stay及真实物理source/outbox | 只处理允许残余；修复、终止、争议或继受沿原合同，比较不解除stay、不转债、不替当事人接受 |
+| [工业旧工作](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)及[cutover](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-cutover) | 完整accepted-unstarted/WIP/transit/buffer/terminal-pending清单、原选择/执行receipt、合法profile/换算、终端义务与共享占用 | 每项原处置与后续执行分别记录；successor不继承旧W/顺位/已完成量，不重复sink或退款 |
+| [三类损坏恢复](chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-recovery) | 冲突/区域危机/一般经营损失、本人原目标、真实维修/建造/场地与逐步overlay、原损失/责任 | 直接接收CC002及其[两路线/无安全路方法](../../testing/manual/chartered-conflict-recovery-and-soft-season-acceptance.manual.md#loss-recovery-cases)，不要求普通损坏先参战，不重做维修量或chassis规则 |
+| [原有界恢复项目](bounded-recovery-projects-and-contribution-settlement.design.md#recovery-milestone) | 原containment/项目授权、参与资格、实际贡献与里程碑/目标effect、退出义务 | 只有原条件成立才作为可选参与；项目贡献不能替本人修复或默认成为唯一继续路线 |
+
+**Site出库的当前权限与正式接线。** 正常例的S0/S1是canonical Site ledger，原行动Agent A分别是其当前FactorySiteAuthorityV1.owner_agent_id，另记录A的真实个人受益者/当前控制与签名来源；builder-access allowlist不授材料处分权。原[材料源授权](../../world-simulator/llm/external-agent-game-api.design.md#cognition-material-source-authority)与[Runtime校验](../../../crates/oasis7_runtime/src/world/agent_delegation.rs)在无grant兼容路径仍核真实Site owner/Factory builder，且该Agent不能已有任何native grant、不能携override；有grant的当前路径仍只允许本Agent源账。不得因Site出库被拒绝去掉grant、撤掉任务或改走trusted raw action，也不能先加一次Site→Agent转移绕过同一个源权限问题。
+
+目标正式current-owner材料操作适配复用原owner身份与操作authority，不新增grant、Action或比较器权限账。接纳前必须同时验证：(1)原入口的已鉴权owner/acting Agent/current identity generation及签名的完整原请求，按原规范绑定world/branch、operation/nonce、payload digest；(2)该正式manifest要求的task、goal revision/activation、executor/signature与step/finality fence，不能消费legacy no-task例跳过；(3)同cut原Site存在、site_id、正authority_revision与owner_agent_id=A，完整native grant/override状态与原规则相容；(4)精确from Site→B接收ledger:material:quantity、route/path、当时处分/接收/容量与费用前置；(5)G的已接受来源/目的/单位范围、原actor和本次operation关联，不凭owner身份放宽目标。提交前重验相同来源与原版本，沿原Transfer事务记录实际action/job、原goal/受益者归因和原结果索引；它们同根发布，后继matching只能引用这一原结果。精确恢复回读同一已提交结果，不能以当前owner重新归属或再次花费。上述额外证明/索引/返回重核均计入§13.6，不使用旁路读取。
+
+每个正式入口须声明其实际支持的current-owner适配/schema并保留原task/step策略。若该入口必须采用当前Agent-source native grant而没有合法Site-owner路径，则本候选在该入口为unsupported，不能降级成兼容模式或声称整链first_step_admissible；无可验证接线为unknown。正向正式验收必须由原owner producer在满足这些校验的配置中真正提交，不由比较器造授权。现有owner-signed no-task测试仅是legacy/dev-local或组件来源证据，不能代签strict formal可达；当前未接入正式owner适配是实现剩余，所需验证、关联与拒绝合同在此固定。原Build、Agent入料与Schedule每步仍核其自己的入口/权限；若它们要求安装native grant而使后续Site-owner前置不成立，整链不得报可行，不在步骤之间删除grant迁就样例。
+
+适配器使用对应原 schema/manifest 的有界共享 admission、完成/处置规则及同切点来源；没有纯读能力时返回明确 unsupported/unknown，不调用任意 WASM/模型试跑、World.clone+step 或复制一套规则。原 authority 可提供有权验证的 scoped projection/断言，必须标明对象、cut、谓词、完整范围与证明等级；不能把摘要hash当已读完原work/fee/case目录。原生产、服务和损坏的既有正常方法继续独立有效，本节补的是它们与同交付目标的比较接点。
+
+### 13.3 三类候选与取舍
+
+| 候选 | 有限原步骤与原目标适配 | 必须解释的价值和限制 |
+| --- | --- | --- |
+| repair | 保留原接收者/用途，补齐一个明确阻断；例如对尚未承诺的准确残余从原库存走已存在、当前可用的替代路径，或按原服务规则修复受支持的未完单元 | 新路径、费用、损耗、接收、截止及旧工作处置须完整。此处修复交付方案，不授予更改route availability或创建道路的权限 |
+| rebuild | 原目标允许时，在已选合法新地点/能力重新形成同类供给，再沿真实路径交付准确残余；Build、入料、原生产/验证、运输及matching各保留自己的边界 | 新建设、输入/能源/费用、准备阶段和旧能力保留成本真实存在；旧库存/WIP/许可不免费迁入，不重用retired身份 |
+| pivot | 一个明确替代用途/recipe/服务或受益范围；按原goal-fit比较 | 满足原允许替代准则才可恢复原目标，否则needs_goal_change。新目标须显式接受，旧已履行、未付和在途不能清账 |
+
+每类至多一个显式候选，分别从同一初态求值；不为凑三路自动搜索地点、市场或第三方承诺。步骤同时记录 first_step_admissible、后继条件、预计可匹配的原单位、原时界和 next_recheck。某一步可提交不代表整链已可行；关键来源、未决原结果或后续必要规则未知时不能返回确定的整链可行或默认推荐。受控正常例至少给两条真实不同的同目标路线，真实世界不保证总有两条。
+
+候选按原参数逐步计消耗、转移、损失、占用、实际原费用及最大当前支出。服务模块的预签完整图、license/validator、closing和程序保护沿原source/purpose计数；同一invoke去重，两个真实ordinal不合并。不能借另一候选余额、尚未到账价款、未来退款或未释放hold承担前一步。保持资源向量；时间由原action/due/terminal条件及原受权计划证明，不把测试tick或未知网络等待映射为保证交期。
+
+推荐继续使用§6.4的可行性/支配与明确取舍：优先满足原目标、当前可负担、阶段与风险可解释的路线。新增地点/能力可作为rebuild的保留价值，但不能用该未来价值冲销当前资金缺口。不完整独立范围为unknown；现有普通许可/付费通路不等于必须加入强组织。wait只有原可观察触发/复查截止及保留成本齐备时有效，不能用“以后route可能恢复”补一条可行路线。
+
+### 13.4 可复核的交付正常对照
+
+固定原成熟前态与目标 G：总需 iron5，原有效matching已完成2、无在途/承诺未结，准确残余3；G事前允许S0合法旧库存或S1新生产，原接收者/目的地B不变且允许这些实际交付，截止容纳两条原完整阶段。S0有真实iron3；A有原smelter建材frame12/coil4/brick6、ore4/fuel1及E24，S1有合法新F1/站点/建设授权。原失效路径不再准入，但两条明确现存替代路径及共享容量来源完整：S0→B的R为2km、tariff2E/单位；S1→B的R1为1km、tariff1E/单位；均能承载3，材料采用原Medium10bps且本次decay0。原路线参数是有来源的测试前态，不是新增通行费规则。
+
+- repair只把S0原iron3经R交付：本体运费6E、loss=floor(3×2×10/10000)=0，A E24→18、S0 iron3→0，B匹配新增3，G已满足量2→5。开始时货物在途、费用escrow，只有原完成/接收/matching成立才归账。
+- rebuild复用[原smelter建设/配方](#production-recovery-costs)：合法新F1建设10E及上述建材，ore4/fuel1生产iron3+slag1需8E，再经R1交付3需3E，损耗0；A业务本体E24→3，S1留下slag1，S0旧iron3仍在。BuildStarted、FactoryBuilt、RecipeStarted、RecipeCompleted、transport和matching不是同一结果。
+- 当前完整费用图必须正面核实。正常生产使用已批准原铁validator时，实际owner V独立有Data20/E10、I/O及manifest符合§9和[原计量](mature-world-regional-contribution.design.md#contribution-budget)；一次正常模板1emit/无effect/new_state，实际V扣E2，Data扣ceil(I/1024)+ceil(O/1024)+1，完整实际字节须采集。未发生生产的repair不扣该次validator费用。该例其他新增费用为零只有其原规则明确不适用及完整writer证明才成立；若实际有额外费用，逐payer按原source加入并重新核前余额，不能削减图或让V成为免费执行者。
+- 两分支原已完成2及其历史成本不重收；目的地旧库存是否还在不是matching量的来源。并列显示R的较低增量和较少准备阶段，以及B新增合法F1选择、维护负担和额外投入。E降为20且其他来源不变时，R仍可负担、B仅业务本体就少1E；若S0处分权失效但S1整链仍有效，则新cut可只保留B。G不允许S1时B不能沿旧目标通过。
+- 加入原承诺未结1后，原未完成3中只有2可新承诺；不能仍新发3。原1为unknown或无安全处置时，整目标完成不可确认，但已知实际量仍可解释。whole单元或部分交付规则不允许拆量时整项按原规则拒绝，不偷偷裁剪。
+
+### 13.5 真实选择、未知与跨入口
+
+原GUI/API/Agent消费同一goal/source envelope，显示repair/rebuild/pivot含义、原单位、逐payer费用/峰值、已发生价值、候选当前状态和实际下一步；使用[正式入口适用合同](../../world-simulator/llm/external-agent-game-api.design.md#api-primary-entry-applicability)，不由SDK存在或CLI旧command推导新比较已接通。原业务不增加必须先有comparison_id的gate，真正选择仍逐步沿原入口、当前authority与原quote执行。
+
+目标/读权/source漂移使旧推荐过期；新的无副作用读取不是旧提交的重试。任何原工作、处置、付款或matching结果未知，先通过[原operation端口](../../world-simulator/llm/agent-game-client-boundary.design.md#original-operation-lifecycle-port)核定原identity与payload；更换恢复方向也不能新ID代替它。原物理已完成但服务核定未完时只恢复source-use/outbox及未执行节点；不重复动作/费用。G1 StatusUnknown依[原generation合同](../prd.md#runtime-generation-persistence-contract)保留完整候选并隔离旧World，普通客户端timeout与只读source缺失不伪造这一持久结论。确认结果后以新cut保留实际变化重新比较，不回滚已合法结果、不迁走原责任。
+
+### 13.6 有界适配与验收
+
+继续使用§9.1共享宿主、source arena、对象/bytes/I/O/proof、取消及恢复通道；新profile每候选至多8个原动作或完成边界合计、3候选，总原规则求值≤32。步骤不能把完整模型/模块图、全域搜索或无限case目录藏成一个常量操作；一个原业务必须由其有界共享规则/受权scope证明完整适配，不能只算正常几条effect。不支持、超量或缺原件显示精确范围，原动作合法性仍由原领域拥有。
+
+正常对照的目标容量分配为：目标/原matching12对象，身份/地点24，账本32，工厂/规则32，路线/共享占用36，权限/费用36，proof64，返回重核8，共244≤256；每组范围/absence、各kind、实际成员及proof逐项计，完整原始+解码仍≤4MiB、总读取≤10批。B的8个原边界为Build开始/完成、ore转移、fuel转移、Schedule、生产完成、运输开始/完成；matching在原完成事务内，若所选authority必须另调用则按真实步骤及费用计，不假装零节点。R两边界、pivot发现goal不符而停止，加当前原阻断/适配检查后按实际≤32计量。具体编码/访问峰值和3秒边界仍待实测；分配只是适配工程预算，不证明任意复杂世界都能容纳。
+
+本节不把unsupported全部当作设计收口：上述已采纳原来源、两条正常方案与安全恢复必须有实际适配和方法；它们目前仍是实现与运行证据义务。未采纳的任意新路线建设、统一迁移、服务价格或补偿制度没有因此成为新能力。

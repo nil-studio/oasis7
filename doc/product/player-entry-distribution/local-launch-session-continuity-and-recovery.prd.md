@@ -67,7 +67,7 @@ Trace ID: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1
 - 功能点：[REQ-ENTRY-LAUNCH-001](#req-entry-launch-001)；验收 [AC-ENTRY-LAUNCH-001](#ac-entry-launch-001)。
 - 适用范围：受支持 native/Web Launcher 的 session、配置、primary mode 与世界结果区分；沿用本条原有阶段和前置条件。
 - 系统设计状态：部分覆盖
-- 系统设计依据：[会话重新验证](../../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation)已承接当前进程探测、失效快照撤销、停止/失败后重验及响应代次隔离；[配置草稿/确认](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-config-draft-design)承接 Restore 与已接受配置的区分；[Reload 结果](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.design.md#action-result-continuity)承接 native/Web 读回失败保草稿与成功后更新。后二者不证明 provider 鉴权、凭据注入或全部配置已应用。[本地交付合同](../../world-simulator/llm/provider-loopback-http-contract.design.md#local-provider-delivery-contract)仅补充配置输入与实际应用的区分，以及停止不撤销已接受世界请求；产物选择和进程清理本身不算作本要求覆盖，不证明provider鉴权或世界结果。
+- 系统设计依据：[会话重新验证](../../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation)已承接当前进程探测、失效快照撤销、停止/失败后重验及响应代次隔离；[配置草稿/确认](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-config-draft-design)承接 Restore 与已接受配置的区分；[Reload 结果](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.design.md#action-result-continuity)承接 native/Web 读回失败保草稿与成功后更新。后二者不证明 provider 鉴权、凭据注入或全部配置已应用。[本地交付合同](../../world-simulator/llm/provider-loopback-http-contract.design.md#local-provider-delivery-contract)仅补充配置输入与实际应用的区分，以及停止不撤销已接受世界请求；产物选择和进程清理本身不算作本要求覆盖，不证明provider鉴权或世界结果。 本轮 [配置四层](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-config-states)及[当前请求与旧结果](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-request-result)补齐 Launcher 的具体信息层级、已有动作与结果呈现；桌面/窄屏目标稿和方法是设计交付，不是运行截图或世界结果。
 - 反馈结果局部设计依据：[反馈结果边界](../../world-simulator/launcher/game-client-launcher-feedback.design.md#feedback-result-boundary)仅承接本条本地保存/请求受理不代签世界成功的子义务；Trace refs: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1。native 本地包、distributed receipt 与 Web proxy 结果不证明可玩性、配置应用或完整 session/权限；F1–F5 专业算法不作为本条全量覆盖。静态复核基线为 2026-10-15 `b57e30eaaa0f3eb48c273eb62363d2ac2ada8981` 及本次文档候选，未新增行为验收，既有状态、AC 与剩余范围不变。
 - 实现状态：部分实现
 - 实现与验证依据：控制面 clear_chain_session_evidence 与客户端 invalidate_chain_session_evidence/clear_chain_session_evidence 清除 identity/P2P/observability/replication；spawn 只进 Starting，状态探测后才 Ready。 [源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane/tests.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_client_launcher/src/main_chain_status.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane/chain_status_probe.rs)；[核验任务](https://github.com/eng-cc/oasis7/issues/4696)。本轮为固定源码审读，回归定义不等于实际通过。
@@ -75,6 +75,8 @@ Trace ID: O7-REQ-728f73a0-995a-4995-a2be-ae525a08dab1
 - 剩余范围：设计仍按上述准确承接及其未覆盖边界；实现与验证方面，primary mode、配置应用/凭据、world authority 与行为结果的全部 native/Web 组合尚未核清；局部 Ready 仅为探测成功，测试定义未在本轮执行。
 
 - 设计复核日期与基线：2026-10-15；`dffd797f` 文档候选；上述三份专业设计的五/六列表只接收各自子义务，未闭合跨模式/world authority 与凭据接线。
+
+- 本轮局部设计核对：2026-11-05；已合入源码 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 与本次文档候选，仅核 Launcher 引导表面的具体交接。系统设计仍为部分覆盖，完整跨入口/权限/凭据/世界组合须沿原范围逐项核对；原实现状态及历史证据保留，未新增运行或真人验收。
 
 <a id="ac-entry-launch-001"></a>
 ### AC-ENTRY-LAUNCH-001：启动子步骤成功仍保持结果边界
@@ -95,13 +97,15 @@ Trace ID: O7-REQ-1d9a996e-dd9d-4d59-9b3b-b79191f17676
 - 功能点：[REQ-ENTRY-LAUNCH-002](#req-entry-launch-002)；验收 [AC-ENTRY-LAUNCH-002](#ac-entry-launch-002)。
 - 适用范围：本地停止、重启、清理、陈旧及失败后 authority/session/配置/模式的重新验证；沿用本条原有阶段和前置条件。
 - 系统设计状态：部分覆盖
-- 系统设计依据：[会话重新验证](../../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation)已承接当前进程探测、失效快照撤销、停止/失败后重验及响应代次隔离；[配置草稿/确认](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-config-draft-design)承接 Restore 与已接受配置的区分；[Reload 结果](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.design.md#action-result-continuity)承接 native/Web 读回失败保草稿与成功后更新。后二者不证明 provider 鉴权、凭据注入或全部配置已应用。
+- 系统设计依据：[会话重新验证](../../world-simulator/launcher/game-client-launcher-runtime-session-continuity.design.md#session-revalidation)已承接当前进程探测、失效快照撤销、停止/失败后重验及响应代次隔离；[配置草稿/确认](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-config-draft-design)承接 Restore 与已接受配置的区分；[Reload 结果](../../world-simulator/launcher/game-client-launcher-cross-surface-action-parity.design.md#action-result-continuity)承接 native/Web 读回失败保草稿与成功后更新。后二者不证明 provider 鉴权、凭据注入或全部配置已应用。 本轮 [失败恢复旅程](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-recovery)及[原请求结果表达](../../world-simulator/launcher/game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-request-result)补齐旧结果、陈旧快照、停止/失败后的可见处置与重验动作；不改变下层原决定、权限或自动重试合同。
 - 实现状态：部分实现
 - 实现与验证依据：停止、失败启动、缺进程、退出清空证据，并有 session_* 回归；客户端代次拒绝 late poll/queued action 恢复旧快照。 [源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_launcher_backend/src/bin/oasis7_web_launcher/control_plane/tests.rs)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7_client_launcher/src/main_chain_status.rs)；[核验任务](https://github.com/eng-cc/oasis7/issues/4696)。本轮为固定源码审读，回归定义不等于实际通过。
 - 核对日期与基线：2026-10-15；需求与实现源码 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；GitHub 固定源码审读；入口与已核对范围见上，未执行运行、浏览器、部署或真人验收；本条原验收条件与层级不变。
 - 剩余范围：设计仍按上述准确承接及其未覆盖边界；实现与验证方面，当前分类器仍混用共享日志最后 64 行与本轮日志，未实现当前尝试隔离；全部设置/凭据/权限重验、真实 Web 浏览器和世界恢复续跑未验证。
 
 - 设计复核日期与基线：2026-10-15；`dffd797f` 文档候选；上述三份专业设计的五/六列表只接收各自子义务，未闭合跨模式/world authority 与凭据接线。
+
+- 本轮局部设计核对：2026-11-05；已合入源码 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 与本次文档候选，仅核 Launcher 引导表面的具体交接。系统设计仍为部分覆盖，完整跨入口/权限/凭据/世界组合须沿原范围逐项核对；原实现状态及历史证据保留，未新增运行或真人验收。
 
 <a id="ac-entry-launch-002"></a>
 ### AC-ENTRY-LAUNCH-002：没有安全路径时保持 blocked

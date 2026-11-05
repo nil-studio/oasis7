@@ -1,8 +1,8 @@
-# 合同情境声誉的事实投影与客观复核系统设计
+# 情境声誉的完整来源、用途采用与有限复核系统设计
 
 - 生命周期：`active`；本文定义目标合同，不表示功能已实现、启用或通过玩家验收。
 - Owner role：`runtime_engineer`；协作：`gameplay_designer`、`agent_engineer`、`viewer_engineer`、`qa_engineer`。
-- 固定静态审读基线：`nil-studio/oasis7@ad2bf1bb9e29d315ea70b64603b57c206da1be0f`；未运行 Rust、游戏、模型或跨节点测试。
+- 固定静态审读基线：`nil-studio/oasis7@ebd9b8431f2dc084c4ef6be3bcea9ca054ab2a81`；Last reviewed：2026-11-05。原 v1 审读基线 `ad2bf1bb9e29d315ea70b64603b57c206da1be0f` 保留为历史；未运行 Rust、游戏、模型或跨节点测试。
 - 产品上游：[CR003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003)。本 profile 的适用来源、用途、相关性寿命和复核窗口只由 [Gameplay 情境声誉政策](../../game/gameplay/gameplay-contextual-reputation-contract.prd.md#contextual-reputation-policy-v1)维护。
 - 验证入口：[情境声誉验收手册](../../testing/manual/contextual-reputation-acceptance.manual.md#rep01-source)。下文类型、命令与拒绝名是逻辑设计，不是现有 Rust、HTTP 或 WASM ABI。
 
@@ -12,7 +12,7 @@
 
 目标 profile 为 `contextual_contract_consultation_v1`。它只把已支持个人合同的权威结果整理为合作前的只读事实参考，允许客观更正派生展示。玩家可以查看来源、比较已履行与未定责范围、了解补救、暂缓或继续按原合同流程谈判；查询和复核均不订立新合同、不作责任裁决，也不产生资格、排名、奖励、黑名单或新的资源冻结。
 
-来源限于 `owner_atomic_resource_exchange_v1` 和 `owner_checkpoint_power_service_v1` 的完整有效 receipt 及原来源有权更正。本文不扩大这两个目标 profile 的已完成设计，不把它们标为当前可用；不覆盖组织/岗位声誉、任意社交 schema、战争结果、R&D charter、份额转让、一般争端或完整机会分配。CR003 仍为部分承接。
+原 v1 来源限于 `owner_atomic_resource_exchange_v1` 和 `owner_checkpoint_power_service_v1`，不追溯扩大其签署、来源或效果。§5–10.1 保留这一已设计合同及原件兼容；其中“本 profile”限定为 v1。§10.2–10.7 承接同一制度的完整后继目标：自然人、Agent、组织及岗位；通用形成/持续服务、R&D 和原专属事项；实际资格与机会消费者的正向采用、独立基线、拒绝和迁移。两版都不是当前已启用能力；五动作预览、R&D 和机会的各自完整专业合同仍须直接组合验收。
 
 ## 2. 上游约束与相关角色
 
@@ -31,6 +31,13 @@
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | 更正、原请求结果和投影版本同根；未知、重试和恢复不复制修正 | [事务与恢复](contextual-reputation-evidence-and-review.design.md#reputation-recovery) | 统一提交、generation 与原件查询 | 不代签持久化、跨节点或线上验收 |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 咨询结果不转换为机会、治理、claim、工业资格或全球分数 | [消费隔离](contextual-reputation-evidence-and-review.design.md#reputation-consumers) | 各资格/机会原 authority | CR003 的完整世界机会组合与 R&D |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 缺来源/适配能力时保持未支持，旧历史不能被补造为新信誉 | [兼容与启用](contextual-reputation-evidence-and-review.design.md#reputation-compatibility) | 版本化 institution/query adapter、历史 read 能力 | 不迁移旧 score、不改变旧 social lifecycle |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 全部已采纳 source 与四主体真实来源，不能以个人 profile 代签 | [reputation-source-families](#reputation-source-families) | 通用形成/服务、原组织/RD/社会/机会 authority | 不认证任意私人 claim |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | 组织/角色与个人/Agent任期分开，旧历史不继承 | [reputation-general-subjects](#reputation-general-subjects) | 历史身份、ordinary mandate 与各原职责接受 | 不凭名字新建岗位或组织共有资产 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 原扩槽具有完整可达来源及独立基线，保留原阈值 | [reputation-purpose-admission](#reputation-purpose-admission) | immediate_exchange_v2、当前身份/真实资产来源、原取得 authority | 不把只读单位变全局分数/隐藏奖励 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 所有现有 score 与机会消费者的采用/拒绝和历史边界 | [reputation-all-consumers](#reputation-all-consumers) | claim/制造/治理/native+WASM war、MW/FI/GR | 不新增投票、战力、价格或机会制度 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | 一般主体纠正与原实质争点有界，身份/更新不洗史 | [reputation-full-review](#reputation-full-review) | 原形成/服务/RD/组织/许可/机会程序 | 不重开案件、window或全局保全 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | 采用版本/整个World三态恢复与保留历史 | [reputation-versioned-adoption](#reputation-versioned-adoption) | G1、当前canonical消费者与原source | 不把本地缓存或ACK当世界提交 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 全闭包预算/覆盖与三入口可独立判真 | [reputation-full-budget](#reputation-full-budget) | source/proof/current-index、API/Agent/Viewer、QA | 未运行容量与真人体验 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -42,8 +49,8 @@
 | 社会动作预览 | [kernel/social.rs](../../../crates/oasis7_simulator/src/kernel/social.rs) 的 publish/edge quote 使用固定 `positive`，surface 由 schema 文本包含词推导；[Viewer 转接](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/social_quote.rs) 读取并转发 kernel quote | 不是资格变化或真实 consumer 计算；不能把固定文案导入本专题的结果 |
 | 原社会生命周期 | [局部设计](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-lifecycle-design) 已明确五项修复；本基线 `apply_challenge_social_fact` 仍先锁 stake 再查事实，`apply_adjudicate_social_fact` 未检查当前必须 Challenged | 属于已有目标的实现缺口；本设计不修改社会动作状态机，不靠它建立已确认履约事实 |
 | Runtime 旧分数 | [economic_contract_publication.rs](../../../crates/oasis7_world_state/src/world/economic_contract_publication.rs) 与 [alliance_war_publication.rs](../../../crates/oasis7_world_state/src/world/alliance_war_publication.rs) 写 `reputation_scores` | 旧分数不是本 profile 的情境事实，也没有可逆还原的逐项来源；不导入、不换算、不清零旧历史 |
-| 旧分数的真实消费者 | [governance_identity_snapshot_for_agent](../../../crates/oasis7_world_state/src/state.rs)、[Agent claim quote](../../../crates/oasis7_runtime/src/world/agent_claims.rs)、[工业制造资格](../../../crates/oasis7_world_state/src/world_rules/industrial.rs) 读取旧 score | 这些入口必须与新咨询投影隔离；本文不宣称已经迁移或修复全部旧资格制度 |
-| 允许的目标来源 | [即时交换](agent-mediated-contract-formation.design.md#contract-formation-commit) 与 [供能结算](checkpoint-power-service-fulfillment.design.md#service-checkpoint-settlement) 已定义目标 receipt；native 合同仍是不同的旧协议 | 需要两个真实 source adapter、完整 proof/受众/历史身份和目标合同实现；不能从两次 transfer 或旧 Settle 拼出目标 receipt |
+| 旧分数的真实消费者 | [governance_identity_snapshot_for_agent](../../../crates/oasis7_world_state/src/state.rs)、[Agent claim quote](../../../crates/oasis7_runtime/src/world/agent_claims.rs)、[工业制造资格](../../../crates/oasis7_world_state/src/world_rules/industrial.rs) 读取旧 score；[native war](../../../crates/oasis7_runtime/src/world/gameplay_loop.rs) 与 [WASM war](../../../crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs) 还读取联盟成员累计 score 作战力 | 全部四类进入 §10.4 清单；目标用途选择不代表当前读取已改。serialize、snapshot 和 Viewer 转发只承接原结果，不是另一份准入 authority |
+| 允许的目标来源 | 原 [即时交换](agent-mediated-contract-formation.design.md#contract-formation-commit) 与 [供能结算](checkpoint-power-service-fulfillment.design.md#service-checkpoint-settlement) 已定义 v1 receipt；本轮通用形成、服务和 RD 扩展另有完整目标。native Settle 当前仍为 creator→counterparty 单腿并写原 delta | 不把旧单腿或旧 v1 无声誉奖励条款拼成新取得资格；新正向来源仅 §10.3 明确披露用途的 immediate_exchange_v2。真实 adapter、原件、历史身份/受众和全入口采用仍待实现 |
 | 本专题投影/复核 | 未找到已实现的本 profile、完整 source adapter 或专用验收 | 本文定义目标与方法；不宣称任何当前入口已能产生本专题有效记录 |
 
 ## 4. 边界与结构
@@ -59,6 +66,8 @@
 本制度的政策和派生记录按 [Kernel/Institution 边界](../prd.md#native-surface-分类与冻结规则)承载；不新增制度专属 native Action 或 `WorldState` 顶层分数字段。来源适配必须读取 Kernel/原合同已验证的事实，不能允许 module 自报 receipt 有效。目标可用受保护的版本化 instance/component 与统一提交；这不证明当前通用存储、零业务费用登记或 source adapter 已存在。
 
 ## 5. 关键运行流程
+
+以下六步针对原 v1；后继完整请求由 §10.2 起的 source/consumer 表确定适用性，不能继续把组织/岗位全局拒绝。
 
 1. **说明咨询目的。** 请求指定 subject kind/identity、world/branch、原服务 profile、地点和查询时间范围。缺少合法身份或本 profile 不支持的组织/岗位，明确拒绝；不以当前持有 Agent 的账号补填历史主体。
 2. **固定可解释的读点。** World Service 取得 exact canonical root/tick、policy version、来源适配版本和投影 coverage；按原受众规则读取来源。partial/unknown coverage 继续显式显示，不输出虚构的“全部成功”或“零违约”。
@@ -98,7 +107,7 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
 | --- | --- | --- |
 | `personal_principal` | 原合同中经验证的个人签署主体，以及其当时承担的确切责任/履行结果 | 不把原个人责任写给后来的 Agent owner，也不把个人历史转给组织 |
 | `agent_history` | 同一 Agent 稳定身份、当时控制来源/任期、实际参与动作及原责任主体引用 | Agent 历史继续可追溯；必须标出控制任期，不能展示为现 owner 的个人表现 |
-| `organization` / `role` | v1 不支持 | 返回 `unsupported_subject_kind`；不能以 Location、成员 Agent 或角色名称代替 |
+| `organization` / `role` | 原 v1 不支持；后继按 [完整主体](#reputation-general-subjects)接收真实来源 | v1 返回 `unsupported_subject_kind`；后继不得因此跳过已采纳组织/岗位。两版都不能以 Location、成员 Agent 或角色名称代替 |
 
 任期使用原 authority 的身份来源、generation/revision 与可核验起止，逻辑上表示为 `control_epoch_ref`；不假定当前代码已有同名字段。不能仅凭 Agent ID、当前 owner 或客户端日期反推原责任。原合同已有显式供方继受时按原 provider 段归属，新供方只承接其已同意的未来范围；旧失约、价款来源和补救事实仍指向原责任主体。
 
@@ -212,13 +221,13 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
 ## 8. 部署、安全与运行约束
 
 <a id="reputation-consumers"></a>
-### 8.1 消费隔离与最小披露
+### 8.1 原 v1 消费隔离与最小披露
 
 Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
 
 允许消费者只有合作前咨询读面与客观投影纠正。无任何 adapter 将本 profile 输出写入 `reputation_scores`、治理 vote cap、Agent claim tier、制造资格、价格/税费、pioneer priority、区域许可或稀缺机会。即使所有记录当前有效，消费者也只能据此解释历史；后续是否合作仍走当前授权和原合同形成。
 
-[成熟世界认可/机会](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-recognition-opportunity)有独立的资格、用途、容量和一次结算合同。未来若消费本来源，必须另行定义具体可消费字段、授权、适用范围、到期重验及拒绝/恢复；本版没有这个边，不能把产品允许未来组合写成已经支持。
+[成熟世界认可/机会](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-recognition-opportunity)有独立的资格、用途、容量和一次结算合同。原 v1 没有这个边；后继的具体同源接收、授权、范围、重验及拒绝由 [全消费者表](#reputation-all-consumers)明确，不能仅凭一次咨询变成机会分配。
 
 原合同受众继续限制披露。相同主体之间、历史当事人与新 owner、个人与 Agent 视图的权限分别核验；不因“信誉公开”扩大到私有余额、控制关系原件、私人模型提示或完整对手材料。关联关系只给最小适用断言，不暴露非必要个人资料。无权读取的行显示不可核实覆盖限制，不能补写正面/负面结论。
 
@@ -258,9 +267,109 @@ source schema/adapter/policy 改版固定版本与生效边界。已记录事实
 
 回滚必须保留读到已接受的新 source/纠正和原件查询的能力。旧消费者无法验证新 profile 时关闭该消费者的新写/当前结论，保留明确历史读取；不能删除新 correction、重放旧业务动作或恢复成一份未标记陈旧的缓存。此次设计不选择 SC32 pilot，不改 IWS 的在途存储实施范围。
 
+
+<a id="reputation-source-families"></a>
+### 10.2 后继完整来源与原 authority
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。采用 [完整 Gameplay 政策](../../game/gameplay/gameplay-contextual-reputation-contract.prd.md#contextual-reputation-full-applicability)，没有新增事实裁决者或通用分数。目标 SourceEvidenceV2 沿原 origin_key，增加 typed principal/role、原授权任期及明确 source family；claim、actual_effect、responsibility_decision、payment/remedy、adoption 为独立维度，不用一个 status 代替。
+
+| 来源族 | 必需原件与生产者 | 可派生事实、当前性及拒绝 |
+| --- | --- | --- |
+| 通用绑定合同/即时交换 | [FormationTermsV2 与当前 mandate](agent-mediated-contract-formation.design.md#contract-formation-common-terms)、全部必需方同版接受、原 family terms 摘要、实际 family executor 的 [activation/fulfilled receipt](agent-mediated-contract-formation.design.md#contract-formation-common-activation)、所有承诺腿/费用 | offer/接受只是协议事实，完整 fulfilled 才是该约定实际履行；个人/组织、真实 source owner 和 Agent/角色分别绑定。普通咨询 H 取首次实际事实 tick；取得用途另按 §10.3 |
+| 全部已采纳持续服务 | [ServiceOutcomeSourceV1](continuing-service-fulfillment-and-remedies.design.md#service-domain-evidence)：exact instance/policy/artifact、原 agreement/obligation/checkpoint/unit、实际 effect/commit、当时责任/代表/控制任期、原结论/补救/继受/覆盖链 | 运输、维护、持续协作及其他原已采纳 obligation 各按自己的 domain evidence；部分交付、未满足、当前安全阻塞、初审/复核/final 与实际支付分开。due、缺席和未知不自产责任；旧人与新继受段不合并 |
+| 一般组织签约及岗位 | [普通 typed signing clause / mandate](agent-mediated-contract-formation.design.md#contract-formation-principals-mandates)、原组织登记/章程、角色/职责任期、所承担 family 的完整上述来源 | 单独 OC grant、passed、成员名字、职位或 Agent ID 不产生代表权。岗位既可来自原合法任命/mandate，也可来自事前同意的具体服务/RD 工作角色，必须标明该来源，不能虚构一般公职 |
+| 原组织托管返还 | [原 orgrep-source](organization-custody-role-reputation.design.md#orgrep-source)的 registration/deposit/handoff/两条真实返还路径、asset ledger 和 commit | 保持 appointment_direct 与 delegated_term 的原分界；岗位只接原合法 delegated 结果。继续原事项/任期当前性及一次缓存校正，不套 600 tick 或新世界 correction |
+| 多方/组织 R&D | [原 charter/epoch](rd-charter-provenance-and-share-transfer.design.md#rd-charter-membership-epochs)、事前角色/接受、[真实工作/来源](rd-charter-provenance-and-share-transfer.design.md#rd-contribution-source)、原贡献/使用权/经济向量/current rights 与原程序 | 贡献、可使用、当前 holder、已付和个人 credential 分开；历史 Agent provenance 永久链接但不成为永久资格。退出/代表变化不重绑旧贡献；源权利缺失不能靠贡献认定填补 |
+| 社会声明与关系 | [原五动作账本/预览](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.prd.md#11-玩家侧社会动作后果预览)的原作者、typed 主体、声明/关系、lifecycle/backing、TTL 和源可读性 | 仅作为带状态的声明；Confirmed、confidence、发布者或存在的引用不证明履约真伪。没有适配语义时只保留原声明，不转入资格证据 |
+| 认可/机会、区域/治理 | 原 program/申请/审核/有效决定/原事项 scope/期限/receipt 与可合法更正链；[机会实际使用](recognition-opportunity-settlement.design.md)仍是原消费者 | 只说明哪个原主体在何范围得到/使用何认可或权利；不从来源索引发行 capacity、许可、投票或新优先级 |
+| legacy 单腿与累计数 | native 单腿原 terms/当时接受、真实 creator→counterparty 资源/税费/receipt 可作带旧制度标签的历史；delta/expiry 仍按原世界语义保留 | 不伪双腿、不把 expiry 变独立责任判决；它与 war/setter/汇总数字均不生成新用途单位。无法核验的旧数字只说明存在该旧值，不能拆出虚构记录 |
+
+完整来源闭包还须包含 world/branch、canonical object/version、原事实 tick、当前核对 cut、原签署/mandate/资产与控制来源、当前有权更正及程序状态、真实适用地点或事项 scope、原受众与当前读者授权。原受众不公开的来源可由受权 authority 验证并给必要的最小断言；断言须绑定原对象/cut/谓词/版本，不是模块自签“可信”。受众遮蔽但未提供完整合法断言为 coverage unknown，不把过滤后空集当无记录。每种实际 deployed source/consumer 都登记 exact schema/version/selectors 与验证器，不通过名字猜语义；不存在的 adapter 是实施缺口，未来新制度仍须其原产品采纳。
+
+<a id="reputation-general-subjects"></a>
+#### 四主体与历史任期
+
+| 视图 | 唯一主体/任期键 | 直接消费者与禁止继承 |
+| --- | --- | --- |
+| 个人 principal | 原身份 authority 的稳定自然主体，原接受/责任段和事实 tick | 合作咨询与该主体自己明确承担的义务；组织代表并不自动个人承担组织债务 |
+| Agent 历史 | 稳定 Agent + 原 controller/source/generation/任期及原 principal 引用 | Agent 真实行动/训练/工作来源；换 owner 不移交前任个人信誉、责任或私有资料 |
+| 组织 principal | 原登记/charter 身份 + 当时有效 ordinary signing clause/mandate 和具体事务 | 组织自身合同/工作/权利结果；不得平均分给成员，不以当前负责人倒填旧签署 |
+| 角色/岗位 | 原 organization/事项 + typed role ID + 原任命或接受 receipt + 任期/职责范围 | 只显示该范围中真实工作/代表行为；岗位名复用、续任、scope 收缩或成员变更不能重置原 origin |
+
+组织条款初次成立及后续授权按 CR001 的完整有权主体接受与当前授权验证；本层没有“有组织名就代表全体”的分支。个人 Agent/资金借给组织时，真实 owner 是另一个必需接受主体；它不因 source 被组织使用便取得组织全部收益，组织也不取得其个人历史。多视图保存同一 source identity，不能叠加经验/数量。一般岗位暂无已采纳实际任命 producer 的输入只能明确为声明，不通过本层创造岗位；已采纳的服务/RD 角色及普通组织 mandate 必须有真实正向映射，不能全部归为 unsupported。
+
+<a id="reputation-purpose-admission"></a>
+### 10.3 可达的取得资格及完整当前依据
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。数值和采用范围只取 [Gameplay 消费政策](../../game/gameplay/gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)。输入 AcquisitionBasisV2 含 current target principal/authority、world/branch/cut、consumer policy/schema/version/hash、purpose/context/audience、所有适用来源及有效更正的覆盖承诺、每条原签署采用/双腿/主体/控制与 owner 独立性证明、origin/到期和可重建去重结果。它是只读派生依据，不是客户端递交“score=25”或形成 receipt 内的新奖励。
+
+先验证 immediate_exchange_v2 的 immutable terms/render 中 source_projection_use 全字段与本采用规则匹配，再验证原 executor 的双方非零合法腿、费用、真实 source owners、全部同版接受和唯一 fulfilled commit。不同 resource kind 的本金分别守恒，不能以正净额/两条独立 transfer 代替两承诺腿。旧 v1 未签此用途、native 单腿、失败/撤回/半履行、只有 acceptance/ACK、未知 commit、无权限或字段被换均不贡献单位。
+
+源身份在事实时固定：当时同一 principal 的多个 Agent/alias 合并，组织展开其原 mandate 的可核验控制/签署主体及实际资金/资产 owner 集合；同名、当前成员、地址不同不代替原证明。当前取得主体须就是原记录中的该稳定 principal；新 owner 不继承前任，换 Agent 的同一 principal 不复制 origin。候选对手除与该主体独立，还必须与已计入的其他对手在声明的身份/资金 owner 范围中成对可验证独立；共有自然 controller/source owner 的多个组织不能凑五次。独立断言由同root受信身份/来源解析器对完整原controller/mandate/source-owner集合做确定性交集校验，明确authority/版本/cut/范围；不依赖新的现实独立背书，缺源/历史映射时才是unknown，不能以未查到关联代替完整范围证明。它不宣称消除所有现实串谋。
+
+在 exact 当前 cut 完整验证当前 600 tick 内的适用 receipt、原关联撤销/冲销、纠正和身份映射；规范顺序为 (origin_tick, canonical_commit_order, origin_key)。同对手只保留首个当前有效 origin；按此顺序选择与目标及此前选中对手均独立的记录，最多 5 个，每个取 5 单位。过期或被原 authority 明确撤销的 origin 先排除，再选仍有效的同对手后继；后继必须是实际另次合法完成，不能是原请求重试或缓存重建。不同投影/请求不得改变顺序和分组。范围内存在影响该结果的原authority有效性未知、未知身份/撤销链或未覆盖页时，不出确定tier；未受理投诉或申请本身不是这种未知或失效，不能冻结当前有效来源。不是只累计已读的正值。
+
+已核真实覆盖为空得到用途值 0，阈值仍为 <10 / ≥10 / ≥25 对应 cap 1/2/3。相同覆盖的 2 个对手得到 10、5 个得到 25，形成原扩槽正向路径；每腿及实际费用都真实发生，不依赖旧 reputation delta。若 source/采用版本未启用或读取未知，返回 qualification_unknown 和具体恢复方向；原不依赖正向单位的 slot-1 路线独立核验，不假称 unknown=0。采用本身不改价格、返还、维护、Agent starter 或任何余额。
+
+消费者在 quote 和 effect 前同源重验当前 basis 与“主绑定 Agent ∪ claim targets ∪ 在途制造目标”的去重集合，原 quote 不成为可重复的 capacity token。来源到期/纠正、主体或目标集合变更时重报；不能消费过时 25 分 quote。制造已预留后的下降仍按原限期等待交付/退出，不越限创建，也不回收已有 Agent。付款、原请求未知及 World generation unknown 各按原消费者恢复；projection unknown 不放宽原写 gate。
+
+
+<a id="reputation-all-consumers"></a>
+### 10.4 全部实际消费者、独立基线与迁移
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
+
+| 真实消费者/原 authority | 后继接收及无合格来源的独立路径 | 反例、历史与拒绝条件 |
+| --- | --- | --- |
+| [claim 经济合同](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md)、[成本/阈值设计](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#des-claim-economy-001) | §10.3 唯一取得 basis；保持 10/25、1/2/3、原计价/资金/维护与共享容量；原首槽独立路不需先刷合作 | quote/confirm/所有 direct 或自动 Claim writer 同一 authority。legacy aggregate、war、setter、source unknown 不给新高档；既有 claim/债务/已发生费用保留 |
+| [制造确认与预留](agent-industrial-manufacturing.design.md#des-agent-mfg-002)、[真实交付](agent-industrial-manufacturing.design.md#des-agent-mfg-004) | 与普通 claim 完全同一 basis 和共享去重容量；原工厂、材料、电力、OC、时长及交付规则继续 | 只改 quote 或只算 claim targets 均不合格。最后提交原子替换预留而不多开一个空槽；资格降档只按原有界等候/终结 |
+| [普通治理](../../product/world-rules-core-gameplay/governed-common-decisions-and-constitutional-boundaries.prd.md#req-wr-gcb-001)及 [票权预览](../../game/gameplay/gameplay-war-politics-mvp-baseline.design.md#des-war-politics-002) | 本轮明确不采用经济/war/咨询作新政治加成；在原 active/warmup/stake/min/max 条件下，仅 reputation 分量为未采用的 0 | current identity/stake 缺失仍拒绝。旧 proposal 的冻结 snapshot、原票权/投票照原版本，不回写历史；新采用须治理自己的明确政策，不能复制 acquisition 单位 |
+| [native war](../../../crates/oasis7_runtime/src/world/gameplay_loop.rs)与 [WASM war](../../../crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs) | 两条旧 members*10 + reputation/10 等完整路径留在 legacy manifest/历史回放；本轮不据咨询开启新 war 机制 | [原战争预览](../../game/gameplay/gameplay-war-politics-mvp-baseline.design.md#des-war-politics-001)仍如实披露实际激活旧版本，不伪装已迁移。新正式 CR003 采用遵守 War Defer/原冲突 authority，不用 global 数充当战斗依据 |
+| [地方交付认可及有限物流机会](recognition-opportunity-settlement.design.md) | 同源 receipt 索引可供 program 原审核核验，但原预声明用途、成熟/审核、普通与认可共享容量、原轮次及 claim/Use/完成仍由机会 authority 决定 | 情境 source 不能代替 recognition。无认可走原普通路径；未知不增发/重排/延长。组织视图不变组织代理领取资格，原后果/恢复照 MW004 |
+| pioneer/FI 优先、GR 区域/设施、工业准入/许可/价格 | 使用原 FI 与 [区域能力](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md)的独立确切 rights/source/current gates | 本轮没有声誉 bonus、折价、免税、发行或自动容量；原优先权是否可转让沿其自己制度，generic recognition/个人 credential 不跟转 |
+| 合作咨询、岗位/组织任职比较、RD/服务续作 | 读取相应真实来源及旧任期；新签署仍按当前 mandate/费用/范围和全部必需方接受 | 咨询不自动发 offer、任命、继受、排序或惩罚；旧作者/holder/负责人都不是当前执行权 |
+
+完整开启新用途须枚举当前部署 manifest 下实际消费者、source/evaluator 版本与选择器，并让其所有写入口采用同一 guard；legacy reader 可继续明确读历史，但不能作为已迁移 target 的隐蔽备用写口。若某受治理可扩展组件实际读取此输入却未登记，覆盖为 unknown，不能以表中常见 UI 代签全量。库存 display、wire DTO、存储字段和历史 snapshot 是派生读，不因包含 reputation_score 字段就另授准入。
+
+原社会五动作在当前 exact cut 试算各真正消费者：咨询改变、取得用途无变化、源声明不被采用、消费者状态未知分别报告；没有实际 evaluator 的 surface 为 unknown。保留 [原五动作预览合同](../../world-simulator/kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-consumers)的只读、真实 backing 与 shared validation，而非用本表直接替它执行世界动作。一条未经核验声明即使 confidence 很高，也不会制造 immediate_exchange_v2 fulfilled receipt。
+
+<a id="reputation-full-review"></a>
+### 10.5 一般主体的有界复核、当前读权与独立责任
+
+Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
+
+客观投影纠错沿 §6.6 的原 60 tick 尝试、同 origin/相关源修订去重与零业务费用路径，申请主体扩为合法个人、组织当前受权代表或原历史当事人，分别验证其原资格。撤代理后停止新写，不撤销原已受理请求或合法历史；新代表仅代表同一组织范围，不能拿走旧个人请求/证据。组织托管投影沿 [orgrep-correction](organization-custody-role-reputation.design.md#orgrep-correction)一次完整 cache 校正，不为它造新 Action/费用/60 tick 案。
+
+实质争点按以下唯一 authority 转介，并携带原对象、原 receipt/案件、仍有效窗口、当前 blocker 和可读材料：形成接受/资金权利回原形成/source；持续义务/补救回 [service-local-review](continuing-service-fulfillment-and-remedies.design.md#service-local-review)；R&D 原角色贡献/来源回 [rd-review](rd-charter-provenance-and-share-transfer.design.md#rd-review)；托管/任职合法性回原组织事项；许可付款和机会审核分别回各原程序。普通 grievance 文本、publisher Confirm 或投影维护者无权重新裁定。转介不等登记、不延长旧截止、不多冻结资产；原有效 final 和真实支付状态分开。
+
+用途采纳纠错只修证据纳入/主体/去重/时效的确定错误。一个已收到的投诉不暂停所有额度；原 authority 已产生的有效冲销/限制按实际范围接收，原结果未知则当前依赖它的取得等待精确恢复。有效 final、退款或更正既不能被忽略，也不能被放大到无关合同/主体。没有有限复核与可恢复原件的来源不作为新的负向限制；本轮正向取得值无自行定责或负分。
+
+每个 current/historical query 仍核原 audience 与当前读者权限；旧当事人合法的历史读不取决于继续任职，新 owner 也不因现控制而读前任私有资料。history retention 保留可取回原件和目录，不只留下无法解析的 hash。缺源/被合法遮蔽为未知或受限，不是记录不存在。原件/纠正/用途索引可重建，但不可藉索引回收删除原程序与去重链。
+
+<a id="reputation-versioned-adoption"></a>
+### 10.6 版本、提交与持续恢复
+
+来源、咨询投影、当前采用 basis 和真正取得/投票/机会世界效果是四份不同事实。只读重算不更新全局 score、业务余额、原资源 hold、世界资格或新 receipt；若需更新派生缓存，在受控服务本地 CAS，失败可丢弃该未发布缓存而不能改变 source。需要原 v1 durable correction 的操作仍按 §7 同根提交。当前 basis 必须在原消费者 effect 事务内重验，不把缓存 CAS 当 canonical 取得事实。
+
+开启后继采用时固定 activation cut 和 policy/schema/evaluator manifest；只对之后签署并履行、条款中明确采用的 immediate_exchange_v2 生效。旧 v1、旧 native、旧已承诺经济义务/许可/投票按原版本；不能通过 alias、复制 receipt、换 charter 或重新索引追溯加分/减分。旧全球数继续可读原版本历史，不复制进新用途值，也不清零世界字段来假装完成迁移。当前版本/覆盖不明时不给确定资格；仍保留独立基线与旧义务的安全处置。
+
+消费者 committed 返回原结果，已证 NotCommitted 才丢弃未提交候选；StatusUnknown 保留精确原候选并 fence 整个不确定旧 World 的写入、tick、save 和依赖派发，按原 G1 判定核清后安装已提交候选或恢复已证未提交的旧代。只有某读投影或业务 request unknown 时按其原范围恢复，不让不确定的 source 行变成新的事实或赔偿。
+
+停用/回滚先停新用途写，保留原件、已受理纠正/原业务的 drain、当前合法读取与原已提交决定查询。不可用旧 reader 把新版本未知当无记录、给旧未知请求换 nonce，或使用旧 score 继续扩容。已有受控 Agent/债务/维护和原合法机会使用不因声誉服务关闭消失。组件启用、正式入口/真实来源与多人运行仍须实现取证，本文不把设计选择升格为可用状态。
+
+<a id="reputation-full-budget"></a>
+### 10.7 完整查询的有限工作量与可判定覆盖
+
+后继仍沿 §9 的每请求 32 KiB/16 refs、50 行分页、每批 64 对象或 1 MiB、每次最多 32 批/2048 不同依赖/32 MiB 累计上界；这些是完整外层编码/解码工作量，不是把大 source blob 当免费摘要。当前用途查询须取得按 (world, principal, purpose, origin_tick) 的有界、可核完整区间索引与当前纠正/身份 closure；可分页准备，但 effect 前在同一当前 cut 验证完整 commitment 与失效条件。遇到环、超上界、缺页、未知版本/授权或 proof 不能完整验证时明确 unknown/over_budget，不截断成足够的五条“好记录”。
+
+该上界须容纳常规正例：5 份原双腿 receipt、5 份完整 terms/接受、各 receipt 的两腿/费用/commit 与身份/mandate 依赖；激活 source/采用版本前按实际格式和最坏合法正例验证总闭包，QA须记录实际展开对象/字节。以2048/32 MiB为全局扫描预算不能自动证明大世界吞吐；不得用“已有5份”跳过其更正或独立性。来源可用最小受权 proof 不等省略原件保存，证明格式须由原 authority 实际支持，不由本层伪造。若本采用版本的合法五对手闭包放不进该预算，它不能启用，不能以全拒“完成”扩槽；须修正有限编码/索引并重验正例，不删原政策能力。
+
+后继纠正活动限额继续每 instance 256、每稳定 principal 8；同组织的代表/Agent共享限额，不能按每个别名扩容。普通新读/新请求与原请求恢复、已受理纠正/业务安全退出分离有界队列；新输入满额只能拒绝新的可选请求，不吞原期限、转移成本或使已承诺工作失去有限收尾。无需新全局 score、第二资金账或第三个隐藏 module invoke。以上为目标容量和静态可判定方法；正式可用性、平衡、玩家理解与故障域证明另行报告。
+
+
 ## 11. 验证设计与可追溯性
 
-以下均是未来实现的验收方法。运行需固定 source/tested tree、政策、两个源 profile/adapter 版本、root、受众及环境。静态设计审读、文档检查和测试源码不能代签已运行、真实玩家或完整 CR003 验收。
+以下均是未来实现的验收方法。运行需固定 source/tested tree、政策、实际 source/consumer/adapter 清单与版本、root、受众及环境。REP01–08继续检验原 v1；后继必须另完成 REP09–13、各直接来源及消费者的原方法。静态设计审读、文档检查和测试源码不能代签已运行、真实玩家或完整 CR003 验收。
 
 ### 11.1 验证映射表
 
@@ -275,6 +384,13 @@ source schema/adapter/policy 改版固定版本与生效边界。已记录事实
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | [事务与恢复](contextual-reputation-evidence-and-review.design.md#reputation-recovery) | 同根、去重、未知及原依赖可恢复 | [REP07](../../testing/manual/contextual-reputation-acceptance.manual.md#rep07-recovery)；固定候选，required + full 故障/持久化；未执行 | 前后 commitment、故障点、原件和恢复 diff | 未运行的故障域与跨节点能力 |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [消费隔离](contextual-reputation-evidence-and-review.design.md#reputation-consumers) | 不影响旧 score/治理/claim/工业与机会 | [REP08](../../testing/manual/contextual-reputation-acceptance.manual.md#rep08-consumers)；required consumer 对照，full 正式入口；未执行 | 所有登记 consumer 的零变化及真人理解记录 | 全部旧制度修复、完整机会组合 |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [兼容与启用](contextual-reputation-evidence-and-review.design.md#reputation-compatibility) | 未支持来源不回填，旧历史与新纠正可区分 | [REP08](../../testing/manual/contextual-reputation-acceptance.manual.md#rep08-consumers)；版本/禁用/回滚对照，required + full；未执行 | profile/adapter 清单、历史读取与无伪迁移 | SC32 pilot、部署或发行 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [reputation-source-families](#reputation-source-families) | 全部已采纳 source 与四主体真实来源，不能以个人 profile 代签 | [REP09](../../testing/manual/contextual-reputation-acceptance.manual.md#rep09-all-subjects)；实际全族来源与逐字段映射、错误授权/旧任期正反例；同候选实际来源/消费者，required + full，未执行 | 真实生产者/原件、主体和受众、零伪事实 | 不认证任意私人 claim |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | [reputation-general-subjects](#reputation-general-subjects) | 组织/角色与个人/Agent任期分开，旧历史不继承 | [REP09](../../testing/manual/contextual-reputation-acceptance.manual.md#rep09-all-subjects)；多方组织实际签署/换代表/退出、同 origin 四视图；同候选实际来源/消费者，required + full，未执行 | 原 mandate、source owner 和控制/工作任期 | 不凭名字新建岗位或组织共有资产 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [reputation-purpose-admission](#reputation-purpose-admission) | 原扩槽具有完整可达来源及独立基线，保留原阈值 | [REP10](../../testing/manual/contextual-reputation-acceptance.manual.md#rep10-acquisition)；5真实独立对手，0/10/25、窗口/退款/更正/共享owner/unknown及全写口；同候选实际来源/消费者，required + full，未执行 | 原双腿/费用/采用签署、独立计算与实际cap行为 | 不把只读单位变全局分数/隐藏奖励 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [reputation-all-consumers](#reputation-all-consumers) | 所有现有 score 与机会消费者的采用/拒绝和历史边界 | [REP11](../../testing/manual/contextual-reputation-acceptance.manual.md#rep11-consumers)；当前完整manifest清单、治理旧snapshot与独立stake、机会真实Use；同候选实际来源/消费者，required + full，未执行 | 全消费者对照、原业务效果及未接入明确边界 | 不新增投票、战力、价格或机会制度 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | [reputation-full-review](#reputation-full-review) | 一般主体纠正与原实质争点有界，身份/更新不洗史 | [REP12](../../testing/manual/contextual-reputation-acceptance.manual.md#rep12-review-recovery)；本层客观纠错与原有限程序分流、当前/历史权限及unknown；同候选实际来源/消费者，required + full，未执行 | 原请求/期限、原程序authority、原件/更正闭包 | 不重开案件、window或全局保全 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | [reputation-versioned-adoption](#reputation-versioned-adoption) | 采用版本/整个World三态恢复与保留历史 | [REP12](../../testing/manual/contextual-reputation-acceptance.manual.md#rep12-review-recovery)；来源/采用/真实effect四层故障和精确原请求恢复；同候选实际来源/消费者，required + full，未执行 | 原候选/决定、隔离范围、已提交历史不变 | 不把本地缓存或ACK当世界提交 |
+| Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [reputation-full-budget](#reputation-full-budget) | 全闭包预算/覆盖与三入口可独立判真 | [REP13](../../testing/manual/contextual-reputation-acceptance.manual.md#rep13-composition)；上界/上界+1、最后更正页、全组合来源与正式读面；同候选实际来源/消费者，required + full，未执行 | 实际工作量/拒绝、完整coverage和逐方法结果 | 未运行容量与真人体验 |
 
 ## 12. 决策、长期风险与未决问题
 
@@ -284,5 +400,5 @@ source schema/adapter/policy 改版固定版本与生效边界。已记录事实
 | 业务寿命/窗口由唯一 Gameplay 政策维护 | 当前相关性、原责任期限、历史保留互不替代；初始 tick 选择不是墙钟保证 | Gameplay / QA；代表性世界节奏与玩家理解证据出现后复核，不追溯刷新旧事实 |
 | 先做客观纠正，责任仍归原合同 | 防止新管理员或原事实发布者取得裁决权 | 原合同 owner / Runtime；原来源申诉变化时核对 adapter 和投影 |
 | 需要真实 source adapter、历史身份与受众证明 | 原目标 receipt 尚未完整交付；没有这些输入不能形成有效信誉 | 两个合同实现 owner / QA；实现后以实际提交和原件完成 REP01–08 |
-| 旧分数与其消费者保持显式差异 | 不破坏历史回放，不假称全局信誉矛盾已经由本专题解决 | 原治理/claim/工业 owner；另行迁移时保留其适用产品边界及独立验收 |
-| 组织/岗位、任意社交声明、完整机会/R&D 仍未覆盖 | 本切片不降低 CR003 的剩余承诺，也不代表 GD-13 全部设计完成 | 产品与对应专业 owner；后续独立完整切片承接 |
+| 四类旧 score 消费者明确迁移与历史分界 | 保留旧回放/冻结 proposal；新取得只读用途源有真实正向路径，不把一般声誉跨域消费 | Gameplay 与原 claim/制造/治理/war owner；REP10–13与各原消费者联验，数值平衡未验证 |
+| 后继完整来源/主体/消费者与组织多方 RD | 原要求采用的能力按本文及直接原合同完成设计；任意声明真伪认证、现实无关联证明不属于目标 | Runtime/Viewer/Agent/QA；真实 producer、适配、正式入口与独立组合证据仍待实现，不把未实现改成不适用 |

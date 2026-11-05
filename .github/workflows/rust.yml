@@ -535,7 +535,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -642,7 +642,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -822,7 +822,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -963,7 +963,7 @@ jobs:
     steps: *formal-build-steps
 
   cache-maintenance:
-    needs: [select, oasis7-test-build-trusted, formal-test-build-trusted, full-regression]
+    needs: [select, oasis7-test-build-trusted, formal-test-build-trusted]
     if: >-
       always() && !cancelled() &&
       (needs.oasis7-test-build-trusted.result == 'success' ||
@@ -1049,7 +1049,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1202,7 +1202,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1244,7 +1244,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1286,7 +1286,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1328,7 +1328,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1390,7 +1390,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1473,7 +1473,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1563,7 +1563,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1616,7 +1616,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1673,7 +1673,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -1720,7 +1720,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -2001,7 +2001,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -2205,22 +2205,12 @@ jobs:
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - name: Install dependency cache admission
-        id: dependency-cache-tools
-        continue-on-error: true
-        run: python3 scripts/ci-rust-cache-admission.py install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        if: steps.dependency-cache-tools.outcome == 'success'
-        env:
-          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
-          OASIS7_DEPENDENCY_CACHE_FAMILY: shared-native
-          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
-          GH_TOKEN: ${{ github.token }}
         with:
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          save-if: false
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta
@@ -2290,8 +2280,6 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
         run: CI_VERBOSE=1 ./scripts/ci-tests.sh full-extended
-      - name: Complete shared native cache
-        run: CI_VERBOSE=1 ./scripts/ci-tests.sh cache-native
 
       - name: Run Rust governance report
         if: always()
@@ -2383,7 +2371,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false

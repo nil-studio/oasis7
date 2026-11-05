@@ -1,6 +1,6 @@
 # `world-simulator/launcher` 热点子域入口
 
-更新时间: 2026-07-24
+更新时间: 2026-11-05
 
 ## 从这里开始
 - 想确认普通用户下载、安装和升级体验边界：先读 `../../product/player-entry-distribution/prd.md`；再读 `../prd.md`、[站点 PRD](../../site/prd.md) 与 [站点设计](../../site/design.md) 确认 Pages、Release 资产、专业实现和 blocker
@@ -9,7 +9,7 @@
 - 想确认反馈入口、native Ready 后远端失败的本地回落与 Web 代理边界：先读 `game-client-launcher-feedback.prd.md`
 - 想确认 native/Web 配置、设置、反馈与转账的共享语义、平台差异、结果和恢复边界：先读 `game-client-launcher-cross-surface-action-parity.prd.md`；control plane、GUI-agent 机器接口仍读 `game-client-launcher-control-plane-and-machine-interface.prd.md`
 - 想确认 blockchain explorer 的当前只读查询、七视图与状态呈现边界：先读 `game-client-launcher-blockchain-explorer.prd.md`；它不构成 mainnet、readiness、公开服务、结算或 validator 承诺
-- 想确认 launcher 的语言/配置清晰度、blocked/observer 状态与响应式自引导边界：先读 `game-client-launcher-guided-configuration-and-usability.prd.md`；它不构成玩家入口、network readiness 或发布承诺
+- 想确认 launcher 的配置草稿、请求结果、运行状态及响应式引导：先读 [引导配置 PRD](game-client-launcher-guided-configuration-and-usability.prd.md)，再读[具体 UIUX、双语文案与目标稿](game-client-launcher-guided-configuration-and-usability.design.md#launcher-uiux-hierarchy)和[验收方法](../../testing/manual/launcher-guided-uiux-acceptance.manual.md)；链 observer 不推导玩家观察模式，设计稿不构成运行、network readiness 或发布证据
 - 想确认 launcher 与 chain runtime、execution world、stale session/recovery 或 browser/WASM runtime compatibility 的边界：先读 `game-client-launcher-runtime-session-continuity.prd.md`；native/Web 控制请求、结果和诊断表现再读 control-plane authority
 - 想按准确文件名查找 launcher 专题文档：回到 `../prd.index.md`
 
