@@ -234,6 +234,23 @@ Trace refs: O7-REQ-7283b901-ea06-49e3-956d-2bad46b6c89d, O7-REQ-8120dffe-17cc-45
 - 判定：task 和世界身份稳定；旧 executor 失去新写资格，历史读取按当前 audience 限制；内部 session 不新建 Agent。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
+**双表面同任务组合。** Trace refs: O7-REQ-62007da5-b12a-4b8c-98bb-82ab53a35069；接收 [AC-COLLAB-001](../../product/agents-world-simulation/player-runtime-collaboration.prd.md#ac-collab-001) 与 [专业消费合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#collab-shared-surfaces)。本组在实际支持的 Web 与 native 安装包中分别操作；HTTP/RuntimePort fixture 可证明底层分项，不能代签另一表面。记录各自 build/平台、当前登录身份与声明范围，native 弹出系统浏览器不算 native 通过。
+
+同案固定 world/genesis/branch、Agent A、task T、G1/E1，以及合法 owner 的两个独立窗口；另备无权身份、Agent B 和将失去执行/私有读取资格的 E1。由临时世界已确认的 TaskControl/控制提交、当前 audience 和原私有记录预先列出允许集合及期望版本，不从两端相同文案反推正确性。两端 snapshot_id、session 和时点不要求相等；在同一已知控制状态核对内容，有并发变化时按各自切点及 after-S 的可核顺序解释。
+
+| ID / 执行与故障 | 独立判据与必须保留的结果 |
+| --- | --- |
+| CB01 双端初始化与当前执行方 | 两端以当前读权取得 T 的全部 snapshot 页及 after-S；任务、Agent、激活目标和 executor/fence 与独立控制来源一致，完整待决 ID 集合等于 S 上允许集合。打开或选择对象不新增 task、executor、context 或业务提交；健康、Key 保存或收到报告不能替代当前执行方来源。 |
+| CB02 Web→native 与 native→Web 回访 | 依次关闭一个观察端并从另一端或新窗口恢复；清除原受限内存，不读取玩家端持久正文缓存。仍是 T/A，原线程、决定及操作结果保留；内部 Runtime session 变化不创建 Agent/task。回访不重做批准或行动、不续 grant、不发 Stop；独立执行器和世界可按原许可继续，不能要求整个 World root 因观察操作保持静止。 |
+| CB03 显式交接与旧执行方 | owner 通过原受保护入口将 E1 替换为 E2，记录 C2 控制提交；重启旧 E1 并送达旧请求。两端恢复后显示来源为 C2 的当前 E2，E1 的新 goal/action 不生效；本例同时撤去 E1 私有读权，读取不泄露正文/计数/指纹。仍有历史读权的其他主体按原 audience 读取，不能把执行失权泛化为删除原历史。 |
+| CB04 分页、事件与代际交错 | 复用 collab-snapshot-pages 的 201 项合法当前态，在读页期间激活 G2；原 S 页保持 G1，经 after-S 得到 G2，旧 G1 新 context 被当前权威拒绝。另分别使页号缺失、游标到期、branch/读权版本或适用 fence 改变：按原合同 reset/拒绝，读齐前不伪完整，不拼两轮页面或把旧正文改标新目标；仍获权的原结果查询和 Stop 保留原可用条件。 |
+| CB05 错身份、错 Agent 与晚到私有响应 | 分别把另一身份/Agent B/旧 E1 用于 T 的读取、目标写入与行动；不能借选中 A、旧 token 或深链获得权限。另在两端请求发出后切身份/撤读权，旧私有内存和晚响应不展示、不作为新请求输入；比较原 goal/grant/业务写集确认拒绝没有新增效果，401/403 不泄露对象存在性或差异。 |
+| CB06 原结果未知与恢复 | 保留 T 的原 operation P，分别在断连、关窗、执行器重启后回访。snapshot 待决项与原键查询关联 P，未知保持未知；若原 P 后续确认 committed，只展示其原效果一次，不换 nonce/context 或自动重提。driver run_unknown、私有写入 recovery_required 与世界 P 状态分别核对；读取可有原鉴权/有限协议元数据，不得成为新业务写入或批准。 |
+
+同候选的 collab-bind 原隔离分项、collab-recovery、collab-events、collab-snapshot-pages、collab-question-delivery 和 api-idempotency 可提供适用的确定性负例；本组仍须核两表面实际消费。保存小型关联 `case_id → Web/native build与身份 → world/Agent/task → control/goal/fence → snapshot切点与完整集合 → 原operation/result`，保留失败、来源时间、当前读权和各端输出，不公开私有正文、可重放游标/签名或可枚举 digest。
+
+缺完整 TaskSnapshot、实际 native/Web 消费者或合法测试资格时对应组合为 blocked/not_run；已实施 task-control/private-goal 子集及 scripted driver 不补齐缺项。本组不新增真实模型调用要求，不代签 AC-COLLAB-007 的两 Runtime 经历；该项继续按 collab-session 及既有 adapter 方法取证。
+
 <a id="collab-adoption"></a>
 ### 场景 collab-adoption
 
