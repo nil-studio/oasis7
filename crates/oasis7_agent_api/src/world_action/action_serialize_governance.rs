@@ -184,6 +184,21 @@ where
                 new_key_proof,
             },
         ),
+        Action::RotateGovernanceBootstrapFinalityKeyV1 {
+            controller_account_id,
+            body,
+            old_key_proof,
+            new_key_proof,
+        } => serialize_action_envelope(
+            serializer,
+            ActionTag::ROTATE_GOVERNANCE_BOOTSTRAP_FINALITY_KEY_V1,
+            payloads::RotateGovernanceBootstrapFinalityKeyV1Payload {
+                controller_account_id,
+                body,
+                old_key_proof,
+                new_key_proof,
+            },
+        ),
         _ => Err(S::Error::custom(
             "Action dispatched to wrong governance serializer",
         )),

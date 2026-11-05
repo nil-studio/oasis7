@@ -74,6 +74,30 @@ impl BftSignerServiceV3 {
             })?;
         validate_fresh(&self.binding, state, &verified.schedule, body)?;
         let public = selected_key(body, *role);
+        let mut candidate = state.candidate();
+        let archive = candidate.finality_rotation_proofs.get_or_insert_with(|| {
+            BftFinalityRotationProofArchiveV3 {
+                schema_version: 1,
+                records: Vec::new(),
+            }
+        });
+        archive.records.push(BftFinalityRotationProofRecordV3 {
+            body: body.as_ref().clone(),
+            public_key_hex: public.into(),
+            proof: FinalityKeyRotationProofV1 {
+                schema_version: 1,
+                role: *role,
+                signature_hex: "0".repeat(128),
+            },
+            recorded_revision: state
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| invalid("BFT V3 finality proof revision overflow"))?,
+        });
+        crate::protected_bft_v3::rotation::validate_shared_archives(
+            &candidate.finality_rotation_proofs,
+            &candidate.bootstrap_finality_rotation_proofs,
+        )?;
         let key = self
             .validator_keys
             .get(public)
@@ -87,22 +111,12 @@ impl BftSignerServiceV3 {
             signature_hex: hex::encode(key.sign_preimage(&preimage)?),
         };
         verify_proof(body, &proof, *role)?;
-        let mut candidate = state.candidate();
-        let archive = candidate.finality_rotation_proofs.get_or_insert_with(|| {
-            BftFinalityRotationProofArchiveV3 {
-                schema_version: 1,
-                records: Vec::new(),
-            }
-        });
-        archive.records.push(BftFinalityRotationProofRecordV3 {
-            body: body.as_ref().clone(),
-            public_key_hex: public.into(),
-            proof: proof.clone(),
-            recorded_revision: state
-                .revision
-                .checked_add(1)
-                .ok_or_else(|| invalid("BFT V3 finality proof revision overflow"))?,
-        });
+        candidate
+            .finality_rotation_proofs
+            .as_mut()
+            .and_then(|archive| archive.records.last_mut())
+            .ok_or_else(|| invalid("BFT V3 prepared proof record missing"))?
+            .proof = proof.clone();
         self.commit_candidate(
             runtime,
             credential,
