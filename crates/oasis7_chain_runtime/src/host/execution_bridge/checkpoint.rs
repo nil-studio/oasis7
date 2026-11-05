@@ -434,6 +434,21 @@ fn collect_execution_checkpoint_retained_refs(
     Ok(())
 }
 
+fn retain_record_archive(
+    record: &ExecutionBridgeRecord,
+    pin_set: &ExecutionBridgePinSet,
+    protected: &BTreeSet<u64>,
+) -> bool {
+    record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
+        || protected.contains(&record.height)
+        || pin_set
+            .hot_window_start_height
+            .is_some_and(|start| record.height >= start)
+        || pin_set
+            .archive_window_start_height
+            .is_none_or(|start| record.height >= start)
+}
+
 fn build_execution_bridge_pin_set(
     execution_records_dir: &Path,
     execution_store: &LocalCasStore,
@@ -474,12 +489,7 @@ fn build_execution_bridge_pin_set(
         )?;
         collect_execution_bridge_record_retained_refs(
             &record,
-            record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
-                || record.height >= hot_window_start_height
-                || protected.contains(&record.height)
-                || pin_set
-                    .archive_window_start_height
-                    .is_none_or(|start_height| record.height >= start_height),
+            retain_record_archive(&record, &pin_set, &protected),
             record.height == latest_height,
             record.height >= hot_window_start_height || protected.contains(&record.height),
             &mut pin_set.pinned_refs,
@@ -524,14 +534,7 @@ pub(super) fn sync_execution_bridge_pin_set(
         let record = load_execution_bridge_record(
             execution_bridge_record_path(execution_records_dir, height).as_path(),
         )?;
-        let retain_archive = record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
-            || pin_set
-                .hot_window_start_height
-                .is_some_and(|start_height| height >= start_height)
-            || protected.contains(&height)
-            || pin_set
-                .archive_window_start_height
-                .is_none_or(|start_height| height >= start_height);
+        let retain_archive = retain_record_archive(&record, &pin_set, &protected);
         let retain_latest = pin_set.latest_height == Some(height);
         let retain_hot = pin_set
             .hot_window_start_height
@@ -1086,12 +1089,7 @@ fn compact_execution_bridge_records(
                 record.checkpoint_ref = None;
             }
         }
-        let retain_archive = record.schema_version < EXECUTION_BRIDGE_RECORD_SCHEMA_V2
-            || retain_hot_window
-            || protected.contains(&height)
-            || pin_set
-                .archive_window_start_height
-                .is_none_or(|start_height| height >= start_height);
+        let retain_archive = retain_record_archive(&record, pin_set, protected);
         if !retain_archive {
             record.commit_log_ref = None;
             record.external_effect_ref = None;
@@ -1143,59 +1141,10 @@ pub(super) fn run_execution_bridge_retention_maintenance(
     Ok(freed_bytes)
 }
 
-pub(super) fn load_execution_bridge_record(path: &Path) -> Result<ExecutionBridgeRecord, String> {
-    let bytes = fs::read(path).map_err(|err| {
-        format!(
-            "read execution bridge record {} failed: {}",
-            path.display(),
-            err
-        )
-    })?;
-    serde_json::from_slice::<ExecutionBridgeRecord>(bytes.as_slice()).map_err(|err| {
-        format!(
-            "parse execution bridge record {} failed: {}",
-            path.display(),
-            err
-        )
-    })
-}
-
-fn normalize_execution_bridge_record_for_persist(
-    record: &ExecutionBridgeRecord,
-) -> ExecutionBridgeRecord {
-    let mut normalized = record.clone();
-    normalized.schema_version = EXECUTION_BRIDGE_RECORD_SCHEMA_V3;
-    if normalized.latest_state_ref.is_none() {
-        normalized.latest_state_ref = normalized.snapshot_ref.clone();
-    }
-    normalized
-}
-
-pub(super) fn persist_execution_bridge_record_only(
-    execution_records_dir: &Path,
-    record: &ExecutionBridgeRecord,
-) -> Result<Vec<u8>, String> {
-    let normalized = normalize_execution_bridge_record_for_persist(record);
-    let bytes = serde_json::to_vec_pretty(&normalized)
-        .map_err(|err| format!("serialize execution bridge record failed: {}", err))?;
-    let path = execution_bridge_record_path(execution_records_dir, normalized.height);
-    if normalized.controlled_capture_ref.is_some() {
-        super::durable_transaction::write_file_durable(&path, &bytes)?;
-    } else {
-        write_bytes_atomic(path.as_path(), bytes.as_slice())?;
-    }
-    Ok(bytes)
-}
-
-pub(super) fn persist_execution_bridge_record(
-    execution_records_dir: &Path,
-    record: &ExecutionBridgeRecord,
-) -> Result<(), String> {
-    let bytes = persist_execution_bridge_record_only(execution_records_dir, record)?;
-    let latest_path = execution_records_dir.join("latest.json");
-    if record.controlled_capture_ref.is_some() {
-        super::durable_transaction::write_file_durable(&latest_path, &bytes)
-    } else {
-        write_bytes_atomic(latest_path.as_path(), bytes.as_slice())
-    }
-}
+#[path = "checkpoint/record_io.rs"]
+mod record_io;
+use record_io::normalize_execution_bridge_record_for_persist;
+pub(super) use record_io::{
+    load_execution_bridge_record, persist_execution_bridge_record,
+    persist_execution_bridge_record_only,
+};
