@@ -205,6 +205,7 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
     let runtime = Arc::new(Mutex::new(NodeRuntime::new(
         NodeConfig::new(&options.node_id, &options.world_id, NodeRole::Sequencer).unwrap(),
     )));
+    let http_deadline = Instant::now() + Duration::from_secs(10);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
@@ -213,7 +214,7 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
         let restore = &restore;
         let signer = &signer;
         let worker = scope.spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let deadline = http_deadline;
             let mut stream = loop {
                 match listener.accept() {
                     Ok((s, _)) => break s,
@@ -308,6 +309,15 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
             captured.provider_invocation_key().to_string()
         );
     });
+    terminal_closure::run(
+        options,
+        receipt,
+        driver,
+        &captured,
+        &executor,
+        generation,
+        http_deadline,
+    );
 }
 
 fn captured_request(
@@ -394,3 +404,6 @@ fn persist_service_diagnostic(reason: &str) -> std::path::PathBuf {
         }
     }
 }
+
+#[path = "preview_world_init_terminal_closure_tests.rs"]
+mod terminal_closure;
