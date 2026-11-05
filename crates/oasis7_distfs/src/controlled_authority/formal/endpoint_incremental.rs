@@ -849,7 +849,9 @@ impl FileFormalEndpoint {
                 "IWS complete prepared candidate required before Qualified",
             ));
         }
-        Ok(())
+        // A staged source proof is not the still-missing execution/native and
+        // durable closure permit, even when a genuine external quorum signed.
+        Err(invalid("IWS execution and durable closure incomplete"))
     }
     pub(super) fn finish_iws_qualified_install(
         &self,
