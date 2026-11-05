@@ -14,6 +14,8 @@ server = None
 relay = None
 initialized = False
 registry_created = False
+stage = 0
+last_cli = None
 
 def deny(code):
     raise RuntimeError(code)
@@ -33,11 +35,17 @@ def mkdir(path, mode, uid=0, gid=0):
     os.chown(path, uid, gid)
 
 def setup():
+    global stage
+    stage = 1
     if os.geteuid() != 0 or os.getpid() != 1 or ROOT.exists() or not BINARY.is_file():
         deny('fixture_setup_rejected')
+    stage = 2
     mkdir(ROOT, 0o755)
+    stage = 3
     mkdir(ROOT / 'private', 0o700, H, H)
+    stage = 4
     mkdir(ROOT / 'socket', 0o2710, H, SHARED)
+    stage = 5
     load_skill()
 
 def load_skill():
@@ -90,6 +98,8 @@ def retire_model():
     deny('fixture_model_retirement_failed')
 
 def cli(uid, command, body, socket=False):
+    global last_cli
+    started = time.monotonic()
     args = [str(BINARY), command]
     if command == 'custody-control-call':
         args += ['--socket', str(SOCKET)]
@@ -102,9 +112,14 @@ def cli(uid, command, body, socket=False):
     # Linux rustls-platform-verifier uses native-certs SSL_CERT_FILE, no insecure TLS.
     if pathlib.Path('/fixture-ca/localhost.crt').is_file():
         env['SSL_CERT_FILE'] = '/fixture-ca/localhost.crt'
-    result = subprocess.run(args, input=json.dumps(body).encode(),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
-        preexec_fn=drop(uid), timeout=35, check=False)
+    try:
+        result = subprocess.run(args, input=json.dumps(body).encode(),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+            preexec_fn=drop(uid), timeout=35, check=False)
+    except subprocess.TimeoutExpired as error:
+        last_cli = {'stage':stage,'elapsed_ms':int((time.monotonic()-started)*1000),'exit_code':-1,'stdout_bytes':len(error.stdout or b''),'stderr_bytes':len(error.stderr or b'')}
+        raise
+    last_cli = {'stage':stage,'elapsed_ms':int((time.monotonic()-started)*1000),'exit_code':result.returncode,'stdout_bytes':len(result.stdout),'stderr_bytes':len(result.stderr)}
     if result.returncode != 0 or len(result.stdout) > 32768:
         deny('fixture_cli_rejected')
     try:
@@ -149,10 +164,11 @@ def retire_binding():
         deny('fixture_binding_retirement_failed')
 
 def handle(request):
-    global initialized, server
+    global initialized, server, stage
     if not isinstance(request, dict) or set(request) != {'operation','input'}:
         deny('fixture_request_rejected')
     operation, data = request['operation'], request['input']
+    stage = {'initialize':10,'enroll':11,'bind':12,'claim':13,'serve':14,'restart':15,'control':16}.get(operation,17)
     if operation == 'initialize' and not initialized:
         if not isinstance(data, dict) or set(data) != {'identity','request_id'}:
             deny('fixture_request_rejected')
@@ -216,13 +232,19 @@ def handle(request):
     deny('fixture_operation_rejected')
 
 def main():
-    global relay
+    global relay, stage
     setup()
     port = os.environ.get('OASIS7_LOCAL_RP_PORT', '')
     if not port.isdecimal() or not 1024 <= int(port) <= 65535:
         deny('fixture_port_rejected')
+    stage = 6
     relay = subprocess.Popen([sys.executable,'/fixtures/host_control_relay.py',port],
         stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    time.sleep(0.1)
+    if relay.poll() is not None:
+        deny('fixture_relay_start_rejected')
+    stage = 7
+    print(json.dumps({'event':'startup_ready','stage':stage}),flush=True)
     try:
         while True:
             line = sys.stdin.buffer.readline(65537)
@@ -233,9 +255,9 @@ def main():
             try:
                 response = {'ok':True,'result':handle(json.loads(line))}
             except (RuntimeError, ValueError, KeyError, TypeError, OSError,
-                    subprocess.SubprocessError):
+                    subprocess.SubprocessError) as error:
                 # Never print exception strings, stderr, request bodies or secrets.
-                response = {'ok':False,'error_code':'host_component_fixture_rejected'}
+                response = {'ok':False,'error_code':'host_component_fixture_rejected','stage':stage,'errno':getattr(error,'errno',None) if isinstance(getattr(error,'errno',None),int) else None,'cli':last_cli}
             print(json.dumps(response), flush=True)
     finally:
         retire_model()
@@ -249,4 +271,9 @@ def main():
             except subprocess.TimeoutExpired: server.kill();server.wait()
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except BaseException as error:
+        # Fixed stage and numeric errno only. Never raw exception, path or private body.
+        print(json.dumps({'event':'startup_failed','stage':stage,'errno':getattr(error,'errno',None) if isinstance(getattr(error,'errno',None),int) else None,'cli':last_cli}),file=sys.stderr,flush=True)
+        sys.exit(1)
