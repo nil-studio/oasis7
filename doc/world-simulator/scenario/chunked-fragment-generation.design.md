@@ -2,6 +2,7 @@
 
 - 对应需求文档: [chunked-fragment-generation.prd.md](chunked-fragment-generation.prd.md)
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history。
+- 本次裁决审读：2026-11-05，固定源码 `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；仅文档与静态源码，未执行业务测试。
 
 ## 1. 设计定位
 本设计规定碎片世界生成的分块组织、元素/化合物资源池配置与可复现行为。
@@ -35,6 +36,9 @@
 | [专业生成参数](chunked-fragment-generation.prd.md#chunk-floor-contract) | sanitize、有限保底、core/材质区间与有界尝试；原参数与约束不变 | [既有生成承接](#chunk-generation-existing-obligations) | Simulator 生成器 | 产品 N/A；理由：原专业条款明确这些参数不进入产品承诺；范围：仅此生成参数和尝试约束，不排除实际资源数量/来源的产品消费者 |
 | [CG9](chunked-fragment-generation.prd.md#chunk-hard-budget-contract) | fragment/block 三档硬上限与既定裁剪顺序，init/action 路径分别验证 | [既有生成承接](#chunk-generation-existing-obligations) | Simulator 生成与 QA | 产品 N/A；理由：CG9 定义生成性能/有界终止的专业机制而非玩家额度；范围：仅硬上限与裁剪，实际数量/预算仍有产品消费者，CG10 replay 不在此处 |
 | [补种落账](chunked-fragment-generation.prd.md#运行期-frag-补种与落账) | 原周期/比例/spacing、location 与双级预算及事件原子一致，恢复使用既成 entries | [补种实际结果](#des-frfr-readonly) | kernel/replay；预览沿 REQ-FRFR-1..5 | 不新增 live 执行能力；异常批次原子性须独立负例，不能以正常 replay 代签 |
+| [CG6](chunked-fragment-generation.prd.md#chunk-cg6-replay-contract) | 初始生成固定上下文重建校验、后续补种/消费按原结果恢复；禁止当前默认值改写历史 | [回放裁决](#chunk-replay-conflict-register) | Simulator/persist 与正式资源消费者；后者沿 unified R2/R6 | 不新增事件载荷/版本或 formal 执行能力；局部 journal 不代签链 provenance |
+| [CG7](chunked-fragment-generation.prd.md#chunk-cg7-replay-wording) | 初始生成固定上下文重建校验、后续补种/消费按原结果恢复；禁止当前默认值改写历史 | [回放裁决](#chunk-replay-conflict-register) | Simulator/persist 与正式资源消费者；后者沿 unified R2/R6 | 不新增事件载荷/版本或 formal 执行能力；局部 journal 不代签链 provenance |
+| [CG10](chunked-fragment-generation.prd.md#chunk-budget-replay-validation) | 初始生成固定上下文重建校验、后续补种/消费按原结果恢复；禁止当前默认值改写历史 | [回放裁决](#chunk-replay-conflict-register) | Simulator/persist 与正式资源消费者；后者沿 unified R2/R6 | 不新增事件载荷/版本或 formal 执行能力；局部 journal 不代签链 provenance |
 | [产品既有能力与事实切片](../../product/world-rules-core-gameplay/prd.md#source-assessment-replenishment-truth) | 仅已知禁用与来源未知的反馈；时间/数量仍由其余 FRFR 条款分配 | [对应设计](#des-frfr-capability) | 原 Simulator/Viewer/world-service owner | 不覆盖全部 source profile、allocation 或 handoff |
 | [产品既有只读与真实复查切片](../../product/world-rules-core-gameplay/prd.md#source-replenishment-effect-recheck) | 仅预览无效果、失效撤下和按目标 chunk 的真实增量复查 | [对应设计](#des-frfr-readonly) | 原 Simulator/Viewer/world-service owner | 不覆盖全部 source profile、allocation 或 handoff |
 | [产品既有生成场景的可测量物理真值](../../product/world-rules-core-gameplay/prd.md#generation-physical-truth) | 仅原文“一套可测量的物理真值”及确定、可追溯且不被表现抽象改写的映射；本切片适用于既有 chunk/fragment 场景的物理与资源量事实。 | [专业设计](#chunk-generation-existing-obligations) | 原 Simulator 与对应报价/Viewer 消费者 | 仅既有专业合同细化，不改变参数或正式 profile |
@@ -58,8 +62,8 @@
 - `min_fragment_spacing_cm` 默认 `50_000` cm；场景未设置时继承 `WorldConfig`，有效值 `<= 0` 关闭额外 spacing。候选需同时检查已放置碎片、26 邻块与 boundary reservation。
 - 保底候选必须受固定尝试上限、spacing 与 chunk 数量预算约束；不可达时允许不足，但不得无限尝试。
 - 补种只在启用的 asteroid-fragment runtime、有效周期和未满 chunk 上发生；location 与两级资源预算必须和事件原子一致。
-- replay 应用事件中的既成补种明细，不隐式重算生成结果。
-- 同 seed、effective config 与 chunk trigger order 的回归必须稳定；历史 replay 使用 committed delta，不能按迁移后的默认值重算布局。
+- replay 对 `ChunkGenerated` 沿 CG6 固定上下文重建并校验；对 `FragmentsReplenished` 只应用既成 entries，不隐式重算补种结果。
+- 同 seed、effective config 与 chunk trigger order 的回归必须稳定；历史 replay 保留原配置/版本/前状态和完整事件顺序，后续消费按已提交变化恢复，不能按迁移后的默认值重算布局或复原剩余预算。具体裁决见[§13.3](#chunk-replay-conflict-register)。
 - 资源池变更不得破坏既有场景可加载性。
 - 精炼预览只解释现有 `RefineCompound` 公式和当前目标缺口，不改变产率、电力成本、动作 ABI 或回放语义。
 - `refine_quote_missing` 是玩家侧机会成本可读性缺口，不代表要新增完整加工链或市场系统。
@@ -166,8 +170,11 @@ named scenario 初始快照投影的完整性、world-service 的权威碎片投
 | [几何与物理量](chunked-fragment-generation.prd.md#chunk-physical-contract) | [既有生成承接](#chunk-generation-existing-obligations) | 生成 total=remaining，消费同步扣减与 overdraw 拒绝 | [tests/fragment_physics.rs](../../../crates/oasis7_simulator/src/tests/fragment_physics.rs)；tests/init.rs 的 consume_fragment_resource_keeps_fragment_and_chunk_conservation；对应实际物理/消费源核对 | 固定输入、物理量、双级前后预算与拒绝断言 | 公式/守恒 fixture 不等于完整 block 非重叠、经济或链权限验证 |
 | [CG5 初始化](chunked-fragment-generation.prd.md#chunk-init-contract) | [既有生成承接](#chunk-generation-existing-obligations) | 初始化顺序与有效配置 | [tests/init.rs](../../../crates/oasis7_simulator/src/tests/init.rs) 的 bootstrap、seed、agent 与 reservation 断言，固定 seed/config/order；源码定位未运行 | 候选、输入与初始化布局 | 不证明全部玩家结果或正式链 |
 | [专业生成参数](chunked-fragment-generation.prd.md#chunk-floor-contract) | [既有生成承接](#chunk-generation-existing-obligations) | sanitize、core、有限保底、材质区间 | [tests/asteroid_fragment.rs](../../../crates/oasis7_simulator/src/tests/asteroid_fragment.rs) 的 floor/core/sanitize/zoned fixture，固定有效配置和 seed；未运行 | 接纳/拒绝、终止与生成结果 | 不保证首产物或所有邻域；参数非承诺不豁免验证 |
-| [CG9](chunked-fragment-generation.prd.md#chunk-hard-budget-contract) | [既有生成承接](#chunk-generation-existing-obligations) | 三档硬预算、既定降级与 init/action 路径 | [tests/init.rs](../../../crates/oasis7_simulator/src/tests/init.rs) 的 max_fragment/block/multichunk 断言；性能按原 DoD 另测 | 各块/碎片上限、裁剪后物理量和预算、实际性能证据 | 未运行；补种 block 截断与 OOM/耗时未核实；CG10 replay 单列冲突 |
+| [CG9](chunked-fragment-generation.prd.md#chunk-hard-budget-contract) | [既有生成承接](#chunk-generation-existing-obligations) | 三档硬预算、既定降级与 init/action 路径 | [tests/init.rs](../../../crates/oasis7_simulator/src/tests/init.rs) 的 max_fragment/block/multichunk 断言；性能按原 DoD 另测 | 各块/碎片上限、裁剪后物理量和预算、实际性能证据 | 未运行；补种 block 截断与 OOM/耗时未核实；CG10 恢复另验 |
 | [补种落账](chunked-fragment-generation.prd.md#运行期-frag-补种与落账) | [补种实际结果](#des-frfr-readonly) | 正常 entries 恢复与异常批次不部分落账分别验证 | [tests/persist.rs](../../../crates/oasis7/src/simulator/tests/persist.rs) 的 replenish replay 与 fragment_replenish.rs apply 路径；异常重复 ID/失败批次需独立负例，原 FRFR 测试沿 §11.1 | 原事件 entries、目标 chunk/location/双级预算、异常前后模型 | 正常恢复不能代签异常整批原子性；不证明 live 补种 |
+| [CG6](chunked-fragment-generation.prd.md#chunk-cg6-replay-contract) | [回放裁决](#chunk-replay-conflict-register) | 初始重建校验、完整后继和消费后余额；原 R2/R6 消费者义务继续单验 | 固定同候选旧 snapshot/完整 journal；核[现有恢复测试源](../../../crates/oasis7/src/simulator/tests/persist.rs)中 §13.3 具名断言及待补组合负例，按原配置/seed/version/order/前状态独立对账 | 重建模型、每次预算、拒绝原因及前后 checkpoint；不得只有最终“成功”标记 | 当前只读定义；未运行，缺失组合用例须由实施方补齐，不代签正式链或真实玩家 |
+| [CG7](chunked-fragment-generation.prd.md#chunk-cg7-replay-wording) | [回放裁决](#chunk-replay-conflict-register) | 初始重建校验、完整后继和消费后余额；原 R2/R6 消费者义务继续单验 | 固定同候选旧 snapshot/完整 journal；核[现有恢复测试源](../../../crates/oasis7/src/simulator/tests/persist.rs)中 §13.3 具名断言及待补组合负例，按原配置/seed/version/order/前状态独立对账 | 重建模型、每次预算、拒绝原因及前后 checkpoint；不得只有最终“成功”标记 | 当前只读定义；未运行，缺失组合用例须由实施方补齐，不代签正式链或真实玩家 |
+| [CG10](chunked-fragment-generation.prd.md#chunk-budget-replay-validation) | [回放裁决](#chunk-replay-conflict-register) | 初始重建校验、完整后继和消费后余额；原 R2/R6 消费者义务继续单验 | 固定同候选旧 snapshot/完整 journal；核[现有恢复测试源](../../../crates/oasis7/src/simulator/tests/persist.rs)中 §13.3 具名断言及待补组合负例，按原配置/seed/version/order/前状态独立对账 | 重建模型、每次预算、拒绝原因及前后 checkpoint；不得只有最终“成功”标记 | 当前只读定义；未运行，缺失组合用例须由实施方补齐，不代签正式链或真实玩家 |
 | [产品既有能力与事实切片](../../product/world-rules-core-gameplay/prd.md#source-assessment-replenishment-truth) | [对应设计](#des-frfr-capability) | 仅已知禁用与来源未知的反馈；时间/数量仍由其余 FRFR 条款分配 | [真实测试源](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/auth_actions_fragment_replenishment.rs)；沿本表对应 FRFR 原行的具名用例、固定候选和实际入口执行，本次未运行 | 实施候选的签名请求/step/事件/快照与原断言输出 | 不证明真实网络、浏览器或全部 profile |
 | [产品既有只读与真实复查切片](../../product/world-rules-core-gameplay/prd.md#source-replenishment-effect-recheck) | [对应设计](#des-frfr-readonly) | 仅预览无效果、失效撤下和按目标 chunk 的真实增量复查 | [真实测试源](../../../crates/oasis7_simulator/src/tests/fragment_replenishment_quote.rs)；沿本表对应 FRFR 原行的具名用例、固定候选和实际入口执行，本次未运行 | 实施候选的签名请求/step/事件/快照与原断言输出 | 不证明真实网络、浏览器或全部 profile |
 | [产品既有生成场景的可测量物理真值](../../product/world-rules-core-gameplay/prd.md#generation-physical-truth) | [专业设计](#chunk-generation-existing-obligations) | 仅原文“一套可测量的物理真值”及确定、可追溯且不被表现抽象改写的映射；本切片适用于既有 chunk/fragment 场景的物理与资源量事实。 | [真实测试源](../../../crates/oasis7_simulator/src/tests/fragment_physics.rs)；沿同表原专业条目的现有断言或明确待补边界 fixture，固定候选输入，未运行 | 实施 PR 的物理/数量/预算或 D/M/H/B 前后净变化断言 | 不代签实现修复、全部跨层或玩家端到端 |
@@ -186,7 +193,7 @@ Web 补充验证使用候选版本的 [fragment_refill_preview_card.test.jsx](..
 
 Trace refs: [O7-REQ-b4be4414-7def-4831-8302-f9523e82f944](../../product/world-rules-core-gameplay/prd.md#generation-physical-truth)
 
-本节只补齐既有合同身份、适用入口和验证导航，不改变前述生成、预算、FRFR、中心归属或精炼义务。合同采用与实现验收分开：未修实现或未执行测试仍保留为未核实，不要求重新选择已采用合同。全篇尚有[回放规范冲突](#chunk-replay-conflict-register)，本次不宣称完整闭合。
+本节保留既有合同身份、适用入口和验证导航，不改变前述生成、预算、FRFR、中心归属或精炼义务；[§13.3](#chunk-replay-conflict-register)明确裁决原回放措辞冲突。合同采用与实现验收分开，未修实现、历史版本兼容和未执行验证仍保留未核实，不能由文档裁决宣布全文实现完成。
 
 ### 13.1 需求承接与分配表
 
@@ -201,13 +208,27 @@ FRFR-1..5、中心归属与 legacy refine 的具体义务、owner 和验证继�
 追加验证关系见 §11.1 原表；上述固定候选与未运行边界适用于追加行。
 
 <a id="chunk-replay-conflict-register"></a>
-### 13.3 回放规范冲突登记
+### 13.3 初始生成与后续增量的回放裁决
 
-[CG6 的 ChunkGenerated 重建规则](chunked-fragment-generation.prd.md#chunk-cg6-replay-contract)与[CG7 的生成/补种 delta 泛句](chunked-fragment-generation.prd.md#chunk-cg7-replay-wording)同时保留，尚不能作为同一个已一致的恢复合同验收。前者及 CG10 明确从固定生成上下文重建并比对 seed/counts/budget；后者泛称生成与补种只应用 committed delta。当前 [replay.rs](../../../crates/oasis7_simulator/src/kernel/replay.rs) 的 ChunkGenerated 调用 generate_chunk_fragments，FragmentsReplenished 则 apply entries；这是当前机制定位，不替规范作取舍。
+原 [CG6](chunked-fragment-generation.prd.md#chunk-cg6-replay-contract)/[CG10](chunked-fragment-generation.prd.md#chunk-budget-replay-validation)要求 `ChunkGenerated` 固定上下文重建校验；[#2764](https://github.com/nil-studio/oasis7/pull/2764) 整合进入 CG7 的“生成/补种只应用 committed delta”泛句没有撤销 CG6，也没有提供完整布局载荷或迁移。2026-11-05 本次明确选择保留 CG6/CG10，修订 CG7 泛句为下表的分层规则；不是声称两句原本就一致。唯一裁决条款见[PRD 记录](chunked-fragment-generation.prd.md#chunk-replay-decision)。
 
-泛句由 [#2764](https://github.com/nil-studio/oasis7/pull/2764) 文档整合加入；该补丁未撤销 CG6，也未定义新事件载荷、版本迁移或 target/current 分界。本次未核实存在替代决定。待 Simulator/replay 规范 owner 明确两条原文的适用范围或真实 supersession；本次不将任一条降为 N/A、删除、自动解释为新目标，亦不改变源码/schema。统一正式资源 remaining 的链 delta 目标不能自动消解本专题初始布局恢复的矛盾。冲突保留期间不宣称本设计全文规范闭合。
+| 恢复对象 | 固定输入与处理 | 必须保留的拒绝/不变量 |
+| --- | --- | --- |
+| snapshot 已覆盖的世界 | 按配对 snapshot/journal 和 `journal_len` 恢复既成模型、有效配置、chunk runtime 与预算；只消费切点后的事件 | 不重复初始事件，不清 journal，不从当前默认值补造历史上下文 |
+| 切点之后的 `ChunkGenerated` | 原 coord/seed、snapshot config/chunk runtime、此前邻块/reservations、原顺序进入同版本生成；比对 seed、fragment count、block count 和完整 chunk budget | 任一不符为 `ReplayConflict`；未知版本/缺上下文拒绝；不能以“画面相似”接受 |
+| `FragmentsReplenished` | 应用事件已有 entries，同次恢复位置、fragment/chunk 预算与引用 | 不再次运行补种选择，不以当前周期/比例重算；失败批次不发布部分恢复世界 |
+| 已提交消费及其他资源变更 | 原精确事件/delta 按原顺序应用到正确 fragment/chunk/库存；完整后继形成当前 remaining | 不把初始预算当当前余额，不跳过中间记录，不将重复事件再扣/再加一次 |
+| 正式世界消费者 | 按 [unified 资源承载](unified-world-seed-fragment-runtime.design.md#unified-resource-record)验证正式 checkpoint/record 引用，再使用上列适用内容 | 本地 journal、DTO `Committed` 或 status ready 不单独证明链上自然资源权威 |
+
+当前 [replay.rs](../../../crates/oasis7_simulator/src/kernel/replay.rs)确实让 `ChunkGenerated` 调用 `generate_chunk_fragments` 并比较 seed/counts/budget，`FragmentsReplenished` 调用 entries apply；快照之后事件依原 ID/time 顺序读取。这是选定方案可复用的实现基础，不证明所有异常、历史版本或正式资源接线已覆盖。恢复在独立候选模型中完成，只有完整成功的候选可交给运行消费者；检测到异常就保留原 checkpoint/错误，不能把半恢复模型当新权威世界。
+
+必要验证入口在 [persist.rs](../../../crates/oasis7/src/simulator/tests/persist.rs)：`replay_from_snapshot_rebuilds_and_validates_chunk_generated_events` 已定义生成重建和篡改 block_count 拒绝；`replay_with_budget_caps_keeps_chunk_generated_consistent` 定义预算限制；`replay_from_snapshot_applies_fragment_replenished_event` 和 `replay_from_snapshot_applies_compound_mined_event` 分别定义补种与采矿恢复。版本正负例沿同文件现有 snapshot/journal 检查。这些是已读断言，均未在本次执行。
+
+实施/验收还须组合验证：固定同一 seed/config/version/order，生成→非零消费→补种→从生成前及消费后两个合法切点恢复，分别对账完整模型与双级 remaining；改变当前进程默认值不改变历史结果。独立负例覆盖事件 seed/count/budget 篡改、缺生成上下文、未知版本、乱序/重复事件、错误 chunk/fragment、缺中间 delta，以及补种批次中一项非法时不交付部分世界。不能用正常补种单测代签异常批次原子性，也不能以三份独立局部通过代签完整历史。
+
+本裁决保持现有载荷与版本兼容，不把初始生成改成完整布局 delta，也不重新解释老记录的字节。生成器修复若改变相同输入的结果，实施方须沿原版本机制保留可验证历史算法或提供明确迁移；不支持的旧历史应拒绝而不是套新默认继续。完整上下文重建只解决初始几何，禁止恢复已消费余额的要求继续由 unified R6 与原预算合同共同约束。
 
 
 ### 13.4 范围与未决风险
 
-本次有限范围是既有非冲突义务的身份与准确分配。物理真值、source 作用域/数量、成本和目标影响以原产品句的有限切片接收；不借 SC7 标题、M4 材料域或新增公式。CG5 将 SC1 初始化与明确不进入产品承诺的生成参数拆分，CG9 专业性能机制不吞入 CG10 回放。回放冲突仍见 §13.3，owner 尚需裁决；本次没有选取 supersession、事件载荷、版本或正式 profile 新策略。实际实现与业务验收未运行，不宣称全篇语义一致或端到端完成。
+本次保留既有生成义务的身份与准确分配，并完成 §13.3 原回放冲突的明确裁决。物理真值、source 作用域/数量、成本和目标影响仍以原产品句的有限切片接收；不借 SC7、M4 材料域或新增公式。CG5 的 SC1 初始化、专业生成参数、CG9 性能与 CG10 恢复各自验收。实际生成边界修复、异常批次原子性、历史算法兼容及正式资源消费者仍须实施/验证；本次没有业务运行结果，不宣称全篇实现或端到端完成。
