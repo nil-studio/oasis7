@@ -123,6 +123,8 @@
 
 到期、撤销和收缩按 canonical 顺序阻止受影响新工作/新 sink，已提交合法历史保持。存量工作只沿[六类工作处置](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)及原保管/合同边界逐项处理；许可、creator 或技术 operator 不能自行续授收尾权。没有安全路径时保留事实与有限义务，显示 `no_safe_creation_recovery`；不得通过换 ID/新 root 复制旧投入、成果或收益。范围外用途、新因果版本或能力扩张重新进入完整四阶段。
 
+正式准入后的有限 recipe 授权由[授权生命周期政策](../../game/gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)与[专业执行合同](governed-extension-lifecycle.design.md#des-wr-gr-lifecycle-001)承接：固定稳定能力范围身份、有限授权区间、完整既有效果处置、逐消费者重验和先结清后原子替代。本节仍拥有四阶段证据及准入条件，原[配方六态/存量处置](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)和许可继续独立合取；新授权不能借相同工件、别名或历史 admitted 绕过当前条件。新对象/适配器属于目标，未使现有发布或排程自动具备这些能力。
+
 ## 6. 接口与数据合同
 
 <a id="creation-interfaces"></a>

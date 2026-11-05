@@ -17,6 +17,7 @@
 - 想确认长期经济审计如何核对非 levy 资源流、关键变化与治理实际影响：读[成熟世界经济审计政策](gameplay/gameplay-mature-world-progression-contract.prd.md#prd-game-015-mature-world-economic-audit)，按同一候选和完整窗口区分已解释、缺证与异常；只读审计不改变世界或代签发行。
 - 想确认当前试玩放行与发行口径：先读 `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md`；当前执行状态由 Git、PR、实际 CI 记录与同候选 evidence 确认，公开状态只看根 `README.md`。
 - 想跟进最近最活跃的经济/运营规则变化：先读 `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`，再按需进入对应 design / project / runbook。
+- 想确认工业扩展何时到期、怎样收缩范围及替换授权：读[有限 recipe 授权政策](gameplay/gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)；先结清受影响工作再交接，技术发布、工业准入与创作者许可继续分别核对。
 - 想确认制造、紧急保供和组织连续性的首版政策：从 [gameplay 入口](gameplay/README.md)进入各专题的唯一规则版本；配方、配给和处置参数不由 Runtime 或 Viewer 各自定义。
 
 ## 入口

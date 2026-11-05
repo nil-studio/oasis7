@@ -1,6 +1,6 @@
 # `game/gameplay` 热点子域入口
 
-更新时间: 2026-11-04
+更新时间: 2026-11-05
 
 ## 从这里开始
 - 想核对跨内容类型的制作范围、资产来源/权利、人员/外包与成本：读[内容制作与来源设计](content-production-and-rights.design.md)及[核对手册](content-production-and-rights.manual.md)。数量按源、内容单元和实际消费者区分；许可材料、产能与预算须分别取证。
@@ -28,6 +28,7 @@
 - 想确认紧急保供触发、资格优先级、批次窗口、补偿与退出：读 [保供首版政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)，产品承诺仍由 [ES 专题](../../product/world-rules-core-gameplay/market-normal-state-and-emergency-supply.prd.md)拥有。
 - 想确认组织有效活动、通知保护期限、接替资格、资产处置与部分交接：读 [组织连续性首版政策](gameplay-organization-continuity-policy.prd.md)，再读 [Runtime 处置设计](../../world-runtime/runtime/organization-continuity-and-disposition.design.md)。
 - 想比较有限供能服务的检查点、价款、抵押和失败出口：读[供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)，再读 [Runtime 履约设计](../../world-runtime/runtime/checkpoint-power-service-fulfillment.design.md)及[验收手册](../../testing/manual/checkpoint-power-service-acceptance.manual.md)；实际能力仍须独立实现与验证。
+- 想确认已准入的有限 recipe 怎样到期、收缩和替代：读[授权生命周期政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)与[执行设计](../../world-runtime/runtime/governed-extension-lifecycle.design.md#des-wr-gr-lifecycle-001)；未完工作阻止首版替代，失去合法出口保留责任和 blocker。
 - 想从创作交付走到受限试点、正式准入和有限收益：读[工业四阶段设计](../../world-runtime/runtime/industrial-creation-simulation-and-admission.design.md)与[有限许可政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#industrial-license-policy-v1)，再核[许可执行与结算](../../world-runtime/runtime/industrial-license-and-royalty-settlement.design.md)；模拟、技术发布、正式使用和付款不是同一结果。
 - 想在合作前了解对方的可核验履约事实：读[情境声誉政策](gameplay-contextual-reputation-contract.prd.md)和[证据及复核设计](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md)；分清主体/控制任期、情境、补救与历史，不把缺记录或旧分数当全球信誉。
 - 想在研究开始前约定贡献与收益，或转让已约定份额：读 [R&D charter 政策](gameplay-rd-charter-attribution-and-share-transfer-contract.prd.md)、[归因与转让执行设计](../../world-runtime/runtime/rd-charter-provenance-and-share-transfer.design.md)及[验收手册](../../testing/manual/rd-charter-attribution-and-share-transfer-acceptance.manual.md)；贡献事实、成果使用权和经济份额分别核对。
@@ -42,7 +43,7 @@
 - `gameplay-mature-world-progression-contract.prd.md` 拥有 `PRD-GAME-015` 的 lane、恢复、专业化、checkpoint 与 anti-grind 详细合同，并在 [generic mature-world recognition/opportunity leaf](./gameplay-mature-world-progression-contract.prd.md#prd-game-015-recognition-opportunity) 中承接 `REQ-WR-MW-004` / `MW-11` 的专业玩法语义；不新增 PRD-ID 或 authority，产品承诺仍由 mature-world 产品分册拥有。
 - `gameplay-regional-charter-tenure-funding-contract.prd.md` 拥有 `PRD-GAME-017` 的区域 charter 提案/审查、双资格、退化恢复、tenure 长期规划、服务费/公共 levy 玩家动作与验收；产品 `GR-004` 至 `GR-008` 仍由 `governed-regional-capabilities-and-extensions.prd.md` 拥有，runtime/P2P/QA 保留各自执行与验证 authority。
 - `gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md` 拥有 `PRD-GAME-019` 的普通治理主体聚合、资格/委托、公开审计、重复主体纠错/申诉、事项快照、OC 外部转让与单向非治理额度桥玩家动作和验收；其中 GCB-005 的事项快照与额度桥由 AC-GAME-019-04/05 承接，产品 `GCB-004/005` 仍由 `governed-common-decisions-and-constitutional-boundaries.prd.md` 拥有，runtime/P2P/QA 保留各自执行与验证 authority。
-- `gameplay-industrial-creation-and-cross-region-market-contract.prd.md` 拥有 `PRD-GAME-018` 的工业创建、许可/开放、OC/世界资格隔离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同；工业/世界资格隔离保持 GR-011 边界。其 [保供政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)集中持有 ES-001 至 ES-004 的首版规则值，产品要求仍由 ES 专题声明，Runtime 拥有执行与恢复合同。
+- `gameplay-industrial-creation-and-cross-region-market-contract.prd.md` 拥有 `PRD-GAME-018` 的工业创建、许可/开放、OC/世界资格隔离、跨区发现/物理交付/escrow 里程碑与争议恢复玩家合同；工业/世界资格隔离保持 GR-011 边界。其 [保供政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#emergency-supply-policy-v1)集中持有 ES-001 至 ES-004 的首版规则值，产品要求仍由 ES 专题声明，Runtime 拥有执行与恢复合同。 [有限 recipe 授权政策](gameplay-industrial-creation-and-cross-region-market-contract.prd.md#governed-recipe-lifecycle-policy-v1)承接 GR-002/003 的有界专业范围，原工业准入、配方生命周期与许可继续独立合取。
 - [组织连续性政策](gameplay-organization-continuity-policy.prd.md)集中持有 OC-001 至 OC-003 的活动、保护、接替和处置规则；组织权利连续性由产品专题声明，外部代币 OC 的治理资格仍由 GAME-019 专题拥有。
 - [供能服务政策](gameplay-checkpoint-power-service-contract.prd.md)拥有 CR-001/002 有限个人供能切片的检查点、补救、争议和继受规则；Runtime 拥有资源占用、计量、事务及恢复，既有物料物流和组织处置规则继续由原专题拥有。
 - [情境声誉政策](gameplay-contextual-reputation-contract.prd.md)拥有 CR-003 合同履约咨询切片的来源选择、时效与复核规则；Runtime 拥有证据投影和恢复，原合同继续拥有责任及申诉，其他主体/来源沿原范围补齐。
