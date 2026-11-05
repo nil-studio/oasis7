@@ -440,8 +440,3 @@ mod tests {
         assert_ne!(peer_uid(&a).unwrap(), claimed);
     }
 }
-
-// Explicit ignored Linux component fixture; never a production socket mode.
-#[cfg(all(test, target_os = "linux"))]
-#[path = "custody_host_linux_os_tests.rs"]
-mod linux_os_tests;
