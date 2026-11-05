@@ -24,7 +24,7 @@
             },
             {
               "title": "认领前核对",
-              "contents": "Slot 1 · Owned / cap 0 / 1\nEligible 20 OC · Upfront 12 OC\nActivation fee 4 OC · Bond 8 OC\nUpkeep 2 OC / epoch\n数字为设计示例，不是运行时事实",
+              "contents": "Slot 1 · Owned / cap 0 / 1\nEligible 20 OC · Upfront 14 OC\nActivation fee 4 OC · Bond 8 OC\nUpkeep 2 OC / epoch · 首期已计入 Upfront\n数字为设计示例，不是运行时事实",
               "region": "right detail panel"
             }
           ],
@@ -53,7 +53,7 @@
           "details": [
             {
               "title": "费用构成 · OC",
-              "contents": "Upfront 12 = Activation 4 + Bond 8\nEligible 20 · Liquid 8 · Restricted 12\nAuto starter 0\nBond locked：restricted 8 / liquid 0",
+              "contents": "Upfront 14 = Activation 4 + Bond 8 + First upkeep 2\nEligible 20 · Liquid 8 · Restricted 12\nAuto starter 0\nBond locked：restricted 8 / liquid 0",
               "region": "right detail panel"
             },
             {
@@ -103,7 +103,7 @@
             },
             {
               "title": "认领前核对",
-              "contents": "Slot 1 · Owned / cap 0 / 1\nEligible 20 OC · Upfront 12 OC\nActivation fee 4 OC · Bond 8 OC\nUpkeep 2 OC / epoch\n数字为设计示例，不是运行时事实",
+              "contents": "Slot 1 · Owned / cap 0 / 1\nEligible 20 OC · Upfront 14 OC\nActivation fee 4 OC · Bond 8 OC\nUpkeep 2 OC / epoch · 首期已计入 Upfront\n数字为设计示例，不是运行时事实",
               "region": "right detail panel"
             }
           ],
@@ -1565,7 +1565,7 @@
               "selector_kind": "exact visible card titles; original SVG has no region ids"
             }
           ],
-          "state": "只读 · 所有已发布选项保留",
+          "state": "仅比较，不提交 · 所有已发布选项保留",
           "details": [
             {
               "title": "等待 safe_wait · 不可用",

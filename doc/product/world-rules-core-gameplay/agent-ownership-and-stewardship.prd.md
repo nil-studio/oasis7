@@ -106,15 +106,15 @@ Agent 的取得、维护、容量、转让条件与关联经济权利属于世�
 
 Trace ID: O7-REQ-612f4d3d-e831-48f9-9dfc-f0844690e6cf
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[逐候选承诺包](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-choice-commitment)、[确认重验](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-confirmation-revalidation)与[原件恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-current-recovery)已给出真实来源、用途差异、完整费用/runway、当前取得 guard、竞争拒绝与恢复。既有 UIUX/设计图的 upfront 示例仍遗漏首期 upkeep，相关设计交付物未修准，故不将全部设计接收签为已覆盖。
+- 系统设计依据：[逐候选承诺包](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-choice-commitment)、[确认重验](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-confirmation-revalidation)与[原件恢复](../../game/gameplay/gameplay-agent-claim-economy-contract.design.md#claim-current-recovery)已给出真实来源、用途差异、完整费用/runway、当前取得 guard、竞争拒绝与恢复。本次 UIUX 与图稿将 upfront 示例统一为 activation 4 + bond 8 + first upkeep 2 = 14，明确首期计入与只读恢复边界；三图静态渲染及对应索引已独立核对，设计交付物一致。
 - 设计验证方法：[CLAIM-01/02/04](../../testing/manual/agent-claim-and-stewardship-acceptance.manual.md#claim-01-choice)按同候选分层验证。
 - 实现与验证依据：已交付非零 activation/bond/upkeep 的只读计算、slot 限制和资金来源拆分；不把此计算等同完整候选比较读面。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/agent_claims.rs#L66-L118)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/agent_claims.rs#L188-L240)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
 - 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：专业合同与独立方法已补齐；[原 UIUX R-GAME-04](../../world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-04)及其 claim-ready/claim-lifecycle 图的 4+8+2 应为14而非12，仍须由原图稿工作流修准并核对。实现/验证仍需正式逐候选用途/能力/目标 producer、多候选完整理由、实际取得 profile 的确认条款绑定/漂移拒绝、历史结果与各入口同候选接线；既有兼容 snapshot 与数值计算不代签玩家理解或完整链路。
+- 剩余范围：设计交付物已补齐并核对；[UIUX R-GAME-04](../../world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-04)及其 claim-ready/claim-lifecycle 图使用完整的 4+8+2=14，恢复图明确只比较、不提交。实现/验证仍需正式逐候选用途/能力/目标 producer、多候选完整理由、实际取得 profile 的确认条款绑定/漂移拒绝、历史结果与各入口同候选接线；既有兼容 snapshot 与数值计算不代签玩家理解或完整链路。
 
-- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业设计/方法；只做设计和静态审读，原实现/历史证据不升格。
+- 本次设计核对：2026-11-05；已合基线 `862120b23dd6f6df18e5daad426485e029647d3c` 与本次三图、UIUX/索引修正；专业合同/方法、费用示例与静态渲染经独立设计核对；仅完成设计与静态图稿验证，原实现/历史证据不升格。
 
 - 适用条件：当前取得 Agent 的路径将形成经济认领；单纯首次注册或控制绑定不自动满足这一条件。
 - 要求：玩家在确认首个经济认领前必须能比较候选用途与差异、非零 upfront 成本、确认后的 upkeep runway、失去控制权的可读触发，以及等待、补足或选择其他候选的替代路径；预览或本地提交不能单独产生控制权、自由财富或持久义务。
