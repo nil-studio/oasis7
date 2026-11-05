@@ -1,6 +1,13 @@
 use super::{BoundedRouterErrorV1 as Error, RouterWorkV1};
 use serde::Serialize;
 use std::{io, mem::size_of, ops::Range};
+
+// Arbitrary precision gives Number an owned String not covered by a Node slot.
+// Feature unification must reject that allocation model before this arena runs.
+const _: () = assert!(
+    !std::mem::needs_drop::<serde_json::Number>(),
+    "bounded router requires scalar serde_json Number",
+);
 #[derive(Debug)]
 pub(super) enum InternalError {
     Cancelled,

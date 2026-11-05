@@ -2,10 +2,13 @@ use super::bounded_json::{Arena, Kind, step};
 use super::{BoundedRouterErrorV1 as Error, RouterWorkV1};
 use oasis7_wasm_abi::{ModuleSubscription, ModuleSubscriptionStage};
 use serde_json::Value;
+type RegexMatches<'a> = (&'a [(&'a Value, bool)], &'a [bool]);
+
 struct Matcher<'a, R, C> {
     a: &'a Arena<R>,
     w: &'a mut RouterWorkV1,
     c: &'a mut C,
+    regex: Option<RegexMatches<'a>>,
 }
 impl<R, C: FnMut() -> bool> Matcher<'_, R, C> {
     fn tick<E>(&mut self) -> Result<(), Error<E>> {
@@ -176,9 +179,14 @@ impl<R, C: FnMut() -> bool> Matcher<'_, R, C> {
                 return Err(Error::Invalid("operator"));
             }
             if k == "re" {
-                return Err(Error::Unsupported("strict router regex"));
+                if self.regex.is_none() {
+                    return Err(Error::Unsupported("strict router regex"));
+                }
+                if !value.is_string() {
+                    return Err(Error::Invalid("regex pattern"));
+                }
             }
-            if !matches!(k.as_str(), "eq" | "ne") && value.as_f64().is_none() {
+            if !matches!(k.as_str(), "eq" | "ne" | "re") && value.as_f64().is_none() {
                 return Err(Error::Invalid("numeric operator"));
             }
             op = Some((k.as_str(), value));
@@ -196,6 +204,20 @@ impl<R, C: FnMut() -> bool> Matcher<'_, R, C> {
         }
         if validate {
             return Ok(true);
+        }
+        if op == "re" {
+            let (records, values) = self
+                .regex
+                .ok_or(Error::Unsupported("strict router regex"))?;
+            for (i, (rule, string)) in records.iter().enumerate() {
+                self.tick()?;
+                if std::ptr::eq(*rule, v) {
+                    return Ok(
+                        *string && *values.get(i).ok_or(Error::Invalid("regex result count"))?
+                    );
+                }
+            }
+            return Err(Error::Invalid("regex result correspondence"));
         }
         let Some(id) = self.pointer(path)? else {
             return Ok(false);
@@ -259,7 +281,28 @@ pub(super) fn pre_action_matches<R, C: FnMut() -> bool, E>(
     w: &mut RouterWorkV1,
     c: &mut C,
 ) -> Result<bool, Error<E>> {
-    let mut m = Matcher { a, w, c };
+    route(
+        a,
+        subscriptions,
+        action_kind,
+        ModuleSubscriptionStage::PreAction,
+        w,
+        c,
+        None,
+        false,
+    )
+}
+fn route<R, C: FnMut() -> bool, E>(
+    a: &Arena<R>,
+    subscriptions: &[ModuleSubscription],
+    action_kind: &str,
+    stage: ModuleSubscriptionStage,
+    w: &mut RouterWorkV1,
+    c: &mut C,
+    regex: Option<RegexMatches<'_>>,
+    validate_only: bool,
+) -> Result<bool, Error<E>> {
+    let mut m = Matcher { a, w, c, regex };
     // Match the legacy prepare_subscriptions admission contract for the entire manifest.
     for s in subscriptions {
         m.tick()?;
@@ -291,14 +334,21 @@ pub(super) fn pre_action_matches<R, C: FnMut() -> bool, E>(
             }
         }
     }
+    if validate_only {
+        return Ok(false);
+    }
     let mut matched = false;
     for s in subscriptions {
         m.tick()?;
-        if s.resolved_stage() != ModuleSubscriptionStage::PreAction {
+        if s.resolved_stage() != stage {
             continue;
         }
         let mut kinds = false;
-        for pattern in &s.action_kinds {
+        for pattern in if stage == ModuleSubscriptionStage::PostEvent {
+            &s.event_kinds
+        } else {
+            &s.action_kinds
+        } {
             for _ in pattern.bytes().chain(action_kind.bytes()) {
                 m.tick()?
             }
@@ -308,7 +358,13 @@ pub(super) fn pre_action_matches<R, C: FnMut() -> bool, E>(
             matched |= match s
                 .filters
                 .as_ref()
-                .and_then(|f| f.get("action"))
+                .and_then(|f| {
+                    f.get(if stage == ModuleSubscriptionStage::PostEvent {
+                        "event"
+                    } else {
+                        "action"
+                    })
+                })
                 .filter(|v| !v.is_null())
             {
                 Some(r) => m.rules(r, false)?,
@@ -317,4 +373,191 @@ pub(super) fn pre_action_matches<R, C: FnMut() -> bool, E>(
         }
     }
     Ok(matched)
+}
+
+fn rules_iter(v: &Value) -> impl Iterator<Item = &Value> {
+    v.as_array().into_iter().flatten().chain(
+        v.as_object()
+            .into_iter()
+            .flat_map(|o| o.values())
+            .filter_map(Value::as_array)
+            .flatten(),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Routing context, shared budget, cancellation, admission and data backend are independent contracts"
+)]
+pub(super) fn with_regex<R, C: FnMut() -> bool, E, B: super::RegexBatchBackendV1>(
+    a: &Arena<R>,
+    subscriptions: &[ModuleSubscription],
+    _module_id: &str,
+    action_kind: &str,
+    stage: ModuleSubscriptionStage,
+    w: &mut RouterWorkV1,
+    c: &mut C,
+    reserve: &mut impl FnMut(usize) -> Result<R, E>,
+    backend: &mut B,
+) -> Result<bool, Error<E, B::Error>> {
+    use super::{RegexBatchOutputV1, RegexProbeV1};
+    let lift = Error::with_regex_error;
+    route::<_, _, E>(
+        a,
+        subscriptions,
+        action_kind,
+        stage,
+        w,
+        c,
+        Some((&[], &[])),
+        true,
+    )
+    .map_err(lift)?;
+    let mut count = 0usize;
+    for s in subscriptions {
+        for f in s
+            .filters
+            .as_ref()
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|o| o.values())
+        {
+            for rule in rules_iter(f) {
+                step(w, c).map_err(Error::from_internal).map_err(lift)?;
+                if rule.get("re").is_some() {
+                    count = count
+                        .checked_add(1)
+                        .ok_or(Error::ResourceLimited("regex count"))?;
+                    if count > 4096 {
+                        return Err(Error::ResourceLimited("regex count"));
+                    }
+                }
+            }
+        }
+    }
+    if count == 0 {
+        return route(
+            a,
+            subscriptions,
+            action_kind,
+            stage,
+            w,
+            c,
+            Some((&[], &[])),
+            false,
+        )
+        .map_err(lift);
+    }
+    let bytes = count
+        .checked_mul(
+            std::mem::size_of::<RegexProbeV1<'_>>() + std::mem::size_of::<(&Value, bool)>(),
+        )
+        .ok_or(Error::ResourceLimited("regex capacity"))?;
+    let _reservation = reserve(bytes).map_err(Error::Admission)?;
+    let mut probes = Vec::new();
+    let mut records = Vec::new();
+    probes
+        .try_reserve_exact(count)
+        .map_err(|_| Error::ResourceLimited("regex capacity"))?;
+    records
+        .try_reserve_exact(count)
+        .map_err(|_| Error::ResourceLimited("regex capacity"))?;
+    if probes.capacity() > count || records.capacity() > count {
+        return Err(Error::ResourceLimited("regex capacity exceeds admission"));
+    }
+    let mut m = Matcher {
+        a,
+        w,
+        c,
+        regex: Some((&[], &[])),
+    };
+    for s in subscriptions {
+        m.tick::<E>().map_err(lift)?;
+        let mut active = s.resolved_stage() == stage;
+        let mut kinds = false;
+        for pattern in if stage == ModuleSubscriptionStage::PostEvent {
+            &s.event_kinds
+        } else {
+            &s.action_kinds
+        } {
+            for _ in pattern.bytes().chain(action_kind.bytes()) {
+                m.tick::<E>().map_err(lift)?;
+            }
+            kinds |= super::super::filtering::subscription_match(pattern, action_kind);
+        }
+        active &= kinds;
+        for (kind, f) in s
+            .filters
+            .as_ref()
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|o| o.iter())
+        {
+            for rule in rules_iter(f) {
+                m.tick::<E>().map_err(lift)?;
+                let Some(pattern) = rule.get("re").and_then(Value::as_str) else {
+                    continue;
+                };
+                let mut text = None;
+                if active
+                    && kind
+                        == if stage == ModuleSubscriptionStage::PostEvent {
+                            "event"
+                        } else {
+                            "action"
+                        }
+                {
+                    let path = rule
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .ok_or(Error::Invalid("path"))?;
+                    if let Some(id) = m.pointer::<E>(path).map_err(lift)?
+                        && let Kind::String(r) = &a.nodes[id].kind
+                    {
+                        text = Some(
+                            std::str::from_utf8(&a.strings[r.clone()])
+                                .map_err(|_| Error::Invalid("string"))?,
+                        );
+                    }
+                }
+                let p = u64::try_from(pattern.len())
+                    .map_err(|_| Error::ResourceLimited("regex input"))?;
+                let t = u64::try_from(text.map_or(0, str::len))
+                    .map_err(|_| Error::ResourceLimited("regex input"))?;
+                let input = p
+                    .checked_add(t)
+                    .and_then(|n| {
+                        p.max(1)
+                            .checked_mul(t.max(1))
+                            .and_then(|v| n.checked_add(v))
+                    })
+                    .ok_or(Error::ResourceLimited("regex work"))?;
+                // Input-work proxy, not a bound on regex engine instructions.
+                m.w.match_steps_remaining =
+                    m.w.match_steps_remaining
+                        .checked_sub(input)
+                        .ok_or(Error::ResourceLimited("regex work"))?;
+                if (m.c)() {
+                    return Err(Error::Cancelled);
+                }
+                probes.push(RegexProbeV1 { pattern, text });
+                records.push((rule, text.is_some()));
+            }
+        }
+    }
+    let output = backend.match_batch(&probes, m.c).map_err(Error::Regex)?;
+    if output.values().len() != count {
+        return Err(Error::Invalid("regex result count"));
+    }
+    route(
+        a,
+        subscriptions,
+        action_kind,
+        stage,
+        m.w,
+        m.c,
+        Some((&records, output.values())),
+        false,
+    )
+    .map_err(lift)
 }

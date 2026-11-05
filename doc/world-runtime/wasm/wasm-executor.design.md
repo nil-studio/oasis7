@@ -56,6 +56,25 @@ Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；适用预算由
 解码及缓存字节的统一进程预算。完整启用仍须使这些实际消费者符合上述预算合同，
 不能以输出准入、缓存条目数或组件测试替代该条件。
 
+### 受限 worker 的版本化正则批处理
+
+本条复用 `O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c` 的实际工作集预算合同。
+PREACTION 正则使用同一 sealed native worker 的 `regex-batch-v1` 子模式；在确认
+Linux AS/CORE 硬限制后、构造 Wasmtime Engine 前分流。VM 和正则共用唯一的
+spawn/wait/kill/wait 骨干，包括 sealed fd、env_clear、PDEATHSIG、0600 scratch、
+墙钟和取消轮询；正则模式不另建 launcher，也不回退进程内 regex cache。
+
+父进程预付完整 AS ceiling、结果上限和固定 IPC scratch，费用持续到结果 owner
+销毁。请求借用 pattern/text，无克隆 manifest；协议限制请求/响应字节、probe 数、
+单 pattern/text 字节与总工作。`text=None` 仅编译校验；`Some` 编译并匹配，每项
+恰有一个布尔结果。非法 pattern、OOM、超限、超时、取消、子进程失败及非法 IPC
+均为 typed abort，不能转成 false。等待期间同时轮询 sandbox AtomicBool 和本次
+调用的取消回调。旧 VM wire 及 VM/host 错误分类保持原义。
+
+SealedFd 只证明内核 seal；正式 Host 仍须绑定 native descriptor ABI、feature 与实际
+可执行文件 digest。测试 companion 环境变量不提供生产身份。macOS 的编译或
+Unsupported 证据不代签 Linux 真实受限进程验收；完整启用仍需该平台 fresh evidence。
+
 ### Wasmtime Cargo 功能选择与执行兼容
 
 执行器使用 Core WASM、Cranelift 和同步 `Module/Store/Linker/TypedFunc` 调用。

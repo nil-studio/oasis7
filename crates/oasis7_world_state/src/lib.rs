@@ -252,6 +252,10 @@ mod incremental_record_qualification_phase;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_rollback_family;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rule_decision_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rule_decision_json_decode;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_allocators_codec;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_runtime_allocators_family;

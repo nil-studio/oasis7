@@ -114,68 +114,7 @@ pub fn decode_world_event_original_v1<C: FnMut() -> bool>(
         &mut cancelled,
     )? {
         Some(bytes) => bytes,
-        None => {
-            let l = layout::world_event_owned_layouts_v1();
-            let limit = || ValueTreeError::ResourceLimited("WorldEvent heap bound");
-            let seq = l
-                .seq_element
-                .max(l.content)
-                .checked_mul(4)
-                .ok_or_else(limit)?
-                .checked_add(
-                    l.set_element
-                        .checked_mul(16)
-                        .and_then(|n| n.checked_add(256))
-                        .ok_or_else(limit)?,
-                )
-                .ok_or_else(limit)?;
-            let pair = l
-                .map_pair
-                .max(l.map_key.checked_add(l.map_value).ok_or_else(limit)?);
-            let map = pair
-                .checked_mul(16)
-                .and_then(|n| n.checked_add(256))
-                .and_then(|n| l.content_pair.checked_mul(4).and_then(|c| n.checked_add(c)))
-                .ok_or_else(limit)?;
-            let flatten_cost = l.flatten_element.checked_mul(4).ok_or_else(limit)?;
-            let map = map.checked_add(flatten_cost).ok_or_else(limit)?;
-            let token = l
-                .box_pointee
-                .checked_add(l.content)
-                .and_then(|n| n.checked_add(l.json_value))
-                .and_then(|n| n.checked_add(128))
-                .ok_or_else(limit)?;
-            let phase = shape
-                .sequence_entries
-                .checked_mul(seq as u64)
-                .and_then(|n| {
-                    shape
-                        .map_entries
-                        .checked_mul(map as u64)
-                        .and_then(|m| n.checked_add(m))
-                })
-                .and_then(|n| {
-                    shape
-                        .values
-                        .checked_mul(token as u64)
-                        .and_then(|v| n.checked_add(v))
-                })
-                .and_then(|n| {
-                    shape
-                        .string_bytes
-                        .checked_mul(16)
-                        .and_then(|s| n.checked_add(s))
-                })
-                .ok_or_else(limit)?;
-            let stages = shape.max_depth.checked_add(3).ok_or_else(limit)?;
-            phase
-                .checked_mul(stages as u64)
-                .and_then(|n| usize::try_from(n).ok())
-                .and_then(|n| n.checked_add(l.root))
-                .and_then(|n| n.checked_add(std::mem::size_of::<DecodedWorldEventV1>()))
-                .and_then(|n| n.checked_add(8192))
-                .ok_or_else(limit)?
-        }
+        None => shared_owned_heap_bound_v1(&shape, std::mem::size_of::<DecodedWorldEventV1>())?,
     };
     if bytes > work.max_heap_bytes {
         return Err(ValueTreeError::ResourceLimited("WorldEvent heap allowance"));
@@ -205,3 +144,73 @@ pub fn decode_world_event_original_v1<C: FnMut() -> bool>(
 #[cfg(test)]
 #[path = "incremental_world_event_decode_tests.rs"]
 mod tests;
+
+/// Original conservative fallback, shared only with DTO subgraphs covered by
+/// the same closed WorldEvent inventory. It confers no original identity.
+pub(crate) fn shared_owned_heap_bound_v1(
+    shape: &oasis7_proto::cbor_decode_preflight::CborShapeV1,
+    decoded_root_size: usize,
+) -> Result<usize, ValueTreeError> {
+    let l = layout::world_event_owned_layouts_v1();
+    let limit = || ValueTreeError::ResourceLimited("WorldEvent heap bound");
+    let seq = l
+        .seq_element
+        .max(l.content)
+        .checked_mul(4)
+        .ok_or_else(limit)?
+        .checked_add(
+            l.set_element
+                .checked_mul(16)
+                .and_then(|n| n.checked_add(256))
+                .ok_or_else(limit)?,
+        )
+        .ok_or_else(limit)?;
+    let pair = l
+        .map_pair
+        .max(l.map_key.checked_add(l.map_value).ok_or_else(limit)?);
+    let map = pair
+        .checked_mul(16)
+        .and_then(|n| n.checked_add(256))
+        .and_then(|n| l.content_pair.checked_mul(4).and_then(|c| n.checked_add(c)))
+        .ok_or_else(limit)?;
+    let flatten_cost = l.flatten_element.checked_mul(4).ok_or_else(limit)?;
+    let map = map.checked_add(flatten_cost).ok_or_else(limit)?;
+    let token = l
+        .box_pointee
+        .checked_add(l.content)
+        .and_then(|n| n.checked_add(l.json_value))
+        .and_then(|n| n.checked_add(128))
+        .ok_or_else(limit)?;
+    let phase = shape
+        .sequence_entries
+        .checked_mul(seq as u64)
+        .and_then(|n| {
+            shape
+                .map_entries
+                .checked_mul(map as u64)
+                .and_then(|m| n.checked_add(m))
+        })
+        .and_then(|n| {
+            shape
+                .values
+                .checked_mul(token as u64)
+                .and_then(|v| n.checked_add(v))
+        })
+        .and_then(|n| {
+            shape
+                .string_bytes
+                .checked_mul(16)
+                .and_then(|s| n.checked_add(s))
+        })
+        .ok_or_else(limit)?;
+    let stages = shape.max_depth.checked_add(3).ok_or_else(limit)?;
+    phase
+        .checked_mul(stages as u64)
+        .and_then(|n| usize::try_from(n).ok())
+        .and_then(|n| n.checked_add(l.root))
+        .and_then(|n| {
+            n.checked_add(decoded_root_size.max(std::mem::size_of::<DecodedWorldEventV1>()))
+        })
+        .and_then(|n| n.checked_add(8192))
+        .ok_or_else(limit)
+}

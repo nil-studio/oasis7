@@ -18,6 +18,9 @@ pub use child::worker_main_v1;
 #[path = "bounded_worker_exec.rs"]
 mod executable;
 pub use executable::WorkerExecutableV1;
+#[path = "bounded_worker_regex.rs"]
+mod regex_batch;
+pub use regex_batch::{RegexProbeV1, RegexResultsV1, RegexWorkerErrorV1};
 
 pub struct WorkerLimitsV1 {
     pub address_space_bytes: u64,
@@ -248,6 +251,45 @@ fn run<A>(
     r: &ModuleCallRequest,
     sink: &mut dyn ModuleRawOutputSinkV1,
 ) -> Result<Option<ModuleCallFailure>, ModuleCallFailure> {
+    run_shared(
+        host,
+        r,
+        r,
+        sink,
+        WorkerProtocolV1 {
+            mode: None,
+            request_max: host.limits.max_request_bytes,
+            output_max: host.limits.max_output_bytes,
+        },
+        &mut || false,
+    )
+}
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+struct WorkerProtocolV1<'a> {
+    mode: Option<&'a str>,
+    request_max: u64,
+    output_max: u64,
+}
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn run_shared<A, T: serde::Serialize, C: FnMut() -> bool>(
+    host: &BoundedWorkerSandboxV1<'_, A>,
+    r: &ModuleCallRequest,
+    payload: &T,
+    sink: &mut dyn ModuleRawOutputSinkV1,
+    protocol: WorkerProtocolV1<'_>,
+    cancelled: &mut C,
+) -> Result<Option<ModuleCallFailure>, ModuleCallFailure> {
+    let WorkerProtocolV1 {
+        mode,
+        request_max,
+        output_max,
+    } = protocol;
     use std::{
         fs::{DirBuilder, File, OpenOptions},
         os::unix::{
@@ -304,14 +346,15 @@ fn run<A>(
             "worker result file",
         )
     })?;
-    struct Bounded<'a> {
+    struct Bounded<'a, C> {
         file: File,
         left: u64,
         cancelled: &'a AtomicBool,
+        extra: &'a mut C,
     }
-    impl Write for Bounded<'_> {
+    impl<C: FnMut() -> bool> Write for Bounded<'_, C> {
         fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            if self.cancelled.load(Ordering::Acquire) {
+            if self.cancelled.load(Ordering::Acquire) || (self.extra)() {
                 return Err(std::io::Error::other("cancelled"));
             }
             let b = &b[..b.len().min(64 << 10)];
@@ -328,10 +371,11 @@ fn run<A>(
     }
     let mut writer = Bounded {
         file: input,
-        left: host.limits.max_request_bytes,
+        left: request_max,
         cancelled: host.cancelled,
+        extra: cancelled,
     };
-    serde_cbor::to_writer(&mut writer, r).map_err(|_| {
+    serde_cbor::to_writer(&mut writer, payload).map_err(|_| {
         failure(
             r,
             ModuleCallErrorCode::SandboxUnavailable,
@@ -356,9 +400,13 @@ fn run<A>(
     let mut command = Command::new(program);
     command
         .arg("--oasis7-wasm-worker-v1")
-        .arg(host.limits.max_request_bytes.to_string())
-        .arg(host.limits.max_output_bytes.to_string())
-        .arg(host.limits.address_space_bytes.to_string())
+        .arg(request_max.to_string())
+        .arg(output_max.to_string())
+        .arg(host.limits.address_space_bytes.to_string());
+    if let Some(mode) = mode {
+        command.arg(mode);
+    }
+    command
         .stdin(
             OpenOptions::new()
                 .read(true)
@@ -426,7 +474,7 @@ fn run<A>(
     })?);
     let start = Instant::now();
     let status = loop {
-        if host.cancelled.load(Ordering::Acquire) {
+        if host.cancelled.load(Ordering::Acquire) || cancelled() {
             return Err(failure(
                 r,
                 ModuleCallErrorCode::Interrupted,
@@ -470,7 +518,7 @@ fn run<A>(
     })?;
     if !metadata.is_file()
         || metadata.len() < 9
-        || metadata.len() > host.limits.max_output_bytes.max(4096).saturating_add(9)
+        || metadata.len() > output_max.max(4096).saturating_add(9)
     {
         return Err(failure(
             r,
@@ -487,12 +535,7 @@ fn run<A>(
         )
     })?;
     let length = u64::from_be_bytes(header[1..].try_into().unwrap());
-    if length
-        > if header[0] == 0 {
-            host.limits.max_output_bytes
-        } else {
-            4096
-        }
+    if length > if header[0] == 0 { output_max } else { 4096 }
         || result
             .metadata()
             .map_err(|_| {
@@ -511,7 +554,7 @@ fn run<A>(
             "worker rejected or invalid result",
         ));
     }
-    if host.cancelled.load(Ordering::Acquire) {
+    if host.cancelled.load(Ordering::Acquire) || cancelled() {
         return Err(failure(
             r,
             ModuleCallErrorCode::Interrupted,
@@ -537,7 +580,7 @@ fn run<A>(
         let detail = std::str::from_utf8(&detail)
             .map_err(|_| failure(r, ModuleCallErrorCode::InvalidOutput, "worker failure UTF8"))?
             .to_owned();
-        if host.cancelled.load(Ordering::Acquire) {
+        if host.cancelled.load(Ordering::Acquire) || cancelled() {
             return Err(failure(
                 r,
                 ModuleCallErrorCode::Interrupted,
@@ -560,7 +603,7 @@ fn run<A>(
         ))?
     ];
     for part in bytes.chunks_mut(64 << 10) {
-        if host.cancelled.load(Ordering::Acquire) {
+        if host.cancelled.load(Ordering::Acquire) || cancelled() {
             return Err(failure(
                 r,
                 ModuleCallErrorCode::Interrupted,
@@ -571,7 +614,7 @@ fn run<A>(
             .read_exact(part)
             .map_err(|_| failure(r, ModuleCallErrorCode::InvalidOutput, "worker result read"))?;
     }
-    if host.cancelled.load(Ordering::Acquire) {
+    if host.cancelled.load(Ordering::Acquire) || cancelled() {
         return Err(failure(
             r,
             ModuleCallErrorCode::Interrupted,

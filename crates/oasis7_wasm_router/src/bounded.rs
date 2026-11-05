@@ -3,11 +3,14 @@
 //! The action is serialized into a pre-admitted byte buffer and parsed into a
 //! Vec-backed JSON arena. This avoids
 //! serde_json::Value's default BTreeMap object storage, whose node allocations
-//! cannot be admitted through a public capacity API. Regex filters are rejected
-//! explicitly until an engine with a strict memory and work contract is used.
+//! cannot be admitted through a public capacity API. The default entry rejects
+//! regex; the backend entry delegates one borrowed batch to a data provider.
+//! Runtime owns selection and isolation of its production provider.
 
 mod bounded_json;
 mod bounded_match;
+mod bounded_regex;
+pub use bounded_regex::{RegexBatchBackendV1, RegexBatchOutputV1, RegexProbeV1};
 
 use oasis7_wasm_abi::ModuleSubscription;
 use serde::Serialize;
@@ -26,7 +29,8 @@ pub struct RouterWorkV1 {
 
 /// Failure from strict pre-action JSON construction or matching.
 #[derive(Debug)]
-pub enum BoundedRouterErrorV1<E> {
+pub enum BoundedRouterErrorV1<E, RE = std::convert::Infallible> {
+    Regex(RE),
     Cancelled,
     ResourceLimited(&'static str),
     Unsupported(&'static str),
@@ -88,9 +92,10 @@ where
     )
 }
 
-impl<E: fmt::Display> fmt::Display for BoundedRouterErrorV1<E> {
+impl<E: fmt::Display, RE: fmt::Display> fmt::Display for BoundedRouterErrorV1<E, RE> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Regex(error) => write!(f, "bounded router regex failed: {error}"),
             Self::Cancelled => f.write_str("bounded router cancelled"),
             Self::ResourceLimited(reason) => write!(f, "bounded router resource limited: {reason}"),
             Self::Unsupported(reason) => write!(f, "bounded router unsupported: {reason}"),
@@ -104,3 +109,79 @@ impl<E: fmt::Display> fmt::Display for BoundedRouterErrorV1<E> {
 #[cfg(test)]
 #[path = "bounded_tests.rs"]
 mod tests;
+
+/// Routes with a data-only regex backend. The backend confers no execution authority.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Envelope and routing context retain compatibility while shared budget, cancellation, admission and backend remain independent contracts"
+)]
+pub fn pre_action_matches_serialized_bounded_with_regex_v1<T, C, R, E, B>(
+    envelope: &T,
+    subscriptions: &[ModuleSubscription],
+    module_id: &str,
+    action_kind: &str,
+    work: &mut RouterWorkV1,
+    cancelled: &mut C,
+    reserve_ordinary: impl FnMut(usize) -> Result<R, E>,
+    backend: &mut B,
+) -> Result<bool, BoundedRouterErrorV1<E, B::Error>>
+where
+    T: Serialize + ?Sized,
+    C: FnMut() -> bool,
+    B: RegexBatchBackendV1,
+{
+    subscription_matches_serialized_bounded_with_regex_v1(
+        envelope,
+        subscriptions,
+        module_id,
+        action_kind,
+        oasis7_wasm_abi::ModuleSubscriptionStage::PreAction,
+        work,
+        cancelled,
+        reserve_ordinary,
+        backend,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Explicit routing stage and bounded shared resources"
+)]
+pub fn subscription_matches_serialized_bounded_with_regex_v1<T, C, R, E, B>(
+    envelope: &T,
+    subscriptions: &[ModuleSubscription],
+    module_id: &str,
+    action_kind: &str,
+    stage: oasis7_wasm_abi::ModuleSubscriptionStage,
+    work: &mut RouterWorkV1,
+    cancelled: &mut C,
+    mut reserve_ordinary: impl FnMut(usize) -> Result<R, E>,
+    backend: &mut B,
+) -> Result<bool, BoundedRouterErrorV1<E, B::Error>>
+where
+    T: Serialize + ?Sized,
+    C: FnMut() -> bool,
+    B: RegexBatchBackendV1,
+{
+    if !matches!(
+        stage,
+        oasis7_wasm_abi::ModuleSubscriptionStage::PreAction
+            | oasis7_wasm_abi::ModuleSubscriptionStage::PostAction
+            | oasis7_wasm_abi::ModuleSubscriptionStage::PostEvent
+    ) {
+        return Err(BoundedRouterErrorV1::Invalid("routing stage"));
+    }
+    let arena = bounded_json::build_action_json(envelope, work, cancelled, &mut reserve_ordinary)
+        .map_err(BoundedRouterErrorV1::with_regex_error)?;
+    bounded_match::with_regex(
+        &arena,
+        subscriptions,
+        module_id,
+        action_kind,
+        stage,
+        work,
+        cancelled,
+        &mut reserve_ordinary,
+        backend,
+    )
+}

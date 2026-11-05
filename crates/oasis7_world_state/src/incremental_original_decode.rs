@@ -12,10 +12,22 @@ use std::{
     cell::RefCell,
     io::{self, Write},
 };
-struct Allocator<'a> {
+pub(crate) struct Allocator<'a> {
     memory: &'a MemoryBudget,
     class: MemoryClass,
     error: RefCell<Option<MemoryLimitExceeded>>,
+}
+impl<'a> Allocator<'a> {
+    pub(crate) fn new(memory: &'a MemoryBudget, class: MemoryClass) -> Self {
+        Self {
+            memory,
+            class,
+            error: RefCell::new(None),
+        }
+    }
+    pub(crate) fn take_error(&self) -> Option<MemoryLimitExceeded> {
+        self.error.borrow_mut().take()
+    }
 }
 impl CanonicalCborAllocator for Allocator<'_> {
     type Charge = MemoryReservation;

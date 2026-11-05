@@ -44,7 +44,13 @@ fn linux_main() -> Result<(), &'static str> {
     let request_max = number()?;
     let output_max = number()?;
     let cap = number()?;
-    if args.next().is_some() || request_max == 0 || output_max == 0 || cap == 0 {
+    let mode = args.next();
+    if args.next().is_some()
+        || mode.as_deref().is_some_and(|mode| mode != "regex-batch-v1")
+        || request_max == 0
+        || output_max == 0
+        || cap == 0
+    {
         return Err("invalid worker limits");
     }
     #[repr(C)]
@@ -67,6 +73,12 @@ fn linux_main() -> Result<(), &'static str> {
     {
         return Err("worker hard limit absent");
     }
+    if mode.as_deref() == Some("regex-batch-v1")
+        && (request_max > super::regex_batch::REGEX_MAX_REQUEST_BYTES_V1
+            || output_max > super::regex_batch::REGEX_MAX_OUTPUT_BYTES_V1)
+    {
+        return Err("regex protocol caps");
+    }
     let mut bytes = Vec::new();
     io::stdin()
         .take(request_max.checked_add(1).ok_or("request limit overflow")?)
@@ -74,6 +86,16 @@ fn linux_main() -> Result<(), &'static str> {
         .map_err(|_| "worker input")?;
     if bytes.len() as u64 > request_max {
         return Err("worker input bound");
+    }
+    if mode.as_deref() == Some("regex-batch-v1") {
+        #[cfg(feature = "wasmtime")]
+        {
+            return super::regex_batch::child_regex(&bytes, request_max, output_max);
+        }
+        #[cfg(not(feature = "wasmtime"))]
+        {
+            return Err("regex worker feature unavailable");
+        }
     }
     let request: ModuleCallRequest =
         serde_cbor::from_slice(&bytes).map_err(|_| "worker request decode")?;
