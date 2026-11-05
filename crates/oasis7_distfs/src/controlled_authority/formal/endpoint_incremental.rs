@@ -66,7 +66,10 @@ pub struct IwsPageStoreCapabilityV1 {
     #[cfg(not(target_arch = "wasm32"))]
     source_work: std::cell::RefCell<Option<work::IwsCandidateSourceWorkV1>>,
     #[cfg(not(target_arch = "wasm32"))]
-    jobs: jobs::EndpointIwsState,
+    // The staged/accepted owner slots are large inline values. Keep them off
+    // every FileFormalEndpoint stack, including endpoints with no IWS store.
+    // This reservation is retained with the Box for the entire capability.
+    jobs: ReservedValue<Box<jobs::EndpointIwsState>>,
     #[cfg(not(target_arch = "wasm32"))]
     state_memo: Option<(usize, usize)>,
 }
@@ -81,6 +84,23 @@ impl IwsPageStoreCapabilityV1 {
         if budgets.max_pending_node_bytes == 0 {
             return Err(invalid("IWS endpoint pending node bound"));
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let jobs = {
+            // Both RefCell<Option<...>> slots reserve their maximum inline
+            // layout once. Admit that heap owner before allocating it.
+            let bytes = std::mem::size_of::<jobs::EndpointIwsState>()
+                .checked_add(512)
+                .ok_or_else(|| invalid("IWS endpoint job-state admission size"))?;
+            let charge = pages
+                .memory_budget()
+                .reserve(bytes, MemoryClass::Ordinary)
+                .map_err(|error| {
+                    FormalError::Invalid(format!(
+                        "IWS endpoint job-state Ordinary admission: {error}"
+                    ))
+                })?;
+            charge.retain(Box::new(jobs::EndpointIwsState::new()))
+        };
         Ok(Self {
             pages,
             #[cfg(not(target_arch = "wasm32"))]
@@ -90,7 +110,7 @@ impl IwsPageStoreCapabilityV1 {
             #[cfg(not(target_arch = "wasm32"))]
             source_work: std::cell::RefCell::new(None),
             #[cfg(not(target_arch = "wasm32"))]
-            jobs: jobs::EndpointIwsState::new(),
+            jobs,
             #[cfg(not(target_arch = "wasm32"))]
             state_memo: None,
         })
@@ -408,6 +428,10 @@ mod history_originals;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_jobs.rs"]
 mod jobs;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(super) fn iws_job_state_layout_bytes_for_test() -> usize {
+    std::mem::size_of::<jobs::EndpointIwsState>()
+}
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_work.rs"]
 mod work;
