@@ -298,25 +298,35 @@ test_tier_required 对同一实现候选逐一做正常、拒绝、同 tick 顺�
 <a id="gel-pf-recovery-budget"></a>
 ### 10.6 GEL-PF06：完整预算、故障与原结果恢复
 
-独立读取[原费用公式](../../../crates/oasis7_runtime/src/world/incremental_module_fee.rs)，再用真实候选 executor 的完整 I/O 与计量复算；不用 factory/product 模板的 output_bytes=512。制度上界input/output各256KiB、effect=1/emit=1，Pure上界64/16KiB、effect=0/emit≤1/no-state；更严格 manifest 继续生效。
+独立读取[原费用公式](../../../crates/oasis7_runtime/src/world/incremental_module_fee.rs)，再用真实候选 executor 的完整 I/O 与计量复算；不用 factory/product 模板的 output_bytes=512。制度上界input/output各512KiB、effect=1/emit=1，Pure上界64/16KiB、effect=0/emit≤1/no-state；world、manifest、executor、command及transport的更严限额继续生效。制度完整输入由目标host适配检查；现有ModuleLimits没有max_input_bytes字段，旧工件和公开请求额度不因本文改变。
 
 | 独立复算 | 期望 |
 | --- | --- |
-| 制度一次 preflight | 256+256+2+1=515 Data；1+1+1+1=4E |
-| Pure 一次 preflight | 64+16+1=81 Data；1+0+1+1=3E；真实正常无state单emit通常2E，须按 actual |
-| 最宽普通节点 | Reserve与CommitEffect各3次制度、Evaluate一次Pure，共3171 Data/27E |
-| 64节点原root | 202944 Data/1728E；包含32 normal与32原closure的最坏图，不是只给成功分支 |
-| 控制总保留 | (8普通+8独立关闭)×8次制度=65920 Data/512E，不挪作新经营 |
-| 4根与控制 | 4×(202944,1728)+(65920,512)=(877696 Data,7424E)，原实物/净版税及其他原程序按准确调用并集合并 |
-| 零费许可无实际写调用的节点 | 两次lifecycle加一次Pure=1111 Data/11E；实际省下的调用不收费，不能省真正必须的许可消费者 |
+| 制度一次保留报价上界 | 按512/512KiB工程cap得512+512+2+1=1027 Data；1+1+1+1=4E；真实preflight另用实际完整input_bytes |
+| Pure 一次保留报价上界 | 64+16+1=81 Data；1+0+1+1=3E；真实正常无state单emit通常2E，须按 actual |
+| 最宽普通节点 | Reserve与CommitEffect各3次制度、Evaluate一次Pure，共6×1027+81=6243 Data/27E |
+| 64节点原root | 64×6243=399552 Data/1728E；包含32 normal与32原closure的最坏图，不是只给成功分支 |
+| 控制总保留 | (8普通+8独立关闭)×8×1027=131456 Data/512E，不挪作新经营 |
+| 4根与控制 | 4×(399552,1728)+(131456,512)=(1729664 Data,7424E)，原实物/净版税及其他原程序按准确调用并集合并 |
+| 零费许可无实际写调用的节点 | 两次lifecycle加一次Pure=2×1027+81=2135 Data/11E；实际省下的调用不收费，不能省真正必须的许可消费者 |
 | state容量 | 32×256 +50×256 +4×64×256 +4×1024 +16×128 +16KiB=106.5KiB；实际完整编码仍≤128KiB，逐条及总开销均核 |
-| 并发准备内存 | 4×32MiB+96MiB=224MiB来源buffer；5×16MiB sandbox=80MiB；本路径304MiB，其他常驻内存另记 |
+| 制度完整输入封套 | state≤131072B，外层≤262149B；event/action原始合计≤65536B，外层合计≤131082B；ctx/其余完整编码≤16384B；总≤409615B（400KiB+15B）<512KiB |
+| 制度完整输出封套 | new_state外层≤262149B，单effect/单emit各自完整编码≤65536B，其余字段/容器≤16384B；总≤409605B（400KiB+5B）<512KiB |
+| 并发准备内存 | 4×32MiB+96MiB=224MiB，含来源/解码/完整I/O/候选临时对象；5×16MiB sandbox=80MiB，二者304MiB；两个独立结果槽再加2MiB，有界buffer共306MiB，其他常驻内存另记 |
 
-逐项做上限及+1：32 scope、4未闭合roots、每root32 normal/32 closure、8资源/材料种类与8精确依赖、PPE50 Profiles、128KiB state、256/64KiB完整input、256/16KiB完整output、effects/emits、普通/控制32/96MiB真实来源、非code4MiB、512源对象、2048访问、256写项、64KiB请求、512KiB新增receipt/journal、最多8 artifacts且各受PPE10MB上限、2/5s准备预算、controller/Pure gas2,000,000/1,000,000、每实例每tick16调用及真实artifact rate。源的原始/解码/code/schema/证明与负面索引证据全计，不因cache命中或先全扫后截断而省略。失败完整拒绝当前新承诺，不让先到的几项偷跑。
+本表费用是原接受前同意保留的保守上界，不是固定扣款。按真实input_bytes调用原upper_bound：本制度组合输入≤409615B，ceil(input_bytes/1024)至多401；在输出cap为512KiB、effects/emits上限各1时，该次preflight至多401+512+2+1=916 Data，而不是必须等于1027。独立保存报价、preflight、actual及未用hold释放四种数值；节点/root/控制的报价余量不能写成真实计量或转作新经营。
+
+逐项做上限及+1：32 scope、4未闭合roots、每root32 normal/32 closure、8资源/材料种类与8精确依赖、PPE50 Profiles、128KiB state、512/64KiB完整input、512/16KiB完整output、制度event/action原始合计64KiB、单effect/单emit完整编码各64KiB、其余封套16KiB、effects/emits、普通/控制32/96MiB真实来源、非code4MiB、512源对象、2048访问、256写项、64KiB请求、512KiB新增receipt/journal、最多8 artifacts且各受PPE10MB上限、2/5s准备预算、controller/Pure gas2,000,000/1,000,000、每实例每tick16调用及真实artifact rate。源的原始/解码/code/schema/证明与负面索引证据全计，不因cache命中或先全扫后截断而省略。失败完整拒绝当前新承诺，不让先到的几项偷跑。
+
+封套验证必须独立区分三层：
+
+1. 读取现[SDK编码器](../../../crates/oasis7_wasm_sdk/src/lib.rs)与[ABI](../../../crates/oasis7_wasm_abi/src/lib.rs)，用ABI级字节向量核对u8值23/24/255及数组长度边界；128KiB全部0xff的向量外层应为262149B，旧256KiB完整限制连该向量都容不下。这只是codec反例，不把任意字节当合法制度state，也不修改为serde_bytes规避现ABI。
+2. 用真实schema最大合法state、完整event/action和实际effect/emit记录，计入ctx、字段名、数组/map头、所有嵌套payload及output_bytes，独立计算上表两个组合上界；正式正常路径须在当前原权限、源证明与全部限额内成功，不能仅凭原始state≤128KiB放行。各组成项+1即使总长仍小于512KiB也拒绝；512KiB与512KiB+1仅检完整host/executor边界，不声称任意该长度消息业务合法。新schema、嵌套容器或ctx增长后重新核整个图，不删必需字段凑长度。
+3. 分别降低world module_limits_max、实际executor/command/transport上限，并用旧manifest/缺host适配作反例。完整图放不下则在新承诺前判候选不适用，无dispatch或业务效果；不能自动调大外部额度、减掉必须的source或拆原子步骤。原许可独立schema和更大程序仍需自己的完整预算；只有其原受支持版本化/分页合同可沿原身份处理。恢复读原已确认结果不受新请求抢占，且不以读回代替不再适用的执行权限。
 
 普通阶段第三次许可相关调用、必要 subscriber/delivery、on-register/migration hook、真实组件访问费如存在，都要出现在接受前的 exact call graph；无法纳入相应阶段/后继/控制上界则拒绝候选。普通控制8槽用尽、独立关闭中的普通关闭7槽也已用时，最后保留的一次全实例停新 fence仍能覆盖所有已存在atoms；不能通过换instance/alias恢复同slot旧权或向关闭再借普通额度。该fence不假装完成原work，其已接受closure预算仍保留给真实处置。
 
-分别令每个真实payer余额恰足与少1，制造普通转移/维护/新工作竞争；少1在相关新承诺前拒绝，原资金不被其他扣款消费。若两个payer恰同一账户必须合并，而不是重复使用余额。核 module fee目的账、生产sink、实际收益与未花hold各自去向，剩余只按原purpose释放。最大合法图含付费许可原程序时另核其完整独立预算/槽位；上述877696/7424不能替代它。
+分别令每个真实payer余额恰足与少1，制造普通转移/维护/新工作竞争；少1在相关新承诺前拒绝，原资金不被其他扣款消费。若两个payer恰同一账户必须合并，而不是重复使用余额。核 module fee目的账、生产sink、实际收益与未花hold各自去向，剩余只按原purpose释放。最大合法图含付费许可原程序时另核其完整独立预算/槽位；上述1729664/7424不能替代它。
 
 | 持久化/并发刺激 | 独立期望 |
 | --- | --- |
@@ -328,6 +338,6 @@ test_tier_required 对同一实现候选逐一做正常、拒绝、同 tick 顺�
 | 旧attempt晚到结果；已decision但delivery未完 | 保存精确原事实并按原key恢复；后续效果仍核当前权限/截止；delivery消费者不产生重复业务，late结果不回填过期完成 |
 | 已闭root腾槽、之后又重发旧source/effect | 原消费tombstone和结果ref仍可exact查询，不能因当前state腾槽重复用旧量或再收费 |
 
-在4个普通准备槽和1个控制槽持续受干扰时，检查2个独立原结果读取槽及已接受closure的保留份额仍服务原责任；队列ACK不能伪造canonical入窗，超时不延长业务期限。full层须证明最大合法输入/调用/保存图在已接受边界内可处理，记录真实peak/fuel/延迟，不能将304MiB算式或2/5s目标写成实测成绩。
+在4个普通准备槽和1个控制槽持续受干扰时，检查2个独立原结果读取槽及已接受closure的保留份额仍服务原责任；队列ACK不能伪造canonical入窗，超时不延长业务期限。full层须证明最大合法输入/调用/保存图在已接受边界内可处理，记录真实peak/fuel/延迟，不能将304MiB准备/sandbox或306MiB含结果槽算式、2/5s目标写成实测成绩。
 
 **本节结束报告。** 按PF01～06列正常、独立负例、真实入口、前后账和明确证据层；分别列设计已有、代码仍缺、真实producer/部署未激活、业务/持久化/玩家验证未运行。不以现有函数名、fixture签名、静态trace通过或一个成功类型代签其余 Recipe/Product/Factory 及全部当前消费者。
