@@ -652,6 +652,11 @@ PY_OUTPUT
   local evidence_dir
   evidence_dir="$(mktemp -d "$HOST_OUT_DIR/.candidate-builder.XXXXXX")"
   trap 'rm -rf -- "$evidence_dir"' EXIT
+  # Keep dependency extraction off the small Docker writable layer without
+  # reusing writable Cargo state between builds. The existing per-invocation
+  # cleanup removes this fresh registry together with its private evidence.
+  local candidate_registry="$evidence_dir/registry"
+  mkdir "$candidate_registry"
   # Host Cargo runs only the producer recipe utility; guest WASM always uses Docker.
   candidate_tool() {
     (cd "$ROOT_DIR" && env -u RUSTC_WRAPPER cargo run --quiet --locked -p wasm_build_suite -- "$@")
@@ -690,6 +695,7 @@ PY_OUTPUT
   docker run --rm --platform "$CANONICAL_DOCKER_PLATFORM" \
     --user "$(id -u):$(id -g)" --workdir "$CONTAINER_WORKSPACE_DIR" \
     --mount "type=bind,src=$ROOT_DIR,dst=$CONTAINER_WORKSPACE_DIR" \
+    --mount "type=bind,src=$candidate_registry,dst=/tmp/oasis7-cargo-home/registry" \
     --env OASIS7_WASM_BUILD_IN_CONTAINER=1 \
     --env "OASIS7_WASM_SOURCE_WORKSPACE_DIR=$CONTAINER_WORKSPACE_DIR" \
     --env "OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE=$(containerize_path "$ROOT_DIR" "$evidence_dir/evidence.json")" \

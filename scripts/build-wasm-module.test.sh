@@ -96,6 +96,7 @@ if args[:1] == ["run"]:
     i = 1
     allowed = {"--platform", "--user", "--workdir", "--mount", "--env"}
     env = {}
+    mounts = []
     while i < len(args) and args[i].startswith("--"):
         if args[i] == "--rm":
             i += 1
@@ -103,13 +104,30 @@ if args[:1] == ["run"]:
             if args[i] == "--env":
                 key, _, value = args[i+1].partition("=")
                 env[key] = value
+            elif args[i] == "--mount":
+                mounts.append(args[i+1])
             i += 2
         else:
             fail("unexpected run option " + repr(args[i:]))
     if i >= len(args):
         fail("missing run image")
     ref = args[i]
-    (root / (role + "-run.json")).write_text(json.dumps({"image":ref,"env":env,"payload":args[i+1:]}))
+    (root / (role + "-run.json")).write_text(json.dumps({"image":ref,"env":env,"mounts":mounts,"payload":args[i+1:]}))
+    registry_mounts = [value for value in mounts if ",dst=/tmp/oasis7-cargo-home/registry" in value]
+    if registry_mounts:
+        if len(registry_mounts) != 1:
+            fail("expected exactly one candidate Cargo registry mount")
+        fields = dict(field.split("=", 1) for field in registry_mounts[0].split(","))
+        registry = pathlib.Path(fields.get("src", ""))
+        if fields.get("type") != "bind" or registry.is_symlink() or not registry.is_dir():
+            fail("candidate Cargo registry source is not a real directory")
+        seen_path = root / "candidate-registry-mounts.jsonl"
+        seen = seen_path.read_text().splitlines() if seen_path.exists() else []
+        if str(registry) in seen or any(registry.iterdir()):
+            fail("candidate Cargo registry is reused or not fresh")
+        with seen_path.open("a") as stream:
+            stream.write(str(registry) + "\n")
+        (registry / ".fixture-cargo-cache-entry").write_text("private to one candidate container")
     if role == "A":
         (root / "A-selected").touch()
         wait("A-run")
@@ -122,6 +140,8 @@ if args[:1] == ["run"]:
     elif not (root / ("image-" + ref.replace(":", "-"))).exists():
         print("docker: No such image: " + ref, file=sys.stderr)
         sys.exit(125)
+    if os.environ.get("FIXTURE_FAIL_RUN") == "1":
+        fail("fixture requested candidate run failure", 96)
     sys.exit(0)
 fail("unexpected Docker command " + repr(args))
 '''
@@ -199,8 +219,71 @@ class BuilderLifecycleTest(unittest.TestCase):
         self.assertIn("candidate output ancestor", result.stderr)
         self.assertEqual((outside / "marker").read_text(), "unchanged")
         self.assertEqual(sorted(p.name for p in outside.iterdir()), ["marker"])
-        calls = [json.loads(p.read_text())["args"] for p in self.state.glob("call-*.json")]
-        self.assertFalse(any(args[:1] == ["build"] or args[:2] == ["buildx", "build"] for args in calls))
+        self.assertEqual(self.calls(), [])
+
+    def test_candidate_registry_mount_is_private_and_cleaned_for_each_build(self):
+        cargo = self.bin / "cargo"
+        cargo.write_text(FAKE_CARGO)
+        cargo.chmod(0o755)
+        out = self.root / "shared-output"
+        for module_id in ("fixture.one", "fixture.two"):
+            result = subprocess.run(["bash", str(self.script), "--candidate-build", "--manifest-path",
+                                    str(self.manifest), "--out-dir", str(out), "--module-id", module_id],
+                                   cwd=self.root, env=self.env(), capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(list(out.glob(".candidate-builder.*")), [])
+
+        run_calls = [json.loads(path.read_text())["args"] for path in self.state.glob("call-*.json")
+                     if json.loads(path.read_text())["args"][:1] == ["run"]]
+        self.assertEqual(len(run_calls), 2)
+        registry_paths = []
+        for args in run_calls:
+            mounts = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--mount"]
+            registry_mounts = [mount for mount in mounts
+                               if ",dst=/tmp/oasis7-cargo-home/registry" in mount]
+            self.assertEqual(len(registry_mounts), 1)
+            fields = dict(field.split("=", 1) for field in registry_mounts[0].split(","))
+            registry = Path(fields["src"])
+            self.assertEqual(fields["type"], "bind")
+            self.assertEqual(fields["dst"], "/tmp/oasis7-cargo-home/registry")
+            self.assertEqual(registry.name, "registry")
+            self.assertTrue(registry.parent.name.startswith(".candidate-builder."))
+            self.assertTrue(registry.parent.is_relative_to(out))
+            self.assertFalse(registry.exists())
+            registry_paths.append(str(registry))
+            destinations = [field.split("=", 1)[1] for mount in mounts
+                            for field in mount.split(",") if field.startswith("dst=")]
+            self.assertNotIn("/tmp/oasis7-cargo-home", destinations)
+            self.assertNotIn("/tmp/oasis7-home", destinations)
+            self.assertIn("CARGO_HOME=/tmp/oasis7-cargo-home", args)
+            self.assertIn("HOME=/tmp/oasis7-home", args)
+        self.assertEqual(len(registry_paths), 2)
+        self.assertEqual(len(set(registry_paths)), 2)
+        recorded_registry_paths = self.state.joinpath("candidate-registry-mounts.jsonl").read_text().splitlines()
+        self.assertEqual(len(recorded_registry_paths), 2)
+        self.assertEqual(set(recorded_registry_paths), set(registry_paths))
+        self.assertFalse((out / ".candidate-cargo-registry").exists())
+
+    def test_candidate_registry_is_cleaned_when_container_fails(self):
+        cargo = self.bin / "cargo"
+        cargo.write_text(FAKE_CARGO)
+        cargo.chmod(0o755)
+        out = self.root / "failed-output"
+        result = subprocess.run(["bash", str(self.script), "--candidate-build", "--manifest-path",
+                                 str(self.manifest), "--out-dir", str(out), "--module-id", "fixture.failure"],
+                                cwd=self.root, env=self.env(FIXTURE_FAIL_RUN="1"),
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 96, result.stderr)
+        run_calls = [json.loads(path.read_text())["args"] for path in self.state.glob("call-*.json")
+                     if json.loads(path.read_text())["args"][:1] == ["run"]]
+        self.assertEqual(len(run_calls), 1)
+        args = run_calls[0]
+        mounts = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--mount"]
+        registry_mount = next(mount for mount in mounts
+                              if ",dst=/tmp/oasis7-cargo-home/registry" in mount)
+        registry = Path(dict(field.split("=", 1) for field in registry_mount.split(","))["src"])
+        self.assertFalse(registry.exists())
+        self.assertEqual(list(out.glob(".candidate-builder.*")), [])
 
     def tearDown(self):
         # Release fixture-owned barriers first; never kill unrelated processes.
