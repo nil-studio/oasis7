@@ -22,6 +22,7 @@ Gameplay 拥有方案含义、目标适配和玩家结果。原 goal authority �
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | 受阻后的原目标、真实已发生价值与可达恢复选择连续 | [交付恢复比较](#mature-delivery-recovery-comparison) | 原 SC-31/服务/物流与当前 authority / QA | 故障或换路线本身不构成玩家贡献，比较不执行新世界动作 |
 | [AC-PRC-01](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-01)；Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182 | 绑定已接受原目标、真实 blocker 与完整来源切点 | [目标与来源](#production-recovery-goal) | 原 goal authority、World 及身份 authority | 文本解析、现余额和本次确认不能补造原接受准则 |
 | [AC-PRC-02](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-02) | 有限模板映射到实际动作，区分首步和条件后继 | [候选](#production-recovery-candidates) | 原 action admission、站点/工厂/配方 profile | 未支持维护、迁移和任意搜索不能凑可行路线 |
 | [AC-PRC-03](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-03) | 逐步核时间、逐账本增量成本、沉没/占用及保留价值 | [成本](#production-recovery-costs) | 原材料、电力、完成/处置 authority | 不同单位抵销、提前使用未来回收、复制稳定进度 |
@@ -285,6 +286,7 @@ Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182。
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | [交付恢复比较](#mature-delivery-recovery-comparison) | 同目标恢复后果及下一选择不能由 arrival、重置旧工作或未知补造 | [PRC-08](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-08)：同候选/C0 走原可达 repair/rebuild 正例、matching 与费用/权限漂移反例；联合 PRC-09 核旧义务、原请求恢复和真实读面 | 原接受目标、两路线原动作/结果、已匹配和剩余量、成本与合法下一步 | 静态比较不代签正式执行、所有扰动恢复或真人偏好 |
 | [AC-PRC-01](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-01)；Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182 | [目标与来源](#production-recovery-goal) | 原接受准则、same cut、当前 blocker与私有主体 | [01](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-01)：V1 unresolved、v2原prepare/publish/activation、旧余额/receipt、跨cut/隐藏范围 | 原goal/任务证明、源闭包、拒绝与当前性 | 本文未执行goal producer或正式读证明 |
 | [AC-PRC-02](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-02) | [候选](#production-recovery-candidates) | 有序合法准备链与共享规则，不把现态拒绝当后态结论 | [02](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-02)：§6.3共同前态、两合法分支、missing grant/site/profile、Maintain反例 | 每步前态、实际quote/action、条件及拒绝 | 未接通的维护/迁移/任意模块仍不支持 |
 | [AC-PRC-03](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-prc-03) | [成本](#production-recovery-costs) | 逐账本峰值、时间顺序、沉没/占用保留与副产物 | [03](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-03)：E18→10/0、同源互斥账、t1..t5、目的溢出/旧工作/假退款 | 独立算式、原sink/完成/ledger delta | 静态复算不证明真实时延或收益 |
@@ -303,6 +305,8 @@ Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182。
 
 <a id="mature-delivery-recovery-comparison"></a>
 ## 13. 同一交付目标、路线失效与原义务的恢复比较
+
+Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；本节承接[受阻路径的玩家杠杆](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)：保留造成当前状态的原行动和实际后果，在同一已接受目标下解释已得、在途、已耗、损失与未结义务，再比较当前可达的 repair/rebuild/pivot。玩家选择与后续效果仍沿原执行和 matching 关联；推荐、预览、arrival 或外部自然恢复不能算成本次玩家完成。当前没有可执行候选时如实给出原请求核对、等待条件或安全停止，不能因缺证宣称所有独立路径均不可行。
 
 Trace refs: O7-REQ-5d55db85-0a00-4354-af2a-37c9f8d5b182；承接 [REQ-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-002) / [AC-WR-MW-002](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-002)在已采纳交付与服务范围的原义务。本节是目标 bounded_delivery_recovery_v2；§1–12 的 native_production_recovery_v1 及其 production_only/直接转移限制继续有效，不将旧客户端或单个 quote 宣称为新组合已实现。
 

@@ -21,6 +21,10 @@
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | 实际采样/执行与人工体验结论分开，低层证据不升级为真人意愿 | [L4 判断边界](#l4-judgment-boundary) | 原 RunResult/QA/producer 与领域 oracle | 不修复旧 runner 行为，也不以本地检查宣布 L4/L5 已执行 |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | L4、评分、玩法评审、真人及发布材料保留各自证明范围和独立阻断 | [证据消费组合](#playability-evidence-consumer-reception) | 各原证据 owner / 产品与发行 authority | 不新增评分、自动 verdict、统一报告或发布权限 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | 每次结果绑定原来源、实际候选/入口/环境与观察窗口，不拼接别的尝试 | [执行记录与终态](#l4-result-record) | 原 SourceSceneRecord/RunResult 与 QA receiver | 字节和字段完整不证明世界结果或可玩性通过 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | 产品建议按原比较单位接收，错配或未知不抵消独立阻断 | [证据消费组合](#playability-evidence-consumer-reception) | producer/QA 及总纲、评分、真人与公开 claim 原 owner | 不将同评分组、一个入口或局部正例外推全部声明范围 |
 | Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；[AC-14C](prd.md#browser-functional-regression) | 真实组件与可控依赖、确定性时序、隔离和分层证据。 | [浏览器功能回归层](#browser-functional-layer) | QA 维护 runner；Viewer 拥有状态/交互；CI owner 拥有选测接线。 | 产品适用性：N/A；reason=前端验证支撑；scope=fixture-functional。域正确性仍由原 owner 判定，不代签真实世界或 L4B/L5。 |
 | [L4 构建与驱动](prd.md#l4-build-driver) | 默认 release 通过正式 UI 驱动；显式测试构建与观测能力单独选择。 | [构建与驱动选择](design.md#l4-build-selection) | Viewer build/driver；producer bundle 入口。 | 测试产物或参数不能代签 release 体验。 |
 | [L4 Hosted 会话](prd.md#l4-hosted-session) | 实际执行 session 完成受支持登录/恢复，确认 player 关联并回收自有资源。 | [浏览器与玩家会话编排](design.md#l4-session-orchestration) | 既有 Hosted 登录、runtime session 与 agent-browser 生命周期合同。 | 不新增账户、认证、签名或跨会话凭据交接体系。 |
@@ -257,6 +261,23 @@ This matrix is per frozen object, not a whole-file rewrite list. It preserves th
 
 `prepare-playability-l4-review.sh --json` 的路径值通过 argv 传入 Python，由 `json.dumps` 序列化；不把 Bash `${VAR@Q}` 拼成 Python 源。普通、含空格、含单引号的合法路径使用同一方式，成功时 stdout 仅输出 JSON 对象且退出 0；`run_id/output_dir/packet_path/summary_path` 与磁盘 manifest 一致，`manifest_path` 指向该 manifest。保留已有目录保护；末尾输出失败后不得无提示覆盖已生成目录，调用方需要保留诊断并按既有保护处理。该合同可离线验证，不启动 L4A 栈、模型或浏览器，也不产生试玩完成结论。
 
+<a id="playability-evidence-consumer-reception"></a>
+### 6.7 可玩性证据的组合消费
+
+Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1、O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；分别承接[证据等级](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002)与[比较单位](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003)。QA 接收现有原件和各 owner 的判断，不新增报告格式或自动裁决。一次当前结论先明确体验目标、正式玩家入口、候选/明确变更范围和证据窗口；环境影响可进入性、执行或解释时纳入范围。逐项沿[原来源到场景记录](governance/agent-runtime-self-playtest.design.md#selftest-source-scene)核来源、实际树、profile、真实执行/层级与领域 oracle；身份或字节一致仍不代签因果和体验。
+
+| 原消费者 | 接收并保留的事实 | 不可替代的判断 |
+| --- | --- | --- |
+| [L4 原结果](#l4-result-record)与[人工判断](#l4-judgment-boundary) | 当前 attempt、事实与原件、失败/停止、reviewed_attempt 和既有独立阻断 | ACK、环境推进、固定路线或自动分数不产生玩家杠杆/continue；未执行与失败分开，重跑不覆盖原评审 |
+| [评分证据](../playability_test_result/design.md#feedback-score-evidence-boundary)与[比较边界](../playability_test_result/design.md#feedback-score-comparison-boundary) | 当前尝试、来源分组、完整/缺失/排除卡、原值及逐卡阻断；比较继续按该设计的原比较条款 | 同组均值只描述该组，不能补缺卡、跨来源或抵消另一比较单位的阻断 |
+| [总纲证据分层](../game/gameplay/gameplay-top-level-design.design.md#evidence-layer-boundary)与[比较单位](../game/gameplay/gameplay-top-level-design.design.md#comparison-unit-boundary) | 当前目标/入口/profile 的真实行动、原结果和后继选择；结构、live/provider、L4 和 L5 分别给依据 | 局部工业或成熟样本不代签全部受支持路径；原 gameplay/领域 owner 仍核实际因果和范围 |
+| [真人观察](manual/first-session-human-playtest.manual.md#human-study-assessment) | 实际人数/情境、独立或提示完成、原话、领域事实和未观察；候选变化保留复测关联 | 内部校准、外部真人、Agent 分开；被询问意愿、预约接续与自发返回不互换，小样本不推出留存 |
+| [L4 汇总](templates/playability-l4-summary-template.md#verdict-summary)与[发布材料](../playability_test_result/templates/playability-release-evidence-bundle-template.md#评分摘要) | 原 RunResult、已评来源与适用比较单位、独立 blocker、各层未证明项及当前 owner 判断 | 材料生成、分数或局部 pass 不自行提升公开阶段；发行/公开 claim 仍由原 authority 接收 |
+
+不属于同一比较单位的样本只作相邻观察；范围不明只支持原 watch，正在支持更强 claim 时保持 hold；已有独立 blocker 不被另一正向样本、未知总分或重跑消除。核对采用原产品要求及各消费者既有方法，不按文档文件数或只挑成功样本声明全量。某个声明内的必需路径/消费者尚无可核对记录时保留原 gap/owner/下一步；只完成该受测子范围，不删掉上位要求。
+
+旧 runner 的自动结论/覆盖问题仍是已披露的实施差距。按原汇总合同保留已评原件、另存新尝试并独立审其事实；新的追踪关系、模板或静态审阅不代表修复、真实 L4/L5 执行或发行就绪。
+
 ## 11. L4 验证与证据
 
 ### 11.1 验证映射表
@@ -265,6 +286,10 @@ This matrix is per frozen object, not a whole-file rewrite list. It preserves th
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | [L4 判断边界](#l4-judgment-boundary) | 自动采样、无实玩、已评历史与当前尝试分开 | [L4-C03/C04](../../testing-manual.md#l4-toolchain-validation)：固定同候选，核 ACK/progress、缺观察项、失败重试及已评 artifact；真实层另取原证据 | 事实/判断的写入归属、unreviewed/missing 与保留阻断 | fixture 不证明真人愿意继续或旧 runner 已修复 |
+| Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；[REQ-WR-PE-002](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-002) | [证据消费组合](#playability-evidence-consumer-reception) | 技术可用、理解与继续/回访信号不相互代签 | [真人分项判据](manual/first-session-human-playtest.manual.md#human-study-assessment)：固定实际首局入口/候选/窗口，按原 10.1/10.2 保留独立/提示、预约/自发、反证与未观察；方法自身样例不作真人结果 | 真实观察/原话、原领域 oracle、证据等级和建议范围 | 首局人测不覆盖未选路径；内部正向不能覆盖外部反证 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | [执行记录与终态](#l4-result-record) | 来源、实际树、阶段/入口和证据完整性决定记录适用范围 | [来源到场景核对](manual/agent-runtime-self-playtest.manual.md#source-scene-check)：固定条款/候选，核旧 OID、错树、层级错标、必需阶段缺失及跨 world/task/profile 拼接；按原 required/full 分层 | SourceClauseRef/CandidateIdentity、原字节与逐项 gap | 记录检查通过不形成运行或产品建议通过 |
+| Trace refs: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07；[REQ-WR-PE-003](../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-003) | [证据消费组合](#playability-evidence-consumer-reception) | 候选/入口/目标/窗口及影响解释的环境变化必须保留可比范围 | [真人复测与范围核对](manual/first-session-human-playtest.manual.md#human-study-retest)：沿原准备/评估记录审规则、候选、会话与环境变更，保留不可合并、旧失败和提示污染；依 PE003 原 AC 复核建议范围 | 原 finding/候选/观察窗、不能合并的理由及 retained blocker | 具体人测样本不替其他消费者执行；范围不明不形成更强 claim |
 | Trace refs: O7-REQ-d7eec6c8-06c7-4707-8f50-81b19e910c78；[AC-14C](prd.md#browser-functional-regression) | [浏览器功能回归层](#browser-functional-layer) | BROWSER-AC-1–5：真实 consumer、受控事件、独立预期、隔离与证据边界。 | [实施核验](../../testing-manual.md#browser-functional-regression-validation)执行 BFR-P01–P07：同候选明确 fixture-functional，真实浏览器与声明 viewport。 | 实施 PR 的命令、构建/模块身份、场景 trace、截图、console/network、准确断言和选择结果。 | 当前仅设计；不证明后端/provider、生产权限、世界结果、其他浏览器或试玩。 |
 | [L4 构建与驱动](prd.md#l4-build-driver) | [构建与驱动选择](design.md#l4-build-selection) | 默认 release/UI 与显式 test/API 分离，缺能力准确阻断。 | [主手册 L4-C01](../../testing-manual.md#l4-toolchain-validation)：固定同候选 release/test 产物，静态核对默认选择，再按实现执行所选 driver 与能力缺失负例。 | 两构建身份、driver 选择与能力判断的本次记录。 | 文档通过不证明默认 runner 已可用或浏览器已执行。 |
 | [L4 Hosted 会话](prd.md#l4-hosted-session) | [浏览器与玩家会话编排](design.md#l4-session-orchestration) | 干净 guest 登录及独立恢复路径分别验证，实际执行 player/session 一致。 | [主手册 L4-C02](../../testing-manual.md#l4-toolchain-validation)：受支持 Hosted 测试环境与同候选 driver，覆盖干净登录、恢复、失败前置和 owned cleanup。 | guest/登录/注册就绪、session/player 关联及清理证据。 | 不扩展认证体系；其他窗口或 DevLocal lane 不证明默认 Hosted 路径。 |

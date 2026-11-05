@@ -25,6 +25,7 @@ Gameplay 拥有阶段、贡献、首次/重复用途和继续选择的含义；S
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | 成熟供应、实际用途与成长后继形成可归因的玩家选择链 | [成长组合](#contribution-continuing-growth) | 原 G/U、服务/能力/认可 authority 与正式消费者 | 首次 checkpoint、累计产量或环境推进不代签真实后继价值 |
 | [AC-MRC-01](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-01)；Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce | 原首次持续能力之后，以独立受益人、当前真实 G/U 和准确地点范围接受一次旧库存供应 | [阶段、需求与身份](#contribution-need) | 原稳定线历史、SC-31、个人/Agent 与 Site authority | action 标签、库存数或两个 Agent 名称不代签阶段和独立主体 |
 | [AC-MRC-02](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-02) | 只读比较成本与不可逆边界，显式确认一个有限供应，不隐含回报 | [预览与有限承诺](#contribution-preview) | 原 quote、当前 G/U、共享物流容量和正式提交 | preview 不占材料、顺位、容量或创造需求 |
 | [AC-MRC-03](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-03) | 原运输守恒；只有原匹配交付按实际量减少 G 一次 | [交付与匹配结算](#contribution-delivery) | 原 transit/receipt/账本 writer、SC-31 匹配 adapter | 产量、到货提示和普通 receipt ID 不自动完成 G 或父目标 |
@@ -294,6 +295,7 @@ SC-31和U producer只接受当前B对其工厂/目的Site及用途的声明；A�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；[REQ-WR-PE-001](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001) | [成长组合](#contribution-continuing-growth) | 原玩家选择与实际交付/用途相接，真实后继、旧义务及独立路径可核 | [MRC-M09](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m09)：固定成熟前态与当前候选，沿原续单/服务/扩容/机会正反例；联合 MRC-M06/M10 保留当前下一步、恢复与三入口证据 | 原目标/单位/receipt、实际用途和成本、后继候选及未决范围 | 当前供应用途或一条成长分支不代签全部成熟路径、真人继续意愿 |
 | [AC-MRC-01](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-01)；Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce | [阶段、需求与身份](#contribution-need) | 旧持续能力、独立个人、G/U先接受及canonical同地点分别有原件 | [MRC-M01](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m01)：固定本profile候选/C0；阶段缺件、同人多Agent、无需求/用途、范围漂移和合法正常例；required来源/准入层 | build/stable-line历史、个人来源、G/U原接受与Site/anchor refs及拒绝结果 | 不证明其他成熟阶段、通用region或charter |
 | [AC-MRC-02](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-02) | [预览与有限承诺](#contribution-preview) | 无副作用比较、明确无对价、一次供货当前授权及成本 | [MRC-M02](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m02)：同候选正常quote、stale/容量/费用缺失、直接owner与无Site委托、并发重复；required提交层 | 预览前后不变、fresh接受/原Transfer和归因同根、实际扣料/费用或原子拒绝 | 不证明收费服务、跨区或delegated Site能力 |
 | [AC-MRC-03](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#ac-mrc-03) | [交付与匹配结算](#contribution-delivery) | 原运输/费用守恒、准确G单次matching与不匹配保留事实 | [MRC-M03](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m03)：t10/t11、loss/amount/目的漂移、取消到期竞争和重放；required原账本/匹配层 | 原start/complete/settled、tariff escrow/payout、G before/after和唯一matching key | 不证明父root、terminal或奖励完成 |
@@ -323,6 +325,8 @@ SC-31和U producer只接受当前B对其工厂/目的Site及用途的声明；A�
 
 <a id="contribution-continuing-growth"></a>
 ## 13. 持续服务、扩容与有限影响的成长组合
+
+Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；本节同时承接[成熟路径的玩家杠杆](../../product/world-rules-core-gameplay/playability-evidence-and-claim-boundaries.prd.md#req-wr-pe-001)。玩家显式选择的供应、服务或扩容须沿原 goal/unit/job/receipt 关联实际交付、使用或能力变化，再解释由这些结果打开的当前有限选择；arrival、累计库存、checkpoint 名称及他人自然生产不能补成自己的贡献。原来源只支持局部结果时，保留其范围与旧费用/义务，按本节原候选提供真实继续、恢复、暂缓或退出，不以认可、推荐或 unknown 新增世界权利。原 v1 的一次用途与本节成长组合各保原适用范围。
 
 Trace refs: O7-REQ-bc53557b-b03d-465f-a11d-3b3a33ae29ce；上游仍为 [REQ-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#req-wr-mw-001) / [AC-WR-MW-001](../../product/world-rules-core-gameplay/mature-world-progression.prd.md#ac-wr-mw-001)及[成熟成长合同](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#29-成熟世界中的小玩家成长线)中持续交付、expand_capacity_preview 和 checkpoint 的原义务。
 

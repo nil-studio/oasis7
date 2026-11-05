@@ -6,7 +6,7 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-05
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)、[`testing-manual.md`](../../../testing-manual.md)
 
 本文承载“玩家为何值得继续、当前能据此作出多强结论”的长期产品边界。它不定义测试脚本、证据字段、产物 schema、角色调度、PRD-TESTING ID、具体玩法数值或当前 release verdict；这些由 `game`、`testing`、相关实现专业域与根 `README.md` 分别拥有。
@@ -91,12 +91,14 @@ fixture、live 自动化和真人记录分别汇总；结构代理计数及默�
 
 Trace ID: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3
 
-- 系统设计状态：未核实
+- 系统设计状态：部分覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[首局选择](../../game/gameplay/gameplay-decision-delegation-return.design.md#des-adopt-001)、[有效委托](../../game/gameplay/gameplay-decision-delegation-return.design.md#des-adopt-002)、[原结果归因](../../game/gameplay/gameplay-decision-delegation-return.design.md#des-adopt-003)、[真实后继/回访](../../game/gameplay/gameplay-decision-delegation-return.design.md#des-adopt-004)，以及[成熟成果与成长](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-continuing-growth)、[交付受阻后的恢复分叉](../../world-runtime/runtime/production-recovery-comparison.design.md#mature-delivery-recovery-comparison)和[已采纳地方机会的实际消费](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-consumers)已按原Trace接收各自路径的行动、领域结果、代价/风险、后继选择与失败恢复。本轮只签这些具体组合，不由局部条款代签每个受支持路径。
+- 设计验证方法：[原结果与自测](../../testing/manual/agent-runtime-self-playtest.manual.md#st-03)、[成熟成长MRC09/10](../../testing/manual/mature-world-regional-contribution.manual.md#mrc-m09)、[交付恢复PRC08/09](../../testing/manual/production-recovery-comparison-acceptance.manual.md#production-recovery-08)、[地方机会RO03/05–08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-03)及[真人理解/继续](../../testing/manual/first-session-human-playtest.manual.md#human-study-assessment)分别按实际路径与层级取证，不由同一局部正例代签全部路径。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业接收；原要求、实际支持、实现状态和历史证据不升格。
 - 实现与验证依据：canonical starter production_only路径已有玩家来源绑定的配方结算、owner输出和持久里程碑，实际snapshot/Viewer展示消耗、产出和下一Assembler候选，并明确仍需当前材料/电力/授权；这是本条玩家行动→因果结果→新选择的确切子范围。 [实际完成路径增加owner output ledger余额并记录持久starter milestone/settlement summary。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L454-L575) [实际milestone匹配且Assembler authority合法时开放open_assembler_candidate_only，非只读静态文案。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/state/starter_industrial.rs#L159-L207) [owner/site/origin/正量产出重验后把持久settlement投影到实际player feasibility。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/starter_industrial_outcome.rs#L11-L85) [实际组件展示结算投入、数量、owner及有条件的下一候选。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/industrial_starter_outcome_card.jsx#L3-L24) [主Viewer挂载工业成果卡，非孤立组件。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2690-L2700) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
 - 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
-- 剩余范围：不扩展为所有受支持玩法或成熟区域交付；仅候选资格不证明建造成功/稳定产能/交付。其余路径的玩家归因与真实下一行动、失败/重连恢复和正式入口实测仍需核清。
+- 剩余范围：首局生产/原委托、成熟供货成长、交付恢复和local_route认可机会的设计组合已核；仍须按当前真实声明的全部受支持游玩路径补齐逐路径适用性与专业接收核对，未重读不等于这些路径没有设计。实施仍须完整玩家归因/结果/后继与当前恢复读面及正式入口证据；旧候选资格不证明建造、稳定产能或实际交付，本轮无业务或真人运行。
 
 - 要求：每个受支持的游玩路径都必须形成“玩家行动 -> 可归因世界变化 -> 新选择或持续价值 -> 下一决策/回访理由”的链路；环境活跃、Agent 自主推进或静态展示不能代替玩家杠杆。
 - 专业权威：[`doc/game/prd.md`](../../game/prd.md)、[`首局与持续游玩`](first-session-and-continuation.prd.md)
@@ -117,20 +119,22 @@ Trace refs: O7-REQ-d2b0b0b0-51b3-4dc6-a6a5-de4c1a3ac4f3；声明：[REQ-WR-PE-00
 
 Trace ID: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未核实
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[L4独立判断](../../testing/design.md#l4-judgment-boundary)与[跨证据消费者接收](../../testing/design.md#playability-evidence-consumer-reception)组合[总纲评审分层](../../game/gameplay/gameplay-top-level-design.design.md#evidence-layer-boundary)及[评分证据边界](../../playability_test_result/design.md#feedback-score-evidence-boundary)，明确原L4结果/评分、玩法评审、真人观察、汇总和发布材料各自能支持的结论；低层不能代签L5或广泛市场成功，缺失/冲突和独立阻断保持。
+- 设计验证方法：[L4-C03/C04](../../../testing-manual.md#l4-toolchain-validation)、[SourceScene核对](../../testing/manual/agent-runtime-self-playtest.manual.md#source-scene-check)及[真人独立评估](../../testing/manual/first-session-human-playtest.manual.md#human-study-assessment)核原来源、独立判定和消费者声明；评分、运行、人工结论不互相代签。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业接收；原要求、实际支持、实现状态和历史证据不升格。
 - 实现与验证依据：L4B runner确有watch/hold与human-equivalence文字、scaffold内部人类佐证说明；但未认定为本条防层级代签的直接交付：它仍以step/progress/ACK自动推导Agent继续与玩家杠杆。 [现行合同禁止step/progress/ACK自动生成Agent继续或杠杆分；旧runner产物默认为unreviewed且不覆盖已评审verdict。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/testing/prd.md#L183-L190) [真实runner summary writer把单次正向结果限定watch、负向hold并输出human_equivalence_note，不把本次Agent动作当作真人意愿。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/run-playability-l4b-agent.sh#L522-L590) [既有summary更新直接替换combined_stage_recommendation并写入human_equivalence_note；未读取比较单位或已有独立blocker，已由现行合同保留的实现缺口，非新finding。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/run-playability-l4b-agent.sh#L697-L739) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
 - 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
-- 剩余范围：层级输出限制不是完整consumer防代签；human note含L4A/L5 corroboration歧义，其他产品评审/公开claim消费者未穷尽。单次runner仍以world-step/progress+submit ack产生leverage pass，不能据此证明实际玩家因果完成；默认构建/session等旧缺口来自#4438，PR4641合同承接且原Issue按决定停止独立跟踪，关闭不表示修复，本轮没有真实L4/L5执行。
+- 剩余范围：必要证据消费者的设计和方法已组合接收；真实runner/summary/公开claim接线及当前证据仍须逐项落实。旧runner以world-step/progress和submit ACK生成leverage pass、human note层级歧义及默认构建/session等已披露实施缺口继续按原#4438关闭决定和PR4641合同保留，关闭不表示修复；本轮无真实L4/L5执行或公开结论升级。
 
 - 要求：自动化、受控探针、L4A synthetic 和 L4B 具身 Agent 只能支持各自层级的规则、困惑或受限继续游玩结论；只有相应范围的 L5 真实人类/真实环境信号才可支持外部玩家反应，且不能扩写为广泛市场成功。
 - 专业权威：[`doc/testing/prd.md`](../../testing/prd.md)、[`testing-manual.md`](../../../testing-manual.md)
 - 验收：[AC-WR-PE-002](#ac-wr-pe-002)
 
-- 局部专业设计导航：[评分子链](../../playability_test_result/design.md#feedback-score-evidence-boundary)仅说明评分来源、尝试与评审归属保留及数值不可越级代签。这不是本要求的完整系统设计依据；原未核实状态、剩余范围和实现证据边界保持不变。
+- 局部专业设计导航：[评分子链](../../playability_test_result/design.md#feedback-score-evidence-boundary)仅说明评分来源、尝试与评审归属保留及数值不可越级代签。此链仍只承担本段局部职责；完整设计接收见本卡上述专业组合，原实施与证据边界保持。
 
-- 局部专业设计导航：[玩法总纲的总纲评审证据分层](../../game/gameplay/gameplay-top-level-design.design.md#evidence-layer-boundary)仅接收本专题评审将结构回归、live/provider、L4A/L4B 和 L5 的证明范围分开；低层不能代签真人继续意愿。 此为总纲局部职责与待执行验证计划，不是本要求完整系统设计或实现通过依据；原状态、剩余范围及既有证据边界保持不变。
+- 局部专业设计导航：[玩法总纲的总纲评审证据分层](../../game/gameplay/gameplay-top-level-design.design.md#evidence-layer-boundary)仅接收本专题评审将结构回归、live/provider、L4A/L4B 和 L5 的证明范围分开；低层不能代签真人继续意愿。 此仍为总纲局部职责与待执行方法；完整设计接收见本卡上述专业组合，不单独代签全部设计或实际实现。
 
 <a id="ac-wr-pe-002"></a>
 ### AC-WR-PE-002：低层正向证据保持低层结论
@@ -147,20 +151,22 @@ Trace refs: O7-REQ-1a903b9b-03df-4ae2-86f2-2a767affc9c1；声明：[REQ-WR-PE-00
 
 Trace ID: O7-REQ-bacdddac-0615-4447-9242-0145c1cc4e07
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未核实
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[L4结果记录](../../testing/design.md#l4-result-record)与[完整比较单位的消费](../../testing/design.md#playability-evidence-consumer-reception)组合[总纲比较单位](../../game/gameplay/gameplay-top-level-design.design.md#comparison-unit-boundary)及[评分与产品比较的区别](../../playability_test_result/design.md#feedback-score-comparison-boundary)，绑定体验目标、formal入口、候选或明确变更范围、窗口及影响解释的环境；错配只作相邻观察，未知watch/更强claim时hold，其他单位阻断不被均值抵消。
+- 设计验证方法：[L4-C03/C04](../../../testing-manual.md#l4-toolchain-validation)、[候选/来源反例](../../testing/manual/agent-runtime-self-playtest.manual.md#source-scene-check)及[真人准备与复测](../../testing/manual/first-session-human-playtest.manual.md#human-study-retest)逐个改变入口、目标、候选/范围、窗口和适用环境，保留旧阻断和新尝试的各自结果。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业接收；原要求、实际支持、实现状态和历史证据不升格。
 - 实现与验证依据：L4 scaffold实际记录git_head、formal_surfaces、run_id、known_blockers和证据路径；runner实际记录起止时间、target_claim/change_scope及原始状态路径，构成比较单位的部分归属资料。 [现行合同明确PR4641仅文档承接、#4438按决定关闭而实现未修；current_attempt和事实/体验判断须分离。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/doc/testing/prd.md#L147-L195) [真实scaffold writer写git_head、formal_surfaces、run_id、known_blockers与artifact路径；这些是已交付证据归属记录，不是完整comparison-unit判定。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/prepare-playability-l4-review.sh#L429-L482) [manifest读入只提取output_dir/card_path/summary_path，未校验git_head/formal_surfaces与当前run。](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/scripts/run-playability-l4b-agent.sh#L124-L152) 本轮只读静态审读，未执行验收；实际实现交付PR映射未逐条核清，固定生产源码为交付子范围依据，不以未取得运行证据抹去已证交付。
 - 核对日期与基线：2026-10-17；需求/专业设计/静态源码固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；本轮对比 main 仅文档变化，本条源码继续适用。无新产品运行验收。
-- 剩余范围：完整兼容比较与独立阻断保留未交付于已查summary updater：manifest读取未校验git_head/formal_surfaces，summary直接写单run watch/hold。该缺口已由#4438关闭决定及PR4641现行合同明确保留，非本轮新finding；尚未执行复现，不宣称发生实际错误发布，其他消费者未穷尽。
+- 剩余范围：比较规则与现有消费者设计已承接；已查summary updater未核git_head/formal_surfaces、直接写单run watch/hold及其他消费接线仍属实施/验证剩余。沿原#4438关闭决定与PR4641合同保留该缺口，不声称已修复或发生实际错误发布；按同一比较单位取得真实结果与修复复测，本轮未执行。
 
 - 要求：`go/watch/hold/block` 只能比较同一体验目标、formal 玩家入口、候选版本/变更范围、证据窗口及适用环境（若环境影响解释）的证据；范围不明或证据不可回链时不得升级结论。
 - 专业权威：[`doc/testing/prd.md`](../../testing/prd.md)、[`testing-manual.md`](../../../testing-manual.md)
 - 验收：[AC-WR-PE-003](#ac-wr-pe-003)
 
-- 局部专业设计导航：[评分子链](../../playability_test_result/design.md#feedback-score-comparison-boundary)仅说明描述性评分组与产品比较单位的区别及独立阻断保留。这不是本要求的完整系统设计依据；原未核实状态、剩余范围和实现证据边界保持不变。
+- 局部专业设计导航：[评分子链](../../playability_test_result/design.md#feedback-score-comparison-boundary)仅说明描述性评分组与产品比较单位的区别及独立阻断保留。此链仍只承担本段局部职责；完整设计接收见本卡上述专业组合，原实施与证据边界保持。
 
-- 局部专业设计导航：[玩法总纲的总纲评审比较单位](../../game/gameplay/gameplay-top-level-design.design.md#comparison-unit-boundary)仅接收本专题建议固定体验目标、formal 入口、候选或明确变更范围、证据窗口；环境影响解释时纳入范围。 此为总纲局部职责与待执行验证计划，不是本要求完整系统设计或实现通过依据；原状态、剩余范围及既有证据边界保持不变。
+- 局部专业设计导航：[玩法总纲的总纲评审比较单位](../../game/gameplay/gameplay-top-level-design.design.md#comparison-unit-boundary)仅接收本专题建议固定体验目标、formal 入口、候选或明确变更范围、证据窗口；环境影响解释时纳入范围。 此仍为总纲局部职责与待执行方法；完整设计接收见本卡上述专业组合，不单独代签全部设计或实际实现。
 
 <a id="ac-wr-pe-003"></a>
 ### AC-WR-PE-003：不匹配样本不能抵消阻断

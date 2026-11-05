@@ -22,6 +22,8 @@
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e；[REQ-ENTRY-FREE-002](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002) | 原情境来源的实际用途采用与独立基线分开，入口/付费便利不造资格 | [全部实际消费者](#reputation-all-consumers) | MW004/CR003 及原 claim/制造/机会/FI/GR authority | 本文件不新增机会、全局权力或成熟阶段前置 |
+| Trace refs: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e；[REQ-ENTRY-FREE-002](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002) | 采用版本、当前来源及原请求恢复保留历史和已发生义务 | [版本与恢复](#reputation-versioned-adoption) | 原 source/evaluator 与业务消费者/G1 | 关闭投影、重新查询或换主体不补发权益/冲销旧结果 |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 合作参考只接受支持的权威结果，事实、声明和未知可区分 | [来源适配](contextual-reputation-evidence-and-review.design.md#reputation-source) | 两个个人合同 profile、原执行 proof 和 Gameplay 来源白名单 | 任意社会事实、native 旧分数及其他合同 |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | 玩家责任与 Agent 行动历史分别归属；控制变化不转移个人记录 | [主体与任期](contextual-reputation-evidence-and-review.design.md#reputation-subject) | 原签署者、身份连续性、历史控制来源 | 组织/岗位、人格出售、继受一般 credential |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | 地点、服务、合同、时间和受众约束不能由查询或文案放宽 | [情境与去重](contextual-reputation-evidence-and-review.design.md#reputation-context) | 原条款与合法受众；经验证的关联关系断言 | 跨世界信用、跨服务信任或独立交易次数奖励 |
@@ -317,6 +319,8 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。数值和采用范围�
 <a id="reputation-all-consumers"></a>
 ### 10.4 全部实际消费者、独立基线与迁移
 
+Trace refs: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e；本节接收[FREE002 原迁移范围](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002)中由情境声誉承担的来源与用途组合。进入、便利付款、在线、外部参与或自述本身不能产生本设计要求的正式 source，也不能代替各消费者的当前采用与原世界准入。真实世界行动仍按其原合同形成结果；只有已明确采用的用途消费相应来源。原首槽/普通物流等独立路线不增加认可前置，MW004 的成熟阶段条件也不被搬成普通 claim/制造的额外门槛。
+
 Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
 
 | 真实消费者/原 authority | 后继接收及无合格来源的独立路径 | 反例、历史与拒绝条件 |
@@ -349,6 +353,8 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
 <a id="reputation-versioned-adoption"></a>
 ### 10.6 版本、提交与持续恢复
 
+Trace refs: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e；承接[FREE002 的历史与恢复边界](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002)。认可、咨询或当前用途失效仅按本节原采用及业务规则影响后续行为；原事实、已发生费用、有效义务和当前合法读取分别保留。重新进入、换提供者、换主体视图、重新索引或恢复授权均不成为第二份来源或新的世界权利，具体下一步仍由原消费者依当前资格与原 operation 结果决定。
+
 来源、咨询投影、当前采用 basis 和真正取得/投票/机会世界效果是四份不同事实。只读重算不更新全局 score、业务余额、原资源 hold、世界资格或新 receipt；若需更新派生缓存，在受控服务本地 CAS，失败可丢弃该未发布缓存而不能改变 source。需要原 v1 durable correction 的操作仍按 §7 同根提交。当前 basis 必须在原消费者 effect 事务内重验，不把缓存 CAS 当 canonical 取得事实。
 
 开启后继采用时固定 activation cut 和 policy/schema/evaluator manifest；只对之后签署并履行、条款中明确采用的 immediate_exchange_v2 生效。旧 v1、旧 native、旧已承诺经济义务/许可/投票按原版本；不能通过 alias、复制 receipt、换 charter 或重新索引追溯加分/减分。旧全球数继续可读原版本历史，不复制进新用途值，也不清零世界字段来假装完成迁移。当前版本/覆盖不明时不给确定资格；仍保留独立基线与旧义务的安全处置。
@@ -375,6 +381,8 @@ Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905。
 
 | 上游要求与验收 | 本设计条款 | 独立 obligation | 验证方法 / candidate / layer | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e；[REQ-ENTRY-FREE-002](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002) | [全部实际消费者](#reputation-all-consumers) | 真实采用才影响对应当前用途，咨询/入口不绕原资格与独立路 | [REP11](../../testing/manual/contextual-reputation-acceptance.manual.md#rep11-consumers)：固定候选实际 manifest 全消费者，联合 REP10 原取得边界及地方机会原 Use；缺 source/消费者保留未知 | 实际采用/未采用/未知、原世界效果与独立基线对照 | 固定表不代签新增未来插件，咨询不发 offer/任命/资产 |
+| Trace refs: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e；[REQ-ENTRY-FREE-002](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-002) | [版本与恢复](#reputation-versioned-adoption) | 更正/失效与当前用途分开，未知和版本变化不洗史或重执行 | [REP12](../../testing/manual/contextual-reputation-acceptance.manual.md#rep12-review-recovery)：同候选 source/投影/业务/World 四层故障，当前/历史读权与原件/窗口复核 | 原请求/结果、旧任期/义务、合法恢复与无第二效果 | 未运行持久化或真实 consumer 不声明通过，普通丢 ACK 不等于全 World unknown |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [来源适配](contextual-reputation-evidence-and-review.design.md#reputation-source) | 来源真实、完整且可读，不从声明造信誉 | [REP01](../../testing/manual/contextual-reputation-acceptance.manual.md#rep01-source)；固定候选，required 来源合同，full 真实执行来源；未执行 | 源 receipt/proof、字段对照与拒绝零差分 | 未支持合同、所有 social schema |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[AC-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#ac-wr-cr-003) | [主体与任期](contextual-reputation-evidence-and-review.design.md#reputation-subject) | 原责任、Agent 历史、换 owner 和继受分开 | [REP02](../../testing/manual/contextual-reputation-acceptance.manual.md#rep02-subject)；固定身份与控制历史，required；未执行 | 个人/Agent 投影、权限及 provider 段 | 组织/岗位正式支持 |
 | Trace refs: O7-REQ-5197cd23-8409-4cea-860a-96d2048c7905；[REQ-WR-CR-003](../../product/world-rules-core-gameplay/communication-contracts-reputation-and-rd-continuity.prd.md#req-wr-cr-003) | [情境与去重](contextual-reputation-evidence-and-review.design.md#reputation-context) | 不跨情境，不把拆分/循环/转载变独立经验 | [REP03](../../testing/manual/contextual-reputation-acceptance.manual.md#rep03-context)；固定 source lineage，required；未执行 | 原单位覆盖、唯一 origin、关联断言及拒绝 | 全网防女巫、玩法平衡 |

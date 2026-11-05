@@ -7,7 +7,7 @@
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
 - 专业域权威：[`doc/game/prd.md`](../../game/prd.md)、[`doc/world-simulator/prd.md`](../../world-simulator/prd.md)、[`doc/testing/prd.md`](../../testing/prd.md)
-- Last reviewed：2026-09-13
+- Last reviewed：2026-11-05
 
 本文是长期产品分册，定义免费基础进入、可选服务、世界内成长、认可和区域互赖之间的产品边界。它不定义支付渠道、定价、账户或 onboarding 实现、具体资格算法、奖励数值、OC 发放/兑换、治理字段或当前 preview 放行结论。
 
@@ -123,12 +123,14 @@ Trace ID: O7-REQ-dc05d050-6c0c-4dbd-bffc-a5314c6f133e
 
 - 功能点：[REQ-ENTRY-FREE-002](#req-entry-free-002)；验收 [AC-ENTRY-FREE-002](#ac-entry-free-002)。
 - 适用范围：成熟世界认可/机会组合与早期入口信号不产生世界效果的负边界；沿用本条原有阶段和前置条件。
-- 系统设计状态：未核实
-- 系统设计依据：已核对本专题列出的专业权威入口，尚未核清本功能全部义务的准确系统设计承接；产品语义及根 PRD 导航不作为技术覆盖证明。
+- 系统设计状态：已覆盖
+- 系统设计依据：[原成熟阶段](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#recognition-stage)、[预览/待决不造权益](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-preview-pending)、[当前资格再校验](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-current-revalidation)、[失效/历史/独立路](../../world-runtime/runtime/recognition-opportunity-settlement.design.md#opportunity-recovery)与[全部已采纳来源消费者](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)、[版本化用途采用](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-versioned-adoption)精确接回原MW004/CR003主责。成熟认可不成为普通claim/制造/首局行动的新门槛，免费进入、付费便利或外部参与本身不产生世界资格或永久权力。
+- 设计验证方法：[RO01/03/05/06/08](../../testing/manual/recognition-opportunity-acceptance.manual.md#recognition-opportunity-03)与[REP11/12](../../testing/manual/contextual-reputation-acceptance.manual.md#rep11-consumers)组合原取得/完整覆盖方法，核当前采用、真实使用、失效保史和独立路径；未执行。
+- 本次设计核对：2026-11-05；已合基线 `d53e6e745d68c88f59d9aca009cd94451fb6be44` 与本次专业接收；原要求、实际支持、实现状态和历史证据不升格。
 - 实现状态：部分实现
 - 实现与验证依据：早期负边界已交付的窄范围是仓库PR参与intake程序：PR/body输入仅生成draft/deferred或拒绝导入，CLI/round scan终点只打印候选ledger/JSON，approval/distribution保持空且没有世界提交/结算调用。该外部参与入口不自动产生奖励或世界资格；历史具体round仍记录pending，仅作该轮佐证。 [import-entry](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-import.py#L67-L114)；[intake](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme_reward_pr_intake_lib.py#L150-L232)；[scan](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-round-scan.py#L104-L153)；[scan-output](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/scripts/readme-reward-pr-intake-round-scan.py#L204-L361)；[actual-pending](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/doc/readme/governance/readme-limited-preview-contributor-reward-distribution-closure-round-2026-04-13.md#L3-L30)。本轮仅固定源码/文档静态审读，未执行业务测试；未取得本卡同候选完整验收证据。实际交付PR映射未逐条核清，不把旧测试定义或历史round当新运行证据。
 - 核对日期与基线：2026-10-17；需求PR #4842 `0901927131b3e7c919fc6b092e77ae8895579989`；源码main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；缓存逐Git blob匹配此固定树。本轮无安装/部署/业务执行，无新产品验收。
-- 剩余范围：核清免费进入、付费便利、访问、其他外部参与信号的全部实际authority/消费者；成熟阶段入口仍须接MW004/CR003来源、范围期限、失效历史及独立基线。不得把仅PR intake程序无世界提交扩写为所有下游或线上自定义接管输出者均无效果，approved奖励也不得混同成熟机会。
+- 剩余范围：原迁移范围的专业设计已接收；仍须逐实际入口实现并核验MW004/CR003真实来源、采用版本、有效范围、期限、当前用途/实际效果、失效历史和独立基线。PR intake无世界提交的切片不代签全部下游；approved贡献奖励也不成为成熟机会。按原RO/REP方法取得跨入口正常、失效与恢复的同候选证据，原部分实现判断保持。
 
 - 本次实现复核：2026-10-17；需求与源码固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub固定文本/PR记录审读；覆盖本条原入口/阶段及验收范围，未执行浏览器、安装或业务验收；旧核对基线只保留历史语境。
 
