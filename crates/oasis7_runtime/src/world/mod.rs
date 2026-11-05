@@ -521,7 +521,6 @@ impl World {
     }
 
     fn assemble_with_state(mut state: WorldState, fresh_fixture_identity: bool) -> Self {
-        #[cfg(not(any(test, feature = "test_tier_required", feature = "test_tier_full")))]
         let _ = fresh_fixture_identity;
         state.migrate_compat_material_ledgers();
         state
