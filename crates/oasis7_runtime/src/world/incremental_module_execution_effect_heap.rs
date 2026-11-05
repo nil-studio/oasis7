@@ -1,6 +1,6 @@
 //! Owned JSON clone admission for one module effect, never a source proof.
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
-pub(super) struct EffectCloneWorkV1 {
+pub(in crate::world) struct EffectCloneWorkV1 {
     pub nodes: u64,
     pub bytes: u64,
     pub max_depth: usize,
@@ -8,7 +8,7 @@ pub(super) struct EffectCloneWorkV1 {
 fn limited() -> ValueTreeError {
     ValueTreeError::ResourceLimited("module effect clone bound")
 }
-pub(super) fn json_clone_bound_v1(
+pub(in crate::world) fn json_clone_bound_v1(
     value: &serde_json::Value,
     work: &mut EffectCloneWorkV1,
     depth: usize,

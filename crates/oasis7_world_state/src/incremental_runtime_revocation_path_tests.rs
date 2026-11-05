@@ -25,6 +25,10 @@ fn typed_path_epoch_updates_replay_and_failures_poison() {
             &mut read_work(),
         )
         .unwrap();
+        assert_eq!(
+            proof.safe_alternatives_len(),
+            source.safe_alternatives.len()
+        );
         proof.validate_binding(&roots).unwrap();
         let mut wrong = roots.clone();
         wrong.height += 1;

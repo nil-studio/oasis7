@@ -234,22 +234,39 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
     }
     let result = result.map_err(IwsGenesisTransferErrorV1::Genesis)?;
     targets.check_complete()?;
+    // Move the allowance out before IO. Even a poisoned read account cannot
+    // leave the original allowance available for an implicit retry.
+    let outer_io = std::mem::replace(
+        &mut work.outer_reads,
+        PageIoBudget {
+            reads_remaining: 0,
+            read_bytes_remaining: 0,
+            writes_remaining: 0,
+            write_bytes_remaining: 0,
+        },
+    );
     let state = source.state_session_with_cancelled(
-        work.outer_reads.clone(),
+        outer_io,
         oasis7_proto::memory_budget::MemoryClass::Ordinary,
         cancelled,
     )?;
-    pages::send_outer_indexes(
+    let transferred = pages::send_outer_indexes(
         &result.roots,
         &state,
         &targets,
         memory,
         &mut work.outer_scan,
-    )?;
-    if let Some(error) = state.take_read_error() {
+    );
+    let actual_error = state.take_read_error();
+    let remaining = state.remaining_io();
+    if let Ok(remaining) = &remaining {
+        work.outer_reads = remaining.clone();
+    }
+    if let Some(error) = actual_error {
         return Err(IwsGenesisTransferErrorV1::Store(error));
     }
-    work.outer_reads = state.remaining_io()?;
+    remaining?;
+    transferred?;
     Ok(result)
 }
 /// Install only the actual transferred namespace. The endpoint still performs

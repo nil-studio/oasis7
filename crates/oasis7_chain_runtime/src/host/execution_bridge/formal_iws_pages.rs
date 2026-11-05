@@ -40,6 +40,9 @@ impl<'a, 'quota> Targets<'a, 'quota> {
         }
         let result = (|| {
             for (index, store) in self.stores.iter().enumerate() {
+                if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                    return Err(ValueTreeError::Cancelled);
+                }
                 let charge = store.memory_budget().reserve(
                     bytes
                         .len()

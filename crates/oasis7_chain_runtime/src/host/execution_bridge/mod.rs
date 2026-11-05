@@ -10,7 +10,6 @@ mod controlled_live_history;
 mod controlled_live_package;
 mod driver_startup_recovery;
 mod execution_hash;
-mod incremental_genesis;
 #[cfg(unix)]
 mod formal_attempt_lifecycle;
 mod formal_business_package;
@@ -22,6 +21,8 @@ mod formal_execution_timing;
 #[cfg(unix)]
 mod formal_executor;
 pub(crate) mod formal_initial;
+#[cfg(unix)]
+mod formal_iws_genesis;
 pub(crate) mod formal_native_environment;
 #[cfg(unix)]
 pub(crate) mod formal_node_hook;
@@ -32,6 +33,7 @@ pub(crate) mod formal_writer;
 mod governance_authorization;
 #[cfg(all(test, unix))]
 pub(crate) mod governance_authorization_tests;
+mod incremental_genesis;
 mod product_validation_intent;
 mod provider_bootstrap;
 mod world_service_cleanup_v2;

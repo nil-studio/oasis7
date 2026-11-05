@@ -260,8 +260,9 @@ fn enforce_pure_policy_hooks_for_target<T: ModuleCallTarget + ?Sized>(
                         policy_module_id
                     ),
                 })?;
-        let policy_manifest_hash =
-            hash_json(&policy_manifest).map_err(|err| ModuleCallFailure {
+        let policy_manifest_hash = target
+            .module_manifest_hash_for_call(&policy_manifest)
+            .map_err(|err| ModuleCallFailure {
                 module_id: module_id.to_string(),
                 trace_id: trace_id.to_string(),
                 code: ModuleCallErrorCode::PolicyDenied,
@@ -302,27 +303,32 @@ fn enforce_pure_policy_hooks_for_target<T: ModuleCallTarget + ?Sized>(
             ctx,
             event: None,
             action: Some(
-                to_canonical_cbor(&policy_payload).map_err(|err| ModuleCallFailure {
+                target
+                    .encode_module_input_for_call(&policy_payload)
+                    .map_err(|err| ModuleCallFailure {
+                        module_id: module_id.to_string(),
+                        trace_id: trace_id.to_string(),
+                        code: ModuleCallErrorCode::PolicyDenied,
+                        detail: format!(
+                            "pure policy hook {} input encode failed: {err:?}",
+                            policy_module_id
+                        ),
+                    })?,
+            ),
+            state: None,
+        };
+        let input_bytes =
+            target
+                .encode_module_input_for_call(&input)
+                .map_err(|err| ModuleCallFailure {
                     module_id: module_id.to_string(),
                     trace_id: trace_id.to_string(),
                     code: ModuleCallErrorCode::PolicyDenied,
                     detail: format!(
-                        "pure policy hook {} input encode failed: {err:?}",
+                        "pure policy hook {} input envelope encode failed: {err:?}",
                         policy_module_id
                     ),
-                })?,
-            ),
-            state: None,
-        };
-        let input_bytes = to_canonical_cbor(&input).map_err(|err| ModuleCallFailure {
-            module_id: module_id.to_string(),
-            trace_id: trace_id.to_string(),
-            code: ModuleCallErrorCode::PolicyDenied,
-            detail: format!(
-                "pure policy hook {} input envelope encode failed: {err:?}",
-                policy_module_id
-            ),
-        })?;
+                })?;
         let hook_output = target
             .call_module_raw_for_call(
                 policy_module_id,

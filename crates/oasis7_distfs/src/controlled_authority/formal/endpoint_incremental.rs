@@ -404,9 +404,6 @@ mod persist;
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_history_originals.rs"]
 mod history_originals;
-#[cfg(not(target_arch = "wasm32"))]
-#[path = "endpoint_incremental_sources.rs"]
-mod sources;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[path = "endpoint_incremental_jobs.rs"]

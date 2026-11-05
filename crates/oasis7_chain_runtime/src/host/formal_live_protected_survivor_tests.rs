@@ -277,6 +277,7 @@ pub(in super::super) fn run(
             pending: old.pending.clone(),
             decision_head: old.decision_head.clone(),
             seal: None,
+            data_closure: None,
             durable_set: None,
         })
     };

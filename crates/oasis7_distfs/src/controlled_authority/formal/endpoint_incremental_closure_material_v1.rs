@@ -13,6 +13,8 @@ use std::sync::Arc;
 #[path = "endpoint_incremental_closure_native_reader.rs"]
 mod native_reader;
 pub(crate) use native_reader::NativeChunkReadWorkV1;
+#[path = "endpoint_incremental_closure_executable.rs"]
+mod executable;
 #[path = "endpoint_incremental_closure_frozen.rs"]
 mod frozen;
 #[path = "endpoint_incremental_closure_stream.rs"]
@@ -28,6 +30,7 @@ pub(crate) struct StaticExecutionMaterialV1 {
     pages: IncrementalPageStore,
     page_identity: (u64, u64),
     native_identity: (u64, u64),
+    executable: Option<ReservedValue<executable::VerifiedNativeExecutableV1>>,
 }
 pub(crate) struct CandidateExecutionMaterialV1 {
     baseline: Arc<ReservedValue<StaticExecutionMaterialV1>>,
@@ -54,6 +57,11 @@ impl CandidateExecutionMaterialV1 {
     }
     pub(crate) fn native_namespace_identity(&self) -> (u64, u64) {
         self.baseline.native_identity
+    }
+    pub(crate) fn sealed_executable(
+        &self,
+    ) -> Option<&ReservedValue<executable::VerifiedNativeExecutableV1>> {
+        self.baseline.executable.as_ref()
     }
     pub(crate) fn baseline(&self) -> &Arc<ReservedValue<StaticExecutionMaterialV1>> {
         &self.baseline
@@ -469,6 +477,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
         {
             return Err(invalid("execution full closure body/manifest"));
         }
+        let executable = executable::prepare(&native, &descriptor, &mut bridge, memory)?;
         let proof = proof_charge.retain(DeclaredExecutionMaterial {
             native,
             artifacts,
@@ -489,6 +498,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
             pages: store,
             page_identity,
             native_identity,
+            executable,
         }))
     };
     if cancelled() {

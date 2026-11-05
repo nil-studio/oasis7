@@ -334,13 +334,28 @@ fn signed_genesis_material_retains_real_native_artifact_proofs_and_rejects_wrong
     assert_eq!(proof.candidate_record_id(), m.s.commit.verified_record_id());
     assert_eq!(proof.body_id(), m.s.history.body.digest().unwrap());
     assert_eq!(proof.manifest_id(), m.manifest.digest().unwrap());
+    #[cfg(target_os = "linux")]
+    {
+        let executable = proof
+            .sealed_executable()
+            .expect("Linux native executable handle");
+        assert_eq!(
+            executable.digest(),
+            proof.baseline.proof.native.executable_id()
+        );
+        assert!(executable.byte_len() > 0);
+        let mut file = executable.file();
+        assert!(file.write_all(b"mutate sealed executable").is_err());
+    }
+    #[cfg(not(target_os = "linux"))]
+    assert!(proof.sealed_executable().is_none());
     let other = f::setup();
     assert!(check(&mut m, Some((&other.commit, &proof))).is_err());
     let same = formal::verify_formal_qualified(&m.s.proof, &m.s.authority, None, None).unwrap();
     assert!(check(&mut m, Some((&same, &proof))).is_err());
 }
 
-fn normal(m: &mut Material, change_policy: bool) -> VerifiedFormalCommitV1 {
+fn normal(m: &mut Material, change_inventory: bool) -> VerifiedFormalCommitV1 {
     use crate::controlled_authority::replicated_protocol::ArtifactRole;
     use oasis7_formal_protocol::{incremental_execution::*, incremental_history::*};
     let memory = m.s.memory.clone();
@@ -386,13 +401,39 @@ fn normal(m: &mut Material, change_policy: bool) -> VerifiedFormalCommitV1 {
         input,
         continuation,
     };
-    if change_policy {
-        let bytes = b"missing changed policy";
-        manifest.policy = OriginalArtifactRefV1 {
-            id: *blake3::hash(bytes).as_bytes(),
-            byte_len: bytes.len() as u64,
+    if change_inventory {
+        let bytes = b"missing changed wasm original";
+        let entry = ArtifactEntryV1 {
+            kind: ArtifactKindV1::Wasm,
+            original: OriginalArtifactRefV1 {
+                id: *blake3::hash(bytes).as_bytes(),
+                byte_len: bytes.len() as u64,
+            },
         };
+        let delta = ArtifactCatalogV1::empty(ArtifactKindV1::Wasm)
+            .unwrap()
+            .append(&[entry], &EmptyPages(&memory), &memory, 4 << 20)
+            .unwrap();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let mut physical = io();
+        for node in &delta.new_nodes {
+            let bytes = memory
+                .reserve(node.bytes.len() + 128, MemoryClass::Ordinary)
+                .unwrap()
+                .retain(node.bytes.clone());
+            m.pages
+                .put_page(
+                    *blake3::hash(&bytes).as_bytes(),
+                    &bytes,
+                    &mut physical,
+                    &stop,
+                )
+                .unwrap();
+        }
+        manifest.wasm = m.objects.put(delta.after.canonical_bytes().unwrap());
+        // The new catalog is real, but its declared new original is absent.
     }
+
     let manifest_id = m.objects.put(manifest.canonical_bytes().unwrap());
     let parent_catalog =
         m.s.history
@@ -471,8 +512,16 @@ fn normal(m: &mut Material, change_policy: bool) -> VerifiedFormalCommitV1 {
     frozen_material
         .roots
         .insert(ArtifactRole::ExecutionManifest, hex::encode(manifest_id));
-    frozen.reservation.body.frozen_material_digest =
-        formal::frozen_material_digest(&frozen_material).unwrap();
+    // The public legacy helper validates Snapshot/Journal's nine roles.
+    // This is an IWS Frozen material: preserve its actual role set and hash
+    // the unchanged canonical domain/framing independently of the new reader.
+    let domain = b"oasis7.formal.frozen_material.v1";
+    let encoded = serde_cbor::to_vec(&frozen_material).unwrap();
+    let mut framed = Vec::new();
+    framed.extend_from_slice(&(domain.len() as u64).to_be_bytes());
+    framed.extend_from_slice(domain);
+    framed.extend_from_slice(&encoded);
+    frozen.reservation.body.frozen_material_digest = blake3::hash(&framed).to_hex().to_string();
     frozen.reservation.signature_hex = fixture::sign(
         formal::frozen_signing_bytes(&frozen.reservation.body).unwrap(),
         4,
@@ -492,6 +541,7 @@ fn normal(m: &mut Material, change_policy: bool) -> VerifiedFormalCommitV1 {
     for (role, id) in [
         (ArtifactRole::Input, input),
         (ArtifactRole::ExecutionManifest, manifest_id),
+        (ArtifactRole::Wasm, manifest.wasm),
         (
             ArtifactRole::IncrementalRootSet,
             transition.record.after.digest().unwrap(),
@@ -590,7 +640,7 @@ fn signed_ordinary_static_inheritance_reads_no_unchanged_inventory_and_rejects_r
     assert!(check(&mut m, Some((&parent, &baseline))).is_err());
 }
 #[test]
-fn signed_ordinary_changed_policy_cannot_inherit_or_hide_missing_original() {
+fn signed_ordinary_changed_catalog_cannot_inherit_or_hide_missing_original() {
     let mut m = genesis();
     let baseline = check(&mut m, None).unwrap();
     let parent = formal::verify_formal_qualified(&m.s.proof, &m.s.authority, None, None).unwrap();

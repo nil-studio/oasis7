@@ -46,6 +46,8 @@ pub struct IwsColdParentWorkV1 {
     pub scratch_pages: usize,
     pub semantic_bytes: u64,
     pub record_bytes: u64,
+    pub local_records_remaining: u64,
+    pub local_original_bytes_remaining: u64,
 }
 /// The two selected positions and mailbox locator callback are untrusted hints.
 /// Every selected occurrence is independently authenticated by Formal readers.
@@ -297,7 +299,7 @@ impl FileFormalEndpoint {
             },
             cancelled: &mut poll,
         };
-        let cache = cold::readmit_recovered_parent(
+        let mut cache = cold::readmit_recovered_parent(
             head,
             &roots,
             &current,
@@ -308,6 +310,21 @@ impl FileFormalEndpoint {
             &mut work.admission,
             &mut work.hashes,
         )?;
+        let mut local_work = local_closure::LocalClosureReadWorkV1 {
+            reads_remaining: work.local_records_remaining,
+            original_bytes_remaining: work.local_original_bytes_remaining,
+        };
+        let local = local_closure::recover_authenticated_local_closure_v1(
+            self,
+            guard.as_ref(),
+            head,
+            &cache,
+            pages,
+            &mut local_work,
+            &mut poll,
+        )?;
+        let recovered = closure::restore_store_read_witness_v1(local, memory, &mut poll)?;
+        cache.recovered_pages = Some(recovered);
         capability.jobs.restore_cold(cache, head)?;
         Ok(())
     }

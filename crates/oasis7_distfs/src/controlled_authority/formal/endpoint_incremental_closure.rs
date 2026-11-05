@@ -23,7 +23,7 @@ pub(super) struct DeclaredExecutionMaterial {
 }
 #[path = "endpoint_incremental_closure_pages.rs"]
 mod pages;
-pub(super) use pages::{StoreReadWitness, StoreSessions};
+pub(super) use pages::{StoreReadWitness, StoreSessions, restore_store_read_witness_v1};
 
 #[path = "endpoint_incremental_closure_material_v1.rs"]
 mod material_v1;

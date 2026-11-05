@@ -608,3 +608,5 @@ pub(super) fn publication_recovery_count() -> u64 {
 pub(super) fn admitted_cache_accesses() -> (u64, u64) {
     (recipe::cache_accesses(), generation::cache_accesses())
 }
+
+pub(crate) use generation::current_generation_digest_uncached;

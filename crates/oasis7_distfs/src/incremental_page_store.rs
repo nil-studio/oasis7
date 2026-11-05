@@ -156,6 +156,22 @@ impl IncrementalPageStore {
         &self.root
     }
 
+    /// Observe this actual opened fixed lease, after checking that its path
+    /// still identifies the same protected inode. This is no closure proof.
+    pub(crate) fn opened_lease_identity(&self) -> Result<(u64, u64)> {
+        files::validate_lease(&self.root, &self._lease)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = self._lease.metadata()?;
+            Ok((metadata.dev(), metadata.ino()))
+        }
+        #[cfg(not(unix))]
+        {
+            Err(PageStoreError::UnsupportedPlatform)
+        }
+    }
+
     /// Exact admission pool shared by this store's state/value sessions.
     /// This borrowed handle grants no owner qualification or allocation class.
     pub fn memory_budget(&self) -> &MemoryBudget {

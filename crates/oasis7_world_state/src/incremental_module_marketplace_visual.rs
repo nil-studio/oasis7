@@ -2,11 +2,13 @@
 //! Anchor admission remains with Runtime's real agent/location owner readers.
 use super::*;
 use crate::{
-    incremental_field_member::{MemberPayloadCodecV1, read_member_record_header_v1},
+    incremental_field_member::{
+        MemberPayloadCodecV1, MemberRecordLimitsV1, read_member_record_header_v1,
+    },
     incremental_field_overlay::lookup,
     incremental_inventory_value_read::InventoryValueReader,
     incremental_owner_closure::marketplace_bridge as bridge,
-    state::module_visual::{ModuleVisualPointErrorV1, check_module_visual_point_v1},
+    state::{ModuleVisualPointErrorV1, check_module_visual_point_v1},
 };
 use oasis7_agent_api::module_visual::ModuleVisualMutation;
 use oasis7_formal_protocol::incremental_value::ValueReadContext;
@@ -231,7 +233,7 @@ where
         payload_bytes: work.max_owner_bytes as u64,
         record_bytes: record,
     };
-    let header = read_member_record_header_v1(&id, &key, values, limits, cancelled)?;
+    let header = read_member_record_header_v1(&id, &key, values, limits, &mut *cancelled)?;
     if header.codec != MemberPayloadCodecV1::Text || header.semantic_bytes != key_bytes {
         return Err(invalid().into());
     }

@@ -133,3 +133,7 @@ pub use pages::{
 };
 
 pub(crate) use receiver::accept_agent_authority_verified_v1;
+
+#[path = "incremental_agent_authority_records_selected.rs"]
+mod selected;
+pub use selected::open_agent_authority_body_overlay_v1;

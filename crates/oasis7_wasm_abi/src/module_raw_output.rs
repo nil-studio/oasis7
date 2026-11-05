@@ -20,20 +20,33 @@ pub trait ModuleSandboxRawOutputV1: ModuleSandbox {
     ) -> Result<(), ModuleCallFailure>;
 }
 
+fn count_exceeds_limit(count: usize, limit: u32) -> bool {
+    u32::try_from(count).map_or(true, |n| n > limit)
+}
+
 /// Shared allocation-free output limit kernel used by legacy and admitted hosts.
 pub fn validate_module_output_limits_v1(
     request: &ModuleCallRequest,
     output: &crate::ModuleOutput,
 ) -> Result<(), (crate::ModuleCallErrorCode, &'static str)> {
     use crate::ModuleCallErrorCode;
-    if u32::try_from(output.effects.len()).map_or(true, |n| n > request.limits.max_effects) {
+    if count_exceeds_limit(output.effects.len(), request.limits.max_effects) {
         return Err((ModuleCallErrorCode::EffectLimitExceeded, "effects exceeded"));
     }
-    if u32::try_from(output.emits.len()).map_or(true, |n| n > request.limits.max_emits) {
+    if count_exceeds_limit(output.emits.len(), request.limits.max_emits) {
         return Err((ModuleCallErrorCode::EmitLimitExceeded, "emits exceeded"));
     }
     if output.output_bytes > request.limits.max_output_bytes {
         return Err((ModuleCallErrorCode::OutputTooLarge, "output bytes exceeded"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn count_exceeds_limit_treats_usize_overflow_as_exceeded() {
+        assert!(super::count_exceeds_limit(usize::MAX, 1));
+        assert!(!super::count_exceeds_limit(1, 1));
+    }
 }

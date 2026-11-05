@@ -19,6 +19,7 @@ use oasis7_world_state::incremental_event_fields::{
 
 pub struct ModuleOutputEventContextV1<'a, V, W, C, F> {
     pub values: &'a V,
+    pub world_events: &'a super::incremental_world_event_counter::WorldEventCounterV1,
     pub mutation: BodyMutationContext<'a, W, C>,
     pub persist_original: F,
     pub max_event_bytes: usize,
@@ -41,6 +42,8 @@ where
     F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
 {
     txn.contribute(|txn| {
+        ctx.world_events.validate(txn)?;
+        let before = txn.ordered_fact_count();
         if !matches!(
             &event.body,
             WorldEventBody::PolicyDecisionRecorded(_)
@@ -108,7 +111,7 @@ where
         if (ctx.mutation.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
-        Ok(())
+        ctx.world_events.note_success(txn, before)
     })
 }
 

@@ -265,3 +265,18 @@ pub fn pop_pending_action_v1<M: MerkleNodeReader>(
 #[cfg(test)]
 #[path = "incremental_pending_action_overlay_tests.rs"]
 mod tests;
+
+/// Inspect the actual current FIFO head without consuming its authenticated row.
+pub fn peek_pending_action_v1<M: MerkleNodeReader>(
+    current: &ReservedValue<PendingActionCurrentV1>,
+    tx: &mut ExecutionTransaction<'_, M>,
+    memory: &MemoryBudget,
+    live: &ExecutionFence,
+    work: &mut PendingActionIndexWorkV1,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<Option<PendingActionMetaV1>, WorldFieldOverlayErrorV1> {
+    tx.contribute(|tx| {
+        check(current, tx, memory, &tx.guard(), live)?;
+        Ok(current.index.borrow().first(work, &mut cancelled)?)
+    })
+}

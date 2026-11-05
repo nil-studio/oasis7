@@ -208,23 +208,6 @@ impl ValueNodeReader for DurableValues<'_> {
         result
     }
 }
-fn store_identity(root: &std::path::Path) -> Result<(u64, u64), FormalError> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::symlink_metadata(root.join("lease"))
-            .map_err(|_| invalid("closure store identity"))?;
-        if !metadata.file_type().is_file() || metadata.nlink() != 1 || metadata.len() != 0 {
-            return Err(invalid("closure fixed lease identity"));
-        }
-        Ok((metadata.dev(), metadata.ino()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = root;
-        Err(invalid("physical closure requires Unix lease durability"))
-    }
-}
 struct StoreLease {
     _pages: IncrementalPageStore,
     identity: (u64, u64),
@@ -277,7 +260,9 @@ impl<'a> StoreSessions<'a> {
             MemoryClass::Ordinary,
         )
         .map_err(page_store_formal_error)?;
-        let identity = store_identity(pages.root())?;
+        let identity = owned
+            .opened_lease_identity()
+            .map_err(page_store_formal_error)?;
         let pin = Arc::new(pin_charge.retain(StoreLease {
             _pages: owned,
             identity,
@@ -371,7 +356,7 @@ impl<'a> StoreSessions<'a> {
                 if parent.uses_budget(memory)
                     && parent.reserved_bytes() >= std::mem::size_of::<StoreReadWitness>() + 128
                     && parent.record == id
-                    && parent.pin.identity == self.pin.identity
+                    && parent.pin.identity() == self.pin.identity
                     && core.body().parent_commit == Some(parent.body)
                     && core.parent_body().map(|body| body.roots) == Some(parent.roots) => {}
             _ => return Err(invalid("closure exact parent live store")),
@@ -390,17 +375,30 @@ impl<'a> StoreSessions<'a> {
             record,
             body,
             roots,
-            pin,
+            pin: StoreWitnessLease::Live(pin),
         }))
     }
 }
 /// Private receipt-path attachment. Its live lease pins all inherited page
 /// recipes; fixed fingerprints are genuine checked Core data, not public hints.
+type AuthenticatedLocalClosureV1 = super::super::local_closure::AuthenticatedLocalClosureV1;
+enum StoreWitnessLease {
+    Live(Arc<ReservedValue<StoreLease>>),
+    Cold(ReservedValue<AuthenticatedLocalClosureV1>),
+}
+impl StoreWitnessLease {
+    fn identity(&self) -> (u64, u64) {
+        match self {
+            Self::Live(pin) => pin.identity,
+            Self::Cold(token) => token.page_identity(),
+        }
+    }
+}
 pub(crate) struct StoreReadWitness {
     record: [u8; 32],
     body: [u8; 32],
     roots: [u8; 32],
-    pin: Arc<ReservedValue<StoreLease>>,
+    pin: StoreWitnessLease,
 }
 
 impl StoreReadWitness {
@@ -414,8 +412,52 @@ impl StoreReadWitness {
         self.roots
     }
     pub(crate) fn page_namespace_identity(&self) -> (u64, u64) {
-        self.pin.identity
+        self.pin.identity()
     }
+}
+
+/// The source is minted only by the actual protected cold reader after its
+/// fixed record, exact sources, opened namespaces and maintenance check. Move
+/// it intact so its page/native leases and Ordinary fees remain live.
+pub(crate) fn restore_store_read_witness_v1(
+    token: ReservedValue<AuthenticatedLocalClosureV1>,
+    memory: &MemoryBudget,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<ReservedValue<StoreReadWitness>, FormalError> {
+    if cancelled() {
+        return Err(invalid("cold store witness cancelled"));
+    }
+    if !token.uses_budget(memory)
+        || token.reserved_bytes() < std::mem::size_of::<AuthenticatedLocalClosureV1>() + 512
+        || token.allocation_class() != MemoryClass::Ordinary
+        || !token.pages().memory_budget().same_pool(memory)
+    {
+        return Err(invalid("cold store witness exact Ordinary admission"));
+    }
+    let charge = memory
+        .reserve(
+            std::mem::size_of::<StoreReadWitness>() + 128,
+            MemoryClass::Ordinary,
+        )
+        .map_err(|_| invalid("cold store witness admission"))?;
+    if token
+        .pages()
+        .opened_lease_identity()
+        .map_err(page_store_formal_error)?
+        != token.page_identity()
+    {
+        return Err(invalid("cold store witness actual namespace identity"));
+    }
+    let (record, body, roots) = (token.record_id(), token.body_id(), token.roots_id());
+    if cancelled() {
+        return Err(invalid("cold store witness final cancellation"));
+    }
+    Ok(charge.retain(StoreReadWitness {
+        record,
+        body,
+        roots,
+        pin: StoreWitnessLease::Cold(token),
+    }))
 }
 
 #[cfg(all(test, unix))]

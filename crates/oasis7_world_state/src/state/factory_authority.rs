@@ -88,7 +88,17 @@ pub fn require_active_location_anchor(
     location_id: &str,
     now: WorldTime,
 ) -> Result<(), WorldError> {
-    let Some(anchor) = anchors.get(location_id) else {
+    require_active_location_anchor_point_v1(anchors.get(location_id), location_id, now)
+}
+
+/// Shared original liveness rule over one genuinely read current anchor point.
+/// This pure function grants no storage/source/execution qualification.
+pub fn require_active_location_anchor_point_v1(
+    anchor: Option<&LocationAnchorV1>,
+    location_id: &str,
+    now: WorldTime,
+) -> Result<(), WorldError> {
+    let Some(anchor) = anchor else {
         return Err(WorldError::ResourceBalanceInvalid {
             reason: format!("location anchor unknown: {location_id}"),
         });

@@ -1,5 +1,4 @@
 //! Endpoint-private provisional conjunction. This is never a receipt permit.
-use super::current::CheckedCurrent;
 use oasis7_formal_protocol::{
     incremental_material::CheckedCommitCore, incremental_value::ValueTreeError,
 };
@@ -21,7 +20,7 @@ pub(super) struct ProvisionalCandidate {
 impl ProvisionalCandidate {
     pub(super) fn checked(
         core: ReservedValue<CheckedCommitCore>,
-        current: CheckedCurrent,
+        current: ReservedValue<oasis7_world_state::incremental_world_current_complete::WorldCurrentStateQualificationV1>,
         cognition: ReservedValue<CheckedCognitionHistorySourceV3>,
         runtime: ReservedValue<CheckedRuntimeHistorySourceV1>,
         results: ReservedValue<CheckedWorldResultRoutingV1>,
@@ -29,43 +28,10 @@ impl ProvisionalCandidate {
         cancelled: impl FnMut() -> bool,
     ) -> Result<Self, ValueTreeError> {
         let source = qualify_checked_world_storage_source_v1(
-            &core,
-            current.qualification,
-            cognition,
-            runtime,
-            results,
-            memory,
-            cancelled,
+            &core, current, cognition, runtime, results, memory, cancelled,
         )?;
         Ok(Self { core, source })
     }
-}
-
-/// Authenticate a selected candidate Event occurrence using the actual checked
-/// FactSet, not a CAS lookup or a claimed WorldEvent identifier.
-pub(super) fn candidate_event(
-    candidate: &oasis7_formal_protocol::controlled_authority::formal::VerifiedCandidateContextV1,
-    core: &ReservedValue<CheckedCommitCore>,
-    originals: &ReservedValue<oasis7_formal_protocol::incremental_material::CheckedFactOriginals>,
-    ordinal: u64,
-    memory: &MemoryBudget,
-    cancelled: impl FnMut() -> bool,
-) -> Result<
-    ReservedValue<
-        oasis7_formal_protocol::incremental_material::CheckedCandidateEventFactOccurrenceV1,
-    >,
-    oasis7_formal_protocol::incremental_material::CoreError<std::convert::Infallible>,
-> {
-    oasis7_formal_protocol::incremental_material::check_candidate_event_fact_v1(
-        &oasis7_formal_protocol::incremental_material::CandidateEventFactRequestV1 {
-            candidate,
-            core,
-            originals,
-            ordinal,
-        },
-        memory,
-        cancelled,
-    )
 }
 
 use oasis7_world_state::{
@@ -105,6 +71,7 @@ pub(super) struct AcceptedCandidateCache {
     pub(super) runtime: ReservedValue<AcceptedRuntimeHistorySourceV1>,
     pub(super) complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
     pub(super) local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
+    pub(super) recovered_pages: Option<ReservedValue<super::closure::StoreReadWitness>>,
 }
 impl PreparedCandidateInstall {
     pub(super) fn local_data_reference(
@@ -199,11 +166,19 @@ impl PreparedCandidateInstall {
             runtime,
             complete_data: self.complete_data,
             local_closure: self.local_closure,
+            recovered_pages: None,
         })
     }
 }
 
 impl AcceptedCandidateCache {
+    pub(super) fn page_witness(&self) -> Option<&ReservedValue<super::closure::StoreReadWitness>> {
+        self.complete_data
+            .as_ref()
+            .map(|data| data.pages())
+            .or(self.recovered_pages.as_ref())
+    }
+
     pub(super) fn complete_data(
         &self,
     ) -> Option<&ReservedValue<super::closure::CompleteDataClosureEvidenceV1>> {

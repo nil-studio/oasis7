@@ -500,3 +500,7 @@ mod tests;
 pub(super) fn cache_accesses() -> u64 {
     catalog::cache_accesses()
 }
+
+#[path = "physical_generation_identity.rs"]
+mod identity;
+pub(crate) use identity::current_generation_digest_uncached;

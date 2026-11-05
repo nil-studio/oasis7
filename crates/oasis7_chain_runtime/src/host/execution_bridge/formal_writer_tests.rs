@@ -75,7 +75,9 @@ impl FormalDurabilityEndpoint for Endpoint {
             return invalid();
         }
         let Some(FormalRequestStateV1::Qualified {
-            candidate, proof, ..
+            candidate,
+            proof,
+            data_closure: None,
         }) = memory.entries.get(request)
         else {
             return invalid();
@@ -306,7 +308,7 @@ impl FormalDurabilityEndpoint for Endpoint {
             FormalRequestStateV1::Qualified {
                 candidate,
                 proof,
-                ..
+                data_closure: None,
             },
         );
         m.parent = verified;

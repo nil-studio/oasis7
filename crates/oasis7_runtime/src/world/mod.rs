@@ -1102,6 +1102,8 @@ mod participant_devlocal_tests;
 mod participant_devlocal;
 pub use participant_devlocal::DevLocalParticipantAuthority;
 
+mod incremental_action_execution;
+mod incremental_action_execution_applicability;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_action_original;
 pub mod incremental_body;
@@ -1170,6 +1172,7 @@ pub mod incremental_runtime_history_original;
 pub mod incremental_runtime_history_source;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_scheduler_controls;
+pub mod incremental_world_event_counter;
 
 #[cfg(test)]
 mod incremental_module_instance_tests;
@@ -1181,3 +1184,8 @@ mod incremental_rollback;
 mod incremental_governance;
 
 mod incremental_runtime_revocation;
+
+pub mod incremental_module_execution_emit;
+pub mod incremental_module_execution_visual_anchor;
+pub mod incremental_module_execution_visual_decode;
+pub mod incremental_module_execution_worker;

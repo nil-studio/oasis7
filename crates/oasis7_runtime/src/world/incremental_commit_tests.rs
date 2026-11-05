@@ -144,7 +144,10 @@ fn root_driver_commits_real_step_after_genesis_world_is_dropped() {
         },
     )
     .unwrap();
-    assert_eq!(prepared.transition().record.after.simulation_tick, next_time);
+    assert_eq!(
+        prepared.transition().record.after.simulation_tick,
+        next_time
+    );
     assert_eq!(prepared.history().body.parent_commit, Some(parent.commit));
     assert_eq!(prepared.history().facts.facts.len(), 1);
     assert_eq!(prepared.history().facts.facts[0].id, stored[0]);
@@ -159,6 +162,61 @@ fn root_driver_commits_real_step_after_genesis_world_is_dropped() {
     .verify(&prepared.transition().record)
     .unwrap();
     assert_eq!(verified.record.after, prepared.transition().record.after);
+}
+
+#[test]
+fn root_driver_final_results_failure_returns_no_prepared_header() {
+    use crate::world::{
+        incremental_commit::prepare_iws_runtime_commit_with_results_v1,
+        incremental_step::IwsStepContext,
+    };
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (world, parent, state, mut values, config, genesis, catalog) = setup(&memory);
+    let before_time = event(&world, 1).time;
+    drop(world);
+    let source = values.clone();
+    let fence = parent.fence().unwrap();
+    let mut request = request(&parent, &config, &genesis, &catalog);
+    request.next_tick = before_time + 1;
+    let mut quota = io();
+    let mut original_budget = original_work();
+    let error = prepare_iws_runtime_commit_with_results_v1(
+        &request,
+        &state,
+        &memory,
+        || Ok::<_, BodyMutationError>(fence),
+        |txn| {
+            let guard = txn.guard();
+            let mut mutation = BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut quota,
+                cancelled: || false,
+            };
+            let step = IwsStepContext::begin(
+                txn,
+                before_time,
+                &guard,
+                &fence,
+                &source,
+                &mut mutation,
+                &mut original_budget,
+            )?;
+            assert_eq!(step.time(), request.next_tick);
+            Ok(())
+        },
+        || false,
+        |after| {
+            assert_eq!(after.simulation_tick, request.next_tick);
+            assert_ne!(after.digest().unwrap(), parent.roots.digest().unwrap());
+            Err(BodyMutationError::Invalid("second History original failed"))
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        BodyMutationError::Invalid("second History original failed")
+    ));
 }
 
 #[test]

@@ -156,7 +156,11 @@ impl Originals<'_, '_, '_> {
                                         &mut || (*stop.borrow_mut())(),
                                         |replica_out| {
                                             source.write_to(&mut Tee {
-                                                writers: [source_out, primary_out, replica_out],
+                                                writers: [
+                                                    &mut *source_out,
+                                                    &mut *primary_out,
+                                                    &mut *replica_out,
+                                                ],
                                                 failed: false,
                                             })
                                         },

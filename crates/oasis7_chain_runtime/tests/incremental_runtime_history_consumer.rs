@@ -554,6 +554,12 @@ fn append_snapshot_ordinary(
         },
     )
     .unwrap();
+    // The counter is authenticated by the actual current accepted Runtime
+    // Result, before Input is appended. Input is not a WorldEvent journal row.
+    let world_events =
+        oasis7_runtime::WorldEventCounterV1::begin(parent_source, parent, &tx, memory).unwrap();
+    let base_hot = parent_source.manifest().lanes[RuntimeHistoryLaneV1::Journal.index()].count;
+    assert_eq!(world_events.journal_height(&tx).unwrap(), base_hot);
     let input = *blake3::hash(b"Runtime History actual ordinary input").as_bytes();
     put(&objects, b"Runtime History actual ordinary input", &mut io);
     tx.append_fact(ExecutionFactRefV1 {
@@ -561,6 +567,11 @@ fn append_snapshot_ordinary(
         id: input,
     })
     .unwrap();
+    assert_eq!(world_events.journal_height(&tx).unwrap(), base_hot);
+    assert!(
+        oasis7_runtime::WorldEventCounterV1::begin(parent_source, parent, &tx, memory).is_err(),
+        "a second fresh counter cannot be started after any actual fact"
+    );
     let points = originals_for_four_lanes(roots.height + 1, 1, memory, &objects, &mut io);
     for lane in RuntimeHistoryLaneV1::ALL {
         tx.append_fact(ExecutionFactRefV1 {

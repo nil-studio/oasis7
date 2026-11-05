@@ -415,19 +415,12 @@ pub(crate) fn consume_candidate_data_closure_v1(
             parent_cache.map(|p| &p.cognition), &mut owner_ctx, &mut write_ctx,
             &mut durable_history, &mut cognition_work,
         ).map_err(|e| invalid(format!("IWS Cognition History readers: {e:?}")))?;
-        let checked_sources = sources::CheckedSources {
-            runtime: runtime_checked.source,
-            indexes: runtime_checked.indexes,
-            cognition: cognition_checked,
-        };
         drop(owner_ctx);
         let provisional = provisional::ProvisionalCandidate::checked(
             core,
-            current::CheckedCurrent {
-                qualification: current_qualification,
-            },
-            checked_sources.cognition,
-            checked_sources.runtime,
+            current_qualification,
+            cognition_checked,
+            runtime_checked.source,
             routed,
             memory,
             || (*stop.borrow_mut())(),
@@ -467,9 +460,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
         let page_witness = sessions.seal(
             &provisional.core,
             &provisional.source,
-            parent_cache
-                .and_then(|p| p.complete_data())
-                .map(|p| p.pages()),
+            parent_cache.and_then(|parent| parent.page_witness()),
             &mut || (*stop.borrow_mut())(),
         )?;
         let evidence_charge = memory
@@ -513,7 +504,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
         )?;
         let prepared = provisional::PreparedCandidateInstall::prepare(
             provisional,
-            checked_sources.indexes,
+            runtime_checked.indexes,
             memory,
             || (*stop.borrow_mut())(),
         )?;

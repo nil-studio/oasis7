@@ -12,6 +12,7 @@ pub struct RuntimeRevocationQualificationV1 {
     roots: [u8; 32],
     body: StateRootV1,
     class: MemoryClass,
+    safe_alternatives_len: usize,
 }
 impl RuntimeRevocationQualificationV1 {
     pub(super) fn validate_digest(&self, digest: &[u8; 32]) -> Result<(), ValueTreeError> {
@@ -28,6 +29,11 @@ impl RuntimeRevocationQualificationV1 {
     }
     pub fn allocation_class(&self) -> MemoryClass {
         self.class
+    }
+    /// Valid for this qualified body only. Current-overlay consumers must first
+    /// authenticate the exact current parent with begin_runtime_revocation_current_v1.
+    pub fn safe_alternatives_len(&self) -> usize {
+        self.safe_alternatives_len
     }
     pub fn body(&self) -> &StateRootV1 {
         &self.body
@@ -289,10 +295,12 @@ pub fn qualify_runtime_revocation_v1<
         body.ok_or_else(invalid)?
     };
     validate_body(None, &body, ctx, scan, work)?;
+    let safe_alternatives_len = safe_alternatives_length(&body, ctx, scan, work)?;
     ctx.check()?;
     Ok(retained.retain(RuntimeRevocationQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         body,
+        safe_alternatives_len,
         class: ctx.values.class,
     }))
 }
@@ -316,6 +324,7 @@ pub fn readmit_runtime_revocation_ordinary_v1(
     let result = charge.retain(RuntimeRevocationQualificationV1 {
         roots: proof.roots,
         body: proof.body.clone(),
+        safe_alternatives_len: proof.safe_alternatives_len,
         class: MemoryClass::Ordinary,
     });
     if cancelled() {
@@ -413,6 +422,7 @@ pub(crate) fn accept_runtime_revocation_verified_v1<
         .reserve(32 << 10, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
     let mut body = parent.body.clone();
+    let mut safe_alternatives_len = parent.safe_alternatives_len;
     for write in &checked.record.writes {
         ctx.check()?;
         let entry = StateEntryV1 {
@@ -434,6 +444,7 @@ pub(crate) fn accept_runtime_revocation_verified_v1<
             } else {
                 let next_body = child(&key, &entry.value, ctx)?;
                 validate_body(Some(&body), &next_body, ctx, scan, work)?;
+                safe_alternatives_len = safe_alternatives_length(&next_body, ctx, scan, work)?;
                 body = next_body;
             }
         }
@@ -442,6 +453,42 @@ pub(crate) fn accept_runtime_revocation_verified_v1<
     Ok(charge.retain(RuntimeRevocationQualificationV1 {
         roots: checked.record.after.digest().map_err(|_| invalid())?,
         body,
+        safe_alternatives_len,
         class: ctx.values.class,
     }))
+}
+
+// Read only the authenticated map column and its length, preserving unchanged
+// payload inheritance when unrelated revocation columns change.
+fn safe_alternatives_length<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    body: &StateRootV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    work: &mut RevocationReadWorkV1,
+) -> Result<usize, ValueTreeError> {
+    use crate::incremental_typed_record_diff::{ChangeDecoder, point_typed_column_v1};
+    let profile = profile();
+    let trees_remaining = work.max_retained_trees;
+    let mut decoder = ChangeDecoder {
+        ctx,
+        scan,
+        work,
+        profile,
+        trees_remaining,
+        tree_depth: 0,
+    };
+    let row = point_typed_column_v1(&profile, body, "safe_alternatives", &mut decoder, 8192)?;
+    let ColumnCellV1::Root(root) = &row.cell else {
+        return Err(invalid());
+    };
+    let length = point_typed_column_v1(&profile, root, "_length", &mut decoder, 8192)?;
+    let ColumnCellV1::U64(count) = &length.cell else {
+        return Err(invalid());
+    };
+    usize::try_from(*count).map_err(|_| invalid())
 }

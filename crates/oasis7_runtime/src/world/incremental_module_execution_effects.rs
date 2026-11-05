@@ -32,7 +32,7 @@ use oasis7_world_state::{
     policy::PolicyDecisionRecord,
 };
 #[path = "incremental_module_execution_effect_heap.rs"]
-mod heap;
+pub(super) mod heap;
 
 #[derive(Debug)]
 pub enum RootModuleEffectErrorV1 {

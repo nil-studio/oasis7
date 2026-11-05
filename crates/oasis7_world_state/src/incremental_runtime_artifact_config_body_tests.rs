@@ -548,6 +548,10 @@ fn recovered_config_readmission_retains_scope_and_pays_ordinary_without_io() {
     let unavailable = std::mem::take(&mut *pages.nodes.borrow_mut());
     let ordinary_family =
         readmit_artifact_config_family_ordinary_v1(&family, &roots, &memory, || false).unwrap();
+    assert_eq!(
+        ordinary_family.registry_records(),
+        family.registry_records()
+    );
     let ordinary_body =
         readmit_artifact_config_body_ordinary_v1(&body, kind, &root, &memory, || false).unwrap();
     *pages.nodes.borrow_mut() = unavailable;

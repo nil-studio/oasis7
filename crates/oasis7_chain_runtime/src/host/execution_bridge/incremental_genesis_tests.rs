@@ -1,4 +1,5 @@
 use super::*;
+use oasis7::GeoPos;
 use oasis7_distfs::incremental_page_store::{
     PageCompression,
     objects::{IncrementalObjectStore, ObjectIo},
@@ -12,7 +13,7 @@ use oasis7_runtime::incremental_action_original::{
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 use oasis7_world_state::{
-    Action, GeoPos, ModuleInstanceState, WorldEventBody, WorldState,
+    Action, ModuleInstanceState, WorldEventBody, WorldState,
     incremental_event_fields::{MailboxKeyV1, mailbox_event_ref_v1},
     incremental_module_instance_fields::{ModuleInstanceFieldV1, ModuleInstanceKeyV1},
 };
@@ -354,3 +355,6 @@ fn physical_genesis_rejects_foreign_pool_and_pre_cancel_before_original_callback
     }
     assert_eq!(callbacks.get(), 0);
 }
+
+#[path = "formal_iws_genesis_tests.rs"]
+mod replicated;

@@ -768,3 +768,6 @@ mod tests {
         assert!(selected.uses_budget(&memory));
     }
 }
+
+#[path = "incremental_runtime_artifact_config_module_clone.rs"]
+mod clone_admission;

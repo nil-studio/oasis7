@@ -292,7 +292,7 @@ impl Store {
             .reserve(phase_bytes, MemoryClass::Ordinary)
             .map_err(|_| invalid("local closure uncached physical admission"))?;
         let bytes = encode(value)?;
-        if bytes.len() > 4096 {
+        if bytes.len() != super::incremental::local_closure::LOCAL_DATA_CLOSURE_WIRE_BYTES {
             return Err(invalid("local closure fixed record bound"));
         }
         let id = blake3::hash(&bytes).to_hex().to_string();

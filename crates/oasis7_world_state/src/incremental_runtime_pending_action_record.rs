@@ -192,51 +192,7 @@ pub fn recover_pending_action_record_v1(
         let Some(id) = ctx.lookup(&key)? else {
             return Ok(None);
         };
-        ctx.values
-            .verify_closure(&id, ctx.record_bytes, &mut ctx.cancelled)?;
-        let mut bytes = [0; RECORD_ROOT_BYTES];
-        let info = read_member_record_v1(
-            &id,
-            &key,
-            &mut ctx.values,
-            MemberRecordLimitsV1 {
-                semantic_bytes: ctx.semantic_bytes,
-                payload_bytes: RECORD_ROOT_BYTES as u64,
-                record_bytes: ctx.record_bytes,
-            },
-            &mut std::io::sink(),
-            &mut &mut bytes[..],
-            &mut ctx.cancelled,
-        )?;
-        if info.codec != MemberPayloadCodecV1::RecordRoot
-            || info.payload_bytes != RECORD_ROOT_BYTES as u64
-        {
-            return Err(invalid());
-        }
-        let _reference = ctx.values.memory.reserve(512, ctx.values.class)?;
-        let reference = RecordRootRefV1::from_canonical_bytes(&bytes).map_err(|_| invalid())?;
-        let owner = WorldFieldKeyV1::from_bytes(key.as_bytes())
-            .map_err(ValueTreeError::Invalid)?
-            .semantic_key
-            .ok_or_else(invalid)?;
-        let body = reference
-            .validate_binding(&action::schema(), &owner, StateNamespaceV1::Scheduler)
-            .map_err(|_| invalid())?;
-        let admission = ctx.values.memory.reserve(256, ctx.values.class)?;
-        let value = recover_typed_record_body_v1::<PendingActionStoredRecordV1, _, _, _, _>(
-            body,
-            &action::profile(),
-            ctx,
-            scan,
-            work,
-        )?;
-        value.value().original()?;
-        check(ctx)?;
-        Ok(Some(RecoveredPendingActionRecordV1 {
-            record: value,
-            class: ctx.values.class,
-            admission: admission.retain(()),
-        }))
+        recover_selected_value(position, id, &key, ctx, scan, work).map(Some)
     })();
     check(ctx)?;
     result
@@ -245,3 +201,70 @@ pub fn recover_pending_action_record_v1(
 #[cfg(test)]
 #[path = "incremental_runtime_pending_action_record_tests.rs"]
 pub(crate) mod tests;
+
+// Shared closed decoder. The caller must obtain the reference from a genuine
+// authenticated lookup; this helper is deliberately private.
+fn recover_selected_value(
+    _position: PendingActionPositionV1,
+    id: [u8; 32],
+    key: &WorldFieldKeyV1,
+    ctx: &mut WorldFieldReadContextV1<
+        '_,
+        impl MerkleNodeReader,
+        impl ValueNodeReader,
+        impl FnMut() -> Option<ValueTreeError>,
+        impl FnMut() -> bool,
+    >,
+    scan: &mut StateScanBudget,
+    work: &mut PendingActionReadWorkV1,
+) -> Result<RecoveredPendingActionRecordV1, ValueTreeError> {
+    ctx.values
+        .verify_closure(&id, ctx.record_bytes, &mut ctx.cancelled)?;
+    let mut bytes = [0; RECORD_ROOT_BYTES];
+    let info = read_member_record_v1(
+        &id,
+        &key,
+        &mut ctx.values,
+        MemberRecordLimitsV1 {
+            semantic_bytes: ctx.semantic_bytes,
+            payload_bytes: RECORD_ROOT_BYTES as u64,
+            record_bytes: ctx.record_bytes,
+        },
+        &mut std::io::sink(),
+        &mut &mut bytes[..],
+        &mut ctx.cancelled,
+    )?;
+    if info.codec != MemberPayloadCodecV1::RecordRoot
+        || info.payload_bytes != RECORD_ROOT_BYTES as u64
+    {
+        return Err(invalid());
+    }
+    let _reference = ctx.values.memory.reserve(512, ctx.values.class)?;
+    let reference = RecordRootRefV1::from_canonical_bytes(&bytes).map_err(|_| invalid())?;
+    let owner = WorldFieldKeyV1::from_bytes(key.as_bytes())
+        .map_err(ValueTreeError::Invalid)?
+        .semantic_key
+        .ok_or_else(invalid)?;
+    let body = reference
+        .validate_binding(&action::schema(), &owner, StateNamespaceV1::Scheduler)
+        .map_err(|_| invalid())?;
+    let admission = ctx.values.memory.reserve(256, ctx.values.class)?;
+    let value = recover_typed_record_body_v1::<PendingActionStoredRecordV1, _, _, _, _>(
+        body,
+        &action::profile(),
+        ctx,
+        scan,
+        work,
+    )?;
+    value.value().original()?;
+    check(ctx)?;
+    Ok(RecoveredPendingActionRecordV1 {
+        record: value,
+        class: ctx.values.class,
+        admission: admission.retain(()),
+    })
+}
+
+#[path = "incremental_runtime_pending_action_selected.rs"]
+mod selected;
+pub use selected::recover_current_pending_action_record_v1;

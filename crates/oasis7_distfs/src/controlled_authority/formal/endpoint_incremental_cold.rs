@@ -135,6 +135,7 @@ where
         // Logical Recovery/A alone never establishes local byte continuity.
         complete_data: None,
         local_closure: None,
+        recovered_pages: None,
         roots,
         cognition,
         runtime,

@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 
 /// No public constructor: only the private complete consumer supplies evidence.
 /// Every field is fixed width; archive readers never allocate arbitrary graphs.
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct LocalDataClosureRecordV1 {
     version: u32,
     instance: [u8; 32],
@@ -21,6 +19,7 @@ pub(crate) struct LocalDataClosureRecordV1 {
     manifest: [u8; 32],
     page_lease: (u64, u64),
     native_lease: (u64, u64),
+    native_generation: Option<[u8; 32]>,
     cognition: LocalFactLocationV1,
     runtime: LocalFactLocationV1,
 }
@@ -115,6 +114,13 @@ pub(super) fn prepare_local_data_closure_v1(
         .reserve(512, MemoryClass::Ordinary)
         .map_err(|_| invalid("local data closure reference admission"))?;
     let hot = &store.body;
+    let native_generation =
+        crate::controlled_authority::formal::physical::current_generation_digest_uncached(
+            &store.path.join("formal-objects-v1"),
+            memory,
+            MemoryClass::Ordinary,
+            cancelled,
+        )?;
     let record = LocalDataClosureRecordV1 {
         version: 1,
         instance: fixed_id(&hot.instance_digest)?,
@@ -127,6 +133,7 @@ pub(super) fn prepare_local_data_closure_v1(
         manifest: evidence.manifest_id(),
         page_lease: evidence.page_namespace_identity(),
         native_lease: evidence.native_namespace_identity(),
+        native_generation,
         cognition: evidence.cognition_location().into(),
         runtime: evidence.runtime_location().into(),
     };
@@ -139,3 +146,15 @@ pub(super) fn prepare_local_data_closure_v1(
         reference: output.retain(reference),
     })
 }
+
+#[path = "endpoint_incremental_local_closure_codec.rs"]
+mod codec;
+pub(crate) use codec::WIRE_BYTES as LOCAL_DATA_CLOSURE_WIRE_BYTES;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_local.rs"]
+mod recovery;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use recovery::{
+    AuthenticatedLocalClosureV1, LocalClosureReadWorkV1, recover_authenticated_local_closure_v1,
+};
