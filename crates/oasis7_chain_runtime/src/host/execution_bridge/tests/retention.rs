@@ -839,6 +839,18 @@ fn incremental_archive_gc_preserves_hot_records_and_releases_them_after_eviction
     for height in 1..=24 {
         let mut record =
             persist_test_execution_record_with_store_refs(&records_dir, &store, height);
+        // Opaque archive originals: retention fixture, not authenticated proof evidence.
+        record.commit_log_ref = Some(
+            store
+                .put_bytes(format!("archive-log-{height}").as_bytes())
+                .unwrap(),
+        );
+        record.world_head_proof_ref = Some(
+            store
+                .put_bytes(format!("head-proof-{height}").as_bytes())
+                .unwrap(),
+        );
+        record.world_head_proof_hash = Some(format!("proof-hash-{height}"));
         record.checkpoint_ref =
             maybe_persist_execution_checkpoint_for_record(&records_dir, &record, INTERVAL, KEEP)
                 .expect("persist checkpoint");
@@ -862,6 +874,23 @@ fn incremental_archive_gc_preserves_hot_records_and_releases_them_after_eviction
                     original.height,
                 ))
                 .expect("load hot record after archive pruning");
+                assert_eq!(retained.commit_log_ref, original.commit_log_ref);
+                assert_eq!(retained.world_head_proof_ref, original.world_head_proof_ref);
+                assert_eq!(
+                    retained.world_head_proof_hash,
+                    original.world_head_proof_hash
+                );
+                assert_eq!(retained.external_effect_ref, original.external_effect_ref);
+                for reference in [
+                    original.commit_log_ref.as_ref().unwrap(),
+                    original.world_head_proof_ref.as_ref().unwrap(),
+                    original.external_effect_ref.as_ref().unwrap(),
+                ] {
+                    assert!(
+                        store.get_verified(reference).is_ok(),
+                        "hot service-view archive dependency was collected"
+                    );
+                }
                 assert_eq!(retained.snapshot_ref, original.snapshot_ref);
                 assert_eq!(retained.journal_ref, original.journal_ref);
                 for reference in [
@@ -886,6 +915,20 @@ fn incremental_archive_gc_preserves_hot_records_and_releases_them_after_eviction
                     original.height,
                 ))
                 .expect("load evicted record");
+                assert!(evicted.commit_log_ref.is_none());
+                assert!(evicted.world_head_proof_ref.is_none());
+                assert!(evicted.world_head_proof_hash.is_none());
+                assert!(evicted.external_effect_ref.is_none());
+                for reference in [
+                    original.commit_log_ref.as_ref().unwrap(),
+                    original.world_head_proof_ref.as_ref().unwrap(),
+                    original.external_effect_ref.as_ref().unwrap(),
+                ] {
+                    assert!(
+                        !store.has(reference).unwrap(),
+                        "expired archive dependency remained pinned"
+                    );
+                }
                 assert!(evicted.snapshot_ref.is_none());
                 assert!(evicted.journal_ref.is_none());
                 assert!(evicted.simulator_mirror.is_none());
