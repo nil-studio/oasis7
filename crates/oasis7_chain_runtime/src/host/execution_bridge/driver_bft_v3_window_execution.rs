@@ -565,7 +565,7 @@ impl FormalBftHeaderActiveExecutionV1 {
         deadline: Instant,
     ) -> Result<oasis7_node::NodeBftPrivateCandidatePackageV3, String> {
         self.reset(deadline)?;
-        let execution = self.execution.fork_live_closed()?;
+        let execution = self.execution.fork_for_candidate()?;
         let executed = execution.execute(&actions_cbor)?;
         let package = oasis7_node::NodeBftPrivateCandidatePackageV3 {
             candidate: oasis7_node::NodeBftPrivateCandidateV3 {
