@@ -1109,6 +1109,8 @@ mod incremental_action_execution_core;
 pub mod incremental_action_original;
 pub mod incremental_body;
 pub mod incremental_body_event;
+pub mod incremental_factory_directory_orders;
+pub mod incremental_factory_directory_records;
 mod incremental_module_fee;
 pub(crate) mod incremental_module_fee_accounts;
 pub(crate) mod incremental_module_fee_contribution;
@@ -1191,5 +1193,5 @@ pub mod incremental_module_execution_visual_anchor;
 pub mod incremental_module_execution_visual_decode;
 pub mod incremental_module_execution_worker;
 
-mod resource_balance_kernel;
 mod incremental_rule_resources;
+mod resource_balance_kernel;

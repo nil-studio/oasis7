@@ -30,6 +30,10 @@ mod fixture_store;
 #[path = "incremental_module_execution_fixture_genesis.rs"]
 mod genesis;
 use fixture_store::{Originals, Reader};
+#[path = "incremental_factory_directory_orders_tests.rs"]
+mod factory_order_directory;
+#[path = "incremental_factory_directory_records_tests.rs"]
+mod factory_recipe_directory;
 
 fn leb(mut n: usize) -> Vec<u8> {
     let mut out = Vec::new();
