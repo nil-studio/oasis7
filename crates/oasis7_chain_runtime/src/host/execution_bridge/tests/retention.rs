@@ -867,6 +867,9 @@ fn incremental_archive_gc_preserves_hot_records_and_releases_them_after_eviction
         )
         .expect("incremental retention");
         if height == 6 {
+            // A full reconciliation must preserve the same complete hot service view.
+            run_execution_bridge_retention_maintenance(&records_dir, &store, HOT_WINDOW)
+                .expect("full retention reconciliation");
             // The archive span is only four heights; both originals remain hot.
             for original in &originals[..2] {
                 let retained = load_execution_bridge_record(&execution_bridge_record_path(
