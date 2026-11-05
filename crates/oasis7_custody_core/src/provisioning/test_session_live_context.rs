@@ -203,7 +203,14 @@ impl AccountProvisionApprovalState {
             now,
         )?)?;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         let r = c
             .slots
             .get(&ContextBodySlotKindV1::Captured)
@@ -287,6 +294,10 @@ impl AccountProvisionApprovalState {
         }
         s.context
             .as_mut()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
             .ok_or_else(invalid)?
             .live_reads
             .insert(claim.attempt.into(), record.clone());
@@ -364,7 +375,12 @@ impl AccountProvisionApprovalState {
     fn live_context_record(&self, id: &str, attempt: &str) -> Result<&LiveContextReadRecordV1> {
         self.test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .and_then(|c| c.live_reads.get(attempt))
             .ok_or_else(invalid)
     }
@@ -375,7 +391,12 @@ impl AccountProvisionApprovalState {
     ) -> Result<&mut LiveContextReadRecordV1> {
         self.test_sessions
             .get_mut(id)
-            .and_then(|s| s.context.as_mut())
+            .and_then(|s| {
+                s.context.as_mut().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .and_then(|c| c.live_reads.get_mut(attempt))
             .ok_or_else(invalid)
     }

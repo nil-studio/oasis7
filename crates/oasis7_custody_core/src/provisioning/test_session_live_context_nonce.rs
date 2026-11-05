@@ -26,15 +26,21 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV1,
         nonce: &str,
     ) -> bool {
-        s.context.as_ref().is_some_and(|c| {
-            c.live_reads.values().any(|r| {
-                matches(&r.request.observation_nonce, nonce)
-                    || r.gateway_read
-                        .observation_nonce
-                        .as_deref()
-                        .is_some_and(|v| matches(v, nonce))
+        s.context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
             })
-        })
+            .is_some_and(|c| {
+                c.live_reads.values().any(|r| {
+                    matches(&r.request.observation_nonce, nonce)
+                        || r.gateway_read
+                            .observation_nonce
+                            .as_deref()
+                            .is_some_and(|v| matches(v, nonce))
+                })
+            })
     }
     pub(super) fn live_context_nonce_occupied(
         id: &str,
@@ -72,6 +78,10 @@ impl AccountProvisionApprovalState {
             || s.challenges.values().any(|v| matches(&v.nonce, nonce))
             || s.context
                 .as_ref()
+                .and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
                 .is_some_and(|c| matches(&c.original.request.client_nonce, nonce))
         {
             return Ok(true);

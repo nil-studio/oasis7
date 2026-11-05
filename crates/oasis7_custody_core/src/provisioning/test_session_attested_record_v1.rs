@@ -1,7 +1,7 @@
 //! Disjoint legacy/attested persistence. Neither deserialization branch grants use.
 use super::*;
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum SessionContextRecordV1 {
     Legacy(SessionContextV1),
@@ -14,28 +14,8 @@ impl SessionContextRecordV1 {
             Self::Attested(_) => Err(invalid()),
         }
     }
-    pub(in crate::provisioning) fn legacy_mut(&mut self) -> Result<&mut SessionContextV1> {
-        match self {
-            Self::Legacy(v) => Ok(v),
-            Self::Attested(_) => Err(invalid()),
-        }
-    }
-    pub(in crate::provisioning) fn attested(&self) -> Result<&AttestedMoveContextLedgerV1> {
-        match self {
-            Self::Attested(v) => Ok(v),
-            Self::Legacy(_) => Err(invalid()),
-        }
-    }
-    pub(in crate::provisioning) fn attested_mut(
-        &mut self,
-    ) -> Result<&mut AttestedMoveContextLedgerV1> {
-        match self {
-            Self::Attested(v) => Ok(v),
-            Self::Legacy(_) => Err(invalid()),
-        }
-    }
 }
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttestedMoveStageV1 {
     Challenge,
@@ -47,12 +27,12 @@ pub enum AttestedMoveStageV1 {
     Lookup,
     Result,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttestedMovePortKindV1 {
     AttestedMovePortV1,
 }
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttestedMoveEdgeV1 {
     PublicHttp,
@@ -77,7 +57,7 @@ pub enum AttestedMoveEdgeV1 {
     RoleToFenceService,
 }
 /// One row is exactly one paid physical request, never a batch of hidden calls.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttestedMovePaidPortV1 {
     pub kind: AttestedMovePortKindV1,
@@ -98,7 +78,7 @@ where
 }
 /// Original public bytes are immutable. A lost result leaves this exact slot
 /// claimed; only separately paid authenticated lookup may resolve the unknown.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttestedMoveOriginalSlotV1 {
     pub canonical_cbor_hex: String,
@@ -114,7 +94,7 @@ pub struct AttestedMoveOriginalSlotV1 {
 /// Required tagged ledger; never shares legacy ContextRef/body-use authority.
 /// Root/session binding, typed originals, World proofs and each paid row must be
 /// revalidated against the actual Account state before any live stage is used.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AttestedMoveContextLedgerV1 {
     pub profile: AttestedMoveProfileV1,

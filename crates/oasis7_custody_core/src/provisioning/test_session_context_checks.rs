@@ -58,7 +58,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         if c.prepared_source != current.source_operation_id {
             return Err(invalid());
@@ -79,7 +84,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         if c.captured_source.as_deref() != Some(current.source_operation_id) {
             return Err(invalid());
@@ -143,7 +153,12 @@ impl AccountProvisionApprovalState {
         let reference = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .and_then(|c| c.slots.get(&body.scope().slot))
             .ok_or_else(invalid)?;
         let checks = crate::approval_admission::context_historical_checks(id, reference)?;
@@ -207,7 +222,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         let r = c
             .slots
@@ -241,7 +261,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         if prepared.scope().slot != ContextBodySlotKindV1::Prepared
             || !c.slots.contains_key(&ContextBodySlotKindV1::Prepared)
@@ -298,7 +323,14 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         let mut checks = self.test_session_live_checks(id, purpose, current, now)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         let r = c.slots.get(&slot).ok_or_else(invalid)?;
         r.evidence.validate_metadata(&r.scope).map_err(body_error)?;
         if r.scope != self.context_scope(id, slot)? {

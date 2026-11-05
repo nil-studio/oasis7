@@ -8,7 +8,14 @@ impl AccountProvisionApprovalState {
         evidence: &LiveContextReadEvidence<'_>,
     ) -> Result<zeroize::Zeroizing<Vec<u8>>> {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         let record = c.live_reads.get(attempt).ok_or_else(invalid)?;
         let reference = c
             .slots

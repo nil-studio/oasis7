@@ -16,9 +16,15 @@ fn external_id(s: &TestSessionAuthorityV1, value: &str) -> bool {
         || s.tool_nonce_ingresses
             .values()
             .any(|v| v.owner_attempt == value || v.account_attempt == value)
-        || s.context.as_ref().is_some_and(|c| {
-            c.original.request.client_operation_id == value || c.attempts.contains_key(value)
-        })
+        || s.context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .is_some_and(|c| {
+                c.original.request.client_operation_id == value || c.attempts.contains_key(value)
+            })
 }
 impl AccountProvisionApprovalState {
     pub(in crate::provisioning) fn live_context_transport_keys_valid(
@@ -37,7 +43,14 @@ impl AccountProvisionApprovalState {
         key: &str,
         value: &LiveContextReadTransportV1,
     ) -> Result<bool> {
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         let record = c.live_reads.get(&value.claim_id).ok_or_else(invalid)?;
         let reference = c
             .slots
@@ -55,7 +68,14 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV1,
         record: &LiveContextReadRecordV1,
     ) -> Result<()> {
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         let r = c
             .slots
             .get(&ContextBodySlotKindV1::Captured)
@@ -100,7 +120,10 @@ impl AccountProvisionApprovalState {
         id: &str,
         s: &TestSessionAuthorityV1,
     ) -> Result<()> {
-        let Some(c) = &s.context else {
+        if matches!(&s.context, Some(SessionContextRecordV1::Attested(_))) {
+            return Err(invalid());
+        }
+        let Some(SessionContextRecordV1::Legacy(c)) = &s.context else {
             return if s
                 .purpose_transports
                 .values()

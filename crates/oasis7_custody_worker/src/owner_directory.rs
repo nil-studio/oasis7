@@ -689,12 +689,6 @@ pub(crate) async fn call_directory_traced(
 }
 
 /// Fixed readonly charged-inspection preflight. It returns association/freeze facts only.
-pub(crate) async fn call_inspection_directory(
-    env: &Env,
-    rpc: &ProvisionInspectGateRpc,
-) -> Result<String> {
-    call_inspection_directory_traced(env, rpc, None).await
-}
 pub(crate) async fn call_inspection_directory_traced(
     env: &Env,
     rpc: &ProvisionInspectGateRpc,

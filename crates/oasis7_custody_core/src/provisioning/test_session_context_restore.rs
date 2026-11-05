@@ -4,21 +4,31 @@ impl AccountProvisionApprovalState {
         s: &TestSessionAuthorityV1,
         attempt: &str,
     ) -> bool {
-        s.context.as_ref().is_some_and(|c| {
-            c.original.request.client_operation_id == attempt
-                || c.attempts.contains_key(attempt)
-                || c.live_reads.contains_key(attempt)
-                || s.purpose_transports
-                    .get(attempt)
-                    .is_some_and(|v| matches!(v, SessionPurposeTransportV1::LiveContextRead(_)))
-        })
+        matches!(&s.context, Some(SessionContextRecordV1::Attested(_)))
+            || s.context
+                .as_ref()
+                .and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+                .is_some_and(|c| {
+                    c.original.request.client_operation_id == attempt
+                        || c.attempts.contains_key(attempt)
+                        || c.live_reads.contains_key(attempt)
+                        || s.purpose_transports.get(attempt).is_some_and(|v| {
+                            matches!(v, SessionPurposeTransportV1::LiveContextRead(_))
+                        })
+                })
     }
     pub(in crate::provisioning) fn validate_session_context_persistence(
         &self,
         id: &str,
         s: &TestSessionAuthorityV1,
     ) -> Result<()> {
-        let Some(c) = &s.context else {
+        if matches!(&s.context, Some(SessionContextRecordV1::Attested(_))) {
+            return Err(invalid());
+        }
+        let Some(SessionContextRecordV1::Legacy(c)) = &s.context else {
             return if s.purpose_transports.values().any(|v| {
                 matches!(
                     v,

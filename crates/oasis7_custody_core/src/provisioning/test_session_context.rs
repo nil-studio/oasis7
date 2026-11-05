@@ -141,7 +141,14 @@ pub struct ContextBodyRead<'a> {
 impl AccountProvisionApprovalState {
     fn context_scope(&self, id: &str, slot: ContextBodySlotKindV1) -> Result<ContextBodyScopeV1> {
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         let scope = ContextBodyScopeV1 {
             api_version: 1,
             identity_scope: s.session.scope.role_scope.clone(),
@@ -197,7 +204,8 @@ impl AccountProvisionApprovalState {
         {
             return Err(invalid());
         }
-        if let Some(old) = &s.context {
+        if let Some(record) = &s.context {
+            let old = record.legacy()?;
             return if old.original == original {
                 Ok(())
             } else {
@@ -219,7 +227,7 @@ impl AccountProvisionApprovalState {
             .requests
             .charge(1)
             .map_err(|_| invalid())?;
-        s.context = Some(SessionContextV1 {
+        s.context = Some(SessionContextRecordV1::Legacy(SessionContextV1 {
             original,
             prepared_source: current.source_operation_id.into(),
             registered_at: now,
@@ -229,7 +237,7 @@ impl AccountProvisionApprovalState {
             slots: BTreeMap::new(),
             attempts: BTreeMap::new(),
             live_reads: BTreeMap::new(),
-        });
+        }));
         next.validate_persistence()?;
         *self = next;
         Ok(())
@@ -267,7 +275,14 @@ impl AccountProvisionApprovalState {
         )?;
         self.context_body_matches(id, prepared)?;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         if prepared.scope().slot != ContextBodySlotKindV1::Prepared
             || !c.slots.contains_key(&ContextBodySlotKindV1::Prepared)
             || !c.attempts.values().any(|a| {
@@ -312,7 +327,12 @@ impl AccountProvisionApprovalState {
         let c = next
             .test_sessions
             .get_mut(id)
-            .and_then(|s| s.context.as_mut())
+            .and_then(|s| {
+                s.context.as_mut().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         c.get = Some(original.clone());
         c.prefix = Some(evidence);
@@ -341,7 +361,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         if body.evidence().prepare() != &c.original {
             return Err(invalid());

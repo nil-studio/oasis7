@@ -242,7 +242,7 @@ fn live_context_core_paid_history_fresh_reply_once_and_exact_archive() {
     );
     let old = r.f.state.test_sessions()[ID]
         .context
-        .as_ref()
+        .as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None })
         .unwrap()
         .clone();
     let budgets = r.f.state.test_sessions()[ID].roots[&SessionPurposeV1::Execution]
@@ -352,7 +352,7 @@ fn live_context_core_paid_history_fresh_reply_once_and_exact_archive() {
             .is_err()
     );
     assert_eq!(r.f.state, admitted);
-    let now = r.f.state.test_sessions()[ID].context.as_ref().unwrap();
+    let now = r.f.state.test_sessions()[ID].context.as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None }).unwrap();
     assert!(
         now.original == old.original
             && now.get == old.get

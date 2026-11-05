@@ -198,8 +198,8 @@ fn context_body_native_sdk_two_slots_six_paid_ports_and_strict_restore() {
             .unwrap();
     }
     let s = &f.state.test_sessions()[ID];
-    assert_eq!(s.context.as_ref().unwrap().slots.len(), 2);
-    assert_eq!(s.context.as_ref().unwrap().attempts.len(), 6);
+    assert_eq!(s.context.as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None }).unwrap().slots.len(), 2);
+    assert_eq!(s.context.as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None }).unwrap().attempts.len(), 6);
     assert_eq!(
         before[&SessionPurposeV1::Execution]
             .budgets
@@ -474,7 +474,7 @@ fn context_body_native_artifact_tamper_size_unknown_and_paid_recovery() {
             &mut StrictCrypto,
         )
         .unwrap();
-    let c = f.state.test_sessions()[ID].context.as_ref().unwrap();
+    let c = f.state.test_sessions()[ID].context.as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None }).unwrap();
     assert_eq!(c.attempts.len(), 3);
     assert_eq!(c.slots.len(), 1);
     assert!(c.attempts["unknown-put-once"].observation.is_none());

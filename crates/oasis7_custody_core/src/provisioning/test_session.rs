@@ -172,7 +172,7 @@ pub struct TestSessionAuthorityV1 {
     #[serde(default)]
     pub tool_nonce_links: BTreeMap<String, SessionToolNonceLinkV1>,
     #[serde(default)]
-    pub context: Option<SessionContextV1>,
+    pub context: Option<SessionContextRecordV1>,
     pub roots: BTreeMap<SessionPurposeV1, SessionRootV1>,
     pub control: Option<OperationBudgets>,
     pub identity_transport: Option<BudgetLedger>,
@@ -436,3 +436,13 @@ pub use tool_nonce::{SessionToolNonceIngressV1, SessionToolNonceLinkV1};
 #[path = "test_session_context.rs"]
 mod context;
 pub use context::*;
+
+#[path = "test_session_attested_context_v1.rs"]
+mod attested_context_v1;
+pub use attested_context_v1::*;
+#[path = "test_session_attested_record_v1.rs"]
+mod attested_record_v1;
+pub use attested_record_v1::*;
+#[path = "test_session_attested_signing_v1.rs"]
+mod attested_signing_v1;
+pub use attested_signing_v1::*;

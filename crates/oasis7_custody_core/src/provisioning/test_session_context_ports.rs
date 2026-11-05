@@ -27,7 +27,14 @@ impl AccountProvisionApprovalState {
             return Err(invalid());
         }
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         if c.slots.contains_key(&body.scope().slot) {
             return Err(ProvisionApprovalError::Conflict);
         }
@@ -63,7 +70,12 @@ impl AccountProvisionApprovalState {
         )?;
         next.test_sessions
             .get_mut(id)
-            .and_then(|s| s.context.as_mut())
+            .and_then(|s| {
+                s.context.as_mut().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?
             .slots
             .insert(body.scope().slot, reference.clone());
@@ -97,7 +109,12 @@ impl AccountProvisionApprovalState {
         let reference = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .and_then(|c| c.slots.get(&slot))
             .ok_or_else(invalid)?
             .clone();
@@ -134,7 +151,14 @@ impl AccountProvisionApprovalState {
             ..
         } = record;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
-        let c = s.context.as_ref().ok_or_else(invalid)?;
+        let c = s
+            .context
+            .as_ref()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
+            .ok_or_else(invalid)?;
         if !context_attempt_id(attempt)
             || Self::session_transport_attempt_occupied(s, attempt)
             || c.original.request.client_operation_id == attempt
@@ -164,6 +188,10 @@ impl AccountProvisionApprovalState {
         s.purpose_transports.insert(attempt.into(), transport);
         s.context
             .as_mut()
+            .and_then(|c| match c {
+                SessionContextRecordV1::Legacy(v) => Some(v),
+                SessionContextRecordV1::Attested(_) => None,
+            })
             .ok_or_else(invalid)?
             .attempts
             .insert(attempt.into(), record);
@@ -184,7 +212,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         let a = c.attempts.get(attempt).ok_or_else(invalid)?;
         let r = c.slots.get(&a.slot).ok_or_else(invalid)?;
@@ -205,7 +238,12 @@ impl AccountProvisionApprovalState {
         let mut next = self.clone();
         next.test_sessions
             .get_mut(id)
-            .and_then(|s| s.context.as_mut())
+            .and_then(|s| {
+                s.context.as_mut().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .and_then(|c| c.attempts.get_mut(attempt))
             .ok_or_else(invalid)?
             .observation = Some(fact.clone());
@@ -227,7 +265,12 @@ impl AccountProvisionApprovalState {
         let c = self
             .test_sessions
             .get(id)
-            .and_then(|s| s.context.as_ref())
+            .and_then(|s| {
+                s.context.as_ref().and_then(|c| match c {
+                    SessionContextRecordV1::Legacy(v) => Some(v),
+                    SessionContextRecordV1::Attested(_) => None,
+                })
+            })
             .ok_or_else(invalid)?;
         let a = c.attempts.get(attempt).ok_or_else(invalid)?;
         let r = c.slots.get(&a.slot).ok_or_else(invalid)?;

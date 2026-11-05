@@ -99,7 +99,7 @@ fn context_storage_factory_prepared_and_captured_exact_manifests_without_account
     assert!(
         f.f.state.test_sessions()[ID]
             .context
-            .as_ref()
+            .as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None })
             .unwrap()
             .get
             .is_none()
@@ -107,7 +107,7 @@ fn context_storage_factory_prepared_and_captured_exact_manifests_without_account
     assert!(
         f.f.state.test_sessions()[ID]
             .context
-            .as_ref()
+            .as_ref().and_then(|record| match record { oasis7_custody_core::provisioning::SessionContextRecordV1::Legacy(value) => Some(value), oasis7_custody_core::provisioning::SessionContextRecordV1::Attested(_) => None })
             .unwrap()
             .slots
             .is_empty()
