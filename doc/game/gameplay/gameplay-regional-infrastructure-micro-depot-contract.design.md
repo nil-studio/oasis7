@@ -34,7 +34,7 @@ WASM proposes, runtime validates / applies / signs.
 2. 系统建议部署 `micro_depot`。
 3. 玩家查看 canonical quote：部署成本、upkeep、覆盖范围、预期收益、仍然存在的 blocker。
 4. 玩家查看最小 ROI 条：预计覆盖的后续 blocker 数、break-even uses、upkeep horizon、低使用率警告和推荐理由。
-5. 玩家确认安装，消耗 starter funding / claim budget，并占用局部设施压力。
+5. 玩家确认安装，按 [Measured Supply Contract](#micro-depot-measured-lifecycle) 支付 `10 Data`（`2 Data` deployment sink + `8 Data` commissioned inventory），并占用局部设施压力；不消费认领受限余额或以首聊 OC 代付。
 6. Runtime 调用 `micro_depot.wasm` 评估后续 repair / logistics quote。
 7. Runtime 校验 proposal，生成 before / after preview。
 8. 玩家执行行动，receipt 说明 depot 对本次行动的贡献。
