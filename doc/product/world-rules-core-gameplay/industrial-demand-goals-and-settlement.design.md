@@ -81,6 +81,8 @@ Viewer、pure API 和 Agent 可以采用不同表达方式，但必须使用同�
 ## 10. 相邻权威与未决边界
 
 [`game` 专业 PRD](../../game/prd.md#3-player-facing-authority-boundary) 拥有玩家动作和机会成本，[`world-runtime` 专业 PRD](../../world-runtime/prd.md#consumer-compatibility-industrial-profile-and-stage-execution) 拥有状态、root/revision、receipt、持久化和 replay，[`M4 工业资源流转合同`](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#4-technical-specifications) 拥有批次、物流、终端、守恒和 profile，[`testing` 专业 PRD](../../testing/prd.md#6-validation-decision-record) 拥有组合证据；本设计只拥有产品体验和跨域连接。三张未决卡保留在配对 PRD 中，任务链接仅提供稳定追踪入口；在专业合同和组合证据明确前，不把未声明路径写成可选，也不把未决事项写成完成决定。
+成熟世界的[有限供应用途政策](../../game/gameplay/gameplay-mature-world-progression-contract.prd.md#regional-supply-use-policy-v1)与[执行设计](../../world-runtime/runtime/mature-world-regional-contribution.design.md#contribution-delivery)采用本专题原输入需求及匹配交付 authority：既有合法库存可以满足明确接受该来源的需求，原需求匹配后停止追加。接收方之后显式执行的用途属于其独立当前意图；用途已证、首次成长和本专题的交付/终端结算分别读取，不互相补签，也不自动续产、发奖或生成另一套需求账。该有限适配尚须实现，不改变其他 profile 的支持范围。
+
 ## PRD REQ/AC fragment mapping
 
 This design delegates product requirements and acceptance semantics to its paired PRD. Every row below is a navigable fragment mapping; this design does not create a second requirement authority.
