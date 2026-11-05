@@ -31,6 +31,10 @@ Runtime拥有世界、控制版本、观察资格、admission及持久结果；A
 | Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a；[AC-EXT-015](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-015) | 两表面各自实际操作同一世界。 | [原生与逐端合同](#view-native) | Viewer/Launcher/QA。 | 不证明真实Runtime或完整首局。 |
 | Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；[AC-EXT-016](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-016) | 概览至局部、搜索并返回目标，未知不伪造。 | [探索查询](#view-query) | 授权索引及位置/关系。 | 不授予全图情报。 |
 | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | 世界现场连接合法高层指导和原回执。 | [指导边界](#view-guidance) | Agent/Runtime协作。 | accepted/动画不是world effect。 |
+| Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | 原结果、原主体/目标及实际 Runtime 接收分别可读 | [view-runtime-results](#view-runtime-results) | API 原 operation、adapter 输入来源 | 不把收到报告或用户看到当模型理解 |
+| Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | 四层事实各有来源/时效，回访不复活或重做执行 | [view-runtime-results](#view-runtime-results) | task/fence、driver、observer 与原结果 authority | 不以页面或健康检查代签独立 Runtime |
+| Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | 外部用量与世界投入/占用按原来源显示，当前读权失效清私有投影 | [view-runtime-results](#view-runtime-results) | adapter cost、业务 receipt/ledger、读取权限 | 不另算事实总账或承诺完整账单 |
+| Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | renderer 失败保留获准文本/原操作，安全恢复不重放指导或效果 | [view-recovery](#view-recovery) | 可信资源、当前 audience、原 operation 与逐端 host | 不从 renderer 恢复推导后端/Runtime/另一端就绪 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -105,6 +109,19 @@ request_generation是客户端请求代际，不证明世界新旧；current需�
 只对当前合法owner开放目标/Prompt/审批/stop。地图、terrain、设施、路线及其他Agent点击不构造action:submit。客户端提示不代替服务器逐次授权。选择不固定业务主体；明确提交后原操作身份不可被新选择改写。
 
 目标saved、activation pending、active、executor read/adoption/context-used与world result分开。审批需明确操作及精确方案摘要，普通Chat不是批准。提交沿原owner API expected revision/client_operation_id，效果只由匹配原操作/Agent/task的受权receipt确认；[权威重验](#view-admission)是完整链路的生效边界。关窗口不停止独立执行器，renderer健康不代表executor状态。
+
+<a id="view-runtime-results"></a>
+#### 原结果、执行事实与费用的共同投影
+
+Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7, O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e, O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43。分别承接 [AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005)、[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007)、[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) 的玩家消费范围。核对日期与基线：2026-11-05；`cca8cda97cf121ebc1e25e96d6b0204a421323ea`；下列为目标接线与显示合同，不是当前 Web/native 验收结论。
+
+世界结果来自 [Game API 原结果与反馈](../llm/external-agent-game-api.design.md#api-result-feedback)，Runtime 输入交付来自 [adapter 的原运行关联](../llm/external-agent-runtime-adapter.design.md#adapter-result-feedback)。每个结果保持原 world/Agent/task/goal/executor/operation 身份；切换选中对象只改变浏览焦点，晚到结果不能归入新 Agent 或新目标。受权已结算结果可以先显示“世界已确认，Runtime 接收未确认”，并保留真实业务阶段；只有 driver 的实际输入证据才显示该输入已接收，不能写成模型已理解或已执行下一步。
+
+观察连接、Runtime run、当前委托和世界结果分别消费[四层事实](../llm/external-agent-runtime-adapter.design.md#adapter-liveness)，各自注明来源新鲜度。有效心跳不能把无 run 的执行器显示为正在思考，执行器停止也不能把 pending 世界工作显示为已取消。回访先读取完整当前任务与原 operation，旧未知保留为“结果待恢复确认”；观察订阅重建不创建 context、不启动 Runtime 或续期委托。pure_api 使用同一事实投影，仍单独验证其可消费结果。
+
+费用显示消费[预算与成本来源](../llm/external-agent-runtime-adapter.design.md#adapter-budget)：外部实际 token/工具/币种、估计及未知分开；世界资源按原业务身份、payer、单位和 reserved/consumed/released 阶段显示。Viewer 不从余额差或模型摘要另算事实总账，不叠加重放行或把控制 ACK 当生产消耗。未确认总额如实标未知；外部费用或资源余量不形成继续执行许可。
+
+执行失权后按当前读取权限保留可读原结果。读取也失权时清除私有图形、文本、费用、搜索及在途旧响应；原结果在权威历史保留不等于当前页面仍有权展示。owner 可沿原受保护路径核对，不能由 Viewer 借新 token 或最新选中 Agent 自动接管。超限、分页未完、受众/切点变化和来源缺口按[分页与代际](#view-query)及[恢复](#view-recovery)处理；关键结果不可静默裁掉后宣称完整。
 
 <a id="view-admission"></a>
 ### 5.4 从观察到生效的权威重验
@@ -215,6 +232,8 @@ camera/selection/filters/drawer是客户端展示偏好，可按账号/world保�
 <a id="view-recovery"></a>
 ### 7.1 降级与恢复状态机
 
+Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，本节直接承接 [AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) 的 renderer 失败可信文本与安全恢复：文本/目标/原结果先通过当前 audience 与[原归属投影](#view-runtime-results)核验，不能为保留信息绕过撤权。图形失败只影响观察能力；仍获权的高层指导、Stop 和原结果查询保持各自可用条件，恢复图形不重放它们。
+
 | 触发 | 清理/保留 | 恢复条件 |
 | --- | --- | --- |
 | boot/loading | 稳定舞台框、获准目标与文本。 | 正确资源hash、当前读模型、实际renderer ready。 |
@@ -307,6 +326,10 @@ camera/selection/filters/drawer是客户端展示偏好，可按账号/world保�
 | [AC-EXT-015](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-015) | [原生与逐端合同](#view-native) | 两表面实际同世界交互。 | [viewer-dual](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-dual)，真实候选/平台。 | 双端操作与权威结果。 | 不单独证明模型/完整首局。 |
 | [AC-EXT-016](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-016) | [探索查询](#view-query) | 概览至局部再返回任务。 | [viewer-explore](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-explore)，实际授权世界。 | 对象、来源、定位与返回。 | 不证明全图可见。 |
 | [AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | [指导边界](#view-guidance) | 世界现场合法指导/回执。 | [viewer-guidance](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-guidance)，实际owner操作。 | 原operation/receipt关联。 | accepted/animation不代签效果。 |
+| Trace refs: O7-REQ-a27895ed-2ca4-45cc-901a-466befd02cf7；[AC-EXT-005](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-005) | [view-runtime-results](#view-runtime-results) | 原结果、原主体/目标及实际 Runtime 接收分别可读 | [adapter-result-feedback](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-result-feedback)；RF01/RF02/RF07/RF08；双主体与 late/unknown/失权，逐表面核文本和来源 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不把收到报告或用户看到当模型理解 |
+| Trace refs: O7-REQ-c5c90e09-ae74-4d77-9858-a4769562b01e；[AC-EXT-007](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-007) | [view-runtime-results](#view-runtime-results) | 四层事实各有来源/时效，回访不复活或重做执行 | [adapter-liveness](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-liveness)；LV01–LV06；声明 viewer/pure_api，Web/native 独立环境 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不以页面或健康检查代签独立 Runtime |
+| Trace refs: O7-REQ-cb69c2a7-f13a-42ea-a929-214fa7ff9d43；[AC-EXT-009](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-009) | [view-runtime-results](#view-runtime-results) | 外部用量与世界投入/占用按原来源显示，当前读权失效清私有投影 | [adapter-budget](../../testing/manual/external-agent-runtime-contract-validation.manual.md#adapter-budget)；BG01–BG06；原成本去重、未知和执行/读取资格各自变化 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不另算事实总账或承诺完整账单 |
+| Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；[AC-EXT-017](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-017) | [view-recovery](#view-recovery) | renderer 失败保留获准文本/原操作，安全恢复不重放指导或效果 | [viewer-guidance](../../testing/manual/external-agent-runtime-contract-validation.manual.md#viewer-guidance)；boot/context-loss/断连、显式重试、换主体/撤权与迟到响应；正式 Web/native 分开 | 同候选来源/当前权限、文本/真实交互和原请求结果分层记录；静态审读不代签实际界面 | 不从 renderer 恢复推导后端/Runtime/另一端就绪 |
 
 补充验证 [5.6](#public-feed-history-source)：固定同一 world/epoch，比较历史与实时公共事件身份、顺序和允许字段；以历史不可用、真实空窗口、分页未完及换源测试不同展示；用合成 canary 检查匿名/A/B 的公共 DTO 与错误均无私有内容。重连覆盖旧 socket 迟到、新 hello 后首读失败/重试、当前首 snapshot 接纳和 scope 变化，断言 stale 到 ready 的条件及零副作用重发。此映射尚待确定性回归与真实 Viewer 同候选验证，不证明实现完成。
 
