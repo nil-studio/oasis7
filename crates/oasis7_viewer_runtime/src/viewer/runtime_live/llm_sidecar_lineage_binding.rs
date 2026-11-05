@@ -29,7 +29,7 @@ pub(in super::super) fn runtime_binding_advances_same_lineage(
             || current.base_world_hash == original.base_world_hash)
 }
 
-pub(in super::super) fn handoff_checkpoint_binding_matches_origin_and_wake(
+fn handoff_checkpoint_binding_matches_origin_and_wake(
     original: &crate::simulator::RuntimeBindingV1,
     wake: &crate::runtime::SchedulerWakeV1,
     captured: &crate::runtime::RuntimeCognitionBaseBindingV1,

@@ -70,7 +70,6 @@ pub(in crate::viewer::runtime_live) struct ProviderWakeRecoveryPending {
 #[path = "llm_sidecar_lineage_binding.rs"]
 mod checkpoint_binding;
 pub(super) use checkpoint_binding::{
-    handoff_checkpoint_binding_matches_origin_and_wake,
     handoff_checkpoint_matches_verified_binding, provider_context_matches_wake,
     runtime_binding_advances_same_lineage,
 };
