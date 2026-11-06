@@ -321,3 +321,34 @@ Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_tes
 请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
 
 真实 Codex 模型接入仍未完成。已在独立 Linux 容器安装并验证 Codex CLI 0.137.0（固定 npm 包），模型 UID 1001 独立 HOME；根拥有的 stdio MCP 夹具仅注册 `dev_test_capabilities`，关闭 shell、unified_exec、multi_agent、apps、plugins、浏览器和 hooks。`codex mcp list` 与实际 UID 的 MCP→本地 CLI→IPC 预检通过；未发生模型调用。当前 UID 登录状态为 Not logged in，未发现可复用的获准有界 API key／可信 Responses 代理，真实模型认证与费用预算仍待准备。不能复制宿主认证或把业务服务凭据交给模型补齐该缺口。实际消费者、共享用量组合及合法账号业务后继仍分别验收；本项保持未完成。
+
+### 本地账号业务工具接线（#5538）
+
+本地完整业务入口为 `oasis7_dev_test_local_tools`。可信宿主以服务 UID 执行
+`serve PUBLIC_SOCKET PRIVATE_POLICY CALLER_UID CALLER_ID`；`PRIVATE_POLICY` 沿用
+会话服务配置并指向唯一私有后端 socket，不复制授权、累计额度或原操作账本。
+服务 UID 必须不同于模型 UID。公开 socket 的父目录须由服务所有且不可被模型
+写入；私有配置及祖先目录沿用共同受信读取检查。每请求重新读取当前配置与认证，
+模型输入不能提供凭据、身份或配置路径。后端仍执行唯一业务准入。
+
+模型进程仅由可信宿主固定命令 `oasis7_dev_test_local_tools stdio APPROVED_SOCKET`，
+以受限 UID 运行，并加载正式 Skill 中的 `references/dev-test-accounts.md`。
+唯一 MCP 工具为 `dev_test_accounts_call`，闭合开放 accounts/open/close/describe/
+task/capabilities/context/move/lookup；操作参数沿用共同 DTO，请求及结果不重写。
+stdio 按行接收最多 65536 字节，传输失败不自动重试。根级 ok 不代替世界结果。
+宿主负责操作系统进程隔离；不能让模型同时拥有服务 UID、可变启动参数或任意 shell。
+
+本项局部复现：
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib dev_test_local_business --locked
+env -u RUSTC_WRAPPER cargo clippy -p oasis7_game_client --lib --tests --bins --locked -- -D warnings
+# Linux root 隔离夹具：仅合成私有后端，无模型调用或世界请求。
+python3 crates/oasis7_game_client/tests/fixtures/dev_test_local_business_linux.py /absolute/path/oasis7_dev_test_local_tools
+```
+
+夹具验证不同 UID 拒绝、私有配置不可读、九方法与操作 ID/正文原样传递、
+stdio unknown 保留、凭据注入不可从模型覆盖、停用及到期拒绝。该证据不代签
+DA-01～06 的外部模型实玩、真实世界效果、普通重启或故障后原件恢复；这些仍须
+在固定运行组合下独立记录。当前用户选择继续代码与本地验证，真实模型验收阻塞，
+本入口不得自行启动模型或扩大付费权限。
