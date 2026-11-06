@@ -33,6 +33,7 @@ mod application_memory_tamper;
 mod application_metadata;
 mod application_sandbox;
 mod application_stream_boundaries;
+mod checkpoint_service_cleanup;
 mod cleanup_deadline;
 mod controlled_admission;
 mod fixture_cleanup;
@@ -486,6 +487,8 @@ impl Fixture {
                 } else {
                     stream.try_clone().unwrap()
                 };
+                failure::at(FailureStage::Gate);
+                let response_gate = checkpoint_service_cleanup::hold_response(&worker_gate, path);
                 let dispatch_started = Instant::now();
                 failure::at(FailureStage::Dispatch);
                 let result = crate::world_service_api::maybe_handle(
@@ -500,7 +503,9 @@ impl Fixture {
                     &worker_root.join("store"),
                     &signer,
                 );
+                failure::dispatcher_elapsed(dispatch_started.elapsed());
                 worker_diagnostics.record(Stage::Dispatcher, dispatch_started.elapsed());
+                checkpoint_service_cleanup::response_finished(response_gate, &result);
                 eprintln!("fixture_dispatch method={method} path={path} result={result:?}");
                 // A verified whole-process exit at the intentional Settle gate may
                 // close its response socket. Admission and canonical execution must

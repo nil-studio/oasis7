@@ -30,6 +30,7 @@ fn failed_listener(concurrent: bool) -> Arc<Diagnostics> {
         route(super::super::SUBMIT_PATH);
         let error = io::Error::from_raw_os_error(libc::ECONNRESET);
         let result: io::Result<()> = observe_io(Err(error));
+        dispatcher_elapsed(Duration::from_micros(1234));
         // Instrumentation must leave the strict transport outcome unchanged.
         assert_eq!(
             result.as_ref().unwrap_err().kind(),
@@ -105,6 +106,7 @@ fn original_connection_failure_survives_aggregation() {
             libc::ECONNRESET
         )));
         assert!(output.contains("io_kind=ConnectionReset io_source=Typed read_bytes=0"));
+        assert!(output.contains("dispatcher_elapsed_us=1234"));
         assert!(output.contains("site=probe:"));
         assert!(output.contains("role=Listener"));
         assert!(!output.contains(PRIVATE_PANIC));

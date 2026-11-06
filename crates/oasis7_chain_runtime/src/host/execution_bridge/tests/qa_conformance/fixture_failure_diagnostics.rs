@@ -123,6 +123,7 @@ struct Progress {
     io_kind: IoKind,
     io_source: IoSource,
     read_bytes: usize,
+    dispatcher_elapsed_us: u64,
     site: &'static Location<'static>,
 }
 #[derive(Clone)]
@@ -199,7 +200,7 @@ impl Diagnostics {
             };
             writeln!(
                 writer,
-                "fixture_worker_failure index={index} scenario={scenario} worker={} parent={} role={:?} stage={:?} route={:?} errno={} io_kind={:?} io_source={:?} read_bytes={} site={source}:{}:{}",
+                "fixture_worker_failure index={index} scenario={scenario} worker={} parent={} role={:?} stage={:?} route={:?} errno={} io_kind={:?} io_source={:?} read_bytes={} dispatcher_elapsed_us={} site={source}:{}:{}",
                 record.worker,
                 record.parent,
                 record.role,
@@ -209,6 +210,7 @@ impl Diagnostics {
                 progress.io_kind,
                 progress.io_source,
                 progress.read_bytes,
+                progress.dispatcher_elapsed_us,
                 progress.site.line(),
                 progress.site.column()
             )?;
@@ -236,6 +238,7 @@ impl Scope {
                 io_kind: IoKind::None,
                 io_source: IoSource::None,
                 read_bytes: 0,
+                dispatcher_elapsed_us: 0,
                 site: Location::caller(),
             },
         }))
@@ -341,6 +344,15 @@ pub(super) fn dispatcher_error(message: &str) {
             break;
         }
     }
+}
+
+pub(super) fn dispatcher_elapsed(elapsed: std::time::Duration) {
+    ACTIVE.with(|active| {
+        if let Some(context) = active.borrow_mut().as_mut() {
+            context.progress.dispatcher_elapsed_us =
+                elapsed.as_micros().min(u64::MAX as u128) as u64;
+        }
+    });
 }
 
 pub(super) fn request_bytes(count: usize) {

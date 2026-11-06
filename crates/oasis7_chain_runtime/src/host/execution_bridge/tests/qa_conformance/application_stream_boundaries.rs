@@ -929,6 +929,7 @@ fn checkpoint_publication_fairness(
             .unwrap()
             .test_change_agent_service_scope("public".into());
     }
+    checkpoint_service_cleanup::arm(root, !change_scope && !pause_before_release);
     ViewerRuntimeLiveServer::test_release_lineage_publication_gate(&path);
     let deadline = Instant::now() + Duration::from_secs(3);
     while !ViewerRuntimeLiveServer::test_lineage_publication_gate_published(&path)
@@ -1002,7 +1003,9 @@ fn checkpoint_publication_fairness(
             "checkpoint-released"
         },
     );
+    checkpoint_service_cleanup::wait_until_held(root);
     let joined = observer.close();
+    let service_joined = checkpoint_service_cleanup::join(shared, root);
     application_stream_budget_diagnostics::dump(&[serde_json::json!({
         "diagnostic_started_us":diagnostic_started, "diagnostic_finished_us":diagnostic_finished,
         "response_within_150ms":responsive && elapsed <= Duration::from_millis(150),
@@ -1070,6 +1073,7 @@ fn checkpoint_publication_fairness(
         );
     }
     assert!(joined.is_ok());
+    assert!(service_joined.is_ok());
     println!(
         "{}",
         if change_scope {
