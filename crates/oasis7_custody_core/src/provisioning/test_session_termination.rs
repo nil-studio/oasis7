@@ -343,6 +343,7 @@ impl AccountProvisionApprovalState {
         now: UnixMillis,
         verifier: &mut impl ApprovalSignatureVerifier,
     ) -> Result<TerminationOriginalV1> {
+        self.require_legacy_termination_selected(id)?;
         verifier.verify(&self.termination_current_checks(id, kind, current, now)?)?;
         let s = self.test_sessions.get(id).ok_or_else(invalid)?;
         if let Some(old) = s.termination_slots.get(&kind) {

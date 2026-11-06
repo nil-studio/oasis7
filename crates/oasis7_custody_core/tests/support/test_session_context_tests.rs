@@ -4,7 +4,7 @@ use oasis7_custody_core::envelope::*;
 
 #[path = "test_session_context_fixture.rs"]
 mod fixture;
-use fixture::*;
+use self::fixture::*;
 
 #[test]
 fn context_body_native_sdk_two_slots_six_paid_ports_and_strict_restore() {

@@ -23,12 +23,20 @@ pub use executor::*;
 mod json;
 mod task;
 mod task_cleanup_v2;
+mod task_cleanup_v3;
+mod task_stop_observation_v2;
+mod task_stop_result_v2;
+mod task_stop_v2;
 pub use goal::*;
 pub use goal_prepare::*;
 pub use goal_publish::*;
 pub use json::{parse_bounded_json, parse_request};
 pub use task::*;
 pub use task_cleanup_v2::*;
+pub use task_cleanup_v3::*;
+pub use task_stop_observation_v2::*;
+pub use task_stop_result_v2::*;
+pub use task_stop_v2::*;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 

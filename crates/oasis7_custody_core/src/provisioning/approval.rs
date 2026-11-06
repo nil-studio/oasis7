@@ -124,6 +124,8 @@ pub struct AccountProvisionApprovalState {
     pairing_invites: BTreeMap<String, PairingInviteRecordV1>,
     session_inventory: SessionInventoryV1,
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
+    #[serde(default)]
+    termination_v3: BTreeMap<String, TestSessionTerminationAuthorityV3>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -166,6 +168,8 @@ struct RawAccountProvisionApprovalState {
     session_inventory: SessionInventoryV1,
     #[serde(default)]
     test_sessions: BTreeMap<String, TestSessionAuthorityV1>,
+    #[serde(default)]
+    termination_v3: BTreeMap<String, TestSessionTerminationAuthorityV3>,
 }
 impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState {
     type Error = ProvisionApprovalError;
@@ -192,6 +196,7 @@ impl TryFrom<RawAccountProvisionApprovalState> for AccountProvisionApprovalState
             pairing_invites: raw.pairing_invites,
             session_inventory: raw.session_inventory,
             test_sessions: raw.test_sessions,
+            termination_v3: raw.termination_v3,
         };
         state.validate_persistence()?;
         Ok(state)
@@ -223,6 +228,7 @@ impl AccountProvisionApprovalState {
             pairing_invites: BTreeMap::new(),
             session_inventory: SessionInventoryV1::Known,
             test_sessions: BTreeMap::new(),
+            termination_v3: BTreeMap::new(),
         })
     }
     pub fn draft(&self) -> &AccountDraftV1 {
@@ -566,6 +572,7 @@ impl AccountProvisionApprovalState {
         self.validate_owner_setup_reconcile_persistence()?;
         self.validate_pairing_invite_persistence()?;
         self.validate_test_session_persistence()?;
+        self.validate_termination_v3_persistence()?;
         self.validate_history_persistence()?;
         for record in self.book.records() {
             binding(&self.draft, record.input())?;

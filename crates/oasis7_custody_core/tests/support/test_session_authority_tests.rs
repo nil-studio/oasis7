@@ -520,3 +520,5 @@ mod management;
 
 #[path = "test_session_expiry_tests.rs"]
 mod expiry;
+
+termination_install_fixture_extension!(authority);

@@ -1092,3 +1092,5 @@ fn test_session_known_stop_lookup_survives_receipt_derived_suspended_world() {
 
 #[path = "test_session_termination_fresh_world_tests.rs"]
 mod fresh_world_tests;
+
+termination_install_fixture_extension!(legacy);

@@ -567,3 +567,10 @@ pub use reconcile::*;
 #[path = "test_session.rs"]
 mod test_session;
 pub use test_session::*;
+
+#[path = "owner_termination_profile_v3.rs"]
+mod owner_termination_profile_v3;
+pub use owner_termination_profile_v3::*;
+#[path = "test_session_termination_v3_install.rs"]
+mod termination_v3_install;
+pub use termination_v3_install::*;

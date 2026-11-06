@@ -35,3 +35,9 @@ pub use oasis7_client_api::world_service::private_goal::with_owner_signature_ver
 pub mod context_body;
 
 pub mod management_metadata;
+
+#[cfg(test)]
+extern crate self as oasis7_custody_core;
+#[cfg(test)]
+#[path = "../tests/support/termination_install_unit.rs"]
+mod termination_install_fixture_tests;
