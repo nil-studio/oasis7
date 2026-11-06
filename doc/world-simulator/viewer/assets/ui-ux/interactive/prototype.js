@@ -3,6 +3,28 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  // Design-image camera only: integer CSS scale, shared anchors, no world mutation.
+  function layoutPixelWorld() {
+    const art = $("world-art");
+    const width = art.clientWidth, height = art.clientHeight;
+    if (art.hidden || !width || !height) return;
+    const scale = Math.max(1, Math.ceil(Math.max(width / 320, height / 180)));
+    const ox = Math.min(0, Math.max(width - 320 * scale, Math.floor(width / 2 - 168 * scale)));
+    const oy = Math.min(0, Math.max(height - 180 * scale, Math.floor(height / 2 - 88 * scale)));
+    const background = $("world-background");
+    Object.assign(background.style, {left:`${ox}px`, top:`${oy}px`, width:`${320 * scale}px`, height:`${180 * scale}px`});
+    art.dataset.pixelScale = String(scale);
+    art.querySelectorAll("[data-world-x]").forEach((element) => {
+      const x = ox + Number(element.dataset.worldX) * scale;
+      const y = oy + Number(element.dataset.worldY) * scale;
+      if (element.classList.contains("actor-sprite")) {
+        Object.assign(element.style, {left:`${x - 8 * scale}px`, top:`${y - 15 * scale}px`, width:`${16 * scale}px`, height:`${16 * scale}px`});
+      } else {
+        element.style.left = `${x}px`;
+        element.style.top = `${y + (element.classList.contains("place-name") ? -12 : 8)}px`;
+      }
+    });
+  }
   const defaults = { system: "system-A", short: "short-A", long: "long-A" };
   const fields = { system: "系统 Prompt", short: "短期 Prompt", long: "长期 Prompt" };
   const fixtures = {
@@ -172,6 +194,8 @@
       const id = marker.classList.contains("actor-a") ? "A" : marker.classList.contains("actor-b") ? "B" : "C";
       marker.hidden = dense && id !== "B";
       marker.textContent = dense ? "3" : id;
+      marker.classList.toggle("actor-cluster", dense);
+      document.querySelector(`[data-actor-sprite="${id}"]`).hidden = marker.hidden || dense;
       marker.style.outline = state.observed === id || dense ? "3px solid var(--gold)" : "none";
       marker.style.outlineOffset = "5px";
     });
@@ -187,6 +211,7 @@
       $("drawer-title").textContent = state.panel === "account" ? "进入与回访" : state.panel === "targets" ? "目标与位置" : state.panel === "prompt-history" ? "Prompt 原请求记录" : state.route === "industry" ? "首局生产" : state.route === "prompt" ? `高级 Prompt · Agent ${state.commandAgent}` : `指导 Agent ${state.commandAgent}`;
       $("drawer-content").innerHTML = state.panel === "account" ? accountContent() : state.panel === "targets" ? targetsContent() : state.panel === "prompt-history" ? state.promptReceipts.map((original) => card(`${escape(original.id)} · Agent ${escape(original.agent)}`, `<p>${promptReceiptLabel(original.status)}</p><p class="meta">新草稿、新主体或最新 profile 不裁决这条原请求。</p>`)).join("") : state.route === "industry" ? industryContent() : state.route === "prompt" ? promptContent() : chatContent();
     }
+    layoutPixelWorld();
     if (oldId && $(oldId)) $(oldId).focus({preventScroll:true});
     else if (oldAction && state.panel !== "world") {
       const replacement = Array.from($("drawer").querySelectorAll("[data-action]")).find((el) => el.dataset.action === oldAction && !el.disabled);
@@ -281,7 +306,7 @@
   $("readback").addEventListener("change", (event) => { state.industry.readback = event.target.value; });
   $("supply").addEventListener("change", (event) => { state.industry.observedFuel = Number(event.target.value); });
   $("skip-to-stage").addEventListener("click", (event) => { event.preventDefault(); $("stage").focus(); });
-  $("text-size").addEventListener("click", () => { const large = document.documentElement.classList.toggle("text-large"); $("text-size").setAttribute("aria-pressed", String(large)); });
+  $("text-size").addEventListener("click", () => { const large = document.documentElement.classList.toggle("text-large"); $("text-size").setAttribute("aria-pressed", String(large)); layoutPixelWorld(); });
   $("drawer-content").addEventListener("input", (event) => {
     if (event.target.id === "chat-draft") state.chatDraft = event.target.value;
     if (event.target.dataset.promptField && !promptLocked()) { changeDraft(event.target.dataset.promptField, event.target.value.trim() || null); if ($("prompt-impact")) $("prompt-impact").innerHTML = promptImpact(); }
@@ -294,6 +319,8 @@
   $("cancel-confirm").addEventListener("click", () => $("confirm-dialog").close());
   $("accept-confirm").addEventListener("click", () => { const action = confirmAction; confirmAction = null; $("confirm-dialog").close(); action?.(); });
   $("confirm-dialog").addEventListener("close", () => { confirmAction = null; if (confirmInvoker?.isConnected) confirmInvoker.focus(); });
+  window.addEventListener("resize", layoutPixelWorld);
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(layoutPixelWorld).observe($("stage"));
   window.addEventListener("hashchange", routeFromHash);
   routeFromHash();
 })();

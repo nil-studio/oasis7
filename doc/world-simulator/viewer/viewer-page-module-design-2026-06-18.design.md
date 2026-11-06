@@ -805,6 +805,8 @@ module-state verification are still required before any completion claim.
 
 详细符号、尺寸、图层、LOD、材质与密集场景交接见[玩家可读渲染设计 §13](viewer-pixel-world-player-readable-rendering.design.md#bevy-detailed-visual-handoff)；本节只维护与页面阅读顺序的接口。
 
+本轮世界美术采用[二维俯视像素方向](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)：图 16／17、工业方案／结果与互动原型共用[320×180 场景及图集](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)。世界图块、设施和 Agent 使用离散整数像素；HUD、中文、选择边界及原回执使用独立清晰图层。图 18 的 RendererUnavailable 继续不绘制世界，不用像素底图冒充仍然可用的场景。图块规格是制作单位，不能由此生成未知目标坐标或可建设网格。
+
 | 层 | 视觉表达 | 显示条件/语义限制 |
 | --- | --- | --- |
 | Fragment 地形 | 低对比、有层次的背景块；远景减少细节 | LOD 隐藏不代表地形删除；非可采集/建造编辑格 |
@@ -1034,7 +1036,9 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 
 这一交付在既有深绿世界、金色单一主动作和按需 drawer 方向上补稿，不改变品牌 token 或生产 Viewer。核对基线为 `7df3d7d289789ee844c7486587fb49fd611968d4`；源目录仍保留自己的固定 revision，不将新设计稿计作新增已实现功能。实际入口/源码盘点沿[当前源目录](viewer-full-function-coverage-catalog.md)，当前生产页面截图尚未取得。
 
-可编辑原件为 [HTML 入口](assets/ui-ux/interactive/index.html)、[布局与组件 CSS](assets/ui-ux/interactive/prototype.css)和[本地交互状态 JavaScript](assets/ui-ux/interactive/prototype.js)。三个文件放在同一目录即可用本机浏览器打开 `index.html`，无需构建、依赖安装或后端；也可从仓库根执行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux/interactive`，在同一机器访问 `http://127.0.0.1:8765/`。页面顶部的旅程、评审情境、示例回读和供给读回属于设计评审工具，不进入玩家产品界面。
+可编辑原件为 [HTML 入口](assets/ui-ux/interactive/index.html)、[布局与组件 CSS](assets/ui-ux/interactive/prototype.css)和[本地交互状态 JavaScript](assets/ui-ux/interactive/prototype.js)，世界层加载相邻 `pixel-world/` 的 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)。离线复制时保留 `interactive/` 与 `pixel-world/` 两个相邻目录及这些文件，再打开 `interactive/index.html`；运行不需要构建、依赖安装或后端。共享素材的编辑／导出依赖和整数倍率规则见[像素设计源交接](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)。
+
+也可从仓库根执行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux`，在同一机器访问 `http://127.0.0.1:8765/interactive/`。HTTP 根必须覆盖两个相邻目录，不能只服务 `interactive/`。页面顶部的旅程、评审情境、示例回读和供给读回属于设计评审工具，不进入玩家产品界面。
 
 原型全程使用已标注的设计 fixture，不读取账号、Key、模型、网络、真实库存或生产状态，不执行持久化。首次/回访仅模拟界面状态；刷新和切换评审情境会重置本地演示。原型中的原请求查询以“该查询已经获准且原件可读”为前置，不声称当前 Action Receipt 已有此按钮，也不扩展生产恢复协议。
 
@@ -1049,6 +1053,8 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 仅用 Tab/Shift+Tab 走进入、发送、查询、关闭、丢弃确认及取消；非模态 drawer 不锁焦点，确认使用原生 dialog。输入 CJK 多行、Enter/Shift+Enter、组合输入 Escape/229，核对没有误发送、误关面板和状态更新夺焦点。跳到游戏界面的链接只转焦点，不重置旅程或草稿。原回执按钮有稳定焦点位置；实际浏览器、原生输入法和辅助技术仍须分别取得证据。
 
 **本轮实际验证及未完成项。** 七张新 SVG 共十二个独立画面已用 Inkscape 渲染，并由非作者复核；原型已执行 25 项源级 JSDOM 操作验证，覆盖上述状态、归属、草稿保护和恢复。Prompt 与工业各自的非作者复审发现已修复并定向复核；布局审查修正了窄屏重叠、重复主按钮和关键文字过小。JSDOM 不计算真实布局，dialog 方法在该检查中仅模拟回调，不能证明原生模态、IME 或无障碍通过。
+
+像素修正后重新导出并审阅四张受影响的页面稿；共享源全部使用整数矩形和固定 16 色，scene 原始 320×180 栅格实际使用其中 14 色，Agent 单独保留透明背景。用文档所列 HTTP 根核对 HTML、CSS、JS 和两张 PNG 均返回 200；25 项状态验证在修改后的原型再次通过。整数相机与锚点的源级检查、SVG 栅格目检和 HTTP 资源可达分别只证明其检查对象，不能代替真实浏览器布局、DPR 或原生输入验证。
 
 当前本地 Chromium 启动被 socket 权限拒绝，连接的浏览器也无法到达本地 HTTP；没有采用被浏览器策略禁止的内联协议或绕过限制。尚缺同一交付版本的真实浏览器响应式截图、键盘/IME/辅助技术及非作者实际可操作走查，因此 [#5527](https://github.com/nil-studio/oasis7/issues/5527) 保持未完成。该缺口属于本设计交付，不能转记为已通过，也不由 #5387 的生产回归设施替代。经济/治理仍沿[条件目标](viewer-economic-targets-uiux.design.md)及[治理目标](viewer-governance-targets-uiux.design.md)，不在此原型启用；#4966、#5166、#5167、#5116 的原有主责、前置与暂停条件保持原记录。
 

@@ -25,20 +25,14 @@
   <p class="prototype-note">设计目标 · 所有账号、世界、成本和回读均为本地示例，不连接游戏服务。情境切换会重置本地草稿。</p>
   <main id="stage" tabindex="-1" aria-label="示例世界">
     <div class="world-art" id="world-art" aria-hidden="true">
-      <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
-        <defs><pattern id="terrain" width="100" height="90" patternUnits="userSpaceOnUse"><rect width="100" height="90" fill="#17271f"/><path d="M12 15h22v9H12zM72 65h13v14H72z" fill="#20362a"/></pattern><pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#8dc7aa" stroke-opacity=".04"/></pattern></defs>
-        <rect width="1440" height="900" fill="url(#terrain)"/><rect width="1440" height="900" fill="url(#grid)"/>
-        <path d="M-60 690L370 530 540 570 690 390 1460 520" fill="none" stroke="#405143" stroke-width="54"/>
-        <path d="M-60 690L370 530 540 570 690 390 1460 520" fill="none" stroke="#53604b" stroke-width="22"/>
-        <path d="M380 0L340 140 390 240 310 350 320 470 220 600 270 900" fill="none" stroke="#24433f" stroke-width="64"/>
-        <path d="M380 0L340 140 390 240 310 350 320 470 220 600 270 900" fill="none" stroke="#35605a" stroke-width="18"/>
-        <g fill="#263d30" stroke="#486050" stroke-width="3"><path d="M610 210h330v235H610z"/><path d="M660 150h240v70H660z"/></g>
-        <g fill="#586450"><path d="M640 255h48v80h-48zM710 255h48v80h-48zM780 255h48v80h-48zM850 255h48v80h-48z"/></g>
-        <g fill="#d0a85b"><path d="M657 271h14v30h-14zM727 271h14v30h-14zM797 271h14v30h-14z"/></g>
-        <g fill="#30543c"><path d="M1100 140h35v60h-35zM1075 170h85v25h-85zM1010 650h36v65h-36zM985 682h86v24h-86zM470 150h35v60h-35zM445 180h85v25h-85z"/></g>
-      </svg>
-      <span class="place-name">北侧加工站<br><small>场景几何仅为示意</small></span>
-      <span class="actor actor-a">A</span><span class="actor actor-b">B</span><span class="actor actor-c">C</span>
+      <img id="world-background" class="world-background" src="../pixel-world/scene.png" width="320" height="180" alt="">
+      <span class="place-name" data-world-x="168" data-world-y="64">北侧加工站<br><small>像素设计示意 · 非权威位置</small></span>
+      <img class="actor-sprite" data-actor-sprite="A" data-world-x="180" data-world-y="124" src="../pixel-world/agent.png" width="16" height="16" alt="">
+      <img class="actor-sprite" data-actor-sprite="B" data-world-x="136" data-world-y="120" src="../pixel-world/agent.png" width="16" height="16" alt="">
+      <img class="actor-sprite" data-actor-sprite="C" data-world-x="200" data-world-y="140" src="../pixel-world/agent.png" width="16" height="16" alt="">
+      <span class="actor actor-a" data-world-x="180" data-world-y="124">A</span>
+      <span class="actor actor-b" data-world-x="136" data-world-y="120">B</span>
+      <span class="actor actor-c" data-world-x="200" data-world-y="140">C</span>
     </div>
     <header class="world-header">
       <div><p class="eyebrow">OASIS7 / 示例世界</p><h1 id="world-title">北侧补给区</h1></div>
