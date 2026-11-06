@@ -5,7 +5,7 @@ use oasis7_game_client::{
     device_client::Client,
     identity_client::{EntryOwnerProgress, ParticipantClient, ParticipantClientConfig},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     io::Write,
     os::unix::fs::PermissionsExt,

@@ -370,9 +370,11 @@ mod control_tests {
         ])
         .unwrap();
         let current = load_session_config(&path).unwrap();
-        assert!(sessions
-            .authorize(&reference, "caller", &current.grants[0], "task", 2)
-            .is_ok());
+        assert!(
+            sessions
+                .authorize(&reference, "caller", &current.grants[0], "task", 2)
+                .is_ok()
+        );
         run(vec![
             "--disable-account".into(),
             path.to_string_lossy().into(),
@@ -381,9 +383,11 @@ mod control_tests {
         .unwrap();
         let disabled = load_session_config(&path).unwrap();
         assert!(!disabled.grants[0].enabled);
-        assert!(sessions
-            .authorize(&reference, "caller", &disabled.grants[0], "task", 2)
-            .is_err());
+        assert!(
+            sessions
+                .authorize(&reference, "caller", &disabled.grants[0], "task", 2)
+                .is_err()
+        );
         run(vec![
             "--apply".into(),
             path.to_string_lossy().into(),
@@ -392,9 +396,11 @@ mod control_tests {
         .unwrap();
         let restored = load_session_config(&path).unwrap();
         assert!(restored.grants[0].enabled);
-        assert!(sessions
-            .authorize(&reference, "caller", &restored.grants[0], "task", 2)
-            .is_err());
+        assert!(
+            sessions
+                .authorize(&reference, "caller", &restored.grants[0], "task", 2)
+                .is_err()
+        );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]
@@ -421,9 +427,11 @@ mod control_tests {
         ])
         .unwrap();
         let current = load_session_config(&path).unwrap();
-        assert!(sessions
-            .authorize(&reference, "caller", &current.grants[0], "task", 2)
-            .is_err());
+        assert!(
+            sessions
+                .authorize(&reference, "caller", &current.grants[0], "task", 2)
+                .is_err()
+        );
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]
