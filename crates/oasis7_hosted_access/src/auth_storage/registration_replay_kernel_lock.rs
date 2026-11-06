@@ -162,7 +162,11 @@ pub(super) fn normalized_target(path: &Path) -> Result<PathBuf, String> {
     Ok(target)
 }
 
-pub(super) fn acquire(lock_dir: &Path, deadline: Instant, wait: bool) -> Result<KernelLock, String> {
+pub(super) fn acquire(
+    lock_dir: &Path,
+    deadline: Instant,
+    wait: bool,
+) -> Result<KernelLock, String> {
     if !cfg!(any(target_os = "linux", target_os = "macos", windows)) {
         return Err("registration replay kernel lock unsupported on this platform".into());
     }
