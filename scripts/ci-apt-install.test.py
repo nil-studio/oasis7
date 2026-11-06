@@ -35,6 +35,20 @@ with (root / 'events').open('a') as out:
                              lc=os.environ.get('LC_ALL'), frontend=os.environ.get('DEBIAN_FRONTEND'))) + '\n')
 if child:
     while True: time.sleep(.05)
+if mode in ('zombie_success', 'zombie_error', 'zombie_transient'):
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0)
+    deadline = time.monotonic() + 3
+    while Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0] != 'Z':
+        if time.monotonic() >= deadline:
+            raise RuntimeError('fixture child did not become a zombie')
+        time.sleep(.001)
+    with (root / 'events').open('a') as out:
+        out.write(json.dumps(dict(pid=pid, stage='zombie', state='Z')) + '\n')
+    # Deliberately leave the exited child for the helper's subreaper to adopt.
+    if mode == 'zombie_error' and stage == 'install':
+        sys.exit(42)
 if stage == 'install' and mode == 'install_error':
     print(os.environ['TRANSIENT'], flush=True)
     sys.exit(100)
@@ -43,7 +57,7 @@ if stage == 'update':
     if mode == 'permanent':
         print('E: The repository does not have a Release file.', flush=True)
         sys.exit(100)
-    if mode in ('transient', 'exhaust') and (mode == 'exhaust' or attempts == 1):
+    if mode in ('transient', 'exhaust', 'zombie_transient') and (mode == 'exhaust' or attempts == 1):
         print(os.environ['TRANSIENT'], flush=True)
         sys.exit(100)
     if mode == 'unknown':
@@ -172,6 +186,30 @@ class Lifecycle(unittest.TestCase):
         output = self.run_mode('transient', expect=0)
         self.assertEqual([e['stage'] for e in self.events()], ['update', 'update', 'install'])
         self.assertIn('retry=1', output)
+
+    def test_adopted_zombies_are_reaped_before_successful_completion(self):
+        output = self.run_mode('zombie_success', expect=0)
+        self.assertIn('dependencies_ready=true', output)
+        self.assertNotIn('leftover_descendants', output)
+        self.assertEqual([e['stage'] for e in self.events()],
+                         ['update', 'zombie', 'install', 'zombie'])
+        self.assertTrue(all(e['state'] == 'Z' for e in self.events() if e['stage'] == 'zombie'))
+
+    def test_reaping_adopted_zombies_preserves_failed_leader_status(self):
+        output = self.run_mode('zombie_error')
+        self.assertIn('stage=install attempt=1 exit=42 reason=exit', output)
+        self.assertIn('dependencies_ready=false', output)
+        self.assertNotIn('leftover_descendants', output)
+        self.assertEqual([e['stage'] for e in self.events()],
+                         ['update', 'zombie', 'install', 'zombie'])
+
+    def test_reaping_adopted_zombies_preserves_transient_update_retry(self):
+        output = self.run_mode('zombie_transient', expect=0)
+        self.assertIn('stage=update attempt=1 exit=100 reason=exit', output)
+        self.assertIn('retry=1', output)
+        self.assertIn('dependencies_ready=true', output)
+        self.assertEqual([e['stage'] for e in self.events()],
+                         ['update', 'zombie', 'update', 'zombie', 'install', 'zombie'])
 
     def test_transient_retry_exhaustion_blocks_install(self):
         self.run_mode('exhaust')

@@ -194,6 +194,9 @@ class Installer:
                             overflow = True
                     status = proc.poll()
                     if status is not None:
+                        # poll() has preserved the leader's status. Reap adopted
+                        # zombies before deciding whether any descendants remain live.
+                        reap()
                         # A successful leader with live descendants is not a completed install.
                         if descendants():
                             reason = 'leftover_descendants'
