@@ -127,8 +127,18 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     if unlock_bytes.len() > 65536 {
         return Err("private_unlock_too_large".into());
     }
-    let unlocks: BTreeMap<String, String> =
+    use base64::Engine;
+    let encoded: BTreeMap<String, String> =
         serde_json::from_slice(&unlock_bytes).map_err(|_| "private_unlock_invalid")?;
+    let mut unlocks = PrivateUnlocks::new();
+    for (account_ref, value) in encoded {
+        let value = zeroize::Zeroizing::new(value);
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(value.as_bytes())
+            .map_err(|_| "private_unlock_encoding_invalid")?;
+        unlocks.insert(account_ref, zeroize::Zeroizing::new(bytes));
+    }
+    drop(unlock_bytes);
     let listener = UnixListener::bind(&initial.service.socket).map_err(|_| "socket_bind_failed")?;
     std::fs::set_permissions(
         &initial.service.socket,

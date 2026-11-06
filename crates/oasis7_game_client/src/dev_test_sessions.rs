@@ -1,5 +1,6 @@
 //! Immutable read-only sessions; references never authenticate a caller.
 use serde::{Deserialize, Serialize};
+pub type PrivateUnlocks = BTreeMap<String, zeroize::Zeroizing<Vec<u8>>>;
 use std::collections::BTreeMap;
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -154,7 +155,7 @@ fn verify_resource_bytes(binding: &Binding, bytes: &[u8]) -> Result<(), String> 
 fn current_client(
     config: &ServiceConfig,
     grant: &Grant,
-    unlocks: &BTreeMap<String, String>,
+    unlocks: &PrivateUnlocks,
     deadline: std::time::Instant,
 ) -> Result<crate::device_client::Client, String> {
     let account =
@@ -169,7 +170,7 @@ fn current_client(
         .get(&account.account_ref)
         .ok_or("private_unlock_unavailable")?;
     account
-        .verify_current(unlock.as_bytes())
+        .verify_current(unlock.as_slice())
         .map_err(|_| "native_identity_invalid")?;
     if std::time::Instant::now() >= deadline {
         return Err("downstream_deadline_unknown".into());
@@ -201,7 +202,7 @@ fn current_client(
     let repeated: crate::device_client::ExecutorDeviceConfig =
         serde_json::from_slice(&executor_bytes).map_err(|_| "executor_configuration_invalid")?;
     let identity =
-        crate::identity_client::IdentityClient::new(repeated.identity, unlock.as_bytes())
+        crate::identity_client::IdentityClient::new(repeated.identity, unlock.as_slice())
             .map_err(|_| "native_identity_invalid")?;
     if identity
         .current_account(&device.login_operation)
@@ -215,14 +216,14 @@ fn current_client(
         return Err("downstream_deadline_unknown".into());
     }
     // The executor gateway additionally checks current native login and fence.
-    crate::device_client::Client::from_authenticated_config(device, unlock.as_bytes())
+    crate::device_client::Client::from_authenticated_config(device, unlock.as_slice())
         .map_err(|_| "native_resource_unavailable".into())
 }
 pub fn handle(
     config: &ServiceConfig,
     sessions: &mut Sessions,
     request: ToolRequest,
-    unlocks: &BTreeMap<String, String>,
+    unlocks: &PrivateUnlocks,
     now: u64,
     deadline: std::time::Instant,
 ) -> Result<serde_json::Value, String> {

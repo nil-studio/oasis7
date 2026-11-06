@@ -266,7 +266,7 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 ### 多账号只读会话候选（#5535，未验收）
 
-候选二进制 `oasis7_dev_test_sessions --serve PRIVATE_CONFIG` 从可信私有stdin读取账号引用到unlock的JSON映射。配置由可信运营者准备，包含共同 service 配置、catalog_directory、grants 和 resources；每项grant有独立grant_ref、共享稳定grant_id、caller_id、不可变binding、绝对expires_at_unix、enabled与只读methods。binding固定account_ref/environment/world/genesis_digest/agent_id/resource/executor_config_digest/authorization_version；resource只由管理员固定account_ref与executor_config路径。模型请求不能提供这些路径或unlock。
+候选二进制 `oasis7_dev_test_sessions --serve PRIVATE_CONFIG` 从可信私有stdin读取账号引用到标准Base64编码unlock的JSON映射（opaque bytes，不假定UTF-8）。配置由可信运营者准备，包含共同 service 配置、catalog_directory、grants 和 resources；每项grant有独立grant_ref、共享稳定grant_id、caller_id、不可变binding、绝对expires_at_unix、enabled与只读methods。binding固定account_ref/environment/world/genesis_digest/agent_id/resource/executor_config_digest/authorization_version；resource只由管理员固定account_ref与executor_config路径。模型请求不能提供这些路径或unlock。
 
 `oasis7_dev_test_sessions --call APPROVED_SOCKET` 从可信宿主stdin接收credential、method及可选grant_ref/session_ref/expires_at_unix。method仅有accounts、open、close、describe、task、capabilities。session_ref不能单独认证。打开和业务读取复核目录原生current_account与Executor配置的实际身份、环境和fence，再复用正式Client；不调用context、不写世界。累计用量复用共同grant/caller账本，不随session或别名变化。普通重启清空内存会话，保留账本；管理者确认旧进程停止后清理遗留socket再启动。
 
