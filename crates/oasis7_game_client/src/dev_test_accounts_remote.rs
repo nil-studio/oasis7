@@ -124,6 +124,19 @@ pub fn handle_http(
     ) -> Result<crate::dev_test_service::Response, ()>,
 ) -> (u16, Option<Value>) {
     let reject = |status| (status, None);
+    let Ok(origin_url) = reqwest::Url::parse(expected_origin) else {
+        return reject(500);
+    };
+    if origin_url.scheme() != "https"
+        || origin_url.host_str().is_none()
+        || !origin_url.username().is_empty()
+        || origin_url.password().is_some()
+        || origin_url.query().is_some()
+        || origin_url.fragment().is_some()
+        || origin_url.path() != "/"
+    {
+        return reject(500);
+    }
     let Some(host) = expected_origin.strip_prefix("https://") else {
         return reject(500);
     };
@@ -168,10 +181,51 @@ pub fn handle_http(
         return reject(503);
     };
     if response.status != "ok" {
-        return reject(403);
+        return reject(if response.status == "unauthorized" {
+            401
+        } else {
+            403
+        });
     }
     let result = dispatch_authenticated(&value, || {
         serde_json::to_value(response).expect("serializable response")
     });
     (if result.is_some() { 200 } else { 202 }, result)
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+    #[test]
+    fn rejects_untrusted_origin_before_backend_and_never_leaks_token() {
+        let config=serde_json::from_value(json!({"profile":"dev-test-accounts-v1","socket":"/unused","usage_directory":"/unused","grant_id":"test","max_request_bytes":1024,"timeout_ms":100,"max_calls":2,"credentials":[]})).unwrap();
+        let result = handle_http(
+            &config,
+            "https://fixture.example",
+            HttpRequest {
+                method: "POST",
+                host: "fixture.example",
+                origin: Some("https://evil.example"),
+                authorization: Some("Bearer sensitive-fixture"),
+                protocol_version: Some(PROTOCOL_VERSION),
+                body: b"{}",
+            },
+            |_| panic!("untrusted source reached service"),
+        );
+        assert_eq!(result, (403, None));
+        let result = handle_http(
+            &config,
+            "https://user:secret@fixture.example",
+            HttpRequest {
+                method: "POST",
+                host: "user:secret@fixture.example",
+                origin: None,
+                authorization: None,
+                protocol_version: None,
+                body: b"{}",
+            },
+            |_| panic!(),
+        );
+        assert_eq!(result, (500, None));
+    }
 }
