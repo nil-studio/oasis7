@@ -295,6 +295,10 @@ Refs #5076、#5536。Trace refs: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5。�
 
 相同ID异正文或作用域拒绝；相同context不能预留第二个移动。首次发送复用Client的prepare／prefix／action原件缓存，重放与lookup只查现有原件；原件缺失或当前查询无权时保持unknown／拒绝，不签替代nonce。普通重启后旧session失效，当前有效新会话可按原ID查回同原操作，用量继续。关闭／停用不抹掉在途效果，也不赋予查询权。
 
-SDK的新增until入口在阶段切换和重试间检查服务时限及授权截止期，旧API行为保留。单次已发HTTP可能在截止后完成，服务保留unknown及唯一执行名额到实际返回，不能声称取消。
+SDK的新增until入口在阶段切换、重试间和每个认证／业务HTTP发送前检查同一绝对服务时限及授权截止期；每个GET／POST的timeout取剩余时间上限。同步scope嵌套取更早期限，正常退出和panic恢复；新worker须显式进入scope，guard不能跨线程移动。旧API无scope时行为保留。已发请求的取消不能推定为原生操作取消，服务保留unknown及唯一执行名额到实际返回。
+
+Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验证身份前不能分配Move。Move及其Lookup继承同一目标与identity，恢复时核对原Prepare、Prefix、完整fence及Cognition的Action／上下文。缺原件或证明返回unknown；已知内容冲突拒绝，不回显无法重新证实的旧applied。原生MVCC的stale_base拒绝是该原件终态，不能更新base重签同RID；另起测试轮次须明确保留原拒绝与无效果证据并独立授权输入。
 
 局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
+
+实际Linux候选验证（固定生产源码 `4273a7239adb60b0bcf5cae181ea10660646d039`）：沿既有A/B world、完整fence和Executor pin，A的唯一目标 `[1,0,0]` 已由原lookup committed receipt `action:4` 与canonical `AgentMoved id66 / tick264 / caused_by Action4` 对应核验，仅一次效果。B原Move及经明确授权的B2独立轮次均得到canonical `stale_base`终态，无B移动；保留原RID和账本，不自动创建B3。A/B各成功一次及成功B丢响应恢复仍未完成，不能关闭本项。受信夹具 `crates/oasis7_game_client/tests/fixtures/dev_test_write_cli_5536.py` 只在显式 `--execute-authorized` 且原始前置成立时运行；独立CAS观察器验证blob摘要并扫描全部canonical journal，不以最终位置代替事件／receipt关联。真实外部模型验收仍blocked。
