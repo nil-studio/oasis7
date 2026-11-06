@@ -194,7 +194,7 @@ mod tests {
         assert_eq!(value["status"], "unknown");
         assert_eq!(value["original_request_id"], "move-A");
         assert_eq!(value["session_ref"], "session-A");
-        let committed = serde_json::json!({"status":"ok","result":{"goal_text":"full goal","soft_constraints":["constraint"]}});
+        let committed = serde_json::json!({"status":"ok","result":{"active_goal":{"content":{"goal_text":"full goal", "soft_constraints":["constraint"]},"source":{"task_fence":{"agent_id":"A"},"active_goal_reference":{"goal_ref":"retained"},"owner_public_key":"verified owner","read_commit":{"position":7},"activation_commit":{"position":2}}}}});
         assert_eq!(
             forwarded_result(Ok(committed.clone()), Some("context-A"), Some("session-A")),
             committed

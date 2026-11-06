@@ -10,6 +10,7 @@ config = dict(service=dict(profile='dev-test-accounts-v1',socket=str(backend_pat
 def save():
     policy.write_text(json.dumps(config)); policy.chmod(0o600)
 save(); records=[]; stop=False
+goal=dict(content=dict(goal_text='complete goal\n'+'x'*2048,soft_constraints=['full constraint A','full constraint B']),source=dict(task_fence={'agent_id':'A'},active_goal_reference={'goal_ref':'synthetic-reference'},owner_public_key='synthetic-owner',read_commit={'position':7},activation_commit={'position':2}))
 listener=socket.socket(socket.AF_UNIX); listener.bind(str(backend_path)); backend_path.chmod(0o600); listener.listen(); listener.settimeout(.1)
 def backend():
     while not stop:
@@ -20,7 +21,7 @@ def backend():
             while chunk:=stream.recv(4096): body+=chunk
             value=json.loads(body); assert value.pop('credential')==token; records.append(value)
             if value.get('operation',{}).get('request_id')=='drop-move-A': continue
-            stream.sendall(json.dumps(dict(status='ok',result=dict(status='unknown',echo=value))).encode())
+            stream.sendall(json.dumps(dict(status='ok',result=dict(status='unknown',echo=value,active_goal=goal))).encode())
 thread=threading.Thread(target=backend);thread.start()
 def identity(uid):
     def enter(): os.setgroups([]);os.setgid(uid);os.setuid(uid)
@@ -46,6 +47,7 @@ try:
             value['operation']=dict(request_id=method+'-A',arguments=args)
         result=call(value); assert result.returncode==0,result.stderr
         assert json.loads(result.stdout)['result']['echo']==value
+        assert json.loads(result.stdout)['result']['active_goal']==goal
     assert len(records)==9
     denied=call(dict(method='accounts'),1002); assert not records[9:]
     assert denied.returncode!=0 or json.loads(denied.stdout)['status']=='local_request_denied'
@@ -53,6 +55,7 @@ try:
     request=dict(jsonrpc='2.0',id=7,method='tools/call',params=dict(name='dev_test_accounts_call',arguments=dict(method='lookup',session_ref='A',operation=dict(request_id='lookup-A',arguments=dict(kind='lookup',original_request_id='move-A')))))
     reply=call(request,stdio=True);assert reply.returncode==0,reply.stderr
     assert 'unknown' in json.loads(reply.stdout)['result']['content'][0]['text'];assert len(records)==10
+    assert json.loads(json.loads(reply.stdout)['result']['content'][0]['text'])['result']['active_goal']==goal
     lost=dict(method='move',session_ref='A',operation=dict(request_id='drop-move-A',arguments=dict(kind='move',context_request_id='context-A',to=[1,0,0])))
     unknown=json.loads(call(lost).stdout)
     assert unknown['status']=='unknown' and unknown['original_request_id']=='drop-move-A' and unknown['session_ref']=='A'
