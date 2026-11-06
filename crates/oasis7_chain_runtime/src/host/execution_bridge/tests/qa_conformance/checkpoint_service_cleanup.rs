@@ -39,10 +39,10 @@ pub(super) fn hold_response(gate: &http_fixture::WorldGate, path: &str) -> Optio
 }
 
 pub(super) fn response_finished(root: Option<PathBuf>, result: &Result<bool, String>) {
-    if let Some(root) = root {
-        if matches!(result, Ok(true)) {
-            fs::write(root.join(FINISHED), b"1").unwrap();
-        }
+    if let Some(root) = root
+        && matches!(result, Ok(true))
+    {
+        fs::write(root.join(FINISHED), b"1").unwrap();
     }
 }
 
