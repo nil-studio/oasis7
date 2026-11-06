@@ -243,3 +243,19 @@
 使用现有 RunInput／TesterInput／RunResult 及报告模板记录版本、账号的非秘密身份、操作关联、实际观察和未覆盖项。普通回归、接入预检、真实模型使用、世界效果和运行环境隔离分别说明证明范围。若需要验证网页登录／切换，另选择真实浏览器会话场景；native API 结果不证明 UI 已通过。
 
 收尾先禁用本轮新调用，按实际需要和已获准权限执行既有世界控制／资源清理，保留 unknown。工具验收不把关闭本地会话写成世界已永久关闭。本节提供实施后的方法；仅修改设计或方法本身不产生一次真实运行证据，触发和执行授权仍遵循本手册入口及开发规范。
+
+### 开发测试服务共同入口
+
+Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
+
+`dev-test-serve --profile <private-config.json>` 启动串行 Unix socket 服务；`dev-test-call --socket <approved-socket>` 从可信宿主 stdin 接受 JSON。模型隔离及实际外部 Agent 接入由 #5532/#5533 承接，本入口不证明该隔离。
+
+配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。本能力入口不提供账号管理操作。
+
+请求仅接受 profile、audience=`oasis7-dev-test-tools`、credential、method=`capabilities`。错误版本、用途、过期、撤销与未知方法拒绝，未知字段拒绝。返回 accounts_available=false、writes_available=false。并发固定1；超时断开请求。只有成功能力调用消耗累计上限，拒绝流量不扣。用量按 grant_id 与 caller_id 在 usage_directory 中保存，跨入口共用锁及原子提交，先持久化再回复；重连、重启或更换 socket 均不清零。重启前由可信运营者确认旧进程终止并删除遗留 socket，保留整个用量目录。只有显式新授权可使用新 grant_id；目录不能换成空目录来恢复旧授权。正式账号会话由 #5535 承接。
+
+在 Linux native 环境执行 `env -u RUSTC_WRAPPER cargo build -p oasis7_game_client --locked`，使用生成的 `target/debug/oasis7_game_client` 运行以上命令。服务与可信调用适配器使用同一受信 OS 主体；客户端先核对 socket 路径、所有权、权限及服务 peer UID，再发送认证材料。模型使用的跨主体或远程接入另按对应适配方法配置。
+
+启动前准备私有 socket 父目录及固定 usage_directory，明确有限配置和绝对凭据到期时间。可信调用端通过私有 stdin 输入上述能力请求，检查返回 status；授权到期、撤销、额度耗尽或超时后均须按实际状态处理，不自动更换 grant_id。普通重启前确认旧进程停止，只删除遗留 socket，保留用量目录，重启后再次核对原授权用量连续。请求读取与可信调用传输使用绝对 deadline，持续发送零碎字节不能延长期限。
+
+按 DA-06 单独记录实际外部 Agent 接入结果；服务进程及 CLI 验证不代替外部 Agent 使用验收。
