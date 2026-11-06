@@ -259,3 +259,11 @@ Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 启动前准备私有 socket 父目录及固定 usage_directory，明确有限配置和绝对凭据到期时间。可信调用端通过私有 stdin 输入上述能力请求，检查返回 status；授权到期、撤销、额度耗尽或超时后均须按实际状态处理，不自动更换 grant_id。普通重启前确认旧进程停止，只删除遗留 socket，保留用量目录，重启后再次核对原授权用量连续。请求读取与可信调用传输使用绝对 deadline，持续发送零碎字节不能延长期限。
 
 按 DA-06 单独记录实际外部 Agent 接入结果；服务进程及 CLI 验证不代替外部 Agent 使用验收。
+
+### 可信运营者账号目录准备
+
+Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目录；不接模型工具认证或远程管理请求。先以既有 identity-init/register/login 准备账号，凭据保留既有加密 IdentityStore，解锁仅通过可信 stdin。
+
+`dev-test-catalog-register --directory <0700目录> --identity-config <0600配置> --operation <登录原操作ID> --alias <别名>` 核验当前 /session 主体并登记；同账号与环境返回稳定 account_ref，重复登记不得替换凭据主体。别名可修改。`dev-test-catalog-list --directory <目录>` 只展示非秘密引用、账号、环境、公开key与别名，不输出凭据路径或原登录引用。列表是登记投影，不能代替当前权限。目录中的 catalog.json 及锁和临时文件只供可信运营者访问；实际凭据保持在既有加密库，不复制私钥或Cookie。
+
+真实A/B隔离身份环境尚未核验；受控身份服务测试不能代签合法账号登记验收。
