@@ -377,6 +377,7 @@ pub(crate) fn observe(
             && let Arguments::Lookup {
                 original_request_id,
             } = &original.arguments
+            && ledger.operations.contains_key(original_request_id)
         {
             update.push(original_request_id.clone());
         }
@@ -931,6 +932,33 @@ mod tests {
         assert!(fresh);
         assert_eq!(recovered.native_context, original.native_context);
         assert!(matches!(recovered.arguments, Arguments::Lookup { .. }));
+        // Journal-only fixture: execution separately verifies the native identity.
+        let template: serde_json::Value = serde_json::from_slice(include_bytes!(
+            "../testdata/task-context/native-snapshot.json"
+        ))
+        .unwrap();
+        let identity = serde_json::json!({
+            "schema_revision":2,"authority_mode":"native_executor_v1",
+            "native_authorization_root":template["native_authority"]["native_authorization_root"],
+            "fence":template["native_authority"]["fence"],
+            "agent_session_id":"session","agent_turn_id":"turn","decision_request_id":"request",
+            "retry_seq":1,"transport_attempt":1,"request_commitment":format!("blake3:{}","11".repeat(32)),
+            "context_commitment":format!("blake3:{}","22".repeat(32)),"provider_invocation_commitment":format!("blake3:{}","33".repeat(32)),"valid_until_tick":"16"
+        });
+        observe(
+            &current,
+            "caller",
+            &lookup,
+            serde_json::json!({"context":identity}),
+        )
+        .unwrap();
+        let observed: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(ledger(&current)).unwrap()).unwrap();
+        assert!(observed["operations"].get("context-1").is_none());
+        assert_eq!(
+            observed["operations"]["new-lookup"]["native_context_identity"],
+            identity
+        );
         let (_, fresh) = admit_resolving(&current, "caller", &scope, &lookup, |_| {
             panic!("local replay must not reread history")
         })
