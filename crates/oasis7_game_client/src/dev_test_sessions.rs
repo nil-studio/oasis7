@@ -289,6 +289,9 @@ pub fn handle(
                 views.push(serde_json::json!({"grant_ref":grant.grant_ref,"account_ref":account.account_ref,"account_id":account.account_id,"environment":account.environment,"alias":account.alias,"binding":grant.binding}));
             }
         }
+        if std::time::Instant::now() >= deadline {
+            return Err("downstream_deadline_unknown".into());
+        }
         let admitted = dispatch_authenticated(
             &config.service,
             now,
@@ -378,6 +381,9 @@ pub fn handle(
         }
         // Open validates immutable scope before consuming the persistent grant.
         let reference = sessions.open(&caller.caller_id, grant, expires, now)?;
+        if std::time::Instant::now() >= deadline {
+            return Err("downstream_deadline_unknown".into());
+        }
         let admitted = dispatch_authenticated(
             &config.service,
             now,
@@ -404,6 +410,9 @@ pub fn handle(
     );
     if admitted.status != "ok" {
         return Err(admitted.status);
+    }
+    if std::time::Instant::now() >= deadline {
+        return Err("downstream_deadline_unknown".into());
     }
     let result = match request.method.as_str() {
         "describe" => {
