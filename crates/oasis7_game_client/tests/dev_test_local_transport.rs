@@ -1,7 +1,6 @@
 #![cfg(unix)]
-#[path = "../src/dev_test_local_adapter.rs"]
-mod transport;
-use oasis7_game_client::dev_test_service;
+use oasis7_game_client::dev_test_local_adapter as transport;
+#[cfg(target_os = "linux")]
 use std::{io::Write, os::unix::net::UnixStream, time::Duration};
 
 #[cfg(target_os = "linux")]
