@@ -308,3 +308,38 @@ Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验
 局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
 
 实际Linux候选验证（固定生产源码 `4273a7239adb60b0bcf5cae181ea10660646d039`）：沿既有A/B world、完整fence和Executor pin，A的唯一目标 `[1,0,0]` 已由原lookup committed receipt `action:4` 与canonical `AgentMoved id66 / tick264 / caused_by Action4` 对应核验，仅一次效果。B原Move及经明确授权的B2独立轮次均得到canonical `stale_base`终态，无B移动；保留原RID和账本，不自动创建B3。A/B各成功一次及成功B丢响应恢复仍未完成，不能关闭本项。受信夹具 `crates/oasis7_game_client/tests/fixtures/dev_test_write_cli_5536.py` 只在显式 `--execute-authorized` 且原始前置成立时运行；独立CAS观察器验证blob摘要并扫描全部canonical journal，不以最终位置代替事件／receipt关联。真实外部模型验收仍blocked。
+### 远程只读 MCP 入口（#5533，候选）
+
+在同一可信服务宿主运行 `oasis7_dev_test_remote <private-service-config> <https-origin> <127.0.0.1:port> <max-connections>`。配置沿用共同服务的私有配置；本适配经 `call_service` 转发到唯一 Unix socket，初始化、工具发现和能力调用共享累计用量，不直接调用业务 dispatch。MCP 候选版本固定 2025-11-25，只提供 `dev_test_accounts_capabilities`，账号与写入仍不可用。
+
+TLS 由可信反向代理终止：固定部署 origin，覆盖上游 Host 为该 origin 的 authority，转发 Authorization、Origin、MCP-Protocol-Version；限制路由为 `/mcp`，禁止直接暴露内部 loopback 端口。代理和服务进程均属于可信边界；不能把共享宿主上的任意进程当作隔离的模型。POST 使用 application/json，Accept 包含 application/json 和 text/event-stream；不提供 SSE，GET 返回405。秘密不得进入模型输入或访问日志。适配拒绝重复头、Transfer-Encoding、超限请求及错误 Host/Origin，串行处理，有限连接数后退出。
+
+当前仅本地真实 UDS+HTTP 进程诊断覆盖认证拒绝、错误 Origin、能力调用和共享累计上限；不代表 TLS 部署或真实远程 Agent 验收。实际 Dot connector 版本、秘密保管、获准 HTTPS origin 和 DA 验收尚未核实；禁止据此关闭 #5533 或声明远程支持。候选协议依据 https://modelcontextprotocol.io/specification/2025-11-25/basic/transports 与 server/tools，实际消费者接入后仍需固定实测组合。
+
+### 远程账号业务接线（#5539）
+
+专用入口 `oasis7_dev_test_remote_tools PRIVATE_SESSION_POLICY HTTPS_ORIGIN LOOPBACK_ADDRESS MAX_CONNECTIONS`
+继承#5533的固定可信TLS反向代理边界。内部HTTP仅loopback，不能直接暴露；代理须覆盖Host，
+固定origin与/mcp路由并原样转发可信连接器的Authorization。模型只获得工具schema，
+不获得秘密、私有配置、目标URL选择权或管理入口。服务每连接重新读取共同私有配置，
+核对当前凭据／到期／撤销，合法业务调用原样转到唯一私有会话服务；业务服务再次鉴权并统一累计准入。
+initialize/ping/discovery/initialized仅认证，不读账号、不单设业务额度；只有合法tools/call进入业务准入。
+
+闭合工具为dev_test_accounts_call及共同九方法；参数受共同ToolRequest/operation DTO核对。
+完整目标、约束与source以及原RID/body透明传递；开始转发后的transport错误为unknown，
+保留原操作及当前授权下lookup下一步，不自动重发。原会话到期／重启行为及账本规则由共同后端拥有。
+远程正式说明见skills/oasis7-play/references/dev-test-remote.md；共用流程精确承接#5538固定8b5d94c的正式参考，
+不把本地入口代码作为远程业务前置。
+
+局部验证命令：
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib dev_test_remote_business --locked
+env -u RUSTC_WRAPPER cargo build -p oasis7_game_client --bin oasis7_dev_test_remote_tools --locked
+python3 crates/oasis7_game_client/tests/fixtures/dev_test_remote_business_tls.py target/debug/oasis7_dev_test_remote_tools
+```
+
+TLS夹具使用本机临时证书、真实HTTPS代理和远程binary、同UID私有合成UDS后端，
+不访问真实世界。覆盖九方法／完整目标透明传递、原RID、未认证／来源／秘密参数拒绝、
+当前撤销以及后端收包后丢回复unknown，不能代签真实Dot、外部部署、模型或世界写入。
+用户选择继续代码和本地验证，真实远程认证／部署／模型仍blocked，不自行启动或扩大权限。
