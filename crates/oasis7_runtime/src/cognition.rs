@@ -624,17 +624,46 @@ fn validate_authority_pin(
         {
             return Err(CognitionValidationError::new("reorg_invalidated"));
         }
-    } else if let Some(record) = world.latest_tick_consensus_record() {
-        // Tick consensus has no branch field, so it can anchor the epoch and
-        // block only.  Branch identity remains supplied by a capability
-        // authority record; accepting a guessed branch here would weaken the
-        // reorg boundary.
-        if record.block.header.epoch != pin.finality_epoch
-            || pin
-                .finality_block_hash
-                .is_some_and(|hash| hash != record.certificate.block_hash)
-        {
-            return Err(CognitionValidationError::new("reorg_invalidated"));
+    } else {
+        let binding = if world.cognition().get("runtime_binding").is_some() {
+            Some(
+                world
+                    .current_cognition_runtime_binding()
+                    .map_err(|_| CognitionValidationError::new("recovery_pending"))?,
+            )
+        } else {
+            None
+        };
+        if let Some(binding) = binding.filter(|binding| {
+            binding.finality_status == "pending" && binding.finality_block_hash.is_none()
+        }) {
+            // Invalidation deliberately preserves the old binding until an
+            // explicit rebind. It is historical, not current admission authority.
+            if world.cognition().get("reorg_invalidation_epoch").is_some() {
+                return Err(CognitionValidationError::new("recovery_pending"));
+            }
+            // A canonical DevLocal bootstrap binding is an explicit authority
+            // source. Tick/chain scheduling epochs are not its finality epoch.
+            // Matching every field also prevents request text from inventing a
+            // different branch, finality mode, or reorg generation.
+            if binding.world_id != pin.world_id
+                || binding.branch_id != pin.branch_id
+                || binding.finality_status != pin.finality_status
+                || binding.finality_epoch != pin.finality_epoch
+                || pin.finality_block_hash.is_some()
+                || binding.reorg_epoch != pin.reorg_epoch
+            {
+                return Err(CognitionValidationError::new("reorg_invalidated"));
+            }
+        } else if let Some(record) = world.latest_tick_consensus_record() {
+            // Preserve the existing non-bootstrap finality/hash boundary.
+            if record.block.header.epoch != pin.finality_epoch
+                || pin
+                    .finality_block_hash
+                    .is_some_and(|hash| hash != record.certificate.block_hash)
+            {
+                return Err(CognitionValidationError::new("reorg_invalidated"));
+            }
         }
     }
 
@@ -1099,3 +1128,7 @@ fn validate_identifier(value: &str, _field: &str) -> Result<(), CognitionValidat
 pub(crate) fn is_supported_resource_path(path: &str) -> bool {
     matches!(path, "agent.resource.electricity" | "agent.resource.data")
 }
+
+#[cfg(all(test, feature = "test_tier_required"))]
+#[path = "cognition_bootstrap_authority_tests.rs"]
+mod bootstrap_authority_tests;
