@@ -352,7 +352,9 @@ python3 crates/oasis7_game_client/tests/fixtures/dev_test_local_business_linux.p
 ```
 
 夹具验证不同 UID 拒绝、私有配置不可读、九方法与操作 ID/正文原样传递、
-stdio unknown 保留、凭据注入不可从模型覆盖、停用及到期拒绝。该证据不代签
+stdio unknown 保留、凭据注入不可从模型覆盖、停用及到期拒绝。后端收到原 Move 请求后断连时，
+适配必须返回 unknown 并保留原 RID/session 及 lookup 下一步；只有转发前明确失败
+才返回 local_request_denied。每条调用最多转发一次，不自动重建操作。该证据不代签
 DA-01～06 的外部模型实玩、真实世界效果、普通重启或故障后原件恢复；这些仍须
 在固定运行组合下独立记录。当前用户选择继续代码与本地验证，真实模型验收阻塞，
 本入口不得自行启动模型或扩大付费权限。

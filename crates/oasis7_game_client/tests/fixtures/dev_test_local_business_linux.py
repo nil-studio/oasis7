@@ -52,7 +52,7 @@ try:
     assert call(dict(method='accounts',credential='forbidden')).returncode!=0
     request=dict(jsonrpc='2.0',id=7,method='tools/call',params=dict(name='dev_test_accounts_call',arguments=dict(method='lookup',session_ref='A',operation=dict(request_id='lookup-A',arguments=dict(kind='lookup',original_request_id='move-A')))))
     reply=call(request,stdio=True);assert reply.returncode==0,reply.stderr
-    assert 'unknown' in json.loads(reply.stdout)['result']['content'][0]['text'];assert len(records)==11
+    assert 'unknown' in json.loads(reply.stdout)['result']['content'][0]['text'];assert len(records)==10
     lost=dict(method='move',session_ref='A',operation=dict(request_id='drop-move-A',arguments=dict(kind='move',context_request_id='context-A',to=[1,0,0])))
     unknown=json.loads(call(lost).stdout)
     assert unknown['status']=='unknown' and unknown['original_request_id']=='drop-move-A' and unknown['session_ref']=='A'
@@ -64,6 +64,6 @@ try:
         save(); assert json.loads(call(dict(method='accounts')).stdout)['status']=='local_request_denied';assert len(records)==11
     check=subprocess.run([sys.executable,'-c','import pathlib,sys; pathlib.Path(sys.argv[1]).read_bytes()',str(policy)],preexec_fn=identity(1001),capture_output=True)
     assert check.returncode!=0
-    print('PASS: nine closed methods, exact IDs/body, stdio unknown, cross-UID denial, secret rejection, expiry/revocation, private policy inaccessible; synthetic backend only')
+    print('PASS: nine closed methods, exact IDs/body, stdio unknown and backend-received/lost-reply unknown without second forwarding, cross-UID denial, secret rejection, expiry/revocation, private policy inaccessible; synthetic backend only')
 finally:
     process.terminate();process.wait(timeout=3);stop=True;thread.join(timeout=2);listener.close();shutil.rmtree(root)
