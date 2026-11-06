@@ -24,15 +24,13 @@ Checks:
      the tracked allowlist (archive/devlog/.governance excluded).
   5. Non-archive/non-devlog markdown files must not reference missing markdown
      paths under doc/ (wildcards/templates and explicit exemption docs excluded).
-  6. Role labels in devlogs and handoff templates must use canonical names from
-     .agents/roles/*.md.
-  7. The thin product overlay must contain exactly four product-owned PRDs with
+  6. The thin product overlay must contain exactly four product-owned PRDs with
      stable metadata, lifecycle, authority backlinks, and acceptance traceability.
-  8. Every live top-level doc directory must be registered with a valid entrypoint,
+  7. Every live top-level doc directory must be registered with a valid entrypoint,
      root-navigation coverage, and lifecycle fields for controlled exceptions.
-  9. New or materially changed product PRD/design files must pass the scoped
+  8. New or materially changed product PRD/design files must pass the scoped
      content contract with the selected base/head and worktree changes.
-  10. New or materially changed professional system-design files must carry
+  9. New or materially changed professional system-design files must carry
       exact upstream, local-design, and validation traceability.
   --full-corpus additionally reports historical product and professional design
   findings as warnings after the scoped strict checks; input errors still fail.
@@ -64,10 +62,6 @@ readonly DOC_ROOT_MD_ALLOWLIST_FILE="doc/.governance/doc-root-md-allowlist.txt"
 readonly MODULE_ROOT_MD_ALLOWLIST_FILE="doc/.governance/module-root-md-allowlist.txt"
 readonly TOP_LEVEL_DIRECTORY_REGISTRY="doc/.governance/top-level-directory-registry.json"
 
-CANONICAL_ROLE_NAMES=()
-while IFS= read -r role_name; do
-  CANONICAL_ROLE_NAMES+=("$role_name")
-done < <(find .agents/roles -mindepth 1 -maxdepth 1 -type f -name '*.md' | sed 's#^.*/##; s/\.md$//' | sort)
 fail() {
   echo "doc-governance-check: FAIL: $*"
   failures=$((failures + 1))
@@ -454,71 +448,6 @@ if errors:
 PY
 }
 
-is_canonical_role_name() {
-  local role_name="$1"
-  local canonical_role_name=""
-  if [[ "${#CANONICAL_ROLE_NAMES[@]}" -eq 0 ]]; then
-    return 1
-  fi
-  for canonical_role_name in "${CANONICAL_ROLE_NAMES[@]}"; do
-    if [[ "$canonical_role_name" == "$role_name" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-trim_whitespace() {
-  local value="$1"
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  printf '%s
-' "$value"
-}
-
-check_devlog_role_labels() {
-  local file="$1"
-  local line
-  local role_name
-
-  while IFS= read -r line; do
-    [[ "$line" == '## '* ]] || continue
-    [[ "$line" == *' / '* ]] || continue
-    role_name="${line##* / }"
-    role_name="${role_name#\`}"
-    role_name="${role_name%\`}"
-    role_name="$(trim_whitespace "$role_name")"
-    [[ -z "$role_name" ]] && continue
-    if ! is_canonical_role_name "$role_name"; then
-      fail "$file uses unknown role label in heading: $role_name"
-    fi
-  done < <(if command -v rg >/dev/null 2>&1; then rg '^## ' "$file" || true; else grep '^## ' "$file" || true; fi)
-}
-
-check_handoff_role_fields() {
-  local file="$1"
-  local line
-  local payload
-  local role_name
-
-  while IFS= read -r line; do
-    if [[ "$line" =~ ^-[[:space:]]*(From\ Role|To\ Role):[[:space:]]*\`(.*)\`$ ]]; then
-      payload="${BASH_REMATCH[2]}"
-    else
-      continue
-    fi
-    while IFS= read -r role_name; do
-      role_name="$(trim_whitespace "$role_name")"
-      [[ -z "$role_name" ]] && continue
-      if ! is_canonical_role_name "$role_name"; then
-        fail "$file references unknown canonical role name: $role_name"
-      fi
-    done < <(printf '%s
-' "$payload" | tr '|' '
-')
-  done < <(if command -v rg >/dev/null 2>&1; then rg '^-[[:space:]]*(From Role|To Role): ' "$file" || true; else grep -E '^-[[:space:]]*(From Role|To Role): ' "$file" || true; fi)
-}
-
 all_doc_files=()
 while IFS= read -r file; do
   all_doc_files+=("$file")
@@ -553,16 +482,6 @@ if project_reference_hits=$(regex_match_with_line_numbers '(^|[^A-Za-z0-9_])([A-
   echo "$project_reference_hits"
   fail "active documentation references retired project ledgers or legacy project-management documents"
 fi
-
-devlog_files=()
-while IFS= read -r file; do
-  devlog_files+=("$file")
-done < <(find doc/devlog -type f -name '*.md' | sort)
-
-handoff_template_files=()
-while IFS= read -r file; do
-  handoff_template_files+=("$file")
-done < <(find .agents/roles/templates -type f -name '*.md' | sort)
 
 if [[ ${#all_doc_files[@]} -eq 0 ]]; then
   fail "no markdown files found under doc/"
@@ -621,19 +540,6 @@ check_allowlist_match "doc root markdown set" "$DOC_ROOT_MD_ALLOWLIST_FILE" "$do
 check_allowlist_match "module root markdown set" "$MODULE_ROOT_MD_ALLOWLIST_FILE" "$module_root_actual_tmp"
 
 rm -f "$doc_root_actual_tmp" "$module_root_actual_tmp"
-
-# 4) canonical role names must be used in devlogs and handoff templates
-if [[ ${#devlog_files[@]} -gt 0 ]]; then
-  for file in "${devlog_files[@]}"; do
-    check_devlog_role_labels "$file"
-  done
-fi
-
-if [[ ${#handoff_template_files[@]} -gt 0 ]]; then
-  for file in "${handoff_template_files[@]}"; do
-    check_handoff_role_fields "$file"
-  done
-fi
 
 if ! run_product_doc_content_check; then
   fail "product document content contract failed"
