@@ -211,11 +211,32 @@ pub(crate) fn admit_read(config: &Config, caller: &str) -> Result<(), &'static s
     })
 }
 /// Replay never allocates or sends: it returns the same recorded native identity.
+#[cfg(test)]
 pub(crate) fn admit(
     config: &Config,
     caller: &str,
     scope: &Scope,
     call: &Call,
+) -> Result<(Original, bool), &'static str> {
+    admit_resolving(config, caller, scope, call, |_| Ok(None))
+}
+pub(crate) fn admit_with_recovery(
+    config: &crate::dev_test_sessions::ServiceConfig,
+    caller: &str,
+    scope: &Scope,
+    call: &Call,
+) -> Result<(Original, bool), &'static str> {
+    admit_resolving(&config.service, caller, scope, call, |reference| {
+        crate::dev_test_recovery::historical_original(config, scope, reference)
+            .map_err(|_| "historical_original_unknown")
+    })
+}
+fn admit_resolving(
+    config: &Config,
+    caller: &str,
+    scope: &Scope,
+    call: &Call,
+    mut history: impl FnMut(&str) -> Result<Option<Original>, &'static str>,
 ) -> Result<(Original, bool), &'static str> {
     if !valid_id(&call.request_id) {
         return Err("invalid_request_id");
@@ -242,73 +263,74 @@ pub(crate) fn admit(
         if ledger.operations.len() >= 4096 {
             return Err("operation_capacity_exhausted");
         }
-        let (native_context, native_kind, native_action, native_context_identity) =
-            match &call.arguments {
-                Arguments::Context => {
-                    let domain =
-                        serde_json::to_vec(&(&config.grant_id, caller, scope, &call.request_id))
-                            .map_err(|_| "invalid_operation_body")?;
-                    (
-                        format!("dev-test-{}", blake3::hash(&domain).to_hex()),
-                        "prefix".into(),
-                        None,
-                        None,
-                    )
+        let (native_context, native_kind, native_action, native_context_identity) = match &call
+            .arguments
+        {
+            Arguments::Context => {
+                let domain =
+                    serde_json::to_vec(&(&config.grant_id, caller, scope, &call.request_id))
+                        .map_err(|_| "invalid_operation_body")?;
+                (
+                    format!("dev-test-{}", blake3::hash(&domain).to_hex()),
+                    "prefix".into(),
+                    None,
+                    None,
+                )
+            }
+            Arguments::Move {
+                context_request_id, ..
+            } => {
+                let context = ledger
+                    .operations
+                    .get(context_request_id)
+                    .ok_or("original_context_unknown")?;
+                if context.scope != *scope || !matches!(context.arguments, Arguments::Context) {
+                    return Err("original_scope_denied");
                 }
-                Arguments::Move {
-                    context_request_id, ..
-                } => {
-                    let context = ledger
-                        .operations
-                        .get(context_request_id)
-                        .ok_or("original_context_unknown")?;
-                    if context.scope != *scope || !matches!(context.arguments, Arguments::Context) {
-                        return Err("original_scope_denied");
-                    }
-                    if ledger.operations.values().any(|op| {
-                        op.native_context == context.native_context
-                            && matches!(op.arguments, Arguments::Move { .. })
-                    }) {
-                        return Err("context_action_already_reserved");
-                    }
-                    let Arguments::Move { to, .. } = &call.arguments else {
-                        unreachable!()
-                    };
-                    let identity = context
-                        .native_context_identity
-                        .clone()
-                        .ok_or("original_context_unverified")?;
-                    (
-                        context.native_context.clone(),
-                        "action".into(),
-                        Some(*to),
-                        Some(identity),
-                    )
+                if ledger.operations.values().any(|op| {
+                    op.native_context == context.native_context
+                        && matches!(op.arguments, Arguments::Move { .. })
+                }) {
+                    return Err("context_action_already_reserved");
                 }
-                Arguments::Lookup {
-                    original_request_id,
-                } => {
-                    let original = ledger
-                        .operations
-                        .get(original_request_id)
-                        .ok_or("original_operation_unknown")?;
-                    if original.scope != *scope
-                        || matches!(original.arguments, Arguments::Lookup { .. })
-                    {
-                        return Err("original_scope_denied");
-                    }
-                    let native_action = match &original.arguments {
-                        Arguments::Move { to, .. } => Some(*to),
-                        _ => original.native_action,
-                    };
-                    (
-                        original.native_context.clone(),
-                        original.native_kind.clone(),
-                        native_action,
-                        original.native_context_identity.clone(),
-                    )
+                let Arguments::Move { to, .. } = &call.arguments else {
+                    unreachable!()
+                };
+                let identity = context
+                    .native_context_identity
+                    .clone()
+                    .ok_or("original_context_unverified")?;
+                (
+                    context.native_context.clone(),
+                    "action".into(),
+                    Some(*to),
+                    Some(identity),
+                )
+            }
+            Arguments::Lookup {
+                original_request_id,
+            } => {
+                let original = match ledger.operations.get(original_request_id) {
+                    Some(original) => original.clone(),
+                    None => history(original_request_id)?.ok_or("original_operation_unknown")?,
+                };
+                if original.scope != *scope
+                    || matches!(original.arguments, Arguments::Lookup { .. })
+                {
+                    return Err("original_scope_denied");
                 }
-            };
+                let native_action = match &original.arguments {
+                    Arguments::Move { to, .. } => Some(*to),
+                    _ => original.native_action,
+                };
+                (
+                    original.native_context.clone(),
+                    original.native_kind.clone(),
+                    native_action,
+                    original.native_context_identity.clone(),
+                )
+            }
+        };
         let original = Original {
             body_digest: digest,
             scope: scope.clone(),
@@ -886,5 +908,83 @@ mod tests {
             "verified_goal_reply"
         );
         std::fs::remove_dir_all(config.usage_directory).unwrap();
+    }
+    #[test]
+    fn restored_history_is_lookup_only_and_each_request_uses_new_grant_budget() {
+        let (old, scope) = fixture(8);
+        let original = admit(&old, "caller", &scope, &context()).unwrap().0;
+        admit_read(&old, "caller").unwrap();
+        let (mut current, _) = fixture(3);
+        current.grant_id = "explicit-new-recovery-grant".into();
+        let lookup = Call {
+            request_id: "new-lookup".into(),
+            arguments: Arguments::Lookup {
+                original_request_id: "context-1".into(),
+            },
+        };
+        let (recovered, fresh) =
+            admit_resolving(&current, "caller", &scope, &lookup, |reference| {
+                assert_eq!(reference, "context-1");
+                Ok(Some(original.clone()))
+            })
+            .unwrap();
+        assert!(fresh);
+        assert_eq!(recovered.native_context, original.native_context);
+        assert!(matches!(recovered.arguments, Arguments::Lookup { .. }));
+        let (_, fresh) = admit_resolving(&current, "caller", &scope, &lookup, |_| {
+            panic!("local replay must not reread history")
+        })
+        .unwrap();
+        assert!(!fresh);
+        for reference in ["context-1", "new-lookup"] {
+            let movement = Call {
+                request_id: format!("move-{reference}"),
+                arguments: Arguments::Move {
+                    context_request_id: reference.into(),
+                    to: [1, 0, 0],
+                },
+            };
+            assert!(
+                admit_resolving(&current, "caller", &scope, &movement, |_| panic!(
+                    "Move cannot resolve history"
+                ))
+                .is_err()
+            );
+        }
+        let mut other = scope.clone();
+        other.account_ref = "different-account".into();
+        let mut foreign = lookup.clone();
+        foreign.request_id = "foreign-lookup".into();
+        assert_eq!(
+            admit_resolving(&current, "caller", &other, &foreign, |_| Ok(Some(
+                original.clone()
+            )))
+            .unwrap_err(),
+            "original_scope_denied"
+        );
+        let mut final_lookup = lookup.clone();
+        final_lookup.request_id = "last-lookup".into();
+        admit_resolving(&current, "caller", &scope, &final_lookup, |_| {
+            Ok(Some(original.clone()))
+        })
+        .unwrap();
+        assert_eq!(
+            admit_resolving(&current, "caller", &scope, &lookup, |_| panic!(
+                "quota must reject before history"
+            ))
+            .unwrap_err(),
+            "call_limit_exhausted"
+        );
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(ledger(&current)).unwrap()).unwrap();
+        assert_eq!(stored["used"], 3);
+        assert!(stored["operations"].get("context-1").is_none());
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(ledger(&old)).unwrap())
+                .unwrap()["used"],
+            2
+        );
+        std::fs::remove_dir_all(old.usage_directory).unwrap();
+        std::fs::remove_dir_all(current.usage_directory).unwrap();
     }
 }

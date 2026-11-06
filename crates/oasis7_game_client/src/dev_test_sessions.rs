@@ -143,6 +143,8 @@ pub struct Resource {
 #[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
     #[serde(default)]
+    pub recovery_required: bool,
+    #[serde(default)]
     pub grant_generation_high_water: BTreeMap<String, u64>,
     pub service: crate::dev_test_service::Config,
     pub catalog_directory: std::path::PathBuf,
@@ -442,7 +444,7 @@ pub fn handle(
             .to_string(),
         };
         let (original, fresh) =
-            operations::admit(&config.service, &caller.caller_id, &scope, &call)?;
+            operations::admit_with_recovery(config, &caller.caller_id, &scope, &call)?;
         if std::time::Instant::now() >= deadline {
             return Err("downstream_deadline_unknown".into());
         }

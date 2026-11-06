@@ -248,6 +248,7 @@ fn load_session_config(path: &std::path::Path) -> Result<ServiceConfig, String> 
         serde_json::from_slice(&crate::dev_test_private_config::read_private_config(path)?)
             .map_err(|_| "invalid_session_configuration")?;
     config.service.validate()?;
+    crate::dev_test_recovery::validate_policy(&config)?;
     for grant in &config.grants {
         config
             .grant_generation_high_water
@@ -299,6 +300,7 @@ fn control_lock_until(
     }
 }
 fn save_policy(path: &std::path::Path, config: &ServiceConfig) -> Result<(), String> {
+    crate::dev_test_recovery::validate_policy(config)?;
     use std::{io::Write, os::unix::fs::OpenOptionsExt};
     let temporary = path.with_extension("policy-pending");
     let mut file = std::fs::OpenOptions::new()
@@ -443,6 +445,24 @@ mod control_tests {
         assert!(start.elapsed() < Duration::from_millis(150));
         drop(guard);
         assert!(control_lock_until(&path, Instant::now() + Duration::from_millis(20)).is_ok());
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn recovery_marker_rejects_both_policy_load_and_save() {
+        let (path, mut config) = fixture();
+        assert!(!config.recovery_required);
+        load_session_config(&path).unwrap();
+        let original_policy = std::fs::read(&path).unwrap();
+        let marker = config.service.usage_directory.join("recovery-state.json");
+        std::fs::write(&marker, serde_json::to_vec(&serde_json::json!({
+            "version":1,"snapshot_digest":"fixture","restore_pending":true,
+            "retired_grant_ids":[],"retired_grant_refs":[],"retired_credentials":[],"history_files":[]
+        })).unwrap()).unwrap();
+        std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(load_session_config(&path).is_err());
+        config.recovery_required = true;
+        assert!(save_policy(&path, &config).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original_policy);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }
