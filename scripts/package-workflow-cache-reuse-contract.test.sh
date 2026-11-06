@@ -291,7 +291,7 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 # contract for the checked-in block-style env declarations, not a YAML parser.
 repository_budget = '20000000000'
 budget_entries = {
-    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 0),
+    'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
@@ -361,13 +361,15 @@ for name, (variable, dependency_steps) in budget_entries.items():
                            (name, 'job override'))
     if not dependency_steps:
         continue
-    forwarded = re.search(r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)[0]
-    for label, replacement in (
-        ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
-        ('missing upload budget', ''),
-    ):
-        reject_budget_mutation(budget_workflows | {name: text.replace(forwarded, replacement, 1)},
-                               (name, label))
+    for index, forwarded in enumerate(re.finditer(
+            r'^          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: [^\n]+\n', text, re.M)):
+        for label, replacement in (
+            ('stale upload budget', '          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: "10000000000"\n'),
+            ('missing upload budget', ''),
+            ('duplicate upload budget', forwarded[0] + forwarded[0]),
+        ):
+            mutated = text[:forwarded.start()] + replacement + text[forwarded.end():]
+            reject_budget_mutation(budget_workflows | {name: mutated}, (name, index, label))
 reject_budget_mutation({name: text.replace(repository_budget, '10000000000')
                         for name, text in budget_workflows.items()}, 'all entrypoints consistently wrong')
 reject_budget_mutation(budget_workflows | {

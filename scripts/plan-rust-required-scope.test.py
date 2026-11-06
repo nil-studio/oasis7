@@ -3139,12 +3139,111 @@ class Selection(unittest.TestCase):
         base = self.commit()
         self.write(path, '#[test] fn original() {}\n#[test] fn added() {}\n')
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
-        self.assertTrue(plan['test_policy_changed'])
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [])
         for expression in ('feature="optional_lane"', 'not(feature="node-libp2p")'):
             with self.subTest(expression=expression):
                 self.write(path, f'#[test] fn original() {{}}\n#[cfg({expression})] #[test] fn added() {{}}\n')
                 with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
                     selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def ordinary_alternative_mount_fixture(self, *, test_mount=True):
+        # Real Cargo counterpart of a default-feature host include, a production
+        # mount and a separate test mount of the same implementation. No product
+        # crate, external dependency or generated test stand-in is compiled.
+        self.write('.gitignore', 'target/\nCargo.lock\n')
+        self.write('Cargo.toml', '[workspace]\nresolver="2"\nmembers=["crates/core"]\n')
+        manifest = Path('crates/core/Cargo.toml').read_text()
+        self.write('crates/core/Cargo.toml', manifest +
+                   'default=["transport"]\ntransport=["native_driver"]\nnative_driver=[]\n')
+        self.write('crates/core/src/lib.rs',
+                   '#[cfg(all(not(target_arch="wasm32"), feature="native_driver"))]\n'
+                   'include!("host.rs");\n')
+        self.write('crates/core/src/host.rs',
+                   '#[cfg(not(test))] #[path="bridge/mod.rs"] mod production;\n'
+                   + ('#[cfg(test)] #[path="real_tests.rs"] mod real_tests;\n' if test_mount else ''))
+        self.write('crates/core/src/real_tests.rs', '#[path="bridge/mod.rs"] mod real_bridge;\n')
+        self.write('crates/core/src/bridge/mod.rs',
+                   'fn value() -> u8 { 42 }\n#[cfg(test)] mod tests;\n')
+        self.write('crates/core/src/bridge/tests/mod.rs', 'mod retention;\n')
+        parent = 'crates/core/src/bridge/tests/retention.rs'
+        self.write(parent, 'use super::super::value;\n#[test] fn existing() { assert_eq!(value(), 42); }\n')
+        base = self.commit()
+        self.write(parent, Path(parent).read_text() + '#[path="hot_window.rs"] mod hot_window;\n')
+        child = 'crates/core/src/bridge/tests/hot_window.rs'
+        self.write(child, 'use super::*;\n#[test] fn added() { assert_eq!(value(), 42); }\n')
+        return base, self.commit(), parent, child
+
+    def ordinary_route_cargo(self, arguments, *, list_only=False):
+        environment = dict(os.environ)
+        environment.pop('RUSTC_WRAPPER', None)
+        command = ['cargo', 'test', *arguments, '--offline']
+        if list_only:
+            command += ['--', '--list']
+        result = subprocess.run(command, env=environment, text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout
+
+    def test_ordinary_alternative_mounts_execute_new_case_with_real_default_features(self):
+        base, head, _, child = self.ordinary_alternative_mount_fixture()
+        plan = selector.select(self.fast_config(), base, head, profile='pr-fast')
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['test_policy_paths'], [])
+        self.assertEqual(plan['oasis7_required_packages'], ['core'])
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertNotIn('ordinary_fast_targets', plan)
+        # Exercise the selected package's ordinary --tests tuple with its real
+        # defaults and required tier, without adding expanded features.
+        # An exact listed name alone would not prove execution.
+        output = self.ordinary_route_cargo(
+            ['-p', plan['oasis7_required_packages'][0], '--tests', '--features', 'test_tier_required'])
+        self.assertIn('real_tests::real_bridge::tests::retention::hot_window::added ... ok', output)
+        self.assertIn('2 passed; 0 failed', output)
+        self.assertNotIn(child, plan['test_policy_paths'])
+
+    def test_ordinary_default_route_cannot_authorize_selected_no_default_features(self):
+        base, head, parent, child = self.ordinary_alternative_mount_fixture()
+        config = self.bounded_config((parent, child))
+        self.assertFalse(config['ordinary_fast_targets']['core-lib']['default_features'])
+        plan = selector.select(config, base, head, profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertIn(child, plan['test_policy_paths'])
+        self.assertNotIn('ordinary_fast_targets', plan)
+        output = self.ordinary_route_cargo(
+            ['-p', 'core', '--lib', '--no-default-features', '--features', 'test_tier_required'],
+            list_only=True)
+        self.assertNotIn('hot_window::added', output)
+        self.assertIn('0 tests', output)
+
+    def test_ordinary_production_only_route_cannot_authorize_an_unexecuted_test(self):
+        base, head, _, _ = self.ordinary_alternative_mount_fixture(test_mount=False)
+        with self.assertRaisesRegex(selector.TestPolicyError, 'validated test feature combinations'):
+            selector.select(self.fast_config(), base, head, profile='pr-fast')
+        output = self.ordinary_route_cargo(
+            ['-p', 'core', '--tests', '--features', 'test_tier_required'], list_only=True)
+        self.assertNotIn('hot_window::added', output)
+        self.assertIn('0 tests', output)
+
+    def test_ordinary_alternative_route_preserves_policy_and_retirement_checks(self):
+        base, _, parent, child = self.ordinary_alternative_mount_fixture()
+        ordinary = Path(child).read_text()
+        for attribute in ('#[ignore]', '#[cfg(feature="test_tier_full")]'):
+            with self.subTest(attribute=attribute):
+                self.write(child, ordinary.replace('#[test]', attribute + '\n#[test]'))
+                head = self.commit()
+                if attribute == '#[ignore]':
+                    with self.assertRaisesRegex(selector.TestPolicyError, 'ignored test'):
+                        selector.select(self.fast_config(), base, head, profile='pr-fast')
+                else:
+                    plan = selector.select(self.fast_config(), base, head, profile='pr-fast')
+                    self.assertTrue(plan['test_policy_changed'])
+                    self.assertIn(child, plan['test_policy_paths'])
+        self.write(child, ordinary)
+        self.write(parent, Path(parent).read_text().replace('fn existing()', 'fn replacement()'))
+        plan = selector.select(self.fast_config(), base, self.commit(), profile='pr-fast')
+        self.assertTrue(plan['test_policy_changed'])
+        self.assertIn(parent, plan['test_policy_paths'])
+        self.assertIn(child, plan['test_policy_paths'])
 
     def test_fast_cross_module_same_function_name_cannot_hide_test_tier_move(self):
         config = self.fast_config()
@@ -3869,7 +3968,7 @@ class AlternativeModuleMounts(unittest.TestCase):
         paths, ignored, production = self.policy()
         self.assertFalse(ignored)
         self.assertFalse(production)
-        self.assertTrue(set(paths).issubset({self.LEAF}))
+        self.assertEqual(paths, [])
 
     def test_alternative_paths_do_not_or_together_contradictory_same_path_gates(self):
         with self.assertRaises(selector.TestPolicyError):
@@ -3898,7 +3997,7 @@ class AlternativeModuleMounts(unittest.TestCase):
         paths, ignored, production = self.policy(
             defaults=defaults, root_gate='#[cfg(feature="transport")] ')
         self.assertFalse(ignored or production)
-        self.assertTrue(set(paths).issubset({self.LEAF}))
+        self.assertEqual(paths, [])
         with self.assertRaises(selector.TestPolicyError):
             self.policy(root_gate='#[cfg(feature="transport")] ')
 

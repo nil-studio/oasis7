@@ -21,8 +21,9 @@ import time
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = '.github/workflows/rust.yml'
-WRITERS = {'ordinary': 'oasis7-test-build-trusted', 'formal': 'formal-test-build-trusted'}
-VERSIONS = {'ordinary': 'v1', 'formal': 'v3'}
+WRITERS = {'ordinary': 'oasis7-test-build-trusted', 'formal': 'formal-test-build-trusted',
+           'formal-debug': 'formal-debug-build-trusted', 'formal-endpoint': 'formal-endpoint-build-trusted'}
+VERSIONS = {'ordinary': 'v1', 'formal': 'v3', 'formal-debug': 'v1', 'formal-endpoint': 'v1'}
 
 
 def load(name, filename):

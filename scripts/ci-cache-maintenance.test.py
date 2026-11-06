@@ -192,7 +192,8 @@ class WorkspaceRetentionTests(unittest.TestCase):
     @staticmethod
     def entry(number, name='ecs', compatibility='a', **changes):
         prefix = {'ecs': 'ecs-workspace-v2', 'ordinary': 'ordinary-workspace-v1',
-                  'formal': 'formal-workspace-v3'}[name]
+                  'formal': 'formal-workspace-v3', 'formal-debug': 'formal-debug-workspace-v1',
+                  'formal-endpoint': 'formal-endpoint-workspace-v1'}[name]
         return cache(number, key=f'{prefix}-{compatibility * 64}-{number:040x}', **changes)
 
     def test_confirmed_third_ecs_generation_keeps_current_and_recovery(self):
@@ -202,6 +203,27 @@ class WorkspaceRetentionTests(unittest.TestCase):
         self.assertEqual(report['status'], 'completed')
         self.assertEqual(report['deleted_ids'], [1])
         self.assertEqual(report['plan']['protected_ids'], [2, 3])
+
+    def test_formal_component_retention_does_not_retire_the_other_component_or_legacy(self):
+        debug = [self.entry(i, 'formal-debug', size=100) for i in (1, 2, 3)]
+        endpoint = [self.entry(i, 'formal-endpoint', size=100) for i in (4, 5, 6)]
+        legacy = [self.entry(i, 'formal', size=100) for i in (7, 8, 9)]
+        entries = debug + endpoint + legacy
+        for selected, expected in (([debug[-1]['key']], {1}),
+                                   ([endpoint[-1]['key']], {4}),
+                                   ([debug[-1]['key'], endpoint[-1]['key']], {1, 4})):
+            with self.subTest(selected=selected):
+                plan = maintenance.plan_retention(entries, selected, START)
+                self.assertEqual({item['id'] for item in plan['delete']}, expected)
+
+    def test_split_formal_recovery_keeps_each_complete_anchor(self):
+        entries = [self.entry(1, 'formal', size=100),
+                   self.entry(2, 'formal-debug', size=100),
+                   self.entry(3, 'formal-endpoint', size=100)]
+        plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1,
+            verified_head_sha=f'{99:040x}', is_ancestor=lambda older, newer: True)
+        self.assertEqual(plan['delete'], [])
+        self.assertEqual(set(plan['workspace_recovery']['recovery_ids']), {1, 2, 3})
 
     def test_multiple_explicit_families_preserve_every_unanchored_family(self):
         formal = [cache(1), self.entry(2, 'formal'), self.entry(3, 'formal')]
@@ -408,7 +430,16 @@ class BootstrapTests(unittest.TestCase):
 
 
 class DependencyRetentionTests(unittest.TestCase):
-    NAMESPACES = ('ci-shared-native-trusted-v4', 'oasis7-ecs-native-linux-ecs-v2')
+    NAMESPACES = ('ci-shared-native-trusted-v4', 'oasis7-ecs-native-linux-ecs-v2',
+                  'ci-formal-debug-deps-trusted-v1', 'ci-formal-endpoint-deps-trusted-v1')
+
+    def test_formal_dependency_profiles_cannot_replace_one_another_or_shared_native(self):
+        entries = [self.dependency(i, namespace) for i, namespace in enumerate(
+            ('ci-formal-debug-deps-trusted-v1', 'ci-formal-endpoint-deps-trusted-v1',
+             'ci-shared-native-trusted-v4'), start=1)]
+        plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1)
+        self.assertEqual(plan['delete'], [])
+        self.assertEqual(set(plan['dependencies']['recovery_ids']), {1, 2, 3})
 
     @staticmethod
     def dependency(number, namespace='ci-shared-native-trusted-v4', *, environment='a', **changes):
@@ -435,7 +466,10 @@ class DependencyRetentionTests(unittest.TestCase):
 
     def test_each_namespace_environment_and_version_keeps_its_own_latest_complete_snapshot(self):
         for bootstrap in (True, False):
-            for namespace in self.NAMESPACES:
+            # The old bootstrap API remains restricted to its original two
+            # namespaces. Current workflow startup uses full recovery mode.
+            namespaces = self.NAMESPACES[:2] if bootstrap else self.NAMESPACES
+            for namespace in namespaces:
                 with self.subTest(bootstrap=bootstrap, namespace=namespace):
                     entries = [self.dependency(1, namespace), self.dependency(2, namespace),
                                self.dependency(3, namespace, environment='b'),
@@ -1390,6 +1424,17 @@ class ApiTests(unittest.TestCase):
                 self.assertNotIn('request_id', failure.diagnostics)
                 self.assertNotIn('secret', str(failure) + json.dumps(failure.diagnostics))
 class TrustTests(unittest.TestCase):
+    def test_rust_component_anchors_need_the_same_current_main_source(self):
+        api = Mock(repository='nil-studio/oasis7')
+        api.request.return_value = self.run_metadata()
+        keys = [WorkspaceRetentionTests.entry(3, name)['key']
+                for name in ('formal-debug', 'formal-endpoint')]
+        self.assertEqual(maintenance.trusted_run_start(api, self.environment(), keys, recover=True), START)
+        for invalid in ([keys[0], keys[1][:-40] + 'b' * 40],
+                        [WorkspaceRetentionTests.entry(3, 'ecs')['key']]):
+            with self.assertRaises(maintenance.MaintenanceError):
+                maintenance.trusted_run_start(api, self.environment(), invalid, recover=True)
+
     def environment(self):
         return {'GITHUB_ACTIONS': 'true', 'GITHUB_REPOSITORY': 'nil-studio/oasis7',
                 'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': f'{3:040x}',
@@ -1614,7 +1659,7 @@ class TrustTests(unittest.TestCase):
                                                 '--current-key', entries[1]['key']]), 0)
         result = json.loads(output.getvalue())
         self.assertEqual(set(result['plan']['families']), {'formal', 'ordinary'})
-        self.assertEqual(result['plan']['unanchored_families'], ['ecs'])
+        self.assertEqual(result['plan']['unanchored_families'], ['ecs', 'formal-debug', 'formal-endpoint'])
         api.delete_cache.assert_not_called()
 
     def test_api_failure_is_advisory_and_writes_a_summary(self):

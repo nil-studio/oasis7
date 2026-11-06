@@ -320,6 +320,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - 合同回归：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/plan-rust-required-scope.test.py`、`python3 scripts/ci-required-result.test.py`、`python3 scripts/ci-workflow.test.py`。使用 Python 3.11+；覆盖精确零匹配、清单遗漏/重复、旧基线扩大、选中后失败/取消/跳过、绝对期限和真实小型 libtest。
 - hosted 验证检查构建与各消费 job 位于不同 Linux runner：下载同 tested SHA 的消费者 tar.gz、核对 manifest 与所选执行闭包、无本地 target 前置时运行全部真实用例。不得在分片调用 Cargo。普通组与正式矩阵分别依赖各自 producer，正式矩阵不等待普通构建；互斥正式 producer 恰有一个成功且另一个跳过，任一必选分片失败则固定汇总失败。
 - Formal build/pack/run 使用同一可信 `--formal-config`、计划与 source；失败任务重跑可复用实际成功 select/producer 的先前 attempt，产物按真实 producer attempt 核验，不要求三步都发生在当前 attempt。BASE 最低 case/ignored filter/batch/script 与候选新增项取并集，manifest 绑定 authority 摘要。删除候选条目不能消除旧预期 case，缺 case、身份变化、计划外物理 shard 或 authority 不符必须失败；普通测试的语义退役仍按既有评审处理。
+- 分路构建回归用真实微型 Cargo workspace 完成 `formal-debug`、`formal-endpoint`、`merge-formal`、完整分包和下载后执行，核对 debug opt0 保留断言/溢出检查，旧 opt2 Formal 组件与完整 bundle 在删除或改变执行版本标记后仍被拒绝，storage 专项独立保持 opt2、endpoint release opt3。缺目标、重复身份、角色互换、跨 run/source/计划/authority、未来 attempt、篡改文件和部分 bundle 直接 pack/run 必须失败；同 run 较早成功 attempt 可复用。工作流枚举两个组件与两合并入口的成功/失败/取消/跳过组合，合并失败不能继续分包。
+- 构建诊断回归执行 `python3 scripts/package-ecs-resource-monitor.test.py` 和 Formal 真实微型 Cargo fixture：按 variant 检查 `--timings`、开始/结束摘要及每 20 秒的观察心跳，保留 CPU/RSS、内存和 swap 的实际测量边界。失败退出仍阻断后续构建和产物消费，观察器失败不能改变 Cargo 结果；已存在的旧 timing 不进入本轮诊断，两个组件均在失败后上传已产生的安全报告。hosted 读取 `formal-debug-build-diagnostics-*` / `formal-endpoint-build-diagnostics-*`，缺失数据记为未知，不将心跳当作编译进度或性能验收。
+- 执行池回归使用真实子进程屏障核验 CPU 槽、worker 上限、独占项与旧产物串行；候选配置不得增加 BASE 并发许可。并发 case 的非零退出、错误计数、超时、取消与遗留子进程均保留失败，排队项取消后不启动；已完成成功结果保持原身份。hosted 分别比较构建两路、最长完整 case 与分片总体耗时，不能把并发宽度当成已实现收益。
 - 优化回归核对全部完整用例在逻辑 suite 与物理 shard 中恰好一次，保留长历史 70 次及健康集合 40 次连续操作。比较 producer、分包原始/压缩 bytes、下载、实际测试、重开/冷查/stop 各阶段；记录缓存来源、是否命中及 8 GiB 保存预算结果。fixture 和本地计数器只能证明对应机制，整体耗时改善须用实际 runner 结果另证。
 - workspace 缓存回归使用真实小型 Cargo workspace：分开保存依赖与本地编译单位，在相同绝对路径重建 checkout 后恢复，核对 Cargo JSON 的 fresh 和实际程序输出。修改源码、build.rs 观察的未跟踪输入、权限或刻意保留旧 mtime 的输入须正常重编；新增/删除输入、损坏、symlink、路径穿越和不完整缓存须安全回到冷路径。核对 build-script 编译与执行两类目录均完整，原始 fingerprint 不被修改。真实 producer 另记录完整 target 与所选 workspace 的逻辑/硬链接去重 bytes、目录归因、8 GiB 保存结果及两类缓存的恢复耗时；本地 fixture 不代签 main writer 已保存或后续 hosted reader 已复用。
 - `output/formal-process/results.jsonl` 记录每个命令的开始时间、耗时、退出码、超时、测试数和清理状态。只上传此安全摘要；详细输出查看 job 日志，失败世界目录不自动上传。缺摘要、缺产物和构建失败须从 Actions 失败步骤诊断，不能计为通过。
@@ -328,7 +331,9 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 
 - 本地合同：`python3 scripts/ci-formal-process.test.py`、`python3 scripts/ci-cache-policy.test.py`、`python3 scripts/ci-workspace-cache.test.py`、`python3 scripts/ci-ecs-cache.test.py`、`python3 scripts/ci-cache-maintenance.test.py`、`python3 scripts/ci-workflow.test.py`。实际 Cargo fixture 需要 Rust；缺少工具链时明确记录跳过，不能用 synthetic JSON 计数代签真实 fresh。
 - 普通构建 library-only fixture 须证明库和完整构建脚本可复用、普通 binary/test harness 不入缓存且正常重建；四个 feature variants 与测试产物不变。新增/删除输入、损坏或路径不安全继续 miss；源码内容变化仍由 Cargo 重编。检查本地与第三方 fresh/rebuilt 分组，含恢复、验证和打包成本。
-- 三个 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护等待 full 的 post-job 保存，ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- 各 workspace writer 均核对完整库存、实际额度/配置预算来源、压缩归档及外包装上传上界。单份上传、两代常驻和第三代临时容量分别校验；普通原始 staging 须覆盖 4,428,645,549 字节实测选集。两代加足够容量允许临时第三代；保存准入本身始终零删除，通常维护在库存不全、未确认 current 或族归属不符时零删除。启动维护仅回收明确退役格式的冗余代，每个兼容前缀/cache version 组保留完整恢复锚点，并覆盖锚点歧义、两次清点间变化和活跃保护。回收保护 current、前代、活跃读写和零字节条目；两次清点只缩小计划。Rust 维护直接等待普通与两路 Formal 的可信 writer，不再等待完整测试；ECS 维护等待 native，精确命中也可执行；维护结果不能改变 required/full 结论。
+- Formal debug/endpoint 分别核验 6/2 GiB staging 与 768/256 MiB 单份上传上界、独立 writer 身份和兼容 key。新两族合计两代目标 2 GiB、临时第三代 3 GiB；旧 Formal v3 仍独立受控，迁移期间必须计入完整仓库占用，不以一半成功跨族删除另一半或历史恢复锚点。
+- 两路依赖缓存另核对 debug opt0 与 endpoint release 的精确 namespace/profile。真实组件的 main schedule/manual-full 成功 job 才能保存，候选、错 job/key/平台、非 full dispatch、旧源码和归档容量不足均拒绝。首次 seed 后分别观察对应 hosted reader 的第三方 fresh/rebuilt；旧 shared-native 命中不能代签新 profile 的预热。维护回归保留三者各自完整恢复锚点，上传准入与维护均不改变测试结论。
 - compact archive 回归覆盖 zstd 与旧 gzip 往返、真实同 inode 去重、完整逻辑字节预算、损坏/截断/附加帧、非法别名和路径拒绝。使用实测 9,381,351,049 字节库存与有来源的大小样本回放 bootstrap、首次准入、后续恢复和第三代轮换；全族达到上限但仓库空间不足时必须拒绝，不能把单份上限当预留额度。
 - hosted 分别核对首次 main 保存、后续兼容 reader 的实际 fresh 和第三代回收后的库存；新格式首次冷构建、超限跳过与保护集超额均如实报告，不承诺尚未测量的耗时收益。
 
@@ -342,7 +347,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - hosted 功能：读取后续自然发生且已授权的 Release `build-web-dist`，确认工具验证后原有 Web 构建、source/BUILDINFO 与发布检查正常。不要为本节人为触发发布；未发生的发布保持待观察。
 - 真实跨 tag 缓存：关联 main `full-regression` 的实际归档保存记录和两个不同 tag 的 reader，记录 run/job URL、event/ref、请求/匹配 key、工具/安装器身份、路径及 cache version 兼容条件、恢复和摘要验证结果。同 tag rerun、仅配置相同或只有 cache-hit 输出均不足以确认 main seed 复用。
 - 冷暖量测：区分实际下载、跨 run 恢复、本地已有和恢复异常后下载；分别记录恢复、下载、验证安装、总准备及 writer 保存成本。日志只有 step 级时间时保持该粒度。附 runner image/OS/arch、source、Trunk 版本/摘要、helper 指纹、样本窗口与数量；失败和取消单列，排队和整个 Release 耗时另报。样本不足时报告原始观察，不预写提速百分比。
-- apt 先观察索引更新、下载、安装、锁等待和失败分布。本次没有新增 apt helper；后续确需预算治理时，使用假命令与临时进程 fixture 验证正常/瞬态/永久错误、总预算、挂起或忽略终止信号的子进程、父进程先退出、取消与无受控遗留进程。不得在真实 apt/dpkg 上故障注入；强制终止后的包状态不明确时应失败并使用新 runner。
+- apt 本地合同：`python3 scripts/ci-apt-install.test.py`、`python3 scripts/ci-workflow.test.py`、`python3 scripts/plan-rust-required-scope.test.py`。假命令与临时进程 fixture 验证正常、瞬态/永久/未知错误、重试耗尽、总预算、挂起或忽略终止信号、父进程先退出、取消与受控进程清理；不得在真实 apt/dpkg 上故障注入。接线测试核对全部原包列表、lsof 已有时短路、600 秒 helper 参数、11 分钟步骤兜底，以及失败后不运行依赖测试。
+- apt hosted 验收：在新提交实际运行中分别检查 update/install 阶段耗时、尝试次数、退出/清理结果与原测试结果；记录 source SHA 和 run/job 链接。600 秒仅为 Rust/native cache 本次参数，可据后续样本调整，不代表全局 SLO 或已经 hosted 验收。强制终止后的包状态不明确时应失败并使用新 runner；helper 失败保持沿原 job/required 汇总传播。
 
 Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构建、跨 tag 恢复与性能收益分别核实，不为 Trunk 新增通用 required check、预热工作流或验收回执。
 

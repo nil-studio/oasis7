@@ -540,6 +540,8 @@ def formal_configuration():
     if trusted.get('schema_version') != 2 or candidate.get('schema_version') != 2:
         raise ValueError('unsupported trusted Formal inventory schema')
     result = json.loads(json.dumps(trusted))
+    # Concurrency is an allowance, not added coverage: candidate declarations
+    # must not widen the BASE's exact case/resource policy.
     owners = {}
     for suite, entries in trusted['suites'].items():
         for entry in entries:
@@ -749,6 +751,9 @@ def resolve_shards(config, suites):
     return result
 
 
+FORMAL_COMPONENTS = ('formal-debug', 'formal-endpoint')
+
+
 def build_variants(scope, plan=None):
     required_features = ['test_tier_required']
     # Separate variants preserve the old snapshot regressions' default features.
@@ -781,7 +786,7 @@ def build_variants(scope, plan=None):
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
             return selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
-    if scope in ('formal', 'storage'):
+    if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
         # Keep both core libraries and the exact Chain binary harness. Chain
         # configuration library tests belong to the ordinary required variant;
         # integration tests, viewer executables and snapshot variants run elsewhere.
@@ -791,6 +796,8 @@ def build_variants(scope, plan=None):
         core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
         result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
+        if scope in FORMAL_COMPONENTS:
+            return [variant for variant in result if (variant[0] == 'endpoint') == (scope == 'formal-endpoint')]
         if scope == 'storage':
             result.append(('storage-libs', ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol',
                 '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '--lib', '--no-run'], []))
@@ -823,14 +830,25 @@ def artifact_logical_name(variant, package, target, test):
 def build_environment(scope):
     env = dict(os.environ)
     env.pop('RUSTC_WRAPPER', None)
-    if scope == 'storage':
-        # Keep test checks while avoiding debug-code cost in multi-hour workloads.
-        # Release endpoint policy is independent and remains unchanged.
+    if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
+        # Formal keeps the original cheap debug profile. Optimizing its entire
+        # dependency graph and large test harnesses greatly increases cold cost.
+        # Storage retains its established profile; release endpoint is separate.
         for profile in ('DEV', 'TEST'):
-            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2'
+            env[f'CARGO_PROFILE_{profile}_OPT_LEVEL'] = '2' if scope == 'storage' else '0'
             env[f'CARGO_PROFILE_{profile}_DEBUG_ASSERTIONS'] = 'true'
             env[f'CARGO_PROFILE_{profile}_OVERFLOW_CHECKS'] = 'true'
     return env
+
+
+def compiler_environment(env):
+    """Inputs shared by split producers; omit credentials and execution-only knobs."""
+    flags = {'RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTDOCFLAGS', 'CARGO_ENCODED_RUSTDOCFLAGS',
+             'RUSTC', 'RUSTDOC', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_INCREMENTAL',
+             'CC', 'CXX', 'AR', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS', 'LIBRARY_PATH', 'CPATH'}
+    prefixes = ('CARGO_PROFILE_', 'CARGO_TARGET_', 'CARGO_BUILD_', 'CC_', 'CXX_', 'AR_', 'PKG_CONFIG', 'OASIS7_WASM')
+    return {key: value for key, value in sorted(env.items())
+            if (key in flags or key.startswith(prefixes)) and key != 'CARGO_BUILD_JOBS'}
 
 
 def build_cache_dependencies(scope):
@@ -849,14 +867,103 @@ def validate_profile(logical, binary, scope=None):
                 or profile['opt_level'] != '3' or profile['debug_assertions']
                 or Path(binary['original_executable']).parent.name != 'release'):
             raise ValueError('expected optimized release endpoint artifact')
-    elif scope == 'storage':
+    elif scope in ('formal', 'formal-debug', 'storage'):
         profile = binary.get('profile', {})
-        if (profile.get('opt_level') != '2' or profile.get('debug_assertions') is not True
+        expected_opt = '2' if scope == 'storage' else '0'
+        if (profile.get('opt_level') != expected_opt or profile.get('debug_assertions') is not True
                 or profile.get('overflow_checks') is not True):
-            raise ValueError('expected optimized storage artifact with assertions and overflow checks')
+            policy = 'optimized storage' if scope == 'storage' else 'unoptimized ' + scope
+            raise ValueError('expected ' + policy + ' artifact with assertions and overflow checks')
 
 
-def build(bundle, scope='all', cache_state_path=None, plan=None):
+class BuildObservation:
+    """Optional diagnostics; never take over Cargo output or its exit result."""
+
+    def __init__(self, variant, directory=None, timing_directory=None):
+        self.variant = variant
+        self.directory = directory / variant if directory else None
+        self.timing_directory = timing_directory
+        self.process = self.observer = None
+        self.before = {}
+        self.started = time.monotonic()
+        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[])
+
+    def warn(self, error):
+        print(f'::warning::Build diagnostics for {self.variant}: {type(error).__name__}', flush=True)
+
+    def timing_files(self):
+        if self.timing_directory is None:
+            return {}
+        return {path: (path.stat().st_mtime_ns, path.stat().st_size)
+                for path in self.timing_directory.glob('cargo-timing*.html')
+                if path.is_file() and not path.is_symlink()}
+
+    def write(self):
+        if self.directory is not None:
+            try:
+                self.report['elapsed_seconds'] = round(time.monotonic() - self.started, 3)
+                temporary = self.directory / 'build.json.tmp'
+                temporary.write_text(json.dumps(self.report, indent=2) + '\n')
+                temporary.replace(self.directory / 'build.json')
+            except OSError as error:
+                self.warn(error)
+
+    def __enter__(self):
+        if self.directory is not None:
+            try:
+                self.directory.mkdir(parents=True, exist_ok=False)
+                self.before = self.timing_files()
+            except OSError as error:
+                self.warn(error)
+                self.directory = None
+            else:
+                self.write()
+                print('native_build_start=' + json.dumps(self.report), flush=True)
+        return self
+
+    def attach(self, process):
+        self.process = process
+        if self.directory is not None:
+            try:
+                self.observer = subprocess.Popen([
+                    sys.executable, str(Path(__file__).with_name('package-ecs-resource-monitor.py')),
+                    '--out', str(self.directory / 'resources.json'), '--pid', str(process.pid),
+                    '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
+            except OSError as error:
+                self.warn(error)
+
+    def __exit__(self, kind, value, traceback):
+        if self.observer is not None:
+            try:
+                if self.observer.poll() is None:
+                    self.observer.terminate()
+                try:
+                    self.observer.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self.observer.kill()  # Only our observer, never the build.
+                    self.observer.wait(timeout=3)
+                if self.observer.returncode:
+                    print(f'::warning::Build resource observer exited {self.observer.returncode}', flush=True)
+            except (OSError, subprocess.SubprocessError) as error:
+                self.warn(error)
+        if self.directory is not None:
+            try:
+                for path, identity in self.timing_files().items():
+                    if self.before.get(path) != identity:
+                        shutil.copy2(path, self.directory / path.name)
+                        self.report['timings'].append(path.name)
+            except OSError as error:
+                self.warn(error)
+            self.report['cargo_exit_code'] = self.process.returncode if self.process else None
+            self.report['status'] = 'success' if kind is None and self.report['cargo_exit_code'] == 0 else 'failure'
+            if kind is not None:
+                self.report['error_type'] = kind.__name__
+            self.write()
+            print('native_build_end=' + json.dumps(self.report), flush=True)
+        return False
+
+
+def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None):
     validate_plan_identity(plan)
     if scope != 'ordinary' and FORMAL_AUTHORITY is not None:
         formal_shards(plan)
@@ -864,6 +971,20 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
     (bundle / 'bin').mkdir()
     (bundle / 'lib').mkdir()
     env = build_environment(scope)
+    timing_directory = None
+    if diagnostics_dir is not None:
+        diagnostics_dir = Path(diagnostics_dir).resolve()
+        try:
+            diagnostics_dir.mkdir(parents=True, exist_ok=False)
+        except OSError as error:
+            print(f'::warning::Build diagnostics unavailable: {type(error).__name__}', flush=True)
+            diagnostics_dir = None
+        if diagnostics_dir is not None:
+            try:
+                metadata = json.loads(output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1']))
+                timing_directory = Path(metadata['target_directory']) / 'cargo-timings'
+            except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+                print(f'::warning::Cargo timing directory unavailable: {type(error).__name__}', flush=True)
     cache_state = None
     if cache_state_path:
         selection = 'libraries' if scope == 'ordinary' else 'all'
@@ -890,8 +1011,12 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
         started = time.monotonic()
         local_units = local_fresh = dependency_units = dependency_fresh = 0
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
+        if diagnostics_dir is not None:
+            command.append('--timings')
         print('+ ' + ' '.join(command), flush=True)
-        with subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+        with BuildObservation(variant, diagnostics_dir, timing_directory) as observation, \
+                subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
+            observation.attach(process)
             for line in process.stdout:
                 try:
                     artifact = json.loads(line)
@@ -982,8 +1107,14 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
     config = formal_configuration()
-    manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' else {}
-    if scope != 'ordinary':
+    component = scope in FORMAL_COMPONENTS
+    manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
+    if component:
+        manifest['formal_component_version'] = 1
+        manifest['compiler_environment'] = compiler_environment(env)
+    elif scope == 'formal':
+        manifest['formal_execution_version'] = 1
+    if scope != 'ordinary' and not component:
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     manifest['included_binaries'] = sorted(binaries)
@@ -1005,6 +1136,177 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
             cache_state_path.write_text(json.dumps(cache_state, sort_keys=True) + '\n')
         except OSError as error:
             print('formal_workspace_cache=' + json.dumps(dict(save=False, reason=str(error))), flush=True)
+
+
+def complete_bundle_scope(manifest):
+    scope = manifest.get('scope')
+    if scope is None and manifest.get('schema_version', 1) == 1:
+        return  # Original manifests predate named scopes and execute serially.
+    if scope in FORMAL_COMPONENTS:
+        raise ValueError('partial Formal component must be validated and merged before consumption')
+    if scope not in ('all', 'ordinary', 'formal', 'storage'):
+        raise ValueError('unknown native bundle scope')
+    if 'formal_execution_version' in manifest and type(manifest['formal_execution_version']) is not int:
+        raise ValueError('invalid Formal execution version')
+
+
+def formal_component_targets(scope):
+    """Resolve the actual checkout's complete lib/bin selectors without compiling."""
+    metadata = json.loads(output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1']))
+    packages = {package['name']: package for package in metadata['packages']}
+    expected = {}
+    for variant, args, features in build_variants(scope):
+        roots = [args[index + 1] for index, arg in enumerate(args) if arg == '-p']
+        for root in roots:
+            package = packages[root]
+            available = package['features']
+            enabled = set(features) & set(available)
+            if '--no-default-features' not in args and 'default' in available:
+                enabled.add('default')
+            pending = list(enabled)
+            while pending:
+                for feature in available[pending.pop()]:
+                    if feature in available and feature not in enabled:
+                        enabled.add(feature)
+                        pending.append(feature)
+            for target in package['targets']:
+                kinds = target['kind']
+                selected = ('--lib' in args and kinds == ['lib']) or (
+                    kinds == ['bin'] and ('--bins' in args or (
+                        '--bin' in args and args[args.index('--bin') + 1] == target['name'])))
+                if not selected or not set(target.get('required-features', [])) <= enabled:
+                    continue
+                test = args[0] == 'test'
+                logical = artifact_logical_name(variant, root, target, test)
+                if logical in expected:
+                    raise ValueError('duplicate Formal component target: ' + logical)
+                expected[logical] = dict(package=root, target=target['name'], target_kind=kinds,
+                    variant=variant, test=test, ordinary=False, requested_features=features,
+                    cwd=str(Path(package['manifest_path']).parent.relative_to(ROOT)),
+                    enabled_features=sorted(enabled), available_features=set(available))
+    if not expected:
+        raise ValueError('Formal component has no selected Cargo targets')
+    return expected
+
+
+def merge_formal(debug, endpoint, bundle, plan=None):
+    """Join two complete build roles only after validating every input artifact."""
+    validate_plan_identity(plan)
+    configuration = formal_configuration()
+    tested = output(['git', 'rev-parse', 'HEAD'])
+    identity = dict(schema_version=2, tested_sha=tested,
+        source_sha=os.environ.get('SOURCE_SHA', tested), producer_run_id=os.environ.get('GITHUB_RUN_ID', 'local'),
+        checkout=str(ROOT), config_sha256=digest(CONFIG), formal_authority_sha256=formal_authority_digest(),
+        rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'), rustc_version=output(['rustc', '--version']),
+        target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
+        runner_image=os.environ.get('ImageOS', sys.platform), execution_plan=fast_plan(plan),
+        compiler_environment=compiler_environment(build_environment('formal')))
+    current_attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '1')
+    if not re.fullmatch(r'[1-9][0-9]*', current_attempt):
+        raise ValueError('invalid current producer attempt')
+    binaries, libraries, components, timings, inputs, component_names = {}, {}, {}, {}, {}, {}
+    for scope, source in zip(FORMAL_COMPONENTS, (debug, endpoint)):
+        source = Path(source)
+        manifest_path = ProviderArtifact.checked(source, 'manifest.json')
+        manifest = json.loads(manifest_path.read_text())
+        if (manifest.get('scope') != scope or type(manifest.get('formal_component_version')) is not int
+                or manifest['formal_component_version'] != 1 or manifest.get('selection') is not None
+                or manifest.get('suites') != {}):
+            raise ValueError('invalid Formal component role or completeness')
+        for key, expected in identity.items():
+            if manifest.get(key) != expected:
+                raise ValueError('Formal component identity mismatch: ' + key)
+        attempt = manifest.get('producer_attempt')
+        if (not isinstance(attempt, str) or not re.fullmatch(r'[1-9][0-9]*', attempt)
+                or int(attempt) > int(current_attempt)):
+            raise ValueError('invalid or future Formal component attempt')
+        expected = formal_component_targets(scope)
+        component_names[scope] = list(expected)
+        actual = manifest['binaries']
+        if set(actual) != set(expected) or manifest.get('included_binaries') != sorted(expected):
+            raise ValueError('incomplete or expanded Formal component target inventory')
+        variants = [name for name, _, _ in build_variants(scope)]
+        if [entry['variant'] for entry in manifest['build_timings']] != variants:
+            raise ValueError('Formal component build contexts differ')
+        for entry in manifest['build_timings']:
+            if entry['variant'] in timings:
+                raise ValueError('duplicate Formal component build context')
+            timings[entry['variant']] = entry
+        needed_libraries = set()
+        for logical, spec in expected.items():
+            entry = actual[logical]
+            enabled, available = spec.pop('enabled_features'), spec.pop('available_features')
+            if any(entry.get(key) != value for key, value in spec.items()):
+                raise ValueError('Formal component target identity mismatch: ' + logical)
+            features = entry.get('features')
+            if (not isinstance(features, list) or any(not isinstance(feature, str) for feature in features)
+                    or len(features) != len(set(features)) or not set(enabled) <= set(features)
+                    or not set(features) <= available):
+                raise ValueError('Formal component target features differ: ' + logical)
+            if (logical in binaries or entry.get('path') != 'bin/' + logical
+                    or entry['profile'].get('test') is not entry['test']
+                    or not Path(entry['original_executable']).is_absolute()
+                    or not Path(entry['original_executable']).resolve().is_relative_to((ROOT / 'target').resolve())):
+                raise ValueError('duplicate or invalid Formal component executable: ' + logical)
+            validate_profile(logical, entry, scope)
+            path = ProviderArtifact.checked(source, entry['path'])
+            if (digest(path) != entry['sha256'] or path.stat().st_size != entry['bytes']
+                    or not os.access(path, os.X_OK)):
+                raise ValueError('invalid Formal component executable bytes or mode')
+            tests, ignored = entry.get('tests', []), entry.get('ignored_tests', [])
+            if (not isinstance(tests, list) or any(not isinstance(name, str) or not name for name in tests)
+                    or tests != sorted(set(tests)) or not isinstance(ignored, list)
+                    or any(not isinstance(name, str) or not name for name in ignored)
+                    or ignored != sorted(set(ignored)) or not set(ignored) <= set(tests)):
+                raise ValueError('invalid Formal component case inventory')
+            if entry['test'] and entry.get('test_list_sha256') != hashlib.sha256(json.dumps(tests).encode()).hexdigest():
+                raise ValueError('Formal component test inventory digest mismatch')
+            binaries[logical] = entry
+            inputs[entry['path']] = (path, entry['sha256'])
+            needed_libraries.update(entry['libraries'])
+        if set(manifest['libraries']) != needed_libraries:
+            raise ValueError('Formal component dynamic library closure mismatch')
+        for name, sha in manifest['libraries'].items():
+            if not name.startswith('lib/') or len(Path(name).parts) != 2:
+                raise ValueError('invalid Formal component library path')
+            path = ProviderArtifact.checked(source, name)
+            if digest(path) != sha or (name in libraries and libraries[name] != sha):
+                raise ValueError('invalid or conflicting Formal component library')
+            libraries[name], inputs[name] = sha, (path, sha)
+        components[scope] = dict(producer_attempt=attempt, manifest_sha256=digest(manifest_path))
+    # Validate the entire minimum inventory before listing or copying any binary.
+    suites = resolve_suites(configuration, binaries)
+    resolve_shards(configuration, suites)
+    for scope, source in zip(FORMAL_COMPONENTS, (debug, endpoint)):
+        env = dict(os.environ, LD_LIBRARY_PATH=str(Path(source) / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', ''))
+        for logical in component_names[scope]:
+            entry = binaries[logical]
+            if entry['test'] and (inventory(inputs[entry['path']][0], env=env) != entry['tests']
+                    or inventory(inputs[entry['path']][0], True, env) != entry['ignored_tests']):
+                raise ValueError('Formal component actual test inventory mismatch')
+    manifest = dict(identity, scope='formal', producer_attempt=current_attempt,
+        formal_execution_version=1, components=components, binaries=binaries, libraries=libraries,
+        suites=suites, included_binaries=sorted(binaries), selection=None,
+        build_timings=[timings[name] for name, _, _ in build_variants('formal')])
+    # Partial and corrupt inputs leave no consumable output. Never share mutable
+    # Cargo targets between the two producers or hardlink their input artifacts.
+    for path, sha in inputs.values():
+        if digest(path) != sha:
+            raise ValueError('Formal component changed during validation')
+    bundle.mkdir(parents=True, exist_ok=False)
+    (bundle / 'bin').mkdir()
+    (bundle / 'lib').mkdir()
+    try:
+        for name, (source, sha) in inputs.items():
+            shutil.copy2(source, bundle / name)
+            if digest(bundle / name) != sha:
+                raise ValueError('Formal component changed during copy')
+        (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    except BaseException:
+        shutil.rmtree(bundle)
+        raise
+    print('formal_merge=' + json.dumps(dict(components=components, binaries=len(binaries),
+                                           cases=sum(len(entries) for entries in suites.values()))), flush=True)
 
 
 def selected_entries(manifest, config, suite=None, shard=None):
@@ -1071,6 +1373,7 @@ def checked_file(bundle, name, sha):
 def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     """Publish one consumption closure; the producer's complete inventory remains auditable."""
     manifest = json.loads((bundle / 'manifest.json').read_text())
+    complete_bundle_scope(manifest)
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     if manifest.get('formal_authority_sha256') != formal_authority_digest():
@@ -1669,11 +1972,13 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
 def load(bundle, suite=None, shard=None, plan=None):
     validate_plan_identity(plan)
     manifest = json.loads((bundle / 'manifest.json').read_text())
+    complete_bundle_scope(manifest)
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     validate_ordinary_selection(manifest)
-    if manifest.get('scope') == 'storage' and manifest.get('schema_version') != 2:
-        raise ValueError('expected schema 2 storage artifact')
+    if manifest.get('scope') in ('formal', 'storage') and (
+            type(manifest.get('schema_version')) is not int or manifest['schema_version'] != 2):
+        raise ValueError('expected schema 2 ' + manifest['scope'] + ' artifact')
     config = formal_configuration()
     expected = dict(tested_sha=output(['git', 'rev-parse', 'HEAD']),
                     source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
@@ -1700,6 +2005,9 @@ def load(bundle, suite=None, shard=None, plan=None):
         if not os.access(path, os.X_OK):
             raise ValueError('missing, invalid or corrupt executable')
         if manifest.get('schema_version') == 2:
+            # Execution capability controls scheduling, never profile identity.
+            # Original Formal bundles also used opt0; old opt2 must not be
+            # accepted by stripping or changing the execution-version marker.
             validate_profile(name, entry, manifest.get('scope'))
     # env!(CARGO_BIN_EXE_*) embeds Cargo's original absolute binary path.
     # Restore only recorded executables under this checkout's target directory.
@@ -1783,12 +2091,29 @@ def native_cpu_budget():
     return cpus
 
 
-def execute_inline_jobs(jobs, results):
-    """Run complete validated harnesses, with one receipt and owner per child."""
+def formal_parallel_cases(config):
+    """Only trusted exact identities can spend less than the whole CPU budget."""
+    policy = config.get('parallel_cases', {})
+    if not isinstance(policy, dict):
+        raise ValueError('invalid Formal parallel case policy')
+    result = {}
+    for binary, cases in policy.items():
+        if not isinstance(binary, str) or not binary or not isinstance(cases, dict):
+            raise ValueError('invalid Formal parallel case owner')
+        for name, weight in cases.items():
+            if (not isinstance(name, str) or not name or any(character in name for character in '\r\n\0')
+                    or type(weight) is not int or weight not in (1, 2)):
+                raise ValueError('invalid Formal parallel case weight or identity')
+            result[(binary, name)] = weight
+    return result
+
+
+def execute_inline_jobs(jobs, results, *, formal=False, shard=None):
+    """Run complete validated jobs, with one receipt and owner per child."""
     from ci_process_runner import run
     cpus = native_cpu_budget()
-    workers = min(2, cpus, len(jobs))
-    threads = max(1, cpus // workers)
+    workers = min(4 if formal else 2, cpus, len(jobs))
+    threads = 1 if formal else max(1, cpus // workers)
     # An existing lower limit remains useful; never multiply libtest's normal
     # CPU-sized pool by the number of concurrently running harnesses.
     for job in jobs:
@@ -1806,9 +2131,14 @@ def execute_inline_jobs(jobs, results):
     handlers = {}
     failures, recorded = [], set()
     next_job = 0
+    weights = [min(cpus, job.get('cpu_weight', cpus)) if formal else threads for job in jobs]
+    if any(type(weight) is not int or weight < 1 for weight in weights):
+        raise ValueError('invalid execution CPU weight')
     results.parent.mkdir(parents=True, exist_ok=True)
-    print('native_execution=' + json.dumps(dict(mode='inline', workers=workers,
-          cpu_budget=cpus, test_threads=threads, selected=len(jobs))), flush=True)
+    label = 'formal' if formal else 'ordinary'
+    prefix = 'formal_execution=' if formal else 'native_execution='
+    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', workers=workers,
+          cpu_budget=cpus, test_threads=threads, selected=len(jobs), weights=weights)), flush=True)
 
     def interrupt(signum, frame):
         interrupted.append(signum)
@@ -1837,14 +2167,19 @@ def execute_inline_jobs(jobs, results):
         job = jobs[index]
         if (record != result or record.get('suite') != job['suite']
                 or record.get('test_name') != job['name']
-                or type(record.get('expected_count')) is not int
+                or (job['count'] is not None and type(record.get('expected_count')) is not int)
                 or record['expected_count'] != job['count']
                 or type(record.get('passed')) is not bool):
             raise ValueError('harness result identity mismatch')
         if record['passed'] and (record.get('exit_code') != 0 or record.get('count_ok') is not True
                 or record.get('timeout') is not False or record.get('cancelled') is not False
-                or record.get('cleanup_result') != 'clean' or record.get('leaked_processes') is not False):
+                or record.get('cleanup_result') != 'clean' or record.get('leaked_processes') is not False
+                or record.get('output_read_error') is not None or record.get('log_complete') is False):
             raise ValueError('harness result reports success without clean complete execution')
+        if formal:
+            record = dict(record, binary=job.get('binary'))
+            if shard:
+                record['shard'] = shard
         with results.open('a') as stream:
             stream.write(json.dumps(record) + '\n')
         recorded.add(index)
@@ -1862,6 +2197,9 @@ def execute_inline_jobs(jobs, results):
                 try:
                     while pending or (next_job < len(jobs) and not stop.is_set()):
                         while next_job < len(jobs) and len(pending) < workers and not stop.is_set():
+                            used = sum(weights[index] for index, _ in pending.values())
+                            if used + weights[next_job] > cpus:
+                                break
                             receipt = Path(temporary) / (str(next_job) + '.jsonl')
                             pending[pool.submit(invoke, next_job, receipt)] = (next_job, receipt)
                             next_job += 1
@@ -1885,11 +2223,11 @@ def execute_inline_jobs(jobs, results):
         for signum, handler in handlers.items():
             signal.signal(signum, handler)
     complete = recorded == set(range(len(jobs)))
-    print('native_execution=' + json.dumps(dict(mode='inline', selected=len(jobs),
+    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', selected=len(jobs),
           started=next_job, recorded=len(recorded), failures=failures,
           interrupted=interrupted, complete=complete)), flush=True)
     if failures or interrupted or not complete:
-        raise RuntimeError(f'ordinary failed; see {results}')
+        raise RuntimeError(f'{label} failed; see {results}')
 
 
 def execute(bundle, suite, results, shard=None, plan=None):
@@ -1913,6 +2251,8 @@ def execute(bundle, suite, results, shard=None, plan=None):
         entries = selected_entries(manifest, formal_configuration(), suite if not shard else None, shard)
     if not entries:
         raise ValueError('selected test execution is empty')
+    formal = manifest.get('scope') == 'formal' and manifest.get('formal_execution_version') == 1
+    resources = formal_parallel_cases(formal_configuration()) if formal else {}
     inline = (suite == 'ordinary' and not shard and fast_plan(plan) is not None
               and plan.get('fast_execution_version') == 1)
     if inline:
@@ -1946,10 +2286,13 @@ def execute(bundle, suite, results, shard=None, plan=None):
                 command += ['--test-threads=1', '--nocapture']
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
-        jobs.append(dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
-                         name=name, count=count))
-    if inline:
-        execute_inline_jobs(jobs, results)
+        job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,
+                   name=name, count=count, binary=entry.get('binary'))
+        if (entry.get('binary'), name) in resources:
+            job['cpu_weight'] = resources[(entry['binary'], name)]
+        jobs.append(job)
+    if formal or inline:
+        execute_inline_jobs(jobs, results, formal=formal, shard=shard)
         return
     failed = False
     for job in jobs:
@@ -1977,10 +2320,12 @@ def execute(bundle, suite, results, shard=None, plan=None):
 def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare-provider', 'build', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
+    parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack', 'shards', 'required-args', 'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
-    parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage'], default='all')
+    parser.add_argument('--scope', choices=['all', 'formal', 'ordinary', 'storage', *FORMAL_COMPONENTS], default='all')
+    parser.add_argument('--debug-bundle', type=Path)
+    parser.add_argument('--endpoint-bundle', type=Path)
     parser.add_argument('--suite', default='ordinary')
     parser.add_argument('--shard', choices=SHARDS)
     parser.add_argument('--split-formal', action='store_true')
@@ -1989,6 +2334,7 @@ def main():
     parser.add_argument('--max-bytes', type=int, default=8 * 1024 ** 3)
     parser.add_argument('--cache', type=Path)
     parser.add_argument('--cache-state', type=Path)
+    parser.add_argument('--build-diagnostics', type=Path, help='new directory for per-Cargo timing and resource reports')
     parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
@@ -2041,7 +2387,7 @@ def main():
                 stream.write('\n### Formal workspace cache: ' + args.action + '\n\n```json\n' + json.dumps(report, indent=2) + '\n```\n')
         return
     if not args.bundle:
-        parser.error('--bundle is required for build, run and pack')
+        parser.error('--bundle is required for build, merge-formal, run and pack')
     if args.action == 'prepare-provider':
         if not args.output:
             parser.error('prepare-provider requires --output for its environment file')
@@ -2053,7 +2399,11 @@ def main():
         args.output.write_text(''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in environment.items()))
         args.output.chmod(0o600)
     elif args.action == 'build':
-        build(args.bundle.resolve(), args.scope, args.cache_state, plan)
+        build(args.bundle.resolve(), args.scope, args.cache_state, plan, args.build_diagnostics)
+    elif args.action == 'merge-formal':
+        if not args.debug_bundle or not args.endpoint_bundle:
+            parser.error('merge-formal requires --debug-bundle and --endpoint-bundle')
+        merge_formal(args.debug_bundle.resolve(), args.endpoint_bundle.resolve(), args.bundle.resolve(), plan)
     elif args.action == 'pack':
         if not args.output:
             parser.error('pack requires --output')
