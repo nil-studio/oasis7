@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "e1c070592e953321b71bc0c0aac5eaaa44f40174d1705aa54cdf126b7c7a29a1",
+    "content_sha256": "c78b80946f6337f06f6a5ac710e4e0f48b59bc3d1db5a4b24f3b363a6068b730",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程唯一主责、既有 owner、disposition 与路由，沿用未修改条款的既有结论。本次定点审读 §4 PR 描述及默认模板、AGENTS、executing-project-tasks 和评审提示：按问题、实际变化、验证和适用风险组织当前交付说明，小改动接受等价简短结构；网页、CLI、API 和 Agent 使用同一内容要求；实质改动、评审与收尾时核对当前摘要，详细过程保留原证据，有效暂停和重要未验证范围仍可见。要求追踪沿用原 ID，奖励标题及字段保持解析兼容；原合入条件及历史结果不变。未增加正文评分、固定标题或 CI 门禁。此记录为本次变更与直接消费者的静态语义审读，不代表后续 PR 已采用或阅读效率已经改善。",
+    "note": "保留开发流程唯一主责、既有 owner、disposition 与路由，沿用未修改条款的既有结论。本次定点审读 §2.5 任务拆分与验收准备、§3 开发者局部自测、§5 分层交付与长时观测，以及 AGENTS、工程 design、parallel-development、executing-project-tasks、TPM 和现有代码 Issue/PR 模板的直接承接。缺入口或夹具可作为明确先行工作，尚未实现的行为无需预先通过；核对与补齐沿用已有授权，必要安全拒绝与恢复保留在本项。局部、组合和目标环境验收分别说明真实结果；适用观测固定对象、版本、条件、窗口及退出边界，不能转移合入前必需义务。保留五类 Issue、等价简短记录、任务与 PR 分别划分、有效暂停、真实合入及父目标全部义务完成后关闭的规则。新增设计段仅提供导航、实施承接与有限静态验收，不新增玩家承诺、固定审批、后台调度器或 CI 门禁。此次结论仅覆盖修改段落及直接消费者的静态语义一致性，不证明真实派工已采用、后续任务验收完成或周期与收敛效率已经改善。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

@@ -11,7 +11,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[任务拆分与并行开发](../../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)和 [parallel-development](../parallel-development/SKILL.md)梳理剩余工作、依赖、写入负责人及整体验收。在条件具备时并行实施；强耦合部分按实际依赖串行。默认交付小而完整的 PR，公共前置具备条件后及时评审并在授权内合入，让依赖方尽早复用；任务数与 PR 数分别判断。父 Issue 的整体认领与已明确的子任务委派一并复用。
 
-开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项、消费入口、验证和交付边界。只有父目标或阶段标题时，先在原安排补齐可执行范围；开发中出现独立新结果或前提变化时更新受影响拆分，不把剩余父目标持续吸收到当前任务。
+开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时先补齐可执行范围；缺少最小夹具或接线时先明确其建设与验证，环境或权限缺口保留具体解除条件。开发中出现独立新结果或前提变化时更新受影响拆分，不把剩余父目标持续吸收到当前任务。
 
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。Task 可直接是 PR，不另领要求 ID，也不强制建 Issue；未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
@@ -29,7 +29,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 排障修复在根因确认后先按[设计检查与修复](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：设计有缺陷先补受影响文档再实现，纯实现 bug 直接修复验证。只改有缺陷或受联动影响的层级，同一 PR 连续完成，不把设计修订变成额外审批或独立前置 PR。
 
-可稳定自动复现的行为缺陷，优先复用能检出该缺陷的现有回归测试，覆盖不足再增加或修正，先观察失败再修复。验证覆盖受影响行为和关键风险，不以测试数量判断充分；机械修改不强制增加与实现重复的测试。同步相关技术和使用文档。
+按[验证与评审](../../../doc/engineering/workflow/source-of-truth.md#3-验证与评审)选择覆盖本项行为和风险的测试，执行局部验证、修复并复测，随本项交付可复跑结果。可稳定自动复现的缺陷优先复用能检出问题的回归，覆盖不足再增加或修正，先观察失败再修复。机械修改不强制增加与实现重复的测试；父项继续负责实际组合和剩余环境验收。同步相关技术和使用文档。
 
 使用验证和评审方法。同一交付范围继续更新原 PR。创建和更新时按[PR 描述要求](../../../doc/engineering/workflow/source-of-truth.md#pr-description)读取[默认模板](../../../.github/pull_request_template.md)，填写实际问题、改动结果、验证和适用风险；简单变更可用等价简短结构。
 

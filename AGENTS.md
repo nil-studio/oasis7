@@ -10,7 +10,7 @@
 - Cargo 默认使用各 worktree 的本地 `target/`，无需预先准备。日常反馈用开发 wrapper，正式验收保留 canonical 命令和参数。
 - `third_party/` 只读；Rust 工作参考 `third_party/rust-skills/AGENTS.md`。
 - 默认优先[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)，可独立交付的前置尽早提供给依赖方；强耦合改动可原子跨多个 crate。Issue 和 Project 按需使用。
-- 复杂任务先按[任务拆分与并行开发](doc/engineering/workflow/source-of-truth.md#parallel-task-development)梳理依赖、写入范围和集成验收，使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 分派已就绪子任务；任务拆分不等于拆 PR。
+- 复杂任务先按[任务拆分与并行开发](doc/engineering/workflow/source-of-truth.md#parallel-task-development)梳理依赖、写入范围和集成验收，使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 分派可单独验收的子任务；派发前核对[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)，局部自测随本项交付，任务拆分不等于拆 PR。
 - 仓库文档及 Issue、PR、评审和交接文字遵循[语言与写作要求](doc/engineering/workflow/source-of-truth.md#language-and-writing)。
 - 问题根因确认后，先按[设计检查与修复](doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：有缺陷先补受影响文档再修实现；纯实现 bug 直接修复验证，不强制改正确设计。
 - 新增或实质修改的跨层要求按[要求追踪规范](doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)关联唯一声明、适用设计与当前 PR：复用同一要求的 Trace ID，不把它当任务身份或准入条件，不为简单编辑虚构要求或补齐三层。
