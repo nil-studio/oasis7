@@ -1,6 +1,6 @@
 //! Stateless MCP projection. The caller must authenticate and enforce transport limits
 //! before dispatch; this module never accepts credentials or executes world actions.
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub const PROTOCOL_VERSION: &str = "2025-11-25";
 pub const CAPABILITIES_TOOL: &str = "dev_test_accounts_capabilities";
@@ -115,16 +115,20 @@ mod tests {
             json!([]),
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"unknown"}}),
         ] {
-            assert!(dispatch_authenticated(&request, || panic!())
-                .unwrap()
-                .get("error")
-                .is_some());
+            assert!(
+                dispatch_authenticated(&request, || panic!())
+                    .unwrap()
+                    .get("error")
+                    .is_some()
+            );
         }
-        assert!(dispatch_authenticated(
-            &json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-            || panic!()
-        )
-        .is_none());
+        assert!(
+            dispatch_authenticated(
+                &json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+                || panic!()
+            )
+            .is_none()
+        );
     }
 }
 

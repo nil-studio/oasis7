@@ -114,6 +114,15 @@ pub fn handle_http(
     }
     (200, Some(response))
 }
+/// Trusted daemon bridge; callers never choose the backend path.
+pub fn call_backend(
+    socket: &std::path::Path,
+    body: &[u8],
+    deadline: std::time::Instant,
+) -> Result<Value, String> {
+    crate::dev_test_service::call_serialized_until(socket, body, deadline)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,13 +175,4 @@ mod tests {
             "move-A"
         );
     }
-}
-
-/// Trusted daemon bridge; callers never choose the backend path.
-pub fn call_backend(
-    socket: &std::path::Path,
-    body: &[u8],
-    deadline: std::time::Instant,
-) -> Result<Value, String> {
-    crate::dev_test_service::call_serialized_until(socket, body, deadline)
 }

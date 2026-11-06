@@ -2,8 +2,8 @@
 #[cfg(unix)]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     use oasis7_game_client::{
-        dev_test_accounts_remote::{handle_http, HttpRequest},
-        dev_test_service::{call_service_until, Config},
+        dev_test_accounts_remote::{HttpRequest, handle_http},
+        dev_test_service::{Config, call_service_until},
     };
     use std::net::TcpListener;
     let args: Vec<String> = std::env::args().collect();
@@ -88,7 +88,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         })()
         .unwrap_or((400, None));
         let body = result.1.map(|v| v.to_string()).unwrap_or_default();
-        let reply=format!("HTTP/1.1 {} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n{}",result.0,body.len(),body);
+        let reply = format!(
+            "HTTP/1.1 {} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n{}",
+            result.0,
+            body.len(),
+            body
+        );
         let _ = write_before(&mut stream, reply.as_bytes(), deadline);
     }
     Ok(())
