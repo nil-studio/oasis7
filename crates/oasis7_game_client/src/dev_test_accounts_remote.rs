@@ -19,13 +19,22 @@ pub fn dispatch_authenticated(
         || !request.is_object()
         || request
             .get("id")
-            .is_some_and(|v| !v.is_string() && !v.is_number())
+            .is_some_and(|v| !v.is_string() && !v.is_i64() && !v.is_u64())
     {
+        return error(-32600, "Invalid request");
+    }
+    if request.as_object().is_some_and(|fields| {
+        fields
+            .keys()
+            .any(|key| !["jsonrpc", "id", "method", "params"].contains(&key.as_str()))
+    }) {
         return error(-32600, "Invalid request");
     }
     let method = request.get("method").and_then(Value::as_str);
     if request.get("id").is_none() {
-        return if method == Some("notifications/initialized") {
+        return if method == Some("notifications/initialized")
+            && request.get("params").is_none_or(|p| *p == json!({}))
+        {
             None
         } else {
             error(-32600, "Unsupported notification")
@@ -36,6 +45,20 @@ pub fn dispatch_authenticated(
         Some("initialize") => {
             if params.get("protocolVersion").and_then(Value::as_str) != Some(PROTOCOL_VERSION) {
                 return error(-32602, "Unsupported protocol version");
+            }
+            if !params.get("capabilities").is_some_and(Value::is_object)
+                || !params.get("clientInfo").is_some_and(|info| {
+                    info.get("name").is_some_and(Value::is_string)
+                        && info.get("version").is_some_and(Value::is_string)
+                })
+                || params.as_object().is_none_or(|fields| {
+                    fields.keys().any(|key| {
+                        !["protocolVersion", "capabilities", "clientInfo", "_meta"]
+                            .contains(&key.as_str())
+                    })
+                })
+            {
+                return error(-32602, "Invalid initialization parameters");
             }
             json!({"protocolVersion":PROTOCOL_VERSION,"capabilities":{"tools":{}},
                 "serverInfo":{"name":"oasis7-dev-test-accounts","version":"1"}})
@@ -169,6 +192,26 @@ pub fn handle_http(
     {
         return reject(400);
     };
+    // Authentication precheck does not consume admission. The authoritative
+    // service still reauthenticates every valid request before consuming quota.
+    if crate::dev_test_service::authenticate_token(
+        config,
+        token,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(u64::MAX, |d| d.as_secs()),
+    )
+    .is_err()
+    {
+        return reject(401);
+    }
+    let preview = dispatch_authenticated(&value, || json!({}));
+    if preview
+        .as_ref()
+        .is_some_and(|response| response.get("error").is_some())
+    {
+        return (200, preview);
+    }
     // Every accepted protocol request goes through the same authoritative
     // service admission as local callers, including discovery and notifications.
     let admitted = call_service(crate::dev_test_service::Request {
@@ -227,5 +270,38 @@ mod http_tests {
             |_| panic!(),
         );
         assert_eq!(result, (500, None));
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    #[test]
+    fn invalid_protocol_never_calls_backend() {
+        let config=serde_json::from_value(json!({"profile":"dev-test-accounts-v1","socket":"/unused","usage_directory":"/unused","grant_id":"test","max_request_bytes":4096,"timeout_ms":100,"max_calls":2,"credentials":[{"caller_id":"fixture","token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","expires_at_unix":u64::MAX,"revoked":false}]})).unwrap();
+        for value in [
+            json!({"jsonrpc":"2.0","id":1,"method":"shell"}),
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":CAPABILITIES_TOOL,"arguments":{"url":"invalid"}}}),
+            json!({"jsonrpc":"1.0","id":1,"method":"ping"}),
+            json!({"jsonrpc":"2.0","id":{},"method":"ping"}),
+            json!({"jsonrpc":"2.0","id":1.5,"method":"ping"}),
+        ] {
+            let body = serde_json::to_vec(&value).unwrap();
+            let (status, response) = handle_http(
+                &config,
+                "https://fixture.example",
+                HttpRequest {
+                    method: "POST",
+                    host: "fixture.example",
+                    origin: None,
+                    authorization: Some("Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+                    protocol_version: Some(PROTOCOL_VERSION),
+                    body: &body,
+                },
+                |_| panic!("invalid protocol consumed admission"),
+            );
+            assert_eq!(status, 200);
+            assert!(response.unwrap().get("error").is_some());
+        }
     }
 }
