@@ -10,7 +10,9 @@ def main():
     private_result=work/'result.json';processes=[];step='prepare'
     unlock=(root/'unlock.bin').read_bytes()
     env=os.environ.copy();env['SSL_CERT_FILE']=json.loads((root/'runtime-private.json').read_text())['environment']['SSL_CERT_FILE']
-    result=dict(real_external_agent=False,world_action_sent=False,source_head='ea49a254dff312cfc00d9c61596f217e82e96884',dependency_head='60e12bf9294137f1c6ecdf445ae7bbd372273214',max_calls=16,max_inflight=1,timeout_ms=30000,source_root=str(root/'write-service-5536'),private_directory=str(work))
+    build=json.loads((pathlib.Path(operator).parent/'build.json').read_text())
+    for executable in [operator,server,native]:assert hashlib.sha256(pathlib.Path(executable).read_bytes()).hexdigest()==build['binary_sha256'][pathlib.Path(executable).name],'built_artifact_changed'
+    result=dict(real_external_agent=False,world_action_sent=False,source_head=build['source_head'],dependency_head=build['dependency_head'],binary_sha256=build['binary_sha256'],fixture_sha256=hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),max_calls=16,max_inflight=1,timeout_ms=30000,source_root=str(root/'write-service-5536'),private_directory=str(work))
     def write(path,value):path.write_text(json.dumps(value));path.chmod(0o600)
     def invoke(args):
         completed=subprocess.run([operator]+list(map(str,args)),capture_output=True,timeout=40)
@@ -52,6 +54,8 @@ def main():
         directory=pathlib.Path(json.loads(policy.read_text())['service']['usage_directory']);records=[json.loads(p.read_text()) for p in directory.glob('*.json') if p.name!='recovery-state.json'];return sum(r['used'] for r in records)
     try:
         source=root/'write-service-5536/policy.json';source_config=json.loads(source.read_text())
+        current_catalog=json.loads((pathlib.Path(source_config['catalog_directory'])/'catalog.json').read_text())
+        assert all(not account.get('disabled',False) for account in current_catalog),'current_tool_account_disabled'
         source_ledger_bytes={p.name:p.read_bytes() for p in pathlib.Path(source_config['service']['usage_directory']).glob('*.json')}
         original_records={}
         for data in source_ledger_bytes.values():original_records.update(json.loads(data).get('operations',{}))
