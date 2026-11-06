@@ -279,6 +279,25 @@ pub fn serve(config: Config) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn completed_peer_response_is_read_through_eof() {
+        use std::{
+            io::Write,
+            time::{Duration, Instant},
+        };
+        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.write_all(b"response").unwrap();
+        drop(writer);
+        let mut output = Vec::new();
+        read_until(
+            &mut reader,
+            &mut output,
+            1024,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(output, b"response");
+    }
+    #[test]
     fn slow_drip_cannot_extend_absolute_read_deadline() {
         use std::{
             io::Write,
@@ -485,27 +504,63 @@ fn read_until(
     limit: usize,
     deadline: std::time::Instant,
 ) -> Result<(), String> {
-    use std::io::Read;
-    loop {
-        let remaining = deadline
-            .checked_duration_since(std::time::Instant::now())
-            .filter(|remaining| !remaining.is_zero())
-            .ok_or("service_deadline_exceeded")?;
-        stream
-            .set_read_timeout(Some(remaining))
-            .map_err(|_| "timeout_configuration_failed")?;
-        let mut buffer = [0; 4096];
-        let count = stream
-            .read(&mut buffer)
-            .map_err(|_| "request_deadline_or_transport_failed")?;
-        if count == 0 {
-            return Ok(());
+    use std::{io::Read, os::fd::AsRawFd};
+    stream
+        .set_nonblocking(true)
+        .map_err(|_| "socket_configuration_failed")?;
+    let result = (|| {
+        loop {
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .filter(|r| !r.is_zero())
+                .ok_or("service_deadline_exceeded")?;
+            let mut poll = libc::pollfd {
+                fd: stream.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe {
+                libc::poll(
+                    &mut poll,
+                    1,
+                    remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
+                )
+            };
+            if ready == 0 {
+                return Err("service_deadline_exceeded".into());
+            }
+            if ready < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err("socket_poll_failed".into());
+            }
+            let mut buffer = [0; 4096];
+            match stream.read(&mut buffer) {
+                Ok(0) => return Ok(()),
+                Ok(count) => {
+                    if output.len() + count > limit {
+                        return Err("request_too_large".into());
+                    }
+                    output.extend_from_slice(&buffer[..count]);
+                }
+                Err(error)
+                    if [
+                        std::io::ErrorKind::WouldBlock,
+                        std::io::ErrorKind::Interrupted,
+                    ]
+                    .contains(&error.kind()) =>
+                {
+                    continue;
+                }
+                Err(_) => return Err("request_transport_failed".into()),
+            }
         }
-        if output.len() + count > limit {
-            return Err("request_too_large".into());
-        }
-        output.extend_from_slice(&buffer[..count]);
-    }
+    })();
+    stream
+        .set_nonblocking(false)
+        .map_err(|_| "socket_configuration_failed")?;
+    result
 }
 
 fn connect_until(
