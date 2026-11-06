@@ -408,6 +408,30 @@ fn verified_active_goal(
         }
     }))
 }
+fn context_observation(
+    operation: &str,
+    response: crate::IntentResponse<serde_json::Value>,
+    captured: Result<oasis7_client_api::world_service::task_context::CapturedTaskContextV1, String>,
+) -> serde_json::Value {
+    if let Ok(captured) = captured
+        && let Ok(goal) = verified_active_goal(
+            &captured.prepared.identity.fence,
+            &captured.prepared.snapshot,
+        )
+    {
+        return serde_json::json!({
+            "native_context":operation,"operation":response,
+            "usable_context":true,"context_state":"verified",
+            "context":captured.prepared.identity,"active_goal":goal,
+            "actor_observation":captured.prepared.snapshot.actor_observation,
+            "native_authority":captured.current_public_context.native_authority,
+        });
+    }
+    // The canonical operation result is independent from current private-context
+    // usability. Expiry/unavailable goal proof cannot erase a known commit.
+    serde_json::json!({"native_context":operation,"operation":response,
+        "usable_context":false,"context_state":"unavailable"})
+}
 fn verify_cached(
     client: &crate::device_client::Client,
     original: &Original,
@@ -537,10 +561,11 @@ pub(crate) fn execute(
                 verify_cached(client, original, &prefix)?;
                 let result = client.submit_and_poll_until(&prefix, deadline)?;
                 if matches!(result.outcome, IntentOutcome::Committed { .. }) {
-                    let captured = client.captured_until(operation, deadline)?;
-                    return Ok(
-                        serde_json::json!({"native_context":operation,"operation":result,"context":captured.prepared.identity,"active_goal":verified_active_goal(&captured.prepared.identity.fence, &captured.prepared.snapshot)?,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
-                    );
+                    return Ok(context_observation(
+                        operation,
+                        result,
+                        client.captured_until(operation, deadline),
+                    ));
                 }
                 return serde_json::to_value(result).map_err(|_| Failure::Unavailable);
             }
@@ -577,24 +602,16 @@ pub(crate) fn execute(
         );
     };
     verify_cached(client, original, &request)?;
-    let recovered_context =
-        if original.native_kind == "prefix" && original.native_context_identity.is_none() {
-            Some(client.captured_until(operation, deadline)?)
-        } else {
-            None
-        };
     crate::device_client::Client::check_tool_deadline(Some(deadline))?;
     let response = client.lookup_until(&request, deadline)?;
     if original.native_kind == "prefix"
         && matches!(response.outcome, IntentOutcome::Committed { .. })
     {
-        let captured = match recovered_context {
-            Some(value) => value,
-            None => client.captured_until(operation, deadline)?,
-        };
-        return Ok(
-            serde_json::json!({"native_context":operation,"operation":response,"context":captured.prepared.identity,"active_goal":verified_active_goal(&captured.prepared.identity.fence, &captured.prepared.snapshot)?,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
-        );
+        return Ok(context_observation(
+            operation,
+            response,
+            client.captured_until(operation, deadline),
+        ));
     }
     serde_json::to_value(response).map_err(|_| Failure::Unavailable)
 }
