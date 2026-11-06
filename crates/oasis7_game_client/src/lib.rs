@@ -591,4 +591,7 @@ pub mod dev_test_service;
 #[cfg(unix)]
 mod dev_test_service_cli;
 
+#[cfg(unix)]
 pub mod dev_test_accounts_remote;
+#[cfg(unix)]
+pub mod dev_test_private_config;
