@@ -43,6 +43,14 @@ fn peer_uid(stream: &UnixStream) -> Result<u32, String> {
 /// Receive one bounded request only after authenticating its OS identity.
 #[cfg(target_os = "linux")]
 pub fn receive(stream: &mut UnixStream, policy: &LocalPolicy) -> Result<Vec<u8>, String> {
+    receive_until(stream, policy, std::time::Instant::now() + policy.timeout)
+}
+#[cfg(target_os = "linux")]
+fn receive_until(
+    stream: &mut UnixStream,
+    policy: &LocalPolicy,
+    deadline: std::time::Instant,
+) -> Result<Vec<u8>, String> {
     if policy.service_uid != unsafe { libc::geteuid() }
         || policy.service_uid == policy.caller_uid
         || policy.max_request_bytes == 0
@@ -61,7 +69,7 @@ pub fn receive(stream: &mut UnixStream, policy: &LocalPolicy) -> Result<Vec<u8>,
     if peer_uid(stream)? != policy.caller_uid {
         return Err("local caller denied".into());
     }
-    read_bounded_deadline(stream, policy.max_request_bytes, policy.timeout)
+    read_until_deadline(stream, policy.max_request_bytes, deadline)
 }
 
 /// Bind only within an existing service-owned directory without writable ancestors.
@@ -105,6 +113,16 @@ pub fn respond(stream: &mut UnixStream, response: &[u8]) -> Result<(), String> {
     let deadline = std::time::Instant::now()
         .checked_add(timeout)
         .ok_or("invalid local deadline")?;
+    respond_until(stream, response, deadline)
+}
+fn respond_until(
+    stream: &mut UnixStream,
+    response: &[u8],
+    deadline: std::time::Instant,
+) -> Result<(), String> {
+    if response.len() > 65536 {
+        return Err("local response too large".into());
+    }
     let mut remaining = response;
     while !remaining.is_empty() {
         let time = deadline
@@ -161,8 +179,9 @@ pub fn serve(
             max_request_bytes: config.max_request_bytes,
             timeout: Duration::from_millis(config.timeout_ms),
         };
+        let deadline = std::time::Instant::now() + policy.timeout;
         let result = (|| -> Result<Vec<u8>, String> {
-            let body = receive(&mut stream, &policy)?;
+            let body = receive_until(&mut stream, &policy, deadline)?;
             let request: LocalRequest =
                 serde_json::from_slice(&body).map_err(|_| "invalid local request")?;
             let now = std::time::SystemTime::now()
@@ -190,22 +209,27 @@ pub fn serve(
                 credential: credential.token.clone(),
                 method: request.method,
             };
-            let parsed = crate::dev_test_service::call_service(&config.socket, &forwarded)?;
+            let parsed =
+                crate::dev_test_service::call_service_until(&config.socket, &forwarded, deadline)?;
             serde_json::to_vec(&parsed).map_err(|_| "response encoding failed".into())
         })();
         match result {
             Ok(response) => {
-                let _ = respond(&mut stream, &response);
+                let _ = respond_until(&mut stream, &response, deadline);
             }
             Err(_) => {
-                let _ = respond(&mut stream, br#"{"status":"local_request_denied"}"#);
+                let _ = respond_until(
+                    &mut stream,
+                    br#"{"status":"local_request_denied"}"#,
+                    deadline,
+                );
             }
         }
     }
     Err("local listener closed".into())
 }
 
-#[cfg(any(test, target_os = "linux"))]
+#[cfg(test)]
 fn read_bounded_deadline(
     stream: &mut UnixStream,
     limit: usize,
@@ -214,6 +238,14 @@ fn read_bounded_deadline(
     let deadline = std::time::Instant::now()
         .checked_add(timeout)
         .ok_or("invalid local deadline")?;
+    read_until_deadline(stream, limit, deadline)
+}
+#[cfg(any(test, target_os = "linux"))]
+fn read_until_deadline(
+    stream: &mut UnixStream,
+    limit: usize,
+    deadline: std::time::Instant,
+) -> Result<Vec<u8>, String> {
     let mut body = Vec::new();
     loop {
         let remaining = deadline

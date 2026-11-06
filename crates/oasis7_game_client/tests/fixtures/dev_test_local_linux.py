@@ -54,7 +54,7 @@ while True:
     response+=chunk
 if mode=='slowdrip':
     assert time.monotonic()-started<1.5
-    assert json.loads(response)['status']=='local_request_denied'
+    assert not response or json.loads(response)['status']=='local_request_denied'
 else: print(response.decode())
 """
 def call(uid, mode="normal"):
