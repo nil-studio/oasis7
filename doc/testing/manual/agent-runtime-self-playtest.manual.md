@@ -259,7 +259,7 @@ Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 
 ### 本地受限接入准备（#5532）
 
-Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同入口前置 #5531 固定提交 `75b561cba623fe3f06e898bd5d04d63d71fc76c3`。
+Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同入口前置 #5531 固定提交 `03a5c97231f56718f8586a41d74b4dc0494fd2b1`。
 
 本适配仅面向 Linux。可信服务主体保管私有配置与凭据；模型运行在不同 UID 下，只能访问本地工具 socket。管理员固定调用 UID 与 `caller_id` 的映射；模型请求只有 `profile`、`audience`、`method`，未知字段拒绝。内核 `SO_PEERCRED` 先验证 UID，再读取有限请求。
 
@@ -271,6 +271,10 @@ Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同�
 
 #### 当前验证边界
 
-2026-11-06 宿主为 Darwin；Codex CLI `0.137.0`。Docker 版本查询返回 `29.5.3`，但实际创建容器失败，重试报告 `Docker Desktop is unable to start`。Linux cross check 被缺少 `x86_64-linux-gnu-gcc` 的 aws-lc-sys 构建阻塞。
+2026-11-06 已恢复 Docker 并使用 Linux arm64 / Rust 1.96.0 实际构建。canonical Cargo 参数使用 `--offline --locked -p oasis7_game_client --target aarch64-unknown-linux-gnu`。默认 bfd 链接 lib test 被系统 signal 9 终止；保留缓存并对最终 target 使用 rustc 自带 lld（`cargo rustc ... -- -C link-arg=-B<lld目录> -C link-arg=-fuse-ld=lld`），不是测试通过替代证据。
 
-因此尚未完成 Linux 实际跨 UID 传输、秘密不可读、完整拒绝／重连或真实外部 Agent 调用；本项保持未完成。Linux 测试源码覆盖身份先于正文与同 UID 策略拒绝，未运行不记为通过。不同 UID 正例、过期／撤销、共享用量连续及真实模型能力调用须在可运行的隔离 Linux 环境补齐，不以脚本或 macOS 构建替代。
+Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_test_local_linux.py <Linux CLI路径>` 在 root 可信进程和 UID 1001／1002 模型进程之间实际验证：获准主体取得能力、未获准主体拒绝、当前配置与同边界凭据夹具不可读、用途／版本拒绝、持续滴流按绝对时限退出且重连可用、当前撤销与过期拒绝。夹具仅使用合成材料，需在隔离 Linux 容器以 root 运行；不是实际外部 Agent。
+
+请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
+
+真实 Codex 模型接入仍未完成：宿主仅确认 Darwin Codex CLI 0.137.0，隔离 Linux 主体内的 Runtime／可信工具配置、模型认证与有限预算尚待准备。不能复制宿主认证或把业务服务凭据交给模型补齐该缺口。实际消费者、共享用量组合及合法账号业务后继仍分别验收；本项保持未完成。
