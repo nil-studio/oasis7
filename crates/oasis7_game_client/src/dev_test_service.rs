@@ -231,7 +231,7 @@ fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
 
 #[cfg(unix)]
 pub fn serve(config: Config) -> Result<(), String> {
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
     config.validate()?;
@@ -253,11 +253,9 @@ pub fn serve(config: Config) -> Result<(), String> {
             .set_write_timeout(timeout)
             .map_err(|_| "timeout_configuration_failed")?;
         let mut body = Vec::new();
-        if (&mut stream)
-            .take(config.max_request_bytes as u64 + 1)
-            .read_to_end(&mut body)
-            .is_err()
-        {
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(config.timeout_ms);
+        if read_until(&mut stream, &mut body, config.max_request_bytes, deadline).is_err() {
             continue;
         }
         if body.len() > config.max_request_bytes {
@@ -280,6 +278,54 @@ pub fn serve(config: Config) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completed_peer_response_is_read_through_eof() {
+        use std::{
+            io::Write,
+            time::{Duration, Instant},
+        };
+        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.write_all(b"response").unwrap();
+        drop(writer);
+        let mut output = Vec::new();
+        read_until(
+            &mut reader,
+            &mut output,
+            1024,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(output, b"response");
+    }
+    #[test]
+    fn slow_drip_cannot_extend_absolute_read_deadline() {
+        use std::{
+            io::Write,
+            time::{Duration, Instant},
+        };
+        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let sender = std::thread::spawn(move || {
+            for _ in 0..20 {
+                if writer.write_all(b"x").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let started = Instant::now();
+        assert!(
+            read_until(
+                &mut reader,
+                &mut Vec::new(),
+                1024,
+                started + Duration::from_millis(75)
+            )
+            .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_millis(250));
+        drop(reader);
+        sender.join().unwrap();
+    }
     #[test]
     fn capabilities_enforce_credential_and_closed_methods() {
         use std::os::unix::fs::PermissionsExt;
@@ -362,7 +408,17 @@ mod tests {
 }
 
 pub fn call_service(socket: &std::path::Path, request: &Request) -> Result<Response, String> {
-    use std::io::{Read, Write};
+    call_service_until(
+        socket,
+        request,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+    )
+}
+pub fn call_service_until(
+    socket: &std::path::Path,
+    request: &Request,
+    deadline: std::time::Instant,
+) -> Result<Response, String> {
     let body = serde_json::to_vec(request).map_err(|_| "request_encoding_failed")?;
     if body.len() > 65536 {
         return Err("request_too_large".into());
@@ -377,8 +433,7 @@ pub fn call_service(socket: &std::path::Path, request: &Request) -> Result<Respo
     {
         return Err("untrusted_socket".into());
     }
-    let mut stream =
-        std::os::unix::net::UnixStream::connect(socket).map_err(|_| "service_unavailable")?;
+    let mut stream = connect_until(socket, deadline)?;
     #[cfg(target_os = "linux")]
     {
         let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
@@ -407,21 +462,180 @@ pub fn call_service(socket: &std::path::Path, request: &Request) -> Result<Respo
             return Err("untrusted_service_peer".into());
         }
     }
-    let timeout = Some(std::time::Duration::from_secs(30));
+    let timeout = Some(
+        deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or("service_deadline_exceeded")?,
+    );
     stream
         .set_read_timeout(timeout)
         .map_err(|_| "timeout_configuration_failed")?;
     stream
         .set_write_timeout(timeout)
         .map_err(|_| "timeout_configuration_failed")?;
-    stream.write_all(&body).map_err(|_| "request_failed")?;
+    let mut sent = 0;
+    while sent < body.len() {
+        use std::io::Write;
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or("service_deadline_exceeded")?;
+        stream
+            .set_write_timeout(Some(remaining))
+            .map_err(|_| "timeout_configuration_failed")?;
+        let count = stream.write(&body[sent..]).map_err(|_| "request_failed")?;
+        if count == 0 {
+            return Err("request_failed".into());
+        }
+        sent += count;
+    }
     stream
         .shutdown(std::net::Shutdown::Write)
         .map_err(|_| "request_failed")?;
     let mut response = Vec::new();
-    stream
-        .take(65537)
-        .read_to_end(&mut response)
-        .map_err(|_| "response_unavailable")?;
+    read_until(&mut stream, &mut response, 65536, deadline)?;
     serde_json::from_slice(&response).map_err(|_| "invalid_response".into())
+}
+
+fn read_until(
+    stream: &mut std::os::unix::net::UnixStream,
+    output: &mut Vec<u8>,
+    limit: usize,
+    deadline: std::time::Instant,
+) -> Result<(), String> {
+    use std::{io::Read, os::fd::AsRawFd};
+    stream
+        .set_nonblocking(true)
+        .map_err(|_| "socket_configuration_failed")?;
+    let result = (|| {
+        loop {
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .filter(|r| !r.is_zero())
+                .ok_or("service_deadline_exceeded")?;
+            let mut poll = libc::pollfd {
+                fd: stream.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe {
+                libc::poll(
+                    &mut poll,
+                    1,
+                    remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
+                )
+            };
+            if ready == 0 {
+                return Err("service_deadline_exceeded".into());
+            }
+            if ready < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err("socket_poll_failed".into());
+            }
+            let mut buffer = [0; 4096];
+            match stream.read(&mut buffer) {
+                Ok(0) => return Ok(()),
+                Ok(count) => {
+                    if output.len() + count > limit {
+                        return Err("request_too_large".into());
+                    }
+                    output.extend_from_slice(&buffer[..count]);
+                }
+                Err(error)
+                    if [
+                        std::io::ErrorKind::WouldBlock,
+                        std::io::ErrorKind::Interrupted,
+                    ]
+                    .contains(&error.kind()) =>
+                {
+                    continue;
+                }
+                Err(_) => return Err("request_transport_failed".into()),
+            }
+        }
+    })();
+    stream
+        .set_nonblocking(false)
+        .map_err(|_| "socket_configuration_failed")?;
+    result
+}
+
+fn connect_until(
+    path: &std::path::Path,
+    deadline: std::time::Instant,
+) -> Result<std::os::unix::net::UnixStream, String> {
+    use std::os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::ffi::OsStrExt,
+    };
+    let bytes = path.as_os_str().as_bytes();
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    if bytes.len() >= address.sun_path.len() || bytes.contains(&0) {
+        return Err("invalid_socket_path".into());
+    }
+    address.sun_family = libc::AF_UNIX as _;
+    #[cfg(target_os = "macos")]
+    {
+        address.sun_len = std::mem::size_of_val(&address) as _;
+    }
+    for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+        *slot = *byte as _;
+    }
+    let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+    if fd < 0 {
+        return Err("socket_creation_failed".into());
+    }
+    let stream = unsafe { std::os::unix::net::UnixStream::from_raw_fd(fd) };
+    stream
+        .set_nonblocking(true)
+        .map_err(|_| "socket_configuration_failed")?;
+    let result = unsafe {
+        libc::connect(
+            fd,
+            (&address as *const libc::sockaddr_un).cast(),
+            std::mem::size_of_val(&address) as _,
+        )
+    };
+    if result != 0 {
+        let error = std::io::Error::last_os_error().raw_os_error();
+        if ![Some(libc::EINPROGRESS), Some(libc::EAGAIN)].contains(&error) {
+            return Err("service_unavailable".into());
+        }
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or("service_deadline_exceeded")?;
+        let mut poll = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        if unsafe {
+            libc::poll(
+                &mut poll,
+                1,
+                remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
+            )
+        } <= 0
+        {
+            return Err("service_deadline_exceeded".into());
+        }
+        if stream
+            .take_error()
+            .map_err(|_| "service_unavailable")?
+            .is_some()
+        {
+            return Err("service_unavailable".into());
+        }
+    }
+    if std::time::Instant::now() >= deadline {
+        return Err("service_deadline_exceeded".into());
+    }
+    stream
+        .set_nonblocking(false)
+        .map_err(|_| "socket_configuration_failed")?;
+    Ok(stream)
 }
