@@ -514,11 +514,20 @@ def run_rust_fixture(candidate, baseline):
         package = 'oasis7_runtime'
         source_path = f'crates/{package}/src/behavior.rs'
         write('.gitignore', '/target/\n/bundle*/\n/results*/\n/selected*.json\n')
-        write('Cargo.toml', '[workspace]\nmembers=["crates/oasis7_runtime"]\nresolver="2"\n')
+        # On Linux, selecting the Runtime lib harness also builds the worker
+        # companion because the runner batches that harness. Keep a minimal
+        # local companion package so this isolated fixture exercises that
+        # producer contract without importing the product workspace.
+        write('Cargo.toml', '[workspace]\nmembers=["crates/oasis7_runtime", "crates/oasis7_wasm_executor"]\nresolver="2"\n')
         write(f'crates/{package}/Cargo.toml',
               '[package]\nname="oasis7_runtime"\nversion="0.0.0"\nedition="2021"\n'
               '[features]\ndefault=[]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
         write(f'crates/{package}/src/lib.rs', '#[cfg(not(target_arch="wasm32"))]\nmod behavior;\n')
+        write('crates/oasis7_wasm_executor/Cargo.toml',
+              '[package]\nname="oasis7_wasm_executor"\nversion="0.0.0"\nedition="2021"\n'
+              '[features]\ndefault=[]\nwasmtime=[]\n'
+              '[[bin]]\nname="oasis7-wasm-worker"\npath="src/main.rs"\n')
+        write('crates/oasis7_wasm_executor/src/main.rs', 'fn main() {}\n')
         before = '''struct State {
     #[cfg(any(test, feature="test_tier_required"))]
     value: usize,
