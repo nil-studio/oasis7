@@ -270,7 +270,7 @@ pub(super) fn recover_parent(
         .filter(|entry| *entry == &compensation_key)
         .count();
     command.env("PRE2_APP_ADMISSION", "wait-rejection-recover");
-    let output = command.output().unwrap();
+    let output = application_completion::run_child_phase(command, root, "wait-rejection-recovery");
     let lookup_after = fixture
         .lookup_digests
         .lock()

@@ -2,6 +2,9 @@
 use super::*;
 use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
+#[path = "application_stream_cleanup.rs"]
+mod stream_cleanup;
+use stream_cleanup::drain_until_eof;
 
 #[test]
 fn real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns() {
@@ -240,18 +243,23 @@ impl Session {
     pub(super) fn close(
         mut self,
     ) -> Result<(), oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerError> {
+        let cleanup = cleanup_deadline::CleanupDeadline::start("stream_session_close");
         // EOF stops new requests while the peer finishes already queued writes.
         // Keep reading until its EOF; a bidirectional shutdown races those writes.
         drop(self.accepted_probe);
-        self.reader.get_ref().shutdown(std::net::Shutdown::Write)?;
-        self.reader
+        let drained = self
+            .reader
             .get_ref()
-            .set_read_timeout(Some(Duration::from_secs(2)))?;
-        let drained = std::io::copy(&mut self.reader, &mut std::io::sink());
+            .shutdown(std::net::Shutdown::Write)
+            .and_then(|()| drain_until_eof(&mut self.reader, Duration::from_secs(2)));
         if drained.is_err() {
             let _ = self.reader.get_ref().shutdown(std::net::Shutdown::Both);
         }
-        let served = self.worker.join().unwrap();
+        // Even shutdown/read-setup failure must join before returning. Dropping
+        // a JoinHandle here would silently leave a worker in the next scenario.
+        let served = self.worker.join();
+        cleanup.complete();
+        let served = served.unwrap();
         drained?;
         served
     }

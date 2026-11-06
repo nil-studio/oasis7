@@ -730,6 +730,11 @@ fn run_application_child_and_report(
 ) -> std::process::Output {
     let output = if matches!(
         admission_mode,
+        "wait-admit-rejected" | "wait-rejection-write-failure" | "wait-rejection-crash"
+    ) {
+        application_completion::run_child_phase(command, app_dir, "wait-rejection-initial")
+    } else if matches!(
+        admission_mode,
         "fresh-admission"
             | "fresh-metadata"
             | "repeated-turns"

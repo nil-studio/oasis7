@@ -33,7 +33,9 @@ mod application_memory_tamper;
 mod application_metadata;
 mod application_sandbox;
 mod application_stream_boundaries;
+mod cleanup_deadline;
 mod controlled_admission;
+mod fixture_cleanup;
 mod fixture_stage_diagnostics;
 mod hosted_wait_clock;
 use fixture_stage_diagnostics::Stage;
@@ -790,33 +792,6 @@ impl Fixture {
             min_commit,
             fixed_commit: None,
             deadline_unix_ms: None,
-        }
-    }
-}
-impl Fixture {
-    fn finish_http_workers(&self) -> Result<(), &'static str> {
-        self.halt.store(true, Ordering::SeqCst);
-        let worker = self
-            .worker
-            .lock()
-            .map_err(|_| "actual fixture listener ownership lock poisoned")?
-            .take();
-        if let Some(worker) = worker {
-            worker
-                .join()
-                .map_err(|_| "actual fixture listener or connection worker failed")?;
-        }
-        Ok(())
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = self.finish_http_workers();
-        self.abort_automatic_commit.store(true, Ordering::SeqCst);
-        self.automatic_commit_gate.store(true, Ordering::SeqCst);
-        let _ = self.node.lock().unwrap().stop();
-        if !self.preserve_root {
-            let _ = fs::remove_dir_all(&self.root);
         }
     }
 }

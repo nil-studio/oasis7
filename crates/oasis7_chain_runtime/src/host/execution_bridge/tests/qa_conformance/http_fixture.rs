@@ -21,6 +21,8 @@ mod wait_admit_gate;
 mod rejected_resume_gate;
 #[path = "http_fixture_world_coherence_gate.rs"]
 mod world_coherence_gate;
+#[path = "http_fixture_lock_order_tests.rs"]
+mod lock_order_tests;
 
 const RESUME_VIEW_RENDEZVOUS_BUDGET: Duration = Duration::from_millis(1_200);
 const RESUME_VIEW_HOLD_BUDGET: Duration = Duration::from_secs(30);
@@ -935,6 +937,10 @@ impl WorldGate {
     }
 
     fn connection_worker_finished(&self) {
+        self.connection_worker_finished_after_snapshot(|| {});
+    }
+
+    fn connection_worker_finished_after_snapshot(&self, after_snapshot: impl FnOnce()) {
         let current = thread::current().id();
         self.coherence_handler_returned(current);
         self.rejected_resume_returned(current);
@@ -956,7 +962,11 @@ impl WorldGate {
                 false
             }
         };
-        if let Some(root) = self.root.lock().unwrap().clone() {
+        // An if-let scrutinee would keep its root guard through the callbacks.
+        // Keep this statement separate: none of the gate locks may nest in root.
+        let root = self.root.lock().unwrap().clone();
+        after_snapshot();
+        if let Some(root) = root {
             self.compensation_handler_returned(&root, current);
             self.admit_wait_connection_worker_finished(&root, current);
             self.rejected_admit_connection_worker_finished(&root, current);
@@ -982,6 +992,14 @@ impl WorldGate {
     }
 
     fn connection_worker_joined(&self, worker_id: thread::ThreadId) {
+        self.connection_worker_joined_after_snapshot(worker_id, || {});
+    }
+
+    fn connection_worker_joined_after_snapshot(
+        &self,
+        worker_id: thread::ThreadId,
+        after_snapshot: impl FnOnce(),
+    ) {
         self.coherence_worker_joined(worker_id);
         self.rejected_resume_joined(worker_id);
         let joined = {
@@ -997,11 +1015,13 @@ impl WorldGate {
                 false
             }
         };
-        if joined {
-            if let Some(root) = self.root.lock().unwrap().clone() {
-                self.compensation_worker_joined(&root, worker_id);
-                self.admit_wait_connection_worker_joined(&root, worker_id);
-                self.rejected_admit_connection_worker_joined(&root, worker_id);
+        let root = self.root.lock().unwrap().clone();
+        after_snapshot();
+        if let Some(root) = root {
+            self.compensation_worker_joined(&root, worker_id);
+            self.admit_wait_connection_worker_joined(&root, worker_id);
+            self.rejected_admit_connection_worker_joined(&root, worker_id);
+            if joined {
                 write_new_json(
                     &root.join("world-resume-view-worker-joined"),
                     &serde_json::json!({
@@ -1013,10 +1033,6 @@ impl WorldGate {
                 )
                 .expect("immutable Resume View worker-joined marker must be unique");
             }
-        } else if let Some(root) = self.root.lock().unwrap().clone() {
-            self.compensation_worker_joined(&root, worker_id);
-            self.admit_wait_connection_worker_joined(&root, worker_id);
-            self.rejected_admit_connection_worker_joined(&root, worker_id);
         }
     }
 }
