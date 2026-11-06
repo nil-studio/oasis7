@@ -36,13 +36,14 @@ fn verify_live_task_evidence_retention(
     driver: &mut NodeRuntimeExecutionDriver,
     world: &WorldIdentity,
     create: &SubmitIntentRequest<WorldServicePayloadV1>,
+    tip: u64,
 ) -> LocalCasStore {
     // Active goal evidence survives both the normal 32-block window and full reconciliation.
-    for height in 7..40 {
+    for height in 7..tip {
         commit(driver, height, create.clone());
     }
     checkpoint::task_evidence::reset_protected_height_validation_count();
-    commit_empty_context_block(driver, 40);
+    commit_empty_context_block(driver, tip);
     assert_eq!(
         checkpoint::task_evidence::protected_height_validation_count(),
         1,
@@ -158,7 +159,15 @@ fn complete_context_scenario_with_revision(
     other_provider: bool,
     prefix_revision: u16,
 ) {
-    const AGE: u64 = 35;
+    complete_context_scenario_at_age(authority_mode, other_provider, prefix_revision, 35);
+}
+
+fn complete_context_scenario_at_age(
+    authority_mode: Option<oasis7_agent_api::game::TaskContextAuthorityModeV1>,
+    other_provider: bool,
+    prefix_revision: u16,
+    age: u64,
+) {
     let (dir, mut driver, world, owner, owner_public) =
         boxed_context_driver_fixture(authority_mode.is_some(), other_provider);
     stack::assert_fixture_authorities(&driver, authority_mode.is_some(), other_provider);
@@ -180,7 +189,7 @@ fn complete_context_scenario_with_revision(
         &owner_public,
         authority_mode,
     );
-    let cas = verify_live_task_evidence_retention(&dir, driver.as_mut(), &world, &create);
+    let cas = verify_live_task_evidence_retention(&dir, driver.as_mut(), &world, &create, age + 5);
     drop(driver);
     let bootstrap = super::super::super::local_bootstrap::derive_service_execution_bootstrap(
         &dir.join("world"),
@@ -190,6 +199,29 @@ fn complete_context_scenario_with_revision(
     )
     .unwrap();
     let mut driver = boxed_context_driver_restart(&dir, bootstrap);
+    if age >= 360 {
+        let snapshot_proof = sign_read_request(
+            oasis7::world_service::task_context::TASK_SNAPSHOT_PATH,
+            oasis7::world_service::task_context::TaskGoalSnapshotRequestV1 {
+                schema_revision:
+                    oasis7_agent_api::game::TaskContextAuthorityModeV1::schema_revision(
+                        authority_mode,
+                    ),
+                authority_mode,
+                fence: proof.request.fence.clone(),
+            },
+            &delegate,
+        )
+        .unwrap();
+        consumer(&dir, &runtime, &signer, &store, &world, |client| {
+            let snapshot = client.read_task_goal_snapshot(&snapshot_proof).unwrap();
+            assert_eq!(
+                snapshot.active_goal.owner_proof.request.content,
+                goal.request.content
+            );
+            assert!(snapshot.captured_base_binding.base_tick >= 360);
+        });
+    }
     let RecoveredTaskContextFixture {
         store,
         prepared,
@@ -232,7 +264,7 @@ fn complete_context_scenario_with_revision(
         get: &get,
         cas: &cas,
         prefix_revision,
-        age: AGE,
+        age,
     });
     // A context lease expires before the still-valid grant. Cleanup is entirely public.
     let mut expiry_request = g2_prepare.request.clone();
@@ -254,7 +286,7 @@ fn complete_context_scenario_with_revision(
             sign_read_request("scheduler", public_prefix(&expiry).unwrap(), &delegate).unwrap(),
         ),
     );
-    commit(&mut driver, AGE + 13, expiry_prefix.clone());
+    commit(&mut driver, age + 13, expiry_prefix.clone());
     assert!(
         game_task_tests::recorded(&driver, &expiry_prefix)
             .rejected
@@ -288,7 +320,7 @@ fn complete_context_scenario_with_revision(
     )
     .unwrap();
     let expiry_height =
-        advance_context_until_expired(driver.as_mut(), &expiry, AGE + 13, &delegate_public);
+        advance_context_until_expired(driver.as_mut(), &expiry, age + 13, &delegate_public);
     assert_eq!(
         http(
             &dir,
@@ -402,7 +434,7 @@ fn complete_context_scenario_with_revision(
             store: &store,
             runtime: &runtime,
             owner: &owner,
-            age: AGE,
+            age,
         },
     );
     verify_stop_fences_delivery_and_cleanup(StopDeliveryContext {
@@ -420,7 +452,7 @@ fn complete_context_scenario_with_revision(
         goal,
         cas,
         expiry_height,
-        age: AGE,
+        age,
         create,
     });
 }
