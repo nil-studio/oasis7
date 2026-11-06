@@ -995,7 +995,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
                         if 'name: Install WASM C compiler' in step)
         self.assertIn("if: matrix.group == 'net'", compiler)
-        for command in ('sudo apt-get install -y clang llvm',
+        for command in ('sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- clang llvm',
                         'clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
             self.assertIn(command, compiler)
             self.assertIn(command, JOBS['net'])
@@ -2566,6 +2566,87 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             case = re.search(r'^    ' + group + r'\).*?;;', driver, re.M).group()
             self.assertLess(case.index('run_oasis7_' + prefix + '_clippy'),
                             case.index('run_oasis7_' + prefix + '_tests'))
+
+
+class AptWorkflow(unittest.TestCase):
+    NATIVE = ('pkg-config libwayland-dev wayland-protocols libxkbcommon-dev '
+              'libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev '
+              'libasound2-dev libudev-dev').split()
+    NATIVE_JOBS = {'pr-fast-preview', 'rust-baseline', 'oasis7-test-build-candidate',
+                   'oasis7-test-build-trusted', 'formal-debug-build',
+                   'formal-debug-build-trusted', 'formal-endpoint-build',
+                   'formal-endpoint-build-trusted', 'formal-test-build',
+                   'formal-test-build-trusted', 'oasis7-required', 'formal-process-tests',
+                   'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
+                   'launcher-web', 'workspace-support', 'scenario-regression'}
+
+    def apt_steps(self):
+        workflows = {'rust': WORKFLOW,
+                     'cache': (ROOT / '.github/workflows/rust-cache.yml').read_text()}
+        found = {}
+        for workflow, source in workflows.items():
+            self.assertNotIn('sudo apt-get ', source)
+            for name, job in workflow_jobs(source).items():
+                for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S):
+                    if 'scripts/ci-apt-install.py' in step:
+                        title = step.splitlines()[0].split('name: ', 1)[1]
+                        found[workflow, name, title] = step
+        return found
+
+    def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
+        expected = {('rust', name, 'Install native libraries'): self.NATIVE
+                    for name in self.NATIVE_JOBS}
+        expected.update({('rust', name, 'Install WASM C compiler'): ['clang', 'llvm']
+                         for name in ('pr-fast-preview', 'net')})
+        expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
+                         for name in ('full-regression', 'candidate-full-regression')})
+        expected['rust', 'newapi-bridge-package', 'Install system deps'] = self.NATIVE
+        expected['rust', 'fleet-health', 'Ensure Linux process inspection dependency'] = ['lsof']
+        expected['cache', 'shared-native-cache', 'Install system deps'] = ['clang', 'llvm', *self.NATIVE]
+        actual = self.apt_steps()
+        self.assertEqual(set(actual), set(expected))
+        for key, step in actual.items():
+            with self.subTest(consumer=key):
+                self.assertIn('        shell: bash\n', step)
+                self.assertIn('        timeout-minutes: 11\n', step)
+                self.assertNotIn('continue-on-error', step)
+                script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+                with tempfile.TemporaryDirectory() as directory:
+                    capture = Path(directory) / 'argv'
+                    stub = ('sudo() { printf "%s\\n" "$@" > "$CAPTURE"; return "$CODE"; };\n'
+                            'clang() { echo wasm32; }; llvm-ar() { :; };\n'
+                            'command() { if [[ \"$*\" == \"-v lsof\" ]]; then return 1; else builtin command \"$@\"; fi; };\n')
+                    for code in (0, 42):
+                        result = subprocess.run(['bash', '-euo', 'pipefail', '-c',
+                                                 stub + script + '\nprintf reached-tests'],
+                                                env=dict(os.environ, CAPTURE=str(capture), CODE=str(code)),
+                                                text=True, capture_output=True)
+                        self.assertEqual(result.returncode, code, result.stderr)
+                        self.assertEqual('reached-tests' in result.stdout, code == 0)
+                        self.assertEqual(capture.read_text().splitlines(),
+                                         ['-n', '/usr/bin/python3', 'scripts/ci-apt-install.py',
+                                          '--budget-seconds', '600', '--', *expected[key]])
+
+    def test_existing_lsof_does_not_invoke_package_manager(self):
+        step = self.apt_steps()['rust', 'fleet-health', 'Ensure Linux process inspection dependency']
+        self.assertIn("if: runner.os == 'Linux'", step)
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        stub = ('command() { return 0; };\n'
+                'sudo() { echo unexpected-install >&2; return 99; };\n')
+        result = subprocess.run(['bash', '-euo', 'pipefail', '-c', stub + script],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('unexpected-install', result.stderr)
+
+    def test_apt_helper_has_candidate_and_future_baseline_contracts(self):
+        helper, test = 'scripts/ci-apt-install.py', 'scripts/ci-apt-install.test.py'
+        for path in (helper, test):
+            self.assertEqual(CONFIG['scoped_control_paths'][path], ['workflow_governance'])
+            self.assertEqual(CONFIG['python_control_contracts'][path]['group'], 'workflow_governance')
+            self.assertIn(test, CONFIG['python_control_contracts'][path]['tests'])
+        self.assertIn('scripts/ci-workflow.test.py', CONFIG['python_control_contracts'][helper]['tests'])
+        self.assertIn('run python3 ./scripts/ci-apt-install.test.py',
+                      (ROOT / 'scripts/ci-tests.sh').read_text())
 
 
 if __name__ == '__main__':

@@ -347,7 +347,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - hosted 功能：读取后续自然发生且已授权的 Release `build-web-dist`，确认工具验证后原有 Web 构建、source/BUILDINFO 与发布检查正常。不要为本节人为触发发布；未发生的发布保持待观察。
 - 真实跨 tag 缓存：关联 main `full-regression` 的实际归档保存记录和两个不同 tag 的 reader，记录 run/job URL、event/ref、请求/匹配 key、工具/安装器身份、路径及 cache version 兼容条件、恢复和摘要验证结果。同 tag rerun、仅配置相同或只有 cache-hit 输出均不足以确认 main seed 复用。
 - 冷暖量测：区分实际下载、跨 run 恢复、本地已有和恢复异常后下载；分别记录恢复、下载、验证安装、总准备及 writer 保存成本。日志只有 step 级时间时保持该粒度。附 runner image/OS/arch、source、Trunk 版本/摘要、helper 指纹、样本窗口与数量；失败和取消单列，排队和整个 Release 耗时另报。样本不足时报告原始观察，不预写提速百分比。
-- apt 先观察索引更新、下载、安装、锁等待和失败分布。本次没有新增 apt helper；后续确需预算治理时，使用假命令与临时进程 fixture 验证正常/瞬态/永久错误、总预算、挂起或忽略终止信号的子进程、父进程先退出、取消与无受控遗留进程。不得在真实 apt/dpkg 上故障注入；强制终止后的包状态不明确时应失败并使用新 runner。
+- apt 本地合同：`python3 scripts/ci-apt-install.test.py`、`python3 scripts/ci-workflow.test.py`、`python3 scripts/plan-rust-required-scope.test.py`。假命令与临时进程 fixture 验证正常、瞬态/永久/未知错误、重试耗尽、总预算、挂起或忽略终止信号、父进程先退出、取消与受控进程清理；不得在真实 apt/dpkg 上故障注入。接线测试核对全部原包列表、lsof 已有时短路、600 秒 helper 参数、11 分钟步骤兜底，以及失败后不运行依赖测试。
+- apt hosted 验收：在新提交实际运行中分别检查 update/install 阶段耗时、尝试次数、退出/清理结果与原测试结果；记录 source SHA 和 run/job 链接。600 秒仅为 Rust/native cache 本次参数，可据后续样本调整，不代表全局 SLO 或已经 hosted 验收。强制终止后的包状态不明确时应失败并使用新 runner；helper 失败保持沿原 job/required 汇总传播。
 
 Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构建、跨 tag 恢复与性能收益分别核实，不为 Trunk 新增通用 required check、预热工作流或验收回执。
 

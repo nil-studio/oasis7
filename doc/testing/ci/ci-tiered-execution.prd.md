@@ -160,7 +160,7 @@ main push 保留快速组合验证，不因每次合入重复启动完整重回�
 | --- | --- | --- |
 | Trunk 安装 | [基线安装器](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/scripts/install-ci-trunk.sh)已为 Linux x86_64 固定预编译包、校验摘要与版本；[基线 Rust CI](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/rust.yml)的相关路径已使用它。[基线 Release Web 构建](https://github.com/eng-cc/oasis7/blob/fd5fa7c8ff1851a32cb3e71d488783ca59e05a5e/.github/workflows/release-packages.yml)仍在 binary 缓存未命中时执行源码安装。 | Release 复用现有经过验证的预编译安装路径；真实安装、构建与失败行为仍需实现后验收。 |
 | 工具缓存 | Rust CI 与 Release 使用不同的 Trunk 缓存对象和 key。 | 明确 Release 的可信写入来源、实际 ref/scope 和消费者；当前审读未建立跨 tag 命中及节省时间的实测结论。 |
-| apt 依赖 | 当前 workflow 多处直接执行 `apt-get update/install`。 | 先核实实际耗时与失败分布；是否需要统一安装预算或重试实现，由观察到的问题决定。 |
+| apt 依赖 | Rust run `42052064452` 的 `viewer-performance-report` 在索引更新等待近六小时后取消。 | Rust 与 native cache 消费者通过共享 helper 限制总预算、分类重试并清理受控进程。 |
 
 <a id="ci-install-trunk"></a>
 ### Release 复用经过验证的 Trunk
@@ -193,7 +193,7 @@ main push 保留快速组合验证，不因每次合入重复启动完整重回�
 <a id="ci-install-apt-budget"></a>
 ### apt 安装预算与故障处置
 
-**目标**：先从实际 job 日志核实 apt 耗时、锁等待、网络失败和重试频率，再决定是否改造。若进入实现，安装必须有覆盖命令执行、等待、退避、重试及清理的有限总预算；具体参数由观测数据和运行环境决定，不建立仓库统一的固定全局 SLO。
+**目标**：针对已观察到的索引更新长挂，安装必须有覆盖命令执行、等待、退避、重试及清理的有限总预算；具体参数由观测数据和运行环境决定，不建立仓库统一的固定全局 SLO。
 
 **实施后的验收**：
 
@@ -209,7 +209,7 @@ main push 保留快速组合验证，不因每次合入重复启动完整重回�
 
 **验收**：可比较的冷/热样本需具有一致的工具与平台范围，并说明 runner、网络和其他并发差异。没有足够样本时只报告观察值及限制，不设默认性能门槛或宣称稳定收益；Cargo cold/no-op 编译指标不能替代依赖准备和跨 tag 缓存量测。
 
-本次交付包含需求与系统设计的整理、Release archive 恢复与共享安装器接线；候选实现、本地合同验证、main 合入、hosted 构建、缓存 writer/reader 运行和冷/热收益分别以实际记录证明，不互相代替。apt 本次仅承接观察与条件实施要求，不宣称已改造或完成故障验收。结构检查、本地 fixture、旧绿色 CI 和文档状态不能证明未执行的 hosted 或量测结果。本节不新增通用检查名称、审批链或强制性能门禁。
+本次交付包含需求与系统设计的整理、Release archive 恢复与共享安装器接线；候选实现、本地合同验证、main 合入、hosted 构建、缓存 writer/reader 运行和冷/热收益分别以实际记录证明，不互相代替。apt 本次补齐共享 helper 与 Rust/native cache 接线；本地故障 fixture 与后续 hosted 运行分别验收。结构检查、本地 fixture、旧绿色 CI 和文档状态不能证明未执行的 hosted 或量测结果。本节不新增通用检查名称、审批链或强制性能门禁。
 
 <a id="engineering-telemetry"></a>
 ## 工程遥测与可复核诊断
