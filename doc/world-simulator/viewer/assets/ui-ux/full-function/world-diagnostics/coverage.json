@@ -43,6 +43,23 @@
             "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/crates/oasis7_viewer/software_safe_src/viewer_navigation.jsx#L1-L80"
           },
           "runtime": "not_run"
+        },
+        {
+          "family": "world-diagnostics",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/16-low-height-command-expanded.svg",
+              "region": "command-drawer",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "844×390 Command 展开，观察 B/草稿 C/原请求 A，非模态关闭、不可用原因和获准查询路径。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#entry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
+          "runtime": "not_run"
         }
       ]
     },
@@ -158,6 +175,23 @@
             "revision": "113868200d1f91bef1008babb689bd257f241428",
             "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2262-L2339"
           },
+          "runtime": "not_run"
+        },
+        {
+          "family": "world-diagnostics",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/17-dense-and-unknown-targets.svg",
+              "region": "targets-drawer",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "同位置候选使用集合及逐项选择；未知位置对象无地图落点，不定位或跟随。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#entry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]
@@ -1199,6 +1233,23 @@
             "revision": "113868200d1f91bef1008babb689bd257f241428",
             "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1197-L1324"
           },
+          "runtime": "not_run"
+        },
+        {
+          "family": "world-diagnostics",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/18-renderer-text-recovery.svg",
+              "region": "renderer-unavailable-stage",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "390×844 图形不可用与文本/连接/原结果分离；不保留旧图形命中，不以重试重放原操作。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#entry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]

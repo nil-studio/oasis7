@@ -487,6 +487,29 @@
           ],
           "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
           "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg",
+              "region": "plan-panel",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg",
+              "region": "original-action-receipt",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "完整 native 三批方案与 production_only 结果；实际副产物缺投影时保持未发布，本笔产出不作当前库存。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#industry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
+          "runtime": "not_run"
         }
       ]
     },
