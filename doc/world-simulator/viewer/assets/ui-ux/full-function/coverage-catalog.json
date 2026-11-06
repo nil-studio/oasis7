@@ -111,11 +111,13 @@
         "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg",
         "related_overview_assets": [
           "doc/world-simulator/viewer/assets/ui-ux/03-panels-ime-focus.svg",
-          "doc/world-simulator/viewer/assets/ui-ux/14-more-help-text-director-gate.svg"
+          "doc/world-simulator/viewer/assets/ui-ux/14-more-help-text-director-gate.svg",
+          "doc/world-simulator/viewer/assets/ui-ux/16-low-height-command-expanded.svg"
         ],
         "representation": "normal_frame",
         "coverage_status": "representative_mapping_only",
-        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。"
+        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。",
+        "interactive_prototype": "doc/world-simulator/viewer/assets/ui-ux/interactive/index.html#entry"
       },
       "dynamic_data_limit": "动态 action/DTO/服务 capability/事件集合仅枚举静态消费者，不声称运行值或后端全部变体穷尽。",
       "reachability_kind": "literal_import_graph",
@@ -168,6 +170,23 @@
             "revision": "113868200d1f91bef1008babb689bd257f241428",
             "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/crates/oasis7_viewer/software_safe_src/viewer_navigation.jsx#L1-L80"
           },
+          "runtime": "not_run"
+        },
+        {
+          "family": "world-diagnostics",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/16-low-height-command-expanded.svg",
+              "region": "command-drawer",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "844×390 Command 展开，观察 B/草稿 C/原请求 A，非模态关闭、不可用原因和获准查询路径。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#entry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]
@@ -6185,11 +6204,13 @@
         "precise_feature_design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-09",
         "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/account-agent/03-command.svg",
         "related_overview_assets": [
-          "doc/world-simulator/viewer/assets/ui-ux/12-command-quote-original-receipt.svg"
+          "doc/world-simulator/viewer/assets/ui-ux/12-command-quote-original-receipt.svg",
+          "doc/world-simulator/viewer/assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg"
         ],
         "representation": "normal_frame",
         "coverage_status": "representative_mapping_only",
-        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。"
+        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。",
+        "interactive_prototype": "doc/world-simulator/viewer/assets/ui-ux/interactive/index.html#prompt"
       },
       "dynamic_data_limit": "动态 action/DTO/服务 capability/事件集合仅枚举静态消费者，不声称运行值或后端全部变体穷尽。",
       "reachability_kind": "literal_import_graph",
@@ -6239,6 +6260,35 @@
             }
           ],
           "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "account-agent",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg",
+              "region": "sources-clear",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg",
+              "region": "clear-no-change",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg",
+              "region": "full-profile-awaiting",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "五源、clear/no-change、完整 profile 间接影响及执行器待读回；具体设计目标，不声明生产已接入。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#prompt",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]
@@ -6394,11 +6444,13 @@
         "precise_feature_design_anchor": "doc/world-simulator/viewer/viewer-account-agent-uiux.design.md#r-cmd-10",
         "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/account-agent/03-command.svg",
         "related_overview_assets": [
-          "doc/world-simulator/viewer/assets/ui-ux/12-command-quote-original-receipt.svg"
+          "doc/world-simulator/viewer/assets/ui-ux/12-command-quote-original-receipt.svg",
+          "doc/world-simulator/viewer/assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg"
         ],
         "representation": "normal_frame",
         "coverage_status": "representative_mapping_only",
-        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。"
+        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。",
+        "interactive_prototype": "doc/world-simulator/viewer/assets/ui-ux/interactive/index.html#prompt"
       },
       "dynamic_data_limit": "动态 action/DTO/服务 capability/事件集合仅枚举静态消费者，不声称运行值或后端全部变体穷尽。",
       "reachability_kind": "literal_import_graph",
@@ -6448,6 +6500,41 @@
             }
           ],
           "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "account-agent",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "stale-compare",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "read-failed-again",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "original-result-unknown",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "control-lost-hidden",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "stale 比较、恢复再失败、原结果 unknown 与失权隐藏；原请求查询只在获准可读时展示。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#prompt",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]
@@ -6976,11 +7063,13 @@
         "precise_feature_design_anchor": "doc/world-simulator/viewer/viewer-world-navigation-uiux.design.md#r-target-02",
         "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg",
         "related_overview_assets": [
-          "doc/world-simulator/viewer/assets/ui-ux/10-target-search-binding-readonly.svg"
+          "doc/world-simulator/viewer/assets/ui-ux/10-target-search-binding-readonly.svg",
+          "doc/world-simulator/viewer/assets/ui-ux/17-dense-and-unknown-targets.svg"
         ],
         "representation": "normal_frame",
         "coverage_status": "representative_mapping_only",
-        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。"
+        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。",
+        "interactive_prototype": "doc/world-simulator/viewer/assets/ui-ux/interactive/index.html#entry"
       },
       "dynamic_data_limit": "动态 action/DTO/服务 capability/事件集合仅枚举静态消费者，不声称运行值或后端全部变体穷尽。",
       "reachability_kind": "literal_import_graph",
@@ -7019,6 +7108,23 @@
             "revision": "113868200d1f91bef1008babb689bd257f241428",
             "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2262-L2339"
           },
+          "runtime": "not_run"
+        },
+        {
+          "family": "world-diagnostics",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/17-dense-and-unknown-targets.svg",
+              "region": "targets-drawer",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "同位置候选使用集合及逐项选择；未知位置对象无地图落点，不定位或跟随。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#entry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]
@@ -11058,11 +11164,13 @@
         "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W10-renderer-states.svg",
         "related_overview_assets": [
           "doc/world-simulator/viewer/assets/ui-ux/06-renderer-recovery-privacy.svg",
-          "doc/world-simulator/viewer/assets/ui-ux/14-more-help-text-director-gate.svg"
+          "doc/world-simulator/viewer/assets/ui-ux/14-more-help-text-director-gate.svg",
+          "doc/world-simulator/viewer/assets/ui-ux/18-renderer-text-recovery.svg"
         ],
         "representation": "state_snippet",
         "coverage_status": "representative_mapping_only",
-        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。"
+        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。",
+        "interactive_prototype": "doc/world-simulator/viewer/assets/ui-ux/interactive/index.html#entry"
       },
       "dynamic_data_limit": "动态 action/DTO/服务 capability/事件集合仅枚举静态消费者，不声称运行值或后端全部变体穷尽。",
       "reachability_kind": "literal_import_graph",
@@ -11112,6 +11220,23 @@
             "revision": "113868200d1f91bef1008babb689bd257f241428",
             "url": "https://github.com/nil-studio/oasis7/blob/113868200d1f91bef1008babb689bd257f241428/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1197-L1324"
           },
+          "runtime": "not_run"
+        },
+        {
+          "family": "world-diagnostics",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/18-renderer-text-recovery.svg",
+              "region": "renderer-unavailable-stage",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "390×844 图形不可用与文本/连接/原结果分离；不保留旧图形命中，不以重试重放原操作。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#entry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]
@@ -14378,10 +14503,14 @@
         "anchor_role": "existing_overview_context_only",
         "precise_feature_design_anchor": "doc/world-simulator/viewer/viewer-gameplay-details-uiux.design.md#r-game-18",
         "frame": "doc/world-simulator/viewer/assets/ui-ux/full-function/gameplay/frames/industrial-settled.svg",
-        "related_overview_assets": [],
+        "related_overview_assets": [
+          "doc/world-simulator/viewer/assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg",
+          "doc/world-simulator/viewer/assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg"
+        ],
         "representation": "normal_frame",
         "coverage_status": "representative_mapping_only",
-        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。"
+        "remaining": "逐功能字段、动作、状态及对应 frame/区域尚未形成精确新设计关系；现有概览不计作完整覆盖。",
+        "interactive_prototype": "doc/world-simulator/viewer/assets/ui-ux/interactive/index.html#industry"
       },
       "dynamic_data_limit": "动态 action/DTO/服务 capability/事件集合仅枚举静态消费者，不声称运行值或后端全部变体穷尽。",
       "reachability_kind": "literal_import_graph",
@@ -14420,6 +14549,29 @@
             }
           ],
           "uncovered": "Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "gameplay",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg",
+              "region": "plan-panel",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg",
+              "region": "original-action-receipt",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "完整 native 三批方案与 production_only 结果；实际副产物缺投影时保持未发布，本笔产出不作当前库存。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#industry",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]

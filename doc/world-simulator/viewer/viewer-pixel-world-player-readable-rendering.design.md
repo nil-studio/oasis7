@@ -340,6 +340,8 @@ Stop-ship visual findings for later implementation: terrain louder than relevant
 
 以下SVG为版本化 **DESIGN TARGET / 设计目标**，仅说明构图、层级与状态区分，不是当前运行截图、Bevy渲染输入或独立JS fallback。示意数据不构成世界事实。缩略图不替代实际显示尺寸、字体、GPU或输入验证。完整Shell页面/模块合同仍见 [详细页面交接](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)。
 
+世界美术按[二维俯视像素方向](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)制作；[共享图集与场景](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)已用于图 16／17、工业方案／结果与设计原型。图块、设施和 Agent 使用整数像素，HUD 与文字独立；生产接入继续受本节现有图层、来源及恢复合同约束。
+
 | 参照 | 本节阅读义务 | 不证明范围 |
 | --- | --- | --- |
 | [Desktop world first](assets/ui-ux/01-desktop-world-first.svg) | 单一Next Move、世界主舞台、从属Objective/Leverage | 当前浏览器实现或五秒真人理解 |
