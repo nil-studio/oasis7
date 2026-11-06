@@ -143,9 +143,8 @@ fn pending_bootstrap_cannot_bypass_missing_verified_retained_history() {
     );
 }
 
-#[test]
-fn pending_bootstrap_is_fenced_during_real_reorg_and_requires_explicit_rebind() {
-    let mut world = pending_world()
+fn scheduled(world: World) -> World {
+    world
         .try_with_cognition_scheduler(
             crate::SchedulerPolicyV1 {
                 schema_version: crate::SchedulerPolicyV1::SCHEMA_VERSION.into(),
@@ -159,15 +158,41 @@ fn pending_bootstrap_is_fenced_during_real_reorg_and_requires_explicit_rebind() 
             },
             1,
         )
-        .unwrap();
+        .unwrap()
+}
+
+#[test]
+fn pending_bootstrap_is_fenced_during_real_reorg_and_requires_explicit_rebind() {
+    let mut world = scheduled(pending_world());
     let old = world.current_cognition_base_binding().unwrap();
     world.invalidate_cognition_for_reorg(1).unwrap();
     assert_eq!(world.cognition()["reorg_invalidation_epoch"], 1);
     assert!(validate_native_task_base_authority(&world, &old).is_err());
+    assert!(
+        world
+            .bind_cognition_runtime("bootstrap-epoch-world", "main", 0, None, "pending", 0)
+            .is_err()
+    );
+    assert_eq!(world.cognition()["reorg_invalidation_epoch"], 1);
     world
         .bind_cognition_runtime("bootstrap-epoch-world", "main", 0, None, "pending", 1)
         .unwrap();
     assert!(validate_native_task_base_authority(&world, &old).is_err());
     let current = world.current_cognition_base_binding().unwrap();
     assert!(validate_native_task_base_authority(&world, &current).is_ok());
+    // With no pending invalidation the same tuple remains an idempotent bind.
+    world
+        .bind_cognition_runtime("bootstrap-epoch-world", "main", 0, None, "pending", 1)
+        .unwrap();
+    let mut unbound = scheduled(World::new());
+    unbound.invalidate_cognition_for_reorg(1).unwrap();
+    assert!(
+        unbound
+            .bind_cognition_runtime("bootstrap-epoch-world", "main", 0, None, "pending", 0)
+            .is_err()
+    );
+    assert_eq!(unbound.cognition()["reorg_invalidation_epoch"], 1);
+    unbound
+        .bind_cognition_runtime("bootstrap-epoch-world", "main", 0, None, "pending", 1)
+        .unwrap();
 }
