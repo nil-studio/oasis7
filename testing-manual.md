@@ -1628,6 +1628,32 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required longrun_
 - `--quick` 只缩短 S9/S10 时长；它不向 `release-gate-web-strict.sh` 传递 visual/quick 开关，也不关闭 Web visual baseline。Web 阶段仍按选中的 release steps 与 strict 入口执行，不能从 quick 推断视觉检查被跳过。
 - `--skip-*` 只用于已知外部约束或分片排障；必须在 summary 中保留 skip reason 与 claim boundary。跳过 `ci_full`、sync、Web strict、S9 或 S10 后，不得把本次结果写成完整 release coverage。
 
+<a id="release-candidate-reception-validation"></a>
+#### 同候选整包接收核验（RC01–RC10）
+
+本方法接收 [QA 候选整包设计](doc/testing/design.md#release-candidate-evidence-reception)，对应 [REQ-ENTRY-CANDIDATE-001 / AC-ENTRY-CANDIDATE-001](doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-candidate-001)；Trace refs: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b。上面的 release 脚本仍只执行其声明的工程 steps；命令 exit 0、bundle hash 校验、fixture Web 或 dry-run 均不自动执行本方法，也不能补足经济、恢复、实际发行材料或另一 mode。
+
+**准备与层级。** 先在[原发布证据模板](doc/testing/templates/release-evidence-bundle-template.md)固定候选、实际 tested tree/build/配置、待评阶段/claim、两 primary mode 与受支持的平台/入口、各原合同及 required/full 场景。按设计 §7.1 的输入表逐项关联 owner、实际窗口/单位、world/原操作/authority 与原始 artifact。所需输入的适用性由原产品/专业要求确定，不以手头有什么日志决定。使用[既有 source-to-scene 方法](doc/testing/prd.md#qa-infrastructure-source-scene-method)分别核身份、字节完整性、真实执行、领域 oracle、环境与消费者。
+
+文档设计走查可使用明确标为示意的 A/B 候选及输入副本核下表判定，不启动世界或模型、不改生产记录；只能记录“设计预期一致/不一致”，不能填写运行 pass。实际候选验收使用本候选按原方法取得的真实结果：Viewer 与正式 API 的[逐入口方法](doc/testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)、Runtime/P2P 的原证明与恢复组合、[经济 EA01–12](doc/testing/manual/mature-world-economic-audit-acceptance.manual.md#economic-audit-01)、发行/安装与[材料方法](doc/readme/governance/player-support-and-service-lifecycle.manual.md#verify-release-materials)分别承担原测试层级和环境。静态、受控 fixture、正式运行、实际生产与真人证据分别记录；不得用本接收方法新增一份运行证明或降低原必跑项。
+
+| 方法 | 输入与操作 | 独立预期与原件保留 |
+| --- | --- | --- |
+| RC01 完整正例 | 固定候选 A 的原范围：两 mode 及每个声明支持的平台/入口；取得各自真实运行身份/消费者结果，同 world 与合法 authority 的执行和正常恢复、该阶段原要求的完整经济窗口、实际资产/适用材料、QA 各层结果及范围一致的公开草稿。逐行回读原件和独立 oracle，再把跨域切点/窗口接上 | 所有必需项及对应关系均满足时，QA 的该范围结论为 `pass`，可交原产品决定；各 mode 与专业判据保留自己的结果，不生成发行 verdict。后续发布是否评估、批准或执行分别保留真实记录 |
+| RC02 混候选或错身份 | 在 RC01 的评审输入副本中分别换入 B 的 tree/build/配置、另一 world/branch 的 receipt、旧资产 digest；保留同 tag/文件名作为混淆。另以正确标明的旧版本升级前态作对照 | 身份不匹配的输入不能成为 A 的通过证据；对应必需项缺有效材料则 `blocked`，已观察到的实际错配仍保留原 `fail`。合法旧前态仅作因果输入，须由 A 的实际恢复结果衔接，不能使用 B 的 pass 填 A |
+| RC03 仅一 mode 或互相代签 | 从两 mode 声明中去掉 pure_api 或 viewer 的实际消费者证据；用另一端截图、同一 receipt 的副本、alias 或 provider 名称补位；另保留单 mode 专题范围对照 | 整包的双 mode 对应保持 `blocked`；已有单 mode 只能支持自己的实际窄结论。共享 canonical 原件可以复用，入口的动作/读取/恢复证据仍各自成立，不要求为了复制证据重复世界效果 |
+| RC04 窗口与 authority 不对应 | 分别混入相同 tick 字符串但不同 root/branch、缺合法 proof 的执行记录、经济 C0/C1 与消费报告不符、规则/manifest 变化却未保留对应证明的材料；与同一不可变原件的合法异步回读比较 | 不因日期、tick、状态截图或 schema 相同而接收；不明/缺失关系 `blocked`，违反实际 oracle 保留 `fail`。合法异步回读必须指回原窗口与适用 authority，不能缩短长期审计窗口或发明容差 |
+| RC05 正常恢复结果仍未知 | 从必需正常恢复输入去掉原权威结果，只保留已正确显示 unknown/recovery_required 的反例；另给原请求曾提交但回应丢失、随后在当前读权下查回原结果的正例 | 正确显示未知可通过自身失败处理断言，但不补正常恢复的缺证，整包该项仍 `blocked`。正例必须回到原身份和原结果，按原合同核一次效果/无重复结算；不能以新请求、换身份或查不到结果认定未发生 |
+| RC06 经济不完整或存在异常 | 分别替换为四 tick/部分资源样例、缺页或未知 writer 的报告、旧候选空告警；另放入当前完整原件可独立确认的经济异常，再以按原完整窗口核算通过的报告作对照 | 组件算对或无告警不补阶段要求的长期/全范围审计；缺完整来源/范围则 `blocked`，确定违反原经济判据则保留 `fail`。完整正常报告才支持该经济输入，仍不单独放行整包；不新增补偿、阈值或货币规则 |
+| RC07 发行资产、权利或入口链缺证 | 分别缺少声明平台资产、完整性/来源资料、适用权利或渠道材料；另令网页候选正确但实际加载旧 build、错误 backend/mode，或适用升级/恢复证据不足 | 每个受影响组合保持缺证或原实际失败，不能用另一平台、下载 manifest、占位素材或已批准文案补足。未选择的新渠道仍按原适用性，不能为凑材料新增开放承诺 |
+| RC08 QA 到公开状态交接 | 从 RC01 的完整输入形成 QA 有界结论，核其实际产品决定、LiveOps 草稿与根 README；分别加入尚未评估发布、仅审核草稿、扩大 mode/平台/能力或使用旧 QA 结论的变体 | 未评估发布按原模板记 `not_evaluated`；reviewed/publish_ready 不写 published。只有原决定、同窗证据和根 README 支持的事实才可进入原发布流程；公开状态仍以真实发布/同步记录为准。本方法不执行外发 |
+| RC09 环境或层级替代 | 对声明必须真实运行/正式入口的项，分别换成 mock provider、fixture-functional、GET-only observer、缺必需 full 场景或 skip/dry-run；保留这些样本在自身原范围内的正确结果 | 受控结果继续有效于原 scope，但不能代签正式能力、parity、恢复或更高层。缺必需环境/执行则 `blocked`；原实际失败不得被低层 green 遮蔽，选中层级仍沿原合同 |
+| RC10 变化、补证与重试 | 在已评输入后改变实际 build/规则/配置/authority/材料或受支持范围，核受影响输入及消费者；追加修复后的新 attempt，再比较旧失败、补齐材料与未受影响来源 | 新身份与受影响判据重新关联，不能只改候选昵称搬用 pass。旧失败和各次 attempt 保留；只有修复后的独立结果确实解除原阻断，才按原 QA/产品职责更新当前结论。未受影响材料的原身份/范围仍成立才可复用 |
+
+**接收步骤与输出。** 按 RC01 建立可通过的完整对应，再逐一核 RC02–RC10，不能只验证错误输入被拒绝而没有正常路径。将结果填回模板原有“实际覆盖与未证明边界”和“结论摘要”：每项原输入/方法、实际执行层级、oracle、verdict、对应关系、原 artifact 的可回读定位/完整性、受影响范围与 owner 都可检查；已执行失败、未执行、缺前置和原不适用依据分开。缺证时保留 affected gate 与下一步，禁止先填总 pass 再附注例外。
+
+QA 只形成原声明范围的证据结论，producer 负责原阶段/claim 决定，LiveOps 按该决定和 QA 限制使用[既有沟通模板](doc/readme/governance/readme-release-communication-template.md)；当前公开状态最终核根 README。需要收窄时保留原整包未满足项，不将更窄结论写成原候选门禁通过。本次方法补充未执行上述真实候选、素材制作、真人或发布动作。
+
 <a id="network-tiers-validation-evidence"></a>
 
 ### Network Tiers / Shared-Network Evidence

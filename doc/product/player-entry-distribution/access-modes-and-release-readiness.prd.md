@@ -129,12 +129,14 @@ Trace ID: O7-REQ-6b906d19-8858-4b62-9526-5952cfc9ad8b
 
 - 功能点：[REQ-ENTRY-CANDIDATE-001](#req-entry-candidate-001)；验收 [AC-ENTRY-CANDIDATE-001](#ac-entry-candidate-001)。
 - 适用范围：同候选的两种 primary mode、runtime/P2P 恢复、经济、发行资产及公开口径组合门禁；沿用本条原有阶段和前置条件。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[官网专业设计](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)已承接：版本、日期、Release 说明、实际资产与 checksum 以同一候选快照原子更新；失败不混版；同 Trace 五列承接与六列验证限定网站子范围。
+- 系统设计状态：已覆盖
+- 系统设计依据：[QA 候选整包接收](../../testing/design.md#release-candidate-evidence-reception)将两 primary mode/适用入口、Runtime/P2P 执行与恢复、长期经济、实际发行资产/材料、QA 和公开说明逐项绑定原候选/窗口及环境；先核原领域判据，再核对应、缺证/冲突与 QA→产品决定→LiveOps/根 README 的交接。[官网专业设计](../../site/github-pages/public-site-discovery-and-showcase.design.md#des-site-download)继续拥有网站候选快照的原子更新子范围。
+- 设计验证方法：[RC01–RC10](../../../testing-manual.md#release-candidate-reception-validation)以完整同候选正例及混身份/窗口、单 mode、未知恢复、经济与材料缺证、层级替代和重试/公开交接反例核对；复用原发布模板、各领域 oracle 和 required/full 方法，不以静态样例代实际运行。
+- 本次设计核对：2026-11-06；输入基线 `b09c1ae38366fafa635fcd8a3752995c713e6518` 与本次接收条款；仅补齐目标及组合方法，原 REQ/AC/Trace、实现依据和历史设计复核保留，未运行候选或发布。
 - 实现状态：部分实现
 - 实现与验证依据：候选 bundle 已固定 git commit、runtime/world/governance/evidence refs 并校验文件/目录 hash；release gate 分步骤保留 skipped/dry-run 的 claim 边界。 [源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/scripts/release-candidate-bundle.sh)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/scripts/release-candidate-bundle-smoke.sh)、[源码/回归定义](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/scripts/release-gate.sh)；[核验任务](https://github.com/eng-cc/oasis7/issues/4696)。本轮为固定源码审读，回归定义不等于实际通过。
 - 核对日期与基线：2026-10-15；需求与实现源码 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；GitHub 固定源码审读；入口与已核对范围见上，未执行运行、浏览器、部署或真人验收；本条原验收条件与层级不变。
-- 剩余范围：设计仍按上述准确承接及其未覆盖边界；实现与验证方面，两种 primary mode、恢复、长期经济、全部发行资产和公开 claim 的同候选/同窗口语义 join 尚未核清；bundle存在不是完整发行门禁通过。
+- 剩余范围：同候选逐输入接收、正常/缺证判定和公开交接已有完整目标设计及方法；实现与验证仍须将两种 primary mode、恢复、长期经济、全部适用发行资产和公开 claim 的真实输入接到同候选/同窗口，并取得各原层级结果。现有 bundle/脚本的固定局部实现不升级，真实素材/权利资料、运行和发布事实未由本次设计产生。
 
 - 设计复核日期与基线：2026-10-15；`dffd797f` 文档候选；设计剩余：两 primary mode、跨域 QA/经济/恢复及完整 release gate 不由网站下载片段覆盖。不改变本卡固定源码与已取得实现范围。
 
