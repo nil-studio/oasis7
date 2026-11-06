@@ -4,7 +4,10 @@
 
 [Issue #5076](https://github.com/nil-studio/oasis7/issues/5076) 当前实施范围是[外部 Agent 开发测试账号工具](../../doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)。工具按需要复用已有组件，采用自己的账号／授权接口；本目录的多角色布局不成为工具的部署前置。下文仅说明这些既有组件本身的真实接口、权限、数据和运行边界，不能据此声称账号工具已可用。
 
+<a id="cargo-dependency-boundaries"></a>
 ## Packages and isolation
+
+The existing Cargo dependency boundaries remain enforced by [`cargo-dev-architecture.json`](../../scripts/cargo-dev-architecture.json). Core stays platform-independent: it cannot depend on the Worker SDK, JS/Wasm bindings, Tokio, native HTTP clients, native storage/signers or world execution. Worker owns the Wasm platform adapter and may depend on core and the pinned Worker SDK, including the SDK's featureless Tokio synchronization dependency; it cannot pull in native storage/signers, native HTTP clients, launcher/backend, model providers or world runtime/service. These checks cover declared and transitive production/build dependencies on host and Wasm, with core host/unit-test/Wasm profiles and Worker host/unit-test/four-role Wasm profiles retained. They describe existing component isolation, not a requirement to build or deploy the retired multi-role tool.
 
 `oasis7_custody_core` owns pure checked accounting, immutable original-operation transitions, bounded session/heartbeat timing, monotonic recovery rejection, envelope authenticated-data encoding, typed native approval contracts and recoverable provisioning records. These primitives do not authorize requests or verify world receipts. 调用现有 custody 入口时，仍须执行该入口实际要求的 ACL、身份、PoP、fence 与 purpose 校验，并在派发前由其权威事务持久化准入、预算、原操作和审计；这些是已有入口的使用约束。 Deserializing a snapshot does not establish its freshness or authorize recovery.
 
