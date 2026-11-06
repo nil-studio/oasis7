@@ -9,7 +9,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 明确问题、范围、验收和用户限制。未拆分的简单修改写入 PR；拆出的开发任务按[原生 sub-issue 规则](../../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)建立或复用父子 Issue，任务内部步骤和用例可用清单。同一授权范围内的实现取舍由负责人直接决定，必要时简要说明理由。
 
-具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[任务拆分与并行开发](../../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)和 [parallel-development](../parallel-development/SKILL.md)梳理剩余工作、依赖、写入负责人及整体验收。在条件具备时并行实施；强耦合部分按实际依赖串行。默认交付小而完整的 PR，公共前置具备条件后及时评审并在授权内合入，让依赖方尽早复用；任务数与 PR 数分别判断。派发前回读原生父子关系及具体子 Issue 的认领、状态和暂停；复用本项已有委派记录，父项认领不代替子项领取。
+具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[任务拆分与并行开发](../../../doc/engineering/workflow/source-of-truth.md#parallel-task-development)和 [parallel-development](../parallel-development/SKILL.md)梳理剩余工作、依赖、写入负责人及整体验收。条件具备时由多个独立开发会话并行实施；强耦合部分按实际依赖串行。默认交付小而完整的 PR，公共前置具备条件后及时评审并在授权内合入，让依赖方尽早复用；任务数与 PR 数分别判断。派发前回读原生父子关系及具体子 Issue 的认领、状态和暂停；复用本项已有委派记录，父项认领不代替子项领取。
 
 开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时先补齐可执行范围；缺少最小夹具或接线时先明确其建设与验证，环境或权限缺口保留具体解除条件。开发中出现独立新结果或前提变化时更新受影响拆分，不把剩余父目标持续吸收到当前任务。
 
@@ -19,7 +19,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 修改前按开发规范检查 `git worktree list --porcelain`、工作区状态和使用情况，优先复用固定开发路径；聊天附件只用于识别附件，不能据此认定没有可复用工作区。需要新增时执行 `scripts/new-task-worktree.sh`，遵循仓库根目录配置，不以 App 创建、worktree fork 或 handoff 代替。用户明确要求其他入口时遵从用户要求。Cargo 默认使用各 worktree 的本地 `target/`，无需准备链接；日常反馈使用 wrapper，正式验收保留 canonical 命令。已有 target 不擅自删除。
 
-在独立分支连续分析、实现、局部验证和修复。subagent 按需使用，说明必要上下文、写入范围和期望结果，避免重叠编辑。保留他人改动。
+当前开发会话在独立分支连续分析、实现、自测、跟进 PR/CI 并修复本项问题；不默认转派给 subagent。并行任务按[独立开发会话](../../../doc/engineering/workflow/source-of-truth.md#independent-development-sessions)分别领取，保持写入边界并保留他人改动。
 
 先读相关实现，沿调用和数据流确认受影响范围。最小完整修改以本次验收和适用契约为界，包含必要的消费者、测试、配置和文档；允许根因修复跨模块进行，不为减少文件数或行数省略必要修改。
 
