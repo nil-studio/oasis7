@@ -1,6 +1,6 @@
 //! Linux-only restricted local transport; authentication uses kernel peer credentials.
 //! The caller cannot supply a principal or a credential path in the transport envelope.
-#[cfg(target_os = "linux")]
+#[cfg(any(test, target_os = "linux"))]
 use std::io::Read;
 use std::{
     io::Write,
@@ -61,15 +61,7 @@ pub fn receive(stream: &mut UnixStream, policy: &LocalPolicy) -> Result<Vec<u8>,
     if peer_uid(stream)? != policy.caller_uid {
         return Err("local caller denied".into());
     }
-    let mut body = Vec::new();
-    stream
-        .take(policy.max_request_bytes as u64 + 1)
-        .read_to_end(&mut body)
-        .map_err(|_| "local request read failed")?;
-    if body.len() > policy.max_request_bytes {
-        return Err("local request too large".into());
-    }
-    Ok(body)
+    read_bounded_deadline(stream, policy.max_request_bytes, policy.timeout)
 }
 
 /// Bind only within an existing service-owned directory without writable ancestors.
@@ -106,9 +98,31 @@ pub fn respond(stream: &mut UnixStream, response: &[u8]) -> Result<(), String> {
     if response.len() > 65536 {
         return Err("local response too large".into());
     }
-    stream
-        .write_all(response)
-        .map_err(|_| "local response write failed".into())
+    let timeout = stream
+        .write_timeout()
+        .map_err(|_| "local timeout unavailable")?
+        .ok_or("local response deadline required")?;
+    let deadline = std::time::Instant::now()
+        .checked_add(timeout)
+        .ok_or("invalid local deadline")?;
+    let mut remaining = response;
+    while !remaining.is_empty() {
+        let time = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|time| !time.is_zero())
+            .ok_or("local response timed out")?;
+        stream
+            .set_write_timeout(Some(time))
+            .map_err(|_| "local timeout configuration failed")?;
+        let count = stream
+            .write(remaining)
+            .map_err(|_| "local response write failed")?;
+        if count == 0 {
+            return Err("local response write failed".into());
+        }
+        remaining = &remaining[count..];
+    }
+    Ok(())
 }
 
 #[derive(serde::Deserialize)]
@@ -189,4 +203,73 @@ pub fn serve(
         }
     }
     Err("local listener closed".into())
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn read_bounded_deadline(
+    stream: &mut UnixStream,
+    limit: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>, String> {
+    let deadline = std::time::Instant::now()
+        .checked_add(timeout)
+        .ok_or("invalid local deadline")?;
+    let mut body = Vec::new();
+    loop {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or("local request timed out")?;
+        stream
+            .set_read_timeout(Some(remaining))
+            .map_err(|_| "local timeout configuration failed")?;
+        let mut chunk = [0u8; 1024];
+        let count = stream
+            .read(&mut chunk)
+            .map_err(|_| "local request read failed")?;
+        if std::time::Instant::now() >= deadline {
+            return Err("local request timed out".into());
+        }
+        if count == 0 {
+            return Ok(body);
+        }
+        if count > limit.saturating_sub(body.len()) {
+            return Err("local request too large".into());
+        }
+        body.extend_from_slice(&chunk[..count]);
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    #[test]
+    fn responses_require_a_finite_deadline() {
+        let (mut server, _client) = UnixStream::pair().unwrap();
+        assert_eq!(
+            respond(&mut server, b"denied").unwrap_err(),
+            "local response deadline required"
+        );
+        server
+            .set_write_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        respond(&mut server, b"denied").unwrap();
+    }
+    #[test]
+    fn continuous_input_cannot_extend_request_deadline() {
+        let (mut reader, mut writer) = UnixStream::pair().unwrap();
+        let producer = std::thread::spawn(move || {
+            for _ in 0..100 {
+                if writer.write_all(b"x").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let started = std::time::Instant::now();
+        assert!(read_bounded_deadline(&mut reader, 4096, Duration::from_millis(120)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        drop(reader);
+        producer.join().unwrap();
+    }
 }
