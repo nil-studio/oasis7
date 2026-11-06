@@ -315,3 +315,27 @@ Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验
 实际Linux验证使用本项生产源码 `0e0eb8f83dcc8c5f215eefdf836d590775e6a49d`（后续 `083c66c` 仅新增只读诊断）与独立原生修复 `149cf00fc3501bbde1860dba4dc8ae1eeff884f7` 的无trace Runtime/chain binary。原world/genesis/pin不变：A的唯一目标 `[1,0,0]` 由 `action:4` 与canonical `AgentMoved id66 / tick264` 对应；B原轮和B2的stale_base拒绝、B3的过期Prepare unknown原件保留，不重签。经明确授权的B4独立有界轮先验证完整目标/source/fence/usable，再唯一首发Move并故意丢工具回复；重启新session Lookup及同RID/body replay均恢复同原Committed，`action:5`、actorB及原context commitment对应唯一 `AgentMoved id134 / tick640`。累计用量39→47/64，A未再次移动，无B5。权威恢复读取commit位置641与实际执行tick640分列，不以最终位置代签效果；完整证据见PR #5553 comment6690361833。
 
 本地业务适配固定 `57cb089aaf79575f1615120f11411303acd4a653`（#5538）通过真实UID1001的IPC call open+lookup原B4、stdio再次lookup同RID读取同原Committed；UID1002传输拒绝不计费，模型不可读policy/unlock/SDK配置。累计47→50/64，权威AgentMoved仍2条，无新Context/Move/replay。source/build/有限只读RunInput和清理receipt见PR #5554 comment6690887674。此为受控真实进程消费链，真实外部模型仍blocked，未启动模型或付费。
+### 可信备份恢复准备（#5537）
+
+operator入口与模型工具分离：`oasis7_dev_test_recovery backup PRIVATE_POLICY NEW_SNAPSHOT`、
+`restore SNAPSHOT NEW_PRIVATE_TARGET`、`reauthorize RESTORED_POLICY CANDIDATE PRIVATE_REVIEW`。
+快照与目标必须在可信私有目录；不交给模型，不放入公开证据。backup取得同一policy控制锁、
+目录锁与各caller累计账本锁；manifest只在有限文件完整复制后落盘。快照只含工具policy/catalog/
+累计用量及原操作关联，不包含解锁输入，也不回滚原生世界、身份密钥或SDK当前缓存。
+原配置所指的当前native证明仍须存在且通过共同客户端校验，缺失保持unknown。
+
+restore只写新私有目录，先持久restore_pending，再放置已退休旧授权／凭据与不可作为当前余额的
+历史账本。旧session属于旧启动epoch，不能恢复；旧grant ID/ref及credential不能被apply/enable复活。
+恢复配置要求退休状态文件，缺文件或中断pending时拒绝开放服务。完全恢复的目录不能再次覆盖，
+中断pending且snapshot一致时可重试；最早目录准备阶段失败但无marker时换新目标，不猜测继续。
+
+管理员私有review显式确认 `current_identity_and_permissions_checked`、
+`effects_and_pending_originals_checked`、`missing_usage_is_unknown` 均为true，代表可信人工核对，
+不是自动世界证明或新的recovery authority。candidate必须提供不同测试grant ID/ref及新credential，
+保留恢复目录绑定并选择有限max_calls／绝对期限／大小／timeout。然后重启到新启动实例，
+经当前同scope权限查询旧原件；新业务调用及同ID恢复仍计入新授权额度，旧快照used不能充当新余额。
+历史Context不能作为新Move的可写上下文；缺原件或无读权保持unknown／blocked，不造替代操作。
+
+本项局部自测为canonical `cargo test -p oasis7_game_client --lib dev_test_recovery --locked`。
+真实副本演练还须固定source/build、快照源／目标、运行命令、原世界pin、旧用量早于实际消耗的
+事实及当前native结果观察。不得只凭模块测试声称实际恢复通过，也不能回滚原世界制造成功证据。
