@@ -840,11 +840,11 @@ Site registration、location anchor、Agent location assignment、ownership/acce
 
 <a id="runtime-pending-acceptance"></a>
 ### 无效果待决与当前条件重审
-承接 [REQ/AC-DWE-002](../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-002)、DE-2 与产品根 SC-5。签名送出、transport 接收、排队、重连或 UI 成功都不产生资源、控制权、资格、声誉、阶段或依赖结果。runtime/P2P 必须持久保留可读的原请求身份及真实待决处置；恢复可服务后从 fresh authoritative snapshot 读取当前权限、资源、期限与前置条件，在 canonical 顺序重新裁决为执行、拒绝、过期或须重规划。只有对应 committed receipt 更新世界结论。等待不授予完成时间、返还或旧优先级；消费者可查看/等待/重规划，只有专业域支持时才可明确撤回/替代。见 [待决设计](design.md#runtime-pending-design)。现有 effect/cognition pending 路径不证明所有 signed finality-pending 请求持久化。
+承接 [REQ/AC-DWE-002](../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-002)、DE-2 与产品根 SC-5。签名送出、transport 接收、排队、重连或 UI 成功都不产生资源、控制权、资格、声誉、阶段或依赖结果。runtime/P2P 必须持久保留可读的原请求身份及真实待决处置；恢复可服务后从 fresh authoritative snapshot 读取当前权限、资源、期限与前置条件，在 canonical 顺序重新裁决为执行、拒绝、过期或须重规划。只有对应 committed receipt 更新世界结论。等待不授予完成时间、返还或旧优先级；消费者可查看/等待/重规划，只有专业域支持时才可明确撤回/替代。见 [待决设计](design.md#runtime-pending-design)及[原件/准入/决定的持久桥接](module/module-lifecycle.md#sr2-pending-admission-recovery)：admission provenance 不代替 canonical decision；已知无效果、未知和固定 continuation 分开。字段与消费者目标已有准确承接，现有 effect/cognition pending 路径仍不证明所有 signed finality-pending 请求持久化。
 
 <a id="runtime-lineage-acceptance"></a>
 ### 互斥 lineage 的唯一有效胜者
-承接 [REQ/AC-DWE-003](../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-003)。专业域明确标记互斥的同 lineage 原请求、withdrawal、replacement，由首个产生有效世界效果的 committed receipt 唯一获胜，在同一个原子边界终止其余成员为无效果、不可执行、可追溯。拒绝/过期仅终止自己，未标记互斥的独立 intent 可并发。撤回/替代在自身 committed receipt 前不能取消、隐藏、覆盖或宣称优先于原请求；关联和各自真实状态可读。retry/reconnect/restore/replay 只能读取同一处置，不产生第二 sink/receipt/effect。见 [lineage 设计](design.md#runtime-lineage-design)。普通 operation idempotency 或签名真实性不是 lineage 原子仲裁；标记、排序和 schema 的批准仍是外部依赖。
+承接 [REQ/AC-DWE-003](../product/world-infrastructure/deterministic-world-execution.prd.md#req-dwe-003)。专业域明确标记互斥的同 lineage 原请求、withdrawal、replacement，由首个产生有效世界效果的 committed receipt 唯一获胜，在同一个原子边界终止其余成员为无效果、不可执行、可追溯。拒绝/过期仅终止自己，未标记互斥的独立 intent 可并发。撤回/替代在自身 committed receipt 前不能取消、隐藏、覆盖或宣称优先于原请求；关联和各自真实状态可读。retry/reconnect/restore/replay 只能读取同一处置，不产生第二 sink/receipt/effect。见 [lineage 设计](design.md#runtime-lineage-design)与[领域关系/原子发表](module/module-lifecycle.md#sr2-lineage-publication)；字段和 checked 关系由原 SR2 authority 定义，P2P 原 canonical order 不变，API/Viewer 逐项接收真实处置。普通 operation idempotency 或签名真实性仍不是通用 lineage 原子仲裁的实现证明；同候选持久故障、当前授权与实际消费者按 [GWSC 组合方法](../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)分别验证。
 
 <a id="runtime-version-acceptance"></a>
 ### Canonical execution block 的版本接受

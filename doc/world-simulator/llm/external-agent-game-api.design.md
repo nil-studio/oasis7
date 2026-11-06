@@ -144,6 +144,8 @@ Agent owner 负责协议与能力投影；Runtime owner 负责最终裁决、授
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 单 Agent 活动 turn、context 幂等与新目标/授权漂移时重新决策 | [api-context](#api-context) | Harness/Runtime context 与当前控制 | 只读并发不授予第二副作用 turn |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 稳定原键、durable ingress/outbox、同键冲突与唯一世界效果 | [api-actions](#api-actions) | Runtime admission/commit、operation 历史 | 不同键语义重复仍依玩法约束 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | 错误类别、限流和并发共用当前额度，未知请求不换键 | [api-retry-safety](#api-retry-safety) | API ingress、身份、Runtime 与控制队列 | HTTPS/普通 CI 不证明业务授权或公开部署 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | 已知无效果 pending、未知及各 canonical 处置分别投影，恢复不重签原请求 | [通用 intent 结果](#api-intent-results) | Runtime 原件/decision 与 P2P proof；当前读取权限 | 仅目标扩展；不改已实施 World Service、Game bootstrap 或当前五态 registry |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | 原成员与 predecessor/winner 的真实状态可读，受限关系不泄露、不推断取消 | [通用 intent 结果](#api-intent-results) | Runtime domain lineage 与原子 winner；Viewer/Agent 消费 | 不为未支持 domain 提供通用撤回，不由 client operation ID 推导互斥 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | 正式 pure_api 组合明确唯一 mode、阶段、实际入口能力与独立证据 | [api-primary-entry-applicability](#api-primary-entry-applicability) | Game API / SDK / CLI 消费者；Viewer、runtime、QA 保留各自 authority | 组件、命令或另一模式通过不代签完整可玩；不新增 primary mode |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | 前置、身份、provider、模式与后端失败按实际入口给出受阻分类和安全下一步 | [api-primary-entry-applicability](#api-primary-entry-applicability) | 原身份/会话、operation、控制与恢复合同的消费者 | 不新增通用 replay、operator 权限或跨实例 Prompt 持久恢复 |
 
@@ -453,10 +455,11 @@ ContextHandleV1 = {api_revision, context_id, world_binding: RuntimeBindingV1,
 ActionSubmissionV1 = {api_revision, client_operation_id, task_id,
   executor_epoch, context_id, action_ref, arguments, actor_proof}
 OperationViewV1 = {api_revision, operation_id, client_operation_id,
-  status: pending|recovery_required|committed|rejected|failed, disposition_reason,
+  status: pending|recovery_required|committed|rejected|failed
+    |expired|replan_required|terminated_without_effect, disposition_reason,
   receipt_ref?, world_binding, observed_at,
   retry_advice: lookup_original|wait|none, recovery?: OperationRecoveryV1,
-  feedback?: OperationFeedbackV1}
+  feedback?: OperationFeedbackV1, intent?: OperationIntentViewV1}
 OperationFeedbackV1 = {availability: available|pending|history_unavailable|not_applicable,
   original_task_fence?, original_context_ref?, record?: AuthorizedFeedbackRecord}
 OperationRecoveryV1 = {reason, last_known_status: registered|pending,
@@ -485,6 +488,43 @@ ErrorV1 = {code, message, request_trace_id, operation_id?, retryable,
 `pending -> recovery_required` 必须留下持久原因与最后已知关联；恢复服务重查原 request/correlation/receipt 和有效世界分支后，才可 `recovery_required -> pending`（确认仍受理待决）或进入上述有证据终态。轮询时间、重试次数或用户停止不能把未知结果改成失败或取消。recovery.reason 有界且脱敏；reconciliation 与 last_attempt_at 表达恢复进展，阻塞时可升级人工诊断但不授予重放权限。终态历史与 reorg/finality 变化仍按既有世界合同处理，不由本地计时器反向改写。
 
 同键重试首先查询既有 operation，返回相同的 recovery 状态或已经核实的新状态；禁止更换 client_operation_id、重新签 nonce、开启新的副作用 context 或靠 outcome=abandoned 遗忘未知操作。只有恢复服务核实底层仍持久保有原身份去重、允许原请求重投时，才可重送原 outbox 内容；否则只回查并保留阻塞。Worker、Web 和 native 将它显示为“结果待恢复确认”，不复用表示普通排队的 pending 或原模型调用的 run_unknown；只读查询、任务沟通和原结果核对仍可按当前权限进行。
+
+<a id="api-intent-results"></a>
+#### 通用 pending/lineage 的目标结果映射
+
+Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405, O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6。承接 AC-DWE-002/003，读取 Runtime 的 [原件与持久接收](../../world-runtime/module/module-lifecycle.md#sr2-pending-admission-recovery)、[原子 lineage](../../world-runtime/module/module-lifecycle.md#sr2-lineage-publication) 和唯一 `PendingIntentV1 / IntentDecisionV1` 字段 authority。这里新增的是**尚未实施的 SR2 结果适配**；上文当前 bootstrap、native task、cognition、Gameplay、Chat、Prompt 及控制操作继续各自的原 wire、五态 registry、proof 和恢复合同，不因同名状态自动转换为 SR2。
+
+§6.2 的 `intent` 及新增 `expired / replan_required / terminated_without_effect` 只属于这个目标扩展。实际采用必须在 `/info`、同版本 schema 和客户端协商中明确声明 `sr2_intent_results` 能力；未实现不得发布。未协商的客户端查询此类结果时，在当前读取鉴权后明确返回能力/协议不支持并保留原查询身份，不能把新态降成旧 `failed/pending/committed`；旧客户端遇未知状态仍阻断。本文不修改现行 API revision、生成 schema 或共享 Rust enum，也不声称当前线上响应已经含有这些字段。
+
+| 受信原来源及必要条件 | SR2 的目标 `OperationView.status` 与关联 | 可执行下一步与不成立的结论 |
+| --- | --- | --- |
+| 完整持久原件与恢复索引确认尚无效果、无固定 continuation，且无尚待核对的提交窗口 | `pending`；保留原 intent/关系，`retry_advice=wait`，无 execution `receipt_ref` | 查询/等待；受理和持久化不授予资源、完成时间或旧优先级 |
+| 已知原 operation，但 decision/提交阶段不能确认，或固定 continuation 尚待原决定恢复 | `recovery_required`；沿原 recovery 原因与最后已验证 binding，`lookup_original` | 只核对原件；缺 proof、超时或查询失败不是无效果终态 |
+| `IntentDecisionV1.disposition=committed_effect`，与原 intent/hash、成功 receipt core、detached proof 及原 world/branch 一致 | `committed`；`receipt_ref` 只指向本成员的真实执行结果 | 回读原结果，不再执行。提交的效果仍按业务阶段解释，不推导产物送达或目标完成 |
+| canonical `rejected` | `rejected`；保留原 `reason_code`，无 module execution `receipt_ref`，`retry_advice=none` | 阅读真实拒绝；新计划由当前授权另作决定，不自动换键 |
+| canonical `expired` | `expired`；原期限/原因可读，无 module execution `receipt_ref`，`none` | 原请求已过期；本地倒计时不生成此结论，也不续期或承诺返还 |
+| canonical `replan_required` | `replan_required`；具体不兼容或前置变化原因，无 module execution `receipt_ref`，`none` | 查看当前条件后明确形成新计划；不能自动翻译旧 payload 或替换原请求 |
+| canonical `terminated_without_effect` | `terminated_without_effect`；保留具体原因；exclusive loser 有 `winner` 关系，无效果 withdrawal 保留 `predecessor`，均无本成员 execution `receipt_ref` | 显示“本请求无效果终止”与实际关系；不把它说成所有关联请求取消或 winner 已交付业务成果 |
+
+SR2 原 disposition 没有通用 `failed`，因此本适配不会从网络/存储错误合成它；其他原操作合同仍保留自己的 `failed`。所有 canonical 无效果决定先验证其 decision commitment、原 `decision_position` 与适用 profile 的包含依据；不能用本地 audit 行或服务响应签名单独代替最终性，也不能为了填 `receipt_ref` 合成 `ModuleExecutionReceiptV1`。证明暂缺时沿原操作恢复，不改写之前已验证的历史终态；历史不可得与本轮尚未确认分别显示。
+
+目标关系投影如下。它只挑选已验证原记录中的字段，不是新的 signed body、canonical ledger 或 hash 输入；字段类型继续由 Runtime/WASM 原 authority 定义。
+
+```text
+OperationIntentViewV1 = {intent_id, request_hash, lineage_id, member_generation,
+  relation: original|linked_replacement|withdrawal|independent,
+  exclusive_set_id?, predecessor?: RelatedIntentViewV1, winner?: RelatedIntentViewV1}
+RelatedIntentViewV1 = {availability: available|not_readable|history_unavailable,
+  operation_id?, intent_id?, request_hash?, status?, receipt_ref?}
+```
+
+1. 先鉴权当前原 operation 及其元数据，再从原 ingress→admitted intent→decision/receipt 的持久关联生成投影。`operation_id/client_operation_id` 与 intent 的关联来自原接收索引，不能假设两种 ID 相同，也不按当前选中 Agent 或最新 goal 重新绑定。`member_generation` 采用十进制字符串；同 lineage 不自动表示同 exclusive set。
+2. 有 predecessor/winner 的原记录必须有对应关系项；不存在关系时才省略。验真同时核前驱的原 domain、同一 lineage 与获准 exclusive set，winner 必须属于该集合；不能借别的合法请求拼接关系。每个关联对象单独执行当前读取授权。`available` 要求原对象身份与受信真实状态均可读，必须包含其 operation/intent/hash/status；只有该对象真实 committed 执行时才附其 `receipt_ref`。API 原 operation 关联缺失不能伪造一个 locator，应保留 `history_unavailable`。已有无效果终态不会因后续关联请求获胜而变成 loser 或新增 winner 关系，重查仍返回原处置。
+3. `not_readable` 不带对象 ID/hash、operation、状态、receipt 或私有原因；`history_unavailable` 表示有当前读权但原件/原关联不足，也不冒充不存在或未执行。原操作中已允许披露的关系种类与自身无效果处置可以保留；不得枚举其他成员、数量或通过错误差异泄漏受限对象。关联项不可读不取消原已验证终态，页面提供当前合法原结果核对路径。
+4. 读取只给原成员、至多一个直接 predecessor 与一个 winner；不递归展开整个 lineage，沿各自获权 operation 查询有界续读。换身份/分支、读取撤销或旧异步返回时按原 scope/fence 隔离，旧缓存不继续显示私有关系。失去执行权与失去历史读权分别判定。
+5. Viewer、pure_api 与 Agent adapter 保留各成员的独立状态与真实下一步。只有原 cognition authority 实际产生了 `AuthorizedFeedbackRecord`，才按 §5.4 交付下一认知输入；SR2 decision/关系投影本身不伪造 feedback、驱动模型重启或赋予新行动权。领域支持撤回/替代时，仍经其原明确动作、当前鉴权和新请求，普通重复 submit 只查原件。
+
+完整世界/持久/顺序判据由 [GWSC PL01–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination) 接收；具体消费者按 [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) 验证。设计映射不证明端点、持久接收、真实 Runtime 或 Web/native 已接通。
 
 <a id="api-question-delivery"></a>
 ### 6.4 私有问答写入、阶段报告与回查
@@ -588,6 +628,8 @@ HTTP 普通请求客户端 deadline 初值 10 秒；事件 long-poll 服务端�
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-context](#api-context) | 单 Agent 活动 turn、context 幂等与新目标/授权漂移时重新决策 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；多连接同 Agent、原 context 超时/漂移与当前授权竞争 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 只读并发不授予第二副作用 turn |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-actions](#api-actions) | 稳定原键、durable ingress/outbox、同键冲突与唯一世界效果 | [api-idempotency](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-idempotency)；原进程持久故障/重复/未知与恢复，核前后资源和 receipt | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | 不同键语义重复仍依玩法约束 |
 | Trace refs: O7-REQ-7d6cef7f-9419-49ed-b445-663382383458；[AC-EXT-013](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#ac-ext-013) | [api-retry-safety](#api-retry-safety) | 错误类别、限流和并发共用当前额度，未知请求不换键 | [api-safety](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-safety)；本地及 HTTPS 远程分别执行错误/并发/权限/配额负例 | 同候选原身份/来源/状态/操作与失败记录；本次静态审读不写运行通过 | HTTPS/普通 CI 不证明业务授权或公开部署 |
+| Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405；[AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) | [通用 intent 结果](#api-intent-results) | 持久 pending/未知与各真实处置、协议未支持分别可判 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR01–03/06；同候选真实原件和 proof，required 适配/负例，full 逐入口 | 原 intent/decision/查询身份、响应及实际前后效果 | 目标未实施；fixture 不代签持久接收或真实 finality |
+| Trace refs: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6；[AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003) | [通用 intent 结果](#api-intent-results) | 原成员、前驱/胜者及无权/缺历史分支独立成立 | [api-intent-results](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results) IR02–06；接 GWSC PL04–09，双主体、双序和重启 | 来源关联、授权投影、零隐式取消/新增 effect、各消费者原关系 | API 显示不证明 Runtime 原子仲裁或模型理解 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | [api-primary-entry-applicability](#api-primary-entry-applicability) | 声明组合的唯一 mode、阶段、能力/消费者及独立证据可核对 | [逐入口验证](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)：固定候选逐项对照实际路由、协商和原请求；加入 SDK/Hello/另一模式代签及缺能力反例 | 入口/适配、能力与证据对应；实际输出和当前受限范围 | 目录或静态源码不代签完整 pure_api、真实模型/玩家或发行 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [api-primary-entry-applicability](#api-primary-entry-applicability) | 前置与身份失败、原结果未知按各协议保留分类和真实下一步 | [逐入口验证](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-primary-entry-validation)：原件/响应错配、丢回复、断连/重启、失权/能力缺失、不可查询与跨入口恢复；核 query-only 零业务 submit | 原关联、状态与允许动作；拒绝/未知时的提交次数和读权边界 | 不赋予通用 replay、operator 权限或未实现的 Prompt 持久恢复 |
 

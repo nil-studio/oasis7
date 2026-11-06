@@ -72,6 +72,24 @@ Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[AC-EXT-018](../../pro
 - 客户端消费：Worker/Web/native 显示结果待恢复确认并停止该 Agent 新副作用，仍可读取授权允许的信息。操作存储不可读返回 503，不能据此创建新键；401/403 先拒绝，不能从回放泄露历史。
 - 证据：候选标识、脱敏交互记录、适用控制版本与实际世界结果；失败保留错误原因，不替换为一次重跑的成功截图。
 
+<a id="api-intent-results"></a>
+### 场景 api-intent-results：通用待决、终态与原关系读回
+
+Trace refs: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405, O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6。承接 [AC-DWE-002](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-002) / [AC-DWE-003](../../product/world-infrastructure/deterministic-world-execution.prd.md#ac-dwe-003)、[API 目标映射](../../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)及 [Viewer 原成员显示](../../world-simulator/viewer/external-agent-world-view.design.md#view-intent-results)。本方法以真正采用 SR2 原件、持久决策与结果适配的同候选为前提；当前五态 registry、volatile Received、native Chat superseded 或手填 OperationView 不满足该前提。
+
+从 [GWSC PL01–09](../longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)取得真实受信原件和合法 profile/proof，固定 source/tree/world/window、API schema、具体消费者版本与当前读权。两个主体分别拥有自身原 operation，并设置允许读取/撤销读取的关系对象。独立预期先来自原 domain 规则与实际 canonical decision，再比较 API/Agent/Viewer，不能从被测转换器生成同一预期表。此处只核消费者；world 原子性、持久准入与合法 proof 仍由 GWSC 对应场景验收。
+
+| ID / 执行输入 | 必须读取和断言的结果 |
+| --- | --- |
+| IR01 逐项真实处置 | 分别提交/取得已知无效果 pending、committed_effect、rejected、expired、replan_required、terminated_without_effect，并另造原提交未知。两种原 operation lookup 返回准确目标状态/原因/next step；committed_effect 需要真实执行 receipt，其余无效果不填 module success receipt；未知只 lookup_original，不用 expired 或普通 failed 收口 |
+| IR02 原件关联与冲突 | 使用不同 operation ID 与 intent ID，原同键重复后对照持久映射；混入另一 world/branch、subject、request hash、winner/receipt 或无效 proof。只接受原 ingress→intent→decision 的完整匹配；不按 ID 字符串、当前 Agent、较新 goal 或库存变化补关联；失败不重签或产生第二效果 |
+| IR03 恢复与当前权限 | pending/未知/已证终态分别重启读取；到期、Stop、执行失权但保留 receipt 读权，再撤销读取权。合法只读可核原件且不重启模型/行动；失去读权的两种 lookup 在暴露对象存在性前拒绝，旧 cache/迟到响应不显示。缺原件/历史与原请求未发生分开，已证历史不由查询故障改写 |
+| IR04 前驱、胜者与独立成员 | 双序 winner 和已知/迟到 loser、无效果 withdrawal、自身 rejected/expired/replan、合法独立 intent 分别查询。后续 winner 出现后再查询/重试已有终态，原成员仍保留原处置/原因/位置，不被改为 loser；直接 predecessor/winner 必须匹配原 domain 的同 lineage/set，不能拼接其他合法前驱。分别制造 related available/not_readable/history_unavailable，受限项不含 ID/hash/状态/receipt；没有关系才省略，不把不可读说成原件取消或不存在 |
+| IR05 实际消费者与行动边界 | pure_api、Agent adapter、Web 和 native 对同一受权结果各自读取/返回/重连；Viewer 切选择/身份，Agent 另遇反馈尚不可得。显示/结构化结果保持原关联及业务阶段；查看关系只读，不隐式发撤回、替代、outcome=abandoned、新 nonce 或付费调用；有真实 cognition record 才交付 RF 原输入，SR2 投影不制造 feedback |
+| IR06 协商与有界展开 | 新旧 schema/客户端分别读取；未声明或未协商 sr2_intent_results、未知状态、超界字段、长 lineage。只有受支持组合使用目标新态；其余明确能力/协议阻塞并保存原键，不错误折叠。一次只展开原件及至多一个直接 predecessor/winner，进一步查询重新鉴权且有界，无隐式全 lineage 枚举 |
+
+记录真实 source/proof、原 operation/intent/关联、各查询的当前 actor/scope、目标状态与原因、请求次数及世界 effect/receipt 对照；公开材料脱敏，私有原件按原证据权限保留。API bytes、Agent 实际接收、Web/native 文本与真实交互分别判定；只有 API fixture 不代签图形入口或真实 Runtime。required 执行真实适配/持久/权限接缝，full 仍按原候选与环境取得各适用消费者结果；不为文档阶段造端点、启动模型或声称方法已运行。
+
 <a id="api-first-session"></a>
 ### 场景 api-first-session
 
