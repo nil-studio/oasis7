@@ -357,8 +357,10 @@ pub(super) fn configure_accepted_stream(stream: &TcpStream) {
             flags & 4 != 0
         );
     }
-    failure::observe_io(stream.set_nonblocking(false)).unwrap();
-    failure::observe_io(stream.set_read_timeout(Some(Duration::from_secs(2)))).unwrap();
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
 }
 
 // Opt-in real receive-boundary oracle, keyed by this fixture's unique trace Arc.
