@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Read;
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if args.len() != 3 {
         return Err(
@@ -31,22 +31,10 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             if body.len() > 65536 {
                 return Err("request_too_large".into());
             }
-            let mut stream = std::os::unix::net::UnixStream::connect(&args[2])
-                .map_err(|_| "service_unavailable")?;
-            stream
-                .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-                .map_err(|_| "timeout_configuration_failed")?;
-            stream.write_all(&body).map_err(|_| "request_failed")?;
-            stream
-                .shutdown(std::net::Shutdown::Write)
-                .map_err(|_| "request_failed")?;
-            let mut response = Vec::new();
-            stream
-                .take(65537)
-                .read_to_end(&mut response)
-                .map_err(|_| "response_unavailable")?;
-            let response: crate::dev_test_service::Response =
-                serde_json::from_slice(&response).map_err(|_| "invalid_response")?;
+            let request: crate::dev_test_service::Request =
+                serde_json::from_slice(&body).map_err(|_| "invalid_request")?;
+            let response =
+                crate::dev_test_service::call_service(std::path::Path::new(&args[2]), &request)?;
             crate::device_client::print(&response)
         }
         _ => Err("unsupported_service_command".into()),
