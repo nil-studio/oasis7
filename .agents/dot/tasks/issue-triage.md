@@ -1,5 +1,7 @@
 # 增量 Issue 整理
 
+执行者按采用模式确定：[本地受限模式](../LOCAL_TODO.md) 由 dot 单执行者处理；下文 subagent 与主 Agent 分工适用于原运行器模式。任务的授权、证据、暂停和未知结果边界不变。
+
 Trace refs: O7-REQ-1a003dc5-18f2-4cd3-adbb-d1b95316086e。
 
 由时间表指定的 subagent 执行，主 Agent 只协调。统一承接五类 Issue 的分类、类型转换、完成核验、查重和归并；不自动启动开发。唯一类型合同见[开发流程规范](../../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)，周期与迁移见 [SCHEDULE](../SCHEDULE.md)。
