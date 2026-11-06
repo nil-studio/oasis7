@@ -50,11 +50,16 @@ pub struct Original {
     pub arguments: Arguments,
     pub native_context: String,
     pub native_kind: String,
+    #[serde(default = "lookup_only_by_default")]
+    pub historical_lookup_only: bool,
     #[serde(default)]
     pub native_action: Option<[i64; 3]>,
     #[serde(default)]
     pub native_context_identity: Option<oasis7_agent_api::game::TaskContextIdentityV1>,
     pub last_observation: Option<serde_json::Value>,
+}
+fn lookup_only_by_default() -> bool {
+    true
 }
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -263,9 +268,13 @@ fn admit_resolving(
         if ledger.operations.len() >= 4096 {
             return Err("operation_capacity_exhausted");
         }
-        let (native_context, native_kind, native_action, native_context_identity) = match &call
-            .arguments
-        {
+        let (
+            native_context,
+            native_kind,
+            native_action,
+            native_context_identity,
+            historical_lookup_only,
+        ) = match &call.arguments {
             Arguments::Context => {
                 let domain =
                     serde_json::to_vec(&(&config.grant_id, caller, scope, &call.request_id))
@@ -275,6 +284,7 @@ fn admit_resolving(
                     "prefix".into(),
                     None,
                     None,
+                    false,
                 )
             }
             Arguments::Move {
@@ -305,14 +315,18 @@ fn admit_resolving(
                     "action".into(),
                     Some(*to),
                     Some(identity),
+                    false,
                 )
             }
             Arguments::Lookup {
                 original_request_id,
             } => {
-                let original = match ledger.operations.get(original_request_id) {
-                    Some(original) => original.clone(),
-                    None => history(original_request_id)?.ok_or("original_operation_unknown")?,
+                let (original, historical) = match ledger.operations.get(original_request_id) {
+                    Some(original) => (original.clone(), false),
+                    None => (
+                        history(original_request_id)?.ok_or("original_operation_unknown")?,
+                        true,
+                    ),
                 };
                 if original.scope != *scope
                     || matches!(original.arguments, Arguments::Lookup { .. })
@@ -328,6 +342,7 @@ fn admit_resolving(
                     original.native_kind.clone(),
                     native_action,
                     original.native_context_identity.clone(),
+                    historical,
                 )
             }
         };
@@ -337,6 +352,7 @@ fn admit_resolving(
             arguments: call.arguments.clone(),
             native_context,
             native_kind,
+            historical_lookup_only,
             native_action,
             native_context_identity,
             last_observation: None,
@@ -454,6 +470,16 @@ fn context_observation(
     // usability. Expiry/unavailable goal proof cannot erase a known commit.
     serde_json::json!({"native_context":operation,"operation":response,
         "usable_context":false,"context_state":"unavailable"})
+}
+fn context_reply(original: &Original, mut value: serde_json::Value) -> serde_json::Value {
+    // Old journal entries lacking provenance are conservatively query-only.
+    if original.historical_lookup_only && matches!(original.arguments, Arguments::Lookup { .. }) {
+        value["lookup_only"] = serde_json::json!(true);
+        value["usable_for_write"] = serde_json::json!(false);
+        value["usable_context"] = serde_json::json!(false);
+        value["context_state"] = serde_json::json!("historical_lookup_only");
+    }
+    value
 }
 fn verify_cached(
     client: &crate::device_client::Client,
@@ -584,10 +610,13 @@ pub(crate) fn execute(
                 verify_cached(client, original, &prefix)?;
                 let result = client.submit_and_poll_until(&prefix, deadline)?;
                 if matches!(result.outcome, IntentOutcome::Committed { .. }) {
-                    return Ok(context_observation(
-                        operation,
-                        result,
-                        client.captured_until(operation, deadline),
+                    return Ok(context_reply(
+                        original,
+                        context_observation(
+                            operation,
+                            result,
+                            client.captured_until(operation, deadline),
+                        ),
                     ));
                 }
                 return serde_json::to_value(result).map_err(|_| Failure::Unavailable);
@@ -630,10 +659,13 @@ pub(crate) fn execute(
     if original.native_kind == "prefix"
         && matches!(response.outcome, IntentOutcome::Committed { .. })
     {
-        return Ok(context_observation(
-            operation,
-            response,
-            client.captured_until(operation, deadline),
+        return Ok(context_reply(
+            original,
+            context_observation(
+                operation,
+                response,
+                client.captured_until(operation, deadline),
+            ),
         ));
     }
     serde_json::to_value(response).map_err(|_| Failure::Unavailable)
@@ -930,8 +962,28 @@ mod tests {
             })
             .unwrap();
         assert!(fresh);
+        assert_eq!(
+            serde_json::to_value(&recovered).unwrap()["historical_lookup_only"],
+            true
+        );
         assert_eq!(recovered.native_context, original.native_context);
         assert!(matches!(recovered.arguments, Arguments::Lookup { .. }));
+        let verified = serde_json::json!({"usable_context":true,"operation":{"outcome":{"status":"committed"}},"context":{"identity":"verified"},"active_goal":{"content":{"goal_text":"full read-only goal"}}});
+        let reply = context_reply(&recovered, verified.clone());
+        assert_eq!(reply["lookup_only"], true);
+        assert_eq!(reply["usable_for_write"], false);
+        assert_eq!(reply["usable_context"], false);
+        assert_eq!(reply["operation"], verified["operation"]);
+        assert_eq!(reply["context"], verified["context"]);
+        assert_eq!(reply["active_goal"], verified["active_goal"]);
+        let legacy: Original = serde_json::from_value({
+            let mut v = serde_json::to_value(&recovered).unwrap();
+            v.as_object_mut().unwrap().remove("historical_lookup_only");
+            v
+        })
+        .unwrap();
+        assert_eq!(context_reply(&legacy, verified)["lookup_only"], true);
+
         // Journal-only fixture: execution separately verifies the native identity.
         let template: serde_json::Value = serde_json::from_slice(include_bytes!(
             "../testdata/task-context/native-snapshot.json"

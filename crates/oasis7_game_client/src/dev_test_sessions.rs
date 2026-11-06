@@ -508,6 +508,21 @@ pub fn handle(
 mod service;
 pub use service::run;
 
+/// Shared policy invariants for all trusted configuration writers and loaders.
+pub(crate) fn validate_configuration(config: &ServiceConfig) -> Result<(), String> {
+    config.service.validate()?;
+    crate::dev_test_recovery::validate_policy(config)?;
+    let mut refs = std::collections::BTreeSet::new();
+    if config.grants.iter().any(|g| {
+        g.grant_ref.is_empty()
+            || !refs.insert(&g.grant_ref)
+            || g.grant_id != config.service.grant_id
+    }) {
+        return Err("ambiguous_grant_configuration".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

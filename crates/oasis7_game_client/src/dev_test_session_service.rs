@@ -247,22 +247,13 @@ fn load_session_config(path: &std::path::Path) -> Result<ServiceConfig, String> 
     let mut config: ServiceConfig =
         serde_json::from_slice(&crate::dev_test_private_config::read_private_config(path)?)
             .map_err(|_| "invalid_session_configuration")?;
-    config.service.validate()?;
-    crate::dev_test_recovery::validate_policy(&config)?;
+    validate_configuration(&config)?;
     for grant in &config.grants {
         config
             .grant_generation_high_water
             .entry(grant.grant_ref.clone())
             .and_modify(|high| *high = (*high).max(grant.binding.authorization_version))
             .or_insert(grant.binding.authorization_version);
-    }
-    let mut refs = std::collections::BTreeSet::new();
-    if config.grants.iter().any(|g| {
-        g.grant_ref.is_empty()
-            || !refs.insert(&g.grant_ref)
-            || g.grant_id != config.service.grant_id
-    }) {
-        return Err("ambiguous_grant_configuration".into());
     }
     Ok(config)
 }

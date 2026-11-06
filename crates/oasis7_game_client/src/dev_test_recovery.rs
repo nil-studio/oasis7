@@ -415,7 +415,7 @@ pub fn reauthorize(policy: &Path, candidate: &Path, review: &Path) -> Result<(),
     }
     let next: ServiceConfig =
         serde_json::from_slice(&read(candidate)?).map_err(|_| "invalid_session_configuration")?;
-    next.service.validate()?;
+    crate::dev_test_sessions::validate_configuration(&next)?;
     if next.service.socket != config.service.socket
         || next.service.usage_directory != config.service.usage_directory
         || next.catalog_directory != config.catalog_directory
@@ -554,6 +554,7 @@ mod tests {
             arguments: Arguments::Context,
             native_context: "exact-old-context".into(),
             native_kind: "prefix".into(),
+            historical_lookup_only: false,
             native_action: None,
             native_context_identity: None,
             last_observation: None,
@@ -644,6 +645,22 @@ mod tests {
         json_write(&candidate, &next).unwrap();
         assert!(reauthorize(&restored_policy, &candidate, &review).is_err());
         next.service.credentials[0].token = "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy".into();
+        let before = read(&restored_policy).unwrap();
+        for bad in ["empty", "duplicate", "grant_mismatch"] {
+            let mut invalid: ServiceConfig =
+                serde_json::from_slice(&serde_json::to_vec(&next).unwrap()).unwrap();
+            match bad {
+                "empty" => invalid.grants[0].grant_ref.clear(),
+                "duplicate" => invalid.grants.push(invalid.grants[0].clone()),
+                _ => invalid.grants[0].grant_id = "other-new-grant".into(),
+            }
+            json_write(&candidate, &invalid).unwrap();
+            assert!(
+                reauthorize(&restored_policy, &candidate, &review).is_err(),
+                "{bad}"
+            );
+            assert_eq!(read(&restored_policy).unwrap(), before);
+        }
         json_write(&candidate, &next).unwrap();
         reauthorize(&restored_policy, &candidate, &review).unwrap();
         let active: ServiceConfig =
