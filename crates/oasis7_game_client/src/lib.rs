@@ -598,3 +598,6 @@ pub mod dev_test_private_config;
 
 #[cfg(unix)]
 pub mod dev_test_sessions;
+
+#[cfg(unix)]
+pub mod dev_test_operations;

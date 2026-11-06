@@ -166,67 +166,8 @@ pub fn dispatch(config: &Config, request: &Request, now: u64) -> Response {
     }
 }
 
-fn usage_key(grant: &str, caller: &str) -> String {
-    let mut hash = blake3::Hasher::new();
-    hash.update(&(grant.len() as u64).to_be_bytes());
-    hash.update(grant.as_bytes());
-    hash.update(&(caller.len() as u64).to_be_bytes());
-    hash.update(caller.as_bytes());
-    hash.finalize().to_hex().to_string()
-}
-
 fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
-    use std::io::Write;
-    use std::os::unix::{
-        fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
-        io::AsRawFd,
-    };
-    let directory = &config.usage_directory;
-    let metadata =
-        std::fs::symlink_metadata(directory).map_err(|_| "usage_directory_unavailable")?;
-    if !metadata.is_dir()
-        || metadata.permissions().mode() & 0o077 != 0
-        || metadata.uid() != unsafe { libc::geteuid() }
-    {
-        return Err("private_usage_directory_required");
-    }
-    let key = usage_key(&config.grant_id, caller);
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(directory.join(format!("{key}.lock")))
-        .map_err(|_| "usage_lock_failed")?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err("usage_lock_failed");
-    }
-    let path = directory.join(format!("{key}.json"));
-    let used: u64 = match std::fs::read_to_string(&path) {
-        Ok(value) => value.parse().map_err(|_| "invalid_usage_record")?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(_) => return Err("usage_unavailable"),
-    };
-    if used >= config.max_calls {
-        return Err("call_limit_exhausted");
-    }
-    let temporary = directory.join(format!("{key}.pending"));
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&temporary)
-        .map_err(|_| "usage_write_failed")?;
-    file.write_all((used + 1).to_string().as_bytes())
-        .and_then(|_| file.sync_all())
-        .map_err(|_| "usage_write_failed")?;
-    std::fs::rename(temporary, path).map_err(|_| "usage_write_failed")?;
-    std::fs::File::open(directory)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| "usage_write_failed")?;
-    Ok(())
+    crate::dev_test_operations::admit_read(config, caller)
 }
 
 #[cfg(unix)]
@@ -553,13 +494,15 @@ mod tests {
             }
         });
         let started = Instant::now();
-        assert!(read_until(
-            &mut reader,
-            &mut Vec::new(),
-            1024,
-            started + Duration::from_millis(75)
-        )
-        .is_err());
+        assert!(
+            read_until(
+                &mut reader,
+                &mut Vec::new(),
+                1024,
+                started + Duration::from_millis(75)
+            )
+            .is_err()
+        );
         assert!(started.elapsed() < Duration::from_millis(250));
         drop(reader);
         sender.join().unwrap();
@@ -567,11 +510,16 @@ mod tests {
     #[test]
     fn capabilities_enforce_credential_and_closed_methods() {
         use std::os::unix::fs::PermissionsExt;
-        let directory =
-            std::env::temp_dir().join(format!("oasis7-service-test-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("oasis7-service-test-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert_ne!(usage_key("a", "b\0c"), usage_key("a\0b", "c"));
+        assert_ne!(
+            crate::dev_test_operations::usage_key("a", "b\0c"),
+            crate::dev_test_operations::usage_key("a\0b", "c")
+        );
         let request = Request {
             profile: PROFILE.into(),
             audience: AUDIENCE.into(),

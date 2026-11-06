@@ -428,3 +428,54 @@ fn query_only_original_assurance_failure_stops_without_submission() {
 
 #[path = "device_client_lifecycle_tests.rs"]
 mod lifecycle;
+
+#[test]
+fn tool_deadline_prevents_late_submit_and_prepare() {
+    let probe = Probe::new(Fault::DropFirst);
+    let expired = Instant::now() - Duration::from_millis(1);
+    assert!(
+        probe
+            .client
+            .submit_and_poll_until(&probe.original, expired)
+            .is_err()
+    );
+    assert!(
+        probe
+            .client
+            .prefix_until("never-prepared", expired)
+            .is_err()
+    );
+    let movement = oasis7_agent_api::world_action::Action::MoveAgent {
+        agent_id: "a".into(),
+        to: oasis7_agent_api::world_action::GeoPos::new(1, 0, 0),
+    };
+    assert!(
+        probe
+            .client
+            .submit_action_until("never-moved", movement, expired)
+            .is_err()
+    );
+    assert!(
+        probe
+            .client
+            .cached_intent(ClientStateKind::Action, "never-moved")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 0);
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 0);
+}
+#[test]
+fn tool_polling_never_starts_a_retry_after_deadline() {
+    let probe = Probe::new(Fault::DropFirst);
+    let started = Instant::now();
+    assert!(
+        probe
+            .client
+            .submit_and_poll_until(&probe.original, started + Duration::from_millis(50))
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(probe.submits.load(Ordering::SeqCst) <= 1);
+    assert!(probe.lookups.load(Ordering::SeqCst) <= 1);
+}
