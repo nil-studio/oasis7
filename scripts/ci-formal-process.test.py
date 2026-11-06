@@ -477,7 +477,11 @@ class FastTargetInventory(unittest.TestCase):
             ['-p', 'oasis7_runtime', '--lib', '--no-default-features', '--features', 'test_tier_required'],
         ])
         variants = artifacts.build_variants('ordinary', selected)
-        self.assertEqual([command for _, command, _ in variants], [['test', *args, '--no-run'] for args in commands])
+        expected = [['test', *args, '--no-run'] for args in commands]
+        if sys.platform == 'linux':
+            expected.append(['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
+                             '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker'])
+        self.assertEqual([command for _, command, _ in variants], expected)
         self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=selected)), ())
         viewer = self.selection([self.target(package='oasis7_viewer_runtime')])
         viewer['oasis7_required_packages'] = ['oasis7_viewer_runtime']
@@ -567,6 +571,13 @@ class FastTargetInventory(unittest.TestCase):
         for scope in ('ordinary', 'all'):
             full_variants = artifacts.build_variants(scope, selected)
             original = artifacts.build_variants(scope, legacy)
+            if sys.platform == 'linux':
+                worker = (artifacts.RUNTIME_WORKER_VARIANT,
+                          ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
+                           '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker'], ['wasmtime'])
+                self.assertEqual(full_variants[-1], worker)
+                self.assertEqual(original[-1], worker)
+                full_variants, original = full_variants[:-1], original[:-1]
             self.assertEqual(full_variants[:-1], original)
             self.assertEqual(full_variants[-1][1], ['test', '-p', 'oasis7_viewer_codec', '--test', 'pr_fast',
                                                    '--no-default-features', '--features', 'test_tier_required', '--no-run'])
@@ -1324,7 +1335,10 @@ class BuildAndBundles(unittest.TestCase):
         formal = artifacts.build_variants('formal')
         ordinary = artifacts.build_variants('ordinary')
         self.assertEqual({v[0] for v in formal}, {'formal-required', 'runtime', 'endpoint', 'distfs-tests'})
-        self.assertEqual({v[0] for v in ordinary}, {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'})
+        expected_ordinary = {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'}
+        if sys.platform == 'linux':
+            expected_ordinary.add(artifacts.RUNTIME_WORKER_VARIANT)
+        self.assertEqual({v[0] for v in ordinary}, expected_ordinary)
         args = next(args for name, args, _ in formal if name == 'formal-required')
         self.assertIn('--bins', args)
         self.assertIn('--lib', args)
@@ -2644,7 +2658,7 @@ class Process(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'build failed'):
                     artifacts.build(root / 'expanded', 'ordinary', plan=plan)
 
-    def prepare_target_workspace(self, root, source, integration=None, unrelated_source=None):
+    def prepare_target_workspace(self, root, source, integration=None, unrelated_source=None, worker=False):
         (root / 'Cargo.toml').write_text('[workspace]\nmembers=["codec","unrelated"]\nresolver="2"\n')
         for directory, package, text in (
             ('codec', 'oasis7_viewer_codec', source),
@@ -2660,6 +2674,16 @@ class Process(unittest.TestCase):
             (root / 'codec/tests').mkdir()
             (root / 'codec/tests/pr_fast.rs').write_text(integration)
             (root / 'codec/tests/heavy.rs').write_text('compile_error!("unselected integration was compiled");')
+        if worker:
+            # Full Linux bundles must deliver a genuine Cargo-built companion,
+            # even though this fixture's executed harnesses belong to codec.
+            manifest = root / 'Cargo.toml'
+            manifest.write_text(manifest.read_text().replace('"unrelated"]', '"unrelated","worker"]'))
+            (root / 'worker/src').mkdir(parents=True)
+            (root / 'worker/Cargo.toml').write_text(
+                '[package]\nname="oasis7_wasm_executor"\nversion="0.1.0"\nedition="2021"\n'
+                '[features]\nwasmtime=[]\n[[bin]]\nname="oasis7-wasm-worker"\npath="src/main.rs"\n')
+            (root / 'worker/src/main.rs').write_text('fn main() {}\n')
         config = root / 'scripts/ci-formal-process-suites.json'
         config.parent.mkdir()
         config.write_text('{}')
@@ -2836,7 +2860,7 @@ class Process(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             config, sha = self.prepare_target_workspace(root, source('codec', 'runtime'),
-                source('integration'), unrelated_source=source('runtime', 'codec'))
+                source('integration'), unrelated_source=source('runtime', 'codec'), worker=True)
             target = FastTargetInventory().target
             selected = InlineExecutionSelection().selection() | {
                 'architecture': dict(source=sha, tested=sha),
@@ -2888,7 +2912,7 @@ class Process(unittest.TestCase):
                 '#[test] fn common() {}\n'
                 '#[cfg(feature="default")] #[test] fn original_default() {}\n'
                 '#[cfg(not(feature="default"))] #[test] fn fast_only() {}\n'
-                '#[cfg(not(feature="default"))] #[test] fn newly_added() {}\n')
+                '#[cfg(not(feature="default"))] #[test] fn newly_added() {}\n', worker=True)
             target = FastTargetInventory().target(target_kind='lib', target_name='oasis7_viewer_codec', cases=['fast_only'])
             selected = FastTargetInventory().selection([target], full=True)
             selected['architecture'] = dict(source=sha, tested=sha)
@@ -2900,6 +2924,12 @@ class Process(unittest.TestCase):
                 bundle, consumer = root / 'producer', root / 'consumer'
                 artifacts.build(bundle, 'ordinary', plan=selected)
                 manifest = json.loads((bundle / 'manifest.json').read_text())
+                if sys.platform == 'linux':
+                    companion = manifest['worker_companion']
+                    self.assertEqual(companion['package'], 'oasis7_wasm_executor')
+                    self.assertEqual(companion['target'], 'oasis7-wasm-worker')
+                    self.assertEqual(companion['requested_features'], ['wasmtime'])
+                    self.assertTrue((bundle / companion['path']).is_file())
                 self.assertEqual(len(manifest['binaries']), 2)
                 self.assertEqual({entry['target'] for entry in manifest['binaries'].values()}, {'oasis7_viewer_codec'})
                 self.assertEqual(sorted('default' in entry['features'] for entry in manifest['binaries'].values()), [False, True])
