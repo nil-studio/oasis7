@@ -1,0 +1,273 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1084" viewBox="0 0 1536 1084" role="img" aria-labelledby="title desc">
+  <title id="title">密集候选可逐项选择，未知位置保留文字 · UIUX 17</title>
+  <desc id="desc">1440×900 单舞台与按需 Targets。A、B、D 为同一可信位置的三个获准候选，只画一个候选集合标记。选中的 C 位置未知，无地图落点、定位或跟随；原操作 A 的结果保持独立。已加载四个只代表当前获准的部分范围。 设计目标，非运行截图。所有世界、对象与结果为虚构布局样例。实际视口 1440 × 900 CSS px。</desc>
+  <metadata>Issue #5527. Static design target. Player shell only. Source layout baseline: 7df3d7d289789ee844c7486587fb49fd611968d4. No runtime behavior or authorization verification.</metadata>
+  <g font-family="Noto Sans CJK SC, Noto Sans, sans-serif" fill="#edf1e6">
+      <rect x="0" y="0" width="1536" height="1084" rx="0" fill="#0b100f"/>
+      <text x="48" y="28" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">OASIS7 / UIUX 17</text>
+      <text x="1488" y="28" font-size="14" fill="#d0a85b" font-weight="400" text-anchor="end">DESIGN TARGET</text>
+      <text x="48" y="62" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">密集候选可逐项选择，未知位置保留文字</text>
+      <rect x="47" y="91" width="1442" height="902" rx="1" fill="#405346"/>
+    <svg id="viewport" x="48" y="92" width="1440" height="900" viewBox="0 0 1440 900" overflow="hidden">
+      <defs><clipPath id="viewport-clip"><rect width="1440" height="900"/></clipPath></defs>
+      <g clip-path="url(#viewport-clip)">
+      <rect x="0" y="0" width="1440" height="900" rx="0" fill="#050807"/>
+      <rect x="0" y="0" width="1440" height="900" rx="0" fill="#17251e" id="world-stage"/>
+      <rect x="0" y="0" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="448" y="0" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="608" y="0" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="768" y="0" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="928" y="0" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1376" y="0" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="0" y="32" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="320" y="32" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="608" y="32" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="640" y="32" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="928" y="32" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1248" y="32" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="256" y="96" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="576" y="96" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="864" y="96" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="896" y="96" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1184" y="96" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="128" y="128" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="576" y="128" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="736" y="128" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="896" y="128" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1056" y="128" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="384" y="160" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="480" y="160" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="800" y="160" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="896" y="160" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1312" y="160" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1408" y="160" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="128" y="192" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="512" y="192" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="672" y="192" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="896" y="192" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1056" y="192" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="32" y="224" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="96" y="224" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="160" y="224" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="224" y="224" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="960" y="224" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1024" y="224" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1088" y="224" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1152" y="224" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="128" y="256" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="384" y="256" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="544" y="256" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="800" y="256" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1056" y="256" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1312" y="256" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="64" y="288" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="416" y="288" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="640" y="288" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="768" y="288" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="992" y="288" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1344" y="288" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="128" y="320" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="480" y="320" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="672" y="320" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="864" y="320" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1056" y="320" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1408" y="320" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="320" y="352" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="352" y="352" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="768" y="352" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="800" y="352" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1248" y="352" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1280" y="352" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="160" y="384" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="192" y="384" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="224" y="384" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="256" y="384" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1088" y="384" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1120" y="384" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1152" y="384" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1184" y="384" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="32" y="416" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="256" y="416" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="512" y="416" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="736" y="416" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="960" y="416" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1184" y="416" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="416" y="448" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="544" y="448" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="672" y="448" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="800" y="448" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1344" y="448" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="0" y="480" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="96" y="480" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="192" y="480" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="832" y="480" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="928" y="480" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1024" y="480" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1120" y="480" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="0" y="512" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="64" y="512" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="352" y="512" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="640" y="512" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="928" y="512" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="992" y="512" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1280" y="512" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="224" y="544" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="512" y="544" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="576" y="544" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="864" y="544" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1152" y="544" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="384" y="576" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="480" y="576" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="576" y="576" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="672" y="576" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1312" y="576" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1408" y="576" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="32" y="608" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="160" y="608" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="704" y="608" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="832" y="608" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="960" y="608" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1088" y="608" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="64" y="640" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="320" y="640" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="544" y="640" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="768" y="640" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="992" y="640" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1248" y="640" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="320" y="672" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="352" y="672" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="384" y="672" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="416" y="672" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1248" y="672" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1280" y="672" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1312" y="672" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1344" y="672" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="224" y="704" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="256" y="704" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="704" y="704" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="736" y="704" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1152" y="704" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1184" y="704" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="96" y="736" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="448" y="736" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="640" y="736" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="832" y="736" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1024" y="736" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1376" y="736" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="160" y="768" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="512" y="768" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="736" y="768" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="864" y="768" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1088" y="768" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="32" y="800" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="192" y="800" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="448" y="800" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="704" y="800" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="960" y="800" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1120" y="800" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1376" y="800" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="352" y="832" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="416" y="832" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="480" y="832" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="544" y="832" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="1280" y="832" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="1344" y="832" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="1408" y="832" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="64" y="864" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="448" y="864" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="608" y="864" width="32" height="32" rx="0" fill="#203127"/>
+      <rect x="832" y="864" width="32" height="32" rx="0" fill="#1d2d23"/>
+      <rect x="992" y="864" width="32" height="32" rx="0" fill="#1b2c22"/>
+      <rect x="1376" y="864" width="32" height="32" rx="0" fill="#24352a"/>
+      <rect x="96" y="896" width="32" height="4" rx="0" fill="#203127"/>
+      <rect x="192" y="896" width="32" height="4" rx="0" fill="#24352a"/>
+      <rect x="608" y="896" width="32" height="4" rx="0" fill="#1b2c22"/>
+      <rect x="704" y="896" width="32" height="4" rx="0" fill="#1d2d23"/>
+      <rect x="1024" y="896" width="32" height="4" rx="0" fill="#203127"/>
+      <rect x="1120" y="896" width="32" height="4" rx="0" fill="#24352a"/>
+      <rect x="440" y="240" width="300" height="220" rx="0" fill="#28352e"/>
+      <rect x="474" y="272" width="232" height="154" rx="0" fill="#344039" stroke="#475348" stroke-width="1"/>
+      <rect x="496" y="294" width="22" height="36" rx="0" fill="#4b574b"/>
+      <rect x="540" y="294" width="22" height="36" rx="0" fill="#4b574b"/>
+      <rect x="584" y="294" width="22" height="36" rx="0" fill="#4b574b"/>
+      <rect x="628" y="294" width="22" height="36" rx="0" fill="#4b574b"/>
+      <rect x="672" y="294" width="22" height="36" rx="0" fill="#4b574b"/>
+      <rect x="562" y="426" width="48" height="134" rx="0" fill="#475348"/>
+      <rect x="128" y="512" width="482" height="48" rx="0" fill="#475348"/>
+      <rect x="128" y="428" width="48" height="84" rx="0" fill="#475348"/>
+      <rect x="116" y="396" width="72" height="32" rx="0" fill="#344039"/>
+      <text x="24" y="40" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">北侧补给世界</text>
+      <text x="24" y="68" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">当前范围 · 北侧补给区</text>
+      <rect x="872" y="20" width="152" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="948.0" y="48.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">世界动态 · 收起</text>
+      <rect x="24" y="94" width="338" height="72" rx="14" fill="#101412" stroke="#405346" stroke-width="1" id="unknown-target-context"/>
+      <text x="40" y="124" font-size="20" fill="#edf1e6" font-weight="600" text-anchor="start">正在查看 C · 位置未知</text>
+      <text x="40" y="151" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">当前没有对应的地图标记。</text>
+      <circle cx="590" cy="368" r="28" fill="#101412" stroke="#8dc7aa" stroke-width="3"/>
+      <text x="590" y="377" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="middle" id="co-located-count">3</text>
+      <rect x="454" y="438" width="272" height="68" rx="12" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <text x="590" y="466" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="middle">北侧补给站 · 3 个候选</text>
+      <text x="590" y="492" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="middle">同一可信位置 · 在列表中选择</text>
+      <rect x="24" y="670" width="480" height="136" rx="18" fill="#101412" stroke="#405346" stroke-width="1" id="next-move"/>
+      <rect x="24" y="686" width="3" height="104" rx="0" fill="#d0a85b"/>
+      <text x="40" y="696" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="start">下一步 · Next Move</text>
+      <text x="40" y="728" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">了解补给阻碍</text>
+      <rect x="40" y="746" width="448" height="44" rx="12" fill="#d0a85b" stroke="#d0a85b" stroke-width="1" id="next-move-action"/>
+      <text x="264.0" y="774.0" font-size="16" fill="#0b100f" font-weight="600" text-anchor="middle">打开 Command</text>
+      <rect x="528" y="670" width="496" height="136" rx="18" fill="#101412" stroke="#405346" stroke-width="1" id="original-receipt"/>
+      <text x="548" y="698" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">A · 原操作</text>
+      <text x="548" y="728" font-size="16" fill="#dfb66b" font-weight="400" text-anchor="start">结果待确认 · 请核对原操作</text>
+      <rect x="548" y="746" width="168" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="receipt-query"/>
+      <text x="632.0" y="774.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">查询原结果</text>
+      <text x="736" y="775" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">当前仍在观察 C</text>
+      <rect x="344" y="832" width="372" height="56" rx="18" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <rect x="352" y="838" width="112" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="408.0" y="866.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">World</text>
+      <rect x="474" y="838" width="112" height="44" rx="12" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+      <text x="530.0" y="866.0" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="middle">Targets</text>
+      <rect x="596" y="838" width="112" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="652.0" y="866.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">Command</text>
+      <rect x="952" y="838" width="72" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="988.0" y="866.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">更多</text>
+      <rect x="1048" y="0" width="392" height="900" rx="0" fill="#161d19" stroke="#405346" stroke-width="1" id="targets-drawer"/>
+      <text x="1072" y="38" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">Targets</text>
+      <rect x="1368" y="12" width="48" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="targets-close"/>
+      <text x="1392.0" y="40.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">关闭</text>
+      <rect x="1072" y="76" width="344" height="48" rx="12" fill="#0b100f" stroke="#405346" stroke-width="1" id="targets-search"/>
+      <text x="1088" y="107" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">查找获准目标</text>
+      <text x="1072" y="154" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="start">已加载 4 个 · 当前获准范围</text>
+      <text x="1072" y="180" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">部分范围，未加载对象不计入</text>
+      <path d="M 1072 198 L 1416 198" fill="none" stroke="#405346" stroke-width="1"/>
+      <text x="1072" y="226" font-size="16" fill="#8dc7aa" font-weight="600" text-anchor="start">同一位置 · 北侧补给站（3）</text>
+      <rect x="1072" y="242" width="344" height="64" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="candidate-a"/>
+      <text x="1088" y="268" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">A · 侦察员</text>
+      <text x="1088" y="293" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Agent · 当前可信位置</text>
+      <rect x="1072" y="314" width="344" height="64" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="candidate-b"/>
+      <text x="1088" y="340" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">B · 供给员</text>
+      <text x="1088" y="365" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Agent · 当前可信位置</text>
+      <rect x="1072" y="386" width="344" height="64" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="candidate-d"/>
+      <text x="1088" y="412" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">D · 补给站</text>
+      <text x="1088" y="437" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Location · 当前可信位置</text>
+      <text x="1072" y="482" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="start">没有可信位置</text>
+      <rect x="1072" y="498" width="344" height="72" rx="12" fill="#101412" stroke="#d0a85b" stroke-width="2" id="selected-unknown-c"/>
+      <text x="1088" y="526" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">C · 搬运员</text>
+      <text x="1400" y="526" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="end">已选中</text>
+      <text x="1088" y="553" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Agent · 位置未知</text>
+      <path d="M 1072 594 L 1416 594" fill="none" stroke="#405346" stroke-width="1"/>
+      <text x="1072" y="626" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">C · 只读详情</text>
+      <text x="1072" y="658" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">当前位置：未知</text>
+      <text x="1072" y="686" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">没有可信坐标，保留获准资料。</text>
+      <rect x="1072" y="706" width="168" height="44" rx="12" fill="#1b231e" stroke="#344039" stroke-width="1" id="locate-disabled"/>
+      <text x="1156.0" y="734.0" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="middle">定位 · 不可用</text>
+      <rect x="1248" y="706" width="168" height="44" rx="12" fill="#1b231e" stroke="#344039" stroke-width="1" id="follow-disabled"/>
+      <text x="1332.0" y="734.0" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="middle">跟随 · 不可用</text>
+      <text x="1072" y="782" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">位置未知时无法定位或跟随。</text>
+      <text x="1072" y="832" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">资料来源：当前获准投影</text>
+      <text x="1072" y="858" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">无位置不等于对象不存在</text>
+      </g>
+    </svg>
+      <text x="48" y="1022" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">1440 × 900 CSS px · Player · 3 个同位置候选 + 1 个未知位置对象 · 部分获准范围</text>
+      <text x="48" y="1044" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">示例集合标记不改变真实坐标；列表顺序变化不替换选择；撤权时移除受限对象与详情。</text>
+      <text x="48" y="1066" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">静态画面目标，非容量阈值、真实位置、拾取或键盘验证。</text>
+  </g>
+</svg>

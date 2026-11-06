@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<title id="title">原生首局：完整三批生产方案</title>
+<desc id="desc">1440×900 设计目标，非运行截图。已有合法 Smelter 的固定 recipe.smelter.iron_ingot 三批可行报价：消费工厂输入账本 iron_ore 12 与 carbon_fuel 3，预计产出 iron_ingot 9 与副产物 slag 3，配方用电 24，未规定物理单位。此设计 quote 的 duration_ticks 为 1；catalog 基准 1 tick 不等于任何实际报价或墙钟 ETA。报价只读，只有确认生产是提交入口。仅画此状态，缺料和明确拒绝在统一原型中分别走查。</desc>
+<defs><pattern id="terrain" width="148" height="120" patternUnits="userSpaceOnUse"><rect width="148" height="120" fill="#172a20"/><path d="M20 26h24v12H20zM112 76h16v20h-16zM58 98h34v8H58z" fill="#203329"/></pattern></defs>
+<g font-family="Noto Sans CJK SC, sans-serif">
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#102019" stroke="none"/>
+<g id="world-context">
+<rect x="0" y="56" width="944" height="844" rx="0" fill="url(#terrain)" stroke="none"/>
+<path d="M0 553L228 430L408 524L674 378L944 521V900H0Z" fill="#1c3025"/>
+<path d="M-30 730L338 530L565 651L958 432" fill="none" stroke="#3e4737" stroke-width="28"/>
+<path d="M-30 730L338 530L565 651L958 432" fill="none" stroke="#58614a" stroke-width="2" stroke-dasharray="8 12"/>
+<text x="32" y="108" font-size="22" fill="#eaf0e5" font-weight="600" text-anchor="start">首局 · 铁锭生产</text>
+<text x="32" y="138" font-size="14" fill="#b5c0b1" font-weight="400" text-anchor="start">示例世界 / 既有 Smelter</text>
+<rect x="32" y="158" width="170" height="28" rx="4" fill="#11221a" stroke="#4d6552"/>
+<text x="44" y="178" font-size="12" fill="#b5c0b1" font-weight="400" text-anchor="start">场景示意 · 非权威位置</text>
+<g id="smelter-context" stroke-linejoin="round">
+<path d="M269 393L487 278L752 416L530 535Z" fill="#2d4134" stroke="#5a6e52" stroke-width="2"/>
+<path d="M302 388L489 289L715 407L525 507Z" fill="#3a4c3c"/>
+<path d="M360 367L488 300L632 374L503 444Z" fill="#687054" stroke="#8d9571"/>
+<path d="M360 367V454L503 529V444Z" fill="#3f4b39" stroke="#71815c"/>
+<path d="M503 444L632 374V461L503 529Z" fill="#2f3c30" stroke="#5d7253"/>
+<path d="M401 337V260L431 244L460 259V337L431 353Z" fill="#56634a" stroke="#839267"/>
+<path d="M401 260L431 276L460 259M431 276V353" fill="none" stroke="#889676"/>
+<path d="M404 399V443L448 465V421Z" fill="#aa8146" stroke="#d0a85b"/>
+<path d="M416 409V438L437 449V419Z" fill="#d0a85b"/>
+<path d="M548 443V472L580 455V425Z" fill="#15291f" stroke="#73845d"/>
+<path d="M585 423V453L614 438V408Z" fill="#15291f" stroke="#73845d"/>
+<path d="M257 389L257 375L283 361M718 389L748 405V420M285 472L285 486L311 500M515 557L541 544L552 537" fill="none" stroke="#d0a85b" stroke-width="3"/>
+</g>
+<rect x="330" y="554" width="344" height="42" rx="6" fill="#102119" stroke="#6f805d"/>
+<text x="349" y="581" font-size="16" fill="#eaf0e5" font-weight="600" text-anchor="start">Smelter MK1 · 当前方案工厂</text>
+<path d="M490 543V554" stroke="#a6b292"/>
+<g id="agent-context">
+<ellipse cx="768" cy="616" rx="23" ry="9" fill="#102119"/>
+<rect x="756" y="585" width="24" height="24" rx="3" fill="#9ec9ac" stroke="#203d2c"/>
+<rect x="686" y="634" width="203" height="34" rx="6" fill="#102119" stroke="#4d6552"/>
+<text x="702" y="657" font-size="14" fill="#eaf0e5" font-weight="400" text-anchor="start">示例 Agent A · 方案主体</text>
+<path d="M768 613V634" stroke="#a6b292"/>
+</g>
+<g id="next-move">
+<rect x="32" y="640" width="404" height="158" rx="12" fill="#101f18" stroke="#49614d"/>
+<rect x="32" y="652" width="3" height="134" rx="0" fill="#d0a85b" stroke="none"/>
+<text x="54" y="670" font-size="14" fill="#d0a85b" font-weight="600" text-anchor="start">下一步 · Next Move</text>
+<text x="54" y="707" font-size="21" fill="#eaf0e5" font-weight="600" text-anchor="start">核对首笔生产</text>
+<text x="54" y="738" font-size="14" fill="#b5c0b1" font-weight="400" text-anchor="start">既有 Smelter 已就绪（示例条件）。</text>
+<text x="54" y="766" font-size="14" fill="#b5c0b1" font-weight="400" text-anchor="start">确认右侧完整方案后，再提交 3 批。</text>
+</g>
+<text x="32" y="881" font-size="12" fill="#a4b29f" font-weight="400" text-anchor="start">场景几何仅示意；结果以原行动回执为准。</text>
+</g>
+<g id="top-bar">
+<rect x="0" y="0" width="1440" height="56" rx="0" fill="#0b1812" stroke="none"/>
+<path d="M0 56H1440" fill="none" stroke="#3b5143"/>
+<text x="32" y="36" font-size="22" fill="#eaf0e5" font-weight="700" text-anchor="start">OASIS7</text>
+<text x="148" y="35" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">WORLD / 工业起步</text>
+<rect x="1198" y="14" width="210" height="28" rx="5" fill="#202b1e" stroke="#8f7d4a"/>
+<text x="1212" y="34" font-size="14" fill="#dfbe76" font-weight="600" text-anchor="start">设计目标 · 示例数据</text>
+</g>
+<g id="primary-navigation">
+<rect x="268" y="824" width="408" height="56" rx="12" fill="#0b1812" stroke="#49614d"/>
+<text x="322" y="858" font-size="16" fill="#eaf0e5" font-weight="400" text-anchor="start">World</text>
+<text x="441" y="858" font-size="16" fill="#eaf0e5" font-weight="400" text-anchor="start">Targets</text>
+<rect x="532" y="831" width="136" height="42" rx="8" fill="#2b3523" stroke="#d0a85b"/>
+<text x="600" y="858" font-size="16" fill="#dfbe76" font-weight="600" text-anchor="middle">Command</text>
+</g>
+<g id="plan-panel">
+<rect x="944" y="80" width="464" height="728" rx="14" fill="#102119" stroke="#536b55"/>
+<text x="968" y="108" font-size="12" fill="#b5c0b1" font-weight="600" text-anchor="start">COMMAND / GAMEPLAY DETAILS</text>
+<text x="968" y="143" font-size="26" fill="#eaf0e5" font-weight="600" text-anchor="start">生产方案</text>
+<rect x="1274" y="122" width="110" height="28" rx="5" fill="#263521" stroke="#728461"/>
+<text x="1329" y="142" font-size="13" fill="#d4dfc5" font-weight="500" text-anchor="middle">尚未提交</text>
+<text x="968" y="181" font-size="19" fill="#eaf0e5" font-weight="600" text-anchor="start">Smelter MK1</text>
+<text x="1382" y="181" font-size="19" fill="#dfbe76" font-weight="600" text-anchor="end">3 批</text>
+<text x="968" y="206" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">recipe.smelter.iron_ingot</text>
+<path d="M968 224H1384" fill="none" stroke="#3b5143"/>
+<text x="968" y="250" font-size="16" fill="#eaf0e5" font-weight="600" text-anchor="start">本次投入</text>
+<text x="1384" y="250" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="end">工厂输入账本</text>
+<text x="968" y="286" font-size="17" fill="#eaf0e5" font-weight="600" text-anchor="start">铁矿</text>
+<text x="1384" y="286" font-size="22" fill="#eaf0e5" font-weight="600" text-anchor="end">12</text>
+<text x="968" y="309" font-size="13" fill="#aebcaa" font-weight="400" text-anchor="start">iron_ore</text>
+<text x="1384" y="309" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="end">可用 12 / 需要 12</text>
+<path d="M968 322H1384" fill="none" stroke="#2b4232"/>
+<text x="968" y="349" font-size="17" fill="#eaf0e5" font-weight="600" text-anchor="start">碳燃料</text>
+<text x="1384" y="349" font-size="22" fill="#eaf0e5" font-weight="600" text-anchor="end">3</text>
+<text x="968" y="372" font-size="13" fill="#aebcaa" font-weight="400" text-anchor="start">carbon_fuel</text>
+<text x="1384" y="372" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="end">可用 3 / 需要 3</text>
+<path d="M968 385H1384" fill="none" stroke="#2b4232"/>
+<text x="968" y="411" font-size="16" fill="#eaf0e5" font-weight="400" text-anchor="start">配方用电</text>
+<text x="1384" y="411" font-size="22" fill="#eaf0e5" font-weight="600" text-anchor="end">24</text>
+<text x="968" y="432" font-size="12" fill="#b5c0b1" font-weight="400" text-anchor="start">源未指定物理单位</text>
+<rect x="968" y="453" width="200" height="91" rx="8" fill="#1b3023" stroke="#466247"/>
+<rect x="1184" y="453" width="200" height="91" rx="8" fill="#1c2a21" stroke="#466247"/>
+<text x="984" y="477" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">预计产出</text>
+<text x="1200" y="477" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">预计副产物</text>
+<text x="984" y="510" font-size="28" fill="#dfbe76" font-weight="600" text-anchor="start">9</text>
+<text x="1022" y="508" font-size="17" fill="#eaf0e5" font-weight="400" text-anchor="start">铁锭</text>
+<text x="1200" y="510" font-size="28" fill="#d5dec9" font-weight="600" text-anchor="start">3</text>
+<text x="1238" y="508" font-size="17" fill="#eaf0e5" font-weight="400" text-anchor="start">炉渣</text>
+<text x="984" y="532" font-size="12" fill="#b5c0b1" font-weight="400" text-anchor="start">iron_ingot</text>
+<text x="1200" y="532" font-size="12" fill="#b5c0b1" font-weight="400" text-anchor="start">slag</text>
+<text x="968" y="575" font-size="15" fill="#eaf0e5" font-weight="400" text-anchor="start">本次报价时长</text>
+<text x="1384" y="575" font-size="17" fill="#eaf0e5" font-weight="600" text-anchor="end">1 tick</text>
+<text x="968" y="598" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">按当前报价；不是现实时间倒计时。</text>
+<circle cx="975" cy="623" r="6" fill="#9ec9ac"/>
+<text x="990" y="628" font-size="14" fill="#c7dfbf" font-weight="500" text-anchor="start">报价已核对 · 可提交</text>
+<rect x="968" y="647" width="416" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/><text x="1176.0" y="678" font-size="17" fill="#102017" font-weight="600" text-anchor="middle">确认生产 · 3 批</text>
+<rect x="968" y="709" width="416" height="48" rx="8" fill="#182b21" stroke="#58705d"/><text x="1176.0" y="740" font-size="17" fill="#eaf0e5" font-weight="600" text-anchor="middle">返回 World</text>
+<text x="968" y="787" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">› 查看方案原件与有效范围</text>
+</g>
+<text x="968" y="850" font-size="13" fill="#b5c0b1" font-weight="400" text-anchor="start">报价只读；显式确认才创建生产请求。</text>
+</g></svg>

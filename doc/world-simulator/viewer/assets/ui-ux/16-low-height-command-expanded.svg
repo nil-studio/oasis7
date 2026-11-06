@@ -1,0 +1,153 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="574" viewBox="0 0 940 574" role="img" aria-labelledby="title desc">
+  <title id="title">低高度：展开 Command，保留观察与原回执 · UIUX 16</title>
+  <desc id="desc">844×390 单舞台。观察 B、给 C 的未提交草稿、A 的原结果未知分别显示。Command 非模态侧向覆盖，关闭、暂不可用的发送按钮与相邻原因均在视口内。 设计目标，非运行截图。所有世界、对象与结果为虚构布局样例。实际视口 844 × 390 CSS px。</desc>
+  <metadata>Issue #5527. Static design target. Player shell only. Source layout baseline: 7df3d7d289789ee844c7486587fb49fd611968d4. No runtime behavior or authorization verification.</metadata>
+  <g font-family="Noto Sans CJK SC, Noto Sans, sans-serif" fill="#edf1e6">
+      <rect x="0" y="0" width="940" height="574" rx="0" fill="#0b100f"/>
+      <text x="48" y="28" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">OASIS7 / UIUX 16</text>
+      <text x="892" y="28" font-size="14" fill="#d0a85b" font-weight="400" text-anchor="end">DESIGN TARGET</text>
+      <text x="48" y="62" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">低高度：展开 Command，保留观察与原回执</text>
+      <rect x="47" y="91" width="846" height="392" rx="1" fill="#405346"/>
+    <svg id="viewport" x="48" y="92" width="844" height="390" viewBox="0 0 844 390" overflow="hidden">
+      <defs><clipPath id="viewport-clip"><rect width="844" height="390"/></clipPath></defs>
+      <g clip-path="url(#viewport-clip)">
+      <rect x="0" y="0" width="844" height="390" rx="0" fill="#050807"/>
+      <rect x="0" y="0" width="844" height="390" rx="0" fill="#17251e" id="world-stage"/>
+      <rect x="0" y="0" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="336" y="0" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="456" y="0" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="576" y="0" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="696" y="0" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="0" y="24" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="240" y="24" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="456" y="24" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="480" y="24" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="696" y="24" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="192" y="72" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="432" y="72" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="648" y="72" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="672" y="72" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="96" y="96" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="432" y="96" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="552" y="96" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="672" y="96" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="792" y="96" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="288" y="120" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="360" y="120" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="600" y="120" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="672" y="120" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="96" y="144" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="384" y="144" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="504" y="144" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="672" y="144" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="792" y="144" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="24" y="168" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="72" y="168" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="120" y="168" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="168" y="168" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="720" y="168" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="768" y="168" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="816" y="168" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="96" y="192" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="288" y="192" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="408" y="192" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="600" y="192" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="792" y="192" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="48" y="216" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="312" y="216" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="480" y="216" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="576" y="216" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="744" y="216" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="96" y="240" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="360" y="240" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="504" y="240" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="648" y="240" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="792" y="240" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="240" y="264" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="264" y="264" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="576" y="264" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="600" y="264" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="120" y="288" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="144" y="288" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="168" y="288" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="192" y="288" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="816" y="288" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="840" y="288" width="4" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="24" y="312" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="192" y="312" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="384" y="312" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="552" y="312" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="720" y="312" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="312" y="336" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="408" y="336" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="504" y="336" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="600" y="336" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="0" y="360" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="72" y="360" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="144" y="360" width="24" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="624" y="360" width="24" height="24" rx="0" fill="#203127"/>
+      <rect x="696" y="360" width="24" height="24" rx="0" fill="#1b2c22"/>
+      <rect x="768" y="360" width="24" height="24" rx="0" fill="#24352a"/>
+      <rect x="840" y="360" width="4" height="24" rx="0" fill="#1d2d23"/>
+      <rect x="0" y="384" width="24" height="6" rx="0" fill="#1d2d23"/>
+      <rect x="48" y="384" width="24" height="6" rx="0" fill="#203127"/>
+      <rect x="264" y="384" width="24" height="6" rx="0" fill="#1b2c22"/>
+      <rect x="480" y="384" width="24" height="6" rx="0" fill="#24352a"/>
+      <rect x="696" y="384" width="24" height="6" rx="0" fill="#1d2d23"/>
+      <rect x="744" y="384" width="24" height="6" rx="0" fill="#203127"/>
+      <rect x="150" y="62" width="180" height="128" rx="0" fill="#28352e"/>
+      <rect x="172" y="78" width="136" height="94" rx="0" fill="#344039" stroke="#475348" stroke-width="1"/>
+      <rect x="184" y="90" width="18" height="20" rx="0" fill="#4b574b"/>
+      <rect x="212" y="90" width="18" height="20" rx="0" fill="#4b574b"/>
+      <rect x="240" y="90" width="18" height="20" rx="0" fill="#4b574b"/>
+      <rect x="268" y="90" width="18" height="20" rx="0" fill="#4b574b"/>
+      <rect x="228" y="172" width="24" height="50" rx="0" fill="#475348"/>
+      <text x="16" y="32" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">北侧补给世界</text>
+      <rect x="350" y="12" width="116" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="408.0" y="40.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">世界动态</text>
+      <circle cx="240" cy="136" r="15" fill="#8dc7aa" stroke="#050807" stroke-width="3"/>
+      <rect x="215" y="111" width="50" height="50" rx="5" fill="none" stroke="#d0a85b" stroke-width="2"/>
+      <rect x="172" y="166" width="136" height="34" rx="8" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <text x="240" y="189" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">正在查看 B</text>
+      <rect x="16" y="212" width="450" height="50" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="next-move"/>
+      <rect x="16" y="220" width="3" height="34" rx="0" fill="#d0a85b"/>
+      <text x="30" y="234" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="start">下一步 · 编辑给 C 的草稿</text>
+      <text x="30" y="255" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">目标：了解北侧补给的阻碍</text>
+      <rect x="16" y="270" width="450" height="58" rx="12" fill="#101412" stroke="#405346" stroke-width="1" id="original-receipt"/>
+      <text x="30" y="292" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="start">A · 原操作</text>
+      <text x="30" y="316" font-size="16" fill="#dfb66b" font-weight="400" text-anchor="start">结果待确认</text>
+      <rect x="318" y="277" width="136" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="receipt-query"/>
+      <text x="386.0" y="305.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">查询原结果</text>
+      <rect x="72" y="338" width="324" height="48" rx="14" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <rect x="76" y="340" width="100" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="126.0" y="368.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">World</text>
+      <rect x="180" y="340" width="100" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="230.0" y="368.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">Targets</text>
+      <rect x="284" y="340" width="108" height="44" rx="12" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+      <text x="338.0" y="368.0" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="middle">Command</text>
+      <rect x="406" y="340" width="60" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="436.0" y="368.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">更多</text>
+      <rect x="484" y="0" width="360" height="390" rx="0" fill="#161d19" stroke="#405346" stroke-width="1" id="command-drawer"/>
+      <path d="M 484 60 L 844 60" fill="none" stroke="#405346" stroke-width="1"/>
+      <text x="500" y="36" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">Command</text>
+      <rect x="776" y="6" width="56" height="52" rx="15" fill="none" stroke="#d0a85b" stroke-width="2"/>
+      <rect x="780" y="10" width="48" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="command-close"/>
+      <text x="804.0" y="38.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">关闭</text>
+      <text x="500" y="86" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">发送给 C · 搬运员</text>
+      <rect x="500" y="100" width="328" height="104" rx="12" fill="#0b100f" stroke="#405346" stroke-width="1" id="chat-draft"/>
+      <text x="516" y="130" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">请说明北侧补给的阻碍，</text>
+      <text x="516" y="154" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">先给出可选方案。</text>
+      <text x="516" y="190" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">草稿 · Enter 换行</text>
+      <rect x="500" y="216" width="328" height="62" rx="12" fill="#24251c" stroke="#6c6248" stroke-width="1" id="chat-disabled-reason"/>
+      <text x="516" y="241" font-size="16" fill="#dfb66b" font-weight="600" text-anchor="start">尚未配置聊天服务。</text>
+      <text x="516" y="265" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">可继续编辑，当前无法发送。</text>
+      <path d="M 484 310 L 844 310" fill="none" stroke="#405346" stroke-width="1"/>
+      <rect x="500" y="326" width="328" height="44" rx="12" fill="#1b231e" stroke="#344039" stroke-width="1" id="chat-send"/>
+      <text x="664.0" y="354.0" font-size="16" fill="#9ca89a" font-weight="600" text-anchor="middle">Send Chat · 暂不可用</text>
+      </g>
+    </svg>
+      <text x="48" y="512" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">844 × 390 CSS px · Player · 获准查询原结果 / Chat 服务未配置的示例组合</text>
+      <text x="48" y="534" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">关闭只收起 Command；焦点返回 Command 导航；A 的原操作不受影响。</text>
+      <text x="48" y="556" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">静态几何目标，非软键盘、焦点或真实权限验证。</text>
+  </g>
+</svg>

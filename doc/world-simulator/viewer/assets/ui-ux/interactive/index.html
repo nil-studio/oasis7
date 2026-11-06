@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Oasis7 · UI/UE 设计原型 · #5527</title>
+  <link rel="stylesheet" href="prototype.css">
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#stage" id="skip-to-stage">跳到游戏界面</a>
+  <header class="review-bar" aria-label="设计评审工具">
+    <div class="review-brand"><b>OASIS7</b><span>UI/UE · 设计原型</span></div>
+    <nav class="journeys" aria-label="原型旅程">
+      <a href="#entry" data-route="entry">01 进入与指导</a>
+      <a href="#prompt" data-route="prompt">02 Prompt 恢复</a>
+      <a href="#industry" data-route="industry">03 首局生产</a>
+    </nav>
+    <label class="fixture-label">评审情境 <select id="fixture" aria-label="评审情境"></select></label>
+    <label id="readback-label" class="fixture-label" hidden>示例回读 <select id="readback" aria-label="示例回读"><option value="settled">匹配结算</option><option value="unavailable">查询暂不可用</option><option value="rejected">原请求明确拒绝</option><option value="mismatch">另一个 job 的结果</option></select></label>
+    <label id="supply-label" class="fixture-label" hidden>供给读回 <select id="supply" aria-label="供给读回"><option value="2">燃料仍为 2</option><option value="3">外部供给已变为 3</option></select></label>
+    <button id="text-size" type="button" aria-pressed="false">文字 200%</button>
+  </header>
+  <p class="prototype-note">设计目标 · 所有账号、世界、成本和回读均为本地示例，不连接游戏服务。情境切换会重置本地草稿。</p>
+  <main id="stage" tabindex="-1" aria-label="示例世界">
+    <div class="world-art" id="world-art" aria-hidden="true">
+      <svg viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice">
+        <defs><pattern id="terrain" width="100" height="90" patternUnits="userSpaceOnUse"><rect width="100" height="90" fill="#17271f"/><path d="M12 15h22v9H12zM72 65h13v14H72z" fill="#20362a"/></pattern><pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#8dc7aa" stroke-opacity=".04"/></pattern></defs>
+        <rect width="1440" height="900" fill="url(#terrain)"/><rect width="1440" height="900" fill="url(#grid)"/>
+        <path d="M-60 690L370 530 540 570 690 390 1460 520" fill="none" stroke="#405143" stroke-width="54"/>
+        <path d="M-60 690L370 530 540 570 690 390 1460 520" fill="none" stroke="#53604b" stroke-width="22"/>
+        <path d="M380 0L340 140 390 240 310 350 320 470 220 600 270 900" fill="none" stroke="#24433f" stroke-width="64"/>
+        <path d="M380 0L340 140 390 240 310 350 320 470 220 600 270 900" fill="none" stroke="#35605a" stroke-width="18"/>
+        <g fill="#263d30" stroke="#486050" stroke-width="3"><path d="M610 210h330v235H610z"/><path d="M660 150h240v70H660z"/></g>
+        <g fill="#586450"><path d="M640 255h48v80h-48zM710 255h48v80h-48zM780 255h48v80h-48zM850 255h48v80h-48z"/></g>
+        <g fill="#d0a85b"><path d="M657 271h14v30h-14zM727 271h14v30h-14zM797 271h14v30h-14z"/></g>
+        <g fill="#30543c"><path d="M1100 140h35v60h-35zM1075 170h85v25h-85zM1010 650h36v65h-36zM985 682h86v24h-86zM470 150h35v60h-35zM445 180h85v25h-85z"/></g>
+      </svg>
+      <span class="place-name">北侧加工站<br><small>场景几何仅为示意</small></span>
+      <span class="actor actor-a">A</span><span class="actor actor-b">B</span><span class="actor actor-c">C</span>
+    </div>
+    <header class="world-header">
+      <div><p class="eyebrow">OASIS7 / 示例世界</p><h1 id="world-title">北侧补给区</h1></div>
+      <button id="account-button" class="quiet" type="button">示例账号 · 未进入</button>
+    </header>
+    <section id="renderer-message" class="renderer-message" hidden aria-labelledby="renderer-title">
+      <span class="eyebrow">Renderer Unavailable</span><h2 id="renderer-title">世界画面暂不可用</h2>
+      <p>仍可阅读获准的目标、活动与原操作结果。旧画面已停用。</p>
+      <button type="button" data-action="retry-renderer">重试世界画面</button>
+    </section>
+    <aside class="world-feed" aria-label="世界动态"><span class="status-dot"></span><span id="feed-text">世界动态 · 加工站等待补给</span></aside>
+    <div class="world-context" id="world-context"></div>
+    <section id="next-move" class="next-move" aria-labelledby="next-title"></section>
+    <section id="receipt" class="receipt" aria-label="原操作回执" hidden></section>
+    <section id="drawer" class="drawer" aria-labelledby="drawer-title" hidden>
+      <header class="drawer-header"><div><p class="eyebrow" id="drawer-kicker">COMMAND</p><h2 id="drawer-title" tabindex="-1"></h2></div><button id="close-drawer" type="button" aria-label="关闭面板">关闭 <span aria-hidden="true">×</span></button></header>
+      <div id="drawer-content" class="drawer-content"></div>
+    </section>
+    <nav class="world-nav" aria-label="游戏导航">
+      <button id="nav-world" data-panel="world" aria-pressed="true" type="button">World<span>世界</span></button>
+      <button id="nav-targets" data-panel="targets" aria-pressed="false" type="button">Targets<span>目标</span></button>
+      <button id="nav-command" data-panel="command" aria-pressed="false" type="button">Command<span>指令</span></button>
+    </nav>
+    <p id="notice" class="toast" role="status" aria-live="polite"></p>
+  </main>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+    <h2 id="confirm-title">丢弃草稿并重新读取？</h2>
+    <p id="confirm-description">当前未提交的编辑将被替换；这不会撤回已经提交的原请求。</p>
+    <div class="actions"><button id="cancel-confirm" type="button">保留草稿</button><button id="accept-confirm" class="primary" type="button">丢弃并重新读取</button></div>
+  </dialog>
+</body>
+</html>

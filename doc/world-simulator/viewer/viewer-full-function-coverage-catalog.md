@@ -23,6 +23,10 @@
 
 ## 当前源与设计表示
 
+### #5527 设计增补
+
+基于 `7df3d7d289789ee844c7486587fb49fd611968d4` 核对合同后，新增 [Prompt 七个状态画面](viewer-account-agent-uiux.design.md#prompt-state-sheets)、[完整 native 首局方案与成果](first-session-content-delivery.design.md#native-first-session-journey)、[低高度/密集与未知位置/renderer 恢复组合稿](viewer-page-module-design-2026-06-18.design.md#uiux-complete-layout-combinations)，以及[三条可操作设计旅程](viewer-page-module-design-2026-06-18.design.md#uiux-interactive-prototype)。这些是具体设计增补；以下固定源码、实现分类、动态枚举边界和未覆盖项继续保留。七份 SVG 实际渲染与源级 DOM 走查不构成生产实现、全状态覆盖或真实浏览器验收。
+
 字段、动作、条件及精确源行见[派生JSON](assets/ui-ux/full-function/coverage-catalog.json)。下表只是入口，不能凭一个normal frame判整个功能状态覆盖。
 
 | ID / 表面 | 当前状态 | 精确设计条款 | frame / representation |
