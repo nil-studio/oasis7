@@ -1,6 +1,8 @@
+pub mod bounded;
 mod filtering;
 mod metrics;
 
+pub use bounded::{BoundedRouterErrorV1, RouterWorkV1, pre_action_matches_serialized_bounded_v1};
 #[cfg(test)]
 use filtering::ruleset_matches;
 use filtering::{

@@ -59,6 +59,29 @@ pub(crate) fn read_durable_batch(
     root: &Path,
     requests: &[(PathBuf, String, usize)],
 ) -> Result<Vec<Option<Vec<u8>>>, FormalError> {
+    read_durable_batch_inner(root, requests, true)
+}
+/// Admitted callers own the complete parse workspace. No decoded metadata may
+/// escape that workspace into an uncharged process-wide cache.
+pub(crate) fn read_durable_batch_uncached(
+    root: &Path,
+    requests: &[(PathBuf, String, usize)],
+) -> Result<Vec<Option<Vec<u8>>>, FormalError> {
+    #[cfg(unix)]
+    {
+        read_durable_batch_inner(root, requests, false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (root, requests);
+        Err(invalid("admitted physical batch requires Unix"))
+    }
+}
+fn read_durable_batch_inner(
+    root: &Path,
+    requests: &[(PathBuf, String, usize)],
+    use_cache: bool,
+) -> Result<Vec<Option<Vec<u8>>>, FormalError> {
     if requests.len() > COUNT
         || requests
             .iter()
@@ -68,9 +91,11 @@ pub(crate) fn read_durable_batch(
         return Err(invalid("physical batch count/output budget"));
     }
     let _pin = pin(root, false)?;
+    #[cfg(not(unix))]
+    let _ = use_cache;
     #[cfg(unix)]
     {
-        unix::read_batch(requests)
+        unix::read_batch(requests, use_cache)
     }
     #[cfg(not(unix))]
     requests
@@ -227,6 +252,7 @@ mod unix {
     }
     pub(super) fn read_batch(
         requests: &[(PathBuf, String, usize)],
+        use_cache: bool,
     ) -> Result<Vec<Option<Vec<u8>>>, FormalError> {
         let mut output = vec![None; requests.len()];
         let mut anchors: Vec<Anchor> = Vec::new();
@@ -267,7 +293,11 @@ mod unix {
             if after.len() != metadata.len() || bytes.len() as u64 != metadata.len() {
                 return Err(invalid("physical batch anchor changed during read"));
             }
-            let recipe = recipe::decode_recipe_cached(&bytes)?;
+            let recipe = if use_cache {
+                recipe::decode_recipe_cached(&bytes)?
+            } else {
+                std::sync::Arc::new(recipe::decode_recipe(&bytes)?)
+            };
             #[cfg(test)]
             COUNTS.with(|counts| {
                 let (reads, frames, maximum) = counts.get();

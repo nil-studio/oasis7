@@ -1117,3 +1117,6 @@ mod storage_maintenance_tests;
 #[cfg(unix)]
 #[path = "endpoint_incremental_tests.rs"]
 mod incremental_tests;
+
+#[path = "endpoint_local_closure_tests.rs"]
+mod local_closure_tests;

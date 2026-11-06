@@ -156,21 +156,53 @@ pub fn accept_diplomacy_transition_v1<
     max: u64,
 ) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
-    if !parent.uses_budget(ctx.values.memory)
-        || !parent.permits_class(ctx.values.class)
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|r| r == ctx.root)
     {
         return Err(invalid().into());
     }
-    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let source_error = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = source_error {
-        return Err(error.into());
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || !parent.permits_class(ctx.values.class)
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
     }
-    let verified = verified?;
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_diplomacy_verified_v1(parent, &witness, ctx, cells, max)
+}
+
+pub(crate) fn accept_diplomacy_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    cells: &mut u64,
+    max: u64,
+) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
+    if !parent.uses_budget(ctx.values.memory) || !parent.permits_class(ctx.values.class) {
+        return Err(invalid().into());
+    }
+    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
+    let verified = witness.prepared();
     let business = verified
         .record
         .after

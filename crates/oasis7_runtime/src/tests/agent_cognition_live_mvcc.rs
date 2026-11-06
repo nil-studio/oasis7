@@ -6,12 +6,12 @@
 //! documented fixed order and leave the world untouched on every rejection.
 
 use super::super::*;
-use oasis7_agent_api::world_action::GeoPos;
 use crate::agent_state::AgentState;
 use crate::cognition::world_state_binding_digest_v1;
 use crate::cognition_recovery::cognition_digest_v1;
 use crate::util::hash_json;
 use crate::world::derive_agent_chat_request_digest;
+use oasis7_agent_api::world_action::GeoPos;
 use serde_json::{Value, json};
 
 const WORLD_ID: &str = "world-live-mvcc";

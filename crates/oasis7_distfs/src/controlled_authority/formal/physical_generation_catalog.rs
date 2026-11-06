@@ -127,6 +127,7 @@ fn decode(bytes: &[u8]) -> Result<Node, FormalError> {
     if bytes.len() > NODE_BYTES {
         return Err(invalid("generation node byte bound"));
     }
+    metadata_preflight::check(bytes, NODE_BYTES)?;
     let node: Node = serde_cbor::from_slice(bytes).map_err(io)?;
     if serde_cbor::to_vec(&node).map_err(io)? != bytes {
         return Err(invalid("generation node canonical bytes"));
@@ -143,7 +144,11 @@ struct Cache {
     bytes: usize,
 }
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {static CACHE_ACCESSES:std::cell::Cell<u64>=const{std::cell::Cell::new(0)};}
 fn parsed(bytes: &[u8], digest: [u8; 32]) -> Result<Arc<Node>, FormalError> {
+    #[cfg(test)]
+    CACHE_ACCESSES.with(|n| n.set(n.get() + 1));
     let mut cache = CACHE
         .get_or_init(|| Mutex::new(Cache::default()))
         .lock()
@@ -185,13 +190,25 @@ fn parsed(bytes: &[u8], digest: [u8; 32]) -> Result<Arc<Node>, FormalError> {
     Ok(node)
 }
 fn load(dir: &Path, value: &NodeRef, prefix: &str) -> Result<Arc<Node>, FormalError> {
+    load_with_cache(dir, value, prefix, true)
+}
+fn load_with_cache(
+    dir: &Path,
+    value: &NodeRef,
+    prefix: &str,
+    use_cache: bool,
+) -> Result<Arc<Node>, FormalError> {
     reference(value)?;
     let bytes = read(&dir.join(CATALOG).join(&value.digest), NODE_BYTES)?;
     let digest = blake3::hash(&bytes);
     if digest.to_hex().as_str() != value.digest {
         return Err(invalid("generation node checksum"));
     }
-    let node = parsed(&bytes, *digest.as_bytes())?;
+    let node = if use_cache {
+        parsed(&bytes, *digest.as_bytes())?
+    } else {
+        Arc::new(decode(&bytes)?)
+    };
     if node.prefix != prefix || node_count(&node)? != value.count {
         return Err(invalid("generation node path/count binding"));
     }
@@ -443,6 +460,14 @@ fn at(dir: &Path, catalog: &Catalogs, prefix: &str) -> Result<Option<NodeRef>, F
     }
 }
 pub(super) fn contains(dir: &Path, catalog: &Catalogs, id: &str) -> Result<bool, FormalError> {
+    contains_with_cache(dir, catalog, id, true)
+}
+pub(super) fn contains_with_cache(
+    dir: &Path,
+    catalog: &Catalogs,
+    id: &str,
+    use_cache: bool,
+) -> Result<bool, FormalError> {
     hash_hex(id)?;
     validate(catalog)?;
     let Some(mut value) = catalog.root.clone() else {
@@ -450,7 +475,7 @@ pub(super) fn contains(dir: &Path, catalog: &Catalogs, id: &str) -> Result<bool,
     };
     let mut prefix = String::new();
     loop {
-        let node = load(dir, &value, &prefix)?;
+        let node = load_with_cache(dir, &value, &prefix, use_cache)?;
         match &node.kind {
             Kind::Leaf(ids) => {
                 return Ok(ids
@@ -676,4 +701,18 @@ mod tests {
         fs::write(dir.join(CATALOG).join(&root.digest), b"corrupt").unwrap();
         assert!(contains(dir, &all, &ids[0]).is_err());
     }
+    #[test]
+    fn hostile_generation_node_control_key_is_bounded_before_serde() {
+        let bytes = metadata_preflight::hostile_unknown_key(256 << 10);
+        let error = match decode(&bytes) {
+            Err(e) => e,
+            Ok(_) => panic!("unknown node key accepted"),
+        };
+        assert!(format!("{error}").len() < 512);
+    }
+}
+
+#[cfg(test)]
+pub(super) fn cache_accesses() -> u64 {
+    CACHE_ACCESSES.with(std::cell::Cell::get)
 }

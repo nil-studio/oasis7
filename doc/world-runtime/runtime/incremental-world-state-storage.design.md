@@ -267,6 +267,17 @@ Trace refs: O7-REQ-90d4c44a-8042-4f63-94fb-3389d8474e2c、O7-REQ-2d77214a-6c57-4
 
 枚举次数、成员/引用数、逻辑读取字节、内存和删除操作分别有显式上限；排序/集合仅在已预付的固定上界内执行。删除前完整预检，建立固定域的耐久 retire 标记后禁止新页面发布；中断重开允许读取原页，但新写继续受标记阻止。恢复重新验证全部当前 recipe/闭包，不复用旧删除列表。标记初始化的原 magic 真前缀可在独占锁下完成，其他内容明确拒绝；每次实际 unlink 后同步目录；恢复已有标记时，即使当前孤立库存为空，也须重新同步 frames 目录后才可解除隔离。标记 open 尚未成功的初始化失败返回 NotStarted，不声称 writer 已隔离；已创建或已有标记的失败保留 Incomplete。返回已执行数量与同步状态，取消/失败不得报成未改变。最终移除 retire 标记后，root 同步错误或末取消独立返回 Finalization：安全删除已结束，但最终化未正常回执，标记可能已经解除，不能再宣称 writer 仍隔离；重做须完整重验现闭包。原件能力创建、单页/批量页及原件 locator 发布均服从相同 retire fence。多轮继续后无引用 frame 名称收敛；pack 共享 inode 仍有其他名称时不宣称物理空间已释放。完整逻辑 GC、在线并行根保护和 staging 作业清理仍按本节总合同另行接通。
 
+<a id="iws-local-durable-closure"></a>
+#### 本域完整数据闭包的冷恢复凭据
+
+Trace refs: O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接本节保留与恢复合同。
+
+逻辑 accepted head、进程内校验进度或重新打开的 lease 不单独证明本域已有完整持久闭包。需要冷恢复继承时，本域数据闭包记录只能由同一真实候选的完整 Current、双 History、闭合 Result 分派、native/artifact 原件及实际页面、原件 locator 和目录增量同步结果构造。记录分别绑定 Formal record ID、CommitBody ID、RootSet ID、所选 History 来源及受保护页面/native 命名空间身份；不得用其中一个 ID 代替另一个，不保存覆盖全部历史的展开清单。
+
+闭包记录先在本域受保护控制存储中持久化，其摘要再与真正 Qualified checkpoint 的本地元数据在同一 monotonic publication fence 下绑定。该绑定不修改共识 wire；旧格式无该绑定时的编码保持不变。未完成数据闭包不得生成承诺，已有进程内 proof 或 unsigned 诊断文件不能补作该承诺；数据闭包也不授予业务执行或 receipt 权限。
+
+冷读者核验原本域签名/fence、精确 accepted head 与闭包摘要，并以实际打开的句柄核对同一受保护命名空间及有效 lease。只有已证明保持全部引用的发布、替代表示和保留操作可延续该闭包。未知维护状态、退休、替换的命名空间或不完整复制阻止继承；需要完整同步或重建时如实执行并报告，不能称为 C<T 恢复。后继 Ordinary 只继承这份真实父闭包，并核验和持久化新增引用，不重新扫描未变的 S/H。原件流能够读完并通过 hash 仍不足替代 locator、获胜物理表示及目录的持久同步。
+
 <a id="iws-resource-budgets"></a>
 ### 8.2 页面、事务与操作预算
 
@@ -275,6 +286,8 @@ Trace refs: O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c；承接 [REQ-LWS-008](.
 新格式不以整世界或整 snapshot 的 64 MiB Vec 为接口。内存上界由页面、块、事务工作集与同时操作数共同决定，大对象和长历史通过有界树、流和游标处理；完整扫描、hash、校验和导出同样逐页消费，不能在末端重新聚合成覆盖全对象或全历史的 Vec。opaque 大 value、模块/执行工件进入有界 chunk 树，checkpoint 只保存其根，不列出全量块清单。首个实现启用前，Runtime/DistFS/QA 按冻结 workload 明确下表数值和计费方式；ops 给出设备容量余量与恢复目标。文档不虚构通用页大小、并发数或硬时限。
 
 进程级预算统一发放可追踪 reservation，commit、读者、编码/解码、checkpoint、复制/恢复及 GC 的在途额度相加受同一上限约束，不能只给每个线程独立上限。分配、解码或扩大并发前先取得额度；reservation 随 buffer/Arc 所有权转移，缓存淘汰后仍被读者持有的内存继续计费。热尾、索引节点/descriptor、prepared guard、游标、proof、root inventory、mark 工作页与 visited 集均在范围内。
+
+同一次 page-backed 状态校验可显式启用有界正节点缓存，复用实际读得的不可变 content-addressed 页面。调用者分别给出缓存条目和已收费页面字节上限，容器元数据须先按同池、同类别准入；默认关闭，达到上限后继续原有受限读取，不扩大额度或缓存缺失/错误。命中仍核对原请求字节界与取消状态，不跳过逻辑 Merkle、owner 或 scan/work 校验；只减少真实重复物理读取。会话释放后仍被读者持有的 Arc 页面持续携带原费用。该缓存不表示世界资格、原件来源、接受或持久闭包。
 
 | 预算 | 必须覆盖 | 耗尽后的行为 |
 | --- | --- | --- |
@@ -1268,3 +1281,295 @@ Profile-3 endpoint 必须显式安装同一实际 PageStore/pool 的 capability�
 Endpoint 的 `max_pending_node_bytes` 是整次 Merkle 重放的有限暂存总额度，不能用单页 `STATE_MAX_PAGE_BYTES` 作为其最大值；单页 codec/reader/sink 继续执行原单页上限。暂存总额度必须非零，实际每次分配仍先从同一个有限 MemoryBudget/pool 的 Ordinary 配额取得准入，不因显式放宽 caller pending 总额度而免除内存、页数、I/O 或取消验证。
 
 本批 owner registry 对原 ModuleStates/Instances 的兼容解析与 descriptor 计数，不是后续专业 typed ModuleState/Instance 家族的完整资格；新格式不兼容时必须 fail closed，不能把诊断计数提升为完整 World 激活、正常续跑或兼容导入。
+
+
+### Runtime 业务指标与威胁热图的持久字段
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+`logistics_sla_metrics` 使用 Runtime/Business/Value 原 descriptor；一个标准 Metadata 和八个以原列名为 String semantic key 的 Entry 分别保存 completed_transits、fulfilled_transits、breached_transits、total_delay_ticks、urgent_completed_transits、urgent_fulfilled_transits、urgent_breached_transits、urgent_total_delay_ticks，payload 均为原 U64。列之间不从比例或总和推导，饱和计数保持原值。`threat_heatmap` 使用 Runtime/Business/Map 原 descriptor；一个 Metadata 和以原 String map key 定位的 I64 Entry，保留空 key、显式零、负值与缺失的区别。
+
+创世借用原状态并共享 key/work、记录、Value I/O、内存和取消额度。普通写入经同一 ExecutionTransaction 的精确 before 比较、guard/live fence、同池 Ordinary 和读写组合取消处理；缺失 metrics 列或重复/未知列不能当零，热图缺失成员只允许由认证 absence 证明。完整资格扫描要求八个唯一 metrics 列和两个唯一 Metadata，所有相关键的 owner、namespace、shape、kind、原 semantic key 与 payload 必须相互绑定；普通接收只验证实际改变的成员并从精确父资格继承其余列。读取和恢复保留八个独立原计数及每个热图条目的原键值。局部族资格不授予完整 Runtime、World 或启用权限。
+
+
+### Runtime rollback control family
+
+Runtime `rollback_authority_registry`、`consumed_rollback_nonces`、`rollback_nonce_outcomes` 使用 Authorization namespace 的原 FieldDescriptor 与 WorldFieldKeyV1。每个family必须保留Metadata及Unit marker；空集合与遗漏family不同。Registry 按原 authority_id map key、nonce集合与outcomes按原nonce寻址。记录payload是RecordRootRefV1 typed child，schema分别 `runtime.rollback.authority.v1`、`runtime.rollback.outcome.v1`，域内标识绑定原semantic key。
+
+Authority child固定列为authority_id/Text、role/U64（OnCall=0、Governance=1）、public_key_hex/Text、active/Bool；不得从map key补造inner id。整体恢复沿用RollbackAuthorityRegistry::new/validate，包括空registry合法、非空两个角色各一条、active及不同规范Ed25519 key约束。
+
+Outcome child固定列逐一对应RollbackNonceOutcome原字段。原String用Text、原u64及usize用U64且恢复usize检查溢出。readiness_blockers、invalidated_batch_ids用独立child，固定count/U64及原ordinal下Text；dispositions用独立child的原ordinal记录，完整保留source_batch_id、source_event_id、status、compensation、player_id、action_id、system_authored。status为0 PreservedAtTarget、1 Replayed、2 RejectedFork、3 CompensationRequired；compensation的state为0 PendingAuthorization、1 Authorized、2 InProgress、3 Completed、4 Rejected。Option使用独立presence/Bool与Some下全部原列，None不允许内容残留。receipt独立child逐字段保留RollbackReceiptProjection全部原列及readiness_blockers有序列表。每个child固定metadata/Unit marker与schema；拒绝未知列、未知variant、重复/缺列、列表孔洞及count不符。
+
+GEN借用原DTO逐字段输出，不调用任意Serialize；qualified reader核对精确RootSet、域与schema，读入原DTO前取得相同MemoryBudget额度；普通delta沿同一ExecutionTransaction exact guard、live fence与父资格，仅更新受影响child和outer引用，任何错误/取消poison整笔事务。工作量、语义key、Value I/O、pending节点及输出内存均有限预算；原nonce、authority id和内容身份不裁剪或重写。
+
+
+registry 的 Unit 外引用 schema 为 BLAKE3(`runtime.rollback.registry.v1`)。内部统一 descriptor 为 Runtime/Authorization/Map/`rollback_record_child_v1`；authority、outcome 和各自 nested child 分别复用 `runtime.rollback.authority.v1`、`runtime.rollback.outcome.v1` 的 BLAKE3 schema，每层保留 Metadata 和 Unit marker。内部列 key 为 Pair("column", 原列名)，列表成员 key 为 Pair("ordinal", 原 U64 ordinal)；RecordRootRef 绑定即时 semantic key，父 root 链固定完整 scope。私有资格中的借用 DTO fingerprint 仅用于 exact-before 校验，不新增 wire 或业务身份。
+
+### Runtime authorization typed families
+
+五个新增族使用 Runtime owner、Authorization namespace，原字段名 capability_grants_v2、capability_revocation_state、capability_authorization_receipts、capability_invocation_contexts、capability_authorization_root。nonce/budget/effect-link 继续沿用现有 RuntimeCapabilityRecordKindV1，不另编码。
+
+每族 outer Metadata 原字段存在性；map 的每个原 map key 独立绑定 Entry RecordRoot。authorization_root 的 singleton Entry 直接使用原 Text scalar；其他复合 scalar 绑定封闭 child。grants schema 为 BLAKE3(`oasis7.iws.runtime-authorization.capability_grants_v2.v1\0`)；audit/invocation typed child schema 为 BLAKE3(`oasis7.iws.runtime-authorization.columns.v1\0` || `<原字段名>.columns`)，child descriptor 同为 Runtime / Authorization / Map，name 为 `<原字段名>.columns`；嵌套结构以原具名字段路径而不是 Serialize DTO 编码。成员根保留独立原业务 id，不假定等于外层 key。所有 string 使用原 UTF-8；整数保留符号和位宽；Option 使用显式 presence 加 Some 子值；None 不等于空串/空集合。Vec 用原零基 ordinal 和认证数量，map/set 使用原 semantic key 与认证数量，空集合保留 metadata。未知列、重复列、未知 enum、跨 namespace、孤立子节点及缺必需列拒绝。
+
+- grants_v2：原始值本来就是 JsonValue，复用 neutral JSON graph 的封闭 null/bool/number/text/array/object 节点；不 decode 成 CapabilityGrant 再重编码；保留数组顺序和 JSON 数值原类型。
+- authorization_root：单列 `value` Text，保留空串。
+- invocation_contexts：grant_id、subject、presenter、audience、catalog_snapshot_id、module_id、module_version、response_nonce。subject 显式 kind=agent/module/system，并只允许相应原字段：agent_id/owner_binding/generation；module_id/module_version/instance_id；system_id/epoch。presenter 固定 presenter_id/presenter_kind/session_id/attestation_ref；audience 固定 world_id/branch_id/finality_epoch/target_kind/target_id。后两者的字符串枚举按原 DTO 保留，业务 admissibility 仍由原授权 verifier 决定。
+- authorization_receipts：按 CapabilityAuthorizationAuditReceipt 全字段具名列。subject/presenter/audience 原 JSON 使用 JSON graph；其余 string/u64/i64/Option 保持原类型；committed_effect_receipt_ids 为原 String set（子键采用嵌套 Pair `(column, ("member", original_id))`，计数键 `(column, "count")`），不能只保留第一个 receipt。新增字段通过 DTO 无 `..` 解构使缺失映射编译失败。
+- revocation_state：participants、epoch、revoked_grant_ids、superseded_by、authority_records、authority_finality_proofs、finalized_receipt_id、agent_identities、manufactured_identity_acquisition_sequences、agent_signer_delegations、world_service_results、task_terminals_v2、safe_alternatives、system_identities。仅 world_service_results/safe_alternatives 的原 JsonValue 使用 JSON graph。participants 保留 policy、policy_history、migrated_bindings、devlocal_policy_history、bindings、operations 全部子族；SignedReadRequest 保留原 request 和 signature/envelope 字段，不把签名 canonical bytes 转换成不同 identity。authority proof 保留 proof_version、certificate、binding、signatures 全部字段；terminal index 保留显式 revision、原 signed request、closed、committed height/time、Option predecessor canonical CBOR bytes。所有这些嵌套 DTO 也以无 `..` 解构锁定字段集。
+
+完整 family qualification 共享 scan/value/node/depth/cell 限额并在分配前 reservation；token 私有构造，绑定准确 RootSet digest、allocation class 和 memory pool。ordinary receiver 先验证原 parent proof 和真实 TransitionRecord，只资格化受影响新子闭包，禁止旧父不明时凭 changed key 猜完整性。恢复可以完整验证 bootstrap 图，但恢复后需显式 ordinary readmission。业务签名、授权根计算与原审计身份继续由原 verifier 核对；结构资格不授予授权。
+
+共享闭合列读取保留 semantic key 的 Text、Unsigned ordinal 与完整 Pair 树形，不把 ordinal 转成字符串，也不把不同 Pair 结合顺序合并为同一路径。原 UTF8 和嵌套 Pair 在解析与分配前受 reservation、selected heap、key/work 与固定递归深度约束。选择性 DTO wrapper 连同所有原 JSON 的 output reservation 保留至最后持有者释放。
+
+
+### Runtime 治理执行控制记录
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+`governance_execution_policy`、`governance_finality_epoch_snapshots`、`governance_identity_penalties` 保持原 Runtime/Authorization descriptor，分别为 Value、Map、Map。各有唯一 Metadata；policy 的 Unit Entry、snapshot 的原 epoch map key 与 penalty 的原 penalty map key分别指向 typed RecordRoot。RecordRoot 保留 map key 与记录内 epoch_id/penalty_id 独立身份。子树 descriptor 为原字段名加 `.columns`，shape=Map；schema 是 `oasis7.iws.runtime-governance.columns.v1\0` 与该 descriptor 名字节的 BLAKE3。子树包含唯一 Metadata 和全部原列，未知列、缺列、错误 variant/位宽、错误 shape/namespace 和非规范 semantic key 拒绝。
+
+policy 六个原具名字段独立为 U64；两个 guardian threshold 恢复时须落入 u16。snapshot 保留 epoch_id、threshold_bps、min_unique_signers、validator_set_hash、stake_root、threshold；signer_node_ids 原 Vec 逐 ordinal 保存，validator_stakes 原 String map key逐项保存，两集合均有独立 count。penalty 按 GovernanceIdentityPenaltyRecord 的全部原具名字段逐项保存；status 为 Applied=0、Appealed=1、AppealAccepted=2、AppealRejected=3，identity_status_before 为 Active=0、Frozen=1、Expelled=2；detection_risk_score 为 I64，其他数值保留原无符号位宽。每个 Option 使用 `(原列名,"present")` Bool和 Some 下 `(原列名,"value")`，None 不得残留 value。集合 count 使用 `(原列名,"count")`；Vec 元素使用 `(原列名,原U64 ordinal)`，map 成员使用 `(原列名,("member",原String key))`，不得把 ordinal 转成字符串。标量列使用原列名 Text semantic key。
+
+GEN 穷尽借用原 DTO，不使用任意 Serialize；恢复先取得列、字符串、集合及输出容器的同池预算，验证每个原 semantic key 和 payload 后重建原 DTO，完整消费所有列。ordinary 更新绑定 exact parent proof、guard/live 和同一事务，仅修改受影响列及原 outer rootref；不重扫其他治理记录。该族不授予治理执行权限、正式 head 接受或完整 World 启用资格。
+
+
+### Runtime CapabilityRevocationState typed 闭包
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1。
+
+`capability_revocation_state` 保持 Runtime/Authorization/Value descriptor；外层 Metadata 与 Unit Entry/RecordRoot 指向 `capability_revocation_state.columns` 的 Authorization typed child tree。schema 为 BLAKE3(`oasis7.iws.runtime-revocation.columns.v1\0`)，所有子树引用绑定同 descriptor 的 semantic owner digest、schema 与实际 child root。不得把原 DTO 经任意 Serialize 转 JSON/CBOR 作为字段值。
+
+每个 struct 子树为 Metadata 加全部原具名字段 Entry；writer 穷尽解构原 DTO，新增字段须显式适配。String/U64/I64/Bool 使用既有封闭 codec，u8/u16/u32 恢复须原范围校验。DecimalU64 保存原 u64。Option 的 None 为 Unit，Some 保存原字段类型的直接 payload 或 typed child root；空 struct/空集合仍有显式子树。序列子树保存 `_length` U64 和连续原 u64 ordinal Entry；map/set 保存 Text `_length` 控制列，成员使用 Pair("entry", 原 String key)，set payload 为 Bool(true)，避免原 key 为 `_length` 时与控制列冲突。缺列、额外列、重复/越界 ordinal、错误 codec/schema/owner/namespace、错误长度与不闭合引用均失败，不通过缺省字段修复。
+
+完整范围包括 participants 的 policy、policy_history、migrated_bindings、devlocal_policy_history、bindings、operations 及其原签名请求、迁移 manifest、certificate/signatures；epoch/revoked_grant_ids/superseded_by；authority_records 与 authority_finality_proofs（原 binding、certificate、signatures）；finalized_receipt_id；agent_identities/manufactured_identity_acquisition_sequences/agent_signer_delegations；world_service_results；task_terminals_v2（原 schema_revision、records、完整 Owner signed cleanup request、committed高度/时间、原可选 predecessor bytes、closed及其 fence/predicate）；safe_alternatives；system_identities。GameTaskFence 的可选原 goal reference/executor binding 和全部原枚举 discriminant 亦封闭保存。仅原 world_service_results/safe_alternatives JSON 值使用原 JSON neutral graph；其他签名或证书不转 JSON。
+
+冷恢复先认证完整 typed 子树并共享实际 State/Value/scan/semantic/bytes 预算；每层 DTO、集合、字符串、bytes 与 charged column carrier 的同时存活均预先计费，输出 reservation 随 DTO 保留。共享事务 mutation 复用 parent qualification、同池 Ordinary、guard/live、exact-before、组合取消及整笔 poison；receiver 独立 replay 并验证修改后完整 revocation 闭包后方可继承资格。Recovery 到 Ordinary 必须显式 readmission。上述 typed 内容资格不授予业务权限或完整 WorldReady。
+
+枚举与 bytes 的具体封闭编码：GameTaskStatusV1 为原列 U64，Suspended=0、Active=1，其他值拒绝。GameTaskClosePredicateV2 为 typed child（Metadata、Text("tag")/U64、Text("value")）：InitialActive 的 tag=0/value=Unit；OwnStopSuspended 的 tag=1/value=原 GameOwnStopReferenceV2 typed child root；额外列和其他 tag 拒绝。TaskTerminalRecordV2.stop_predecessor_canonical_cbor 的 None=Unit，Some 为绑定原列 semantic hash 的 RecordRoot，指向 Runtime/Authorization/ByteMap descriptor `capability_revocation_state.bytes`；schema 为 BLAKE3(`oasis7.iws.runtime-revocation.bytes.v1\0`)。该子树只有 Metadata 与 semantic Unit、record kind Bytes、payload Bytes 两叶，含空 bytes；不得放宽原 codec 使 Map/Entry 直接接受 Bytes。所有集合长度为 Text("_length")/U64，map/set 项为 Pair(Text("entry"), Text(原 key))，Vec 项为原 U64 ordinal；因此保留原 key 为 `_length` 的记录。签名请求的三个原字段 request/subject_public_key/signature_hex 全部必需，request 仍是原 typed DTO，而非重新序列化的签名材料。
+
+
+### Runtime manifest proposals
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+`proposals` 是 Runtime/Map/Authorization 字段，区别于 WorldState 的 `governance_proposals`。外层保留唯一 Metadata；每个原 ProposalId/u64 map key 的 Entry/RecordRoot 绑定原 unsigned semantic key digest、Authorization namespace 与 BLAKE3(`oasis7.iws.runtime-proposal.columns.v1\0`)。内部 `id` 原值独立保留，不与外层 key 比较、归一化或回填。child descriptor 为 Runtime/Map/Authorization/name=`proposals.columns`。
+
+子树唯一 Metadata；以下闭合列全部必需，条件列仅在对应 Option/variant 为真时存在。文本 UTF8、u64、Vec ordinal 和 original JsonValue 保持原语义。
+
+- Text columns：`author`、`base_manifest_hash`。U64 columns：`id`、`timelock_ticks`。
+- `manifest` 的 version/content 复用既有 `visit_artifact_world_manifest_v1` 穷尽借用接口：对应 `manifest.version` U64 与 `manifest.content` 原 JsonValue 认证图引用。只把原 `Manifest.content` 当 JSON，不把 Manifest DTO Serialize。原 JSON number 种类与 f64 bits 保留，-0.0 不等于 +0.0。
+- `queued_at_tick`、`not_before_tick`、`activate_epoch` 各用 `(name,"present")` Bool 与 Some 时 `(name,"value")` U64；None 与 Some(0) 不同。
+- `patch` 用 `("patch","present")` Bool。Some 时 `patch.base_manifest_hash` Text；`patch.new_version` 显式 Option/U64；`patch.ops.count` U64。原 `ManifestPatch.ops` 使用零基 u64 ordinal，不排序或去重；每个 ordinal 的闭合 op 列组以 `(Text("patch.ops"), (Unsigned(ordinal), Text("kind")))` 存 kind U64：Set=0、Remove=1。两种 op 均以相同地址中的 Text("path.count") 存路径长度，并以 `(Text("patch.ops"), (Unsigned(op_ordinal), (Text("path"), Unsigned(segment_ordinal))))` 存原 Text path segment（空串不改）；Set 另有 Text("value") 的原 JSON 图引用，Remove 禁止此列。None patch 不允许任何 patch 子列，Some(empty ops) 与 None 不同。
+- `status.kind` U64：Proposed=0、Shadowed=1、Approved=2、Rejected=3、Applied=4。Shadowed/Approved/Applied 有 `status.manifest_hash` Text；Approved 另有 `status.approver` Text；Rejected 只有 `status.reason` Text；Proposed 不允许任何 status data 子列。未知 tag 和其他 variant 遗留列拒绝。
+
+JSON 子图使用独立固定 `proposals.json` Runtime/Map/Authorization descriptor，schema BLAKE3(`oasis7.iws.runtime-proposal.json.v1\0`)；所有引用绑定完整原 semantic address（包括 op ordinal），防止同内容的不同原位置误绑定。JSON 使用既有 neutral bounded engine，选中 DTO 恢复保留其单独 output reservation。
+
+GEN 对 Proposal、ManifestPatch、ManifestPatchOp、ProposalStatus 无 `..` 穷尽借用；恢复先全量验闭合列/原 key/codec/namespace，保留完整 Pair 结构，U64 ordinal 不等于十进制 Text。缺列、重复、未知列、非法 Option、错误长度/ordinal、未知 variant、错误引用 hash、错误 record schema 或残余子图拒绝。输出 DTO、Patch Vec/path Vec 容器及字符串先取得 shared process reservation，charge 随最后持有者释放；父 proof 准确绑定 RootSet、phase 和 pool。
+
+Bootstrap/Recovery 完整验证全部原记录；分页外根与所有子图使用连续有限 scan/JSON work。Recovery proof 不能直接执行 ordinary 更新，须显式同池/同根 readmission。ordinary setter 检查真实 parent proof、guard/live、原 key、同 txn 当前值和 exact expected，NoOp 也检查取消。producer/reader/typed comparison 全过程组合读写取消，后续任何错误 poison 整笔事务；receiver 验证真实 TransitionRecord 并只检查受影响新闭包，不能用全部拒绝替代合法后继工作。proposal 状态更新可采用点列编辑避免重新构造无变化 Manifest/patch 图；完整原记录替换只用于已有业务真正替换这些内容的情况。签名、manifest hash、提案审批和激活合法性仍由原 Runtime 业务 verifier 所有，本结构资格不授予治理权限或完整 World 启用资格。
+
+
+### 完整 owner 校验的代码边界
+
+ModuleState 与 ModuleInstance 的纯结构闭包、增量接收及恢复资格由 `oasis7_world_state` 提供，供 Runtime 和存储端点复用。Runtime 保留原借用生产者、业务/模块调用、执行权限、共享事务贡献和既有 Rust 入口的重导出；存储端点不为调用结构校验引入对 Runtime 执行层的依赖。资格仍私有构造并绑定原 RootSet、同池与分配 class；下移不改变逻辑 key、原值、原 wire 或接受权限，也不让尚未完整的 owner registry 自动合格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5。
+
+完整 WorldState 闭包必须逐项覆盖 `WorldRulesStateV1` 的十三个原字段。已实现治理效果、组织 case/estate、供给 authorization/batch/lineage/shipment 不代表 requests、organization_continuity、emergency_supply、agent_orders、industrial_work、substitution 已覆盖。缺少任一项的生产、认证接收或恢复适配时，完整 owner 资格和启用仍须拒绝；不以初始为空、普通测试未触发或可从其他日志推导替代原字段。可选 world_rules 的 None 与 Some(全空) 继续由唯一原父 marker 区分，各子族组合不得重复生产该 marker。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5。
+
+industrial_work 与 substitution 使用原 world_rules descriptor 的 Entry，semantic key 分别为 Pair(Text(原分支名), Unit)，payload 为绑定该 key 的 RecordRoot；None world_rules 禁止子根，Some 的空分支仍有显式子根。子树 descriptor 是 WorldState/Map/Authorization，名字分别为 `world_rules.industrial_work.columns`、`world_rules.substitution.columns`；schema 分别为 BLAKE3(`oasis7.iws.world-rule-industrial-work.columns.v1\0`)、BLAKE3(`oasis7.iws.world-rule-substitution.columns.v1\0`)。原 struct 的每个具名字段均必需，map/set 使用 `_length` 与 Pair(Text("entry"), 原 key)，Vec 使用 `_length` 与原 u64 ordinal；每层 Metadata、schema、namespace、closed shape 和长度独立验证。具体 DTO 通过穷尽 typed 访问适配，不经任意 Serialize，也不因派生 serde 的空字段省略而删除原值。Option 的 None 使用 Unit，Some 的复合值使用 typed child，保留 Some(empty)；带数据枚举使用含 U64 tag 和该 variant 全部原字段的闭合子树，无数据枚举也使用该子树，避免与外层 Option None 混淆。Recovery 的完整输出保留所有原引用、顺序、枚举、数量和 reservation；ordinary 更新须沿精确父根路径修改选中记录，独立 receiver 跳过根未变的已认证子图，不能以整个分支重新编码代替小更新。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+上述工业枚举子树的 Text("tag")/U64 固定映射：MaterialLedgerId 为 World=0、Agent=1、Site=2、Factory=3，后三者的原单个 String 位于 Text("value")；IndustrialDisposition 为 Hold=0、Terminate=1；SubstitutionSelection 为 SameMaterialSource=0、ProfileRule=1、NewRecipe=2，各具名字段使用原名；SubstitutionCandidateKind 为 SameMaterial=0、ProfileSubstitute=1、NewRecipe=2；SubstitutionPreviewStatus 为 Available=0、NoLegalSubstitute=1、Unknown=2；SubstitutionScope 为 DecisionOnly=0、DecisionAndExactConversion=1；SubstitutionRounding 为 Exact=0、Ceil=1；SubstitutionResidual 为 Reject=0、Retain=1；SubstitutionConversion 为 None=0、Required=1，Required 必须有原 converter typed child。未知 tag、缺列及任何其他 variant 的遗留列均拒绝。
+
+
+创世六根索引组合使用同一个 PageStore 和 MemoryBudget：typed owner 顺序贡献已计费 ExecutionWrite，组合器最多暂存 64 条，按固定 namespace 分批构建 sparse-Merkle 增量并持久化新页；不保存完整写集 Vec。每条写入都必须是 absent→present，重复 key（含跨批重复）拒绝，不因值相同而忽略冲突。行、新节点、新字节、暂存逻辑页和物理 I/O 各有持续额度，建树临时容器在构建前单独取得 Ordinary 准入，取消贯穿读页和写页。生产者失败、panic 或吞掉 sink 错误后组合器永久不可 finish。输出只是已持久化的 provisional RootSet，完整字段/历史闭包、原 authority 接受和 head 选择仍是独立的必需步骤；空输出不获得完整世界资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+### WorldState 完整 GEN 与原字段逐记录适配
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+`prepare_world_state_genesis_v1` 借用原 WorldState、单个 MemberRecordWriteContext 与显式 WorldStateGenesisWorkV1，向同一 charged ExecutionWrite sink 流式贡献。101 项字段表中必须恰好覆盖 97 项 State 字段；module_states 委派给 Runtime 原 opaque 字节生产器，agents/module_instances 委派给原 Children 生产器，retained_history_root 委派给 ProofLedger。静态无省略解构和 descriptor 表双向核对；未知字段、重复或缺失 Metadata、错误 owner/namespace、外来内存池、非 absent→present 均失败。所有空字段仍有唯一 Metadata，world_rules 的 None 与 Some(empty) 保留唯一区分标记，十三个原分支全部贡献且不重复生产父 Metadata。
+
+组合器复用既有字段族的原生产器与有限 Work，不重置 I/O、semantic key、record 或 typed tree 额度。Inventory 原 StateWrite 的 reservation 保留到消费结束，ExecutionWrite 转换在复制 key 前另取 Ordinary 准入，并随输出保留。sink、source、取消或预算失败不产生部分成功资格，调用方废弃全部 provisional 前缀。
+
+此前缺少生产器的 23 项原字段使用唯一 native 逐记录封闭协议。原 Map 的 String/u64 外层 key 独立保留，不以 DTO 内部 ID 替换；Value 使用 Unit key，即使原值为 None 仍有 Entry。每字段唯一原 Metadata，每记录 Entry/RecordRoot 指向 WorldState/Map/原 namespace 的 `<field>.columns`；schema 为 BLAKE3(`oasis7.iws.world-native.record.v1\0` || 原 field name bytes)。body 恰为 Metadata 和 Text("value")，原 T 继续采用封闭 typed codec，所有 struct 原字段无省略穷尽访问；不经 DTO Serialize，不将整个 map 聚合为一个记录。
+
+工业九项为 product_validation_receipts、product_profiles、latest_product_validation、recipe_profiles、factory_profiles、factory_construction_receipts、product_validation_attempts、factory_recycle_receipts、industry_progress。gameplay/module 七项为 gameplay_policy、agent_claims、starter_oc_claims、meta_progress、module_admission_freezes、module_release_requests、module_release_manifest_mappings。治理与资金七项为 governance_finality_signer_registry、governance_main_token_controller_registry、main_token_node_points_bridge_records、main_token_treasury_distribution_records、restricted_starter_claim_liveops_pool_top_up_records、governance_validator_admissions、governance_finality_key_rotations；实现必须以 WORLD_STATE_FIELDS 的实际原名为准，不建立别名或回填。
+
+原 Option、整数宽度/符号、Vec 原顺序与重复项、map 原 key 和空字符串完整保留。ModuleSubscription.filters 仅因其原类型为 JSON 而复用原 JSON codec，保留 f64 -0.0 位身份；其他 DTO 不转 JSON。所有 enum 使用封闭 tagged child，unit variant 仍有 child，未知 tag、缺列及其他 variant 遗留列拒绝。FinalityKeyRotation 原记录最多 256 项，原 key 须非空、无首尾空白且至多 256 bytes，与原 body.rotation_id 完全一致；原 authorized action 与 record.validate 校验不被结构资格替代。持久化 binding 验证只点读 value/authorized_action/action/body/rotation_id，但完整字段资格仍须认证其他全部内容。
+
+上述 GEN、选中记录冷恢复与字段资格只证明受测结构；完整 History、原件、物理可用性、原 authority 接受、active head 和恢复后合法续写仍是完整启用的必要条件，不以成功计数或空世界测试替代。
+
+
+Runtime 的 pending_actions 为独立 Ordered/Scheduler 字段。GEN 保存唯一 Metadata 和每个原队列位置的 Entry；语义键为 Pair(U64 era, U64 ordinal)，GEN 固定 era=0、ordinal 从零连续递增，不按 action ID 排序或去重。Entry 使用 RecordRoot，绑定 pending_actions.columns 固定 schema、原 Pair 键摘要及 Scheduler 根。封闭字段为 original_id（64 字节小写十六进制 Text）、original_bytes（非零 U64）和 envelope（完整原 ActionEnvelope 类型投影）。原件回调返回实际 flat digest 和字节长度；完整族验证分别流式编码类型投影和读取实际原件，核对两个独立流的哈希与长度。类型恢复不授予业务接受、History 资格、保留权或物理可用性。保存和恢复不允许将 pending_actions 默认为空。原件、sink、连续 typed/record 预算或取消失败即废弃 provisional 前缀；原件后再检查取消。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+完整 current-state GEN 由 Runtime 唯一组合入口顺序调用 typed 与 dedicated raw 生产器，共享同一 PageStore writer、MemoryBudget、I/O、semantic key work、取消及 charged ExecutionWrite sink，不新建普通事务或发布 head。Runtime typed descriptor 闭合表由 WorldState 层持有并由 Runtime 原字段 projection inventory 核对，使存储端点不反向依赖 Runtime。逐行统一 key router 校验原 owner/name/shape/namespace 和 canonical framing；WorldState module_states 只允许 dedicated 原字节 key family，不接受另一份 generic-field 格式。Agent 子字段、body、mailbox、module instance/count/index、module wakes/index 与四组 allocator 仅接受其既有封闭 key。未知、畸形或错误 namespace 的 key 失败。完整路由资格共享有限 scan 并不收集全部叶子，绑定精确 RootSet、class 和内存池，保留底层 reader 的 typed error；它只认证 key 全覆盖，不替代 typed value、原历史、physical lease 或原 authority 的资格。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+Runtime controls 与 effect-records 的完整族资格必须保存实际分配 class；Ordinary 接收与更新同时核对同池、精确父根、足额 carrier 及 Ordinary class。同池并不使 Recovery 资格自动适用于 Ordinary。显式 readmission 只复制已验证的不可变结构摘要，并在复制前取得 Ordinary 准入；不借此声称 physical lease 或业务授权。module authorization 的独立 receiver 先 replay 真 TransitionRecord；新增原记录完整验证，删除只验证必要旧 outer binding，原记录更新继承未变列并认证实际改变列。effect_kinds 的最终 length、ordinal 区间与数量闭合，policy decision kind 与 reason 列关系独立校验；未知列、fixed 列删增、缺洞或其他 variant 遗留列拒绝。该分支不得为修改 expiry 重读未变的巨大 name/reason，仍共享有限 scan、I/O、key、取消和输出计费。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+
+### Pending Action 原类型结构投影
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+原 ActionEnvelope 的 governance_authorization、committed_recipe_origin、id、action 均以封闭原类型图保存。Action 的 91 个原 variant 使用以下固定 tag；后续只追加，不因Rust声明重排重编号。原Serde/签名/canonical原件wire不改。struct原字段穷尽访问，原JSON字段独占JSON codec；原NodeSettlement的f64直接以U64保存to_bits/from_bits，包含负零和NaN payload，不通过JSON或finite策略改变原值。未知tag、字段、错误kind及残余variant列拒绝。
+
+- 1: WorldRule
+- 2: WorldServiceIntent
+- 3: RegisterAgent
+- 4: MoveAgent
+- 5: QueryObservation
+- 6: EmitObservation
+- 7: BodyAction
+- 8: EmitBodyAttributes
+- 9: ExpandBodyInterface
+- 10: DeployModuleArtifact
+- 11: CompileModuleArtifactFromSource
+- 12: InstallModuleFromArtifact
+- 13: InstallModuleFromArtifactWithFinality
+- 14: InstallModuleToTargetFromArtifact
+- 15: InstallModuleToTargetFromArtifactWithFinality
+- 16: UpgradeModuleFromArtifact
+- 17: UpgradeModuleFromArtifactWithFinality
+- 18: ModuleReleaseSubmit
+- 19: ModuleReleaseShadow
+- 20: ModuleReleaseSubmitAttestation
+- 21: ModuleReleaseApproveRole
+- 22: ModuleReleaseBindRoles
+- 23: ModuleReleaseReject
+- 24: ModuleReleaseApply
+- 25: ModuleReleaseApplyWithFinality
+- 26: RollbackModuleInstance
+- 27: RollbackModuleInstanceWithFinality
+- 28: ListModuleArtifactForSale
+- 29: BuyModuleArtifact
+- 30: DelistModuleArtifact
+- 31: DestroyModuleArtifact
+- 32: PlaceModuleArtifactBid
+- 33: CancelModuleArtifactBid
+- 34: TransferResource
+- 35: CollectData
+- 36: CollectDataAuthenticated
+- 37: GrantDataAccess
+- 38: RevokeDataAccess
+- 39: RedeemPower
+- 40: RedeemPowerSigned
+- 41: ApplyNodePointsSettlementSigned
+- 42: InitializeMainTokenGenesis
+- 43: ClaimMainTokenVesting
+- 44: TransferMainToken
+- 45: ApplyMainTokenEpochIssuance
+- 46: SettleMainTokenFee
+- 47: UpdateMainTokenPolicy
+- 48: DistributeMainTokenTreasury
+- 49: TopUpRestrictedStarterClaimLiveopsPool
+- 50: IssueRestrictedStarterClaimGrant
+- 51: RevokeRestrictedStarterClaimGrant
+- 52: ClaimAgent
+- 53: ClaimStarterOc
+- 54: ReleaseAgentClaim
+- 55: TransferMaterial
+- 56: RegisterLogisticsRoute
+- 57: SetLogisticsRouteAvailability
+- 58: FormAlliance
+- 59: JoinAlliance
+- 60: LeaveAlliance
+- 61: DissolveAlliance
+- 62: DeclareWar
+- 63: OpenGovernanceProposal
+- 64: CastGovernanceVote
+- 65: ResolveCrisis
+- 66: GrantMetaProgress
+- 67: UpdateGameplayPolicy
+- 68: UpdateRestrictedStarterClaimAdminRegistry
+- 69: SubmitGovernanceValidatorAdmission
+- 70: ApproveGovernanceValidatorAdmission
+- 71: ActivateGovernanceValidatorAdmission
+- 72: RevokeGovernanceValidatorAdmission
+- 73: OpenEconomicContract
+- 74: AcceptEconomicContract
+- 75: SettleEconomicContract
+- 76: EmitResourceTransfer
+- 77: BuildFactory
+- 78: BuildFactoryWithModule
+- 79: MaintainFactory
+- 80: RecycleFactory
+- 81: ScheduleEssentialRecipe
+- 82: ScheduleRecipe
+- 83: PauseFactoryProduction
+- 84: ScheduleRecipeWithModule
+- 85: ValidateProduct
+- 86: ValidateProductWithModule
+- 87: GovernMaterialProfile
+- 88: GovernProductProfile
+- 89: GovernRecipeProfile
+- 90: GovernFactoryProfile
+- 91: RotateGovernanceValidatorFinalityKeyV1
+
+Action typed child descriptor 为 Runtime/Map/Scheduler 的 pending_actions.columns，schema BLAKE3(`oasis7.iws.pending-actions.columns.v1\0`)。DeployModuleArtifact.wasm_bytes 和 ModuleSourcePackage.files 的原文件内容不能逐byte变成Vec ordinal树；它们使用 Runtime/ByteMap/Scheduler 的 pending_actions.bytes，schema BLAKE3(`oasis7.iws.pending-actions.bytes.v1\0`)，恰为Metadata与Unit/Bytes-kind/Bytes两叶。files的原String文件名保持map key，文件map另用 schema BLAKE3(`oasis7.iws.pending-actions.files.v1\0`) 的固定profile，不能把所有map entry误判为bytes schema。所有blob引用绑定真实原semantic key与固定byte schema；不放宽Map/Entry接受Bytes，不改common Vec的wire。共享两叶读写器只提供数据操作，不授予任意schema资格。
+
+完整队列资格私有持有与精确 RootSet、分配池及 class 绑定的位置索引。索引仅保留位置、原 action ID、原件引用和已验证 outer value ID，是冷验证后可重建的进程结构，不新增 durable 目录格式。逐节点计费的不可变 path-copy 使删除首项无需重编号其余项。已有位置的原输入不可替换；ordinary 新位置的 era 固定为本事务 after RootSet 的高度，ordinal 从零单调递增，同事务清空也不回退。最终写集合并可消去刚新增又删除的项，因此接收端允许最终 ordinal 空洞，仍验证新 era 与精确提交高度一致。冷资格验证所有位置的 era 不超过当前高度，GEN 高度零的序列仍须连续。这样新项始终排在父队列之后，同事务 ordinal 耗尽也不妨碍下一高度重新从零追加。Recovery→Ordinary 逐节点重新准入，不共享仍由 Recovery 持有的节点。所有索引遍历、扫描和原件流均使用显式有限预算并检查取消；这些结构证据不代替完整 World 与 History 的接受。
+
+### Cognition v3 原件来源摘要与候选接受
+
+三项数学 head/cache 相符不能证明它们来自四项历史索引所引用的实际原件。新格式的冷启动和 C<T 恢复还须恢复这项来源资格；不能为每次 ordinary 提交重扫累计历史，也不能把已解析的 v2 cache 或 caller 提供的成功标志当作来源证明。以下 v3 承诺只适用于新建、明确启用该 typed profile 的世界；现有 v1/v2 bytes、原 hash、原件与既有读取接口保持其原合同，不自动升级旧世界。
+
+v3 selected Result 采用独立 magic `oasis7.cognition.history-view.v3\0`，后接大端 u64 的 v2 payload 字节长度、完整且不变的原 v2 canonical payload，再接固定来源 capsule。解码先核长度上限、精确 framing 和末尾长度，不分配攻击者声明的任意大小缓冲。v2 部分保留 RootSet 摘要、revision、previous-view、四个 index root/count、三个 cache Value ref 和 lifecycle typed ref。capsule profile 为 BLAKE3(`oasis7.cognition.history-source-summary.v3\0`)，随后为 mode u8（bootstrap=0、delta=1），再按 Journal/Economy/Provision 固定顺序写入三组字段，最后为 lifecycle keys 与 journal-records 两个大端 u64。
+
+每组字段固定为：完整 canonical cache state 的摘要 32 bytes、last-present u8、last sequence u64、last semantic digest 32 bytes、最后一项 FactLocation（height u64、ordinal u64、original ID 32 bytes）和原件长度 u64。整数均为大端。last-present 须与该 index 的 count 非零一致；None 的其余字段全零，真实全零摘要仍由 Some 与 None 区分。摘要覆盖原 canonical cache codec 的全部 frontier，不只比较最终数学 head。四个 index 的引用和计数沿用 v2，Responses 的原件来源仍须单独验证；三项 cache 来源证明不能代签嵌套 RuntimeResponseArtifact、provider、receipt 或外部 effect 语义。
+
+对应 v2 cache ref 为 None 时，cache state 摘要须为全零、该 index count 为零且 last 为 None；Some(empty) 则核对真实空 canonical state，不与 Absent 合并，真实 Some 零摘要仍由 v2 ref 的存在性区分。fresh GEN 对 disabled/None Cognition 也产生明确的空来源承诺，后续启用沿已接受空 parent 做合法 delta；不能因缺来源资格自动改走全历史 bootstrap，也不将禁用 Cognition 当作拒绝其他合法世界业务的理由。
+
+候选支路使用独立、私有构造的 CheckedCandidateHistorySourceV3。其实际输入为 VerifiedCandidateContext、CheckedCommitCore、CheckedFactOriginals、候选 typed index 与每项真实 candidate fact occurrence；bootstrap 按原 ordinal、flat ID、长度、schema 及语义链实际流读原件，delta 由已授来源资格的精确 accepted parent 和实际 index Δ、新原件推导。原件直接为 record.raw() 的 canonical CBOR，来源重放与既有 cache builder 消费同一字节流，不猜测 wrapper offset，也不新增 CBOR→JSON 转换。capsule 只能由这种来源证明推导并与候选 Result 精确核对，mode 或 codec/decode 成功不能授资格。完整 World 与 History 的候选闭包同时通过后才可请求正式接受回执。
+
+接受后只允许沿真实 VerifiedFormalCommit 和既有 candidate-fact promotion 桥将同一 candidate/body/roots 的 checked 来源证明提升。v3 冷恢复须认证 exact accepted selected Result occurrence、明确的来源 profile、capsule 与全部固定引用，才能恢复该协议已接受的来源承诺；普通签名、v2 数学 cache 或独立公开元数据不能冒充这项 v3 承诺。当前 head/body ID 不写入自身 Result，避免哈希环；由真实 occurrence 外绑定。previous-view 沿用原认证前驱桥。C<T 后缀逐项从已授来源父资格推导，不挂载 T 全量历史补缺字段。
+
+v3 Result 的保留边包括原 v2 的四项 typed indexes 及全部原件、三项 cache ValueTrees、lifecycle typed graph、previous-view，以及 capsule 中三个 last locator 的 kind/flat ID/长度关系；重复引用也须核对身份。未知 v3/profile 或不能界定的依赖闭包保持 fail-closed，不能据此回收。上述逻辑来源承诺不代替物理代、reader lease、独立副本或完整 GC 验收。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709、O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+选中Action的恢复必须沿该typed图在每次String/Vec/Map分配前同池计费；不能从不受信任CBOR整件from_slice后补算内存，也不以输入bytes乘一个未经证明的常数代替分配边界。原canonical ActionEnvelope bytes继续独立保存；完整队列资格还必须绑定该投影与实际原件的canonical hash/长度，不能只信任caller回调或flat digest。当前新增Codec本身不构成该完整队列资格，也不授予WorldReady。
+
+### Runtime History 原件与当前窗口接线
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709；O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c。
+
+新世界 Runtime History 独立覆盖 `snapshot_catalog`、`journal`、`tick_consensus_records`、`formal_archived_tick_consensus_count`、`tick_consensus_rejection_audit_events` 五项；Cognition History 的证明不替代这些原件。拒绝审计以当前原始 DTO 的八个字段为准，不依据旧清单中的字段计数生成内容。
+
+新增 Runtime History selected Result 与每个新增原件都进入真实候选 FactSet：WorldEvent 保留 Event 原件；SnapshotRecord、TickConsensusRecord、拒绝审计使用带独立 domain/schema 的 Result envelope，内层保留原 DTO 的 canonical CBOR 值。候选接收先对真实 checked core/fact originals 调用 FactOccurrence 校验，再验证原件类型、索引与 capsule；只有实际接受的 FormalCommit 对应 selected Result 可以提升当前 History 资格。原件生产回调、普通对象摘要、解码出的 capsule 或调用方布尔值均不能替代这一步。
+
+有序原件索引继承真实 accepted 前驱，普通提交只证明新增原件与索引变更。当前窗口以已验证索引的起点、数量和终点表示，支持 append、前缀淘汰和已认证前缀截断；不得为每次淘汰重写整个旧前缀。SnapshotRecord 保留原 snapshot_hash、journal_len、created_at、manifest_hash 与 retention；TickConsensusRecord 保留原证书和区块；归档计数与实际认证 tick/归档范围联验，不把 FormalCatalog 的提交高度当作业务 tick 或旧快照 hash。需要归档原件的读请求继续核对实际区间与原件，不依据计数声称物理可用。
+
+WorldJournal 原有 `SHA256(JSON(events))` 是特定快照/导出请求的原始承诺，不能用 CBOR 原件摘要或索引根冒充。新 profile 普通提交与冷启动使用上述有来源的窗口/索引；只有实际请求旧式业务承诺时，按调用者预算流式计算当前窗口。超限或取消保留完整输入并拒绝完成，不截断窗口、不回退到普通提交全量历史计算。
+
+冷读只从实际 accepted selected Result 的精确 profile、绑定根、索引计数与固定极值点恢复逻辑资格；后续按需读取的原件仍须核对类型、ID、长度及 canonical 内容。Recovery 资格须重新申请 Ordinary 载体和索引内存后才可参与后继提交。逻辑资格不授予物理闭包、lease、业务权限或 GC 完成状态。
+
+Runtime History v1 capsule 的固定 wire 为 magic `oasis7.runtime.history-view.v1\0`、当前 RootSet digest 32 字节、previous-view presence 1 字节及 flat ID 32 字节（None 时 ID 全零），随后按 Snapshot、Journal、Tick、Audit 顺序各存 `STATE_ROOT_BYTES` 字节 canonical StateRoot descriptor 与 BE u64 的 total/start/count，最后是 BE u64 retention.max_snapshots 与 archived_tick_count。它不包含自身 Result、FactSet 或 CommitBody ID，避免原件承诺自引用。每个窗口满足 checked `start + count <= total`，Snapshot count 不大于 retention；归档 tick 数与实际认证 tick 前缀/范围一致，不能仅满足数值上界。
+
+四项独立索引 descriptor 为 Runtime / ByteMap / Artifacts 的 `history.snapshot.index.v1`、`history.journal.index.v1`、`history.tick.index.v1`、`history.audit.index.v1`；仅作为 History capsule 的子根，不加入 Runtime46 的当前状态闭合表。索引具有必需 metadata、Unit count 和连续 Ordinal 原件行；每行固定 56 字节：flat ID 32、原件长度 BE u64、接受高度 BE u64、FactSet ordinal BE u64。新增行须与本次真实 checked fact 的 kind、schema、ID、长度及 occurrence 一一绑定；旧行只继承对应已认证索引，窗口截断不授权重写旧行。
+
+Snapshot/Tick/Audit 的 Result 原件 envelope 是 canonical CBOR map，字段 `domain` 固定 `oasis7.runtime.history.original.v1`，`schema` 分别固定 `snapshot-record.v1`、`tick-consensus-record.v1`、`tick-consensus-rejection-audit.v1`，`value` 为实际原 DTO。WorldEvent 继续使用裸 canonical CBOR Event 原件。未知 schema、键、重复/缺失字段、非 canonical 编码、错误 FactKind 或伪造历史 locator 均拒绝。回滚后分支只能引用真实认证的旧前缀，不能用未验证的 index root 或改变 total 伪造继承关系。
+
+新 profile 的 tick 归档由上述真实 typed tick 索引的已验证前缀提供，Tick 行的证书 `consensus_height` 必须等于 ordinal + 1，当前热窗口 `start == archived_tick_count` 且 `count == total - archived_tick_count`。新 profile 的归档读取按该索引打开真实原件并再次核对身份和证书；不生成或伪造旧 JSON 归档段的 relative_path、content_hash 或 hash_chain_anchor，也不迁移既有世界的归档文件。
+
+### 新世界完整格式选择
+
+完整接线使用独立 GenesisConfig `format_profile`：BLAKE3 对字节串 `oasis7.iws.complete-world-format.v1\0native97\0runtime46\0raw-owners-v1\0cognition-history-v3\0runtime-history-v1\0` 的摘要，其中 `\0` 表示一个 NUL 字节。选择入口核对完整原 GenesisConfig digest、world_id 与 RootSet 的绑定；不能只凭 authority profile 3、Result magic、调用者 enabled 标志或旧配置自动进入完整格式路径。格式 scope 只表示配置选择，实际 current-state、两组 History 来源、authority、物理闭包与发布门仍须同时通过。
+
+逻辑来源组合保留当前状态和两组 History 的真实资格载体，核对同一内存池、Ordinary 类别，以及真实 checked Core 的候选记录、CommitBody 和 RootSet 身份。相同 RootSet 不足以替换另一候选提交的来源证明。History 原件生产、受预算约束的解码和来源验证由 WorldState 层持有，Runtime 复用该实现；正式存储端点不得为调用这些能力引入对 Runtime 的反向依赖。组合还必须保留真实 checked FactSet 的闭合 Result 分派资格，绑定两项唯一 selected Result 的精确 occurrence；端点继续完成执行合法性与物理持久化验证后才能发出接收凭证。
+
+该格式仅用于新建世界。普通提交与冷恢复沿已接受前驱的同一配置选择；未知 profile 或缺失完整来源门保持拒绝，不自动重新创世、导入或清理旧世界。组件的逻辑 typed/history 资格不能单独启用节点或发布 active head。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
+
+端点的原件读取同时覆盖本次 ClosedRecord 与明确安装的 IncrementalObjectStore。候选包含某 ID 时必须验证该候选原文；候选原文损坏不得回退到存储中的同 ID 副本掩盖错误。历史原件只从实际对象存储的受预算 reader 打开，物理页与逻辑 ValueTree 配额由调用者持续提供；不使用旧式整对象 CAS 读取冒充有界流。对象能力缺失时拒绝，不在校验阶段自动创建或猜测修复对象存储。流输出在完整长度、原 flat hash 和成功结束前保持暂态，部分写入、下游中止、限额和池不匹配均不能返回原件成功。
+
+
+### 原生 worker 执行兼容验证
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；承接 REQ-LWS-001 的原执行依赖闭包。
+
+封存原生执行文件只证明已验证原件的字节身份，不单独授予 worker 调用资格。Host 从真实候选或已接受 head 的执行材料取得借用 lease，核对原 descriptor 的 target、OS、架构、Executable role、digest、长度及实际不可写文件身份；该 lease 必须覆盖子进程启动、协议执行和 wait 完成，不能把借用文件路径缓存为脱离原件 owner 的权限。
+
+新格式 worker 在实际封存文件上执行有界 `--oasis7-wasm-worker-handshake-v1` 模式，再使用同一封存文件执行原 `--oasis7-wasm-worker-v1` 调用。握手声明实际子进程支持的 worker protocol v1、typed output v1 及已编译的 Wasm/regex 能力；Host 核对本次任务必需能力，未知版本、缺能力、错误输出、取消或进程失败均拒绝。这里的协议版本限定 Host/worker 的执行边界，不替代模块自身的 ABI 校验，也不把 caller 提供的 feature 标签当作子进程能力。握手与调用复用有限输入输出、资源限制和取消合同，不回退到其他磁盘 executable、进程内 VM 或未绑定环境。
+
+主 ELF 的封存不固定内核按 `PT_INTERP` 打开的加载器，也不固定动态加载器重新打开的 DSO。握手只证明执行协议与能力，不能代替原 descriptor 中 LoadedLibrary 和构建环境的完整加载等价。正式 Host 执行还须在执行实际调用的同一子进程内完成原 native 环境的加载绑定，或使用按已验证原件装载的依赖命名空间；仅校验父进程环境、另起握手进程，或保留原件 namespace pin 均不足以证明该条件。此条件未闭合时不得授予完整格式执行资格。
+
+验收需要实际 Linux 封存 worker 的握手与 typed 调用正例，以及错误 executable、版本/能力不匹配、foreign head、取消和 lease 生命周期负例。编译通过、字段被读取或单独保留 descriptor 均不能代签真实 Host 执行；完整执行与持久闭包守卫在其余启用条件满足前继续保留。

@@ -398,3 +398,13 @@ pub(super) fn check_layout(controls: u16, present: &[bool; 20]) -> Result<(), Va
 #[path = "incremental_cognition_group_receiver.rs"]
 mod group_receiver;
 pub use group_receiver::accept_cognition_current_lifecycle_transition_v1;
+
+#[path = "incremental_cognition_current_complete_impl_v3.rs"]
+mod complete_v3;
+pub(crate) use complete_v3::accept_complete_cognition_current_verified_v3;
+pub use complete_v3::{
+    CognitionCurrentCompleteWorkV3, CognitionCurrentPresenceV3,
+    CompleteCognitionCurrentQualificationV3, qualify_complete_cognition_current_v3,
+    readmit_complete_cognition_current_ordinary_v3,
+};
+pub(crate) use group_receiver::CheckedCognitionCurrentEmptyV3;

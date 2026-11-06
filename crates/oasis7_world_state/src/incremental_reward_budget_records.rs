@@ -148,12 +148,15 @@ pub use read::{
 };
 #[path = "incremental_reward_budget_records_closure.rs"]
 mod closure;
-pub use closure::{RewardRecordQualificationV1, qualify_reward_body_v1};
+pub use closure::{
+    RewardRecordQualificationV1, qualify_reward_body_v1, readmit_reward_record_ordinary_v1,
+};
 
 #[path = "incremental_reward_budget_records_family.rs"]
 mod family;
 pub use family::{
     RewardFamilyQualificationV1, open_qualified_reward_record_v1, qualify_reward_family_v1,
+    readmit_reward_family_ordinary_v1,
 };
 
 #[path = "incremental_reward_budget_records_point.rs"]
@@ -180,3 +183,5 @@ pub use pages::{
     RewardFamilyPagesV1, RewardPagesWorkV1, mark_reward_family_pages_v1,
     transfer_reward_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_reward_verified_v1;

@@ -23,9 +23,7 @@ fn manifest(version: &str, wasm_hash: &str) -> ModuleManifest {
         exports: vec!["call".into()],
         subscriptions: Vec::new(),
         required_caps: Vec::new(),
-        artifact_identity: Some(crate::tests::signed_test_artifact_identity(
-            wasm_hash,
-        )),
+        artifact_identity: Some(crate::tests::signed_test_artifact_identity(wasm_hash)),
         limits: ModuleLimits::default(),
     }
 }

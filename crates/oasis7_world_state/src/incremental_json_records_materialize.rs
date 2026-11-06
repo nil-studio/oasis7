@@ -25,6 +25,9 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
     heap: &mut usize,
     depth: usize,
 ) -> Result<Value, ValueTreeError> {
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
     spend(heap, 1024)?;
     if depth > work.max_depth || depth > 64 {
         return Err(ValueTreeError::ResourceLimited("selected JSON depth"));
@@ -53,7 +56,13 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
         )?;
         let length = usize::try_from(info.payload_bytes).map_err(|_| invalid())?;
         spend(heap, length.checked_add(128).ok_or_else(invalid)?)?;
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled);
+        }
         let mut bytes = vec![0; length];
+        if bytes.capacity() > length.checked_add(128).ok_or_else(invalid)? {
+            return Err(invalid());
+        }
         let observed = read::value(
             &frame.ids[3],
             &key,
@@ -77,12 +86,15 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
         });
     }
     let count = usize::try_from(frame.length).map_err(|_| invalid())?;
-    spend(
-        heap,
-        count
-            .checked_mul(std::mem::size_of::<Value>() + 192)
-            .ok_or_else(invalid)?,
-    )?;
+    // Cover both the temporary Option slots and the final Value vector;
+    // the object branch also has ample bounded BTreeMap node metadata.
+    let container_bytes = count
+        .checked_mul(std::mem::size_of::<Option<Value>>() + std::mem::size_of::<Value>() + 192)
+        .ok_or_else(invalid)?;
+    spend(heap, container_bytes)?;
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
     let array = frame.kind == read::Kind::Array;
     let mut children = if array {
         Vec::with_capacity(count)
@@ -91,6 +103,13 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
     };
     if array {
         children.resize_with(count, || None);
+    }
+    if children
+        .capacity()
+        .checked_mul(std::mem::size_of::<Option<Value>>())
+        .is_none_or(|n| n > container_bytes)
+    {
+        return Err(invalid());
     }
     let mut object = serde_json::Map::new();
     let mut actual = 0u64;
@@ -124,7 +143,13 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
             )?;
             let bound = usize::try_from(info.semantic_bytes).map_err(|_| invalid())?;
             spend(heap, bound.checked_add(128).ok_or_else(invalid)?)?;
+            if (records.cancelled)() {
+                return Err(ValueTreeError::Cancelled);
+            }
             member.reserve_exact(bound);
+            if member.capacity() > bound.checked_add(128).ok_or_else(invalid)? {
+                return Err(invalid());
+            }
             let mut probe = read::Probe::new(false, &mut member);
             read_member_record_profile_v1(
                 &entry.value,
@@ -142,6 +167,15 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
             probe.finish()?;
         }
         let value = node(profile, &child, records, work, heap, depth + 1)?;
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        work.cells_remaining =
+            work.cells_remaining
+                .checked_sub(1)
+                .ok_or(ValueTreeError::ResourceLimited(
+                    "selected JSON output cells",
+                ))?;
         if array {
             let index = usize::try_from(ordinal.ok_or_else(invalid)?).map_err(|_| invalid())?;
             let slot = children.get_mut(index).ok_or_else(invalid)?;
@@ -160,12 +194,36 @@ fn node<R: ValueNodeReader, C: FnMut() -> bool>(
         return Err(invalid());
     }
     if array {
-        Ok(Value::Array(
-            children
-                .into_iter()
-                .map(|v| v.ok_or_else(invalid))
-                .collect::<Result<_, _>>()?,
-        ))
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        let mut values = Vec::with_capacity(count);
+        if children
+            .capacity()
+            .checked_mul(std::mem::size_of::<Option<Value>>())
+            .and_then(|n| {
+                values
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<Value>())
+                    .and_then(|m| n.checked_add(m))
+            })
+            .is_none_or(|n| n > container_bytes)
+        {
+            return Err(invalid());
+        }
+        for value in children {
+            if (records.cancelled)() {
+                return Err(ValueTreeError::Cancelled);
+            }
+            work.cells_remaining =
+                work.cells_remaining
+                    .checked_sub(1)
+                    .ok_or(ValueTreeError::ResourceLimited(
+                        "selected JSON array output cells",
+                    ))?;
+            values.push(value.ok_or_else(invalid)?);
+        }
+        Ok(Value::Array(values))
     } else {
         Ok(Value::Object(object))
     }
@@ -183,7 +241,7 @@ pub(crate) fn materialize_records<R: ValueNodeReader, C: FnMut() -> bool>(
         return Err(invalid());
     }
     proof.validate_binding(profile, proof.root())?;
-    let output = records
+    let mut output = records
         .values
         .memory
         .reserve(max_heap_bytes, records.values.class)?;
@@ -196,139 +254,19 @@ pub(crate) fn materialize_records<R: ValueNodeReader, C: FnMut() -> bool>(
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok((value, output))
+    // `heap` tracks every escaping string/container plus conservative node
+    // metadata. Keep that proven bound; release only the unused allowance.
+    let used = max_heap_bytes.checked_sub(heap).ok_or_else(invalid)?;
+    let retained = output.split(used).map_err(ValueTreeError::Invalid)?;
+    drop(output);
+    if (records.cancelled)() {
+        drop(value);
+        drop(retained);
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok((value, retained))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::incremental_inventory_value_read::InventoryValueReader;
-    use crate::incremental_semantic_key::SemanticKeyBudget;
-    use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
-    use oasis7_proto::memory_budget::MemoryBudget;
-    use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
-    type PageMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
-    struct Pages(RefCell<PageMap>);
-    impl ValueNodeWriter for Pages {
-        fn put_node(
-            &mut self,
-            id: [u8; 32],
-            bytes: ReservedValue<Vec<u8>>,
-        ) -> Result<(), ValueTreeError> {
-            self.0.borrow_mut().insert(id, Arc::new(bytes));
-            Ok(())
-        }
-    }
-    impl StatePageWriter for Pages {}
-    impl ValueNodeReader for Pages {
-        fn read_node(
-            &self,
-            id: &[u8; 32],
-            max: usize,
-            memory: &MemoryBudget,
-            class: MemoryClass,
-        ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
-            let pages = self.0.borrow();
-            let bytes = pages
-                .get(id)
-                .ok_or(ValueTreeError::Invalid("selected fixture missing"))?;
-            if bytes.len() > max {
-                return Err(invalid());
-            }
-            Ok(Arc::new(
-                memory.reserve(bytes.len(), class)?.retain(bytes.to_vec()),
-            ))
-        }
-    }
-    fn io() -> ValueIoBudget {
-        ValueIoBudget {
-            nodes_remaining: 1_000_000,
-            read_bytes_remaining: 128 << 20,
-            write_bytes_remaining: 128 << 20,
-        }
-    }
-    fn work() -> JsonReadWorkV1 {
-        JsonReadWorkV1 {
-            cells_remaining: 100_000,
-            json_nodes_remaining: 1000,
-            max_depth: 16,
-            max_payload_bytes: 1 << 20,
-        }
-    }
-    #[test]
-    fn selected_json_materialization_matches_original_and_preserves_sha_json_bytes() {
-        let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
-        let mut pages = Pages(RefCell::new(BTreeMap::new()));
-        let profile = JsonRecordProfileV1 {
-            field: FieldDescriptor {
-                owner: FieldOwner::Runtime,
-                name: "selected.fixture",
-                shape: FieldShape::Map,
-                destination: FieldDestination::State(StateNamespaceV1::Artifacts),
-            },
-            schema: [27; 32],
-        };
-        let original = serde_json::json!({"": [null, true, false, -7, u64::MAX, 1.5, -0.0, "原🙂\u{0000}"], "nested": {"b": [], "a": {}}});
-        let root = prepare_json_subtree_v1(
-            profile,
-            &original,
-            &mut MemberRecordWriteContext {
-                sink: &mut pages,
-                memory: &memory,
-                io: &mut io(),
-                key_work: &mut SemanticKeyBudget {
-                    bytes_remaining: 8 << 20,
-                },
-                limits: MemberRecordLimitsV1 {
-                    semantic_bytes: 1 << 20,
-                    payload_bytes: 1 << 20,
-                    record_bytes: 2 << 20,
-                },
-                cancelled: || false,
-            },
-            &mut JsonWriteWorkV1 {
-                cells_remaining: 100_000,
-                json_nodes_remaining: 1000,
-                max_json_depth: 16,
-                max_pending_node_bytes: 1 << 20,
-            },
-        )
-        .unwrap();
-        let mut quota = io();
-        let mut keys = SemanticKeyBudget {
-            bytes_remaining: 8 << 20,
-        };
-        let mut stop = || false;
-        let mut records = InventoryValueReader {
-            values: &mut ValueReadContext {
-                source: &pages,
-                memory: &memory,
-                class: MemoryClass::Ordinary,
-                io: &mut quota,
-            },
-            key_work: &mut keys,
-            semantic_bytes: 1 << 20,
-            record_bytes: 2 << 20,
-            cancelled: &mut stop,
-        };
-        let proof =
-            qualify_json_subtree_records_v1(profile, &root, &mut records, &mut work()).unwrap();
-        let (value, _charge) =
-            materialize_records(profile, &proof, &mut records, &mut work(), 1 << 20).unwrap();
-        assert_eq!(value, original);
-        assert_eq!(
-            serde_json::to_vec(&value).unwrap(),
-            serde_json::to_vec(&original).unwrap()
-        );
-        assert!(matches!(
-            materialize_records(profile, &proof, &mut records, &mut work(), 0),
-            Err(ValueTreeError::ResourceLimited(_))
-        ));
-        let mut short = work();
-        short.json_nodes_remaining = 0;
-        assert!(matches!(
-            materialize_records(profile, &proof, &mut records, &mut short, 1 << 20),
-            Err(ValueTreeError::ResourceLimited(_))
-        ));
-    }
-}
+#[path = "incremental_json_records_materialize_tests.rs"]
+mod tests;

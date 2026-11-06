@@ -8,7 +8,7 @@ const BIDDER: &str = "retirement-bidder";
 fn dispatch(world: &mut World, action: Action) -> Result<bool, WorldError> {
     world.try_apply_runtime_module_action(&ActionEnvelope {
         governance_authorization: None,
-            committed_recipe_origin: None,
+        committed_recipe_origin: None,
         id: 991,
         action,
     })

@@ -141,6 +141,13 @@ mod key_read;
 mod tree;
 pub use family::{
     IndustryFamilyQualificationV1, IndustryFamilyReadContextV1, qualify_industry_family_v1,
+    readmit_industry_family_ordinary_v1,
+};
+#[path = "incremental_industry_jobs_current_identity.rs"]
+mod current_identity;
+pub use current_identity::{
+    IndustryCurrentOuterChangeV1, IndustryOuterRecordRootV1, IndustryQualifiedOuterIdentityV1,
+    visit_qualified_recipe_parent_identities_v1, visit_recipe_current_outer_changes_v1,
 };
 
 #[path = "incremental_industry_jobs_container.rs"]
@@ -171,3 +178,5 @@ mod pages;
 pub use pages::{
     IndustryFamilyPagesV1, mark_industry_family_pages_v1, transfer_industry_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_industry_verified_v1;

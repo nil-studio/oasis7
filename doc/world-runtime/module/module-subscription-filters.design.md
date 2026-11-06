@@ -35,6 +35,18 @@
 - `eq`/`ne` 的显式 `null` 必须保留为操作数；JSON Pointer 转义必须完整校验。
 - 不在本专题支持复杂脚本型过滤逻辑。
 
+### 根事务 PREACTION 的正则隔离
+
+本条承接同一 `REQ-DWE-001`，并引用执行器的
+[受限正则批处理](../wasm/wasm-executor.design.md#受限-worker-的版本化正则批处理)
+与 `O7-REQ-2d77214a-6c57-4794-bfeb-bb460187085c` 预算合同。
+严格路由在匹配前校验所有 stage 的规则；正则校验也不能因 stage 或 action kind
+不匹配而跳过。compile-only 和 compile/match 使用同一批处理协议，返回结果数必须
+等于请求数。合法正则保留原 regex crate 语义；编译失败或资源/宿主错误中止整个
+根事务，不当作普通不匹配。pattern/text/result 的父进程费用持续到各 owner 释放，
+不使用未计量全局 regex cache。完整 PREACTION 启用须接入实际 sealed worker、
+native descriptor 身份和 Linux 进程验证，单独协议或无 regex 对照测试不解除此条件。
+
 ## 5. 设计演进计划
 - 先固化 filters 结构。
 - 再补路由执行与非法配置拒收。

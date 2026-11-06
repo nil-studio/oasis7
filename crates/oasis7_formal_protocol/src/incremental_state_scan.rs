@@ -85,47 +85,83 @@ pub struct StateScanReader<'a, R, C> {
     pub(crate) leaves: &'a Cell<u64>,
     pub(crate) cancelled: &'a RefCell<C>,
     pub(crate) stop: &'a Cell<Option<Stop>>,
+    pub(crate) failed: Option<&'a Cell<bool>>,
 }
 pub(crate) type Guarded<'a, R, C> = StateScanReader<'a, R, C>;
+// A callback may catch a source/visitor unwind. Keep the scope poisoned even
+// when that unwind skips the normal Result boundary; nested success never
+// clears an earlier failure. Existing readers with no latch keep their policy.
+struct ReaderAttempt<'a> {
+    failed: Option<&'a Cell<bool>>,
+    finished: bool,
+}
+impl<'a> ReaderAttempt<'a> {
+    fn new(failed: Option<&'a Cell<bool>>) -> Self {
+        Self {
+            failed,
+            finished: false,
+        }
+    }
+    fn finish(mut self, failed: bool) {
+        if failed && let Some(latch) = self.failed {
+            latch.set(true);
+        }
+        self.finished = true;
+    }
+}
+impl Drop for ReaderAttempt<'_> {
+    fn drop(&mut self) {
+        if !self.finished
+            && let Some(latch) = self.failed
+        {
+            latch.set(true);
+        }
+    }
+}
 impl<R: MerkleNodeReader, C: FnMut() -> bool> MerkleNodeReader for StateScanReader<'_, R, C> {
     type Node = R::Node;
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Self::Node>, String> {
-        if let Some(stop) = self.stop.get() {
-            return Err(match stop {
-                Stop::Limited => "state scan allowance",
-                Stop::Cancelled => "state scan cancelled",
+        let attempt = ReaderAttempt::new(self.failed);
+        let result = (|| {
+            if let Some(stop) = self.stop.get() {
+                return Err(match stop {
+                    Stop::Limited => "state scan allowance",
+                    Stop::Cancelled => "state scan cancelled",
+                }
+                .into());
             }
-            .into());
-        }
-        if (self.cancelled.borrow_mut())() {
-            self.stop.set(Some(Stop::Cancelled));
-            return Err("state scan cancelled".into());
-        }
-        if self.nodes.get() == 0 || self.bytes.get() == 0 {
-            self.stop.set(Some(Stop::Limited));
-            return Err("state scan allowance".into());
-        }
-        self.nodes.set(self.nodes.get() - 1);
-        let admitted = (max as u64).min(self.bytes.get()) as usize;
-        self.bytes.set(self.bytes.get() - admitted as u64);
-        let result = self.source.read_node(id, admitted).inspect_err(|_| {
-            // A string-only source cannot distinguish an over-bound page from
-            // another read failure. With less than the requested maximum
-            // admitted, treat rejection as incomplete work; retry with enough
-            // allowance can still expose a genuine tree error. Explicit None
-            // remains a missing-page result, never a resource-limit success.
-            if admitted < max && self.stop.get().is_none() {
+            if (self.cancelled.borrow_mut())() {
+                self.stop.set(Some(Stop::Cancelled));
+                return Err("state scan cancelled".into());
+            }
+            if self.nodes.get() == 0 || self.bytes.get() == 0 {
                 self.stop.set(Some(Stop::Limited));
+                return Err("state scan allowance".into());
             }
-        })?;
-        if let Some(bytes) = &result {
-            if bytes.as_ref().len() > admitted {
-                return Err("state scan source bound".into());
+            self.nodes.set(self.nodes.get() - 1);
+            let admitted = (max as u64).min(self.bytes.get()) as usize;
+            self.bytes.set(self.bytes.get() - admitted as u64);
+            let result = self.source.read_node(id, admitted).inspect_err(|_| {
+                // A string-only source cannot distinguish an over-bound page from
+                // another read failure. With less than the requested maximum
+                // admitted, treat rejection as incomplete work; retry with enough
+                // allowance can still expose a genuine tree error. Explicit None
+                // remains a missing-page result, never a resource-limit success.
+                if admitted < max && self.stop.get().is_none() {
+                    self.stop.set(Some(Stop::Limited));
+                }
+            })?;
+            if let Some(bytes) = &result {
+                if bytes.as_ref().len() > admitted {
+                    return Err("state scan source bound".into());
+                }
+                self.bytes
+                    .set(self.bytes.get() + (admitted - bytes.as_ref().len()) as u64);
             }
-            self.bytes
-                .set(self.bytes.get() + (admitted - bytes.as_ref().len()) as u64);
-        }
-        Ok(result)
+            Ok(result)
+        })();
+        attempt.finish(result.is_err());
+        result
     }
 }
 impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
@@ -163,6 +199,16 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
         root: &StateRootV1,
         key: &[u8],
     ) -> Result<Option<[u8; 32]>, StateScanError<String>> {
+        let attempt = ReaderAttempt::new(self.failed);
+        let result = self.get_inner(root, key);
+        attempt.finish(result.is_err());
+        result
+    }
+    fn get_inner(
+        &self,
+        root: &StateRootV1,
+        key: &[u8],
+    ) -> Result<Option<[u8; 32]>, StateScanError<String>> {
         self.check_stop_or_cancelled()?;
         let _workspace = match self.memory.reserve(8 * 1024, self.class) {
             Ok(workspace) => workspace,
@@ -190,6 +236,16 @@ impl<R: MerkleNodeReader, C: FnMut() -> bool> StateScanReader<'_, R, C> {
     /// This proves the child's physical leaf set is complete; a declared
     /// `leaf_count` alone is only a limit hint and is not a closure proof.
     pub fn visit_entries<E>(
+        &self,
+        root: &StateRootV1,
+        visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
+    ) -> Result<u64, StateScanError<E>> {
+        let attempt = ReaderAttempt::new(self.failed);
+        let result = self.visit_entries_inner(root, visit);
+        attempt.finish(result.is_err());
+        result
+    }
+    fn visit_entries_inner<E>(
         &self,
         root: &StateRootV1,
         mut visit: impl FnMut(&StateEntryV1) -> Result<(), E>,
@@ -313,6 +369,7 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
             leaves: Cell::from_mut(&mut self.io.leaves_remaining),
             cancelled: &cancelled,
             stop: &stop,
+            failed: None,
         };
         let mut view = Updater::<StateCodec, _>::new(
             &source,
@@ -417,6 +474,7 @@ impl<R: MerkleNodeReader> StateScanContext<'_, R> {
             leaves,
             cancelled: &cancelled,
             stop: &stop,
+            failed: None,
         };
         let mut updater = Updater::<StateCodec, _>::new(
             &source,
@@ -499,3 +557,6 @@ enum StateScanPageVisitorError<E> {
     ResourceLimited,
     Cancelled,
 }
+
+#[path = "incremental_state_scoped_reader.rs"]
+mod scoped_reader;

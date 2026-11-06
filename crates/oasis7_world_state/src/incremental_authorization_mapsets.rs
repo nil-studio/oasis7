@@ -35,7 +35,7 @@ impl AuthorizationMapSetFieldV1 {
             Self::ModuleReleaseRoleBindings => "module_release_role_bindings",
         }
     }
-    fn descriptor(self) -> Result<FieldDescriptor, ValueTreeError> {
+    pub(crate) fn descriptor(self) -> Result<FieldDescriptor, ValueTreeError> {
         WORLD_STATE_FIELDS
             .iter()
             .copied()

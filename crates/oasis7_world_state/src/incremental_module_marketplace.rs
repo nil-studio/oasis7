@@ -975,3 +975,19 @@ pub fn prepare_module_marketplace_genesis_v1<
 #[cfg(test)]
 #[path = "incremental_module_marketplace_tests.rs"]
 mod tests;
+
+#[path = "incremental_module_marketplace_family.rs"]
+mod family;
+pub use family::{
+    ModuleMarketplaceFamilyQualificationV1, ModuleMarketplaceFamilyWorkV1,
+    accept_module_marketplace_family_transition_v1, qualify_module_marketplace_family_v1,
+    readmit_module_marketplace_family_ordinary_v1,
+};
+
+pub(crate) use family::accept_module_marketplace_family_verified_v1;
+
+#[path = "incremental_module_marketplace_visual.rs"]
+mod visual;
+pub use visual::{
+    ModuleVisualOverlayErrorV1, ModuleVisualOverlayWorkV1, change_module_visual_overlay_v1,
+};

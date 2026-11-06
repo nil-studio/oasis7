@@ -37,15 +37,27 @@ pub fn create_qualified_main_token_policy_record_v1<
     let error = &mut context.take_state_error;
     context.transaction.contribute(|tx| {
         tx.validate_guard(guard, live)?;
-        request
-            .family
-            .validate_binding(&tx.parent_fence().parent_roots)?;
+        let _qualification_phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+            request.family,
+            crate::incremental_record_qualification_phase::FamilyBindingV1::Digest(
+                &tx.parent_fence().parent_roots,
+            ),
+            context.values.memory,
+            MemoryClass::Ordinary,
+            || cancel() || (write.cancelled)(),
+        )?;
         if request.key.kind() == MainTokenPolicyKindV1::Config
             || request.source.kind() != request.key.kind()
             || context.values.class != MemoryClass::Ordinary
             || !tx.uses_budget(context.values.memory)
             || !tx.uses_budget(write.memory)
             || !request.family.uses_budget(write.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                request.family,
+                write.memory,
+                oasis7_proto::memory_budget::MemoryClass::Ordinary,
+            )
+            .is_err()
         {
             return Err(invalid().into());
         }

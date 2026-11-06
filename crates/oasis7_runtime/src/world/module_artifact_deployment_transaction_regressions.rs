@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 fn dispatch(world: &mut World, action: Action) -> Result<bool, WorldError> {
     world.try_apply_runtime_module_action(&ActionEnvelope {
         governance_authorization: None,
-            committed_recipe_origin: None,
+        committed_recipe_origin: None,
         id: 990,
         action,
     })
@@ -192,7 +192,11 @@ fn source_compile_tail_failure_preserves_compiled_registration_and_publication()
     let mut world = World::new_with_release_security_policy(policy);
     struct Compiler;
     impl oasis7_agent_api::module_source::ModuleSourceCompiler for Compiler {
-        fn compile(&self, _: &str, _: &ModuleSourcePackage) -> Result<Vec<u8>, oasis7_agent_api::module_source::ModuleSourceCompileError> {
+        fn compile(
+            &self,
+            _: &str,
+            _: &ModuleSourcePackage,
+        ) -> Result<Vec<u8>, oasis7_agent_api::module_source::ModuleSourceCompileError> {
             Ok(b"compiled-atomic-source".to_vec())
         }
     }

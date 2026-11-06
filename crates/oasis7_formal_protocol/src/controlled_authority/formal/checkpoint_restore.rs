@@ -22,7 +22,11 @@ pub fn restore_formal_commit_from_checkpoint(
         (Some(record), Some(finalizer)) => {
             record.validate()?;
             super::crypto::hash_hex(finalizer)?;
+            let mut verified_record_id = [0u8; 32];
+            hex::decode_to_slice(&record.record_id()?, &mut verified_record_id)
+                .map_err(|_| invalid("verified commit cached record id"))?;
             Some(VerifiedFormalCommitV1 {
+                verified_record_id,
                 record: record.clone(),
                 finalizing_authority_id: finalizer.to_owned(),
             })

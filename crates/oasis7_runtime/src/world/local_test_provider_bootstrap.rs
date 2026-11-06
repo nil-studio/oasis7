@@ -363,8 +363,7 @@ impl World {
             ));
         }
         ensure_local_finality_snapshot(self, binding.finality_epoch)?;
-        let identity = match self.current_agent_identity(config.agent_id.as_str())
-        {
+        let identity = match self.current_agent_identity(config.agent_id.as_str()) {
             Some(existing) if existing.owner_binding == config.owner_binding => {
                 if existing.generation != config.owner_generation {
                     return Err(local_test_error(
@@ -1010,8 +1009,8 @@ fn local_test_error(reason: impl Into<String>) -> WorldError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7_agent_api::world_action::GeoPos;
     use crate::{Action, ReleaseSecurityPolicy};
+    use oasis7_agent_api::world_action::GeoPos;
 
     fn config() -> LocalTestProviderAuthorityConfig {
         let mut config = LocalTestProviderAuthorityConfig::hosted_public_join(

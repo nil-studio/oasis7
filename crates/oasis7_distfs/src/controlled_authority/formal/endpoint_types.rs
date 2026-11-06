@@ -46,9 +46,18 @@ pub enum FormalRequestStateV1 {
     Qualified {
         candidate: FormalCandidateMaterialV1,
         proof: FormalQualifiedCommitProofV1,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data_closure: Option<String>,
     },
 }
 impl FormalRequestStateV1 {
+    /// Local signed-checkpoint reference, not a physical closure permit.
+    pub fn local_data_closure_reference(&self) -> Option<&str> {
+        match self {
+            Self::Qualified { data_closure, .. } => data_closure.as_deref(),
+            _ => None,
+        }
+    }
     pub fn request_digest(&self) -> &str {
         match self {
             Self::Frozen { input, .. } => &input.body.request_digest,

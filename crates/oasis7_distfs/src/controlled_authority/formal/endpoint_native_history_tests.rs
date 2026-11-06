@@ -68,6 +68,7 @@ fn historical_skip_path_is_bounded_exact_and_rejects_fork_missing_and_corrupt_no
         pending: None,
         decision_head: None,
         seal: None,
+        data_closure: None,
         durable_set: None,
     };
     let reads = std::cell::Cell::new(0);

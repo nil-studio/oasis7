@@ -217,9 +217,19 @@ pub(super) fn validate_cognition_fence_against_tasks(
     tasks: &BTreeMap<String, ReducedTask>,
 ) -> Result<(), String> {
     let current = select_current(world, agent, tasks)?.map(|t| &t.control);
-    if current.is_none() && fence.is_none()
-        && world.capability_revocation_state().task_terminals_v2.as_ref()
-            .is_some_and(|index| index.records.values().any(|r| r.closed.initial_fence.agent_id == agent)) {
+    if current.is_none()
+        && fence.is_none()
+        && world
+            .capability_revocation_state()
+            .task_terminals_v2
+            .as_ref()
+            .is_some_and(|index| {
+                index
+                    .records
+                    .values()
+                    .any(|r| r.closed.initial_fence.agent_id == agent)
+            })
+    {
         return Err("a terminal Agent needs a real new task, not taskless cognition".into());
     }
     if let Some(control) = current {

@@ -16,9 +16,7 @@ use super::cognition_persistence_validation::{
     append_cognition_event, cognition_error, cognition_validation, validate_marker_current_world,
     validate_response_lineage_binding,
 };
-use crate::cognition::{
-    AgentDecisionEnvelopeV1, MvccValidator, world_state_binding_digest_v1,
-};
+use crate::cognition::{AgentDecisionEnvelopeV1, MvccValidator, world_state_binding_digest_v1};
 use crate::cognition_recovery::{
     CognitionReceiptViewV1, CognitionResponseRecordV1, RuntimeReceiptLineageV1,
     WorldCommitRecordV1, WorldRootViewV1, cognition_digest_v1,

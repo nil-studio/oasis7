@@ -13,7 +13,11 @@ impl World {
             .state
             .world_rules
             .as_ref()
-            .map(|rules| rules.organization_continuity.lifecycle_commands(&self.state, now))
+            .map(|rules| {
+                rules
+                    .organization_continuity
+                    .lifecycle_commands(&self.state, now)
+            })
             .transpose()?
             .unwrap_or_default();
         let mut emitted = Vec::new();
@@ -26,9 +30,10 @@ impl World {
                 governance_epoch: self.current_governance_epoch(),
                 world_binding: self.world_rule_binding(),
             };
-            if self.validate_manufactured_identity_acquisition(&event).is_err()
-                || crate::world_rules::PreparedWorldRule::prepare(&self.state, &event, now)
-                    .is_err()
+            if self
+                .validate_manufactured_identity_acquisition(&event)
+                .is_err()
+                || crate::world_rules::PreparedWorldRule::prepare(&self.state, &event, now).is_err()
             {
                 continue;
             }

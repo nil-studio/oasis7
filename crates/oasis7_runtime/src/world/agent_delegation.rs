@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 mod controls;
 #[path = "agent_delegation_projection.rs"]
 mod genesis_projection;
-pub(super) use genesis_projection::visit as visit_iws_delegation_projection;
 pub use controls::{AgentOwnerControlKindV1, AgentOwnerControlV1};
+pub(super) use genesis_projection::visit as visit_iws_delegation_projection;
 
 pub use oasis7_agent_api::world_quote::AgentDelegationGrantV1;
 

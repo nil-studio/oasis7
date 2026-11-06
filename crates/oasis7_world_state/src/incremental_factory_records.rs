@@ -22,6 +22,13 @@ mod diff;
 mod family;
 pub use family::{
     FactoryFamilyQualificationV1, FactoryFamilyReadContextV1, qualify_factory_family_v1,
+    readmit_factory_family_ordinary_v1,
+};
+#[path = "incremental_factory_current_identity.rs"]
+mod current_identity;
+pub use current_identity::{
+    FactoryCurrentOuterChangeV1, FactoryOuterRecordRootV1, FactoryQualifiedOuterIdentityV1,
+    visit_factory_current_outer_changes_v1, visit_qualified_factory_parent_identities_v1,
 };
 #[path = "incremental_factory_key_read.rs"]
 mod key_read;
@@ -271,3 +278,9 @@ mod pages;
 pub use pages::{
     FactoryFamilyPagesV1, mark_factory_family_pages_v1, transfer_factory_family_pages_v1,
 };
+
+#[cfg(test)]
+#[path = "incremental_factory_industry_phase_tests.rs"]
+mod phase_tests;
+
+pub(crate) use receiver::accept_factory_verified_v1;

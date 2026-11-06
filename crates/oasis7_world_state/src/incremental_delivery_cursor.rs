@@ -10,7 +10,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
 use oasis7_proto::memory_budget::ReservedValue;
-fn descriptor() -> Result<FieldDescriptor, MemberRecordError> {
+pub(crate) fn descriptor() -> Result<FieldDescriptor, MemberRecordError> {
     WORLD_STATE_FIELDS
         .iter()
         .copied()

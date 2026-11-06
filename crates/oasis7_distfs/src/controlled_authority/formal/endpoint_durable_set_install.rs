@@ -200,6 +200,7 @@ fn make_candidate(
         pending: None,
         decision_head: None,
         seal: None,
+        data_closure: None,
         durable_set: Some(fencing::DurableSetNativeBindingV1 {
             transition_digest: transition.digest().into(),
             independent_inventory_digest: inventory.inventory_digest.clone(),

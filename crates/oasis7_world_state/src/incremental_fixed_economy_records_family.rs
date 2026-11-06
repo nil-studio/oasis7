@@ -13,8 +13,13 @@ use std::cell::RefCell;
 #[derive(Debug)]
 pub struct FixedEconomyFamilyQualificationV1 {
     roots: [u8; 32],
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl FixedEconomyFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if self.roots != *roots {
             Err(read::invalid())
@@ -30,7 +35,7 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<FixedEconomyFamilyQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(FixedEconomyFamilyQualificationV1 { roots }))
+        .retain(FixedEconomyFamilyQualificationV1 { roots, class }))
 }
 type Outer = (FixedEconomyFieldV1, Option<ReservedValue<StateRootV1>>);
 pub(super) fn outer<
@@ -87,6 +92,7 @@ pub fn qualify_fixed_economy_family_v1<
 ) -> Result<ReservedValue<FixedEconomyFamilyQualificationV1>, ValueTreeError> {
     roots.validate().map_err(|_| read::invalid())?;
     ctx.check()?;
+    let _phase = ctx.values.memory.reserve(128 << 10, ctx.values.class)?;
     if !roots.state.iter().any(|root| root == ctx.root) {
         return Err(read::invalid());
     }
@@ -184,7 +190,10 @@ pub fn qualify_fixed_economy_family_v1<
     if (cancel.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(retained.retain(FixedEconomyFamilyQualificationV1 { roots: digest }))
+    Ok(retained.retain(FixedEconomyFamilyQualificationV1 {
+        roots: digest,
+        class: ctx.values.class,
+    }))
 }
 pub fn open_qualified_fixed_economy_record_v1<
     M: MerkleNodeReader,
@@ -198,10 +207,23 @@ pub fn open_qualified_fixed_economy_record_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<ReservedValue<FixedEconomyRecordQualificationV1>, ValueTreeError> {
     ctx.check()?;
-    if !family.uses_budget(ctx.values.memory) {
+    if !family.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            family,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
         return Err(read::invalid());
     }
-    family.validate_binding(&roots.digest().map_err(|_| read::invalid())?)?;
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        family,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        ctx.values.memory,
+        ctx.values.class,
+        &mut ctx.cancelled,
+    )?;
     let top = roots
         .state
         .iter()
@@ -214,4 +236,42 @@ pub fn open_qualified_fixed_economy_record_v1<
     let result = closure::mint(field, child.clone(), ctx.values.memory, ctx.values.class)?;
     ctx.check()?;
     Ok(result)
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for FixedEconomyFamilyQualificationV1
+{
+    const RETAINED_BYTES: usize = 512;
+    type Binding<'a> = crate::incremental_record_qualification_phase::FamilyBindingV1<'a>;
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(&binding.digest()?)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            roots: source.roots,
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_fixed_economy_family_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<FixedEconomyFamilyQualificationV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<
+    oasis7_proto::memory_budget::ReservedValue<FixedEconomyFamilyQualificationV1>,
+    ValueTreeError,
+> {
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        memory,
+        cancelled,
+    )
 }

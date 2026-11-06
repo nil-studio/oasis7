@@ -95,6 +95,131 @@ fn value_charge(values: &Values) -> usize {
 }
 
 #[test]
+fn root_driver_commits_real_step_after_genesis_world_is_dropped() {
+    use crate::world::{
+        incremental_commit::prepare_iws_runtime_commit_v1, incremental_step::IwsStepContext,
+    };
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (world, parent, state, mut values, config, genesis, catalog) = setup(&memory);
+    let mut original = event(&world, 1);
+    let before_time = original.time;
+    let next_time = before_time.checked_add(1).unwrap();
+    original.time = next_time;
+    drop(world);
+    let source = values.clone();
+    let fence = parent.fence().unwrap();
+    let mut request = request(&parent, &config, &genesis, &catalog);
+    request.next_tick = next_time;
+    let mut quota = io();
+    let mut original_budget = original_work();
+    let mut stored = Vec::new();
+    let prepared = prepare_iws_runtime_commit_v1(
+        &request,
+        &state,
+        &memory,
+        || Ok::<_, BodyMutationError>(fence),
+        |txn| {
+            let guard = txn.guard();
+            let mut mutation = BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut quota,
+                cancelled: || false,
+            };
+            let mut step = IwsStepContext::begin(
+                txn,
+                before_time,
+                &guard,
+                &fence,
+                &source,
+                &mut mutation,
+                &mut original_budget,
+            )?;
+            assert_eq!(step.time(), next_time);
+            step.dispatch_agent_event(&original, 1 << 20, |original| {
+                stored.push(original.original_id());
+                collect_original(original, &memory)?;
+                Ok(())
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        prepared.transition().record.after.simulation_tick,
+        next_time
+    );
+    assert_eq!(prepared.history().body.parent_commit, Some(parent.commit));
+    assert_eq!(prepared.history().facts.facts.len(), 1);
+    assert_eq!(prepared.history().facts.facts[0].id, stored[0]);
+    let verified = TransitionVerifier {
+        parent: &parent,
+        operation: request.operation,
+        source: &state,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        max_pending_node_bytes: request.limits.max_pending_node_bytes,
+    }
+    .verify(&prepared.transition().record)
+    .unwrap();
+    assert_eq!(verified.record.after, prepared.transition().record.after);
+}
+
+#[test]
+fn root_driver_final_results_failure_returns_no_prepared_header() {
+    use crate::world::{
+        incremental_commit::prepare_iws_runtime_commit_with_results_v1,
+        incremental_step::IwsStepContext,
+    };
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let (world, parent, state, mut values, config, genesis, catalog) = setup(&memory);
+    let before_time = event(&world, 1).time;
+    drop(world);
+    let source = values.clone();
+    let fence = parent.fence().unwrap();
+    let mut request = request(&parent, &config, &genesis, &catalog);
+    request.next_tick = before_time + 1;
+    let mut quota = io();
+    let mut original_budget = original_work();
+    let error = prepare_iws_runtime_commit_with_results_v1(
+        &request,
+        &state,
+        &memory,
+        || Ok::<_, BodyMutationError>(fence),
+        |txn| {
+            let guard = txn.guard();
+            let mut mutation = BodyMutationContext {
+                sink: &mut values,
+                memory: &memory,
+                io: &mut quota,
+                cancelled: || false,
+            };
+            let step = IwsStepContext::begin(
+                txn,
+                before_time,
+                &guard,
+                &fence,
+                &source,
+                &mut mutation,
+                &mut original_budget,
+            )?;
+            assert_eq!(step.time(), request.next_tick);
+            Ok(())
+        },
+        || false,
+        |after| {
+            assert_eq!(after.simulation_tick, request.next_tick);
+            assert_ne!(after.digest().unwrap(), parent.roots.digest().unwrap());
+            Err(BodyMutationError::Invalid("second History original failed"))
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        BodyMutationError::Invalid("second History original failed")
+    ));
+}
+
+#[test]
 fn actual_body_driver_seals_one_consistent_candidate_and_keeps_all_charges() {
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let (world, parent, state, mut values, config, genesis, catalog) = setup(&memory);

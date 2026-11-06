@@ -175,7 +175,10 @@ pub(crate) fn restore_native_position(
     let node = descend(&body, position, record_id, &mut load)?;
     let target = &node.head;
     let entry: FormalRequestStateV1 = object(&node.entry, &mut load)?;
-    let FormalRequestStateV1::Qualified { candidate, proof } = entry else {
+    let FormalRequestStateV1::Qualified {
+        candidate, proof, ..
+    } = entry
+    else {
         return Err(FormalError::HistoryUnavailable(
             "HistoryUnavailable: historical entry not Qualified".into(),
         ));
@@ -223,6 +226,7 @@ pub(crate) fn restore_native_position(
         let FormalRequestStateV1::Qualified {
             candidate: parent_candidate,
             proof: parent,
+            ..
         } = object(&parent_node.entry, &mut load)?
         else {
             return Err(invalid("historical parent not Qualified"));

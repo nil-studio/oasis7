@@ -22,10 +22,16 @@ impl World {
         claimer_agent_id: &str,
     ) -> Result<AgentClaimCostQuote, WorldError> {
         let owned_claim_count = if self.state.starter_oc_claims.contains_key(claimer_agent_id) {
-            let mut targets=crate::world_rules::manufacturing_existing_targets(&self.state,claimer_agent_id)?;
-            targets.extend(crate::world_rules::manufacturing_reserved_targets(&self.state,claimer_agent_id));
+            let mut targets =
+                crate::world_rules::manufacturing_existing_targets(&self.state, claimer_agent_id)?;
+            targets.extend(crate::world_rules::manufacturing_reserved_targets(
+                &self.state,
+                claimer_agent_id,
+            ));
             targets.len()
-        } else {self.claimed_agent_count(claimer_agent_id)};
+        } else {
+            self.claimed_agent_count(claimer_agent_id)
+        };
         let reputation_score = self
             .state
             .reputation_scores
@@ -330,7 +336,15 @@ fn reclaim_bond_settlement(
 #[cfg(test)]
 impl World {
     pub(crate) fn append_legacy_claim_fixture(&mut self, owner: &str, target: &str) {
-        let q = agent_claim_quote(self.state.reputation_scores.get(owner).copied().unwrap_or(0),self.claimed_agent_count(owner)).unwrap();
+        let q = agent_claim_quote(
+            self.state
+                .reputation_scores
+                .get(owner)
+                .copied()
+                .unwrap_or(0),
+            self.claimed_agent_count(owner),
+        )
+        .unwrap();
         let mut data = serde_json::to_value(&q)
             .unwrap()
             .as_object()

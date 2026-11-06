@@ -34,7 +34,10 @@ pub(crate) fn verify_committed_historical_material(
     state: FormalRequestStateV1,
     reader: &impl super::super::business_index::BusinessIndexNodeReader,
 ) -> Result<VerifiedCommittedHistoricalMaterialV1, FormalError> {
-    let FormalRequestStateV1::Qualified { candidate, proof } = state else {
+    let FormalRequestStateV1::Qualified {
+        candidate, proof, ..
+    } = state
+    else {
         return Err(invalid(
             "HistoryUnavailable: delegated old entry must be Qualified",
         ));

@@ -111,7 +111,10 @@ impl Store {
                 Edge::Entry(id, expected) => {
                     let state: FormalRequestStateV1 = decode(&bytes)?;
                     if let Some(expected) = expected.as_ref() {
-                        let FormalRequestStateV1::Qualified { candidate, proof } = &state else {
+                        let FormalRequestStateV1::Qualified {
+                            candidate, proof, ..
+                        } = &state
+                        else {
                             return Err(invalid("storage GC history contains unresolved state"));
                         };
                         let record = &candidate.candidate.record;
@@ -121,6 +124,29 @@ impl Store {
                         {
                             return Err(invalid("storage GC history exact Qualified record"));
                         }
+                    }
+                    if let Some(reference) = state.local_data_closure_reference() {
+                        hash_hex(reference)?;
+                        let closure_bytes = self.published_local_read(reference)?;
+                        metadata_bytes = metadata_bytes
+                            .checked_add(
+                                u64::try_from(closure_bytes.len())
+                                    .map_err(|_| invalid("local closure metadata length"))?,
+                            )
+                            .ok_or_else(|| invalid("local closure metadata accounting"))?;
+                        if metadata_bytes > MAX_METADATA_BYTES {
+                            return Err(invalid("local closure metadata byte budget"));
+                        }
+                        let record: super::super::incremental::local_closure::LocalDataClosureRecordV1 = decode(&closure_bytes)?;
+                        let candidate = state
+                            .candidate()
+                            .ok_or_else(|| invalid("local closure without Qualified record"))?;
+                        let head = FormalHeadRefV1 {
+                            position: candidate.candidate.record.position,
+                            record_id: candidate.candidate.record.record_id()?,
+                        };
+                        record.validate_head(&head)?;
+                        keep.insert(reference.to_owned());
                     }
                     if entries.insert(id, ()).is_some() {
                         continue;

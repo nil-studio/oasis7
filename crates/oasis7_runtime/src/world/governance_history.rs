@@ -201,7 +201,7 @@ impl World {
                         | GovernanceEvent::ValidatorAdmissionApproved { .. }
                         | GovernanceEvent::ValidatorAdmissionActivated { .. }
                         | GovernanceEvent::ValidatorAdmissionRevoked { .. }
-                | GovernanceEvent::ValidatorFinalityKeyRotated { .. }
+                        | GovernanceEvent::ValidatorFinalityKeyRotated { .. }
                         | GovernanceEvent::RestrictedStarterClaimAdminRegistryUpdated { .. }
                 )
             {

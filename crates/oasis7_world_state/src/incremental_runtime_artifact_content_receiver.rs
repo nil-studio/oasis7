@@ -31,11 +31,63 @@ where
     O: OriginalObjectStreamReader,
 {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|r| r == ctx.root)
+    {
+        return Err(invalid().into());
+    }
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes()
+                < std::mem::size_of::<RuntimeArtifactContentQualificationV1>()
+            || parent.allocation_class() != ctx.values.class
+            || verifier.class != ctx.values.class
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || !originals.allocation_budget().same_pool(ctx.values.memory)
+            || originals.allocation_class() != ctx.values.class
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before)?;
+        let _retained = ctx
+            .values
+            .memory
+            .reserve(512, ctx.values.class)
+            .map_err(ValueTreeError::Memory)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(verifier, record, ctx) .map_err(|e| match e { crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Execution(e)=>RuntimeArtifactOriginalErrorV1::Execution(e),crate::incremental_verified_world_transition::WorldTransitionVerificationErrorV1::Value(e)=>RuntimeArtifactOriginalErrorV1::Value(e)})?;
+    accept_runtime_artifact_content_verified_v1(parent, &witness, ctx, originals, work)
+}
+
+pub(crate) fn accept_runtime_artifact_content_verified_v1<M, R, E, C, O>(
+    parent: &ReservedValue<RuntimeArtifactContentQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    originals: &mut O,
+    work: &mut RuntimeArtifactOriginalWorkV1,
+) -> Result<
+    ReservedValue<RuntimeArtifactContentQualificationV1>,
+    RuntimeArtifactOriginalErrorV1<O::Error>,
+>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    O: OriginalObjectStreamReader,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < std::mem::size_of::<RuntimeArtifactContentQualificationV1>()
         || parent.allocation_class() != ctx.values.class
-        || verifier.class != ctx.values.class
-        || !verifier.memory.same_pool(ctx.values.memory)
         || !originals.allocation_budget().same_pool(ctx.values.memory)
         || originals.allocation_class() != ctx.values.class
     {
@@ -47,13 +99,7 @@ where
         .memory
         .reserve(512, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
-    let result = verifier.verify(record);
-    let original = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let verified = result?;
+    let verified = witness.prepared();
     let record = &verified.record;
     if !record.after.state.iter().any(|r| r == ctx.root) {
         return Err(invalid().into());

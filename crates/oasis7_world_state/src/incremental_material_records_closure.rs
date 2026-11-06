@@ -17,8 +17,13 @@ pub struct MaterialRecordQualificationV1 {
     schema: [u8; 32],
     owner: [u8; 32],
     root: StateRootV1,
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl MaterialRecordQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn root(&self) -> &StateRootV1 {
         &self.root
     }
@@ -47,6 +52,7 @@ pub(super) fn mint(
             schema: kind.schema(),
             owner,
             root,
+            class,
         }))
 }
 fn invalid() -> ValueTreeError {
@@ -221,5 +227,50 @@ pub fn qualify_material_body_v1<
         schema: kind.schema(),
         owner,
         root: ctx.root.clone(),
+        class: ctx.values.class,
     }))
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for MaterialRecordQualificationV1
+{
+    const RETAINED_BYTES: usize = 512;
+    type Binding<'a> = (
+        MaterialRecordKindV1,
+        &'a [u8; 32],
+        &'a oasis7_formal_protocol::incremental_state::StateRootV1,
+    );
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(binding.0, binding.1, binding.2)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            schema: source.schema,
+            owner: source.owner,
+            root: source.root.clone(),
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_material_record_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<MaterialRecordQualificationV1>,
+    kind: MaterialRecordKindV1,
+    owner: &[u8; 32],
+    root: &oasis7_formal_protocol::incremental_state::StateRootV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<oasis7_proto::memory_budget::ReservedValue<MaterialRecordQualificationV1>, ValueTreeError>
+{
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        (kind, owner, root),
+        memory,
+        cancelled,
+    )
 }

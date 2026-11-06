@@ -138,3 +138,68 @@ where
         class: context.values.class,
     }))
 }
+
+pub(crate) fn copy_checked_empty_cognition_group_v3(
+    source: &ReservedValue<crate::incremental_cognition_family::CheckedCognitionCurrentEmptyV3>,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CognitionCurrentAbsenceQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.reserved_bytes() < 32 << 10
+        || source.class() != MemoryClass::Ordinary
+    {
+        return Err(ValueTreeError::Invalid("checked empty Cognition group"));
+    }
+    let charge = memory.reserve(16 << 10, MemoryClass::Ordinary)?;
+    let output = CognitionCurrentAbsenceQualificationV1 {
+        roots: *source.roots(),
+        class: MemoryClass::Ordinary,
+    };
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(charge.retain(output))
+}
+pub(crate) fn advance_cognition_absence_no_changes_v3(
+    source: &ReservedValue<CognitionCurrentAbsenceQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CognitionCurrentAbsenceQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    witness.check_pool_class(memory, MemoryClass::Ordinary)?;
+    if !source.uses_budget(memory) || source.class() != MemoryClass::Ordinary {
+        return Err(ValueTreeError::Invalid("Cognition absence predecessor"));
+    }
+    source.validate_binding(witness.before_digest())?;
+    for write in &witness.record().writes {
+        if cancelled() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        if write
+            .mutation
+            .key
+            .starts_with(b"oasis7.iws.world-field-key.v1\0")
+            && WorldFieldKeyV1::from_bytes(&write.mutation.key)
+                .map_err(ValueTreeError::Invalid)?
+                .owner
+                == FieldOwner::Cognition
+        {
+            return Err(ValueTreeError::Invalid("Cognition absent changed entry"));
+        }
+    }
+    let charge = memory.reserve(16 << 10, MemoryClass::Ordinary)?;
+    let output = CognitionCurrentAbsenceQualificationV1 {
+        roots: *witness.after_digest(),
+        class: MemoryClass::Ordinary,
+    };
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(charge.retain(output))
+}

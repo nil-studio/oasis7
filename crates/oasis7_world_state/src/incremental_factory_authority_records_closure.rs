@@ -14,6 +14,7 @@ pub struct FactoryAuthorityQualificationV1 {
     kind: FactoryAuthorityRecordKindV1,
     owner: [u8; 32],
     root: StateRootV1,
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 pub(super) fn mint(
     kind: FactoryAuthorityRecordKindV1,
@@ -24,9 +25,18 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<FactoryAuthorityQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(FactoryAuthorityQualificationV1 { kind, owner, root }))
+        .retain(FactoryAuthorityQualificationV1 {
+            kind,
+            owner,
+            root,
+            class,
+        }))
 }
 impl FactoryAuthorityQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn root(&self) -> &StateRootV1 {
         &self.root
     }
@@ -205,5 +215,52 @@ pub fn qualify_factory_authority_body_v1<
         kind,
         owner,
         root: ctx.root.clone(),
+        class: ctx.values.class,
     }))
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for FactoryAuthorityQualificationV1
+{
+    const RETAINED_BYTES: usize = 512;
+    type Binding<'a> = (
+        FactoryAuthorityRecordKindV1,
+        &'a [u8; 32],
+        &'a oasis7_formal_protocol::incremental_state::StateRootV1,
+    );
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(binding.0, binding.1, binding.2)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            kind: source.kind,
+            owner: source.owner,
+            root: source.root.clone(),
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_factory_authority_record_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<FactoryAuthorityQualificationV1>,
+    kind: FactoryAuthorityRecordKindV1,
+    owner: &[u8; 32],
+    root: &oasis7_formal_protocol::incremental_state::StateRootV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<
+    oasis7_proto::memory_budget::ReservedValue<FactoryAuthorityQualificationV1>,
+    ValueTreeError,
+> {
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        (kind, owner, root),
+        memory,
+        cancelled,
+    )
 }

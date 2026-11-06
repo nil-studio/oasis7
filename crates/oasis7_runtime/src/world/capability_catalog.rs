@@ -37,7 +37,8 @@ impl World {
         if response_nonce.trim().is_empty() {
             return Err(deny("capability response nonce is required"));
         }
-        let identity = self.current_agent_identity(agent_id)
+        let identity = self
+            .current_agent_identity(agent_id)
             .ok_or_else(|| deny("capability subject identity is not installed"))?;
 
         let mut grants = Vec::new();

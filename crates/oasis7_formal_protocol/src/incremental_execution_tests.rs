@@ -68,6 +68,75 @@ fn fact(kind: ExecutionFactKindV1, n: u8) -> ExecutionFactRefV1 {
 }
 
 #[test]
+fn pending_write_inspection_is_net_delta_bounded_and_never_reads_parent() {
+    let pages = Pages::default();
+    let memory = memory();
+    let mut txn =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    let ns = StateNamespaceV1::Business;
+    txn.write(ns, b"changed", Some([1; 32])).unwrap();
+    txn.write(ns, b"changed", Some([2; 32])).unwrap();
+    txn.write(ns, b"reverted", Some([3; 32])).unwrap();
+    txn.write(ns, b"reverted", None).unwrap();
+    txn.read(ns, b"read-only").unwrap();
+    let reads = pages.reads.get();
+    let used = memory.used();
+    let mut work = 3;
+    let mut changes = 0;
+    txn.visit_pending_writes::<ExecutionError>(
+        ns,
+        &mut work,
+        || Ok(()),
+        |key, before, after| {
+            assert_eq!(key, b"changed");
+            assert_eq!(before, None);
+            assert_eq!(after, Some([2; 32]));
+            changes += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (work, changes, pages.reads.get(), memory.used()),
+        (0, 1, reads, used)
+    );
+    assert!(matches!(
+        txn.visit_pending_writes::<ExecutionError>(ns, &mut 2, || Ok(()), |_, _, _| Ok(())),
+        Err(ExecutionError::ResourceLimited(_))
+    ));
+    let cancelled = Cell::new(false);
+    assert!(
+        txn.visit_pending_writes::<ExecutionError>(
+            ns,
+            &mut 3,
+            || {
+                if cancelled.get() {
+                    Err(ExecutionError::Invalid("cancelled"))
+                } else {
+                    Ok(())
+                }
+            },
+            |_, _, _| {
+                cancelled.set(true);
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    let _: Result<(), ExecutionError> =
+        txn.contribute(|_| Err(ExecutionError::Invalid("owner failed")));
+    assert!(matches!(
+        txn.visit_pending_writes::<ExecutionError>(
+            ns,
+            &mut 3,
+            || Ok(()),
+            |_, _, _| panic!("aborted overlay visited")
+        ),
+        Err(ExecutionError::Aborted)
+    ));
+}
+
+#[test]
 fn single_overlay_coalesces_all_namespaces_but_retains_original_fact_order() {
     let pages = Pages::default();
     let memory = memory();
@@ -170,6 +239,7 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
     let mut txn =
         ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
     let guard = txn.guard();
+    txn.validate_transaction_identity(&guard).unwrap();
     for changed in 0..4 {
         let mut other = live;
         match changed {
@@ -183,9 +253,30 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
             Err(ExecutionError::ParentConflict)
         ));
     }
-    let other = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+    let mut other =
+        ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
     assert!(matches!(
         other.validate_guard(&guard, &live),
+        Err(ExecutionError::StaleGuard)
+    ));
+    assert!(matches!(
+        other.validate_transaction_identity(&guard),
+        Err(ExecutionError::StaleGuard)
+    ));
+    let other_guard = other.guard();
+    let failed: Result<(), ExecutionError> =
+        other.contribute(|_| Err(ExecutionError::Invalid("identity test failure")));
+    assert!(failed.is_err());
+    assert!(matches!(
+        other.validate_transaction_identity(&other_guard),
+        Err(ExecutionError::Aborted)
+    ));
+    drop(other_guard);
+    txn.read(StateNamespaceV1::Business, b"identity-read")
+        .unwrap();
+    txn.validate_transaction_identity(&guard).unwrap();
+    assert!(matches!(
+        txn.validate_guard(&guard, &live),
         Err(ExecutionError::StaleGuard)
     ));
     // Even a same-tick write that coalesces back to absence invalidates prepare.

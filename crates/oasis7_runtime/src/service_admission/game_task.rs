@@ -6,8 +6,8 @@ pub use oasis7_agent_api::game::{
     GameGoalPublishV1, GameGoalReferenceV1, GameTaskControlV1, GameTaskCreateV1,
 };
 use std::collections::BTreeMap;
-mod task_scope;
 mod executor;
+mod task_scope;
 pub use executor::*;
 mod task_context;
 pub use self::task_context::*;
@@ -291,7 +291,10 @@ pub fn validate_history(world: &World) -> Result<(), String> {
     reduce(collect(world, [])?)?;
     Ok(())
 }
-pub(crate) fn current_control_before_terminal(world: &World, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
+pub(crate) fn current_control_before_terminal(
+    world: &World,
+    agent: &str,
+) -> Result<Option<GameTaskControlV1>, String> {
     let tasks = reduce(collect(world, [])?)?;
     Ok(select_current(world, agent, &tasks)?.map(|task| task.control.clone()))
 }
@@ -305,8 +308,12 @@ pub fn current_control(world: &World, agent: &str) -> Result<Option<GameTaskCont
     Ok(control)
 }
 pub fn ensure_task_not_closed(world: &World, task_id: &str) -> Result<(), String> {
-    if world.capability_revocation_state().task_terminals_v2.as_ref()
-        .is_some_and(|index| index.records.contains_key(task_id)) {
+    if world
+        .capability_revocation_state()
+        .task_terminals_v2
+        .as_ref()
+        .is_some_and(|index| index.records.contains_key(task_id))
+    {
         return Err("task Closed V2 is unsupported by legacy V1 lifecycle".into());
     }
     Ok(())
@@ -430,7 +437,9 @@ impl ValidatedRetentionHistory<'_> {
     #[doc(hidden)]
     pub fn active_publish(&self, agent: &str) -> Result<Option<CanonicalIntentResultV1>, String> {
         let task = select_current(self.world, agent, &self.tasks)?;
-        if let Some(task) = task { ensure_task_not_closed(self.world, &task.control.task_id)?; }
+        if let Some(task) = task {
+            ensure_task_not_closed(self.world, &task.control.task_id)?;
+        }
         Ok(task.and_then(|task| task.publish.clone()))
     }
 
@@ -440,8 +449,9 @@ impl ValidatedRetentionHistory<'_> {
     #[doc(hidden)]
     pub fn current_control(&self, agent: &str) -> Result<Option<GameTaskControlV1>, String> {
         let task = select_current(self.world, agent, &self.tasks)?;
-        if let Some(task) = task { ensure_task_not_closed(self.world, &task.control.task_id)?; }
-        else if task_scope::has_closed_in_current_scope(self.world, agent)? {
+        if let Some(task) = task {
+            ensure_task_not_closed(self.world, &task.control.task_id)?;
+        } else if task_scope::has_closed_in_current_scope(self.world, agent)? {
             return Err("closed task requires explicit V2 task identity".into());
         }
         Ok(task.map(|task| task.control.clone()))

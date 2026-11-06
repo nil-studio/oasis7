@@ -105,6 +105,7 @@ mod tree;
 mod family;
 pub use family::{
     LogisticsFamilyQualificationV1, LogisticsFamilyReadContextV1, qualify_logistics_family_v1,
+    readmit_logistics_family_ordinary_v1,
 };
 
 #[path = "incremental_logistics_records_advance.rs"]
@@ -132,3 +133,5 @@ mod pages;
 pub use pages::{
     LogisticsFamilyPagesV1, mark_logistics_family_pages_v1, transfer_logistics_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_logistics_verified_v1;

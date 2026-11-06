@@ -205,7 +205,15 @@ pub fn read_qualified_agent_authority_cell_v1<
     output: &mut impl std::io::Write,
 ) -> Result<AgentAuthorityValueV1, ValueTreeError> {
     let kind = request.key.kind;
-    if !request.cell.accepts(kind) || !request.qualification.uses_budget(ctx.values.memory) {
+    if !request.cell.accepts(kind)
+        || !request.qualification.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            request.qualification,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
         return Err(ValueTreeError::Invalid(
             "agent_authority qualified read binding",
         ));

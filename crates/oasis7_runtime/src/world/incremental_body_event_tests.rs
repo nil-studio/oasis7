@@ -580,3 +580,6 @@ mod originals;
 
 #[path = "incremental_agent_event_original_fact_tests.rs"]
 mod original_fact;
+
+#[path = "incremental_agent_registration_tests.rs"]
+mod registration;

@@ -71,14 +71,163 @@ pub fn setup_with_state(
 ) -> Setup {
     setup_with_roots(memory, [4; 32], None, Some(state))
 }
+/// Explicit fixture input references, not execution-closure evidence. The
+/// NativeExecutionEnvironment role comes only from the supplied GenesisConfig.
+pub struct FixtureExecutionArtifactRefsV1 {
+    pub manifest: [u8; 32],
+    pub wasm: [u8; 32],
+    pub rules: [u8; 32],
+    pub policy: [u8; 32],
+}
+/// Build the actual activation, initial header and signed decision from a
+/// caller-selected new-format config and all six actual initial state roots.
+/// Legacy fixture entry points retain their original config and wire values.
+pub fn setup_with_config_and_state(
+    memory: MemoryBudget,
+    config: GenesisConfigV1,
+    state: [crate::incremental_state::StateRootV1; 6],
+    refs: FixtureExecutionArtifactRefsV1,
+) -> Setup {
+    setup_with_config_roots(
+        memory,
+        config,
+        Some([refs.manifest, refs.wasm, refs.rules, refs.policy]),
+        Some(state),
+    )
+}
+/// The initial activation Input is generated and signed here. Extra Result or
+/// Event references must point at actual caller-persisted originals; this
+/// fixture never supplies their Core/FactOriginals verification or source Q.
+pub fn setup_with_config_state_and_facts(
+    memory: MemoryBudget,
+    config: GenesisConfigV1,
+    state: [crate::incremental_state::StateRootV1; 6],
+    refs: FixtureExecutionArtifactRefsV1,
+    extra_genesis_facts: &[ExecutionFactRefV1],
+) -> Setup {
+    setup_with_config_roots_and_facts(
+        memory,
+        config,
+        Some([refs.manifest, refs.wasm, refs.rules, refs.policy]),
+        Some(state),
+        extra_genesis_facts,
+    )
+}
+#[cfg(test)]
+mod explicit_config_tests {
+    use super::*;
+    fn digest(value: &str) -> [u8; 32] {
+        hex::decode(value).unwrap().try_into().unwrap()
+    }
+    #[test]
+    fn explicit_fixture_keeps_legacy_config_and_signed_wire_identical() {
+        let old = setup();
+        let new = setup_with_config_and_state(
+            MemoryBudget::new(32 << 20, 4 << 20).unwrap(),
+            old.config.clone(),
+            old.roots.state.clone(),
+            FixtureExecutionArtifactRefsV1 {
+                manifest: digest(&old.certificate.body.runtime_manifest_digest),
+                wasm: [47; 32],
+                rules: [48; 32],
+                policy: digest(&old.certificate.body.execution_policy_digest),
+            },
+        );
+        assert_eq!(new.config, old.config);
+        assert_eq!(new.roots, old.roots);
+        assert_eq!(
+            new.history.body.canonical_bytes().unwrap(),
+            old.history.body.canonical_bytes().unwrap()
+        );
+        assert_eq!(
+            serde_json::to_vec(&new.certificate).unwrap(),
+            serde_json::to_vec(&old.certificate).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_vec(&new.proof).unwrap(),
+            serde_json::to_vec(&old.proof).unwrap()
+        );
+    }
+    #[test]
+    fn explicit_fixture_signs_the_actual_config_scope_state_and_artifacts() {
+        let config = GenesisConfigV1 {
+            world_id: "explicit-new-format-world".into(),
+            format_profile: [81; 32],
+            initial_content: [82; 32],
+            activation_config: [83; 32],
+            execution_environment: [84; 32],
+        };
+        let scope = config.scope().unwrap();
+        let state = RootSetV1::empty(scope.world_id.clone(), scope.genesis_config)
+            .unwrap()
+            .state;
+        let setup = setup_with_config_and_state(
+            MemoryBudget::new(32 << 20, 4 << 20).unwrap(),
+            config.clone(),
+            state.clone(),
+            FixtureExecutionArtifactRefsV1 {
+                manifest: [85; 32],
+                wasm: [86; 32],
+                rules: [87; 32],
+                policy: [88; 32],
+            },
+        );
+        assert_eq!(setup.config, config);
+        assert_eq!(setup.roots.state, state);
+        assert_eq!(setup.authority.definition().world.world_id, config.world_id);
+        assert_eq!(
+            setup.authority.definition().world.genesis_digest,
+            hex::encode(scope.genesis_config)
+        );
+        for role in [
+            ArtifactRole::NativeExecutionEnvironment,
+            ArtifactRole::IncrementalGenesisConfig,
+            ArtifactRole::IncrementalRootSet,
+        ] {
+            let expected = match role {
+                ArtifactRole::NativeExecutionEnvironment => config.execution_environment,
+                ArtifactRole::IncrementalGenesisConfig => scope.genesis_config,
+                _ => setup.roots.digest().unwrap(),
+            };
+            assert_eq!(
+                setup.commit.record().artifact_roots.get(&role),
+                Some(&hex::encode(expected))
+            );
+        }
+        assert_eq!(
+            setup.certificate.body.runtime_manifest_digest,
+            hex::encode([85; 32])
+        );
+        assert_eq!(
+            setup.certificate.body.execution_policy_digest,
+            hex::encode([88; 32])
+        );
+    }
+}
 fn setup_with_roots(
     memory: MemoryBudget,
     native: [u8; 32],
     refs: Option<[[u8; 32]; 4]>,
     state_roots: Option<[crate::incremental_state::StateRootV1; 6]>,
 ) -> Setup {
+    setup_with_config_roots(memory, genesis_config(native), refs, state_roots)
+}
+fn setup_with_config_roots(
+    memory: MemoryBudget,
+    config: GenesisConfigV1,
+    refs: Option<[[u8; 32]; 4]>,
+    state_roots: Option<[crate::incremental_state::StateRootV1; 6]>,
+) -> Setup {
+    setup_with_config_roots_and_facts(memory, config, refs, state_roots, &[])
+}
+fn setup_with_config_roots_and_facts(
+    memory: MemoryBudget,
+    config: GenesisConfigV1,
+    refs: Option<[[u8; 32]; 4]>,
+    state_roots: Option<[crate::incremental_state::StateRootV1; 6]>,
+    extra_genesis_facts: &[ExecutionFactRefV1],
+) -> Setup {
     let (mut certificate, _, legacy, _) = fixture::initial();
-    let config = genesis_config(native);
     let refs = refs.unwrap_or_else(|| {
         [
             hex::decode(&certificate.body.runtime_manifest_digest)
@@ -103,6 +252,9 @@ fn setup_with_roots(
     let state = hex::encode(roots.digest().unwrap());
     certificate.body.schema_version = IWS_ACTIVATION_SCHEMA;
     certificate.body.authority.profile_version = IWS_AUTHORITY_PROFILE_VERSION;
+    certificate.body.authority.world.world_id = scope.world_id.clone();
+    certificate.body.authority.primary.instance.world_id = scope.world_id.clone();
+    certificate.body.authority.replica.instance.world_id = scope.world_id.clone();
     certificate.body.authority.world.genesis_digest = hex::encode(scope.genesis_config);
     certificate.body.authority.primary.instance.genesis_digest = hex::encode(scope.genesis_config);
     certificate.body.authority.replica.instance.genesis_digest = hex::encode(scope.genesis_config);
@@ -138,6 +290,32 @@ fn setup_with_roots(
     };
     let authority = verify_initial_activation(&certificate, &trust).unwrap();
     let input_id = *blake3::hash(&initial_activation_input_bytes(&certificate).unwrap()).as_bytes();
+    let fact_count = extra_genesis_facts
+        .len()
+        .checked_add(1)
+        .filter(|count| *count <= crate::incremental_execution::EXECUTION_MAX_FACTS)
+        .expect("fixture GEN fact limit");
+    assert!(
+        extra_genesis_facts
+            .iter()
+            .all(|fact| fact.kind != ExecutionFactKindV1::Input)
+    );
+    let _facts_phase = memory
+        .reserve(
+            fact_count
+                .checked_mul(std::mem::size_of::<ExecutionFactRefV1>())
+                .unwrap()
+                .checked_add(256)
+                .unwrap(),
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .unwrap();
+    let mut genesis_facts = Vec::with_capacity(fact_count);
+    genesis_facts.push(ExecutionFactRefV1 {
+        kind: ExecutionFactKindV1::Input,
+        id: input_id,
+    });
+    genesis_facts.extend_from_slice(extra_genesis_facts);
     let history = HeaderPreparation {
         config: &config,
         catalog: &CatalogRootV1::empty(scope).unwrap(),
@@ -145,10 +323,7 @@ fn setup_with_roots(
         parent: None,
         parent_history: None,
         transition: None,
-        genesis_facts: &[ExecutionFactRefV1 {
-            kind: ExecutionFactKindV1::Input,
-            id: input_id,
-        }],
+        genesis_facts: &genesis_facts,
         operation: [51; 32],
         authority: authority_binding(&authority, &memory).unwrap(),
         execution_environment: config.execution_environment,

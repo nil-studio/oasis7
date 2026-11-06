@@ -18,7 +18,57 @@ pub fn accept_cognition_current_lifecycle_transition_v1<
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut JsonChangeWorkV1,
 ) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
-    let verified = receiver::verify_parent(parent, verifier, record, context)?;
+    let witness = receiver::verify_parent(parent, verifier, record, context)?;
+    accept_cognition_current_lifecycle_verified_v1(parent, &witness, context, work)
+}
+
+pub(crate) fn accept_cognition_current_lifecycle_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonChangeWorkV1,
+) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
+    match accept_cognition_current_presence_verified_v3(parent, witness, context, work, true)? {
+        CognitionCurrentPresenceOutcomeV3::Enabled(value) => Ok(value),
+        CognitionCurrentPresenceOutcomeV3::Empty(_) => Err(invalid().into()),
+    }
+}
+pub(crate) struct CheckedCognitionCurrentEmptyV3 {
+    roots: [u8; 32],
+    class: MemoryClass,
+}
+impl CheckedCognitionCurrentEmptyV3 {
+    pub(crate) fn roots(&self) -> &[u8; 32] {
+        &self.roots
+    }
+    pub(crate) fn class(&self) -> MemoryClass {
+        self.class
+    }
+}
+pub(super) enum CognitionCurrentPresenceOutcomeV3 {
+    Enabled(ReservedValue<CognitionCurrentStateQualificationV1>),
+    Empty(ReservedValue<CheckedCognitionCurrentEmptyV3>),
+}
+pub(super) fn accept_cognition_current_presence_verified_v3<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonChangeWorkV1,
+    enabled_after: bool,
+) -> Result<CognitionCurrentPresenceOutcomeV3, WorldFieldOverlayErrorV1> {
+    receiver::checked_parent_v1(parent, witness, context)?;
+    let record = witness.record();
+    let verified = witness.prepared();
     let retained = context
         .values
         .memory
@@ -170,11 +220,25 @@ pub fn accept_cognition_current_lifecycle_transition_v1<
             controls |= 1 << index;
         }
     }
-    check_layout(
-        controls,
-        &std::array::from_fn(|index| entries[index].is_some()),
-    )?;
+    if enabled_after {
+        check_layout(
+            controls,
+            &std::array::from_fn(|index| entries[index].is_some()),
+        )?;
+    } else if controls != 0 || entries.iter().any(Option::is_some) {
+        return Err(invalid().into());
+    }
     let roots = record.after.digest().map_err(|_| invalid())?;
+    if !enabled_after {
+        let output = retained.retain(CheckedCognitionCurrentEmptyV3 {
+            roots,
+            class: context.values.class,
+        });
+        if (cancel.borrow_mut())() {
+            return Err(ValueTreeError::Cancelled.into());
+        }
+        return Ok(CognitionCurrentPresenceOutcomeV3::Empty(output));
+    }
     let output = retained.retain(CognitionCurrentStateQualificationV1 {
         class: context.values.class,
         roots,
@@ -184,5 +248,5 @@ pub fn accept_cognition_current_lifecycle_transition_v1<
     if (cancel.borrow_mut())() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    Ok(output)
+    Ok(CognitionCurrentPresenceOutcomeV3::Enabled(output))
 }

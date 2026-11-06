@@ -420,7 +420,9 @@ impl World {
 
         bodies.reserve(due_recipes.len());
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) =
+                self.industrial_completion_guard(&job)
+            {
                 bodies.extend(body.map(|body| *body));
                 continue;
             }
@@ -502,10 +504,14 @@ impl World {
         });
 
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) =
+                self.industrial_completion_guard(&job)
+            {
                 if let Some(body) = body {
                     self.append_event(*body, None)?;
-                    if let Some(event) = self.journal.events.last() { emitted.push(event.clone()); }
+                    if let Some(event) = self.journal.events.last() {
+                        emitted.push(event.clone());
+                    }
                 }
                 continue;
             }
@@ -684,10 +690,7 @@ impl World {
             if validation_rejected {
                 continue;
             }
-            self.append_event(
-                Self::recipe_completion_body(job),
-                None,
-            )?;
+            self.append_event(Self::recipe_completion_body(job), None)?;
             if let Some(event) = self.journal.events.last() {
                 emitted.push(event.clone());
             }

@@ -194,3 +194,5 @@ pub use scalar_read::{
     SupplyAuthorizationFieldV1, SupplyBatchFieldV1, SupplyCrisisFieldV1, SupplyScalarFieldV1,
     SupplyScalarRequestV1, SupplyScalarValueV1, read_qualified_supply_scalar_v1,
 };
+
+pub(crate) use receiver::accept_supply_verified_v1;

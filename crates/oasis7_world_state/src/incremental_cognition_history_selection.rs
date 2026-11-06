@@ -40,9 +40,13 @@ pub struct CognitionHistorySelectionRequestV1<'a> {
 pub struct CheckedCognitionHistoryViewV1 {
     manifest: ReservedValue<CognitionHistoryViewV1>,
     derived: Option<CognitionHistoryDerivedRefsV2>,
+    source_v3: Option<ReservedValue<Box<CognitionHistorySourceSummaryV3>>>,
     occurrence: ReservedValue<CheckedCandidateFactOccurrenceV1>,
 }
 impl CheckedCognitionHistoryViewV1 {
+    pub fn source_v3(&self) -> Option<&ReservedValue<Box<CognitionHistorySourceSummaryV3>>> {
+        self.source_v3.as_ref()
+    }
     pub fn derived(&self) -> Option<&CognitionHistoryDerivedRefsV2> {
         self.derived.as_ref()
     }
@@ -58,12 +62,16 @@ impl CheckedCognitionHistoryViewV1 {
 pub struct AcceptedCognitionHistoryViewV1 {
     manifest: ReservedValue<CognitionHistoryViewV1>,
     derived: Option<CognitionHistoryDerivedRefsV2>,
+    source_v3: Option<ReservedValue<Box<CognitionHistorySourceSummaryV3>>>,
     occurrence: ReservedValue<VerifiedFactOccurrenceV1>,
     class: MemoryClass,
 }
 impl AcceptedCognitionHistoryViewV1 {
     pub(crate) fn class(&self) -> MemoryClass {
         self.class
+    }
+    pub fn source_v3(&self) -> Option<&ReservedValue<Box<CognitionHistorySourceSummaryV3>>> {
+        self.source_v3.as_ref()
     }
     pub fn derived(&self) -> Option<&CognitionHistoryDerivedRefsV2> {
         self.derived.as_ref()
@@ -118,12 +126,15 @@ pub fn readmit_cognition_history_view_ordinary_v1(
         return Err(ValueTreeError::Invalid("Cognition History view readmission binding").into());
     }
     let manifest = manifest_charge.retain((*source.manifest).clone());
+    let derived = source.derived.clone();
+    let source_v3 = copy_source_v3(&source.source_v3, memory, MemoryClass::Ordinary)?;
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(charge.retain(AcceptedCognitionHistoryViewV1 {
         manifest,
-        derived: source.derived.clone(),
+        derived,
+        source_v3,
         occurrence,
         class: MemoryClass::Ordinary,
     }))
@@ -160,13 +171,16 @@ pub fn promote_cognition_history_view_v1(
         .reserve(8192, MemoryClass::Ordinary)
         .map_err(ValueTreeError::Memory)?
         .retain((*checked.manifest).clone());
+    let derived = checked.derived.clone();
+    let source_v3 = copy_source_v3(&checked.source_v3, memory, MemoryClass::Ordinary)?;
     if cancelled() {
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok(charge.retain(AcceptedCognitionHistoryViewV1 {
         class: MemoryClass::Ordinary,
         manifest,
-        derived: checked.derived.clone(),
+        derived,
+        source_v3,
         occurrence,
     }))
 }
@@ -213,7 +227,7 @@ pub fn check_candidate_cognition_history_view_v1<O: OriginalObjectStreamReader>(
                 ))?;
         let limit = budget.max_fact_bytes.min(budget.original_bytes_remaining);
         let mut probe = Probe {
-            prefix: [0; COGNITION_HISTORY_VIEW_V2_BYTES],
+            prefix: [0; COGNITION_HISTORY_VIEW_V3_BYTES],
             copied: 0,
             bytes: 0,
             hash: blake3::Hasher::new(),
@@ -237,7 +251,8 @@ pub fn check_candidate_cognition_history_view_v1<O: OriginalObjectStreamReader>(
         }
         if probe.copied < COGNITION_HISTORY_VIEW_MAGIC.len()
             || !(probe.prefix.starts_with(COGNITION_HISTORY_VIEW_MAGIC)
-                || probe.prefix.starts_with(COGNITION_HISTORY_VIEW_V2_MAGIC))
+                || probe.prefix.starts_with(COGNITION_HISTORY_VIEW_V2_MAGIC)
+                || probe.prefix.starts_with(COGNITION_HISTORY_VIEW_V3_MAGIC))
         {
             continue;
         }
@@ -246,12 +261,12 @@ pub fn check_candidate_cognition_history_view_v1<O: OriginalObjectStreamReader>(
                 ValueTreeError::Invalid("duplicate Cognition History view manifest").into(),
             );
         }
-        if observed > COGNITION_HISTORY_VIEW_V2_BYTES as u64 {
+        if observed > COGNITION_HISTORY_VIEW_V3_BYTES as u64 {
             return Err(
                 ValueTreeError::Invalid("Cognition History manifest original length").into(),
             );
         }
-        let (manifest, derived) = super::manifest_v2::decode_profile(
+        let (manifest, derived, source_v3) = super::manifest_v3::decode_profile_with_source_v3(
             &probe.prefix[..observed as usize],
             memory,
             MemoryClass::Ordinary,
@@ -284,6 +299,7 @@ pub fn check_candidate_cognition_history_view_v1<O: OriginalObjectStreamReader>(
         selected = Some(CheckedCognitionHistoryViewV1 {
             manifest,
             derived,
+            source_v3,
             occurrence,
         });
     }
@@ -295,7 +311,7 @@ pub fn check_candidate_cognition_history_view_v1<O: OriginalObjectStreamReader>(
     ))?))
 }
 struct Probe<'a, C> {
-    prefix: [u8; COGNITION_HISTORY_VIEW_V2_BYTES],
+    prefix: [u8; COGNITION_HISTORY_VIEW_V3_BYTES],
     copied: usize,
     bytes: u64,
     hash: blake3::Hasher,
@@ -379,7 +395,7 @@ mod tests {
         };
         let mut remaining = 64 << 20;
         let mut probe = Probe {
-            prefix: [0; COGNITION_HISTORY_VIEW_V2_BYTES],
+            prefix: [0; COGNITION_HISTORY_VIEW_V3_BYTES],
             copied: 0,
             bytes: 0,
             hash: blake3::Hasher::new(),
@@ -406,3 +422,25 @@ mod tests {
         assert_eq!(probe.bytes, VALUE_CHUNK_BYTES as u64);
     }
 }
+
+fn copy_source_v3(
+    source: &Option<ReservedValue<Box<CognitionHistorySourceSummaryV3>>>,
+    memory: &MemoryBudget,
+    class: MemoryClass,
+) -> Result<Option<ReservedValue<Box<CognitionHistorySourceSummaryV3>>>, ValueTreeError> {
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    let bytes = COGNITION_HISTORY_SOURCE_SUMMARY_ADMISSION_V3_BYTES;
+    if !source.uses_budget(memory) || source.reserved_bytes() < bytes {
+        return Err(ValueTreeError::Invalid("source summary carrier"));
+    }
+    let charge = memory.reserve(bytes, class)?;
+    Ok(Some(charge.retain(Box::new((***source).clone()))))
+}
+const _: () = assert!(std::mem::size_of::<CheckedCognitionHistoryViewV1>() <= 16 << 10);
+const _: () = assert!(std::mem::size_of::<AcceptedCognitionHistoryViewV1>() <= 16 << 10);
+
+#[path = "incremental_cognition_history_selection_prepared_v3.rs"]
+mod prepared_v3;
+pub use prepared_v3::*;

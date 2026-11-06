@@ -72,6 +72,12 @@ mod record_families;
 #[path = "incremental_owner_closure_typed_maps.rs"]
 mod typed_maps;
 
+#[path = "incremental_owner_closure_primitives.rs"]
+mod primitives;
+pub use primitives::*;
+
+pub(crate) use module_marketplace::bridge as marketplace_bridge;
+
 const OWNER_SCAN_METADATA_BYTES: usize = 4096;
 const U64_SEMANTIC_BYTES: u64 = (SEMANTIC_KEY_DOMAIN.len() + 1) as u64;
 const ROOT_SET_CANONICAL_MAX_BYTES: usize =
@@ -222,7 +228,7 @@ fn text_byte_field(field: FieldDescriptor) -> Option<TextByteOwnerField> {
 }
 
 #[path = "incremental_owner_key_probe.rs"]
-mod key_probe;
+pub(crate) mod key_probe;
 use key_probe::{OwnerKeyKind, OwnerSemanticKeyProbe};
 
 fn read_typed_member<R: ValueNodeReader>(
@@ -476,6 +482,11 @@ pub fn verify_world_state_owner_closure_v1<S: MerkleNodeReader, V: ValueNodeRead
     {
         return Err(WorldStateOwnerError::Invalid("owner source pool/class"));
     }
+    // A single key allowance spans every marketplace record. Key bytes read by
+    // these validators are bounded above by the caller's remaining value I/O.
+    let mut marketplace_key_work = crate::incremental_semantic_key::SemanticKeyBudget {
+        bytes_remaining: values.io.read_bytes_remaining,
+    };
     let memory = values.memory;
     let root_set_charge = memory
         .reserve(ROOT_SET_CANONICAL_MAX_BYTES, values.class)
@@ -674,6 +685,7 @@ pub fn verify_world_state_owner_closure_v1<S: MerkleNodeReader, V: ValueNodeRead
                             parsed,
                             scan_reader,
                             values,
+                            &mut marketplace_key_work,
                             max_value_bytes,
                             &mut cancel_now,
                         )?;
@@ -1060,3 +1072,5 @@ pub fn verify_world_state_owner_coverage<S: MerkleNodeReader, V: ValueNodeReader
 #[cfg(test)]
 #[path = "incremental_owner_closure_tests.rs"]
 mod tests;
+
+pub(crate) use primitives::accept_world_primitive_verified_v1;

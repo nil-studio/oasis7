@@ -359,3 +359,5 @@ pub use receiver::accept_runtime_capability_transition_v1;
 #[path = "incremental_runtime_capability_records_pages.rs"]
 mod pages;
 pub use pages::*;
+
+pub(crate) use receiver::accept_runtime_capability_verified_v1;

@@ -196,19 +196,13 @@ pub fn manufacturing_existing_targets(
     state: &WorldState,
     owner: &str,
 ) -> Result<BTreeSet<String>, WorldError> {
-    if !state.agents.contains_key(owner) {
-        return Err(invalid("primary_bound_agent_missing"));
-    }
-    let root = state
-        .starter_oc_claims
-        .get(owner)
-        .ok_or_else(|| invalid("primary_bound_agent_required"))?;
-    if root.agent_id != owner
-        || root.player_id.is_empty()
-        || root.public_key.as_ref().is_none_or(|key| key.is_empty())
-    {
-        return Err(invalid("primary_owner_source_unavailable"));
-    }
+    super::industrial_eligibility_kernel::validate_primary_production_facts_v1(
+        super::industrial_eligibility_kernel::PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(owner),
+            starter_claim: state.starter_oc_claims.get(owner),
+        },
+        owner,
+    )?;
     let mut targets = BTreeSet::from([owner.to_string()]);
     targets.extend(
         state
@@ -257,55 +251,79 @@ pub fn manufacturing_reserved_slots(state: &WorldState, factory: &str) -> u32 {
         })
         .count() as u32
 }
+fn legacy_production_facts<'a>(
+    state: &'a WorldState,
+    owner: &str,
+    factory_id: &str,
+    location: &str,
+) -> super::industrial_eligibility_kernel::ProductionEligibilityFactsV1<'a> {
+    use super::industrial_eligibility_kernel::*;
+    let retired = state.retired_factory_ids.contains(factory_id);
+    let blocked = state
+        .gameplay_policy
+        .blocked_agents
+        .iter()
+        .any(|id| id == owner);
+    let factory = if retired || blocked {
+        None
+    } else {
+        state.factories.get(factory_id)
+    };
+    let canonical =
+        factory.and_then(|_| crate::builtin_factory_spec("factory.assembler.mk1", factory_id));
+    let site = factory.and_then(|factory| state.factory_site_authorities.get(&factory.site_id));
+    ProductionEligibilityFactsV1 {
+        primary: PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(owner),
+            starter_claim: state.starter_oc_claims.get(owner),
+        },
+        retired,
+        blocked,
+        factory: factory.map(|factory| FactoryProductionFactsV1 {
+            builder_agent_id: &factory.builder_agent_id,
+            builtin_spec_available: canonical.is_some(),
+            spec_matches_builtin: canonical.as_ref().is_some_and(|spec| &factory.spec == spec),
+            recipe_slots: u32::from(factory.spec.recipe_slots),
+            durability_ppm: factory.durability_ppm,
+            input_ledger: &factory.input_ledger,
+            site_location_id: factory.site_location_id.as_deref(),
+        }),
+        site: site.map(|site| FactorySiteProductionFactsV1 {
+            active: site.active,
+            chunk_ready: site.chunk_ready,
+            location_id: &site.location_id,
+            owner_agent_id: &site.owner_agent_id,
+            owner_authorized: site.authorized_agent_ids.iter().any(|id| id == owner),
+        }),
+        anchor_active: state
+            .location_anchors
+            .get(location)
+            .map(|anchor| anchor.active),
+        resolved_owner: None,
+    }
+}
 fn production_eligibility(
     state: &WorldState,
     owner: &str,
     factory_id: &str,
     location: &str,
 ) -> Result<(), WorldError> {
-    manufacturing_existing_targets(state, owner)?;
-    if state.retired_factory_ids.contains(factory_id) {
-        return Err(invalid("factory_retired"));
-    }
-    if state
-        .gameplay_policy
-        .blocked_agents
-        .iter()
-        .any(|id| id == owner)
-    {
-        return Err(invalid("production_authority_blocked"));
-    }
-    let f = state
-        .factories
-        .get(factory_id)
-        .ok_or_else(|| invalid("factory_missing"))?;
-    let canonical = crate::builtin_factory_spec("factory.assembler.mk1", factory_id)
-        .ok_or_else(|| invalid("assembler_policy_unavailable"))?;
-    if f.builder_agent_id != owner
-        || f.spec != canonical
-        || f.spec.recipe_slots < 2
-        || f.durability_ppm <= 0
-    {
-        return Err(invalid("owned_working_assembler_required"));
-    }
-    let site = state
-        .factory_site_authorities
-        .get(&f.site_id)
-        .ok_or_else(|| invalid("factory_site_authority_unavailable"))?;
-    let anchor = state
-        .location_anchors
-        .get(location)
-        .ok_or_else(|| invalid("factory_location_unavailable"))?;
-    if !site.active
-        || !site.chunk_ready
-        || site.location_id != location
-        || !anchor.active
-        || f.site_location_id.as_deref() != Some(location)
-        || !(site.owner_agent_id == owner || site.authorized_agent_ids.iter().any(|id| id == owner))
-    {
-        return Err(invalid("factory_authority_changed"));
-    }
-    Ok(())
+    use super::industrial_eligibility_kernel::*;
+    // This predicate only needs the primary checks, not an allocated target set.
+    // Capacity consumers continue to use manufacturing_existing_targets.
+    validate_primary_production_facts_v1(
+        PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(owner),
+            starter_claim: state.starter_oc_claims.get(owner),
+        },
+        owner,
+    )?;
+    production_eligibility_from_facts_v1(
+        legacy_production_facts(state, owner, factory_id, location),
+        owner,
+        factory_id,
+        location,
+    )
 }
 fn refund_source_is_current(state: &WorldState, order: &AgentIndustrialOrderV1) -> bool {
     !state
@@ -326,27 +344,41 @@ pub fn order_production_eligibility(
     state: &WorldState,
     order: &AgentIndustrialOrderV1,
 ) -> Result<(), WorldError> {
-    production_eligibility(
+    use super::industrial_eligibility_kernel::*;
+    validate_primary_production_facts_v1(
+        PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(&order.owner_id),
+            starter_claim: state.starter_oc_claims.get(&order.owner_id),
+        },
+        &order.owner_id,
+    )?;
+    let mut facts = legacy_production_facts(
         state,
         &order.owner_id,
         &order.factory_id,
         &order.quote.delivery_location_id,
+    );
+    production_eligibility_from_facts_v1(
+        facts,
+        &order.owner_id,
+        &order.factory_id,
+        &order.quote.delivery_location_id,
     )?;
-    if state.factories[&order.factory_id].input_ledger != order.quote.input_ledger {
-        return Err(invalid("manufacturing_input_source_changed"));
-    }
-    if !state
-        .resolved_agent_owner(&order.owner_id)
-        .is_some_and(|owner| {
-            owner.player_id == order.quote.owner_player_id
-                && owner.source_id == order.quote.owner_source_id
-                && owner.public_key.as_ref().is_some_and(|key| !key.is_empty())
-        })
-    {
-        return Err(invalid("manufacturing_root_owner_changed"));
-    }
-    Ok(())
+    // Preserve the original lazy owner resolution after the input-source check.
+    let resolved = facts
+        .factory
+        .filter(|factory| factory.input_ledger == &order.quote.input_ledger)
+        .and_then(|_| state.resolved_agent_owner(&order.owner_id));
+    facts.resolved_owner = resolved
+        .as_ref()
+        .map(|owner| ResolvedProductionOwnerFactsV1 {
+            player_id: &owner.player_id,
+            source_id: &owner.source_id,
+            public_key: owner.public_key.as_deref(),
+        });
+    order_production_eligibility_from_facts_v1(facts, order)
 }
+
 impl WorldState {
     /// Private order bodies belong to the frozen principal, not merely a
     /// reusable Agent registry key. Source revocation leaves public status only.

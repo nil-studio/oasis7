@@ -56,7 +56,8 @@ impl<
     C: FnMut() -> bool,
 > WorldFieldReadContextV1<'v, M, R, E, C>
 {
-    pub(crate) fn check(&mut self) -> Result<(), ValueTreeError> {
+    /// Check cancellation and reader allocation identity; grants no root or field evidence.
+    pub fn check(&mut self) -> Result<(), ValueTreeError> {
         if (self.cancelled)() {
             return Err(ValueTreeError::Cancelled);
         }

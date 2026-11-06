@@ -306,7 +306,9 @@ impl World {
             }
             CapabilityAuthorizationEvent::AuthorityInstalledWithProof { record, proof } => {
                 if self.devlocal_participant_authority.is_some() {
-                    return Err(super::capability_authorization::deny("finality authority conflicts with explicit DevLocal participant authority"));
+                    return Err(super::capability_authorization::deny(
+                        "finality authority conflicts with explicit DevLocal participant authority",
+                    ));
                 }
 
                 super::capability_authorization::validate_authority_record(record)?;

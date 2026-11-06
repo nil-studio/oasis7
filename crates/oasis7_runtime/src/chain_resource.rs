@@ -1,8 +1,10 @@
 //! Authoritative state derivation of shared resource contracts.
 use super::WorldState;
-use oasis7_agent_api::world_geometry::{DEFAULT_CLOUD_DEPTH_CM, DEFAULT_CLOUD_HEIGHT_CM, DEFAULT_CLOUD_WIDTH_CM};
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_agent_api::world_geometry::{ChunkCoord, chunk_coord_of, chunk_seed};
+use oasis7_agent_api::world_geometry::{
+    DEFAULT_CLOUD_DEPTH_CM, DEFAULT_CLOUD_HEIGHT_CM, DEFAULT_CLOUD_WIDTH_CM,
+};
 use oasis7_agent_api::world_resource::*;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
