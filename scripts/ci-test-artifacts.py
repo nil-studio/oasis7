@@ -76,6 +76,31 @@ class ProviderArtifact:
 
 
     @staticmethod
+    def build_checker(root, bundle, relative_directory):
+        directory = bundle / relative_directory
+        directory.mkdir(parents=True, exist_ok=True)
+        files = {}
+        subprocess.run(['cargo', 'build', '--locked', '-p', 'oasis7_distfs', '--features',
+                        'sync-builtin-wasm-identity', '--bin', 'sync_builtin_wasm_identity'],
+                       cwd=root, check=True, env={key:value for key,value in os.environ.items() if key != 'RUSTC_WRAPPER'})
+        checker = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
+        files['checker'] = f'{relative_directory}/{checker}'
+        shutil.copy2(root / 'target/debug' / checker, bundle / files['checker'])
+        libraries = []
+        if sys.platform == 'linux':
+            linked = subprocess.run(['ldd', str(bundle / files['checker'])], text=True, capture_output=True, check=True)
+            for line in linked.stdout.splitlines():
+                fields = line.split()
+                if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(root / 'target') + '/'):
+                    library = Path(fields[2])
+                    relative = f'{relative_directory}/lib/{library.name}'
+                    (directory / 'lib').mkdir(exist_ok=True)
+                    shutil.copy2(library, bundle / relative)
+                    libraries.append({'path': relative, 'sha256': ProviderArtifact.digest(bundle / relative)})
+        return files, libraries
+
+
+    @staticmethod
     def build(root, bundle, expected):
         directory = bundle / ProviderArtifact.DIRECTORY
         directory.mkdir(parents=True, exist_ok=False)
@@ -91,23 +116,8 @@ class ProviderArtifact:
                 shutil.copy2(Path(temporary) / (ProviderArtifact.MODULE + suffix), directory / (ProviderArtifact.MODULE + suffix))
         files = {kind: f'{ProviderArtifact.DIRECTORY}/{ProviderArtifact.MODULE}{suffix}' for kind, suffix in
                  (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json'))}
-        subprocess.run(['cargo', 'build', '--locked', '-p', 'oasis7_distfs', '--features',
-                        'sync-builtin-wasm-identity', '--bin', 'sync_builtin_wasm_identity'],
-                       cwd=root, check=True, env={key:value for key,value in os.environ.items() if key != 'RUSTC_WRAPPER'})
-        checker = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
-        files['checker'] = f'{ProviderArtifact.DIRECTORY}/{checker}'
-        shutil.copy2(root / 'target/debug' / checker, bundle / files['checker'])
-        libraries = []
-        if sys.platform == 'linux':
-            linked = subprocess.run(['ldd', str(bundle / files['checker'])], text=True, capture_output=True, check=True)
-            for line in linked.stdout.splitlines():
-                fields = line.split()
-                if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(root / 'target') + '/'):
-                    library = Path(fields[2])
-                    relative = f'{ProviderArtifact.DIRECTORY}/lib/{library.name}'
-                    (directory / 'lib').mkdir(exist_ok=True)
-                    shutil.copy2(library, bundle / relative)
-                    libraries.append({'path': relative, 'sha256': ProviderArtifact.digest(bundle / relative)})
+        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, ProviderArtifact.DIRECTORY)
+        files.update(checker_files)
         if ProviderArtifact.identity(root) != before:
             raise ValueError('provider source changed during official build')
         record = dict(before, libraries=libraries, files={kind: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
@@ -147,6 +157,113 @@ class ProviderArtifact:
         ProviderArtifact.verify_metadata(root, bundle, paths)
         return dict(zip(ProviderArtifact.VARIABLES, (str(paths[kind].resolve()) for kind in ('wasm', 'metadata'))))
 
+
+
+class BuiltinTestArtifact(ProviderArtifact):
+    DIRECTORY = 'builtin-test-resources'
+    MODULES = {'m1.sensor.basic': 'm1_sensor_basic', 'm1.mobility.basic': 'm1_mobility_basic',
+               'm1.memory.core': 'm1_memory_core', 'm1.storage.cargo': 'm1_storage_cargo'}
+
+    @staticmethod
+    def required(manifest):
+        included = manifest.get('included_binaries', manifest.get('binaries', {}))
+        return any(name in included and binary.get('package') == 'oasis7_runtime' and binary.get('test')
+                   and {'wasmtime', 'test_tier_full'} <= set(binary.get('features', []))
+                   for name, binary in manifest.get('binaries', {}).items())
+
+    @staticmethod
+    def build(root, bundle, expected):
+        directory = bundle / BuiltinTestArtifact.DIRECTORY
+        directory.mkdir(parents=True, exist_ok=False)
+        before = ProviderArtifact.identity(root)
+        if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
+            raise ValueError('builtin producer source differs from native identity')
+        records = {}
+        # ProviderArtifact builds/copies the receipt checker and its dynamic libraries.
+        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, BuiltinTestArtifact.DIRECTORY)
+        checker = dict(files={key: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
+                                   for key, name in checker_files.items()}, libraries=libraries)
+        (root / 'target').mkdir(exist_ok=True)
+        for module, crate in BuiltinTestArtifact.MODULES.items():
+            with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
+                subprocess.run(['bash', str(root / 'scripts/build-wasm-module.sh'), '--candidate-build',
+                                '--manifest-path', f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml',
+                                '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
+                               cwd=root, check=True)
+                for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
+                    shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
+            records[module] = {kind: {'path': f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}',
+                                     'sha256': ProviderArtifact.digest(directory / (module + suffix))}
+                               for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
+                                                    ('receipt', '.build-receipt.json'))}
+        if ProviderArtifact.identity(root) != before:
+            raise ValueError('builtin source changed during canonical build')
+        record = dict(before, modules=records, checker=checker)
+        BuiltinTestArtifact.validate(root, bundle, record, expected)
+        return record
+
+    @staticmethod
+    def validate(root, bundle, record, expected):
+        if (not isinstance(record, dict)
+                or any(record.get(key) != expected[key] for key in ('tested_sha', 'source_sha'))
+                or record.get('checkout_tree_sha256') != ProviderArtifact.tree_digest(root)
+                or set(record.get('modules', {})) != set(BuiltinTestArtifact.MODULES)):
+            raise ValueError('builtin source/inventory mismatch')
+        checker_record = record['checker']
+        if set(checker_record.get('files', {})) != {'checker'}:
+            raise ValueError('builtin checker inventory mismatch')
+        checker_name = 'sync_builtin_wasm_identity' + ('.exe' if os.name == 'nt' else '')
+        if checker_record['files']['checker'].get('path') != f'{BuiltinTestArtifact.DIRECTORY}/{checker_name}':
+            raise ValueError('builtin checker role/path mismatch')
+        libraries = checker_record.get('libraries')
+        if not isinstance(libraries, list):
+            raise ValueError('builtin checker libraries missing')
+        seen = set()
+        for entry in libraries:
+            name = entry.get('path', '')
+            if not name.startswith(BuiltinTestArtifact.DIRECTORY + '/lib/') or name in seen:
+                raise ValueError('builtin checker library role/path mismatch')
+            seen.add(name)
+        for entry in list(checker_record['files'].values()) + libraries:
+            if ProviderArtifact.digest(ProviderArtifact.checked(bundle, entry['path'])) != entry['sha256']:
+                raise ValueError('builtin checker hash/path mismatch')
+        checker = bundle / checker_record['files']['checker']['path']
+        if not os.access(checker, os.X_OK):
+            raise ValueError('builtin checker not executable')
+        for module, files in record['modules'].items():
+            if set(files) != {'wasm', 'metadata', 'receipt'}:
+                raise ValueError('builtin artifact incomplete')
+            paths = []
+            for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'), ('receipt', '.build-receipt.json')):
+                entry = files[kind]
+                if entry['path'] != f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}':
+                    raise ValueError('builtin role/path mismatch')
+                path = ProviderArtifact.checked(bundle, entry['path'])
+                if ProviderArtifact.digest(path) != entry['sha256']:
+                    raise ValueError('builtin artifact hash mismatch')
+                paths.append(str(path))
+            subprocess.run([str(checker), '--verify-builtin-test-artifact', str(root), module, *paths],
+                           cwd=root, check=True, env=dict(os.environ, LD_LIBRARY_PATH=str(bundle / BuiltinTestArtifact.DIRECTORY / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', '')))
+        return record
+
+    @staticmethod
+    def files(record):
+        return [entry for files in record['modules'].values() for entry in files.values()] + list(record['checker']['files'].values()) + record['checker']['libraries']
+
+    @staticmethod
+    def environment(root, bundle, record, expected):
+        BuiltinTestArtifact.validate(root, bundle, record, expected)
+        fetcher = bundle / 'builtin-test-fetcher'
+        mapping = {module: str((bundle / files['wasm']['path']).resolve())
+                   for module, files in record['modules'].items()}
+        fetcher.write_text('#!/usr/bin/env python3\nimport hashlib,json,pathlib,sys\n' +
+            'records=json.loads(' + repr(json.dumps(mapping)) + ')\n' +
+            'module,expected,out=sys.argv[1:]\n' +
+            'data=pathlib.Path(records[module]).read_bytes()\n' +
+            'if hashlib.sha256(data).hexdigest()!=expected: raise SystemExit(1)\n' +
+            'pathlib.Path(out).write_bytes(data)\n')
+        fetcher.chmod(0o700)
+        return {'OASIS7_BUILTIN_WASM_FETCHER': str(fetcher.resolve())}
 
 provider_artifact = ProviderArtifact
 
@@ -873,6 +990,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None):
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
         manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
+    if BuiltinTestArtifact.required(manifest):
+        manifest['builtin_test_resources'] = BuiltinTestArtifact.build(ROOT, bundle, manifest)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
@@ -973,6 +1092,12 @@ def pack(bundle, archive_path, suite=None, shard=None, plan=None):
         files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['libraries']]
     else:
         manifest.pop('preview_provider', None)
+    if BuiltinTestArtifact.required(manifest):
+        BuiltinTestArtifact.validate(ROOT, bundle, manifest.get('builtin_test_resources'), manifest)
+        files += [(entry['path'], entry['sha256']) for entry in BuiltinTestArtifact.files(manifest['builtin_test_resources'])]
+    else:
+        manifest.pop('builtin_test_resources', None)
+    files = list(dict(files).items())
     checked = [(name, sha, checked_file(bundle, name, sha)) for name, sha in files]
     manifest_bytes = (json.dumps(manifest, indent=2) + '\n').encode()
     archive_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1595,6 +1720,10 @@ def load(bundle, suite=None, shard=None, plan=None):
         env.update(provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest))
     elif 'preview_provider' in manifest:
         raise ValueError('unexpected provider material outside expanded ordinary execution')
+    if BuiltinTestArtifact.required(manifest):
+        env.update(BuiltinTestArtifact.environment(ROOT, bundle, manifest.get('builtin_test_resources'), manifest))
+    elif 'builtin_test_resources' in manifest:
+        raise ValueError('unexpected builtin test resources')
     env['LD_LIBRARY_PATH'] = str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', '')
     for variable, logical in {
         'PRE2_VIEWER_BINARY': 'viewer', 'OASIS7_CHAIN_RUNTIME_BIN': 'runtime',

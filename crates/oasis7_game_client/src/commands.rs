@@ -9,6 +9,17 @@ const HELP: &str = "oasis7_game_client --config <device.json> <command> [options
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
     #[cfg(unix)]
+    if args.first().is_some_and(|v| v.starts_with("custody-host-")) {
+        return crate::custody_tool_host::cli::run(&args);
+    }
+    #[cfg(unix)]
+    if args.first().is_some_and(|v| v == "custody-control-call") {
+        if args.len() != 3 || args[1] != "--socket" {
+            return Err(crate::custody_tool_host::cli::HELP.into());
+        }
+        return crate::custody_tool_host::cli::model_call(Path::new(&args[2]));
+    }
+    #[cfg(unix)]
     if args.first().is_some_and(|v| v == "cold-entry") {
         return crate::cold_entry::run(&args);
     }
@@ -37,6 +48,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     }
     if args.is_empty() || args == ["--help"] {
         println!("{HELP}");
+        #[cfg(unix)]
+        println!("{}", crate::custody_tool_host::cli::HELP);
         #[cfg(unix)]
         println!("{}", crate::identity_cli::HELP);
         #[cfg(unix)]
