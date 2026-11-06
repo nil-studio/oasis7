@@ -27,13 +27,17 @@ def subject(uid):
         os.setgroups([]); os.setgid(uid); os.setuid(uid)
     return isolate
 client = r"""
-import json,pathlib,socket,sys,time
-sock,secret,config,mode=sys.argv[1:]
+import json,pathlib,socket,sys,time,subprocess
+sock,secret,config,mode,binary=sys.argv[1:]
 for path in [secret,config]:
     try: pathlib.Path(path).read_bytes()
     except PermissionError: pass
     else: raise AssertionError('model could read secret fixture')
 request={'profile':'dev-test-accounts-v1','audience':'oasis7-dev-test-tools','method':'capabilities'}
+if mode=='cli':
+    result=subprocess.run([binary,'dev-test-local-call','--socket',sock],input=json.dumps(request),capture_output=True,text=True,timeout=4)
+    assert result.returncode==0,result.stderr
+    print(result.stdout);sys.exit(0)
 if mode=='wrong-audience': request['audience']='manager'
 if mode=='wrong-version': request['profile']='unknown'
 s=socket.socket(socket.AF_UNIX);s.settimeout(2);s.connect(sock)
@@ -58,13 +62,14 @@ if mode=='slowdrip':
 else: print(response.decode())
 """
 def call(uid, mode="normal"):
-    result=subprocess.run([sys.executable,"-c",client,str(public/"tools.sock"),str(secret),str(config_path),mode],preexec_fn=subject(uid),capture_output=True,text=True,timeout=5)
+    result=subprocess.run([sys.executable,"-c",client,str(public/"tools.sock"),str(secret),str(config_path),mode,binary],preexec_fn=subject(uid),capture_output=True,text=True,timeout=5)
     assert result.returncode==0,result.stderr
     return json.loads(result.stdout) if result.stdout.strip() else None
 try:
     start(["dev-test-serve","--profile",str(config_path)],private/"service.sock")
     start(["dev-test-local-serve","--socket",str(public/"tools.sock"),"--profile",str(config_path),"--caller-uid","1001","--caller-id","model"],public/"tools.sock")
     assert (result := call(1001))['status']=='ok', result
+    assert call(1001,'cli')['status']=='ok'
     assert call(1002)['status']=='local_request_denied'
     assert call(1001,'wrong-audience')['status']=='wrong_audience'
     assert call(1001,'wrong-version')['status']=='unsupported_profile'

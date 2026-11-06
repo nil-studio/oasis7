@@ -267,7 +267,7 @@ Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同�
 
 管理员须准备服务拥有且其他主体不可写的 socket 目录，模型主体只有遍历和连接权限。凭据目录另置 `0700`，配置文件 `0600`。不得把真实凭据置于模型工作目录、参数、环境、工具输出或日志。已有 broker 的同 UID／`0600` 行为不改变。
 
-启动顺序为先启动共同私有服务，再以相同可信 UID 启动本地代理，最后由不同模型 UID 经 CLI／IPC 发出 `capabilities` 请求。模型不得访问启动管理面。实际 CLI 注册由共同入口写入负责人维护。
+启动顺序为先启动共同私有服务，再以相同可信 UID 启动本地代理，最后由不同模型 UID 经 CLI／IPC 发出 `capabilities` 请求。模型不得访问启动管理面。模型侧使用 `dev-test-local-call --socket <固定路径>`，只接受无秘密的 LocalRequest；它验证受信祖先和服务内核 peer，并以绝对时限调用。共同 `dev-test-call` 接受含凭据的可信Request，不能替代此模型侧命令。
 
 #### 当前验证边界
 
@@ -277,4 +277,4 @@ Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_tes
 
 请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
 
-真实 Codex 模型接入仍未完成：宿主仅确认 Darwin Codex CLI 0.137.0，隔离 Linux 主体内的 Runtime／可信工具配置、模型认证与有限预算尚待准备。不能复制宿主认证或把业务服务凭据交给模型补齐该缺口。实际消费者、共享用量组合及合法账号业务后继仍分别验收；本项保持未完成。
+真实 Codex 模型接入仍未完成。已在独立 Linux 容器安装并验证 Codex CLI 0.137.0（固定 npm 包），模型 UID 1001 独立 HOME；根拥有的 stdio MCP 夹具仅注册 `dev_test_capabilities`，关闭 shell、unified_exec、multi_agent、apps、plugins、浏览器和 hooks。`codex mcp list` 与实际 UID 的 MCP→本地 CLI→IPC 预检通过；未发生模型调用。当前 UID 登录状态为 Not logged in，未发现可复用的获准有界 API key／可信 Responses 代理，真实模型认证与费用预算仍待准备。不能复制宿主认证或把业务服务凭据交给模型补齐该缺口。实际消费者、共享用量组合及合法账号业务后继仍分别验收；本项保持未完成。

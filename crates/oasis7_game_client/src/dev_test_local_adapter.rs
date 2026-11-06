@@ -143,7 +143,7 @@ fn respond_until(
     Ok(())
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalRequest {
     pub profile: String,
@@ -304,4 +304,42 @@ mod deadline_tests {
         drop(reader);
         producer.join().unwrap();
     }
+}
+
+/// Model-facing CLI transport: no service token or management configuration is accepted.
+#[cfg(target_os = "linux")]
+pub fn call_local(
+    path: &Path,
+    request: &LocalRequest,
+) -> Result<crate::dev_test_service::Response, String> {
+    use std::{net::Shutdown, os::unix::fs::FileTypeExt};
+    if !path.is_absolute() {
+        return Err("absolute local socket required".into());
+    }
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| "local socket unavailable")?;
+    if !metadata.file_type().is_socket() || metadata.uid() == unsafe { libc::geteuid() } {
+        return Err("distinct trusted service required".into());
+    }
+    for ancestor in path.ancestors().skip(1) {
+        let m =
+            std::fs::symlink_metadata(ancestor).map_err(|_| "local socket ancestor unavailable")?;
+        if !m.is_dir() || ![0, metadata.uid()].contains(&m.uid()) || m.mode() & 0o022 != 0 {
+            return Err("local socket ancestor untrusted".into());
+        }
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut stream = crate::dev_test_service::connect_until(path, deadline)?;
+    if peer_uid(&stream)? != metadata.uid() {
+        return Err("local service peer changed".into());
+    }
+    let bytes = serde_json::to_vec(request).map_err(|_| "local request encoding failed")?;
+    if bytes.len() > 65536 {
+        return Err("local request too large".into());
+    }
+    respond_until(&mut stream, &bytes, deadline)?;
+    stream
+        .shutdown(Shutdown::Write)
+        .map_err(|_| "local request shutdown failed")?;
+    let response = read_until_deadline(&mut stream, 65536, deadline)?;
+    serde_json::from_slice(&response).map_err(|_| "invalid local response".into())
 }

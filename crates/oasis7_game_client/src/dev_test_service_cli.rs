@@ -29,6 +29,24 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         );
     }
     match (args[0].as_str(), args[1].as_str()) {
+        #[cfg(target_os = "linux")]
+        ("dev-test-local-call", "--socket") => {
+            let mut body = Vec::new();
+            std::io::stdin()
+                .take(65537)
+                .read_to_end(&mut body)
+                .map_err(|_| "local request unavailable")?;
+            if body.len() > 65536 {
+                return Err("local request too large".into());
+            }
+            let request: crate::dev_test_local_adapter::LocalRequest =
+                serde_json::from_slice(&body).map_err(|_| "invalid local request")?;
+            let response = crate::dev_test_local_adapter::call_local(
+                std::path::Path::new(&args[2]),
+                &request,
+            )?;
+            crate::device_client::print(&response)
+        }
         ("dev-test-serve", "--profile") => {
             use std::os::unix::fs::{MetadataExt, PermissionsExt};
             let metadata =
