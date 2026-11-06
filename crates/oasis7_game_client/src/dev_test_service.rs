@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const PROFILE: &str = "dev-test-accounts-v1";
 pub const AUDIENCE: &str = "oasis7-dev-test-tools";
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Credential {
     pub caller_id: String,
@@ -13,7 +13,7 @@ pub struct Credential {
     pub revoked: bool,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub profile: String,

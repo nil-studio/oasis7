@@ -188,3 +188,49 @@ impl Account {
         Ok(())
     }
 }
+
+/// Called only under the session service's shared control/admission lock.
+pub(crate) fn set_disabled(
+    directory: &Path,
+    account_ref: &str,
+    disabled: bool,
+) -> Result<(), String> {
+    private_directory(directory)?;
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(directory.join("catalog.lock"))
+        .map_err(|_| "catalog_lock_failed")?;
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err("catalog_lock_failed".into());
+    }
+
+    let path = directory.join("catalog.json");
+    let mut accounts: Vec<Account> =
+        serde_json::from_slice(&crate::dev_test_private_config::read_private_config(&path)?)
+            .map_err(|_| "catalog_corrupt")?;
+    let account = accounts
+        .iter_mut()
+        .find(|a| a.account_ref == account_ref)
+        .ok_or("account_unavailable")?;
+    account.disabled = disabled;
+    let temporary = directory.join("catalog.control-pending");
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&temporary)
+        .map_err(|_| "catalog_write_failed")?;
+    file.write_all(&serde_json::to_vec(&accounts).map_err(|_| "catalog_encode_failed")?)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| "catalog_write_failed")?;
+    std::fs::rename(temporary, path).map_err(|_| "catalog_write_failed")?;
+    std::fs::File::open(directory)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| "catalog_write_failed")?;
+    Ok(())
+}

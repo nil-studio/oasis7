@@ -12,7 +12,7 @@ pub struct Binding {
     pub resource: String,
     pub authorization_version: u64,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Grant {
     pub grant_ref: String,
@@ -169,13 +169,13 @@ mod tests {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Resource {
     pub account_ref: String,
     pub executor_config: std::path::PathBuf,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
     pub service: crate::dev_test_service::Config,
@@ -196,6 +196,7 @@ fn current_client(
     config: &ServiceConfig,
     grant: &Grant,
     unlocks: &BTreeMap<String, String>,
+    deadline: std::time::Instant,
 ) -> Result<crate::device_client::Client, String> {
     let account =
         crate::dev_test_catalog::lookup(&config.catalog_directory, &grant.binding.account_ref)?;
@@ -211,6 +212,9 @@ fn current_client(
     account
         .verify_current(unlock.as_bytes())
         .map_err(|_| "native_identity_invalid")?;
+    if std::time::Instant::now() >= deadline {
+        return Err("downstream_deadline_unknown".into());
+    }
     let resource = config
         .resources
         .get(&grant.binding.resource)
@@ -247,6 +251,9 @@ fn current_client(
     {
         return Err("resource_identity_mismatch".into());
     }
+    if std::time::Instant::now() >= deadline {
+        return Err("downstream_deadline_unknown".into());
+    }
     // The executor gateway additionally checks current native login and fence.
     crate::device_client::Client::from_authenticated_config(device, unlock.as_bytes())
         .map_err(|_| "native_resource_unavailable".into())
@@ -257,6 +264,7 @@ pub fn handle(
     request: ToolRequest,
     unlocks: &BTreeMap<String, String>,
     now: u64,
+    deadline: std::time::Instant,
 ) -> Result<serde_json::Value, String> {
     use crate::dev_test_service::{authenticate_token, dispatch_authenticated, AUDIENCE, PROFILE};
     let caller = authenticate_token(&config.service, &request.credential, now)?;
@@ -339,9 +347,35 @@ pub fn handle(
     if grant.grant_id != config.service.grant_id {
         return Err("grant_configuration_mismatch".into());
     }
-    let client = current_client(config, grant, unlocks)?;
+    let client = current_client(config, grant, unlocks, deadline)?;
+    if std::time::Instant::now() >= deadline {
+        return Err("downstream_deadline_unknown".into());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "clock_unavailable")?
+        .as_secs();
+    if request.method != "open" {
+        sessions.authorize(
+            request.session_ref.as_deref().ok_or("session_required")?,
+            &caller.caller_id,
+            grant,
+            &request.method,
+            now,
+        )?;
+    }
     if request.method == "open" {
         let expires = request.expires_at_unix.ok_or("session_expiry_required")?;
+        let credential_expiry = config
+            .service
+            .credentials
+            .iter()
+            .find(|c| c.caller_id == caller.caller_id)
+            .ok_or("unauthorized")?
+            .expires_at_unix;
+        if expires > credential_expiry {
+            return Err("session_expiry_exceeds_parent".into());
+        }
         // Open validates immutable scope before consuming the persistent grant.
         let reference = sessions.open(&caller.caller_id, grant, expires, now)?;
         let admitted = dispatch_authenticated(
@@ -392,123 +426,6 @@ pub fn handle(
     Ok(serde_json::json!({"binding":grant.binding,"result":result}))
 }
 
-/// Trusted local daemon entry. Unlock material arrives only on private stdin.
-pub fn run(args: Vec<String>) -> Result<(), String> {
-    use std::{
-        io::{Read, Write},
-        os::unix::{
-            fs::{MetadataExt, PermissionsExt},
-            net::UnixListener,
-        },
-        time::{Duration, Instant},
-    };
-    if args.len() == 2 && args[0] == "--call" {
-        let mut body = Vec::new();
-        std::io::stdin()
-            .take(65537)
-            .read_to_end(&mut body)
-            .map_err(|_| "request_unavailable")?;
-        let request: ToolRequest =
-            serde_json::from_slice(&body).map_err(|_| "invalid_tool_request")?;
-        drop(request);
-        let result = crate::dev_test_service::call_serialized_until(
-            std::path::Path::new(&args[1]),
-            &body,
-            Instant::now() + Duration::from_secs(30),
-        )?;
-        println!("{}", result);
-        return Ok(());
-    }
-    if args.len() != 2 || args[0] != "--serve" {
-        return Err("usage: oasis7_dev_test_sessions --serve PRIVATE_CONFIG".into());
-    }
-    let config_path = std::path::Path::new(&args[1]);
-    let load = || -> Result<ServiceConfig, String> {
-        let config: ServiceConfig = serde_json::from_slice(
-            &crate::dev_test_private_config::read_private_config(config_path)?,
-        )
-        .map_err(|_| "invalid_session_configuration")?;
-        config.service.validate()?;
-        let mut refs = std::collections::BTreeSet::new();
-        if config.grants.iter().any(|g| {
-            g.grant_ref.is_empty()
-                || !refs.insert(&g.grant_ref)
-                || g.grant_id != config.service.grant_id
-        }) {
-            return Err("ambiguous_grant_configuration".into());
-        }
-        Ok(config)
-    };
-    let initial = load()?;
-    crate::runtime_broker::trusted_ancestors(&initial.service.socket)?;
-    let parent = initial
-        .service
-        .socket
-        .parent()
-        .ok_or("socket_parent_required")?;
-    let metadata = std::fs::symlink_metadata(parent).map_err(|_| "socket_parent_unavailable")?;
-    if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o077 != 0 {
-        return Err("private_socket_directory_required".into());
-    }
-    let mut unlock_bytes = zeroize::Zeroizing::new(Vec::new());
-    std::io::stdin()
-        .take(65537)
-        .read_to_end(&mut unlock_bytes)
-        .map_err(|_| "private_unlock_unavailable")?;
-    if unlock_bytes.len() > 65536 {
-        return Err("private_unlock_too_large".into());
-    }
-    let unlocks: BTreeMap<String, String> =
-        serde_json::from_slice(&unlock_bytes).map_err(|_| "private_unlock_invalid")?;
-    let listener = UnixListener::bind(&initial.service.socket).map_err(|_| "socket_bind_failed")?;
-    std::fs::set_permissions(
-        &initial.service.socket,
-        std::fs::Permissions::from_mode(0o600),
-    )
-    .map_err(|_| "socket_permissions_failed")?;
-    let mut sessions = Sessions::new()?;
-    eprintln!("read_session_service_ready");
-    for connection in listener.incoming() {
-        let mut stream = connection.map_err(|_| "socket_accept_failed")?;
-        let config = load()?;
-        if config.service.socket != initial.service.socket
-            || config.service.usage_directory != initial.service.usage_directory
-            || config.service.grant_id != initial.service.grant_id
-        {
-            return Err("stable_service_binding_changed".into());
-        }
-        let deadline = Instant::now() + Duration::from_millis(config.service.timeout_ms);
-        let mut body = Vec::new();
-        if crate::dev_test_service::read_until(
-            &mut stream,
-            &mut body,
-            config.service.max_request_bytes,
-            deadline,
-        )
-        .is_err()
-        {
-            continue;
-        }
-        let result = (|| {
-            let request: ToolRequest =
-                serde_json::from_slice(&body).map_err(|_| "invalid_tool_request")?;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| "clock_unavailable")?
-                .as_secs();
-            handle(&config, &mut sessions, request, &unlocks, now)
-        })();
-        let value = match result {
-            Ok(value) => serde_json::json!({"status":"ok","result":value}),
-            Err(error) => serde_json::json!({"status":error}),
-        };
-        if let Some(remaining) = deadline
-            .checked_duration_since(Instant::now())
-            .filter(|d| !d.is_zero())
-        {
-            let _ = stream.set_write_timeout(Some(remaining));
-            let _ = stream.write_all(value.to_string().as_bytes());
-        }
-    }
-    Err("session_listener_closed".into())
-}
+#[path = "dev_test_session_service.rs"]
+mod service;
+pub use service::run;

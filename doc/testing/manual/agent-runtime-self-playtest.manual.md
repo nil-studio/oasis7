@@ -270,4 +270,8 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 `oasis7_dev_test_sessions --call APPROVED_SOCKET` 从可信宿主stdin接收credential、method及可选grant_ref/session_ref/expires_at_unix。method仅有accounts、open、close、describe、task、capabilities。session_ref不能单独认证。打开和业务读取复核目录原生current_account与Executor配置的实际身份、环境和fence，再复用正式Client；不调用context、不写世界。累计用量复用共同grant/caller账本，不随session或别名变化。普通重启清空内存会话，保留账本；管理者确认旧进程停止后清理遗留socket再启动。
 
-本候选仅以空目录实际CLI查询验证认证拒绝、服务启动和重启累计用量连续；会话单测不等于真实A/B读取。当前真实A/B/C原生登录、获准world/task/resource和读取证据均待准备，未声明#5535完成。控制配置更新与准入同一串行边界、账号停用管理入口、正式下游超时与有限并发的整体验收仍待补齐，不能因Draft或局部测试而关闭子项。真实消费者不得使用空目录或mock代签。
+本候选仅以空目录实际CLI查询验证认证拒绝、服务启动和重启累计用量连续；会话单测不等于真实A/B读取。当前真实A/B/C原生登录、获准world/task/resource和读取证据均待准备，未声明#5535完成。正式A/B读取与外部消费者的整体验收仍待补齐，不能因Draft或局部测试而关闭子项。真实消费者不得使用空目录或mock代签。
+
+运行中的策略仅通过可信运营者命令更新：`oasis7_dev_test_sessions --apply PRIVATE_CONFIG CANDIDATE_CONFIG`、`--disable-account PRIVATE_CONFIG ACCOUNT_REF`、`--enable-account PRIVATE_CONFIG ACCOUNT_REF`。命令与只读worker共用控制/准入锁；账号状态持久化到目录，策略及其授权版本先持久化后报告成功。变更授权范围或重新启用递增版本使旧会话失效，新增无关grant不改旧grant版本。启用账号不会自动启用其旧授权。不得绕过这些命令直接编辑运行中的策略或停用状态；普通账号登记/别名变更继续用既有目录入口，目录写入共用catalog.lock。
+
+本服务显式限制同时在途worker为1。每请求有绝对总应答deadline，控制锁等待也受该deadline约束；下游超时报告unknown。已进入原生只读Client的请求不能伪称已取消，它在可信worker内完成或按原生超时结束前仍占用唯一名额并持有控制锁；避免重复新调用及后台worker无界积累。身份复核后、业务准入前再次核对当前时间，禁止在已过期的本次期限后新准入。控制命令等待该已准入边界结束后才报告停用完成，不承诺取消已在途的合法读取。真实有限并发和超时还需在实际A/B世界组合复核。
