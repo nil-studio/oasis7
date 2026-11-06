@@ -12,6 +12,21 @@ use std::{
     path::Path,
     time::{Duration, Instant},
 };
+fn retry_rate<T>(
+    mut call: impl FnMut() -> Result<T, String>,
+    deadline: Instant,
+) -> Result<T, String> {
+    while Instant::now() < deadline {
+        match call() {
+            Ok(value) => return Ok(value),
+            Err(error) if error.starts_with("rate_limited") => {
+                std::thread::sleep(Duration::from_secs(2))
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err("fixture_deadline".into())
+}
 fn owner_step(
     mut call: impl FnMut() -> Result<EntryOwnerProgress, String>,
     deadline: Instant,
@@ -135,7 +150,10 @@ fn run() -> Result<(), String> {
         eprintln!("fixture_stage {label} goal");
         let goal = serde_json::from_value(runtime["plan_template"]["goal"].clone())
             .map_err(|_| "goal_invalid")?;
-        client.prepare_goal(&participant, login, &op("goal-prepare"), goal)?;
+        retry_rate(
+            || client.prepare_goal(&participant, login, &op("goal-prepare"), goal.clone()),
+            deadline,
+        )?;
         owner_step(
             || {
                 client.publish_prepared_goal(
@@ -165,7 +183,7 @@ fn run() -> Result<(), String> {
             },
             deadline,
         )?;
-        let current = client.current_owner(&participant, login)?;
+        let current = retry_rate(|| client.current_owner(&participant, login), deadline)?;
         let task = current.task.ok_or("task_unavailable")?;
         let fence = GameTaskFenceV1::from_control(&task);
         let device = json!({"authority_mode":"native_executor_v1","identity":entry["identity"],"login_operation":login,"executor_vault_directory":vault,"service_public_key":entry["trusted_world_service_key"],"fence":fence,"state_directory":dir.join("executor-state")});
