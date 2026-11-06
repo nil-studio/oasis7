@@ -40,7 +40,7 @@ final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟
 
 Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌套清理预留，分别保存 `completion-wait-rejection-initial.*.log` 与 `completion-wait-rejection-recovery.*.log`，不提高 ordinary/runtime-tests 总时限。fixture 生命周期回调先复制 root 并释放锁，再进入 gate 状态；补偿 selector 不持 gate 锁读取 root。`http_fixture::lock_order_tests` 用 channel 固定补偿锁与真实 finished/joined 回调的交错，旧锁作用域应明确失败而非挂起。`application_completion::launcher_tests` 覆盖真实初次挂起、exit73 后恢复挂起与独立日志；原 canonical、原身份、写失败及 exit73 断言仍须通过。
 
-清理采用独立 10 秒 watchdog，必须在 worker join、node stop 完成后显式取消；超时、提前退出或无法证明全部 HTTP worker 已停止时以非零状态终止测试进程，不能丢弃活线程后释放场景 permit。`cleanup_deadline::tests` 用独立子进程注入卡死 join、锁等待及未完成清理，外层仍受既有 child 监督。stream Session 的 EOF drain 使用总计 2 秒截止，不以每次读取重新计时；保留 EOF 前排队的 1 MiB 响应回归，并用持续可读 peer 验证超时后仍完成 join。这些是失败收口边界，不替代业务通过条件；宿主调度或系统调用异常仍由外层进程监督兜底。
+清理采用独立 10 秒 watchdog，必须在 worker join、node stop 完成后显式取消；超时、提前退出或无法证明全部 HTTP worker 已停止时以非零状态终止测试进程，不能丢弃活线程后释放场景 permit。`cleanup_deadline::tests` 用独立子进程注入卡死 join、锁等待、未完成清理及满 stderr 下的退出，外层仍受既有 child 监督。清理诊断是 best-effort：100 毫秒后备退出不能等待日志，输出可能为空或截断；stage/reason/exit code 的完整格式由可控 writer 回归验证，不把日志存在误作有界终止的必要条件。stream Session 的 EOF drain 使用总计 2 秒截止，不以每次读取重新计时；保留 EOF 前排队的 1 MiB 响应回归，并用持续可读 peer 验证超时后仍完成 join。这些是失败收口边界，不替代业务通过条件；宿主调度或系统调用异常仍由外层进程监督兜底。
 
 <a id="local-check-entry"></a>
 ## 显式本地检查：当前入口与目标分层

@@ -355,8 +355,10 @@ pub(super) fn finish(
     output: &std::process::Output,
     worker: thread::JoinHandle<Result<(), String>>,
 ) {
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_rejection_finish");
     let joined = worker.join().expect("real rejection driver worker joins");
     finish_with_result(fixture, root, output, joined);
+    cleanup.complete();
 }
 pub(super) fn finish_with_result(
     fixture: &Fixture,

@@ -140,6 +140,8 @@ pub(super) fn finish(
     output: &std::process::Output,
     worker: thread::JoinHandle<Result<FaultProof, String>>,
 ) {
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_rejection_write_failure_finish");
+    application_hosted_wait_rejection::secure_artifact(fixture, root, output, "fs");
     let proof = worker.join().expect("actual fault worker must join");
     let artifact = std::env::temp_dir().join(format!(
         "pre2-wait-rejection-fs-{}-{}",
@@ -281,4 +283,5 @@ pub(super) fn finish(
     );
     application_hosted_wait_rejection_recovery::assert_original_terminal(fixture, root);
     println!("PRE2_REJECTED_WAIT_RUNTIME_AND_SIDECAR_OWNED_RETRY_PASSED runtime_ledgers=5");
+    cleanup.complete();
 }

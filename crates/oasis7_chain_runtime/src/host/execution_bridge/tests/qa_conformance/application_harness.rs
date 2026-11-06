@@ -551,7 +551,6 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
             return;
         }
         if let Some(fs_worker) = rejection_fs_worker {
-            application_hosted_wait_rejection::secure_artifact(&fixture, &app_dir, &output, "fs");
             application_hosted_wait_rejection_write_failure::finish(
                 &fixture, &app_dir, &output, fs_worker,
             );

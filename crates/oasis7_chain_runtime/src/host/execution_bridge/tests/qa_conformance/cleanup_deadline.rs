@@ -71,14 +71,25 @@ fn terminate(stage: &'static str, reason: &'static str) -> ! {
     {
         std::process::exit(CLEANUP_EXIT_CODE);
     }
-    // Bypass libtest capture; retain only a fixed stage and reason, no request data.
-    let _ = writeln!(
-        std::io::stderr(),
-        "conformance_cleanup_failed stage={stage} reason={reason} exit_code={CLEANUP_EXIT_CODE}"
-    );
+    // Bypass libtest capture. This diagnostic is best-effort: the fail-closed
+    // exit must still win if stderr is blocked or its writer is descheduled.
+    let _ = write_diagnostic(&mut std::io::stderr(), stage, reason);
     // Exit the test process rather than dropping JoinHandles or unwinding through
     // a poisoned fixture. The outer process supervisor owns its remaining tree.
     std::process::exit(CLEANUP_EXIT_CODE)
+}
+
+fn write_diagnostic(
+    writer: &mut impl Write,
+    stage: &'static str,
+    reason: &'static str,
+) -> std::io::Result<()> {
+    // One bounded record, containing no request data. write_all also handles
+    // interrupted and short writes; process termination can still truncate it.
+    let record = format!(
+        "conformance_cleanup_failed stage={stage} reason={reason} exit_code={CLEANUP_EXIT_CODE}\n"
+    );
+    writer.write_all(record.as_bytes())
 }
 
 #[path = "cleanup_deadline_tests.rs"]
