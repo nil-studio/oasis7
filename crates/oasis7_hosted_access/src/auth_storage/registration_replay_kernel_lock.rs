@@ -9,6 +9,12 @@ use super::registration_replay_lock::LOCK_RETRY_INTERVAL;
 pub(super) static FAIL_NEXT_ANCHOR_SYNC: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(all(test, unix))]
+thread_local! {
+    pub(super) static AFTER_KERNEL_ACQUIRE: std::cell::Cell<Option<fn()>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// Normalize ordinary directory syntax and resolve parent aliases before suffixing.
 /// The target may not exist yet (world bootstrap); its parent is the stable namespace.
 pub(super) fn normalized_target(path: &Path) -> Result<PathBuf, String> {
@@ -167,6 +173,12 @@ pub(super) fn acquire(lock_dir: &Path, deadline: Instant, wait: bool) -> Result<
             }
         }
     }
+    #[cfg(all(test, unix))]
+    AFTER_KERNEL_ACQUIRE.with(|hook| {
+        if let Some(hook) = hook.take() {
+            hook();
+        }
+    });
     verify_anchor(&file, &path)?;
     #[cfg(test)]
     if FAIL_NEXT_ANCHOR_SYNC.swap(false, std::sync::atomic::Ordering::SeqCst) {

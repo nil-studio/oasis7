@@ -508,3 +508,7 @@ fn stale_reclaimer_barrier() {
 #[cfg(test)]
 #[path = "registration_replay_lock_process_tests.rs"]
 mod process_tests;
+
+#[cfg(all(test, unix))]
+#[path = "registration_replay_lock_failure_process_tests.rs"]
+mod failure_process_tests;
