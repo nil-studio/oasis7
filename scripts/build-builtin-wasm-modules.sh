@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 OUT_DIR="$ROOT_DIR/.tmp/builtin-wasm"
 PROFILE="release"
 CANDIDATE_BUILD=0
@@ -123,7 +123,10 @@ if [[ ${#REQUESTED_MODULE_IDS[@]} -eq 0 ]]; then
   done < <(all_module_ids)
 fi
 
-mkdir -p "$OUT_DIR"
+if [[ "$CANDIDATE_BUILD" -eq 0 || "$DRY_RUN" -eq 1 ]]; then
+  mkdir -p "$OUT_DIR"
+fi
+CANDIDATE_BATCH_OPEN=0
 
 for module_id in "${REQUESTED_MODULE_IDS[@]}"; do
   if ! is_supported_module_id "$module_id"; then
@@ -143,6 +146,16 @@ for module_id in "${REQUESTED_MODULE_IDS[@]}"; do
   if [[ ! -f "$manifest_path" ]]; then
     echo "error: module manifest not found for $module_id: $manifest_path" >&2
     exit 2
+  fi
+  if [[ "$CANDIDATE_BUILD" -eq 1 && "$DRY_RUN" -eq 0 ]]; then
+    if [[ "$CANDIDATE_BATCH_OPEN" -eq 0 ]]; then
+      # This private batch owner never changes the producer-content recipe.
+      source "$ROOT_DIR/scripts/lib/builtin-wasm-candidate-batch.sh"
+      candidate_batch_open "$ROOT_DIR" "$OUT_DIR"
+      CANDIDATE_BATCH_OPEN=1
+    fi
+    candidate_batch_build "$module_id" "$manifest_path" "$PROFILE"
+    continue
   fi
   cmd=(
     "$ROOT_DIR/scripts/build-wasm-module.sh"
