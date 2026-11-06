@@ -1,7 +1,9 @@
 //! Linux-only restricted local transport; authentication uses kernel peer credentials.
 //! The caller cannot supply a principal or a credential path in the transport envelope.
+#[cfg(target_os = "linux")]
+use std::io::Read;
 use std::{
-    io::{Read, Write},
+    io::Write,
     os::unix::{
         fs::MetadataExt,
         net::{UnixListener, UnixStream},
@@ -127,7 +129,6 @@ pub fn serve(
     caller_id: &str,
 ) -> Result<(), String> {
     use crate::dev_test_service::{Config, Request};
-    use std::net::Shutdown;
     let service_uid = unsafe { libc::geteuid() };
     if service_uid == caller_uid {
         return Err("distinct model uid required".into());
@@ -175,36 +176,13 @@ pub fn serve(
             {
                 return Err("private service socket untrusted".into());
             }
-            let mut upstream =
-                UnixStream::connect(&config.socket).map_err(|_| "private service unavailable")?;
-            upstream
-                .set_read_timeout(Some(policy.timeout))
-                .map_err(|_| "upstream timeout failed")?;
-            upstream
-                .set_write_timeout(Some(policy.timeout))
-                .map_err(|_| "upstream timeout failed")?;
             let forwarded = Request {
                 profile: request.profile,
                 audience: request.audience,
                 credential: credential.token.clone(),
                 method: request.method,
             };
-            upstream
-                .write_all(&serde_json::to_vec(&forwarded).map_err(|_| "encoding failed")?)
-                .map_err(|_| "upstream write failed")?;
-            upstream
-                .shutdown(Shutdown::Write)
-                .map_err(|_| "upstream shutdown failed")?;
-            let mut response = Vec::new();
-            upstream
-                .take(65537)
-                .read_to_end(&mut response)
-                .map_err(|_| "upstream read failed")?;
-            if response.len() > 65536 {
-                return Err("upstream response too large".into());
-            }
-            let parsed: crate::dev_test_service::Response =
-                serde_json::from_slice(&response).map_err(|_| "invalid upstream response")?;
+            let parsed = crate::dev_test_service::call_service(&config.socket, &forwarded)?;
             serde_json::to_vec(&parsed).map_err(|_| "response encoding failed".into())
         })();
         match result {
