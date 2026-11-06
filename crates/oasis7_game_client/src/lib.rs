@@ -595,3 +595,6 @@ mod dev_test_service_cli;
 mod dev_test_catalog;
 #[cfg(unix)]
 pub mod dev_test_private_config;
+
+#[cfg(unix)]
+pub mod dev_test_sessions;

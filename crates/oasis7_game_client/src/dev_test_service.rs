@@ -75,7 +75,7 @@ pub struct Response {
 }
 /// Constructed only after trusted adapter authentication; never deserialized.
 pub struct AuthenticatedCaller {
-    caller_id: String,
+    pub(crate) caller_id: String,
 }
 pub fn authenticate_token(
     config: &Config,
@@ -313,15 +313,13 @@ mod tests {
             }
         });
         let started = Instant::now();
-        assert!(
-            read_until(
-                &mut reader,
-                &mut Vec::new(),
-                1024,
-                started + Duration::from_millis(75)
-            )
-            .is_err()
-        );
+        assert!(read_until(
+            &mut reader,
+            &mut Vec::new(),
+            1024,
+            started + Duration::from_millis(75)
+        )
+        .is_err());
         assert!(started.elapsed() < Duration::from_millis(250));
         drop(reader);
         sender.join().unwrap();
@@ -420,6 +418,15 @@ pub fn call_service_until(
     deadline: std::time::Instant,
 ) -> Result<Response, String> {
     let body = serde_json::to_vec(request).map_err(|_| "request_encoding_failed")?;
+    serde_json::from_value(call_serialized_until(socket, &body, deadline)?)
+        .map_err(|_| "invalid_response".into())
+}
+/// Crate-owned typed adapters share the same trusted socket and deadline checks.
+pub(crate) fn call_serialized_until(
+    socket: &std::path::Path,
+    body: &[u8],
+    deadline: std::time::Instant,
+) -> Result<serde_json::Value, String> {
     if body.len() > 65536 {
         return Err("request_too_large".into());
     }
@@ -498,7 +505,7 @@ pub fn call_service_until(
     serde_json::from_slice(&response).map_err(|_| "invalid_response".into())
 }
 
-fn read_until(
+pub(crate) fn read_until(
     stream: &mut std::os::unix::net::UnixStream,
     output: &mut Vec<u8>,
     limit: usize,
@@ -508,53 +515,51 @@ fn read_until(
     stream
         .set_nonblocking(true)
         .map_err(|_| "socket_configuration_failed")?;
-    let result = (|| {
-        loop {
-            let remaining = deadline
-                .checked_duration_since(std::time::Instant::now())
-                .filter(|r| !r.is_zero())
-                .ok_or("service_deadline_exceeded")?;
-            let mut poll = libc::pollfd {
-                fd: stream.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let ready = unsafe {
-                libc::poll(
-                    &mut poll,
-                    1,
-                    remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
-                )
-            };
-            if ready == 0 {
-                return Err("service_deadline_exceeded".into());
+    let result = (|| loop {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|r| !r.is_zero())
+            .ok_or("service_deadline_exceeded")?;
+        let mut poll = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe {
+            libc::poll(
+                &mut poll,
+                1,
+                remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
+            )
+        };
+        if ready == 0 {
+            return Err("service_deadline_exceeded".into());
+        }
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
             }
-            if ready < 0 {
-                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-                    continue;
+            return Err("socket_poll_failed".into());
+        }
+        let mut buffer = [0; 4096];
+        match stream.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(count) => {
+                if output.len() + count > limit {
+                    return Err("request_too_large".into());
                 }
-                return Err("socket_poll_failed".into());
+                output.extend_from_slice(&buffer[..count]);
             }
-            let mut buffer = [0; 4096];
-            match stream.read(&mut buffer) {
-                Ok(0) => return Ok(()),
-                Ok(count) => {
-                    if output.len() + count > limit {
-                        return Err("request_too_large".into());
-                    }
-                    output.extend_from_slice(&buffer[..count]);
-                }
-                Err(error)
-                    if [
-                        std::io::ErrorKind::WouldBlock,
-                        std::io::ErrorKind::Interrupted,
-                    ]
-                    .contains(&error.kind()) =>
-                {
-                    continue;
-                }
-                Err(_) => return Err("request_transport_failed".into()),
+            Err(error)
+                if [
+                    std::io::ErrorKind::WouldBlock,
+                    std::io::ErrorKind::Interrupted,
+                ]
+                .contains(&error.kind()) =>
+            {
+                continue;
             }
+            Err(_) => return Err("request_transport_failed".into()),
         }
     })();
     stream

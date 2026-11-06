@@ -263,3 +263,11 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 `dev-test-catalog-register --directory <0700目录> --identity-config <0600配置> --operation <登录原操作ID> --alias <别名>` 核验当前 /session 主体并登记；同账号与环境返回稳定 account_ref，重复登记不得替换凭据主体。别名可修改。`dev-test-catalog-list --directory <目录>` 只展示非秘密引用、账号、环境、公开key与别名，不输出凭据路径或原登录引用。列表是登记投影，不能代替当前权限。目录中的 catalog.json 及锁和临时文件只供可信运营者访问；实际凭据保持在既有加密库，不复制私钥或Cookie。
 
 真实A/B隔离身份环境尚未核验；受控身份服务测试不能代签合法账号登记验收。
+
+### 多账号只读会话候选（#5535，未验收）
+
+候选二进制 `oasis7_dev_test_sessions --serve PRIVATE_CONFIG` 从可信私有stdin读取账号引用到unlock的JSON映射。配置由可信运营者准备，包含共同 service 配置、catalog_directory、grants 和 resources；每项grant有独立grant_ref、共享稳定grant_id、caller_id、不可变binding、绝对expires_at_unix、enabled与只读methods。binding固定account_ref/environment/world/genesis_digest/agent_id/resource/authorization_version；resource只由管理员固定account_ref与executor_config路径。模型请求不能提供这些路径或unlock。
+
+`oasis7_dev_test_sessions --call APPROVED_SOCKET` 从可信宿主stdin接收credential、method及可选grant_ref/session_ref/expires_at_unix。method仅有accounts、open、close、describe、task、capabilities。session_ref不能单独认证。打开和业务读取复核目录原生current_account与Executor配置的实际身份、环境和fence，再复用正式Client；不调用context、不写世界。累计用量复用共同grant/caller账本，不随session或别名变化。普通重启清空内存会话，保留账本；管理者确认旧进程停止后清理遗留socket再启动。
+
+本候选仅以空目录实际CLI查询验证认证拒绝、服务启动和重启累计用量连续；会话单测不等于真实A/B读取。当前真实A/B/C原生登录、获准world/task/resource和读取证据均待准备，未声明#5535完成。控制配置更新与准入同一串行边界、账号停用管理入口、正式下游超时与有限并发的整体验收仍待补齐，不能因Draft或局部测试而关闭子项。真实消费者不得使用空目录或mock代签。

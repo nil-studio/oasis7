@@ -16,6 +16,8 @@ pub struct Account {
     pub environment: String,
     pub public_key: String,
     pub alias: String,
+    #[serde(default)]
+    pub disabled: bool,
     credential_ref: String,
     login_operation: String,
 }
@@ -110,6 +112,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
             public_key,
             environment,
             alias: args[8].clone(),
+            disabled: false,
             credential_ref: credential.to_string_lossy().into(),
             login_operation: args[6].clone(),
         });
@@ -146,5 +149,42 @@ mod tests {
             blake3::hash(&serde_json::to_vec(&(environment, "same-account")).unwrap())
         };
         assert_ne!(key(&first), key(&second));
+    }
+}
+
+/// Trusted business lookup, never a model-provided credential path.
+pub(crate) fn lookup(directory: &Path, account_ref: &str) -> Result<Account, String> {
+    private_directory(directory)?;
+    let bytes =
+        crate::dev_test_private_config::read_private_config(&directory.join("catalog.json"))?;
+    let accounts: Vec<Account> = serde_json::from_slice(&bytes).map_err(|_| "catalog_corrupt")?;
+    let mut matches = accounts
+        .into_iter()
+        .filter(|account| account.account_ref == account_ref);
+    let account = matches.next().ok_or("account_unavailable")?;
+    if matches.next().is_some() {
+        return Err("ambiguous_account".into());
+    }
+    Ok(account)
+}
+impl Account {
+    pub(crate) fn verify_current(&self, unlock: &[u8]) -> Result<(), String> {
+        let config: crate::identity_client::IdentityClientConfig = serde_json::from_slice(
+            &crate::dev_test_private_config::read_private_config(Path::new(&self.credential_ref))?,
+        )
+        .map_err(|_| "invalid_identity_configuration")?;
+        let environment =
+            serde_json::to_string(&(&config.identity_service_id, &config.environment_id))
+                .map_err(|_| "invalid_identity_environment")?;
+        if environment != self.environment {
+            return Err("account_environment_mismatch".into());
+        }
+        let client = crate::identity_client::IdentityClient::new(config, unlock)?;
+        if client.current_account(&self.login_operation)? != self.account_id
+            || client.public_key() != self.public_key
+        {
+            return Err("native_identity_mismatch".into());
+        }
+        Ok(())
     }
 }
