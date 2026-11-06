@@ -40,7 +40,7 @@ pub(super) struct RegistrationReplayProcessLock {
     pid: u32,
     // Lifetime locks close only. A synchronous transaction owner may instead
     // release its critical section before unrelated forked descriptors close.
-    _kernel_lock: std::fs::File,
+    _kernel_lock: super::registration_replay_kernel_lock::KernelLock,
     release_transaction: bool,
 }
 
@@ -107,10 +107,10 @@ impl RegistrationReplayProcessLock {
             }
             match fs::rename(&staging_dir, &lock_dir) {
                 Ok(()) => {
-                    let guard = Self {
+                    let mut guard = Self {
                         lock_dir: lock_dir.clone(),
                         token,
-                        pid: std::process::id(),
+                        pid: kernel_lock.acquiring_pid(),
                         _kernel_lock: kernel_lock,
                         release_transaction,
                     };
@@ -120,6 +120,9 @@ impl RegistrationReplayProcessLock {
                             "sync registration replay ledger lock parent failed: {err}"
                         ));
                     }
+                    // Keep failed acquisitions armed through owner cleanup,
+                    // including a failure of the final parent-directory sync.
+                    guard._kernel_lock.complete_acquisition();
                     return Ok(guard);
                 }
                 Err(_) if lock_dir.exists() => {
