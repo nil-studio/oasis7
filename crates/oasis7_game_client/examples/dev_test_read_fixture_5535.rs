@@ -17,11 +17,18 @@ fn owner_step(
     deadline: Instant,
 ) -> Result<(), String> {
     while Instant::now() < deadline {
-        let progress = call()?;
+        let progress = match call() {
+            Ok(progress) => progress,
+            Err(error) if error.starts_with("rate_limited") => {
+                std::thread::sleep(Duration::from_secs(2));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if progress.state == "confirmed" {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_secs(2));
     }
     Err("fixture_deadline".into())
 }
@@ -59,7 +66,7 @@ fn run() -> Result<(), String> {
     let unlock = zeroize::Zeroizing::new(
         std::fs::read(root.join("unlock.bin")).map_err(|_| "private_unlock_unavailable")?,
     );
-    let deadline = Instant::now() + Duration::from_secs(120);
+    let deadline = Instant::now() + Duration::from_secs(180);
     let mut result = Vec::new();
     for label in ["A", "B"] {
         if Instant::now() >= deadline {
@@ -96,11 +103,18 @@ fn run() -> Result<(), String> {
             if Instant::now() >= deadline {
                 return Err("fixture_deadline".into());
             }
-            let progress = client.register(&participant, login)?;
+            let progress = match client.register(&participant, login) {
+                Ok(progress) => progress,
+                Err(error) if error.starts_with("rate_limited") => {
+                    std::thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if progress.state == "confirmed" || client.current_owner(&participant, login).is_ok() {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(200));
+            std::thread::sleep(Duration::from_secs(2));
         }
         let vault = dir.join("executor-vault");
         let executor = if !vault.exists() {
