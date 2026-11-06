@@ -74,9 +74,10 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install system deps
+        shell: bash
+        timeout-minutes: 11
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 -- \
             clang \
             llvm \
             pkg-config \

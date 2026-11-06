@@ -99,12 +99,15 @@ Trace refs: O7-REQ-cf672e18-ed16-42a3-9338-ab7b965ac607；唯一要求声明：[
 
 - Trace ID: O7-REQ-4fcbad4f-f576-4bcf-b4fc-b027967b0405
 - 适用范围：本条要求及对应 AC-DWE-002，保留原文入口、前置条件及测试层级。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[world-runtime 承接条款](../../world-runtime/design.md#runtime-pending-design)；待决恢复已有目标设计；通用 pending 持久字段、消费者反馈与真实恢复范围仍须核对。
+- 系统设计状态：已覆盖
+- 系统设计依据：[Runtime 待决接收](../../world-runtime/design.md#runtime-pending-design)已定义完整签名原件、admitted 身份、持久 owner/去重与保存边界，区分已知无效果、固定 continuation 和未知提交，并在恢复后按当前权限/资源/期限/manifest 重审；[API 目标映射](../../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)与 [Viewer 接收](../../world-simulator/viewer/external-agent-world-view.design.md#view-intent-results)逐项保留真实处置和合法下一步。
+- 设计依赖：Runtime 接收继续使用 [SR2 原件/准入/决定的持久合同](../../world-runtime/module/module-lifecycle.md#sr2-pending-admission-recovery)；通用字段/编码与原件 authority 不迁移到产品卡。
+- 设计验证方法：[GWSC PL01–03/07–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)及 [IR01–03/06](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results)核持久前后、恢复条件变化/有效正例、固定原决定、未知、实际消费者与协议未支持；保留原 required/full 和根组合边界。
+- 本次设计核对：2026-11-06；输入基线 `4c80cd131adb1b3a37323a42bad847c2d7836ce2` 与本次桥接设计；原 REQ/AC/Trace、实现状态及历史源码/日期不变，方法未运行。
 - 实现状态：部分实现
 - 实现与验证依据：formal-live 的 signed intent 提交只入 Node queue 并答 Received/Volatile；ready=false 在入队前拒绝。formal client lookup 对原请求结果页校验后才输出 Committed，合法分页尚未找到结果输出 Unknown。直接覆盖提交应答不冒充世界结果、该 API 结论由证明资格化的子范围；不是 finality 缺失时完整 durable pending 合同。 [formal_live_service.rs L784–862](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/formal_live_service.rs#L784-L862)；[client_formal_operations.rs L135–189](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7/src/world_service/client_formal_operations.rs#L135-L189)；[formal_writer.rs L965–1081](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/formal_writer.rs#L965-L1081)；[world_service_execution.rs L12–77](https://github.com/nil-studio/oasis7/blob/0ec10379419b0aaedb9d16157b81c92f4e6e3495/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/execution_bridge/world_service_execution.rs#L12-L77)。本轮仅固定源码审读，测试定义及CI汇总不代签业务通过。
 - 核对日期与基线：2026-10-17；需求与源码固定 `0ec10379419b0aaedb9d16157b81c92f4e6e3495`，GitHub connector静态审读；未运行本条测试、故障注入、模型、浏览器或部署。旧历史记录保持其原候选/环境，不刷新为本基线实测。
-- 剩余范围：设计仍按本卡原系统设计状态与依据保留；实现与验证：无效/陈旧 finality 下所有通用 signed intent 的可读持久 pending、恢复时当前权限/资源/期限重裁决、过期/重新规划语义及玩家和 Agent 实际消费仍未闭合。已有 frozen-original resume 不等于 fresh pending 重裁决；postcommit publication 错误不能推导零 receipt。#4838 J1/J2 allocator/schedule 接续仍待安排，不能据恢复基础已交付写已修复。
+- 剩余范围：本条持久原件、恢复分类、当前重审与消费者目标已有设计和方法；实现与验证：无效/陈旧 finality 下所有通用 signed intent 的可读持久 pending、恢复时当前权限/资源/期限重裁决、过期/重新规划语义及玩家和 Agent 实际消费仍未闭合。已有 frozen-original resume 不等于 fresh pending 重裁决；postcommit publication 错误不能推导零 receipt。#4838 J1/J2 allocator/schedule 接续仍待安排，不能据恢复基础已交付写已修复。
 
 签名 intent 在 finality 不可用、陈旧或无法验证时必须保持可读的无效果待决；恢复后按当时有效权限和前置条件重新裁决，只有 committed receipt 才能更新玩家、Agent 或入口的世界结论。
 
@@ -125,12 +128,15 @@ finality 中断样例能区分仍待决、被拒绝/过期、须重新规划和�
 
 - Trace ID: O7-REQ-78948fd8-29dc-4e9b-8a38-321ed37b7ad6
 - 适用范围：本条要求及对应 AC-DWE-003，保留原文入口、前置条件及测试层级。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[world-runtime 承接条款](../../world-runtime/design.md#runtime-lineage-design)；互斥胜者已有目标设计；专业互斥标记、持久原子处置与跨消费者竞态仍须核对。
+- 系统设计状态：已覆盖
+- 系统设计依据：[Runtime lineage 接收](../../world-runtime/design.md#runtime-lineage-design)已定义显式互斥与前驱校验、原 canonical 次序、winner 与已登记且仍待决成员的 loser 处置同事务发表、迟到成员不能再生效、拒绝/过期/无效果撤回只终止自身及独立并发；[API 原关系](../../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)与 [Viewer 逐成员结果](../../world-simulator/viewer/external-agent-world-view.design.md#view-intent-results)保留当前读权、缺历史和原件归属。
+- 设计依赖：Runtime 接收继续使用 [SR2 领域关系与原子发表合同](../../world-runtime/module/module-lifecycle.md#sr2-lineage-publication)；关系、字段和持久边界仍由原专业合同拥有。
+- 设计验证方法：[GWSC PL04–09](../../testing/longrun/game-world-state-sync-commit-closure-2026-06-26.design.md#sr2-pending-lineage-combination)及 [IR02–06](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-intent-results)核双序/同块、已知与迟到成员、独立有效正例、重复/冲突/重启及各消费者关系；保留原 LIN-01..04、required/full 和根组合边界。
+- 本次设计核对：2026-11-06；输入基线 `4c80cd131adb1b3a37323a42bad847c2d7836ce2` 与本次桥接设计；原 REQ/AC/Trace、实现状态及历史源码/日期不变，方法未运行。
 - 实现状态：部分实现
 - 实现与验证依据：Agent chat 已实现明确 replaces_intent_id 关联、旧请求 superseded 记录与精确 replay 检查。 [crates/oasis7/src/runtime/world/agent_intent.rs L382-L580](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_intent.rs#L382-L580)。测试定义：[crates/oasis7/src/runtime/tests/agent_intent_v2/lifecycle.rs L110-L605](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/agent_intent_v2/lifecycle.rs#L110-L605)。[相关历史交付/跟踪 #3612](https://github.com/nil-studio/oasis7/pull/3612)；本轮仅静态审读，测试定义不等于执行通过，未取得本条全部适用验收的实际运行记录。
 - 核对日期与基线：2026-10-17；需求与实现源码 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；GitHub 固定源码审读，未运行业务、部署或真人验收；入口、原验收条件与测试层级保持本条原文。
-- 剩余范围：设计方面，互斥胜者已有目标设计；专业互斥标记、持久原子处置与跨消费者竞态仍须核对；本轮实现与验证细化：这是单一 chat intent 槽位的替代，不能证明通用互斥 lineage 的首个有效 receipt 原子胜出；撤回竞态、拒绝/过期仅终止自身及独立 intent 并发仍未核清。
+- 剩余范围：本条专业关系、原子胜者和消费者目标已有设计和方法；原实现与验证边界仍为单一 chat intent 槽位的替代，不能证明通用互斥 lineage 的首个有效 receipt 原子胜出；撤回竞态、拒绝/过期仅终止自身及独立 intent 并发仍未核清。持久故障、迟到成员和实际各入口同候选组合仍须实施验证，设计接收不提升实现状态。
 
 被专业域标记为互斥成员的原请求、撤回或 replacement 必须共享可读 lineage，并由首个有效 committed receipt 原子决定唯一胜者；拒绝或过期只终止自身，独立且未标记互斥的 intent 不被无故取消。
 

@@ -26,5 +26,11 @@ serde_cbor.workspace = true
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 oasis7_proto = { path = "../oasis7_proto" }
 
+[target.'cfg(unix)'.dependencies]
+oasis7_custody_core = { path = "../oasis7_custody_core" }
+cap-std = "4"
+cap-fs-ext = "4"
+libc = "0.2"
+
 [lints]
 workspace = true

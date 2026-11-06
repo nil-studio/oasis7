@@ -5,6 +5,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,21 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('architecture', HERE / 'cargo-dev-architecture.py')
 checker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
+
+
+class RepositoryUpstreams(unittest.TestCase):
+    def test_markdown_rules_reference_defined_anchors(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        for rule in rules:
+            path, anchor = rule['upstream'].split('#')
+            if not path.endswith('.md'):
+                continue
+            with self.subTest(rule=rule['key'], upstream=rule['upstream']):
+                source = (HERE.parent / path).read_text(encoding='utf-8')
+                anchors = set(re.findall(r'<a\s+(?:id|name)=["\']([^"\']+)["\']', source))
+                for heading in re.findall(r'^#{1,6}\s+(.+)$', source, re.MULTILINE):
+                    anchors.add(re.sub(r'[^\w\- ]', '', heading.strip()).lower().replace(' ', '-'))
+                self.assertIn(anchor, anchors, 'upstream must name a defined anchor, not a historical link')
 
 
 class CargoBoundaries(unittest.TestCase):

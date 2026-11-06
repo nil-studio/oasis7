@@ -1577,6 +1577,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
     host_roots = build_script_roots(sources, directories, source_inputs.get('manifests', {}))
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
+    ordinary_structure_cache = {}
 
     def source_owners(path):
         return {name for name, directory in directories.items()
@@ -1692,10 +1693,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         parent_cache[key] = references
         return references
 
-    def ordinary_source_context(path, native, visiting=frozenset()):
+    def ordinary_source_structure(path, native, visiting=frozenset()):
         key = path, native
-        if key in context_cache:
-            return context_cache[key]
+        if key in ordinary_structure_cache:
+            return ordinary_structure_cache[key]
         if path in visiting:
             return False
         if source_inputs.get('uncertain_modules'):
@@ -1709,9 +1710,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # for nested modules; no one convenient context can authorise the other.
         mixed = len({kind for _, kind, _, _ in references}) > 1
         enabled = bool(path in ordinary_roots or references) and not mixed
-        enabled &= all(known and ordinary_source_context(parent, native, visiting | {path})
-                       for parent, _, known, _ in references)
-        context_cache[key] = enabled
+        enabled &= all(known and resolved and not opaque
+                       and ordinary_source_structure(parent, native, visiting | {path})
+                       for parent, known, opaque, resolved, _ in reference_cache[(path, native, None)])
+        ordinary_structure_cache[key] = enabled
         return enabled
 
     def inherited_paths(path, native, visiting=frozenset(), roots=None):
@@ -1731,6 +1733,30 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}, roots):
                 result.append((previous + gates, proven and known, uncertain or opaque, packages))
         return result
+
+    def ordinary_source_context(path, native):
+        key = path, native
+        if key in context_cache:
+            return context_cache[key]
+        context_cache[key] = False
+        # Keep every reference closed and unambiguous before evaluating cfgs.
+        # A convenient executable route cannot hide a different unknown owner,
+        # include context, disabled harness or unresolved/cyclic mount.
+        if not ordinary_source_structure(path, native):
+            return False
+        defaults = source_inputs.get('default_features', {})
+        executable = False
+        for gates, proven, opaque, packages in inherited_paths(path, native):
+            features = set.intersection(*(set(defaults.get(package, ())) for package in packages)) if packages else set()
+            values = [gate_value(gate, native, features) for gate in gates]
+            if not proven or opaque or any(value is None for value in values):
+                return False
+            # A production-only mount is a false alternative in a test build,
+            # not a condition on a separate real test mount. Unknown or expanded
+            # features above still prevent the ordinary-addition exemption.
+            executable |= all(values)
+        context_cache[key] = executable
+        return executable
 
     def inherited_gates(path, native, visiting=frozenset()):
         # Narrow inventory keeps its conservative ancestor check; the legacy

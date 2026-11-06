@@ -42,12 +42,12 @@
 <a id="fsp-selection-design"></a>
 ### 4.1 确定性选择的专业边界
 
-[配对 PRD 选择合同](agent-frag-initial-spawn-position.prd.md#fsp-selection-contract)保持不变。当前 [build_world_model](../../../crates/oasis7_simulator/src/init.rs)按前缀收集并排序候选，再按 seed 与 Agent 序号选择；源码定义不是测试通过证明。它不等于推荐最近或经济最优 frag，也不证明 chain-committed provenance。统一 seed 专题的四项 [Open Decisions](unified-world-seed-fragment-runtime.design.md#9-open-decisions)保持未决，不由局部初始化作选择。
+[配对 PRD 选择合同](agent-frag-initial-spawn-position.prd.md#fsp-selection-contract)保持不变。当前 [build_world_model](../../../crates/oasis7_simulator/src/init.rs)按前缀收集并排序候选，再按 seed 与 Agent 序号选择；源码定义不是测试通过证明。它不等于推荐最近或经济最优 frag，也不证明 chain-committed provenance。统一 seed 专题的[四项设计选择及实施边界](unified-world-seed-fragment-runtime.design.md#unified-decision-profile)已明确；局部初始化不替代这些选择，也不证明正式初始工件、写端和消费者已接通。
 
 <a id="fsp-standoff-design"></a>
 ### 4.2 坐标、边界与消费保留
 
-[原 standoff 合同](agent-frag-initial-spawn-position.prd.md#fsp-standoff-contract)继续拥有数值与降级。当前 [fragment_spawn_pos](../../../crates/oasis7/src/simulator/frag_spawn.rs)为 5000cm、2000cm、frag 中心的确定性路径；该源码说明不新增产品数值或改写原需求。初始化错误由原构建入口拒绝，不能交付部分有效模型。该函数的边界 contains 检查不能证明一般障碍/实体避让已经实现；原避让设计义务与实现证据分开。Viewer 保留偏移须独立验证，不从初始化断言推断所有投影视角可读。
+[原 standoff 合同](agent-frag-initial-spawn-position.prd.md#fsp-standoff-contract)继续拥有数值与降级。当前 [fragment_spawn_pos](../../../crates/oasis7_simulator/src/frag_spawn.rs)为 5000cm、2000cm、frag 中心的确定性路径；该源码说明不新增产品数值或改写原需求。初始化错误由原构建入口拒绝，不能交付部分有效模型。该函数的边界 contains 检查不能证明一般障碍/实体避让已经实现；原避让设计义务与实现证据分开。Viewer 保留偏移须独立验证，不从初始化断言推断所有投影视角可读。
 
 <a id="fsp-reason-design"></a>
 ### 4.3 推荐理由的条件接收
@@ -78,8 +78,8 @@
 | Trace refs: O7-REQ-f6aebb85-7a07-4e0b-a3cf-f23655f293a2；[FS-7 条件子义务](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#fs7-starter-resource-reason) | [理由](#fsp-reason-design) | 推荐首个 frag 时五字段与缺失提示、不承诺掉落/产出 | planned；test_tier_required 沿 [正式 surface 验证手册](../../../testing-manual.md) 的 L4A synthetic 内部闭环层 准备正常、缺材质、缺目标关联与不同 seed/布局样例；固定候选和适用正式 surface，核对粗粒度价值、距离理由和配方方向；source/fixture 尚待实施，不伪造已有测试 | gameplay/Viewer/QA 实施 PR 的合同结果与独立玩家阅读观察，记录候选、surface、输入和真实输出 | 本文/初始化测试不证明理由已展示、独立理解、全部 FS-7、完整首局或真实留存 |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[舞台相关对象可读](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [Viewer 保留](#fsp-viewer-preservation-design) | 仅保留初始化 standoff 的消费约束，局部服务相关对象可辨认 | planned；沿[正式 surface 验证手册](../../../testing-manual.md) 的 L4A synthetic 内部闭环层的层级要求及 §4.4 计划在固定候选、原支持的 Viewer surface 对账输入位置与渲染位置，检查未被强制贴回表面，并独立观察相关 Agent/frag 是否可辨认；真实 source/fixture 尚待核实，未执行 | Viewer/QA 实施 PR 记录 surface、相机、输入、输出及真实观察；合同与可读性分别给结论 | 不把离线初始化断言、截图或坐标一致代签完整 stage001/AC、所有相机/所有 surface 或产品 readiness |
 
-本轮是文档与静态断言核对，所有行为执行结果均未产生。原演进计划、历史实施状态与统一 seed 未决方案不因身份登记改变；未来实现改变坐标、选择、配置、权限或 fallback 时须回到各专业合同另行审读。
+本轮是文档与静态断言核对，所有行为执行结果均未产生。原演进计划与历史实施状态不因身份登记改变；未来实现改变坐标、选择、配置、权限或 fallback 时须回到各专业合同另行审读。
 
 ## 12. 风险与未决边界
 
-统一 seed 四项未决、正式 claim 接线与现有避让实现覆盖保持原状态。站位与理由的源码存在或文档身份完整不能替代同候选的行为、入口与理解证据；本轮不新增数值、默认 fallback、权限、导航或产品承诺。
+统一 seed 的四项设计选择已由[现行方案](unified-world-seed-fragment-runtime.design.md#unified-decision-profile)确定，正式 claim 接线与现有避让实现覆盖仍须按各自证据核对。站位与理由的源码存在或文档身份完整不能替代同候选的行为、入口与理解证据；本轮不新增数值、默认 fallback、权限、导航或产品承诺。
