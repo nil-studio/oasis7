@@ -9,7 +9,9 @@ const HELP: &str = "oasis7_game_client --config <device.json> <command> [options
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
     #[cfg(unix)]
-    if args.first().is_some_and(|v| v.starts_with("dev-test-")) { return crate::dev_test_service_cli::run(&args); }
+    if args.first().is_some_and(|v| v.starts_with("dev-test-")) {
+        return crate::dev_test_service_cli::run(&args);
+    }
     #[cfg(unix)]
     if args.first().is_some_and(|v| v.starts_with("custody-host-")) {
         return crate::custody_tool_host::cli::run(&args);
