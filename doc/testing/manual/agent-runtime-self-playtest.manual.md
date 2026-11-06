@@ -308,3 +308,28 @@ Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验
 局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
 
 实际Linux候选验证（固定生产源码 `4273a7239adb60b0bcf5cae181ea10660646d039`）：沿既有A/B world、完整fence和Executor pin，A的唯一目标 `[1,0,0]` 已由原lookup committed receipt `action:4` 与canonical `AgentMoved id66 / tick264 / caused_by Action4` 对应核验，仅一次效果。B原Move及经明确授权的B2独立轮次均得到canonical `stale_base`终态，无B移动；保留原RID和账本，不自动创建B3。A/B各成功一次及成功B丢响应恢复仍未完成，不能关闭本项。受信夹具 `crates/oasis7_game_client/tests/fixtures/dev_test_write_cli_5536.py` 只在显式 `--execute-authorized` 且原始前置成立时运行；独立CAS观察器验证blob摘要并扫描全部canonical journal，不以最终位置代替事件／receipt关联。真实外部模型验收仍blocked。
+
+### 可信备份恢复准备（#5537）
+
+operator入口与模型工具分离：`oasis7_dev_test_recovery backup PRIVATE_POLICY NEW_SNAPSHOT`、
+`restore SNAPSHOT NEW_PRIVATE_TARGET`、`reauthorize RESTORED_POLICY CANDIDATE PRIVATE_REVIEW`。
+快照与目标必须在可信私有目录；不交给模型，不放入公开证据。backup取得同一policy控制锁、
+目录锁与各caller累计账本锁；manifest只在有限文件完整复制后落盘。快照只含工具policy/catalog/
+累计用量及原操作关联，不包含解锁输入，也不回滚原生世界、身份密钥或SDK当前缓存。
+原配置所指的当前native证明仍须存在且通过共同客户端校验，缺失保持unknown。
+
+restore只写新私有目录，先持久restore_pending，再放置已退休旧授权／凭据与不可作为当前余额的
+历史账本。旧session属于旧启动epoch，不能恢复；旧grant ID/ref及credential不能被apply/enable复活。
+恢复配置要求退休状态文件，缺文件或中断pending时拒绝开放服务。完全恢复的目录不能再次覆盖，
+中断pending且snapshot一致时可重试；最早目录准备阶段失败但无marker时换新目标，不猜测继续。
+
+管理员私有review显式确认 `current_identity_and_permissions_checked`、
+`effects_and_pending_originals_checked`、`missing_usage_is_unknown` 均为true，代表可信人工核对，
+不是自动世界证明或新的recovery authority。candidate必须提供不同测试grant ID/ref及新credential，
+保留恢复目录绑定并选择有限max_calls／绝对期限／大小／timeout。然后重启到新启动实例，
+经当前同scope权限查询旧原件；新业务调用及同ID恢复仍计入新授权额度，旧快照used不能充当新余额。
+历史Context不能作为新Move的可写上下文；缺原件或无读权保持unknown／blocked，不造替代操作。
+
+本项局部自测为canonical `cargo test -p oasis7_game_client --lib dev_test_recovery --locked`。
+真实副本演练还须固定source/build、快照源／目标、运行命令、原世界pin、旧用量早于实际消耗的
+事实及当前native结果观察。不得只凭模块测试声称实际恢复通过，也不能回滚原世界制造成功证据。

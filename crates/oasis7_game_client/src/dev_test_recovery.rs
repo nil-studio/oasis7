@@ -148,7 +148,7 @@ fn state(config: &ServiceConfig) -> Result<Option<RestoreState>, String> {
         Ok(_) => {
             let value: RestoreState =
                 serde_json::from_slice(&read(&path)?).map_err(|_| "recovery_state_unknown")?;
-            if value.version != 1 {
+            if value.version != 1 || value.history_files.len() > 4096 {
                 return Err("recovery_state_unknown".into());
             }
             Ok(Some(value))
@@ -159,8 +159,15 @@ fn state(config: &ServiceConfig) -> Result<Option<RestoreState>, String> {
 /// keep existing admission. Restored identities can never be enabled again.
 pub fn validate_policy(config: &ServiceConfig) -> Result<(), String> {
     let Some(state) = state(config)? else {
-        return Ok(());
+        return if config.recovery_required {
+            Err("recovery_state_missing_unknown".into())
+        } else {
+            Ok(())
+        };
     };
+    if !config.recovery_required {
+        return Err("recovery_marker_required".into());
+    }
     if state.restore_pending {
         return Err("restore_pending_operator_reconciliation_required".into());
     }
@@ -209,8 +216,15 @@ pub fn backup(policy: &Path, snapshot: &Path) -> Result<(), String> {
     mkdir(&snapshot.join("usage"))?;
     mkdir(&snapshot.join("history"))?;
     let mut files = Vec::new();
+    let mut copied_bytes = 0usize;
     let mut copy = |relative: &str, source: &Path| -> Result<(), String> {
         let body = read(source)?;
+        copied_bytes = copied_bytes
+            .checked_add(body.len())
+            .ok_or("snapshot_capacity_exhausted")?;
+        if copied_bytes > 64 * 1024 * 1024 || files.len() >= 4096 {
+            return Err("snapshot_capacity_exhausted".into());
+        }
         write(&snapshot.join(relative), &body)?;
         files.push((relative.to_owned(), hash(&body)));
         Ok(())
@@ -374,6 +388,7 @@ pub fn restore(snapshot: &Path, target: &Path) -> Result<(), String> {
             }
         }
     }
+    config.recovery_required = true;
     config.service.socket = target.join("service.sock");
     config.service.usage_directory = target.join("usage");
     config.catalog_directory = target.join("catalog");
@@ -431,6 +446,7 @@ pub fn historical_original(
         .join("history");
     let mut result = None;
     for name in state.history_files {
+        crate::request_deadline::remaining().map_err(|_| "historical_lookup_deadline_unknown")?;
         if !permitted(&format!("usage/{name}")) {
             return Err("history_unknown".into());
         }
@@ -459,10 +475,10 @@ pub fn historical_original(
         {
             continue;
         }
-        if let Some(prior) = &result {
-            if serde_json::to_value(prior).ok() != serde_json::to_value(&original).ok() {
-                return Err("historical_original_conflict_unknown".into());
-            }
+        if let Some(prior) = &result
+            && serde_json::to_value(prior).ok() != serde_json::to_value(&original).ok()
+        {
+            return Err("historical_original_conflict_unknown".into());
         }
         result = Some(original);
     }
@@ -578,6 +594,19 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        let second_snapshot = root.0.join("second-snapshot");
+        backup(&target.join("policy.json"), &second_snapshot).unwrap();
+        let second_target = root.0.join("second-restored");
+        restore(&second_snapshot, &second_target).unwrap();
+        let second: ServiceConfig =
+            serde_json::from_slice(&read(&second_target.join("policy.json")).unwrap()).unwrap();
+        assert_eq!(
+            historical_original(&second, &scope(), "context-A")
+                .unwrap()
+                .unwrap()
+                .native_context,
+            "exact-old-context"
+        );
         let mut revived = restored;
         revived.grants[0].enabled = true;
         assert!(validate_policy(&revived).is_err());
@@ -628,6 +657,26 @@ mod tests {
                 .read_dir()
                 .unwrap()
                 .all(|entry| entry.unwrap().file_name() == STATE)
+        );
+    }
+    #[test]
+    fn required_restore_state_cannot_be_missing_or_downgraded() {
+        let (root, policy, normal) = fixture();
+        validate_policy(&normal).unwrap();
+        let snapshot = root.0.join("snapshot");
+        backup(&policy, &snapshot).unwrap();
+        let target = root.0.join("restored");
+        restore(&snapshot, &target).unwrap();
+        let mut restored: ServiceConfig =
+            serde_json::from_slice(&read(&target.join("policy.json")).unwrap()).unwrap();
+        assert!(restored.recovery_required);
+        restored.recovery_required = false;
+        assert!(validate_policy(&restored).is_err());
+        restored.recovery_required = true;
+        std::fs::remove_file(restored.service.usage_directory.join(STATE)).unwrap();
+        assert_eq!(
+            validate_policy(&restored).unwrap_err(),
+            "recovery_state_missing_unknown"
         );
     }
     #[test]
