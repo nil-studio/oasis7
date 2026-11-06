@@ -15,7 +15,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 
 ## 接口 / 数据
 - PRD 主入口: `doc/engineering/prd.md`
-- 项目执行记录: PR、实际 CI 与评审记录；Issue/Project 按需使用
+- 项目执行记录: PR、实际 CI 与评审记录；拆出的开发任务使用原生父子 Issue，Project 按需使用
 - 文件级索引: `doc/engineering/prd.index.md`
 - 专业条款标识: `PRD-ENGINEERING-xxx`；跨层要求的稳定键按全局 Trace ID 规范维护
 - 测试与发布参考: `testing-manual.md`
@@ -91,7 +91,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   3. Flow-ENG-003: 文档变化 → 选择对应领域与职责 → 同步消费者与索引 → 适用文档检查。
   4. Flow-ENG-008: 需要协作 → 给出问题、上下文、允许范围和返回结果 → 按需专业分析或并行实现 → 负责人整合实际结果。
   5. Flow-ENG-009: 获得高价值反馈 → 核对事实、影响及用户范围 → 修复当前问题或记录可读建议；无需自动转任务、memory 或 stage。
-  6. Flow-ENG-011: 复杂工作按需使用 Issue checklist 或 Project → 展示依赖及剩余义务 → 验收实际完成后更新；看板故障不停止开发。
+  6. Flow-ENG-011: 按[任务拆分规则](workflow/source-of-truth.md#code-task-sub-issues)将独立开发结果建为 GitHub 原生 sub-issue → 按子项领取并跟踪交付及验收 → 父项核对依赖与整体剩余义务；内部步骤可用清单，Project 按需展示，看板故障不停止已具备条件的开发。
   7. Flow-ENG-014: 独立分支或按需 worktree → 保留各工作区的本地 Cargo target和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
   8. Flow-ENG-016: 只读查询或分析 → 直接提供事实或按需专业判断；不创建流程身份、工作区或远程记录。
   9. Flow-ENG-017: subagent 按需使用 → 给出清楚写入范围和上下文 → 返回结论、验证及风险；配置和模型观测不构成 PR 准入。
@@ -110,7 +110,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 | 角色交接模板 | 交接标题、来源角色、目标角色、目标、上下文、输入、输出、截止、风险、阻断、验证、回写位置 | 从 `.agents/roles/templates/*.md` 复制填写并随任务流转 | `draft -> sent -> acknowledged -> delivered` | 模板按实际需要使用，不要求传递协议 | 发起方负责填写，接收方负责确认，维护者可演进模板 |
 - Acceptance Criteria:
   - AC-1: engineering PRD 明确文件约束、脚本约束、测试分层约束。
-  - AC-2: 任务范围、实际状态和剩余义务由当前 PR 描述、实际 CI 与评审承载；Issue/Project 按需使用，不创建 engineering project 台账或本地状态副本。
+  - AC-2: 拆出的开发任务通过 GitHub 原生父子 Issue 跟踪与领取，子项关联实际 PR、CI 和验收，父项保留整体剩余义务；未拆分的简单修改可直接用 PR，Project 按需使用，不创建 engineering project 台账或本地状态副本。
   - AC-3: 与 `doc/scripts/precommit/pre-commit.prd.md`、`testing-manual.md` 的口径一致。
   - AC-5: 新增工程治理专题若引入运行态治理层，必须明确与正式文档层的分工边界，并在当前 PR 或按需 Issue 记录本次范围；复杂协调按需使用 Issue/Project，不作为普通 PR 准入。
   - AC-6: 文档治理脚本校验 `doc/.governance/*-allowlist.txt`，可拦截 `doc/*.md` 与 `doc/<module>/*.md` 的非预期新增。

@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "e1c070592e953321b71bc0c0aac5eaaa44f40174d1705aa54cdf126b7c7a29a1",
+    "content_sha256": "4c127ea30cedfcf715ee27baa3516dfaa8301e19ddb562fe0e015723c991e2a6",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程唯一主责、既有 owner、disposition 与路由，沿用未修改条款的既有结论。本次定点审读 §4 PR 描述及默认模板、AGENTS、executing-project-tasks 和评审提示：按问题、实际变化、验证和适用风险组织当前交付说明，小改动接受等价简短结构；网页、CLI、API 和 Agent 使用同一内容要求；实质改动、评审与收尾时核对当前摘要，详细过程保留原证据，有效暂停和重要未验证范围仍可见。要求追踪沿用原 ID，奖励标题及字段保持解析兼容；原合入条件及历史结果不变。未增加正文评分、固定标题或 CI 门禁。此记录为本次变更与直接消费者的静态语义审读，不代表后续 PR 已采用或阅读效率已经改善。",
+    "note": "保留开发流程唯一主责、既有 owner、disposition 与路由；未修改的验收准备、开发者自测、阶段整合和长时观测条款沿用既有静态审读结论。本次审读 §1、§2、§2.1、§2.3—2.5 的原生 sub-issue 跟踪与领取，以及 AGENTS、工程 PRD/design、项目管理记录方法、parallel-development、executing-project-tasks、TPM、dot 工作流与 Issue 整理、代码模板的直接承接。拆出的独立开发任务须建立或复用 type:code Issue 和真实父子关系，派发前回读；同会话、短任务及临时 worker 不豁免。父项承接总体范围、依赖和整体验收，子项记录自身认领、状态、会话、PR 与验收；父项 active 不代替子项领取，子 PR 不自动关闭父项。原生层级不证明前置满足，也不自动传播调度或标签；执行者仍核对适用授权、暂停及依赖。内部步骤和用例可用清单，未拆分的简单修改可直接 PR；追踪本身不另造任务身份，五类 Issue 与可选 TPM 队列边界保留。此次结论覆盖本次修改及直接消费者的静态一致性，不证明 GitHub 任务关系已迁移、真实领取已试用或收敛效率已改善。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

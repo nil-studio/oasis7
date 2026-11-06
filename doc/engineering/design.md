@@ -30,7 +30,7 @@
 <a id="task-scoped-engineering-context-design"></a>
 #### 按任务进入规则与检查
 
-Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586；承接[工程知识与验收来源要求](prd.md#task-scoped-engineering-context)。本条属于工程导航和人工判断方法，产品层不适用，不提供自动加载器、独立检查权威或新的交付表单。
+Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c；承接[工程知识与验收来源要求](prd.md#task-scoped-engineering-context)和[任务拆分与并行开发](workflow/source-of-truth.md#parallel-task-development)。本条属于工程导航和人工判断方法，产品层不适用，不提供自动加载器、独立检查权威或新的交付表单。
 
 | 载体 | 主责与读取时机 | 维护边界 |
 | --- | --- | --- |
@@ -47,6 +47,8 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586；承接[工程知识与
 按变更收集检查时记录准确 Source（文档条款、清单或测试入口）与选择理由，然后按实际命令、候选/输入、平台、features、target 和证明义务合并重复项。包名相同但 feature、浏览器/进程层或权限边界不同的检查不能合并。普通文档、局部内部实现、CI 控制/安全/兼容等风险采用各自必要审读；独立性由实际作者和审读者决定，不由角色名称或固定五审保证。
 
 已有 PR 的验证段即可承载结果，例如“静态核对 pass，Source 为某设计锚点，Evidence 为固定提交和检查输出”；未执行的浏览器或跨平台范围写 skipped 与原因。命令返回 0 但选中项为空不能直接写覆盖通过；源文件存在仅证明可定位，不证明其测试已运行。实际命令语义由[本地与 CI 验证入口](../../testing-manual.md)拥有，本条不另定义 quick/affected/formal。
+
+任务拆分、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)由 workflow 统一定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接建单关联、按子项领取、自测与父项收尾方法，现有代码 Issue/PR 模板承载本项范围、可复跑结果和剩余义务。修改这些载体时，沿根入口走读父子关系与领取、派工及交接，核对缺前置、必要负向行为及局部/整体验收的边界，并运行适用文档检查。该静态验收只证明规则和入口一致；真实任务的周期、返工和收敛改善仍需实际执行数据。
 
 #### Viewer 试点与有限走读
 
