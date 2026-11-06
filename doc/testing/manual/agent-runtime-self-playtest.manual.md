@@ -266,4 +266,18 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 `dev-test-catalog-register --directory <0700目录> --identity-config <0600配置> --operation <登录原操作ID> --alias <别名>` 核验当前 /session 主体并登记；同账号与环境返回稳定 account_ref，重复登记不得替换凭据主体。别名可修改。`dev-test-catalog-list --directory <目录>` 只展示非秘密引用、账号、环境、公开key与别名，不输出凭据路径或原登录引用。列表是登记投影，不能代替当前权限。目录中的 catalog.json 及锁和临时文件只供可信运营者访问；实际凭据保持在既有加密库，不复制私钥或Cookie。
 
-真实A/B隔离身份环境尚未核验；受控身份服务测试不能代签合法账号登记验收。
+真实A/B隔离原生身份登记已由#5534核验；本项继续以同一有限环境验证账号只读服务。受控身份服务测试或静态目录不能代签合法账号登记，实际证据按对应固定source/build记录。
+
+### 多账号只读会话（#5535）
+
+二进制 `oasis7_dev_test_sessions --serve PRIVATE_CONFIG` 从可信私有stdin读取账号引用到标准Base64编码unlock的JSON映射（opaque bytes，不假定UTF-8）。配置由可信运营者准备，包含共同 service 配置、catalog_directory、grants 和 resources；每项grant有独立grant_ref、共享稳定grant_id、caller_id、不可变binding、绝对expires_at_unix、enabled与只读methods。binding固定account_ref/environment/world/genesis_digest/agent_id/resource/executor_config_digest/authorization_version；resource只由管理员固定account_ref与executor_config路径。模型请求不能提供这些路径或unlock。
+
+`oasis7_dev_test_sessions --call APPROVED_SOCKET` 从可信宿主stdin接收credential、method及可选grant_ref/session_ref/expires_at_unix。method仅有accounts、open、close、describe、task、capabilities。session_ref不能单独认证。打开和业务读取复核目录原生current_account与Executor配置的实际身份、环境和fence，再复用正式Client；不调用context、不写世界。累计用量复用共同grant/caller账本，不随session或别名变化。普通重启清空内存会话，保留账本；管理者确认旧进程停止后清理遗留socket再启动。
+
+固定组合 `2f292a3926da2f171593ea693d5f7475eb526049` 与目录／原生环境前置 `7193eb838ba088c0d0e3e138770c50d5755317a9` 已完成真实A/B读取、A→B→A、重启／累计用量／关闭／停用／到期边界及合法新增C不改变旧A/B会话、授权和用量；相关说明见 PR #5552。该证据来自受控原生CLI消费者，没有以空目录或mock代签。后续真实外部模型使用由#5538/#5539承接，当前仍blocked；本只读前置不声明外部模型或世界写入通过。合入真实main后的本次检查只证明代码整合，不改写既有受测source/build组合。
+
+运行中的策略仅通过可信运营者命令更新：`oasis7_dev_test_sessions --apply PRIVATE_CONFIG CANDIDATE_CONFIG`、`--disable-account PRIVATE_CONFIG ACCOUNT_REF`、`--enable-account PRIVATE_CONFIG ACCOUNT_REF`。命令与只读worker共用控制/准入锁；账号状态持久化到目录，策略及其授权版本先持久化后报告成功。变更授权范围或重新启用递增版本使旧会话失效，新增无关grant不改旧grant版本。启用账号不会自动启用其旧授权。不得绕过这些命令直接编辑运行中的策略或停用状态；普通账号登记/别名变更继续用既有目录入口，目录写入共用catalog.lock。
+
+本服务显式限制同时在途worker为1。每请求有绝对总应答deadline，控制锁等待也受该deadline约束；下游超时报告unknown。已进入原生只读Client的请求不能伪称已取消，它在可信worker内完成或按原生超时结束前仍占用唯一名额并持有控制锁；避免重复新调用及后台worker无界积累。身份复核后、业务准入前再次核对当前时间，禁止在已过期的本次期限后新准入。控制命令等待该已准入边界结束后才报告停用完成，不承诺取消已在途的合法读取。真实有限并发和超时还需在实际A/B世界组合复核。
+
+策略中的grant_generation_high_water由可信管理入口维护并持久保存，包括已移除的grant_ref；不能删掉该历史。移除后重新添加同名授权必须采用更高代数，旧session_ref不会复活。executor_config_digest是可信宿主为执行器配置原始bytes固定的BLAKE3摘要；读取从同一受信fd取得bytes后核对pin，完整配置（含task fence）变化立即拒绝，管理员更新pin时升授权版本并建立新会话。不可把同resource名字仍相同视为原资源合同仍相同。

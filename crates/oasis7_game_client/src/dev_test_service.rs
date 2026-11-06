@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub const PROFILE: &str = "dev-test-accounts-v1";
 pub const AUDIENCE: &str = "oasis7-dev-test-tools";
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Credential {
     pub caller_id: String,
@@ -13,7 +13,7 @@ pub struct Credential {
     pub revoked: bool,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub profile: String,
@@ -75,7 +75,7 @@ pub struct Response {
 }
 /// Constructed only after trusted adapter authentication; never deserialized.
 pub struct AuthenticatedCaller {
-    caller_id: String,
+    pub(crate) caller_id: String,
 }
 pub fn authenticate_token(
     config: &Config,
@@ -288,6 +288,15 @@ pub fn call_service_until(
     deadline: std::time::Instant,
 ) -> Result<Response, String> {
     let body = serde_json::to_vec(request).map_err(|_| "request_encoding_failed")?;
+    serde_json::from_value(call_serialized_until(socket, &body, deadline)?)
+        .map_err(|_| "invalid_response".into())
+}
+/// Crate-owned typed adapters share the same trusted socket and deadline checks.
+pub(crate) fn call_serialized_until(
+    socket: &std::path::Path,
+    body: &[u8],
+    deadline: std::time::Instant,
+) -> Result<serde_json::Value, String> {
     if body.len() > 65536 {
         return Err("request_too_large".into());
     }
@@ -366,7 +375,7 @@ pub fn call_service_until(
     serde_json::from_slice(&response).map_err(|_| "invalid_response".into())
 }
 
-fn read_until(
+pub(crate) fn read_until(
     stream: &mut std::os::unix::net::UnixStream,
     output: &mut Vec<u8>,
     limit: usize,
