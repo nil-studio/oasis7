@@ -1,0 +1,16 @@
+# Restricted local account tools
+
+Use this reference only when the trusted host explicitly supplies the `dev-test-accounts-v1` profile and the `dev_test_accounts_call` tool. The host fixes the local socket and maps the operating-system caller UID to current authorization. Model requests cannot select a principal, credential, private file, origin or signer. Do not inspect host policy, unlock input or another user's storage.
+
+The only methods are `accounts`, `open`, `close`, `describe`, `task`, `capabilities`, `context`, `move` and `lookup`. Account creation, transfer, construction, scheduling, raw native commands and administrative operations are unavailable through this profile. Missing access is a stop condition; do not switch to a broader tool.
+
+1. Call `{"method":"accounts"}` and choose an authorized grant from the returned directory. Open it using `{"method":"open","grant_ref":"<returned-grant>"}`. Retain the returned session reference and binding. A session reference is not authentication and cannot change its account, world, Agent or resource.
+2. Use `describe`, `task` and `capabilities` with `session_ref` to read the complete current task and limits. Switching A to B requires B's separate grant and session; switching back uses A's own session. Never reuse B's context for A.
+3. Obtain context using `{"method":"context","session_ref":"<session>","operation":{"request_id":"context-A-1","arguments":{"kind":"context"}}}`. Preserve the full response and its binding. An unavailable or unknown context cannot authorize a move.
+4. Choose only an allowed destination justified by the full task and current context. Send `{"method":"move","session_ref":"<session>","operation":{"request_id":"move-A-1","arguments":{"kind":"move","context_request_id":"context-A-1","to":[1,0,0]}}}` only if that destination is actually allowed. The example destination is not universal authorization.
+5. If the response is lost or unknown, retain the original move ID and exact body. Reconcile using `{"method":"lookup","session_ref":"<session>","operation":{"request_id":"lookup-A-1","arguments":{"kind":"lookup","original_request_id":"move-A-1"}}}`. Do not create a replacement move ID or context to conceal an unresolved original. Same-ID replay preserves the original operation but every admitted request still consumes the tool-call budget.
+6. Read the canonical operation observation and world outcome. JSON-RPC success and root `status: ok` only establish transport/admission success; they do not prove that a move committed. Preserve `unknown`, conflict and rejection states. Stop when authorization, session lifetime or budget expires. `close` prevents later session admission; it does not undo an accepted world action.
+
+The host starts the dedicated `oasis7_dev_test_local_tools stdio APPROVED_SOCKET` process under a distinct restricted model UID. Only the trusted daemon receives private policy and credentials. The stdio bridge forwards one request once and returns the backend business response without inventing success or new operation IDs. It does not launch a model or establish model-provider spending authority.
+
+Local protocol and synthetic transport tests do not certify an external model's gameplay. Actual model acceptance remains pending separately authorized execution and canonical world evidence.

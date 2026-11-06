@@ -46,7 +46,7 @@ pub fn receive(stream: &mut UnixStream, policy: &LocalPolicy) -> Result<Vec<u8>,
     receive_until(stream, policy, std::time::Instant::now() + policy.timeout)
 }
 #[cfg(target_os = "linux")]
-fn receive_until(
+pub(crate) fn receive_until(
     stream: &mut UnixStream,
     policy: &LocalPolicy,
     deadline: std::time::Instant,
@@ -115,7 +115,7 @@ pub fn respond(stream: &mut UnixStream, response: &[u8]) -> Result<(), String> {
         .ok_or("invalid local deadline")?;
     respond_until(stream, response, deadline)
 }
-fn respond_until(
+pub(crate) fn respond_until(
     stream: &mut UnixStream,
     response: &[u8],
     deadline: std::time::Instant,
@@ -278,6 +278,21 @@ pub fn call_local(
     path: &Path,
     request: &LocalRequest,
 ) -> Result<crate::dev_test_service::Response, String> {
+    let bytes = serde_json::to_vec(request).map_err(|_| "local request encoding failed")?;
+    let response = call_local_bytes(
+        path,
+        &bytes,
+        std::time::Instant::now() + Duration::from_secs(3),
+    )?;
+    serde_json::from_slice(&response).map_err(|_| "invalid local response".into())
+}
+/// Shared authenticated transport; typed profiles retain their own closed envelopes.
+#[cfg(target_os = "linux")]
+pub(crate) fn call_local_bytes(
+    path: &Path,
+    bytes: &[u8],
+    deadline: std::time::Instant,
+) -> Result<Vec<u8>, String> {
     use std::{net::Shutdown, os::unix::fs::FileTypeExt};
     if !path.is_absolute() {
         return Err("absolute local socket required".into());
@@ -293,21 +308,19 @@ pub fn call_local(
             return Err("local socket ancestor untrusted".into());
         }
     }
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
     let mut stream = crate::dev_test_service::connect_until(path, deadline)?;
     if peer_uid(&stream)? != metadata.uid() {
         return Err("local service peer changed".into());
     }
-    let bytes = serde_json::to_vec(request).map_err(|_| "local request encoding failed")?;
     if bytes.len() > 65536 {
         return Err("local request too large".into());
     }
-    respond_until(&mut stream, &bytes, deadline)?;
+    respond_until(&mut stream, bytes, deadline)?;
     stream
         .shutdown(Shutdown::Write)
         .map_err(|_| "local request shutdown failed")?;
     let response = read_until_deadline(&mut stream, 65536, deadline)?;
-    serde_json::from_slice(&response).map_err(|_| "invalid local response".into())
+    Ok(response)
 }
 
 #[cfg(test)]
