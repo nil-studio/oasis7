@@ -16,6 +16,8 @@ enum Fault {
     DropFirst,
     #[cfg(unix)]
     DropSubmit,
+    #[cfg(unix)]
+    ContextExpired,
     UnavailableOnce,
     WrongSignature,
     CooldownOnce,
@@ -30,6 +32,8 @@ struct Probe {
     root: PathBuf,
     submits: Arc<AtomicUsize>,
     lookups: Arc<AtomicUsize>,
+    #[cfg(unix)]
+    context_reads: Arc<AtomicUsize>,
     times: Arc<Mutex<Vec<Instant>>>,
     stop: Arc<AtomicBool>,
     task: Option<thread::JoinHandle<()>>,
@@ -185,6 +189,10 @@ impl Probe {
         };
         let submits = Arc::new(AtomicUsize::new(0));
         let lookups = Arc::new(AtomicUsize::new(0));
+        #[cfg(unix)]
+        let context_reads = Arc::new(AtomicUsize::new(0));
+        #[cfg(unix)]
+        let reads = context_reads.clone();
         let times = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
         let (s, l, t, done, expected) = (
@@ -199,6 +207,15 @@ impl Probe {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         let (path, body) = read_request(&mut stream);
+                        #[cfg(unix)]
+                        if matches!(fault, Fault::ContextExpired) && path == TASK_CONTEXT_READ_PATH
+                        {
+                            reads.fetch_add(1, Ordering::SeqCst);
+                            let bytes = br#"{"error":"context_expired"}"#;
+                            write!(stream,"HTTP/1.1 409 Conflict\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",bytes.len()).unwrap();
+                            stream.write_all(bytes).unwrap();
+                            continue;
+                        }
                         let (digest, response, key) = if path == SUBMIT_PATH {
                             s.fetch_add(1, Ordering::SeqCst);
                             let submitted: SubmitIntentRequest<WorldServicePayloadV1> =
@@ -288,6 +305,8 @@ impl Probe {
             root,
             submits,
             lookups,
+            #[cfg(unix)]
+            context_reads,
             times,
             stop,
             task: Some(task),
@@ -749,4 +768,89 @@ fn trusted_fresh_journal_with_durable_action_is_query_only_even_after_crash() {
             .unwrap(),
         Some(probe.original.clone())
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn committed_original_prefix_survives_expired_private_context_read_without_new_write() {
+    use crate::dev_test_operations::{Arguments, Original, Scope};
+    use crate::operation_store::ClientStateV1;
+    let probe = Probe::new(Fault::ContextExpired);
+    let operation = "expired-original-prefix";
+    let context = &probe.context;
+    let prepare = probe
+        .client
+        .sign(
+            TASK_CONTEXT_PREPARE_PATH,
+            TaskContextPrepareV1 {
+                schema_revision: 1,
+                authority_mode: None,
+                fence: context.fence.clone(),
+                client_operation_id: operation.into(),
+                client_nonce: "ab".repeat(32),
+            },
+        )
+        .unwrap();
+    probe
+        .client
+        .state
+        .put_client_state(
+            ClientStateKind::Prepare,
+            operation,
+            &ClientStateV1::ContextPrepare(Box::new(prepare)),
+        )
+        .unwrap();
+    probe
+        .client
+        .state
+        .put_client_state(
+            ClientStateKind::Prefix,
+            operation,
+            &ClientStateV1::PublicIntent(Box::new(probe.original.clone())),
+        )
+        .unwrap();
+    let mut original = Original {
+        body_digest: "lookup-body".into(),
+        scope: Scope {
+            account_ref: "account".into(),
+            environment: "environment".into(),
+            world: probe.client.world.world_id.clone(),
+            genesis_digest: probe.client.world.genesis_digest.clone(),
+            agent: "a".into(),
+            resource: "fixed-resource".into(),
+            executor: probe.client.public_key.clone(),
+            fence_digest: blake3::hash(&serde_json::to_vec(&context.fence).unwrap())
+                .to_hex()
+                .to_string(),
+        },
+        arguments: Arguments::Lookup {
+            original_request_id: "context-request".into(),
+        },
+        native_context: operation.into(),
+        native_kind: "prefix".into(),
+        native_action: None,
+        native_context_identity: Some(context.clone()),
+        last_observation: None,
+    };
+    for pinned in [Some(context.clone()), None] {
+        original.native_context_identity = pinned;
+        let observation = crate::dev_test_operations::execute(
+            &probe.client,
+            &original,
+            false,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(observation["operation"]["outcome"]["status"], "committed");
+        assert_eq!(
+            observation["operation"]["correlation"],
+            serde_json::to_value(&probe.original.correlation).unwrap()
+        );
+        assert_eq!(observation["usable_context"], false);
+        assert_eq!(observation["context_state"], "unavailable");
+        assert!(observation.get("active_goal").is_none());
+    }
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 0);
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 2);
+    assert_eq!(probe.context_reads.load(Ordering::SeqCst), 2);
 }

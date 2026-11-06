@@ -96,9 +96,21 @@ def main():
                                 env=env, capture_output=True, timeout=20, check=True)
         return json.loads(result.stdout)
 
+    def evidence_copy(value):
+        if isinstance(value, list):
+            return [evidence_copy(item) for item in value]
+        if isinstance(value, dict):
+            retained = {key: evidence_copy(item) for key, item in value.items()}
+            goal = retained.get("active_goal")
+            if isinstance(goal, dict) and "content" in goal:
+                content = goal.pop("content")
+                goal["content_sha256"] = hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            return retained
+        return value
+
     def persist():
         output = root / "write-5536-result.json"
-        output.write_text(json.dumps(evidence))
+        output.write_text(json.dumps(evidence_copy(evidence)))
         output.chmod(0o600)
 
     def start():
@@ -168,6 +180,11 @@ def main():
                 time.sleep(2)
                 context = ok(call("lookup", ref, operation=operation(label + "-context-proof-" + str(attempt), "lookup", original_request_id=label + "-context")), "context_original_lookup_" + label + str(attempt))
             assert "context" in context.get("observation", {}), "context_not_verified_stop"
+            assert context["observation"]["usable_context"] is True
+            goal = context["observation"]["active_goal"]
+            assert goal["content"] == json.loads((root / "runtime-private.json").read_text())["plan_template"]["goal"]
+            assert goal["source"]["task_fence"] == prepared[index]["fence"]
+            assert goal["source"]["active_goal_reference"] == prepared[index]["fence"]["active_goal_reference"]
             authority = context["observation"]["native_authority"]
             assert authority["authority_mode"] == "native_executor_v1"
             assert authority["fence"] == prepared[index]["fence"]
