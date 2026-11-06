@@ -119,56 +119,6 @@ impl Sessions {
         Ok(())
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn switch_close_and_restart_never_rebind() {
-        let mut sessions = Sessions::new().unwrap();
-        let grant = Grant {
-            grant_ref: "a-read".into(),
-            grant_id: "stable".into(),
-            caller_id: "caller".into(),
-            binding: Binding {
-                account_ref: "a".into(),
-                environment: "e".into(),
-                world: "w".into(),
-                genesis_digest: "g".into(),
-                agent_id: "agent".into(),
-                resource: "r".into(),
-                authorization_version: 1,
-            },
-            expires_at_unix: 100,
-            enabled: true,
-            methods: vec!["task".into()],
-        };
-        let a = sessions.open("caller", &grant, 99, 1).unwrap();
-        let mut b = grant.clone();
-        b.binding.account_ref = "b".into();
-        let bref = sessions.open("caller", &b, 99, 1).unwrap();
-        assert_eq!(
-            sessions
-                .authorize(&a, "caller", &grant, "task", 2)
-                .unwrap()
-                .account_ref,
-            "a"
-        );
-        assert!(sessions.authorize(&a, "caller", &b, "task", 2).is_err());
-        assert!(sessions.authorize(&bref, "other", &b, "task", 2).is_err());
-        let mut revoked = grant.clone();
-        revoked.enabled = false;
-        assert!(sessions
-            .authorize(&a, "caller", &revoked, "task", 2)
-            .is_err());
-        assert!(Sessions::new()
-            .unwrap()
-            .authorize(&a, "caller", &grant, "task", 2)
-            .is_err());
-        sessions.close(&a, "caller").unwrap();
-        assert!(sessions.authorize(&a, "caller", &grant, "task", 2).is_err());
-    }
-}
-
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Resource {
@@ -438,3 +388,53 @@ pub fn handle(
 #[path = "dev_test_session_service.rs"]
 mod service;
 pub use service::run;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn switch_close_and_restart_never_rebind() {
+        let mut sessions = Sessions::new().unwrap();
+        let grant = Grant {
+            grant_ref: "a-read".into(),
+            grant_id: "stable".into(),
+            caller_id: "caller".into(),
+            binding: Binding {
+                account_ref: "a".into(),
+                environment: "e".into(),
+                world: "w".into(),
+                genesis_digest: "g".into(),
+                agent_id: "agent".into(),
+                resource: "r".into(),
+                authorization_version: 1,
+            },
+            expires_at_unix: 100,
+            enabled: true,
+            methods: vec!["task".into()],
+        };
+        let a = sessions.open("caller", &grant, 99, 1).unwrap();
+        let mut b = grant.clone();
+        b.binding.account_ref = "b".into();
+        let bref = sessions.open("caller", &b, 99, 1).unwrap();
+        assert_eq!(
+            sessions
+                .authorize(&a, "caller", &grant, "task", 2)
+                .unwrap()
+                .account_ref,
+            "a"
+        );
+        assert!(sessions.authorize(&a, "caller", &b, "task", 2).is_err());
+        assert!(sessions.authorize(&bref, "other", &b, "task", 2).is_err());
+        let mut revoked = grant.clone();
+        revoked.enabled = false;
+        assert!(sessions
+            .authorize(&a, "caller", &revoked, "task", 2)
+            .is_err());
+        assert!(Sessions::new()
+            .unwrap()
+            .authorize(&a, "caller", &grant, "task", 2)
+            .is_err());
+        sessions.close(&a, "caller").unwrap();
+        assert!(sessions.authorize(&a, "caller", &grant, "task", 2).is_err());
+    }
+}
