@@ -44,6 +44,15 @@ impl Config {
         {
             return Err("invalid_service_configuration");
         }
+        let mut callers = std::collections::BTreeSet::new();
+        let mut tokens = std::collections::BTreeSet::new();
+        if self
+            .credentials
+            .iter()
+            .any(|c| !callers.insert(&c.caller_id) || !tokens.insert(&c.token))
+        {
+            return Err("ambiguous_credential_mapping");
+        }
         Ok(())
     }
 }
@@ -157,6 +166,15 @@ pub fn dispatch(config: &Config, request: &Request, now: u64) -> Response {
     }
 }
 
+fn usage_key(grant: &str, caller: &str) -> String {
+    let mut hash = blake3::Hasher::new();
+    hash.update(&(grant.len() as u64).to_be_bytes());
+    hash.update(grant.as_bytes());
+    hash.update(&(caller.len() as u64).to_be_bytes());
+    hash.update(caller.as_bytes());
+    hash.finalize().to_hex().to_string()
+}
+
 fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
     use std::io::Write;
     use std::os::unix::{
@@ -172,9 +190,7 @@ fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
     {
         return Err("private_usage_directory_required");
     }
-    let key = blake3::hash(format!("{}\0{}", config.grant_id, caller).as_bytes())
-        .to_hex()
-        .to_string();
+    let key = usage_key(&config.grant_id, caller);
     let lock = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -271,6 +287,18 @@ mod tests {
             std::env::temp_dir().join(format!("oasis7-service-test-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_ne!(usage_key("a", "b\0c"), usage_key("a\0b", "c"));
+        let request = Request {
+            profile: PROFILE.into(),
+            audience: AUDIENCE.into(),
+            credential: "x".repeat(32),
+            method: "capabilities".into(),
+        };
+        let path = directory.join("fake-socket");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(call_service(&path, &request).is_err());
+        drop(listener);
         let mut config = Config {
             profile: PROFILE.into(),
             socket: "/unused".into(),
@@ -286,6 +314,9 @@ mod tests {
                 revoked: false,
             }],
         };
+        let mut ambiguous = config.clone();
+        ambiguous.credentials.push(ambiguous.credentials[0].clone());
+        assert_eq!(ambiguous.validate(), Err("ambiguous_credential_mapping"));
         let mut request = Request {
             profile: PROFILE.into(),
             audience: AUDIENCE.into(),
@@ -336,8 +367,46 @@ pub fn call_service(socket: &std::path::Path, request: &Request) -> Result<Respo
     if body.len() > 65536 {
         return Err("request_too_large".into());
     }
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    crate::runtime_broker::trusted_ancestors(socket)?;
+    let metadata = std::fs::symlink_metadata(socket).map_err(|_| "socket_unavailable")?;
+    if !metadata.file_type().is_socket()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o777 != 0o600
+    {
+        return Err("untrusted_socket".into());
+    }
     let mut stream =
         std::os::unix::net::UnixStream::connect(socket).map_err(|_| "service_unavailable")?;
+    #[cfg(target_os = "linux")]
+    {
+        let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
+        let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        if unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut credentials as *mut libc::ucred).cast(),
+                &mut length,
+            )
+        } != 0
+            || credentials.uid != unsafe { libc::geteuid() }
+        {
+            return Err("untrusted_service_peer".into());
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut uid = 0;
+        let mut gid = 0;
+        if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } != 0
+            || uid != unsafe { libc::geteuid() }
+        {
+            return Err("untrusted_service_peer".into());
+        }
+    }
     let timeout = Some(std::time::Duration::from_secs(30));
     stream
         .set_read_timeout(timeout)

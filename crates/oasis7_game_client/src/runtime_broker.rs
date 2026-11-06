@@ -78,7 +78,7 @@ fn id(v: &str) -> bool {
         && v.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
 }
-fn trusted_ancestors(path: &Path) -> Result<(), String> {
+pub(crate) fn trusted_ancestors(path: &Path) -> Result<(), String> {
     for ancestor in path.ancestors().skip(1) {
         let m = std::fs::symlink_metadata(ancestor)
             .map_err(|_| "broker artifact ancestor unavailable")?;
