@@ -150,7 +150,7 @@ for module_id in "${REQUESTED_MODULE_IDS[@]}"; do
   if [[ "$CANDIDATE_BUILD" -eq 1 && "$DRY_RUN" -eq 0 ]]; then
     if [[ "$CANDIDATE_BATCH_OPEN" -eq 0 ]]; then
       # This private batch owner never changes the producer-content recipe.
-      source "$ROOT_DIR/scripts/lib/builtin-wasm-candidate-batch.sh"
+      source "$ROOT_DIR/scripts/build-builtin-wasm-candidate-batch-lib.sh"
       candidate_batch_open "$ROOT_DIR" "$OUT_DIR"
       CANDIDATE_BATCH_OPEN=1
     fi

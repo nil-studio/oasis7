@@ -62,7 +62,7 @@ else:sys.exit(33)
 class Batch(unittest.TestCase):
  def setUp(self):
   self.t=tempfile.TemporaryDirectory();self.addCleanup(self.t.cleanup);self.base=pathlib.Path(self.t.name);self.root=self.base/'root';self.root.mkdir();self.state=self.base/'state';self.state.mkdir();self.bin=self.base/'bin';self.bin.mkdir()
-  for p in ['scripts/build-builtin-wasm-modules.sh','scripts/lib/builtin-wasm-candidate-batch.sh']:
+  for p in ['scripts/build-builtin-wasm-modules.sh','scripts/build-builtin-wasm-candidate-batch-lib.sh']:
    dst=self.root/p;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(ROOT/p,dst)
   d=self.root/'crates/oasis7_runtime/src/world/artifacts';d.mkdir(parents=True)
   (d/'m1_builtin_module_ids.txt').write_text('first\nsecond\n')

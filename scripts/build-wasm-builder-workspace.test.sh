@@ -1,13 +1,18 @@
-#!/usr/bin/env python3
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PYTHON_BIN="$("$ROOT_DIR/scripts/find-python-with-module.sh" json)"
+"$PYTHON_BIN" - "$ROOT_DIR" <<'PY'
 """Real bounded Cargo workspace parsing without product dependency resolution."""
 import json
+import sys
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(sys.argv.pop()).resolve()
 HELPER = ROOT / 'docker/wasm-builder/prepare-workspace.sh'
 PRODUCERS = ('crates/oasis7_wasm_build', 'tools/wasm_build_suite')
 VENDORS = ('vendor-if-watch-3.2.2', 'vendor-libp2p-swarm-0.48.0', 'vendor-libp2p-rendezvous-0.18.1')
@@ -95,3 +100,5 @@ class Workspace(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+PY
