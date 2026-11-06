@@ -21,6 +21,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         {
             return Err("stable_service_binding_changed".into());
         }
+        next.grant_generation_high_water = old.grant_generation_high_water.clone();
         // Changed policies invalidate snapshots; adding an unrelated grant does not.
         for grant in &mut next.grants {
             if let Some(prior) = old.grants.iter().find(|g| g.grant_ref == grant.grant_ref) {
@@ -44,7 +45,15 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                         .checked_add(1)
                         .ok_or("authorization_version_exhausted")?;
                 }
+            } else if let Some(high) = old.grant_generation_high_water.get(&grant.grant_ref) {
+                grant.binding.authorization_version = (*high)
+                    .checked_add(1)
+                    .ok_or("authorization_version_exhausted")?;
             }
+            next.grant_generation_high_water
+                .entry(grant.grant_ref.clone())
+                .and_modify(|high| *high = (*high).max(grant.binding.authorization_version))
+                .or_insert(grant.binding.authorization_version);
         }
         save_policy(target, &next)?;
         println!("{{\"status\":\"policy_applied\"}}");
@@ -224,10 +233,17 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
 }
 
 fn load_session_config(path: &std::path::Path) -> Result<ServiceConfig, String> {
-    let config: ServiceConfig =
+    let mut config: ServiceConfig =
         serde_json::from_slice(&crate::dev_test_private_config::read_private_config(path)?)
             .map_err(|_| "invalid_session_configuration")?;
     config.service.validate()?;
+    for grant in &config.grants {
+        config
+            .grant_generation_high_water
+            .entry(grant.grant_ref.clone())
+            .and_modify(|high| *high = (*high).max(grant.binding.authorization_version))
+            .or_insert(grant.binding.authorization_version);
+    }
     let mut refs = std::collections::BTreeSet::new();
     if config.grants.iter().any(|g| {
         g.grant_ref.is_empty()
@@ -314,6 +330,7 @@ mod control_tests {
             genesis_digest: "g".into(),
             agent_id: "agent".into(),
             resource: "r".into(),
+            executor_config_digest: blake3::hash(b"fixture").to_hex().to_string(),
             authorization_version: 1,
         };
         let config:ServiceConfig=serde_json::from_value(serde_json::json!({"service":{"profile":"dev-test-accounts-v1","socket":root.join("s"),"usage_directory":root,"grant_id":"stable","max_request_bytes":4096,"timeout_ms":100,"max_calls":10,"credentials":[{"caller_id":"caller","token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","expires_at_unix":100,"revoked":false}]},"catalog_directory":root,"grants":[{"grant_ref":"a-read","grant_id":"stable","caller_id":"caller","binding":binding,"expires_at_unix":99,"enabled":true,"methods":["task"]}],"resources":{}})).unwrap();
@@ -366,6 +383,35 @@ mod control_tests {
         assert!(restored.grants[0].enabled);
         assert!(sessions
             .authorize(&reference, "caller", &restored.grants[0], "task", 2)
+            .is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn removed_grant_cannot_revive_old_reference() {
+        let (path, mut config) = fixture();
+        let original = config.grants[0].clone();
+        let mut sessions = Sessions::new().unwrap();
+        let reference = sessions.open("caller", &original, 90, 1).unwrap();
+        let candidate = path.with_extension("candidate");
+        config.grants.clear();
+        save_policy(&candidate, &config).unwrap();
+        run(vec![
+            "--apply".into(),
+            path.to_string_lossy().into(),
+            candidate.to_string_lossy().into(),
+        ])
+        .unwrap();
+        config.grants.push(original);
+        save_policy(&candidate, &config).unwrap();
+        run(vec![
+            "--apply".into(),
+            path.to_string_lossy().into(),
+            candidate.to_string_lossy().into(),
+        ])
+        .unwrap();
+        let current = load_session_config(&path).unwrap();
+        assert!(sessions
+            .authorize(&reference, "caller", &current.grants[0], "task", 2)
             .is_err());
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

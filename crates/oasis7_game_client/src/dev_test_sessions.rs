@@ -10,6 +10,7 @@ pub struct Binding {
     pub genesis_digest: String,
     pub agent_id: String,
     pub resource: String,
+    pub executor_config_digest: String,
     pub authorization_version: u64,
 }
 #[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -128,6 +129,8 @@ pub struct Resource {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
+    #[serde(default)]
+    pub grant_generation_high_water: BTreeMap<String, u64>,
     pub service: crate::dev_test_service::Config,
     pub catalog_directory: std::path::PathBuf,
     pub grants: Vec<Grant>,
@@ -141,6 +144,12 @@ pub struct ToolRequest {
     pub grant_ref: Option<String>,
     pub session_ref: Option<String>,
     pub expires_at_unix: Option<u64>,
+}
+fn verify_resource_bytes(binding: &Binding, bytes: &[u8]) -> Result<(), String> {
+    if blake3::hash(bytes).to_hex().as_str() != binding.executor_config_digest {
+        return Err("resource_configuration_changed_new_session_required".into());
+    }
+    Ok(())
 }
 fn current_client(
     config: &ServiceConfig,
@@ -174,6 +183,7 @@ fn current_client(
     }
     let executor_bytes =
         crate::dev_test_private_config::read_private_config(&resource.executor_config)?;
+    verify_resource_bytes(&grant.binding, &executor_bytes)?;
     let device: crate::device_client::ExecutorDeviceConfig =
         serde_json::from_slice(&executor_bytes).map_err(|_| "executor_configuration_invalid")?;
     let environment = serde_json::to_string(&(
@@ -393,6 +403,21 @@ pub use service::run;
 mod tests {
     use super::*;
     #[test]
+    fn same_resource_name_cannot_follow_changed_task_config() {
+        let binding = Binding {
+            account_ref: "a".into(),
+            environment: "e".into(),
+            world: "w".into(),
+            genesis_digest: "g".into(),
+            agent_id: "agent".into(),
+            resource: "r".into(),
+            executor_config_digest: blake3::hash(b"old-fence").to_hex().to_string(),
+            authorization_version: 1,
+        };
+        assert!(verify_resource_bytes(&binding, b"old-fence").is_ok());
+        assert!(verify_resource_bytes(&binding, b"new-fence").is_err());
+    }
+    #[test]
     fn switch_close_and_restart_never_rebind() {
         let mut sessions = Sessions::new().unwrap();
         let grant = Grant {
@@ -406,6 +431,7 @@ mod tests {
                 genesis_digest: "g".into(),
                 agent_id: "agent".into(),
                 resource: "r".into(),
+                executor_config_digest: blake3::hash(b"fixture").to_hex().to_string(),
                 authorization_version: 1,
             },
             expires_at_unix: 100,

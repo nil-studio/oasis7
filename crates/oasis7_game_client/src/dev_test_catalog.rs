@@ -138,20 +138,6 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn environment_tuple_preserves_service_and_environment_boundaries() {
-        let first = serde_json::to_string(&("a:b", "c")).unwrap();
-        let second = serde_json::to_string(&("a", "b:c")).unwrap();
-        assert_ne!(first, second);
-        let key = |environment: &str| {
-            blake3::hash(&serde_json::to_vec(&(environment, "same-account")).unwrap())
-        };
-        assert_ne!(key(&first), key(&second));
-    }
-}
-
 /// Trusted business lookup, never a model-provided credential path.
 pub(crate) fn lookup(directory: &Path, account_ref: &str) -> Result<Account, String> {
     private_directory(directory)?;
@@ -233,4 +219,18 @@ pub(crate) fn set_disabled(
         .and_then(|f| f.sync_all())
         .map_err(|_| "catalog_write_failed")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn environment_tuple_preserves_service_and_environment_boundaries() {
+        let first = serde_json::to_string(&("a:b", "c")).unwrap();
+        let second = serde_json::to_string(&("a", "b:c")).unwrap();
+        assert_ne!(first, second);
+        let key = |environment: &str| {
+            blake3::hash(&serde_json::to_vec(&(environment, "same-account")).unwrap())
+        };
+        assert_ne!(key(&first), key(&second));
+    }
 }
