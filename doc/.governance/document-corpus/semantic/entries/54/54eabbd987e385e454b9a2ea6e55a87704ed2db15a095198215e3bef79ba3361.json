@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "ed60d6905ebc4dd72b866ff5217a784d0e350e111950b06c275e7afe2fa361f1",
+    "content_sha256": "7ac7fea64bd1ecac7a504eb021d32e86129b36dde02eef4b6e3286134602b0b2",
     "current_authority": "doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md",
     "decision_owner": "game_visual_interaction_designer",
     "disposition": "retain_current_design_supplement",
-    "note": "保留页面族视觉设计增补定位；现有组合稿与三条旅程共用新增的俯视像素源，明确导出、相邻资源路径、整数缩放及实际验证层级。SVG 已渲染并非作者复核，25 项源级 DOM 再次通过，真实浏览器、生产及发布边界保持未证明。",
+    "note": "保留页面族视觉设计增补定位；补原型中英文、长文、指定缺译回退与状态连续性合同，按内容高度组织普通面板和200%自然流，映射固定来源区间的实际玩家入口差异。验证复用可运行状态回归与浏览器操作手册，运行记录归原Issue/PR；原生输入、辅助技术和生产接入各按实际证据判断。",
     "path": "doc/world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

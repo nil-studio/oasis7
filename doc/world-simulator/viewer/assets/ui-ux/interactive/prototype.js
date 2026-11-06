@@ -3,6 +3,10 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  // Presentation is independent of fresh() and never writes business state.
+  const presentation = {locale:"zh-CN", copyMode:"normal"};
+  const t = (key, values) => window.Oasis7PrototypeCopy.text(key, presentation.locale, presentation.copyMode, values);
+  const observedLabel = () => state.observed === "未知目标" ? t("targets.unknownIdentity") : state.observed;
   // Design-image camera only: integer CSS scale, shared anchors, no world mutation.
   function layoutPixelWorld() {
     const art = $("world-art");
@@ -26,7 +30,7 @@
     });
   }
   const defaults = { system: "system-A", short: "short-A", long: "long-A" };
-  const fields = { system: "系统 Prompt", short: "短期 Prompt", long: "长期 Prompt" };
+  const fields = { system: "field.system", short: "field.short", long: "field.long" };
   const fixtures = {
     entry: [["first", "首次进入"], ["return", "回访 · 历史结果"], ["identities", "观察 B / 草稿 C / 原请求 A"], ["dense", "同位置密集目标"], ["position", "位置未知"], ["renderer", "世界画面不可用"], ["entry-failed", "账号入口失败"]],
     prompt: [["noop", "空覆盖 · 清除不改变生效值"], ["override", "已有覆盖 · 清除后恢复默认"], ["indirect", "完整 profile · 间接影响"], ["stale", "草稿过期 · 保留与比较"], ["stale-read-failed", "过期后重读仍失败"], ["unknown", "原 Apply 结果未知"], ["revoked", "控制权失效 · 隐藏私有值"]],
@@ -36,6 +40,7 @@
   let invoker = "nav-command";
   let confirmAction = null;
   let confirmInvoker = null;
+  let confirmCopy = ["confirm.reloadTitle", "confirm.initialHelp", "prompt.reload"];
 
   function fresh(route, fixture) {
     const s = {
@@ -73,11 +78,11 @@
   const button = (action, label, primary = false, disabled = false) => `<button type="button" data-action="${action}" class="${primary ? "primary" : ""}" ${disabled ? "disabled" : ""}>${label}</button>`;
   const card = (title, body, kind = "") => `<section class="card ${kind}"><h3>${title}</h3>${body}</section>`;
   const fact = (label, value) => `<dt>${label}</dt><dd>${value}</dd>`;
-  const none = (value) => value === null ? "未设置（None）" : escape(value);
+  const none = (value) => value === null ? t("value.none") : escape(value);
   const profileSame = () => Object.keys(fields).every((key) => state.prompt.profile[key] === state.prompt.draft[key]);
   const candidate = () => Object.fromEntries(Object.keys(fields).map((key) => [key, state.prompt.draft[key] ?? defaults[key]]));
   const promptLocked = () => !state.control || ["stale", "unknown", "applied"].includes(state.prompt.status);
-  const promptReceiptLabel = (status) => ({unknown:"原 Apply 结果未知",applied:"Profile 已更新 · 执行器待确认",noop:"已接受 · 没有变化",confirmed:"原 Prompt 已确认"}[status] || "原结果尚未取得");
+  const promptReceiptLabel = (status) => t({unknown:"prompt.unknown",applied:"prompt.receiptApplied",noop:"prompt.noop",confirmed:"prompt.receiptConfirmed"}[status] || "prompt.receiptPending");
   function recordPromptResult(status) {
     const id = `prompt-demo-${String(8 + state.promptReceipts.length).padStart(2,"0")}`;
     state.prompt.requestId = id;
@@ -87,85 +92,90 @@
   function promptImpact() {
     const p = state.prompt;
     if (promptLocked()) return "";
-    return card("当前草稿的完整影响 · 只读", profileSame() ? "<p>候选 profile 与当前一致：accepted / no_change。不会改写当前生效值。</p>" : Object.keys(fields).map((key) => `<p>${fields[key]}：${escape(p.effective[key])} → ${escape(candidate()[key])}${p.draft[key] === p.profile[key] && p.effective[key] !== candidate()[key] ? "<br><span class='state-label'>完整 profile 重应用带来的间接变化</span>" : ""}</p>`).join(""), "soft");
+    return card(t("prompt.impact"), profileSame() ? `<p>${t("prompt.noChangeImpact")}</p>` : Object.keys(fields).map((key) => `<p>${t(fields[key])}: ${escape(p.effective[key])} → ${escape(candidate()[key])}${p.draft[key] === p.profile[key] && p.effective[key] !== candidate()[key] ? `<br><span class="state-label">${t("prompt.indirect")}</span>` : ""}</p>`).join(""), "soft");
   }
 
   function accountContent() {
-    if (state.entered) return card("示例账号 A", "<p>已恢复本示例世界的会话。观察其他目标不会改变当前草稿和原请求归属。</p>") + `<div class="actions">${button("return-world", "回到世界", true)}${button("signout", "退出本地示例")}</div>`;
-    return `<p class="muted">从世界中的一个目标开始，再给你的 Agent 一条高层指导。</p>` +
-      (state.fixture === "entry-failed" ? card("入口暂不可用", "<p>当前会话没有建立。重试只恢复入口，不创建第二个账号。</p>", "error") : "") +
-      `<div class="stack">${button("enter", "使用通行密钥进入示例", true)}${button("enter-return", "恢复已有示例会话")}</div><p class="meta">此设计原型不会打开系统通行密钥窗口。实际注册、登录与恢复沿用现有账号流程。</p>`;
+    if (state.entered) return card(t("account.title"), `<p>${t("account.restored")}</p>`) + `<div class="actions">${button("return-world", t("account.return"), true)}${button("signout", t("account.signout"))}</div>`;
+    return `<p class="muted">${t("account.intro")}</p>` +
+      (state.fixture === "entry-failed" ? card(t("account.unavailable"), `<p>${t("account.failed")}</p>`, "error") : "") +
+      `<div class="stack">${button("enter", t("account.enter"), true)}${button("enter-return", t("account.restore"))}</div><p class="meta">${t("account.note")}</p>`;
   }
 
   function chatContent() {
     const busy = state.chatStatus === "unknown";
-    return `<p class="meta">当前查看：${escape(state.observed)} · 草稿主体：${escape(state.commandAgent)}${state.sentAgent ? ` · 原请求主体：${escape(state.sentAgent)}` : ""}</p>` +
-      card("当前目标", `<p>${state.goal ? escape(state.goal) : "尚未确认目标"}</p><p class="meta">${state.goal ? "来自获准的目标读回；完成情况另见世界结果。" : "发送对话后仍需请求确认与目标读回。"}</p>`) +
-      card("当前活动", `<p>${escape(state.activity)}</p><p class="meta">最近一次可读观察；不是新指令的完成证明。</p>`, "soft") +
-      `<label class="field" for="chat-draft"><span>给 Agent ${escape(state.commandAgent)} 的指导</span><textarea id="chat-draft" placeholder="例如：先检查燃料缺口，再规划第一批铁锭。" ${!state.control ? "disabled" : ""}>${escape(state.chatDraft)}</textarea></label><p class="meta">Enter / Shift+Enter 换行，使用按钮发送。中文输入法确认不会发送。</p>` +
-      `<div class="actions">${button("chat-send", busy ? "原请求仍待确认" : "发送指导", true, !state.control || busy)}${button("chat-preset", "放入建议草稿", false, !state.control)}</div>` +
-      (state.chatStatus === "rejected" ? card("这条指导没有发送", "<p>请输入内容。草稿仍在这里，目标与 Prompt 未改变。</p>", "error") : "") +
-      (busy ? card("已收到，尚未确认目标", `<p>原请求主体 ${escape(state.sentAgent)} · chat-demo-01。下一步只查询这条请求，不重新发送。</p>${button("chat-query", "查询原指导结果")}`, "warn") : "") +
-      (state.chatStatus === "confirmed" ? card("指导已确认", `<p>原请求的目标读回完成。当前活动仍需后续观察，不把确认当作生产完成。</p>`, "success") : "") +
-      `<details id="advanced" ${state.promptOpen ? "open" : ""}><summary>高级 · Prompt 控制</summary><p class="meta">Prompt 调整不发送对话，也不是发送指导的前置条件。</p>${promptContent()}</details>`;
+    return `<p class="meta">${t("chat.context", {observed:escape(observedLabel()), agent:escape(state.commandAgent)})}${state.sentAgent ? t("chat.original", {agent:escape(state.sentAgent)}) : ""}</p>` +
+      card(t("chat.goal"), `<p>${state.goal ? escape(state.goal) : t("chat.noGoal")}</p><p class="meta">${t(state.goal ? "chat.goalRead" : "chat.goalPending")}</p>`) +
+      card(t("chat.activity"), `<p>${t("world.activity")}</p><p class="meta">${t("chat.activityHelp")}</p>`, "soft") +
+      `<label class="field" for="chat-draft"><span>${t("chat.field", {agent:escape(state.commandAgent)})}</span><textarea id="chat-draft" placeholder="${escape(t("chat.placeholder"))}" ${!state.control ? "disabled" : ""}>${escape(state.chatDraft)}</textarea></label><p class="meta">${t("chat.inputHelp")}</p>` +
+      `<div class="actions">${button("chat-send", t(busy ? "chat.waiting" : "chat.send"), true, !state.control || busy)}${button("chat-preset", t("chat.preset"), false, !state.control)}</div>` +
+      (state.chatStatus === "rejected" ? card(t("chat.notSent"), `<p>${t("chat.empty")}</p>`, "error") : "") +
+      (busy ? card(t("chat.received"), `<p>${t("chat.queryHelp", {agent:escape(state.sentAgent)})}</p>${button("chat-query", t("chat.query"))}`, "warn") : "") +
+      (state.chatStatus === "confirmed" ? card(t("chat.confirmed"), `<p>${t("chat.confirmedHelp")}</p>`, "success") : "") +
+      `<details id="advanced" ${state.promptOpen ? "open" : ""}><summary>${t("chat.advanced")}</summary><p class="meta">${t("chat.advancedHelp")}</p>${promptContent()}</details>`;
   }
 
   function promptContent() {
     const p = state.prompt;
-    if (!state.control) return card("当前没有控制权限", "<p>默认值、profile、生效值、版本摘要和差异已隐藏。旧请求的迟到响应不会写入当前主体。</p>", "error") +
-      `<label class="field" for="safe-draft"><span>保留的未提交本地文本</span><textarea id="safe-draft" readonly>${escape(p.draft.short ?? "")}</textarea></label><p class="meta">只保留允许留存的未提交文本；恢复权限后须重新读取并检查目标。</p>`;
-    if (p.readFailed) return card("草稿已过期，重新读取仍失败", "<p>新 profile 尚未读到。先前记录不可冒充当前值；保留原 v7 草稿，等待读取恢复。</p>", "error") + `<label class="field" for="safe-draft"><span>保留的本地草稿 · 原 Agent A / v7</span><textarea id="safe-draft" readonly>${escape(p.draft.short)}</textarea></label><div class="actions">${button("prompt-read-again", "重试只读查询", true)}${button("return-world", "返回世界")}</div><p class="meta">本情境的查询持续不可用；重试结束后仍保留原草稿，不清除或应用。</p>`;
-    const sourceValues = (values) => Object.keys(fields).map((key) => `${fields[key]}：${none(values[key])}`).join("<br>");
-    let html = `<div class="source-grid" aria-label="Prompt 五种来源">
-      <div class="source-row"><strong>1 · 初始化默认值</strong><p>${sourceValues(defaults)}</p></div>
-      <div class="source-row"><strong>2 · Profile 覆盖 · v${p.version}</strong><p>${sourceValues(p.profile)}</p></div>
-      <div class="source-row"><strong>3 · 当前生效值</strong><p>${sourceValues(p.effective)}</p><p class="muted">${p.effective.short === "short-B" ? "short-B 来自初始化路径；空覆盖的 no-op 不会重新应用默认值。" : "仅按匹配的执行器读回展示。"}</p></div>
-      <div class="source-row"><strong>4 · 预设</strong><p>${p.preset ? "preset-P · 仅复制到草稿" : "尚未选择；不会隐式覆盖已存 profile"}</p>${button("prompt-preset", "载入预设到草稿", false, promptLocked())}</div>
-      <div class="source-row"><strong>5 · 本地草稿 · 基于 v${p.draftVersion}</strong><p>修改或清除只改变下面的草稿，明确应用后才提交。</p></div>
+    if (!state.control) return card(t("prompt.noControl"), `<p>${t("prompt.privateHidden")}</p>`, "error") +
+      `<label class="field" for="safe-draft"><span>${t("prompt.localText")}</span><textarea id="safe-draft" readonly>${escape(p.draft.short ?? "")}</textarea></label><p class="meta">${t("prompt.retainedHelp")}</p>`;
+    if (p.readFailed) return card(t("prompt.readFailed"), `<p>${t("prompt.readFailedHelp")}</p>`, "error") + `<label class="field" for="safe-draft"><span>${t("prompt.originalDraft")}</span><textarea id="safe-draft" readonly>${escape(p.draft.short)}</textarea></label><div class="actions">${button("prompt-read-again", t("prompt.retryRead"), true)}${button("return-world", t("prompt.return"))}</div><p class="meta">${t("prompt.readStillUnavailable")}</p>`;
+    const sourceValues = (values) => Object.keys(fields).map((key) => `${t(fields[key])}: ${none(values[key])}`).join("<br>");
+    // Deliberately omit one translation in review mode; keep its source language explicit.
+    const draftHelp = presentation.copyMode === "missing"
+      ? `<span lang="zh-CN">${escape(window.Oasis7PrototypeCopy.text("prompt.draftHelp", "zh-CN"))}</span> <span class="translation-note">${t("copy.missingNote")}</span>`
+      : t("prompt.draftHelp");
+    let html = `<div class="source-grid" aria-label="${escape(t("prompt.sources"))}">
+      <div class="source-row"><strong>${t("prompt.defaults")}</strong><p>${sourceValues(defaults)}</p></div>
+      <div class="source-row"><strong>${t("prompt.profile", {version:p.version})}</strong><p>${sourceValues(p.profile)}</p></div>
+      <div class="source-row"><strong>${t("prompt.effective")}</strong><p>${sourceValues(p.effective)}</p><p class="muted">${t(p.effective.short === "short-B" ? "prompt.initialPath" : "prompt.matchedRead")}</p></div>
+      <div class="source-row"><strong>${t("prompt.preset")}</strong><p>${t(p.preset ? "prompt.presetCopied" : "prompt.noPreset")}</p>${button("prompt-preset", t("prompt.loadPreset"), false, promptLocked())}</div>
+      <div class="source-row"><strong>${t("prompt.draftSource", {version:p.draftVersion})}</strong><p id="prompt-source-help">${draftHelp}</p></div>
     </div>`;
-    for (const key of Object.keys(fields)) html += `<label class="field" for="prompt-${key}"><span>${fields[key]} · 草稿${p.draft[key] === null ? " / 无覆盖" : ""}</span><div class="inline"><textarea id="prompt-${key}" data-prompt-field="${key}" ${promptLocked() ? "readonly" : ""} placeholder="未设置覆盖">${escape(p.draft[key] ?? "")}</textarea>${button(`clear-${key}`, "清除覆盖", false, promptLocked())}</div></label>`;
-    if (p.status === "stale") html += card("草稿已过期，编辑已保留", `<p>草稿基于 v${p.draftVersion}，当前 profile 为 v${p.version}。比较只读；重新编辑仍需明确应用。重新读取前会确认丢弃。</p><div class="actions">${button("prompt-compare", "比较差异")}${button("prompt-rebase", "基于新版本继续编辑")}${button("prompt-reload", "丢弃并重新读取")}</div>`, "warn");
-    if (p.compare) html += card("只读比较", Object.keys(fields).map((key) => `<p><b>${fields[key]}</b><br>当前 profile：${none(p.profile[key])}<br>保留草稿：${none(p.draft[key])}</p>`).join(""), "soft");
-    if (p.status === "unknown") html += card("原 Apply 结果未知", `<p>${escape(p.requestId)} 仍未取得终态。读取到最新 profile 不等于这条请求成功。</p>${button("prompt-latest", "读取当前 profile（只读）")}${p.lookup ? "<p>已读到 v8；原 Apply 仍为 unknown，没有重新提交。</p>" : ""}`, "warn");
-    if (p.status === "applied") html += card("Profile 已更新，执行器待读回", `<p>已确认 profile v${p.version}。当前生效值保持原读面，尚未宣称全量应用完成。</p>${button("prompt-effective", "读取对应执行器结果")}`, "warn");
-    if (p.status === "noop") html += card("已接受 · 没有变化", `<p>Profile 版本仍为 v${p.version}，没有 mutation 或 driver 更新。当前生效值保持原样。</p>`, "success");
-    if (p.status === "confirmed") html += card("已应用并读回", "<p>当前生效值来自与本次 profile 更新相匹配的执行器结果。对话和当前目标未改变。</p>", "success");
+    for (const key of Object.keys(fields)) html += `<label class="field" for="prompt-${key}"><span>${t("prompt.fieldDraft", {field:t(fields[key]), suffix:p.draft[key] === null ? t("prompt.noOverride") : ""})}</span><div class="inline"><textarea id="prompt-${key}" data-prompt-field="${key}" ${promptLocked() ? "readonly" : ""} placeholder="${escape(t("prompt.placeholder"))}">${escape(p.draft[key] ?? "")}</textarea>${button(`clear-${key}`, t("prompt.clear"), false, promptLocked())}</div></label>`;
+    if (p.status === "stale") html += card(t("prompt.stale"), `<p>${t("prompt.staleHelp", {draft:p.draftVersion, current:p.version})}</p><div class="actions">${button("prompt-compare", t("prompt.compare"))}${button("prompt-rebase", t("prompt.rebase"))}${button("prompt-reload", t("prompt.reload"))}</div>`, "warn");
+    if (p.compare) html += card(t("prompt.comparison"), Object.keys(fields).map((key) => `<p><b>${t(fields[key])}</b><br>${t("prompt.currentProfile")}${none(p.profile[key])}<br>${t("prompt.retainedDraft")}${none(p.draft[key])}</p>`).join(""), "soft");
+    if (p.status === "unknown") html += card(t("prompt.unknown"), `<p>${t("prompt.unknownHelp", {id:escape(p.requestId)})}</p>${button("prompt-latest", t("prompt.latest"))}${p.lookup ? `<p>${t("prompt.latestRead")}</p>` : ""}`, "warn");
+    if (p.status === "applied") html += card(t("prompt.applied"), `<p>${t("prompt.appliedHelp", {version:p.version})}</p>${button("prompt-effective", t("prompt.readEffective"))}`, "warn");
+    if (p.status === "noop") html += card(t("prompt.noop"), `<p>${t("prompt.noopHelp", {version:p.version})}</p>`, "success");
+    if (p.status === "confirmed") html += card(t("prompt.confirmed"), `<p>${t("prompt.confirmedHelp")}</p>`, "success");
     html += `<div id="prompt-impact" aria-live="polite">${promptImpact()}</div>`;
-    html += `<div class="actions">${button("prompt-preview", "预览影响", false, promptLocked())}${button("prompt-apply", "明确应用 Prompt", true, promptLocked())}</div><p class="meta">预览不提交，也不新增权限凭据或必需 token。应用按当前权限、版本和完整 profile 校验。</p>`;
+    html += `<div class="actions">${button("prompt-preview", t("prompt.preview"), false, promptLocked())}${button("prompt-apply", t("prompt.apply"), true, promptLocked())}</div><p class="meta">${t("prompt.applyHelp")}</p>`;
     return html;
   }
 
   function industryContent() {
     const p = state.industry;
-    if (!state.control) return card("当前没有控制权限", "<p>原方案、成本、原结果和提交动作已隐藏。恢复会话后须重新读取。</p>", "error");
-    if (p.status === "settled") return `<p class="meta">${p.history ? "回访 · 历史结果" : "原操作结果"} · 示例 Agent A / job 17 / tick 102</p>` +
-      card("第一批铁锭已产出", `<p class="success-text">production_settled · production_only</p><dl class="fact-grid">${fact("消耗铁矿石", "12 iron_ore")}${fact("消耗碳燃料", "3 carbon_fuel")}${fact("产出铁锭", "9 iron_ingot")}${fact("电力需求", "24")}${fact("副产物", p.fullReceipt ? "3 slag" : "当前摘要未发布")}</dl><p class="meta">${p.fullReceipt ? "slag 来自同 job 17 的完整 RecipeCompletionReceiptV1。" : "当前 StarterIndustrialSettlementSummaryV1 无副产物字段，不能用计划值补作实际结果。"}</p>`, "success") +
-      card("下一步候选 · Assembler", "<p>建造要求 10 iron_ingot；本笔产出 9，与要求相差 1。这不是当前库存余额。</p><p class='meta'>当前库存、其他材料、电力和授权仍待核验。候选不代表已解锁或可以建造；此轮只确认生产，没有交付或回款完成声明。</p>", "soft") +
-      `<div class="actions">${button("industry-return", "回到世界", true)}${button("industry-original", "查看原结算依据")}</div>`;
-    if (p.status === "rejected") return card("原生产请求已明确拒绝", "<p>action-demo-17 · Agent A / job 17</p><p>拒绝原因：提交时投入条件已失效。它与报价阶段的燃料不足、以及结果未知不同。</p><p>已耗材料与费用未发布，不能填零或承诺退款。没有自动重连或再次生产。</p>", "error") + `<div class="actions">${button("industry-return", "回到世界", true)}</div>`;
+    if (!state.control) return card(t("prompt.noControl"), `<p>${t("industry.privateHidden")}</p>`, "error");
+    if (p.status === "settled") return `<p class="meta">${t(p.history ? "industry.history" : "industry.original")} · ${t("industry.owner")}</p>` +
+      card(t("industry.produced"), `<p class="success-text">production_settled · production_only</p><dl class="fact-grid">${fact(t("industry.oreUsed"), "12 iron_ore")}${fact(t("industry.fuelUsed"), "3 carbon_fuel")}${fact(t("industry.ingots"), "9 iron_ingot")}${fact(t("industry.power"), "24")}${fact(t("industry.byproduct"), p.fullReceipt ? "3 slag" : t("industry.unpublished"))}</dl><p class="meta">${t(p.fullReceipt ? "industry.fullSource" : "industry.summarySource")}</p>`, "success") +
+      card(t("industry.nextCandidate"), `<p>${t("industry.gap")}</p><p class="meta">${t("industry.candidateHelp")}</p>`, "soft") +
+      `<div class="actions">${button("industry-return", t("account.return"), true)}${button("industry-original", t("industry.source"))}</div>`;
+    if (p.status === "rejected") return card(t("industry.rejected"), `<p>action-demo-17 · Agent A / job 17</p><p>${t("industry.rejectionReason")}</p><p>${t("industry.rejectionHelp")}</p>`, "error") + `<div class="actions">${button("industry-return", t("account.return"), true)}</div>`;
     const blocked = p.fuel < 3;
-    return `<p class="meta">方案主体：示例 Agent A · Smelter MK1 · 3 批</p><p class="meta">工厂实例 factory-demo-01 · recipe.smelter.iron_ingot</p><p>${p.status === "unknown" ? "原结果仍未知。以下保留提交前的方案与供给读面，不代表当前库存或扣料结果。" : "先检查完整投入，再决定是否提交生产。"}</p>` +
-      card(p.status === "unknown" ? "原提交方案 · 历史读面" : "完整生产方案", `<dl class="fact-grid">${fact("工厂输入账本 · 铁矿石", `需要 12 / ${p.status === "unknown" ? "提交前" : "可用"} 12 iron_ore`)}${fact("工厂输入账本 · 碳燃料", `需要 3 / ${p.status === "unknown" ? "提交前" : "可用"} ${p.fuel} carbon_fuel`)}${fact("预计主产物", "9 iron_ingot")}${fact("预计副产物", "3 slag")}${fact("配方电力需求", "24")}${fact("Catalog 基础时长", "1 tick / 不乘批次")}${fact(p.status === "unknown" ? "提交前报价时长" : "本次报价时长", p.quote ? "1 tick（示例报价值）" : "尚未取得")}${fact("费用", "未发布 / 未知")}</dl><p class="meta">每批 4 ore + 1 fuel → 3 ingot + 1 slag；电力 8。电力不附加未经定义的单位。基础时长不是完成承诺。</p>`) +
-      (blocked ? card("先补足碳燃料", `<p>需要 3，当前只有 2。方案尚不能提交。查询只刷新当前可读供给与报价。</p>${button("industry-recheck", "重新检查供给与报价", true)}`, "error") : "") +
-      (p.status === "unknown" ? card(p.queryFailed ? "查询暂时失败，原结果仍未知" : "已提交，等待原结果", `<p>action-demo-17 归属 Agent A / job 17。保留原请求，不自动重试生产。</p><div class="actions">${button("industry-query", "查询原生产结果", true)}</div><p class="meta">查询读取同一原请求；不是新报价或第二次提交。查询服务恢复后可再次只读查询。</p>`, "warn") : `<div class="actions">${button("industry-preview", "重新读取报价")}${button("industry-submit", "明确提交生产", true, blocked || !p.quote)}</div><p class="meta">报价与预览不创建回执；提交产生独立的原操作身份。</p>`);
+    const supply = (required, amount, material) => t("industry.requirement", {required, amount, material, time:t(p.status === "unknown" ? "industry.before" : "industry.available")});
+    return `<p class="meta">${t("industry.planOwner")}</p><p class="meta">${t("industry.factory")}</p><p>${t(p.status === "unknown" ? "industry.unknownPlan" : "industry.planHelp")}</p>` +
+      card(t(p.status === "unknown" ? "industry.historicalPlan" : "industry.plan"), `<dl class="fact-grid">${fact(t("industry.inputOre"), supply(12,12,"iron_ore"))}${fact(t("industry.inputFuel"), supply(3,p.fuel,"carbon_fuel"))}${fact(t("industry.expectedMain"), "9 iron_ingot")}${fact(t("industry.expectedByproduct"), "3 slag")}${fact(t("industry.recipePower"), "24")}${fact(t("industry.baseDuration"), t("industry.baseTicks"))}${fact(t(p.status === "unknown" ? "industry.oldQuoteDuration" : "industry.quoteDuration"), t(p.quote ? "industry.quotedTicks" : "industry.noQuote"))}${fact(t("industry.fees"), t("industry.unknownFees"))}</dl><p class="meta">${t("industry.recipeHelp")}</p>`) +
+      (blocked ? card(t("industry.shortage"), `<p>${t("industry.shortageHelp")}</p>${button("industry-recheck", t("industry.recheck"), true)}`, "error") : "") +
+      (p.status === "unknown" ? card(t(p.queryFailed ? "industry.queryFailed" : "industry.waiting"), `<p>${t("industry.queryHelp")}</p><div class="actions">${button("industry-query", t("industry.query"), true)}</div><p class="meta">${t("industry.queryNote")}</p>`, "warn") : `<div class="actions">${button("industry-preview", t("industry.preview"))}${button("industry-submit", t("industry.submit"), true, blocked || !p.quote)}</div><p class="meta">${t("industry.submitHelp")}</p>`);
   }
 
   function targetsContent() {
-    const unknown = state.fixture === "position";
-    return `<p class="muted">查看目标只改变观察对象，不会重新绑定草稿或原请求。</p>` +
-      (state.fixture === "dense" ? card("同位置 · 3 个候选", "<p>共享同一已知位置，按名称和身份选择。不把标记随机散开。</p>", "soft") : "") +
-      ["A","B","C"].map((id) => `<div class="target-row"><div><strong>示例 Agent ${id}</strong><p>${id === "B" ? "仅观察" : "本示例可指导"} · ${state.fixture === "dense" ? "共享位置：北侧加工站" : "位置：北侧补给区"}</p></div><button type="button" data-action="observe-${id}">查看 ${id}</button></div>`).join("") +
-      `<div class="target-row"><div><strong>位置未知的目标</strong><p>没有获准坐标，不显示地图标记。</p></div>${button("observe-unknown", "文字查看")}</div>` +
-      (unknown || state.observed === "未知目标" ? card("位置未知", "<p>当前只提供文字状态，没有定位、跟随或推测坐标操作。</p>", "warn") : card(`正在查看 ${escape(state.observed)}`, `<p>${state.observed === "B" ? "你可以观察该目标，不能向它提交指令。" : "选中目标不会自动改写既有草稿。"}</p>${state.observed !== "B" ? button("use-observed", "将该目标用于新草稿") : ""}`, "soft"));
+    const canGuide = (id) => state.control && ["A","C"].includes(id);
+    return `<p class="muted">${t("targets.intro")}</p>` +
+      (state.fixture === "dense" ? card(t("targets.cluster"), `<p>${t("targets.clusterHelp")}</p>`, "soft") : "") +
+      ["A","B","C"].map((id) => `<div class="target-row"><div><strong>${t("targets.name", {agent:id})}</strong><p>${t(canGuide(id) ? "targets.guideable" : "targets.observeOnly")} · ${t(state.fixture === "dense" ? "targets.sharedPosition" : "targets.position")}</p></div>${button(`observe-${id}`, t("targets.view", {agent:id}))}</div>`).join("") +
+      `<div class="target-row"><div><strong>${t("targets.unknownName")}</strong><p>${t("targets.noCoordinates")}</p></div>${button("observe-unknown", t("targets.textView"))}</div>` +
+      (state.observed === "未知目标" ? card(t("targets.unknown"), `<p>${t("targets.unknownHelp")}</p>`, "warn") : card(t("targets.viewing", {agent:escape(state.observed)}), `<p>${t(canGuide(state.observed) ? "targets.draftHelp" : "targets.readOnlyHelp")}</p>${canGuide(state.observed) ? button("use-observed", t("targets.use")) : ""}`, "soft"));
   }
 
   function renderNext() {
-    let title = "给 Agent 第一条指导", body = "提出高层建议，等待确认，再观察它的行动。", action = "open-command", label = "指导 Agent";
-    if (!state.entered) { title = "从一个世界开始"; body = "进入或恢复会话，保留清晰的操作归属。"; action = "open-account"; label = "进入示例世界"; }
-    else if (state.route === "prompt") { title = "检查 Prompt 的实际影响"; body = "区分默认值、覆盖、生效值和本地草稿。"; label = "打开高级 Prompt"; }
-    else if (state.route === "industry") { title = state.industry.status === "settled" ? "第一批成果已可回看" : state.industry.status === "unknown" ? "核对原生产请求" : state.industry.status === "rejected" ? "先理解原请求的拒绝原因" : state.industry.fuel < 3 ? "先补足首批生产投入" : "核对后提交首批生产"; body = state.industry.status === "settled" ? "本笔 9 枚铁锭已确认；下一步仍需核对当前库存和条件。" : state.industry.status === "unknown" ? "原结果未知，保留请求身份并只读查询。" : "3 批完整配方，投入和阻碍一起可见。"; label = state.industry.status === "settled" ? "查看历史成果" : state.industry.status === "unknown" ? "查看原请求" : "查看生产方案"; }
-    else if (state.goal) { title = state.goal; body = "目标已确认；当前活动与世界成果分别读取。"; label = "查看 Agent 状态"; }
-    $("next-move").innerHTML = `<p class="eyebrow">下一步 · NEXT MOVE</p><h2 id="next-title">${escape(title)}</h2><p>${escape(body)}</p><button id="next-action" type="button" class="primary" data-action="${action}">${label} <span aria-hidden="true">↗</span></button>`;
+    let title = t("next.first"), body = "next.firstHelp", action = "open-command", label = "next.guide";
+    if (!state.entered) { title = t("next.start"); body = "next.startHelp"; action = "open-account"; label = "next.enter"; }
+    else if (state.route === "prompt") { title = t("next.prompt"); body = "next.promptHelp"; label = "next.openPrompt"; }
+    else if (state.route === "industry") { title = t(state.industry.status === "settled" ? "next.settled" : state.industry.status === "unknown" ? "next.unknown" : state.industry.status === "rejected" ? "next.rejected" : state.industry.fuel < 3 ? "next.blocked" : "next.ready"); body = state.industry.status === "settled" ? "next.settledHelp" : state.industry.status === "unknown" ? "next.unknownHelp" : "next.planHelp"; label = state.industry.status === "settled" ? "next.history" : state.industry.status === "unknown" ? "next.original" : "next.plan"; }
+    else if (state.goal) { title = state.goal; body = "next.goalHelp"; label = "next.agent"; }
+    $("next-move").innerHTML = `<p class="eyebrow">${t("next.eyebrow")}</p><h2 id="next-title">${escape(title)}</h2><p>${t(body)}</p><button id="next-action" type="button" class="primary" data-action="${action}">${t(label)} <span aria-hidden="true">↗</span></button>`;
   }
 
   function renderReceipt() {
@@ -174,9 +184,9 @@
     $("stage").classList.toggle("has-receipt", !r.hidden);
     if (r.hidden) return;
     let id, title, description, action;
-    if (state.receiptKind === "chat") { id = `chat-demo-01 · Agent ${state.sentAgent}`; title = state.chatStatus === "confirmed" ? "原指导已确认" : "原指导 · 结果待确认"; description = "世界动态不代替这条请求的结果。"; action = state.chatStatus === "unknown" ? button("chat-query", "查询原指导结果") : button("open-command", "查看当前目标"); }
-    if (state.receiptKind === "prompt") { const original = state.promptReceipts.at(-1); id = original ? `${original.id} · Agent ${original.agent}` : "尚无 Prompt 原请求"; title = !state.control ? "原请求信息暂不可读" : promptReceiptLabel(original?.status); description = "Profile 读取与原请求终态分别展示。"; action = button("prompt-history", `查看原请求（${state.promptReceipts.length}）`); }
-    if (state.receiptKind === "industry") { id = "action-demo-17 · Agent A / job 17"; title = state.industry.status === "settled" ? "原生产已结算 · 9 iron_ingot" : state.industry.status === "rejected" ? "原生产已明确拒绝" : "原生产 · 结果未知"; description = state.industry.history ? "恢复历史摘要，没有发起新生产。" : "仅关联这条原操作，不被新报价覆盖。"; action = state.industry.status === "unknown" ? button("industry-query", "查询原生产结果") : button("open-command", "查看原结果"); }
+    if (state.receiptKind === "chat") { id = `chat-demo-01 · Agent ${state.sentAgent}`; title = t(state.chatStatus === "confirmed" ? "receipt.chatConfirmed" : "receipt.chatUnknown"); description = t("receipt.chatHelp"); action = state.chatStatus === "unknown" ? button("chat-query", t("chat.query")) : button("open-command", t("receipt.goal")); }
+    if (state.receiptKind === "prompt") { const original = state.promptReceipts.at(-1); id = original ? `${original.id} · Agent ${original.agent}` : t("receipt.noPrompt"); title = !state.control ? t("receipt.private") : promptReceiptLabel(original?.status); description = t("receipt.promptHelp"); action = button("prompt-history", t("receipt.history", {count:state.promptReceipts.length})); }
+    if (state.receiptKind === "industry") { id = "action-demo-17 · Agent A / job 17"; title = t(state.industry.status === "settled" ? "receipt.settled" : state.industry.status === "rejected" ? "receipt.rejected" : "receipt.unknown"); description = t(state.industry.history ? "receipt.historical" : "receipt.originalHelp"); action = state.industry.status === "unknown" ? button("industry-query", t("industry.query")) : button("open-command", t("receipt.result")); }
     r.innerHTML = `<p class="receipt-id">${escape(id)}</p><strong>${escape(title)}</strong><p>${escape(description)}</p>${action}`;
     const receiptAction = r.querySelector("button"); if (receiptAction) receiptAction.id = "receipt-action";
   }
@@ -185,6 +195,7 @@
     const focused = document.activeElement;
     const oldId = focusId || focused?.id;
     const oldAction = focused?.dataset?.action;
+    syncReviewControls();
     $("stage").classList.toggle("panel-open", state.panel !== "world");
     $("stage").classList.toggle("renderer-unavailable", !state.renderer);
     $("renderer-message").hidden = state.renderer;
@@ -196,20 +207,21 @@
       marker.textContent = dense ? "3" : id;
       marker.classList.toggle("actor-cluster", dense);
       document.querySelector(`[data-actor-sprite="${id}"]`).hidden = marker.hidden || dense;
-      marker.style.outline = state.observed === id || dense ? "3px solid var(--gold)" : "none";
+      const selected = dense ? ["A","B","C"].includes(state.observed) : state.observed === id;
+      marker.style.outline = selected ? "3px solid var(--gold)" : "none";
       marker.style.outlineOffset = "5px";
     });
-    $("account-button").textContent = state.entered ? "示例账号 A · 已进入" : "示例账号 · 未进入";
-    $("world-context").innerHTML = `<span class="badge">查看 ${escape(state.observed)}</span><span class="badge">草稿 ${escape(state.commandAgent)}</span>${state.sentAgent ? `<span class="badge">原请求 ${escape(state.sentAgent)}</span>` : ""}`;
-    $("feed-text").textContent = state.renderer ? "世界动态 · 加工站等待补给" : "文字状态可用 · 世界动态不是原操作回执";
-    $("notice").textContent = state.notice;
+    $("account-button").textContent = t(state.entered ? "account.entered" : "account.signedOut");
+    $("world-context").innerHTML = `<span class="badge">${t("world.viewing", {agent:escape(observedLabel())})}</span><span class="badge">${t("world.draft", {agent:escape(state.commandAgent)})}</span>${state.sentAgent ? `<span class="badge">${t("world.original", {agent:escape(state.sentAgent)})}</span>` : ""}`;
+    $("feed-text").textContent = t(state.renderer ? "world.feed" : "world.textFeed");
+    $("notice").textContent = state.notice ? t(state.notice, state.noticeValues) : "";
     renderNext(); renderReceipt();
     $("drawer").hidden = state.panel === "world";
     document.querySelectorAll("[data-panel]").forEach((el) => el.setAttribute("aria-pressed", String(el.dataset.panel === state.panel)));
     if (state.panel !== "world") {
       $("drawer-kicker").textContent = state.panel === "account" ? "ACCOUNT / ENTRY" : state.panel.toUpperCase();
-      $("drawer-title").textContent = state.panel === "account" ? "进入与回访" : state.panel === "targets" ? "目标与位置" : state.panel === "prompt-history" ? "Prompt 原请求记录" : state.route === "industry" ? "首局生产" : state.route === "prompt" ? `高级 Prompt · Agent ${state.commandAgent}` : `指导 Agent ${state.commandAgent}`;
-      $("drawer-content").innerHTML = state.panel === "account" ? accountContent() : state.panel === "targets" ? targetsContent() : state.panel === "prompt-history" ? state.promptReceipts.map((original) => card(`${escape(original.id)} · Agent ${escape(original.agent)}`, `<p>${promptReceiptLabel(original.status)}</p><p class="meta">新草稿、新主体或最新 profile 不裁决这条原请求。</p>`)).join("") : state.route === "industry" ? industryContent() : state.route === "prompt" ? promptContent() : chatContent();
+      $("drawer-title").textContent = t(state.panel === "account" ? "panel.account" : state.panel === "targets" ? "panel.targets" : state.panel === "prompt-history" ? "panel.history" : state.route === "industry" ? "panel.industry" : state.route === "prompt" ? "panel.prompt" : "panel.command", {agent:state.commandAgent});
+      $("drawer-content").innerHTML = state.panel === "account" ? accountContent() : state.panel === "targets" ? targetsContent() : state.panel === "prompt-history" ? state.promptReceipts.map((original) => card(`${escape(original.id)} · Agent ${escape(original.agent)}`, `<p>${promptReceiptLabel(original.status)}</p><p class="meta">${t("prompt.historyHelp")}</p>`)).join("") : state.route === "industry" ? industryContent() : state.route === "prompt" ? promptContent() : chatContent();
     }
     layoutPixelWorld();
     if (oldId && $(oldId)) $(oldId).focus({preventScroll:true});
@@ -226,8 +238,12 @@
   function closePanel() { if (state.route === "industry" && state.panel === "command" && state.industry.status === "settled") state.industry.history = true; state.panel = "world"; state.notice = ""; render(invoker); }
   function confirm(title, description, accept, callback) {
     confirmInvoker = document.activeElement;
-    $("confirm-title").textContent = title; $("confirm-description").textContent = description; $("accept-confirm").textContent = accept;
+    confirmCopy = [title, description, accept];
+    renderConfirmCopy();
     confirmAction = callback; $("confirm-dialog").showModal(); $("cancel-confirm").focus();
+  }
+  function renderConfirmCopy() {
+    ["confirm-title", "confirm-description", "accept-confirm"].forEach((id, index) => { $(id).textContent = t(confirmCopy[index]); });
   }
   function changeDraft(key, value) { state.prompt.draft[key] = value; state.prompt.preview = false; state.prompt.dirty = true; if (["noop", "confirmed"].includes(state.prompt.status)) state.prompt.status = "idle"; }
 
@@ -238,32 +254,32 @@
     if (action === "open-account") return openPanel("account");
     if (action === "prompt-history" && state.control) return openPanel("prompt-history");
     if (action === "return-world" || action === "industry-return") { if (action === "industry-return") ind.history = true; return closePanel(); }
-    if (action === "enter" || action === "enter-return") { state = fresh(state.route, fixtures[state.route][0][0]); state.entered = true; state.control = true; if (action === "enter-return" && state.route === "entry") { state.goal = "恢复北侧补给"; state.chatStatus = "confirmed"; state.sentAgent = "A"; state.receiptKind = "chat"; } state.panel = "world"; state.notice = "新示例会话已建立；旧会话私有读面不复用。没有创建真实账号或提交游戏操作。"; return render("next-action"); }
-    if (action === "signout") { const route = state.route; state = fresh(route, fixtures[route][0][0]); state.entered = false; state.control = false; state.panel = "account"; state.notice = "本地示例会话已退出，私有读面和旧请求已清除。"; return render("drawer-title"); }
-    if (action === "retry-renderer") { state.renderer = true; state.notice = "示例重试完成，世界示意画面恢复。"; }
-    if (action.startsWith("observe-")) { state.observed = action.slice(8) === "unknown" ? "未知目标" : action.slice(8); state.notice = "观察对象已切换；草稿和原请求主体保持不变。"; }
-    if (action === "use-observed" && ["A","C"].includes(state.observed)) {
-      const change = () => { state.commandAgent = state.observed; state.chatDraft = ""; state.goal = ""; state.prompt = fresh("entry", "first").prompt; state.promptOpen = false; state.notice = "新的空白草稿已绑定该目标，原请求仍归属原主体。"; render("drawer-title"); };
-      if (state.chatDraft || state.prompt.dirty) return confirm("切换草稿主体？", "将丢弃当前未发送的指导和未提交 Prompt 草稿。原请求及其状态仍归属原主体。", "切换并新建草稿", change);
+    if (action === "enter" || action === "enter-return") { const fixture = action === "enter-return" && state.route === "entry" ? "return" : fixtures[state.route][0][0]; state = fresh(state.route, fixture); state.entered = true; state.control = true; state.panel = "world"; state.notice = "notice.enter"; return render("next-action"); }
+    if (action === "signout") { const route = state.route; state = fresh(route, fixtures[route][0][0]); state.entered = false; state.control = false; state.panel = "account"; state.notice = "notice.signout"; return render("drawer-title"); }
+    if (action === "retry-renderer") { state.renderer = true; state.notice = "notice.renderer"; }
+    if (action.startsWith("observe-")) { state.observed = action.slice(8) === "unknown" ? "未知目标" : action.slice(8); state.notice = "notice.observe"; }
+    if (action === "use-observed" && state.control && ["A","C"].includes(state.observed)) {
+      const change = () => { state.commandAgent = state.observed; state.chatDraft = ""; state.goal = ""; state.prompt = fresh("entry", "first").prompt; state.promptOpen = false; state.notice = "notice.draftOwner"; render("drawer-title"); };
+      if (state.chatDraft || state.prompt.dirty) return confirm("confirm.switchTitle", "confirm.switchHelp", "confirm.switchAccept", change);
       change(); return;
     }
     if (action === "chat-preset") {
       const load = () => { state.chatDraft = "先检查燃料缺口，再规划第一批铁锭。"; render("chat-draft"); };
-      if (state.chatDraft) return confirm("替换未发送的指导？", "建议只放入本地草稿，不发送给 Agent。", "替换草稿", load);
+      if (state.chatDraft) return confirm("confirm.chatTitle", "confirm.chatHelp", "confirm.chatAccept", load);
       load(); return;
     }
     if (action === "chat-send" && state.control && state.chatStatus !== "unknown") {
       if (!state.chatDraft.trim()) state.chatStatus = "rejected";
-      else { state.sentText = state.chatDraft; state.sentAgent = state.commandAgent; state.chatStatus = "unknown"; state.receiptKind = "chat"; state.notice = "示例已接收指导；当前目标尚未更新。"; }
+      else { state.sentText = state.chatDraft; state.sentAgent = state.commandAgent; state.chatStatus = "unknown"; state.receiptKind = "chat"; state.notice = "notice.chatReceived"; }
     }
-    if (action === "chat-query" && state.chatStatus === "unknown") { state.chatStatus = "confirmed"; if (state.commandAgent === state.sentAgent) state.goal = state.sentText; state.notice = `原请求 ${state.sentAgent} 的指导已确认；其他主体的当前目标不被覆盖。`; }
-    if (action.startsWith("clear-") && !promptLocked()) { changeDraft(action.slice(6), null); state.notice = "仅清除了本地覆盖草稿，尚未提交。"; }
+    if (action === "chat-query" && state.chatStatus === "unknown") { state.chatStatus = "confirmed"; if (state.commandAgent === state.sentAgent) state.goal = state.sentText; state.notice = "notice.chatConfirmed"; state.noticeValues = {agent:state.sentAgent}; }
+    if (action.startsWith("clear-") && !promptLocked()) { changeDraft(action.slice(6), null); state.notice = "notice.clear"; }
     if (action === "prompt-preset" && !promptLocked()) {
       const load = () => { p.draft = {system:"preset-P / system",short:"preset-P / short",long:"preset-P / long"}; p.preset = "P"; p.dirty = true; p.preview = false; p.status = "idle"; render("prompt-system"); };
-      if (p.dirty) return confirm("用预设替换本地草稿？", "现有未提交编辑将被替换。profile、生效值和对话不会改变。", "载入预设", load);
+      if (p.dirty) return confirm("confirm.presetTitle", "confirm.presetHelp", "confirm.presetAccept", load);
       load(); return;
     }
-    if (action === "prompt-preview" && !promptLocked()) { p.preview = true; state.notice = "完整影响已按当前草稿刷新，未提交任何更改。"; }
+    if (action === "prompt-preview" && !promptLocked()) { p.preview = true; state.notice = "notice.preview"; }
     if (action === "prompt-apply" && !promptLocked()) {
       if (p.draftVersion !== p.version) p.status = "stale";
       else if (profileSame()) { p.status = "noop"; p.dirty = false; recordPromptResult("noop"); }
@@ -271,26 +287,52 @@
     }
     if (action === "prompt-effective" && state.control && p.status === "applied") { p.effective = candidate(); p.status = "confirmed"; p.preview = false; const original = state.promptReceipts.find((r) => r.id === p.requestId && r.agent === state.commandAgent); if (original) original.status = "confirmed"; }
     if (action === "prompt-compare" && state.control) p.compare = true;
-    if (action === "prompt-rebase" && state.control && p.status === "stale") { p.draftVersion = p.version; p.status = "idle"; p.compare = false; state.notice = "草稿已保留并采用新基准，尚未应用。"; }
-    if (action === "prompt-reload" && state.control) return confirm("丢弃草稿并重新读取？", "未提交的编辑会丢失。重新读取不会自动应用 Prompt。", "丢弃并重新读取", () => { p.draft = {...p.profile}; p.draftVersion = p.version; p.status = "idle"; p.compare = false; p.dirty = false; p.preview = false; state.notice = "已重新读取，尚未提交任何修改。"; render("drawer-title"); });
+    if (action === "prompt-rebase" && state.control && p.status === "stale") { p.draftVersion = p.version; p.status = "idle"; p.compare = false; state.notice = "notice.rebase"; }
+    if (action === "prompt-reload" && state.control) return confirm("confirm.reloadTitle", "confirm.reloadHelp", "prompt.reload", () => { p.draft = {...p.profile}; p.draftVersion = p.version; p.status = "idle"; p.compare = false; p.dirty = false; p.preview = false; state.notice = "notice.reload"; render("drawer-title"); });
     if (action === "prompt-latest" && state.control && p.status === "unknown") { p.version = 8; p.profile.system = "system-D"; p.lookup = true; }
-    if (action === "prompt-read-again" && state.control && p.readFailed) state.notice = "重读已结束，但仍不可用。原过期状态和 short-D 草稿保持，未应用。";
-    if (action === "industry-preview" && state.control && ind.status === "idle") { ind.quote = ind.fuel >= 3; state.notice = ind.quote ? "已只读刷新示例报价，未创建操作回执。" : "报价仍被投入条件阻塞，没有成功 preview，实际时长保持未知。"; }
-    if (action === "industry-recheck" && state.control && ind.status === "idle") { ind.fuel = ind.observedFuel; ind.quote = ind.fuel >= 3; state.notice = ind.fuel >= 3 ? "外部供给读回显示燃料为 3。只读查询没有补购或提交。" : "供给仍为 2，缺少 1。只读重查没有补料或提交。"; }
-    if (action === "industry-submit" && state.control && ind.fuel >= 3 && ind.quote && ind.status === "idle") { ind.status = "unknown"; state.receiptKind = "industry"; state.notice = "原请求已建立；尚不能宣称生产成功。"; }
-    if (action === "industry-query" && state.control && ind.status === "unknown") { if (ind.readback === "unavailable") { ind.queryFailed = true; state.notice = "查询已结束，服务仍不可用。原结果保持 unknown，没有第二次提交。"; } else if (ind.readback === "mismatch") { state.notice = "读到了另一个 job 的结果，不能归给原 job 17；原结果仍未知。"; } else { ind.status = ind.readback; ind.queryFailed = false; state.notice = ind.status === "settled" ? "同一 owner A / factory-demo-01 / recipe.smelter.iron_ingot / job 17 的原结果已读回。副产物仍以实际发布字段为准。" : "原请求已明确拒绝；没有自动再次生产。"; } }
-    if (action === "industry-original") { state.notice = ind.fullReceipt ? "同 job 17 的完整 RecipeCompletionReceiptV1：9 iron_ingot、3 slag。" : "StarterIndustrialSettlementSummaryV1：消耗 12 ore / 3 fuel，产出 9 ingot，电力 24；没有副产物字段。"; }
+    if (action === "prompt-read-again" && state.control && p.readFailed) state.notice = "notice.readFailed";
+    if (action === "industry-preview" && state.control && ind.status === "idle") { ind.quote = ind.fuel >= 3; state.notice = ind.quote ? "notice.quote" : "notice.quoteBlocked"; }
+    if (action === "industry-recheck" && state.control && ind.status === "idle") { ind.fuel = ind.observedFuel; ind.quote = ind.fuel >= 3; state.notice = ind.fuel >= 3 ? "notice.supplyReady" : "notice.supplyBlocked"; }
+    if (action === "industry-submit" && state.control && ind.fuel >= 3 && ind.quote && ind.status === "idle") { ind.status = "unknown"; state.receiptKind = "industry"; state.notice = "notice.productionSubmitted"; }
+    if (action === "industry-query" && state.control && ind.status === "unknown") { if (ind.readback === "unavailable") { ind.queryFailed = true; state.notice = "notice.queryUnavailable"; } else if (ind.readback === "mismatch") { state.notice = "notice.queryMismatch"; } else { ind.status = ind.readback; ind.queryFailed = false; state.notice = ind.status === "settled" ? "notice.settled" : "notice.rejected"; } }
+    if (action === "industry-original") { state.notice = ind.fullReceipt ? "notice.fullReceipt" : "notice.summaryReceipt"; }
     render();
   }
 
+  function syncReviewControls() {
+    document.documentElement.lang = presentation.locale;
+    // Only explicit, author-owned copy nodes are localized. Never walk or replace user text.
+    document.querySelectorAll("[data-i18n]").forEach((element) => { element.textContent = t(element.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => { element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel)); });
+    $("locale").value = presentation.locale;
+    $("copy-mode").value = presentation.copyMode;
+    $("fixture").innerHTML = fixtures[state.route].map(([value]) => `<option value="${value}" ${value === state.fixture ? "selected" : ""}>${t(`fixture.${state.route}.${value}`)}</option>`).join("");
+    $("readback-label").hidden = state.route !== "industry";
+    $("readback").value = state.industry.readback;
+    $("supply-label").hidden = state.route !== "industry";
+    $("supply").value = String(state.industry.observedFuel);
+    document.querySelectorAll("[data-route]").forEach((el) => { if (el.dataset.route === state.route) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current"); });
+    renderConfirmCopy();
+  }
+  function updatePresentation(key, value) {
+    const choices = key === "locale" ? ["zh-CN", "en"] : ["normal", "long", "missing"];
+    if (!choices.includes(value)) return;
+    // Preserve exact edit buffers, including whitespace, independently of Prompt's normalized candidate.
+    const buffers = Array.from($("drawer-content").querySelectorAll("textarea"), (field) => ({id:field.id, value:field.value, start:field.selectionStart, end:field.selectionEnd, direction:field.selectionDirection, scroll:field.scrollTop}));
+    const scrollTop = $("drawer-content").scrollTop;
+    presentation[key] = value;
+    render();
+    buffers.forEach((buffer) => {
+      const field = $(buffer.id);
+      if (!field) return;
+      field.value = buffer.value;
+      field.setSelectionRange(buffer.start, buffer.end, buffer.direction);
+      field.scrollTop = buffer.scroll;
+    });
+    $("drawer-content").scrollTop = scrollTop;
+  }
   function reset(route, fixture) {
     state = fresh(route, fixture);
-    $("fixture").innerHTML = fixtures[route].map(([value,label]) => `<option value="${value}" ${value === fixture ? "selected" : ""}>${label}</option>`).join("");
-    $("readback-label").hidden = route !== "industry";
-    $("readback").value = state.industry.readback;
-    $("supply-label").hidden = route !== "industry";
-    $("supply").value = String(state.industry.observedFuel);
-    document.querySelectorAll("[data-route]").forEach((el) => { if (el.dataset.route === route) el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current"); });
     render();
   }
   function routeFromHash() { const hash = location.hash.slice(1); if (state && !["entry","prompt","industry"].includes(hash)) return; const route = ["entry","prompt","industry"].includes(hash) ? hash : "entry"; reset(route, fixtures[route][0][0]); }
@@ -303,6 +345,8 @@
   $("close-drawer").addEventListener("click", closePanel);
   $("account-button").addEventListener("click", () => openPanel("account"));
   $("fixture").addEventListener("change", (event) => reset(state.route, event.target.value));
+  $("locale").addEventListener("change", (event) => updatePresentation("locale", event.target.value));
+  $("copy-mode").addEventListener("change", (event) => updatePresentation("copyMode", event.target.value));
   $("readback").addEventListener("change", (event) => { state.industry.readback = event.target.value; });
   $("supply").addEventListener("change", (event) => { state.industry.observedFuel = Number(event.target.value); });
   $("skip-to-stage").addEventListener("click", (event) => { event.preventDefault(); $("stage").focus(); });
