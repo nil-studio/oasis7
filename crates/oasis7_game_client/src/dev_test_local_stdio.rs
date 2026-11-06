@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn error(id: Value, code: i64) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":"local_tool_request_rejected"}})
@@ -85,10 +85,12 @@ mod tests {
     #[test]
     fn rejects_secrets_before_backend_and_preserves_unknown() {
         let rejected = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dev_test_accounts_call","arguments":{"method":"accounts","credential":"forbidden"}}});
-        assert!(dispatch(rejected, |_| panic!("backend must not run"))
-            .unwrap()
-            .get("error")
-            .is_some());
+        assert!(
+            dispatch(rejected, |_| panic!("backend must not run"))
+                .unwrap()
+                .get("error")
+                .is_some()
+        );
         let request = json!({"jsonrpc":"2.0","id":"rpc-A","method":"tools/call","params":{"name":"dev_test_accounts_call","arguments":{"method":"lookup","session_ref":"S","operation":{"request_id":"lookup-A","arguments":{"kind":"lookup","original_request_id":"move-A"}}}}});
         let expected = request["params"]["arguments"].clone();
         let response = dispatch(request, |body| {
@@ -97,9 +99,11 @@ mod tests {
         })
         .unwrap();
         assert_eq!(response["id"], "rpc-A");
-        assert!(response["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("unknown"));
+        assert!(
+            response["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("unknown")
+        );
     }
 }
