@@ -14,6 +14,7 @@ use std::{
 enum Fault {
     ImmediateCommitted,
     DropFirst,
+    DropSubmit,
     UnavailableOnce,
     WrongSignature,
     CooldownOnce,
@@ -201,6 +202,9 @@ impl Probe {
                             let submitted: SubmitIntentRequest<WorldServicePayloadV1> =
                                 serde_json::from_slice(&body).unwrap();
                             assert_eq!(submitted, expected);
+                            if matches!(fault, Fault::DropSubmit) {
+                                continue;
+                            }
                             (
                                 authority::request_digest(SUBMIT_PATH, &submitted).unwrap(),
                                 IntentResponse {
@@ -560,7 +564,7 @@ fn review_replayed_move_rejects_native_body_mismatch() {
 
 #[test]
 fn trusted_new_send_is_single_attempt_then_original_queries_only() {
-    let probe = Probe::new_kind(Fault::DropFirst, OriginalKind::Action);
+    let probe = Probe::new_kind(Fault::DropSubmit, OriginalKind::Action);
     probe
         .client
         .state
@@ -577,7 +581,7 @@ fn trusted_new_send_is_single_attempt_then_original_queries_only() {
     assert!(matches!(response.outcome, IntentOutcome::Committed { .. }));
     assert_eq!(response.correlation, probe.original.correlation);
     assert_eq!(probe.submits.load(Ordering::SeqCst), 1);
-    assert_eq!(probe.lookups.load(Ordering::SeqCst), 2);
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 1);
     probe
         .client
         .lookup_until(&probe.original, Instant::now() + Duration::from_secs(1))
