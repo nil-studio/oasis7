@@ -1,6 +1,6 @@
 //! Linux-only restricted local transport; authentication uses kernel peer credentials.
 //! The caller cannot supply a principal or a credential path in the transport envelope.
-#[cfg(target_os = "linux")]
+#[cfg(any(test, target_os = "linux"))]
 use std::io::Read;
 use std::{
     io::Write,
@@ -52,15 +52,15 @@ pub fn receive(stream: &mut UnixStream, policy: &LocalPolicy) -> Result<Vec<u8>,
     {
         return Err("invalid local isolation policy".into());
     }
-    if peer_uid(stream)? != policy.caller_uid {
-        return Err("local caller denied".into());
-    }
     stream
         .set_read_timeout(Some(policy.timeout))
         .map_err(|_| "local timeout configuration failed")?;
     stream
         .set_write_timeout(Some(policy.timeout))
         .map_err(|_| "local timeout configuration failed")?;
+    if peer_uid(stream)? != policy.caller_uid {
+        return Err("local caller denied".into());
+    }
     let mut body = Vec::new();
     stream
         .take(policy.max_request_bytes as u64 + 1)
@@ -136,16 +136,12 @@ pub fn serve(
     let listener = bind(socket, service_uid)?;
     for stream in listener.incoming() {
         let mut stream = stream.map_err(|_| "local accept failed")?;
-        // Re-read a private administrator-controlled config on each call.
-        let metadata =
-            std::fs::symlink_metadata(config_path).map_err(|_| "private config unavailable")?;
-        if !metadata.is_file() || metadata.uid() != service_uid || metadata.mode() & 0o077 != 0 {
-            return Err("private config required".into());
-        }
-        let config: Config = serde_json::from_slice(
-            &std::fs::read(config_path).map_err(|_| "private config unavailable")?,
-        )
-        .map_err(|_| "invalid private config")?;
+        // Establish a finite rejection-write deadline before authenticating any peer.
+        stream
+            .set_write_timeout(Some(Duration::from_secs(1)))
+            .map_err(|_| "local timeout configuration failed")?;
+        let config: Config = serde_json::from_slice(&read_private_config(config_path)?)
+            .map_err(|_| "invalid private config")?;
         config.validate()?;
         let policy = LocalPolicy {
             service_uid,
@@ -195,4 +191,68 @@ pub fn serve(
         }
     }
     Err("local listener closed".into())
+}
+
+#[cfg(any(test, target_os = "linux"))]
+fn read_private_config(path: &Path) -> Result<Vec<u8>, String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    if !path.is_absolute() {
+        return Err("absolute private config required".into());
+    }
+    crate::runtime_broker::trusted_ancestors(path)?;
+    let parent = path.parent().ok_or("private config parent missing")?;
+    let directory =
+        std::fs::symlink_metadata(parent).map_err(|_| "private config parent unavailable")?;
+    let uid = unsafe { libc::geteuid() };
+    if directory.uid() != uid || directory.mode() & 0o022 != 0 {
+        return Err("private config parent untrusted".into());
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|_| "private config unavailable")?;
+    let metadata = file.metadata().map_err(|_| "private config unavailable")?;
+    if !metadata.is_file()
+        || metadata.uid() != uid
+        || metadata.mode() & 0o077 != 0
+        || metadata.nlink() != 1
+        || metadata.len() > 1048576
+    {
+        return Err("private config required".into());
+    }
+    let mut body = Vec::new();
+    file.take(1048577)
+        .read_to_end(&mut body)
+        .map_err(|_| "private config unavailable")?;
+    if body.len() > 1048576 {
+        return Err("private config too large".into());
+    }
+    Ok(body)
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    #[test]
+    fn private_config_rejects_replacement_boundaries() {
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("oasis7-local-config-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let config = root.join("config");
+        std::fs::write(&config, b"private-fixture").unwrap();
+        std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(read_private_config(&config).unwrap(), b"private-fixture");
+        let link = root.join("link");
+        symlink(&config, &link).unwrap();
+        assert!(read_private_config(&link).is_err());
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(read_private_config(&config).is_err());
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

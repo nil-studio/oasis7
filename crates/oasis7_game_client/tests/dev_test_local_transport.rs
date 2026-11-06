@@ -20,6 +20,10 @@ fn peer_identity_precedes_payload_parsing() {
         transport::receive(&mut server, &denied).unwrap_err(),
         "local caller denied"
     );
+    assert_eq!(
+        server.write_timeout().unwrap(),
+        Some(Duration::from_secs(1))
+    );
 }
 
 #[cfg(target_os = "linux")]
