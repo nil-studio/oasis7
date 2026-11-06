@@ -339,6 +339,12 @@ pub(crate) fn observe(
                 .map_err(|_| "invalid_context_observation")
         })
         .transpose()?;
+    // Private goal content is delivered only in the authorized tool reply.
+    // Recovery rereads the SDK proof; the usage journal does not log the text.
+    let mut retained = observation.clone();
+    if let Some(object) = retained.as_object_mut() {
+        object.remove("active_goal");
+    }
     transaction(config, caller, |ledger| {
         let original = ledger
             .operations
@@ -367,7 +373,7 @@ pub(crate) fn observe(
                 }
                 original.native_context_identity = Some(identity.clone());
             }
-            original.last_observation = Some(observation.clone());
+            original.last_observation = Some(retained.clone());
         }
         Ok(())
     })
@@ -382,6 +388,25 @@ impl From<String> for Failure {
     fn from(_: String) -> Self {
         Self::Unavailable
     }
+}
+fn verified_active_goal(
+    fence: &oasis7_agent_api::game::GameTaskFenceV1,
+    snapshot: &oasis7_client_api::world_service::task_context::GoalExecutionSnapshotV1,
+) -> Result<serde_json::Value, Failure> {
+    snapshot.validate().map_err(|_| Failure::Unavailable)?;
+    if &oasis7_agent_api::game::GameTaskFenceV1::from_control(&snapshot.control) != fence {
+        return Err(Failure::Conflict);
+    }
+    Ok(serde_json::json!({
+        "content": snapshot.active_goal.owner_proof.request.content,
+        "source": {
+            "task_fence": fence,
+            "active_goal_reference": snapshot.control.active_goal_reference,
+            "owner_public_key": snapshot.active_goal.owner_proof.request.owner_public_key,
+            "read_commit": snapshot.read_commit,
+            "activation_commit": snapshot.activation_commit,
+        }
+    }))
 }
 fn verify_cached(
     client: &crate::device_client::Client,
@@ -514,7 +539,7 @@ pub(crate) fn execute(
                 if matches!(result.outcome, IntentOutcome::Committed { .. }) {
                     let captured = client.captured_until(operation, deadline)?;
                     return Ok(
-                        serde_json::json!({"native_context":operation,"operation":result,"context":captured.prepared.identity,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
+                        serde_json::json!({"native_context":operation,"operation":result,"context":captured.prepared.identity,"active_goal":verified_active_goal(&captured.prepared.identity.fence, &captured.prepared.snapshot)?,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
                     );
                 }
                 return serde_json::to_value(result).map_err(|_| Failure::Unavailable);
@@ -522,12 +547,14 @@ pub(crate) fn execute(
             Arguments::Move { to, .. } => {
                 if let Some(cached) = client.cached_intent(ClientStateKind::Action, operation)? {
                     verify_cached(client, original, &cached)?;
+                    return serde_json::to_value(client.lookup_until(&cached, deadline)?)
+                        .map_err(|_| Failure::Unavailable);
                 }
                 let action = oasis7_agent_api::world_action::Action::MoveAgent {
                     agent_id: client.agent.clone(),
                     to: oasis7_agent_api::world_action::GeoPos::new(to[0], to[1], to[2]),
                 };
-                let result = client.submit_action_until(operation, action, deadline);
+                let result = client.submit_new_action_until(operation, action, deadline);
                 if result.is_err()
                     && let Some(cached) =
                         client.cached_intent(ClientStateKind::Action, operation)?
@@ -560,14 +587,13 @@ pub(crate) fn execute(
     let response = client.lookup_until(&request, deadline)?;
     if original.native_kind == "prefix"
         && matches!(response.outcome, IntentOutcome::Committed { .. })
-        && (matches!(original.arguments, Arguments::Context) || recovered_context.is_some())
     {
         let captured = match recovered_context {
             Some(value) => value,
             None => client.captured_until(operation, deadline)?,
         };
         return Ok(
-            serde_json::json!({"native_context":operation,"operation":response,"context":captured.prepared.identity,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
+            serde_json::json!({"native_context":operation,"operation":response,"context":captured.prepared.identity,"active_goal":verified_active_goal(&captured.prepared.identity.fence, &captured.prepared.snapshot)?,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
         );
     }
     serde_json::to_value(response).map_err(|_| Failure::Unavailable)
@@ -765,6 +791,83 @@ mod tests {
         let stored: serde_json::Value =
             serde_json::from_slice(&std::fs::read(ledger(&config)).unwrap()).unwrap();
         assert_eq!(stored["used"], 5);
+        std::fs::remove_dir_all(config.usage_directory).unwrap();
+    }
+    #[test]
+    fn authorized_context_preserves_full_verified_goal_and_source_binding() {
+        use oasis7_agent_api::game::GameTaskFenceV1;
+        use oasis7_client_api::world_service::task_context::GoalExecutionSnapshotV1;
+        let snapshot: GoalExecutionSnapshotV1 = serde_json::from_slice(include_bytes!(
+            "../testdata/task-context/native-snapshot.json"
+        ))
+        .unwrap();
+        let fence = GameTaskFenceV1::from_control(&snapshot.control);
+        let actual = verified_active_goal(&fence, &snapshot).unwrap();
+        assert_eq!(
+            actual["content"],
+            serde_json::to_value(&snapshot.active_goal.owner_proof.request.content).unwrap()
+        );
+        assert!(actual["content"]["goal_text"].as_str().unwrap().len() > 1000);
+        assert_eq!(
+            actual["content"]["soft_constraints"],
+            serde_json::json!(["actual full constraint"])
+        );
+        assert_eq!(
+            actual["source"]["task_fence"],
+            serde_json::to_value(&fence).unwrap()
+        );
+        assert_eq!(
+            actual["source"]["active_goal_reference"],
+            serde_json::to_value(&fence.active_goal_reference).unwrap()
+        );
+        assert_eq!(
+            actual["source"]["activation_commit"],
+            serde_json::to_value(&snapshot.activation_commit).unwrap()
+        );
+        let mut other = fence.clone();
+        other.agent_id = "other-account-agent".into();
+        assert_eq!(
+            verified_active_goal(&other, &snapshot),
+            Err(Failure::Conflict)
+        );
+        let mut corrupted = snapshot.clone();
+        corrupted
+            .active_goal
+            .owner_proof
+            .request
+            .content
+            .goal_text
+            .push_str("tampered");
+        assert_eq!(
+            verified_active_goal(&fence, &corrupted),
+            Err(Failure::Unavailable)
+        );
+        let mut missing = serde_json::to_value(snapshot).unwrap();
+        missing["active_goal"]
+            .as_object_mut()
+            .unwrap()
+            .remove("owner_proof");
+        assert!(serde_json::from_value::<GoalExecutionSnapshotV1>(missing).is_err());
+        let (config, scope) = fixture(4);
+        admit(&config, "caller", &scope, &context()).unwrap();
+        observe(
+            &config,
+            "caller",
+            &context(),
+            serde_json::json!({"active_goal":actual,"status":"verified_goal_reply"}),
+        )
+        .unwrap();
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(ledger(&config)).unwrap()).unwrap();
+        assert!(
+            stored["operations"]["context-1"]["last_observation"]
+                .get("active_goal")
+                .is_none()
+        );
+        assert_eq!(
+            stored["operations"]["context-1"]["last_observation"]["status"],
+            "verified_goal_reply"
+        );
         std::fs::remove_dir_all(config.usage_directory).unwrap();
     }
 }

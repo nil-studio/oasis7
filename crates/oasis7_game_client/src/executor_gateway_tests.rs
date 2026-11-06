@@ -851,3 +851,107 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
         "new Submit POST started after auth crossed the tool deadline"
     );
 }
+
+#[test]
+fn trusted_first_gateway_send_posts_submit_before_any_recovery_lookup() {
+    use crate::operation_store::ClientStateKind;
+    use std::time::Instant;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (root, identity, vault, fence) =
+        fixture(format!("http://{}", listener.local_addr().unwrap()));
+    let client = crate::device_client::Client::from_authenticated_config(
+        crate::device_client::ExecutorDeviceConfig {
+            authority_mode: None,
+            identity,
+            login_operation: "login".into(),
+            executor_vault_directory: vault,
+            service_public_key: service_key(),
+            fence: fence.clone(),
+            state_directory: root.0.join("operation-state"),
+        },
+        PASSWORD,
+    )
+    .unwrap();
+    let WorldServicePayloadV1::Scheduler(template) =
+        historical_prefix(fence, &hex::encode([7; 32]))
+    else {
+        unreachable!()
+    };
+    let signed = client.sign("scheduler", template.request).unwrap();
+    let original = client
+        .cache_intent(
+            ClientStateKind::Prefix,
+            "first-gateway-send",
+            WorldServicePayloadV1::Scheduler(signed),
+        )
+        .unwrap();
+    let expected = original.clone();
+    let server = thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let mut controls = 0;
+        for _ in 0..3 {
+            let mut socket = loop {
+                assert!(Instant::now() < deadline, "missing bounded HTTP request");
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(1))
+                    }
+                    Err(error) => panic!("accept failed: {error}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            let (path, body) = read_http(&mut socket);
+            let reply = if path.ends_with("/session") {
+                json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
+            } else if path.ends_with("/capabilities") {
+                json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
+            } else {
+                let outer: EntryExecutorControlRequestV1 = serde_json::from_value(body).unwrap();
+                let EntryExecutorOperationV1::Submit(submitted) = outer.operation else {
+                    panic!("first native operation must be Submit, never Lookup")
+                };
+                assert_eq!(submitted, expected);
+                controls += 1;
+                let response: IntentResponse<Value> = IntentResponse {
+                    formal_profile: None,
+                    execution_evidence_scope: None,
+                    contract_version: 1,
+                    correlation: expected.correlation.clone(),
+                    outcome: IntentOutcome::Rejected {
+                        reason: WorldServiceErrorKind::Conflict,
+                    },
+                };
+                let signed = ws::sign_service_response(
+                    SUBMIT_PATH,
+                    ws::request_digest(SUBMIT_PATH, &submitted).unwrap(),
+                    response,
+                    &hex::encode([91; 32]),
+                )
+                .unwrap();
+                json!({"api_version":2,"ok":true,"world_response":signed})
+            };
+            let bytes = serde_json::to_vec(&reply).unwrap();
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            )
+            .unwrap();
+            socket.write_all(&bytes).unwrap();
+        }
+        assert_eq!(controls, 1);
+    });
+    let response = client
+        .submit_new_and_poll_until(&original, Instant::now() + Duration::from_secs(3))
+        .unwrap();
+    assert_eq!(response.correlation, original.correlation);
+    assert!(matches!(
+        response.outcome,
+        IntentOutcome::Rejected {
+            reason: WorldServiceErrorKind::Conflict
+        }
+    ));
+    server.join().unwrap();
+}

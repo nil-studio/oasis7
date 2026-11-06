@@ -69,24 +69,37 @@ impl Client {
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
     ) -> Result<IntentResponse<Value>, String> {
-        self.submit_and_poll_bounded(request, None)
+        self.submit_and_poll_bounded(request, None, true)
     }
     pub fn submit_and_poll_until(
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
         deadline: Instant,
     ) -> Result<IntentResponse<Value>, String> {
-        self.submit_and_poll_bounded(request, Some(deadline))
+        self.submit_and_poll_bounded(request, Some(deadline), true)
+    }
+    /// Only a newly cached first attempt may skip recovery before its single send.
+    /// A retry must use lookup/poll instead; this is not a consumer-controlled mode.
+    #[cfg(unix)]
+    pub(crate) fn submit_new_and_poll_until(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        self.submit_and_poll_bounded(request, Some(deadline), false)
     }
     fn submit_and_poll_bounded(
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
         deadline: Option<Instant>,
+        lookup_before_send: bool,
     ) -> Result<IntentResponse<Value>, String> {
         let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
         Client::check_tool_deadline(deadline)?;
+        #[cfg(not(unix))]
+        let _ = lookup_before_send;
         #[cfg(unix)]
-        if self.gateway.is_some() {
+        if lookup_before_send && self.gateway.is_some() {
             let response = self
                 .lookup_typed(request)
                 .map_err(|error| query_error(&error))?;

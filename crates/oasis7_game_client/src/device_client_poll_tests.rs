@@ -14,6 +14,8 @@ use std::{
 enum Fault {
     ImmediateCommitted,
     DropFirst,
+    #[cfg(unix)]
+    DropSubmit,
     UnavailableOnce,
     WrongSignature,
     CooldownOnce,
@@ -21,6 +23,8 @@ enum Fault {
     Status(&'static str),
 }
 struct Probe {
+    #[cfg(unix)]
+    context: TaskContextIdentityV1,
     client: Client,
     original: SubmitIntentRequest<WorldServicePayloadV1>,
     root: PathBuf,
@@ -200,6 +204,10 @@ impl Probe {
                             let submitted: SubmitIntentRequest<WorldServicePayloadV1> =
                                 serde_json::from_slice(&body).unwrap();
                             assert_eq!(submitted, expected);
+                            #[cfg(unix)]
+                            if matches!(fault, Fault::DropSubmit) {
+                                continue;
+                            }
                             (
                                 authority::request_digest(SUBMIT_PATH, &submitted).unwrap(),
                                 IntentResponse {
@@ -273,6 +281,8 @@ impl Probe {
             }
         });
         Self {
+            #[cfg(unix)]
+            context,
             client,
             original,
             root,
@@ -481,6 +491,7 @@ fn tool_polling_never_starts_a_retry_after_deadline() {
     assert!(probe.lookups.load(Ordering::SeqCst) <= 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn review_replayed_move_rejects_native_body_mismatch() {
     let probe = Probe::new_kind(Fault::ImmediateCommitted, OriginalKind::Action);
@@ -554,4 +565,188 @@ fn review_replayed_move_rejects_native_body_mismatch() {
         Err(crate::dev_test_operations::Failure::Unavailable)
     );
     assert_eq!(probe.lookups.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn trusted_new_send_is_single_attempt_then_original_queries_only() {
+    let probe = Probe::new_kind(Fault::DropSubmit, OriginalKind::Action);
+    probe
+        .client
+        .state
+        .put_client_state(
+            ClientStateKind::Action,
+            "first-action",
+            &crate::operation_store::ClientStateV1::PublicIntent(Box::new(probe.original.clone())),
+        )
+        .unwrap();
+    let response = probe
+        .client
+        .submit_new_and_poll_until(&probe.original, Instant::now() + Duration::from_secs(3))
+        .unwrap();
+    assert!(matches!(response.outcome, IntentOutcome::Committed { .. }));
+    assert_eq!(response.correlation, probe.original.correlation);
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 1);
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 1);
+    probe
+        .client
+        .lookup_until(&probe.original, Instant::now() + Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn trusted_new_action_refuses_existing_cache_before_context_read_or_send() {
+    let probe = Probe::new_kind(Fault::ImmediateCommitted, OriginalKind::Action);
+    let original =
+        crate::operation_store::ClientStateV1::PublicIntent(Box::new(probe.original.clone()));
+    probe
+        .client
+        .state
+        .put_client_state(ClientStateKind::Action, "already-reserved", &original)
+        .unwrap();
+    let action = oasis7_agent_api::world_action::Action::MoveAgent {
+        agent_id: "a".into(),
+        to: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
+    };
+    let error = probe
+        .client
+        .submit_new_action_until(
+            "already-reserved",
+            action,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap_err();
+    assert_eq!(error, "original action exists; query its result");
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 0);
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        probe
+            .client
+            .cached_intent(ClientStateKind::Action, "already-reserved")
+            .unwrap(),
+        Some(probe.original.clone())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn trusted_fresh_journal_with_durable_action_is_query_only_even_after_crash() {
+    use crate::dev_test_operations::{Arguments, Original, Scope};
+    use crate::operation_store::ClientStateV1;
+    let probe = Probe::new_kind(Fault::ImmediateCommitted, OriginalKind::Action);
+    let context = &probe.context;
+    let operation = "crash-after-original-persist";
+    let prepare = probe
+        .client
+        .sign(
+            TASK_CONTEXT_PREPARE_PATH,
+            TaskContextPrepareV1 {
+                schema_revision: 1,
+                authority_mode: None,
+                fence: context.fence.clone(),
+                client_operation_id: operation.into(),
+                client_nonce: "ab".repeat(32),
+            },
+        )
+        .unwrap();
+    probe
+        .client
+        .state
+        .put_client_state(
+            ClientStateKind::Prepare,
+            operation,
+            &ClientStateV1::ContextPrepare(Box::new(prepare)),
+        )
+        .unwrap();
+    let WorldServicePayloadV1::Cognition(cognition) = &probe.original.signed_payload else {
+        unreachable!()
+    };
+    let prefix = probe
+        .client
+        .sign(
+            "scheduler",
+            SchedulerIntentV1 {
+                task_prefix_binding_revision: 0,
+                agent_id: "a".into(),
+                request_id: context.decision_request_id.clone(),
+                delegation_generation: 1,
+                captured_base_binding: cognition.request.request.captured_base_binding.clone(),
+                operation: SchedulerOperationV1::TaskProviderPrefix {
+                    context: context.clone(),
+                },
+            },
+        )
+        .unwrap();
+    probe
+        .client
+        .cache_intent(
+            ClientStateKind::Prefix,
+            operation,
+            WorldServicePayloadV1::Scheduler(prefix),
+        )
+        .unwrap();
+    probe
+        .client
+        .state
+        .put_client_state(
+            ClientStateKind::Action,
+            operation,
+            &ClientStateV1::PublicIntent(Box::new(probe.original.clone())),
+        )
+        .unwrap();
+    let original = Original {
+        body_digest: "fixture-body".into(),
+        scope: Scope {
+            account_ref: "account".into(),
+            environment: "environment".into(),
+            world: probe.client.world.world_id.clone(),
+            genesis_digest: probe.client.world.genesis_digest.clone(),
+            agent: "a".into(),
+            resource: "fixed-resource".into(),
+            executor: probe.client.public_key.clone(),
+            fence_digest: blake3::hash(&serde_json::to_vec(&context.fence).unwrap())
+                .to_hex()
+                .to_string(),
+        },
+        arguments: Arguments::Move {
+            context_request_id: "context-request".into(),
+            to: [0, 0, 0],
+        },
+        native_context: operation.into(),
+        native_kind: "action".into(),
+        native_action: Some([0, 0, 0]),
+        native_context_identity: Some(context.clone()),
+        last_observation: None,
+    };
+    for fresh in [true, false] {
+        let observation = crate::dev_test_operations::execute(
+            &probe.client,
+            &original,
+            fresh,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(observation["outcome"]["status"], "committed");
+    }
+    let mut missing = original.clone();
+    missing.native_context = "crash-before-native-original".into();
+    let unknown = crate::dev_test_operations::execute(
+        &probe.client,
+        &missing,
+        false,
+        Instant::now() + Duration::from_secs(1),
+    )
+    .unwrap();
+    assert_eq!(unknown["status"], "unknown");
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 0);
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        probe
+            .client
+            .cached_intent(ClientStateKind::Action, operation)
+            .unwrap(),
+        Some(probe.original.clone())
+    );
 }

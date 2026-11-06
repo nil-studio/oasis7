@@ -447,6 +447,33 @@ impl Client {
             None => self.submit_and_poll(&request),
         }
     }
+    /// First attempt for the trusted tool journal only. Existing originals are
+    /// recovery-only and can never enter this single-send path.
+    #[cfg(unix)]
+    pub(crate) fn submit_new_action_until(
+        &self,
+        operation: &str,
+        action: crate_action::Action,
+        deadline: std::time::Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        let _scope = crate::request_deadline::Scope::enter(deadline);
+        Self::check_tool_deadline(Some(deadline))?;
+        if self
+            .cached_intent(ClientStateKind::Action, operation)?
+            .is_some()
+        {
+            return Err("original action exists; query its result".into());
+        }
+        let captured = self.captured_until(operation, deadline)?;
+        Self::check_tool_deadline(Some(deadline))?;
+        let signed = self.sign("cognition", cognition_intent(&captured, action)?)?;
+        let request = self.cache_intent(
+            ClientStateKind::Action,
+            operation,
+            WorldServicePayloadV1::Cognition(signed),
+        )?;
+        self.submit_new_and_poll_until(&request, deadline)
+    }
     pub fn task_fence(&self) -> Result<GameTaskFenceV1, String> {
         let view = self
             .remote
