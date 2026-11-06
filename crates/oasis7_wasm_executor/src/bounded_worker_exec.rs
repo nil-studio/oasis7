@@ -26,7 +26,10 @@ pub(super) fn path(executable: &WorkerExecutableV1<'_>) -> io::Result<PathBuf> {
             }
             let fd = file.as_raw_fd();
             // SAFETY: only interrogates the borrowed live file descriptor.
-            if unsafe { fcntl(fd, 1034) } & 15 != 15 || unsafe { fcntl(fd, 1) } & 1 != 1 {
+            let seals = unsafe { fcntl(fd, 1034) };
+            // SAFETY: only interrogates the same borrowed live descriptor.
+            let flags = unsafe { fcntl(fd, 1) };
+            if seals < 0 || flags < 0 || seals & 15 != 15 || flags & 1 != 1 {
                 return Err(io::Error::other(
                     "worker executable requires all immutable seals and CLOEXEC",
                 ));

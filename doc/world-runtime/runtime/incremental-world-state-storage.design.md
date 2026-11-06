@@ -1560,3 +1560,16 @@ Snapshot/Tick/Audit 的 Result 原件 envelope 是 canonical CBOR map，字段 `
 该格式仅用于新建世界。普通提交与冷恢复沿已接受前驱的同一配置选择；未知 profile 或缺失完整来源门保持拒绝，不自动重新创世、导入或清理旧世界。组件的逻辑 typed/history 资格不能单独启用节点或发布 active head。Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1、O7-REQ-1d257860-b834-4e59-a785-5696ee5aa0f5、O7-REQ-e835ca47-69bb-4bef-8791-83d2ae78f709。
 
 端点的原件读取同时覆盖本次 ClosedRecord 与明确安装的 IncrementalObjectStore。候选包含某 ID 时必须验证该候选原文；候选原文损坏不得回退到存储中的同 ID 副本掩盖错误。历史原件只从实际对象存储的受预算 reader 打开，物理页与逻辑 ValueTree 配额由调用者持续提供；不使用旧式整对象 CAS 读取冒充有界流。对象能力缺失时拒绝，不在校验阶段自动创建或猜测修复对象存储。流输出在完整长度、原 flat hash 和成功结束前保持暂态，部分写入、下游中止、限额和池不匹配均不能返回原件成功。
+
+
+### 原生 worker 执行兼容验证
+
+Trace refs: O7-REQ-c33f4bee-41db-4558-9c49-80c4e0c016a1；承接 REQ-LWS-001 的原执行依赖闭包。
+
+封存原生执行文件只证明已验证原件的字节身份，不单独授予 worker 调用资格。Host 从真实候选或已接受 head 的执行材料取得借用 lease，核对原 descriptor 的 target、OS、架构、Executable role、digest、长度及实际不可写文件身份；该 lease 必须覆盖子进程启动、协议执行和 wait 完成，不能把借用文件路径缓存为脱离原件 owner 的权限。
+
+新格式 worker 在实际封存文件上执行有界 `--oasis7-wasm-worker-handshake-v1` 模式，再使用同一封存文件执行原 `--oasis7-wasm-worker-v1` 调用。握手声明实际子进程支持的 worker protocol v1、typed output v1 及已编译的 Wasm/regex 能力；Host 核对本次任务必需能力，未知版本、缺能力、错误输出、取消或进程失败均拒绝。这里的协议版本限定 Host/worker 的执行边界，不替代模块自身的 ABI 校验，也不把 caller 提供的 feature 标签当作子进程能力。握手与调用复用有限输入输出、资源限制和取消合同，不回退到其他磁盘 executable、进程内 VM 或未绑定环境。
+
+主 ELF 的封存不固定内核按 `PT_INTERP` 打开的加载器，也不固定动态加载器重新打开的 DSO。握手只证明执行协议与能力，不能代替原 descriptor 中 LoadedLibrary 和构建环境的完整加载等价。正式 Host 执行还须在执行实际调用的同一子进程内完成原 native 环境的加载绑定，或使用按已验证原件装载的依赖命名空间；仅校验父进程环境、另起握手进程，或保留原件 namespace pin 均不足以证明该条件。此条件未闭合时不得授予完整格式执行资格。
+
+验收需要实际 Linux 封存 worker 的握手与 typed 调用正例，以及错误 executable、版本/能力不匹配、foreign head、取消和 lease 生命周期负例。编译通过、字段被读取或单独保留 descriptor 均不能代签真实 Host 执行；完整执行与持久闭包守卫在其余启用条件满足前继续保留。

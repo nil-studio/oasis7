@@ -18,6 +18,8 @@ pub use child::worker_main_v1;
 #[path = "bounded_worker_exec.rs"]
 mod executable;
 pub use executable::WorkerExecutableV1;
+#[path = "bounded_worker_handshake.rs"]
+mod handshake;
 #[path = "bounded_worker_regex.rs"]
 mod regex_batch;
 pub use regex_batch::{RegexProbeV1, RegexResultsV1, RegexWorkerErrorV1};
@@ -399,11 +401,15 @@ fn run_shared<A, T: serde::Serialize, C: FnMut() -> bool>(
     })?;
     let mut command = Command::new(program);
     command
-        .arg("--oasis7-wasm-worker-v1")
+        .arg(if mode == Some("--oasis7-wasm-worker-handshake-v1") {
+            "--oasis7-wasm-worker-handshake-v1"
+        } else {
+            "--oasis7-wasm-worker-v1"
+        })
         .arg(request_max.to_string())
         .arg(output_max.to_string())
         .arg(host.limits.address_space_bytes.to_string());
-    if let Some(mode) = mode {
+    if let Some(mode) = mode.filter(|mode| *mode != "--oasis7-wasm-worker-handshake-v1") {
         command.arg(mode);
     }
     command

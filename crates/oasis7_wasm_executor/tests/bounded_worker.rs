@@ -249,6 +249,7 @@ fn real_vm_executes_exact_kernel_sealed_fixture_fd() {
         bytes: vec![],
         calls: 0,
     };
+    sandbox.verify_native_protocol_v1(&request(false)).unwrap();
     sandbox
         .call_to_typed_v1(&request(false), &mut sink)
         .unwrap();
@@ -282,5 +283,101 @@ fn fixture_path_is_not_a_typed_native_execution_input() {
         Err(WorkerExecutionErrorV1::Host(_))
     ));
     assert_eq!(sink.calls, 0);
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+}
+
+#[test]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn native_handshake_rejects_wrong_sealed_executable_and_cancellation() {
+    use std::{
+        fs::File,
+        os::fd::{AsRawFd, FromRawFd},
+    };
+    unsafe extern "C" {
+        fn memfd_create(name: *const std::ffi::c_char, flags: u32) -> i32;
+        fn fcntl(fd: i32, command: i32, ...) -> i32;
+    }
+    let fd = unsafe { memfd_create(c"wrong-worker-fixture".as_ptr(), 3) };
+    assert!(fd >= 0);
+    let mut sealed = unsafe { File::from_raw_fd(fd) };
+    let mut wrong = File::open("/bin/true").unwrap();
+    std::io::copy(&mut wrong, &mut sealed).unwrap();
+    assert_eq!(unsafe { fcntl(sealed.as_raw_fd(), 1033, 15) }, 0);
+    let pool = Pool {
+        used: AtomicUsize::new(0),
+        limit: 600 << 20,
+    };
+    let allocator = Allocator(&pool);
+    let stop = AtomicBool::new(false);
+    let sandbox = BoundedWorkerSandboxV1 {
+        executable: WorkerExecutableV1::SealedFd(&sealed),
+        allocator: &allocator,
+        limits: limits(512 << 20),
+        cancelled: &stop,
+    };
+    // The wrong native image genuinely runs/exits but cannot return this ABI.
+    assert!(matches!(
+        sandbox.verify_native_protocol_v1(&request(false)),
+        Err(WorkerExecutionErrorV1::Host(_))
+    ));
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+    stop.store(true, Ordering::Release);
+    assert!(matches!(
+        sandbox.verify_native_protocol_v1(&request(false)),
+        Err(WorkerExecutionErrorV1::Host(_))
+    ));
+    assert_eq!(pool.used.load(Ordering::Acquire), 0);
+}
+
+#[test]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn cloexec_regular_file_is_rejected_before_worker_spawn() {
+    use std::{fs::File, os::fd::AsRawFd};
+    unsafe extern "C" {
+        fn fcntl(fd: i32, command: i32, ...) -> i32;
+    }
+    let regular = File::open(executable()).unwrap();
+    assert!(regular.metadata().unwrap().is_file());
+    // SAFETY: read-only queries of the live fixture descriptor.
+    let flags = unsafe { fcntl(regular.as_raw_fd(), 1) };
+    assert!(flags >= 0 && flags & 1 == 1);
+    // SAFETY: an unsupported F_GET_SEALS is an expected negative result for
+    // ordinary filesystem files, and must never count as all seals present.
+    let seals = unsafe { fcntl(regular.as_raw_fd(), 1034) };
+    assert!(seals < 0 || seals & 15 != 15);
+    let pool = Pool {
+        used: AtomicUsize::new(0),
+        limit: 600 << 20,
+    };
+    let allocator = Allocator(&pool);
+    let stop = AtomicBool::new(false);
+    let sandbox = BoundedWorkerSandboxV1 {
+        executable: WorkerExecutableV1::SealedFd(&regular),
+        allocator: &allocator,
+        limits: limits(512 << 20),
+        cancelled: &stop,
+    };
+    let error = sandbox
+        .verify_native_protocol_v1(&request(false))
+        .unwrap_err();
+    let WorkerExecutionErrorV1::Host(error) = error else {
+        panic!("expected host rejection before spawn")
+    };
+    assert_eq!(
+        error.legacy_failure().code,
+        ModuleCallErrorCode::SandboxUnavailable
+    );
+    // This exact error originates at executable::path before Command::new or
+    // spawn; a child exit or absent handshake cannot satisfy this assertion.
+    assert_eq!(
+        error.legacy_failure().detail,
+        "worker executable kernel seals"
+    );
     assert_eq!(pool.used.load(Ordering::Acquire), 0);
 }

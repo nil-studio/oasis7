@@ -15,6 +15,9 @@ mod native_reader;
 pub(crate) use native_reader::NativeChunkReadWorkV1;
 #[path = "endpoint_incremental_closure_executable.rs"]
 mod executable;
+#[path = "endpoint_incremental_closure_native_worker.rs"]
+mod native_worker;
+pub use native_worker::NativeWorkerLeaseV1;
 #[path = "endpoint_incremental_closure_frozen.rs"]
 mod frozen;
 #[path = "endpoint_incremental_closure_stream.rs"]
@@ -30,13 +33,6 @@ pub(crate) struct StaticExecutionMaterialV1 {
     pages: IncrementalPageStore,
     page_identity: (u64, u64),
     native_identity: (u64, u64),
-    #[cfg_attr(
-        not(target_os = "linux"),
-        allow(
-            dead_code,
-            reason = "The sealed executable is retained for the Linux-only Host consumer, which is still pending."
-        )
-    )]
     executable: Option<ReservedValue<executable::VerifiedNativeExecutableV1>>,
 }
 pub(crate) struct CandidateExecutionMaterialV1 {
@@ -65,13 +61,6 @@ impl CandidateExecutionMaterialV1 {
     pub(crate) fn native_namespace_identity(&self) -> (u64, u64) {
         self.baseline.native_identity
     }
-    #[cfg_attr(
-        not(target_os = "linux"),
-        allow(
-            dead_code,
-            reason = "The accessor exposes the Linux-only sealed executable to its pending Host consumer."
-        )
-    )]
     pub(crate) fn sealed_executable(
         &self,
     ) -> Option<&ReservedValue<executable::VerifiedNativeExecutableV1>> {

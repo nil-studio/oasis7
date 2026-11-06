@@ -32,7 +32,9 @@ pub fn worker_main_v1() -> Result<(), &'static str> {
 ))]
 fn linux_main() -> Result<(), &'static str> {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() != Some("--oasis7-wasm-worker-v1") {
+    let flag = args.next();
+    let handshake = flag.as_deref() == Some("--oasis7-wasm-worker-handshake-v1");
+    if !handshake && flag.as_deref() != Some("--oasis7-wasm-worker-v1") {
         return Err("worker mode flag required");
     }
     let mut number = || {
@@ -44,9 +46,15 @@ fn linux_main() -> Result<(), &'static str> {
     let request_max = number()?;
     let output_max = number()?;
     let cap = number()?;
-    let mode = args.next();
+    let mode = if handshake {
+        Some("handshake-v1".to_owned())
+    } else {
+        args.next()
+    };
     if args.next().is_some()
-        || mode.as_deref().is_some_and(|mode| mode != "regex-batch-v1")
+        || mode
+            .as_deref()
+            .is_some_and(|mode| mode != "regex-batch-v1" && mode != "handshake-v1")
         || request_max == 0
         || output_max == 0
         || cap == 0
@@ -72,6 +80,9 @@ fn linux_main() -> Result<(), &'static str> {
         || core.hard != 0
     {
         return Err("worker hard limit absent");
+    }
+    if mode.as_deref() == Some("handshake-v1") {
+        return super::handshake::child_handshake(output_max);
     }
     if mode.as_deref() == Some("regex-batch-v1")
         && (request_max > super::regex_batch::REGEX_MAX_REQUEST_BYTES_V1

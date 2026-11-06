@@ -557,3 +557,9 @@ pub use cold_restore::{IwsColdParentHintsV1, IwsColdParentWorkV1};
 
 #[path = "endpoint_incremental_local_closure.rs"]
 pub(super) mod local_closure;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_native_worker.rs"]
+mod native_worker;
+#[cfg(not(target_arch = "wasm32"))]
+pub use closure::NativeWorkerLeaseV1;

@@ -41,6 +41,7 @@ mod incremental;
 #[cfg(not(target_arch = "wasm32"))]
 pub use incremental::{
     IwsCandidateSourceWorkV1, IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1,
+    NativeWorkerLeaseV1,
 };
 pub use incremental::{IwsEndpointVerificationBudgetsV1, IwsPageStoreCapabilityV1};
 #[path = "endpoint_durable_set_install.rs"]
