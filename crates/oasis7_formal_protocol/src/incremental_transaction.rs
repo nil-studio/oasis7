@@ -529,3 +529,7 @@ impl<'a, R: MerkleNodeReader> ExecutionTransaction<'a, R> {
         Ok(charge.retain(candidate))
     }
 }
+
+#[path = "incremental_seal_binding.rs"]
+mod seal_binding;
+pub use seal_binding::{SealedExecutionBindingV1, SealedExecutionTransitionV1};
