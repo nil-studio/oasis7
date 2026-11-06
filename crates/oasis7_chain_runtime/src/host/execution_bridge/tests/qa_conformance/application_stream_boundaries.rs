@@ -4,7 +4,7 @@ use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServer;
 use std::io::{BufRead, BufReader, Write};
 #[path = "application_stream_cleanup.rs"]
 mod stream_cleanup;
-use stream_cleanup::drain_until_eof;
+pub(super) use stream_cleanup::drain_until_eof;
 
 #[test]
 fn real_tcp_hosted_ordinary_cadence_commits_two_distinct_turns() {

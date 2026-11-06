@@ -1,7 +1,7 @@
 //! Total EOF-drain budget and real continuously-readable peer regression.
 use super::*;
 
-pub(super) fn drain_until_eof(
+pub(in super::super) fn drain_until_eof(
     reader: &mut BufReader<TcpStream>,
     budget: Duration,
 ) -> std::io::Result<()> {
