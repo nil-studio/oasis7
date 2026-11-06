@@ -210,7 +210,7 @@ pub fn handle_http(
         .as_ref()
         .is_some_and(|response| response.get("error").is_some())
     {
-        return (200, preview);
+        return (if value.get("id").is_none() { 400 } else { 200 }, preview);
     }
     // Every accepted protocol request goes through the same authoritative
     // service admission as local callers, including discovery and notifications.
@@ -303,5 +303,30 @@ mod admission_tests {
             assert_eq!(status, 200);
             assert!(response.unwrap().get("error").is_some());
         }
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+    #[test]
+    fn rejected_notification_is_http_error_without_admission() {
+        let config=serde_json::from_value(json!({"profile":"dev-test-accounts-v1","socket":"/unused","usage_directory":"/unused","grant_id":"test","max_request_bytes":4096,"timeout_ms":100,"max_calls":2,"credentials":[{"caller_id":"fixture","token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","expires_at_unix":u64::MAX,"revoked":false}]})).unwrap();
+        let body = br#"{"jsonrpc":"2.0","method":"notifications/unknown"}"#;
+        let (status, response) = handle_http(
+            &config,
+            "https://fixture.example",
+            HttpRequest {
+                method: "POST",
+                host: "fixture.example",
+                origin: None,
+                authorization: Some("Bearer xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+                protocol_version: Some(PROTOCOL_VERSION),
+                body,
+            },
+            |_| panic!("notification consumed admission"),
+        );
+        assert_eq!(status, 400);
+        assert!(response.unwrap().get("error").is_some());
     }
 }
