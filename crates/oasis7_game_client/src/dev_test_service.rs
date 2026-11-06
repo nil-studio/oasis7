@@ -275,138 +275,6 @@ pub fn serve(config: Config) -> Result<(), String> {
     Err("service_listener_closed".into())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn completed_peer_response_is_read_through_eof() {
-        use std::{
-            io::Write,
-            time::{Duration, Instant},
-        };
-        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
-        writer.write_all(b"response").unwrap();
-        drop(writer);
-        let mut output = Vec::new();
-        read_until(
-            &mut reader,
-            &mut output,
-            1024,
-            Instant::now() + Duration::from_secs(2),
-        )
-        .unwrap();
-        assert_eq!(output, b"response");
-    }
-    #[test]
-    fn slow_drip_cannot_extend_absolute_read_deadline() {
-        use std::{
-            io::Write,
-            time::{Duration, Instant},
-        };
-        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
-        let sender = std::thread::spawn(move || {
-            for _ in 0..20 {
-                if writer.write_all(b"x").is_err() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        });
-        let started = Instant::now();
-        assert!(
-            read_until(
-                &mut reader,
-                &mut Vec::new(),
-                1024,
-                started + Duration::from_millis(75)
-            )
-            .is_err()
-        );
-        assert!(started.elapsed() < Duration::from_millis(250));
-        drop(reader);
-        sender.join().unwrap();
-    }
-    #[test]
-    fn capabilities_enforce_credential_and_closed_methods() {
-        use std::os::unix::fs::PermissionsExt;
-        let directory =
-            std::env::temp_dir().join(format!("oasis7-service-test-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert_ne!(usage_key("a", "b\0c"), usage_key("a\0b", "c"));
-        let request = Request {
-            profile: PROFILE.into(),
-            audience: AUDIENCE.into(),
-            credential: "x".repeat(32),
-            method: "capabilities".into(),
-        };
-        let path = directory.join("fake-socket");
-        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
-        assert!(call_service(&path, &request).is_err());
-        drop(listener);
-        let mut config = Config {
-            profile: PROFILE.into(),
-            socket: "/unused".into(),
-            usage_directory: directory.clone(),
-            grant_id: "test-grant".into(),
-            max_request_bytes: 1024,
-            timeout_ms: 1000,
-            max_calls: 10,
-            credentials: vec![Credential {
-                caller_id: "tester".into(),
-                token: "x".repeat(32),
-                expires_at_unix: 100,
-                revoked: false,
-            }],
-        };
-        let mut ambiguous = config.clone();
-        ambiguous.credentials.push(ambiguous.credentials[0].clone());
-        assert_eq!(ambiguous.validate(), Err("ambiguous_credential_mapping"));
-        let mut request = Request {
-            profile: PROFILE.into(),
-            audience: AUDIENCE.into(),
-            credential: "x".repeat(32),
-            method: "capabilities".into(),
-        };
-        assert_eq!(dispatch(&config, &request, 99).status, "ok");
-        assert_eq!(dispatch(&config, &request, 100).status, "unauthorized");
-        let successes = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..20)
-                .map(|_| {
-                    let config = &config;
-                    let request = &request;
-                    scope.spawn(move || dispatch(config, request, 99).status == "ok")
-                })
-                .collect();
-            handles
-                .into_iter()
-                .map(|handle| usize::from(handle.join().unwrap()))
-                .sum::<usize>()
-        });
-        assert_eq!(successes, 9);
-        config.max_calls = 1;
-        config.socket = "/another-socket".into();
-        let caller = authenticate_local(&config, "tester", 99).unwrap();
-        assert_eq!(
-            dispatch_authenticated(&config, 99, &caller, PROFILE, AUDIENCE, "capabilities").status,
-            "call_limit_exhausted"
-        );
-        assert_eq!(
-            dispatch(&config, &request, 99).status,
-            "call_limit_exhausted"
-        );
-        request.method = "register_account".into();
-        assert_eq!(dispatch(&config, &request, 99).status, "method_unavailable");
-        request.audience = "manager".into();
-        assert_eq!(dispatch(&config, &request, 99).status, "wrong_audience");
-        request.credential.clear();
-        assert_eq!(dispatch(&config, &request, 99).status, "unauthorized");
-        std::fs::remove_dir_all(directory).unwrap();
-        assert!(serde_json::from_str::<Request>(r#"{"profile":"dev-test-accounts-v1","audience":"x","credential":"x","method":"capabilities","path":"/secret"}"#).is_err());
-    }
-}
-
 pub fn call_service(socket: &std::path::Path, request: &Request) -> Result<Response, String> {
     call_service_until(
         socket,
@@ -638,4 +506,136 @@ pub(crate) fn connect_until(
         .set_nonblocking(false)
         .map_err(|_| "socket_configuration_failed")?;
     Ok(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn completed_peer_response_is_read_through_eof() {
+        use std::{
+            io::Write,
+            time::{Duration, Instant},
+        };
+        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        writer.write_all(b"response").unwrap();
+        drop(writer);
+        let mut output = Vec::new();
+        read_until(
+            &mut reader,
+            &mut output,
+            1024,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(output, b"response");
+    }
+    #[test]
+    fn slow_drip_cannot_extend_absolute_read_deadline() {
+        use std::{
+            io::Write,
+            time::{Duration, Instant},
+        };
+        let (mut reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let sender = std::thread::spawn(move || {
+            for _ in 0..20 {
+                if writer.write_all(b"x").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let started = Instant::now();
+        assert!(
+            read_until(
+                &mut reader,
+                &mut Vec::new(),
+                1024,
+                started + Duration::from_millis(75)
+            )
+            .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_millis(250));
+        drop(reader);
+        sender.join().unwrap();
+    }
+    #[test]
+    fn capabilities_enforce_credential_and_closed_methods() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory =
+            std::env::temp_dir().join(format!("oasis7-service-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_ne!(usage_key("a", "b\0c"), usage_key("a\0b", "c"));
+        let request = Request {
+            profile: PROFILE.into(),
+            audience: AUDIENCE.into(),
+            credential: "x".repeat(32),
+            method: "capabilities".into(),
+        };
+        let path = directory.join("fake-socket");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(call_service(&path, &request).is_err());
+        drop(listener);
+        let mut config = Config {
+            profile: PROFILE.into(),
+            socket: "/unused".into(),
+            usage_directory: directory.clone(),
+            grant_id: "test-grant".into(),
+            max_request_bytes: 1024,
+            timeout_ms: 1000,
+            max_calls: 10,
+            credentials: vec![Credential {
+                caller_id: "tester".into(),
+                token: "x".repeat(32),
+                expires_at_unix: 100,
+                revoked: false,
+            }],
+        };
+        let mut ambiguous = config.clone();
+        ambiguous.credentials.push(ambiguous.credentials[0].clone());
+        assert_eq!(ambiguous.validate(), Err("ambiguous_credential_mapping"));
+        let mut request = Request {
+            profile: PROFILE.into(),
+            audience: AUDIENCE.into(),
+            credential: "x".repeat(32),
+            method: "capabilities".into(),
+        };
+        assert_eq!(dispatch(&config, &request, 99).status, "ok");
+        assert_eq!(dispatch(&config, &request, 100).status, "unauthorized");
+        let successes = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..20)
+                .map(|_| {
+                    let config = &config;
+                    let request = &request;
+                    scope.spawn(move || dispatch(config, request, 99).status == "ok")
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| usize::from(handle.join().unwrap()))
+                .sum::<usize>()
+        });
+        assert_eq!(successes, 9);
+        config.max_calls = 1;
+        config.socket = "/another-socket".into();
+        let caller = authenticate_local(&config, "tester", 99).unwrap();
+        assert_eq!(
+            dispatch_authenticated(&config, 99, &caller, PROFILE, AUDIENCE, "capabilities").status,
+            "call_limit_exhausted"
+        );
+        assert_eq!(
+            dispatch(&config, &request, 99).status,
+            "call_limit_exhausted"
+        );
+        request.method = "register_account".into();
+        assert_eq!(dispatch(&config, &request, 99).status, "method_unavailable");
+        request.audience = "manager".into();
+        assert_eq!(dispatch(&config, &request, 99).status, "wrong_audience");
+        request.credential.clear();
+        assert_eq!(dispatch(&config, &request, 99).status, "unauthorized");
+        std::fs::remove_dir_all(directory).unwrap();
+        assert!(serde_json::from_str::<Request>(r#"{"profile":"dev-test-accounts-v1","audience":"x","credential":"x","method":"capabilities","path":"/secret"}"#).is_err());
+    }
 }
