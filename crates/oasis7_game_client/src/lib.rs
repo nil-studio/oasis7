@@ -593,3 +593,6 @@ mod dev_test_service_cli;
 
 #[cfg(unix)]
 pub mod dev_test_local_adapter;
+
+#[cfg(unix)]
+pub mod dev_test_private_config;
