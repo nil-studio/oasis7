@@ -148,8 +148,9 @@ fn run() -> Result<(), String> {
             deadline,
         )?;
         eprintln!("fixture_stage {label} goal");
-        let goal = serde_json::from_value(runtime["plan_template"]["goal"].clone())
-            .map_err(|_| "goal_invalid")?;
+        let goal: oasis7_agent_api::game::GoalContentV1 =
+            serde_json::from_value(runtime["plan_template"]["goal"].clone())
+                .map_err(|_| "goal_invalid")?;
         retry_rate(
             || client.prepare_goal(&participant, login, &op("goal-prepare"), goal.clone()),
             deadline,
