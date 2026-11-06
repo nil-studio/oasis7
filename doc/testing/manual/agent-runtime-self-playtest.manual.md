@@ -255,3 +255,11 @@ Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 请求仅接受 profile、audience=`oasis7-dev-test-tools`、credential、method=`capabilities`。错误版本、用途、过期、撤销与未知方法拒绝，未知字段拒绝。返回 accounts_available=false、writes_available=false。并发固定1；超时断开请求。只有成功能力调用消耗累计上限，拒绝流量不扣。用量按 grant_id 与 caller_id 在 usage_directory 中保存，跨入口共用锁及原子提交，先持久化再回复；重连、重启或更换 socket 均不清零。重启前由可信运营者确认旧进程终止并删除遗留 socket，保留整个用量目录。只有显式新授权可使用新 grant_id；目录不能换成空目录来恢复旧授权。正式账号会话由 #5535 承接。
 
 当前验证：macOS canonical cargo check、能力认证单测和真实服务/CLI调用；Linux Docker daemon 启动失败，Linux实际启动尚未完成。实际外部 Agent 未验证。
+
+### 远程只读 MCP 入口（#5533，候选）
+
+在同一可信服务宿主运行 `oasis7_dev_test_remote <private-service-config> <https-origin> <127.0.0.1:port> <max-connections>`。配置沿用共同服务的私有配置；本适配经 `call_service` 转发到唯一 Unix socket，初始化、工具发现和能力调用共享累计用量，不直接调用业务 dispatch。MCP 候选版本固定 2025-11-25，只提供 `dev_test_accounts_capabilities`，账号与写入仍不可用。
+
+TLS 由可信反向代理终止：固定部署 origin，覆盖上游 Host 为该 origin 的 authority，转发 Authorization、Origin、MCP-Protocol-Version；限制路由为 `/mcp`，禁止直接暴露内部 loopback 端口。代理和服务进程均属于可信边界；不能把共享宿主上的任意进程当作隔离的模型。POST 使用 application/json，Accept 包含 application/json 和 text/event-stream；不提供 SSE，GET 返回405。秘密不得进入模型输入或访问日志。适配拒绝重复头、Transfer-Encoding、超限请求及错误 Host/Origin，串行处理，有限连接数后退出。
+
+当前仅本地真实 UDS+HTTP 进程诊断覆盖认证拒绝、错误 Origin、能力调用和共享累计上限；不代表 TLS 部署或真实远程 Agent 验收。实际 Dot connector 版本、秘密保管、获准 HTTPS origin 和 DA 验收尚未核实；禁止据此关闭 #5533 或声明远程支持。候选协议依据 https://modelcontextprotocol.io/specification/2025-11-25/basic/transports 与 server/tools，实际消费者接入后仍需固定实测组合。

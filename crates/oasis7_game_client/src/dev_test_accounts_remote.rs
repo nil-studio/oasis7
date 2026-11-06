@@ -1,0 +1,177 @@
+//! Stateless MCP projection. The caller must authenticate and enforce transport limits
+//! before dispatch; this module never accepts credentials or executes world actions.
+use serde_json::{json, Value};
+
+pub const PROTOCOL_VERSION: &str = "2025-11-25";
+pub const CAPABILITIES_TOOL: &str = "dev_test_accounts_capabilities";
+
+/// Projects an authenticated request onto the sole read-only capability provider.
+/// `None` denotes an accepted notification (HTTP 202, empty body).
+pub fn dispatch_authenticated(
+    request: &Value,
+    capabilities: impl FnOnce() -> Value,
+) -> Option<Value> {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let error = |code, message| {
+        Some(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}}))
+    };
+    if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+        || !request.is_object()
+        || request
+            .get("id")
+            .is_some_and(|v| !v.is_string() && !v.is_number())
+    {
+        return error(-32600, "Invalid request");
+    }
+    let method = request.get("method").and_then(Value::as_str);
+    if request.get("id").is_none() {
+        return if method == Some("notifications/initialized") {
+            None
+        } else {
+            error(-32600, "Unsupported notification")
+        };
+    }
+    let params = request.get("params").cloned().unwrap_or(json!({}));
+    let result = match method {
+        Some("initialize") => {
+            if params.get("protocolVersion").and_then(Value::as_str) != Some(PROTOCOL_VERSION) {
+                return error(-32602, "Unsupported protocol version");
+            }
+            json!({"protocolVersion":PROTOCOL_VERSION,"capabilities":{"tools":{}},
+                "serverInfo":{"name":"oasis7-dev-test-accounts","version":"1"}})
+        }
+        Some("ping") if params == json!({}) => json!({}),
+        Some("tools/list") if params == json!({}) => json!({"tools":[{
+            "name":CAPABILITIES_TOOL,"description":"Read service capabilities; does not create a game context.",
+            "inputSchema":{"type":"object","additionalProperties":false},
+            "annotations":{"readOnlyHint":true,"destructiveHint":false}}]}),
+        Some("tools/call") => {
+            if params.get("name").and_then(Value::as_str) != Some(CAPABILITIES_TOOL)
+                || params.get("arguments").is_some_and(|v| *v != json!({}))
+                || params
+                    .as_object()
+                    .is_none_or(|m| m.keys().any(|k| k != "name" && k != "arguments"))
+            {
+                return error(-32602, "Unsupported tool or arguments");
+            }
+            let value = capabilities();
+            json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
+        }
+        Some("tools/list" | "ping") => return error(-32602, "Invalid parameters"),
+        _ => return error(-32601, "Method not found"),
+    };
+    Some(json!({"jsonrpc":"2.0","id":id,"result":result}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_capabilities_can_reach_provider() {
+        for params in [
+            json!({"name":"shell","arguments":{}}),
+            json!({"name":CAPABILITIES_TOOL,"arguments":{"url":"https://invalid"}}),
+        ] {
+            let response = dispatch_authenticated(
+                &json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":params}),
+                || panic!("provider must not run"),
+            )
+            .unwrap();
+            assert_eq!(response["error"]["code"], -32602);
+        }
+        let response=dispatch_authenticated(&json!({"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":CAPABILITIES_TOOL,"arguments":{}}}),||json!({"writeAvailable":false})).unwrap();
+        assert_eq!(response["id"], "call");
+        assert_eq!(
+            response["result"]["structuredContent"]["writeAvailable"],
+            false
+        );
+    }
+    #[test]
+    fn rejects_batches_and_unknown_versions() {
+        for request in [
+            json!([]),
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"unknown"}}),
+        ] {
+            assert!(dispatch_authenticated(&request, || panic!())
+                .unwrap()
+                .get("error")
+                .is_some());
+        }
+        assert!(dispatch_authenticated(
+            &json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+            || panic!()
+        )
+        .is_none());
+    }
+}
+
+/// HTTP projection behind a trusted TLS proxy. Proxy must overwrite Host and
+/// forward Authorization unchanged; forwarding headers never establish trust.
+pub struct HttpRequest<'a> {
+    pub method: &'a str,
+    pub host: &'a str,
+    pub origin: Option<&'a str>,
+    pub authorization: Option<&'a str>,
+    pub protocol_version: Option<&'a str>,
+    pub body: &'a [u8],
+}
+pub fn handle_http(
+    config: &crate::dev_test_service::Config,
+    expected_origin: &str,
+    request: HttpRequest<'_>,
+    call_service: impl FnOnce(
+        crate::dev_test_service::Request,
+    ) -> Result<crate::dev_test_service::Response, ()>,
+) -> (u16, Option<Value>) {
+    let reject = |status| (status, None);
+    let Some(host) = expected_origin.strip_prefix("https://") else {
+        return reject(500);
+    };
+    if host.is_empty()
+        || host.contains('/')
+        || request.host != host
+        || request
+            .origin
+            .is_some_and(|origin| origin != expected_origin)
+    {
+        return reject(403);
+    }
+    let Some(token) = request
+        .authorization
+        .and_then(|v| v.strip_prefix("Bearer "))
+    else {
+        return reject(401);
+    };
+    if request.method != "POST" {
+        return reject(405);
+    };
+    if request.body.len() > config.max_request_bytes {
+        return reject(413);
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(request.body) else {
+        return reject(400);
+    };
+    if value.get("method").and_then(Value::as_str) != Some("initialize")
+        && request.protocol_version != Some(PROTOCOL_VERSION)
+    {
+        return reject(400);
+    };
+    // Every accepted protocol request goes through the same authoritative
+    // service admission as local callers, including discovery and notifications.
+    let admitted = call_service(crate::dev_test_service::Request {
+        profile: crate::dev_test_service::PROFILE.into(),
+        audience: crate::dev_test_service::AUDIENCE.into(),
+        credential: token.into(),
+        method: "capabilities".into(),
+    });
+    let Ok(response) = admitted else {
+        return reject(503);
+    };
+    if response.status != "ok" {
+        return reject(403);
+    }
+    let result = dispatch_authenticated(&value, || {
+        serde_json::to_value(response).expect("serializable response")
+    });
+    (if result.is_some() { 200 } else { 202 }, result)
+}

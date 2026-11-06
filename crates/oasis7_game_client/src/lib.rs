@@ -590,3 +590,5 @@ mod cold_entry;
 pub mod dev_test_service;
 #[cfg(unix)]
 mod dev_test_service_cli;
+
+pub mod dev_test_accounts_remote;
