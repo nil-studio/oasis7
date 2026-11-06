@@ -522,12 +522,14 @@ pub(crate) fn execute(
             Arguments::Move { to, .. } => {
                 if let Some(cached) = client.cached_intent(ClientStateKind::Action, operation)? {
                     verify_cached(client, original, &cached)?;
+                    return serde_json::to_value(client.lookup_until(&cached, deadline)?)
+                        .map_err(|_| Failure::Unavailable);
                 }
                 let action = oasis7_agent_api::world_action::Action::MoveAgent {
                     agent_id: client.agent.clone(),
                     to: oasis7_agent_api::world_action::GeoPos::new(to[0], to[1], to[2]),
                 };
-                let result = client.submit_action_until(operation, action, deadline);
+                let result = client.submit_new_action_until(operation, action, deadline);
                 if result.is_err()
                     && let Some(cached) =
                         client.cached_intent(ClientStateKind::Action, operation)?
