@@ -30,7 +30,7 @@
 - 若继续让浏览器持有长期 player signer，任何缓存泄露都会放大为账户接管风险。
 - 若把 player custody 与 node/governance signer 共用一套 trust domain，会让产品问题和协议级 custody 问题互相绑死。
 
-本专题同时定义[Cloudflare 测试账号托管与受限执行](#cloud-test-custody)。该首版是待实现设计，不是生产资产 custody，也不改变已有世界权威。
+本文按用途分开承接三类合同：§1～5 为 hosted player custody 目标；[§6](#cloud-test-custody)保留已有 Cloudflare custody profile；[§7](#dev-test-accounts)定义开发测试账号工具，是 [#5076](https://github.com/nil-studio/oasis7/issues/5076) 调整后的交付范围。开发工具使用独立 profile，不继承旧托管方案的全部交付前置，也不改变旧凭据的权限和解释。
 
 账号接入的推荐方式、多凭证管理和邮箱受限恢复已由[免邮箱多凭证 PRD](hosted-public-join-key-based-onboarding.prd.md)承接；本专题继续拥有资产 signer / custody / step-up 与自托管升级合同。多凭证实现候选不升级当前技术预览或生产 custody 口径。
 
@@ -194,6 +194,8 @@
 <a id="cloud-test-custody"></a>
 ## 6. Cloudflare 测试账号托管与受限执行
 
+适用范围：本节的 REQ-CLOUD-CUSTODY、AC-CLOUD 和配套 CT 条款仅约束已有 `native-broker-custody-v1` / `dot-mcp-custody-v1` 及其版本化托管合同。其四角色、PoP、逐传输预算和完整 TestSession 收尾不再是开发账号工具的首版前置；已有授权、原操作、未决结果和未完成验证仍按原合同保留。新的开发辅助用途见[§7](#dev-test-accounts)，后续增强项归属在原 Issue 跟踪。
+
 ### 6.1 使用情境、目标与非目标
 
 测试负责人需要管理多个 oasis7 测试账号，并让 dot 或其他已授权助手完成特定世界、Agent 的有限操作。负责人不应反复复制私钥，助手也不应因为能看到账号或登录管理页就获得 owner 控制权。负责人能够看清每个账号的用途、获准动作和预算、到期时间、停止与撤销方式，以及请求是仅被接收，还是已产生世界结果。
@@ -339,3 +341,88 @@ Trace ID: O7-REQ-f98670c4-c1fd-4610-8884-8eb2cf89c1eb
 - 首版限制见[容量与预算](hosted-public-join-managed-identity-custody.design.md#cloud-custody-quality)，是待测上限而非容量实测。超限拒绝，不自动增加费用或购买资源。
 - 推进顺序为文档/独立安全审读、实现及离线向量/故障测试、隔离测试环境、真实受控账号验收。部署、凭据创建、数据导入与生产扩面分别需要明确授权；本次文档本身不授权这些动作。
 - 专业 owner 为 `blockchain_ops_engineer` 与 `runtime_engineer`，体验/claims 由 `producer_system_designer` 核对；具体实现排期及交付事实留在相应 PR/Task，不在本文维护第二份任务台账。
+
+<a id="dev-test-accounts"></a>
+## 7. 开发测试账号工具
+
+### 7.1 用途与职责
+
+开发者一次配置专用测试账号后，Codex、dot 等外部 Agent 能查看获准账号、选择身份、使用现有游戏工具并查询结果，无需反复复制私钥。首版采用独立的 `dev-test-accounts-v1`，服务可重建的开发／隔离测试账号和已准备的世界；不承担生产资产托管、完整游戏测试编排或世界任务终止协议的建设。
+
+本节是职责重划后的开发工具合同，前身及可复用组件见[§6](#cloud-test-custody)。旧 REQ-CLOUD-CUSTODY、AC-CLOUD 和 CT 编号保留旧 profile 语义；本节新要求不重新解释旧授权。实施及增强需求的去向集中在 [#5076](https://github.com/nil-studio/oasis7/issues/5076)，产品或专业文档保持稳定职责和验收方法。
+
+| 主体 | 主责与交接结果 |
+| --- | --- |
+| 测试账号工具 | 账号目录、凭据保管、账号会话、工具准入、用量与操作关联、停用新调用；提供可识别的身份和错误 |
+| 现有 Game Client | 原生登录、Owner／Executor 协议、类型化签名、正式 API 调用与原操作查询 |
+| 身份／世界 authority | 实际账号身份、当前权限、任务与资源状态、业务预算和最终结果 |
+| 测试编排 | 准备账号和世界、选择测试目标、判断效果、按既有权限执行所需 Stop／Revoke／资源清理 |
+| Codex／dot Runtime | 阅读正式使用说明，选择获准账号与工具，报告实际结果；接入凭据由其可信连接器或宿主管理 |
+
+正常流程：管理员登记账号和测试授权 → Agent 查看账号 → 为指定账号打开会话 → 调用现有工具／查询原结果 → 关闭会话。账号切换通过选择另一会话完成，既有会话保持原账号绑定。管理员可在同一有期限的测试授权内允许重复测试；增加账号、环境或权限时才修改授权，原生游戏操作所需批准仍由原协议决定。
+
+<a id="req-dev-test-accounts-001"></a>
+### REQ-DEV-TEST-ACCOUNTS-001：工具职责与可信服务
+
+Trace ID: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb
+
+采用一个可信账号服务或宿主保管专用测试凭据，模型只获得账号／会话／操作引用和受限工具。服务配置固定测试环境与目的地，管理接口与模型工具接口区分权限。长期私钥、解锁材料和原生登录秘密不进入模型可读文件、参数、输出或日志；实际隔离由独立安全主体或远程服务实现。Rust 优先，复用现有协议、存储和客户端；单服务部署不承诺旧四角色独立攻陷隔离，也不以四 Worker、Recovery Fence 或完整灾备建设为前置。
+
+- 系统设计状态：已覆盖；依据：[职责与部署](hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-boundaries)。
+- 实现状态：未实现；已有身份存储、broker 和 custody 组件可复用，尚无本 profile 的交付证据。
+- 实现与验证依据：[验证方法](../../testing/manual/agent-runtime-self-playtest.manual.md#dev-test-accounts-validation)；核对基线：2026-11-06，`3bd96334c7ce3ad09111ed25d586afd1e20bab64`。
+- 剩余范围：实际服务封装、凭据管理和所选部署的隔离验证。
+
+<a id="req-dev-test-accounts-002"></a>
+### REQ-DEV-TEST-ACCOUNTS-002：账号目录与会话选择
+
+Trace ID: O7-REQ-8b95aab7-037d-45cc-8d02-e320d1ea4570
+
+账号目录显示别名、实际 account ID、公开身份、环境和状态。管理员登记已合法准备的测试账号，创建／登录复用原有入口和注册权限。会话固定实际账号、环境／世界、已获准资源、动作范围、期限和调用上限；每次调用核对该绑定。多个会话并行时不共享可变的全局当前账号。别名修改、新增账号和重新连接不改变旧会话的主体，不清零同一测试授权的累计用量或丢失未决操作。
+
+- 系统设计状态：已覆盖；依据：[账号与会话](hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-sessions)。
+- 实现状态：未实现；现有静态多资源 broker 不等于完整账号管理流程。
+- 实现与验证依据：[验证方法](../../testing/manual/agent-runtime-self-playtest.manual.md#dev-test-accounts-validation)；核对基线：2026-11-06，`3bd96334c7ce3ad09111ed25d586afd1e20bab64`。
+- 剩余范围：账号台账、配置／解锁流程、会话映射和真实双账号隔离。
+
+<a id="req-dev-test-accounts-003"></a>
+### REQ-DEV-TEST-ACCOUNTS-003：受限调用、恢复与停用
+
+Trace ID: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5
+
+工具复用正式 Game Client，不提供任意 URL、任意签名、秘密读取或绕过原生权限的入口。工具层限制期限、累计调用和并发，业务资源预算继续由世界协议执行；内部每个网络调用不另建一套授权计费规则。操作先绑定真实账号与稳定 ID，丢响应后查同一原件，同 ID 不同正文拒绝。
+
+关闭／停用只承诺拒绝新的工具执行；在途操作、结果未知、世界 Stop、delegation Revoke 和 Task Closed 分别报告。世界级控制与资源清理由测试编排调用既有授权入口。账号和操作记录可持久恢复；服务重启或恢复备份后旧工具会话失效，经当前授权建立新会话后核对旧操作，不自动重发未知写入或恢复旧写权。
+
+- 系统设计状态：已覆盖；依据：[执行、停用与恢复](hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-operations)。
+- 实现状态：未实现；现有原操作与游戏权限检查只证明可复用基础。
+- 实现与验证依据：[验证方法](../../testing/manual/agent-runtime-self-playtest.manual.md#dev-test-accounts-validation)；核对基线：2026-11-06，`3bd96334c7ce3ad09111ed25d586afd1e20bab64`。
+- 剩余范围：账号工具到真实客户端的调用、用量连续性、故障恢复及准确状态展示。
+
+<a id="req-dev-test-accounts-004"></a>
+### REQ-DEV-TEST-ACCOUNTS-004：外部 Agent 接入与真实验收
+
+Trace ID: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7
+
+Codex 与 dot 都是本工具的目标消费者，分别按实际 Runtime、认证和传输能力验收。实现前先验证 dot 的真实工具接入；新 profile 可采用可信连接器支持的标准 HTTPS／MCP 认证，不要求为首版增加专用双跳 PoP。认证秘密由连接器／服务持有，服务仍核对调用者与账号授权。接受有限 Bearer 凭据的入口明确不提供“仅窃取 token 仍不可调用”的持有证明保证；旧 custody profile 的 PoP 要求保持有效。
+
+两个入口都须由真实 Agent 完成账号 A → B → A、正式读取和一个获准写操作，并独立核对身份、结果、隔离和恢复。某个入口缺能力时明确记录 blocked 及解除条件，不能用另一个入口、curl 或 mock 的结果替代，也不能因局部完成关闭全部目标。完整工业任务、冷入场与其他 Runtime 按对应业务测试独立验收。
+
+- 系统设计状态：已覆盖；依据：[接入与验证](hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-adapters)。
+- 实现状态：未实现；当前 broker 的 Codex／OpenClaw 名单和 Control-only Host 不证明新工具或 dot 可用。
+- 实现与验证依据：[验证方法](../../testing/manual/agent-runtime-self-playtest.manual.md#dev-test-accounts-validation)；核对基线：2026-11-06，`3bd96334c7ce3ad09111ed25d586afd1e20bab64`。
+- 剩余范围：接入能力验证、CLI／远程适配、正式使用说明和两个真实 Agent 组合的验收。
+
+<a id="dev-test-accounts-acceptance"></a>
+### 7.2 首版验收与范围
+
+| 验收 | 对应要求 | 可观察结果 |
+| --- | --- | --- |
+| AC-DEV-01 | 001／002 | 一次配置后能列出真实测试账号 A／B，公开身份、环境和状态准确；模型接触不到长期密钥和原生登录秘密 |
+| AC-DEV-02 | 002 | A → B → A 及并行会话不串号；跨账号／环境引用拒绝；账号元数据更新不改变已有会话与累计用量 |
+| AC-DEV-03 | 001／003 | 两账号各经正式客户端完成读取和一个获准写入；原生权限、目标和真实结果可核对 |
+| AC-DEV-04 | 003 | 丢响应和服务重启后仍可定位同一原操作；同 ID 异正文拒绝，未知操作不产生第二次业务效果 |
+| AC-DEV-05 | 003 | 关闭、停用、过期与恢复后旧会话拒绝新执行；在途／unknown 与世界停止／撤销分别展示；旧 custody 凭据不能转入新入口 |
+| AC-DEV-06 | 004 | Codex 与 dot 分别使用实际入口完成 AC-DEV-01～05 的适用组合，给出真实结果和未覆盖范围 |
+
+验证复用[现有自测手册](../../testing/manual/agent-runtime-self-playtest.manual.md#dev-test-accounts-validation)。本节只定义开发工具的能力与验收；真实模型、部署和世界操作仍按已有授权执行。旧增强托管、世界生命周期和完整业务自测保留各自主责合同及历史证据，不计为本节已完成，也不隐含恢复其开发或部署。
