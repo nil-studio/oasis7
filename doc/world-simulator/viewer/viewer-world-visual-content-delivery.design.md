@@ -1,8 +1,8 @@
 # Viewer 世界视觉内容与交付设计
 
 - 主责：`game_visual_interaction_designer`；所属模块为[智能体、世界模拟与交互](../../product/agents-world-simulation/prd.md)，专业入口为 [Viewer](README.md)。`viewer_engineer` 维护编辑源、构建与消费者；`qa_engineer` 承接分层验证。
-- 生命周期：`active`。适用于当前 Viewer Web 程序化世界图形的内容制作与交接，不表示实际候选、来源权利或视觉品质已经验收。
-- 审读基线：`d21019414c46d7e8ba61ab2c59b1f217b144ba88` 的源码、专业设计与仓库素材。下文“当前”均指该基线的静态观察；实际消费版本和运行结果留在原 PR、构建与证据记录。
+- 生命周期：`active`。适用于当前 Viewer Web 程序化世界图形的内容制作及本轮像素设计源交接，不表示实际候选、来源权利或视觉品质已经验收。
+- 审读基线：`d21019414c46d7e8ba61ab2c59b1f217b144ba88` 的源码、专业设计与仓库素材。除 §4.1.1 明示新增设计目标外，下文“当前”均指该基线的静态观察；实际消费版本和运行结果留在原 PR、构建与证据记录。
 - 上游：[世界首读与因果](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)、[来源与未知](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-002)、[游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)。具体 Trace refs 见 §2.1。
 
 ## 1. 问题、目标与范围
@@ -11,7 +11,7 @@
 
 玩家应能区分组成语境、事件类别、对象类别与设施状态，并继续通过原有文本和上下文读取完整含义。视觉内容不能凭颜色、装饰或活动增加资源、路线、控制权或已结算成果。本设计补齐 GD-09／GD-18 在上述程序化内容范围内的内容目录、制作边界、来源和交接，不宣称覆盖全游戏美术、动画、特效或资产权利。
 
-阅读顺序、尺寸、图层、选择／回执标记、LOD、动效与 B01～B13 场景复用[Bevy 详细视觉交接](viewer-pixel-world-player-readable-rendering.design.md#bevy-detailed-visual-handoff)；品牌 token 复用[品牌系统](viewer-brand-system-2026-06-05.design.md#3-token-taxonomy)。本文不另建形状／性能规范，不改变 Shell、DTO、渲染器、世界规则或权限，也不制作首局 SVG、译文或帮助内容。
+阅读顺序、现有尺寸、图层、选择／回执标记、LOD、动效与 B01～B13 场景复用[Bevy 详细视觉交接](viewer-pixel-world-player-readable-rendering.design.md#bevy-detailed-visual-handoff)；品牌 token 复用[品牌系统](viewer-brand-system-2026-06-05.design.md#3-token-taxonomy)。新增像素方向由[视觉规范](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)拥有，本文只登记共享设计源及消费边界，不另建性能规范，不改变 Shell、DTO、渲染器、世界规则或权限，也不重写首局页面、译文或帮助内容。
 
 ## 2. 上游要求与约束
 
@@ -19,7 +19,8 @@
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
-| [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)；Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616 | 具体视觉变体有可读类别与状态，不以装饰冒充原行动结果 | [内容与变体](#visual-content-catalog) | 视觉 owner、Rust 投影与原世界状态 | 只承接四类程序化内容；不证明完整首读、因果或真人理解 |
+| [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)；Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616 | 具体视觉变体有可读类别与状态，不以装饰冒充原行动结果 | [内容与变体](#visual-content-catalog) | 视觉 owner、Rust 投影与原世界状态 | 承接四类程序化内容；不证明完整首读、因果或真人理解 |
+| [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)；Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616 | 像素设计源可复用，图形及上层状态分别交接 | [像素设计源](#pixel-world-design-assets) | 视觉 owner、后续 Bevy 实施 | 新增设计参考不证明生产素材已接入、完整首读或真人理解 |
 | [REQ-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-002)；Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3 | 未知类别、缺失输入与显示细节保留真实事实边界 | [事实与未知](#visual-fact-boundaries) | Runtime 来源、授权投影、原降级合同 | 不新增新鲜度机制，不由外观核实权限或世界结果 |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | 可定位内容编辑源、产物、消费者、来源与权利资料 | [源与交付](#content-source-delivery) | 内容制作方、Viewer 构建 owner、依赖维护方 | 本行产品层 N/A；理由：制作信息不新增玩家功能；范围：本专题内容来源与交付定位。其他玩家义务仍适用。 |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | 同一候选能关联实际消费的内容版本与环境 | [候选组合](#visual-content-candidate) | 原构建、资源清单和实际加载记录 | 本行产品层 N/A；理由：候选证据不新增玩家功能；范围：本专题消费关系。不新增 manifest 或发布许可。 |
@@ -137,6 +138,29 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 
 六视图输入顺序、1 cm 体素、默认 200 cm 尺度和坐标合同全部引用原工具。预览／评估产物继续按工具约定留在本地，不因本专题新增提交义务。开发说明中的 Image 2 robot sample 没有可取得的固定源图、权利材料与正式输出时，保留“未核实正式资产”；不能用测试生成的长方体 fixture 补成机器人样本。
 
+<a id="pixel-world-design-assets"></a>
+#### 4.1.1 本轮像素设计源与消费边界
+
+#5527 / #5543 新增的二维俯视像素设计沿[视觉方向](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)，不更新上述生产源码审读基线。可编辑原件为 [atlas.svg](assets/ui-ux/pixel-world/atlas.svg) 与 [scene.svg](assets/ui-ux/pixel-world/scene.svg)：场景 `320×180` 逻辑像素、地块 `16×16`、Agent `16×16` 且局部脚点 `(8,15)`；Smelter `48×48`、场景左上角 `(144,64)`。两份原件共用固定 16 色与整数矩形轮廓，具体颜色及图形键由原件 metadata 拥有；它们不是新增品牌 token、Rust 材质常量或世界单位。地块、道路、建筑布局与脚点均为设计坐标，不表示合法世界位置、关系、可建设 tile 或点击执行能力。
+
+`atlas.svg` 拥有图形和色板；`scene.svg` 拥有 `<use>` 实例布局，其内联符号及 metadata 由 [build.py](assets/ui-ux/pixel-world/build.py) 同步。该脚本导出 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)，供[离线交互原型](assets/ui-ux/interactive/index.html)加载；同时将同一源的整数几何嵌入图 16、17 与工业方案／结果四张 SVG 的 `pixel-world:*` 标记区，使这些[页面稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)可以独立查看。不要手工编辑生成区或在各稿另画一套世界。场景底图不包含 Agent、姓名、权限、库存、任务状态或选择标记；Agent 按各 fixture 单独放置，HUD／中文／原回执保持独立。源文件、导出成功与设计操作均不证明正式 Viewer 已加载这些资产。
+
+| 图形键／层 | 原始尺寸与局部锚点 | 当前设计用途 |
+| --- | --- | --- |
+| `ground`、`ground-alt`、`grass`、`path` | 16×16；左上角 `(0,0)` | 安静地面及正交道路；道路不声明获准移动、分配关系或建设能力 |
+| `ore`、`rock`、`tree`、`scrub` | 16×16；左上角 `(0,0)` | 环境外观，不从矿床图形推导组成、库存或可用输入 |
+| `smelter` | 48×48；中心 `(24,24)`、入口 `(24,48)` | 场景实例 `(144,64)`；金色为外壳涂装，不表示开工或成功 |
+| `depot` | 32×32；中心 `(16,16)`、入口 `(16,32)` | 场景实例 `(96,64)`；不编码 Micro Depot 业务状态 |
+| `agent` | 16×16；脚点 `(8,15)` | 独立静态精灵；身份／选择／权限由上层文字和边框表达，同位候选仍用集合标记 |
+
+在仓库根执行 `python3 doc/world-simulator/viewer/assets/ui-ux/pixel-world/build.py` 重建；需要 Python 3、Pillow 与 PATH 中的 Inkscape。导出在原始逻辑尺寸完成，颜色和透明度经过脚本检查；不把旧平滑插画缩成马赛克。更改色板／图形时编辑 atlas，再重新生成；更改设施布局时编辑 scene 的实例并同步消费者锚点。尺寸、Smelter 相机中心和 Agent 脚点属于本次固定规格，若改变还须同步生成脚本与原型布局常量；不会由 SVG metadata 自动改变交互相机。
+
+**原型显示规则。** 以 `.world-art` 实际整数 CSS 尺寸 `W×H` 计算 `s=max(1,ceil(max(W/320,H/180)))`；图像为 `320s×180s`，围绕 `(168,88)` 居中后将整数偏移夹到 `[W−320s,0]`、`[H−180s,0]`，超出舞台的部分裁切。Agent 脚点与设施标签使用同一偏移和倍率，标签字号不乘 `s`。`ResizeObserver` 监听舞台，包含窄屏文档流和文字 200% 的高度变化；没有新增玩家相机或缩放操作。四张静态稿按其未被侧面板占据的世界区域构图：图 16 为 484×390、3×，图 17 为 1048×900、5×，工业稿为 944×844、5×；原型面板是覆盖层，按完整舞台裁切。这些是设计组合范围，不能把静态稿裁切当成已实现的响应式结果。源像素与整数 CSS 缩放也不证明任意 DPR、浏览器 zoom 或 GPU 采样均已逐物理像素对齐。
+
+生产仍沿 [Rust/Bevy `Camera2d`](../../../crates/pixel_world_bridge/src/lib.rs)／WASM；[canonical canvas](../../../crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx)已有 [CSS pixelated／crisp-edges](../../../crates/oasis7_viewer/viewer.html)。固定低分辨率 RenderTarget、纹理 nearest、整数倍缩放、camera pixel snap 与这些设计资产的 loader 均是后续接入和验证目标，本轮不宣称已经实现。继续复用原程序化图元和[恢复边界](viewer-pixel-world-player-readable-rendering.design.md#bevy-recovery-handoff)，不新增 JS 世界 fallback 或 3D 模型生产路线；六视图 voxel 工具也不是本次素材消费者。
+
+沿[内容源审读](viewer-world-visual-content-delivery.manual.md#visual-content-source-review)核对源尺寸、16 色、整数像素、导出一致性及 desktop／narrow 设计稿中的轮廓与独立文字；实际接入另按[候选组合](#visual-content-candidate)和[目标环境验证](viewer-world-visual-content-delivery.manual.md#visual-content-target-validation)记录实际像素、DPR、相机、加载与命中结果。静态稿可读性、浏览器原型和真实 Bevy／GPU 验证分别记录，未执行的层级保持未验证。
+
 #### 来源、权利与可继续编辑的边界
 
 | 来源组 | 当前可定位依据 | 交付时还需核对什么 |
@@ -176,13 +200,14 @@ finalize 当前生成 `dist/pixel-world-bridge/webgl2/pixel_world_bridge_bindgen
 
 ## 11. 验证与验收
 
-文档审读、素材／源检查、构建与目标环境分别判断。当前文档交付只核内容、真实来源与可执行方法；无新浏览器、GPU、游戏、模型或资产生成结果。未来实际变体、构建或来源变化按配套手册选择所需验证，不要求纯文档 PR 执行全部运行场景。
+文档审读、素材／源检查、构建与目标环境分别判断。原生产内容审读只核内容、真实来源与可执行方法，不提供新的运行候选、GPU 或游戏验证结果；§4.1.1 的像素源、导出及预览只证明各自设计层。未来实际变体、构建或来源变化按配套手册选择所需验证，不要求纯文档 PR 执行全部运行场景。
 
 ### 11.1 验证映射表
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)；Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616 | [内容与变体](#visual-content-catalog) | 四族已有变体与设计含义一致，关键区别不只靠颜色／动效 | [内容源审读 V1～V4](viewer-world-visual-content-delivery.manual.md#visual-content-source-review)；固定本次源码，实际视觉变化另按手册选择目标环境 | 当前 PR 的逐项静态核对；实际候选另存原证据 | 静态表和源码不证明真实 GPU、完整首读或真人理解 |
+| [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001)；Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616 | [像素设计源](#pixel-world-design-assets) | 像素稿主体与独立文字可读，设计消费者共用同一源 | [内容源审读](viewer-world-visual-content-delivery.manual.md#visual-content-source-review)及 §4.1.1，核源像素／导出一致性／视口；实际接入另按目标环境验证 | 当前 PR 的像素源、派生图层和设计预览 | 静态像素稿不证明真实 GPU、生产接入或真人理解 |
 | [REQ-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-002)；Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3 | [事实与未知](#visual-fact-boundaries) | 未知／缺输入不被改写成世界事实或完成 | [内容源审读 V5](viewer-world-visual-content-delivery.manual.md#visual-content-source-review)；同候选源码／输入负例 | 原 PR 的预期、实际与缺口 | 不代签授权链、来源新鲜度或运行恢复 |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | [源与交付](#content-source-delivery) | 编辑源、导出、消费者及来源资料可追，未核实项不计入完成 | [内容源审读 V6](viewer-world-visual-content-delivery.manual.md#visual-content-source-review)；固定原文件与适用权利材料 | 源／产物／依赖定位与未核实记录 | 未取得的源图、第三方字体资料或外部授权保持缺口 |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | [候选组合](#visual-content-candidate) | 声称实际可用时能证明候选消费了所选内容 | [目标环境验证](viewer-world-visual-content-delivery.manual.md#visual-content-target-validation)；实际 bridge／bundle／payload 与环境 | 原构建、加载、截图及分层结果；未执行时保留计划去向 | 源码 HEAD、同名文件、hash 或构建单独通过不证明可读性／部署 |

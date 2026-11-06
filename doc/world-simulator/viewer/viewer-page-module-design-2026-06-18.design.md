@@ -703,7 +703,7 @@ module-state verification are still required before any completion claim.
 
 本节细化既有 Player shell，不重新定义玩法、权限、世界真值或 renderer。设计稿为 **设计目标 / DESIGN TARGET**：示例身份、文案、数值和世界图形只用于说明布局与状态，不是运行截图或当前能力证明。
 
-本节由 `game_visual_interaction_designer` 维护，`viewer_engineer` 承接实现，`qa_engineer` 按末尾映射验证。设计目标不把已记录的平台/真实交互缺口改判为已实现。本轮只交付文档与静态稿，不变更 JS、Rust、CSS、协议、默认行为或游戏规则。
+本节由 `game_visual_interaction_designer` 维护，`viewer_engineer` 承接实现，`qa_engineer` 按末尾映射验证。设计目标不把已记录的平台/真实交互缺口改判为已实现。本节静态稿不变更生产 JS、Rust、CSS、协议、默认行为或游戏规则。
 
 <a id="uiux-screen-regions"></a>
 ### 10.1 屏幕分区与首读
@@ -767,6 +767,21 @@ module-state verification are still required before any completion claim.
 
 [平板与文字放大组合稿](assets/ui-ux/15-tablet-text-reflow.svg)给出 1024×768 按需详情与独立的 200% 文字重排目标，非整图等比缩放；上图保留世界身份、唯一 Next Move、原回执和实际关闭控件，关闭后焦点回到仍存在的 Command 导航；下图为详情已关闭的 shell，分别画出导航与获准的原结果查询恢复目标，不声称展示展开后的滚动/关闭几何。查询控件属于 shell 恢复设计目标，不是现有只读回执组件的能力声明。它不证明浏览器实际重排、软键盘或平板触控已通过。
 
+<a id="uiux-complete-layout-combinations"></a>
+#### 10.4.1 低高度、密集候选与图形失败的完整组合稿
+
+以下三个视口继承单舞台与按需上下文方向，不新增运行模式、CSS 断点或服务器能力。图内画面按标注 CSS px 排版，外部页眉/注脚不计入产品视口；坐标以各稿 `viewport` 左上角为原点。图形、候选、消息和结果均为虚构示例。
+
+| 完整组合稿 | 几何与当前状态 | 交接要求 |
+| --- | --- | --- |
+| [16 低高度 Command 展开](assets/ui-ux/16-low-height-command-expanded.svg#viewport) · 844×390 | 世界露出宽 484；右侧 Command 覆盖宽 360，固定头高 60、内容区 y=60–310、操作脚 y=310–390；观察 B、编辑给 C 的未提交草稿、A 的原结果待确认同时可辨。示例中的 Chat 服务未配置，Send Chat 不可用且原因可见 | 关闭 48×44，发送 328×44；关闭、相邻错误/不可用原因、原结果查询和导航均留在视口内。内容超出时只滚动 Command 内容区，不能将发送压到舞台之外；非模态抽屉不锁 Tab。关闭回到仍存在的 Command 导航，不取消 A、不换草稿主体 |
+| [17 密集候选与未知位置](assets/ui-ux/17-dense-and-unknown-targets.svg#viewport) · 1440×900 | 世界露出宽 1048；按需 Targets 覆盖宽 392。同一可信位置有 A/B/D 三个获准候选，以一个集合标记和 64 px 高候选行呈现；已选 C 的位置未知，只在固定上下文和列表/详情出现 | “已加载 4 个”只计当前获准的部分范围；C 无地图落点，定位/跟随禁用并紧邻原因。列表按稳定身份保留选择，撤权移除受限候选。A 的原回执与 C 的观察不合并；不把 Location 锚点充作 Agent 精确位置 |
+| [18 图形失败时的窄屏文本路径](assets/ui-ux/18-renderer-text-recovery.svg#viewport) · 390×844 | 16 px 左右边距、358 px 卡片、326×44 动作；世界连接可用、renderer unavailable、A 原结果未知、B 位置未知并存。唯一金色主动作是此示例中获准的“查询原结果”；图形重试与 Targets 是次级入口 | 旧图不保留命中/动画，不绘制替代世界；获准文本、原结果和合法 Command 路线仍可达。图形重试只恢复渲染准备，重新读取当前授权后才恢复世界画面，不重放 A。文本权限不足时按真实原因收窄，不能照搬此示例的查询入口 |
+
+三稿沿用现行 `--bg`、`--panel`、`--panel-strong`、`--text`、`--muted`、`--accent`、`--accent-strong` 及既有 12/18/20 px 圆角；产品正文不小于 16 px，控件可用高度不小于 44 px。金色主按钮与外置焦点环、带“已选中”文字的选择边界分开表达。图 16 展示的是关闭控件已有焦点时的外环，不把选择 B 当作键盘焦点。
+
+图 16/17 的侧向展开沿用现有方向，未比较下沿方案；图 18 是合法文本路径的完整画面，不将整个 shell 误判为不可用。原结果查询均为已有合同允许时的 shell 恢复设计目标，不声称现有只读 Action Receipt 组件已有查询按钮，也不新增 `next_step` 字段。文字放大、长 CJK、软键盘、滚动和回焦点仍须在真实候选上验证：宽度不足改为单路线覆盖，文字换行而不缩小，不能保持表中固定列宽造成水平溢出。
+
 滚动只作用于可理解的区域，避免三个嵌套滚动容器；面板上下边界可识别。安全区、浏览器缩放和软键盘出现时重新核验可用高度。切屏或旋转保留合法选择/草稿，不把 resize 当用户提交。
 
 <a id="uiux-input-access"></a>
@@ -789,6 +804,8 @@ module-state verification are still required before any completion claim.
 ### 10.6 Bevy 像素世界的视觉与交互层
 
 详细符号、尺寸、图层、LOD、材质与密集场景交接见[玩家可读渲染设计 §13](viewer-pixel-world-player-readable-rendering.design.md#bevy-detailed-visual-handoff)；本节只维护与页面阅读顺序的接口。
+
+本轮世界美术采用[二维俯视像素方向](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)：图 16／17、工业方案／结果与互动原型共用[320×180 场景及图集](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)。世界图块、设施和 Agent 使用离散整数像素；HUD、中文、选择边界及原回执使用独立清晰图层。图 18 的 RendererUnavailable 继续不绘制世界，不用像素底图冒充仍然可用的场景。图块规格是制作单位，不能由此生成未知目标坐标或可建设网格。
 
 | 层 | 视觉表达 | 显示条件/语义限制 |
 | --- | --- | --- |
@@ -833,8 +850,6 @@ module-state verification are still required before any completion claim.
 <a id="uiux-design-sheets"></a>
 ### 10.8 设计稿索引与对比方案
 
-- [15 平板与文字重排](assets/ui-ux/15-tablet-text-reflow.svg)：1024×768 按需 Command/经济替代方案待确认组合；独立文字重排目标。承接 §10.4、§10.9.4 与既有 `TXT-01`/`FOC-01`/`REC-02` 验收边界，不新增产品要求或宣称设备通过。
-
 全部文件位于 `assets/ui-ux/`，页眉标明 DESIGN TARGET / 设计目标。完整画面稿标注视口；组件、状态与图层解剖稿不代表完整视口。表中区分画面与说明性标注，文档条款提供对应语义。图内世界与数据仅为设计示例，不用于 renderer 真实性验证。
 
 | 文件 | 设计范围 | 文档条款 |
@@ -853,10 +868,14 @@ module-state verification are still required before any completion claim.
 | [12-command-quote-original-receipt.svg](assets/ui-ux/12-command-quote-original-receipt.svg) | 只读报价、条件性确认说明与原结果未知；Chat沿原03/04，不新增提交能力 | [Command](#uiux-command-form-result) |
 | [13-live-playback-feed-return.svg](assets/ui-ux/13-live-playback-feed-return.svg) | Live、离线Playback、Feed追平；非新模式选择器 | [模式语义](#uiux-live-playback-context) |
 | [14-more-help-text-director-gate.svg](assets/ui-ux/14-more-help-text-director-gate.svg) | 语言/帮助/Prompt/Director次级披露及安全返回；不新增设置中心 | [次级工具](#uiux-secondary-help-privacy) |
+| [15-tablet-text-reflow.svg](assets/ui-ux/15-tablet-text-reflow.svg) | 1024×768 按需 Command/经济替代方案待确认；独立 200% 文字重排目标，不是设备通过证据 | [响应式](#uiux-responsive)、[Command](#uiux-command-form-result) |
+| [16-low-height-command-expanded.svg](assets/ui-ux/16-low-height-command-expanded.svg) | 844×390 完整画面；Command 展开、C 草稿/Chat 不可用、B 观察、A 原结果未知并存 | [完整组合稿](#uiux-complete-layout-combinations) |
+| [17-dense-and-unknown-targets.svg](assets/ui-ux/17-dense-and-unknown-targets.svg) | 1440×900 完整画面；同位候选列表、已选对象未知位置、部分范围与原回执并存 | [完整组合稿](#uiux-complete-layout-combinations)、[Bevy 层](#uiux-bevy-layer-sheet) |
+| [18-renderer-text-recovery.svg](assets/ui-ux/18-renderer-text-recovery.svg) | 390×844 完整画面；图形不可用但获准文本/原结果可读，显式重试与单一主恢复动作 | [完整组合稿](#uiux-complete-layout-combinations)、[恢复](#uiux-state-feedback) |
 
 09–14 扩展既有 Viewer 外围旅程；多帧/多栏均为互斥状态与说明，不是运行时常驻布局。01–08 继续提供世界舞台、输入、图层和组件母版。设计补充不代签能力开关、真实设备/供应商、权限竞态、浏览器可访问性或玩家理解；覆盖与真实证据分工见[整体状态矩阵](#uiux-whole-viewer-state-matrix)。
 
-后续若调整按需上下文占位，应比较侧向与下沿抽屉，保持 Player/Director、操作权限和信息真值不变。本轮未交付该对比图。桌面侧抽屉有利于保留纵向舞台与回执阅读；下沿抽屉适合横向长回执但低高度占用较大；窄屏保留单路线覆盖。取舍和最终尺寸须由真实候选验证，不将此分析写成已完成比较或第二默认。密集候选及未知位置的完整画面变体仍须后续按图层条款与专项手册验证。
+后续若调整按需上下文占位，应比较侧向与下沿抽屉，保持 Player/Director、操作权限和信息真值不变。本轮未交付该对比图；16 延续侧向展开，17/18 补充指定状态组合。桌面侧抽屉有利于保留纵向舞台与回执阅读；下沿抽屉适合横向长回执但低高度占用较大；窄屏保留单路线覆盖。取舍和最终尺寸须由真实候选验证，不将此分析写成已完成比较或第二默认。17 已绘制同位候选与未知位置并存的完整画面；其他密度、权限变化、来源冲突与实际拾取仍按图层条款和专项手册验证，不由一张静态稿推定通过。
 
 
 <a id="uiux-module-coverage"></a>
@@ -995,25 +1014,52 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 <a id="uiux-whole-viewer-state-matrix"></a>
 #### 10.9.7 屏幕状态覆盖与验证分工
 
-以下是补充设计覆盖，不是已运行的测试结果。表中图号与文字条款共同承接状态要求，不表示每个状态都有独立完整画板；09–14 均为 1600×1200 说明页，实际画面及旁注范围见[设计稿索引](#uiux-design-sheets)。Chat/IME 仍由原03/04和本文承接，12不新增独立Chat画板；15 补充平板及 200% 文字重排的静态目标；真实文字缩放、软键盘与焦点仍是待验证状态。状态按身份/权限、连接、资料新鲜度、renderer、原操作结果正交描述；例如世界连接可用、renderer 不可用、获准文本可读、原结果未知可以同时成立，不能压成一个“离线”。当多个 blocker 共存，主提示解释当前任务最先需要解决的条件，其他独立状态仍可查；不提供通用“一键修复”。
+以下是补充设计覆盖，不是已运行的测试结果。表中图号与文字条款共同承接状态要求，不表示每个状态都有独立完整画板；09–14 均为 1600×1200 说明页，实际画面及旁注范围见[设计稿索引](#uiux-design-sheets)。Chat/IME 仍由原03/04和本文承接，12不新增独立Chat画板；15 补充平板及 200% 文字重排目标，16–18 补充低高度展开、密集/未知位置与图形失败的[完整组合稿](#uiux-complete-layout-combinations)。16 的草稿/不可用组合不证明 IME 时序；真实文字缩放、软键盘与焦点仍是待验证状态。状态按身份/权限、连接、资料新鲜度、renderer、原操作结果正交描述；例如世界连接可用、renderer 不可用、获准文本可读、原结果未知可以同时成立，不能压成一个“离线”。当多个 blocker 共存，主提示解释当前任务最先需要解决的条件，其他独立状态仍可查；不提供通用“一键修复”。
 
 | 屏幕或旅程 | 必须覆盖的状态 | 图示 / 文字承接 | 后续真实证据 |
 | --- | --- | --- | --- |
 | 入口/认证 | 注册关闭但可登录、认证器不支持、取消或未知、账号已建但未入场 | 09；§10.9.1 | hosted v2 同候选真实设备、键盘/读屏与原尝试恢复；不以虚拟认证器代签 |
 | 世界控制/绑定 | 未绑定、registration pending、bound、其他设备控制、owner mismatch、投影待同步 | 09/10；§10.9.1–2 | 当前账号/世界的权威绑定与可见状态对账；旧 release 不影响新控制 |
-| 世界首屏 | 等待快照、空世界/授权为空、默认首读、renderer unavailable | 原01/02/06；10 | 同候选 GPU/浏览器与授权数据；原稿不替代实际截图 |
-| Targets/详情 | 未加载、无匹配、部分范围、已选中、只读、无位置、撤权 | 10；原02/05 | 搜索不裁舞台；选择不提交；密集与缺位置场景，键盘/触控回焦点 |
+| 世界首屏 | 等待快照、空世界/授权为空、默认首读、renderer unavailable | 原01/02/06；10/18 | 同候选 GPU/浏览器与授权数据；原稿不替代实际截图 |
+| Targets/详情 | 未加载、无匹配、部分范围、已选中、只读、无位置、撤权 | 10/17；原02/05 | 搜索不裁舞台；选择不提交；密集与缺位置场景，键盘/触控回焦点 |
 | 模型/执行准备 | 未启用不收Key、任务未就绪、授权待确认、检查未过、准备完成未开始 | 11；§10.9.3 | 真实 capability、当前任务/owner/executor 与 UI 对账；模型检查不代签游戏 |
 | 模型运行/离开 | running、预算不足、hidden/断网停止、另一页占用、forget失败、未知原件 | 11；§10.9.3 | 跨页/账号、存储失败、旧输出隔离、供应商费用/预算及真实原件零重投 |
-| Chat/Quote/Prompt | 草稿、IME、预览、签名中、报价stale、原提交pending、hidden/control_lost | 12；原03/04 | 原请求 ACK/error 竞态、提交参数/授权、中文/焦点、无双提交 |
+| Chat/Quote/Prompt | 草稿、IME、预览、签名中、报价stale、原提交pending、hidden/control_lost | 12/16；原03/04 | 原请求 ACK/error 竞态、提交参数/授权、中文/焦点、无双提交 |
 | 成果/重入 | confirmed、no progress、partial、unknown、查询不可用、换号旧反馈 | 12；原04/06 | 同原 signer/nonce/payload/target、当前读取 fence 与领域结果；无盲重试 |
 | 模式与 Feed | live、未知profile、offline playback、feed replay/gap/reorg/empty increment | 13；§10.9.5 | no-live-seek、真实控制反馈与 Feed cursor；非live证据不代签live |
-| 次级工具 | en/zh、长CJK、200%文字、低高度、Director拒绝/撤权、安全退出 | 14/15；原07/08 | 同候选真实浏览器/辅助技术、焦点/几何、权限清理；静态稿不认证a11y |
+| 次级工具 | en/zh、长CJK、200%文字、低高度、Director拒绝/撤权、安全退出 | 14/15/16；原07/08 | 同候选真实浏览器/辅助技术、焦点/几何、权限清理；静态稿不认证a11y |
 
 跨稿复用同一词义：`账号已登录` 不等于 `已进入世界`；`已选中` 不等于 `可指导`；`检查通过` 不等于 `已开始`；`已受理` 不等于 `已完成`；`原结果未知` 不等于 `未执行`；`已停止新决策` 不等于 `世界作业已取消`。所有能力和恢复入口仍受对应专业 authority 限制，不通过设计稿扩大 current support。
 
+<a id="uiux-interactive-prototype"></a>
+### 10.10 三条可操作设计旅程（#5527）
+
+这一交付在既有深绿世界、金色单一主动作和按需 drawer 方向上补稿，不改变品牌 token 或生产 Viewer。核对基线为 `7df3d7d289789ee844c7486587fb49fd611968d4`；源目录仍保留自己的固定 revision，不将新设计稿计作新增已实现功能。实际入口/源码盘点沿[当前源目录](viewer-full-function-coverage-catalog.md)，当前生产页面截图尚未取得。
+
+可编辑原件为 [HTML 入口](assets/ui-ux/interactive/index.html)、[布局与组件 CSS](assets/ui-ux/interactive/prototype.css)和[本地交互状态 JavaScript](assets/ui-ux/interactive/prototype.js)，世界层加载相邻 `pixel-world/` 的 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)。离线复制时保留 `interactive/` 与 `pixel-world/` 两个相邻目录及这些文件，再打开 `interactive/index.html`；运行不需要构建、依赖安装或后端。共享素材的编辑／导出依赖和整数倍率规则见[像素设计源交接](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)。
+
+也可从仓库根执行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux`，在同一机器访问 `http://127.0.0.1:8765/interactive/`。HTTP 根必须覆盖两个相邻目录，不能只服务 `interactive/`。页面顶部的旅程、评审情境、示例回读和供给读回属于设计评审工具，不进入玩家产品界面。
+
+原型全程使用已标注的设计 fixture，不读取账号、Key、模型、网络、真实库存或生产状态，不执行持久化。首次/回访仅模拟界面状态；刷新和切换评审情境会重置本地演示。原型中的原请求查询以“该查询已经获准且原件可读”为前置，不声称当前 Action Receipt 已有此按钮，也不扩展生产恢复协议。
+
+| 旅程入口 | 具体操作与独立预期 | 稿件、合同及消费者 |
+| --- | --- | --- |
+| [进入与指导](assets/ui-ux/interactive/index.html#entry) | 进入示例 → Command → 输入多行指导 → 明确发送 → 目标仍未确认 → 查询同一指导 → 目标读回。另选“观察 B / 草稿 C / 原请求 A”，确认 A 的回读不写进 C 的目标。关闭 drawer 不取消原操作。 | [Chat/目标/活动](viewer-account-agent-uiux.design.md#r-cmd-01)；生产消费者沿 `viewer_app.jsx` 的 Command/Chat，当前实现与稿件关系仍按该专题区分。 |
+| [Prompt 与恢复](assets/ui-ux/interactive/index.html#prompt) | 选空覆盖，clear 后 Apply 保持 v7/B；已有 C 覆盖清除后，profile 更新与执行器读回分开；system-D 草稿即显示完整 profile 的间接 B→A。stale 可比较/继续编辑/确认丢弃重读；重读再失败保留 D；unknown 当前读成功仍未知。切 C 须确认放弃未提交编辑，A 的原请求独立保留。 | [七个具体状态画面](viewer-account-agent-uiux.design.md#prompt-state-sheets)；[五源合同与方法](viewer-account-agent-uiux.design.md#prompt-source-clear-stale-consumer)；生产 Prompt control 沿既有 API/权限，不新增预览 token 门槛。 |
+| [首局生产](assets/ui-ux/interactive/index.html#industry) | blocked 的只读重查仍 fuel 2。评审工具先将外部供给设为 3，再重查，才释放明确提交。提交后查同一 job；回读设为不可用/其他 job 时保持 unknown；匹配回读才结算。结果只声明本笔产出，副产物缺投影仍未知。关闭/World/Escape 返回后重入均显示历史原件。 | [完整 native 三批 fixture](first-session-content-delivery.design.md#native-three-batch-fixture)、[P1–P6 方法](first-session-content-delivery.manual.md#fs-content-prototype)与 [R-GAME-18](viewer-gameplay-details-uiux.design.md#r-game-18)；结算消费者沿既有摘要与完整原件边界。 |
+
+**布局与输入走查。** 同一原型先走 `1440×900`、`1280×720`、`1024×768`、`390×844`，再走 `844×390` 的 Command 展开。分别选普通、A/C 原件分离、密集/未知位置、RendererUnavailable、生产 unknown/成果；检查世界/面板切换、关闭、主动作、错误与原结果在一个可滚动内容面内可达。`文字 200%` 只改变原型根字号，真实浏览器 200% zoom、软键盘和字体回退另验。关键正文基准 16px、动作至少 44px；缺图形时停用旧画面，文字路径使用可重排布局。已有[三张组合稿](#uiux-complete-layout-combinations)提供对应目标，不能以缩放 SVG 替代实际布局检查。
+
+仅用 Tab/Shift+Tab 走进入、发送、查询、关闭、丢弃确认及取消；非模态 drawer 不锁焦点，确认使用原生 dialog。输入 CJK 多行、Enter/Shift+Enter、组合输入 Escape/229，核对没有误发送、误关面板和状态更新夺焦点。跳到游戏界面的链接只转焦点，不重置旅程或草稿。原回执按钮有稳定焦点位置；实际浏览器、原生输入法和辅助技术仍须分别取得证据。
+
+**本轮实际验证及未完成项。** 七张新 SVG 共十二个独立画面已用 Inkscape 渲染，并由非作者复核；原型已执行 25 项源级 JSDOM 操作验证，覆盖上述状态、归属、草稿保护和恢复。Prompt 与工业各自的非作者复审发现已修复并定向复核；布局审查修正了窄屏重叠、重复主按钮和关键文字过小。JSDOM 不计算真实布局，dialog 方法在该检查中仅模拟回调，不能证明原生模态、IME 或无障碍通过。
+
+像素修正后重新导出并审阅四张受影响的页面稿；共享源全部使用整数矩形和固定 16 色，scene 原始 320×180 栅格实际使用其中 14 色，Agent 单独保留透明背景。用文档所列 HTTP 根核对 HTML、CSS、JS 和两张 PNG 均返回 200；25 项状态验证在修改后的原型再次通过。整数相机与锚点的源级检查、SVG 栅格目检和 HTTP 资源可达分别只证明其检查对象，不能代替真实浏览器布局、DPR 或原生输入验证。
+
+当前本地 Chromium 启动被 socket 权限拒绝，连接的浏览器也无法到达本地 HTTP；没有采用被浏览器策略禁止的内联协议或绕过限制。尚缺同一交付版本的真实浏览器响应式截图、键盘/IME/辅助技术及非作者实际可操作走查，因此 [#5527](https://github.com/nil-studio/oasis7/issues/5527) 保持未完成。该缺口属于本设计交付，不能转记为已通过，也不由 #5387 的生产回归设施替代。经济/治理仍沿[条件目标](viewer-economic-targets-uiux.design.md)及[治理目标](viewer-governance-targets-uiux.design.md)，不在此原型启用；#4966、#5166、#5167、#5116 的原有主责、前置与暂停条件保持原记录。
+
 <a id="uiux-handoff-trace"></a>
-### 10.10 承接、验证与交付边界
+### 10.11 承接、验证与交付边界
 
 下列行为是后续实现验收合同；本次文档与静态稿只核对内容一致、链接、可读性和覆盖。真实 Web/native、GPU、键盘/IME、权限竞态及玩家五秒理解仍分别取得实际证据。
 

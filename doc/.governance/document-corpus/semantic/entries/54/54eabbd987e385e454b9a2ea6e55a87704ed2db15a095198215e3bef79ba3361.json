@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "3de5e96fc3cede793b2d49be7a2a12013b7ac076be8f94b0cce74efa6f690c34",
+    "content_sha256": "ed60d6905ebc4dd72b866ff5217a784d0e350e111950b06c275e7afe2fa361f1",
     "current_authority": "doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md",
     "decision_owner": "game_visual_interaction_designer",
     "disposition": "retain_current_design_supplement",
-    "note": "current page-family visual supplement retained; added navigation to source-bound professional companions and corrected imported-key product ENTRY-MODE relationship while preserving Flow technical dependency; not product, root visual or release authority; static semantic review only",
+    "note": "保留页面族视觉设计增补定位；现有组合稿与三条旅程共用新增的俯视像素源，明确导出、相邻资源路径、整数缩放及实际验证层级。SVG 已渲染并非作者复核，25 项源级 DOM 再次通过，真实浏览器、生产及发布边界保持未证明。",
     "path": "doc/world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
