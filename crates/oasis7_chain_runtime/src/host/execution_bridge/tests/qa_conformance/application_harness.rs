@@ -226,6 +226,25 @@ fn run_isolated_application_mode_with_options(mode: IsolatedApplicationMode<'_>)
         || capture_crash
         || wait_rejected;
     let fixture = application_fixture(wake, drift, ordinary_wait);
+    fixture
+        .failure_diagnostics
+        .set_scenario(if !admission_mode.is_empty() {
+            admission_mode
+        } else if metadata_probe {
+            "metadata-probe"
+        } else if service_probe {
+            "service-probe"
+        } else if provider_closure {
+            "provider-closure"
+        } else if wake {
+            "wake"
+        } else if release {
+            "release"
+        } else if hosted {
+            "hosted"
+        } else {
+            "fixture"
+        });
     let app_dir = temp_dir("qa-world-service-application");
     fs::create_dir_all(&app_dir).unwrap();
     if matches!(

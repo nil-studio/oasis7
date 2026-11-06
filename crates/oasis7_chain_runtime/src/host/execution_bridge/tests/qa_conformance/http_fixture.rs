@@ -1,5 +1,6 @@
 //! Bounded real TCP request reader; unused speculative connections carry no request.
 use super::*;
+use fixture_failure_diagnostics::{self as failure, Stage as FailureStage, Worker};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -127,19 +128,25 @@ pub(super) fn serve_listener<F>(
     concurrent: Arc<AtomicBool>,
     gate: Arc<WorldGate>,
     handler: Arc<F>,
+    diagnostics: Arc<failure::Diagnostics>,
 ) where
     F: Fn(TcpStream) + Send + Sync + 'static,
 {
+    let _failure_scope = failure::Scope::listener(diagnostics);
     let mut workers: Vec<thread::JoinHandle<thread::ThreadId>> = Vec::new();
     let mut failed = false;
     while !halt.load(Ordering::SeqCst) {
         let mut index = 0;
         while index < workers.len() {
             if workers[index].is_finished() {
+                failure::at(FailureStage::ListenerJoin);
                 let result = workers.swap_remove(index).join();
                 eprintln!("fixture_connection_worker_ok={}", result.is_ok());
                 match result {
-                    Ok(worker_id) => gate.connection_worker_joined(worker_id),
+                    Ok(worker_id) => {
+                        failure::at(FailureStage::JoinedCallback);
+                        gate.connection_worker_joined(worker_id);
+                    }
                     Err(_) => failed = true,
                 }
             } else {
@@ -150,34 +157,50 @@ pub(super) fn serve_listener<F>(
             thread::sleep(Duration::from_millis(2));
             continue;
         }
+        failure::at(FailureStage::Accept);
         match listener.accept() {
             Ok((stream, _)) if concurrent.load(Ordering::SeqCst) && gate.concurrent_ready() => {
                 let handler = handler.clone();
                 let worker_gate = gate.clone();
+                failure::at(FailureStage::Spawn);
+                let context = failure::child(Worker::Connection);
                 workers.push(thread::spawn(move || {
+                    let _failure_scope = failure::Scope::enter(context);
                     handler(stream);
+                    failure::at(FailureStage::ConnectionFinished);
                     worker_gate.connection_worker_finished();
                     thread::current().id()
                 }));
             }
             Ok((stream, _)) => {
+                failure::at(FailureStage::SerialDispatch);
+                let _failure_scope = failure::Scope::enter(failure::child(Worker::SerialConnection));
                 handler(stream);
+                failure::at(FailureStage::ConnectionFinished);
                 gate.connection_worker_finished();
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(2));
             }
-            Err(error) => panic!("accept: {error}"),
+            Err(error) => {
+                failure::io_error(&error);
+                panic!("accept: {error}");
+            }
         }
     }
     for worker in workers {
+        failure::at(FailureStage::ListenerJoin);
         let result = worker.join();
         eprintln!("fixture_connection_worker_ok={}", result.is_ok());
         match result {
-            Ok(worker_id) => gate.connection_worker_joined(worker_id),
+            Ok(worker_id) => {
+                failure::at(FailureStage::JoinedCallback);
+                gate.connection_worker_joined(worker_id);
+            }
             Err(_) => failed = true,
         }
     }
+    failure::at(FailureStage::ListenerFailed);
     assert!(!failed, "actual fixture connection worker failed");
 }
 #[derive(Default)]
@@ -191,7 +214,7 @@ impl Outage {
             return false;
         }
         self.observed.store(true, Ordering::SeqCst);
-        stream.shutdown(std::net::Shutdown::Both).unwrap();
+        failure::observe_io(stream.shutdown(std::net::Shutdown::Both)).unwrap();
         true
     }
 }
@@ -211,6 +234,7 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {
+        failure::at(FailureStage::ReadRequest);
         let n = match stream.read(&mut buffer) {
             Ok(0) if bytes.is_empty() => return Vec::new(),
             Ok(n) => n,
@@ -223,12 +247,17 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Vec<u8> {
             {
                 return Vec::new();
             }
-            Err(error) => panic!("incomplete HTTP fixture request: {error}"),
+            Err(error) => {
+                failure::io_error(&error);
+                panic!("incomplete HTTP fixture request: {error}");
+            }
         };
         assert!(n > 0, "truncated request");
         bytes.extend_from_slice(&buffer[..n]);
+        failure::request_bytes(bytes.len());
         assert!(bytes.len() <= 262_144 + 8192, "unbounded request");
         if let Some(end) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+            failure::at(FailureStage::ParseRequest);
             let header = std::str::from_utf8(&bytes[..end]).unwrap();
             let length = header
                 .lines()
@@ -328,10 +357,8 @@ pub(super) fn configure_accepted_stream(stream: &TcpStream) {
             flags & 4 != 0
         );
     }
-    stream.set_nonblocking(false).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .unwrap();
+    failure::observe_io(stream.set_nonblocking(false)).unwrap();
+    failure::observe_io(stream.set_read_timeout(Some(Duration::from_secs(2)))).unwrap();
 }
 
 // Opt-in real receive-boundary oracle, keyed by this fixture's unique trace Arc.

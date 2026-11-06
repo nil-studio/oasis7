@@ -33,8 +33,12 @@ impl CleanupDeadline {
         }
     }
 
-    pub(super) fn fail(self, reason: &'static str) -> ! {
-        terminate(self.stage, reason)
+    pub(super) fn fail_with_diagnostics(
+        self,
+        reason: &'static str,
+        diagnostics: &fixture_failure_diagnostics::Diagnostics,
+    ) -> ! {
+        terminate_with_diagnostics(self.stage, reason, Some(diagnostics))
     }
 
     /// Only call after all owned workers have joined and resources have stopped.
@@ -60,6 +64,14 @@ impl Drop for CleanupDeadline {
 }
 
 fn terminate(stage: &'static str, reason: &'static str) -> ! {
+    terminate_with_diagnostics(stage, reason, None)
+}
+
+fn terminate_with_diagnostics(
+    stage: &'static str,
+    reason: &'static str,
+    diagnostics: Option<&fixture_failure_diagnostics::Diagnostics>,
+) -> ! {
     // A blocked stderr must not turn the timeout diagnostic into another hang.
     // This last-resort thread owns no fixture state and always exits the process.
     if thread::Builder::new()
@@ -74,6 +86,9 @@ fn terminate(stage: &'static str, reason: &'static str) -> ! {
     // Bypass libtest capture. This diagnostic is best-effort: the fail-closed
     // exit must still win if stderr is blocked or its writer is descheduled.
     let _ = write_diagnostic(&mut std::io::stderr(), stage, reason);
+    if let Some(diagnostics) = diagnostics {
+        let _ = diagnostics.write(&mut std::io::stderr());
+    }
     // Exit the test process rather than dropping JoinHandles or unwinding through
     // a poisoned fixture. The outer process supervisor owns its remaining tree.
     std::process::exit(CLEANUP_EXIT_CODE)

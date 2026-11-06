@@ -19,7 +19,7 @@ impl Fixture {
         if result.is_err() {
             // A listener panic may have dropped still-live connection handles.
             // Do not release the scenario permit on an unproven worker cleanup.
-            cleanup.fail("listener_join_failed");
+            cleanup.fail_with_diagnostics("listener_join_failed", &self.failure_diagnostics);
         }
         cleanup.complete();
         if poisoned {
