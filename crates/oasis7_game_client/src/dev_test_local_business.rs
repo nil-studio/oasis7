@@ -48,6 +48,20 @@ fn trusted_envelope(request: ModelRequest, credential: &str) -> Result<Vec<u8>, 
         serde_json::from_value(value.clone()).map_err(|_| "invalid_local_tool_request")?;
     serde_json::to_vec(&value).map_err(|_| "invalid_local_tool_request")
 }
+// Once forwarding begins, transport failure cannot establish business rejection.
+#[cfg(any(target_os = "linux", test))]
+fn forwarded_result(
+    result: Result<Value, String>,
+    operation_id: Option<&str>,
+    session_ref: Option<&str>,
+) -> Value {
+    result.unwrap_or_else(|_| serde_json::json!({
+        "status":"unknown",
+        "original_request_id":operation_id,
+        "session_ref":session_ref,
+        "next":"retain_original_request_id_and_body; use_lookup_for_original_operation_under_current_authorization; do_not_resubmit_as_new_operation"
+    }))
+}
 #[cfg(target_os = "linux")]
 pub fn serve(
     socket: &std::path::Path,
@@ -79,7 +93,7 @@ pub fn serve(
             max_request_bytes: config.service.max_request_bytes,
             timeout: Duration::from_millis(config.service.timeout_ms),
         };
-        let result = (|| -> Result<Value, String> {
+        let prepared = (|| -> Result<_, String> {
             let body = transport::receive_until(&mut stream, &policy, deadline)?;
             let request = decode(&body)?;
             let now = std::time::SystemTime::now()
@@ -93,11 +107,21 @@ pub fn serve(
                 .iter()
                 .find(|c| c.caller_id == caller_id && !c.revoked && now < c.expires_at_unix)
                 .ok_or("unauthorized")?;
+            let operation_id = request.operation.as_ref().map(|op| op.request_id.clone());
+            let session_ref = request.session_ref.clone();
             let bytes = trusted_envelope(request, &credential.token)?;
-            crate::dev_test_service::call_serialized_until(&config.service.socket, &bytes, deadline)
+            Ok((bytes, operation_id, session_ref))
         })();
-        let value = match result {
-            Ok(value) => value,
+        let value = match prepared {
+            Ok((bytes, operation_id, session_ref)) => forwarded_result(
+                crate::dev_test_service::call_serialized_until(
+                    &config.service.socket,
+                    &bytes,
+                    deadline,
+                ),
+                operation_id.as_deref(),
+                session_ref.as_deref(),
+            ),
             Err(_) => {
                 serde_json::json!({"status":"local_request_denied","next":"retain_request_and_check_current_local_authorization"})
             }
@@ -160,6 +184,22 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn forwarded_failure_preserves_original_identity_as_unknown() {
+        let value = forwarded_result(
+            Err("synthetic transport loss".into()),
+            Some("move-A"),
+            Some("session-A"),
+        );
+        assert_eq!(value["status"], "unknown");
+        assert_eq!(value["original_request_id"], "move-A");
+        assert_eq!(value["session_ref"], "session-A");
+        let committed = serde_json::json!({"status":"ok","result":{"goal_text":"full goal","soft_constraints":["constraint"]}});
+        assert_eq!(
+            forwarded_result(Ok(committed.clone()), Some("context-A"), Some("session-A")),
+            committed
+        );
+    }
     #[test]
     fn model_cannot_select_credentials_management_or_paths() {
         for field in [

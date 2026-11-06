@@ -19,6 +19,7 @@ def backend():
             body=b''
             while chunk:=stream.recv(4096): body+=chunk
             value=json.loads(body); assert value.pop('credential')==token; records.append(value)
+            if value.get('operation',{}).get('request_id')=='drop-move-A': continue
             stream.sendall(json.dumps(dict(status='ok',result=dict(status='unknown',echo=value))).encode())
 thread=threading.Thread(target=backend);thread.start()
 def identity(uid):
@@ -51,11 +52,16 @@ try:
     assert call(dict(method='accounts',credential='forbidden')).returncode!=0
     request=dict(jsonrpc='2.0',id=7,method='tools/call',params=dict(name='dev_test_accounts_call',arguments=dict(method='lookup',session_ref='A',operation=dict(request_id='lookup-A',arguments=dict(kind='lookup',original_request_id='move-A')))))
     reply=call(request,stdio=True);assert reply.returncode==0,reply.stderr
-    assert 'unknown' in json.loads(reply.stdout)['result']['content'][0]['text'];assert len(records)==10
+    assert 'unknown' in json.loads(reply.stdout)['result']['content'][0]['text'];assert len(records)==11
+    lost=dict(method='move',session_ref='A',operation=dict(request_id='drop-move-A',arguments=dict(kind='move',context_request_id='context-A',to=[1,0,0])))
+    unknown=json.loads(call(lost).stdout)
+    assert unknown['status']=='unknown' and unknown['original_request_id']=='drop-move-A' and unknown['session_ref']=='A'
+    assert 'lookup' in unknown['next'] and len(records)==11
+    assert records[-1]==lost
     for mutation in ['revoked','expired']:
         config['service']['credentials'][0]['revoked']=mutation=='revoked'
         if mutation=='expired':config['service']['credentials'][0]['expires_at_unix']=1
-        save(); assert json.loads(call(dict(method='accounts')).stdout)['status']=='local_request_denied';assert len(records)==10
+        save(); assert json.loads(call(dict(method='accounts')).stdout)['status']=='local_request_denied';assert len(records)==11
     check=subprocess.run([sys.executable,'-c','import pathlib,sys; pathlib.Path(sys.argv[1]).read_bytes()',str(policy)],preexec_fn=identity(1001),capture_output=True)
     assert check.returncode!=0
     print('PASS: nine closed methods, exact IDs/body, stdio unknown, cross-UID denial, secret rejection, expiry/revocation, private policy inaccessible; synthetic backend only')
