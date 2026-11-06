@@ -227,7 +227,7 @@ pub fn handle(
     now: u64,
     deadline: std::time::Instant,
 ) -> Result<serde_json::Value, String> {
-    use crate::dev_test_service::{authenticate_token, dispatch_authenticated, AUDIENCE, PROFILE};
+    use crate::dev_test_service::{AUDIENCE, PROFILE, authenticate_token, dispatch_authenticated};
     let caller = authenticate_token(&config.service, &request.credential, now)?;
     if request.method == "accounts" {
         if request.grant_ref.is_some()
@@ -454,13 +454,17 @@ mod tests {
         assert!(sessions.authorize(&bref, "other", &b, "task", 2).is_err());
         let mut revoked = grant.clone();
         revoked.enabled = false;
-        assert!(sessions
-            .authorize(&a, "caller", &revoked, "task", 2)
-            .is_err());
-        assert!(Sessions::new()
-            .unwrap()
-            .authorize(&a, "caller", &grant, "task", 2)
-            .is_err());
+        assert!(
+            sessions
+                .authorize(&a, "caller", &revoked, "task", 2)
+                .is_err()
+        );
+        assert!(
+            Sessions::new()
+                .unwrap()
+                .authorize(&a, "caller", &grant, "task", 2)
+                .is_err()
+        );
         sessions.close(&a, "caller").unwrap();
         assert!(sessions.authorize(&a, "caller", &grant, "task", 2).is_err());
     }

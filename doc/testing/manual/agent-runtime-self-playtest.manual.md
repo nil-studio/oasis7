@@ -266,7 +266,7 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 `dev-test-catalog-register --directory <0700目录> --identity-config <0600配置> --operation <登录原操作ID> --alias <别名>` 核验当前 /session 主体并登记；同账号与环境返回稳定 account_ref，重复登记不得替换凭据主体。别名可修改。`dev-test-catalog-list --directory <目录>` 只展示非秘密引用、账号、环境、公开key与别名，不输出凭据路径或原登录引用。列表是登记投影，不能代替当前权限。目录中的 catalog.json 及锁和临时文件只供可信运营者访问；实际凭据保持在既有加密库，不复制私钥或Cookie。
 
-真实A/B隔离身份环境尚未核验；受控身份服务测试不能代签合法账号登记验收。
+真实A/B隔离原生身份登记已由#5534核验；本项继续以同一有限环境验证账号只读服务。受控身份服务测试或静态目录不能代签合法账号登记，实际证据按对应固定source/build记录。
 
 ### 多账号只读会话（#5535）
 
@@ -274,7 +274,7 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 `oasis7_dev_test_sessions --call APPROVED_SOCKET` 从可信宿主stdin接收credential、method及可选grant_ref/session_ref/expires_at_unix。method仅有accounts、open、close、describe、task、capabilities。session_ref不能单独认证。打开和业务读取复核目录原生current_account与Executor配置的实际身份、环境和fence，再复用正式Client；不调用context、不写世界。累计用量复用共同grant/caller账本，不随session或别名变化。普通重启清空内存会话，保留账本；管理者确认旧进程停止后清理遗留socket再启动。
 
-本候选仅以空目录实际CLI查询验证认证拒绝、服务启动和重启累计用量连续；会话单测不等于真实A/B读取。当前真实A/B/C原生登录、获准world/task/resource和读取证据均待准备，未声明#5535完成。正式A/B读取与外部消费者的整体验收仍待补齐，不能因Draft或局部测试而关闭子项。真实消费者不得使用空目录或mock代签。
+固定组合 `2f292a3926da2f171593ea693d5f7475eb526049` 与目录／原生环境前置 `7193eb838ba088c0d0e3e138770c50d5755317a9` 已完成真实A/B读取、A→B→A、重启／累计用量／关闭／停用／到期边界及合法新增C不改变旧A/B会话、授权和用量；相关说明见 PR #5552。该证据来自受控原生CLI消费者，没有以空目录或mock代签。后续真实外部模型使用由#5538/#5539承接，当前仍blocked；本只读前置不声明外部模型或世界写入通过。合入真实main后的本次检查只证明代码整合，不改写既有受测source/build组合。
 
 运行中的策略仅通过可信运营者命令更新：`oasis7_dev_test_sessions --apply PRIVATE_CONFIG CANDIDATE_CONFIG`、`--disable-account PRIVATE_CONFIG ACCOUNT_REF`、`--enable-account PRIVATE_CONFIG ACCOUNT_REF`。命令与只读worker共用控制/准入锁；账号状态持久化到目录，策略及其授权版本先持久化后报告成功。变更授权范围或重新启用递增版本使旧会话失效，新增无关grant不改旧grant版本。启用账号不会自动启用其旧授权。不得绕过这些命令直接编辑运行中的策略或停用状态；普通账号登记/别名变更继续用既有目录入口，目录写入共用catalog.lock。
 
