@@ -95,7 +95,7 @@ fn verify_live_task_evidence_retention(
         )
         .is_err()
     );
-    let latest_record_path = checkpoint::execution_bridge_record_path(&dir.join("records"), 40);
+    let latest_record_path = checkpoint::execution_bridge_record_path(&dir.join("records"), tip);
     let latest_record =
         checkpoint::load_execution_bridge_record(latest_record_path.as_path()).unwrap();
     assert!(

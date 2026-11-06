@@ -637,6 +637,11 @@ fn validate_authority_pin(
         if let Some(binding) = binding.filter(|binding| {
             binding.finality_status == "pending" && binding.finality_block_hash.is_none()
         }) {
+            // Invalidation deliberately preserves the old binding until an
+            // explicit rebind. It is historical, not current admission authority.
+            if world.cognition().get("reorg_invalidation_epoch").is_some() {
+                return Err(CognitionValidationError::new("recovery_pending"));
+            }
             // A canonical DevLocal bootstrap binding is an explicit authority
             // source. Tick/chain scheduling epochs are not its finality epoch.
             // Matching every field also prevents request text from inventing a

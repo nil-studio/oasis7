@@ -735,12 +735,12 @@ fn admit_initial_context_prefix(inputs: InitialPrefixInputs<'_>) {
     // Preserve the original signed preparation; subsequent reads must still
     // verify its capture receipt and return a fresh public observation bundle.
     if prefix_revision == 1 {
-        commit_empty_context_block(driver, 41);
+        commit_empty_context_block(driver, age + 6);
         assert!(driver.execution_world.state().time > prefix.captured_base_binding.base_tick);
     } else {
         // Legacy exact-base admission still needs contiguous commit history,
         // but its intervening administrative block must preserve the base.
-        commit(driver, 41, create.clone());
+        commit(driver, age + 6, create.clone());
     }
     let public = serde_json::to_string(&prefix).unwrap();
     for secret in [

@@ -130,6 +130,10 @@ fn pending_bootstrap_does_not_override_real_capability_authority() {
 fn pending_bootstrap_cannot_bypass_missing_verified_retained_history() {
     let mut world = pending_world();
     world.initialize_empty_formal_history().unwrap();
+    // C0 is a verified empty view in-process. A restart must attach its
+    // verified reader again; serde intentionally omits process-local readers.
+    world = serde_json::from_value(serde_json::to_value(&world).unwrap()).unwrap();
+    assert!(world.state().retained_history_root.is_some());
     let base = world.current_cognition_base_binding().unwrap();
     assert_eq!(
         validate_native_task_base_authority(&world, &base)
@@ -137,4 +141,33 @@ fn pending_bootstrap_cannot_bypass_missing_verified_retained_history() {
             .code(),
         "recovery_pending"
     );
+}
+
+#[test]
+fn pending_bootstrap_is_fenced_during_real_reorg_and_requires_explicit_rebind() {
+    let mut world = pending_world()
+        .try_with_cognition_scheduler(
+            crate::SchedulerPolicyV1 {
+                schema_version: crate::SchedulerPolicyV1::SCHEMA_VERSION.into(),
+                max_total_wakes_per_tick: 1,
+                max_wakes_per_agent_per_tick: 1,
+                aging_after_ticks: 1,
+                max_starvation_ticks: 1,
+                initial_priority: 0,
+                comparator: crate::SchedulerPolicyV1::COMPARATOR.into(),
+                service_order: crate::SchedulerPolicyV1::SERVICE_ORDER.into(),
+            },
+            1,
+        )
+        .unwrap();
+    let old = world.current_cognition_base_binding().unwrap();
+    world.invalidate_cognition_for_reorg(1).unwrap();
+    assert_eq!(world.cognition()["reorg_invalidation_epoch"], 1);
+    assert!(validate_native_task_base_authority(&world, &old).is_err());
+    world
+        .bind_cognition_runtime("bootstrap-epoch-world", "main", 0, None, "pending", 1)
+        .unwrap();
+    assert!(validate_native_task_base_authority(&world, &old).is_err());
+    let current = world.current_cognition_base_binding().unwrap();
+    assert!(validate_native_task_base_authority(&world, &current).is_ok());
 }
