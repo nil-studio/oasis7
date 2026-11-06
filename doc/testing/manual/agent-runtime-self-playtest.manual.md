@@ -298,3 +298,26 @@ Refs #5076、#5536。Trace refs: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5。�
 SDK的新增until入口在阶段切换和重试间检查服务时限及授权截止期，旧API行为保留。单次已发HTTP可能在截止后完成，服务保留unknown及唯一执行名额到实际返回，不能声称取消。
 
 局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
+
+
+### 本地受限接入准备（#5532）
+
+Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同入口前置 #5531 固定提交 `03a5c97231f56718f8586a41d74b4dc0494fd2b1`。
+
+本适配仅面向 Linux。可信服务主体保管私有配置与凭据；模型运行在不同 UID 下，只能访问本地工具 socket。管理员固定调用 UID 与 `caller_id` 的映射；模型请求只有 `profile`、`audience`、`method`，未知字段拒绝。内核 `SO_PEERCRED` 先验证 UID，再读取有限请求。
+
+可信代理逐次读取私有配置并核对有效期／撤销，然后向唯一共同服务的私有 socket 转发认证请求。共同服务执行累计准入，代理不单设可重置用量。凭据只存在可信进程内存；模型输出仅重新编码共同 `Response` 的非秘密字段。管理操作不在本地工具集合中。
+
+管理员须准备服务拥有且其他主体不可写的 socket 目录，模型主体只有遍历和连接权限。凭据目录另置 `0700`，配置文件 `0600`。不得把真实凭据置于模型工作目录、参数、环境、工具输出或日志。已有 broker 的同 UID／`0600` 行为不改变。
+
+启动顺序为先启动共同私有服务，再以相同可信 UID 启动本地代理，最后由不同模型 UID 经 CLI／IPC 发出 `capabilities` 请求。模型不得访问启动管理面。模型侧使用 `dev-test-local-call --socket <固定路径>`，只接受无秘密的 LocalRequest；它验证受信祖先和服务内核 peer，并以绝对时限调用。共同 `dev-test-call` 接受含凭据的可信Request，不能替代此模型侧命令。
+
+#### 当前验证边界
+
+2026-11-06 已恢复 Docker 并使用 Linux arm64 / Rust 1.96.0 实际构建。canonical Cargo 参数使用 `--offline --locked -p oasis7_game_client --target aarch64-unknown-linux-gnu`。默认 bfd 链接 lib test 被系统 signal 9 终止；保留缓存并对最终 target 使用 rustc 自带 lld（`cargo rustc ... -- -C link-arg=-B<lld目录> -C link-arg=-fuse-ld=lld`），不是测试通过替代证据。
+
+Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_test_local_linux.py <Linux CLI路径>` 在 root 可信进程和 UID 1001／1002 模型进程之间实际验证：获准主体取得能力、未获准主体拒绝、当前配置与同边界凭据夹具不可读、用途／版本拒绝、持续滴流按绝对时限退出且重连可用、当前撤销与过期拒绝。夹具仅使用合成材料，需在隔离 Linux 容器以 root 运行；不是实际外部 Agent。
+
+请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
+
+真实 Codex 模型接入仍未完成。已在独立 Linux 容器安装并验证 Codex CLI 0.137.0（固定 npm 包），模型 UID 1001 独立 HOME；根拥有的 stdio MCP 夹具仅注册 `dev_test_capabilities`，关闭 shell、unified_exec、multi_agent、apps、plugins、浏览器和 hooks。`codex mcp list` 与实际 UID 的 MCP→本地 CLI→IPC 预检通过；未发生模型调用。当前 UID 登录状态为 Not logged in，未发现可复用的获准有界 API key／可信 Responses 代理，真实模型认证与费用预算仍待准备。不能复制宿主认证或把业务服务凭据交给模型补齐该缺口。实际消费者、共享用量组合及合法账号业务后继仍分别验收；本项保持未完成。
