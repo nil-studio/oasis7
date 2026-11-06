@@ -76,7 +76,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         &std::fs::read(&credential).map_err(|_| "identity_configuration_unavailable")?,
     )
     .map_err(|_| "invalid_identity_configuration")?;
-    let environment = format!("{}:{}", config.identity_service_id, config.environment_id);
+    let environment = serde_json::to_string(&(&config.identity_service_id, &config.environment_id))
+        .map_err(|_| "invalid_identity_environment")?;
     if std::io::stdin().is_terminal() {
         return Err("trusted_private_stdin_required".into());
     }
@@ -97,11 +98,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if let Some(existing) = accounts.iter_mut().find(|a| a.account_ref == account_ref) {
         if existing.public_key != public_key
             || existing.credential_ref != credential.to_string_lossy()
-            || existing.login_operation != args[6]
         {
             return Err("credential_binding_conflict".into());
         }
         existing.alias = args[8].clone();
+        existing.login_operation = args[6].clone();
     } else {
         accounts.push(Account {
             account_ref: account_ref.clone(),
@@ -132,4 +133,18 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     crate::device_client::print(
         &serde_json::json!({"account_ref":account_ref,"state":"registered"}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn environment_tuple_preserves_service_and_environment_boundaries() {
+        let first = serde_json::to_string(&("a:b", "c")).unwrap();
+        let second = serde_json::to_string(&("a", "b:c")).unwrap();
+        assert_ne!(first, second);
+        let key = |environment: &str| {
+            blake3::hash(&serde_json::to_vec(&(environment, "same-account")).unwrap())
+        };
+        assert_ne!(key(&first), key(&second));
+    }
 }
