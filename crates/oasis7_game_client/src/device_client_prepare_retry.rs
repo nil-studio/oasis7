@@ -39,10 +39,22 @@ impl Client {
         &self,
         original: &SignedReadRequest<TaskContextPrepareV1>,
     ) -> Result<PreparedTaskContextV1, String> {
+        self.prepare_original_bounded(original, None)
+    }
+    pub(super) fn prepare_original_bounded(
+        &self,
+        original: &SignedReadRequest<TaskContextPrepareV1>,
+        deadline: Option<Instant>,
+    ) -> Result<PreparedTaskContextV1, String> {
+        let window = deadline.map_or(polling::POLL_WINDOW, |deadline| {
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(polling::POLL_WINDOW)
+        });
         retry_original(
             original,
             |original| self.remote.prepare_task_context(original),
-            polling::POLL_WINDOW,
+            window,
             polling::POLL_ATTEMPTS,
         )
         .map_err(|error| {

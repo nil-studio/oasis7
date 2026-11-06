@@ -281,3 +281,37 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 本服务显式限制同时在途worker为1。每请求有绝对总应答deadline，控制锁等待也受该deadline约束；下游超时报告unknown。已进入原生只读Client的请求不能伪称已取消，它在可信worker内完成或按原生超时结束前仍占用唯一名额并持有控制锁；避免重复新调用及后台worker无界积累。身份复核后、业务准入前再次核对当前时间，禁止在已过期的本次期限后新准入。控制命令等待该已准入边界结束后才报告停用完成，不承诺取消已在途的合法读取。真实有限并发和超时还需在实际A/B世界组合复核。
 
 策略中的grant_generation_high_water由可信管理入口维护并持久保存，包括已移除的grant_ref；不能删掉该历史。移除后重新添加同名授权必须采用更高代数，旧session_ref不会复活。executor_config_digest是可信宿主为执行器配置原始bytes固定的BLAKE3摘要；读取从同一受信fd取得bytes后核对pin，完整配置（含task fence）变化立即拒绝，管理员更新pin时升授权版本并建立新会话。不可把同resource名字仍相同视为原资源合同仍相同。
+
+### 固定写工具与原操作恢复（#5536，候选）
+
+Refs #5076、#5536。Trace refs: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5。固定前置 #5552 的 `2f292a3926da2f171593ea693d5f7475eb526049`，真实世界证据按下述固定组合记录，外部模型验收仍blocked。
+
+可信管理者在会话授权中明确 `methods` 的 `context`／`move`／`lookup`，以及 `move_targets` 的有限厘米坐标列表；默认没有写权限。更新目标列表使旧会话失效，扩大权限须重新开会话。模型只提交固定字段，不提供账号配置、origin、原始Action或解锁。以下是可信宿主注入认证后的结构示意，坐标必须先从实际隔离世界核验：
+
+```json
+{"credential":"<trusted-host-injected>","method":"context","session_ref":"<session>","operation":{"request_id":"context-A-1","arguments":{"kind":"context"}}}
+{"credential":"<trusted-host-injected>","method":"move","session_ref":"<session>","operation":{"request_id":"move-A-1","arguments":{"kind":"move","context_request_id":"context-A-1","to":[1,0,0]}}}
+{"credential":"<trusted-host-injected>","method":"lookup","session_ref":"<session>","operation":{"request_id":"lookup-A-1","arguments":{"kind":"lookup","original_request_id":"move-A-1"}}}
+```
+
+每次获准工具请求（包括同ID重放）均消耗累计调用额度；去重只复用原操作，不创造免费重试或读取权。原request ID／正文摘要、账号／环境／世界／资源、Executor及完整fence身份、原生context引用和用量在同一usage锁内一次持久提交后才允许SDK发送。原数字用量记录迁移为版本化 `{version, used, operations}`，保留已有计数；已初始化的记录丢失时返回unknown，不当作零。须停止使用该目录的旧版服务后升级；旧版不能把新格式解释为可重置额度。
+
+相同ID异正文或作用域拒绝；相同context不能预留第二个移动。首次发送复用Client的prepare／prefix／action原件缓存，重放与lookup只查现有原件；原件缺失或当前查询无权时保持unknown／拒绝，不签替代nonce。普通重启后旧session失效，当前有效新会话可按原ID查回同原操作，用量继续。关闭／停用不抹掉在途效果，也不赋予查询权。
+
+SDK的新增until入口在阶段切换、重试间和每个认证／业务HTTP发送前检查同一绝对服务时限及授权截止期；每个GET／POST的timeout取剩余时间上限。同步scope嵌套取更早期限，正常退出和panic恢复；新worker须显式进入scope，guard不能跨线程移动。旧API无scope时行为保留。已发请求的取消不能推定为原生操作取消，服务保留unknown及唯一执行名额到实际返回。
+
+Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验证身份前不能分配Move。Move及其Lookup继承同一目标与identity，恢复时核对原Prepare、Prefix、完整fence及Cognition的Action／上下文。缺原件或证明返回unknown；已知内容冲突拒绝，不回显无法重新证实的旧applied。原生MVCC的stale_base拒绝是该原件终态，不能更新base重签同RID；另起测试轮次须明确保留原拒绝与无效果证据并独立授权输入。
+
+仅首次获准Move且无原Action缓存时，内部首发路径在持久原件后直接执行一次Submit，再查询同原结果；不会在新captured base和首次Submit之间先翻页恢复历史。已有Action缓存、journal重放及崩溃后恢复全部只查询原件；缺缓存保持unknown，不重新签名或发送。此内部状态不能由工具参数选择，旧公开SDK API保留原恢复顺序；优化不保证跨网络／排队的MVCC窗口必然成功。
+
+成功的context及其原件恢复结果包含 `active_goal.content` 的完整 `goal_text`／`soft_constraints`，不裁剪为移动目标列表或界面摘要。`active_goal.source` 绑定同一TaskFence、active_goal_reference、Owner公钥、读取及激活commit；先复用SDK快照的Owner证明、私有目标摘要与激活引用验证，再核对当前context fence。证明缺失／损坏或来源不一致时拒绝或unknown，不返回无证明的目标。目标正文仅进入授权工具结果，不写入用量journal或服务诊断日志；恢复时重新读取并验证原生快照。消费者缺完整目标时须停止业务行动。
+
+原生prefix的canonical Committed与当前私有context可用性是两个状态。原结果查询已证实Committed后，lease过期、私有读取失败或目标证明不可用不覆盖该原终态；返回原operation及correlation，并单独标注 `usable_context=false`、`context_state=unavailable`，不附无证明目标、不创建替代context／nonce。只有私有快照当前仍可验证时才返回 `usable_context=true` 和完整目标；消费者不得用不可用context继续新动作。
+
+可信宿主可用 `dev_test_original_context_inspect_5536` example 检查已有原件：参数仅为私有Executor配置和既有native context引用，unlock仅从可信stdin读取。它读取已有Prepare／Prefix／Action缓存，离线核对原Prepare签名与作用域，并发送同fence的只读TASK_SNAPSHOT及task_fence读取；不调用Prepare、Prefix提交或Move。输出仅固定类别、布尔、摘要和公开commit，不输出私钥／Cookie／目标正文。Transport只能说明该次读取不可用，不能倒推初次Prepare的HTTP原因；启动窗口结束和业务失败须分开记录。
+
+局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
+
+实际Linux验证使用本项生产源码 `0e0eb8f83dcc8c5f215eefdf836d590775e6a49d`（后续 `083c66c` 仅新增只读诊断）与独立原生修复 `149cf00fc3501bbde1860dba4dc8ae1eeff884f7` 的无trace Runtime/chain binary。原world/genesis/pin不变：A的唯一目标 `[1,0,0]` 由 `action:4` 与canonical `AgentMoved id66 / tick264` 对应；B原轮和B2的stale_base拒绝、B3的过期Prepare unknown原件保留，不重签。经明确授权的B4独立有界轮先验证完整目标/source/fence/usable，再唯一首发Move并故意丢工具回复；重启新session Lookup及同RID/body replay均恢复同原Committed，`action:5`、actorB及原context commitment对应唯一 `AgentMoved id134 / tick640`。累计用量39→47/64，A未再次移动，无B5。权威恢复读取commit位置641与实际执行tick640分列，不以最终位置代签效果；完整证据见PR #5553 comment6690361833。
+
+本地业务适配固定 `57cb089aaf79575f1615120f11411303acd4a653`（#5538）通过真实UID1001的IPC call open+lookup原B4、stdio再次lookup同RID读取同原Committed；UID1002传输拒绝不计费，模型不可读policy/unlock/SDK配置。累计47→50/64，权威AgentMoved仍2条，无新Context/Move/replay。source/build/有限只读RunInput和清理receipt见PR #5554 comment6690887674。此为受控真实进程消费链，真实外部模型仍blocked，未启动模型或付费。
