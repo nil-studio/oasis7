@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
+        拆出的开发任务须创建或复用本类 Issue，并在 GitHub 建立真实 parent/sub-issue 关系后领取；正文链接或 checkbox 不代替原生关系。见[子任务跟踪规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
   - type: dropdown
     id: issue_type
@@ -27,7 +28,7 @@ body:
     id: sources_scope
     attributes:
       label: "来源与范围"
-      description: "公开来源链接与固定版本；本次范围、非目标、实际消费者与接口边界。勿上传凭据或敏感日志。"
+      description: "公开来源链接与固定版本；本次范围、非目标、实际消费者与接口边界。子任务写明父 Issue，并核对 GitHub parent 关系。勿上传凭据或敏感日志。"
     validations:
       required: true
   - type: textarea
@@ -62,10 +63,10 @@ body:
     id: parallel_plan
     attributes:
       label: "任务拆分（复杂任务适用）"
-      description: "按可验证代码任务逐项说明，阶段名或模块名不足以直接派工；子项仍有多个独立结果时继续拆分，必要原子改动说明具体耦合。需独立跨会话领取、交接、等待依赖或验收的结果关联代码子 Issue；短任务可用父项清单，简单任务由前文表达即可。指定当前可启动项与整体集成负责人；任务与 PR 不要求一一对应。"
+      description: "拆出的开发任务逐项创建或复用代码 Issue，并通过 GitHub 原生 sub-issue 关系挂到父项，派发前回读确认。阶段名或模块名不足以直接派工；仍含多个独立结果时继续拆分，必要原子改动说明具体耦合。子项分别维护领取、状态、PR 和验收；指定当前可启动项、依赖及整体集成负责人。未拆分的简单任务由前文表达即可，任务内部步骤可用清单；任务与 PR 不要求一一对应。"
       placeholder: |
         父目标及最终集成验收 / 整体负责人：
-        子 Issue 或清单项 / 一个可观察结果及对应验收：
+        父 Issue / 原生 sub-issue 链接及关系核对 / 一个可观察结果及对应验收：
         本次范围、非目标 / 消费入口与共享接口：
         实际输入版本 / 已具备或尚缺前置 / 负责人：
         可运行的验证入口、输入与结果观察 / 独立预期与验收准备现状：
