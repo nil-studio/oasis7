@@ -449,6 +449,7 @@ impl Client {
     }
     /// First attempt for the trusted tool journal only. Existing originals are
     /// recovery-only and can never enter this single-send path.
+    #[cfg(unix)]
     pub(crate) fn submit_new_action_until(
         &self,
         operation: &str,

@@ -301,6 +301,8 @@ Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验
 
 仅首次获准Move且无原Action缓存时，内部首发路径在持久原件后直接执行一次Submit，再查询同原结果；不会在新captured base和首次Submit之间先翻页恢复历史。已有Action缓存、journal重放及崩溃后恢复全部只查询原件；缺缓存保持unknown，不重新签名或发送。此内部状态不能由工具参数选择，旧公开SDK API保留原恢复顺序；优化不保证跨网络／排队的MVCC窗口必然成功。
 
+成功的context及其原件恢复结果包含 `active_goal.content` 的完整 `goal_text`／`soft_constraints`，不裁剪为移动目标列表或界面摘要。`active_goal.source` 绑定同一TaskFence、active_goal_reference、Owner公钥、读取及激活commit；先复用SDK快照的Owner证明、私有目标摘要与激活引用验证，再核对当前context fence。证明缺失／损坏或来源不一致时拒绝或unknown，不返回无证明的目标。目标正文仅进入授权工具结果，不写入用量journal或服务诊断日志；恢复时重新读取并验证原生快照。消费者缺完整目标时须停止业务行动。
+
 局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
 
 实际Linux候选验证（固定生产源码 `4273a7239adb60b0bcf5cae181ea10660646d039`）：沿既有A/B world、完整fence和Executor pin，A的唯一目标 `[1,0,0]` 已由原lookup committed receipt `action:4` 与canonical `AgentMoved id66 / tick264 / caused_by Action4` 对应核验，仅一次效果。B原Move及经明确授权的B2独立轮次均得到canonical `stale_base`终态，无B移动；保留原RID和账本，不自动创建B3。A/B各成功一次及成功B丢响应恢复仍未完成，不能关闭本项。受信夹具 `crates/oasis7_game_client/tests/fixtures/dev_test_write_cli_5536.py` 只在显式 `--execute-authorized` 且原始前置成立时运行；独立CAS观察器验证blob摘要并扫描全部canonical journal，不以最终位置代替事件／receipt关联。真实外部模型验收仍blocked。

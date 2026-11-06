@@ -80,6 +80,7 @@ impl Client {
     }
     /// Only a newly cached first attempt may skip recovery before its single send.
     /// A retry must use lookup/poll instead; this is not a consumer-controlled mode.
+    #[cfg(unix)]
     pub(crate) fn submit_new_and_poll_until(
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,

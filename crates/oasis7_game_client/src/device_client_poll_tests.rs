@@ -14,6 +14,7 @@ use std::{
 enum Fault {
     ImmediateCommitted,
     DropFirst,
+    #[cfg(unix)]
     DropSubmit,
     UnavailableOnce,
     WrongSignature,
@@ -22,6 +23,7 @@ enum Fault {
     Status(&'static str),
 }
 struct Probe {
+    #[cfg(unix)]
     context: TaskContextIdentityV1,
     client: Client,
     original: SubmitIntentRequest<WorldServicePayloadV1>,
@@ -202,6 +204,7 @@ impl Probe {
                             let submitted: SubmitIntentRequest<WorldServicePayloadV1> =
                                 serde_json::from_slice(&body).unwrap();
                             assert_eq!(submitted, expected);
+                            #[cfg(unix)]
                             if matches!(fault, Fault::DropSubmit) {
                                 continue;
                             }
@@ -278,6 +281,7 @@ impl Probe {
             }
         });
         Self {
+            #[cfg(unix)]
             context,
             client,
             original,
@@ -487,6 +491,7 @@ fn tool_polling_never_starts_a_retry_after_deadline() {
     assert!(probe.lookups.load(Ordering::SeqCst) <= 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn review_replayed_move_rejects_native_body_mismatch() {
     let probe = Probe::new_kind(Fault::ImmediateCommitted, OriginalKind::Action);
@@ -562,6 +567,7 @@ fn review_replayed_move_rejects_native_body_mismatch() {
     assert_eq!(probe.lookups.load(Ordering::SeqCst), 0);
 }
 
+#[cfg(unix)]
 #[test]
 fn trusted_new_send_is_single_attempt_then_original_queries_only() {
     let probe = Probe::new_kind(Fault::DropSubmit, OriginalKind::Action);
@@ -589,6 +595,7 @@ fn trusted_new_send_is_single_attempt_then_original_queries_only() {
     assert_eq!(probe.submits.load(Ordering::SeqCst), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn trusted_new_action_refuses_existing_cache_before_context_read_or_send() {
     let probe = Probe::new_kind(Fault::ImmediateCommitted, OriginalKind::Action);
@@ -623,6 +630,7 @@ fn trusted_new_action_refuses_existing_cache_before_context_read_or_send() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn trusted_fresh_journal_with_durable_action_is_query_only_even_after_crash() {
     use crate::dev_test_operations::{Arguments, Original, Scope};
