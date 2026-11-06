@@ -170,8 +170,12 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 fn main() {
-    if run().is_err() {
-        eprintln!("fixture_preparation_failed_retain_originals");
+    if let Err(error) = run() {
+        // SDK errors contain bounded protocol codes, never original HTTP bodies.
+        eprintln!(
+            "fixture_preparation_failed_retain_originals: {}",
+            error.chars().take(160).collect::<String>()
+        );
         std::process::exit(1)
     }
 }
