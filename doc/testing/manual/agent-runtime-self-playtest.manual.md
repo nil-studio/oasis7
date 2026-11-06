@@ -255,3 +255,11 @@ Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 请求仅接受 profile、audience=`oasis7-dev-test-tools`、credential、method=`capabilities`。错误版本、用途、过期、撤销与未知方法拒绝，未知字段拒绝。返回 accounts_available=false、writes_available=false。并发固定1；超时断开请求。只有成功能力调用消耗累计上限，拒绝流量不扣。用量按 grant_id 与 caller_id 在 usage_directory 中保存，跨入口共用锁及原子提交，先持久化再回复；重连、重启或更换 socket 均不清零。重启前由可信运营者确认旧进程终止并删除遗留 socket，保留整个用量目录。只有显式新授权可使用新 grant_id；目录不能换成空目录来恢复旧授权。正式账号会话由 #5535 承接。
 
 当前验证：macOS canonical cargo check、能力认证单测和真实服务/CLI调用；Linux Docker daemon 启动失败，Linux实际启动尚未完成。实际外部 Agent 未验证。
+
+### 可信运营者账号目录准备
+
+Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目录；不接模型工具认证或远程管理请求。先以既有 identity-init/register/login 准备账号，凭据保留既有加密 IdentityStore，解锁仅通过可信 stdin。
+
+`dev-test-catalog-register --directory <0700目录> --identity-config <0600配置> --operation <登录原操作ID> --alias <别名>` 核验当前 /session 主体并登记；同账号与环境返回稳定 account_ref，重复登记不得替换凭据主体。别名可修改。`dev-test-catalog-list --directory <目录>` 只展示非秘密引用、账号、环境、公开key与别名，不输出凭据路径或原登录引用。列表是登记投影，不能代替当前权限。目录中的 catalog.json 及锁和临时文件只供可信运营者访问；实际凭据保持在既有加密库，不复制私钥或Cookie。
+
+真实A/B隔离身份环境尚未核验；受控身份服务测试不能代签合法账号登记验收。
