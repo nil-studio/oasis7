@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "4c127ea30cedfcf715ee27baa3516dfaa8301e19ddb562fe0e015723c991e2a6",
+    "content_sha256": "86d8ab2e4770d79bee1a8742f197c21d56b99818edcb15c370c1fdb12c9827f3",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程唯一主责、既有 owner、disposition 与路由；未修改的验收准备、开发者自测、阶段整合和长时观测条款沿用既有静态审读结论。本次审读 §1、§2、§2.1、§2.3—2.5 的原生 sub-issue 跟踪与领取，以及 AGENTS、工程 PRD/design、项目管理记录方法、parallel-development、executing-project-tasks、TPM、dot 工作流与 Issue 整理、代码模板的直接承接。拆出的独立开发任务须建立或复用 type:code Issue 和真实父子关系，派发前回读；同会话、短任务及临时 worker 不豁免。父项承接总体范围、依赖和整体验收，子项记录自身认领、状态、会话、PR 与验收；父项 active 不代替子项领取，子 PR 不自动关闭父项。原生层级不证明前置满足，也不自动传播调度或标签；执行者仍核对适用授权、暂停及依赖。内部步骤和用例可用清单，未拆分的简单修改可直接 PR；追踪本身不另造任务身份，五类 Issue 与可选 TPM 队列边界保留。此次结论覆盖本次修改及直接消费者的静态一致性，不证明 GitHub 任务关系已迁移、真实领取已试用或收敛效率已改善。",
+    "note": "保留开发流程唯一主责及既有 owner、disposition 与路由；未修改的原生子任务、五类 Issue、认领交接、自测与整体交付规则沿用既有审读结论。本次有界审读 §2.5、parallel-development 和代码 Issue 模板，并核对 AGENTS、executing-project-tasks、TPM、Issue 分流、工程 design 与项目记录的直接承接。范围由具体条件或唯一固定来源确定，未定部分明确补齐动作及影响；按完成条件反查独立结果，必要原子性、真实消费者和本项拒绝恢复验收保留。任务验收保留主责合同的条件与副作用边界，设计变更仍回到原主责。仅拆分交付区分推进建议、已核验条件、实际认领和验证，待承接有下一步，已有授权继续有效且不要求全部子项同时就绪。父项保留索引、依赖与整体验收，子项保存具体输入和本项事实，模板不再重复完整任务内容。本次结论覆盖上述变更与直接消费者的静态一致性，不证明真实任务已调整、领取或验收，也不证明开发周期已经缩短。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"
