@@ -1034,11 +1034,11 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 <a id="uiux-interactive-prototype"></a>
 ### 10.10 三条可操作设计旅程（#5527）
 
-这一交付在既有深绿世界、金色单一主动作和按需 drawer 方向上补稿，不改变品牌 token 或生产 Viewer。核对基线为 `7df3d7d289789ee844c7486587fb49fd611968d4`；源目录仍保留自己的固定 revision，不将新设计稿计作新增已实现功能。实际入口/源码盘点沿[当前源目录](viewer-full-function-coverage-catalog.md)，当前生产页面截图尚未取得。
+这一交付在既有深绿世界、金色单一主动作和按需 drawer 方向上补稿，不改变品牌 token 或生产 Viewer。原稿合同核对基线为 `7df3d7d289789ee844c7486587fb49fd611968d4`；[源目录](viewer-full-function-coverage-catalog.md)继续固定在 `113868200d1f91bef1008babb689bd257f241428`，105 条源码条目的统计口径不变。本节另补[截至合入版本的玩家入口差异](#uiux-prototype-source-delta)，不将新设计稿计作新增已实现功能；当前生产页面截图尚未取得。
 
-可编辑原件为 [HTML 入口](assets/ui-ux/interactive/index.html)、[布局与组件 CSS](assets/ui-ux/interactive/prototype.css)和[本地交互状态 JavaScript](assets/ui-ux/interactive/prototype.js)，世界层加载相邻 `pixel-world/` 的 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)。离线复制时保留 `interactive/` 与 `pixel-world/` 两个相邻目录及这些文件，再打开 `interactive/index.html`；运行不需要构建、依赖安装或后端。共享素材的编辑／导出依赖和整数倍率规则见[像素设计源交接](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)。
+可编辑原件为 [HTML 入口](assets/ui-ux/interactive/index.html)、[布局与组件 CSS](assets/ui-ux/interactive/prototype.css)、[本地交互状态 JavaScript](assets/ui-ux/interactive/prototype.js)和[中英文展示文案](assets/ui-ux/interactive/prototype-i18n.js)，世界层加载相邻 `pixel-world/` 的 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)。离线复制时完整保留 `interactive/` 与 `pixel-world/` 两个相邻目录，再打开 `interactive/index.html`；运行不需要构建、依赖安装或后端。共享素材的编辑／导出依赖和整数倍率规则见[像素设计源交接](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)。
 
-也可从仓库根执行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux`，在同一机器访问 `http://127.0.0.1:8765/interactive/`。HTTP 根必须覆盖两个相邻目录，不能只服务 `interactive/`。页面顶部的旅程、评审情境、示例回读和供给读回属于设计评审工具，不进入玩家产品界面。
+也可从仓库根执行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux`，在同一机器访问 `http://127.0.0.1:8765/interactive/`。HTTP 根必须覆盖两个相邻目录，不能只服务 `interactive/`。页面顶部的旅程、评审情境、语言、文案模式、示例回读和供给读回属于设计评审工具，不进入玩家产品界面。
 
 原型全程使用已标注的设计 fixture，不读取账号、Key、模型、网络、真实库存或生产状态，不执行持久化。首次/回访仅模拟界面状态；刷新和切换评审情境会重置本地演示。原型中的原请求查询以“该查询已经获准且原件可读”为前置，不声称当前 Action Receipt 已有此按钮，也不扩展生产恢复协议。
 
@@ -1052,21 +1052,61 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 
 仅用 Tab/Shift+Tab 走进入、发送、查询、关闭、丢弃确认及取消；非模态 drawer 不锁焦点，确认使用原生 dialog。输入 CJK 多行、Enter/Shift+Enter、组合输入 Escape/229，核对没有误发送、误关面板和状态更新夺焦点。跳到游戏界面的链接只转焦点，不重置旅程或草稿。原回执按钮有稳定焦点位置；实际浏览器、原生输入法和辅助技术仍须分别取得证据。
 
-**本轮实际验证及未完成项。** 七张新 SVG 共十二个独立画面已用 Inkscape 渲染，并由非作者复核；原型已执行 25 项源级 JSDOM 操作验证，覆盖上述状态、归属、草稿保护和恢复。Prompt 与工业各自的非作者复审发现已修复并定向复核；布局审查修正了窄屏重叠、重复主按钮和关键文字过小。JSDOM 不计算真实布局，dialog 方法在该检查中仅模拟回调，不能证明原生模态、IME 或无障碍通过。
+**验证入口与证据边界。** [原型状态回归](assets/ui-ux/interactive/prototype.test.cjs)和[操作手册](viewer-manual.manual.md#uiux-design-prototype-walkthrough)分别承接源码状态与真实浏览器验证。运行结果、固定候选、截图和未验证项目归 [#5527](https://github.com/nil-studio/oasis7/issues/5527) 及对应 PR；[#5543](https://github.com/nil-studio/oasis7/pull/5543) 的 SVG 渲染、旧版 DOM 检查与当时的浏览器阻断只属于该版本，不证明后续英文或布局已通过。JSDOM 不计算真实布局，其模拟 dialog 回调不证明原生模态、IME 或辅助技术；整数相机检查、SVG 栅格目检和 HTTP 可达也各自保留证明范围。
 
-像素修正后重新导出并审阅四张受影响的页面稿；共享源全部使用整数矩形和固定 16 色，scene 原始 320×180 栅格实际使用其中 14 色，Agent 单独保留透明背景。用文档所列 HTTP 根核对 HTML、CSS、JS 和两张 PNG 均返回 200；25 项状态验证在修改后的原型再次通过。整数相机与锚点的源级检查、SVG 栅格目检和 HTTP 资源可达分别只证明其检查对象，不能代替真实浏览器布局、DPR 或原生输入验证。
+生产 Bevy 接入、真实账号/供应商/世界执行仍沿原实现任务验收，不新增为本设计任务的关闭条件，也不由 #5387 的生产回归设施代签本原型走查。经济/治理仍沿[条件目标](viewer-economic-targets-uiux.design.md)及[治理目标](viewer-governance-targets-uiux.design.md)，不在此原型启用；#4966、#5166、#5167、#5116 的原有主责、前置与暂停条件保持原记录。
 
-当前本地 Chromium 启动被 socket 权限拒绝，连接的浏览器也无法到达本地 HTTP；没有采用被浏览器策略禁止的内联协议或绕过限制。尚缺同一交付版本的真实浏览器响应式截图、键盘/IME/辅助技术及非作者实际可操作走查，因此 [#5527](https://github.com/nil-studio/oasis7/issues/5527) 保持未完成。该缺口属于本设计交付，不能转记为已通过，也不由 #5387 的生产回归设施替代。经济/治理仍沿[条件目标](viewer-economic-targets-uiux.design.md)及[治理目标](viewer-governance-targets-uiux.design.md)，不在此原型启用；#4966、#5166、#5167、#5116 的原有主责、前置与暂停条件保持原记录。
+<a id="uiux-prototype-presentation"></a>
+#### 10.10.1 展示模式与状态连续性
+
+原型的 `#locale` 与 `#copy-mode` 是元素 ID，旅程 hash 仍为 `#entry`、`#prompt`、`#industry`。这两个选择器只调整展示，不能触发 `fresh/reset`、发送或查询，也不能改变当前情境、观察对象、草稿主体、草稿内容、权限、原请求身份或结果状态。输入框中的玩家文字、Prompt 值、请求 ID、配方标识与数值保留原值。切换旅程/评审情境仍按上文重置演示；两类操作须明确区分。
+
+| 评审控件 | 展示合同 | 状态与范围 |
+| --- | --- | --- |
+| `#locale`：`zh-CN` / `en` | 切换界面文案与可访问名称，页面语言同步；关键未知、失权、拒绝及恢复含义一致 | 评审用英文仍是设计文案，正式入口的翻译接入与审校沿原消费者；生产 URL 的 `locale=zh\|en` 合同不变 |
+| `#copy-mode`：`normal` | 使用该语言的普通设计文案 | 从其他文案模式返回时，仅恢复展示 |
+| `#copy-mode`：`long` | 加长虚构世界名称、Targets 的 A/B/C 显示名、指导说明、Prompt 第五种来源说明及产业方案说明，用于暴露换行与遮挡 | 不加长或改写身份、配方、数量和用户输入；长名称仍对应同一对象 |
+| `#copy-mode`：`missing` | 在 Prompt 第五种来源说明处固定演示缺译：显示“修改或清除只改变下面的草稿，明确应用后才提交。”及缺译提示，原文标记 `lang="zh-CN"` | 不显示翻译 key 或空白，不把缺译转成成功状态；只覆盖该演示文案，不声称全产品缺译检查完成 |
+
+语言与帮助继续承接[既有 More、语言入口和就地帮助](#uiux-secondary-help-privacy)。需要解释的操作在所在面板保留说明；本原型不新增玩家 Help 导航或设置中心。
+
+长标题与回执按实际内容高度排布，不能依靠固定顶部坐标或卡片底部偏移保持间距。普通字号的面板布局为标题、内容和导航分区；窄屏与低高度采用单列。200% 文字模式下，标题、状态、原回执、drawer、导航与通知按自然文档流纵向排列；面板开闭与原操作状态保持不变。真实浏览器缩放、软键盘与辅助技术仍另验。
+
+| 状态转移 | 独立预期 |
+| --- | --- |
+| “位置未知”情境中改为查看 A/C | 位置状态取当前观察对象，已知对象恢复自己的位置与获准动作；未知目标仍无地图坐标或定位动作 |
+| “同位置密集目标”中查看独立的未知目标 | 集合选中态只由集合成员决定；未知目标不使 A/B/C 集合保留选中外框，重新查看成员才恢复集合选中态 |
+| Prompt 控制权失效后打开 Targets | A/C 不再显示为可指导，也不提供为其新建指导草稿的动作；获准观察路径与已隐藏私有值的边界保持一致 |
+| 退出本地示例，再恢复已有示例会话 | 工具栏情境分别同步到实际 `first`、`return`，旅程、示例回读与供给读回也与当前状态一致；该演示重置不宣称真实跨会话持久化 |
+
+上述预期与中英文、长文、缺译操作统一按[UP-01–UP-07](viewer-manual.manual.md#uiux-design-prototype-walkthrough)走查。源级操作验证、真实浏览器画面、原生输入和非作者理解分别记录，未执行的项目保留待核。
+
+<a id="uiux-prototype-source-delta"></a>
+#### 10.10.2 截至 4a477f8 的玩家入口差异
+
+以下只对照固定目录基线 `113868200d1f91bef1008babb689bd257f241428` 与 #5543 合入版本 `4a477f87c947ea28e3235552d5e702889581ddd6` 中、本次玩家入口有关的源码变化；不替换 105 条目录或推导全仓覆盖。原型 fixture 的模拟效果与生产实现分开判断。
+
+| 变化与实际消费者 | 本设计承接 | 能力边界 |
+| --- | --- | --- |
+| [LiveControlStatus](../../../crates/oasis7_viewer/software_safe_src/viewer_live_control_status.jsx) 接入 [AppShell](../../../crates/oasis7_viewer/software_safe_src/viewer_app.jsx)；状态来自 [当前连接的控制观察](../../../crates/oasis7_viewer/software_safe_src/viewer_live_control_state.js) | [Live / Playback 与动态追平](#uiux-live-playback-context)：区分新决策已暂停、已启用、状态未确认及等待原请求确认 | 仅 `controlProfile=live` 显示；当前连接的观察不等于世界进展回执。暂停新决策不会暂停世界或取消已在途作业 |
+| [动态可用动作](../../../crates/oasis7_viewer/software_safe_src/viewer_feedback_actions.js) 与 [WorldSummaryPanel](../../../crates/oasis7_viewer/software_safe_src/viewer_app.jsx) 已接入 `live_control.pause` | [Live 语义](#uiux-live-playback-context)：现有“暂停/恢复实时推进”按钮按 Viewer 新决策作用域阅读 | 动作仍受当前连接/控制策略约束；不据此增加普通 Player 的全局世界暂停、Seek 或回滚 |
+| [目标同步进度](../../../crates/oasis7_viewer/software_safe_src/viewer_target_sync_progress.js) 从 `viewer_app.jsx` 提取并由 `EntityListPendingState` 调用 | [首次与重入](#uiux-first-return-targets)：继续区分连接、握手、快照、会话及可见范围 | 属于既有呈现逻辑的提取，不计新增功能，不以同步中推导拥有控制权 |
+
+同一区间的 custody owner setup 变更仍沿其原实现任务及账号/执行授权主责处理。本表没有验收该完整流程，也不把它或生产像素渲染接入转为 #5527 的新增关闭条件。对照源码只证明接线和语义；生产页面几何、英文呈现与真实控制结果仍需相应候选的实际证据。
 
 <a id="uiux-handoff-trace"></a>
 ### 10.11 承接、验证与交付边界
 
-下列行为是后续实现验收合同；本次文档与静态稿只核对内容一致、链接、可读性和覆盖。真实 Web/native、GPU、键盘/IME、权限竞态及玩家五秒理解仍分别取得实际证据。
+下表分别承接设计原型与后续生产消费者，按每行对象和方法记录实际验证；文档、静态稿、原型和生产结果不能互相代签。真实 Web/native、GPU、键盘/IME、权限竞态及玩家五秒理解仍分别取得实际证据。
 
 ### 2.1 需求承接与分配表
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| [REQ-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-003) | Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；原型位置状态跟随当前观察对象，集合选中态只表示成员选择 | [原型展示与状态](#uiux-prototype-presentation) | Viewer 设计原型；空间投影主责不变 | 不补造未知坐标，不证明生产 GPU 命中或高密度性能 |
+| [REQ-AGENT-STAGE-004](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-004) | Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a；中英文、长文、指定缺译点与完整画面重排 | [原型展示与状态](#uiux-prototype-presentation) | Viewer 设计/翻译；原生输入与辅助技术另验 | 不把设计英文与 DOM 检查计作正式翻译、浏览器或平台验收 |
+| [REQ-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-005) | Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096；展示切换保留观察/草稿/原请求身份，失权不出现可指导 | [原型展示与状态](#uiux-prototype-presentation) | Viewer 设计原型；Runtime 权限主责不变 | 不新增权限或世界动作，不改写用户输入与原请求 |
+| [REQ-AGENT-SURFACE-001](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-001) | Trace refs: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef；原型退出/重入后工具栏与实际演示情境同步 | [原型展示与状态](#uiux-prototype-presentation) | Viewer 设计原型；会话恢复沿原消费者 | 不证明真实跨会话草稿、授权或原结果持久化 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；目的/下一步/原结果首读，原主体与选择分离 | [屏幕分区](#uiux-screen-regions) | visual / Viewer；Runtime 原结果 | 不创造因果或宣称真实理解通过 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；目的/下一步/原结果首读，原主体与选择分离 | [首次与重入](#uiux-first-return-targets) | visual / Viewer；Runtime 原结果 | 不创造因果或宣称真实理解通过 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；目的/下一步/原结果首读，原主体与选择分离 | [身份](#uiux-context-identity) | visual / Viewer；Runtime 原结果 | 不创造因果或宣称真实理解通过 |
@@ -1111,6 +1151,10 @@ Director 仍是次级入口、显式选择、短时服务端能力；没有可�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| [REQ-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-003) | [原型展示与状态](#uiux-prototype-presentation) | 当前位置与集合成员选择分别正确 | [原型手册 UP-04/05](viewer-manual.manual.md#uiux-design-prototype-walkthrough)；同候选 DOM 操作与实际浏览器分别记录 | 当前 PR 的操作结果及画面 | 不证明真实世界坐标、GPU 命中或容量 |
+| [REQ-AGENT-STAGE-004](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-004) | [原型展示与状态](#uiux-prototype-presentation) | 中英文、长文、指定缺译点可读且动作可达 | [原型手册 UP-01/02/03](viewer-manual.manual.md#uiux-design-prototype-walkthrough)；同候选视口、语言、文案模式与输入 | 当前 PR 的浏览器截图、操作及未验证项 | 不证明全产品翻译、原生 IME、辅助技术或正式发行 |
+| [REQ-AGENT-STAGE-005](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-005) | [原型展示与状态](#uiux-prototype-presentation) | 展示切换保留身份/草稿/原请求；失权不恢复可指导 | [原型手册 UP-01/06](viewer-manual.manual.md#uiux-design-prototype-walkthrough)；同候选状态前后对照 | 当前 PR 的操作与身份记录 | 不证明服务器授权或世界效果 |
+| [REQ-AGENT-SURFACE-001](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-001) | [原型展示与状态](#uiux-prototype-presentation) | 演示退出/重入工具栏同步 | [原型手册 UP-07](viewer-manual.manual.md#uiux-design-prototype-walkthrough)；同候选实际点击与情境读回 | 当前 PR 的操作与工具栏状态 | 不证明真实会话持久化或恢复 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [屏幕分区](#uiux-screen-regions) | [AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001)；单一 Next Move；A 在途切 B，原结果仍属 A；无回执不补造 | 本稿检查桌面/窄屏静态稿；实现候选另执行 [PW-READABILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-readability) 及该手册 PW-IDENTITY 场景 | 当前 PR 的稿件核对；后续同候选浏览器/结果记录 | 静态稿不证明真实因果、输入或五秒理解 |
 | [REQ-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-001) | [身份](#uiux-context-identity) | [AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001)；单一 Next Move；A 在途切 B，原结果仍属 A；无回执不补造 | 本稿检查桌面/窄屏静态稿；实现候选另执行 [PW-READABILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-readability) 及该手册 PW-IDENTITY 场景 | 当前 PR 的稿件核对；后续同候选浏览器/结果记录 | 静态稿不证明真实因果、输入或五秒理解 |
 | [REQ-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#req-agent-stage-002) | [状态反馈](#uiux-state-feedback) | [AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002)；未知/冲突/撤权与最近已知不混同，未知结果不盲重做 | [PW-FRESHNESS](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-freshness)；静态逐状态审读；后续专项手册 PW-FRESHNESS，注入旧响应/撤权/断连并对账原操作 | PR 状态稿；后续权限与原结果证据 | 不证明真实 Runtime 重验、TTL 或恢复 |

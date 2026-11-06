@@ -42,3 +42,71 @@
 .place-name{position:absolute;transform:translate(-50%,-100%);padding:8px 12px;border:1px solid #54705b;background:#132019;color:#d3dfc9;font-size:.9rem;white-space:nowrap;z-index:1}
 .actor{position:absolute;transform:translateX(-50%);min-width:32px;padding:2px 6px;border:2px solid var(--mint);background:#132019;color:var(--text);font-weight:800;text-align:center;z-index:2}
 .actor-cluster{border-radius:50%;min-width:44px;min-height:44px;display:grid;place-items:center}
+
+/* Presentation fixtures may be long; identities and user input stay readable. */
+.world-header>div,.drawer-header>div,.target-row>div{min-width:0}
+.world-header h1,.drawer-header h2,.card h3,.card p,.source-row p,.target-row strong,.target-row p,.badge,.meta,.toast,.renderer-message,.next-move,.receipt{overflow-wrap:anywhere}
+.target-row{flex-wrap:wrap}
+.target-row>div{flex:1 1 160px}
+.target-row>button{max-width:100%;overflow-wrap:anywhere}
+.place-name{max-width:calc(100% - 32px);white-space:normal;overflow-wrap:anywhere;text-align:center}
+.fact-grid{grid-template-columns:minmax(0,1fr) minmax(0,auto)}
+.fixture-label{min-width:0;flex-wrap:wrap}
+.fixture-label select{max-width:min(230px,100%)}
+#text-size{display:inline-flex;align-items:center}
+@media(max-width:640px){.text-large .fact-grid{grid-template-columns:1fr}}
+
+/* Content-sized rows keep long titles, receipts and notices out of each other. */
+:root:not(.text-large) #stage{display:grid;grid-template-columns:minmax(0,370px) minmax(0,1fr);grid-template-areas:"header header" "feed ." "context ." "renderer ." "next ." "receipt ." "notice notice" "nav nav";grid-template-rows:auto auto auto auto minmax(0,1fr) auto auto auto;gap:16px 24px;height:auto;min-height:590px;padding:26px 32px 22px;align-items:start}
+:root:not(.text-large) #stage.panel-open{grid-template-columns:minmax(0,1fr) minmax(0,470px);grid-template-areas:"header header" "feed drawer" "context drawer" "renderer drawer" "receipt drawer" "notice notice" "nav nav";grid-template-rows:auto auto auto auto minmax(0,1fr) auto auto}
+:root:not(.text-large) #stage>:is(.world-header,.world-feed,.world-context,.next-move,.receipt,.drawer,.world-nav,.renderer-message,.toast){position:static;inset:auto;transform:none;width:100%;max-width:100%;max-height:none;margin:0;visibility:visible;order:0;min-width:0}
+:root:not(.text-large) #stage>.world-header{grid-area:header;flex-wrap:wrap}
+:root:not(.text-large) #stage>.world-header>div{flex:1 1 20rem}
+:root:not(.text-large) #stage>.world-header button{max-width:100%;overflow-wrap:anywhere}
+:root:not(.text-large) #stage>.world-feed{grid-area:feed;display:flex}
+:root:not(.text-large) #stage>.world-context{grid-area:context;display:flex}
+:root:not(.text-large) #stage>.renderer-message{grid-area:renderer;overflow:visible}
+:root:not(.text-large) #stage>.next-move{grid-area:next;display:block;align-self:end}
+:root:not(.text-large) #stage>.next-move p{display:block}
+:root:not(.text-large) #stage.panel-open>.next-move{display:none}
+:root:not(.text-large) #stage>.receipt{grid-area:receipt;overflow:visible}
+:root:not(.text-large) #stage>.drawer{grid-area:drawer;max-height:max(180px,min(620px,calc(100dvh - 220px)));overflow:hidden}
+:root:not(.text-large) #stage .drawer-header{flex-wrap:wrap}
+:root:not(.text-large) #stage .drawer-content{flex:1 1 auto;overflow:auto}
+:root:not(.text-large) #stage>.toast{grid-area:notice}
+:root:not(.text-large) #stage>.world-nav{grid-area:nav;width:min(100%,370px);justify-self:center;flex-wrap:wrap}
+:root:not(.text-large) #stage>.world-nav button{min-width:0;flex:1 1 0;overflow-wrap:anywhere}
+@media(max-width:1099px){
+  :root:not(.text-large) #stage{grid-template-columns:minmax(0,1fr);grid-template-areas:"header" "feed" "context" "renderer" "next" "receipt" "notice" "nav";padding:20px 16px}
+  :root:not(.text-large) #stage.panel-open{grid-template-columns:minmax(0,1fr);grid-template-areas:"header" "renderer" "drawer" "notice" "nav";grid-template-rows:auto auto minmax(0,1fr) auto auto}
+  :root:not(.text-large) #stage.panel-open>:is(.world-feed,.world-context,.receipt){display:none}
+}
+@media(max-height:550px) and (min-width:641px){
+  :root:not(.text-large) #stage{min-height:286px;padding:12px 16px;gap:12px}
+}
+@media(max-width:640px){
+  .review-bar .review-brand{flex-wrap:wrap}
+  .review-bar .journeys{flex:0 0 100%;width:100%}
+  .review-bar .fixture-label{flex:0 0 100%;width:100%;max-width:100%;flex-wrap:wrap}
+  .review-bar .fixture-label select{flex:1 1 12em;width:100%;max-width:100%;min-width:0}
+}
+.text-large .review-brand{font-size:1em}
+.text-large .review-brand b{font-size:1.1em}
+
+/* At 200%, variable-height text uses document flow instead of fixed overlays. */
+.text-large #stage,.text-large #stage:not(.panel-open),.text-large #stage.renderer-unavailable:not(.panel-open){display:flex;flex-direction:column;gap:24px;min-height:920px;height:auto;padding:24px}
+.text-large #stage .world-header,.text-large #stage .world-feed,.text-large #stage .world-context,.text-large #stage .next-move,.text-large #stage .receipt,.text-large #stage .drawer,.text-large #stage .world-nav,.text-large #stage .renderer-message,.text-large #stage .toast{position:static;inset:auto;transform:none;width:100%;max-width:100%;max-height:none;margin:0;visibility:visible;order:0}
+.text-large #stage .world-header{flex-wrap:wrap;padding:16px;background:rgba(11,16,15,.98);border:1px solid var(--line);border-radius:14px}
+.text-large #stage .world-header button{max-width:100%;font-size:.85rem}
+.text-large #stage .world-feed,.text-large #stage .world-context{display:flex}
+.text-large #stage .world-context{gap:8px}
+.text-large #stage .drawer{height:auto;overflow:visible}
+.text-large #stage .drawer-header{flex-wrap:wrap}
+.text-large #stage .drawer-content{overflow:visible}
+.text-large #stage .world-nav{flex-wrap:wrap}
+.text-large #stage .world-nav button{min-width:0;flex:1 1 140px;font-size:1rem;overflow-wrap:anywhere}
+.text-large #stage .world-nav span{font-size:.75rem}
+.text-large #stage.panel-open .next-move{display:none}
+.text-large #stage:not(.panel-open) .next-move{display:block}
+.text-large #stage .next-move p{display:block}
+@media(max-width:640px){.text-large #stage,.text-large #stage:not(.panel-open),.text-large #stage.renderer-unavailable:not(.panel-open){padding:20px 12px;min-height:1100px}}
