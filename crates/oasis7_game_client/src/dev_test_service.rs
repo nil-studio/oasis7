@@ -446,6 +446,7 @@ pub fn call_service_until(
     let timeout = Some(
         deadline
             .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
             .ok_or("service_deadline_exceeded")?,
     );
     stream
@@ -459,6 +460,7 @@ pub fn call_service_until(
         use std::io::Write;
         let remaining = deadline
             .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
             .ok_or("service_deadline_exceeded")?;
         stream
             .set_write_timeout(Some(remaining))
@@ -487,6 +489,7 @@ fn read_until(
     loop {
         let remaining = deadline
             .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
             .ok_or("service_deadline_exceeded")?;
         stream
             .set_read_timeout(Some(remaining))
@@ -548,6 +551,7 @@ fn connect_until(
         }
         let remaining = deadline
             .checked_duration_since(std::time::Instant::now())
+            .filter(|remaining| !remaining.is_zero())
             .ok_or("service_deadline_exceeded")?;
         let mut poll = libc::pollfd {
             fd: stream.as_raw_fd(),
