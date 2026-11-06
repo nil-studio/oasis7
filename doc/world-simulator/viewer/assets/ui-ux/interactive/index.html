@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title data-i18n="page.title">Oasis7 · UI/UE 设计原型 · #5527</title>
+  <link rel="stylesheet" href="prototype.css">
+  <script src="prototype-i18n.js" defer></script>
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#stage" id="skip-to-stage" data-i18n="review.skip">跳到游戏界面</a>
+  <header class="review-bar" aria-label="设计评审工具" data-i18n-aria-label="review.tools">
+    <div class="review-brand"><b>OASIS7</b><span data-i18n="review.brand">UI/UE · 设计原型</span></div>
+    <nav class="journeys" aria-label="原型旅程" data-i18n-aria-label="review.journeys">
+      <a href="#entry" data-route="entry" data-i18n="review.entry">01 进入与指导</a>
+      <a href="#prompt" data-route="prompt" data-i18n="review.prompt">02 Prompt 恢复</a>
+      <a href="#industry" data-route="industry" data-i18n="review.industry">03 首局生产</a>
+    </nav>
+    <label class="fixture-label"><span data-i18n="review.fixture">评审情境</span> <select id="fixture" aria-label="评审情境" data-i18n-aria-label="review.fixture"></select></label>
+    <label class="fixture-label"><span data-i18n="review.locale">界面语言</span> <select id="locale" aria-label="界面语言" data-i18n-aria-label="review.locale"><option value="zh-CN" lang="zh-CN">简体中文</option><option value="en" lang="en">English</option></select></label>
+    <label class="fixture-label"><span data-i18n="review.copy">文案情境</span> <select id="copy-mode" aria-label="文案情境" data-i18n-aria-label="review.copy"><option value="normal" data-i18n="review.normal">常规文案</option><option value="long" data-i18n="review.long">长名称与说明</option><option value="missing" data-i18n="review.missing">缺译 · Prompt 就地说明</option></select></label>
+    <label id="readback-label" class="fixture-label" hidden><span data-i18n="review.readback">示例回读</span> <select id="readback" aria-label="示例回读" data-i18n-aria-label="review.readback"><option value="settled" data-i18n="review.settled">匹配结算</option><option value="unavailable" data-i18n="review.unavailable">查询暂不可用</option><option value="rejected" data-i18n="review.rejected">原请求明确拒绝</option><option value="mismatch" data-i18n="review.mismatch">另一个 job 的结果</option></select></label>
+    <label id="supply-label" class="fixture-label" hidden><span data-i18n="review.supply">供给读回</span> <select id="supply" aria-label="供给读回" data-i18n-aria-label="review.supply"><option value="2" data-i18n="review.fuel2">燃料仍为 2</option><option value="3" data-i18n="review.fuel3">外部供给已变为 3</option></select></label>
+    <button id="text-size" type="button" aria-pressed="false" data-i18n="review.textSize">文字 200%</button>
+  </header>
+  <p class="prototype-note" data-i18n="review.note">设计目标 · 所有账号、世界、成本和回读均为本地示例，不连接游戏服务。旅程与情境切换会重置本地草稿；语言与文案切换只改变展示。</p>
+  <main id="stage" tabindex="-1" aria-label="示例世界" data-i18n-aria-label="world.label">
+    <div class="world-art" id="world-art" aria-hidden="true">
+      <img id="world-background" class="world-background" src="../pixel-world/scene.png" width="320" height="180" alt="">
+      <span class="place-name" data-world-x="168" data-world-y="64"><span data-i18n="world.place">北侧加工站</span><br><small data-i18n="world.design">像素设计示意 · 非权威位置</small></span>
+      <img class="actor-sprite" data-actor-sprite="A" data-world-x="180" data-world-y="124" src="../pixel-world/agent.png" width="16" height="16" alt="">
+      <img class="actor-sprite" data-actor-sprite="B" data-world-x="136" data-world-y="120" src="../pixel-world/agent.png" width="16" height="16" alt="">
+      <img class="actor-sprite" data-actor-sprite="C" data-world-x="200" data-world-y="140" src="../pixel-world/agent.png" width="16" height="16" alt="">
+      <span class="actor actor-a" data-world-x="180" data-world-y="124">A</span>
+      <span class="actor actor-b" data-world-x="136" data-world-y="120">B</span>
+      <span class="actor actor-c" data-world-x="200" data-world-y="140">C</span>
+    </div>
+    <header class="world-header">
+      <div><p class="eyebrow" data-i18n="world.eyebrow">OASIS7 / 示例世界</p><h1 id="world-title" data-i18n="world.title">北侧补给区</h1></div>
+      <button id="account-button" class="quiet" type="button">示例账号 · 未进入</button>
+    </header>
+    <section id="renderer-message" class="renderer-message" hidden aria-labelledby="renderer-title">
+      <span class="eyebrow">Renderer Unavailable</span><h2 id="renderer-title" data-i18n="world.rendererTitle">世界画面暂不可用</h2>
+      <p data-i18n="world.rendererHelp">仍可阅读获准的目标、活动与原操作结果。旧画面已停用。</p>
+      <button type="button" data-action="retry-renderer" data-i18n="world.retry">重试世界画面</button>
+    </section>
+    <aside class="world-feed" aria-label="世界动态" data-i18n-aria-label="world.feedLabel"><span class="status-dot"></span><span id="feed-text">世界动态 · 加工站等待补给</span></aside>
+    <div class="world-context" id="world-context"></div>
+    <section id="next-move" class="next-move" aria-labelledby="next-title"></section>
+    <section id="receipt" class="receipt" aria-label="原操作回执" data-i18n-aria-label="receipt.label" hidden></section>
+    <section id="drawer" class="drawer" aria-labelledby="drawer-title" hidden>
+      <header class="drawer-header"><div><p class="eyebrow" id="drawer-kicker">COMMAND</p><h2 id="drawer-title" tabindex="-1"></h2></div><button id="close-drawer" type="button" aria-label="关闭面板" data-i18n-aria-label="world.closeLabel"><span data-i18n="world.close">关闭</span> <span aria-hidden="true">×</span></button></header>
+      <div id="drawer-content" class="drawer-content"></div>
+    </section>
+    <nav class="world-nav" aria-label="游戏导航" data-i18n-aria-label="world.navigation">
+      <button id="nav-world" data-panel="world" aria-pressed="true" type="button" aria-label="世界" data-i18n-aria-label="world.navWorld">World<span aria-hidden="true" data-i18n="world.navWorld">世界</span></button>
+      <button id="nav-targets" data-panel="targets" aria-pressed="false" type="button" aria-label="目标" data-i18n-aria-label="world.navTargets">Targets<span aria-hidden="true" data-i18n="world.navTargets">目标</span></button>
+      <button id="nav-command" data-panel="command" aria-pressed="false" type="button" aria-label="指令" data-i18n-aria-label="world.navCommand">Command<span aria-hidden="true" data-i18n="world.navCommand">指令</span></button>
+    </nav>
+    <p id="notice" class="toast" role="status" aria-live="polite"></p>
+  </main>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+    <h2 id="confirm-title">丢弃草稿并重新读取？</h2>
+    <p id="confirm-description">当前未提交的编辑将被替换；这不会撤回已经提交的原请求。</p>
+    <div class="actions"><button id="cancel-confirm" type="button" data-i18n="confirm.keep">保留草稿</button><button id="accept-confirm" class="primary" type="button">丢弃并重新读取</button></div>
+  </dialog>
+</body>
+</html>

@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "86d8ab2e4770d79bee1a8742f197c21d56b99818edcb15c370c1fdb12c9827f3",
+    "content_sha256": "ab2a0a9145acab20c5ee0721783f7e39e8780a513b23a7a3f5b996545184a40a",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程唯一主责及既有 owner、disposition 与路由；未修改的原生子任务、五类 Issue、认领交接、自测与整体交付规则沿用既有审读结论。本次有界审读 §2.5、parallel-development 和代码 Issue 模板，并核对 AGENTS、executing-project-tasks、TPM、Issue 分流、工程 design 与项目记录的直接承接。范围由具体条件或唯一固定来源确定，未定部分明确补齐动作及影响；按完成条件反查独立结果，必要原子性、真实消费者和本项拒绝恢复验收保留。任务验收保留主责合同的条件与副作用边界，设计变更仍回到原主责。仅拆分交付区分推进建议、已核验条件、实际认领和验证，待承接有下一步，已有授权继续有效且不要求全部子项同时就绪。父项保留索引、依赖与整体验收，子项保存具体输入和本项事实，模板不再重复完整任务内容。本次结论覆盖上述变更与直接消费者的静态一致性，不证明真实任务已调整、领取或验收，也不证明开发周期已经缩短。",
+    "note": "保留开发流程唯一主责及既有 owner、disposition 与路由。本次有界审读通用职责、独立开发会话、代码队列领取与状态维护和评审方式，并核对 AGENTS、工程 PRD/design、执行/并行/评审方法、TPM 与 dot 的直接承接。直接开发会话和可选 TPM 共用认领规则，由实际领取者更新实现标签；标签写入失败保留真实认领及待同步项，暂停与执行权限继续约束工作。角色卡作为专业参考，交接复用 Issue/PR；现行 PRD 的角色生命周期、每日日志和固定评审报告要求已对齐，旧格式校验退役而目录负责人等有效合同保留。设计缺口处理、原生父子任务、必要独立评审、共享预算、写入隔离和父项整体验收保留；Agent 自主试玩与 dot 时间表专项条款未变。本结论限于修改及直接消费者的静态一致性，不证明客户端多会话已采用、真实任务已验收或周期已缩短。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

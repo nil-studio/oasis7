@@ -385,51 +385,53 @@ pub(crate) fn read_until(
     stream
         .set_nonblocking(true)
         .map_err(|_| "socket_configuration_failed")?;
-    let result = (|| loop {
-        let remaining = deadline
-            .checked_duration_since(std::time::Instant::now())
-            .filter(|r| !r.is_zero())
-            .ok_or("service_deadline_exceeded")?;
-        let mut poll = libc::pollfd {
-            fd: stream.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let ready = unsafe {
-            libc::poll(
-                &mut poll,
-                1,
-                remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
-            )
-        };
-        if ready == 0 {
-            return Err("service_deadline_exceeded".into());
-        }
-        if ready < 0 {
-            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-                continue;
+    let result = (|| {
+        loop {
+            let remaining = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .filter(|r| !r.is_zero())
+                .ok_or("service_deadline_exceeded")?;
+            let mut poll = libc::pollfd {
+                fd: stream.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe {
+                libc::poll(
+                    &mut poll,
+                    1,
+                    remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
+                )
+            };
+            if ready == 0 {
+                return Err("service_deadline_exceeded".into());
             }
-            return Err("socket_poll_failed".into());
-        }
-        let mut buffer = [0; 4096];
-        match stream.read(&mut buffer) {
-            Ok(0) => return Ok(()),
-            Ok(count) => {
-                if output.len() + count > limit {
-                    return Err("request_too_large".into());
+            if ready < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
                 }
-                output.extend_from_slice(&buffer[..count]);
+                return Err("socket_poll_failed".into());
             }
-            Err(error)
-                if [
-                    std::io::ErrorKind::WouldBlock,
-                    std::io::ErrorKind::Interrupted,
-                ]
-                .contains(&error.kind()) =>
-            {
-                continue;
+            let mut buffer = [0; 4096];
+            match stream.read(&mut buffer) {
+                Ok(0) => return Ok(()),
+                Ok(count) => {
+                    if output.len() + count > limit {
+                        return Err("request_too_large".into());
+                    }
+                    output.extend_from_slice(&buffer[..count]);
+                }
+                Err(error)
+                    if [
+                        std::io::ErrorKind::WouldBlock,
+                        std::io::ErrorKind::Interrupted,
+                    ]
+                    .contains(&error.kind()) =>
+                {
+                    continue;
+                }
+                Err(_) => return Err("request_transport_failed".into()),
             }
-            Err(_) => return Err("request_transport_failed".into()),
         }
     })();
     stream
@@ -553,13 +555,15 @@ mod tests {
             }
         });
         let started = Instant::now();
-        assert!(read_until(
-            &mut reader,
-            &mut Vec::new(),
-            1024,
-            started + Duration::from_millis(75)
-        )
-        .is_err());
+        assert!(
+            read_until(
+                &mut reader,
+                &mut Vec::new(),
+                1024,
+                started + Duration::from_millis(75)
+            )
+            .is_err()
+        );
         assert!(started.elapsed() < Duration::from_millis(250));
         drop(reader);
         sender.join().unwrap();

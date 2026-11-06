@@ -410,6 +410,31 @@ English/Chinese long-text overflow. Source/package
 tests now cover the World Feed and fail-closed Director boundary; this manual does not
 turn those tests into issuer-backed production access or a release claim.
 
+<a id="uiux-design-prototype-walkthrough"></a>
+### UI/UE 设计原型走查（#5527）
+
+本节验证[三条可操作设计旅程](viewer-page-module-design-2026-06-18.design.md#uiux-interactive-prototype)与[展示/状态合同](viewer-page-module-design-2026-06-18.design.md#uiux-prototype-presentation)，对象是本地 fixture 原型；上文生产 Viewer 验收继续沿原消费者。以下是可复用方法，不登记英文审校、真实浏览器、原生 IME 或辅助技术已经通过。
+
+从仓库根运行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux`，同机访问 `http://127.0.0.1:8765/interactive/`。使用获准的托管 HTTP 预览时，完整保留 `interactive/`、`pixel-world/` 相对路径，并确认页面与素材属于同一候选。浏览器不能访问该入口时记录阻断及受影响项目，不改用被策略禁止的协议或绕过沙箱。原型不需要游戏账号、Key、模型或世界后端。
+
+源码状态检查复用 Viewer 已声明的 `jsdom` 开发依赖；依赖安装后，从仓库根执行 `node doc/world-simulator/viewer/assets/ui-ux/interactive/prototype.test.cjs`。该脚本只向 stdout 输出逐项结果及受测 JS 哈希，失败返回非零，不写原型文件；需要报告时由调用方显式重定向。它覆盖原请求、草稿/权限、三条旅程及展示切换，不能替代下面的真实布局和输入走查。
+
+先由非作者按页面说明依次完成 `#entry` 的进入/发送/查询、`#prompt` 的清除/应用/过期恢复、`#industry` 的补给读回/提交/原结果/重入，再走下表。顶部旅程和情境会重置演示；元素 `#locale`、`#copy-mode` 仅改变展示。它们不是 URL 旅程 hash，也不新增玩家 Help 页面；帮助仍在操作所在面板，生产语言入口沿既有 More/语言表面。
+
+| 项目 | 操作 | 应核对的结果 |
+| --- | --- | --- |
+| UP-01 语言与身份 | 在 `#entry` 选“观察 B / 草稿 C / 原请求 A”，填写多行中文草稿，依次切换 `#locale` 的 `zh-CN`、`en` 与 `#copy-mode`，再查询原指导结果；在 `#prompt` 的 stale/unknown 情境重复展示切换 | 草稿逐字保留，观察 B、草稿 C、原请求 A 及其状态不串写；切换不发送、查询、丢弃编辑或重置情境。界面名称随语言切换，玩家输入、Prompt 值与原请求标识不被翻译 |
+| UP-02 长文与完整画面 | 三条旅程分别选 `long`，检查长世界名、Targets 显示名和对应面板说明；再返回 `normal` | 同一对象身份和配方/成本数值不变；主动作、错误、关闭、原回执和帮助可读、可达，长名称不覆盖世界/面板入口 |
+| UP-03 缺译回退 | 在 `#prompt` 选择 `en` + `missing`，读取第五种来源说明，再切回 `normal` | 缺译处显示中文原文和明确提示，原文 `lang="zh-CN"`；无翻译 key、空白或假成功。恢复普通模式只改变文案；本例只验证指定缺译点 |
+| UP-04 当前对象的位置 | 在 `#entry` 选“位置未知”，依次查看 A、C、未知目标 | A/C 显示各自已知位置及当前获准动作；未知目标只保留文字状态，不出现虚构坐标或定位动作 |
+| UP-05 集合成员选择 | 在 `#entry` 选“同位置密集目标”，查看独立的未知目标，再查看 A/B/C 任一成员 | 查看未知目标时，三人集合不保留选中外框；选中成员时恢复集合选中态，目标身份与草稿主体各自保持 |
+| UP-06 失权后的 Targets | 在 `#prompt` 选“控制权失效”，打开 Targets 并观察 A/C | 不出现可指导状态或新建指导草稿动作；允许的观察与已隐藏私有值保持一致，语言/文案切换也不恢复权限 |
+| UP-07 退出和重入工具栏 | 在 `#entry` 选身份分离情境，打开示例账号并退出，再选择“恢复已有示例会话” | 工具栏依次显示实际 `first`、`return` 情境，旅程/示例回读/供给读回同步；不会留下旧情境标签冒充当前状态。此步骤只验证本地演示重置，不证明真实会话持久化 |
+
+布局取同一候选的 `1440×900`、`1280×720`、`1024×768`、`390×844`，以及 Command 展开的 `844×390`。至少在窄屏/低高度检查英文与 `long`，在 Prompt 检查 `missing`；`文字 200%` 是原型根字号模式，真实浏览器 200% zoom 另记结果。以 Tab/Shift+Tab、Enter/Shift+Enter、Escape 走发送、查询、关闭、丢弃确认与取消；原生中文组合输入另验，不能把合成 `isComposing`/229 事件计为真实 IME 通过。
+
+在原 Issue/PR 记录候选 commit 或明确的未提交差异、预览入口、浏览器、视口、语言/文案模式/情境、实际步骤及截图；非作者指出看不懂或无法完成的步骤。源级 DOM 结果只证明状态逻辑，截图只证明实际捕获的画面，缺少原生输入或辅助技术条件的项目分别写待核/受阻。对照[截至 4a477f8 的源码差异](viewer-page-module-design-2026-06-18.design.md#uiux-prototype-source-delta)时，`LiveControlStatus` 只表示 Viewer 新决策调度，不能读作世界暂停或在途作业取消。设计原型的验证不替代生产消费者验收；生产接入也不新增为 #5527 的关闭条件。
+
 <a id="industry-detail-acceptance"></a>
 ### 产业关系与细节层级验收入口（未来适用）
 
