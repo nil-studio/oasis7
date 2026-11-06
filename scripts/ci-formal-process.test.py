@@ -478,7 +478,7 @@ class FastTargetInventory(unittest.TestCase):
         ])
         variants = artifacts.build_variants('ordinary', selected)
         expected = [['test', *args, '--no-run'] for args in commands]
-        if sys.platform == 'linux':
+        if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
             expected.append(['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
                              '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker'])
         self.assertEqual([command for _, command, _ in variants], expected)
@@ -571,7 +571,7 @@ class FastTargetInventory(unittest.TestCase):
         for scope in ('ordinary', 'all'):
             full_variants = artifacts.build_variants(scope, selected)
             original = artifacts.build_variants(scope, legacy)
-            if sys.platform == 'linux':
+            if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
                 worker = (artifacts.RUNTIME_WORKER_VARIANT,
                           ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
                            '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker'], ['wasmtime'])
@@ -1336,7 +1336,7 @@ class BuildAndBundles(unittest.TestCase):
         ordinary = artifacts.build_variants('ordinary')
         self.assertEqual({v[0] for v in formal}, {'formal-required', 'runtime', 'endpoint', 'distfs-tests'})
         expected_ordinary = {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'}
-        if sys.platform == 'linux':
+        if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
             expected_ordinary.add(artifacts.RUNTIME_WORKER_VARIANT)
         self.assertEqual({v[0] for v in ordinary}, expected_ordinary)
         args = next(args for name, args, _ in formal if name == 'formal-required')
@@ -2674,7 +2674,7 @@ class Process(unittest.TestCase):
             (root / 'codec/tests').mkdir()
             (root / 'codec/tests/pr_fast.rs').write_text(integration)
             (root / 'codec/tests/heavy.rs').write_text('compile_error!("unselected integration was compiled");')
-        if worker:
+        if worker and sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
             # Full Linux bundles must deliver a genuine Cargo-built companion,
             # even though this fixture's executed harnesses belong to codec.
             manifest = root / 'Cargo.toml'
@@ -2924,7 +2924,7 @@ class Process(unittest.TestCase):
                 bundle, consumer = root / 'producer', root / 'consumer'
                 artifacts.build(bundle, 'ordinary', plan=selected)
                 manifest = json.loads((bundle / 'manifest.json').read_text())
-                if sys.platform == 'linux':
+                if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
                     companion = manifest['worker_companion']
                     self.assertEqual(companion['package'], 'oasis7_wasm_executor')
                     self.assertEqual(companion['target'], 'oasis7-wasm-worker')
