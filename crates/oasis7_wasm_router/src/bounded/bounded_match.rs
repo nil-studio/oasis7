@@ -292,6 +292,10 @@ pub(super) fn pre_action_matches<R, C: FnMut() -> bool, E>(
         false,
     )
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Stage and kind select the subscription route; shared work, cancellation and optional regex results remain independent bounded matching inputs"
+)]
 fn route<R, C: FnMut() -> bool, E>(
     a: &Arena<R>,
     subscriptions: &[ModuleSubscription],
