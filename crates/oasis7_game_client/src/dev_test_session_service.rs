@@ -198,6 +198,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             }
             let _active = Active(active);
             let _guard = guard;
+            let _deadline_scope = crate::request_deadline::Scope::enter(deadline);
             let result = (|| {
                 if body.len() > current.service.max_request_bytes {
                     return Err("request_too_large".into());

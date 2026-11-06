@@ -426,6 +426,7 @@ impl Client {
         action: crate_action::Action,
         deadline: Option<std::time::Instant>,
     ) -> Result<IntentResponse<Value>, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
         Self::check_tool_deadline(deadline)?;
         let request =
             if let Some(request) = self.cached_intent(ClientStateKind::Action, operation)? {
@@ -599,6 +600,7 @@ impl Client {
         operation: &str,
         deadline: Option<std::time::Instant>,
     ) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
         Self::check_tool_deadline(deadline)?;
         if let Some(request) = self.cached_intent(ClientStateKind::Prefix, operation)? {
             let WorldServicePayloadV1::Scheduler(signed) = &request.signed_payload else {
@@ -669,6 +671,7 @@ impl Client {
         operation: &str,
         deadline: Option<std::time::Instant>,
     ) -> Result<CapturedTaskContextV1, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
         Self::check_tool_deadline(deadline)?;
         let signed = self.context_read_proof(operation)?;
         let result = match deadline {

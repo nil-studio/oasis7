@@ -50,6 +50,10 @@ pub struct Original {
     pub arguments: Arguments,
     pub native_context: String,
     pub native_kind: String,
+    #[serde(default)]
+    pub native_action: Option<[i64; 3]>,
+    #[serde(default)]
+    pub native_context_identity: Option<oasis7_agent_api::game::TaskContextIdentityV1>,
     pub last_observation: Option<serde_json::Value>,
 }
 #[derive(Default, Serialize, Deserialize)]
@@ -158,6 +162,7 @@ fn transaction<T>(
         }
         Err(_) => return Err("usage_unavailable"),
     };
+    crate::request_deadline::remaining().map_err(|_| "admission_deadline_exceeded")?;
     let result = update(&mut ledger)?;
     let bytes = serde_json::to_vec(&ledger).map_err(|_| "usage_encoding_failed")?;
     if bytes.len() > 4194304 {
@@ -237,58 +242,81 @@ pub(crate) fn admit(
         if ledger.operations.len() >= 4096 {
             return Err("operation_capacity_exhausted");
         }
-        let (native_context, native_kind) = match &call.arguments {
-            Arguments::Context => {
-                let domain =
-                    serde_json::to_vec(&(&config.grant_id, caller, scope, &call.request_id))
-                        .map_err(|_| "invalid_operation_body")?;
-                (
-                    format!("dev-test-{}", blake3::hash(&domain).to_hex()),
-                    "prefix".into(),
-                )
-            }
-            Arguments::Move {
-                context_request_id, ..
-            } => {
-                let context = ledger
-                    .operations
-                    .get(context_request_id)
-                    .ok_or("original_context_unknown")?;
-                if context.scope != *scope || !matches!(context.arguments, Arguments::Context) {
-                    return Err("original_scope_denied");
+        let (native_context, native_kind, native_action, native_context_identity) =
+            match &call.arguments {
+                Arguments::Context => {
+                    let domain =
+                        serde_json::to_vec(&(&config.grant_id, caller, scope, &call.request_id))
+                            .map_err(|_| "invalid_operation_body")?;
+                    (
+                        format!("dev-test-{}", blake3::hash(&domain).to_hex()),
+                        "prefix".into(),
+                        None,
+                        None,
+                    )
                 }
-                if ledger.operations.values().any(|op| {
-                    op.native_context == context.native_context
-                        && matches!(op.arguments, Arguments::Move { .. })
-                }) {
-                    return Err("context_action_already_reserved");
+                Arguments::Move {
+                    context_request_id, ..
+                } => {
+                    let context = ledger
+                        .operations
+                        .get(context_request_id)
+                        .ok_or("original_context_unknown")?;
+                    if context.scope != *scope || !matches!(context.arguments, Arguments::Context) {
+                        return Err("original_scope_denied");
+                    }
+                    if ledger.operations.values().any(|op| {
+                        op.native_context == context.native_context
+                            && matches!(op.arguments, Arguments::Move { .. })
+                    }) {
+                        return Err("context_action_already_reserved");
+                    }
+                    let Arguments::Move { to, .. } = &call.arguments else {
+                        unreachable!()
+                    };
+                    let identity = context
+                        .native_context_identity
+                        .clone()
+                        .ok_or("original_context_unverified")?;
+                    (
+                        context.native_context.clone(),
+                        "action".into(),
+                        Some(*to),
+                        Some(identity),
+                    )
                 }
-                (context.native_context.clone(), "action".into())
-            }
-            Arguments::Lookup {
-                original_request_id,
-            } => {
-                let original = ledger
-                    .operations
-                    .get(original_request_id)
-                    .ok_or("original_operation_unknown")?;
-                if original.scope != *scope
-                    || matches!(original.arguments, Arguments::Lookup { .. })
-                {
-                    return Err("original_scope_denied");
+                Arguments::Lookup {
+                    original_request_id,
+                } => {
+                    let original = ledger
+                        .operations
+                        .get(original_request_id)
+                        .ok_or("original_operation_unknown")?;
+                    if original.scope != *scope
+                        || matches!(original.arguments, Arguments::Lookup { .. })
+                    {
+                        return Err("original_scope_denied");
+                    }
+                    let native_action = match &original.arguments {
+                        Arguments::Move { to, .. } => Some(*to),
+                        _ => original.native_action,
+                    };
+                    (
+                        original.native_context.clone(),
+                        original.native_kind.clone(),
+                        native_action,
+                        original.native_context_identity.clone(),
+                    )
                 }
-                (
-                    original.native_context.clone(),
-                    original.native_kind.clone(),
-                )
-            }
-        };
+            };
         let original = Original {
             body_digest: digest,
             scope: scope.clone(),
             arguments: call.arguments.clone(),
             native_context,
             native_kind,
+            native_action,
+            native_context_identity,
             last_observation: None,
         };
         ledger.used += 1;
@@ -304,14 +332,158 @@ pub(crate) fn observe(
     call: &Call,
     observation: serde_json::Value,
 ) -> Result<(), &'static str> {
+    let identity = observation
+        .get("context")
+        .map(|value| {
+            serde_json::from_value::<oasis7_agent_api::game::TaskContextIdentityV1>(value.clone())
+                .map_err(|_| "invalid_context_observation")
+        })
+        .transpose()?;
     transaction(config, caller, |ledger| {
         let original = ledger
             .operations
-            .get_mut(&call.request_id)
+            .get(&call.request_id)
             .ok_or("original_operation_unknown")?;
-        original.last_observation = Some(observation);
+        let mut update = vec![call.request_id.clone()];
+        if identity.is_some()
+            && let Arguments::Lookup {
+                original_request_id,
+            } = &original.arguments
+        {
+            update.push(original_request_id.clone());
+        }
+        for reference in update {
+            let original = ledger
+                .operations
+                .get_mut(&reference)
+                .ok_or("original_operation_unknown")?;
+            if let Some(identity) = &identity {
+                if original
+                    .native_context_identity
+                    .as_ref()
+                    .is_some_and(|prior| prior != identity)
+                {
+                    return Err("native_original_body_conflict");
+                }
+                original.native_context_identity = Some(identity.clone());
+            }
+            original.last_observation = Some(observation.clone());
+        }
         Ok(())
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Failure {
+    Conflict,
+    Unavailable,
+}
+impl From<String> for Failure {
+    fn from(_: String) -> Self {
+        Self::Unavailable
+    }
+}
+fn verify_cached(
+    client: &crate::device_client::Client,
+    original: &Original,
+    request: &crate::SubmitIntentRequest<
+        oasis7_client_api::world_service_wire::WorldServicePayloadV1,
+    >,
+) -> Result<(), Failure> {
+    use crate::operation_store::ClientStateKind;
+    use oasis7_client_api::world_service_wire::{SchedulerOperationV1, WorldServicePayloadV1};
+    if client.world.world_id != original.scope.world
+        || client.world.genesis_digest != original.scope.genesis_digest
+        || client.agent != original.scope.agent
+        || client.public_key != original.scope.executor
+    {
+        return Err(Failure::Conflict);
+    }
+    if let WorldServicePayloadV1::Cognition(signed) = &request.signed_payload {
+        let target = match &original.arguments {
+            Arguments::Move { to, .. } => {
+                if original
+                    .native_action
+                    .is_some_and(|expected| expected != *to)
+                {
+                    return Err(Failure::Conflict);
+                }
+                *to
+            }
+            _ => original.native_action.ok_or(Failure::Unavailable)?,
+        };
+        let expected = oasis7_agent_api::world_action::Action::MoveAgent {
+            agent_id: original.scope.agent.clone(),
+            to: oasis7_agent_api::world_action::GeoPos::new(target[0], target[1], target[2]),
+        };
+        if signed.request.action != expected {
+            return Err(Failure::Conflict);
+        }
+    } else if original.native_kind == "action" {
+        return Err(Failure::Conflict);
+    }
+    let prefix = client
+        .cached_intent(ClientStateKind::Prefix, &original.native_context)?
+        .ok_or(Failure::Unavailable)?;
+    let WorldServicePayloadV1::Scheduler(signed) = &prefix.signed_payload else {
+        return Err(Failure::Conflict);
+    };
+    let SchedulerOperationV1::TaskProviderPrefix { context } = &signed.request.operation else {
+        return Err(Failure::Conflict);
+    };
+    if let Some(identity) = &original.native_context_identity {
+        if identity != context {
+            return Err(Failure::Conflict);
+        }
+    } else if original.native_kind == "action" {
+        return Err(Failure::Unavailable);
+    }
+    let fence =
+        blake3::hash(&serde_json::to_vec(&context.fence).map_err(|_| Failure::Unavailable)?)
+            .to_hex()
+            .to_string();
+    if fence != original.scope.fence_digest
+        || context.fence.agent_id != original.scope.agent
+        || context
+            .fence
+            .executor_binding
+            .as_ref()
+            .is_none_or(|binding| binding.executor_public_key != original.scope.executor)
+    {
+        return Err(Failure::Conflict);
+    }
+    let prepare = client
+        .state
+        .read_client_state(ClientStateKind::Prepare, &original.native_context)?
+        .ok_or(Failure::Unavailable)?;
+    let crate::operation_store::ClientStateV1::ContextPrepare(prepare) = prepare else {
+        return Err(Failure::Conflict);
+    };
+    if prepare.subject_public_key != original.scope.executor
+        || prepare.request.client_operation_id != original.native_context
+        || prepare.request.fence != context.fence
+    {
+        return Err(Failure::Conflict);
+    }
+    if let WorldServicePayloadV1::Cognition(signed) = &request.signed_payload {
+        let cognition = &signed.request;
+        let identity = &cognition.request;
+        if cognition.task_fence.as_ref() != Some(&context.fence)
+            || identity.agent_id != context.fence.agent_id
+            || identity.agent_session_id != context.agent_session_id
+            || identity.agent_turn_id != context.agent_turn_id
+            || identity.decision_request_id != context.decision_request_id
+            || identity.retry_seq != context.retry_seq
+            || identity.transport_attempt != context.transport_attempt
+            || identity.request_digest != context.request_commitment
+            || identity.context_digest != context.context_commitment
+        {
+            return Err(Failure::Conflict);
+        }
+    } else if request != &prefix {
+        return Err(Failure::Conflict);
+    }
+    Ok(())
 }
 
 pub(crate) fn execute(
@@ -319,14 +491,25 @@ pub(crate) fn execute(
     original: &Original,
     fresh: bool,
     deadline: std::time::Instant,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, Failure> {
     use crate::IntentOutcome;
     use crate::operation_store::ClientStateKind;
     let operation = &original.native_context;
     if fresh {
         match &original.arguments {
             Arguments::Context => {
+                if client
+                    .state
+                    .read_client_state(ClientStateKind::Prepare, operation)?
+                    .is_some()
+                    || client
+                        .cached_intent(ClientStateKind::Prefix, operation)?
+                        .is_some()
+                {
+                    return Err(Failure::Unavailable);
+                }
                 let prefix = client.prefix_until(operation, deadline)?;
+                verify_cached(client, original, &prefix)?;
                 let result = client.submit_and_poll_until(&prefix, deadline)?;
                 if matches!(result.outcome, IntentOutcome::Committed { .. }) {
                     let captured = client.captured_until(operation, deadline)?;
@@ -334,17 +517,24 @@ pub(crate) fn execute(
                         serde_json::json!({"native_context":operation,"operation":result,"context":captured.prepared.identity,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
                     );
                 }
-                return serde_json::to_value(result).map_err(|_| "response_unavailable".into());
+                return serde_json::to_value(result).map_err(|_| Failure::Unavailable);
             }
             Arguments::Move { to, .. } => {
+                if let Some(cached) = client.cached_intent(ClientStateKind::Action, operation)? {
+                    verify_cached(client, original, &cached)?;
+                }
                 let action = oasis7_agent_api::world_action::Action::MoveAgent {
                     agent_id: client.agent.clone(),
                     to: oasis7_agent_api::world_action::GeoPos::new(to[0], to[1], to[2]),
                 };
-                return serde_json::to_value(
-                    client.submit_action_until(operation, action, deadline)?,
-                )
-                .map_err(|_| "response_unavailable".into());
+                let result = client.submit_action_until(operation, action, deadline);
+                if result.is_err()
+                    && let Some(cached) =
+                        client.cached_intent(ClientStateKind::Action, operation)?
+                {
+                    verify_cached(client, original, &cached)?;
+                }
+                return serde_json::to_value(result?).map_err(|_| Failure::Unavailable);
             }
             Arguments::Lookup { .. } => {}
         }
@@ -359,18 +549,28 @@ pub(crate) fn execute(
             serde_json::json!({"status":"unknown","native_context":operation,"next":"retain_original_operation"}),
         );
     };
+    verify_cached(client, original, &request)?;
+    let recovered_context =
+        if original.native_kind == "prefix" && original.native_context_identity.is_none() {
+            Some(client.captured_until(operation, deadline)?)
+        } else {
+            None
+        };
     crate::device_client::Client::check_tool_deadline(Some(deadline))?;
-    let response = client.lookup(&request)?;
+    let response = client.lookup_until(&request, deadline)?;
     if original.native_kind == "prefix"
         && matches!(response.outcome, IntentOutcome::Committed { .. })
-        && matches!(original.arguments, Arguments::Context)
+        && (matches!(original.arguments, Arguments::Context) || recovered_context.is_some())
     {
-        let captured = client.captured_until(operation, deadline)?;
+        let captured = match recovered_context {
+            Some(value) => value,
+            None => client.captured_until(operation, deadline)?,
+        };
         return Ok(
             serde_json::json!({"native_context":operation,"operation":response,"context":captured.prepared.identity,"actor_observation":captured.prepared.snapshot.actor_observation,"native_authority":captured.current_public_context.native_authority}),
         );
     }
-    serde_json::to_value(response).map_err(|_| "response_unavailable".into())
+    serde_json::to_value(response).map_err(|_| Failure::Unavailable)
 }
 
 #[cfg(test)]
@@ -524,7 +724,29 @@ mod tests {
                 to: [1, 0, 0],
             },
         };
+        assert_eq!(
+            admit(&config, "caller", &scope, &movement).unwrap_err(),
+            "original_context_unverified"
+        );
+        // Journal fixture: production only observes identities verified by the SDK authority.
+        let control: oasis7_agent_api::game::GameTaskControlV1 = serde_json::from_value(serde_json::json!({"schema_revision":1,"task_id":"task","world_id":"world","genesis_digest":"genesis","branch_id":"main","reorg_epoch":"0","agent_id":"a","owner_binding":"owner","owner_generation":"1","owner_public_key":"07".repeat(32),"task_revision":"3","task_status":"active","latest_goal_revision":"1","active_goal_revision":"1","active_goal_reference":{"goal_revision":"1","goal_ref":"cd".repeat(32),"prepare_operation_id":"goal","publish_operation_id":"publish","activation_committed_height":"2"},"executor_epoch":"1","executor_id":"executor","executor_binding":{"executor_id":"executor","executor_public_key":"07".repeat(32),"delegation_generation":"1","executor_epoch":"1"},"created_operation_id":"create"})).unwrap();
+        let identity = serde_json::json!({"schema_revision":1,"fence":oasis7_agent_api::game::GameTaskFenceV1::from_control(&control),"agent_session_id":"session","agent_turn_id":"turn","decision_request_id":"request","retry_seq":1,"transport_attempt":1,"request_commitment":format!("blake3:{}","11".repeat(32)),"context_commitment":format!("blake3:{}","22".repeat(32)),"provider_invocation_commitment":format!("blake3:{}","33".repeat(32)),"valid_until_tick":"16"});
+        observe(
+            &config,
+            "caller",
+            &context(),
+            serde_json::json!({"context":identity}),
+        )
+        .unwrap();
         let (action, _) = admit(&config, "caller", &scope, &movement).unwrap();
+        let lookup_move = Call {
+            request_id: "lookup-move".into(),
+            arguments: Arguments::Lookup {
+                original_request_id: "move-1".into(),
+            },
+        };
+        let resolved = admit(&config, "caller", &scope, &lookup_move).unwrap().0;
+        assert_eq!(resolved.native_action, Some([1, 0, 0]));
         assert_eq!(
             action.native_context,
             admit(&config, "caller", &scope, &context())
@@ -542,7 +764,7 @@ mod tests {
         );
         let stored: serde_json::Value =
             serde_json::from_slice(&std::fs::read(ledger(&config)).unwrap()).unwrap();
-        assert_eq!(stored["used"], 4);
+        assert_eq!(stored["used"], 5);
         std::fs::remove_dir_all(config.usage_directory).unwrap();
     }
 }

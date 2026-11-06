@@ -728,3 +728,126 @@ fn private_gateway_verifies_original_typed_cbor_not_normalized_json_payload() {
     assert_eq!(response.payload.get(&7).map(String::as_str), Some("typed"));
     server.join().unwrap();
 }
+
+#[test]
+fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::Instant;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (root, identity, vault, fence) =
+        fixture(format!("http://{}", listener.local_addr().unwrap()));
+    let private = hex::encode(
+        ExecutorControlStore::open(&vault, PASSWORD)
+            .unwrap()
+            .executor_seed(),
+    );
+    let payload = historical_prefix(fence.clone(), &private);
+    let request = SubmitIntentRequest {
+        contract_version: 1,
+        correlation: oasis7_client_api::world_service_correlation::derive_correlation(
+            WorldIdentity {
+                world_id: "world".into(),
+                genesis_digest: "genesis".into(),
+            },
+            &payload,
+        )
+        .unwrap(),
+        deadline_unix_ms: None,
+        signed_payload: payload,
+    };
+    let client = crate::device_client::Client::from_authenticated_config(
+        crate::device_client::ExecutorDeviceConfig {
+            authority_mode: None,
+            identity,
+            login_operation: "login".into(),
+            executor_vault_directory: vault,
+            service_public_key: service_key(),
+            fence,
+            state_directory: root.0.join("operation-state"),
+        },
+        PASSWORD,
+    )
+    .unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let posts = Arc::new(AtomicUsize::new(0));
+    let sessions = Arc::new(AtomicUsize::new(0));
+    let (done, count, auth) = (stop.clone(), posts.clone(), sessions.clone());
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let server = thread::spawn(move || {
+        while !done.load(Ordering::SeqCst) {
+            let (mut socket, _) = match listener.accept() {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
+                Err(error) => panic!("{error}"),
+            };
+            socket.set_nonblocking(false).unwrap();
+            let (path, body) = read_http(&mut socket);
+            let reply = if path.ends_with("/session") {
+                if auth.fetch_add(1, Ordering::SeqCst) == 1 {
+                    thread::sleep(Duration::from_millis(800));
+                }
+                json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
+            } else if path.ends_with("/capabilities") {
+                json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
+            } else {
+                let outer: EntryExecutorControlRequestV1 = serde_json::from_value(body).unwrap();
+                let (path, digest, correlation) = match outer.operation {
+                    EntryExecutorOperationV1::Lookup(original) => (
+                        LOOKUP_PATH,
+                        ws::request_digest(LOOKUP_PATH, &original).unwrap(),
+                        oasis7_client_api::world_service_correlation::derive_correlation(
+                            WorldIdentity {
+                                world_id: "world".into(),
+                                genesis_digest: "genesis".into(),
+                            },
+                            &original.original,
+                        )
+                        .unwrap(),
+                    ),
+                    EntryExecutorOperationV1::Submit(original) => {
+                        assert!(Instant::now() >= deadline);
+                        count.fetch_add(1, Ordering::SeqCst);
+                        (
+                            SUBMIT_PATH,
+                            ws::request_digest(SUBMIT_PATH, &original).unwrap(),
+                            original.correlation,
+                        )
+                    }
+                    _ => panic!("unexpected operation"),
+                };
+                let response: IntentResponse<Value> = IntentResponse {
+                    contract_version: 1,
+                    formal_profile: None,
+                    execution_evidence_scope: None,
+                    correlation,
+                    outcome: IntentOutcome::Unknown,
+                };
+                json!({"api_version":2,"ok":true,"world_response":ws::sign_service_response(path,digest,response,&hex::encode([91;32])).unwrap()})
+            };
+            let bytes = serde_json::to_vec(&reply).unwrap();
+            let _ = write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            let _ = socket.write_all(&bytes);
+        }
+    });
+    let result = client.submit_and_poll_until(&request, deadline);
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+    assert_eq!(
+        sessions.load(Ordering::SeqCst),
+        2,
+        "fixture did not reach submit auth phase: {result:?}"
+    );
+    assert_eq!(
+        posts.load(Ordering::SeqCst),
+        0,
+        "new Submit POST started after auth crossed the tool deadline"
+    );
+}

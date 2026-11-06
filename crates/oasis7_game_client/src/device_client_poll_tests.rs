@@ -12,6 +12,7 @@ use std::{
 };
 #[derive(Clone, Copy)]
 enum Fault {
+    ImmediateCommitted,
     DropFirst,
     UnavailableOnce,
     WrongSignature,
@@ -478,4 +479,79 @@ fn tool_polling_never_starts_a_retry_after_deadline() {
     assert!(started.elapsed() < Duration::from_secs(1));
     assert!(probe.submits.load(Ordering::SeqCst) <= 1);
     assert!(probe.lookups.load(Ordering::SeqCst) <= 1);
+}
+
+#[test]
+fn review_replayed_move_rejects_native_body_mismatch() {
+    let probe = Probe::new_kind(Fault::ImmediateCommitted, OriginalKind::Action);
+    probe
+        .client
+        .cache_intent(
+            ClientStateKind::Action,
+            "slot",
+            probe.original.signed_payload.clone(),
+        )
+        .unwrap();
+    let arguments = crate::dev_test_operations::Arguments::Move {
+        context_request_id: "context-1".into(),
+        to: [1, 0, 0],
+    };
+    let original = crate::dev_test_operations::Original {
+        body_digest: blake3::hash(&serde_json::to_vec(&arguments).unwrap())
+            .to_hex()
+            .to_string(),
+        scope: crate::dev_test_operations::Scope {
+            account_ref: "a".into(),
+            environment: "e".into(),
+            world: probe.client.world.world_id.clone(),
+            genesis_digest: probe.client.world.genesis_digest.clone(),
+            agent: "a".into(),
+            resource: "r".into(),
+            executor: probe.client.public_key.clone(),
+            fence_digest: "f".into(),
+        },
+        arguments,
+        native_context: "slot".into(),
+        native_kind: "action".into(),
+        native_action: Some([1, 0, 0]),
+        native_context_identity: None,
+        last_observation: None,
+    };
+    let response = crate::dev_test_operations::execute(
+        &probe.client,
+        &original,
+        false,
+        Instant::now() + Duration::from_secs(1),
+    );
+    assert_eq!(probe.submits.load(Ordering::SeqCst), 0);
+    assert_eq!(response, Err(crate::dev_test_operations::Failure::Conflict));
+    let mut lookup = original.clone();
+    lookup.arguments = crate::dev_test_operations::Arguments::Lookup {
+        original_request_id: "move-1".into(),
+    };
+    assert_eq!(
+        crate::dev_test_operations::execute(
+            &probe.client,
+            &lookup,
+            false,
+            Instant::now() + Duration::from_secs(1)
+        ),
+        Err(crate::dev_test_operations::Failure::Conflict)
+    );
+    let mut incomplete = original;
+    incomplete.arguments = crate::dev_test_operations::Arguments::Move {
+        context_request_id: "context-1".into(),
+        to: [0, 0, 0],
+    };
+    incomplete.native_action = Some([0, 0, 0]);
+    assert_eq!(
+        crate::dev_test_operations::execute(
+            &probe.client,
+            &incomplete,
+            false,
+            Instant::now() + Duration::from_secs(1)
+        ),
+        Err(crate::dev_test_operations::Failure::Unavailable)
+    );
+    assert_eq!(probe.lookups.load(Ordering::SeqCst), 0);
 }

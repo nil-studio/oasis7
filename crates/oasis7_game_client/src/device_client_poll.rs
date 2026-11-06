@@ -56,6 +56,15 @@ impl Client {
         self.lookup_typed(request)
             .map_err(|error| query_error(&error))
     }
+    pub fn lookup_until(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        let _scope = crate::request_deadline::Scope::enter(deadline);
+        Client::check_tool_deadline(Some(deadline))?;
+        self.lookup(request)
+    }
     pub fn submit_and_poll(
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
@@ -74,6 +83,7 @@ impl Client {
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
         deadline: Option<Instant>,
     ) -> Result<IntentResponse<Value>, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
         Client::check_tool_deadline(deadline)?;
         #[cfg(unix)]
         if self.gateway.is_some() {

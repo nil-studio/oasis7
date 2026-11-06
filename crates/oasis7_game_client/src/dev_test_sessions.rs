@@ -366,6 +366,7 @@ pub fn handle(
     if std::time::Instant::now() >= deadline {
         return Err("downstream_deadline_unknown".into());
     }
+    let _deadline_scope = crate::request_deadline::Scope::enter(deadline);
     let client = current_client(config, grant, unlocks, deadline)?;
     if std::time::Instant::now() >= deadline {
         return Err("downstream_deadline_unknown".into());
@@ -447,9 +448,12 @@ pub fn handle(
         }
         let observation = match operations::execute(&client, &original, fresh, deadline) {
             Ok(value) => value,
-            Err(_) => {
+            Err(operations::Failure::Conflict) => {
+                return Err("native_original_body_conflict".into());
+            }
+            Err(operations::Failure::Unavailable) => {
                 return Ok(
-                    serde_json::json!({"request_id":call.request_id,"native_context":original.native_context,"status":"unknown","last_observation":original.last_observation,"next":"lookup_same_original"}),
+                    serde_json::json!({"request_id":call.request_id,"native_context":original.native_context,"status":"unknown","next":"lookup_same_original"}),
                 );
             }
         };
