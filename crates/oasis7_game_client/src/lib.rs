@@ -585,3 +585,8 @@ mod runtime_broker_cli;
 
 #[cfg(unix)]
 mod cold_entry;
+
+#[cfg(unix)]
+pub mod dev_test_service;
+#[cfg(unix)]
+mod dev_test_service_cli;
