@@ -13,15 +13,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.len() != 5 {
         return Err("usage: oasis7_dev_test_remote <private-service-config> <https-origin> <127.0.0.1:port> <max-connections>".into());
     }
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let metadata = std::fs::symlink_metadata(&args[1])?;
-    if !metadata.is_file()
-        || metadata.permissions().mode() & 0o077 != 0
-        || metadata.uid() != unsafe { libc::geteuid() }
-    {
-        return Err("private_configuration_required".into());
-    }
-    let config: Config = serde_json::from_slice(&std::fs::read(&args[1])?)?;
+    let config: Config =
+        oasis7_game_client::dev_test_private_config::load_config(std::path::Path::new(&args[1]))?;
     config.validate()?;
     let address: std::net::SocketAddr = args[3].parse()?;
     if !address.ip().is_loopback() {
