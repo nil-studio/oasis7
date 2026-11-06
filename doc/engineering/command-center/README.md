@@ -84,7 +84,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 ## 当前主线与进展
 
-2026-11-06 开发测试账号工具职责局部核对：[当前要求](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts)与[系统设计](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)将 #5076 的交付集中到测试账号目录、凭据保管、按会话选账号及 Codex／dot 实际接入。游戏权限与结果继续由现有客户端／世界 authority 承担，测试编排负责业务目标与所需清理。旧四角色 custody 合同保留其适用范围，不作为新工具的全量前置。源码核对基线 `3bd96334c7ce3ad09111ed25d586afd1e20bab64`；已有多资源 broker 与 Control-only Host 可复用，新 profile、真实双账号与 dot 接入尚未验收。后续拆解与旧工作归属集中在 [#5076](https://github.com/nil-studio/oasis7/issues/5076)；本次未核验部署，其他主题核验时间不变。
+2026-11-06 开发测试账号工具职责局部核对：[当前要求](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts)与[系统设计](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)将 #5076 的交付集中到测试账号目录、凭据保管、按会话选账号及外部 Agent 实际接入。游戏权限与结果继续由现有客户端／世界 authority 承担，测试编排负责业务目标与所需清理。旧扩张要求已退役，后续实施只按当前工具合同推进。源码核对基线 `3bd96334c7ce3ad09111ed25d586afd1e20bab64`；已有多资源 broker 与 Control-only Host 可作为复用基础，工具的本地／远程入口、真实双账号使用及部署隔离仍待实现／验收。后续拆解集中在 [#5076](https://github.com/nil-studio/oasis7/issues/5076)；本次未核验部署，其他主题核验时间不变。
 
 以下主线消费既有里程碑和实际交付记录，不在这里重新排序或建立一套任务状态。
 [#4363](https://github.com/eng-cc/oasis7/issues/4363) 已以 `not_planned` 关闭，只是历史规划/文档来源；当前能力和限制回到对应主责文档与实际 PR/验证记录，不恢复旧 Issue 的剩余义务。

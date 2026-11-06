@@ -223,22 +223,22 @@
 原 PR 分别保留 quote 与当前提交条件、原请求/事件关系、独立资源前后值、实际服务效果、恢复与当前可用下一步。当前区域压力引用的 opaque/insufficient 状态照实呈现；本方法不新增压力认证、预测生产者、补货、长期 epoch 循环或其它设施。原 §11–12 的 measured-supply 局部测试与玩家观察仍分别有效，方法存在不表示它们已在本候选执行。
 
 <a id="dev-test-accounts-validation"></a>
-## 开发测试账号工具：真实接入与双账号验收
+## 开发测试账号工具：外部 Agent 接入与双账号验收
 
-依据：[开发工具要求与 AC-DEV-01～06](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts-acceptance)、[职责与验证设计](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-verification)。本组只验收独立 `dev-test-accounts-v1`；旧 custody CT-008 和完整业务目标仍按其合同验证，不混用凭据或结果。
+依据：[开发工具要求与 AC-DEV-01～06](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts-acceptance)、[职责与验证设计](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-verification)。本组验收 `dev-test-accounts-v1` 的账号选择、秘密隔离、受限调用与恢复。
 
-准备：固定实际 source/build、正式 Skill／工具说明、服务部署、Runtime／connector 版本、认证方式、两个已获准测试账号 A／B、世界／任务／资源及有限预算。先通过实际 Codex 和 dot 各自的认证入口调用只读能力信息；缺入口、秘密保管能力或测试环境时记录具体 blocked 条件。此预检可先于完整业务适配，不以 curl、mock 或另一个 Runtime 的成功替代。
+准备：固定实际 source/build、正式 Skill／工具说明、服务部署、Runtime／connector 版本、认证方式、两个已获准测试账号 A／B、世界／任务／资源及有限预算。本地和远程各选一条真实外部 Agent 接入组合，当前验收计划分别使用 Codex、dot。先通过各自的认证入口调用只读能力信息；缺入口、秘密保管能力或测试环境时记录具体 blocked 条件。此预检可先于完整业务适配，不以 curl、mock 或另一个 Runtime 的成功替代。
 
-普通合同和故障用例先执行。真实 Agent 仅获得正式说明、获准账号的非秘密元数据与受限工具；编排者保管 setup／Owner 权限并独立核对身份、原操作和世界结果。选择两个账号各有合法权限、效果可辨别的小操作，例如各自 Agent 的一次合法移动，无需完成整条工业生产流程。
+普通合同和故障用例先执行。真实外部 Agent 仅获得正式说明、获准账号的非秘密元数据与受限工具；编排者保管 setup／Owner 权限并独立核对身份、原操作和世界结果。选择两个账号各有合法权限、效果可辨别的小操作，例如各自游戏 Agent 的一次合法移动，无需完成整条工业生产流程。
 
 | 场景／验收 | 操作与观察 | 独立判据 |
 | --- | --- | --- |
-| DA-01／AC-DEV-01 | 管理者登记 A／B，Agent 列账号；核对实际身份、环境与状态，检查模型可访问面及输出／日志 | 公开身份与原生账号一致；模型无法读取服务私有凭据、解锁材料或登录秘密；错误解锁／损坏凭据明确失败且不新建替代身份 |
+| DA-01／AC-DEV-01 | 管理者登记 A／B，外部 Agent 列账号；核对实际身份、环境与状态，检查模型可访问面及输出／日志 | 公开身份与原生账号一致；模型无法读取服务私有凭据、解锁材料或登录秘密；错误解锁／损坏凭据明确失败且不新建替代身份 |
 | DA-02／AC-DEV-02 | A → B → A 打开会话并读取；并行调用两会话；用 B 会话提交 A 的资源／环境；在 A 活跃时修改别名或新增账号 | 每个结果归属正确账号；跨范围拒绝；既有会话不重新绑定，累计用量及未决操作不变 |
 | DA-03／AC-DEV-03 | 两账号各经真实工具完成读取和一个获准写操作，另用无权账号调用同目标 | 独立回读实际主体和世界效果；无权调用无新增世界副作用；accepted 或工具自报不代替真实结果 |
 | DA-04／AC-DEV-04 | 对可能已发的写请求丢响应，保存原 ID；重启服务，验证旧会话拒绝，当前授权下建新会话查询旧操作 | 同一原生 operation 可恢复且效果仅一次；同 ID 异正文冲突；查询缺历史／权限时准确 unknown，不换 nonce 重新写 |
-| DA-05／AC-DEV-05 | 关闭、停用、到期后再调用；恢复含旧 active 标志与较早用量的备份；把旧 custody token／TestSession 交给新入口 | 新执行被拒绝；恢复的旧授权不能重新启用，旧快照不恢复原额度或写权；缺失用量／原操作保留 unknown，核对后须明确新建授权；旧凭据不能转换或回退准入；在途结果与世界 Stop／Revoke／Closed 分别报告 |
-| DA-06／AC-DEV-06 | Codex 与 dot 分别通过真实已交付入口执行以上适用组合 | 分别记录实际 Runtime、传输和结果；任一未完成都保留缺口，不以另一条链或确定性脚本代签 |
+| DA-05／AC-DEV-05 | 关闭、停用、到期后再调用；恢复含旧 active 标志与较早用量的备份；提交认证 audience 或用途不匹配的凭据 | 新执行被拒绝；恢复的旧授权不能重新启用，旧快照不恢复原额度或写权；缺失用量／原操作保留 unknown，核对后须明确新建授权；不匹配的凭据被拒绝；在途结果与所需世界控制／清理分别报告 |
+| DA-06／AC-DEV-06 | 外部 Agent 分别通过真实已交付的本地与远程入口执行以上适用组合 | 分别记录实际 Runtime、认证、传输和结果；任一接入组合未完成都保留缺口，不以另一条链或确定性脚本代签 |
 
 使用现有 RunInput／TesterInput／RunResult 及报告模板记录版本、账号的非秘密身份、操作关联、实际观察和未覆盖项。普通回归、接入预检、真实模型使用、世界效果和运行环境隔离分别说明证明范围。若需要验证网页登录／切换，另选择真实浏览器会话场景；native API 结果不证明 UI 已通过。
 

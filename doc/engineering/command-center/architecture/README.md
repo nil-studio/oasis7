@@ -140,7 +140,7 @@ ARCH-07 局部核对（2026-10-28，源码基线 `112a627e889cb0601ed368b2c0be20
 
 ## 身份与 Agent
 
-2026-11-06 开发测试账号工具架构局部核对：[产品职责](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts)与[组件边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-boundaries)采用单个可信账号服务，复用原生身份存储、Game Client 和世界 authority；账号工具拥有目录、会话、受限调用及操作关联，测试编排拥有业务目标与所需世界清理。CLI／远程适配共享同一账号合同，Codex 与 dot 分别真实验收。独立新 profile 不消费或放宽[旧 custody 凭据与合同](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-compatibility)。源码核对基线 `3bd96334c7ce3ad09111ed25d586afd1e20bab64`，当前静态 broker 与 Control-only Host 只证明可复用基础；新入口、双账号使用、dot 及部署隔离仍待实现／验证，实施和增强项归属见 [#5076](https://github.com/nil-studio/oasis7/issues/5076)。
+2026-11-06 开发测试账号工具架构局部核对：[产品职责](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts)与[组件边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-boundaries)采用单个可信账号服务，复用原生身份存储、Game Client 和世界 authority；账号工具拥有目录、会话、受限调用及操作关联，测试编排拥有业务目标与所需世界清理。外部 Agent 的本地／远程适配共享同一账号合同，两条入口分别真实验收。旧扩张要求已退役，现有凭据和代码只按[复用边界](../../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-reuse)核对，不据此恢复旧建设目标。源码核对基线 `3bd96334c7ce3ad09111ed25d586afd1e20bab64`，当前静态 broker 与 Control-only Host 只证明可复用基础；工具入口、双账号使用及部署隔离仍待实现／验证，后续实施和验收见 [#5076](https://github.com/nil-studio/oasis7/issues/5076)。
 
 玩家进入、游戏行动委托、operator 控制和代码开发会话分别成立。相同工具名称不能合并它们的权限与完成证据。
 

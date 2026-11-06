@@ -22,4 +22,4 @@ Host 与模型必须使用不同受限 OS 主体或已批准的远程隔离。Ho
 
 Enrollment 只是元数据配对；bind 不授权限，必须完成精确 fresh-MFA 批准与正式 credential claim。claim 历史响应没有 token 恢复通道；丢失首次私有 credential 回复时须明确由操作者执行获准替换，不伪造新凭据或从历史读取 token。
 
-Host 在出站前持久保留原 typed request 与发送尝试，固定 HTTPS origin、禁止 redirect 和自动重试。冷恢复保留原 nonce、body 和 scope；未知效果不退款、不重新签替代原件。隔离组件、真实 HTTPS 控制链及部署验收分别记录；该参考不证明实际生产配置、工业任务或 CT-008 已验收。
+Host 在出站前持久保留原 typed request 与发送尝试，固定 HTTPS origin、禁止 redirect 和自动重试。冷恢复保留原 nonce、body 和 scope；未知效果不退款、不重新签替代原件。隔离组件、真实 HTTPS 控制链及部署验收分别记录；该参考只描述现有控制入口；业务工具和实际环境的验收另按当前任务记录。
