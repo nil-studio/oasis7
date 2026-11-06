@@ -1,9 +1,10 @@
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 #[path = "../src/dev_test_local_adapter.rs"]
 mod transport;
 use oasis7_game_client::dev_test_service;
 use std::{io::Write, os::unix::net::UnixStream, time::Duration};
 
+#[cfg(target_os = "linux")]
 #[test]
 fn peer_identity_precedes_payload_parsing() {
     let (mut server, mut client) = UnixStream::pair().unwrap();
@@ -22,6 +23,7 @@ fn peer_identity_precedes_payload_parsing() {
     );
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn same_uid_policy_is_rejected() {
     let uid = unsafe { libc::geteuid() };
@@ -36,4 +38,16 @@ fn same_uid_policy_is_rejected() {
         transport::receive(&mut server, &policy).unwrap_err(),
         "invalid local isolation policy"
     );
+}
+
+#[test]
+fn model_cannot_supply_identity_or_secret_paths() {
+    for extra in ["caller_id", "credential", "config_path", "url"] {
+        let mut request = serde_json::json!({"profile":"dev-test-accounts-v1", "audience":"oasis7-dev-test-tools", "method":"capabilities"});
+        request
+            .as_object_mut()
+            .unwrap()
+            .insert(extra.into(), serde_json::json!("forbidden"));
+        assert!(serde_json::from_value::<transport::LocalRequest>(request).is_err());
+    }
 }
