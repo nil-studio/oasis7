@@ -26,7 +26,7 @@
 
 Rust/JS 代码开发通过 GitHub Issue 交给 Coding Agent，dot 不直接启动开发执行。先检索同目标的 Issue/PR；已有任务就补充原项。遵守[Issue 五类与转换合同](../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)，只将唯一 `type:code` 且设计完善或明确实现 bug 的任务交给代码开发。使用[开发 Issue 模板](../../.github/ISSUE_TEMPLATE/code-development.yml)或等价正文，写明代码类型、目标、来源与允许范围、验收、依赖、交付终点；来源引用真实设计、代码和失败版本，不把猜测写成已确认根因。
 
-复杂目标按[可验证的代码任务](../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)区分父项和具体实施结果，使用 [parallel-development](../skills/parallel-development/SKILL.md) 的安排方法。拆出的开发任务须创建或复用代码 Issue，按[原生 sub-issue 规则](../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)建立并回读父子关系；父项保留整体依赖、集成负责人和最终验收，子项分别维护领取、状态、PR 与验收结果。任务内部步骤和用例可用清单。协调者可先接手父项拆分，实际开发按就绪子 Issue 派发；dot 的交接不直接启动外部开发会话。
+复杂目标按[可验证的代码任务](../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)区分父项和具体实施结果，使用 [parallel-development](../skills/parallel-development/SKILL.md) 的安排方法。拆出的开发任务须创建或复用代码 Issue，按[原生 sub-issue 规则](../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)建立并回读父子关系；父项保留整体依赖、集成负责人和最终验收，子项分别维护领取、状态、PR 与验收结果。任务内部步骤和用例可用清单。用户可直接打开独立开发会话领取就绪子 Issue，需要集中协调时才采用 TPM；整体负责人维护依赖和集成，dot 的交接不直接启动外部开发会话。
 
 具体子 Issue 的内容、依赖和授权满足[开发流程规范](../../doc/engineering/workflow/source-of-truth.md#coding-agent-issue-handoff)的交接要求后才为其添加 `implementation:ready`；父项设计完整或已有 ready/active 不代替子项就绪与领取。依赖未满足保留阻塞；用户暂停使用 `implementation:paused`，父项有效暂停同样约束受影响子项。不要仅因每轮巡检再次看到 Issue 就创建另一份任务。写入后回读 Issue、标签和原生关系，启动状态以真实 Coding Agent 会话为准。未拆分任务按自身条件交接，简单修改仍可直接 PR。
 

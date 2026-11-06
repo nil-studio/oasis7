@@ -93,18 +93,58 @@
 
 长中文、窄屏、文字放大与 reduced motion 下保留关键句和原结果入口；动作、返回和恢复不得只靠 hover。音频不是本范围已交付的反馈渠道，所有必要含义在静音时可读；将来加入声音仍需其自身制作、权利和试听依据。
 
+<a id="native-three-batch-fixture"></a>
+### 3.6 原生三批方案的具体交接
+
+[可操作首局原型](assets/ui-ux/interactive/index.html#industry)、[方案稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)和[结果稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)使用下列固定**设计 fixture**，承接 C03～C09。它们没有连接 Runtime；切换示例条件和推进状态只改变演示，不能登记为真实生产、网络恢复或真人验证。旧 `industrial-settled.svg` 的 36/48/24 是原字段排版示例，不能作为这套完整 native 方案的数值来源。
+
+| 项目 | 固定设计输入与表达 | 原依据及实施时的绑定 |
+| --- | --- | --- |
+| profile / 完成边界 | `starter-industrial-smelter-to-assembler-v1`，revision `1`，`production_only` | [starter profile](../../../crates/oasis7_world_state/src/state/starter_industrial.rs)。仅当前候选确实采用该 profile 时适用；已有合法 Smelter 直接进入方案。 |
+| 固定生产方案 | 工厂类型 `factory.smelter.mk1`，配方 `recipe.smelter.iron_ingot`，`3` 批 | [recipe catalog](../../../crates/oasis7_agent_api/src/world_quote/recipe_catalog.rs)。具体工厂实例、原请求与消费/产出账本仍须绑定同一候选，工厂类型 ID 不代替实例 ID。 |
+| 完整预计投入与产出 | `iron_ore ×12` + `carbon_fuel ×3` → `iron_ingot ×9` + `slag ×3` | native 每批 4/1 → 3/1，三批同比放大。方案页分别标“预计产出”“预计副产物”；实际显示读取同源 quote，不由 Viewer 另算一个执行计划。 |
+| 能源、时长与费用 | 配方用电 `24`；catalog 基准 `1 tick`；此可行报价 fixture 的 `preview.duration_ticks = 1` | [native quote](../../../crates/oasis7_agent_api/src/world_quote/recipe.rs)与[duration](../../../crates/oasis7_agent_api/src/world_quote/duration.rs)。未指定物理单位，不写 kWh/W；不把三批乘成 3 ticks，不把基准值当实际报价或墙钟 ETA。未提供独立货币费用，不能填“免费”或 0。 |
+| 可行与缺料样例 | 可行输入：工厂输入账本中 ore `12/12`、fuel `3/3`；阻塞变体：fuel `2/3`，缺 `1` | 这是故意选择的演示账本余额，非实际世界库存。缺料只解释该消费账本；不从 Agent 总余额判断，不绘制当前能力尚不支持的自动补料动作。 |
+| 原件身份 | 示例 Agent A；job `17`；结算 tick `102` | 均为设计定位值。生产消费者保留真实 owner、factory、recipe、batches、原请求及 job/settlement 关联；相同 owner 或观察焦点不能替代精确关联。 |
+| 后继比较 | 这笔产出 `iron_ingot 9`；Assembler MK1 建造要求 `iron_ingot 10`，另需 `structural_frame 8`、`copper_wire 8` | [factory catalog](../../../crates/oasis7_agent_api/src/world_quote/factory_catalog.rs)。`9/10` 只比较本笔产出与规则需求，**不是当前库存余额**；候选开放后仍须核当前全部材料、电力与授权，不据此显示“建造已就绪”。 |
+
+#### 结果页的副产物接点
+
+方案中的 `slag ×3` 是完整 native 配方的**预计副产物**。[`RecipeCompletionReceiptV1`](../../../crates/oasis7_world_state/src/state/industry_state.rs)包含 `byproducts`，但当前 [`StarterIndustrialSettlementSummaryV1`](../../../crates/oasis7_agent_api/src/world_industry.rs)和[成果归一化](../../../crates/oasis7_viewer/software_safe_src/industrial_starter_outcome.js)没有发布该字段。结果稿因此显示“副产物：当前摘要未发布”，保留预计值的独立身份，不补零，也不把预计 `3` 写成实际到账。
+
+后续消费方只有取得当前读取资格允许、且与同一 job/factory/recipe/owner 匹配的完整结算原件，才能展示实际 `slag ×3`；此时是另一条明确的设计 fixture/目标承接分支。取得请求 `committed` 只确认请求处置，不能单独升级为生产已结算，更不能绕过摘要缺字段的边界。补投影由原领域与 Viewer owner 沿既有合同实现，本设计不声明它已接入。
+
+<a id="native-first-session-journey"></a>
+### 3.7 从方案到回访的操作顺序
+
+统一入口保持 World / Targets / Command，不增加第二个执行面。原型从已有工厂的固定方案开始；未建厂的 C02 继续使用原建设合同。表内状态是互斥场景，静态方案稿仅画“可行报价”，结果稿仅画“已结算摘要 / 副产物未发布”。其余场景在原型逐步查看，不把一句说明计作额外状态截图。
+
+| 阶段与触发 | 主读面和允许操作 | 状态交接与验收要点 |
+| --- | --- | --- |
+| 方案：取得 fresh 同源报价 | 首读工厂、配方、三批及完整投入/预计产出；只有一个“确认生产 · 3 批”主动作；返回 World 只导航 | 打开方案、展开原件、重新核对均只读。引用过期、条件变更或身份改变时，旧报价不能释放提交。 |
+| 阻塞或明确拒绝 | 缺料 fixture 显示 `carbon_fuel 2/3`、缺 `1`、消费账本与复查条件；同位置提交不可用 | “缺料条件样例”切换不是补料动作。实际拒绝只据原请求的明确拒绝原件表达；quote 阻塞不冒充已经提交的动作被拒绝。若当前状态未发布已耗值，保持未知，不承诺退款。 |
+| 显式提交 | 用户明确确认当前绑定方案一次；记录原请求身份，再显示当前已证实阶段 | fresh 权威可分别说明“已接受未开始”与“正在生产尚未结算”。重复点击、视图关闭和重入不制造新请求；旧 accepted 无法确认当前结果时转未知。 |
+| 原结果未知 | “原操作结果尚未确认”；提供当前确实支持的“核对原请求结果”及返回 | 只读查询携带原身份；不生成新身份重试生产。查询不可用、限流、断连或无历史仍保留未知，并说明可用的下一复查条件；查询失败不改写原操作为拒绝。 |
+| 匹配结算 | Action Receipt 显示实际投入、铁锭 `9`、配方用电 `24`、owner、job/tick；副产物按 §3.6 的实际投影分支显示 | 有限确认 `production_only`；不自动弹奖励、不夺焦点，不把首笔生产升级为稳定、交付或额外奖励。 |
+| 后继 / 回访 | 可查看 Assembler 候选的当前条件，或自然返回 World；重入显示“上次已结算”与原 job | `9/10` 标明仅本笔产出比较。重入不再次庆祝、产生收益或自动建设；新对象选择不把 Agent A 的原件归给其他主体。权限改变时不恢复旧私有缓存。 |
+
+窄屏沿相同 DOM 阅读顺序将方案/原件作为单一上下文面展开，返回入口始终可达。焦点回到打开它的控件；未知到已结算的更新使用状态说明而不跳焦点。具体桌面与窄屏、键盘、长文和 reduced motion 组合按[设计原型走查](first-session-content-delivery.manual.md#fs-content-prototype)记录；这些设计操作不能代替正式入口及真人验收。
+
 ## 4. 制作规格与交付物
 
 <a id="delivery-index"></a>
 ### 4.1 已有交付入口与实际可用范围
 
-下表文件均可从审读基线取得；固定版本表示可定位内容，不表示消费者已加载。`coverage-catalog.json` 的源采集版本为 `113868200d1f91bef1008babb689bd257f241428`，其 `source_pointer_only_not_executed` 和图稿 `not_run` 状态继续保留。新文案以采纳它的实际 PR 提交为版本，不另设全仓素材清单。
+下表保留审读基线的复用入口，并列出本次新增的设计目标；固定版本表示可定位内容，不表示消费者已加载。`coverage-catalog.json` 的源采集版本为 `113868200d1f91bef1008babb689bd257f241428`，其 `source_pointer_only_not_executed` 和图稿 `not_run` 状态继续保留。新文案与设计稿以采纳它们的实际 PR 提交为版本，不另设全仓素材清单。
 
 | 内容/素材与主责 | 编辑源、输出与依赖 | 当前可用边界、消费方 | 来源与权利核验边界 |
 | --- | --- | --- | --- |
 | 首局内容单元；视觉交互设计 | 本文 [C01～C09](#content-units) 为交接原文；实现沿原 JSX/JS 文字和双语函数，没有假设一个尚不存在的统一译文表 | 可供设计/实施审读；本次不改变构建输出。采用方须回链具体单元与实际修改 | 本次编写的文字；没有引入外部图文或宣称已有翻译审校。 |
 | 首产物双语卡；Viewer | [成果卡](../../../crates/oasis7_viewer/software_safe_src/industrial_starter_outcome_card.jsx)、[归一化](../../../crates/oasis7_viewer/software_safe_src/industrial_starter_outcome.js)，由既有 Viewer 构建消费 | 源码可读；实际值依赖 `starter_industrial_feasibility`。本次没有目标环境加载结果 | Git 可定位源代码；本次未逐项核验全部内容作者/来源或商业素材权利。 |
 | 首产物示意稿；视觉交互设计 | [industrial-settled.svg](assets/ui-ux/full-function/gameplay/frames/industrial-settled.svg)，可编辑 SVG，1440×1000；引用 `Noto Sans CJK SC`；原 [R-GAME-18](viewer-gameplay-details-uiux.design.md#r-game-18) 为字段说明 | 文档参考，不是 runtime 资源。36/48/24 等均为示例；不覆盖当前完整 native 配方、字体实装和运行画面 | Git 版本与字体名称可核；文件未附逐项作者/授权凭证。本次未核字体文件、取得来源、再分发许可与署名要求。 |
+| 原生三批方案稿；视觉交互设计 | [industrial-native-plan.svg](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)，可编辑 SVG，1440×900；`Noto Sans CJK SC` | 设计目标：完整三批方案、工厂输入账本、预计副产物与唯一显式提交；共享俯视像素场景是非权威示意，消费数值沿 [§3.6](#native-three-batch-fixture) | 本次仓库原生像素几何与文字；复用深绿／金色关系，不打包字体或外部图像，字体许可仍按实际消费核验。 |
+| 原生三批结果稿；视觉交互设计 | [industrial-native-result.svg](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)，可编辑 SVG，1440×900；同上字体；[可操作旅程](assets/ui-ux/interactive/index.html#industry)承接其余状态 | 设计目标：已结算摘要、副产物未发布、有限完成与后继比较；可操作原型使用 fixture，不能作为生产实现、运行复验或真人理解通过 | 同上原生向量来源；完整结算原件的副产物消费是明确待接入边界，静态图与浏览器演示不授予读取或执行能力。 |
+| 共享像素世界；视觉交互设计 | [atlas.svg](assets/ui-ux/pixel-world/atlas.svg)、[scene.svg](assets/ui-ux/pixel-world/scene.svg) 与 [build.py](assets/ui-ux/pixel-world/build.py)；场景 320×180、tile／Agent 16×16、Smelter 48×48；尺寸、锚点、导出和消费者沿[像素素材合同](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets) | 方案／结果与图 16／17 内嵌同源几何，原型加载派生 PNG；HUD 不栅格化。均为设计消费，尚未成为 Bevy 的贴图包或真实工厂布局 | 本次代码原生像素素材，无外部图片／模型输入。图形色彩、矿点和建筑外观不声明实际库存、可建造性或运行状态。 |
 | 阻塞、无安全方案与世界构图参考；视觉交互设计 | [goal-execution-blocked.svg](assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg)、[fallback-choices.svg](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)、[fallback-no-safe.svg](assets/ui-ux/full-function/gameplay/frames/fallback-no-safe.svg)、[W01](assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg)、[W09](assets/ui-ux/full-function/world-diagnostics/W09-narrow-world.svg)；字段关系沿 [R-GAME-11](viewer-gameplay-details-uiux.design.md#r-game-11)/[R-GAME-15](viewer-gameplay-details-uiux.design.md#r-game-15) | 可编辑参考；只承接各自画出的状态，不提供未画出的所有首局帧，也不作为生产世界渲染实现 | 可核仓库文件及固定版本；外部依赖与逐项权利未完整审定，不能把仓库 LICENSE 当成所有素材自动授权。 |
 
 本次不交付 Smelter/Assembler 专用模型、动画、音效包或图稿内字体文件；[voxel 工具合同](../../../tools/voxel_asset_pipeline/DESIGN.md#asset-contract)存在也不能证明这些素材已制作。若实际候选消费其他模型/字体/音频，实施方从其原资产入口补定位与权利依据，再纳入该候选验收。
@@ -122,7 +162,7 @@
 | 消费方交接 | Viewer 核同源方案、原结果与实际加载；QA 按[入口验证](first-session-content-delivery.manual.md#fs-content-runtime)留候选、操作与 authority 对照。缺投影/动作的内容回到其技术 owner，不能由文案补造。 |
 | 变更传播 | profile/配方/报价变化重查 C01～C08 和数值示例；反馈/权限变化重查 C04～C09；语言、字体或布局变化重查长文本和可访问性；资产、工具或配置变化重建实际受影响产物并核 freshness。旧候选截图、旧语言审校不能直接覆盖新组合。 |
 
-本批内容量为九个编辑单元：C08 复用现有成果卡的整句，C06 复用原件未知标签；其余是在原首局体验与状态合同上细化的中文表达方案，不新增玩法内容。六份 SVG、既有双语成果卡和 canonical 工厂/配方均为复用；后续预览是相应原件的衍生物，不计为新的运行资产。本批结束边界是两份可审读设计/方法文档与来源定位，运行文案采用、译文审校、素材制作和玩家验证由实际消费 PR 另行交付。
+本专题保留九个编辑单元：C08 复用现有成果卡的整句，C06 复用原件未知标签；其余是在原首局体验与状态合同上细化的中文表达方案，不新增玩法内容。原有六份 SVG、既有双语成果卡和 canonical 工厂/配方继续复用；本次补入两份完整 native 示例稿及统一原型中的首局旅程。预览是相应原件的衍生物，不计为新的运行资产。交付边界是可审读设计/方法、两份图稿和可操作设计旅程；运行文案采用、译文审校、投影接入和玩家验证由实际消费 PR 另行交付。
 
 尚无重复批次制作/集成/返工工时测量，产能与成本未估算。需要扩大内容时，在实际制作 PR 分开记录首次建立、重复编辑、导入验证、返工与等待；本设计不据此给出大型游戏产能或预算承诺。
 

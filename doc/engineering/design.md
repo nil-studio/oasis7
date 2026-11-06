@@ -48,7 +48,9 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 
 已有 PR 的验证段即可承载结果，例如“静态核对 pass，Source 为某设计锚点，Evidence 为固定提交和检查输出”；未执行的浏览器或跨平台范围写 skipped 与原因。命令返回 0 但选中项为空不能直接写覆盖通过；源文件存在仅证明可定位，不证明其测试已运行。实际命令语义由[本地与 CI 验证入口](../../testing-manual.md)拥有，本条不另定义 quick/affected/formal。
 
-任务拆分、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)由 workflow 统一定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接建单关联、按子项领取、自测与父项收尾方法，现有代码 Issue/PR 模板承载本项范围、可复跑结果和剩余义务。修改这些载体时，沿根入口走读父子关系与领取、派工及交接，核对缺前置、必要负向行为及局部/整体验收的边界，并运行适用文档检查。该静态验收只证明规则和入口一致；真实任务的周期、返工和收敛改善仍需实际执行数据。
+任务拆分、[独立开发会话](workflow/source-of-truth.md#independent-development-sessions)、[原生 sub-issue 跟踪](workflow/source-of-truth.md#code-task-sub-issues)和[验收准备](workflow/source-of-truth.md#code-task-acceptance-readiness)由 workflow 统一定义；[parallel-development](../../.agents/skills/parallel-development/SKILL.md)、[executing-project-tasks](../../.agents/skills/executing-project-tasks/SKILL.md)和 [TPM 角色卡](../../.agents/roles/tpm.md)承接建单关联、按子项领取、自测与父项收尾方法。直接开发会话与可选 TPM 使用同一[领取与状态维护规则](workflow/source-of-truth.md#coding-agent-task-claim)，由实际领取者维护代码队列标签。现有代码 Issue/PR 模板承载本项范围、可复跑结果和剩余义务。
+
+修改这些载体时，走读简单任务直接实施、用户直开多个开发会话、可选 TPM 协调、原会话修复与中断恢复，核对父子领取、标签更新失败、写入隔离、共享预算及局部/整体验收；专项独立试玩与 dot 时间表沿原规则执行。运行适用文档检查。该静态验收只证明规则和入口一致；真实任务的周期、返工和收敛改善仍需实际执行数据。
 
 #### Viewer 试点与有限走读
 
@@ -71,6 +73,12 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 - 静态校验：`scripts/doc-governance-check.sh`
 - ROUND 台账：Git history
 
+专业角色卡承接 PRD 的 SC-14 和 NFR-ENG-13～18，按需维护关注点、主责文档与方法导航，根 AGENTS 使用目录入口。交接复用 Issue/PR；旧角色卡生命周期、逐角色入口映射和每日角色日志不再作为维护要求。
+
+SC-24D 由可选的 `scripts/pr-review-threads.py` 承接线程查询与显式 resolve。工具返回实际线程和本次操作结果；合入判断仍按 workflow 核对当前 PR 和 source HEAD，不为每轮线程操作另建固定状态报告。
+
+`scripts/doc-governance-check.sh` 保留文档结构、有效引用、目录登记和实际内容合同检查，目录登记的负责人仍须能定位有效角色文件。退役的 devlog 角色标题与 handoff 角色字段不再扫描。修改此边界时，用现有脚本回归核对旧格式不再误阻断，同时保持未知目录负责人、缺失入口、断链和实际内容错误失败；该检查不要求每项开发采用角色卡或交接模板。
+
 ### 3.3 文档结构治理链路
 - 权威规则：`doc/engineering/doc-governance/doc-structure-standard.prd.md`
 - 规范正文：`doc/engineering/doc-governance/doc-structure-standard.design.md`
@@ -84,7 +92,7 @@ Trace refs: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586、O7-REQ-f1388c2b-6f64-4
 ## 4. 集成点
 - `AGENTS.md`
 - `.agents/roles/*.md`
-- `.agents/roles/templates/*.md`
+- `.agents/roles/templates/handoff-brief.md`
 - `doc/engineering/doc-governance/doc-structure-standard.prd.md`
 - `doc/engineering/doc-governance/doc-structure-standard.design.md`
 - Git history logs

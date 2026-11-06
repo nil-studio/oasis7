@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="4096" viewBox="0 0 1440 4096" role="img" aria-labelledby="sheet-title sheet-desc">
+<title id="sheet-title">Prompt 过期草稿、原结果未知与权限恢复</title>
+<desc id="sheet-desc">四张独立界面状态：合法 stale 比较、重新读取再次失败、实例变化后的原操作结果未知、控制失效后的私有内容隐藏。设计示例不执行认证、Prompt 或世界请求。</desc>
+<style>text{font-family:"Noto Sans CJK SC",sans-serif} .mono{font-family:"DejaVu Sans Mono","Noto Sans CJK SC",monospace}</style>
+<g id="stale-compare" transform="translate(0 0)" aria-label="01 / 配置变化后的合法比较">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="stale-compare-text-1" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="stale-compare-text-2" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">01 / 配置变化后的合法比较</text>
+<text id="stale-compare-text-3" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="stale-compare-text-4" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="stale-compare-text-5" x="1014" y="131" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="178">当前会话可控</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-6" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="stale-compare-text-7" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  我的草稿基于 v7  ·  最新授权读取 v8  ·  原 Apply 已拒绝</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="1328" height="104" rx="8" fill="#0b100f" stroke="#d0a85b"/>
+<text id="stale-compare-text-8" x="80" y="247" font-size="24" font-weight="600" fill="#d0a85b" data-max-width="1220">配置已变化，草稿未应用</text>
+<text id="stale-compare-text-9" x="80" y="284" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="1220">先比较当前有权读取的版本，再决定是否以新基准继续编辑。</text>
+<rect x="56" y="330" width="428" height="350" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-10" x="80" y="371" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="380">原读取基准</text>
+<text id="stale-compare-text-11" x="80" y="405" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="380">v7 · 先前记录</text>
+<text id="stale-compare-text-12" x="80" y="447" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">系统提示词</text>
+<text id="stale-compare-text-13" x="80" y="478" font-size="21" font-weight="500" fill="#9ca89a" data-max-width="380">未设置</text>
+<text id="stale-compare-text-14" x="80" y="523" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">短期目标</text>
+<text id="stale-compare-text-15" x="80" y="554" font-size="21" font-weight="500" fill="#9ca89a" data-max-width="380">short-C</text>
+<text id="stale-compare-text-16" x="80" y="599" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">长期目标</text>
+<text id="stale-compare-text-17" x="80" y="630" font-size="21" font-weight="500" fill="#9ca89a" data-max-width="380">未设置</text>
+<rect x="506" y="330" width="428" height="350" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-18" x="530" y="371" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="380">最新配置</text>
+<text id="stale-compare-text-19" x="530" y="405" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="380">v8 · 本次授权读取</text>
+<text id="stale-compare-text-20" x="530" y="447" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">系统提示词</text>
+<text id="stale-compare-text-21" x="530" y="478" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="380">未设置</text>
+<text id="stale-compare-text-22" x="530" y="523" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">短期目标</text>
+<text id="stale-compare-text-23" x="530" y="554" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="380">short-C2</text>
+<text id="stale-compare-text-24" x="530" y="599" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">长期目标</text>
+<text id="stale-compare-text-25" x="530" y="630" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="380">未设置</text>
+<rect x="956" y="330" width="428" height="350" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-26" x="980" y="371" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="380">我的本地草稿</text>
+<text id="stale-compare-text-27" x="980" y="405" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="380">Agent A · 基准仍为 v7</text>
+<text id="stale-compare-text-28" x="980" y="447" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">系统提示词</text>
+<text id="stale-compare-text-29" x="980" y="478" font-size="21" font-weight="500" fill="#d0a85b" data-max-width="380">保持未设置</text>
+<text id="stale-compare-text-30" x="980" y="523" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">短期目标</text>
+<text id="stale-compare-text-31" x="980" y="554" font-size="21" font-weight="500" fill="#d0a85b" data-max-width="380">short-D</text>
+<text id="stale-compare-text-32" x="980" y="599" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="380">长期目标</text>
+<text id="stale-compare-text-33" x="980" y="630" font-size="21" font-weight="500" fill="#d0a85b" data-max-width="380">保持未设置</text>
+<rect x="56" y="698" width="1328" height="156" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-34" x="80" y="738" font-size="20" font-weight="500" fill="#edf1e6" data-max-width="1230">当前执行器已确认 short-C2 · 对应 v8 · 读回 t122</text>
+<text id="stale-compare-text-35" x="80" y="780" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="1230">重新编辑会采用 v8 并保留 short-D；仍需你明确提交新的修改。</text>
+<text id="stale-compare-text-36" x="80" y="824" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1230">重载会丢弃 short-D，需要再次确认；放弃仅删除本地草稿。</text>
+<rect x="56" y="888" width="282" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="stale-compare-text-37" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="242">基于 v8 重新编辑</text>
+<rect x="354" y="888" width="250" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-38" x="374" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="210">重载当前配置</text>
+<rect x="620" y="888" width="220" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="stale-compare-text-39" x="640" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="180">放弃草稿</text>
+<text id="stale-compare-text-40" x="872" y="918" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="480">比较没有应用任何更改。</text>
+<text id="stale-compare-text-41" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">设计夹具沿 PV06。此页只在仍有当前控制与读取权限时显示；失权时直接进入 hidden，不展示最新差异。</text>
+</g>
+<g id="read-failed-again" transform="translate(0 1024)" aria-label="02 / 重新读取再次失败，草稿仍在">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="read-failed-again-text-42" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="read-failed-again-text-43" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">02 / 重新读取再次失败，草稿仍在</text>
+<text id="read-failed-again-text-44" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="read-failed-again-text-45" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="read-failed-again-text-46" x="1014" y="131" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="178">当前会话可控</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-47" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="read-failed-again-text-48" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  当前会话可控  ·  最新配置尚未取得  ·  原 stale 拒绝继续保留</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="1328" height="148" rx="8" fill="#0b100f" stroke="#e7a89b"/>
+<text id="read-failed-again-text-49" x="80" y="250" font-size="24" font-weight="600" fill="#e7a89b" data-max-width="1240">无法读取当前配置</text>
+<text id="read-failed-again-text-50" x="80" y="290" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="1240">首次读取：连接暂不可用。</text>
+<text id="read-failed-again-text-51" x="80" y="327" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="1240">再次读取仍失败。此次读取已结束，没有继续自动等待。</text>
+<rect x="56" y="374" width="650" height="306" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-52" x="80" y="417" font-size="23" font-weight="500" fill="#edf1e6" data-max-width="570">本地草稿已保留</text>
+<text id="read-failed-again-text-53" x="80" y="459" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="570">收件人：Agent A  ·  原基准：v7</text>
+<text id="read-failed-again-text-54" x="80" y="518" font-size="25" font-weight="600" fill="#d0a85b" data-max-width="570">short-D</text>
+<text id="read-failed-again-text-55" x="80" y="561" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="570">先核对投入，再报告可执行方案</text>
+<text id="read-failed-again-text-56" x="80" y="637" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="570">未提交；读取失败没有清空或重定向草稿。</text>
+<rect x="728" y="374" width="656" height="306" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-57" x="752" y="417" font-size="23" font-weight="500" fill="#edf1e6" data-max-width="580">先前记录，不代表当前配置</text>
+<text id="read-failed-again-text-58" x="752" y="459" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="580">上次有权读取的基准：v7</text>
+<text id="read-failed-again-text-59" x="752" y="518" font-size="25" font-weight="500" fill="#9ca89a" data-max-width="580">short-C</text>
+<text id="read-failed-again-text-60" x="752" y="561" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="580">最新版本和值尚未确认。</text>
+<rect x="752" y="600" width="302" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-61" x="772" y="631" font-size="17" font-weight="500" fill="#9ca89a" data-max-width="262">暂无最新值可比较</text>
+<rect x="56" y="698" width="1328" height="156" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-62" x="80" y="740" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="1240">你可以在仍有权限时重新读取，或保留草稿返回。</text>
+<text id="read-failed-again-text-63" x="80" y="784" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="1240">新的读取结果确认前，不把先前记录标为“最新”。</text>
+<text id="read-failed-again-text-64" x="80" y="824" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1240">原 Apply 的 stale 与本次读取失败分别保留。</text>
+<rect x="56" y="888" width="226" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="read-failed-again-text-65" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="186">重新读取</text>
+<rect x="298" y="888" width="282" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-66" x="318" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="242">保留草稿并返回</text>
+<rect x="596" y="888" width="220" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="read-failed-again-text-67" x="616" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="180">放弃草稿</text>
+<text id="read-failed-again-text-68" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">这是读取恢复失败的设计状态，未宣称任何运行故障已复现。错误原因采用本夹具可披露的连接状态。</text>
+</g>
+<g id="original-result-unknown" transform="translate(0 2048)" aria-label="03 / 当前配置可读，原更改结果仍未知">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="original-result-unknown-text-69" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="original-result-unknown-text-70" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">03 / 当前配置可读，原更改结果仍未知</text>
+<text id="original-result-unknown-text-71" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="original-result-unknown-text-72" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="original-result-unknown-text-73" x="1014" y="131" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="178">当前会话可控</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="original-result-unknown-text-74" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="original-result-unknown-text-75" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  当前实例 E2  ·  旧操作属于 E1  ·  本件停止新提交</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="1328" height="104" rx="8" fill="#0b100f" stroke="#d0a85b"/>
+<text id="original-result-unknown-text-76" x="80" y="247" font-size="24" font-weight="600" fill="#d0a85b" data-max-width="1240">原请求结果未知</text>
+<text id="original-result-unknown-text-77" x="80" y="284" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="1240">运行实例已经变化；当前实例无法确认原更改的结果。</text>
+<rect x="56" y="330" width="650" height="350" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="original-result-unknown-text-78" x="80" y="374" font-size="23" font-weight="500" fill="#edf1e6" data-max-width="570">原操作</text>
+<text id="original-result-unknown-text-79" x="80" y="420" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="570">Apply · Agent A · 实例 E1</text>
+<text id="original-result-unknown-text-80" x="80" y="464" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="570">操作示例 P-unknown · 原基准 v7</text>
+<rect x="80" y="500" width="190" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="original-result-unknown-text-81" x="94" y="522" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="162">结果：未知</text>
+<text id="original-result-unknown-text-82" x="80" y="573" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="570">没有可用的安全原结果读取。</text>
+<text id="original-result-unknown-text-83" x="80" y="629" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="570">不会换请求身份再次提交。</text>
+<rect x="728" y="330" width="656" height="350" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="original-result-unknown-text-84" x="752" y="374" font-size="23" font-weight="500" fill="#edf1e6" data-max-width="580">当前有权读取的配置</text>
+<text id="original-result-unknown-text-85" x="752" y="420" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="580">实例 E2 · profile v0 · 已重新读取</text>
+<text id="original-result-unknown-text-86" x="752" y="464" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="580">短期覆盖：未设置</text>
+<text id="original-result-unknown-text-87" x="752" y="512" font-size="22" font-weight="500" fill="#edf1e6" data-max-width="580">执行器已确认：short-B</text>
+<text id="original-result-unknown-text-88" x="752" y="558" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="580">来源：本实例初始化 · 读回 t100</text>
+<text id="original-result-unknown-text-89" x="752" y="629" font-size="16" font-weight="400" fill="#d0a85b" data-max-width="580">这些当前值不裁决旧操作是否成功。</text>
+<rect x="56" y="698" width="1328" height="156" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="original-result-unknown-text-90" x="80" y="742" font-size="21" font-weight="500" fill="#edf1e6" data-max-width="1240">安全下一步：查看当前合法状态，或退出本件。</text>
+<text id="original-result-unknown-text-91" x="80" y="786" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="1240">关闭页面或重新读取都不会重放、取消或确认旧 Apply。</text>
+<text id="original-result-unknown-text-92" x="80" y="826" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1240">原结果保持未知；当前值与原回执分开呈现。</text>
+<rect x="56" y="888" width="252" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="original-result-unknown-text-93" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="212">重新读取当前值</text>
+<rect x="324" y="888" width="250" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="original-result-unknown-text-94" x="344" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="210">返回 Command</text>
+<rect x="590" y="888" width="310" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="original-result-unknown-text-95" x="610" y="919" font-size="17" font-weight="500" fill="#9ca89a" data-max-width="270">原操作不可在此重试</text>
+<text id="original-result-unknown-text-96" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">设计夹具沿 runtime_instance 结果范围：已换实例/epoch，旧结果不得自动重执行。并非声称所有入口都缺原结果读取。</text>
+</g>
+<g id="control-lost-hidden" transform="translate(0 3072)" aria-label="04 / 控制失效优先：私有值已隐藏">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="control-lost-hidden-text-97" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="control-lost-hidden-text-98" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">04 / 控制失效优先：私有值已隐藏</text>
+<text id="control-lost-hidden-text-99" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="control-lost-hidden-text-100" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#e7a89b"/>
+<text id="control-lost-hidden-text-101" x="1014" y="131" font-size="14" font-weight="400" fill="#e7a89b" data-max-width="178">控制已失效</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="control-lost-hidden-text-102" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="control-lost-hidden-text-103" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  已停止本件提交  ·  仅保留规则允许的安全本地草稿</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="1328" height="104" rx="8" fill="#0b100f" stroke="#e7a89b"/>
+<text id="control-lost-hidden-text-104" x="80" y="247" font-size="24" font-weight="600" fill="#e7a89b" data-max-width="1240">当前控制资格已失效</text>
+<text id="control-lost-hidden-text-105" x="80" y="284" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="1240">先检查当前绑定；恢复资格不会自动重新应用草稿。</text>
+<rect x="56" y="330" width="1328" height="292" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="control-lost-hidden-text-106" x="80" y="370" font-size="22" font-weight="500" fill="#edf1e6" data-max-width="1240">私有配置与比较内容</text>
+<text id="control-lost-hidden-text-107" x="80" y="414" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="500">已加载配置默认</text>
+<text id="control-lost-hidden-text-108" x="640" y="414" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="680">已隐藏 · 当前无读取权限</text>
+<path d="M80 434H1356" stroke="#405346"/>
+<text id="control-lost-hidden-text-109" x="80" y="466" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="500">当前 profile 覆盖</text>
+<text id="control-lost-hidden-text-110" x="640" y="466" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="680">已隐藏 · 当前无读取权限</text>
+<path d="M80 486H1356" stroke="#405346"/>
+<text id="control-lost-hidden-text-111" x="80" y="518" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="500">执行器已确认值</text>
+<text id="control-lost-hidden-text-112" x="640" y="518" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="680">已隐藏 · 当前无读取权限</text>
+<path d="M80 538H1356" stroke="#405346"/>
+<text id="control-lost-hidden-text-113" x="80" y="570" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="500">最新版本与差异</text>
+<text id="control-lost-hidden-text-114" x="640" y="570" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="680">已隐藏 · 当前无读取权限</text>
+<rect x="56" y="640" width="1328" height="214" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="control-lost-hidden-text-115" x="80" y="680" font-size="22" font-weight="500" fill="#edf1e6" data-max-width="1240">未提交的安全本地草稿</text>
+<text id="control-lost-hidden-text-116" x="80" y="727" font-size="22" font-weight="500" fill="#d0a85b" data-max-width="1240">short-D · 先核对投入，再报告可执行方案</text>
+<text id="control-lost-hidden-text-117" x="80" y="771" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="1240">仍属于原 Agent，不随观察对象变化转移，也不会自动提交。</text>
+<text id="control-lost-hidden-text-118" x="80" y="818" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1240">切换账号时清除旧私有上下文；旧响应不能填入新账号的页面。</text>
+<rect x="56" y="888" width="252" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="control-lost-hidden-text-119" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="212">检查当前绑定</text>
+<rect x="324" y="888" width="250" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="control-lost-hidden-text-120" x="344" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="210">放弃本地草稿</text>
+<rect x="590" y="888" width="180" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="control-lost-hidden-text-121" x="610" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="140">返回</text>
+<text id="control-lost-hidden-text-122" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">本场景仅在原入口提供对应恢复动作时展示“检查当前绑定”。hidden 优先于 stale；旧值、digest 和比较结果不再显示。</text>
+</g>
+</svg>
