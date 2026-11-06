@@ -272,40 +272,6 @@ fn read_until_deadline(
     }
 }
 
-#[cfg(test)]
-mod deadline_tests {
-    use super::*;
-    #[test]
-    fn responses_require_a_finite_deadline() {
-        let (mut server, _client) = UnixStream::pair().unwrap();
-        assert_eq!(
-            respond(&mut server, b"denied").unwrap_err(),
-            "local response deadline required"
-        );
-        server
-            .set_write_timeout(Some(Duration::from_millis(100)))
-            .unwrap();
-        respond(&mut server, b"denied").unwrap();
-    }
-    #[test]
-    fn continuous_input_cannot_extend_request_deadline() {
-        let (mut reader, mut writer) = UnixStream::pair().unwrap();
-        let producer = std::thread::spawn(move || {
-            for _ in 0..100 {
-                if writer.write_all(b"x").is_err() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        });
-        let started = std::time::Instant::now();
-        assert!(read_bounded_deadline(&mut reader, 4096, Duration::from_millis(120)).is_err());
-        assert!(started.elapsed() < Duration::from_secs(1));
-        drop(reader);
-        producer.join().unwrap();
-    }
-}
-
 /// Model-facing CLI transport: no service token or management configuration is accepted.
 #[cfg(target_os = "linux")]
 pub fn call_local(
@@ -342,4 +308,38 @@ pub fn call_local(
         .map_err(|_| "local request shutdown failed")?;
     let response = read_until_deadline(&mut stream, 65536, deadline)?;
     serde_json::from_slice(&response).map_err(|_| "invalid local response".into())
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    #[test]
+    fn responses_require_a_finite_deadline() {
+        let (mut server, _client) = UnixStream::pair().unwrap();
+        assert_eq!(
+            respond(&mut server, b"denied").unwrap_err(),
+            "local response deadline required"
+        );
+        server
+            .set_write_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        respond(&mut server, b"denied").unwrap();
+    }
+    #[test]
+    fn continuous_input_cannot_extend_request_deadline() {
+        let (mut reader, mut writer) = UnixStream::pair().unwrap();
+        let producer = std::thread::spawn(move || {
+            for _ in 0..100 {
+                if writer.write_all(b"x").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let started = std::time::Instant::now();
+        assert!(read_bounded_deadline(&mut reader, 4096, Duration::from_millis(120)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        drop(reader);
+        producer.join().unwrap();
+    }
 }
