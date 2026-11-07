@@ -65,7 +65,7 @@ function createRoot(fn, detachedOwner) {
 		cleanups: null,
 		context: current ? current.context : null,
 		owner: current
-	}, updateFn = unowned ? fn : () => fn(() => untrack(() => cleanNode(root)));
+	}, updateFn = unowned ? fn : () => fn(createDisposer(root));
 	Owner = root;
 	Listener = null;
 	try {
@@ -74,6 +74,9 @@ function createRoot(fn, detachedOwner) {
 		Listener = listener;
 		Owner = owner;
 	}
+}
+function createDisposer(root) {
+	return () => untrack(() => cleanNode(root));
 }
 function createSignal(value, options) {
 	options = options ? Object.assign({}, signalOptions, options) : signalOptions;
@@ -26132,7 +26135,7 @@ function PixelWorldHost(props) {
 			event.preventDefault();
 			adapter().simulateFatal({
 				code: "pixel_world_context_lost",
-				message: "World graphics interrupted. Retry to restore the authorized view."
+				message: "World graphics context lost. Reload the page to rebuild graphics."
 			});
 		};
 		let start = null;
@@ -26267,7 +26270,13 @@ function PixelWorldHost(props) {
 			applyRendererUpdate();
 		}
 	}
+	const rendererNeedsReload = () => rendererFatal()?.code === "pixel_world_context_lost";
+	const rendererReloadLabel = () => tr$1(locale(), "重新加载页面恢复图形", "Reload page to restore graphics");
 	function requestReadyMode() {
+		if (rendererNeedsReload()) {
+			window.location.reload();
+			return;
+		}
 		if (scopeGuard.check().blocked) {
 			scopeReadPending = null;
 			requestRender();
@@ -26550,14 +26559,17 @@ function PixelWorldHost(props) {
 					return () => _c$8() ? [(() => {
 						var _el$213 = _tmpl$46$1();
 						insert(_el$213, (() => {
-							var _c$9 = memo(() => rendererFatal()?.code === "pixel_world_scope_changed");
-							return () => _c$9() ? tr$1(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : tr$1(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser");
+							var _c$1 = memo(() => rendererFatal()?.code === "pixel_world_scope_changed");
+							return () => _c$1() ? tr$1(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : memo(() => !!rendererNeedsReload())() ? tr$1(locale(), "图形上下文已丢失，需要重新加载页面恢复图形。", "The graphics context was lost. Reload the page to restore graphics.") : tr$1(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser");
 						})());
 						return _el$213;
 					})(), (() => {
 						var _el$214 = _tmpl$47$1();
 						_el$214.$$click = requestReadyMode;
-						insert(_el$214, () => tr$1(locale(), "重试 Renderer", "Retry Renderer"));
+						insert(_el$214, (() => {
+							var _c$10 = memo(() => !!rendererNeedsReload());
+							return () => _c$10() ? rendererReloadLabel() : tr$1(locale(), "重试 Renderer", "Retry Renderer");
+						})());
 						return _el$214;
 					})()] : tr$1(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.");
 				})(), null);
@@ -26661,7 +26673,10 @@ function PixelWorldHost(props) {
 					}
 				}), _el$192);
 				_el$192.$$click = requestReadyMode;
-				insert(_el$192, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
+				insert(_el$192, (() => {
+					var _c$9 = memo(() => !!rendererNeedsReload());
+					return () => _c$9() ? rendererReloadLabel() : tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer");
+				})());
 				_el$193.$$click = simulateFatal;
 				insert(_el$193, () => tr$1(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal"));
 				insert(_el$194, () => tr$1(locale(), "当前世界舞台只依赖 wasm/Rust bridge、嵌入式 canvas、轻量拖拽缩放和事件回传。", "The world stage depends only on the wasm/Rust bridge, embedded canvas, light pan-zoom interaction, and event callbacks."));
@@ -26715,7 +26730,10 @@ function PixelWorldHost(props) {
 					}
 				}), null);
 				_el$206.$$click = requestReadyMode;
-				insert(_el$206, () => tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer"));
+				insert(_el$206, (() => {
+					var _c$0 = memo(() => !!rendererNeedsReload());
+					return () => _c$0() ? rendererReloadLabel() : tr$1(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer");
+				})());
 				createRenderEffect(() => _el$196.open = diagnosticsDrawerOpen());
 				return _el$196;
 			}
