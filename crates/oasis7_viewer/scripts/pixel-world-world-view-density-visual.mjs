@@ -198,7 +198,12 @@ try {
   holdLastPage = false; release(); await overview(); await waitProjection(1000); await zoomForLabels(); await waitProjection(1000);
   const css = await evaluate(`(async()=>{const l=[...document.querySelectorAll('link[rel=stylesheet]')].find(l=>l.href.includes('viewer_terminal_shell.css')),r=l?await fetch(l.href):null,t=document.querySelector('.pixel-world-renderer-target:not([data-selected=true])'),s=t?getComputedStyle(t):null;return{status:r?.status,mime:r?.headers.get('content-type'),rules:l?.sheet?.cssRules.length,background:s?.backgroundColor,border:s?.borderTopColor,shadow:s?.boxShadow}})()`);
   assert(css.status === 200 && css.mime?.startsWith('text/css') && css.rules > 0 && css.background === 'rgba(0, 0, 0, 0)' && css.border === 'rgba(0, 0, 0, 0)' && css.shadow === 'none', 'canonical style prerequisite failed'); summary.css = css;
-  const initial = await state(); assert(initial.gpu && !/swiftshader|llvmpipe|softpipe|software/i.test(initial.gpu) && initial.dpr === dpr && initial.canvas.width === 1440 * dpr && initial.canvas.height === 1000 * dpr, 'actual GPU/CSS/backing mismatch');
+  const initial = await state();
+  assert(initial.gpu && !/swiftshader|llvmpipe|softpipe|software/i.test(initial.gpu) && initial.dpr === dpr
+    && initial.viewport.width === 1440 && initial.viewport.height === 1000
+    && initial.canvas.cssWidth > 0 && initial.canvas.cssHeight > 0
+    && initial.canvas.width === Math.floor(initial.canvas.cssWidth * dpr)
+    && initial.canvas.height === Math.floor(initial.canvas.cssHeight * dpr), 'actual GPU/canvas CSS/backing/DPR mismatch');
   const labelCaptures = { positive: await capture('labels-positive', true) };
   fixture.setLabelStyle('empty'); await waitProjection(1000); labelCaptures.negative = await capture('labels-negative');
   fixture.setLabelStyle('normal'); await waitProjection(1000); labelCaptures.restored = await capture('labels-restored', true);
