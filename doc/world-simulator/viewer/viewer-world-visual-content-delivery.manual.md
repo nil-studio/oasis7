@@ -84,6 +84,7 @@ Loader 变更可执行 `npm --prefix crates/oasis7_viewer run test:ui -- pixel_w
 1. 按原构建合同执行适用的 `npm --prefix crates/oasis7_viewer run build:viewer`；视觉 fixture 使用 `build:viewer:visual-test`，不得将其 profile 当 release。记录实际 source／profile／输出；finalize 同时构建其他模块，不能把其中任一步跳过后仍称完整构建。
 2. 核该候选实际 `viewer.js`、bindings 和 bridge payload；采用 optional payload 时核原 `optional-payloads.json`、所引用实际字节数／hash 和 loader 结果。检查发生在同一候选，不从 checkout 里的 dist 推断线上资源。
 3. 按[PW-PROJECTION](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-projection)与[PW-ACCESSIBILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-accessibility)选择受影响场景；实际桌面／窄屏、DPR、字体和动效组合遵循原手册，保留未测组合。
+   统一像素渲染候选同时按[生产坐标合同](viewer-pixel-world-player-readable-rendering.design.md#production-pixel-coordinate-contract)记录 C/F/DPR/s/L/o、相机与实际 CSS 命中中心；复核表中桌面、窄屏、奇数边缘和 zoom 手算，以及 Rust/Web 对同一最终坐标的消费。手算只核合同，另以真实 GPU 检查 nearest、source-pixel 边缘和独立中文层。
 4. 复用 `test:pixel-world:visual`、`test:pixel-world:module-visual` 或 `test:pixel-world:location-frame:visual` 的适用入口。先检查其 fixture 是否包含本次变体；已有脚本没覆盖的材质／设施用例不能因名称含 visual 就计入。缺实际 fixture 或环境时记录 blocked／未覆盖，由该实现负责人补齐。
 5. 保存实际尺度截图／crop 和输入身份，沿[视觉评审 SOP](../../testing/manual/model-visual-review-sop-2026-05-29.manual.md#模型评审-rubric)审读；材质不压过 Actor，未知不变已知，热点类别不冒充路线／成功，设施状态和读数含义一致。构图／层级／动效直接引用原 B01～B13，不另建一套状态矩阵。
 
