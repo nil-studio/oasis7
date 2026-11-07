@@ -7,6 +7,7 @@ import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifec
 
 // Real WASM/WebGL evidence. Fixture results do not attest account authorization.
 const root = resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(import.meta.dirname, '../.viewer-test-dist'));
+if(process.env.AGENT_VISUAL_ARTIFACT_ROOT&&!process.env.AGENT_VISUAL_SOURCE_HEAD) throw Error('external artifacts require their fixed AGENT_VISUAL_SOURCE_HEAD');
 const out = resolve(import.meta.dirname, '../../../output/playwright/pixel-world-agent', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(out, { recursive: true });
 const scope=process.env.AGENT_VISUAL_SCOPE || 'all';
@@ -14,7 +15,7 @@ if(!['all','interaction','recovery'].includes(scope)) throw Error('unsupported A
 const session = `pixel-agent-${process.pid}`;
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const lifecycle = createOwnedSessionLifecycle({ command, session, prefixArgs: [] });
-const summary = { source: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, expectedPipeline: process.env.AGENT_PIXEL_PIPELINE || 'native', cases: [] };
+const summary = { source: process.env.AGENT_VISUAL_SOURCE_HEAD || null, checkoutHead: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, expectedPipeline: process.env.AGENT_PIXEL_PIPELINE || 'native', cases: [] };
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]);
@@ -111,6 +112,8 @@ try {
     await evaluate(`document.querySelector(${JSON.stringify(other)}).focus({preventScroll:true})`); await run(['press','Enter']);
     await waitFor(`document.querySelector(${JSON.stringify(other)})?.dataset.selected==='true'`);
     const dense=await state();
+    assert(dense.dto.selection?.id==='agent-1','co-located keyboard selection lost Agent identity');
+    assert(dense.dto.receipt_target?.agent_id===before.dto.receipt_target?.agent_id,'observing another Agent reassigned the original receipt');
     await evaluate(`(()=>{const s=JSON.parse(JSON.stringify(window.__OASIS7_AGENT_TEST_SNAPSHOT__));s.time=15;delete s.model.agents['agent-1'].pos;delete s.model.agents['agent-1'].location_id;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1'&&a.position_source==='missing')`);
     const missing=await state();
