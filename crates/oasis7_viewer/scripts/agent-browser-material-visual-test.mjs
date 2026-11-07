@@ -16,7 +16,7 @@ const source = git(['rev-parse', process.env.AGENT_VISUAL_SOURCE_HEAD + '^{commi
 const out = resolve(repo, 'output/playwright/pixel-world-materials', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(out, { recursive: true });
 const scope = process.env.MATERIAL_VISUAL_SCOPE || 'all';
-if (!['all', 'factory', 'terrain'].includes(scope)) throw Error('unsupported MATERIAL_VISUAL_SCOPE');
+if (!['all', 'factory', 'terrain', 'runtime'].includes(scope)) throw Error('unsupported MATERIAL_VISUAL_SCOPE');
 const requestedCase = process.env.AGENT_VISUAL_CASE || 'all';
 if (!['all', 'desktop', 'narrow', 'dpr2'].includes(requestedCase)) throw Error('unsupported AGENT_VISUAL_CASE');
 const session = `pixel-material-${process.pid}`;
@@ -49,8 +49,14 @@ async function state() { return JSON.parse(await evaluate(`JSON.stringify(${read
 async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
 }
+let runtimeInput;
+// Local QA page uses the existing public mount/update ABI; no production hook,
+// action endpoint or authorization path is added. Input originates at the gated fixture.
+const runtimeHtml = `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}canvas{width:100%;height:100%}</style></head><body><canvas id="pixel-world-embedded-runtime-canvas"></canvas><script type="module">import{createPixelWorldBridge}from'/pixel-world-bridge/webgl2/pixel_world_bridge.js';window.events=[];window.fatal=null;window.s=await(await fetch('/material-runtime.json')).json();window.bridge=await createPixelWorldBridge({onEvent:e=>{events.push(e);if(e.type==='camera_state_changed')window.camera=e.camera},onFatal:e=>window.fatal=e});window.mountResult=bridge.mount(document.querySelector('canvas'),s);</script></body></html>`;
 const server = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
+  if(pathname === '/material-runtime.json'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(runtimeInput));return;}
+  if(pathname === '/material-runtime.html'){res.writeHead(200,{'Content-Type':'text/html'});res.end(runtimeHtml);return;}
   const file = resolve(root, '.' + (pathname==='/'?'/viewer.html':pathname));
   if(relative(root,file).startsWith('..')) {res.writeHead(403);res.end();return;}
   try { const bytes=readFileSync(file);res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
@@ -58,7 +64,7 @@ const server = createServer((req, res) => {
 try {
  await new Promise(done=>server.listen(0,'127.0.0.1',done));lifecycle.prepare();
  const url=`http://127.0.0.1:${server.address().port}/viewer.html?test_api=1&connect=0&locale=zh&pixel_world_visual_fixture=material_shells`;
- if (scope !== 'terrain') for(const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name]) => requestedCase === 'all' || requestedCase === name)) {
+ if (scope === 'all' || scope === 'factory') for(const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name]) => requestedCase === 'all' || requestedCase === name)) {
   await run(['open',url]);await run(['set','viewport',String(w),String(h),String(d)]);
   await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(url)}),50);true`);await run(['wait','500']);await waitFor(`(${read}).ready`);
   await evaluate(`window.__MATERIAL_SNAPSHOT__=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('material_shells')();true`);
@@ -78,7 +84,7 @@ try {
   assert(row.pngOracle.passed, 'factory PNG/lifecycle oracle failed: '+JSON.stringify(row.pngOracle));
   summary.cases.push(row);
  }
- if (scope !== 'factory') for(const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name]) => requestedCase === 'all' || requestedCase === name)) {
+ if (scope === 'all' || scope === 'terrain') for(const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name]) => requestedCase === 'all' || requestedCase === name)) {
   await run(['open',url]);await run(['set','viewport',String(w),String(h),String(d)]);await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(url)}),50);true`);await run(['wait','500']);await waitFor(`(${read}).ready`);
   await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('material_shells')();const auth=window.__AW_TEST__.getState();s.model.agent_player_bindings['agent-0']=auth.authPlayerId;s.model.agent_player_public_key_bindings['agent-0']=auth.authPublicKey;s.model.locations['loc-0'].pos={x_cm:3400000,y_cm:3300000,z_cm:0};s.model.module_visual_entities={};s.time++;window.__TERRAIN_BASE__=structuredClone(s);window.__AW_TEST__.injectSnapshot(s);return true;})()`);await run(['wait','1500']);
   const row={name,scope:'terrain',initial:await state()};await run(['screenshot','--full',resolve(out,name+'-terrain-initial.png')]);
@@ -92,6 +98,47 @@ try {
   row.visualDeltaOracle=oracle('terrain', out, name);
   assert(row.visualDeltaOracle.passed, 'terrain lifecycle oracle failed: '+JSON.stringify(row.visualDeltaOracle));
   summary.cases.push(row);
+ }
+ if (scope === 'all' || scope === 'runtime') for (const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name])=>requestedCase==='all'||requestedCase===name)) {
+  await run(['open',url]); await run(['set','viewport',String(w),String(h),String(d)]);
+  await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(url)}),50);true`); await run(['wait','500']); await waitFor(`(${read}).ready`);
+  const projected = (await state()).dto;
+  const pos={x_cm:5000000,y_cm:5000000,z_cm:0};
+  for (const material of ['ore','depot']) {
+   runtimeInput=structuredClone(projected);
+   for (const k of ['agents','locations','fragment_terrain','micro_depot_facilities','module_visual_entities','links','social_links','visual_hotspots','world_events','recent_event_hotspots','industry_aggregates']) runtimeInput[k]=[];
+   for (const k of ['selection','receipt_target','recommended_target','active_intent_target','blocker_highlight','goal_highlight']) runtimeInput[k]=null;
+   runtimeInput.world_bounds={width_cm:10000000,depth_cm:10000000,height_cm:1000000};
+   runtimeInput.exploration_mode=true; runtimeInput.navigation={request_id:'material-isolated',mode:'overview',target:null};
+   if(material==='ore') runtimeInput.fragment_terrain=[{id:'runtime-ore',location_id:'runtime',pos,footprint_cm:2000000,dominant_compound:'silicate_matrix',color:[255,255,255],emphasis:1}];
+   else runtimeInput.micro_depot_facilities=[{...projected.micro_depot_facilities[0],id:'runtime-depot',facility_id:'runtime-depot',location_id:'runtime',pos,service_radius_cm:0,status:'active',available_units_by_kind:{iron:100},throughput_limit_units_per_epoch:100,throughput_remaining_units:100}];
+   const original=structuredClone(runtimeInput);
+   const runtimeUrl=`http://127.0.0.1:${server.address().port}/material-runtime.html`;
+   await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(runtimeUrl)}),50);true`); await run(['wait','500']); await waitFor(`window.mountResult?.status==='ready' && window.camera && !window.fatal`); await run(['wait','800']);
+   const row={name,scope:'runtime-'+material,input:original,phases:{}};
+   for(const phase of ['initial','absent','restored','deleted','recreated']) {
+    if(phase!=='initial') await evaluate(`(()=>{s=${JSON.stringify(original)};if(${JSON.stringify(phase)}==='absent'){if(${JSON.stringify(material)}==='ore')s.fragment_terrain[0].dominant_compound='unknown';else s.micro_depot_facilities=[];}if(${JSON.stringify(phase)}==='deleted'){s.fragment_terrain=[];s.micro_depot_facilities=[];}bridge.update(s);return true;})()`);
+    await run(['wait','700']);
+    row.phases[phase]=JSON.parse(await evaluate(`JSON.stringify({input:s,camera,fatal,canvas:{width:document.querySelector('canvas').width,height:document.querySelector('canvas').height,cssWidth:document.querySelector('canvas').getBoundingClientRect().width,cssHeight:document.querySelector('canvas').getBoundingClientRect().height},viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio})`));
+    assert(!row.phases[phase].fatal,'isolated runtime fatal');
+    await run(['screenshot','--full',resolve(out,`${name}-runtime-${material}-${phase}.png`)]);
+   }
+   const originalProof=structuredClone(row.phases.initial.input);
+   const absentProof=structuredClone(row.phases.absent.input);
+   if(material==='ore') {
+    assert(absentProof.fragment_terrain[0].dominant_compound==='unknown','ore negative control not unknown');
+    absentProof.fragment_terrain[0].dominant_compound=originalProof.fragment_terrain[0].dominant_compound;
+   } else absentProof.micro_depot_facilities=structuredClone(originalProof.micro_depot_facilities);
+   assert(JSON.stringify(absentProof)===JSON.stringify(originalProof),'isolated negative control changed unrelated DTO fields');
+   const deletedProof=structuredClone(row.phases.deleted.input);
+   deletedProof.fragment_terrain=structuredClone(originalProof.fragment_terrain);
+   deletedProof.micro_depot_facilities=structuredClone(originalProof.micro_depot_facilities);
+   assert(JSON.stringify(deletedProof)===JSON.stringify(originalProof),'isolated deletion changed unrelated DTO fields');
+   row.inputDifferenceProof={negativeControlOnly:material==='ore'?'fragment_terrain[0].dominant_compound':'micro_depot_facilities',deletionOnly:material==='ore'?'fragment_terrain':'micro_depot_facilities'};
+   const a=row.phases.initial; assert(a.canvas.width===w*d && a.canvas.height===h*d,'isolated runtime backing mismatch');
+   row.oracle=oracle('runtime-'+material,out,name,JSON.stringify(a));
+   summary.cases.push(row); assert(row.oracle.passed,'isolated material oracle failed: '+JSON.stringify(row.oracle));
+  }
  }
  summary.status='passed_scope_only';
 } catch(error){summary.status='failed';summary.error=String(error);process.exitCode=1;}
