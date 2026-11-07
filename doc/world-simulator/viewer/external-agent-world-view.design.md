@@ -308,6 +308,17 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 
 单页最多200项、实际编码响应2 MiB；单视点累计1000实体投影、突出200labels。目标/选中/blocker/相关路线优先；超限授权聚合/分页并partial，不无声吞掉关键对象。详情可独立查但画布不无限扩容；关系端点和聚合成员负载分别记录。
 
+<a id="world-view-render-density-profile"></a>
+#### 授权投影显示 profile
+
+#5596 将上述查询累计容量落实为独立的 `world_view` 显示 profile，而非扩大旧 snapshot profile。桥接字段 `display_profile` 仅允许 `legacy_snapshot_v1` 与 `world_view_v1`；缺省仍为旧profile，Host仅在既有 `worldView` 对象投影入口写入 `world_view_v1`，Rust独立核对profile与worldView对象一致，unknown/null/不一致拒绝；profile 不是能力协商、授权凭证、完整性或 freshness 证明。既有 scope/cut/分页、授权过滤、unknown/stale/revoked 规则先执行，不能借旧 snapshot 填满显示数量。没有 worldView 的旧输入仍受 500 marker、100 visible label、每方向256 KiB约束。
+
+`world_view` profile 的 Host→WASM 与 WASM→Host 各自实际 UTF-8 JSON 上限为2 MiB（独立的显示传输上限，不将查询单页2 MiB视为全部累计结果可无界复制），最多1000个普通可见 marker、200个可见canvas label、每label128 Unicode标量。集合最多1000项、深度16、字符串8192个UTF-16 code unit、复制节点131072；普通对象字段数仍最多500，关系集合独立有界且不能借端点依赖突破查询累计1000项。JS白名单复制与Rust输入/输出独立复核profile和各自边界，未知profile或与入口不一致拒绝；不接受自由数值cap。先完成受限JSON解析/结构校验，再派生场景，超大输入不得先无界派生。
+
+容量是上限，不是为凑数补充未知事实。保留选中/目标/blocker及位置依赖的既有确定性顺序；字节或节点不足时缩减可选marker与装饰，记录实际source/projected/omitted数量及原因。必需语义无法容纳则明确unavailable，不截断JSON、不静默丢关键结果。label先遵守各生产者zoom/碰撞/权限可见性，再按同一优先顺序实施200全局预算；不能强行把隐藏label计作已显示。切回旧入口、删除、撤权、清空和重建必须同时恢复相应预算并清理旧命中/背板。
+
+此profile不改变世界尺度、LOD、授权、写命令、Targets完整授权列表或性能预算；实际1000 marker/200 label仍需可观察计数与真实绘制验证，cap常量不能代签负载或可读性。正式目标机A/B、网络/查询、输入与世界帧间隔仍按下节和父项验收，缺外部设备不阻塞profile的边界实现及局部实测。
+
 服务端有界空间索引、先授权后聚合；客户端合并读请求、有限cache、静态reconcile与动画分离。50000对象是测试世界规模，不是每帧传/画50000。洪泛不能阻塞输入、退出跟随、stop、原结果查询。
 
 密度先退次级标签/背景；确定性散布不证明重叠可用，还需候选选择。关键状态有非颜色信号；派生位置不作可执行距离依据；5秒首读与误归因测试按专项手册，模型审读不代替真人/L5。
