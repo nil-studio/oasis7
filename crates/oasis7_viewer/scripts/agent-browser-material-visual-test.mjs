@@ -99,7 +99,7 @@ try {
   assert(row.visualDeltaOracle.passed, 'terrain lifecycle oracle failed: '+JSON.stringify(row.visualDeltaOracle));
   summary.cases.push(row);
  }
- if (scope === 'all' || scope === 'runtime') for (const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name])=>requestedCase==='all'||requestedCase===name)) {
+ if (scope === 'all' || scope === 'runtime') for (const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2],['narrow-dpr2',390,844,2]].filter(([name])=>requestedCase==='all'||requestedCase===name)) {
   await run(['open',url]); await run(['set','viewport',String(w),String(h),String(d)]);
   await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(url)}),50);true`); await run(['wait','500']); await waitFor(`(${read}).ready`);
   const projected = (await state()).dto;
