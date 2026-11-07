@@ -10,6 +10,27 @@ use std::time::Duration;
 const REQUEST: &str = "oasis7.formal.monotonic_oracle.request.v1";
 const RESPONSE: &str = "oasis7.formal.monotonic_oracle.response.v1";
 const LIMIT: usize = 1024 * 1024;
+
+fn connect_oracle(address: &SocketAddr, timeout: Duration) -> Result<TcpStream, FencingError> {
+    let stream = TcpStream::connect_timeout(address, timeout)
+        .map_err(|e| FencingError::Io(e.to_string()))?;
+    stream
+        .set_nonblocking(false)
+        .map_err(|e| FencingError::Io(e.to_string()))?;
+    // Length and body are separate writes on this persistent leased stream.
+    // Send both promptly instead of waiting for the small header to be ACKed.
+    stream
+        .set_nodelay(true)
+        .map_err(|e| FencingError::Io(e.to_string()))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|e| FencingError::Io(e.to_string()))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|e| FencingError::Io(e.to_string()))?;
+    Ok(stream)
+}
+
 #[path = "fencing_remote_durable_set.rs"]
 mod durable_set_client;
 #[path = "fencing_remote_protected.rs"]
@@ -251,17 +272,7 @@ impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
         if instance.endpoint_public_key == hex::encode(self.key.verifying_key().to_bytes()) {
             return Err(FencingError::FencingUnproven);
         }
-        let mut stream = TcpStream::connect_timeout(&self.address, self.timeout)
-            .map_err(|e| FencingError::Io(e.to_string()))?;
-        stream
-            .set_nonblocking(false)
-            .map_err(|e| FencingError::Io(e.to_string()))?;
-        stream
-            .set_read_timeout(Some(self.timeout))
-            .map_err(|e| FencingError::Io(e.to_string()))?;
-        stream
-            .set_write_timeout(Some(self.timeout))
-            .map_err(|e| FencingError::Io(e.to_string()))?;
+        let mut stream = connect_oracle(&self.address, self.timeout)?;
         let state = exchange(
             &mut stream,
             instance,
@@ -373,5 +384,42 @@ impl MonotonicEndpointGuard for RemoteGuard {
             .evidence
             .clone()
             .ok_or(FencingError::FencingUnproven)
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn persistent_oracle_frames_keep_original_timeouts_without_nagle() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let timeout = Duration::from_secs(3);
+        let mut client = connect_oracle(&listener.local_addr().unwrap(), timeout).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.set_nodelay(true).unwrap();
+        peer.set_read_timeout(Some(timeout)).unwrap();
+        peer.set_write_timeout(Some(timeout)).unwrap();
+        assert!(client.nodelay().unwrap());
+        assert_eq!(client.read_timeout().unwrap(), Some(timeout));
+        assert_eq!(client.write_timeout().unwrap(), Some(timeout));
+        for body in [b"first request".as_slice(), b"same leased connection"] {
+            let header = (body.len() as u32).to_be_bytes();
+            client.write_all(&header).unwrap();
+            client.write_all(body).unwrap();
+            let mut actual_header = [0; 4];
+            peer.read_exact(&mut actual_header).unwrap();
+            assert_eq!(actual_header, header);
+            let mut actual_body = vec![0; body.len()];
+            peer.read_exact(&mut actual_body).unwrap();
+            assert_eq!(actual_body, body);
+            peer.write_all(&header).unwrap();
+            peer.write_all(&actual_body).unwrap();
+            client.read_exact(&mut actual_header).unwrap();
+            client.read_exact(&mut actual_body).unwrap();
+            assert_eq!(actual_header, header);
+            assert_eq!(actual_body, body);
+        }
     }
 }
