@@ -12,12 +12,11 @@ mod spatial_overlays;
 use fragment_visuals::reconcile_fragments;
 #[path = "render_micro_depot_facilities.rs"]
 mod micro_depot_facilities;
-use micro_depot_facilities::{
-    MicroDepotFacilityOverlayQueries, PixelWorldMicroDepotVisual, reconcile_micro_depot_facilities,
-};
 #[cfg(test)]
+use micro_depot_facilities::PixelWorldMicroDepotServiceRadiusVisual;
 use micro_depot_facilities::{
-    PixelWorldMicroDepotDetailVisual, PixelWorldMicroDepotServiceRadiusVisual,
+    MicroDepotFacilityOverlayQueries, PixelWorldMicroDepotDetailVisual, PixelWorldMicroDepotVisual,
+    reconcile_micro_depot_facilities,
 };
 #[path = "render_module_visual_entities.rs"]
 mod module_visual_entities;
@@ -1182,6 +1181,7 @@ pub(super) fn is_world_visual(entity: &EntityRef<'_>) -> bool {
         || entity.contains::<PixelWorldFragmentInsetVisual>()
         || entity.contains::<PixelWorldFragmentFleckVisual>()
         || entity.contains::<PixelWorldMicroDepotVisual>()
+        || entity.contains::<PixelWorldMicroDepotDetailVisual>()
         || entity.contains::<PixelWorldModuleVisualEntity>()
         || entity.contains::<PixelWorldLinkVisual>()
         || entity.contains::<PixelWorldSocialLinkVisual>()
