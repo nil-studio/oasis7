@@ -80,7 +80,9 @@ pub(super) fn reconcile_agent_labels(
         let label_x = canvas_x;
         let selected = selected_id == Some(agent.id.as_str());
         let body_size = agent_visual_style(agent, selected, 0.0, 0).size_px;
-        let label_y = canvas_y - body_size * 15.0 / 16.0 - AGENT_LABEL_ABOVE_MARKER_PX;
+        let label_y = canvas_y
+            - body_size * 15.0 / 16.0 * agent_pixel_scale(width, height).y as f64
+            - AGENT_LABEL_ABOVE_MARKER_PX;
         let rect = AgentLabelRect::above_marker(label_x, label_y, &display);
         let priority = agent_label_priority(render_state, agent.id.as_str(), selected_id);
         if runtime.camera.zoom < AGENT_LABEL_MIN_ZOOM && priority > 1 {

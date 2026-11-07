@@ -37,7 +37,10 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
     {
         return payload;
     }
-    let axis = |size: f64, extent: f64, pan: f64| {
+    let layout = pixel_pipeline::canvas_layout(width as f64, height as f64);
+    let pixel = layout.map(|layout| layout.pixel_css()).unwrap_or(Vec2::ONE);
+    let axis = |size: f64, extent: f64, pan: f64, unit: f64| {
+        let pan = ((pan / unit) + 0.5).floor() * unit;
         let inverse = |pixel: f64| {
             (((pixel - size / 2.0 - pan) / camera.zoom.max(0.5) + size / 2.0 - 20.0)
                 / (size - 40.0)
@@ -45,12 +48,22 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
                 .clamp(0.0, extent)
         };
         (
-            format!("{:.0}", inverse(0.0).floor()),
-            format!("{:.0}", inverse(size).ceil().min(extent)),
+            format!("{:.0}", inverse(-unit / 2.0).floor()),
+            format!("{:.0}", inverse(size + unit / 2.0).ceil().min(extent)),
         )
     };
-    let (min_x, max_x) = axis(width as f64, bounds.width_cm, camera.pan_x_px);
-    let (min_y, max_y) = axis(height as f64, bounds.depth_cm, camera.pan_y_px);
+    let (min_x, max_x) = axis(
+        width as f64,
+        bounds.width_cm,
+        camera.pan_x_px,
+        pixel.x as f64,
+    );
+    let (min_y, max_y) = axis(
+        height as f64,
+        bounds.depth_cm,
+        camera.pan_y_px,
+        pixel.y as f64,
+    );
     payload["viewport_bounds"] =
         json!({"min_x_cm":min_x,"max_x_cm":max_x,"min_y_cm":min_y,"max_y_cm":max_y});
     payload["viewport_size_px"] = json!({"width":width,"height":height});
@@ -79,8 +92,9 @@ mod tests {
         runtime.camera.zoom = 2.0;
         let payload = camera_payload(&runtime);
         let bounds = &payload["viewport_bounds"];
-        assert_eq!(bounds["min_x_cm"], "718750");
-        assert_eq!(bounds["max_x_cm"], "2281250");
+        // Half a logical pixel is included on each side of the visible query.
+        assert_eq!(bounds["min_x_cm"], "717968");
+        assert_eq!(bounds["max_x_cm"], "2282032");
         let state = runtime.render_state.as_ref().unwrap();
         let point = Position {
             x_cm: 718750.0,

@@ -541,14 +541,14 @@ fn reconcile_agents(
 
         let transform = Transform::from_translation(to_bevy_translation(
             canvas_x,
-            canvas_y - style.size_px * 7.0 / 16.0,
+            canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64,
             width,
             height,
             style.layer_z,
         ));
         let sprite = Sprite {
             image: texture.clone(),
-            custom_size: Some(Vec2::splat(style.size_px as f32)),
+            custom_size: Some(agent_pixel_scale(width, height) * style.size_px as f32),
             ..default()
         };
         if let Some(entity) = runtime.agent_entities.get(&agent.id).copied() {
@@ -569,10 +569,10 @@ fn reconcile_agents(
             runtime.hit_regions.push(HitRegion {
                 kind: "agent",
                 id: agent.id.clone(),
-                left: canvas_x - AGENT_HIT_HALF_SIZE,
-                top: canvas_y - 15.0,
-                right: canvas_x + AGENT_HIT_HALF_SIZE,
-                bottom: canvas_y + AGENT_HIT_HALF_SIZE,
+                left: canvas_x - AGENT_HIT_HALF_SIZE * agent_pixel_scale(width, height).x as f64,
+                top: canvas_y - 15.0 * agent_pixel_scale(width, height).y as f64,
+                right: canvas_x + AGENT_HIT_HALF_SIZE * agent_pixel_scale(width, height).x as f64,
+                bottom: canvas_y + AGENT_HIT_HALF_SIZE * agent_pixel_scale(width, height).y as f64,
             });
         }
     }
@@ -1168,3 +1168,21 @@ pub(crate) fn render_scene(
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod tests;
+
+// Only authored world geometry is sampled by the low-resolution camera.
+// Text, receipts, provenance and selection remain native-resolution overlays.
+pub(super) fn is_world_visual(entity: &EntityRef<'_>) -> bool {
+    entity.contains::<PixelWorldAgentVisual>()
+        || entity.contains::<PixelWorldAgentCoreVisual>()
+        || entity.contains::<PixelWorldLocationVisual>()
+        || entity.contains::<PixelWorldFragmentVisual>()
+        || entity.contains::<PixelWorldFragmentShadowVisual>()
+        || entity.contains::<PixelWorldFragmentInsetVisual>()
+        || entity.contains::<PixelWorldFragmentFleckVisual>()
+        || entity.contains::<PixelWorldMicroDepotVisual>()
+        || entity.contains::<PixelWorldModuleVisualEntity>()
+        || entity.contains::<PixelWorldLinkVisual>()
+        || entity.contains::<PixelWorldSocialLinkVisual>()
+        || entity.contains::<PixelWorldAgentSilhouetteVisual>()
+        || entity.contains::<grounding::PixelWorldGroundingVisual>()
+}

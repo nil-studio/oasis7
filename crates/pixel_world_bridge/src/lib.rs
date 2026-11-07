@@ -21,6 +21,7 @@ mod bridge_api;
 mod facility_signature;
 mod host_render_input;
 mod host_state;
+mod pixel_pipeline;
 mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
@@ -585,10 +586,25 @@ fn to_canvas_point(
     let base_y = 20.0 + (normalized_y * (height - 40.0).max(1.0));
     let centered_x = base_x - (width / 2.0);
     let centered_y = base_y - (height / 2.0);
-    Some((
-        (width / 2.0) + (centered_x * camera.zoom.max(0.5)) + camera.pan_x_px,
-        (height / 2.0) + (centered_y * camera.zoom.max(0.5)) + camera.pan_y_px,
-    ))
+    let point = Vec2::new(
+        ((width / 2.0) + centered_x * camera.zoom.max(0.5) + camera.pan_x_px) as f32,
+        ((height / 2.0) + centered_y * camera.zoom.max(0.5) + camera.pan_y_px) as f32,
+    );
+    let point = pixel_pipeline::canvas_layout(width, height)
+        .map(|layout| {
+            layout.snap(
+                point,
+                Vec2::new(camera.pan_x_px as f32, camera.pan_y_px as f32),
+            )
+        })
+        .unwrap_or(point);
+    Some((point.x as f64, point.y as f64))
+}
+
+fn agent_pixel_scale(width: f64, height: f64) -> Vec2 {
+    pixel_pipeline::canvas_layout(width, height)
+        .map(|layout| layout.pixel_css())
+        .unwrap_or(Vec2::ONE)
 }
 
 fn to_bevy_translation(canvas_x: f64, canvas_y: f64, width: f64, height: f64, z: f32) -> Vec3 {
@@ -1006,21 +1022,19 @@ fn boot_bevy_app(canvas_selector: String) {
         focused_mode: UpdateMode::reactive(Duration::from_millis(500)),
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(500)),
     });
-    app.add_systems(Startup, setup_scene);
+    app.add_systems(Startup, pixel_pipeline::setup);
     app.add_systems(
         Update,
         (
             sync_external_state,
+            pixel_pipeline::resize,
             render::render_scene,
             render::label_budget::enforce_label_budget,
+            pixel_pipeline::assign_layers,
         )
             .chain(),
     );
     app.run();
-}
-
-fn setup_scene(mut commands: Commands) {
-    commands.spawn(Camera2d);
 }
 
 fn hit_test(hit_regions: &[HitRegion], x: f64, y: f64) -> Option<(String, String)> {

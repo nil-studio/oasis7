@@ -107,7 +107,7 @@ describe('real renderer accessible projection', () => {
     ).left);
   });
 
-  it('projects agent, location, and module targets through the actual backing canvas size', () => {
+  it('projects in CSS units and snaps through the actual framebuffer at DPR2', () => {
     const cssSize = { width: 1440, height: 900 };
     const backingSize = { width: 2880, height: 1800 };
     const camera = { zoom: 1.563, pan_x_px: 932, pan_y_px: -523 };
@@ -121,24 +121,25 @@ describe('real renderer accessible projection', () => {
       y: parseFloat(style.top) * cssSize.height / 100,
     });
 
+    // F=2880x1800: s=4, each logical pixel is 2 CSS px; pan y=-523 snaps to -522.
     expect(center(rendererEntityTargetStyle(agent, renderBounds, cssSize, camera, null, backingSize))).toEqual({
-      x: expect.closeTo(719.9134, 4),
-      y: expect.closeTo(449.8336, 4),
+      x: expect.closeTo(1192, 4),
+      y: expect.closeTo(184, 4),
     });
     expect(center(rendererEntityTargetStyle(location, renderBounds, cssSize, camera, null, backingSize))).toEqual({
-      x: expect.closeTo(1030.6378, 4),
-      y: expect.closeTo(353.5528, 4),
+      x: expect.closeTo(1498, 4),
+      y: expect.closeTo(90, 4),
     });
     expect(center(rendererEntityTargetStyle(moduleAgent, renderBounds, cssSize, camera, { x: -48, y: -48 }, backingSize))).toEqual({
-      x: expect.closeTo(671.9134, 4),
-      y: expect.closeTo(401.8336, 4),
+      x: expect.closeTo(1144, 4),
+      y: expect.closeTo(136, 4),
     });
     expect(center(rendererEntityTargetStyle(moduleLocation, renderBounds, cssSize, camera, { x: -48, y: -48 }, backingSize))).toEqual({
-      x: expect.closeTo(982.6378, 4),
-      y: expect.closeTo(305.5528, 4),
+      x: expect.closeTo(1450, 4),
+      y: expect.closeTo(42, 4),
     });
-    expect(719.9134 - 671.9134).toBeCloseTo(48, 4);
-    expect(449.8336 - 401.8336).toBeCloseTo(48, 4);
+    expect(1192 - 1144).toBeCloseTo(48, 4);
+    expect(184 - 136).toBeCloseTo(48, 4);
   });
 
   it('keeps co-anchored parent and module DOM targets aligned and independently clickable', async () => {

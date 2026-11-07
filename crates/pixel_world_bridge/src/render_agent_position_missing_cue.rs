@@ -130,8 +130,9 @@ pub(super) fn reconcile_missing_position_cues(
             .as_ref()
             .is_some_and(|selection| selection.kind == "agent" && selection.id == agent.id);
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
-        let canvas_y = canvas_y - style.size_px * 7.0 / 16.0;
-        let body_half_size = style.size_px as f32 / 2.0;
+        let canvas_y =
+            canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64;
+        let body_half_size = style.size_px as f32 * agent_pixel_scale(width, height).y / 2.0;
         for (segment, offset, size) in missing_position_cue_visuals(body_half_size) {
             let key = (agent.id.clone(), segment);
             active_keys.insert(key.clone());
