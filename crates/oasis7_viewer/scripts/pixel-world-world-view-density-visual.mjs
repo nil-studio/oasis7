@@ -127,6 +127,18 @@ async function searchEmpty() {
   await run(['fill', '.pixel-world-exploration form input', '']);
   await evaluate(`document.querySelector('.pixel-world-exploration form input').focus({preventScroll:true});true`); await run(['press', 'Enter']);
 }
+async function centerWithNativePan() {
+  const before = await state(), camera = before.core?.pixelWorldCamera;
+  assert(camera && Number.isFinite(camera.pan_x_px) && Number.isFinite(camera.pan_y_px), 'native pan lacks actual camera');
+  const dx = -camera.pan_x_px, dy = -camera.pan_y_px;
+  if (Math.abs(dx) < .5 && Math.abs(dy) < .5) return;
+  const point = await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect(),points=[];for(let y=1;y<20;y++)for(let x=1;x<20;x++){const px=r.left+r.width*x/20,py=r.top+r.height*y/20,ex=px+${dx},ey=py+${dy};if(ex>r.left&&ex<r.right&&ey>r.top&&ey<r.bottom&&document.elementFromPoint(px,py)===c)points.push({x:px,y:py,d:(x-10)**2+(y-10)**2})}points.sort((a,b)=>a.d-b.d);if(points.length)return points[0];throw Error('no actual canvas start for native centering pan')})()`);
+  await run(['mouse', 'move', String(point.x), String(point.y)]); await run(['mouse', 'down']);
+  await run(['mouse', 'move', String(point.x + dx), String(point.y + dy)]); await run(['mouse', 'up']);
+  await run(['wait', '500']);
+  const after = await state(); summary.nativeCenteringPans ||= []; summary.nativeCenteringPans.push({ point, dx, dy, before: camera, after: after.core?.pixelWorldCamera });
+  assert(after.core?.pixelWorldCamera?.zoom === camera.zoom && Math.abs(after.core.pixelWorldCamera.pan_x_px) < 1 && Math.abs(after.core.pixelWorldCamera.pan_y_px) < 1, 'real canvas drag did not center the observed camera');
+}
 function actualGeometry(row) {
   const camera = row.core?.pixelWorldCamera;
   assert(camera && ['zoom', 'pan_x_px', 'pan_y_px'].every(key => Number.isFinite(camera[key])), 'actual camera observation missing');
@@ -205,7 +217,7 @@ try {
   await run(['open', 'about:blank']); await run(['set', 'viewport', '1440', '1000', String(dpr)]); await run(['open', url]); await attachMetrics();
   await waitProjection(800); summary.partial = await state(); assertGuest(summary.partial);
   assert(held.some(x => x.response.view?.entities?.length === 200), 'last200-page was not actually held');
-  holdLastPage = false; release(); await waitProjection(1000); await overview(); await run(['wait', '500']); await waitProjection(1000); await zoomForLabels(); await waitProjection(1000);
+  holdLastPage = false; release(); await waitProjection(1000); await overview(); await run(['wait', '500']); await waitProjection(1000); await zoomForLabels(); await centerWithNativePan(); await waitProjection(1000);
   const css = await evaluate(`(async()=>{const l=[...document.querySelectorAll('link[rel=stylesheet]')].find(l=>l.href.includes('viewer_terminal_shell.css')),r=l?await fetch(l.href):null,t=document.querySelector('.pixel-world-renderer-target:not([data-selected=true])'),s=t?getComputedStyle(t):null;return{status:r?.status,mime:r?.headers.get('content-type'),rules:l?.sheet?.cssRules.length,background:s?.backgroundColor,border:s?.borderTopColor,shadow:s?.boxShadow}})()`);
   assert(css.status === 200 && css.mime?.startsWith('text/css') && css.rules > 0 && css.background === 'rgba(0, 0, 0, 0)' && css.border === 'rgba(0, 0, 0, 0)' && css.shadow === 'none', 'canonical style prerequisite failed'); summary.css = css;
   const initial = await state();
@@ -248,7 +260,7 @@ try {
     await evaluate(`(()=>{const gl=document.querySelector('#pixel-world-embedded-runtime-canvas').getContext('webgl2'),loss=gl.getExtension('WEBGL_lose_context');if(!loss)throw Error('loss extension unavailable');loss.loseContext();return true})()`);
     await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')&&(${browserState}).targets.length===0`); assert(await evaluate('performance.timeOrigin') === origin, 'automatic page reload occurred');
     await evaluate(`document.querySelector('.pixel-world-render-unavailable__retry').focus({preventScroll:true});true`); await run(['press', 'Enter']);
-    await waitFor(`performance.timeOrigin!==${origin}`); await attachMetrics(); await waitProjection(1000); await overview(); await zoomForLabels(); summary.reloaded = await capture('reloaded', true);
+    await waitFor(`performance.timeOrigin!==${origin}`); await attachMetrics(); await waitProjection(1000); await overview(); await zoomForLabels(); await centerWithNativePan(); summary.reloaded = await capture('reloaded', true);
   }
   assert(!summary.protocolError, summary.protocolError);
   assert(!http.some(r => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method)), 'unexpected mutating HTTP');
