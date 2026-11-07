@@ -47,7 +47,7 @@ describe("viewer performance metrics", () => {
   it("does not treat missing interaction measurements as zero-latency success", () => {
     const summary = summarizeViewerPerformance({
       frameIntervals: Array(120).fill(16), sampleDurationMs: 2000,
-      interactionLatencies: [null, undefined, "", Number.NaN],
+      interactionLatencies: [null, undefined, "", " ", false, Number.NaN],
       domReadiness: { domContentLoadedMs: 100, loadEventMs: 120 },
       dom: { renderedCanvasCount: 1, fallbackShellCount: 0 },
       finalState: { pixelWorldRuntimeStatus: "ready", pixelWorldRuntimeSource: "wasm_bindgen_runtime" },
