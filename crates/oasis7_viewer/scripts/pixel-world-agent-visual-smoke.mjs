@@ -14,7 +14,7 @@ if(!['all','interaction','recovery'].includes(scope)) throw Error('unsupported A
 const session = `pixel-agent-${process.pid}`;
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const lifecycle = createOwnedSessionLifecycle({ command, session, prefixArgs: [] });
-const summary = { source: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, expectedPipeline: process.env.AGENT_PIXEL_PIPELINE || 'native', cases: [] };
+const summary = { source: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, expectedPipeline: process.env.AGENT_PIXEL_PIPELINE || 'native', cases: [] };
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]);
@@ -34,10 +34,11 @@ async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
 }
 async function verifyAgentPixels(path) {
-  const anchor=JSON.parse(await evaluate(`JSON.stringify((()=>{const r=document.querySelector('button[data-agent-id="agent-0"][data-renderer-target]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`));
+  const anchorScript=`JSON.stringify((()=>{const r=document.querySelector('button[data-agent-id="agent-0"][data-renderer-target]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`;
+  let anchor=JSON.parse(await evaluate(anchorScript));
   const program=String.raw`import sys,json,math
 from PIL import Image
-shot=Image.open(sys.argv[1]).convert('RGB');sprite=Image.open(sys.argv[2]).convert('RGBA');a=json.loads(sys.argv[3]);scale=shot.width/a['width'];f=max(1,min(a['canvasWidth']//640,a['canvasHeight']//360)) if sys.argv[4]=='integer' else 1;ux=f*a['cssWidth']/a['canvasWidth'] if sys.argv[4]=='integer' else 1;uy=f*a['cssHeight']/a['canvasHeight'] if sys.argv[4]=='integer' else 1;matched=total=0
+shot=Image.open(sys.argv[1]).convert('RGB');sprite=Image.open(sys.argv[2]).convert('RGBA');a=json.loads(sys.argv[3]);scale=shot.width/a['width'];f=max(1,min(a['canvasWidth']//640,a['canvasHeight']//360)) if sys.argv[4]=='integer' else 1;ux=f*a['cssWidth']/a['canvasWidth'] if sys.argv[4]=='integer' else 1;uy=f*a['cssHeight']/a['canvasHeight'] if sys.argv[4]=='integer' else 1;matched=total=0;misses=[]
 for y in range(16):
  for x in range(16):
   rgba=sprite.getpixel((x,y))
@@ -45,13 +46,15 @@ for y in range(16):
   px=math.floor((a['x']+(-8+x+0.5)*ux)*scale);py=math.floor((a['y']+a['scroll']+(-15+y+0.5)*uy)*scale)
   total+=1
   if 0<=px<shot.width and 0<=py<shot.height and all(abs(shot.getpixel((px,py))[c]-rgba[c])<=3 for c in range(3)):matched+=1
-print(json.dumps({'matched':matched,'total':total,'ratio':matched/max(total,1),'scale':scale}))`;
+  elif len(misses)<24:misses.append({'source':[x,y],'actual':shot.getpixel((px,py)) if 0<=px<shot.width and 0<=py<shot.height else None,'expected':rgba[:3]})
+print(json.dumps({'matched':matched,'total':total,'ratio':matched/max(total,1),'scale':scale,'anchor':a,'unit':[ux,uy],'misses':misses}))`;
   let measured;
   for(let attempt=0;attempt<20;attempt++) {
     measured=JSON.parse(execFileSync('python3',['-c',program,path,resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'),JSON.stringify(anchor),summary.expectedPipeline],{encoding:'utf8'}));
     if(measured.ratio>=0.9) return {...measured,attempt};
     await new Promise(done=>setTimeout(done,200));
     await run(['screenshot','--full',path]);
+    anchor=JSON.parse(await evaluate(anchorScript));
   }
   throw new Error(`shared Agent pixels absent or misaligned after draw: ${JSON.stringify(measured)}`);
 }
@@ -66,7 +69,7 @@ try {
   const url=`http://127.0.0.1:${server.address().port}/viewer.html?test_api=1&connect=0&locale=zh&pixel_world_visual_fixture=selected_blocker`;
   for(const [name,width,height] of [['desktop',1440,1000],['narrow',390,844],['dpr2',1440,1000]]) {
     await run(['set','viewport',String(width),String(height),name==='dpr2'?'2':'1']); await run(['open',url]); await run(['set','viewport',String(width),String(height)]);
-    await waitFor(`(${read}).ready`);
+    await waitFor(`(${read}).ready&&(${read}).canvas?.cssWidth===${width}&&(${read}).canvas?.cssHeight===${height}`);
     await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('selected_blocker')();const auth=window.__AW_TEST__.getState();const a=s.model.agents['agent-0'];s.model.agents['agent-1']={...a,id:'agent-1',name:'独立观察目标一号长中文名称',pos:{...a.pos,x_cm:a.pos.x_cm+2000000}};for(const id of ['agent-0','agent-1']){s.model.agent_player_bindings[id]=auth.authPlayerId;s.model.agent_player_public_key_bindings[id]=auth.authPublicKey;}s.time=13;window.__OASIS7_AGENT_TEST_SNAPSHOT__=s;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
     const before=await state(); summary.active={name,width,height,before}; assert(before.viewport.width===width&&before.viewport.height===height,'actual browser viewport differs from requested case'); assert(before.gpu,'missing GPU identity');
