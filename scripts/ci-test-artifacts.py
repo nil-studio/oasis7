@@ -295,6 +295,16 @@ VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_cha
 FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
 RUST_BASELINE_CHECKS = ('newapi_accounting', 'standalone_tool_lockfiles')
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
+DISTFS_CLIPPY_TARGETS = frozenset((
+    ('oasis7_runtime', 'lib', 'oasis7_runtime'),
+    ('oasis7_runtime', 'test', 'pr_fast_incremental'),
+    ('oasis7_world_state', 'lib', 'oasis7_world_state'),
+    ('oasis7_world_state', 'test', 'pr_fast_reducers'),
+))
+DISTFS_CLIPPY_COMMANDS = (
+    ('-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'),
+    ('-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'),
+)
 
 
 def fast_plan(plan):
@@ -304,6 +314,10 @@ def fast_plan(plan):
     support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_partitions'}.intersection(plan))
+    distfs_clippy = isinstance(plan, dict) and bool(
+        {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
+    if distfs_clippy and 'fast_plan_version' not in plan:
+        raise ValueError('DistFS Clippy handoff requires a compatible fast plan')
     if partitioned and 'fast_plan_version' not in plan:
         raise ValueError('ordinary partitions require a compatible fast plan')
     if support and 'fast_plan_version' not in plan:
@@ -345,7 +359,46 @@ def fast_plan(plan):
         validate_support_handoff(plan)
     if partitioned:
         validate_ordinary_partitions(plan)
+    if distfs_clippy:
+        validate_distfs_clippy_handoff(plan)
     return plan
+
+
+def validate_distfs_clippy_handoff(plan):
+    """Only the complete native parent may move the two original lint calls."""
+    architecture = plan.get('architecture')
+    targets = plan.get('ordinary_fast_targets')
+    if (type(plan.get('distfs_clippy_contract_version')) is not int
+            or plan['distfs_clippy_contract_version'] != 1
+            or plan.get('distfs_clippy_group') != 'rust_baseline'
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
+            or plan.get('ordinary_partition_version') != 1
+            or plan.get('ordinary_partitions') != sorted(ORDINARY_PARTITION_PACKAGES)
+            or plan.get('scope') != 'targeted'
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or plan.get('fast_plan_exceptions') != []
+            or plan.get('formal_suites') != []
+            or plan.get('oasis7_required_wasm_packages') != []
+            or not {'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups'])
+            or not isinstance(architecture, dict)
+            or type(architecture.get('build_policy_version')) is not int
+            or architecture.get('build_policy_version') != 1
+            or architecture.get('build_policy') != 'ordinary-targets'
+            or architecture.get('mode') != 'targeted'
+            or not isinstance(architecture.get('consumer_groups'), dict)
+            or not architecture['consumer_groups'].get('distfs')
+            or not isinstance(targets, list) or len(targets) != len(DISTFS_CLIPPY_TARGETS)
+            or any(not isinstance(target, dict) for target in targets)
+            or any(not isinstance(target.get(field), str) for target in targets
+                   for field in ('package', 'target_kind', 'target_name'))
+            or {(target.get('package'), target.get('target_kind'), target.get('target_name'))
+                 for target in targets} != DISTFS_CLIPPY_TARGETS
+            or any(target.get('default_features') is not False
+                   or target.get('features') != ['test_tier_required'] for target in targets)):
+        raise ValueError('invalid complete native DistFS Clippy handoff')
 
 
 def validate_ordinary_partitions(plan):
@@ -475,6 +528,12 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
+    if phase == 'distfs-clippy-group':
+        selected = fast_plan(plan)
+        if selected is not None and selected.get('distfs_clippy_contract_version') == 1:
+            ordinary_fast_targets(selected)
+            return [selected['distfs_clippy_group']]
+        return ['distfs']
     if phase == 'clippy-group':
         selected = fast_plan(plan)
         if selected is not None and selected.get('fast_execution_version') == 1:
@@ -572,8 +631,11 @@ def required_native_commands(plan=None):
     if targets is not None:
         handoffs = set(plan.get('ordinary_support_handoffs', ()))
         support = handoffs | set(plan.get('ordinary_support_deferred', ()))
-        return ([target_native_arguments(target) for target in targets if target['package'] not in handoffs]
-                + [['-p', package, '--all-targets'] for package in sorted(support)])
+        commands = ([target_native_arguments(target) for target in targets if target['package'] not in handoffs]
+                    + [['-p', package, '--all-targets'] for package in sorted(support)])
+        if plan.get('distfs_clippy_contract_version') == 1:
+            commands.extend(list(command) for command in DISTFS_CLIPPY_COMMANDS)
+        return commands
     return [required_arguments(plan)] + [target_native_arguments(target)
                                        for target in ordinary_full_fast_targets(plan) or []]
 
@@ -2461,7 +2523,7 @@ def main():
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
     parser.add_argument('--ordinary-partition', help='exact native package owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'partition'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'

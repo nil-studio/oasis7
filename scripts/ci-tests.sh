@@ -336,6 +336,16 @@ run_oasis7_distfs_tests() {
 }
 
 run_oasis7_distfs_clippy() {
+  if [[ "${tier:-}" == required && -n "${required_plan:-}" ]]; then
+    local owner
+    owner=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase distfs-clippy-group) || return
+    case "$owner" in
+      rust_baseline) return 0 ;;
+      distfs) ;;
+      *) echo "Unknown DistFS Clippy group: $owner" >&2; return 2 ;;
+    esac
+  fi
   run_cargo_clippy -p oasis7_cas -p oasis7_formal_protocol --lib
   run_cargo_clippy -p oasis7_distfs --lib --bin oasis7_durability_endpoint
 }
@@ -1218,8 +1228,8 @@ if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_s
   echo '--support-profiles requires required --group workspace_support' >&2
   exit 2
 fi
-if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline ) ) ]]; then
-  echo '--plan requires required --group oasis7_required or rust_baseline' >&2
+if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
+  echo '--plan requires required --group oasis7_required, rust_baseline or distfs' >&2
   exit 2
 fi
 if [[ -n "$ordinary_partition" && ( "$tier" != required || "$group" != oasis7_required || -z "$required_plan" ) ]]; then

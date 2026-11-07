@@ -425,7 +425,7 @@ jobs:
           selection="$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"
           export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$selection")"
           plan_args=()
-          if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required ]]; then
+          if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required || "$PREVIEW_GROUP" == distfs ]]; then
             plan_args=(--plan "$selection")
           fi
           if [[ "$PREVIEW_GROUP" == oasis7_required ]]; then
@@ -1677,6 +1677,10 @@ jobs:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
@@ -1702,9 +1706,26 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "distfs" --repo-root "$GITHUB_WORKSPACE"
+        run: |
+          set -euo pipefail
+          plan_args=()
+          selection="$RUNNER_TEMP/selection.json"
+          handoff=$(python3 - "$selection" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1]))
+          if not isinstance(plan, dict):
+              raise ValueError('invalid required selection')
+          fields = {'distfs_clippy_contract_version', 'distfs_clippy_group'}
+          print('true' if fields.intersection(plan) else 'false')
+          PY
+          )
+          if [[ "$handoff" == true ]]; then
+            plan_args=(--plan "$selection")
+          fi
+          bash ./scripts/ci-tests.sh required --group "distfs" "${plan_args[@]}" --repo-root "$GITHUB_WORKSPACE"
 
   node:
     needs: select

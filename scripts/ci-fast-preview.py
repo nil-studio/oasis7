@@ -153,6 +153,15 @@ def validate_plan(plan, source, *, sample='runtime-world'):
             or architecture.get('packages') != expected['packages']):
         raise ValueError('preview did not select the expected architecture compile policy')
     extra_groups = set(groups) - EXPECTED_GROUPS
+    distfs_fields = {'distfs_clippy_contract_version', 'distfs_clippy_group'}
+    if 'distfs' in extra_groups:
+        if (sample != 'runtime-world'
+                or type(plan.get('distfs_clippy_contract_version')) is not int
+                or plan['distfs_clippy_contract_version'] != 1
+                or plan.get('distfs_clippy_group') != 'rust_baseline'):
+            raise ValueError('preview must retain the complete DistFS Clippy handoff')
+    elif distfs_fields.intersection(plan):
+        raise ValueError('preview has a DistFS Clippy handoff without its required group')
     consumers = architecture.get('consumer_groups', {})
     if (not extra_groups <= expected['consumer_groups'] or not isinstance(consumers, dict)
             or set(consumers) != extra_groups):

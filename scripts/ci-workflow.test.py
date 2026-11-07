@@ -1067,7 +1067,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                          PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code)))
                             args = (root / 'args').read_text().strip('\0').split('\0')
                             expected = ['required', '--group', group]
-                            if group in ('rust_baseline', 'oasis7_required'):
+                            if group in ('rust_baseline', 'oasis7_required', 'distfs'):
                                 expected.extend(['--plan', str(selection)])
                             if group == 'oasis7_required':
                                 expected.extend(['--ordinary-partition', partition])
@@ -1076,6 +1076,48 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                 self.assertEqual(args, expected)
                                 self.assertEqual(json.loads((root / 'plan-log').read_text()), {'sample': sample})
                                 self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+
+    def test_distfs_workflow_binds_new_handoffs_and_preserves_old_source_ref_cli(self):
+        job = JOBS['distfs']
+        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', job)
+        self.assertIn('name: ${{ needs.select.outputs.selection_artifact }}', job)
+        self.assertIn('SOURCE_SHA: ${{ needs.select.outputs.source_sha }}', job)
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                    if 'name: Execute selected group' in step)
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
+                'for arg in "$@"; do if [[ "$OLD_DRIVER" == 1 && "$arg" == --plan ]]; then exit 2; fi; done\n'
+                'exit "$DRIVER_EXIT"\n')
+            plans = [{}, {'execution_profile': 'candidate-full'},
+                     {'distfs_clippy_contract_version': 1, 'distfs_clippy_group': 'rust_baseline'},
+                     {'distfs_clippy_contract_version': 2}, {'distfs_clippy_group': 'other'}]
+            for plan in plans:
+                handoff = bool({'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
+                (root / 'selection.json').write_text(json.dumps(plan))
+                for code in (0, 19):
+                    result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                        env=dict(os.environ, RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root),
+                                 ARGV_LOG=str(root / 'args'), OLD_DRIVER='0' if handoff else '1', DRIVER_EXIT=str(code)))
+                    args = (root / 'args').read_text().strip('\0').split('\0')
+                    expected = ['required', '--group', 'distfs']
+                    if handoff:
+                        expected += ['--plan', str(root / 'selection.json')]
+                    expected += ['--repo-root', str(root)]
+                    with self.subTest(plan=plan, code=code):
+                        self.assertEqual(args, expected)
+                        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+            for malformed in ('[', '[]'):
+                (root / 'selection.json').write_text(malformed)
+                (root / 'args').unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                    env=dict(os.environ, RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root),
+                             ARGV_LOG=str(root / 'args'), OLD_DRIVER='0', DRIVER_EXIT='0'))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((root / 'args').exists())
 
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']

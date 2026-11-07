@@ -2008,6 +2008,49 @@ class Selection(unittest.TestCase):
                 self.assertEqual(plan['formal_suites'], [])
                 self.assertEqual(plan['fast_plan_exceptions'], [])
 
+    def test_distfs_clippy_handoff_requires_its_independent_trusted_capability_and_complete_native_parent(self):
+        self.assertEqual(selector.DISTFS_CLIPPY_TARGETS, frozenset((
+            ('oasis7_runtime', 'lib', 'oasis7_runtime'),
+            ('oasis7_runtime', 'test', 'pr_fast_incremental'),
+            ('oasis7_world_state', 'lib', 'oasis7_world_state'),
+            ('oasis7_world_state', 'test', 'pr_fast_reducers'))))
+        config, base, head = self.native_consumer_fixture()
+        config.update(ordinary_partition_version=1, distfs_clippy_contract_version=1)
+        config['ordinary_fast_targets']['consumer-lib'] = dict(
+            config['ordinary_fast_targets']['core-lib'], package='consumer', target_name='consumer')
+        config['ordinary_fast_component_rules'][0]['targets'].append('consumer-lib')
+        # Preserve both complete miniature lib owners; pin the real four-target
+        # inventory independently above rather than inventing a new fast scope.
+        identities = frozenset((package, 'lib', package) for package in ('core', 'consumer'))
+        with patch.object(selector, 'ORDINARY_PARTITION_PACKAGES', frozenset(('core', 'consumer'))), \
+             patch.object(selector, 'DISTFS_CLIPPY_TARGETS', identities):
+            for profile in ('pr-fast', 'main-fast'):
+                plan = selector.select(config, base, head, profile=profile)
+                self.assertEqual(plan['distfs_clippy_contract_version'], 1)
+                self.assertEqual(plan['distfs_clippy_group'], 'rust_baseline')
+                self.assertTrue({'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups']))
+                self.assertEqual(len(plan['ordinary_fast_targets']), 2)
+                old = dict(config)
+                del old['distfs_clippy_contract_version']
+                previous = selector.select(old, base, head, profile=profile)
+                self.assertNotIn('distfs_clippy_group', previous)
+                self.assertEqual(plan['groups'], previous['groups'])
+                self.assertEqual(plan['ordinary_fast_targets'], previous['ordinary_fast_targets'])
+            explicit = selector.select(config, base, head, additions=('distfs',), profile='pr-fast')
+            self.assertNotIn('distfs_clippy_group', explicit)
+            for profile in ('candidate-full', 'periodic-full'):
+                self.assertNotIn('distfs_clippy_group', selector.full_plan(config, profile, head))
+        # A different owner/target inventory retains the original lint owner.
+        self.assertNotIn('distfs_clippy_group', selector.select(config, base, head, profile='pr-fast'))
+        for version in (True, False, None, '1', 2):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, distfs_clippy_contract_version=version))
+        for capability in ('fast_execution_version', 'ordinary_partition_version', 'architecture_build_policy_version'):
+            old = dict(config)
+            del old[capability]
+            with self.subTest(missing=capability), self.assertRaises(ValueError):
+                selector.validate_config(old)
+
     def test_native_consumer_group_does_not_cover_direct_unmapped_inputs_or_requests(self):
         config, base, head = self.native_consumer_fixture()
         for group in ('net', 'node', 'distfs'):

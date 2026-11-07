@@ -22,6 +22,13 @@ FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
 ORDINARY_PARTITION_VERSION = 1
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
+DISTFS_CLIPPY_CONTRACT_VERSION = 1
+DISTFS_CLIPPY_TARGETS = frozenset((
+    ('oasis7_runtime', 'lib', 'oasis7_runtime'),
+    ('oasis7_runtime', 'test', 'pr_fast_incremental'),
+    ('oasis7_world_state', 'lib', 'oasis7_world_state'),
+    ('oasis7_world_state', 'test', 'pr_fast_reducers'),
+))
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 PYTHON_CONTROL_CONTRACT_VERSION = 1
@@ -757,6 +764,13 @@ def validate_config(config):
                 or config['ordinary_partition_version'] != ORDINARY_PARTITION_VERSION
                 or config.get('fast_execution_version') != FAST_EXECUTION_VERSION):
             raise ValueError('invalid ordinary partition capability')
+    if 'distfs_clippy_contract_version' in config:
+        if (type(config['distfs_clippy_contract_version']) is not int
+                or config['distfs_clippy_contract_version'] != DISTFS_CLIPPY_CONTRACT_VERSION
+                or config.get('fast_execution_version') != FAST_EXECUTION_VERSION
+                or config.get('ordinary_partition_version') != ORDINARY_PARTITION_VERSION
+                or config.get('architecture_build_policy_version') != ARCHITECTURE_BUILD_POLICY_VERSION):
+            raise ValueError('invalid DistFS Clippy capability')
     validate_fast_test_inventory(config)
     validate_fast_support_contracts(config)
     return config
@@ -2688,6 +2702,19 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         packages = sorted({target['package'] for target in plan['ordinary_fast_targets']})
         plan.update(ordinary_partition_version=ORDINARY_PARTITION_VERSION,
                     ordinary_partitions=packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all'])
+    if (config.get('distfs_clippy_contract_version') == DISTFS_CLIPPY_CONTRACT_VERSION
+            and plan.get('ordinary_partitions') == sorted(ORDINARY_PARTITION_PACKAGES)
+            and architecture.get('build_policy') == 'ordinary-targets'
+            and {'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups'])
+            and not plan['fast_plan_exceptions'] and not plan['formal_suites']
+            and {(target['package'], target['target_kind'], target['target_name'])
+                 for target in plan['ordinary_fast_targets']} == DISTFS_CLIPPY_TARGETS
+            and all(target['default_features'] is False and target['features'] == ['test_tier_required']
+                    for target in plan['ordinary_fast_targets'])):
+        plan.update(distfs_clippy_contract_version=DISTFS_CLIPPY_CONTRACT_VERSION,
+                    distfs_clippy_group='rust_baseline')
+        plan['reasons'].append('complete DistFS/CAS/Formal strict Clippy stays required in rust_baseline; '
+                               'all original DistFS group test targets remain serial')
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     return plan
 

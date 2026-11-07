@@ -768,6 +768,145 @@ class InlineExecutionSelection(unittest.TestCase):
         self.assertEqual(len(supplements), len(targets))
 
 
+class DistfsClippyHandoff(unittest.TestCase):
+    def selection(self):
+        selected = NativePackagePartitions().selection()
+        for target in selected['ordinary_fast_targets']:
+            if target['target_kind'] == 'test':
+                target['target_name'] = ('pr_fast_incremental' if target['package'] == 'oasis7_runtime'
+                                         else 'pr_fast_reducers')
+        return selected | {
+            'distfs_clippy_contract_version': 1, 'distfs_clippy_group': 'rust_baseline',
+            'groups': ['baseline', 'rust_baseline', 'oasis7_required', 'distfs'],
+            'formal_suites': [], 'fast_plan_exceptions': [],
+            'architecture': dict(mode='targeted', build_policy_version=1,
+                build_policy='ordinary-targets', consumer_groups={'distfs': ['oasis7_distfs']}),
+        }
+
+    def test_original_lint_inventory_has_one_owner_and_keeps_both_required_groups(self):
+        selected = self.selection()
+        expected = [['-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
+                    ['-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
+        self.assertEqual(artifacts.required_native_commands(selected)[-2:], expected)
+        self.assertEqual(artifacts.required_arguments(selected, 'distfs-clippy-group'), ['rust_baseline'])
+        legacy = {key: value for key, value in selected.items()
+                  if key not in ('distfs_clippy_contract_version', 'distfs_clippy_group')}
+        self.assertEqual(len(artifacts.required_native_commands(legacy)), 4)
+        for plan in (None, {}, legacy, FastTargetInventory().selection(full=True)):
+            self.assertEqual(artifacts.required_arguments(plan, 'distfs-clippy-group'), ['distfs'])
+        checker = module('ci-required-result')
+        jobs = {group: group.replace('_', '-') for group in selected['groups']}
+        successful = {name: {'result': 'success'} for name in ['select', *jobs.values()]}
+        self.assertTrue(checker.validate(selected, successful, jobs))
+        for owner in ('rust-baseline', 'distfs'):
+            for failure in ('failure', 'cancelled', 'skipped', None):
+                with self.subTest(owner=owner, status=failure), self.assertRaises(ValueError):
+                    checker.validate(selected, successful | {owner: {'result': failure}}, jobs)
+
+    def test_partial_untrusted_or_incomplete_handoff_cannot_skip_lint(self):
+        selected = self.selection()
+        invalid = [('distfs_clippy_contract_version', value) for value in (True, None, '1', 2)]
+        invalid += [('distfs_clippy_group', value) for value in ('distfs', None, 'other')]
+        invalid += [('ordinary_clippy_group', 'oasis7_required'), ('ordinary_execution', 'artifact'),
+                    ('fast_execution_version', 2), ('scope', 'full'), ('execution_profile', 'candidate-full'),
+                    ('test_policy_changed', True), ('fast_plan_exceptions', ['extra']),
+                    ('formal_suites', ['world-history']), ('oasis7_required_wasm_packages', ['oasis7_runtime']),
+                    ('ordinary_partitions', ['all'])]
+        invalid += [('groups', [group for group in selected['groups'] if group != missing])
+                    for missing in ('distfs', 'rust_baseline', 'oasis7_required')]
+        candidates = [selected | {key: value} for key, value in invalid]
+        candidates += [{key: value for key, value in selected.items() if key != missing}
+                       for missing in ('distfs_clippy_contract_version', 'distfs_clippy_group', 'fast_plan_version')]
+        candidates += [selected | {'ordinary_fast_targets': selected['ordinary_fast_targets'][:-1]},
+                       selected | {'ordinary_fast_targets': selected['ordinary_fast_targets'][:1] * 4}]
+        for changes in ({'features': []}, {'default_features': True}, {'target_name': 'unknown'},
+                        {'target_kind': []}, {'cases': []}):
+            candidate = copy.deepcopy(selected)
+            candidate['ordinary_fast_targets'][0].update(changes)
+            candidates.append(candidate)
+        for candidate in candidates:
+            with self.subTest(plan=candidate):
+                with self.assertRaises(ValueError):
+                    artifacts.required_arguments(candidate, 'distfs-clippy-group')
+                with self.assertRaises(ValueError):
+                    artifacts.required_native_commands(candidate)
+
+    def test_whole_driver_moves_exact_lints_preserves_tests_and_propagates_failures(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo, binary = root / 'repo', root / 'bin'
+            scripts = repo / 'scripts'
+            scripts.mkdir(parents=True)
+            binary.mkdir()
+            (scripts / 'cargo-dev-architecture.py').write_text('print("architecture fixture")\n')
+            for name in ('check-rustsec-ignore-baseline.test.sh', 'check-rustsec-ignore-baseline.sh',
+                         'ensure-cargo-deny.sh', 'check-rust-file-size.test.sh', 'check-rust-file-size.sh'):
+                path = scripts / name
+                path.write_text('#!/usr/bin/env bash\nexit 0\n')
+                path.chmod(0o755)
+            cargo = binary / 'cargo'
+            cargo.write_text('''#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['CARGO_LOG'], 'a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY_PACKAGE']:
+    sys.exit(19)
+''')
+            cargo.chmod(0o755)
+            subprocess.run(['git', 'init', '-q', str(repo)], check=True)
+            subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+            subprocess.run(['git', '-C', str(repo), '-c', 'user.name=CI fixture', '-c',
+                            'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], check=True)
+            sha = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
+            selected = self.selection() | {'source_sha': sha, 'tested_sha': sha}
+            selected['architecture'].update(source=sha, tested=sha)
+            selection, log = root / 'selection.json', root / 'cargo.jsonl'
+            original_lints = [
+                ['clippy', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
+                ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
+            original_lints = [args + ['--', '-D', 'warnings', '-D', 'clippy::correctness',
+                                      '-D', 'clippy::suspicious'] for args in original_lints]
+            original_tests = [
+                ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
+                ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']]
+            for mode, failed in (('handoff', ''), ('legacy', ''), ('handoff', 'oasis7_cas'),
+                                 ('handoff', 'oasis7_distfs'), ('manual', '')):
+                current = copy.deepcopy(selected)
+                if mode == 'legacy':
+                    del current['distfs_clippy_contract_version'], current['distfs_clippy_group']
+                selection.write_text(json.dumps(current))
+                observed = {}
+                for group in (('distfs',) if mode == 'manual' else ('rust_baseline', 'distfs')):
+                    log.unlink(missing_ok=True)
+                    plan_args = [] if mode == 'manual' else ['--plan', str(selection)]
+                    result = subprocess.run(['bash', str(HERE / 'ci-tests.sh'), 'required', '--group', group,
+                        *plan_args, '--repo-root', str(repo)], text=True, capture_output=True,
+                        env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'], SOURCE_SHA=sha,
+                                 CI_VERBOSE='', CARGO_LOG=str(log), FAIL_CLIPPY_PACKAGE=failed,
+                                 OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false', OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                    commands = [json.loads(line) for line in log.read_text().splitlines()]
+                    observed[group] = [args for args in commands if args[0] == 'clippy' and args[2] in ('oasis7_cas', 'oasis7_distfs')]
+                    with self.subTest(mode=mode, failed=failed, group=group):
+                        self.assertEqual(result.returncode, 19 if group == 'rust_baseline' and failed else 0,
+                                         result.stdout + result.stderr)
+                        if group == 'distfs':
+                            self.assertEqual([args for args in commands if args[0] == 'test'], original_tests)
+                owner = 'rust_baseline' if mode == 'handoff' else 'distfs'
+                self.assertEqual(observed[owner], original_lints[:1] if failed == 'oasis7_cas' else original_lints)
+                self.assertEqual(observed.get('distfs' if owner == 'rust_baseline' else 'rust_baseline', []), [])
+            for field in ('source_sha', 'tested_sha'):
+                selection.write_text(json.dumps(selected | {field: '0' * 40}))
+                log.unlink(missing_ok=True)
+                result = subprocess.run(['bash', str(HERE / 'ci-tests.sh'), 'required', '--group', 'distfs',
+                    '--plan', str(selection), '--repo-root', str(repo)], text=True, capture_output=True,
+                    env=dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'], SOURCE_SHA=sha,
+                             CI_VERBOSE='', CARGO_LOG=str(log), FAIL_CLIPPY_PACKAGE=''))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('execution plan identity mismatch', result.stderr)
+                self.assertFalse(log.exists())
+
+
 class NativePackagePartitions(unittest.TestCase):
     def selection(self):
         targets = [FastTargetInventory().target(package=package, target_kind=kind, target_name=name)

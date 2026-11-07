@@ -77,6 +77,8 @@ def fixture_planner(repo, consumer_groups=None, sample='runtime-world'):
         plan['affected_packages'] = ['oasis7_runtime', 'oasis7_world_state',
                                      *(name for names in consumer_groups.values() for name in names)]
         plan['architecture']['consumer_groups'] = consumer_groups
+        if 'distfs' in consumer_groups:
+            plan.update(distfs_clippy_contract_version=1, distfs_clippy_group='rust_baseline')
     (repo / 'scripts/plan-rust-required-scope.py').write_text("""import argparse,json,pathlib
 p=argparse.ArgumentParser()
 for key in ('profile','base-ref','head-ref','test-ref','policy-ref','config','formal-config','output'):
@@ -552,6 +554,29 @@ class Preview(unittest.TestCase):
             self.assertEqual(metadata['groups'], expected)
             self.assertEqual(selected['architecture']['consumer_groups'], consumers)
             self.assertEqual(len(selected['ordinary_fast_targets']), 4)
+            self.assertEqual(selected['distfs_clippy_contract_version'], 1)
+            self.assertEqual(selected['distfs_clippy_group'], 'rust_baseline')
+
+    def test_distfs_preview_cannot_omit_or_misassign_the_original_lint_handoff(self):
+        source = 'a' * 40
+        selected = valid_plan(source)
+        selected.update(distfs_clippy_contract_version=1, distfs_clippy_group='rust_baseline',
+                        affected_packages=['oasis7_runtime', 'oasis7_world_state', 'oasis7_distfs'])
+        selected['groups'].append('distfs')
+        selected['architecture']['consumer_groups'] = {'distfs': ['oasis7_distfs']}
+        PREVIEW.validate_plan(selected, source)
+        for field, value in (('distfs_clippy_contract_version', True), ('distfs_clippy_contract_version', 2),
+                             ('distfs_clippy_group', 'distfs'), ('distfs_clippy_group', None)):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(selected | {field: value}, source)
+        for missing in ('distfs_clippy_contract_version', 'distfs_clippy_group'):
+            candidate = copy.deepcopy(selected)
+            del candidate[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(candidate, source)
+        with self.assertRaises(ValueError):
+            PREVIEW.validate_plan(valid_plan(source) | {'distfs_clippy_contract_version': 1,
+                                                       'distfs_clippy_group': 'rust_baseline'}, source)
 
     def test_unproved_duplicate_or_misassigned_consumer_groups_are_rejected(self):
         source = 'a' * 40
