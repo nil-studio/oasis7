@@ -1,15 +1,18 @@
 // Measure trusted browser input to visible selection feedback, not Node/CLI round trips.
 // Two rAF callbacks provide a paint opportunity; this is not display-photon or Runtime latency.
-export async function collectNativeSelectionSamples({ evaluate, run, count, minimumDurationMs = 0, betweenSamples = async () => {}, onSample = () => {} }) {
+export async function collectNativeSelectionSamples({ evaluate, run, count, minimumDurationMs = 0, betweenSamples = async () => {}, onSample = () => {}, selectionSource = "core", preferCenter = false }) {
+  if (!["core", "renderer"].includes(selectionSource)) throw Error("unknown selection observation source");
   const samples = [];
   const more = () => samples.length < count || (samples.at(-1)?.endTime ?? 0) - (samples[0]?.startTime ?? 0) < minimumDurationMs;
   for (let index = 0; more(); index += 1) {
     const target = await evaluate(`JSON.stringify((()=>{
-      const selected=window.__AW_TEST__.getState().selectedId;
-      return [...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>{
+      const selected=${JSON.stringify(selectionSource)}==='renderer'?document.querySelector('button[data-agent-id][data-renderer-target][data-selected=true]')?.dataset.agentId:window.__AW_TEST__.getState().selectedId;
+      const candidates=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>{
         const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
         return {id:b.dataset.agentId,x,y,visible:r.width>0&&r.height>0&&x>20&&x<innerWidth-20&&y>20&&y<innerHeight-20&&getComputedStyle(b).visibility!=='hidden'};
-      }).find(b=>b.visible&&b.id!==selected)||null;
+      }).filter(b=>b.visible&&b.id!==selected);
+      if(${JSON.stringify(preferCenter)})candidates.sort((a,b)=>(a.x-innerWidth/2)**2+(a.y-innerHeight/2)**2-((b.x-innerWidth/2)**2+(b.y-innerHeight/2)**2));
+      return candidates[0]||null;
     })())`);
     if (!target) throw Error('no visible unselected native Agent target; interaction is unmeasured');
     const selector = `button[data-agent-id=${JSON.stringify(target.id)}][data-renderer-target]`;
@@ -31,7 +34,9 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
             row.domFeedbackTime=performance.now();
             requestAnimationFrame(()=>requestAnimationFrame(end=>{
               const state=window.__AW_TEST__.getState();
-              Object.assign(row,{selectedKind:state.selectedKind,selectedId:state.selectedId,endTime:end,durationMs:end-start,paintOpportunities:2,status:'complete'});
+              const current=document.querySelector(${JSON.stringify(selector)});
+              const rendererId=current?.dataset.selected==='true'?current.dataset.agentId:null;
+              Object.assign(row,{selectionSource:${JSON.stringify(selectionSource)},coreSelectedKind:state.selectedKind,coreSelectedId:state.selectedId,selectedKind:${JSON.stringify(selectionSource)}==='renderer'?(rendererId?'agent':null):state.selectedKind,selectedId:${JSON.stringify(selectionSource)}==='renderer'?rendererId:state.selectedId,endTime:end,durationMs:end-start,paintOpportunities:2,status:'complete'});
             }));return;
           }
           if(performance.now()>deadline){row.status='timeout';return;}
