@@ -248,7 +248,7 @@ try {
   writeFileSync(resolve(out, 'label-captures.json'), JSON.stringify(labelCaptures, null, 2));
   summary.labelOnlyInvariant = labelOnlyInvariant(labelCaptures);
   summary.labelOracle = JSON.parse(execFileSync('python3', [resolve(here, 'world-view-label-oracle.py'), out], { encoding: 'utf8' })); assert(summary.labelOracle.passed, '200 native label paired PNG oracle failed');
-  if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
+  if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
   if (scope === 'all') {
     const selector = 'button[data-agent-id="qa-agent-0000"][data-renderer-target]';
     await run(['click', selector]); await waitFor(`document.querySelector(${JSON.stringify(selector)})?.dataset.selected==='true'`);

@@ -22,7 +22,7 @@ function assertDensity(row) {
     && row.registration === 'guest', 'observer acquired a player identity');
 }
 
-export async function measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, durationMs }) {
+export async function measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, durationMs, overview }) {
   assert(Number.isFinite(durationMs) && durationMs > 0, 'declare positive performance duration');
   const json = async code => { const value = await evaluate(code); return typeof value === 'string' ? JSON.parse(value) : value; };
   const evidence = { durationMs, formalP6: false, environment: { hardware: execFileSync('sysctl',['hw.model','hw.memsize'],{encoding:'utf8'}).trim(), os: execFileSync('sw_vers',[],{encoding:'utf8'}).trim(), power: execFileSync('pmset',['-g','batt'],{encoding:'utf8'}).trim(), network:'unshaped owned loopback', targetRefreshHz:'unknown' }, density: [], gestures: [], updates: [],
@@ -37,16 +37,24 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
   };
   const gesture = async index => {
     const sign = index % 4 < 2 ? 1 : -1, type = index % 2 ? 'zoom' : 'pan';
-    const point = await json(`(()=>{const r=document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect(),c=document.querySelector('#pixel-world-embedded-runtime-canvas');for(let y=1;y<20;y++)for(let x=1;x<20;x++){const px=Math.floor(r.left+r.width*x/20),py=Math.floor(r.top+r.height*y/20);if(document.elementFromPoint(px,py)===c&&document.elementFromPoint(px+${sign * 6},py)===c)return{x:px,y:py}}throw Error('no unobscured native camera start')})()`);
-    const before = await dense();
+    let before = await dense(), wheel = before.camera.zoom < 1.85 ? -20 : 20;
+    const proposed = before.camera.zoom * (wheel < 0 ? 1.12 : .89);
+    if (type === 'zoom' && (proposed < 1.76 || proposed > 2.08)) {
+      const previous = before; await overview(); before = await dense();
+      evidence.gestures.push({ type: 'overview', before: previous, after: before, reason: 'native discrete wheel step would leave declared 1000/200 load interval' });
+      wheel = -20;
+    }
+    const point = await json(`(()=>{const r=document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect(),c=document.querySelector('#pixel-world-embedded-runtime-canvas');const xs=[2,8,16,32,...Array.from({length:19},(_,i)=>r.width*(i+1)/20),r.width-32,r.width-16,r.width-8,r.width-2],ys=[2,8,16,32,...Array.from({length:19},(_,i)=>r.height*(i+1)/20),r.height-32,r.height-16,r.height-8,r.height-2];for(const y of ys)for(const x of xs){const px=Math.floor(r.left+x),py=Math.floor(r.top+y);if(px+${sign * 6}>r.left&&px+${sign * 6}<r.right&&document.elementFromPoint(px,py)===c&&document.elementFromPoint(px+${sign * 6},py)===c)return{x:px,y:py}}throw Error('no unobscured native camera start')})()`);
     await evaluate(`(()=>{window.__DENSITY_CAMERA_INPUT__=[];const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),types=['pointerdown','pointermove','pointerup','wheel'],handler=e=>{if(__DENSITY_CAMERA_INPUT__.length<64)__DENSITY_CAMERA_INPUT__.push({type:e.type,time:e.timeStamp,trusted:e.isTrusted,buttons:e.buttons,deltaY:e.deltaY})};for(const t of types)c.addEventListener(t,handler,true);window.__DENSITY_CAMERA_DISPOSE__=()=>{for(const t of types)c.removeEventListener(t,handler,true)};return true})()`);
     try {
       await run(['mouse', 'move', String(point.x), String(point.y)]);
       if (type === 'pan') { await run(['mouse', 'down']); await run(['mouse', 'move', String(point.x + sign * 6), String(point.y)]); await run(['mouse', 'up']); }
-      else await run(['mouse', 'wheel', String(-sign * 20)]);
+      else await run(['mouse', 'wheel', String(wheel)]);
       const after = await dense(), input = await json('JSON.stringify(window.__DENSITY_CAMERA_INPUT__)');
       assert(input.some(row => row.trusted && row.type === (type === 'pan' ? 'pointerdown' : 'wheel')), 'camera input was not trusted');
-      assert(JSON.stringify(before.camera) !== JSON.stringify(after.camera), 'native camera did not change');
+      assert(type === 'pan' ? before.camera.zoom === after.camera.zoom
+        && (before.camera.pan_x_px !== after.camera.pan_x_px || before.camera.pan_y_px !== after.camera.pan_y_px)
+        : before.camera.zoom !== after.camera.zoom, 'native camera did not change the intended physical parameter');
       evidence.gestures.push({ type, point, before, after, input });
     } finally { await evaluate('window.__DENSITY_CAMERA_DISPOSE__();true'); }
   };
@@ -86,10 +94,12 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
     evidence.monitorOverflow = monitor.overflow;
     evidence.actualInputSpanMs = samples.length ? samples.at(-1).endTime - samples[0].startTime : null;
     evidence.input = matchInputPaintTrace(samples, trace);
+    evidence.inputDensity = {total:samples.length,observedDense:samples.filter(s=>s.displayAtInput?.status==='observed'&&s.displayAtInput.profile==='world_view_v1'&&s.displayAtInput.markers===1000&&s.displayAtInput.bodies===1000&&s.displayAtInput.inView===1000&&s.displayAtInput.labels===200).length,pendingOrUnknown:samples.filter(s=>s.displayAtInput?.status!=='observed').length};
+    evidence.inputDensity.observedBelowDensity=evidence.inputDensity.total-evidence.inputDensity.observedDense-evidence.inputDensity.pendingOrUnknown;
     evidence.rafOpportunities = distribution(monitor.raf.map(row => row.interval));
     evidence.densityMonitor = { total: monitor.density.length, dense: monitor.density.filter(row => row.status === 'observed' && row.inView === 1000 && row.labels === 200).length,
       pending: monitor.density.filter(row => row.status !== 'observed').length, observedBelowDensity: monitor.density.filter(row => row.status === 'observed' && (row.inView !== 1000 || row.labels !== 200)).length };
-    evidence.localFeedback100ms = { dom: evidence.input.distributions.domAcceptedMs.p95 === null ? 'unknown' : evidence.input.distributions.domAcceptedMs.p95 <= 100 ? 'pass' : 'fail',
+    evidence.localFeedback100ms = { dom: evidence.input.distributions.domAcceptedMs.unknown || evidence.input.distributions.domAcceptedMs.p95 === null ? 'unknown' : evidence.input.distributions.domAcceptedMs.p95 <= 100 ? 'pass' : 'fail',
       paint: evidence.input.unknownPaint ? 'unknown' : evidence.input.distributions.nextPaintEstimateMs.p95 === null ? 'unknown' : evidence.input.distributions.nextPaintEstimateMs.p95 <= 100 ? 'pass' : 'fail' };
     writeFileSync(resolve(out, 'performance-input-paint-trace.json'), JSON.stringify({ trace, matched: evidence.input }, null, 2));
     writeFileSync(resolve(out, 'performance-monitor.json'), JSON.stringify(monitor, null, 2));

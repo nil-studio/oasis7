@@ -26,6 +26,7 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
         if(button.dataset.selected==='true'){window.__VIEWER_PERF_INPUT__={status:'invalid_already_selected',expectedId:expected};return;}
         const start=e.timeStamp;
         const row=window.__VIEWER_PERF_INPUT__={expectedId:expected,eventType:e.type,isTrusted:e.isTrusted,startTime:start,timeOrigin:performance.timeOrigin,status:'pending'};
+        if(${JSON.stringify(selectionSource)}==='renderer'){const m=window.__QA_READ_METRICS__?.();row.displayAtInput=m?{status:m.status,cut:m.source_cut,version:m.render_version,profile:m.display_profile,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inView:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels}:null;}
         const clickListener=event=>{if(event.target.closest?.('button[data-agent-id][data-renderer-target]')?.dataset.agentId===expected){row.clickTime=event.timeStamp;row.clickTrusted=event.isTrusted;document.removeEventListener('click',clickListener,true);}};document.addEventListener('click',clickListener,true);
         const deadline=performance.now()+5000;
         const check=()=>{
