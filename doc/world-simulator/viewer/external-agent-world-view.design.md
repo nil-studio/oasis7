@@ -70,7 +70,7 @@ Viewer不拥有第二资源账本、任务完成规则或admission。外部execu
 <a id="local-terrain-source-proof"></a>
 ### 本地生成地形来源证明
 
-#5558 的本地生产路径仅在未连接 world service 且未启用 chain link 时，使用启动阶段已加载的 seed_model 作为本地生成地形 authority。它与 Runtime state 的空间证明分开：只提取每个 Location 的 id、pos、profile.radius_cm 与 fragment_profile.blocks，不包含资源账本、私有字段或新能力。原始地形来自实际生成源，不在 Viewer 中合成或猜测。
+#5558 的本地生产路径仅在未连接 world service 且未启用 chain link 时，使用启动阶段已加载的 seed_model 作为本地生成地形 authority。它与 Runtime state 的空间证明分开：只提取每个 Location 的 id、name、pos、profile.radius_cm 与 fragment_profile.blocks，不包含资源账本、私有字段或新能力。获准 current 地形记录不附带未被该来源证明的 resources；缺资源保持未知，不填零，也不借地形时效提升库存事实。原始地形来自实际生成源，不在 Viewer 中合成或猜测。
 
 SourceAuthority 私有保存各地点上述字段的摘要，摘要集合进入 source cut key；来源种类/版本进入 scope，世界和 audience 仍沿原 cache 身份。投影候选必须同时通过原 Runtime snapshot 验证，并与该地点的生成源摘要完全相等，才以 local_generated_terrain_cut/current 发出获准 fragment 字段。缺源、位置或组成被改写、来源失效、world/epoch/audience 切换均不得借旧 current 结果；切换或拒绝后消费者沿原清理合同回收图块。摘要仅为同进程本地来源绑定，不是远端签名、用户授权凭据或公开资源承诺。
 

@@ -207,7 +207,7 @@ pub(super) fn terrain_render_record(location: &oasis7_simulator::Location) -> Va
             })
             .collect::<Vec<_>>()
     });
-    json!({"id":location.id,"pos":location.pos,"profile":{"radius_cm":location.profile.radius_cm},
+    json!({"id":location.id,"name":location.name,"pos":location.pos,"profile":{"radius_cm":location.profile.radius_cm},
         "fragment_profile":{"blocks":{"blocks":blocks}}})
 }
 

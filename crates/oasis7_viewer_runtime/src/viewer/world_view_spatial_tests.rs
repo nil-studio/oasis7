@@ -525,6 +525,9 @@ fn local_terrain_proof_rejects_modified_and_remote_fragments() {
     ));
     let authority = SourceAuthority::local_runtime().with_local_terrain(&snapshot.model);
     let original_cut = authority.cut_key();
+    let mut renamed = snapshot.model.locations["l"].clone();
+    renamed.name = "unproved rename".into();
+    assert!(!authority.terrain_current(&renamed));
     let mut altered = snapshot.model.locations["l"].clone();
     altered.fragment_profile.as_mut().unwrap().blocks.blocks[0]
         .compounds
@@ -546,6 +549,7 @@ fn local_terrain_proof_rejects_modified_and_remote_fragments() {
         .iter()
         .find(|o| o.value["entity_id"] == "l")
         .unwrap();
+    assert!(location.value["render_record"].get("resources").is_none());
     assert_eq!(
         location.value["provenance"]["source_ref"],
         "local_generated_terrain_cut"

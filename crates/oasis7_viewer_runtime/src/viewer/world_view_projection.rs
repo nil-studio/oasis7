@@ -157,10 +157,7 @@ pub(super) fn prepare(
     for (id, l) in &snapshot.model.locations {
         let terrain_current = authority.terrain_current(l);
         let record = if terrain_current {
-            let mut record = crate::viewer::world_view_authority::terrain_render_record(l);
-            record["name"] = json!(l.name);
-            record["resources"] = json!(l.resources);
-            record
+            crate::viewer::world_view_authority::terrain_render_record(l)
         } else {
             json!({"id":l.id,"name":l.name,"pos":l.pos,"resources":l.resources})
         };
