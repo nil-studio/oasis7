@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "4aa794a0187932ad0e4fdde8ac2c6ccb8b80e8c1522cae6aecd5205fd9f2b673",
+      "producer_recipe_hash": "d724220b3a8d2f90f83a2f6365d05670b14960bab4de0eb50fa16f36d403c5d7",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -52,7 +52,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.lock",
-          "sha256": "180fc6e897fa5deacfcc21c3cdfbc9b3d7d2563b0ca86820dedebfd233a2b2b2"
+          "sha256": "3c9e16399a95e33ed34d865b12f50ea16808a07df29668fb7fd2de4270b69cc1"
         },
         {
           "kind": "source-file",
@@ -197,8 +197,8 @@
         }
       ],
       "source_hash": "c4c5d9a9480f425ee051337964bf48ad25469b7cca393b0f7a4e08c8b51ddfb9",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "ce69ef46b50802e514ad7d79ca774461e4fcbccd68ea5c81ee621806f3ae4388"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "26727fb7f7faad486f201d8a0c4564c688a23adf2649c33c3233587d1a248386"
     },
     {
       "module_id": "m1.memory.core",
@@ -239,8 +239,8 @@
         }
       ],
       "source_hash": "d6dd48cfe0b57820c0ee6589e5e5d4b8ee3e84e894cff099c2f7256a74fdb792",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "654016ff9235b644e558d3f895937771296a8cca5b128c3dad973759e77b12d4"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "8d2ae6b7fe84dbf96f3026604bb8cb08935fc9b9161afa0cdb751308ad576bff"
     },
     {
       "module_id": "m1.mobility.basic",
@@ -281,8 +281,8 @@
         }
       ],
       "source_hash": "48ce86b29f553b125cda81e33889d9c06b3be559b17f948e19e21c3098b23e0f",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "faf4c13f92fe194d0857ebf32afed5b4ebbfa7e249c2e9d413bdc89e050ac17c"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "4e5799cf52550b05704ef59a917692693a96fdaf5fc8cf19f9f7c19b275791a5"
     },
     {
       "module_id": "m1.power.radiation_harvest",
@@ -323,8 +323,8 @@
         }
       ],
       "source_hash": "1cca1d01bb0c4d0ec8dbbd6dd9a1d22e36db93508aa2ff2f1dfea0fab0b26828",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "356d85ec33120631862d66d037cc5ff5069f8cf9a550b84cac010397f496ec1e"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "56ba7c516db610bf00217bd95abd41eaf038bd6dafb1573da433b731cfeaea7e"
     },
     {
       "module_id": "m1.power.storage",
@@ -365,8 +365,8 @@
         }
       ],
       "source_hash": "c6677def34468d998ce4a752ceda9af87cc634ce5d04afc0869f4dad810b10c1",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "4a1679b41777a355189f2d13d1e31b5346d595bcf4edb2103b48ded0076a7d2f"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "f544d4f61f22e21c52903d685fdd5e7aca4cd42371c3244316b55944380689cd"
     },
     {
       "module_id": "m1.rule.move",
@@ -407,8 +407,8 @@
         }
       ],
       "source_hash": "94742ef6b7d1f19fcc88d228d0caa3bd1515867850fac686e0b11910c8c3b02b",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "41337d22094e77d1e10b047aa410d733e7dfa41ec35d0fd1d3028ecfed2ab6c2"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "97669adc89ef1a14be22fa282d3006c72c5b4ce226b05818a6c788a920af04c7"
     },
     {
       "module_id": "m1.rule.transfer",
@@ -449,8 +449,8 @@
         }
       ],
       "source_hash": "234ac063d34852f380a4ae726c23ceb71d77ee2c33c29a568e711c91e06b0f95",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "3c1589bf07a7e9536c0f2ba76372ae787282e7c377ee4f1e3521406881320c83"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "25938ee54969fdfdd5385fdb19e2101ba370d407ac5042f18a4b32b046666512"
     },
     {
       "module_id": "m1.rule.visibility",
@@ -491,8 +491,8 @@
         }
       ],
       "source_hash": "968758327120a677492fc8d69195bc6f4749a4e6ac4268a8c201c97f8e8602ae",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "a36b07cddc1e78b31634b681ed58fba4129ed7f43c989324aa6e8f82082ebb85"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "2e605beffaab1d29b7ef76f5f23f664602423ce2ab2b5c302044b9fc5d5f2187"
     },
     {
       "module_id": "m1.sensor.basic",
@@ -533,8 +533,8 @@
         }
       ],
       "source_hash": "21ff60f4748ed6d19d2648e4cc51c18093c7bd01b42ca8760cbd04b3eaa75d61",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "40c43fd95a8cf361603b7f86502ea33558b90bf7fb50aa8473880bf4061ece6a"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "5c13f8dbb4226e6f1df7d3d9edca949f2ba948c2fea325fd45c9d9f8af2146b1"
     },
     {
       "module_id": "m1.storage.cargo",
@@ -575,8 +575,8 @@
         }
       ],
       "source_hash": "ee93716bbf526894548016023614c01f4f1c58a5de98c6924eafced1e18d5373",
-      "build_manifest_hash": "bc5af017086ae28da798d9d5fd0275cb033345dc8846ac4b8a4499fa2ce130fb",
-      "identity_hash": "18b971fb9b8d8e52d02b6797508d9429709ed20570e3b9e67729b2a9754dc5d2"
+      "build_manifest_hash": "e3b15f8ffb899d8f73ee6d27436f3bd3aa5b82131b2e29405aa56885c855eaeb",
+      "identity_hash": "42c69a2fef423629c3166754684ce09525966074e1337329e9a2f83f41a20dff"
     }
   ]
 }
