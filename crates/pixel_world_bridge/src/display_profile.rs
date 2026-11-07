@@ -54,6 +54,7 @@ impl DisplayProfile {
                 }
                 Value::Object(fields) => {
                     fields.len() <= 500
+                        && fields.keys().all(|key| key.encode_utf16().count() <= 8192)
                         && fields
                             .values()
                             .all(|v| visit(v, depth + 1, remaining, items))
@@ -91,6 +92,12 @@ mod tests {
         assert!(
             DisplayProfile::WorldView
                 .validate_structure(&json!("😀".repeat(4097)))
+                .is_err()
+        );
+        let long_key = json!({("x".repeat(8193)):1});
+        assert!(
+            DisplayProfile::WorldView
+                .validate_structure(&long_key)
                 .is_err()
         );
     }

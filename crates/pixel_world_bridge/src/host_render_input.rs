@@ -168,6 +168,7 @@ mod tests {
         for gameplay in [
             json!({"goalTitle":"Published goal"}),
             json!({"goalKind":"RecoverCapability"}),
+            json!({"goalKind":"future-kind","goalTitle":"Published future goal"}),
         ] {
             source["gameplay"] = gameplay;
             let state = derive(&source.to_string()).unwrap();

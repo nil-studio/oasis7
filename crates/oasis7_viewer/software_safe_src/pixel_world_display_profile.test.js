@@ -44,4 +44,9 @@ describe("finite display profiles",()=>{
   expect(dto.worldView.entities).toHaveLength(2);
   expect(dto.worldView.relations).toHaveLength(998);
  });
+ it("bounds JSON property names as well as string values",()=>{
+  const input={worldView:view(1)};
+  input.worldView.entities[0].render_record.resources={['x'.repeat(8193)]:1};
+  expect(()=>projectPixelWorldRenderInput(input)).toThrow(/capacity/);
+ });
 });

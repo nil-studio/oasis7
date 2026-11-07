@@ -44,6 +44,7 @@ function projectOnce(input, markerLimit) {
     const keys = schema === true ? Object.keys(value) : Object.keys(schema);
     if (keys.length > MAX_ITEMS) capacity();
     for (const key of keys) {
+      if (key.length > 8192) capacity();
       if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
       let sourceItem = value[key];
       if ((key === "name" || key === "label") && typeof sourceItem === "string") {
