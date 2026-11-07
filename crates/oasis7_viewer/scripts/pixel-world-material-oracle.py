@@ -66,8 +66,13 @@ def runtime(root, profile, metadata, material):
     source = Image.open(root / f"{material}-source.png").convert("RGBA")
     if material == "depot":
         phases = {}
+        # The original world status glyph is centered and native stock/throughput
+        # readouts sit above it. The source lower quarter lies below their
+        # footprints at every pixel unit; test its full seven-color pattern.
+        region = (0, 24, 32, 32)
         for phase, shot in shots.items():
-            matched = total = 0
+            matched = total = full_matched = full_total = 0
+            colors = set()
             for y in range(32):
                 for x in range(32):
                     rgba = source.getpixel((x, y))
@@ -75,12 +80,21 @@ def runtime(root, profile, metadata, material):
                         continue
                     px = math.floor((cx + (x - 16 + 0.5) * ux) * scale)
                     py = math.floor((cy + (y - 16 + 0.5) * uy) * scale)
-                    total += 1
-                    matched += all(abs(shot.getpixel((px, py))[ch] - rgba[ch]) <= 3 for ch in range(3))
+                    ok = all(abs(shot.getpixel((px, py))[ch] - rgba[ch]) <= 3 for ch in range(3))
+                    full_total += 1
+                    full_matched += ok
+                    if region[0] <= x < region[2] and region[1] <= y < region[3]:
+                        total += 1
+                        matched += ok
+                        if ok:
+                            colors.add(rgba[:3])
             ratio = matched / max(total, 1)
             phases[phase] = {"matched": matched, "total": total, "ratio": ratio,
-                             "passed": ratio <= 0.05 if phase in ["absent", "deleted"] else ratio >= 0.8}
+                             "matchedSourceColorClasses": len(colors),
+                             "fullSourceDiagnostic": {"matched": full_matched, "total": full_total, "ratio": full_matched / max(full_total, 1)},
+                             "passed": ratio <= 0.05 if phase in ["absent", "deleted"] else ratio >= 0.95 and len(colors) >= 4}
         return {"passed": all(p["passed"] for p in phases.values()), "source": "depot.png",
+                "sourceRegion": region, "scope": "unoccluded lower-quarter source pattern; original status glyph and native readouts retain foreground ownership",
                 "unit": [ux, uy], "phases": phases}
 
     def linear(v):
