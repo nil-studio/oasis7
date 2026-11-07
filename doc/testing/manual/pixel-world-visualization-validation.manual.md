@@ -180,6 +180,10 @@ worldView密度回归用 `DENSITY_QA_ARTIFACT_ROOT=<immutable-dist> DENSITY_QA_S
 只读 `readPixelWorldDisplayMetrics()` 限test_api=1，从已挂载实例读取PostUpdate布局/可见性统计，不初始化第二实例。只采 `observed` 且render_version/source_cut与同次capture前后一致的帧；pending不借旧数。分别记录projected marker、独立查询Sprite组件得到的实际Agent body/相机内body数、budget visible、in-view与有glyph布局数、实际CSS/F/DPR及≤200诊断bbox；frame_entity只稳定于该帧，bbox不是GPU fence或遮挡证明。以公开名称normal→零宽名称负控→normal恢复，保持相机/几何等非名称输入相同，逐bbox比较真实PNG；不能只看到配置label_cap=200就签200个已绘字形。保留partial页、mixed-cut、删除、旧回应、新scope/拒绝、能力移除时清理、真实context loss/显式Reload的实际结果。缺新scope证明的legacy回切只可称清理/锁定，不以QA直接授权冒充恢复。
 
 
+worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENSITY_QA_PERFORMANCE_MS=300000`，用 `world-view-density-performance.mjs` 复用严格 DOM/EventTiming matcher。选择只观察现有 renderer target 的 `data-selected`，不把空间检查写成业务 core 选择；默认旧 sampler 仍使用 core 身份。每个真实 keydown 同时记录只读 metrics 及其观测耗时，分别保留确认1000/200、pending未知与真实partial输入，全部输入和确认密度子集的分布各自报告；不从延迟扣观测耗时，不把未知补零或静默丢样本。250ms密度监测、原生pan/zoom的实际相机变化、标准WS完整分页及获准资源变更另外落盘。原生滚轮采用实际固定倍率，越过本fixture的合法密度区间前只经真实World overview恢复并记录该动作，不修改相机DTO、producer LOD或目标数量。
+
+预算失败、DOM/paint未知或无法证明全部输入密度时，工具在保留raw后非零退出。EventTiming量化区间跨越主责阈值时另列不确定性，不据中心估计宣称确定的真实显示超时。`DENSITY_QA_PERFORMANCE_TRACE=1` 仅开启有界Chrome DevTools trace根因诊断，其开销与未开trace的预算窗口分开；rAF机会、长任务和trace都不单独证明世界GPU提交/物理呈现帧率。分页中的partial或pending使全程恒定1000/200尚未证明，不能因窗口跨越五分钟就签完整P6。
+
 测量必须显式声明实际构建 `AGENT_VISUAL_SOURCE_HEAD` 和冻结的 `AGENT_VISUAL_ARTIFACT_ROOT`，保存全部产物与runner内容hash、tracked dirty状态、真实设备/电源/viewport/DPR和采样窗口。移除QA专用计数面板及其周期读数时用 `--dispose-fixture-controls` 明示，不能删除产品HUD/世界目标或裁剪权限。浏览器rAF仍只作为heartbeat观察，不能单独判世界实际帧预算；16GiB/headless/loopback子集不代签8GiB A/B、物理显示、50k query或30分钟长稳。
 
 组合材料恢复可运行 `AGENT_VISUAL_SOURCE_HEAD=<固定构建源> MATERIAL_VISUAL_SCOPE=recovery node crates/oasis7_viewer/scripts/agent-browser-material-visual-test.mjs`。本地 HTTP QA shim 只包装原 gated `material_shells` 工厂，在每次真正页面 Reload 前提供当前受控 known/removed 输入；不保存或恢复私有 DTO，不新增生产权限 API。三个视口分别真实触发 context loss，检查失效目标清空、无自动 Reload、原生 Enter 显式重载、非空 fixture 身份及 receipt target 连续、无世界 Command 或变更 HTTP。PNG oracle 检查工厂全部源色与删除负对照，Depot 避开既有 Location 右下角框的源区域仍覆盖全部八色；矿纹使用结构化侧带检查组合画面恢复，独立矿纹消费须另用同底色 runtime oracle。它们不代签真实服务撤权、原 operation 身份或正式 P6 预算。

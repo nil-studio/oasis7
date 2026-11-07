@@ -2,6 +2,8 @@
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { totalmem, platform } from 'node:os';
+const commandText = (name, args) => { try { return execFileSync(name, args, {encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:5000}).trim(); } catch { return 'unknown; command unavailable on this host'; } };
 import { collectNativeSelectionSamples } from './viewer-performance-native-input.mjs';
 import { installPaintTraceScript, matchInputPaintTrace } from './viewer-performance-paint-trace.mjs';
 
@@ -11,6 +13,24 @@ const distribution = values => {
   const at = q => sorted.length ? sorted[Math.ceil(sorted.length * q) - 1] : null;
   return { count: sorted.length, p50: at(.5), p95: at(.95), p99: at(.99), max: sorted.at(-1) ?? null };
 };
+export function summarizeDensityFeedback(samples, trace) {
+  const confirmed = samples.filter(({ displayAtInput: m }) => m?.status === 'observed'
+    && m.profile === 'world_view_v1' && typeof m.cut === 'string' && m.cut.length > 0
+    && m.markers === 1000 && m.bodies === 1000 && m.inView === 1000 && m.labels === 200);
+  const all = matchInputPaintTrace(samples, trace), dense = matchInputPaintTrace(confirmed, trace);
+  const gate = result => {
+    const d = result.distributions;
+    const status = key => d[key].unknown || d[key].p95 === null ? 'unknown' : d[key].p95 <= 100 ? 'pass' : 'fail';
+    const lower = distribution(result.rows.map(r => r.nextPaintIntervalMs?.[0])).p95;
+    const upper = distribution(result.rows.map(r => r.nextPaintIntervalMs?.[1])).p95;
+    return { dom: status('domAcceptedMs'), paint: status('nextPaintEstimateMs'), paintP95Interval: [lower, upper],
+      paintBound: result.unknownPaint || lower === null ? 'unknown' : lower > 100 ? 'confirmed_over_100' : upper <= 100 ? 'within_100' : 'rounding_straddles_100' };
+  };
+  const pending = samples.filter(s => s.displayAtInput?.status !== 'observed').length;
+  return { all, dense, counts: { total: samples.length, observedDense: confirmed.length, pendingOrUnknown: pending,
+    observedBelowDensity: samples.length - confirmed.length - pending }, allInputsConfirmedDensity: confirmed.length === samples.length && samples.length > 0,
+    allFeedback100ms: gate(all), confirmedDensityFeedback100ms: gate(dense), formalP6: false };
+}
 const densityExpression = `(()=>{const s=window.__AW_TEST__.getState();return {time:performance.now(),origin:performance.timeOrigin,visibility:document.visibilityState,metrics:window.__QA_READ_METRICS__(),targets:document.querySelectorAll('.pixel-world-renderer-target').length,camera:s.pixelWorldCamera,authReady:s.authReady,playerId:s.authPlayerId,publicKey:s.authPublicKey,boundAgent:s.authBoundAgentId,registration:s.authRegistrationStatus}})()`;
 function assertDensity(row) {
   assert(row.visibility === 'visible' && row.metrics.status === 'observed'
@@ -25,7 +45,7 @@ function assertDensity(row) {
 export async function measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, durationMs, overview }) {
   assert(Number.isFinite(durationMs) && durationMs > 0, 'declare positive performance duration');
   const json = async code => { const value = await evaluate(code); return typeof value === 'string' ? JSON.parse(value) : value; };
-  const evidence = { durationMs, formalP6: false, environment: { hardware: execFileSync('sysctl',['hw.model','hw.memsize'],{encoding:'utf8'}).trim(), os: execFileSync('sw_vers',[],{encoding:'utf8'}).trim(), power: execFileSync('pmset',['-g','batt'],{encoding:'utf8'}).trim(), network:'unshaped owned loopback', targetRefreshHz:'unknown' }, density: [], gestures: [], updates: [],
+  const evidence = { durationMs, formalP6: false, environment: { platform:platform(), memoryBytes:totalmem(), hardware: commandText('sysctl',['hw.model','hw.memsize']), os: commandText('sw_vers',[]), power: commandText('pmset',['-g','batt']), network:'unshaped owned loopback', targetRefreshHz:'unknown' }, density: [], gestures: [], updates: [],
     limitations: ['M3/16GiB unshaped loopback observer/debug, not formal 8GiB A/B or normal hosted authorization.',
       'rAF intervals are browser opportunities, not world GPU submit/presentation intervals.',
       'Pagination may expose legitimate partial scenes; monitor retains these periods separately from dense input samples.',
@@ -59,6 +79,8 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
     } finally { await evaluate('window.__DENSITY_CAMERA_DISPOSE__();true'); }
   };
   await dense();
+  const profiling = process.env.DENSITY_QA_PERFORMANCE_TRACE === '1';
+  if (profiling) await run(['profiler', 'start', '--categories', 'devtools.timeline,v8.execute,disabled-by-default-v8.cpu_profiler,blink.user_timing']);
   await evaluate(installPaintTraceScript);
   await evaluate(`(()=>{const t=window.__DENSITY_MONITOR__={started:performance.now(),raf:[],density:[],longTasks:[],overflow:false};let last;const frame=now=>{if(last!==undefined){if(t.raf.length<40000)t.raf.push({time:now,interval:now-last});else t.overflow=true}last=now;t.rafId=requestAnimationFrame(frame)};t.rafId=requestAnimationFrame(frame);t.timer=setInterval(()=>{const m=window.__QA_READ_METRICS__();if(t.density.length<10000)t.density.push({time:performance.now(),visibility:document.visibilityState,status:m.status,version:m.render_version,cut:m.source_cut,markers:m.projected_marker_count,bodies:m.agent_body_sprites,inView:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels});else t.overflow=true},250);if(PerformanceObserver.supportedEntryTypes.includes('longtask')){t.observer=new PerformanceObserver(list=>{for(const e of list.getEntries())t.longTasks.push({start:e.startTime,duration:e.duration})});t.observer.observe({type:'longtask',buffered:false})}t.dispose=()=>{cancelAnimationFrame(t.rafId);clearInterval(t.timer);t.observer?.disconnect()};return true})()`);
   let samples = [];
@@ -89,23 +111,28 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
   } catch (error) { evidence.error = String(error); throw error; }
   finally {
     const monitor = await json('(()=>{__DENSITY_MONITOR__.dispose();return JSON.stringify(__DENSITY_MONITOR__)})()');
+    if (profiling) { try { await run(['profiler', 'stop', resolve(out, 'performance-cpu-trace.json')]); } catch(error) { evidence.profilingError = String(error); } }
     const trace = await json('JSON.stringify(window.__VIEWER_INPUT_TRACE__)');
     await evaluate('window.__VIEWER_INPUT_TRACE__.dispose();true');
+    writeFileSync(resolve(out, 'performance-input-paint-trace.raw.json'), JSON.stringify(trace, null, 2));
     evidence.monitorOverflow = monitor.overflow;
     evidence.actualInputSpanMs = samples.length ? samples.at(-1).endTime - samples[0].startTime : null;
-    evidence.input = matchInputPaintTrace(samples, trace);
-    evidence.inputDensity = {total:samples.length,observedDense:samples.filter(s=>s.displayAtInput?.status==='observed'&&s.displayAtInput.profile==='world_view_v1'&&s.displayAtInput.markers===1000&&s.displayAtInput.bodies===1000&&s.displayAtInput.inView===1000&&s.displayAtInput.labels===200).length,pendingOrUnknown:samples.filter(s=>s.displayAtInput?.status!=='observed').length};
-    evidence.inputDensity.observedBelowDensity=evidence.inputDensity.total-evidence.inputDensity.observedDense-evidence.inputDensity.pendingOrUnknown;
+    evidence.feedback = summarizeDensityFeedback(samples, trace);
+    evidence.input = evidence.feedback.all;
+    evidence.inputDensity = evidence.feedback.counts;
     evidence.rafOpportunities = distribution(monitor.raf.map(row => row.interval));
     evidence.densityMonitor = { total: monitor.density.length, dense: monitor.density.filter(row => row.status === 'observed' && row.inView === 1000 && row.labels === 200).length,
       pending: monitor.density.filter(row => row.status !== 'observed').length, observedBelowDensity: monitor.density.filter(row => row.status === 'observed' && (row.inView !== 1000 || row.labels !== 200)).length };
-    evidence.localFeedback100ms = { dom: evidence.input.distributions.domAcceptedMs.unknown || evidence.input.distributions.domAcceptedMs.p95 === null ? 'unknown' : evidence.input.distributions.domAcceptedMs.p95 <= 100 ? 'pass' : 'fail',
-      paint: evidence.input.unknownPaint ? 'unknown' : evidence.input.distributions.nextPaintEstimateMs.p95 === null ? 'unknown' : evidence.input.distributions.nextPaintEstimateMs.p95 <= 100 ? 'pass' : 'fail' };
+    evidence.localFeedback100ms = evidence.feedback.allFeedback100ms;
+    evidence.profilingEnabled = profiling;
     writeFileSync(resolve(out, 'performance-input-paint-trace.json'), JSON.stringify({ trace, matched: evidence.input }, null, 2));
     writeFileSync(resolve(out, 'performance-monitor.json'), JSON.stringify(monitor, null, 2));
     writeFileSync(resolve(out, 'performance-window.json'), JSON.stringify(evidence, null, 2));
   }
+  assert(!evidence.profilingError, evidence.profilingError);
   assert(!evidence.monitorOverflow, 'monitor overflow');
   assert(evidence.actualInputSpanMs >= durationMs && evidence.gestures.some(row => row.type === 'pan') && evidence.gestures.some(row => row.type === 'zoom') && evidence.updates.length > 0, 'requested actual input window was incomplete');
+  assert(evidence.localFeedback100ms.dom === 'pass' && evidence.localFeedback100ms.paint === 'pass'
+    && evidence.feedback.allInputsConfirmedDensity, 'local feedback budget failed or complete 1000/200 input density is unproved; raw evidence retained');
   return evidence;
 }
