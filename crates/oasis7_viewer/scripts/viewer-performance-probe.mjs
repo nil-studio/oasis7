@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:f
 import { dirname, extname, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { collectNativeSelectionSamples } from "./viewer-performance-native-input.mjs";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
 import {
   VIEWER_PERF_PROFILES,
@@ -85,6 +86,7 @@ function parseArgs(argv) {
     outDir: null,
     agents: 80,
     locations: 24,
+    interactionSamples: 20,
     viewport: [1440, 1000],
     thresholds: {},
   };
@@ -101,6 +103,7 @@ function parseArgs(argv) {
       case "--out-dir": options.outDir = next(); break;
       case "--agents": options.agents = Number(next()); break;
       case "--locations": options.locations = Number(next()); break;
+      case "--interaction-samples": options.interactionSamples = positiveInteger(next(), 20); break;
       case "--viewport": {
         const [width, height] = next().split(/[x,]/).map((part) => Number(part.trim()));
         options.viewport = [width, height];
@@ -133,6 +136,7 @@ Measures the current canonical Viewer web entry in a real browser with agent-bro
 
 Options:
   --profile <smoke|release>       Threshold/duration profile (default: smoke)
+  --interaction-samples <n>      Trusted native selection inputs (default: 20)
   --duration-ms <n>               Override sampling duration
   --out-dir <path>                Artifact directory
   --agents <n>                    Synthetic agents in injected snapshot (default: 80)
@@ -349,7 +353,7 @@ function probeScript({ durationMs, agents, locations }) {
         }));
       };
       const rendererReadyState = await waitForRendererReady();
-      const model = { agents: {}, locations: {}, agent_prompt_profiles: {}, agent_execution_debug_contexts: {} };
+      const model = { agents: {}, locations: {}, agent_prompt_profiles: {}, agent_execution_debug_contexts: {}, agent_player_bindings: {}, agent_player_public_key_bindings: {} };
       for (let index = 0; index < ${locations}; index += 1) {
         const locationId = "loc-" + index;
         model.locations[locationId] = {
@@ -362,9 +366,12 @@ function probeScript({ durationMs, agents, locations }) {
       }
       for (let index = 0; index < ${agents}; index += 1) {
         const agentId = "agent-" + index;
+        model.agent_player_bindings[agentId] = rendererReadyState.authPlayerId;
+        model.agent_player_public_key_bindings[agentId] = rendererReadyState.authPublicKey;
         model.agents[agentId] = {
           id: agentId,
           name: "Perf Agent " + index,
+          pos: { x_cm: 1000000 + (index % 32) * 100000, y_cm: 1000000 + Math.floor(index / 32) * 60000, z_cm: 0 },
           location_id: "loc-" + (index % ${locations}),
           kind: index % 2 === 0 ? "builder" : "surveyor",
           resources: { energy: { amount: 40 + (index % 60), unit: "%" }, ore: { amount: index % 9, unit: "t" } },
@@ -460,7 +467,6 @@ function probeScript({ durationMs, agents, locations }) {
         sampleDurationMs,
         frameIntervals,
         longTasks,
-        interactionLatencies: [],
         domReadiness: {
           domInteractiveMs: navigation.domInteractive ?? null,
           domContentLoadedMs: navigation.domContentLoadedEventEnd ?? null,
@@ -487,6 +493,7 @@ function probeScript({ durationMs, agents, locations }) {
           };
         })(),
         rendererReadyState,
+        actualProjection: {agents:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.()?.agents?.length ?? null, nativeAgentTargets:document.querySelectorAll("button[data-agent-id][data-renderer-target]").length},
         finalState: api.getState ? api.getState() : null,
       });
     })()
@@ -519,7 +526,7 @@ const server = createServer(serveFile);
 try {
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const address = server.address();
-  const url = `http://127.0.0.1:${address.port}/viewer.html?test_api=1&connect=0&locale=en&hosted_bootstrap=0&t=${Date.now()}`;
+  const url = `http://127.0.0.1:${address.port}/viewer.html?test_api=1&connect=0&locale=en&hosted_bootstrap=0&pixel_world_visual_fixture=performance_regular&t=${Date.now()}`;
 
   prepareBrowserSession(); await new Promise((resolve) => setTimeout(resolve, 500));
   const cpuProcessBaseline = processSnapshot();
@@ -558,6 +565,16 @@ try {
     denseRuns.push(await sampleScenario("dense", options.agents, options.locations, iteration));
   }
   const rawProbe = denseRuns[denseRuns.length - 1];
+  writeFileSync(join(outDir,"before-native-input.json"),JSON.stringify(rawProbe,null,2));
+  const interactionPath = join(outDir, "native-interactions.json");
+  const interactionEvidence = await collectNativeSelectionSamples({
+    evaluate: evalJson, run: args => runAgentBrowserJson(args), count: options.interactionSamples,
+    onSample: samples => writeFileSync(interactionPath, JSON.stringify({method:"trusted native Enter to selected DOM and two rAF paint opportunities",samples},null,2)),
+  });
+  rawProbe.interactionLatencies = interactionEvidence.map(sample => sample.durationMs);
+  rawProbe.interactionEvidence = interactionEvidence;
+  rawProbe.notes = [...(rawProbe.notes || []), "Interaction measures native selection UI feedback only; no Runtime/network completion, pan/zoom, stop, 5-minute interaction or formal A/B coverage is implied."];
+
   const cpuSamples = [...idleRuns, ...denseRuns].flatMap((run) => run.cpuSamples);
   const baselineRecord = (run, suffix) => {
     const measured = summarizeViewerPerformance({ runId: `${runId}-${suffix}`, thresholds, ...run });
