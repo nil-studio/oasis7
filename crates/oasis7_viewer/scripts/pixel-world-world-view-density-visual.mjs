@@ -135,6 +135,7 @@ async function capture(name, labels = false) {
     await run(['wait', '1200']); const before = await state();
     const shot = resolve(out, name + '.png'); await run(['screenshot', '--full', shot]); const after = await state();
     assert(before.metrics.status === 'observed' && after.metrics.status === 'observed', 'capture borrowed an unobserved frame');
+    assert([before, after].every(row => row.metrics.agent_body_sprites === 1000 && row.metrics.in_view_agent_body_sprites === 1000), 'actual rendered/in-view Agent body count was not1000');
     assert(before.metrics.render_version === after.metrics.render_version && before.metrics.source_cut === after.metrics.source_cut, 'capture crossed render version/source cut');
     assert(isDeepStrictEqual(actualGeometry(before), actualGeometry(after)), 'capture crossed actual camera/viewport/CSS/backing/DPR/scroll');
     assert(before.targets.length === 1000 && before.targets.every(t => t.inView), 'not all1000 targets are in view');
