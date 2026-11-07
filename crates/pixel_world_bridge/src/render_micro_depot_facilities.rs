@@ -552,8 +552,17 @@ pub(super) fn reconcile_micro_depot_facilities(
                 let length = ((to_x - from_x).powi(2) + (to_y - from_y).powi(2))
                     .sqrt()
                     .max(SERVICE_RADIUS_THICKNESS_PX as f64);
-                let sprite =
-                    sprite_for_rect(outline_color, length as f32, SERVICE_RADIUS_THICKNESS_PX);
+                let sprite = sprite_for_rect(
+                    outline_color,
+                    length as f32,
+                    world_strokes::thickness(
+                        SERVICE_RADIUS_THICKNESS_PX,
+                        width,
+                        height,
+                        to_x - from_x,
+                        to_y - from_y,
+                    ),
+                );
                 let transform = transform_for_line(
                     from_x,
                     from_y,

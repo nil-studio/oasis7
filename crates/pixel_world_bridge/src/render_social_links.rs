@@ -100,7 +100,13 @@ pub(super) fn reconcile_social_links(
             },
         );
         if is_directional_relation(&link.relation_kind) {
-            let marker_segments = directional_marker_segments(from_x, from_y, to_x, to_y);
+            let marker_segments = directional_marker_segments(
+                from_x,
+                from_y,
+                to_x,
+                to_y,
+                agent_pixel_scale(width, height),
+            );
             upsert_line_at_layer(
                 commands,
                 &mut by_key,
@@ -185,6 +191,7 @@ fn directional_marker_segments(
     from_y: f64,
     to_x: f64,
     to_y: f64,
+    pixel: Vec2,
 ) -> DirectionalMarkerSegments {
     let dx = to_x - from_x;
     let dy = to_y - from_y;
@@ -194,13 +201,22 @@ fn directional_marker_segments(
     let nx = -uy;
     let ny = ux;
     let tip = (to_x, to_y);
-    let base = (to_x - ux * 7.0, to_y - uy * 7.0);
+    let base = (
+        to_x - ux * 7.0 * f64::from(pixel.x),
+        to_y - uy * 7.0 * f64::from(pixel.y),
+    );
     let spread = 3.5;
     DirectionalMarkerSegments {
         upper_from: tip,
-        upper_to: (base.0 + nx * spread, base.1 + ny * spread),
+        upper_to: (
+            base.0 + nx * spread * f64::from(pixel.x),
+            base.1 + ny * spread * f64::from(pixel.y),
+        ),
         lower_from: tip,
-        lower_to: (base.0 - nx * spread, base.1 - ny * spread),
+        lower_to: (
+            base.0 - nx * spread * f64::from(pixel.x),
+            base.1 - ny * spread * f64::from(pixel.y),
+        ),
     }
 }
 
@@ -261,7 +277,17 @@ fn upsert_line_at_layer(
     let key = (link_id.to_string(), part);
     active.insert(key.clone());
     let length = ((to_x - from_x).powi(2) + (to_y - from_y).powi(2)).sqrt();
-    let sprite = sprite_for_rect(color, length as f32, SOCIAL_LINK_THICKNESS_PX);
+    let sprite = sprite_for_rect(
+        color,
+        length as f32,
+        world_strokes::thickness(
+            SOCIAL_LINK_THICKNESS_PX,
+            width,
+            height,
+            to_x - from_x,
+            to_y - from_y,
+        ),
+    );
     let transform = transform_for_line(from_x, from_y, to_x, to_y, width, height, layer_z);
     if let Some(entity) = by_key.remove(&key) {
         commands.entity(entity).insert((sprite, transform));
@@ -297,7 +323,8 @@ fn upsert_glyph(
         SOCIAL_LINK_LAYER_Z + 0.01,
     ));
     transform.rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_4);
-    let sprite = sprite_for_square(glyph.color, 5.0);
+    let pixel = agent_pixel_scale(glyph.width, glyph.height);
+    let sprite = sprite_for_rect(glyph.color, 5.0 * pixel.x, 5.0 * pixel.y);
     if let Some(entity) = by_key.remove(&key) {
         commands.entity(entity).insert((sprite, transform));
         by_key.insert(key, entity);

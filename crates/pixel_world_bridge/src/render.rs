@@ -153,6 +153,8 @@ pub(crate) struct GridLayoutKey {
     offset_y_milli: i32,
     major_phase_x: i32,
     major_phase_y: i32,
+    pixel_x_bits: u32,
+    pixel_y_bits: u32,
 }
 #[derive(Component)]
 pub(crate) struct PixelWorldGridVisual;
@@ -226,6 +228,8 @@ pub(crate) fn build_grid_layout(camera: &CameraState, width: f64, height: f64) -
         offset_y_milli: (offset_y * 1000.0).round() as i32,
         major_phase_x: (camera.pan_x_px / grid_step).floor().rem_euclid(5.0) as i32,
         major_phase_y: (camera.pan_y_px / grid_step).floor().rem_euclid(5.0) as i32,
+        pixel_x_bits: agent_pixel_scale(width, height).x.to_bits(),
+        pixel_y_bits: agent_pixel_scale(width, height).y.to_bits(),
     }
 }
 pub(crate) fn fragment_screen_size_px(
@@ -382,7 +386,11 @@ fn reconcile_grid(
                 grid_color
             };
         commands.spawn((
-            sprite_for_rect(color, 1.0, layout_height as f32),
+            sprite_for_rect(
+                color,
+                world_strokes::thickness(1.0, width, height, 0.0, 1.0),
+                layout_height as f32,
+            ),
             Transform::from_translation(to_bevy_translation(
                 x,
                 layout_height / 2.0,
@@ -403,7 +411,11 @@ fn reconcile_grid(
                 grid_color
             };
         commands.spawn((
-            sprite_for_rect(color, layout_width as f32, 1.0),
+            sprite_for_rect(
+                color,
+                layout_width as f32,
+                world_strokes::thickness(1.0, width, height, 1.0, 0.0),
+            ),
             Transform::from_translation(to_bevy_translation(
                 layout_width / 2.0,
                 y,
@@ -906,9 +918,14 @@ pub(crate) fn render_scene(
     let width = layout.css.x as f64;
     let height = layout.css.y as f64;
     let canvas_size_changed = runtime.last_canvas_css != Some((width, height));
+    let pixel_layout_changed = runtime.last_pixel_layout != Some(layout);
+    runtime.last_pixel_layout = Some(layout);
+    runtime.hit_regions_dirty |= pixel_layout_changed;
     runtime.last_canvas_css = Some((width, height));
-    let static_reconcile =
-        !runtime.reactive_scheduling || runtime.needs_reconcile || canvas_size_changed;
+    let static_reconcile = !runtime.reactive_scheduling
+        || runtime.needs_reconcile
+        || canvas_size_changed
+        || pixel_layout_changed;
     let animation_reconcile = runtime.animation_dirty;
     if runtime.reactive_scheduling && !static_reconcile && !animation_reconcile {
         return;
