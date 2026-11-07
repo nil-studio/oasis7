@@ -323,10 +323,10 @@ pub(crate) fn agent_visual_style(
     animation_ms: f64,
     index: usize,
 ) -> AgentVisualStyle {
-    let pulse = 1.0 + (0.12 * ((animation_ms / 240.0) + index as f64).sin());
-    let base_size = agent_unanimated_size_px(agent, is_selected);
+    let _ = (agent, animation_ms, index);
     AgentVisualStyle {
-        size_px: base_size * pulse,
+        // Shared atlas is displayed at its native logical-pixel size.
+        size_px: 16.0,
         layer_z: AGENT_LAYER_Z
             + if is_selected {
                 SELECTED_ENTITY_LAYER_Z_OFFSET
@@ -510,6 +510,7 @@ fn reconcile_agents(
     height: f64,
     animation_ms: f64,
     rebuild_hit_regions: bool,
+    texture: &Handle<Image>,
 ) {
     let Some(render_state) = runtime.render_state.as_ref() else {
         for (_, entity) in runtime.agent_entities.drain() {
@@ -537,19 +538,19 @@ fn reconcile_agents(
             .map(|selection| selection.kind == "agent" && selection.id == agent.id)
             .unwrap_or(false);
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
-        let color = if is_selected {
-            Color::srgb_u8(251, 191, 36)
-        } else {
-            Color::srgb_u8(99, 179, 255)
-        };
+
         let transform = Transform::from_translation(to_bevy_translation(
             canvas_x,
-            canvas_y,
+            canvas_y - style.size_px * 7.0 / 16.0,
             width,
             height,
             style.layer_z,
         ));
-        let sprite = sprite_for_rect(color, style.size_px as f32 * 0.66, style.size_px as f32);
+        let sprite = Sprite {
+            image: texture.clone(),
+            custom_size: Some(Vec2::splat(style.size_px as f32)),
+            ..default()
+        };
         if let Some(entity) = runtime.agent_entities.get(&agent.id).copied() {
             commands.entity(entity).insert((sprite, transform));
         } else {
@@ -569,7 +570,7 @@ fn reconcile_agents(
                 kind: "agent",
                 id: agent.id.clone(),
                 left: canvas_x - AGENT_HIT_HALF_SIZE,
-                top: canvas_y - AGENT_HIT_HALF_SIZE,
+                top: canvas_y - 15.0,
                 right: canvas_x + AGENT_HIT_HALF_SIZE,
                 bottom: canvas_y + AGENT_HIT_HALF_SIZE,
             });
@@ -721,7 +722,23 @@ pub(crate) fn render_scene(
     mut runtime: ResMut<BevyRuntimeState>,
     queries: RenderSceneQueries,
     time: Res<Time>,
+    mut images: ResMut<Assets<Image>>,
+    mut agent_texture: Local<Option<Handle<Image>>>,
 ) {
+    if agent_texture.is_none() {
+        let image = Image::from_buffer(
+            include_bytes!(
+                "../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png"
+            ),
+            bevy::image::ImageType::Extension("png"),
+            bevy::image::CompressedImageFormats::NONE,
+            true,
+            bevy::image::ImageSampler::nearest(),
+            bevy::asset::RenderAssetUsages::default(),
+        )
+        .expect("checked-in Agent PNG must decode");
+        *agent_texture = Some(images.add(image));
+    }
     if !runtime.mounted {
         spatial_overlays::clear(&mut commands, &queries.spatial_overlays);
         grounding::clear(&mut commands, &queries.grounding);
@@ -1033,6 +1050,7 @@ pub(crate) fn render_scene(
         height,
         animation_ms,
         rebuild_hit_regions,
+        agent_texture.as_ref().expect("texture initialized"),
     );
     grounding::reconcile(
         &mut commands,

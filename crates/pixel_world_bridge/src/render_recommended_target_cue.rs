@@ -124,7 +124,8 @@ pub(super) fn reconcile_recommended_target_cues(
         .as_ref()
         .is_some_and(|selection| selection.kind == "agent" && selection.id == agent.id);
     let style = agent_visual_style(agent, is_selected, animation_ms, index);
-    let body_half_size = agent_unanimated_size_px(agent, is_selected) as f32 / 2.0;
+    let canvas_y = canvas_y - style.size_px * 7.0 / 16.0;
+    let body_half_size = style.size_px as f32 / 2.0;
 
     for (part, offset, size) in recommended_target_cue_visuals(body_half_size) {
         let key = (agent.id.clone(), part);

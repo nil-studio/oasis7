@@ -80,6 +80,7 @@ pub(super) fn reconcile_agent_silhouettes(
             .map(|selection| selection.kind == "agent" && selection.id == agent.id)
             .unwrap_or(false);
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
+        let canvas_y = canvas_y - style.size_px * 7.0 / 16.0;
         let offset = agent_silhouette_offset(&agent.id, agent.size_hint_px.unwrap_or(12.0));
         let sprite = sprite_for_square(AGENT_SILHOUETTE_COLOR, size_px);
         let transform = Transform::from_translation(to_bevy_translation(

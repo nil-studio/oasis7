@@ -28,7 +28,7 @@ fn selected_cue_amber_mask(image: &RgbaImage, exclude_agent_body: bool) -> BTree
         for x in -20_i32..20 {
             // The selected Agent body is also amber. Its pixels cannot serve
             // as evidence for the separate corner frame around it.
-            if exclude_agent_body && x.abs() <= 8 && y.abs() <= 13 {
+            if exclude_agent_body && x.abs() <= 8 && (-15..=1).contains(&y) {
                 continue;
             }
             if image.get_pixel((480 + x) as u32, (270 + y) as u32).0 == [251, 191, 36, 255] {
@@ -50,14 +50,14 @@ fn selected_agent_corner_mask() -> BTreeSet<(i32, i32)> {
     // Independent integer-pixel contract for the 16px fixture marker:
     // four 6x2 / 2x6 L corners, with open gaps between them.
     [
-        (-15, -16, 6, 2),
-        (-16, -15, 2, 6),
-        (9, -16, 6, 2),
-        (14, -15, 2, 6),
-        (-15, 14, 6, 2),
-        (-16, 9, 2, 6),
-        (9, 14, 6, 2),
-        (14, 9, 2, 6),
+        (-12, -20, 6, 2),
+        (-13, -19, 2, 6),
+        (6, -20, 6, 2),
+        (11, -19, 2, 6),
+        (-12, 4, 6, 2),
+        (-13, -1, 2, 6),
+        (6, 4, 6, 2),
+        (11, -1, 2, 6),
     ]
     .into_iter()
     .flat_map(|(left, top, width, height)| {
@@ -85,7 +85,10 @@ fn reduced_motion_freezes_pixels_across_reconcile_and_resumes_on_preference_chan
         .reduced_motion = false;
     app.update();
     let (resumed, _) = rasterize_pixel_regression(&mut app);
-    assert_ne!(frozen, resumed, "normal motion must resume");
+    assert_eq!(
+        frozen, resumed,
+        "static shared Agent pixels must remain stable when motion preference changes"
+    );
 }
 
 #[test]
