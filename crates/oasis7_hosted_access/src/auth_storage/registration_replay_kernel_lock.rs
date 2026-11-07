@@ -9,6 +9,48 @@ use super::registration_replay_lock::LOCK_RETRY_INTERVAL;
 pub(super) static FAIL_NEXT_ANCHOR_SYNC: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+#[cfg(all(test, unix))]
+thread_local! {
+    pub(super) static AFTER_KERNEL_ACQUIRE: std::cell::Cell<Option<fn()>> =
+        const { std::cell::Cell::new(None) };
+}
+
+// No heap-owning fields: a fork child may drop this descriptor-only guard.
+pub(super) struct KernelLock {
+    file: File,
+    pid: u32,
+    pending_acquisition: bool,
+}
+
+impl KernelLock {
+    pub(super) fn acquiring_pid(&self) -> u32 {
+        self.pid
+    }
+
+    pub(super) fn complete_acquisition(&mut self) {
+        self.pending_acquisition = false;
+    }
+
+    pub(super) fn unlock(&self) -> std::io::Result<()> {
+        if self.pid == std::process::id() {
+            self.file.unlock()
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drop for KernelLock {
+    fn drop(&mut self) {
+        if self.pending_acquisition {
+            // No write owner was returned. Release this failed attempt even if
+            // an unrelated fork inherited the open file description. A fork
+            // child only closes its descriptor; it cannot unlock the parent.
+            let _ = self.unlock();
+        }
+    }
+}
+
 /// Normalize ordinary directory syntax and resolve parent aliases before suffixing.
 /// The target may not exist yet (world bootstrap); its parent is the stable namespace.
 pub(super) fn normalized_target(path: &Path) -> Result<PathBuf, String> {
@@ -120,7 +162,11 @@ pub(super) fn normalized_target(path: &Path) -> Result<PathBuf, String> {
     Ok(target)
 }
 
-pub(super) fn acquire(lock_dir: &Path, deadline: Instant, wait: bool) -> Result<File, String> {
+pub(super) fn acquire(
+    lock_dir: &Path,
+    deadline: Instant,
+    wait: bool,
+) -> Result<KernelLock, String> {
     if !cfg!(any(target_os = "linux", target_os = "macos", windows)) {
         return Err("registration replay kernel lock unsupported on this platform".into());
     }
@@ -151,6 +197,7 @@ pub(super) fn acquire(lock_dir: &Path, deadline: Instant, wait: bool) -> Result<
         .open(&path)
         .map_err(|err| format!("open registration replay kernel lock failed: {err}"))?;
     verify_anchor(&file, &path)?;
+    let acquiring_pid = std::process::id();
     loop {
         match file.try_lock() {
             Ok(()) => break,
@@ -167,12 +214,25 @@ pub(super) fn acquire(lock_dir: &Path, deadline: Instant, wait: bool) -> Result<
             }
         }
     }
-    verify_anchor(&file, &path)?;
+    let kernel_lock = KernelLock {
+        file,
+        pid: acquiring_pid,
+        pending_acquisition: true,
+    };
+    #[cfg(all(test, unix))]
+    AFTER_KERNEL_ACQUIRE.with(|hook| {
+        if let Some(hook) = hook.take() {
+            hook();
+        }
+    });
+    verify_anchor(&kernel_lock.file, &path)?;
     #[cfg(test)]
     if FAIL_NEXT_ANCHOR_SYNC.swap(false, std::sync::atomic::Ordering::SeqCst) {
         return Err("injected kernel lock sync failure".into());
     }
-    file.sync_all()
+    kernel_lock
+        .file
+        .sync_all()
         .and_then(|_| {
             super::atomic_file::sync_parent_directory(
                 path.parent()
@@ -181,7 +241,7 @@ pub(super) fn acquire(lock_dir: &Path, deadline: Instant, wait: bool) -> Result<
             )
         })
         .map_err(|err| format!("sync registration replay kernel lock failed: {err}"))?;
-    Ok(file)
+    Ok(kernel_lock)
 }
 
 fn verify_anchor(file: &File, path: &Path) -> Result<(), String> {

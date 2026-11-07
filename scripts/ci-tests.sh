@@ -31,6 +31,109 @@ run() {
   "$@"
 }
 
+# Observation only, enabled solely by the workspace-support job. Keep stdout
+# evidence usable even when ENOSPC prevents writing an artifact. Never wrap the
+# test dispatcher in an if/|| context: doing so disables its errexit behavior.
+support_capacity_snapshot() {
+  [[ "${OASIS7_SUPPORT_CAPACITY:-0}" == 1 ]] || return 0
+  if timeout 25s "${ci_python:-python3}" - "$1" <<'PY_CAPACITY'
+import datetime
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+checkpoint = sys.argv[1][:160]
+started = time.monotonic()
+deadline = started + 20
+root = Path.cwd()
+custody = root / 'crates/oasis7_custody_worker'
+cargo = Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo')))
+rustup = Path(os.environ.get('RUSTUP_HOME', str(Path.home() / '.rustup')))
+temporary = Path(os.environ.get('RUNNER_TEMP', '/tmp'))
+
+
+def emit(kind, **fields):
+    print('SUPPORT_CAPACITY ' + json.dumps(dict(
+        version=1, checkpoint=checkpoint, kind=kind, **fields), sort_keys=True), flush=True)
+
+
+def path_status(path):
+    # Do not traverse a symlink in an allowlisted root or one of its ancestors.
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        return 'symlink'
+    return 'present' if path.is_dir() else 'missing'
+
+
+emit('identity', utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+     metadata={name: os.environ.get(name, '')[:160] for name in (
+         'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_JOB', 'ImageOS', 'ImageVersion',
+         'RUNNER_OS', 'RUNNER_ARCH', 'OASIS7_SUPPORT_SOURCE_SHA',
+         'OASIS7_SUPPORT_TESTED_SHA', 'OASIS7_SUPPORT_POLICY_SHA',
+         'OASIS7_SUPPORT_RANGE_BASE', 'OASIS7_SUPPORT_JOB_STATUS')},
+     cache_family='ci-shared-native-trusted-v4',
+     directory_semantics='independent overlapping observations; do not sum; hardlinks counted once per directory')
+for label, path in [('workspace', root), ('runner-temp', temporary), ('tmp', Path('/tmp'))]:
+    try:
+        status = path_status(path)
+        if status != 'present':
+            emit('filesystem', label=label, status=status)
+            continue
+        usage = os.statvfs(path)
+        emit('filesystem', label=label, status='ok', device=os.stat(path).st_dev,
+             total_bytes=usage.f_blocks * usage.f_frsize,
+             available_bytes=usage.f_bavail * usage.f_frsize,
+             free_bytes=usage.f_bfree * usage.f_frsize,
+             total_inodes=usage.f_files, free_inodes=usage.f_ffree,
+             available_inodes=usage.f_favail)
+    except OSError as error:
+        emit('filesystem', label=label, status='error', error=type(error).__name__)
+paths = [(name, root / name) for name in (
+    'target', 'target/debug', 'target/debug/deps', 'target/debug/build',
+    'target/debug/incremental', 'target/release',
+    'target/wasm32-unknown-unknown/debug', 'target/wasm32-unknown-unknown/release')]
+paths += [('custody/' + name, custody / name) for name in ('build', 'artifacts', 'node_modules')]
+paths += [('cargo/' + name, cargo / name) for name in ('registry', 'git', 'bin')]
+paths += [('rustup/toolchains', rustup / 'toolchains'), ('runner-temp', temporary), ('tmp', Path('/tmp'))]
+for label, path in paths:
+    values = {}
+    try:
+        status = path_status(path)
+        if status == 'present':
+            for field, options in [('allocated_bytes', ['--block-size=1']),
+                                   ('apparent_bytes', ['--bytes']), ('inodes', ['--inodes'])]:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    status = 'timeout'
+                    break
+                # GNU du does not follow directory symlinks; -x stays on this
+                # filesystem. Only aggregate numbers leave this subprocess.
+                result = subprocess.run(['du', '-sx', *options, '--', str(path)],
+                                        text=True, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL, timeout=remaining)
+                if result.returncode:
+                    status = 'error'
+                    break
+                values[field] = int(result.stdout.split('\t', 1)[0])
+            else:
+                status = 'ok'
+        emit('directory', label=label, status=status, **values)
+    except subprocess.TimeoutExpired:
+        emit('directory', label=label, status='timeout', **values)
+    except (OSError, ValueError) as error:
+        emit('directory', label=label, status='error', error=type(error).__name__, **values)
+emit('complete', elapsed_seconds=round(time.monotonic() - started, 3))
+PY_CAPACITY
+  then
+    :
+  else
+    printf 'SUPPORT_CAPACITY_WARNING checkpoint=%s observer_status=%s\n' "$1" "$?"
+  fi
+  return 0
+}
+
 run_cargo() {
   if [[ "${CI_VERBOSE:-}" == "1" ]]; then
     run env -u RUSTC_WRAPPER cargo --verbose "$@"
@@ -379,6 +482,7 @@ for profile in sorted(profiles):
 PY
   ) || return 2
   while IFS='|' read -r profile expand_targets expanded_features; do
+    [[ "${OASIS7_SUPPORT_CAPACITY:-0}" != 1 ]] || support_capacity_snapshot "profile-before:$profile"
     echo "+ support profile: $profile"
     complete_targets=false
     case "$profile" in
@@ -405,6 +509,7 @@ PY
         *) run_cargo test -p "$profile" --all-targets "${expanded_args[@]}" ;;
       esac
     fi
+    [[ "${OASIS7_SUPPORT_CAPACITY:-0}" != 1 ]] || support_capacity_snapshot "profile-after:$profile"
     echo "+ support profile completed: $profile"
   done <<< "$selected"
 }
