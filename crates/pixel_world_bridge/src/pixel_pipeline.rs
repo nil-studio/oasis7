@@ -8,11 +8,35 @@ thread_local! {
     static ACTIVE_LAYOUT: std::cell::Cell<Option<PixelLayout>> = const { std::cell::Cell::new(None) };
 }
 
-pub(super) fn cache_layout(window: &Window) {
-    ACTIVE_LAYOUT.set(PixelLayout::new(
+pub(super) fn window_layout(window: &Window) -> Option<PixelLayout> {
+    #[cfg(target_arch = "wasm32")]
+    if let Some((css, frame)) = BRIDGE_SHARED.with(|shared| {
+        let selector = shared.borrow().canvas_selector.clone()?;
+        let canvas = web_sys::window()?
+            .document()?
+            .query_selector(&selector)
+            .ok()??
+            .dyn_into::<HtmlCanvasElement>()
+            .ok()?;
+        let rect = canvas.get_bounding_client_rect();
+        Some((
+            Vec2::new(rect.width() as f32, rect.height() as f32),
+            UVec2::new(canvas.width(), canvas.height()),
+        ))
+    }) {
+        return canvas_css_layout(css, frame);
+    }
+    canvas_css_layout(
         Vec2::new(window.width(), window.height()),
         UVec2::new(window.physical_width(), window.physical_height()),
-    ));
+    )
+}
+fn canvas_css_layout(css: Vec2, frame: UVec2) -> Option<PixelLayout> {
+    PixelLayout::new(css, frame)
+}
+
+pub(super) fn cache_layout(window: &Window) {
+    ACTIVE_LAYOUT.set(window_layout(window));
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,6 +87,8 @@ impl PixelLayout {
 #[derive(Component)]
 pub(super) struct WorldCamera;
 #[derive(Component)]
+pub(super) struct OuterCamera;
+#[derive(Component)]
 pub(super) struct Composite;
 #[derive(Resource)]
 pub(super) struct Pipeline {
@@ -90,7 +116,7 @@ pub(super) fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
         Composite,
         RenderLayers::layer(1),
     ));
-    commands.spawn((Camera2d, Msaa::Off, RenderLayers::layer(1)));
+    commands.spawn((Camera2d, Msaa::Off, OuterCamera, RenderLayers::layer(1)));
     commands.insert_resource(Pipeline {
         image: handle,
         layout: None,
@@ -103,15 +129,13 @@ pub(super) fn resize(
     mut runtime: ResMut<BevyRuntimeState>,
     mut images: ResMut<Assets<Image>>,
     mut cameras: Query<(&mut Camera, &mut Projection, &mut Transform), With<WorldCamera>>,
+    mut outer: Query<&mut Projection, (With<OuterCamera>, Without<WorldCamera>)>,
     mut composite: Query<(&mut Sprite, &mut Transform), (With<Composite>, Without<WorldCamera>)>,
 ) {
     let Ok(window) = windows.single() else {
         return;
     };
-    let layout = PixelLayout::new(
-        Vec2::new(window.width(), window.height()),
-        UVec2::new(window.physical_width(), window.physical_height()),
-    );
+    let layout = window_layout(window);
     let Ok((mut camera, mut projection, mut camera_transform)) = cameras.single_mut() else {
         return;
     };
@@ -130,6 +154,14 @@ pub(super) fn resize(
         height: layout.logical.y,
         ..default()
     });
+    if let Ok(mut outer) = outer.single_mut() {
+        if let Projection::Orthographic(projection) = &mut *outer {
+            projection.scaling_mode = ScalingMode::Fixed {
+                width: layout.css.x,
+                height: layout.css.y,
+            };
+        }
+    }
     let size = layout.content_size();
     let center = layout.content_center() - layout.css / 2.0;
     if let Projection::Orthographic(projection) = &mut *projection {
@@ -224,6 +256,21 @@ mod tests {
             layout.snap(DVec2::new(641. + 1e-8, 360.), DVec2::ZERO).x,
             642.
         );
+    }
+
+    #[test]
+    fn dpr2_canvas_css_is_not_winit_scaled_logical_size() {
+        use bevy::math::DVec2;
+        // Real browser failure: CSS=1440x1000, backing=1440x1000,
+        // while Winit logical dimensions were 720x500 at DPR2.
+        let layout = canvas_css_layout(Vec2::new(1440., 1000.), UVec2::new(1440, 1000)).unwrap();
+        assert_eq!(layout.logical, UVec2::new(720, 500));
+        assert_eq!(layout.pixel_css(), Vec2::splat(2.));
+        assert_eq!(
+            layout.snap(DVec2::new(720., 500.), DVec2::ZERO),
+            DVec2::new(720., 500.)
+        );
+        assert!(canvas_css_layout(Vec2::ZERO, UVec2::new(1440, 1000)).is_none());
     }
 
     #[test]
