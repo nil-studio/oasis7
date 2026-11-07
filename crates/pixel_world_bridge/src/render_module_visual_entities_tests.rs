@@ -577,3 +577,60 @@ fn module_visual_labels_yield_to_shared_map_label_obstacles() {
         "the shared map label remains the readable priority"
     );
 }
+
+#[test]
+fn authored_module_glyph_pixels_scale_with_world_unit_without_scaling_labels() {
+    let mut state = sample_render_state(12000.);
+    state.module_visual_entities = vec![module_visual_with_kind(
+        "pixel",
+        "artifact",
+        sample_position(1_500_000., 1_000_000.),
+    )];
+    state.selection = Some(Selection {
+        kind: "module_visual".into(),
+        id: "pixel".into(),
+    });
+    let mut app = render_test_app(state);
+    {
+        let world = app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .resolution
+            .set(1280., 720.);
+        let mut runtime = world.resource_mut::<BevyRuntimeState>();
+        runtime.camera.zoom = 2.;
+        runtime.camera_user_override = true;
+    }
+    app.update();
+    let world = app.world_mut();
+    let (body, transform) = world
+        .query_filtered::<(&Sprite, &Transform), With<PixelWorldModuleVisualEntity>>()
+        .single(world)
+        .unwrap();
+    assert_eq!(body.custom_size, Some(Vec2::splat(12.)));
+    let center = transform.translation;
+    let dot = world
+        .query_filtered::<&Sprite, With<PixelWorldModuleIdentityChipVisual>>()
+        .single(world)
+        .unwrap();
+    assert_eq!(
+        dot.custom_size,
+        Some(Vec2::splat(2.)),
+        "one authored pixel must occupy one low-res texel, not half a texel"
+    );
+    let hit = &world
+        .resource::<BevyRuntimeState>()
+        .hit_regions
+        .iter()
+        .find(|hit| hit.kind == "module_visual")
+        .unwrap();
+    assert_eq!(hit.right - hit.left, 32.);
+    let (label, font) = world
+        .query_filtered::<(&Transform, &TextFont), With<PixelWorldModuleVisualLabel>>()
+        .single(world)
+        .unwrap();
+    assert!((label.translation.y - center.y - 16.24264).abs() < 0.001);
+    assert_eq!(font.font_size, FontSize::Px(10.));
+}

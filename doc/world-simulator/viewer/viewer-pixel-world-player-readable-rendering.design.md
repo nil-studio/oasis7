@@ -405,6 +405,8 @@ Stop-ship visual findings for later implementation: terrain louder than relevant
 | Agent power、derived/missing position、selection、recommendation、receipt target、active intent；Location selection/corner frame/resource cue | 明确的语义 UI 例外；保留各自原 Z 的层内顺序 | native |
 | Depot stock runway 段/背景/zero cross、throughput 背景 | 原约 2.564–2.567，作为读数 UI 与文字一起独立清楚呈现 | native |
 
+作者化 glyph 的局部单位与世界 cm 分开：Agent 16×16、Module 6×6 主体及 beacon/relay/artifact/sensor 全部 identity chip 的尺寸/offset、Micro Depot 8/9 主体及 active/suspended/depleted detail 使用逻辑像素，进入 CSS 前逐轴乘 `s×C/F`。不能把 1 CSS px detail 直接送入低分辨率目标；在 unit2 下它只有半个逻辑像素，可能完全不产生片元。module 的 Rust hit 半径随同单位转换，co-anchor 的 48 CSS px 间距和 Web 44 CSS px 最小目标不改；module label 字号仍 10 CSS px，只按 glyph 扩大量补齐原间距。depot 仍非交互，grounding 同单位，stock/throughput 的原生字号和数值不缩放，读数 lane 仅随 glyph 边缘扩大量移动。不得对已转换的共享材质尺寸或其 Transform 再乘一次单位；世界位置、service radius 的 cm 与 footprint LOD 的 CSS 条件不因此变化。测试必须同时证明未遮挡 glyph 可见与被上层 Actor 正确遮挡，不能用“两次都没画 glyph”的零差分当作遮挡通过。
+
 native UI 在 world 合成之后绘制；跨层旧 Z 不再作为世界实体遮挡关系。只有上述明确 UI 可以这样提升；实体主体、glyph/detail、阴影、范围与关系图形必须留在 world 共享原 Z。分层不证明默认字体已具备原生 CJK 字形，字体可读性仍需实际证据。
 
 实现消费者为 lib.rs 的 setup_scene、to_canvas_point、renderer_to_css_scale，camera_viewport 的逆变换，render_camera_fit/focus、footprint/标签布局、Rust 命中与 Web host/Targets。尺寸布局必须由同一计算结果驱动这些消费者。resize/DPR 更新原子替换 RenderTarget 与布局代次，清除旧命中缓存，再切换 ready；旧纹理、相机和合成实体按所有权释放，不能每帧累计。尺寸变化保留原 CSS pan、zoom 和身份选择；授权输入变化仍沿原导航/恢复合同。

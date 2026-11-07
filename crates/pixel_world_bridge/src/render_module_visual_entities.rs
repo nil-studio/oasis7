@@ -185,6 +185,7 @@ pub(super) fn reconcile_module_visual_entities(
     let mut active_chips = HashSet::new();
     let mut active_labels = HashSet::new();
     let mut accepted_label_rects: Vec<ModuleLabelRect> = Vec::new();
+    let pixel = agent_pixel_scale(width, height);
     for (index, entity) in entities.iter().enumerate() {
         let Some((canvas_x, canvas_y)) =
             to_canvas_point(&entity.pos, world_bounds, width, height, &runtime.camera)
@@ -215,13 +216,23 @@ pub(super) fn reconcile_module_visual_entities(
             runtime.hit_regions.push(HitRegion {
                 kind: "module_visual",
                 id: entity.id.clone(),
-                left: canvas_x + f64::from(co_anchor_offset.x) - MODULE_VISUAL_HIT_HALF_SIZE,
-                top: canvas_y + f64::from(co_anchor_offset.y) - MODULE_VISUAL_HIT_HALF_SIZE,
-                right: canvas_x + f64::from(co_anchor_offset.x) + MODULE_VISUAL_HIT_HALF_SIZE,
-                bottom: canvas_y + f64::from(co_anchor_offset.y) + MODULE_VISUAL_HIT_HALF_SIZE,
+                left: canvas_x + f64::from(co_anchor_offset.x)
+                    - MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.x),
+                top: canvas_y + f64::from(co_anchor_offset.y)
+                    - MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.y),
+                right: canvas_x
+                    + f64::from(co_anchor_offset.x)
+                    + MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.x),
+                bottom: canvas_y
+                    + f64::from(co_anchor_offset.y)
+                    + MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.y),
             });
         }
-        let sprite = sprite_for_square(MODULE_VISUAL_ENTITY_COLOR, MODULE_VISUAL_ENTITY_SIZE_PX);
+        let sprite = sprite_for_rect(
+            MODULE_VISUAL_ENTITY_COLOR,
+            MODULE_VISUAL_ENTITY_SIZE_PX * pixel.x,
+            MODULE_VISUAL_ENTITY_SIZE_PX * pixel.y,
+        );
         if let Some(existing) = runtime.module_visual_entities.get(&entity.id).copied() {
             commands.entity(existing).insert((sprite, transform));
         } else {
@@ -239,6 +250,8 @@ pub(super) fn reconcile_module_visual_entities(
                 .insert(entity.id.clone(), spawned);
         }
         for (part, glyph_offset, size) in module_identity_chip_specs(&entity.kind) {
+            let glyph_offset = glyph_offset * pixel;
+            let size = size * pixel;
             let key = (entity.id.clone(), part);
             active_chips.insert(key.clone());
             let chip_transform = Transform::from_translation(to_bevy_translation(
@@ -272,7 +285,12 @@ pub(super) fn reconcile_module_visual_entities(
                 &render_state.locale,
             );
             let label_x = canvas_x + f64::from(co_anchor_offset.x);
-            let label_y = canvas_y + f64::from(co_anchor_offset.y) - MODULE_LABEL_ABOVE_MARKER_PX;
+            let extra_half_height = f64::from(MODULE_VISUAL_ENTITY_SIZE_PX)
+                * std::f64::consts::FRAC_1_SQRT_2
+                * ((f64::from(pixel.x) + f64::from(pixel.y)) / 2.0 - 1.0);
+            let label_y = canvas_y + f64::from(co_anchor_offset.y)
+                - MODULE_LABEL_ABOVE_MARKER_PX
+                - extra_half_height;
             let label_rect = ModuleLabelRect::above_marker(label_x, label_y, &display);
             if accepted_label_rects
                 .iter()
