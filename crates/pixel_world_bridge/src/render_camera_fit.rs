@@ -14,41 +14,43 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     let base_camera = CameraState::default();
     for location in &render_state.locations {
         if let Some(point) =
-            to_canvas_point(&location.pos, world_bounds, width, height, &base_camera)
+            to_canvas_point_unsnapped(&location.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }
     }
     for fragment in &render_state.fragment_terrain {
         if let Some(point) =
-            to_canvas_point(&fragment.pos, world_bounds, width, height, &base_camera)
+            to_canvas_point_unsnapped(&fragment.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }
     }
     for facility in &render_state.micro_depot_facilities {
         if let Some(point) =
-            to_canvas_point(&facility.pos, world_bounds, width, height, &base_camera)
+            to_canvas_point_unsnapped(&facility.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }
     }
     for entity in &render_state.module_visual_entities {
-        if let Some(point) = to_canvas_point(&entity.pos, world_bounds, width, height, &base_camera)
+        if let Some(point) =
+            to_canvas_point_unsnapped(&entity.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }
     }
     for agent in &render_state.agents {
         if let Some(pos) = agent.pos.as_ref()
-            && let Some(point) = to_canvas_point(pos, world_bounds, width, height, &base_camera)
+            && let Some(point) =
+                to_canvas_point_unsnapped(pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }
     }
     for hotspot in &render_state.visual_hotspots {
         if let Some(point) =
-            to_canvas_point(&hotspot.pos, world_bounds, width, height, &base_camera)
+            to_canvas_point_unsnapped(&hotspot.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }

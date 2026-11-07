@@ -44,7 +44,7 @@ pub(super) fn maybe_focus_selected_entity(runtime: &mut BevyRuntimeState, width:
         runtime.pending_focus_target = None;
         return;
     };
-    let Some((selected_x, selected_y)) = to_canvas_point(
+    let Some((selected_x, selected_y)) = to_canvas_point_unsnapped(
         &position,
         world_bounds,
         width,
@@ -62,4 +62,40 @@ pub(super) fn maybe_focus_selected_entity(runtime: &mut BevyRuntimeState, width:
     runtime.camera_fit_version = runtime.render_version;
     runtime.pending_focus_target = None;
     let _ = camera_viewport::emit(runtime);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn high_zoom_focus_keeps_subpixel_world_displacement_before_render_snap() {
+        let mut state = crate::lib_tests::sample_render_state_for_camera("agent");
+        state.agents[0].pos = Some(Position {
+            x_cm: 1_501_500.,
+            y_cm: 1_000_000.,
+            z_cm: 0.,
+        });
+        let mut runtime = BevyRuntimeState::default();
+        runtime.camera.zoom = 2048.;
+        runtime.pending_focus_target = Some(FocusTarget {
+            kind: "agent".into(),
+            id: state.agents[0].id.clone(),
+        });
+        runtime.render_state = Some(state);
+        maybe_focus_selected_entity(&mut runtime, 1280., 720.);
+        let state = runtime.render_state.as_ref().unwrap();
+        let (x, y) = to_canvas_point(
+            state.agents[0].pos.as_ref().unwrap(),
+            state.world_bounds.as_ref().unwrap(),
+            1280.,
+            720.,
+            &runtime.camera,
+        )
+        .unwrap();
+        assert!(
+            (x - 640.).abs() < 1e-6 && (y - 360.).abs() < 1e-6,
+            "focused target must stay centered at supported zoom"
+        );
+        assert!((runtime.camera.pan_x_px + 1269.76).abs() < 1e-6);
+    }
 }
