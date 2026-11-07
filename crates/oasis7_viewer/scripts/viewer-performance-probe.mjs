@@ -160,6 +160,7 @@ function contentType(pathname) {
     case ".js":
     case ".mjs": return "text/javascript; charset=utf-8";
     case ".wasm": return "application/wasm";
+    case ".css": return "text/css; charset=utf-8";
     case ".ico": return "image/x-icon";
     case ".png": return "image/png";
     default: return "application/octet-stream";
@@ -534,6 +535,23 @@ try {
   await runAgentBrowserJson(["open", url], { timeout: 120_000 });
   await runAgentBrowserJson(["eval", `new Promise((resolve,reject)=>{let n=0;const t=setInterval(()=>{if(window.__OASIS7_VIEWER_FIXTURE_READY__){clearInterval(t);resolve(true);}else if(++n>1200){clearInterval(t);reject(new Error("test assembly pending"));}},50);})`]);
   await runAgentBrowserJson(["set", "viewport", String(options.viewport[0]), String(options.viewport[1])]);
+  const stylePrerequisite = await evalJson(`(async()=>{
+    const result={passed:false,stylesheet:'viewer_terminal_shell.css'};
+    const link=[...document.querySelectorAll('link[rel="stylesheet"]')].find(e=>new URL(e.href).pathname.endsWith('/viewer_terminal_shell.css'));
+    if(!link)return {...result,error:'canonical stylesheet link missing'};
+    const response=await fetch(link.href);Object.assign(result,{href:link.href,status:response.status,contentType:response.headers.get('content-type')});
+    if(!response.ok||(result.contentType||'').split(';')[0].trim().toLowerCase()!=='text/css')return {...result,error:'canonical stylesheet requires successful text/css response'};
+    const deadline=performance.now()+20000;let target;
+    while(performance.now()<deadline){target=document.querySelector('.pixel-world-renderer-target:not([data-selected="true"]):not(:hover):not(:focus-visible)');if(target&&link.sheet)break;await new Promise(r=>setTimeout(r,50));}
+    try{result.cssRules=link.sheet?.cssRules.length??0;}catch(error){return {...result,error:String(error)};}
+    if(!target||!result.cssRules||link.disabled||link.sheet.disabled)return {...result,error:'canonical sheet or projected target not ready'};
+    const css=getComputedStyle(target);result.target={id:target.dataset.agentId||target.dataset.locationId||target.dataset.moduleId,projection:target.closest('.pixel-world-canvas')?.dataset.rendererProjection,backgroundImage:css.backgroundImage,backgroundColor:css.backgroundColor,borders:[css.borderTopColor,css.borderRightColor,css.borderBottomColor,css.borderLeftColor],boxShadow:css.boxShadow};
+    const clear=color=>color==='transparent'||color.replaceAll(' ','')==='rgba(0,0,0,0)';
+    result.passed=result.target.projection==='true'&&css.backgroundImage==='none'&&clear(css.backgroundColor)&&result.target.borders.every(clear)&&css.boxShadow==='none';
+    if(!result.passed)result.error='canonical hit-only target styles are not applied';return result;
+  })()`);
+  writeFileSync(join(outDir,"canonical-style-prerequisite.json"),JSON.stringify(stylePrerequisite,null,2));
+  if(!stylePrerequisite.passed)throw Error("invalid performance entry: "+JSON.stringify(stylePrerequisite));
   const cpuAttribution = establishCpuAttribution(cpuProcessBaseline);
 
   async function sampleScenario(name, agents, locations, iteration) {
@@ -597,6 +615,7 @@ try {
       dense: denseRuns.map((run, index) => baselineRecord(run, `dense-${index + 1}`)),
     },
   });
+  summary.canonicalStylePrerequisite=stylePrerequisite;
   summary.artifacts = { summaryJson: summaryJsonPath, summaryMarkdown: summaryMdPath, screenshot: screenshotPath };
 
   await runAgentBrowser(["screenshot", screenshotPath], { timeout: 20_000 });
