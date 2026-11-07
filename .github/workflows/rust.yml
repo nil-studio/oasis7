@@ -146,6 +146,7 @@ jobs:
       range_base: ${{ steps.select.outputs.range_base }}
       trusted_source: ${{ steps.select.outputs.trusted_source }}
       formal_shards: ${{ steps.select.outputs.formal_shards || '["runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli"]' }}
+      ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '["all"]' }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -299,8 +300,7 @@ jobs:
       contents: read
     outputs:
       enabled: ${{ steps.preview.outputs.enabled }}
-      groups: ${{ steps.preview.outputs.groups }}
-      synthetic_base_sha: ${{ steps.preview.outputs.synthetic_base_sha }}
+      matrix: ${{ steps.preview.outputs.matrix }}
       source_sha: ${{ steps.preview.outputs.source_sha }}
       tested_sha: ${{ steps.preview.outputs.tested_sha }}
       artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}
@@ -320,28 +320,29 @@ jobs:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
           TESTED_SHA: ${{ github.sha }}
         run: |
-          python3 scripts/ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA" \
+          python3 scripts/ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA" \
             --source-ref "$SOURCE_SHA" \
-            --output "$RUNNER_TEMP/selection.json" --github-output "$GITHUB_OUTPUT"
+            --output-dir "$RUNNER_TEMP/previews" --github-output "$GITHUB_OUTPUT"
       - name: Record diagnostic-only plan
         if: steps.preview.outputs.enabled == 'true'
         run: |
           printf '%s\n' '## Candidate fast-profile preview' \
             'Diagnostic only: candidate policy and a synthetic Rust-only diff; the trusted-BASE required gate remains independent.' \
-            'Every selected real group runs in parallel without restoring caches. This single sample does not establish a ten-minute P95.' \
-            'End-to-end preview latency runs from workflow creation to the last preview group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
-          cat "$RUNNER_TEMP/selection.json.metadata.json" >> "$GITHUB_STEP_SUMMARY"
+            'Every selected real group runs in parallel without restoring caches. These diagnostics do not establish a ten-minute P95.' \
+            'Each sample is measured from workflow creation to its last selected group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
+          for metadata in "$RUNNER_TEMP"/previews/*/selection.json.metadata.json; do
+            cat "$metadata" >> "$GITHUB_STEP_SUMMARY"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.preview.outputs.enabled == 'true'
         with:
           name: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/selection.json
-            ${{ runner.temp }}/selection.json.metadata.json
+          path: ${{ runner.temp }}/previews/
           retention-days: 14
           if-no-files-found: error
 
   pr-fast-preview:
+    name: pr-fast-preview (${{ matrix.sample }}, ${{ matrix.group }}, ${{ matrix.partition }})
     needs: pr-fast-preview-plan
     if: needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
@@ -350,8 +351,11 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        group: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.groups) }}
+      matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}
+    env:
+      PREVIEW_SAMPLE: ${{ matrix.sample }}
+      PREVIEW_GROUP: ${{ matrix.group }}
+      PREVIEW_PARTITION: ${{ matrix.partition }}
     steps:
       - name: Start cold runner measurement
         run: echo "PREVIEW_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
@@ -363,12 +367,16 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}
-          path: ${{ runner.temp }}
+          path: ${{ runner.temp }}/previews
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
       - name: Restore diagnostic synthetic baseline
-        run: python3 scripts/ci-fast-preview.py restore --metadata "$RUNNER_TEMP/selection.json.metadata.json"
+        run: |
+          python3 scripts/ci-fast-preview.py restore --sample "$PREVIEW_SAMPLE" \
+            --metadata "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json.metadata.json" \
+            --plan "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json" \
+            --group "$PREVIEW_GROUP" --partition "$PREVIEW_PARTITION"
       - name: Install Markdown runtime
         if: matrix.group == 'baseline'
         run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
@@ -408,16 +416,20 @@ jobs:
         env:
           PREVIEW_GROUP: ${{ matrix.group }}
           SOURCE_SHA: ${{ needs.pr-fast-preview-plan.outputs.source_sha }}
-          OASIS7_PRODUCT_DOC_BASE: ${{ needs.pr-fast-preview-plan.outputs.synthetic_base_sha }}
+          OASIS7_PRODUCT_DOC_BASE: ${{ matrix.synthetic_base_sha }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}
           OASIS7_CI_PROFILE: pr-fast
           CI_VERBOSE: "1"
         run: |
           set -euo pipefail
-          export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$RUNNER_TEMP/selection.json")"
+          selection="$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"
+          export OASIS7_CI_ARCHITECTURE_PLAN="$(cat "$selection")"
           plan_args=()
-          if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required ]]; then
-            plan_args=(--plan "$RUNNER_TEMP/selection.json")
+          if [[ "$PREVIEW_GROUP" == rust_baseline || "$PREVIEW_GROUP" == oasis7_required || "$PREVIEW_GROUP" == distfs ]]; then
+            plan_args=(--plan "$selection")
+          fi
+          if [[ "$PREVIEW_GROUP" == oasis7_required ]]; then
+            plan_args+=(--ordinary-partition "$PREVIEW_PARTITION")
           fi
           bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
             --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
@@ -432,6 +444,8 @@ jobs:
           import json, os, pathlib, time
           ended = int(time.time())
           report = {'diagnostic_only': True, 'cache_restored': False,
+                    'sample': os.environ['PREVIEW_SAMPLE'],
+                    'partition': os.environ['PREVIEW_PARTITION'],
                     'group': os.environ['PREVIEW_GROUP'], 'outcome': os.environ['PREVIEW_OUTCOME'],
                     'tested_sha': os.environ['PREVIEW_TESTED_SHA'],
                     'runner_started_at': int(os.environ['PREVIEW_STARTED_AT']), 'ended_at': ended}
@@ -443,7 +457,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: pr-fast-preview-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: pr-fast-preview-${{ matrix.sample }}-${{ matrix.group }}-${{ matrix.partition }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/pr-fast-preview.log
             ${{ runner.temp }}/pr-fast-preview-timing.json
@@ -1438,6 +1452,7 @@ jobs:
           python3 scripts/ci-cache-maintenance.py --recover --apply "${args[@]}"
 
   oasis7-required:
+    name: oasis7-required (${{ matrix.partition }})
     needs: [select, oasis7-test-build]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
@@ -1450,6 +1465,10 @@ jobs:
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1524,9 +1543,10 @@ jobs:
           OASIS7_CI_TEST_BUNDLE: ${{ !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 && fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') && format('{0}/native-tests', runner.temp) || '' }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           CI_VERBOSE: "1"
+          ORDINARY_PARTITION: ${{ matrix.partition }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "oasis7_required" --plan "$RUNNER_TEMP/selection.json" --repo-root "$GITHUB_WORKSPACE"
+        run: bash ./scripts/ci-tests.sh required --group "oasis7_required" --plan "$RUNNER_TEMP/selection.json" --ordinary-partition "$ORDINARY_PARTITION" --repo-root "$GITHUB_WORKSPACE"
 
   formal-process-tests:
     needs: [select, formal-test-build, formal-test-build-trusted]
@@ -1657,6 +1677,10 @@ jobs:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
@@ -1682,9 +1706,26 @@ jobs:
         shell: bash
         env:
           CI_VERBOSE: "1"
+          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "distfs" --repo-root "$GITHUB_WORKSPACE"
+        run: |
+          set -euo pipefail
+          plan_args=()
+          selection="$RUNNER_TEMP/selection.json"
+          handoff=$(python3 - "$selection" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1]))
+          if not isinstance(plan, dict):
+              raise ValueError('invalid required selection')
+          fields = {'distfs_clippy_contract_version', 'distfs_clippy_group'}
+          print('true' if fields.intersection(plan) else 'false')
+          PY
+          )
+          if [[ "$handoff" == true ]]; then
+            plan_args=(--plan "$selection")
+          fi
+          bash ./scripts/ci-tests.sh required --group "distfs" "${plan_args[@]}" --repo-root "$GITHUB_WORKSPACE"
 
   node:
     needs: select

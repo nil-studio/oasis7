@@ -1,0 +1,21 @@
+approval_policy = "never"
+sandbox_mode = "read-only"
+web_search = "disabled"
+[features]
+shell_tool = false
+unified_exec = false
+multi_agent = false
+apps = false
+plugins = false
+browser_use = false
+browser_use_external = false
+computer_use = false
+in_app_browser = false
+image_generation = false
+hooks = false
+[mcp_servers.oasis7_local]
+command = "/usr/local/bin/python3"
+args = ["/opt/oasis7-tools/mcp.py"]
+enabled_tools = ["dev_test_capabilities"]
+startup_timeout_sec = 5
+tool_timeout_sec = 5

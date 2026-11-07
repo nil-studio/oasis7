@@ -294,10 +294,34 @@ VIEWER_REQUIRED_CONSUMERS = frozenset(('oasis7', 'oasis7_simulator', 'oasis7_cha
                                      'oasis7_launcher_backend', 'oasis7_viewer_runtime'))
 FAST_PROFILES = frozenset(('pr-fast', 'main-fast', 'periodic-full', 'candidate-full'))
 RUST_BASELINE_CHECKS = ('newapi_accounting', 'standalone_tool_lockfiles')
+ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
+DISTFS_CLIPPY_TARGETS = frozenset((
+    ('oasis7_runtime', 'lib', 'oasis7_runtime'),
+    ('oasis7_runtime', 'test', 'pr_fast_incremental'),
+    ('oasis7_world_state', 'lib', 'oasis7_world_state'),
+    ('oasis7_world_state', 'test', 'pr_fast_reducers'),
+))
+DISTFS_CLIPPY_COMMANDS = (
+    ('-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'),
+    ('-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'),
+)
 
 
 def fast_plan(plan):
     """Old trusted planners retain the complete previous execution inventory."""
+    support_fields = {'ordinary_support_contract_version', 'ordinary_support_handoffs',
+                      'ordinary_support_deferred'}
+    support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
+    partitioned = isinstance(plan, dict) and bool(
+        {'ordinary_partition_version', 'ordinary_partitions'}.intersection(plan))
+    distfs_clippy = isinstance(plan, dict) and bool(
+        {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
+    if distfs_clippy and 'fast_plan_version' not in plan:
+        raise ValueError('DistFS Clippy handoff requires a compatible fast plan')
+    if partitioned and 'fast_plan_version' not in plan:
+        raise ValueError('ordinary partitions require a compatible fast plan')
+    if support and 'fast_plan_version' not in plan:
+        raise ValueError('support handoff requires a compatible fast plan')
     if (isinstance(plan, dict) and 'fast_execution_version' in plan
             and type(plan['fast_execution_version']) is not int):
         raise ValueError('invalid fast execution capability')
@@ -331,7 +355,120 @@ def fast_plan(plan):
                 raise ValueError('invalid ordinary Clippy group')
             if clippy_group == 'rust_baseline' and 'rust_baseline' not in plan['groups']:
                 raise ValueError('ordinary Clippy owner is not a selected required group')
+    if support:
+        validate_support_handoff(plan)
+    if partitioned:
+        validate_ordinary_partitions(plan)
+    if distfs_clippy:
+        validate_distfs_clippy_handoff(plan)
     return plan
+
+
+def validate_distfs_clippy_handoff(plan):
+    """Only the complete native parent may move the two original lint calls."""
+    architecture = plan.get('architecture')
+    targets = plan.get('ordinary_fast_targets')
+    if (type(plan.get('distfs_clippy_contract_version')) is not int
+            or plan['distfs_clippy_contract_version'] != 1
+            or plan.get('distfs_clippy_group') != 'rust_baseline'
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
+            or plan.get('ordinary_partition_version') != 1
+            or plan.get('ordinary_partitions') != sorted(ORDINARY_PARTITION_PACKAGES)
+            or plan.get('scope') != 'targeted'
+            or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+            or plan.get('test_policy_changed') is not False
+            or plan.get('fast_plan_exceptions') != []
+            or plan.get('formal_suites') != []
+            or plan.get('oasis7_required_wasm_packages') != []
+            or not {'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups'])
+            or not isinstance(architecture, dict)
+            or type(architecture.get('build_policy_version')) is not int
+            or architecture.get('build_policy_version') != 1
+            or architecture.get('build_policy') != 'ordinary-targets'
+            or architecture.get('mode') != 'targeted'
+            or not isinstance(architecture.get('consumer_groups'), dict)
+            or not architecture['consumer_groups'].get('distfs')
+            or not isinstance(targets, list) or len(targets) != len(DISTFS_CLIPPY_TARGETS)
+            or any(not isinstance(target, dict) for target in targets)
+            or any(not isinstance(target.get(field), str) for target in targets
+                   for field in ('package', 'target_kind', 'target_name'))
+            or {(target.get('package'), target.get('target_kind'), target.get('target_name'))
+                 for target in targets} != DISTFS_CLIPPY_TARGETS
+            or any(target.get('default_features') is not False
+                   or target.get('features') != ['test_tier_required'] for target in targets)):
+        raise ValueError('invalid complete native DistFS Clippy handoff')
+
+
+def validate_ordinary_partitions(plan):
+    """The trusted parent retains every target; only their physical owner changes."""
+    targets = plan.get('ordinary_fast_targets')
+    if (type(plan.get('ordinary_partition_version')) is not int
+            or plan['ordinary_partition_version'] != 1
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'
+            or plan.get('oasis7_required_wasm_packages') != []
+            or not isinstance(targets, list) or not targets
+            or any(not isinstance(target, dict) or not isinstance(target.get('package'), str)
+                   or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', target['package']) is None
+                   for target in targets)):
+        raise ValueError('invalid ordinary partition capability')
+    packages = sorted({target['package'] for target in targets})
+    expected = packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all']
+    if plan.get('ordinary_partitions') != expected:
+        raise ValueError('ordinary partitions must cover the complete parent target inventory exactly once')
+
+
+def ordinary_partitions(plan=None):
+    selected = fast_plan(plan)
+    return list(selected.get('ordinary_partitions', ['all'])) if selected is not None else ['all']
+
+
+def ordinary_partition_targets(plan=None, partition=None):
+    targets = ordinary_fast_targets(plan)
+    if partition is None:
+        return targets
+    if partition not in ordinary_partitions(plan):
+        raise ValueError('unknown ordinary partition for the complete parent plan')
+    if partition == 'all':
+        return targets
+    selected = [target for target in targets if target['package'] == partition]
+    if not selected:
+        raise ValueError('ordinary partition has no complete targets')
+    return selected
+
+
+def validate_support_handoff(plan):
+    """Moving support execution must retain its complete original lint calls."""
+    if (type(plan.get('ordinary_support_contract_version')) is not int
+            or plan['ordinary_support_contract_version'] != 1
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'):
+        raise ValueError('invalid ordinary support handoff capability or Clippy owner')
+    fields = ('ordinary_support_handoffs', 'ordinary_support_deferred', 'workspace_support_profiles')
+    for field in fields:
+        values = plan.get(field)
+        if (not isinstance(values, list)
+                or (field == 'ordinary_support_handoffs' and not values)
+                or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name) for name in values)
+                or len(values) != len(set(values))):
+            raise ValueError('invalid ordinary support profile inventory: ' + field)
+    handoffs, deferred, remaining = (set(plan[field]) for field in fields)
+    if (handoffs & deferred or (handoffs | deferred) & remaining
+            or bool(remaining) != ('workspace_support' in plan['groups'])):
+        raise ValueError('ordinary support profiles have overlapping or missing owners')
+    targets = plan.get('ordinary_fast_targets')
+    if not isinstance(targets, list) or any(not isinstance(target, dict) for target in targets):
+        raise ValueError('support handoff is missing ordinary targets')
+    for owner in handoffs:
+        selected = [target for target in targets if target.get('package') == owner]
+        if (not any(target.get('target_kind') == 'lib' for target in selected)
+                or any(target.get('default_features') is not True or target.get('features') != []
+                       for target in selected)):
+            raise ValueError('support handoff requires the same complete default library')
 
 
 def plan_list(plan, key, inventory, *, nonempty=True):
@@ -391,6 +528,12 @@ def package_features(packages, plan=None, *, include_full=False):
 
 
 def required_arguments(plan=None, phase='native'):
+    if phase == 'distfs-clippy-group':
+        selected = fast_plan(plan)
+        if selected is not None and selected.get('distfs_clippy_contract_version') == 1:
+            ordinary_fast_targets(selected)
+            return [selected['distfs_clippy_group']]
+        return ['distfs']
     if phase == 'clippy-group':
         selected = fast_plan(plan)
         if selected is not None and selected.get('fast_execution_version') == 1:
@@ -486,7 +629,13 @@ def target_native_arguments(target):
 def required_native_commands(plan=None):
     targets = ordinary_fast_targets(plan)
     if targets is not None:
-        return [target_native_arguments(target) for target in targets]
+        handoffs = set(plan.get('ordinary_support_handoffs', ()))
+        support = handoffs | set(plan.get('ordinary_support_deferred', ()))
+        commands = ([target_native_arguments(target) for target in targets if target['package'] not in handoffs]
+                    + [['-p', package, '--all-targets'] for package in sorted(support)])
+        if plan.get('distfs_clippy_contract_version') == 1:
+            commands.extend(list(command) for command in DISTFS_CLIPPY_COMMANDS)
+        return commands
     return [required_arguments(plan)] + [target_native_arguments(target)
                                        for target in ordinary_full_fast_targets(plan) or []]
 
@@ -653,15 +802,27 @@ def validate_target_inventory(targets, binaries):
 
 def validate_ordinary_selection(manifest):
     plan = fast_plan(manifest.get('execution_plan'))
+    partition = manifest.get('ordinary_partition')
+    if partition is not None and manifest.get('scope') != 'ordinary':
+        raise ValueError('ordinary partition requires an ordinary bundle')
     if plan is None:
+        if partition not in (None, 'all'):
+            raise ValueError('ordinary partition requires a compatible parent plan')
         return
     supplements = ordinary_full_fast_targets(plan)
     if manifest.get('scope') != 'ordinary' and not (manifest.get('scope') == 'all' and supplements is not None):
         return
     binaries = [entry for entry in manifest['binaries'].values() if entry.get('ordinary')]
-    targets = ordinary_fast_targets(plan)
+    targets = ordinary_partition_targets(plan, partition)
     if targets is not None:
         validate_target_inventory(targets, binaries)
+        if partition not in (None, 'all'):
+            variants = {(target['package'], target['target_kind'], target['target_name']): 'required-fast-' + str(index)
+                        for index, target in enumerate(ordinary_fast_targets(plan))}
+            for binary in binaries:
+                identity = (binary['package'], binary['target_kind'][0], binary['target'])
+                if binary.get('variant') != variants[identity]:
+                    raise ValueError('ordinary partition target variant mismatch')
         return
     if supplements is not None:
         validate_target_inventory(supplements, [entry for entry in binaries
@@ -754,7 +915,9 @@ def resolve_shards(config, suites):
 FORMAL_COMPONENTS = ('formal-debug', 'formal-endpoint')
 
 
-def build_variants(scope, plan=None):
+def build_variants(scope, plan=None, ordinary_partition=None):
+    if ordinary_partition is not None and scope != 'ordinary':
+        raise ValueError('ordinary partition requires ordinary build scope')
     required_features = ['test_tier_required']
     # Separate variants preserve the old snapshot regressions' default features.
     variants = [
@@ -770,9 +933,12 @@ def build_variants(scope, plan=None):
         return variants + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
     if scope == 'ordinary':
         targets = ordinary_fast_targets(plan)
+        selected_targets = ordinary_partition_targets(plan, ordinary_partition)
         if targets is not None:
-            return target_build_variants(targets, 'required-fast-',
-                                         combine=plan.get('fast_execution_version') == 1)
+            variants = target_build_variants(targets, 'required-fast-',
+                                            combine=plan.get('fast_execution_version') == 1)
+            return [(name, args, features) for name, args, features in variants
+                    if targets[int(name.removeprefix('required-fast-'))] in selected_targets]
         if fast_plan(plan) is not None:
             packages = set(required_packages(plan))
             native_args = required_arguments(plan)
@@ -963,8 +1129,12 @@ class BuildObservation:
         return False
 
 
-def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None):
+def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
+    if ordinary_partition is not None:
+        if scope != 'ordinary':
+            raise ValueError('ordinary partition requires ordinary build scope')
+        ordinary_partition_targets(plan, ordinary_partition)
     if scope != 'ordinary' and FORMAL_AUTHORITY is not None:
         formal_shards(plan)
     bundle.mkdir(parents=True, exist_ok=False)
@@ -995,7 +1165,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                target=str((ROOT / 'target').resolve()), selection=selection,
                                complete=False, error=str(error))
     binaries, timings = {}, []
-    variants = build_variants(scope, plan) if plan is not None else build_variants(scope)
+    variants = (build_variants(scope, plan, ordinary_partition=ordinary_partition) if ordinary_partition is not None
+                else build_variants(scope, plan) if plan is not None else build_variants(scope))
     target_specs = {}
     if scope in ('ordinary', 'all'):
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
@@ -1098,6 +1269,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         config_sha256=digest(CONFIG), build_timings=timings)
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
+    if ordinary_partition is not None:
+        manifest['ordinary_partition'] = ordinary_partition
     if FORMAL_AUTHORITY is not None:
         manifest['formal_authority_sha256'] = formal_authority_digest()
     list_env = dict(env, LD_LIBRARY_PATH=str(bundle / 'lib') + os.pathsep + env.get('LD_LIBRARY_PATH', ''))
@@ -1374,6 +1547,8 @@ def pack(bundle, archive_path, suite=None, shard=None, plan=None):
     """Publish one consumption closure; the producer's complete inventory remains auditable."""
     manifest = json.loads((bundle / 'manifest.json').read_text())
     complete_bundle_scope(manifest)
+    if manifest.get('ordinary_partition') not in (None, 'all'):
+        raise ValueError('inline ordinary partitions cannot be published as complete bundles')
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     if manifest.get('formal_authority_sha256') != formal_authority_digest():
@@ -1969,10 +2144,16 @@ def cache_restore(root, cache, maximum=8 * 1024 ** 3):
     return report
 
 
-def load(bundle, suite=None, shard=None, plan=None):
+def load(bundle, suite=None, shard=None, plan=None, ordinary_partition=None):
     validate_plan_identity(plan)
     manifest = json.loads((bundle / 'manifest.json').read_text())
     complete_bundle_scope(manifest)
+    if manifest.get('ordinary_partition') != ordinary_partition:
+        raise ValueError('artifact ordinary partition mismatch')
+    if ordinary_partition is not None:
+        if suite != 'ordinary' or shard is not None or manifest.get('scope') != 'ordinary':
+            raise ValueError('ordinary partition requires ordinary execution')
+        ordinary_partition_targets(plan, ordinary_partition)
     if manifest.get('execution_plan') != fast_plan(plan):
         raise ValueError('artifact execution plan mismatch')
     validate_ordinary_selection(manifest)
@@ -2108,11 +2289,11 @@ def formal_parallel_cases(config):
     return result
 
 
-def execute_inline_jobs(jobs, results, *, formal=False, shard=None):
+def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_partition=None):
     """Run complete validated jobs, with one receipt and owner per child."""
     from ci_process_runner import run
     cpus = native_cpu_budget()
-    workers = min(4 if formal else 2, cpus, len(jobs))
+    workers = min(4 if formal else 1 if ordinary_partition not in (None, 'all') else 2, cpus, len(jobs))
     threads = 1 if formal else max(1, cpus // workers)
     # An existing lower limit remains useful; never multiply libtest's normal
     # CPU-sized pool by the number of concurrently running harnesses.
@@ -2137,7 +2318,7 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None):
     results.parent.mkdir(parents=True, exist_ok=True)
     label = 'formal' if formal else 'ordinary'
     prefix = 'formal_execution=' if formal else 'native_execution='
-    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', workers=workers,
+    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', partition=ordinary_partition, workers=workers,
           cpu_budget=cpus, test_threads=threads, selected=len(jobs), weights=weights)), flush=True)
 
     def interrupt(signum, frame):
@@ -2223,16 +2404,17 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None):
         for signum, handler in handlers.items():
             signal.signal(signum, handler)
     complete = recorded == set(range(len(jobs)))
-    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', selected=len(jobs),
+    print(prefix + json.dumps(dict(mode='bounded-cases' if formal else 'inline', partition=ordinary_partition, selected=len(jobs),
           started=next_job, recorded=len(recorded), failures=failures,
           interrupted=interrupted, complete=complete)), flush=True)
     if failures or interrupted or not complete:
         raise RuntimeError(f'{label} failed; see {results}')
 
 
-def execute(bundle, suite, results, shard=None, plan=None):
+def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
     from ci_process_runner import run
-    manifest, env = load(bundle, suite if not shard else None, shard, plan)
+    manifest, env = (load(bundle, suite if not shard else None, shard, plan, ordinary_partition=ordinary_partition)
+                     if ordinary_partition is not None else load(bundle, suite if not shard else None, shard, plan))
     if suite == 'ordinary' and not shard:
         entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items() if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
         for owner, pattern in snapshot_regressions(manifest):
@@ -2292,7 +2474,8 @@ def execute(bundle, suite, results, shard=None, plan=None):
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
     if formal or inline:
-        execute_inline_jobs(jobs, results, formal=formal, shard=shard)
+        execute_inline_jobs(jobs, results, formal=formal, shard=shard,
+                            ordinary_partition=manifest.get('ordinary_partition'))
         return
     failed = False
     for job in jobs:
@@ -2338,19 +2521,27 @@ def main():
     parser.add_argument('--measure-only', action='store_true')
     parser.add_argument('--results', type=Path)
     parser.add_argument('--plan', type=Path, help='the same trusted selection used by producer and consumers')
+    parser.add_argument('--ordinary-partition', help='exact native package owner declared by the complete trusted plan')
     parser.add_argument('--formal-config', type=Path, help='trusted baseline Formal minimum inventory')
-    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group'], default='native')
+    parser.add_argument('--phase', choices=['native', 'native-commands', 'wasm', 'packages', 'baseline-checks', 'clippy-group', 'distfs-clippy-group', 'partition'], default='native')
     args = parser.parse_args()
     ROOT = args.repo_root.resolve()
     CONFIG = ROOT / 'scripts/ci-formal-process-suites.json'
     FORMAL_AUTHORITY = args.formal_config.resolve() if args.formal_config else None
     plan = json.loads(args.plan.read_text()) if args.plan else None
+    if (args.ordinary_partition is not None and args.action not in ('build', 'run')
+            and not (args.action == 'required-args' and args.phase == 'partition')):
+        parser.error('--ordinary-partition requires build, run, or partition validation')
     if args.action == 'shards':
         print(json.dumps(formal_shards(plan)))
         return
     if args.action == 'required-args':
         validate_plan_identity(plan)
-        if args.phase == 'native-commands':
+        if args.phase == 'partition':
+            if args.ordinary_partition is None:
+                parser.error('partition validation requires --ordinary-partition')
+            ordinary_partition_targets(plan, args.ordinary_partition)
+        elif args.phase == 'native-commands':
             print(json.dumps(required_native_commands(plan)))
         else:
             print('\n'.join(required_arguments(plan, args.phase)))
@@ -2399,7 +2590,7 @@ def main():
         args.output.write_text(''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in environment.items()))
         args.output.chmod(0o600)
     elif args.action == 'build':
-        build(args.bundle.resolve(), args.scope, args.cache_state, plan, args.build_diagnostics)
+        build(args.bundle.resolve(), args.scope, args.cache_state, plan, args.build_diagnostics, args.ordinary_partition)
     elif args.action == 'merge-formal':
         if not args.debug_bundle or not args.endpoint_bundle:
             parser.error('merge-formal requires --debug-bundle and --endpoint-bundle')
@@ -2413,7 +2604,8 @@ def main():
         else:
             pack(args.bundle.resolve(), args.output, None if args.shard else args.suite, args.shard, plan)
     else:
-        execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl', args.shard, plan)
+        execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl',
+                args.shard, plan, args.ordinary_partition)
 
 
 if __name__ == '__main__':
