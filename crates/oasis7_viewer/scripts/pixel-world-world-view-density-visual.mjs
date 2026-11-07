@@ -15,6 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 import { createDensityFixture } from './world-view-density-fixture.mjs';
+import { measureDensityPerformance } from './world-view-density-performance.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)), repo = resolve(here, '../../..');
 const assert = (value, message) => { if (!value) throw Error(message); };
@@ -29,7 +30,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const files = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(resolve(dir, e.name)) : [resolve(dir, e.name)]);
 const manifest = () => Object.fromEntries(files(root).sort().map(p => [relative(root, p), { bytes: readFileSync(p).length, sha256: sha(readFileSync(p)) }]));
 const assets = manifest(), fixture = createDensityFixture();
-const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), assets, scripts: Object.fromEntries(['pixel-world-world-view-density-visual.mjs', 'world-view-density-fixture.mjs', 'world-view-label-oracle.py'].map(n => [n, sha(readFileSync(resolve(here, n)))])), scope, dpr, controlledTransport: true, realServiceAuthority: false, observerDebugProbe: { deploymentMode: 'trusted_local_only', hostname: 'density-qa.localhost', hostedGate: 'hosted_public_join requires real login; this probe does not validate the ordinary player entry' }, phases: {}, limitations: ['Read-only controlled WS peer; not signed WorldService, genuine revocation, grants or P5 operation identity.', 'Text2d counts/layout are not GPU fences; paired canvas pixels are checked separately.', 'Single visual probe, not P6 timing/A-B/cold/long-stability acceptance.', 'A legacy capability downgrade is expected to clear/lock without a new authorization proof; this does not claim legitimate legacy reauthorization.'] };
+const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), assets, scripts: Object.fromEntries(['pixel-world-world-view-density-visual.mjs', 'world-view-density-fixture.mjs', 'world-view-label-oracle.py', 'world-view-density-performance.mjs', 'viewer-performance-native-input.mjs', 'viewer-performance-paint-trace.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])), scope, dpr, controlledTransport: true, realServiceAuthority: false, observerDebugProbe: { deploymentMode: 'trusted_local_only', hostname: 'density-qa.localhost', hostedGate: 'hosted_public_join requires real login; this probe does not validate the ordinary player entry' }, phases: {}, limitations: ['Read-only controlled WS peer; not signed WorldService, genuine revocation, grants or P5 operation identity.', 'Text2d counts/layout are not GPU fences; paired canvas pixels are checked separately.', 'Single visual probe, not P6 timing/A-B/cold/long-stability acceptance.', 'A legacy capability downgrade is expected to clear/lock without a new authorization proof; this does not claim legitimate legacy reauthorization.'] };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = `world-view-density-${process.pid}`;
 const lifecycle = createOwnedSessionLifecycle({ command, session });
 const run = args => new Promise((yes, no) => {
@@ -247,6 +248,7 @@ try {
   writeFileSync(resolve(out, 'label-captures.json'), JSON.stringify(labelCaptures, null, 2));
   summary.labelOnlyInvariant = labelOnlyInvariant(labelCaptures);
   summary.labelOracle = JSON.parse(execFileSync('python3', [resolve(here, 'world-view-label-oracle.py'), out], { encoding: 'utf8' })); assert(summary.labelOracle.passed, '200 native label paired PNG oracle failed');
+  if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
   if (scope === 'all') {
     const selector = 'button[data-agent-id="qa-agent-0000"][data-renderer-target]';
     await run(['click', selector]); await waitFor(`document.querySelector(${JSON.stringify(selector)})?.dataset.selected==='true'`);

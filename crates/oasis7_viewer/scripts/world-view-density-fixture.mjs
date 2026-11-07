@@ -5,13 +5,14 @@ const caps = ['world_view','world_view_pins_v1','world_view_delta_v1'];
 const clone = value => structuredClone(value);
 export function createDensityFixture() {
   let world = 'qa-density-world-A', scope = 'qa-public-A', cut = 'qa-cut-1';
+  let resourceRevision = 0;
   let sequence = 0, revision = 0, mode = 'world_view', labelStyle = 'normal', removed = new Set();
   const cursors = new Map(), baselines = new Map(), log = [];
   const remember=(map,key,value)=>{map.set(key,value);while(map.size>64)map.delete(map.keys().next().value);};
   const bounds = {width_cm:'1000000',depth_cm:'1000000',height_cm:'100000',min_x_cm:'0',max_x_cm:'1000000',min_y_cm:'0',max_y_cm:'1000000'};
   const sourceBinding = () => ({evidence:'controlled_transport_fixture_not_service_proof',version:{visibility_scope:scope,projection_revision:'qa-density-v1',commit:{world:{world_id:world,genesis_digest:'qa-genesis-not-a-service-assertion'},binding:{provider_world_id:world,branch_id:'qa-main',reorg_generation:'0',authority_generation:'0',permission_generation:'0',governing_manifest_ref:'qa-only'}}},viewer_epoch:'0'});
   const cells=[...Array.from({length:200},(_,i)=>({col:i%40,row:6+Math.floor(i/40)})),...Array.from({length:1000},(_,i)=>({col:i%40,row:Math.floor(i/40)})).filter(p=>p.row<6||p.row>10)];
-  const entity = i => {const cell=cells[i],label=labelStyle==='empty'?'\u200b':(i<2?'观察'+i:'P'+String(i).padStart(4,'0'));const id=`qa-agent-${String(i).padStart(4,'0')}`,pos={x_cm:String(256250+cell.col*12500),y_cm:String(275000+cell.row*18750),z_cm:'0'};return {kind:'agent',entity_id:id,label,position:pos,render_record:{id,name:label,pos,resources:{amounts:{electricity:'100'}}},provenance:{geometry_source:'authoritative',freshness:'current',valid_at_source_cut:cut,observed_at_tick:String(revision+1),source_ref:'controlled_transport_fixture'}};};
+  const entity = i => {const cell=cells[i],label=labelStyle==='empty'?'\u200b':(i<2?'观察'+i:'P'+String(i).padStart(4,'0'));const id=`qa-agent-${String(i).padStart(4,'0')}`,pos={x_cm:String(256250+cell.col*12500),y_cm:String(275000+cell.row*18750),z_cm:'0'};return {kind:'agent',entity_id:id,label,position:pos,render_record:{id,name:label,pos,resources:{amounts:{electricity:String(100+(i===999?resourceRevision%2:0))}}},provenance:{geometry_source:'authoritative',freshness:'current',valid_at_source_cut:cut,observed_at_tick:String(revision+1),source_ref:'controlled_transport_fixture'}};};
   const all = () => Array.from({length:1000},(_,i)=>entity(i)).filter(x=>!removed.has(x.entity_id));
   const base = request_generation => ({world_id:world,scope_id:scope,source_cut:cut,reorg_epoch:'0',observed_at_tick:String(revision+1),world_bounds:clone(bounds),source_binding:sourceBinding(),source_frozen:false,request_generation,relations:[],aggregates:[],events:[],unavailable_reasons:[]});
   const snapshot = () => ({version:3,chunk_generation_schema_version:1,time:revision+1,config:{space:{width_cm:1000000,depth_cm:1000000,height_cm:100000}},model:{agents:{},locations:{},agent_player_bindings:{},agent_player_public_key_bindings:{}},runtime_snapshot:null,player_gameplay:null,pending_actions:[],journal_len:0});
@@ -51,7 +52,8 @@ export function createDensityFixture() {
     if(!next)remember(baselines,view.resume_cursor,{cut,world,scope,key,connection,sequence:String(sequence)});
     return {type:'world_view',view};
   }
-  return {reply,log,snapshot,description:()=>({world,scope,cut,mode,entityCount:1000-removed.size,labelStyle,snapshotAgents:0,controlledOnly:true}),
+  return {reply,log,snapshot,description:()=>({world,scope,cut,mode,entityCount:1000-removed.size,labelStyle,snapshotAgents:0,controlledOnly:true,resourceRevision}),
+    advanceResources(){resourceRevision++;cut='qa-perf-'+(++revision);sequence++;},
     setLabelStyle(style){if(!['normal','empty'].includes(style))throw Error('invalid label style');labelStyle=style;cut='qa-label-'+(++revision);},
     remove(id){removed.add(id);cut='qa-cut-'+(++revision+1);sequence++;},
     restore(){removed.clear();cut='qa-cut-'+(++revision+1);sequence++;},
