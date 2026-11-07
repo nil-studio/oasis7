@@ -56,12 +56,13 @@ def terrain(root, profile):
 def runtime(root, profile, metadata, material):
     a = json.loads(metadata)
     c = a["canvas"]
-    scale = a["dpr"]
     step = max(1, min(c["width"] // 640, c["height"] // 360))
     ux, uy = step * c["cssWidth"] / c["width"], step * c["cssHeight"] / c["height"]
     cx, cy = c["cssWidth"] / 2, c["cssHeight"] / 2
     shots = {phase: Image.open(root / f"{profile}-runtime-{material}-{phase}.png").convert("RGB")
              for phase in ["initial", "absent", "restored", "deleted", "recreated"]}
+    scale = shots["initial"].width / a["viewport"]["width"]
+    assert shots["initial"].height / a["viewport"]["height"] == scale
     source = Image.open(root / f"{material}-source.png").convert("RGBA")
     if material == "depot":
         phases = {}
@@ -100,8 +101,8 @@ def runtime(root, profile, metadata, material):
             matched = total = transparent = unchanged = changed = 0
             for py in range(math.ceil((cy - 20) * scale), math.floor((cy + 20) * scale)):
                 for px in range(math.ceil((cx - 20) * scale), math.floor((cx + 20) * scale)):
-                    sample_x = (math.floor(px / step) + 0.5 + phase_x) * ux
-                    sample_y = (math.floor(py / step) + 0.5 + phase_y) * uy
+                    sample_x = (math.floor((px + 0.5) / scale * c["width"] / c["cssWidth"] / step) + 0.5 + phase_x) * ux
+                    sample_y = (math.floor((py + 0.5) / scale * c["height"] / c["cssHeight"] / step) + 0.5 + phase_y) * uy
                     tx = min(15, max(0, math.floor((sample_x - cx + 21) / 42 * 16)))
                     ty = min(15, max(0, math.floor((sample_y - cy + 21) / 42 * 16)))
                     rgba = source.getpixel((tx, ty))
