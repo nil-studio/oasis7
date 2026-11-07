@@ -1,5 +1,16 @@
 //! Relay only after the real dispatcher and request-bound signature verifier complete.
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
+pub fn capture(reader: &mut impl Read) -> io::Result<Vec<u8>> {
+    let mut response = Vec::new();
+    reader
+        .take(16 * 1024 * 1024 + 1)
+        .read_to_end(&mut response)?;
+    assert!(
+        response.len() <= 16 * 1024 * 1024,
+        "Read response capture exceeds bound"
+    );
+    Ok(response)
+}
 pub fn relay(output: &mut impl Write, bytes: &[u8], verified: bool) -> io::Result<bool> {
     match output.write_all(bytes) {
         Err(error)
@@ -17,6 +28,15 @@ pub fn relay(output: &mut impl Write, bytes: &[u8], verified: bool) -> io::Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capture_preserves_bytes_and_rejects_oversized_response() {
+        assert_eq!(
+            capture(&mut &b"original response"[..]).unwrap(),
+            b"original response"
+        );
+        let oversized = vec![0; 16 * 1024 * 1024 + 1];
+        assert!(std::panic::catch_unwind(|| capture(&mut oversized.as_slice())).is_err());
+    }
     struct Closed;
     impl Write for Closed {
         fn write(&mut self, _: &[u8]) -> io::Result<usize> {

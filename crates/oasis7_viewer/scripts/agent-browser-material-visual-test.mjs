@@ -4,6 +4,7 @@ import { resolve, extname, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { materialRecoveryHook, runMaterialRecovery } from './pixel-world-material-recovery.mjs';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 
 // Controlled material fixture evidence; no live authorization/world outcome claim.
@@ -16,7 +17,7 @@ const source = git(['rev-parse', process.env.AGENT_VISUAL_SOURCE_HEAD + '^{commi
 const out = resolve(repo, 'output/playwright/pixel-world-materials', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(out, { recursive: true });
 const scope = process.env.MATERIAL_VISUAL_SCOPE || 'all';
-if (!['all', 'factory', 'terrain', 'runtime'].includes(scope)) throw Error('unsupported MATERIAL_VISUAL_SCOPE');
+if (!['all', 'factory', 'terrain', 'runtime', 'recovery'].includes(scope)) throw Error('unsupported MATERIAL_VISUAL_SCOPE');
 const requestedCase = process.env.AGENT_VISUAL_CASE || 'all';
 if (!['all', 'desktop', 'narrow', 'dpr2'].includes(requestedCase)) throw Error('unsupported AGENT_VISUAL_CASE');
 const session = `pixel-material-${process.pid}`;
@@ -50,6 +51,7 @@ async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
 }
 let runtimeInput;
+let recoveryPhase="known";
 // Local QA page uses the existing public mount/update ABI; no production hook,
 // action endpoint or authorization path is added. Input originates at the gated fixture.
 const runtimeHtml = `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}canvas{width:100%;height:100%}</style></head><body><canvas id="pixel-world-embedded-runtime-canvas"></canvas><script type="module">import{createPixelWorldBridge}from'/pixel-world-bridge/webgl2/pixel_world_bridge.js';window.events=[];window.fatal=null;window.s=await(await fetch('/material-runtime.json')).json();window.bridge=await createPixelWorldBridge({onEvent:e=>{events.push(e);if(e.type==='camera_state_changed')window.camera=e.camera},onFatal:e=>window.fatal=e});window.mountResult=bridge.mount(document.querySelector('canvas'),s);</script></body></html>`;
@@ -59,11 +61,16 @@ const server = createServer((req, res) => {
   if(pathname === '/material-runtime.html'){res.writeHead(200,{'Content-Type':'text/html'});res.end(runtimeHtml);return;}
   const file = resolve(root, '.' + (pathname==='/'?'/viewer.html':pathname));
   if(relative(root,file).startsWith('..')) {res.writeHead(403);res.end();return;}
-  try { const bytes=readFileSync(file);res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
+  try { let bytes=readFileSync(file);if(scope==='recovery'&&extname(file)==='.html')bytes=Buffer.from(bytes.toString().replace('</head>',`<script>${materialRecoveryHook(recoveryPhase)}</script></head>`));res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
 });
 try {
  await new Promise(done=>server.listen(0,'127.0.0.1',done));lifecycle.prepare();
  const url=`http://127.0.0.1:${server.address().port}/viewer.html?test_api=1&connect=0&locale=zh&pixel_world_visual_fixture=material_shells`;
+ if(scope==='recovery') {
+  summary.controlledOverrides={source:'pixel-world-material-recovery.mjs HTTP fixture wrapper',freshInputPerReload:true};
+  summary.limitations=['受控fixture重新装载当前输入，不代签真实服务授权或原操作身份','实际context loss与显式Reload；本项无正式P6预算声明'];
+  await runMaterialRecovery({run,evaluate,state,waitFor,assert,out,url,requestedCase,summary,setPhase:p=>recoveryPhase=p,oracle});
+ }
  if (scope === 'all' || scope === 'factory') for(const [name,w,h,d] of [['desktop',1440,1000,1],['narrow',390,844,1],['dpr2',1440,1000,2]].filter(([name]) => requestedCase === 'all' || requestedCase === name)) {
   await run(['open',url]);await run(['set','viewport',String(w),String(h),String(d)]);
   await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(url)}),50);true`);await run(['wait','500']);await waitFor(`(${read}).ready`);

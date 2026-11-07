@@ -158,10 +158,66 @@ def runtime(root, profile, metadata, material):
             "sourcePixelMatch": best, "deletionChangedPixels": deletion_changed, "roi": roi, "exactRestoration": restoration}
 
 
+def recovery(root, profile, metadata):
+    row = json.loads(metadata)
+    phases = row["phases"]
+    shots = {p: Image.open(root / f"{profile}-recovery-{p}.png").convert("RGB") for p in phases}
+    first = phases["initial"]
+    c = first["canvas"]
+    step = max(1, min(c["width"] // 640, c["height"] // 360))
+    ux, uy = step*c["cssWidth"]/c["width"], step*c["cssHeight"]/c["height"]
+    scale = shots["initial"].width / first["viewport"]["width"]
+    results = {}
+    for material, key, size in [("smelter", "module:material-smelter", 48), ("depot", "location:loc-recovery-depot", 32)]:
+        source = Image.open(root / f"{material}-source.png").convert("RGBA")
+        points = [(x,y,source.getpixel((x,y))) for y in range(size) for x in range(size)
+                  if source.getpixel((x,y))[3] == 255 and (material == "smelter" or (y >= 24 and x < 24) or (6 <= x < 8 and 18 <= y < 22))]
+        expected_colors = {v[:3] for _,_,v in points}
+        rows = {}
+        # Location is a native production projection of the depot anchor. Its
+        # deterministic <=12000cm offset is bounded by 12CSS in this fixture.
+        # The existing Location lower-right corner frame overlaps the source
+        # right quarter; exclude that geometric region, retain all eight colors.
+        for phase, state in phases.items():
+            anchor = state["anchors"].get(key) or first["anchors"][key]
+            shot = shots[phase]
+            best = {"matched": -1}
+            offsets = range(-12,13) if material == "depot" else [0]
+            for dy in offsets:
+                for dx in offsets:
+                    colors = set(); matched = 0
+                    for x,y,rgba in points:
+                        px = math.floor((anchor["x"]+dx+(x-size/2+.5)*ux)*scale)
+                        py = math.floor((anchor["y"]+dy+(y-size/2+.5)*uy)*scale)
+                        if 0 <= px < shot.width and 0 <= py < shot.height and all(abs(shot.getpixel((px,py))[ch]-rgba[ch]) <= 3 for ch in range(3)):
+                            matched += 1; colors.add(rgba[:3])
+                    if matched > best["matched"]:
+                        best = {"matched":matched,"total":len(points),"ratio":matched/len(points),"offsetCSS":[dx,dy],"matchedColors":[list(v) for v in sorted(colors)]}
+            best["passed"] = best["ratio"] <= .05 if phase == "removed" else best["ratio"] >= (.9 if material == "smelter" else .95) and len(best["matchedColors"]) == len(expected_colors)
+            rows[phase] = best
+        results[material] = {"sourceRegions": [[0,0,48,48]] if material == "smelter" else [[0,24,24,32],[6,18,8,22]], "presentMinimum": .9 if material == "smelter" else .95, "absentMaximum": .05, "anchorSearchCSS": 12 if material == "depot" else 0, "expectedColors":[list(v) for v in sorted(expected_colors)],"phases":rows,"passed":all(v["passed"] for v in rows.values())}
+    # Fixed sidebands avoid the one-character location label/central marker.
+    # This checks composition restoration, not independent ore source consumption
+    # (that remains the separately recorded same-base runtime PNG oracle).
+    anchor = first["anchors"]["location:loc-recovery-ore"]
+    pixels = [(math.floor((anchor["x"]+x+.5)*scale),math.floor((anchor["y"]+y+.5)*scale))
+              for y in range(-18,18) for x in list(range(-18,-12))+list(range(12,18))]
+    baseline = [shots["initial"].getpixel(p) for p in pixels]
+    ore = {}
+    for phase, shot in shots.items():
+        equal = sum(all(abs(shot.getpixel(p)[ch]-v[ch]) <= 3 for ch in range(3)) for p,v in zip(pixels,baseline))
+        ratio = equal/len(pixels)
+        ore[phase] = {"equal":equal,"total":len(pixels),"ratio":ratio,"passed":ratio <= .25 if phase == "removed" else ratio >= .95}
+    results["oreComposition"] = {"scope":"sideband composition restoration; independent source PNG proof stays in runtime oracle", "baselineColors":len(set(baseline)),"phases":ore,"passed":len(set(baseline)) >= 5 and all(v["passed"] for v in ore.values())}
+    return {"passed":all(v["passed"] for v in results.values()),"unitCSS":[ux,uy],"materials":results}
+
+
 if __name__ == "__main__":
     mode, directory, profile, *extra = sys.argv[1:]
     root = Path(directory)
-    if mode.startswith("runtime-"):
+    if mode == "recovery":
+        result = recovery(root, profile, *extra)
+    elif mode.startswith("runtime-"):
         result = runtime(root, profile, *extra, mode.removeprefix("runtime-"))
     else:
         result = factory(root, profile, *extra) if mode == "factory" else terrain(root, profile)

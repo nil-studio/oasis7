@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+use std::io::Read as _;
+
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if args.first().map(String::as_str) == Some("dev-test-local-serve") {
         #[cfg(target_os = "linux")]
@@ -30,7 +33,6 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     match (args[0].as_str(), args[1].as_str()) {
         #[cfg(target_os = "linux")]
         ("dev-test-local-call", "--socket") => {
-            use std::io::Read;
             let mut body = Vec::new();
             std::io::stdin()
                 .take(65537)

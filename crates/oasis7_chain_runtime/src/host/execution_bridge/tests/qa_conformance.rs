@@ -476,18 +476,7 @@ impl Fixture {
                     read_reader = Some(thread::spawn(move || {
                         let _failure_scope = failure::Scope::enter(context);
                         failure::at(FailureStage::CaptureRead);
-                        let mut response = Vec::new();
-                        failure::observe_io(
-                            (&mut peer)
-                                .take(16 * 1024 * 1024 + 1)
-                                .read_to_end(&mut response),
-                        )
-                        .unwrap();
-                        assert!(
-                            response.len() <= 16 * 1024 * 1024,
-                            "Read response capture exceeds bound"
-                        );
-                        response
+                        failure::observe_io(response_relay::capture(&mut peer)).unwrap()
                     }));
                     capture.accept().unwrap().0
                 } else if tamper || capture_ack || gated_ack.is_some() {
