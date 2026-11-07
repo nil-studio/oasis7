@@ -21897,6 +21897,14 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	});
 	return controller;
 }
+// software_safe_src/pixel_world_host_selection.js
+function createPixelWorldHostSelection(revision, spatial) {
+	return createMemo(() => {
+		revision();
+		spatial.state();
+		return spatial.selection();
+	});
+}
 // software_safe_src/pixel_world_world_view_evolution.jsx
 var _tmpl$$35 = /*#__PURE__*/ template(`<section><h4>`);
 var _tmpl$2$32 = /*#__PURE__*/ template(`<section><h4></h4><p>`);
@@ -26049,16 +26057,13 @@ function PixelWorldHost(props) {
 	const rendererRoute = resolvePixelWorldRendererRoute();
 	const [coreRevision, setCoreRevision] = createSignal(0);
 	const [worldRevision, setWorldRevision] = createSignal(0);
-	const selectedEntity = () => {
-		coreRevision();
-		return spatial.selection();
-	};
 	const spatial = createPixelWorldSpatialController({
 		core: legacy_core_exports,
 		enabled: () => state.viewerProtocol?.capabilities?.includes("world_view"),
 		getLocale: locale,
 		getRenderState: () => rustRenderState()
 	});
+	const selectedEntity = createPixelWorldHostSelection(coreRevision, spatial);
 	const worldViewState = spatial.state, navigation = spatial.navigation;
 	const spatialSupported = () => {
 		coreRevision();
