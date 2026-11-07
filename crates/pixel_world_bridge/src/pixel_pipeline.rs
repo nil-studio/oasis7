@@ -31,9 +31,12 @@ pub(super) fn sync_canvas_backing(mut windows: Query<&mut Window, With<PrimaryWi
                 .ok()??
                 .dyn_into::<HtmlCanvasElement>()
                 .ok()?;
-            let rect = canvas.parent_element()?.get_bounding_client_rect();
+            // Restore parent-driven CSS before measuring: Winit may have written
+            // the previous pixel size inline. Measure the canvas content itself,
+            // not its parent's border box (normal mode has a 1px stage border).
             let _ = canvas.style().set_property("width", "100%");
             let _ = canvas.style().set_property("height", "100%");
+            let rect = canvas.get_bounding_client_rect();
             desired_frame(
                 DVec2::new(rect.width(), rect.height()),
                 browser.device_pixel_ratio(),
@@ -59,7 +62,7 @@ pub(super) fn window_layout(window: &Window) -> Option<PixelLayout> {
             .ok()??
             .dyn_into::<HtmlCanvasElement>()
             .ok()?;
-        let rect = canvas.parent_element()?.get_bounding_client_rect();
+        let rect = canvas.get_bounding_client_rect();
         Some((
             DVec2::new(rect.width(), rect.height()),
             UVec2::new(canvas.width(), canvas.height()),
