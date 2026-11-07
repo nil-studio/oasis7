@@ -30,6 +30,7 @@ mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
 mod test_hit_targets;
+mod world_strokes;
 
 #[cfg(test)]
 use test_hit_targets::hotspot_test_hit_targets;
@@ -408,6 +409,7 @@ struct BevyRuntimeState {
     camera_fit_version: u64,
     last_canvas_size: Option<(u32, u32)>,
     last_canvas_css: Option<(f64, f64)>,
+    last_pixel_layout: Option<pixel_pipeline::PixelLayout>,
     camera_user_override: bool,
     pending_focus_target: Option<FocusTarget>,
     pending_fit_bounds: Option<Value>,

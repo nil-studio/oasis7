@@ -201,3 +201,91 @@ fn directional_social_links_add_destination_chevrons_without_new_hit_regions() {
         "directional relation markers must change the deterministic raster signature"
     );
 }
+
+#[test]
+fn social_stroke_and_endpoint_use_the_world_logical_pixel_unit() {
+    let mut app = render_test_app(social_state());
+    {
+        let world = app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .resolution
+            .set(1280.0, 720.0);
+    }
+    app.update();
+    let world = app.world_mut();
+    let mut count = 0;
+    for (visual, sprite) in world
+        .query::<(&PixelWorldSocialLinkVisual, &Sprite)>()
+        .iter(world)
+    {
+        let size = sprite.custom_size.unwrap();
+        if visual.part == SocialLinkPart::Line {
+            assert!((size.y - 3.0).abs() < 0.001);
+        } else {
+            assert_eq!(size, Vec2::splat(10.0));
+        }
+        count += 1;
+    }
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn same_css_dpr_change_reconciles_world_units_and_grid() {
+    let mut app = render_test_app(social_state());
+    {
+        let world = app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .resolution
+            .set(390.0, 844.0);
+        world.resource_mut::<BevyRuntimeState>().reactive_scheduling = true;
+    }
+    app.update();
+    let before_grid = app
+        .world_mut()
+        .resource::<BevyRuntimeState>()
+        .grid_layout
+        .clone();
+    {
+        let world = app.world_mut();
+        let mut window = world.query::<&mut Window>().single_mut(world).unwrap();
+        window.resolution.set_scale_factor_override(Some(2.0));
+        window.resolution.set_physical_resolution(780, 1688);
+        let mut runtime = world.resource_mut::<BevyRuntimeState>();
+        runtime.needs_reconcile = false;
+        runtime.animation_dirty = false;
+    }
+    app.update();
+    let world = app.world_mut();
+    assert_ne!(
+        world.resource::<BevyRuntimeState>().grid_layout,
+        before_grid
+    );
+    for (visual, sprite) in world
+        .query::<(&PixelWorldSocialLinkVisual, &Sprite)>()
+        .iter(world)
+    {
+        if visual.part == SocialLinkPart::Line {
+            assert!((sprite.custom_size.unwrap().y - 0.75).abs() < 0.001);
+        }
+    }
+    for (_, sprite) in world
+        .query::<(&PixelWorldAgentVisual, &Sprite)>()
+        .iter(world)
+    {
+        assert_eq!(sprite.custom_size, Some(Vec2::splat(8.0)));
+    }
+    assert!(
+        world
+            .resource::<BevyRuntimeState>()
+            .hit_regions
+            .iter()
+            .filter(|hit| hit.kind == "agent")
+            .all(|hit| (hit.right - hit.left - 8.0).abs() < 0.001)
+    );
+}
