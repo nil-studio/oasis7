@@ -31,9 +31,9 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
       'Pagination may expose legitimate partial scenes; monitor retains these periods separately from dense input samples.',
       'No follow/stop, real WorldFeed burst, 50k query, cold/hot or 30-minute memory claim.'] };
   const dense = async () => {
-    await waitProjection(1000);
-    await evaluate(`(async()=>{const end=Date.now()+10000;while(Date.now()<end){const m=window.__QA_READ_METRICS__();if(m.status==='observed'&&m.in_view_agent_body_sprites===1000&&m.laid_out_in_view_labels===200)return true;await new Promise(r=>setTimeout(r,25));}throw Error('dense label/Sprite layout did not settle')})()`);
-    const row = await json(densityExpression); assertDensity(row); evidence.density.push(row); return row;
+    const cut = fixture.description().cut;
+    const row = await json(`(async()=>{const end=Date.now()+10000;let row;while(Date.now()<end){row=${densityExpression};const m=row.metrics;if(m.status==='observed'&&m.source_cut===${JSON.stringify(cut)}&&row.targets===1000&&m.projected_marker_count===1000&&m.agent_body_sprites===1000&&m.in_view_agent_body_sprites===1000&&m.laid_out_in_view_labels===200)return JSON.stringify(row);await new Promise(r=>setTimeout(r,25));}throw Error('dense frame did not settle: '+JSON.stringify(row))})()`);
+    assertDensity(row); evidence.density.push(row); return row;
   };
   const gesture = async index => {
     const sign = index % 4 < 2 ? 1 : -1, type = index % 2 ? 'zoom' : 'pan';
