@@ -37,4 +37,11 @@ describe("finite display profiles",()=>{
   expect(bytes).toBeGreaterThan(256*1024);
   expect(bytes).toBeLessThanOrEqual(2*1024*1024);
  });
+ it("retains bounded relations without reapplying the legacy 500 array ceiling",()=>{
+  const input={worldView:view(2)};
+  input.worldView.relations=Array.from({length:998},(_,i)=>({relation_id:`R${i}`,kind:"test_relation",from:{kind:"agent",id:"A0"},to:{kind:"agent",id:"A1"}}));
+  const dto=projectPixelWorldRenderInput(input);
+  expect(dto.worldView.entities).toHaveLength(2);
+  expect(dto.worldView.relations).toHaveLength(998);
+ });
 });

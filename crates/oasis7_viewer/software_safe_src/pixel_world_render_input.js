@@ -80,7 +80,7 @@ function projectOnce(input, markerLimit) {
     entities: budget.selected.filter(item=>["agents","locations","modules"].includes(item.group)).map(item=>copy(item.get(),{...fields("entity_id kind"),render_record:entity,provenance})),
     aggregates:pick("aggregates").map(item=>copy(item.get(),{...fields("aggregate_id label member_count"),position,bounds:fields("min_x_cm max_x_cm min_y_cm max_y_cm min_z_cm max_z_cm"),provenance})),
     events:pick("events").map(item=>copy(item.get(),{...fields("event_id source_class source_cut freshness label"),identity,feed_ref:identity,position})),
-    relations: copy(relations.filter(item=>budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0,MAX_ITEMS),{...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),from:relationEndpoint,to:relationEndpoint}),
+    relations: copy(relations.filter(item=>budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0,profile.markers),{...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),from:relationEndpoint,to:relationEndpoint}),
   } : null;
   const social = raw(model.social_edges) || {};
   const socialKeys = Object.keys(social).sort();
