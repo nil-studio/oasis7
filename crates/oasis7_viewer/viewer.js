@@ -65,7 +65,7 @@ function createRoot(fn, detachedOwner) {
 		cleanups: null,
 		context: current ? current.context : null,
 		owner: current
-	}, updateFn = unowned ? fn : () => fn(() => untrack(() => cleanNode(root)));
+	}, updateFn = unowned ? fn : () => fn(createDisposer(root));
 	Owner = root;
 	Listener = null;
 	try {
@@ -74,6 +74,9 @@ function createRoot(fn, detachedOwner) {
 		Listener = listener;
 		Owner = owner;
 	}
+}
+function createDisposer(root) {
+	return () => untrack(() => cleanNode(root));
 }
 function createSignal(value, options) {
 	options = options ? Object.assign({}, signalOptions, options) : signalOptions;
@@ -24658,17 +24661,23 @@ function rendererEntityTargetStyle(entity, worldBounds, size, camera, screenOffs
 	const rendererWidth = Number(rendererSize?.width) || width;
 	const rendererHeight = Number(rendererSize?.height) || height;
 	const idLength = new TextEncoder().encode(entity.id || "").length;
-	const point = toCanvasPoint(entity.pos, worldBounds, rendererWidth, rendererHeight, camera) || toCanvasPoint({
-		x_cm: 36 + idLength * 29 % Math.max(40, rendererWidth - 72),
-		y_cm: 44 + idLength * 17 % Math.max(48, rendererHeight - 88)
+	const point = toCanvasPoint(entity.pos, worldBounds, width, height, camera) || toCanvasPoint({
+		x_cm: 36 + idLength * 29 % Math.max(40, width - 72),
+		y_cm: 44 + idLength * 17 % Math.max(48, height - 88)
 	}, {
-		width_cm: rendererWidth,
-		depth_cm: rendererHeight
-	}, rendererWidth, rendererHeight, camera);
-	const offsetScaleX = rendererWidth / width;
-	const offsetScaleY = rendererHeight / height;
-	const x = (point.x + (Number(screenOffset?.x) || 0) * offsetScaleX) / rendererWidth * width;
-	const y = (point.y + (Number(screenOffset?.y) || 0) * offsetScaleY) / rendererHeight * height;
+		width_cm: width,
+		depth_cm: height
+	}, width, height, camera);
+	const scale = Math.max(1, Math.floor(Math.min(rendererWidth / 640, rendererHeight / 360)));
+	const snap = (value, pan, css, frame) => {
+		const logical = Math.floor(frame / scale);
+		const offset = Math.floor((frame - scale * logical) / 2);
+		const t = pan / (css / frame * scale);
+		const q = (value * frame / css - offset) / scale;
+		return (Math.floor(q - t + Math.floor(t + .5) + .5) * scale + offset) * css / frame;
+	};
+	const x = snap(point.x, Number(camera?.pan_x_px ?? camera?.panX) || 0, width, rendererWidth) + (Number(screenOffset?.x) || 0);
+	const y = snap(point.y, Number(camera?.pan_y_px ?? camera?.panY) || 0, height, rendererHeight) + (Number(screenOffset?.y) || 0);
 	const halfTarget = RENDERER_TARGET_SIZE_PX / 2;
 	return {
 		left: `${x / width * 100}%`,
