@@ -1,3 +1,4 @@
+import {continuePreparedBaseline} from './fixtures/setup_baseline_settlement.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash,createPrivateKey,createPublicKey,sign} from 'node:crypto';
@@ -254,7 +255,7 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       assert.equal(initial.stage,'participant_bound');
     }
     const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
-    const setupProgress=await json(await runtime.continueSetup(setup.setup_id));
+    const setupProgress=await json(await continuePreparedBaseline(runtime,setup));
     if(setupProgress.stage!=='prepared') {
       const observedAt=Date.now(),native_requests=runtime.nativeRequests();await runtime.suspend();
       console.error(JSON.stringify({baseline_setup_failure:{native_requests,state:baselineFailureState(runtime,observedAt)}}));
