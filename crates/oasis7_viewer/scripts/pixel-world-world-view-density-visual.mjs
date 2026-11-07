@@ -29,7 +29,7 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const files = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(resolve(dir, e.name)) : [resolve(dir, e.name)]);
 const manifest = () => Object.fromEntries(files(root).sort().map(p => [relative(root, p), { bytes: readFileSync(p).length, sha256: sha(readFileSync(p)) }]));
 const assets = manifest(), fixture = createDensityFixture();
-const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), assets, scripts: Object.fromEntries(['pixel-world-world-view-density-visual.mjs', 'world-view-density-fixture.mjs', 'world-view-label-oracle.py'].map(n => [n, sha(readFileSync(resolve(here, n)))])), scope, dpr, controlledTransport: true, realServiceAuthority: false, phases: {}, limitations: ['Read-only controlled WS peer; not signed WorldService, genuine revocation, grants or P5 operation identity.', 'Text2d counts/layout are not GPU fences; paired canvas pixels are checked separately.', 'Single visual probe, not P6 timing/A-B/cold/long-stability acceptance.', 'A legacy capability downgrade is expected to clear/lock without a new authorization proof; this does not claim legitimate legacy reauthorization.'] };
+const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), assets, scripts: Object.fromEntries(['pixel-world-world-view-density-visual.mjs', 'world-view-density-fixture.mjs', 'world-view-label-oracle.py'].map(n => [n, sha(readFileSync(resolve(here, n)))])), scope, dpr, controlledTransport: true, realServiceAuthority: false, observerDebugProbe: { deploymentMode: 'trusted_local_only', hostname: 'density-qa.localhost', hostedGate: 'hosted_public_join requires real login; this probe does not validate the ordinary player entry' }, phases: {}, limitations: ['Read-only controlled WS peer; not signed WorldService, genuine revocation, grants or P5 operation identity.', 'Text2d counts/layout are not GPU fences; paired canvas pixels are checked separately.', 'Single visual probe, not P6 timing/A-B/cold/long-stability acceptance.', 'A legacy capability downgrade is expected to clear/lock without a new authorization proof; this does not claim legitimate legacy reauthorization.'] };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = `world-view-density-${process.pid}`;
 const lifecycle = createOwnedSessionLifecycle({ command, session });
 const run = args => new Promise((yes, no) => {
@@ -63,7 +63,10 @@ const httpServer = createServer((req, res) => {
       const html = bytes.toString(), pattern = /<script\b[^>]*id=["']oasis7-viewer-runtime-config["'][^>]*>[\s\S]*?<\/script>/gi;
       const configCount = (html.match(pattern) || []).length;
       assert(configCount <= 1, 'duplicate trusted runtime config');
-      const config = { deploymentMode: 'hosted_public_join', viewerWsEndpoint: `ws://127.0.0.1:${httpServer.address().port}/qa-world-ws` };
+      // Controlled observer/debug probe only, outside the ordinary player flow.
+      // This owned localhost subdomain
+      // is not the exact-loopback automatic local-player issuance lane.
+      const config = { deploymentMode: 'trusted_local_only', viewerWsEndpoint: `ws://density-qa.localhost:${httpServer.address().port}/qa-world-ws` };
       const configScript = `<script id="oasis7-viewer-runtime-config" type="application/json">${JSON.stringify(config)}</script>`;
       bytes = Buffer.from(configCount ? html.replace(pattern, configScript) : html.replace('</head>', configScript + '</head>'));
     }
@@ -127,6 +130,10 @@ function actualGeometry(row) {
   assert(camera && ['zoom', 'pan_x_px', 'pan_y_px'].every(key => Number.isFinite(camera[key])), 'actual camera observation missing');
   return { camera, viewport: row.viewport, canvas: row.canvas, dpr: row.dpr, scrollX: row.scrollX, scrollY: row.scrollY };
 }
+function assertGuest(row) {
+  assert(row.core?.authReady === false && row.core?.authPlayerId === null && row.core?.authPublicKey === null
+    && row.core?.authRegistrationStatus === 'guest' && row.core?.authBoundAgentId === null, 'controlled observer probe acquired a player identity');
+}
 async function capture(name, labels = false) {
   await waitProjection(1000);
   if (labels) await waitFor(`(${browserState}).metrics.laid_out_in_view_labels===200&&(${browserState}).metrics.label_layouts?.length===200`);
@@ -134,6 +141,7 @@ async function capture(name, labels = false) {
   try {
     await run(['wait', '1200']); const before = await state();
     const shot = resolve(out, name + '.png'); await run(['screenshot', '--full', shot]); const after = await state();
+    assertGuest(before); assertGuest(after);
     assert(before.metrics.status === 'observed' && after.metrics.status === 'observed', 'capture borrowed an unobserved frame');
     assert([before, after].every(row => row.metrics.agent_body_sprites === 1000 && row.metrics.in_view_agent_body_sprites === 1000), 'actual rendered/in-view Agent body count was not1000');
     assert(before.metrics.render_version === after.metrics.render_version && before.metrics.source_cut === after.metrics.source_cut, 'capture crossed render version/source cut');
@@ -191,9 +199,9 @@ function labelOnlyInvariant(captures) {
 }
 try {
   await new Promise(done => httpServer.listen(0, '127.0.0.1', done)); lifecycle.prepare();
-  const url = `http://127.0.0.1:${httpServer.address().port}/viewer.html?test_api=1&connect=1&hosted_bootstrap=0&locale=en`;
+  const url = `http://density-qa.localhost:${httpServer.address().port}/viewer.html?test_api=1&connect=1&hosted_bootstrap=0&locale=en`;
   await run(['open', 'about:blank']); await run(['set', 'viewport', '1440', '1000', String(dpr)]); await run(['open', url]); await attachMetrics();
-  await waitProjection(800); summary.partial = await state();
+  await waitProjection(800); summary.partial = await state(); assertGuest(summary.partial);
   assert(held.some(x => x.response.view?.entities?.length === 200), 'last200-page was not actually held');
   holdLastPage = false; release(); await overview(); await waitProjection(1000); await zoomForLabels(); await waitProjection(1000);
   const css = await evaluate(`(async()=>{const l=[...document.querySelectorAll('link[rel=stylesheet]')].find(l=>l.href.includes('viewer_terminal_shell.css')),r=l?await fetch(l.href):null,t=document.querySelector('.pixel-world-renderer-target:not([data-selected=true])'),s=t?getComputedStyle(t):null;return{status:r?.status,mime:r?.headers.get('content-type'),rules:l?.sheet?.cssRules.length,background:s?.backgroundColor,border:s?.borderTopColor,shadow:s?.boxShadow}})()`);
