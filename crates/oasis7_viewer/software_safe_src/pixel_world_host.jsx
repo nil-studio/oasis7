@@ -835,12 +835,12 @@ export function PixelWorldHost(props) {
   const rendererRoute = resolvePixelWorldRendererRoute();
   const [coreRevision, setCoreRevision] = createSignal(0);
   const [worldRevision, setWorldRevision] = createSignal(0);
-  const selectedEntity = () => {
-    coreRevision();
-    return spatial.selection();
-  };
   const spatial = createPixelWorldSpatialController({core,enabled:()=>core.state.viewerProtocol?.capabilities?.includes("world_view"),
     getLocale:locale,getRenderState:()=>rustRenderState()});
+  const selectedEntity = createMemo(() => {
+    coreRevision();
+    return spatial.selection();
+  });
   const worldViewState = spatial.state, navigation = spatial.navigation;
   const spatialSupported = () => {
     coreRevision();
