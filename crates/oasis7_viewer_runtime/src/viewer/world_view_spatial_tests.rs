@@ -531,7 +531,8 @@ fn local_terrain_proof_rejects_modified_and_remote_fragments() {
         .ppm
         .clear();
     assert!(!authority.terrain_current(&altered));
-    let record = crate::viewer::world_view_authority::terrain_render_record(&snapshot.model.locations["l"]);
+    let record =
+        crate::viewer::world_view_authority::terrain_render_record(&snapshot.model.locations["l"]);
     assert!(
         record["fragment_profile"]["blocks"]["blocks"][0]
             .get("density_kg_per_m3")
