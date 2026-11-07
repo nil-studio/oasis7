@@ -62,37 +62,27 @@ pub(super) fn reconcile_links(
         );
         let transform = transform_for_line(from_x, from_y, to_x, to_y, width, height, 0.5);
 
-        let pixel = agent_pixel_scale(width, height);
+        let pixel = world_strokes::pixel_unit(width, height);
         let should_render_direction = is_authoritative_directional_link(link);
         if should_render_direction {
             let delta_x = to_x - from_x;
             let delta_y = to_y - from_y;
             let link_length = (delta_x.powi(2) + delta_y.powi(2)).sqrt();
             if link_length.is_finite() && link_length >= LINK_DIRECTION_MIN_LENGTH_PX {
-                let cue_pixel = pixel.min(Vec2::splat(
-                    (link_length / LINK_DIRECTION_MIN_LENGTH_PX) as f32,
+                let cue_pixel = pixel.min(bevy::math::DVec2::splat(
+                    link_length / LINK_DIRECTION_MIN_LENGTH_PX,
                 ));
                 let direction_x = delta_x / link_length;
                 let direction_y = delta_y / link_length;
-                let tip_x =
-                    to_x - (direction_x * LINK_DIRECTION_BACKOFF_PX * f64::from(cue_pixel.x));
-                let tip_y =
-                    to_y - (direction_y * LINK_DIRECTION_BACKOFF_PX * f64::from(cue_pixel.y));
+                let tip_x = to_x - (direction_x * LINK_DIRECTION_BACKOFF_PX * cue_pixel.x);
+                let tip_y = to_y - (direction_y * LINK_DIRECTION_BACKOFF_PX * cue_pixel.y);
                 let perpendicular_x = -direction_y;
                 let perpendicular_y = direction_x;
                 for (part, side) in [("upper", -1.0), ("lower", 1.0)] {
-                    let tail_x = tip_x
-                        - (direction_x * LINK_DIRECTION_ARM_LENGTH_PX * f64::from(cue_pixel.x))
-                        + (perpendicular_x
-                            * LINK_DIRECTION_HALF_WIDTH_PX
-                            * side
-                            * f64::from(cue_pixel.x));
-                    let tail_y = tip_y
-                        - (direction_y * LINK_DIRECTION_ARM_LENGTH_PX * f64::from(cue_pixel.y))
-                        + (perpendicular_y
-                            * LINK_DIRECTION_HALF_WIDTH_PX
-                            * side
-                            * f64::from(cue_pixel.y));
+                    let tail_x = tip_x - (direction_x * LINK_DIRECTION_ARM_LENGTH_PX * cue_pixel.x)
+                        + (perpendicular_x * LINK_DIRECTION_HALF_WIDTH_PX * side * cue_pixel.x);
+                    let tail_y = tip_y - (direction_y * LINK_DIRECTION_ARM_LENGTH_PX * cue_pixel.y)
+                        + (perpendicular_y * LINK_DIRECTION_HALF_WIDTH_PX * side * cue_pixel.y);
                     let direction_id = format!("{}:direction:{}", link.id, part);
                     active_ids.insert(direction_id.clone());
                     let direction_sprite = sprite_for_rect(

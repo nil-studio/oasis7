@@ -105,7 +105,7 @@ pub(super) fn reconcile_social_links(
                 from_y,
                 to_x,
                 to_y,
-                agent_pixel_scale(width, height),
+                world_strokes::pixel_unit(width, height),
             );
             upsert_line_at_layer(
                 commands,
@@ -191,31 +191,29 @@ fn directional_marker_segments(
     from_y: f64,
     to_x: f64,
     to_y: f64,
-    pixel: Vec2,
+    pixel: bevy::math::DVec2,
 ) -> DirectionalMarkerSegments {
     let dx = to_x - from_x;
     let dy = to_y - from_y;
     let length = (dx * dx + dy * dy).sqrt().max(1.0);
+    let pixel = pixel.min(bevy::math::DVec2::splat(length / SOCIAL_MIN_LINK_LENGTH_PX));
     let ux = dx / length;
     let uy = dy / length;
     let nx = -uy;
     let ny = ux;
     let tip = (to_x, to_y);
-    let base = (
-        to_x - ux * 7.0 * f64::from(pixel.x),
-        to_y - uy * 7.0 * f64::from(pixel.y),
-    );
+    let base = (to_x - ux * 7.0 * pixel.x, to_y - uy * 7.0 * pixel.y);
     let spread = 3.5;
     DirectionalMarkerSegments {
         upper_from: tip,
         upper_to: (
-            base.0 + nx * spread * f64::from(pixel.x),
-            base.1 + ny * spread * f64::from(pixel.y),
+            base.0 + nx * spread * pixel.x,
+            base.1 + ny * spread * pixel.y,
         ),
         lower_from: tip,
         lower_to: (
-            base.0 - nx * spread * f64::from(pixel.x),
-            base.1 - ny * spread * f64::from(pixel.y),
+            base.0 - nx * spread * pixel.x,
+            base.1 - ny * spread * pixel.y,
         ),
     }
 }
@@ -323,8 +321,8 @@ fn upsert_glyph(
         SOCIAL_LINK_LAYER_Z + 0.01,
     ));
     transform.rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_4);
-    let pixel = agent_pixel_scale(glyph.width, glyph.height);
-    let sprite = sprite_for_rect(glyph.color, 5.0 * pixel.x, 5.0 * pixel.y);
+    let size = (world_strokes::pixel_unit(glyph.width, glyph.height) * 5.0).as_vec2();
+    let sprite = sprite_for_rect(glyph.color, size.x, size.y);
     if let Some(entity) = by_key.remove(&key) {
         commands.entity(entity).insert((sprite, transform));
         by_key.insert(key, entity);
@@ -340,5 +338,20 @@ fn upsert_glyph(
             ))
             .id();
         by_key.insert(key, entity);
+    }
+}
+
+#[cfg(test)]
+mod logical_arrow_tests {
+    use super::*;
+    #[test]
+    fn short_social_arrows_stay_between_authoritative_endpoints() {
+        for unit in [0.5, 1.0, 2.0, 6.0] {
+            let arrow =
+                directional_marker_segments(0.0, 0.0, 10.0, 0.0, bevy::math::DVec2::splat(unit));
+            for point in [arrow.upper_to, arrow.lower_to] {
+                assert!(point.0 >= 0.0 && point.0 < 10.0);
+            }
+        }
     }
 }
