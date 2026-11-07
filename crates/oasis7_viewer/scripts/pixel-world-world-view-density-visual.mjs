@@ -111,9 +111,11 @@ async function overview() {
   await run(['click', disclosure + ' > summary']);
 }
 async function zoomForLabels() {
+  summary.zoomSteps ||= [];
   for (let n = 0; n < 12; n++) {
-    const s = await state(); if (s.core?.pixelWorldCamera?.zoom >= 1.75) return;
-    const point = await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect();for(let y=1;y<20;y++)for(let x=1;x<20;x++){const px=r.left+r.width*x/20,py=r.top+r.height*y/20;if(document.elementFromPoint(px,py)===c)return{x:px,y:py}}throw Error('no unobscured canvas for native zoom')})()`);
+    const s = await state(); summary.zoomSteps.push({ camera: s.core?.pixelWorldCamera, canvas: s.canvas, markers: s.metrics.projected_marker_count });
+    if (s.core?.pixelWorldCamera?.zoom >= 1.75) return;
+    const point = await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect(),points=[];for(let y=1;y<20;y++)for(let x=1;x<20;x++){const px=r.left+r.width*x/20,py=r.top+r.height*y/20;if(document.elementFromPoint(px,py)===c)points.push({x:px,y:py,d:(x-10)**2+(y-10)**2})}points.sort((a,b)=>a.d-b.d);if(points.length)return points[0];throw Error('no unobscured canvas for native zoom')})()`);
     await run(['mouse', 'move', String(point.x), String(point.y)]); await run(['mouse', 'wheel', '-100']); await run(['wait', '200']);
   }
   throw Error('native zoom did not reach label producer threshold');
