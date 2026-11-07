@@ -9,10 +9,12 @@ import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifec
 const root = resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(import.meta.dirname, '../.viewer-test-dist'));
 const out = resolve(import.meta.dirname, '../../../output/playwright/pixel-world-agent', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(out, { recursive: true });
+const scope=process.env.AGENT_VISUAL_SCOPE || 'all';
+if(!['all','interaction','recovery'].includes(scope)) throw Error('unsupported AGENT_VISUAL_SCOPE');
 const session = `pixel-agent-${process.pid}`;
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const lifecycle = createOwnedSessionLifecycle({ command, session, prefixArgs: [] });
-const summary = { source: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', expectedPipeline: process.env.AGENT_PIXEL_PIPELINE || 'native', cases: [] };
+const summary = { source: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, expectedPipeline: process.env.AGENT_PIXEL_PIPELINE || 'native', cases: [] };
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]);
@@ -33,20 +35,25 @@ async function waitFor(expression) {
 }
 async function verifyAgentPixels(path) {
   const anchor=JSON.parse(await evaluate(`JSON.stringify((()=>{const r=document.querySelector('button[data-agent-id="agent-0"][data-renderer-target]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`));
-  const program=String.raw`import sys,json
+  const program=String.raw`import sys,json,math
 from PIL import Image
 shot=Image.open(sys.argv[1]).convert('RGB');sprite=Image.open(sys.argv[2]).convert('RGBA');a=json.loads(sys.argv[3]);scale=shot.width/a['width'];f=max(1,min(a['canvasWidth']//640,a['canvasHeight']//360)) if sys.argv[4]=='integer' else 1;ux=f*a['cssWidth']/a['canvasWidth'] if sys.argv[4]=='integer' else 1;uy=f*a['cssHeight']/a['canvasHeight'] if sys.argv[4]=='integer' else 1;matched=total=0
 for y in range(16):
  for x in range(16):
   rgba=sprite.getpixel((x,y))
   if rgba[3]!=255:continue
-  px=round((a['x']+(-8+x+0.5)*ux)*scale);py=round((a['y']+a['scroll']+(-15+y+0.5)*uy)*scale)
+  px=math.floor((a['x']+(-8+x+0.5)*ux)*scale);py=math.floor((a['y']+a['scroll']+(-15+y+0.5)*uy)*scale)
   total+=1
   if 0<=px<shot.width and 0<=py<shot.height and all(abs(shot.getpixel((px,py))[c]-rgba[c])<=3 for c in range(3)):matched+=1
 print(json.dumps({'matched':matched,'total':total,'ratio':matched/max(total,1),'scale':scale}))`;
-  const measured=JSON.parse(execFileSync('python3',['-c',program,path,resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'),JSON.stringify(anchor),summary.expectedPipeline],{encoding:'utf8'}));
-  assert(measured.ratio>=0.9,`shared Agent pixels absent or misaligned: ${JSON.stringify(measured)}`);
-  return measured;
+  let measured;
+  for(let attempt=0;attempt<20;attempt++) {
+    measured=JSON.parse(execFileSync('python3',['-c',program,path,resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'),JSON.stringify(anchor),summary.expectedPipeline],{encoding:'utf8'}));
+    if(measured.ratio>=0.9) return {...measured,attempt};
+    await new Promise(done=>setTimeout(done,200));
+    await run(['screenshot','--full',path]);
+  }
+  throw new Error(`shared Agent pixels absent or misaligned after draw: ${JSON.stringify(measured)}`);
 }
 const server = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -58,7 +65,7 @@ try {
   await new Promise(done=>server.listen(0,'127.0.0.1',done)); lifecycle.prepare();
   const url=`http://127.0.0.1:${server.address().port}/viewer.html?test_api=1&connect=0&locale=zh&pixel_world_visual_fixture=selected_blocker`;
   for(const [name,width,height] of [['desktop',1440,1000],['narrow',390,844],['dpr2',1440,1000]]) {
-    await run(['open',url]); await run(['set','viewport',String(width),String(height),name==='dpr2'?'2':'1']);
+    await run(['set','viewport',String(width),String(height),name==='dpr2'?'2':'1']); await run(['open',url]); await run(['set','viewport',String(width),String(height)]);
     await waitFor(`(${read}).ready`);
     await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('selected_blocker')();const auth=window.__AW_TEST__.getState();const a=s.model.agents['agent-0'];s.model.agents['agent-1']={...a,id:'agent-1',name:'独立观察目标一号长中文名称',pos:{...a.pos,x_cm:a.pos.x_cm+2000000}};for(const id of ['agent-0','agent-1']){s.model.agent_player_bindings[id]=auth.authPlayerId;s.model.agent_player_public_key_bindings[id]=auth.authPublicKey;}s.time=13;window.__OASIS7_AGENT_TEST_SNAPSHOT__=s;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
@@ -67,17 +74,21 @@ try {
     const initialPng=resolve(out,`${name}-initial.png`);
     await run(['screenshot','--full',initialPng]);
     summary.active.initialPixels=await verifyAgentPixels(initialPng);
+    let recovered=null;
+    if(scope!=='interaction') {
     await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');window.__OASIS7_AGENT_LOSS__=gl.getExtension('WEBGL_lose_context');if(!window.__OASIS7_AGENT_LOSS__)throw Error('WEBGL_lose_context unavailable');window.__OASIS7_AGENT_LOSS__.loseContext();return true;})()`);
     await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')`);
     assert((await state()).targets.length===0,'stale Agent targets survived context loss');
     await evaluate(`window.__OASIS7_AGENT_LOSS__.restoreContext();document.querySelector('.pixel-world-render-unavailable__retry').focus({preventScroll:true});true`);
     await run(['press','Enter']); await waitFor(`(${read}).ready`);
-    const recovered=await state();
+    recovered=await state();
     assert(recovered.dto.agents.some(agent=>agent.id==='agent-1'),'authorized Agent missing after renderer recovery');
     summary.active.recovered=recovered;
     const recoveredPng=resolve(out,`${name}-recovered.png`);
     await run(['screenshot','--full',recoveredPng]);
     summary.active.recoveredPixels=await verifyAgentPixels(recoveredPng);
+    }
+    if(scope==='recovery') { summary.cases.push({name,width,height,before,recovered}); continue; }
     const target='button[data-agent-id="agent-0"][data-renderer-target]';
     // Native browser mouse and Enter dispatch go through the real rendered target.
     const other='button[data-agent-id="agent-1"][data-renderer-target]';
@@ -112,7 +123,7 @@ try {
     await run(['screenshot','--full',resolve(out,`${name}-logged-out.png`)]);
     summary.cases.push({name,width,height,before,after,dense,missing,removed,restored,recovered,loggedOut,mouse:true,keyboard:true});
   }
-  summary.status='passed';
+  summary.status=scope==='all'?'passed':'passed_scope_only';
 } catch(error) { summary.status='failed';summary.error=String(error);try{summary.failureState=await state();await run(['screenshot','--full',resolve(out,'failure.png')]);}catch{}throw error; }
 finally {
   try { writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2)); }
