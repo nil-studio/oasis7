@@ -277,6 +277,17 @@ try {
     assert(deniedReplies.length > 0 && deniedReplies.every(row => row.message.view.entities.length === 0), 'scope denial did not produce an actual empty unavailable response');
     summary.denied = { state: await state(), replies: deniedReplies, claim: 'controlled scope query refusal with protocol capability retained; not genuine service revocation' };
     fixture.restoreWorldView(); await reconnect(); await waitNegotiation(true); await waitProjection(1000); summary.restoredScope = await state();
+    const recoveredTarget = await evaluate(`(()=>{const candidates=[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>{const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return{b,id:b.dataset.agentId,x,y,visible:r.width>0&&r.height>0&&x>0&&x<innerWidth&&y>0&&y<innerHeight}}).filter(t=>t.visible&&t.b.dataset.selected!=='true'&&t.b.contains(document.elementFromPoint(t.x,t.y)));candidates.sort((a,b)=>(a.x-innerWidth/2)**2+(a.y-innerHeight/2)**2-((b.x-innerWidth/2)**2+(b.y-innerHeight/2)**2));if(!candidates.length)throw Error('no unobscured Agent after fresh scope recovery');const{id,x,y}=candidates[0];return{id,x,y}})()`);
+    assert(/^qa-agent-\d{4}$/.test(recoveredTarget.id), 'recovered target was not an actual controlled Agent');
+    const recoveredSelector = `button[data-agent-id=${JSON.stringify(recoveredTarget.id)}][data-renderer-target]`;
+    await run(['click', recoveredSelector]);
+    await waitFor(`document.querySelector(${JSON.stringify(recoveredSelector)})?.dataset.selected==='true'`);
+    await waitProjection(1000); const selectedAfterRecovery = await state(); assertGuest(selectedAfterRecovery);
+    assert(selectedAfterRecovery.core.selectedId === null && selectedAfterRecovery.core.selectedKind === null, 'recovered spatial inspection became a business selection');
+    fixture.remove(recoveredTarget.id); await waitProjection(999); const removedAfterRecovery = await state();
+    assert(!removedAfterRecovery.targets.some(target => target.id === recoveredTarget.id), 'recovered selected target survived source deletion');
+    fixture.restore(); await waitProjection(1000); const recreatedAfterRecovery = await state(); assertGuest(recreatedAfterRecovery);
+    summary.recoveredScopeSelection = { target: recoveredTarget, selected: selectedAfterRecovery, removed: removedAfterRecovery, recreated: recreatedAfterRecovery };
     fixture.setLegacy(); await reconnect(); await waitNegotiation(false); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.legacyDowngrade = { state: await state(), claim: 'cleared/locked; no legitimate legacy reauthorization proof supplied' };
     fixture.restoreWorldView(); await reconnect(); await waitNegotiation(true); await waitProjection(1000);
     const origin = await evaluate('performance.timeOrigin');
