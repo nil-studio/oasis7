@@ -172,7 +172,8 @@ echo 'loaded definitions only'
                 self.assertIn(prefix + name, paths)
 
     def invoke(self, profiles, fail=False, fail_protocol=False, fail_expanded=False, cwd=None,
-               real_cargo=False, real_worker_compile=False, environment=None):
+               real_cargo=False, real_worker_compile=False, environment=None,
+               fail_local_fixture=False):
         script = '''set -euo pipefail
 ci_python="$1"; driver_dir="$2"; support_profiles="$3"
 '''
@@ -185,6 +186,8 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
 '''
         if fail_protocol:
             script += 'run() { echo "contract $*"; return 19; }\n'
+        if fail_local_fixture:
+            script += 'run() { echo "contract $*"; [[ "$1" != sudo ]] || return 41; }\n'
         if fail:
             script += 'run_cargo() { return 17; }\n'
         if fail_expanded:
@@ -419,8 +422,45 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('clippy -p oasis7_game_client --all-targets', result.stdout)
         self.assertIn('cargo test -p oasis7_game_client --lib', result.stdout)
+        self.assertIn('cargo test -p oasis7_game_client --test dev_test_service_cli '
+                      '--test dev_test_local_transport --test dev_test_local_cli --locked', result.stdout)
         self.assertNotIn('cargo test -p oasis7 ', result.stdout)
         self.assertNotIn('full-inventory', result.stdout)
+
+    def test_game_client_hosted_cross_uid_failure_prevents_completion(self):
+        environment = dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux',
+                           RUNNER_ENVIRONMENT='github-hosted')
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                result = self.invoke('["oasis7_game_client"]', environment=environment,
+                                     fail_local_fixture=fail)
+                self.assertEqual(result.returncode, 41 if fail else 0, result.stderr)
+                self.assertIn('cargo build -p oasis7_game_client --bin oasis7_game_client --locked',
+                              result.stdout)
+                self.assertIn('sudo -n timeout --signal=TERM --kill-after=5s 60s ' + sys.executable
+                              + ' crates/oasis7_game_client/tests/fixtures/dev_test_local_linux.py '
+                              'target/debug/oasis7_game_client', result.stdout)
+                self.assertEqual('support profile completed' in result.stdout, not fail)
+                self.assertNotIn('NOT EXECUTED', result.stdout)
+        unrelated = self.invoke('["oasis7_agent_harness"]', environment=environment)
+        self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
+        self.assertNotIn('sudo', unrelated.stdout)
+
+    def test_game_client_ci_cannot_silently_skip_missing_isolation(self):
+        for platform, runner in (('', 'github-hosted'), ('macOS', 'github-hosted'),
+                                 ('Linux', ''), ('Linux', 'self-hosted')):
+            with self.subTest(platform=platform, runner=runner):
+                environment = dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS=platform,
+                                   RUNNER_ENVIRONMENT=runner)
+                result = self.invoke('["oasis7_game_client"]', environment=environment)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn('support profile completed', result.stdout)
+                self.assertNotIn('sudo', result.stdout)
+                self.assertNotIn('NOT EXECUTED', result.stdout)
+        local = self.invoke('["oasis7_game_client"]', environment=dict(os.environ, GITHUB_ACTIONS=''))
+        self.assertEqual(local.returncode, 0, local.stderr)
+        self.assertIn('cross-UID fixture NOT EXECUTED locally', local.stderr)
+        self.assertNotIn('sudo', local.stdout)
 
     def test_model_provider_runs_integration_tests_and_strict_clippy(self):
         result = self.invoke(json.dumps(['oasis7_model_provider']))
