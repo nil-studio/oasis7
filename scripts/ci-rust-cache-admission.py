@@ -36,7 +36,7 @@ FAMILIES = {
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
     'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
     'ecs': ('oasis7-ecs-native-linux-ecs-v2', '.github/workflows/ecs-packages.yml', 'native-trusted'),
-    'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/release-packages.yml', 'build-web-dist'),
+    'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/rust-cache.yml', 'web-wasm-cache'),
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-windows': ('release-packages-package-native-Windows-native-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'release-macos': ('release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
@@ -111,7 +111,7 @@ def trusted_writer(environment, api):
     namespace, workflow, job = FAMILIES[family]
     sha, event, run_id = (environment.get(name, '') for name in
                          ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
-    rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint')
+    rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint', 'release-web')
     events = ('schedule', 'workflow_dispatch') if rust_full else ('workflow_dispatch',)
     if (environment.get('GITHUB_ACTIONS') != 'true'
             or (environment.get('RUNNER_OS'), environment.get('RUNNER_ARCH')) not in PLATFORMS[family]

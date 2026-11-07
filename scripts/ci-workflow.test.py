@@ -492,6 +492,51 @@ class Workflow(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     self.assert_web_cache_writer(assembled(mutation), release)
 
+    def test_web_cache_build_runs_both_contexts_and_propagates_each_failure(self):
+        workflow, _ = self.shared_cache_workflow()
+        writer = workflow_jobs(workflow)['web-wasm-cache']
+        completion = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', writer, re.M | re.S)
+                          if 'name: Complete Web WASM cache\n' in step)
+        script = textwrap.dedent(completion.split('        run: |\n', 1)[1])
+        self.assertNotIn('continue-on-error:', completion)
+        with tempfile.TemporaryDirectory(prefix='web-cache-build-') as directory:
+            root = Path(directory)
+            (root / 'scripts').mkdir()
+            (root / 'crates/oasis7_client_launcher').mkdir(parents=True)
+            (root / 'bin').mkdir()
+            viewer = root / 'scripts/build-viewer-software-safe.sh'
+            viewer.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+test "$OASIS7_FORCE_VIEWER_SOFTWARE_SAFE_BUILD" = 1
+test "$*" = '--optional-payload-dir output/release/viewer-optional-payload'
+printf 'viewer\\n' >> "$WEB_CACHE_FIXTURE_TRACE"
+exit "$WEB_CACHE_FIXTURE_VIEWER_EXIT"
+''')
+            trunk = root / 'bin/trunk'
+            trunk.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+test -z "${NO_COLOR+x}"
+test "$PWD" = "$WEB_CACHE_FIXTURE_ROOT/crates/oasis7_client_launcher"
+test "$*" = 'build --release --dist ../../output/release/web-launcher-dist'
+printf 'trunk\\n' >> "$WEB_CACHE_FIXTURE_TRACE"
+exit "$WEB_CACHE_FIXTURE_TRUNK_EXIT"
+''')
+            for path in (viewer, trunk):
+                path.chmod(0o755)
+            trace = root / 'calls'
+            for viewer_exit, trunk_exit, expected_calls in (
+                    (0, 0, ['viewer', 'trunk']), (17, 0, ['viewer']), (0, 23, ['viewer', 'trunk'])):
+                trace.write_text('')
+                environment = dict(os.environ, PATH=str(root / 'bin') + os.pathsep + os.environ['PATH'],
+                    NO_COLOR='fixture-value', WEB_CACHE_FIXTURE_ROOT=str(root),
+                    WEB_CACHE_FIXTURE_TRACE=str(trace), WEB_CACHE_FIXTURE_VIEWER_EXIT=str(viewer_exit),
+                    WEB_CACHE_FIXTURE_TRUNK_EXIT=str(trunk_exit))
+                result = subprocess.run(['bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script],
+                                        cwd=root, env=environment, capture_output=True, text=True, timeout=10)
+                with self.subTest(viewer=viewer_exit, trunk=trunk_exit):
+                    self.assertEqual(result.returncode, viewer_exit or trunk_exit, result.stdout + result.stderr)
+                    self.assertEqual(trace.read_text().splitlines(), expected_calls)
+
     def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='', real_receipt=False):
         """Execute the real workflow shell against immutable local Git fixtures."""
         repo = Path(directory) / 'repo'

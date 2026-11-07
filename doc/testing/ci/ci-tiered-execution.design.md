@@ -533,7 +533,7 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 现有 main `full-regression` 的 schedule/manual-full 保留 Trunk 归档 writer；Release / Testnet 使用只恢复 action，普通 PR 继续受只读 cache token 约束。Rust 依赖按下述生产者与消费者关系复用，不增加宽泛 `restore-keys`、扩大缓存写权限，或把缓存内容当作可执行来源的认证。
 
-普通 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v4`。唯一依赖 producer 是独立 `rust-cache.yml` 的 `shared-native-cache`，仅接受 main 的四小时 schedule 或 `run_mode=full` 手动触发；不接受 source 覆盖，也不从候选 workflow、产物或分支取得代码。checkout、workflow SHA、事件 SHA、精确 job 和 REST run 身份须一致。Release / Mainnet gate 仅有只读 cache token，Rust `full-regression` 也只读这份依赖缓存；其原有 Trunk、wasm-bindgen 和 npm 工具缓存合同保留。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，全部编译成功后保存一次，禁止失败保存。
+普通原生 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v4`。唯一依赖 producer 是独立 `rust-cache.yml` 的 `shared-native-cache`，仅接受 main 的四小时 schedule 或 `run_mode=full` 手动触发；不接受 source 覆盖，也不从候选 workflow、产物或分支取得代码。checkout、workflow SHA、事件 SHA、精确 job 和 REST run 身份须一致。Release / Mainnet gate 仅有只读 cache token，Rust `full-regression` 也只读这份依赖缓存；其原有 Trunk、wasm-bindgen 和 npm 工具缓存合同保留。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，全部编译成功后保存一次，禁止失败保存。
 
 新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
 
@@ -553,15 +553,15 @@ registry 下载内容与 target 编译产物分别核对复用价值。当前固
 
 `workspace-support` 的只读容量采样在 cache 恢复前后、支持包 profile 边界、custody WASM/native/platform 边界及 job 退出时输出 `SUPPORT_CAPACITY` JSON 行。记录实际 source/tested/policy/range base、runner image、文件系统可用字节与 inode，以及固定目录的 allocated/apparent bytes 和 inode 数；精确 cache key 仍以同一 job 的 restore 日志为准。目录观察可能重叠，不能相加；每个目录内 hardlink 只计一次，不跟随目录符号链接，不读取文件内容。单次采样最多 25 秒，缺失、错误、超时明确标记为未知，不能冒充零占用。证据直接留在 job 日志，避免磁盘耗尽时依赖新建报告文件。采样失败不改变测试退出码，也不清理目录、调整缓存或 runner、减少既有验证；实际容量优化需另有测量依据。
 
-缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；此版保留 Web 发布、ECS `ecs` profile 与 Formal workspace 的专用生产路径，以免这些构建的发布频率或源码恢复合同绑到主缓存。
+缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；Web WASM、ECS `ecs` profile 与 Formal workspace 保留专用缓存族及完整构建上下文，Web 依赖刷新独立于产品发布和 native 预热的成功状态。
 
-Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
+`release-packages-web-wasm-trusted-v3` 的唯一 writer 是现有 `rust-cache.yml` 的 `web-wasm-cache`；Rust CI 的 `viewer-js-required` / `viewer-performance-report`、Release `build-web-dist`、Release Web gate、Testnet / Mainnet / ECS Web 都只读。Release 的产品构建、全部 gates、artifact 和发布条件保持，历史计划源码缺少工具链 helper 时仍走原冷路径。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
 
-Web 缓存生产者迁移承接 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。上述 Release writer 是当前接线；目标是由现有 `rust-cache.yml` 的独立 `web-wasm-cache` job 持续刷新同一 v3 族，并使 Release `build-web-dist` 只读。两种接线只在合同准备阶段受支持：测试要求 workflow、job、admission 身份、写入权限及预算转发形成完整且互斥的一组，双 writer、零 writer、未知身份或半迁移均失败。先将兼容合同纳入可信 BASE，再用原子改动切换生产接线；不改变 selector 或可信 Python 执行器来避开旧合同。
+Web 缓存生产者承接 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。admission 的 `release-web` family 只注册新的 workflow/job 元组，旧 Release 身份不能上传。writer 迁移须使 workflow、job、admission 身份、写入权限和预算转发形成完整且互斥的一组，双 writer、零 writer、未知身份或半迁移均失败；必要兼容合同先进入可信 BASE，再原子切换生产接线，不改变 selector 或可信 Python 执行器来避开旧合同。首次 seed 前核对旧版 Release Web 写入任务全部终结，避免跨 revision 的在途 writer 重叠。
 
-迁移后的 producer 只接受当前 main 的 schedule 或 `run_mode=full` 手动事件，checkout、事件、workflow 和 REST run 身份一致；使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 构建及校验过的 Trunk 安装器，不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 admission、20 GB 总预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
+producer 沿用四小时 schedule 或 `run_mode=full` 手动事件，只接受当前 main，checkout、事件、workflow 和 REST run 身份一致；不接受 source/tag/version 覆盖。它与 native job 独立，只有 contents/actions read 权限和本 job 的 cache write scope，60 分钟内完成或失败。使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 脚本，并显式强制重新检查两个 WASM 构建，已有 dist 不能抵扣依赖闭包；Trunk archive 只读且始终经过既有安装器摘要/版本校验。不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 step-local Node admission、20 GB 总预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
 
-两个 Viewer reader 的迁移合同只接受原 native-v4 配置，或同一 Web-v3、stable-only 工具链及默认环境指纹的完整配置；仍为只读，原 npm、wasm-bindgen、ABI、安全浏览器及性能验证保持。其他 native reader 不改变。真实 seed 以上传完成为准，并在同一候选上核对恢复 key、编译复用、准备成本和原验证结果；老归档前缀恢复可能清理过期编译产物，不能仅用下载成功认定暖缓存。合同准备不代表新 producer 或 reader 已上线，实际切换与 hosted 验收由后续实现完成。
+两个 Viewer reader 的迁移合同只接受原 native-v4 配置，或同一 Web-v3、stable-only 工具链及默认环境指纹的完整配置。当前两个 reader 使用后者：只安装固定 stable 和 `wasm32-unknown-unknown`，缓存前只保留该工具链，环境前缀为 `CARGO CC CFLAGS CXX CMAKE RUST`，明确禁止保存。完整缓存身份与 producer 对齐，原 npm、wasm-bindgen、两个独立 WASM 构建、ABI、安全浏览器及性能验证保持；其他 native reader 不改变。真实 hosted 冷暖收益仍待验收。真实 seed 以上传完成为准，并在同一 source/tested/policy 候选上核对恢复 key、编译复用、准备成本和原验证结果；老归档前缀恢复可能清理过期编译产物，不能仅用下载成功认定暖缓存。同一 run 的 reader 重跑只用于 job 冷暖对照，不能把合入与 seed 等待时间计为新的普通 PR 端到端样本。
 
 ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
 
