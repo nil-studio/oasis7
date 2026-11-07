@@ -12,6 +12,7 @@ import { resolve, dirname, relative, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 import { createDensityFixture } from './world-view-density-fixture.mjs';
 
@@ -38,12 +39,13 @@ const run = args => new Promise((yes, no) => {
   child.on('error', no); child.on('close', code => { clearTimeout(timer); code === 0 ? yes(stdout) : no(Error(stderr + stdout)); });
 });
 async function evaluate(code) { const r = JSON.parse(await run(['--json', 'eval', code])); assert(r.success, JSON.stringify(r)); return r.data.result; }
-const browserState = `(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c?.getBoundingClientRect(),gl=c?.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true',metrics:window.__QA_READ_METRICS__?.()||{status:'uninitialized'},core:window.__AW_TEST__?.getState(),viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio,scrollX,scrollY,origin:performance.timeOrigin,gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null,canvas:c?{left:r.left,top:r.top,cssWidth:r.width,cssHeight:r.height,width:c.width,height:c.height}:null,targets:[...document.querySelectorAll('.pixel-world-renderer-target')].map(b=>{const r=b.getBoundingClientRect();return{id:b.dataset.agentId||b.dataset.locationId||b.dataset.moduleId,selected:b.dataset.selected,x:r.x+r.width/2,y:r.y+r.height/2,width:r.width,height:r.height,inView:r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight}})}})()`;
+const browserState = `(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c?.getBoundingClientRect(),gl=c?.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true',metrics:window.__QA_READ_METRICS__?.()||{status:'uninitialized'},core:window.__AW_TEST__?.getState(),browser:{userAgent:navigator.userAgent,platform:navigator.platform},viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio,scrollX,scrollY,origin:performance.timeOrigin,gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null,canvas:c?{left:r.left,top:r.top,cssWidth:r.width,cssHeight:r.height,width:c.width,height:c.height}:null,targets:[...document.querySelectorAll('.pixel-world-renderer-target')].map(b=>{const r=b.getBoundingClientRect();return{id:b.dataset.agentId||b.dataset.locationId||b.dataset.moduleId,selected:b.dataset.selected,x:r.x+r.width/2,y:r.y+r.height/2,width:r.width,height:r.height,inView:r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight}})}})()`;
 const state = async () => JSON.parse(await evaluate(`JSON.stringify(${browserState})`));
 const waitFor = expression => evaluate(`(async()=>{const end=Date.now()+30000;while(Date.now()<end){if(${expression})return true;await new Promise(r=>setTimeout(r,100))}throw Error('condition timed out: '+${JSON.stringify(expression)})})()`);
 let pauseReplies = false, holdLastPage = true, corruptNextCursorPage = false;
 let held = [], lastOldPage = null;
 const wire = [], http = [];
+const connectionIds = new WeakMap();
 const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); };
 const send = (socket, connection, response, replay = false) => {
   if (socket.readyState !== 1) return;
@@ -69,6 +71,7 @@ const httpServer = createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer, path: '/qa-world-ws', maxPayload: 512 * 1024 });
 wss.on('connection', socket => {
   const connection = randomUUID();
+  connectionIds.set(socket, connection);
   socket.on('message', bytes => {
     try {
       const message = JSON.parse(bytes.toString()); audit({ direction: 'in', connection, message });
@@ -78,7 +81,7 @@ wss.on('connection', socket => {
         send(socket, connection, response); pauseReplies = true; return;
       }
       const isLast = response.type === 'world_view' && response.view.delivery === 'baseline' && response.view.entities?.length && !response.view.next_cursor;
-      if (isLast) lastOldPage = structuredClone(response);
+      if (isLast) lastOldPage = { response: structuredClone(response), connection };
       if (pauseReplies || (holdLastPage && isLast)) { held.push({ socket, connection, response }); return; }
       send(socket, connection, response);
     } catch (error) { summary.protocolError = String(error); socket.close(1008, 'read-only QA contract violation'); }
@@ -114,6 +117,11 @@ async function searchEmpty() {
   await run(['fill', '.pixel-world-exploration form input', '']);
   await evaluate(`document.querySelector('.pixel-world-exploration form input').focus({preventScroll:true});true`); await run(['press', 'Enter']);
 }
+function actualGeometry(row) {
+  const camera = row.core?.pixelWorldCamera;
+  assert(camera && ['zoom', 'pan_x_px', 'pan_y_px'].every(key => Number.isFinite(camera[key])), 'actual camera observation missing');
+  return { camera, viewport: row.viewport, canvas: row.canvas, dpr: row.dpr, scrollX: row.scrollX, scrollY: row.scrollY };
+}
 async function capture(name, labels = false) {
   await waitProjection(1000);
   if (labels) await waitFor(`(${browserState}).metrics.laid_out_in_view_labels===200&&(${browserState}).metrics.label_layouts?.length===200`);
@@ -123,9 +131,49 @@ async function capture(name, labels = false) {
     const shot = resolve(out, name + '.png'); await run(['screenshot', '--full', shot]); const after = await state();
     assert(before.metrics.status === 'observed' && after.metrics.status === 'observed', 'capture borrowed an unobserved frame');
     assert(before.metrics.render_version === after.metrics.render_version && before.metrics.source_cut === after.metrics.source_cut, 'capture crossed render version/source cut');
+    assert(isDeepStrictEqual(actualGeometry(before), actualGeometry(after)), 'capture crossed actual camera/viewport/CSS/backing/DPR/scroll');
     assert(before.targets.length === 1000 && before.targets.every(t => t.inView), 'not all1000 targets are in view');
     summary.phases[name] = before; return before;
   } finally { pauseReplies = false; release(); }
+}
+function sourceFor(capture) {
+  const cut = capture.metrics.source_cut;
+  const pages = wire.filter(row => row.direction === 'out' && !row.replay && row.message.type === 'world_view'
+    && row.message.view.delivery === 'baseline' && row.message.view.source_cut === cut);
+  const records = new Map(); let binding;
+  for (const page of pages) {
+    const view = page.message.view;
+    const current = { world_id: view.world_id, scope_id: view.scope_id, world_bounds: view.world_bounds,
+      source_binding: view.source_binding, reorg_epoch: view.reorg_epoch, source_frozen: view.source_frozen };
+    if (binding) assert(isDeepStrictEqual(binding, current), 'source pages crossed authority/world/bounds');
+    binding = current;
+    for (const entity of view.entities) {
+      const key = `${entity.kind}:${entity.entity_id}`;
+      if (records.has(key)) assert(isDeepStrictEqual(records.get(key), entity), 'same cut contains conflicting source records');
+      records.set(key, entity);
+    }
+  }
+  assert(records.size === 1000, 'actual wire did not disclose1000 source records at capture cut');
+  return { cut, binding, records: [...records.values()].sort((a, b) => `${a.kind}:${a.entity_id}`.localeCompare(`${b.kind}:${b.entity_id}`)),
+    pages: pages.map(row => ({ connection: row.connection, request_generation: row.message.view.request_generation, bytes: row.bytes, entities: row.message.view.entities.length })) };
+}
+function labelOnlyInvariant(captures) {
+  const normalized = (source, stripLabels = true) => ({ binding: source.binding, records: source.records.map(record => {
+    const value = structuredClone(record);
+    if (stripLabels) { delete value.label; delete value.render_record.name; }
+    delete value.provenance.valid_at_source_cut; delete value.provenance.observed_at_tick;
+    return value;
+  }) });
+  const inputs = Object.fromEntries(Object.entries(captures).map(([phase, capture]) => [phase, sourceFor(capture)]));
+  assert(inputs.negative.records.every(row => row.label === '\u200b' && row.render_record.name === '\u200b'), 'negative source did not contain only zero-width label names');
+  for (const phase of ['negative', 'restored']) {
+    assert(isDeepStrictEqual(actualGeometry(captures.positive), actualGeometry(captures[phase])), 'label comparison changed actual camera/viewport/CSS/backing/DPR/scroll');
+    assert(isDeepStrictEqual(normalized(inputs.positive), normalized(inputs[phase])), 'label source comparison changed non-label source facts');
+  }
+  assert(isDeepStrictEqual(normalized(inputs.positive, false), normalized(inputs.restored, false)), 'restored source did not restore original names/labels');
+  writeFileSync(resolve(out, 'phase-source-inputs.json'), JSON.stringify(inputs, null, 2));
+  return { geometryIdentical: true, sourceIdentityGeometryResourcesIdentical: true,
+    allowedDifferences: ['entity.label', 'entity.render_record.name', 'source_cut', 'provenance.valid_at_source_cut', 'provenance.observed_at_tick'], entityCounts: Object.fromEntries(Object.entries(inputs).map(([phase, input]) => [phase, input.records.length])) };
 }
 try {
   await new Promise(done => httpServer.listen(0, '127.0.0.1', done)); lifecycle.prepare();
@@ -141,6 +189,7 @@ try {
   fixture.setLabelStyle('empty'); await waitProjection(1000); labelCaptures.negative = await capture('labels-negative');
   fixture.setLabelStyle('normal'); await waitProjection(1000); labelCaptures.restored = await capture('labels-restored', true);
   writeFileSync(resolve(out, 'label-captures.json'), JSON.stringify(labelCaptures, null, 2));
+  summary.labelOnlyInvariant = labelOnlyInvariant(labelCaptures);
   summary.labelOracle = JSON.parse(execFileSync('python3', [resolve(here, 'world-view-label-oracle.py'), out], { encoding: 'utf8' })); assert(summary.labelOracle.passed, '200 native label paired PNG oracle failed');
   if (scope === 'all') {
     const selector = 'button[data-agent-id="qa-agent-0000"][data-renderer-target]';
@@ -153,7 +202,9 @@ try {
     summary.mixedCutRejected = await state();
     pauseReplies = false; release(); await overview(); await waitProjection(1000);
     const old = lastOldPage; fixture.newWorld(); await reconnect(); await waitProjection(1000); summary.worldB = await state();
-    for (const socket of wss.clients) send(socket, 'replay-old-response-on-current-socket', old, true);
+    assert(old?.response && old.connection, 'missing actual old-connection response for replay');
+    for (const socket of wss.clients) send(socket, connectionIds.get(socket), old.response,
+      { kind: 'old_response_on_current_socket', originalConnection: old.connection, originalRequestGeneration: old.response.view.request_generation });
     await run(['wait', '300']); assert((await state()).metrics.source_cut === fixture.description().cut, 'old response crossed new world source fence');
     fixture.revoke(); await reconnect(); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.denied = await state();
     fixture.restoreWorldView(); await reconnect(); await waitProjection(1000); summary.restoredScope = await state();
