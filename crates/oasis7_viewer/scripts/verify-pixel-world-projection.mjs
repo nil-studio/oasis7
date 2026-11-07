@@ -70,7 +70,7 @@ export async function verifyPixelWorldProjection({ bindingsPath, wasmPath }) {
     }
     reports.push({profile:"world_view_v1",richLabels,inputBytes:byteLength(input),outputBytes:byteLength(output),markers:output.agents.length});
   }
-  const expandedBadge=projectPixelWorldRenderInput({lists:{agents:[{id:"A",kind:"x".repeat(8192),pos:{x_cm:1,y_cm:1,z_cm:0}}]}});
+  const expandedBadge=projectPixelWorldRenderInput({selectedKind:"agent",selectedId:"A",lists:{agents:[{id:"A",kind:"x".repeat(8192),pos:{x_cm:1,y_cm:1,z_cm:0}}]}});
   assert.ok(runtime.build_pixel_world_render_state_json(JSON.stringify(expandedBadge)).fatal,
     "input-valid kind must not emit an oversized derived status badge");
   return reports;

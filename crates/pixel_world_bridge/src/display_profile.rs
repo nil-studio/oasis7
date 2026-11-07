@@ -31,10 +31,16 @@ impl DisplayProfile {
         }
     }
     pub(crate) fn validate_structure(self, value: &Value) -> Result<(), String> {
-        let mut remaining = match self {
+        self.structure_cost_at(value, 0).map(|_| ())
+    }
+    pub(crate) fn nodes(self) -> usize {
+        match self {
             Self::Legacy => 16384,
             Self::WorldView => 131072,
-        };
+        }
+    }
+    pub(crate) fn structure_cost_at(self, value: &Value, depth: usize) -> Result<usize, String> {
+        let mut remaining = self.nodes();
         fn visit(value: &Value, depth: usize, remaining: &mut usize, items: usize) -> bool {
             if depth > 16 || *remaining == 0 {
                 return false;
@@ -55,8 +61,8 @@ impl DisplayProfile {
                 _ => true,
             }
         }
-        if visit(value, 0, &mut remaining, self.markers()) {
-            Ok(())
+        if visit(value, depth, &mut remaining, self.markers()) {
+            Ok(self.nodes() - remaining)
         } else {
             Err("pixel world display structure capacity exceeded".into())
         }

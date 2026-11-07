@@ -181,6 +181,8 @@ mod tests {
         // "kind=" status badge does not. Byte limits alone cannot catch this.
         source["lists"]["agents"] = json!([{"id":"A","kind":"x".repeat(8192),
             "pos":{"x_cm":1,"y_cm":1,"z_cm":0}}]);
+        source["selectedKind"] = json!("agent");
+        source["selectedId"] = json!("A");
         DisplayProfile::Legacy.validate_structure(&source).unwrap();
         let raw_state = super::super::host_state::build_render_state(&source);
         assert!(serde_json::to_vec(&raw_state).unwrap().len() < 256 * 1024);
@@ -189,11 +191,13 @@ mod tests {
                 .validate_structure(&raw_state)
                 .is_err()
         );
-        assert!(
-            derive(&source.to_string())
-                .unwrap_err()
-                .contains("structure capacity")
-        );
+        assert!(derive(&source.to_string()).is_err());
+        source["selectedKind"] = Value::Null;
+        source["selectedId"] = Value::Null;
+        let output = derive(&source.to_string()).expect("invalid optional marker is omitted");
+        assert!(output["agents"].as_array().unwrap().is_empty());
+        assert_eq!(output["display_budget"]["output_omitted_markers"], 1);
+        DisplayProfile::Legacy.validate_structure(&output).unwrap();
     }
     #[test]
     fn bounded_json_preserves_the_existing_render_projection() {

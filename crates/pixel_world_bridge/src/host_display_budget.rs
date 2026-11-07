@@ -37,6 +37,7 @@ pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
         .sum();
     if count <= max_markers
         && serde_json::to_vec(state).map_err(|e| e.to_string())?.len() <= max_bytes
+        && profile.validate_structure(state).is_ok()
     {
         return Ok(());
     }
@@ -91,8 +92,10 @@ pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
         }
     }
     state["display_budget"]["output_omitted_markers"] = json!(count);
+    state["display_budget"]["output_projected_markers"] = json!(0);
     state["display_budget"]["output_omitted_decorations"] = json!(omitted_decorations);
-    state["display_budget"]["output_reason"] = json!("byte_or_marker_budget");
+    state["display_budget"]["output_reason"] = json!("byte_or_marker_or_structure_budget");
+    let mut remaining_nodes = profile.nodes() - profile.structure_cost_at(state, 0)?;
     let base = serde_json::to_vec(state).map_err(|e| e.to_string())?.len();
     let mut remaining = max_bytes
         .checked_sub(base + 128)
@@ -101,12 +104,19 @@ pub(super) fn fit(state: &mut Value, input: &Value) -> Result<(), String> {
     let mut retained = 0;
     for (optional, field, _, value) in entries {
         let bytes = serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() + 1;
-        if retained < max_markers && bytes <= remaining {
+        // Marker values are at root -> array -> value depth. Charge each
+        // subtree once, avoiding a full-scene scan for every optional marker.
+        let nodes = profile.structure_cost_at(&value, 2).ok();
+        if retained < max_markers
+            && bytes <= remaining
+            && nodes.is_some_and(|nodes| nodes <= remaining_nodes)
+        {
             state[field]
                 .as_array_mut()
                 .ok_or("invalid display marker array")?
                 .push(value);
             remaining -= bytes;
+            remaining_nodes -= nodes.expect("checked structure cost");
             retained += 1;
         } else if !optional {
             return Err("pixel world required display capacity exceeded".into());
