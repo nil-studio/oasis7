@@ -561,6 +561,12 @@ registry 下载内容与 target 编译产物分别核对复用价值。当前固
 
 Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
 
+Web 缓存生产者迁移承接 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。上述 Release writer 是当前接线；目标是由现有 `rust-cache.yml` 的独立 `web-wasm-cache` job 持续刷新同一 v3 族，并使 Release `build-web-dist` 只读。两种接线只在合同准备阶段受支持：测试要求 workflow、job、admission 身份、写入权限及预算转发形成完整且互斥的一组，双 writer、零 writer、未知身份或半迁移均失败。先将兼容合同纳入可信 BASE，再用原子改动切换生产接线；不改变 selector 或可信 Python 执行器来避开旧合同。
+
+迁移后的 producer 只接受当前 main 的 schedule 或 `run_mode=full` 手动事件，checkout、事件、workflow 和 REST run 身份一致；使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 构建及校验过的 Trunk 安装器，不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 admission、20 GB 总预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
+
+两个 Viewer reader 的迁移合同只接受原 native-v4 配置，或同一 Web-v3、stable-only 工具链及默认环境指纹的完整配置；仍为只读，原 npm、wasm-bindgen、ABI、安全浏览器及性能验证保持。其他 native reader 不改变。真实 seed 以上传完成为准，并在同一候选上核对恢复 key、编译复用、准备成本和原验证结果；老归档前缀恢复可能清理过期编译产物，不能仅用下载成功认定暖缓存。合同准备不代表新 producer 或 reader 已上线，实际切换与 hosted 验收由后续实现完成。
+
 ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
 
 Linux 原生发行包仍按工具链、target 和 profile 共享 `oasis7-package-native-…-trusted-v2`；Testnet 的 Linux-only packaging-profile main workflow dispatch 仅在计划源码和 workflow revision 均等于 event SHA 时选择独立的 write-scoped 原生作业。其他分支、tag、旧 SHA 或 workflow/source 不同版本均只读，两条路径互斥，不重复编译。

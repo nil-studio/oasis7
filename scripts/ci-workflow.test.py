@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Regress the final DAG and execution boundaries, without Actions credentials."""
+import ast
 import json
 import itertools
 import os
@@ -46,6 +47,92 @@ def workflow_jobs(workflow):
 
 
 JOBS = workflow_jobs(WORKFLOW)
+
+
+def rust_cache_steps(job):
+    return [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+            if 'uses: Swatinem/rust-cache@' in step]
+
+
+def web_cache_layout(cache_workflow, release_workflow, admission_source):
+    """Accept only the complete old or new sole-writer wiring during migration."""
+    assignments = [node for node in ast.parse(admission_source).body
+                   if isinstance(node, ast.Assign)
+                   and any(isinstance(target, ast.Name) and target.id == 'FAMILIES'
+                           for target in node.targets)]
+    assert len(assignments) == 1, 'one literal admission family registry required'
+    families = ast.literal_eval(assignments[0].value)
+    namespace = 'release-packages-web-wasm-trusted-v3'
+    old = (namespace, '.github/workflows/release-packages.yml', 'build-web-dist')
+    new = (namespace, '.github/workflows/rust-cache.yml', 'web-wasm-cache')
+    registered = families.get('release-web')
+    assert registered in (old, new), 'unknown Web writer identity'
+    assert [name for name, identity in families.items() if identity[0] == namespace] == ['release-web']
+    migrated = registered == new
+    cache_jobs, release_jobs = workflow_jobs(cache_workflow), workflow_jobs(release_workflow)
+    assert set(cache_jobs) == ({'shared-native-cache', 'web-wasm-cache'} if migrated
+                               else {'shared-native-cache'}), 'incomplete cache producer layout'
+    active = []
+    for path, workflow, jobs in (('.github/workflows/rust-cache.yml', cache_workflow, cache_jobs),
+                                 ('.github/workflows/release-packages.yml', release_workflow, release_jobs)):
+        for name, job in jobs.items():
+            for step in rust_cache_steps(job):
+                if 'shared-key: ' + namespace + '\n' not in step:
+                    continue
+                saves = re.findall(r'^          save-if: (.+)$', step, re.M)
+                assert len(saves) == 1, 'one explicit Web save policy required'
+                header = job.split('    steps:', 1)[0]
+                if saves[0] != 'false':
+                    active.append((namespace, path, name))
+                    assert 'cache-mode: read' not in header
+                    assert ('cache-mode: write' in header or re.search(r'^cache-mode: write$',
+                            workflow.split('\njobs:\n', 1)[0], re.M))
+                    assert 'OASIS7_DEPENDENCY_CACHE_FAMILY: release-web\n' in step
+                else:
+                    assert 'cache-mode: write' not in header
+    assert active == [registered], 'Web cache must have exactly the registered sole writer'
+    if migrated:
+        reader = release_jobs['build-web-dist']
+        assert '    cache-mode: read\n' in reader.split('    steps:', 1)[0]
+        assert len(rust_cache_steps(reader)) == 1
+        assert 'save-if: false\n' in rust_cache_steps(reader)[0]
+        assert 'dependency-cache-tools' not in reader and 'OASIS7_DEPENDENCY_CACHE_' not in reader
+    return migrated
+
+
+def viewer_cache_kind(job):
+    """The two Viewer lanes may move as a complete known cache configuration."""
+    steps = rust_cache_steps(job)
+    assert len(steps) == 1
+    cache = steps[0]
+    assert 'uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2\n' in cache
+    entries = re.findall(r'^          ([\w-]+): (.+)$', cache, re.M)
+    inputs = dict(entries)
+    assert len(inputs) == len(entries), 'duplicate cache input'
+    common = {'save-if': 'false', 'add-rust-environment-hash-key': 'true', 'cache-on-failure': 'false'}
+    native = common | {'shared-key': 'ci-shared-native-trusted-v4',
+                       'env-vars': 'CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM'}
+    web = common | {'shared-key': 'release-packages-web-wasm-trusted-v3',
+                    'env-vars': 'CARGO CC CFLAGS CXX CMAKE RUST'}
+    assert inputs in (native, web), 'unknown or incomplete Viewer cache configuration'
+    assert 'cache-mode: write' not in job
+    assert '    env:' not in job.split('    steps:', 1)[0] and '        env:' not in cache
+    assert 'GH_TOKEN:' not in cache and 'OASIS7_DEPENDENCY_CACHE_' not in cache
+    prepare = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                   if 'python3 scripts/ci-rust-cache-toolchains.py' in step)
+    expected = '"$RUST_TOOLCHAIN"' + (' "$OASIS7_WASM_TOOLCHAIN"' if inputs == native else '')
+    assert re.search(r'^        run: python3 scripts/ci-rust-cache-toolchains.py ' +
+                     re.escape(expected) + r'$', prepare, re.M)
+    assert 'if:' not in prepare and 'continue-on-error:' not in prepare
+    assert job.index('rustup default') < job.index(prepare) < job.index(cache)
+    before_cache = job[:job.index(cache)]
+    assert 'rustup target add wasm32-unknown-unknown' in before_cache
+    if inputs == web:
+        assert 'OASIS7_WASM' not in before_cache and 'nightly' not in before_cache
+        assert re.findall(r'^          rustup toolchain install (\S+)', before_cache, re.M) == ['"$RUST_TOOLCHAIN"']
+    else:
+        assert 'rustup toolchain install "$OASIS7_WASM_TOOLCHAIN"' in before_cache
+    return 'native' if inputs == native else 'web'
 
 
 def without_optional_dependency_cache_install(workflow):
@@ -133,8 +220,281 @@ class Workflow(unittest.TestCase):
         self.assertTrue(path.is_file(), 'dependency warming must have an independent workflow')
         workflow = path.read_text()
         jobs = workflow_jobs(workflow)
-        self.assertEqual(set(jobs), {'shared-native-cache'})
+        web_cache_layout(workflow, (ROOT / '.github/workflows/release-packages.yml').read_text(),
+                         (ROOT / 'scripts/ci-rust-cache-admission.py').read_text())
         return workflow, jobs['shared-native-cache']
+
+    def test_web_cache_migration_rejects_partial_or_multiple_writers(self):
+        namespace = 'release-packages-web-wasm-trusted-v3'
+        old_identity = (namespace, '.github/workflows/release-packages.yml', 'build-web-dist')
+        new_identity = (namespace, '.github/workflows/rust-cache.yml', 'web-wasm-cache')
+        # Small wiring fixtures exercise the layout decision; the actual
+        # producer's trust, environment and complete build are checked below.
+        native = 'name: fixture\ncache-mode: read\njobs:\n  shared-native-cache:\n    steps: []\n'
+        web_step = ('      - uses: Swatinem/rust-cache@pinned\n'
+                    '        env:\n          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web\n'
+                    '        with:\n          shared-key: ' + namespace + '\n'
+                    "          save-if: ${{ job.status == 'success' }}\n")
+        old_release = ('name: fixture\ncache-mode: write\njobs:\n  build-web-dist:\n'
+                       '    steps:\n' + web_step)
+        new_cache = native + '  web-wasm-cache:\n    cache-mode: write\n    steps:\n' + web_step
+        new_release = ('name: fixture\ncache-mode: write\njobs:\n  build-web-dist:\n'
+                       '    cache-mode: read\n    steps:\n' + web_step.replace(
+                           '        env:\n          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web\n', '').replace(
+                           "save-if: ${{ job.status == 'success' }}", 'save-if: false'))
+        def source(identity):
+            return 'FAMILIES = ' + repr({'release-web': identity})
+        self.assertFalse(web_cache_layout(native, old_release, source(old_identity)))
+        self.assertTrue(web_cache_layout(new_cache, new_release, source(new_identity)))
+        for cache, release, registry in (
+            (new_cache, old_release, source(new_identity)),
+            (native, new_release, source(old_identity)),
+            (new_cache, new_release, source(old_identity)),
+            (native, old_release, source(new_identity)),
+            (new_cache, new_release.replace('    cache-mode: read\n', ''), source(new_identity)),
+            (new_cache.replace('    cache-mode: write\n', '    cache-mode: read\n'), new_release, source(new_identity)),
+            (new_cache, new_release, source((namespace, '.github/workflows/unknown.yml', 'web-wasm-cache'))),
+            (new_cache, new_release, 'FAMILIES = ' + repr({'release-web': new_identity, 'extra': new_identity})),
+        ):
+            with self.subTest(cache=cache, release=release, registry=registry):
+                with self.assertRaises(AssertionError):
+                    web_cache_layout(cache, release, registry)
+
+    def test_viewer_cache_transition_requires_the_entire_known_configuration(self):
+        for name in ('viewer-js-required', 'viewer-performance-report'):
+            actual = JOBS[name]
+            kind = viewer_cache_kind(actual)
+            native = actual if kind == 'native' else actual.replace(
+                'shared-key: release-packages-web-wasm-trusted-v3', 'shared-key: ci-shared-native-trusted-v4').replace(
+                'env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n', 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM\n').replace(
+                'python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"\n',
+                'python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"\n').replace(
+                '          rustup default "$RUST_TOOLCHAIN"\n',
+                '          rustup default "$RUST_TOOLCHAIN"\n'
+                '          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src\n'
+                '          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"\n')
+            web = native.replace('shared-key: ci-shared-native-trusted-v4',
+                                 'shared-key: release-packages-web-wasm-trusted-v3').replace(
+                'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
+                'env-vars: CARGO CC CFLAGS CXX CMAKE RUST').replace(
+                ' "$OASIS7_WASM_TOOLCHAIN"\n', '\n')
+            web = re.sub(r'^          rustup (?:toolchain install|target add) [^\n]*OASIS7_WASM[^\n]*\n', '', web, flags=re.M)
+            self.assertEqual(viewer_cache_kind(native), 'native', name)
+            self.assertEqual(viewer_cache_kind(web), 'web', name)
+            for mutation in (
+                native.replace('shared-key: ci-shared-native-trusted-v4', 'shared-key: release-packages-web-wasm-trusted-v3'),
+                web.replace('save-if: false', 'save-if: true'),
+                web.replace('add-rust-environment-hash-key: true', 'add-rust-environment-hash-key: false'),
+                web.replace('env-vars: CARGO CC CFLAGS CXX CMAKE RUST\n',
+                            'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM\n'),
+                web.replace('python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"',
+                            'python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"'),
+                web.replace('          rustup default', '          rustup toolchain install nightly\n          rustup default'),
+                web.replace('          cache-on-failure: false', '          cache-on-failure: false\n          workspaces: . -> other-target'),
+            ):
+                with self.subTest(job=name, mutation=mutation):
+                    with self.assertRaises(AssertionError):
+                        viewer_cache_kind(mutation)
+
+    def test_web_cache_writer_preserves_trust_and_complete_build(self):
+        workflow, native = self.shared_cache_workflow()
+        jobs = workflow_jobs(workflow)
+        release_workflow = (ROOT / '.github/workflows/release-packages.yml').read_text()
+        if 'web-wasm-cache' not in jobs:
+            release = workflow_jobs(release_workflow)['build-web-dist']
+            self.assertIn('./scripts/build-viewer-software-safe.sh --optional-payload-dir', release)
+            self.assertIn('env -u NO_COLOR trunk build --release --dist', release)
+            return
+        self.assert_web_cache_writer(workflow, release_workflow)
+
+    def assert_web_cache_writer(self, workflow, release_workflow):
+        jobs = workflow_jobs(workflow)
+        native = jobs['shared-native-cache']
+        writer = jobs['web-wasm-cache']
+        header = writer.split('    steps:', 1)[0]
+        for required in ('cache-mode: write', 'runs-on: ubuntu-24.04',
+                         'permissions:\n      contents: read\n      actions: read'):
+            self.assertIn(required, header)
+        self.assertNotIn('needs:', header)
+        self.assertNotIn('env:', header)
+        self.assertNotIn('web-wasm-cache', WORKFLOW)
+        self.assertEqual(re.search(r'    if: >-\n(.*?)    runs-on:', writer, re.S)[1],
+                         re.search(r'    if: >-\n(.*?)    runs-on:', native, re.S)[1])
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', writer, re.M | re.S)
+        source = next(step for step in steps if 'name: Verify current main cache source\n' in step)
+        native_source = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', native, re.M | re.S)
+                             if 'name: Verify current main cache source\n' in step)
+        self.assertEqual(source, native_source)
+        self.assertEqual(writer.count('uses: actions/checkout@'), 1)
+        self.assertIn('ref: ${{ github.sha }}\n          persist-credentials: false', writer)
+        self.assertIn('npm ci --prefix crates/oasis7_viewer', writer)
+        self.assertNotIn('OASIS7_WASM', writer)
+        self.assertNotIn('nightly', writer)
+        self.assertIn('run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"\n', writer)
+        self.assertEqual(len(rust_cache_steps(writer)), 1)
+        cache = rust_cache_steps(writer)[0]
+        self.assertNotRegex(cache, re.compile(r'^        if:', re.M))
+        self.assertIn('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2\n', cache)
+        before_cache = writer[:writer.index(cache)]
+        self.assertEqual(re.findall(r'^          rustup toolchain install (\S+)', before_cache, re.M),
+                         ['"${RUST_TOOLCHAIN}"'])
+        self.assertIn('rustup default "${RUST_TOOLCHAIN}"', before_cache)
+        self.assertIn('rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"', before_cache)
+        install = next(step for step in steps if 'id: dependency-cache-tools\n' in step)
+        self.assertIn('run: python3 scripts/ci-rust-cache-admission.py install-release\n', install)
+        self.assertIn('continue-on-error: true', install)
+        for required in ('continue-on-error: true', 'cache-provider: github', 'cache-on-failure: false',
+                         'NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}',
+                         'OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}',
+                         'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}',
+                         'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}'):
+            self.assertIn(required, cache)
+        self.assertNotIn('env-vars:', cache)
+        save = re.search(r'^          save-if: \$\{\{ (.*) \}\}$', cache, re.M)[1]
+        with_body = cache.split('        with:\n', 1)[1]
+        inputs = re.findall(r'^          ([\w-]+): (.+)$', with_body, re.M)
+        self.assertEqual(len(inputs), len(with_body.strip().splitlines()))
+        expected_inputs = {'shared-key': 'release-packages-web-wasm-trusted-v3',
+                           'cache-provider': 'github', 'cache-on-failure': 'false',
+                           'save-if': '${{ ' + save + ' }}'}
+        if ('add-rust-environment-hash-key', 'true') in inputs:
+            expected_inputs['add-rust-environment-hash-key'] = 'true'
+        self.assertEqual(len(inputs), len(dict(inputs)))
+        self.assertEqual(dict(inputs), expected_inputs)
+        environment = re.search(r'^        env:\n(.*?)(?=^        \S|\Z)', cache, re.M | re.S)[1]
+        entries = re.findall(r'^          ([\w-]+): (.+)$', environment, re.M)
+        self.assertEqual(len(entries), len(environment.strip().splitlines()))
+        self.assertEqual(len(entries), len(dict(entries)))
+        self.assertEqual(dict(entries), {
+            'NODE_OPTIONS': '${{ steps.dependency-cache-tools.outputs.node_options }}',
+            'OASIS7_DEPENDENCY_CACHE_PYTHON': '${{ steps.dependency-cache-tools.outputs.python }}',
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'release-web',
+            'OASIS7_DEPENDENCY_CACHE_SOURCE_SHA': '${{ github.sha }}',
+            'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES': '${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
+            'GH_TOKEN': '${{ github.token }}',
+        })
+        self.assertNotRegex(save, r'(?i)\b(?:always|cancelled|failure|success)\s*\(')
+        for status, guard, event, mode, ref, matching in itertools.product(
+                ('success', 'failure', 'cancelled'), ('true', 'false', ''),
+                ('schedule', 'workflow_dispatch', 'push', 'pull_request'), ('full', '', 'pr-fast'),
+                ('refs/heads/main', 'refs/heads/topic'), (False, True)):
+            values = {'job.status': status, 'steps.dependency-cache-tools.outputs.guard_ready': guard,
+                      'github.event_name': event, 'inputs.run_mode': mode, 'github.ref': ref,
+                      'github.workflow_sha': 'a' if matching else 'b', 'github.sha': 'a'}
+            predicate = save
+            for key in sorted(values, key=len, reverse=True):
+                predicate = predicate.replace(key, repr(values[key]))
+            expected = (status == 'success' and guard == 'true' and ref == 'refs/heads/main'
+                        and matching and (event == 'schedule' or event == 'workflow_dispatch' and mode == 'full'))
+            self.assertEqual(eval(predicate.replace('&&', ' and ').replace('||', ' or '),
+                                  {'__builtins__': {}}, {}), expected, values)
+        self.assertNotIn('NODE_OPTIONS:', workflow.split('\njobs:\n', 1)[0])
+        self.assertLess(writer.index(source), writer.index(cache))
+        normalizer = next(step for step in steps if 'python3 scripts/ci-rust-cache-toolchains.py' in step)
+        self.assertNotRegex(normalizer, re.compile(r'^        if:', re.M))
+        self.assertLess(writer.index('rustup default'), writer.index('python3 scripts/ci-rust-cache-toolchains.py'))
+        self.assertLess(writer.index('python3 scripts/ci-rust-cache-toolchains.py'), writer.index(cache))
+        self.assertLess(steps.index(install), steps.index(cache))
+        completion = next(step for step in steps if 'name: Complete Web WASM cache\n' in step)
+        self.assertIn('id: web-cache\n', cache)
+        self.assertIn('set -euo pipefail', completion)
+        self.assertIn('./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload', completion)
+        self.assertIn('cd crates/oasis7_client_launcher', completion)
+        self.assertIn('env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist', completion)
+        self.assertLess(steps.index(cache), steps.index(completion))
+        release_steps = re.findall(r'^      - .*?(?=^      - |\Z)',
+                                   workflow_jobs(release_workflow)['build-web-dist'], re.M | re.S)
+        self.assertEqual(re.search(r'^  TRUNK_VERSION: (.+)$', workflow, re.M)[1],
+                         re.search(r'^  TRUNK_VERSION: (.+)$', release_workflow, re.M)[1])
+        for name in ('Restore pinned Trunk release archive', 'Install verified pinned Trunk', 'Verify pinned trunk'):
+            step = next(step for step in steps if 'name: ' + name + '\n' in step)
+            self.assertEqual(step, next(step for step in release_steps if 'name: ' + name + '\n' in step))
+            self.assertLess(steps.index(step), steps.index(completion))
+        self.assertNotIn('uses: actions/cache@', writer)
+        self.assertNotIn('uses: actions/cache/save@', writer)
+        condition = re.search(r'^        if: (.*)$', completion, re.M)[1]
+        for hit in ('true', 'false', '', 'unknown'):
+            self.assertEqual(eval(condition.replace('steps.web-cache.outputs.cache-hit', repr(hit)),
+                                  {'__builtins__': {}}, {}), hit != 'true')
+        for step in steps:
+            if step != cache:
+                self.assertNotIn('NODE_OPTIONS:', step)
+                self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
+                self.assertNotIn('        env:', step)
+            if step not in (install, cache):
+                self.assertNotIn('continue-on-error:', step)
+        self.assertNotRegex(writer, r'\b(?:CARGO|RUST|CC|CFLAGS|CXX|CMAKE)[A-Z0-9_]*=')
+
+    def test_web_writer_complete_fixture_rejects_cache_context_drift(self):
+        workflow, native = self.shared_cache_workflow()
+        release = (ROOT / '.github/workflows/release-packages.yml').read_text()
+        release_web = workflow_jobs(release)['build-web-dist']
+        def step(job, marker):
+            return next(part for part in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                        if marker in part)
+        # Compose the future lane from the independently maintained native
+        # source guard and Release's canonical stable/Trunk preparation.
+        header = native.split('    steps:', 1)[0]
+        preparation = ''.join((step(native, 'uses: actions/checkout@'),
+            step(native, 'name: Verify current main cache source\n'),
+            step(release_web, 'uses: actions/setup-node@'),
+            step(release_web, 'name: Install viewer web dependencies\n'),
+            step(release_web, 'name: Install pinned Rust toolchain\n')))
+        cache = '''      - name: Normalize Rust cache toolchains
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
+      - name: Install Web cache admission
+        id: dependency-cache-tools
+        continue-on-error: true
+        run: python3 scripts/ci-rust-cache-admission.py install-release
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        id: web-cache
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: release-web
+          OASIS7_DEPENDENCY_CACHE_SOURCE_SHA: ${{ github.sha }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: release-packages-web-wasm-trusted-v3
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) }}
+          cache-provider: github
+          cache-on-failure: false
+'''
+        trunk = ''.join(step(release_web, 'name: ' + name + '\n') for name in (
+            'Restore pinned Trunk release archive', 'Install verified pinned Trunk', 'Verify pinned trunk'))
+        completion = '''      - name: Complete Web WASM cache
+        if: steps.web-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/release/viewer-optional-payload output/release/web-launcher-dist
+          OASIS7_FORCE_VIEWER_SOFTWARE_SAFE_BUILD=1 ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/release/viewer-optional-payload
+          (
+            cd crates/oasis7_client_launcher
+            env -u NO_COLOR trunk build --release --dist ../../output/release/web-launcher-dist
+          )
+'''
+        writer = header + '    steps:\n' + preparation + cache + trunk + completion
+        prefix = workflow.split('\njobs:\n', 1)[0]
+        if '  TRUNK_VERSION:' not in prefix:
+            prefix += '\n  TRUNK_VERSION: ' + re.search(r'^  TRUNK_VERSION: (.+)$', release, re.M)[1] + '\n'
+        def assembled(candidate):
+            return prefix + '\njobs:\n  shared-native-cache:\n' + native + '\n  web-wasm-cache:\n' + candidate
+        self.assert_web_cache_writer(assembled(writer), release)
+        for mutation in (
+            writer.replace('          cache-provider: github', '          cache-provider: github\n          workspaces: . -> different-target'),
+            writer.replace('          cache-provider: github', '          cache-provider: github\n          add-rust-environment-hash-key: false'),
+            writer.replace('          cache-provider: github', '          cache-provider: github\n          cache-targets: false'),
+            writer.replace('    steps:\n', '    env:\n      CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"\n    steps:\n', 1),
+            writer.replace('          GH_TOKEN:', '          CARGO_TARGET_DIR: other-target\n          GH_TOKEN:'),
+            writer.replace('          rustup default', '          rustup toolchain install 1.95.0\n          rustup default'),
+        ):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(AssertionError):
+                    self.assert_web_cache_writer(assembled(mutation), release)
 
     def run_selection(self, directory, *, event='schedule', legacy=False, candidate=False, source_ref='', real_receipt=False):
         """Execute the real workflow shell against immutable local Git fixtures."""
@@ -2165,6 +2525,9 @@ run_cargo() {
                          'shared dependency contexts require the same pinned compiler and Cargo/WASM environment')
         for name, job in JOBS.items():
             if 'save-if: false' in job and 'Swatinem/rust-cache@' in job:
+                if name in ('viewer-js-required', 'viewer-performance-report'):
+                    viewer_cache_kind(job)
+                    continue
                 component = re.fullmatch(r'formal-(debug|endpoint)-build(?:-trusted)?', name)
                 namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
                 self.assertIn('shared-key: ' + namespace, job, name)
@@ -2217,7 +2580,10 @@ run_cargo() {
                         self.assertNotIn('OASIS7_DEPENDENCY_CACHE_', step)
                 self.assertNotIn('steps.dependency-cache-tools.outputs.path', job.split('    steps:', 1)[0])
         self.assertIn('permissions:\n      contents: read\n      actions: read', shared_writer)
-        self.assertEqual(cache_workflow.count('continue-on-error:'), 1)
+        # Native uses one optional installer. The migrated Web lane also has
+        # its optional Node installer and restore/save action, checked below.
+        migrated = 'web-wasm-cache' in workflow_jobs(cache_workflow)
+        self.assertEqual(cache_workflow.count('continue-on-error:'), 3 if migrated else 1)
         self.assertNotIn('dependency-cache-tools', JOBS['full-regression'])
         self.assertNotIn('dependency-cache-tools', JOBS['candidate-full-regression'])
         self.assertNotIn('dependency-cache-tools', ecs_jobs['web'])
@@ -2306,9 +2672,12 @@ run_cargo() {
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
         for name,job in JOBS.items():
             if 'Swatinem/rust-cache@' in job and name in {g.replace('_', '-') for g in CONFIG['groups']}:
-                self.assertIn('shared-key: ci-shared-native-trusted-v4',job)
+                if name in ('viewer-js-required', 'viewer-performance-report'):
+                    viewer_cache_kind(job)
+                else:
+                    self.assertIn('shared-key: ci-shared-native-trusted-v4',job)
+                    self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',job)
                 self.assertIn('add-rust-environment-hash-key: true',job)
-                self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',job)
                 self.assertLess(job.index('rustup default'),job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
         for name in ('launcher-web','full-regression'):
             job=JOBS[name]
@@ -2408,12 +2777,17 @@ run_cargo() {
             self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
             without_admitted_uploads = without_admitted_uploads.replace(dependency_cache, '', 1)
         self.assertNotIn('GH_TOKEN:', without_admitted_uploads)
-        cache_workflow, writer = self.shared_cache_workflow()
-        dependency_cache = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
-                                                             writer, re.M | re.S)
-                                if 'uses: Swatinem/rust-cache@' in step)
-        self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
-        self.assertNotIn('GH_TOKEN:', cache_workflow.replace(dependency_cache, '', 1))
+        cache_workflow, _ = self.shared_cache_workflow()
+        without_admitted_uploads = cache_workflow
+        for name, writer in workflow_jobs(cache_workflow).items():
+            dependency_caches = rust_cache_steps(writer)
+            self.assertEqual(len(dependency_caches), 1, name)
+            dependency_cache = dependency_caches[0]
+            family = 'shared-native' if name == 'shared-native-cache' else 'release-web'
+            self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family + '\n', dependency_cache)
+            self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
+            without_admitted_uploads = without_admitted_uploads.replace(dependency_cache, '', 1)
+        self.assertNotIn('GH_TOKEN:', without_admitted_uploads)
         self.assertNotIn('secrets.', cache_workflow)
         self.assertNotIn('scripts/pm/', WORKFLOW)
         self.assertNotIn('task_uid', WORKFLOW)
