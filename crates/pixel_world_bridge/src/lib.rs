@@ -1029,6 +1029,7 @@ fn boot_bevy_app(canvas_selector: String) {
         Update,
         (
             sync_external_state,
+            pixel_pipeline::sync_canvas_backing,
             pixel_pipeline::resize,
             render::render_scene,
             world_materials::reconcile,
