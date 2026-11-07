@@ -556,5 +556,7 @@ pub fn to_canonical_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, WorldError>
 #[path = "lib_tests.rs"]
 mod tests;
 
+mod restore_verified;
+
 #[cfg(test)]
 mod segmentation_tests;
