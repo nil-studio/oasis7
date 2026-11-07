@@ -5,18 +5,7 @@ use crate::controlled_authority::formal::{
     VerifiedDurableSetActivationV1, VerifiedSealedDurableSetTransitionV1,
 };
 fn connect(provider: &RemoteMonotonicEndpointProvider) -> Result<TcpStream, FencingError> {
-    let stream = TcpStream::connect_timeout(&provider.address, provider.timeout)
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    stream
-        .set_nonblocking(false)
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    stream
-        .set_read_timeout(Some(provider.timeout))
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    stream
-        .set_write_timeout(Some(provider.timeout))
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    Ok(stream)
+    connect_oracle(&provider.address, provider.timeout)
 }
 fn installed(
     provider: &RemoteMonotonicEndpointProvider,

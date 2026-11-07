@@ -1,0 +1,44 @@
+{
+  "schema_version": "oasis7-engineering-telemetry-input/v1",
+  "origin": "github",
+  "collection_id": "fixture-001",
+  "collected_at": "2026-01-01T00:00:00Z",
+  "sources": [
+    {
+      "kind": "actions",
+      "reference": "fixture/actions.json",
+      "source_schema": "oasis7-engineering-telemetry-input/v1",
+      "records": [
+        {
+          "id": "select",
+          "kind": "job",
+          "run_id": 1,
+          "run_attempt": 1,
+          "job_id": 10,
+          "execution_result": "success",
+          "coverage": "partial",
+          "missing_reasons": [
+            "fixture-partial"
+          ],
+          "repository": "nil-studio/oasis7"
+        },
+        {
+          "id": "build",
+          "kind": "job",
+          "run_id": 1,
+          "run_attempt": 1,
+          "job_id": 11,
+          "depends_on": [
+            "select"
+          ],
+          "execution_result": "failure",
+          "coverage": "partial",
+          "missing_reasons": [
+            "fixture-partial"
+          ],
+          "repository": "nil-studio/oasis7"
+        }
+      ]
+    }
+  ]
+}

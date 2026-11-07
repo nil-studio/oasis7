@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn complete_registered_scalar_set_and_map_families_remain_incomplete_world_owners() {
     let fixture = fixture(true);
-    let report = verify(&fixture, || false).unwrap();
+    let report = verify(&fixture, never_cancel).unwrap();
     assert_eq!(
         report.root_set_digest(),
         root_set(&fixture).digest().unwrap()
@@ -68,7 +68,7 @@ fn owner_coverage_digest_binds_the_complete_root_set_identity() {
     let fixture = fixture(true);
     let root_set = root_set(&fixture);
     let report =
-        verify_with_root_set(&fixture, &root_set, MemoryClass::Ordinary, || false).unwrap();
+        verify_with_root_set(&fixture, &root_set, MemoryClass::Ordinary, never_cancel).unwrap();
     let digest = root_set.digest().unwrap();
     assert_eq!(report.root_set_digest(), digest);
 
@@ -96,20 +96,20 @@ fn owner_coverage_digest_binds_the_complete_root_set_identity() {
     let mut invalid = root_set;
     invalid.state[0].namespace = StateNamespaceV1::Allocator;
     assert!(matches!(
-        verify_with_root_set(&fixture, &invalid, MemoryClass::Ordinary, || false),
+        verify_with_root_set(&fixture, &invalid, MemoryClass::Ordinary, never_cancel),
         Err(WorldStateOwnerError::RootSet(_))
     ));
 }
 
 #[test]
 fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
-    let complete = verify(&fixture(true), || false).unwrap();
+    let complete = verify(&fixture(true), never_cancel).unwrap();
     assert_eq!(complete.checked_installed_target_fields(), 1);
     assert_eq!(complete.checked_world_balance_fields(), 2);
 
     let empty = verify(
         &fixture_with_issue(true, Some(FixtureIssue::EmptyTargetAndBalanceMaps)),
-        || false,
+        never_cancel,
     )
     .unwrap();
     assert_eq!(empty.checked_installed_target_fields(), 1);
@@ -137,7 +137,7 @@ fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
             "world balance semantic key profile",
         ),
     ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        let result = verify(&fixture_with_issue(true, Some(issue)), never_cancel);
         assert!(
             matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
             "{issue:?}: {result:?}"
@@ -147,7 +147,7 @@ fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
     assert!(matches!(
         verify(
             &fixture_with_issue(true, Some(FixtureIssue::WrongWorldBalanceCodec)),
-            || false
+            never_cancel
         ),
         Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(_)))
     ));
@@ -156,12 +156,12 @@ fn installed_targets_and_world_balances_require_metadata_and_typed_members() {
 #[test]
 fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
     let fixture = fixture(true);
-    let report = verify(&fixture, || false).unwrap();
+    let report = verify(&fixture, never_cancel).unwrap();
     assert_eq!(report.checked_module_instance_fields(), 8);
 
     let empty = verify(
         &fixture_with_issue(true, Some(FixtureIssue::EmptyModuleInstances)),
-        || false,
+        never_cancel,
     )
     .unwrap();
     assert_eq!(empty.checked_module_instance_fields(), 8);
@@ -184,7 +184,7 @@ fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
             "module instance member payload profile",
         ),
     ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        let result = verify(&fixture_with_issue(true, Some(issue)), never_cancel);
         assert!(
             matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
             "{issue:?}: {result:?}"
@@ -195,7 +195,7 @@ fn module_instance_owner_requires_eight_metadata_and_same_identity_siblings() {
 #[test]
 fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() {
     let fixture = fixture(true);
-    let report = verify(&fixture, || false).unwrap();
+    let report = verify(&fixture, never_cancel).unwrap();
     assert_eq!(report.checked_text_byte_fields(), 4);
     assert!(report.unsupported_fields().contains(&"resources"));
 
@@ -217,7 +217,7 @@ fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() 
             "required text/bytes metadata missing or duplicate",
         ),
     ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        let result = verify(&fixture_with_issue(true, Some(issue)), never_cancel);
         assert!(
             matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
             "{issue:?}: {result:?}"
@@ -226,7 +226,7 @@ fn text_and_byte_owners_require_registered_metadata_and_exact_member_profiles() 
     assert!(matches!(
         verify(
             &fixture_with_issue(true, Some(FixtureIssue::WrongBytesCodec)),
-            || false
+            never_cancel
         ),
         Err(WorldStateOwnerError::Value(ValueTreeError::Invalid(
             "member key/payload kind"
@@ -263,7 +263,7 @@ fn owner_semantic_key_probe_handles_utf8_boundaries_and_rejects_wrong_tokens() {
 fn missing_required_u64_entry_fails_closed_even_when_all_metadata_is_present() {
     let fixture = fixture(false);
     assert!(matches!(
-        verify(&fixture, || false),
+        verify(&fixture, never_cancel),
         Err(WorldStateOwnerError::Invalid(
             "required scalar-u64 metadata/entry missing or duplicate"
         ))
@@ -297,7 +297,7 @@ fn text_byte_owner_scan_observes_late_cancellation() {
 #[test]
 fn id_set_metadata_and_unit_member_cannot_move_to_another_namespace_root() {
     let misplaced = fixture_with_issue(true, Some(FixtureIssue::MisplacedIdSetNamespace));
-    match verify(&misplaced, || false) {
+    match verify(&misplaced, never_cancel) {
         Err(WorldStateOwnerError::Invalid("field namespace/root mismatch")) => {}
         Err(other) => panic!("unexpected owner error: {other:?}"),
         Ok(report) => panic!(

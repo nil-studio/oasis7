@@ -430,8 +430,8 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 50)
-                self.assertIn('cache_build_complete variants=50 verification=false', result.stdout)
+                self.assertEqual(len(named), 51)
+                self.assertIn('cache_build_complete variants=51 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, legacy)
                 self.assert_fast_inventory(named, self.config)
@@ -450,7 +450,7 @@ run() {
                                       'CARGO_PROFILE_TEST_DEBUG': '0'})
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -517,7 +517,7 @@ run() {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 13)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 14)
 
 
 if __name__ == '__main__':

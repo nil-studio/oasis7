@@ -101,8 +101,17 @@ def validate_candidate_graph(workflow, config):
         if ("needs.select.result == 'success'" not in job
                 or "fromJSON(needs.select.outputs.plan).scope == 'full'" not in job):
             raise ValueError('group requires successful select and full migration fallback')
-        if group != 'fleet_health' and 'strategy:' in job:
+        if group not in ('fleet_health', 'oasis7_required') and 'strategy:' in job:
             raise ValueError('ordinary groups must not have singleton matrices')
+        if group == 'oasis7_required':
+            strategy = ('    strategy:\n      fail-fast: false\n      matrix:\n'
+                        '        partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}\n')
+            header = job.split('    steps:', 1)[0]
+            if (strategy not in header or 'include:' in header or 'exclude:' in header
+                    or "ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '[\"all\"]' }}" not in jobs['select']
+                    or 'ORDINARY_PARTITION: ${{ matrix.partition }}' not in job
+                    or '--ordinary-partition "$ORDINARY_PARTITION"' not in job):
+                raise ValueError('ordinary matrix must preserve the complete trusted partition inventory and legacy all fallback')
         if group == 'command_center' and 'uses: ./.github/workflows/command-center.yml' not in job:
             raise ValueError('Command Center checks must execute through the reusable workflow')
         if 'ci-authority' in job and group != 'workflow_governance':
@@ -982,16 +991,26 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
         self.assertIn("if: github.event_name == 'pull_request'", planner)
         self.assertNotIn('needs: select', planner)
-        self.assertIn('ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
+        self.assertIn('ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
         self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', planner)
         self.assertIn('--source-ref "$SOURCE_SHA"', planner)
         self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
-        self.assertIn('groups: ${{ steps.preview.outputs.groups }}', planner)
-        self.assertIn('group: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.groups) }}', preview)
+        self.assertIn('matrix: ${{ steps.preview.outputs.matrix }}', planner)
+        self.assertIn('matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}', preview)
+        self.assertIn('PREVIEW_SAMPLE: ${{ matrix.sample }}', preview)
+        self.assertIn('PREVIEW_PARTITION: ${{ matrix.partition }}', preview)
+        self.assertEqual(len(re.findall(r'^    name:', preview, re.M)), 1)
+        self.assertIn('name: pr-fast-preview (${{ matrix.sample }}, ${{ matrix.group }}, ${{ matrix.partition }})', preview)
+        self.assertIn('--group "$PREVIEW_GROUP" --partition "$PREVIEW_PARTITION"', preview)
+        self.assertIn('OASIS7_PRODUCT_DOC_BASE: ${{ matrix.synthetic_base_sha }}', preview)
+        self.assertIn('name: pr-fast-preview-${{ matrix.sample }}-${{ matrix.group }}-${{ matrix.partition }}-', preview)
+        self.assertIn("'partition': os.environ['PREVIEW_PARTITION']", preview)
         self.assertIn('fail-fast: false', preview)
         self.assertIn('ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}', preview)
-        self.assertIn('ci-fast-preview.py restore --metadata', preview)
+        self.assertIn('ci-fast-preview.py restore --sample "$PREVIEW_SAMPLE"', preview)
+        self.assertIn('--metadata "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json.metadata.json"', preview)
+        self.assertIn('--plan "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"', preview)
         compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
                         if 'name: Install WASM C compiler' in step)
         self.assertIn("if: matrix.group == 'net'", compiler)
@@ -1027,21 +1046,95 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             root = Path(temporary)
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
-                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\nexit "$DRIVER_EXIT"\n')
-            (root / 'selection.json').write_text('{}')
-            for group in ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node'):
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
+                + 'printf "%s" "$OASIS7_CI_ARCHITECTURE_PLAN" > "$PLAN_LOG"\nexit "$DRIVER_EXIT"\n')
+            for sample, groups in (
+                ('runtime-world', ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node')),
+                ('game-client-private-unix', ('baseline', 'rust_baseline', 'oasis7_required')),
+            ):
+                selection = root / 'previews' / sample / 'selection.json'
+                selection.parent.mkdir(parents=True)
+                selection.write_text(json.dumps({'sample': sample}))
+                for group in groups:
+                    partitions = ('oasis7_runtime', 'oasis7_world_state') if (
+                        sample == 'runtime-world' and group == 'oasis7_required') else ('all',)
+                    for partition in partitions:
+                        for code in (0, 19):
+                            result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                                env=dict(os.environ, PREVIEW_GROUP=group, PREVIEW_SAMPLE=sample,
+                                         PREVIEW_PARTITION=partition, RUNNER_TEMP=str(root),
+                                         GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'),
+                                         PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code)))
+                            args = (root / 'args').read_text().strip('\0').split('\0')
+                            expected = ['required', '--group', group]
+                            if group in ('rust_baseline', 'oasis7_required', 'distfs'):
+                                expected.extend(['--plan', str(selection)])
+                            if group == 'oasis7_required':
+                                expected.extend(['--ordinary-partition', partition])
+                            expected.extend(['--repo-root', str(root)])
+                            with self.subTest(sample=sample, group=group, partition=partition, driver_exit=code):
+                                self.assertEqual(args, expected)
+                                self.assertEqual(json.loads((root / 'plan-log').read_text()), {'sample': sample})
+                                self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+
+    def test_distfs_workflow_binds_new_handoffs_and_preserves_old_source_ref_cli(self):
+        job = JOBS['distfs']
+        self.assertIn('ref: ${{ needs.select.outputs.tested_sha }}', job)
+        self.assertIn('name: ${{ needs.select.outputs.selection_artifact }}', job)
+        self.assertIn('SOURCE_SHA: ${{ needs.select.outputs.source_sha }}', job)
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                    if 'name: Execute selected group' in step)
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text(
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
+                'for arg in "$@"; do if [[ "$OLD_DRIVER" == 1 && "$arg" == --plan ]]; then exit 2; fi; done\n'
+                'exit "$DRIVER_EXIT"\n')
+            plans = [{}, {'execution_profile': 'candidate-full'},
+                     {'distfs_clippy_contract_version': 1, 'distfs_clippy_group': 'rust_baseline'},
+                     {'distfs_clippy_contract_version': 2}, {'distfs_clippy_group': 'other'}]
+            for plan in plans:
+                handoff = bool({'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
+                (root / 'selection.json').write_text(json.dumps(plan))
                 for code in (0, 19):
                     result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
-                        env=dict(os.environ, PREVIEW_GROUP=group, RUNNER_TEMP=str(root),
-                                 GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'), DRIVER_EXIT=str(code)))
+                        env=dict(os.environ, RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root),
+                                 ARGV_LOG=str(root / 'args'), OLD_DRIVER='0' if handoff else '1', DRIVER_EXIT=str(code)))
                     args = (root / 'args').read_text().strip('\0').split('\0')
-                    expected = ['required', '--group', group]
-                    if group in ('rust_baseline', 'oasis7_required'):
-                        expected.extend(['--plan', str(root / 'selection.json')])
-                    expected.extend(['--repo-root', str(root)])
-                    with self.subTest(group=group, driver_exit=code):
+                    expected = ['required', '--group', 'distfs']
+                    if handoff:
+                        expected += ['--plan', str(root / 'selection.json')]
+                    expected += ['--repo-root', str(root)]
+                    with self.subTest(plan=plan, code=code):
                         self.assertEqual(args, expected)
                         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+            for malformed in ('[', '[]'):
+                (root / 'selection.json').write_text(malformed)
+                (root / 'args').unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                    env=dict(os.environ, RUNNER_TEMP=str(root), GITHUB_WORKSPACE=str(root),
+                             ARGV_LOG=str(root / 'args'), OLD_DRIVER='0', DRIVER_EXIT='0'))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((root / 'args').exists())
+
+    def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
+        job = JOBS['oasis7-required']
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+        self.assertIn('needs: [select, oasis7-test-build]', job)
+        self.assertIn('oasis7-required', JOBS['required-gate'])
+        for damaged in (
+            job.replace('fail-fast: false', 'fail-fast: true'),
+            job.replace('${{ fromJSON(needs.select.outputs.ordinary_partitions) }}', '[oasis7_runtime]'),
+            job.replace('      matrix:\n', '      matrix:\n        exclude: [{partition: oasis7_world_state}]\n'),
+            job.replace('--ordinary-partition "$ORDINARY_PARTITION"', ''),
+        ):
+            with self.subTest(damaged=damaged[:120]), self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW.replace(job, damaged), CONFIG)
+        fallback = "ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '[\"all\"]' }}"
+        with self.assertRaises(ValueError):
+            validate_candidate_graph(WORKFLOW.replace(fallback, "ordinary_partitions: '[\"oasis7_runtime\"]'"), CONFIG)
 
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
@@ -2256,7 +2349,7 @@ run_cargo() {
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
-            if group != 'fleet_health':
+            if group not in ('fleet_health', 'oasis7_required'):
                 self.assertNotIn('strategy:', job)
             if group != 'workflow_governance':
                 self.assertNotIn('ci-authority', job)

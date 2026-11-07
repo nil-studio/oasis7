@@ -310,7 +310,7 @@ World Feed remains ambient, even if busy or LIVE. LIVE does not prove causal pro
 
 Production world graphics remain Bevy/WASM only. A static design mockup is not a JS fallback renderer. Failure sheet replaces the world drawing with a quiet unavailable region labeled **Renderer Unavailable / 渲染器不可用**, explains the affected capability and available recovery, retains still-authorized Next Move/context, Targets, original receipt and safe controls. Diagnostics is available but not the dominant card. No decorative fake map behind an error pretending the world remains live.
 
-Distinguish initial GPU/resource absence, renderer loss after genuine ready, query/network unavailability and authorization loss. On post-ready loss stop stale canvas hit targets and animation; if a prior frame is retained it is explicitly non-live and only while still authorized. Retry concerns renderer/session reconstruction, not replay of world action. Recovery reapplies current authorized view/camera/selection, validates render and hit state, and never restores revoked pixels. A successful probe alone is not recovered interaction. Original operation/result identity survives where authorized; a renderer error does not prove world execution stopped.
+Distinguish initial GPU/resource absence, renderer loss after genuine ready, query/network unavailability and authorization loss. On post-ready loss stop stale canvas hit targets and animation; if a prior frame is retained it is explicitly non-live and only while still authorized. Retry concerns renderer/session reconstruction, not replay of world action. Recovery reapplies current authorized view/camera/selection, validates render and hit state, and never restores revoked pixels. 真正的 WebGL context loss 使用明确的“重新加载页面恢复图形 / Reload page to restore graphics”操作，重建 WASM/Bevy 实例；不得将已启动实例的再次 mount 回报为图形恢复。此操作只由用户触发，不在 context-loss 回调中自动刷新。普通资源下载、初次装配失败继续使用原地 Renderer 重试，不能因此刷新整页。重新加载后沿既有会话、当前授权快照及原操作结果恢复读取，不持久化旧私有 renderer DTO，不自动重发 Command 或用新请求替代未知原件。A successful probe alone is not recovered interaction. Original operation/result identity survives where authorized; a renderer error does not prove world execution stopped.
 
 <a id="bevy-design-state-matrix"></a>
 ### 13.7. Required design-state/acceptance matrix
@@ -391,7 +391,23 @@ Stop-ship visual findings for later implementation: terrain louder than relevant
 
 例如世界中心、zoom=1、pan=0 在 1280×720/DPR1 下落在逻辑 (320,180)、CSS (640,360)；zoom=2 中心不变。世界最左边界在同条件下为 CSS x=20；zoom=2 时为 -600，仍按原裁剪处理。1365×768 的中心 qx=341.25，snap 后显示 x=682，Web 和 Rust 必须使用这一值。命中不反向改变权威位置。
 
-仅地形、设施、Agent、美术关系线进入低分辨率世界层；文字、中文标签、HUD、语义提示和原回执在独立原生分辨率层合成，沿原来源、层次、密度与 reduced-motion 合同。缺位置不根据图像补造坐标。几何装饰不产生新目标或行动能力。
+世界 Sprite 默认进入同一个低分辨率深度空间；所有 Text2d 与下表明确的语义 UI 例外进入原生分辨率层。不能把“带身份/状态含义的实体图形”一概当作原生 UI，否则实体 detail 会跨相机压过原本位于其上方的 Agent。`render_layers.rs` 是实际生产者的统一分层入口，未知 Sprite 默认 world，不能通过遗漏 world 类型使其自动升到原生前景。沿原来源、密度及 reduced-motion 合同，缺位置不补造坐标，几何装饰不产生目标或行动能力。
+
+| 实际生产者 | 原 Z 关系与处理 | 合成层 |
+| --- | --- | --- |
+| Grid、fragment 主体/shadow/inset/fleck、Location 主体 | 网格后景；fragment 0.34–0.37，Location 1.0 | world，保持原同层 Z |
+| Micro Depot 主体/detail/service radius | 2.55/2.56/2.52，均低于 Agent 3.0；detail 与主体不能拆相机 | world |
+| Module 主体/identity chip | 2.7/2.71，均低于 Agent；glyph 与主体保持相同采样和遮挡 | world；模块文字仍 native |
+| Agent 主体/core/silhouette/grounding | 主体 3.0、选中加 1；装饰沿主体相对 Z；grounding 使用同一脚点派生中心及像素单位 | world |
+| Links/social links/assignment arrow、hotspot 主体/core/highlight/shadow/cue | 关系 0.42/0.55/0.62；hotspot 1.5 或 blocker 4.04 加既有局部偏移 | world，关系箭头与线不能拆采样 |
+| Industry aggregate/world event 的 Sprite 部分 | 2.85–2.87；同生产者的文字原 5.05 | 图形 world；Text2d native |
+| Agent/Location/Module/Map label、selected resource readout、depot throughput text | 原文字 Z 可在 2.1–5.05；独立文字平面不由主体原 Z 裁掉 | 所有 Text2d native |
+| Agent power、derived/missing position、selection、recommendation、receipt target、active intent；Location selection/corner frame/resource cue | 明确的语义 UI 例外；保留各自原 Z 的层内顺序 | native |
+| Depot stock runway 段/背景/zero cross、throughput 背景 | 原约 2.564–2.567，作为读数 UI 与文字一起独立清楚呈现 | native |
+
+作者化 glyph 的局部单位与世界 cm 分开：Agent 16×16、Module 6×6 主体及 beacon/relay/artifact/sensor 全部 identity chip 的尺寸/offset、Micro Depot 8/9 主体及 active/suspended/depleted detail 使用逻辑像素，进入 CSS 前逐轴乘 `s×C/F`。不能把 1 CSS px detail 直接送入低分辨率目标；在 unit2 下它只有半个逻辑像素，可能完全不产生片元。module 的 Rust hit 半径随同单位转换，co-anchor 每轴间距为 `ceil(max(48,16×unit+4)/unit)×unit` CSS px，保留 48 CSS px 最小间距并使原生 hit 分离，unit 与 ceil/offset 从原始 CSS f64 算到最终 GPU 转换，不先转 f32；Web 44 CSS px 最小目标不改；module label 字号仍 10 CSS px，只按 glyph 正扩大量补齐原间距，缩小时不向内收。depot 仍非交互，grounding 同单位，stock/throughput 的原生字号和数值不缩放，读数 lane 至少离开 scaled body 半高加 native backing 半高及 1 CSS px 间隙，不能因 glyph 缩小而让固定字号背景盖住主体。world 线生产者（普通关系、social/方向标记、assignment、service radius、grid）的横向厚度使用共同的逻辑像素单位，至少 1 logical px；按线垂线方向换算到 CSS，端点及实际世界长度/半径不变。箭头局部长度/宽度与 social endpoint glyph 同单位，箭头保留原 CSS 最小长度判断，并以可用线长限制局部扩大量；native UI 描边不随此转换。CSS 相同但 backing/DPR 改变时，必须重建静态几何/命中及 grid 单位缓存，不能只改 render target。terrain footprint LOD 的 1.5/10 CSS 条件不改。未拖动 pointer gesture 在 down 时捕获当时 renderer 命中身份，click 不因期间自动相机位移改选其他实体；click 时必须仍在当前 render input 和 hit region 中，已删除/失效输入不复用旧候选。空白按下或超过 4 CSS px 拖动不能获取之后移入的对象，销毁 renderer 清除候选。Agent selected resource 文字 lane 随脚点上方 15 逻辑像素的顶部正扩大量外移，固定原生字号与 location lane 不变。不得对已转换的共享材质尺寸或其 Transform 再乘一次单位；世界位置、service radius 的 cm 与 footprint LOD 的 CSS 条件不因此变化。测试必须同时证明未遮挡 glyph 可见与被上层 Actor 正确遮挡，不能用“两次都没画 glyph”的零差分当作遮挡通过。
+
+native UI 在 world 合成之后绘制；跨层旧 Z 不再作为世界实体遮挡关系。只有上述明确 UI 可以这样提升；实体主体、glyph/detail、阴影、范围与关系图形必须留在 world 共享原 Z。分层不证明默认字体已具备原生 CJK 字形，字体可读性仍需实际证据。
 
 实现消费者为 lib.rs 的 setup_scene、to_canvas_point、renderer_to_css_scale，camera_viewport 的逆变换，render_camera_fit/focus、footprint/标签布局、Rust 命中与 Web host/Targets。尺寸布局必须由同一计算结果驱动这些消费者。resize/DPR 更新原子替换 RenderTarget 与布局代次，清除旧命中缓存，再切换 ready；旧纹理、相机和合成实体按所有权释放，不能每帧累计。尺寸变化保留原 CSS pan、zoom 和身份选择；授权输入变化仍沿原导航/恢复合同。
 

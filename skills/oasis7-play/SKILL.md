@@ -5,6 +5,8 @@ description: Execute an authorized Oasis7 native task through the supplied signe
 
 # Oasis7 native task play
 
+For an explicitly supplied `dev-test-accounts-v1` local account-tool profile, follow the [restricted account-tool reference](references/dev-test-accounts.md) exclusively. This profile exposes `dev_test_accounts_call`; do not fall back to device configurations, broker raw arguments or other native capabilities described below.
+
 This profile uses the ordinary `oasis7_game_client` executable and an operator-provided device configuration. It supports task discovery, complete private goal/context capture, `native.move_agent`, `native.transfer_material`, built-in `native.build_factory` and `native.schedule_recipe` with signed quotes, authenticated industry observation, original result lookup and terminal provider outcomes. The default executor does not perform owner cold entry, token pairing or the full Game HTTP write catalog. A trusted local companion can perform [cold entry](references/cold-entry.md) before handing off a separate executor.
 
 Use only the supplied executable and device configuration. Do not inspect owner keys, server storage, fixture source or other players' state. Never print signer files or copy private goal content into public action reasons. Keep full goals and observations inside the authorized model context.

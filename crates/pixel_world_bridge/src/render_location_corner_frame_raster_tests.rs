@@ -3,6 +3,7 @@ use super::*;
 fn raster_corner_frame_state() -> RenderState {
     let mut state = sample_render_state(12_000.0);
     state.selection = None;
+    state.agents[0].pos = Some(sample_position(2_500_000.0, 1_500_000.0)); // Isolate the location frame from the Agent texture.
     state.locations[0].id = "loc-corner-raster".to_string();
     state.locations[0].marker_role = None;
     state.locations[0].marker_alpha = Some(0.72);

@@ -143,7 +143,7 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 
 #5527 / #5543 新增的二维俯视像素设计沿[视觉方向](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)，不更新上述生产源码审读基线。可编辑原件为 [atlas.svg](assets/ui-ux/pixel-world/atlas.svg) 与 [scene.svg](assets/ui-ux/pixel-world/scene.svg)：场景 `320×180` 逻辑像素、地块 `16×16`、Agent `16×16` 且局部脚点 `(8,15)`；Smelter `48×48`、场景左上角 `(144,64)`。两份原件共用固定 16 色与整数矩形轮廓，具体颜色及图形键由原件 metadata 拥有；它们不是新增品牌 token、Rust 材质常量或世界单位。地块、道路、建筑布局与脚点均为设计坐标，不表示合法世界位置、关系、可建设 tile 或点击执行能力。
 
-`atlas.svg` 拥有图形和色板；`scene.svg` 拥有 `<use>` 实例布局，其内联符号及 metadata 由 [build.py](assets/ui-ux/pixel-world/build.py) 同步。该脚本导出 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)，供[离线交互原型](assets/ui-ux/interactive/index.html)加载；同时将同一源的整数几何嵌入图 16、17 与工业方案／结果四张 SVG 的 `pixel-world:*` 标记区，使这些[页面稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)可以独立查看。不要手工编辑生成区或在各稿另画一套世界。场景底图不包含 Agent、姓名、权限、库存、任务状态或选择标记；Agent 按各 fixture 单独放置，HUD／中文／原回执保持独立。源文件、导出成功与设计操作均不证明正式 Viewer 已加载这些资产。
+`atlas.svg` 拥有图形和色板；`scene.svg` 拥有 `<use>` 实例布局，其内联符号及 metadata 由 [build.py](assets/ui-ux/pixel-world/build.py) 同步。该脚本从同源整数矩形导出 Agent、ore、smelter、depot 的独立 PNG；`--sprites-only` 只需 Python 3 与 Pillow，完整 scene／页面稿导出仍需 Inkscape。既有 Agent 导出在相同源下保持字节一致。该脚本导出 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)，供[离线交互原型](assets/ui-ux/interactive/index.html)加载；同时将同一源的整数几何嵌入图 16、17 与工业方案／结果四张 SVG 的 `pixel-world:*` 标记区，使这些[页面稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)可以独立查看。不要手工编辑生成区或在各稿另画一套世界。场景底图不包含 Agent、姓名、权限、库存、任务状态或选择标记；Agent 按各 fixture 单独放置，HUD／中文／原回执保持独立。源文件、导出成功与设计操作均不证明正式 Viewer 已加载这些资产。
 
 | 图形键／层 | 原始尺寸与局部锚点 | 当前设计用途 |
 | --- | --- | --- |
@@ -153,10 +153,12 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 | `depot` | 32×32；中心 `(16,16)`、入口 `(16,32)` | 场景实例 `(96,64)`；不编码 Micro Depot 业务状态 |
 | `agent` | 16×16；脚点 `(8,15)` | 独立静态精灵；身份／选择／权限由上层文字和边框表达，同位候选仍用集合标记 |
 
+共享材质的生产接线由 [world_materials.rs](../../../crates/pixel_world_bridge/src/world_materials.rs) 在原实体 reconcile 后消费同源 PNG：外壳复用既有实体的 Transform，独立回收，不增加命中或重算事实。地形沿原 CSS LOD 与组成色；设施外壳置于原状态 glyph 后，姓名、读数、来源及选择仍由既有图层表达。接线源码与导出文件不证明真实 GPU／交互验收完成。
+
 <a id="terrain-material-mapping"></a>
 #### 真实地形素材映射
 
-#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。当前 world_view_projection.rs 的 location record 未提供 fragment_profile 且位置非 current，代码阶段须沿原 authority 补齐获准 fragment 与时效，缺来源保持无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
+#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。本地已加载生成源匹配的 location record 沿[生成地形来源证明](external-agent-world-view.design.md#local-terrain-source-proof)提供获准 fragment 与 current 时效（#5569 已交付）；远端缺证明保持 unknown／无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
 
 | 获准输入 | 素材键与独立预期 | 未知及限制 |
 | --- | --- | --- |
@@ -171,7 +173,7 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 <a id="facility-material-mapping"></a>
 #### 真实设施素材映射
 
-#5559 沿生产 factory entity 的 entity_id、render_record 与 provenance 进入 `host_world_view.rs`，再消费既有 module visual 与 Web 目标。当前 adapter 仅输出 kind=factory，尚不具备启用 Smelter 外壳的类型事实；原类型字段已由 world_view_projection.rs 从 snapshot.model.factories[id].kind 写入 render_record.kind；实现须核对 Web allowlist 并在 Rust adapter 显式传递，不能从 label、recipe、manifest 展示名称或私有 snapshot 猜测。
+#5559 沿生产 factory entity 的 entity_id、render_record 与 provenance 进入 `host_world_view.rs`，再消费既有 module visual 与 Web 目标。当前 adapter 保留 kind=factory 的原身份，并以可缺省 factory_kind 显式透传获准类型（#5568 已交付）；原类型字段由 world_view_projection.rs 从 snapshot.model.factories[id].kind 写入 render_record.kind。Web allowlist 与 Rust adapter 只传既有获准字段，不能从 label、recipe、manifest 展示名称或私有 snapshot 猜测；缺类型继续使用通用外观。
 
 | 输入及来源 | 外壳与锚点 | 独立预期 |
 | --- | --- | --- |

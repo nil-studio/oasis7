@@ -79,7 +79,10 @@ fn receipt_cue_geometry(app: &mut App) -> Vec<CueSegmentProbe> {
         .find(|core| core.id == "agent-0")
         .expect("receipt fixture target Agent core");
     let world = app.world_mut();
-    let mut query = world.query::<(&Sprite, &Transform)>();
+    // Grounding rims also sit above the body; only receipt-tagged geometry
+    // can demonstrate receipt cleanup.
+    let mut query =
+        world.query_filtered::<(&Sprite, &Transform), With<PixelWorldReceiptTargetCue>>();
     let mut cues = query
         .iter(world)
         .filter_map(|(sprite, transform)| {

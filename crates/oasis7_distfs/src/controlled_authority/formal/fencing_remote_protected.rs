@@ -17,17 +17,7 @@ pub(super) fn initialize(
     {
         return Err(FencingError::FencingUnproven);
     }
-    let mut stream = TcpStream::connect_timeout(&provider.address, provider.timeout)
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    stream
-        .set_nonblocking(false)
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    stream
-        .set_read_timeout(Some(provider.timeout))
-        .map_err(|e| FencingError::Io(e.to_string()))?;
-    stream
-        .set_write_timeout(Some(provider.timeout))
-        .map_err(|e| FencingError::Io(e.to_string()))?;
+    let mut stream = connect_oracle(&provider.address, provider.timeout)?;
     let state = exchange(
         &mut stream,
         instance,

@@ -60,6 +60,7 @@ pub(super) fn reconcile_assignment_cues(
         return;
     };
 
+    let pixel = world_strokes::pixel_unit(width, height);
     let mut active_keys = HashSet::new();
     for link in &render_state.links {
         if link.kind != "agent_assignment"
@@ -86,26 +87,35 @@ pub(super) fn reconcile_assignment_cues(
             continue;
         }
 
+        let cue_pixel = pixel.min(bevy::math::DVec2::splat(
+            link_length / ASSIGNMENT_CUE_MIN_LINK_LENGTH_PX,
+        ));
         let direction_x = delta_x / link_length;
         let direction_y = delta_y / link_length;
-        let tip_x = to_x - (direction_x * ASSIGNMENT_CUE_BACKOFF_PX);
-        let tip_y = to_y - (direction_y * ASSIGNMENT_CUE_BACKOFF_PX);
+        let tip_x = to_x - (direction_x * ASSIGNMENT_CUE_BACKOFF_PX * cue_pixel.x);
+        let tip_y = to_y - (direction_y * ASSIGNMENT_CUE_BACKOFF_PX * cue_pixel.y);
         let perpendicular_x = -direction_y;
         let perpendicular_y = direction_x;
         for (part, side) in [
             (AssignmentCuePart::Left, -1.0),
             (AssignmentCuePart::Right, 1.0),
         ] {
-            let tail_x = tip_x - (direction_x * ASSIGNMENT_CUE_ARM_LENGTH_PX)
-                + (perpendicular_x * ASSIGNMENT_CUE_HALF_WIDTH_PX * side);
-            let tail_y = tip_y - (direction_y * ASSIGNMENT_CUE_ARM_LENGTH_PX)
-                + (perpendicular_y * ASSIGNMENT_CUE_HALF_WIDTH_PX * side);
+            let tail_x = tip_x - (direction_x * ASSIGNMENT_CUE_ARM_LENGTH_PX * cue_pixel.x)
+                + (perpendicular_x * ASSIGNMENT_CUE_HALF_WIDTH_PX * side * cue_pixel.x);
+            let tail_y = tip_y - (direction_y * ASSIGNMENT_CUE_ARM_LENGTH_PX * cue_pixel.y)
+                + (perpendicular_y * ASSIGNMENT_CUE_HALF_WIDTH_PX * side * cue_pixel.y);
             let key = (link.id.clone(), part);
             active_keys.insert(key.clone());
             let sprite = sprite_for_rect(
                 ASSIGNMENT_CUE_COLOR,
                 ((tip_x - tail_x).powi(2) + (tip_y - tail_y).powi(2)).sqrt() as f32,
-                ASSIGNMENT_CUE_THICKNESS_PX,
+                world_strokes::thickness(
+                    ASSIGNMENT_CUE_THICKNESS_PX,
+                    width,
+                    height,
+                    tip_x - tail_x,
+                    tip_y - tail_y,
+                ),
             );
             let transform = transform_for_line(
                 tail_x,

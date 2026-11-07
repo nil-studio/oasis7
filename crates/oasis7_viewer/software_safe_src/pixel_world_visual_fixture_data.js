@@ -373,3 +373,23 @@ export function pixelWorldModuleVisualEntitiesFixture() {
   };
   return fixture;
 }
+
+// Controlled legacy-snapshot inputs for actual GPU material sampling only.
+// These declared values are fixtures, never an authorized world-result receipt.
+export function pixelWorldMaterialShellsVisualFixture() {
+  const fixture = pixelWorldSelectedBlockerVisualFixture();
+  const location = fixture.model.locations["loc-0"];
+  location.profile.radius_cm = 1_500_000;
+  location.fragment_profile.blocks.blocks.forEach((block,index) => {
+    block.origin_cm = {x_cm:(index%2)*1_000_000,y_cm:0,z_cm:Math.floor(index/2)*1_000_000};
+    block.size_cm = {x_cm:1_000_000,y_cm:7_500,z_cm:1_000_000};
+    if(index===3) block.compounds.ppm = {};
+  });
+  fixture.model.module_visual_entities = Object.fromEntries([
+    ["material-smelter","factory.smelter.mk1",3_000_000],
+    ["material-unknown","unsupported",5_000_000],
+  ].map(([id,factory_kind,x_cm]) => [id,{entity_id:id,module_id:"runtime_factory",kind:"factory",factory_kind,
+    label:factory_kind==="factory.smelter.mk1"?"受控冶炼炉素材":"受控未知设施",
+    anchor:{type:"absolute",data:{pos:{x_cm,y_cm:2_200_000,z_cm:0}}}}]));
+  return fixture;
+}

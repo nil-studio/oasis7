@@ -78,13 +78,15 @@ pub(super) fn reconcile_agent_cores(
             .as_ref()
             .is_some_and(|selection| selection.kind == "agent" && selection.id == agent.id);
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
+        let canvas_y =
+            canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64;
         let sprite = sprite_for_square(AGENT_CORE_COLOR, agent_core_size_px(agent, is_selected));
         let transform = Transform::from_translation(to_bevy_translation(
             canvas_x,
             canvas_y,
             width,
             height,
-            style.layer_z + AGENT_CORE_LAYER_Z_OFFSET,
+            style.layer_z - AGENT_CORE_LAYER_Z_OFFSET,
         ));
         if let Some(entity) = existing_by_id.get(&agent.id).copied() {
             commands.entity(entity).insert((sprite, transform));
@@ -226,7 +228,9 @@ pub(super) fn reconcile_selected_agent_cues(
         })
         .unwrap_or_else(|| fallback_point_for_entity(&agent.id, width, height, &runtime.camera));
     let style = agent_visual_style(agent, true, animation_ms, index);
-    let body_half_size = agent_unanimated_size_px(agent, true) as f32 / 2.0;
+    let canvas_y =
+        canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64;
+    let body_half_size = style.size_px as f32 * agent_pixel_scale(width, height).y / 2.0;
 
     for (segment, offset, size) in selected_agent_cue_visuals(body_half_size) {
         let key = (agent.id.clone(), segment);
