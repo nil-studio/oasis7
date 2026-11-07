@@ -113,7 +113,7 @@ pub(super) fn reconcile(
                 false,
             );
         }
-        let scale = layout.pixel_css();
+        let scale = layout.css / layout.frame.as_dvec2() * layout.scale as f64;
         for facility in &state.module_visual_entities {
             if facility.kind != "factory"
                 || facility.factory_kind.as_deref() != Some("factory.smelter.mk1")
@@ -135,7 +135,7 @@ pub(super) fn reconcile(
                 base,
                 Sprite {
                     image: textures[1].clone(),
-                    custom_size: Some(scale * 48.0),
+                    custom_size: Some((scale * 48.0).as_vec2()),
                     ..default()
                 },
                 true,
@@ -157,7 +157,7 @@ pub(super) fn reconcile(
                 base,
                 Sprite {
                     image: textures[2].clone(),
-                    custom_size: Some(scale * 32.0),
+                    custom_size: Some((scale * 32.0).as_vec2()),
                     ..default()
                 },
                 true,
