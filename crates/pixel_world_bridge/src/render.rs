@@ -673,6 +673,7 @@ fn clear_runtime_visuals(commands: &mut Commands, runtime: &mut BevyRuntimeState
         commands.entity(entity).despawn();
     }
     runtime.grid_layout = None;
+    runtime.pointer_click_target = Some(None);
     runtime.hit_regions.clear();
     runtime.hit_region_cache_key = None;
     runtime.hit_regions_dirty = true;

@@ -24,6 +24,7 @@ mod facility_signature;
 mod host_render_input;
 mod host_state;
 mod pixel_pipeline;
+mod pointer_gesture;
 mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
@@ -411,6 +412,7 @@ struct BevyRuntimeState {
     pending_fit_bounds: Option<Value>,
     active_follow_target: Option<FocusTarget>,
     drag_state: Option<DragState>,
+    pointer_click_target: Option<Option<(String, String)>>,
     hit_regions: Vec<HitRegion>,
     hit_region_cache_key: Option<HitRegionCacheKey>,
     hit_regions_dirty: bool,
@@ -1048,6 +1050,7 @@ fn click_selection_from_hit(hit: Option<(String, String)>) -> Option<(String, St
 fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
     match event {
         InputEvent::PointerDown { x, y, pointer_id } => {
+            runtime.pointer_click_target = Some(hit_test(&runtime.hit_regions, x, y));
             runtime.drag_state = Some(DragState {
                 pointer_id,
                 start_x: x,
@@ -1075,6 +1078,9 @@ fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
                     )
                 })
             {
+                if (x - start_x).hypot(y - start_y) > 4.0 {
+                    runtime.pointer_click_target = Some(None);
+                }
                 runtime.camera.pan_x_px = start_pan_x + (x - start_x);
                 runtime.camera.pan_y_px = start_pan_y + (y - start_y);
                 runtime.camera_user_override = true;
@@ -1136,8 +1142,7 @@ fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
             let _ = camera_viewport::emit(&runtime);
         }
         InputEvent::Click { x, y } => {
-            if let Some((kind, id)) = click_selection_from_hit(hit_test(&runtime.hit_regions, x, y))
-            {
+            if let Some((kind, id)) = pointer_gesture::click_selection(runtime, x, y) {
                 let _ = emit_event_value(&json!({
                     "type": "select_entity",
                     "selection": { "kind": kind, "id": id }
