@@ -37,7 +37,7 @@ const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]); let stdout = '', stderr = '';
   const timer = setTimeout(() => { child.kill('SIGTERM'); no(Error('browser command timeout: ' + args[0])); }, 45000);
   child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);
-  child.on('error', no); child.on('close', code => { clearTimeout(timer); code === 0 ? yes(stdout) : no(Error(stderr + stdout)); });
+  child.on('error', no); child.on('close', code => { clearTimeout(timer); if (code === 0) yes(stdout); else { summary.failedBrowserCommand ||= { args, stderr, stdout, code }; no(Error(stderr + stdout)); } });
 });
 async function evaluate(code) { const r = JSON.parse(await run(['--json', 'eval', code])); assert(r.success, JSON.stringify(r)); return r.data.result; }
 const browserState = `(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c?.getBoundingClientRect(),gl=c?.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true',metrics:window.__QA_READ_METRICS__?.()||{status:'uninitialized'},core:window.__AW_TEST__?.getState(),browser:{userAgent:navigator.userAgent,platform:navigator.platform},viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio,scrollX,scrollY,origin:performance.timeOrigin,gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null,canvas:c?{left:r.left,top:r.top,cssWidth:r.width,cssHeight:r.height,width:c.width,height:c.height}:null,targets:[...document.querySelectorAll('.pixel-world-renderer-target')].map(b=>{const r=b.getBoundingClientRect();return{id:b.dataset.agentId||b.dataset.locationId||b.dataset.moduleId,selected:b.dataset.selected,x:r.x+r.width/2,y:r.y+r.height/2,width:r.width,height:r.height,inView:r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight}})}})()`;
@@ -134,9 +134,11 @@ async function centerWithNativePan() {
   const dx = -camera.pan_x_px, dy = -camera.pan_y_px;
   if (Math.abs(dx) < .5 && Math.abs(dy) < .5) return;
   const point = await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect(),points=[];for(let y=1;y<20;y++)for(let x=1;x<20;x++){const px=r.left+r.width*x/20,py=r.top+r.height*y/20,ex=px+${dx},ey=py+${dy};if(ex>r.left&&ex<r.right&&ey>r.top&&ey<r.bottom&&document.elementFromPoint(px,py)===c)points.push({x:px,y:py,d:(x-10)**2+(y-10)**2})}points.sort((a,b)=>a.d-b.d);if(points.length)return points[0];throw Error('no actual canvas start for native centering pan')})()`);
-  summary.pendingNativePan = { point, dx, dy, before: camera };
-  await run(['mouse', 'move', String(point.x), String(point.y)]); await run(['mouse', 'down']);
-  await run(['mouse', 'move', String(point.x + dx), String(point.y + dy)]); await run(['mouse', 'up']);
+  const input = { x: Math.round(point.x), y: Math.round(point.y), endX: Math.round(point.x + dx), endY: Math.round(point.y + dy) };
+  assert(await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect();return document.elementFromPoint(${input.x},${input.y})===c&&${input.endX}>r.left&&${input.endX}<r.right&&${input.endY}>r.top&&${input.endY}<r.bottom})()`), 'integer native pan coordinates lost the actual canvas hit/bounds');
+  summary.pendingNativePan = { point, dx, dy, input, actualDelta: { x: input.endX - input.x, y: input.endY - input.y }, before: camera };
+  await run(['mouse', 'move', String(input.x), String(input.y)]); await run(['mouse', 'down']);
+  await run(['mouse', 'move', String(input.endX), String(input.endY)]); await run(['mouse', 'up']);
   await run(['wait', '500']);
   const after = await state(); summary.nativeCenteringPans ||= []; summary.nativeCenteringPans.push({ point, dx, dy, before: camera, after: after.core?.pixelWorldCamera });
   assert(after.core?.pixelWorldCamera?.zoom === camera.zoom && Math.abs(after.core.pixelWorldCamera.pan_x_px) < 1 && Math.abs(after.core.pixelWorldCamera.pan_y_px) < 1, 'real canvas drag did not center the observed camera');
