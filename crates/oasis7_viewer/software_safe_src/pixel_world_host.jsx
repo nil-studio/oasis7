@@ -208,9 +208,18 @@ export function PixelWorldCanvasRenderer(props) {
             />
         </Show>
       </div>
-      <Show when={visualState().selection}>
+      <Show when={visualState().selection || props.selectionStatus?.()}>
         <div class="pixel-world-canvas__selection">
-          {`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}
+          <Show when={visualState().selection}>
+            <span>{`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}</span>
+          </Show>
+          <Show when={props.selectionStatus?.()}>
+            <div class="pixel-world-selection-status" role="status" aria-live="polite" data-world-selection-status={props.selectionStatus()}>
+              {props.selectionStatus() === "pending"
+                ? tr(props.locale(), "正在确认所选对象…", "Checking the selected object…")
+                : tr(props.locale(), "当前无法确认该对象，请重新选择。", "This object could not be confirmed. Select again.")}
+            </div>
+          </Show>
         </div>
       </Show>
     </div>
@@ -1205,13 +1214,6 @@ export function PixelWorldHost(props) {
       data-visual-fixture={visualFixtureName || ""}
       data-focus-comparable={shouldShowFocusCinematic(renderState()) ? "false" : "true"}
     >
-      <Show when={spatial.selectionStatus()}>
-        <div class="pixel-world-selection-status" role="status" aria-live="polite" data-world-selection-status={spatial.selectionStatus()}>
-          {spatial.selectionStatus() === "pending"
-            ? tr(locale(), "正在确认所选对象…", "Checking the selected object…")
-            : tr(locale(), "当前无法确认该对象，请重新选择。", "This object could not be confirmed. Select again.")}
-        </div>
-      </Show>
       <Show when={rendererStatus() !== "ready" && rendererStatus() !== "unavailable"}>
         <div role="status" aria-live="polite" data-world-resource-stage={resourceStage()}>
           {{descriptor:tr(locale(),"正在查找世界画面资源…","Finding world graphics…"),
@@ -1299,6 +1301,7 @@ export function PixelWorldHost(props) {
           renderInput={renderInput}
           renderState={renderState}
           selection={selectedEntity}
+          selectionStatus={spatial.selectionStatus}
           hoveredEntity={hoverSelection}
           visualOverlayEnabled={visualOverlayEnabled}
           onSelect={(selection) => adapter().simulateSelect(selection)}
