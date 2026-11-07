@@ -149,3 +149,36 @@ fn separate_agent_silhouette_accent_offsets(
         })
         .collect()
 }
+
+#[test]
+fn world_silhouette_size_and_local_offsets_follow_logical_pixel_unit() {
+    let mut app = render_test_app(sample_render_state_with_beacon_candidates(
+        "agent", "agent-0",
+    ));
+    let before = separate_agent_silhouette_accent_offsets(&mut app);
+    let sizes = |app: &mut App| {
+        let world = app.world_mut();
+        world
+            .query::<(&PixelWorldAgentSilhouetteVisual, &Sprite)>()
+            .iter(world)
+            .map(|(v, s)| (v.id.clone(), s.custom_size.unwrap()))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let original_sizes = sizes(&mut app);
+    {
+        let world = app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .resolution
+            .set(1280., 720.);
+    }
+    app.update();
+    let after = separate_agent_silhouette_accent_offsets(&mut app);
+    for (id, (x, y)) in before {
+        assert!((after[&id].0 - 2.0 * x).abs() < 0.001);
+        assert!((after[&id].1 - 2.0 * y).abs() < 0.001);
+        assert_eq!(sizes(&mut app)[&id], original_sizes[&id] * 2.0);
+    }
+}
