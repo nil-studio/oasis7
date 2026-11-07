@@ -21513,7 +21513,7 @@ function projectOnce(input, markerLimit) {
 			feed_ref: identity,
 			position
 		})),
-		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, MAX_ITEMS), {
+		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, profile.markers), {
 			...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),
 			from: relationEndpoint,
 			to: relationEndpoint
