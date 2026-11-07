@@ -62,6 +62,25 @@ body {
   pointer-events: none;
 }
 
+/* Stay above the fixed canvas without occupying an implicit focus-grid row. */
+.pixel-world-selection-status {
+  position: absolute;
+  z-index: 120;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  border: 1px solid var(--border, #64748b);
+  border-radius: 6px;
+  color: var(--text, #e2e8f0);
+  background: #0b1220;
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
 [data-viewer-overlay="world-hud"] > .pixel-world-canvas {
   position: absolute;
   inset: 0;

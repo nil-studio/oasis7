@@ -137,3 +137,19 @@ it('does not use the legacy snapshot fallback while worldView is awaiting a new 
   release(['B']);await read;
   expect(controller.selection()?.id).not.toBe('B');
 });
+
+it('an explicit return-to-target action cancels inspection even when no business target exists',async()=>{
+  const {controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
+  await controller.returnTarget();
+  release(['B']);await read;
+  expect(controller.selection()?.id).not.toBe('B');
+  expect(controller.selectionStatus()).not.toBe('pending');
+});
+
+it('an unavailable Feed navigation cancels pending inspection before its early return',async()=>{
+  const {controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
+  expect(controller.eventFeed({event_id:'unavailable'})).toBe(false);
+  release(['B']);await read;
+  expect(controller.selection()?.id).not.toBe('B');
+  expect(controller.selectionStatus()).not.toBe('pending');
+});

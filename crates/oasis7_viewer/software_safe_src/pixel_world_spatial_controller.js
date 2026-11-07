@@ -139,9 +139,14 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (pixelWorldScope(core.state) !== scope || presentedScope !== scope
         || worldViewAuthorityKey(view) !== worldViewAuthorityKey(state().view)
         || !view.source_cut || scene.display_source_cut !== view.source_cut) return;
+      const authorized = new Set([
+        ...(view.entities || []).map(value=>`${value.kind}:${value.entity_id}`),
+        ...(view.aggregates || []).map(value=>`industry_aggregate:${value.aggregate_id}`),
+        ...(view.events || []).map(value=>`world_event:${value.event_id}`),
+      ]);
       const refs = new Set();
       for (const [field,kind] of [['agents','agent'],['locations','location'],['module_visual_entities','factory'],['industry_aggregates','industry_aggregate'],['world_events','world_event']]) {
-        for (const value of scene[field] || []) if (proved({kind,id:value.id},view)) refs.add(`${kind}:${value.id}`);
+        for (const value of scene[field] || []) if (authorized.has(`${kind}:${value.id}`)) refs.add(`${kind}:${value.id}`);
       }
       if (refs.size <= 1000) presented = {scope,authority:worldViewAuthorityKey(view),cut:view.source_cut,request:view.request_generation,refs};
     },
@@ -174,6 +179,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     query,select,navigate,
     eventFeed(event) {
       if (pixelWorldScope(core.state) !== scope) return false;
+      cancelPending();
       const view=state().view, feed=core.state.worldFeed;
       const authorized=view?.events?.find(value=>value.event_id === event?.event_id);
       const identity=authorized?.feed_ref;
@@ -222,6 +228,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       void read();
     },
     async returnTarget() {
+      cancelPending();
       const id = mainTarget();if (!id) return;
       const expectedScope = scope;
       const pending = query({search:id}), expectedCommand = command;

@@ -1206,7 +1206,7 @@ export function PixelWorldHost(props) {
       data-focus-comparable={shouldShowFocusCinematic(renderState()) ? "false" : "true"}
     >
       <Show when={spatial.selectionStatus()}>
-        <div role="status" aria-live="polite" data-world-selection-status={spatial.selectionStatus()}>
+        <div class="pixel-world-selection-status" role="status" aria-live="polite" data-world-selection-status={spatial.selectionStatus()}>
           {spatial.selectionStatus() === "pending"
             ? tr(locale(), "正在确认所选对象…", "Checking the selected object…")
             : tr(locale(), "当前无法确认该对象，请重新选择。", "This object could not be confirmed. Select again.")}
