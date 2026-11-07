@@ -116,6 +116,8 @@ try {
     let recovered=null;
     if(scope!=='interaction') {
     const beforeIdentity=await evaluate(`JSON.stringify((()=>{const s=window.__AW_TEST__.getState();return [s.authPlayerId,s.authPublicKey];})())`);
+    assert(JSON.parse(beforeIdentity).every(value=>typeof value==='string'&&value.length>0),'fixture session identity must be nonempty');
+    assert(before.dto.receipt_target?.agent_id==='agent-0','fixture receipt target must be explicitly bound to agent-0');
     const oldOrigin=await evaluate('performance.timeOrigin');
     await evaluate(`sessionStorage.setItem('pixel-agent-outbound','[]');sessionStorage.setItem('pixel-agent-http','[]');(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');const loss=gl.getExtension('WEBGL_lose_context');if(!loss)throw Error('WEBGL_lose_context unavailable');loss.loseContext();return true;})()`);
     await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')`);
@@ -128,12 +130,12 @@ try {
     const afterIdentity=await evaluate(`JSON.stringify((()=>{const s=window.__AW_TEST__.getState();return [s.authPlayerId,s.authPublicKey];})())`);
     assert(afterIdentity===beforeIdentity,'page reload did not recover the same fixture session');
     recovered=await state();
-    assert(JSON.stringify(recovered.dto.receipt_target)===JSON.stringify(before.dto.receipt_target),'page reload lost or reassigned the original fixture receipt');
+    assert(JSON.stringify(recovered.dto.receipt_target)===JSON.stringify(before.dto.receipt_target),'page reload lost or reassigned the fixture receipt target projection');
     const outbound=JSON.parse(await evaluate(`sessionStorage.getItem('pixel-agent-outbound')||'[]'`));
     assert(!outbound.some(type=>['control','gameplay_action','prompt_control','agent_chat'].includes(type)),'page reload replayed a world Command');
     const http=JSON.parse(await evaluate(`sessionStorage.getItem('pixel-agent-http')||'[]'`));
     assert(!http.some(request=>['POST','PUT','PATCH','DELETE'].includes(request.method)),'fixture reload issued a mutating HTTP request');
-    recovered={...recovered,outbound,http,explicitReload:true,sessionContinuity:true,originalReceiptContinuity:true};
+    recovered={...recovered,outbound,http,explicitReload:true,sessionContinuity:true,receiptTargetContinuity:true};
     summary.active.recovered=recovered;
     const recoveredPng=resolve(out,`${name}-recovered.png`);
     await run(['screenshot','--full',recoveredPng]);
@@ -180,7 +182,7 @@ try {
     const dense=await state();
     await run(['screenshot','--full',resolve(out,`${name}-dense.png`)]);
     assert(dense.dto.selection?.id==='agent-1','co-located keyboard selection lost Agent identity');
-    assert(dense.dto.receipt_target?.agent_id===before.dto.receipt_target?.agent_id,'observing another Agent reassigned the original receipt');
+    assert(dense.dto.receipt_target?.agent_id===before.dto.receipt_target?.agent_id,'observing another Agent reassigned the original receipt target projection');
     await evaluate(`(()=>{const s=JSON.parse(JSON.stringify(window.__OASIS7_AGENT_TEST_SNAPSHOT__));s.time=15;delete s.model.agents['agent-1'].pos;delete s.model.agents['agent-1'].location_id;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1'&&a.position_source==='missing')`);
     const missing=await state();
