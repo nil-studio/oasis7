@@ -1174,6 +1174,7 @@ mod tests;
 // Text, receipts, provenance and selection remain native-resolution overlays.
 pub(super) fn is_world_visual(entity: &EntityRef<'_>) -> bool {
     entity.contains::<world_materials::MaterialShell>()
+        || entity.contains::<PixelWorldGridVisual>()
         || entity.contains::<PixelWorldAgentVisual>()
         || entity.contains::<PixelWorldAgentCoreVisual>()
         || entity.contains::<PixelWorldLocationVisual>()
