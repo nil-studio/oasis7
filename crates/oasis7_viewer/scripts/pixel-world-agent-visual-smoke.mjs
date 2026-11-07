@@ -51,6 +51,10 @@ async function installAgentFixture() {
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
 }
 async function verifyAgentPixels(path) {
+  // Keep keyboard affordance screenshots separately. The intentional 44-CSS-px
+  // focus ring can cross a 32px sprite; it is not part of the atlas color oracle.
+  await evaluate(`document.querySelector('#pixel-world-embedded-runtime-canvas').focus({preventScroll:true});true`);
+  await run(['screenshot','--full',path]);
   const anchorScript=`JSON.stringify((()=>{const r=document.querySelector('button[data-agent-id="agent-0"][data-renderer-target]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`;
   let anchor=JSON.parse(await evaluate(anchorScript));
   const program=String.raw`import sys,json,math
