@@ -21453,6 +21453,7 @@ function projectOnce(input, markerLimit) {
 		const keys = schema === true ? Object.keys(value) : Object.keys(schema);
 		if (keys.length > MAX_ITEMS) capacity();
 		for (const key of keys) {
+			if (key.length > 8192) capacity();
 			if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
 			let sourceItem = value[key];
 			if ((key === "name" || key === "label") && typeof sourceItem === "string") {
@@ -21557,7 +21558,7 @@ function projectOnce(input, markerLimit) {
 			...snapshot.player_gameplay && { player_gameplay: copy(snapshot.player_gameplay, { primary_intent: fields("schema_version source_class freshness control_state status intent_id agent_id world_id reorg_epoch logical_time event_seq updated_at") }) }
 		},
 		lists,
-		display_budget: budget.metadata,
+		display_budget: copy(budget.metadata),
 		gameplay: copy(source.gameplay || {}, gameplay),
 		...source.selected && { selected: copy(source.selected, entity) },
 		...source.presentation && { presentation: copy(source.presentation, fields("world_bounds_label marker_truth_note")) },
