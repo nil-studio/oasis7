@@ -208,9 +208,18 @@ export function PixelWorldCanvasRenderer(props) {
             />
         </Show>
       </div>
-      <Show when={visualState().selection}>
+      <Show when={visualState().selection || props.selectionStatus?.()}>
         <div class="pixel-world-canvas__selection">
-          {`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}
+          <Show when={visualState().selection}>
+            <span>{`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}</span>
+          </Show>
+          <Show when={props.selectionStatus?.()}>
+            <div class="pixel-world-selection-status" role="status" aria-live="polite" data-world-selection-status={props.selectionStatus()}>
+              {props.selectionStatus() === "pending"
+                ? tr(props.locale(), "正在确认所选对象…", "Checking the selected object…")
+                : tr(props.locale(), "当前无法确认该对象，请重新选择。", "This object could not be confirmed. Select again.")}
+            </div>
+          </Show>
         </div>
       </Show>
     </div>
@@ -915,7 +924,7 @@ export function PixelWorldHost(props) {
   const adapter = createMemo(() => createPixelWorldHostAdapter({
     onResourceStage: setResourceStage,
     onSelectEntity(selection) {
-      const applied = spatial.select(selection);
+      const applied = spatial.selectPresented(selection);
       if (applied?.kind === "module_visual") {
         focusViewerPanel("viewer-details-panel");
       }
@@ -943,7 +952,7 @@ export function PixelWorldHost(props) {
       setRendererFatal(fatal);
       setRendererStatus("unavailable");
       setRuntimeSource(fatal?.code === "pixel_world_webgl2_unavailable" ? "surface_unavailable" : runtimeSource());
-      setRustRenderState(null);
+      setRustRenderState(null); spatial.present(null, null);
       core.updatePixelWorldRuntimeMeta({
         runtimeStatus: "unavailable",
         runtimeSource: runtimeSource(),
@@ -1001,13 +1010,17 @@ export function PixelWorldHost(props) {
       return;
     }
     const generation = rendererAttemptGeneration;
-    const result = adapter().update(renderInput());
+    const presentedScope = spatial.scope();
+    const presentedView = worldViewState().view;
+    const input = renderInput();
+    const result = adapter().update(input);
     if (generation !== rendererAttemptGeneration) return;
     if (result?.fatal) {
       setRendererFatal(result.fatal);
     }
     if (result?.renderState) setRetainedSurface(null);
     setRustRenderState(result?.renderState || null);
+    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
     setRendererStatus(result?.status || "ready");
     setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
     core.updatePixelWorldRuntimeMeta({
@@ -1031,7 +1044,7 @@ export function PixelWorldHost(props) {
       setRendererFatal(fatal);
       setRendererStatus("unavailable");
       setRuntimeSource("detached");
-      setRustRenderState(null);
+      setRustRenderState(null); spatial.present(null, null);
       core.updatePixelWorldRuntimeMeta({
         runtimeStatus: "unavailable",
         runtimeSource: "detached",
@@ -1056,7 +1069,7 @@ export function PixelWorldHost(props) {
       setRendererFatal(fatal);
       setRendererStatus("unavailable");
       setRuntimeSource("detached");
-      setRustRenderState(null);
+      setRustRenderState(null); spatial.present(null, null);
       core.updatePixelWorldRuntimeMeta({
         runtimeStatus: "unavailable",
         runtimeSource: "detached",
@@ -1071,7 +1084,10 @@ export function PixelWorldHost(props) {
       adapter().simulateFatal(surfaceFatal);
       return;
     }
-    const result = await adapter().mount(canvas, renderInput());
+    const presentedScope = spatial.scope();
+    const presentedView = worldViewState().view;
+    const input = renderInput();
+    const result = await adapter().mount(canvas, input);
     if (!rendererAttemptIsCurrent(canvas, generation)) {
       return;
     }
@@ -1080,6 +1096,7 @@ export function PixelWorldHost(props) {
     }
     if (result?.renderState) setRetainedSurface(null);
     setRustRenderState(result?.renderState || null);
+    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
     setRendererStatus(result?.status || "ready");
     setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
     core.updatePixelWorldRuntimeMeta({
@@ -1126,7 +1143,7 @@ export function PixelWorldHost(props) {
     const unsubscribeRenderHook = core.subscribeRenderHook?.((invalidation) => {
       const scope = scopeGuard.check();
       if (scope.scope !== spatial.scope()) {
-        if (scope.changed) { setRendererStatus("unavailable"); setRustRenderState(null); }
+        if (scope.changed) { setRendererStatus("unavailable"); setRustRenderState(null); spatial.present(null, null); }
         spatial.resetScope();
       }
       if (scope.changed) {
@@ -1284,6 +1301,7 @@ export function PixelWorldHost(props) {
           renderInput={renderInput}
           renderState={renderState}
           selection={selectedEntity}
+          selectionStatus={spatial.selectionStatus}
           hoveredEntity={hoverSelection}
           visualOverlayEnabled={visualOverlayEnabled}
           onSelect={(selection) => adapter().simulateSelect(selection)}

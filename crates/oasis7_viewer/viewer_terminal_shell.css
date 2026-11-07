@@ -62,6 +62,21 @@ body {
   pointer-events: none;
 }
 
+/* Reuse the selection HUD's responsive lane instead of adding a focus grid row. */
+[data-viewer-overlay="world-hud"] .pixel-world-canvas__selection:has(.pixel-world-selection-status) {
+  pointer-events: none;
+  max-height: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pixel-world-selection-status {
+  color: var(--text, #e2e8f0);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
 [data-viewer-overlay="world-hud"] > .pixel-world-canvas {
   position: absolute;
   inset: 0;
@@ -1116,11 +1131,11 @@ body {
   }
 
   .pixel-world-host:has(+ [data-viewer-overlay="feed"]:not([open])) .pixel-world-canvas__selection {
-    top: 160px;
+    top: var(--world-selection-feedback-top, 160px);
   }
 
   .stack:has(> [data-viewer-overlay="feed"]:not([open])) > [data-viewer-overlay="world-hud"] .pixel-world-canvas__selection {
-    top: 160px;
+    top: var(--world-selection-feedback-top, 160px);
   }
 
   [data-viewer-overlay="world-summary"]:has(#viewer-gameplay-details[open]) {
@@ -1828,3 +1843,9 @@ body {
 }
 
 [data-viewer-shell="player-fullscreen"]:has(.pixel-world-exploration-disclosure[open]) [data-viewer-overlay="feed"] { visibility: hidden; }
+
+@media (max-width: 640px) {
+  [data-viewer-overlay="world-hud"] .pixel-world-canvas__selection:has(.pixel-world-selection-status) {
+    --world-selection-feedback-top: 264px;
+  }
+}

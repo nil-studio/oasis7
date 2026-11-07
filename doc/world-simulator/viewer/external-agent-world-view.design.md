@@ -108,6 +108,10 @@ SourceAuthority 私有保存各地点上述字段的摘要，摘要集合进入 
 
 选择/跟随绑定world/entity/selection generation。显式跟随只消费当前可信位置；手动浏览退出跟随，失效暂停，恢复数据不自动抢回camera。重叠候选列表、聚合下钻、返回总览/主目标都只改读状态；目标无位置则返回合法文本，不用fallback坐标。
 
+#5605：同scope已呈现目标在新查询partial暂缺，不等于删除。Host可为该呈现绑定下的只读点击登记至多一份待检查选择意图，仅保留typed identity、world/epoch/audience及用户选择代际；不复制旧实体、坐标或权限事实。等待明确可见，不改变业务主体、原回执或导航。目标经同一有效请求/cut的后页重新证明后才消费一次；不借旧snapshot补事实，不为任意未知ref发pin探测。
+
+完整结果仍缺、错误/不可用、明确删除、换scope/authority/cut/request、更新选择或导航、卸载均终止该意图；等待最多30秒，与现有查询期限相同。自动分页不创建新用户意图，晚包不得覆盖更新操作。本切片只等待原有查询的后页，不新增重读、授权或世界命令；原查询结束仍缺则明确不可用。Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf。
+
 ### 5.2 分页、增量与并发
 
 初始snapshot与resume cursor来自同source cut；page token绑定world/audience/query/projection/cut，失效reset，不能用下一cut补旧页。可渐进显示合法页但始终partial；服务器明确完整且全部页验证完才complete。单页200项/实际编码2 MiB，超大单项明确不可用/资源限制，不截字段假装完整。

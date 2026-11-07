@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 import { createDensityFixture } from './world-view-density-fixture.mjs';
 import { measureDensityPerformance } from './world-view-density-performance.mjs';
+import { probePendingWorldSelection } from './world-view-pending-selection-probe.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)), repo = resolve(here, '../../..');
 const assert = (value, message) => { if (!value) throw Error(message); };
@@ -30,8 +31,11 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const files = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(resolve(dir, e.name)) : [resolve(dir, e.name)]);
 const manifest = () => Object.fromEntries(files(root).sort().map(p => [relative(root, p), { bytes: readFileSync(p).length, sha256: sha(readFileSync(p)) }]));
 const assets = manifest(), fixture = createDensityFixture();
-const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), assets, scripts: Object.fromEntries(['pixel-world-world-view-density-visual.mjs', 'world-view-density-fixture.mjs', 'world-view-label-oracle.py', 'world-view-density-performance.mjs', 'viewer-performance-native-input.mjs', 'viewer-performance-paint-trace.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])), scope, dpr, controlledTransport: true, realServiceAuthority: false, observerDebugProbe: { deploymentMode: 'trusted_local_only', hostname: 'density-qa.localhost', hostedGate: 'hosted_public_join requires real login; this probe does not validate the ordinary player entry' }, phases: {}, limitations: ['Read-only controlled WS peer; not signed WorldService, genuine revocation, grants or P5 operation identity.', 'Text2d counts/layout are not GPU fences; paired canvas pixels are checked separately.', 'Single visual probe, not P6 timing/A-B/cold/long-stability acceptance.', 'A legacy capability downgrade is expected to clear/lock without a new authorization proof; this does not claim legitimate legacy reauthorization.'] };
+const composedManifest = process.env.DENSITY_QA_COMPOSED_MANIFEST ? JSON.parse(readFileSync(process.env.DENSITY_QA_COMPOSED_MANIFEST)) : null;
+if (composedManifest) assert(composedManifest.source === source && isDeepStrictEqual(composedManifest.files, assets), 'composed artifact provenance mismatch');
+const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(), assets, scripts: Object.fromEntries(['pixel-world-world-view-density-visual.mjs', 'world-view-density-fixture.mjs', 'world-view-label-oracle.py', 'world-view-density-performance.mjs', 'viewer-performance-native-input.mjs', 'viewer-performance-paint-trace.mjs', 'world-view-pending-selection-probe.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])), scope, dpr, controlledTransport: true, realServiceAuthority: false, observerDebugProbe: { deploymentMode: 'trusted_local_only', hostname: 'density-qa.localhost', hostedGate: 'hosted_public_join requires real login; this probe does not validate the ordinary player entry' }, phases: {}, limitations: ['Read-only controlled WS peer; not signed WorldService, genuine revocation, grants or P5 operation identity.', 'Text2d counts/layout are not GPU fences; paired canvas pixels are checked separately.', 'Single visual probe, not P6 timing/A-B/cold/long-stability acceptance.', 'A legacy capability downgrade is expected to clear/lock without a new authorization proof; this does not claim legitimate legacy reauthorization.'] };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = `world-view-density-${process.pid}`;
+summary.artifactProvenance = composedManifest;
 const lifecycle = createOwnedSessionLifecycle({ command, session });
 const run = args => new Promise((yes, no) => {
   summary.lastBrowserCommand = args;
@@ -46,14 +50,29 @@ const state = async () => JSON.parse(await evaluate(`JSON.stringify(${browserSta
 const waitFor = expression => evaluate(`(async()=>{const end=Date.now()+30000;while(Date.now()<end){const error=window.__AW_TEST__?.getState()?.lastError;if(typeof error==='string'&&error.startsWith('window.error:'))throw Error(error);if(${expression})return true;await new Promise(r=>setTimeout(r,100))}throw Error('condition timed out: '+${JSON.stringify(expression)})})()`);
 let pauseReplies = false, pauseAfterComplete = false, holdLastPage = true, corruptNextCursorPage = false;
 let held = [], lastOldPage = null;
+let pendingGate = null;
+function armPendingGate(search, onThird) {
+  assert(!pendingGate, 'pending gate already armed');
+  let firstDone, thirdDone;
+  const gate = { search, generation: null, pages: [], first: null, third: null,
+    firstReceived: new Promise(resolve => firstDone = resolve), thirdReceived: new Promise(resolve => thirdDone = resolve),
+    releaseFirst() { assert(gate.first, 'first page not held'); const x = gate.first; gate.first = null; send(x.socket, x.connection, x.response); },
+    releaseThird() { assert(gate.third, 'third page not held'); const x = gate.third; gate.third = null; send(x.socket, x.connection, x.response); },
+    releaseThirdFresh() { assert(gate.third, 'third page not held'); const x = gate.third; gate.third = null; const response = fixture.reply(x.request, x.connection); send(x.socket, x.connection, response); return response; },
+    replayThirdOnCurrentSockets() { assert(gate.third, 'third page not held'); const x = gate.third; for (const socket of wss.clients) send(socket, connectionIds.get(socket), x.response, { kind: 'old_pending_response_on_current_socket', originalConnection: x.connection, originalRequestGeneration: x.request.query.request_generation }); },
+    dispose() { pendingGate = null; }, firstDone, thirdDone, onThird };
+  gate.firstDone = firstDone; gate.thirdDone = thirdDone; pendingGate = gate; return gate;
+}
 const wire = [], http = [];
 const connectionIds = new WeakMap();
+const latestQueryByConnection = new Map();
 const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); };
 const send = (socket, connection, response, replay = false) => {
   if (socket.readyState !== 1) return;
   audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }); socket.send(JSON.stringify(response));
   if (pauseAfterComplete && response.type === 'world_view' && response.view.completeness === 'complete'
-    && ['baseline', 'unchanged'].includes(response.view.delivery)) { pauseAfterComplete = false; pauseReplies = true; }
+    && ['baseline', 'unchanged'].includes(response.view.delivery)
+    && response.view.request_generation?.split(':')[0] === latestQueryByConnection.get(connection)) { pauseAfterComplete = false; pauseReplies = true; }
 };
 const httpServer = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -84,7 +103,19 @@ wss.on('connection', socket => {
   socket.on('message', bytes => {
     try {
       const message = JSON.parse(bytes.toString()); audit({ direction: 'in', connection, message });
+      if (message.type === 'request_world_view') latestQueryByConnection.set(connection, message.query?.request_generation?.split(':')[0]);
       const response = fixture.reply(message, connection); if (!response) return;
+      if (pendingGate && message.type === 'request_world_view' && message.query.search === pendingGate.search && response.view?.delivery === 'baseline') {
+        const gate = pendingGate, generation = message.query.request_generation.split(':')[0];
+        if (!gate.generation && !message.query.cursor) gate.generation = generation;
+        if (generation === gate.generation) {
+          const page = { socket, connection, response, request: structuredClone(message), receivedAt: Date.now() };
+          gate.pages.push({ connection, request: page.request, response: structuredClone(response), receivedAt: page.receivedAt });
+          if (gate.pages.length === 1) { gate.first = page; gate.firstDone(); return; }
+          if (gate.pages.length === 3) { gate.third = page; Promise.resolve(gate.onThird(page)).then(gate.thirdDone, error => { gate.inputError = String(error); gate.thirdDone(); }); return; }
+          send(socket, connection, response); return;
+        }
+      }
       if (message.type === 'request_world_view' && message.query?.cursor && corruptNextCursorPage) {
         response.view.source_cut += '-mixed-negative'; corruptNextCursorPage = false;
         send(socket, connection, response); pauseReplies = true; return;
@@ -253,6 +284,7 @@ try {
   writeFileSync(resolve(out, 'label-captures.json'), JSON.stringify(labelCaptures, null, 2));
   summary.labelOnlyInvariant = labelOnlyInvariant(labelCaptures);
   summary.labelOracle = JSON.parse(execFileSync('python3', [resolve(here, 'world-view-label-oracle.py'), out], { encoding: 'utf8' })); assert(summary.labelOracle.passed, '200 native label paired PNG oracle failed');
+  if (process.env.DENSITY_QA_PENDING === '1') summary.pendingSelection = await probePendingWorldSelection({ run, evaluate, state, waitProjection, armPendingGate, freezeCompleteBoundary, unfreeze: () => { pauseReplies = false; pauseAfterComplete = false; release(); }, fixture, reconnect, waitNegotiation, out });
   if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
   if (scope === 'all') {
     const selector = 'button[data-agent-id="qa-agent-0000"][data-renderer-target]';
