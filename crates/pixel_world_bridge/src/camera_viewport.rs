@@ -10,7 +10,10 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
         "pan_x_px": camera.pan_x_px,
         "pan_y_px": camera.pan_y_px,
     });
-    let Some((width, height)) = runtime.last_canvas_size else {
+    let Some((width, height)) = runtime
+        .last_canvas_css
+        .or_else(|| runtime.last_canvas_size.map(|(w, h)| (w as f64, h as f64)))
+    else {
         return payload;
     };
     let Some(bounds) = runtime
@@ -27,8 +30,8 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
         camera.pan_x_px,
         camera.pan_y_px,
     ];
-    if width <= 40
-        || height <= 40
+    if width <= 40.0
+        || height <= 40.0
         || values.iter().any(|v| !v.is_finite())
         || bounds.width_cm <= 0.0
         || bounds.depth_cm <= 0.0
@@ -38,7 +41,9 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
         return payload;
     }
     let layout = pixel_pipeline::canvas_layout(width as f64, height as f64);
-    let pixel = layout.map(|layout| layout.pixel_css()).unwrap_or(Vec2::ONE);
+    let pixel = layout
+        .map(|layout| layout.css / layout.frame.as_dvec2() * layout.scale as f64)
+        .unwrap_or(bevy::math::DVec2::ONE);
     let axis = |size: f64, extent: f64, pan: f64, unit: f64| {
         let pan = ((pan / unit) + 0.5).floor() * unit;
         let inverse = |pixel: f64| {
