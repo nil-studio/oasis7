@@ -90,7 +90,7 @@ pub(super) fn reconcile(
                         9.0,
                         MICRO_DEPOT_LAYER_Z,
                         false,
-                        Vec2::ONE,
+                        agent_pixel_scale(width, height),
                     ));
                 }
             }

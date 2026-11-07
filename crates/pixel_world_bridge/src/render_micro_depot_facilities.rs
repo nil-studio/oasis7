@@ -315,6 +315,7 @@ pub(super) fn reconcile_micro_depot_facilities(
     let mut active_throughput_text_ids = HashSet::new();
     let mut active_throughput_backing_ids = HashSet::new();
     let mut active_service_radius_keys = HashSet::new();
+    let pixel = agent_pixel_scale(width, height);
     for facility in &render_state.micro_depot_facilities {
         let Some((color, size, rotation, detail_size)) = facility_glyph(&facility.status) else {
             continue;
@@ -334,7 +335,7 @@ pub(super) fn reconcile_micro_depot_facilities(
             MICRO_DEPOT_LAYER_Z,
         ));
         transform.rotation = Quat::from_rotation_z(rotation);
-        let sprite = sprite_for_square(color, size);
+        let sprite = sprite_for_rect(color, size * pixel.x, size * pixel.y);
         if let Some(entity) = runtime.micro_depot_entities.get(&facility.id).copied() {
             commands.entity(entity).insert((sprite, transform));
         } else {
@@ -359,7 +360,11 @@ pub(super) fn reconcile_micro_depot_facilities(
         } else {
             detail_transform.rotation = Quat::IDENTITY;
         }
-        let detail = Sprite::from_color(Color::srgb_u8(15, 23, 42), detail_size);
+        let detail = Sprite::from_color(Color::srgb_u8(15, 23, 42), detail_size * pixel);
+        let extra_half_height = f64::from(size) / 2.0
+            * (f64::from(rotation.sin().abs()) * (f64::from(pixel.x) - 1.0)
+                + f64::from(rotation.cos().abs()) * (f64::from(pixel.y) - 1.0));
+        let readout_offset_y = STOCK_RUNWAY_OFFSET_Y_PX + extra_half_height;
         if let Some(entity) = details_by_id.get(&facility.id) {
             commands.entity(*entity).insert((detail, detail_transform));
         } else {
@@ -379,7 +384,7 @@ pub(super) fn reconcile_micro_depot_facilities(
                 let segment_x = canvas_x
                     + (f64::from(segment) - (f64::from(STOCK_RUNWAY_SEGMENT_COUNT - 1) / 2.0))
                         * STOCK_RUNWAY_SEGMENT_SPACING_PX;
-                let segment_y = canvas_y - STOCK_RUNWAY_OFFSET_Y_PX;
+                let segment_y = canvas_y - readout_offset_y;
                 let segment_transform = {
                     let mut transform = Transform::from_translation(to_bevy_translation(
                         segment_x,
@@ -481,7 +486,7 @@ pub(super) fn reconcile_micro_depot_facilities(
 
         if let Some(display) = stock_throughput_text(facility) {
             let text_x = canvas_x + STOCK_THROUGHPUT_TEXT_OFFSET_X_PX;
-            let text_y = canvas_y - STOCK_RUNWAY_OFFSET_Y_PX;
+            let text_y = canvas_y - readout_offset_y;
             let text_transform = Transform::from_translation(to_bevy_translation(
                 text_x,
                 text_y,
