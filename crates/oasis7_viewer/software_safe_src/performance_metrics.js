@@ -33,6 +33,7 @@ export const VIEWER_PERF_PROFILES = Object.freeze({
 });
 
 function asNumber(value, fallback = null) {
+  if (value == null || value === "") return fallback;
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
@@ -197,6 +198,7 @@ export function summarizeViewerPerformance({
   longTasks = [],
   domReadiness = {},
   interactionLatencies = [],
+  interactionEvidence = [],
   dom = {},
   viewport = {},
   browser = {},
@@ -277,6 +279,7 @@ export function summarizeViewerPerformance({
     thresholds: normalizedThresholds,
     longTasks: longTaskItems,
     interactionLatencies: interactions.map((value) => round(value)),
+    interactionEvidence,
     domReadiness: {
       domInteractiveMs: metrics.domInteractiveMs,
       domContentLoadedMs: metrics.domContentLoadedMs,
@@ -317,6 +320,7 @@ export function evaluateViewerPerformance(summary) {
     compareGate("long_task_total_ms", "long task total time", asNumber(metrics.longTaskTotalMs), thresholds.maxLongTaskTotalMs, "<="),
     compareGate("dom_content_loaded_ms", "DOMContentLoaded", asNumber(metrics.domContentLoadedMs), thresholds.maxDomContentLoadedMs, "<="),
     compareGate("load_event_ms", "load event", asNumber(metrics.loadEventMs), thresholds.maxLoadEventMs, "<="),
+    compareGate("interaction_samples", "measured interaction sample count", asNumber(metrics.interactionSamples, 0), 1, ">="),
     compareGate("interaction_p95_ms", "interaction p95", asNumber(metrics.interactionP95Ms), thresholds.maxInteractionP95Ms, "<="),
     compareExactGate("pixel_world_runtime_status", "pixel world runtime status", finalState.pixelWorldRuntimeStatus ?? null, "ready"),
     compareExactGate("pixel_world_runtime_source", "pixel world runtime source", finalState.pixelWorldRuntimeSource ?? null, "wasm_bindgen_runtime"),

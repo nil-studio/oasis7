@@ -44,6 +44,21 @@ describe("viewer performance metrics", () => {
     expect(summary.metrics.fallbackShellCount).toBe(0);
   });
 
+  it("does not treat missing interaction measurements as zero-latency success", () => {
+    const summary = summarizeViewerPerformance({
+      frameIntervals: Array(120).fill(16), sampleDurationMs: 2000,
+      interactionLatencies: [null, undefined, "", Number.NaN],
+      domReadiness: { domContentLoadedMs: 100, loadEventMs: 120 },
+      dom: { renderedCanvasCount: 1, fallbackShellCount: 0 },
+      finalState: { pixelWorldRuntimeStatus: "ready", pixelWorldRuntimeSource: "wasm_bindgen_runtime" },
+    });
+    expect(summary.metrics.interactionSamples).toBe(0);
+    expect(summary.metrics.interactionP95Ms).toBeNull();
+    expect(summary.gates.find(gate => gate.id === "interaction_p95_ms").status).toBe("skip");
+    expect(summary.gates.find(gate => gate.id === "interaction_samples").status).toBe("fail");
+    expect(summary.status).toBe("fail");
+  });
+
   it("fails laggy samples against fps, frame, long task, and interaction gates", () => {
     const summary = summarizeViewerPerformance({
       runId: "laggy",
@@ -102,8 +117,8 @@ describe("viewer performance metrics", () => {
       },
     });
 
-    expect(summary.metrics.frameSamples).toBe(6);
-    expect(summary.metrics.frameP50Ms).toBe(20);
+    expect(summary.metrics.frameSamples).toBe(5);
+    expect(summary.metrics.frameP50Ms).toBe(30);
     expect(summary.metrics.frameP95Ms).toBe(50);
     expect(summary.metrics.frameP99Ms).toBe(50);
     expect(summary.metrics.interactionSamples).toBe(4);
