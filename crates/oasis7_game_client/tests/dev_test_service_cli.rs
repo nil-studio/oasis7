@@ -132,7 +132,11 @@ impl Fixture {
 
     fn serve(&self) -> Process {
         let mut process = self.spawn(
-            &["dev-test-serve", "--profile", self.config().to_str().unwrap()],
+            &[
+                "dev-test-serve",
+                "--profile",
+                self.config().to_str().unwrap(),
+            ],
             b"",
         );
         let deadline = Instant::now() + WAIT;
@@ -162,7 +166,10 @@ impl Fixture {
         let ledgers: Vec<_> = fs::read_dir(self.root.join("usage"))
             .unwrap()
             .map(|entry| entry.unwrap().path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
             .collect();
         assert_eq!(ledgers.len(), 1);
         serde_json::from_slice::<Value>(&fs::read(&ledgers[0]).unwrap()).unwrap()["used"]
@@ -256,7 +263,10 @@ fn cli_rejects_public_symlink_and_invalid_configurations() {
     let config = fixture.config();
     fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
     rejection(
-        fixture.invoke(&["dev-test-serve", "--profile", config.to_str().unwrap()], b""),
+        fixture.invoke(
+            &["dev-test-serve", "--profile", config.to_str().unwrap()],
+            b"",
+        ),
         "private_configuration_required",
     );
     fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
@@ -264,18 +274,27 @@ fn cli_rejects_public_symlink_and_invalid_configurations() {
     symlink(&config, &link).unwrap();
     for path in [&link, &fixture.root] {
         rejection(
-            fixture.invoke(&["dev-test-serve", "--profile", path.to_str().unwrap()], b""),
+            fixture.invoke(
+                &["dev-test-serve", "--profile", path.to_str().unwrap()],
+                b"",
+            ),
             "private_configuration_required",
         );
     }
     fs::write(&config, b"invalid json").unwrap();
     rejection(
-        fixture.invoke(&["dev-test-serve", "--profile", config.to_str().unwrap()], b""),
+        fixture.invoke(
+            &["dev-test-serve", "--profile", config.to_str().unwrap()],
+            b"",
+        ),
         "invalid_service_configuration",
     );
     fs::remove_file(&config).unwrap();
     rejection(
-        fixture.invoke(&["dev-test-serve", "--profile", config.to_str().unwrap()], b""),
+        fixture.invoke(
+            &["dev-test-serve", "--profile", config.to_str().unwrap()],
+            b"",
+        ),
         "configuration_unavailable",
     );
     assert!(!fixture.socket().exists());
