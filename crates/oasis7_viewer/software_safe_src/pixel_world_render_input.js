@@ -1,10 +1,10 @@
+import { pixelWorldDisplayProfile } from "./pixel_world_display_profile.js";
 import { budgetPixelWorldDisplay } from "./pixel_world_display_budget.js";
 import { $RAW } from "solid-js/store";
 
 export const PIXEL_WORLD_RENDER_INPUT_VERSION = 1;
 export const PIXEL_WORLD_RENDER_INPUT_MAX_BYTES = 256 * 1024;
 const MAX_ITEMS = 500;
-const MAX_NODES = 16384;
 const raw = value => value?.[$RAW] || value;
 const capacity = () => { throw new Error("pixel world display capacity exceeded"); };
 const fields = names => Object.fromEntries(names.split(" ").map(key => [key, true]));
@@ -25,17 +25,18 @@ const gameplay = {
 // Only display-owned subtrees reach the bridge. Never enumerate a snapshot or
 // an Agent: genomes, decision history, auth and unknown fields stay in the host.
 function projectOnce(input, markerLimit) {
+  const profile = pixelWorldDisplayProfile(raw(input));
   let nodes = 0;
   function copy(value, schema = true, depth = 0) {
     value = raw(value);
-    if (++nodes > MAX_NODES) throw new RangeError("pixel world projection budget exceeded");
+    if (++nodes > profile.nodes) throw new RangeError("pixel world projection budget exceeded");
     if (depth > 16) capacity();
     if (value === undefined) return undefined;
     if (value === null || typeof value === "boolean") return value;
     if (typeof value === "number") { if (!Number.isFinite(value)) capacity(); return value; }
     if (typeof value === "string") { if (value.length > 8192) capacity(); return value; }
     if (Array.isArray(value)) {
-      if (value.length > MAX_ITEMS) capacity();
+      if (value.length > profile.markers) capacity();
       return value.map(item => copy(item, schema, depth + 1));
     }
     if (typeof value !== "object") capacity();
@@ -100,6 +101,7 @@ function projectOnce(input, markerLimit) {
   }
   const dto = {
     schema_version: PIXEL_WORLD_RENDER_INPUT_VERSION,
+    display_profile: profile.name,
     ...copy(source, fields("locale selectedKind selectedId worldViewStale")),
     snapshot: {
       ...copy(snapshot, fields("time")),
@@ -120,14 +122,16 @@ function projectOnce(input, markerLimit) {
   };
   if (dto.lists.agents.length + dto.lists.locations.length > MAX_ITEMS) capacity();
   // Validate before crossing WASM; encoded byte count also bounds Unicode data.
-  if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > PIXEL_WORLD_RENDER_INPUT_MAX_BYTES) {
+  if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > profile.bytes) {
     throw new RangeError("pixel world projection budget exceeded");
   }
   return dto;
 }
 
-export function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
-  for (let limit = markerLimit; limit >= 1; limit = Math.floor(limit * 0.75)) {
+export function projectPixelWorldRenderInput(input, markerLimit) {
+  const profile = pixelWorldDisplayProfile(raw(input));
+  if (markerLimit !== undefined && (!Number.isSafeInteger(markerLimit) || markerLimit < 1 || markerLimit > profile.markers)) capacity();
+  for (let limit = markerLimit ?? profile.markers; limit >= 1; limit = Math.floor(limit * 0.75)) {
     try { return projectOnce(input, limit); }
     catch (error) {
       if (!(error instanceof RangeError) || error.message !== "pixel world projection budget exceeded") throw error;

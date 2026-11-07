@@ -66,11 +66,12 @@ describe("bounded renderer input", () => {
     expect(dto.lists.agents.some(a=>a.id==="A499")).toBe(true);
     expect(dto.display_budget.omitted_markers).toBeGreaterThan(0);
   });
-  it("clips authorized world-view factories while preserving navigation and freshness", () => {
+  it("fits authorized world-view factories in the bounded 1000 marker profile", () => {
     const entities = Array.from({length:1000},(_,i)=>({kind:"factory",entity_id:`F${String(i).padStart(4,"0")}`,render_record:{name:"Factory",pos:{x_cm:i,y_cm:0,z_cm:0}},provenance:{geometry_source:"authoritative",freshness:"current",valid_at_source_cut:"C"}}));
     const input = {worldView:{schema_version:1,source_cut:"C",entities,aggregates:[],events:[],relations:[]},navigation:{mode:"locate",target:{kind:"factory",id:"F0999"}}};
     const dto = projectPixelWorldRenderInput(input);
-    expect(dto.worldView.entities).toHaveLength(500);
+    expect(dto.worldView.entities).toHaveLength(1000);
+    expect(dto.display_profile).toBe("world_view_v1");
     expect(dto.worldView.entities.some(e=>e.entity_id==="F0999")).toBe(true);
     expect(dto.display_budget.required_entities).toContain("factory:F0999");
     expect(dto.worldView.entities[0].provenance.freshness).toBe("current");

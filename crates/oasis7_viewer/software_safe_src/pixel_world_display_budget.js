@@ -1,3 +1,4 @@
+import { pixelWorldDisplayProfile } from "./pixel_world_display_profile.js";
 import { $RAW } from "solid-js/store";
 const raw = value => value?.[$RAW] || value;
 const MAX_SOURCE = 10000;
@@ -7,8 +8,11 @@ const compare = (a,b) => a < b ? -1 : a > b ? 1 : 0;
 
 // Read identity/anchor fields only while choosing a bounded display subset.
 // Authorization, viewport queries and complete Targets lists remain upstream.
-export function budgetPixelWorldDisplay(input, limit = 500) {
+export function budgetPixelWorldDisplay(input, limit) {
   input = raw(input) || {};
+  const profile=pixelWorldDisplayProfile(input);
+  limit ??= profile.markers;
+  if (!Number.isSafeInteger(limit) || limit<0 || limit>profile.markers) fail();
   const view = raw(input.worldView);
   const model = raw(raw(input.snapshot)?.model) || {};
   const candidates = new Map();

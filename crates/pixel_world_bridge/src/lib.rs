@@ -20,6 +20,8 @@ use web_sys::HtmlCanvasElement;
 mod bridge_api;
 mod canvas_projection;
 use canvas_projection::to_canvas_point_unsnapped;
+mod display_metrics;
+mod display_profile;
 mod facility_signature;
 mod host_render_input;
 mod host_state;
@@ -261,6 +263,10 @@ mod spatial_display;
 
 #[derive(Clone, Debug, Deserialize)]
 struct RenderState {
+    #[serde(default)]
+    display_profile: display_profile::DisplayProfile,
+    #[serde(default)]
+    display_source_cut: Option<String>,
     #[serde(default)]
     exploration_mode: bool,
     #[serde(default)]
@@ -1025,6 +1031,7 @@ fn boot_bevy_app(canvas_selector: String) {
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(500)),
     });
     app.add_systems(Startup, pixel_pipeline::setup);
+    display_metrics::install(&mut app);
     app.add_systems(
         Update,
         (

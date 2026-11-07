@@ -10,6 +10,8 @@ use wasm_bindgen_test::wasm_bindgen_test;
 
 pub(super) fn sample_render_state_for_camera(selection_kind: &str) -> RenderState {
     RenderState {
+        display_profile: display_profile::DisplayProfile::Legacy,
+        display_source_cut: None,
         exploration_mode: false,
         navigation: None,
         locale: "en".to_string(),
