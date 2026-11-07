@@ -43,7 +43,7 @@ async function evaluate(code) { const r = JSON.parse(await run(['--json', 'eval'
 const browserState = `(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c?.getBoundingClientRect(),gl=c?.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true',metrics:window.__QA_READ_METRICS__?.()||{status:'uninitialized'},core:window.__AW_TEST__?.getState(),browser:{userAgent:navigator.userAgent,platform:navigator.platform},viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio,scrollX,scrollY,origin:performance.timeOrigin,gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null,canvas:c?{left:r.left,top:r.top,cssWidth:r.width,cssHeight:r.height,width:c.width,height:c.height}:null,targets:[...document.querySelectorAll('.pixel-world-renderer-target')].map(b=>{const r=b.getBoundingClientRect();return{id:b.dataset.agentId||b.dataset.locationId||b.dataset.moduleId,selected:b.dataset.selected,x:r.x+r.width/2,y:r.y+r.height/2,width:r.width,height:r.height,inView:r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight}})}})()`;
 const state = async () => JSON.parse(await evaluate(`JSON.stringify(${browserState})`));
 const waitFor = expression => evaluate(`(async()=>{const end=Date.now()+30000;while(Date.now()<end){const error=window.__AW_TEST__?.getState()?.lastError;if(typeof error==='string'&&error.startsWith('window.error:'))throw Error(error);if(${expression})return true;await new Promise(r=>setTimeout(r,100))}throw Error('condition timed out: '+${JSON.stringify(expression)})})()`);
-let pauseReplies = false, holdLastPage = true, corruptNextCursorPage = false;
+let pauseReplies = false, pauseAfterComplete = false, holdLastPage = true, corruptNextCursorPage = false;
 let held = [], lastOldPage = null;
 const wire = [], http = [];
 const connectionIds = new WeakMap();
@@ -51,6 +51,8 @@ const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl')
 const send = (socket, connection, response, replay = false) => {
   if (socket.readyState !== 1) return;
   audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }); socket.send(JSON.stringify(response));
+  if (pauseAfterComplete && response.type === 'world_view' && response.view.completeness === 'complete'
+    && ['baseline', 'unchanged'].includes(response.view.delivery)) { pauseAfterComplete = false; pauseReplies = true; }
 };
 const httpServer = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -155,8 +157,14 @@ function assertGuest(row) {
 async function capture(name, labels = false) {
   await waitProjection(1000);
   if (labels) await waitFor(`(${browserState}).metrics.laid_out_in_view_labels===200&&(${browserState}).metrics.label_layouts?.length===200`);
-  pauseReplies = true;
+  // Freeze future source replies only after a real complete response. Pausing
+  // halfway through a new baseline would make the screenshot a partial page.
+  pauseAfterComplete = true;
   try {
+    const deadline = Date.now() + 10000;
+    while (!pauseReplies && Date.now() < deadline) await new Promise(done => setTimeout(done, 20));
+    assert(pauseReplies && !pauseAfterComplete, 'no complete wire boundary reached for screenshot');
+    await waitProjection(1000);
     await run(['wait', '1200']); const before = await state();
     const shot = resolve(out, name + '.png'); await run(['screenshot', '--full', shot]); const after = await state();
     assertGuest(before); assertGuest(after);
@@ -166,7 +174,7 @@ async function capture(name, labels = false) {
     assert(isDeepStrictEqual(actualGeometry(before), actualGeometry(after)), 'capture crossed actual camera/viewport/CSS/backing/DPR/scroll');
     assert(before.targets.length === 1000 && before.targets.every(t => t.inView), 'not all1000 targets are in view');
     summary.phases[name] = before; return before;
-  } finally { pauseReplies = false; release(); }
+  } finally { pauseAfterComplete = false; pauseReplies = false; release(); }
 }
 function sourceFor(capture) {
   const cut = capture.metrics.source_cut;
