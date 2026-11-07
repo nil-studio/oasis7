@@ -16,15 +16,19 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = (ROOT / '.github/workflows/rust.yml').read_text()
 CONFIG = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
 def workspace_support_fixture_functions(driver):
+    prefix = ('ci_python=' + shlex.quote(sys.executable) + '\n'
+              + 'driver_dir=' + shlex.quote(str(ROOT / 'scripts')) + '\n')
+    if '# ci-driver-library: functions-v1' in driver.splitlines():
+        # Load the real transitive definitions before the fixture overrides its
+        # recording boundaries, without maintaining a second dependency list.
+        return prefix + 'source "$driver_dir/ci-tests.sh"\n'
     # Extract the real transitive shell dependency, rather than supplying a
-    # no-op helper that would hide a missing production dispatch.
+    # no-op helper, for historical drivers without the source interface.
     names = ('run_worker_wasm_compile_profiles',
              'run_oasis7_workspace_support_crate_tests')
     functions = [re.search(r'^' + name + r'\(\) \{\n.*?^\}',
                            driver, re.M | re.S).group() for name in names]
-    return ('ci_python=' + shlex.quote(sys.executable) + '\n'
-            + 'driver_dir=' + shlex.quote(str(ROOT / 'scripts')) + '\n'
-            + '\n'.join(functions))
+    return prefix + '\n'.join(functions) + '\n'
 
 
 def workflow_jobs(workflow):
@@ -2460,12 +2464,11 @@ run_cargo() {
     def test_native_tool_suite_does_not_inherit_nightly_build_std(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = workspace_support_fixture_functions(driver)
-        script = """set -euo pipefail
-run_signed_read_protocol_contract_tests() { :; }
+        script = "set -euo pipefail\n" + function + """run_signed_read_protocol_contract_tests() { :; }
 run() { :; }
 run_cargo() { printf '%s|%s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
 run_cargo_clippy() { printf '%s|clippy %s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
-""" + function + "\nrun_oasis7_workspace_support_crate_tests\nprintf 'after|%s\\n' \"$OASIS7_WASM_BUILD_STD\"\n"
+""" + "\nrun_oasis7_workspace_support_crate_tests\nprintf 'after|%s\\n' \"$OASIS7_WASM_BUILD_STD\"\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
                                 env=dict(os.environ, OASIS7_WASM_BUILD_STD='1'))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -2477,12 +2480,11 @@ run_cargo_clippy() { printf '%s|clippy %s\\n' "$OASIS7_WASM_BUILD_STD" "$*"; }
     def test_agent_contract_and_harness_checks_are_in_workspace_support(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = workspace_support_fixture_functions(driver)
-        script = """set -euo pipefail
-run_signed_read_protocol_contract_tests() { :; }
+        script = "set -euo pipefail\n" + function + """run_signed_read_protocol_contract_tests() { :; }
 run() { :; }
 run_cargo() { printf 'test|%s\\n' "$*"; }
 run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
-""" + function + "\nrun_oasis7_workspace_support_crate_tests\n"
+""" + "\nrun_oasis7_workspace_support_crate_tests\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         commands = result.stdout.splitlines()
@@ -2496,7 +2498,7 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
     def test_private_context_all_targets_and_caller_are_executed(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = workspace_support_fixture_functions(driver)
-        script = "set -euo pipefail\nrun_signed_read_protocol_contract_tests() { :; }\nrun() { :; }\nrun_cargo() { printf '%s\\n' \"$*\"; }\nrun_cargo_clippy() { printf 'clippy %s\\n' \"$*\"; }\n" + function + "\nrun_oasis7_workspace_support_crate_tests\n"
+        script = "set -euo pipefail\n" + function + "run_signed_read_protocol_contract_tests() { :; }\nrun() { :; }\nrun_cargo() { printf '%s\\n' \"$*\"; }\nrun_cargo_clippy() { printf 'clippy %s\\n' \"$*\"; }\n\nrun_oasis7_workspace_support_crate_tests\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = [line.split() for line in result.stdout.splitlines()]
@@ -2515,12 +2517,11 @@ run_cargo_clippy() { printf 'clippy|%s\\n' "$*"; }
     def test_workspace_support_runs_real_worker_compile_helper_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         functions = workspace_support_fixture_functions(driver)
-        script = """set -euo pipefail
-run_signed_read_protocol_contract_tests() { :; }
+        script = "set -euo pipefail\n" + functions + """run_signed_read_protocol_contract_tests() { :; }
 run_cargo() { :; }
 run_cargo_clippy() { :; }
 run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
-""" + functions + "\nrun_oasis7_workspace_support_crate_tests\n"
+""" + "\nrun_oasis7_workspace_support_crate_tests\n"
         features = ('identity', 'owner', 'executor', 'recovery-fence',
                     'owner,approval-harness', 'identity,native-runtime-harness')
         with tempfile.TemporaryDirectory() as temporary:
