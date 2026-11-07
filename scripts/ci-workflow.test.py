@@ -982,16 +982,21 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
         self.assertIn("if: github.event_name == 'pull_request'", planner)
         self.assertNotIn('needs: select', planner)
-        self.assertIn('ci-fast-preview.py plan --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
+        self.assertIn('ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
         self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', planner)
         self.assertIn('--source-ref "$SOURCE_SHA"', planner)
         self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
-        self.assertIn('groups: ${{ steps.preview.outputs.groups }}', planner)
-        self.assertIn('group: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.groups) }}', preview)
+        self.assertIn('matrix: ${{ steps.preview.outputs.matrix }}', planner)
+        self.assertIn('matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}', preview)
+        self.assertIn('PREVIEW_SAMPLE: ${{ matrix.sample }}', preview)
+        self.assertIn('OASIS7_PRODUCT_DOC_BASE: ${{ matrix.synthetic_base_sha }}', preview)
+        self.assertIn('name: pr-fast-preview-${{ matrix.sample }}-${{ matrix.group }}-', preview)
         self.assertIn('fail-fast: false', preview)
         self.assertIn('ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}', preview)
-        self.assertIn('ci-fast-preview.py restore --metadata', preview)
+        self.assertIn('ci-fast-preview.py restore --sample "$PREVIEW_SAMPLE"', preview)
+        self.assertIn('--metadata "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json.metadata.json"', preview)
+        self.assertIn('--plan "$RUNNER_TEMP/previews/$PREVIEW_SAMPLE/selection.json"', preview)
         compiler = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
                         if 'name: Install WASM C compiler' in step)
         self.assertIn("if: matrix.group == 'net'", compiler)
@@ -1027,21 +1032,30 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             root = Path(temporary)
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
-                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\nexit "$DRIVER_EXIT"\n')
-            (root / 'selection.json').write_text('{}')
-            for group in ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node'):
-                for code in (0, 19):
-                    result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
-                        env=dict(os.environ, PREVIEW_GROUP=group, RUNNER_TEMP=str(root),
-                                 GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'), DRIVER_EXIT=str(code)))
-                    args = (root / 'args').read_text().strip('\0').split('\0')
-                    expected = ['required', '--group', group]
-                    if group in ('rust_baseline', 'oasis7_required'):
-                        expected.extend(['--plan', str(root / 'selection.json')])
-                    expected.extend(['--repo-root', str(root)])
-                    with self.subTest(group=group, driver_exit=code):
-                        self.assertEqual(args, expected)
-                        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+                '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
+                + 'printf "%s" "$OASIS7_CI_ARCHITECTURE_PLAN" > "$PLAN_LOG"\nexit "$DRIVER_EXIT"\n')
+            for sample, groups in (
+                ('runtime-world', ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node')),
+                ('game-client-private-unix', ('baseline', 'rust_baseline', 'oasis7_required')),
+            ):
+                selection = root / 'previews' / sample / 'selection.json'
+                selection.parent.mkdir(parents=True)
+                selection.write_text(json.dumps({'sample': sample}))
+                for group in groups:
+                    for code in (0, 19):
+                        result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
+                            env=dict(os.environ, PREVIEW_GROUP=group, PREVIEW_SAMPLE=sample, RUNNER_TEMP=str(root),
+                                     GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'),
+                                     PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code)))
+                        args = (root / 'args').read_text().strip('\0').split('\0')
+                        expected = ['required', '--group', group]
+                        if group in ('rust_baseline', 'oasis7_required'):
+                            expected.extend(['--plan', str(selection)])
+                        expected.extend(['--repo-root', str(root)])
+                        with self.subTest(sample=sample, group=group, driver_exit=code):
+                            self.assertEqual(args, expected)
+                            self.assertEqual(json.loads((root / 'plan-log').read_text()), {'sample': sample})
+                            self.assertEqual(result.returncode, code, result.stdout + result.stderr)
 
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')

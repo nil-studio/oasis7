@@ -608,6 +608,61 @@ class FastTargetInventory(unittest.TestCase):
                     artifacts.validate_ordinary_selection(altered)
 
 
+class SupportHandoffSelection(unittest.TestCase):
+    def selection(self):
+        owner = 'oasis7_game_client'
+        return InlineExecutionSelection().selection() | {
+            'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+            'ordinary_clippy_group': 'rust_baseline',
+            'ordinary_support_contract_version': 1,
+            'ordinary_support_handoffs': [owner],
+            'ordinary_support_deferred': ['oasis7_agent_harness', 'oasis7_model_provider'],
+            'oasis7_required_packages': [owner],
+            'workspace_support_profiles': [],
+            'ordinary_fast_targets': [FastTargetInventory().target(
+                package=owner, target_kind='lib', target_name=owner, default_features=True, features=[]),
+                FastTargetInventory().target(package=owner, target_name='dev_test_service_cli',
+                                             default_features=True, features=[])]}
+
+    def test_every_original_support_clippy_survives_without_duplicate_owner_lint(self):
+        selected = self.selection()
+        self.assertEqual(artifacts.required_native_commands(selected), [
+            ['-p', 'oasis7_agent_harness', '--all-targets'],
+            ['-p', 'oasis7_game_client', '--all-targets'],
+            ['-p', 'oasis7_model_provider', '--all-targets']])
+        # Tests retain precise targets; all-targets is a lint obligation only.
+        variants = artifacts.build_variants('ordinary', selected)
+        self.assertEqual(len(variants), 1)
+        self.assertIn('--lib', variants[0][1])
+        self.assertIn('dev_test_service_cli', variants[0][1])
+        self.assertNotIn('--all-targets', variants[0][1])
+
+    def test_handoff_requires_complete_same_default_library_and_unique_baseline_owner(self):
+        for field, value in (
+            ('ordinary_support_contract_version', True),
+            ('ordinary_support_contract_version', 2),
+            ('ordinary_support_handoffs', []),
+            ('ordinary_support_handoffs', ['oasis7_model_provider']),
+            ('ordinary_support_deferred', ['oasis7_game_client']),
+            ('ordinary_clippy_group', 'oasis7_required'),
+            ('workspace_support_profiles', ['oasis7_model_provider']),
+            ('ordinary_execution', 'artifact'),
+        ):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                artifacts.required_native_commands(self.selection() | {field: value})
+        for changes in ({'default_features': False}, {'features': ['new-feature']},
+                        {'target_kind': 'test'}):
+            selected = self.selection()
+            selected['ordinary_fast_targets'][0].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                artifacts.required_native_commands(selected)
+        for field in ('ordinary_support_contract_version', 'ordinary_support_deferred'):
+            selected = self.selection()
+            del selected[field]
+            with self.subTest(missing=field), self.assertRaises(ValueError):
+                artifacts.required_native_commands(selected)
+
+
 class InlineExecutionSelection(unittest.TestCase):
     def selection(self, checks=None):
         return FastTargetInventory().selection() | {

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,8 +39,8 @@ def fixture(directory):
     return repo, command(repo, 'rev-parse', 'HEAD')
 
 
-def valid_plan(source):
-    return {'scope': 'targeted', 'execution_profile': 'pr-fast',
+def valid_plan(source, sample='runtime-world'):
+    plan = {'scope': 'targeted', 'execution_profile': 'pr-fast',
             'fast_execution_version': 1, 'ordinary_execution': 'inline',
             'ordinary_clippy_group': 'rust_baseline',
             'test_policy_changed': False, 'fast_plan_exceptions': [],
@@ -52,11 +53,21 @@ def valid_plan(source):
             'ordinary_fast_targets': [dict(package=package, target_kind=kind, target_name=name,
                                           default_features=False, features=['test_tier_required'])
                 for package, kind, name in sorted(PREVIEW.EXPECTED_TARGETS)]}
+    if sample == 'game-client-private-unix':
+        plan['architecture']['packages'] = ['oasis7_game_client']
+        plan['ordinary_fast_targets'] = [dict(package='oasis7_game_client', target_kind=kind,
+            target_name=name, default_features=True, features=[]) for kind, name in (
+                ('lib', 'oasis7_game_client'), ('test', 'identity_cli'), ('test', 'dev_test_catalog_cli'),
+                ('test', 'legacy_profile'), ('test', 'dev_test_service_cli'))]
+        plan.update(ordinary_support_contract_version=1, ordinary_support_handoffs=['oasis7_game_client'],
+                    ordinary_support_deferred=['oasis7_agent_harness', 'oasis7_model_provider'],
+                    workspace_support_profiles=[], formal_suites=[], formal_shards=[])
+    return plan
 
 
-def fixture_planner(repo, consumer_groups=None):
+def fixture_planner(repo, consumer_groups=None, sample='runtime-world'):
     """Run a real planner subprocess without compiling a product workspace."""
-    plan = valid_plan('unused')
+    plan = valid_plan('unused', sample)
     if consumer_groups:
         plan['groups'] = sorted(PREVIEW.EXPECTED_GROUPS | consumer_groups.keys())
         plan['affected_packages'] = ['oasis7_runtime', 'oasis7_world_state',
@@ -72,6 +83,7 @@ assert a.head_ref == a.test_ref == a.policy_ref
 plan=PLAN
 for key in ('source_sha','tested_sha','policy_sha'): plan[key]=a.head_ref
 for key in ('source','tested'): plan['architecture'][key]=a.head_ref
+plan['architecture']['base']=a.base_ref
 pathlib.Path(a.output).write_text(json.dumps(plan))
 """.replace('PLAN', repr(plan)))
 
@@ -114,6 +126,87 @@ def merge_fixture(directory, source_changes=None, target_changes=None, merge_cha
 
 
 class Preview(unittest.TestCase):
+    def test_private_unix_sample_requires_complete_cli_targets_and_lint_handoffs(self):
+        sample, source = 'game-client-private-unix', 'a' * 40
+        selected = valid_plan(source, sample)
+        PREVIEW.validate_plan(selected, source, sample=sample)
+        changes = [('ordinary_support_deferred', []), ('ordinary_support_contract_version', True),
+                   ('workspace_support_profiles', ['oasis7_game_client']),
+                   ('formal_suites', ['lifecycle-cli']), ('formal_shards', ['lifecycle-cli']),
+                   ('groups', selected['groups'] + ['workspace_support'])]
+        for key, value in changes:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(selected | {key: value}, source, sample=sample)
+        for changes in ({'default_features': False}, {'features': ['test_tier_required']},
+                        {'target_name': 'unregistered_cli'}):
+            changed = copy.deepcopy(selected)
+            changed['ordinary_fast_targets'][-1].update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                PREVIEW.validate_plan(changed, source, sample=sample)
+        with self.assertRaises(ValueError):
+            PREVIEW.validate_plan(selected | {'ordinary_fast_targets': selected['ordinary_fast_targets'][:-1]},
+                                  source, sample=sample)
+
+    def test_private_unix_baseline_restores_in_new_clone_and_rejects_sample_mixups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = fixture(directory)
+            path = 'crates/oasis7_game_client/src/dev_test_service_cli.rs'
+            write_files(repo, {path: 'pub(crate) fn run() {}\n', 'scripts/ci-required-scope.json': '{"changed":true}\n'})
+            fixture_planner(repo, sample='game-client-private-unix')
+            source = commit(repo, 'register private CLI diagnostic fixture')
+            metadata = PREVIEW.plan_preview(repo, base, source, Path(directory) / 'selection.json',
+                                            sample='game-client-private-unix')
+            self.assertEqual(metadata['paths'], [path])
+            self.assertEqual(metadata['sample'], 'game-client-private-unix')
+            self.assertEqual(set(PREVIEW.changed_paths(repo, metadata['synthetic_base_sha'], source)), {path})
+            clone = Path(directory) / 'clone'
+            subprocess.run(['git', 'clone', '-q', '--no-local', str(repo), str(clone)], check=True)
+            PREVIEW.restore_baseline(clone, metadata)
+            plan = json.loads((Path(directory) / 'selection.json').read_text())
+            PREVIEW.restore_baseline(clone, metadata, sample='game-client-private-unix', plan=plan)
+            other_base, other_tree = PREVIEW.synthetic_baseline(clone, source)
+            other = metadata | {'sample': 'runtime-world', 'paths': list(PREVIEW.SAMPLE_PATHS),
+                                'synthetic_base_sha': other_base, 'synthetic_base_tree': other_tree}
+            other_plan = valid_plan(source)
+            other_plan['architecture']['base'] = other_base
+            # An intact valid pair from the other sample must not be relabelled
+            # by its artifact directory or matrix row; swapping only the plan
+            # must also fail before any product command starts.
+            PREVIEW.restore_baseline(clone, other, sample='runtime-world', plan=other_plan)
+            for changed_metadata, changed_plan in ((other, other_plan), (metadata, other_plan)):
+                with self.assertRaises(ValueError):
+                    PREVIEW.restore_baseline(clone, changed_metadata,
+                                             sample='game-client-private-unix', plan=changed_plan)
+            for changed in (metadata | {'sample': 'runtime-world'}, metadata | {'sample': 'unknown'},
+                            metadata | {'paths': list(PREVIEW.SAMPLE_PATHS)}):
+                with self.subTest(changed=changed), self.assertRaises(ValueError):
+                    PREVIEW.restore_baseline(clone, changed)
+
+    def test_matrix_keeps_all_sample_groups_and_never_publishes_partial_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'github-output'
+            root = Path(directory) / 'plans'
+            source = 'a' * 40
+            metadata = [dict(sample='runtime-world', source_sha=source, tested_sha=source,
+                             synthetic_base_sha='b' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required', 'net']),
+                        dict(sample='game-client-private-unix', source_sha=source, tested_sha=source,
+                             synthetic_base_sha='c' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required'])]
+            with patch.object(PREVIEW, 'plan_preview', side_effect=metadata) as plan:
+                PREVIEW.plan_matrix(Path(directory), 'base', 'head', root, output, source_ref='source')
+                calls = plan.call_args_list
+            values = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            rows = json.loads(values['matrix'])['include']
+            self.assertEqual(len(rows), 7)
+            self.assertEqual({row['sample'] for row in rows}, {'runtime-world', 'game-client-private-unix'})
+            self.assertIn({'sample': 'runtime-world', 'group': 'net', 'synthetic_base_sha': 'b' * 40}, rows)
+            self.assertEqual(len({str(call.args[3]) for call in calls}), 2)
+            self.assertTrue(all(len(call.args) == 4 and 'github_output' not in call.kwargs for call in calls))
+            output.unlink()
+            with patch.object(PREVIEW, 'plan_preview', side_effect=[metadata[0], ValueError('bad CLI plan')]):
+                with self.assertRaises(ValueError):
+                    PREVIEW.plan_matrix(Path(directory), 'base', 'head', root, output)
+            self.assertFalse(output.exists())
+
     def test_current_source_unchanged_and_diagnostic_baseline_exact(self):
         with tempfile.TemporaryDirectory() as directory:
             repo, source = fixture(directory)

@@ -31,6 +31,24 @@ EXPECTED_TARGETS = frozenset((
     ('oasis7_world_state', 'lib', 'oasis7_world_state'),
     ('oasis7_world_state', 'test', 'pr_fast_reducers'),
 ))
+SAMPLES = {
+    'runtime-world': dict(paths=SAMPLE_PATHS, targets=EXPECTED_TARGETS,
+                          packages=['oasis7_runtime', 'oasis7_world_state'],
+                          default_features=False, features=['test_tier_required'],
+                          consumer_groups=NATIVE_CONSUMER_GROUPS),
+    'game-client-private-unix': dict(
+        paths=('crates/oasis7_game_client/src/dev_test_service_cli.rs',),
+        targets=frozenset(('oasis7_game_client', kind, name) for kind, name in (
+            ('lib', 'oasis7_game_client'), ('test', 'identity_cli'), ('test', 'dev_test_catalog_cli'),
+            ('test', 'legacy_profile'), ('test', 'dev_test_service_cli'))),
+        packages=['oasis7_game_client'], default_features=True, features=[], consumer_groups=frozenset()),
+}
+
+
+def sample_definition(sample):
+    if not isinstance(sample, str) or sample not in SAMPLES:
+        raise ValueError('unknown diagnostic preview sample')
+    return SAMPLES[sample]
 
 
 def git(repo, *args, data=None, env=None):
@@ -80,7 +98,7 @@ def preview_comparisons(repo, base, source, tested):
     return [(source_base, source), (target, tested)], target, source_base
 
 
-def synthetic_baseline(repo, source):
+def synthetic_baseline(repo, source, *, sample='runtime-world'):
     """Create only Git objects, leaving the candidate checkout and index intact."""
     timestamp = git(repo, 'show', '-s', '--format=%ct', source).decode().strip()
     environment = dict(os.environ, GIT_AUTHOR_NAME='CI budget preview',
@@ -90,7 +108,7 @@ def synthetic_baseline(repo, source):
     with tempfile.TemporaryDirectory(prefix='oasis7-fast-preview-') as directory:
         environment['GIT_INDEX_FILE'] = str(Path(directory) / 'index')
         git(repo, 'read-tree', source, env=environment)
-        for path in SAMPLE_PATHS:
+        for path in sample_definition(sample)['paths']:
             entry = git(repo, 'ls-tree', source, '--', path).decode().strip()
             if not entry or entry.split()[0:2] != ['100644', 'blob']:
                 raise ValueError('preview requires a tracked regular source file: ' + path)
@@ -103,7 +121,8 @@ def synthetic_baseline(repo, source):
     return commit, tree
 
 
-def validate_plan(plan, source):
+def validate_plan(plan, source, *, sample='runtime-world'):
+    expected = sample_definition(sample)
     if (not isinstance(plan, dict) or plan.get('scope') != 'targeted'
             or plan.get('execution_profile') != 'pr-fast'
             or type(plan.get('fast_execution_version')) is not int
@@ -125,11 +144,11 @@ def validate_plan(plan, source):
             or architecture['build_policy_version'] != 1
             or architecture.get('build_policy') != 'ordinary-targets'
             or architecture.get('mode') != 'targeted'
-            or architecture.get('packages') != ['oasis7_runtime', 'oasis7_world_state']):
+            or architecture.get('packages') != expected['packages']):
         raise ValueError('preview did not select the expected architecture compile policy')
     extra_groups = set(groups) - EXPECTED_GROUPS
     consumers = architecture.get('consumer_groups', {})
-    if (not extra_groups <= NATIVE_CONSUMER_GROUPS or not isinstance(consumers, dict)
+    if (not extra_groups <= expected['consumer_groups'] or not isinstance(consumers, dict)
             or set(consumers) != extra_groups):
         raise ValueError('preview extra groups require exact native reverse-consumer evidence')
     if extra_groups:
@@ -157,11 +176,18 @@ def validate_plan(plan, source):
         raise ValueError('preview has no executable target inventory')
     identities = {(item.get('package'), item.get('target_kind'), item.get('target_name'))
                   for item in targets if isinstance(item, dict)}
-    if len(targets) != len(EXPECTED_TARGETS) or identities != EXPECTED_TARGETS:
+    if len(targets) != len(expected['targets']) or identities != expected['targets']:
         raise ValueError('preview must execute the complete expected behavioral-owner inventory')
-    if any(item.get('default_features') is not False
-           or item.get('features') != ['test_tier_required'] for item in targets):
-        raise ValueError('preview must keep the exact required no-default-feature variants')
+    if any(item.get('default_features') is not expected['default_features']
+           or item.get('features') != expected['features'] for item in targets):
+        raise ValueError('preview must keep the exact required feature variants')
+    if sample == 'game-client-private-unix':
+        if (type(plan.get('ordinary_support_contract_version')) is not int
+                or plan['ordinary_support_contract_version'] != 1
+                or plan.get('ordinary_support_handoffs') != ['oasis7_game_client']
+                or plan.get('ordinary_support_deferred') != ['oasis7_agent_harness', 'oasis7_model_provider']
+                or any(plan.get(key) != [] for key in ('workspace_support_profiles', 'formal_suites', 'formal_shards'))):
+            raise ValueError('private Unix preview must retain its complete support handoff and lint contract')
 
 
 def write_outputs(path, values):
@@ -174,9 +200,10 @@ def write_outputs(path, values):
                 output.write(key + '=' + value + '\n')
 
 
-def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source_ref=None):
+def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source_ref=None, sample='runtime-world'):
     # Existing benchmark source/tested identities both name the exact checkout.
     # The separate source ref supplies the real PR head for trigger attribution.
+    expected = sample_definition(sample)
     base, source = resolve(repo, base_ref), resolve(repo, head_ref)
     pr_source = resolve(repo, source_ref) if source_ref is not None else source
     if resolve(repo, 'HEAD') != source:
@@ -194,7 +221,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
         write_outputs(github_output, {'enabled': 'false'})
         print('No product Rust preview input changed: candidate fast preview is not selected.')
         return None
-    synthetic, tree = synthetic_baseline(repo, source)
+    synthetic, tree = synthetic_baseline(repo, source, sample=sample)
     output = Path(output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([sys.executable, str(repo / 'scripts/plan-rust-required-scope.py'),
@@ -204,14 +231,14 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
                     '--formal-config', str(repo / 'scripts/ci-formal-process-suites.json'),
                     '--output', str(output)], cwd=repo, check=True)
     selected = json.loads(output.read_text())
-    validate_plan(selected, source)
+    validate_plan(selected, source, sample=sample)
     metadata = {
-        'schema_version': 1, 'authority': 'diagnostic-only',
+        'schema_version': 1, 'authority': 'diagnostic-only', 'sample': sample,
         'workload': 'synthetic-comment-diff', 'cache': 'cold-no-restore',
         **inputs, 'source_sha': source, 'tested_sha': source,
         'policy_sha': source, 'source_tree': git(repo, 'rev-parse', source + '^{tree}').decode().strip(),
         'synthetic_base_sha': synthetic, 'synthetic_base_tree': tree,
-        'paths': list(SAMPLE_PATHS), 'groups': selected['groups'],
+        'paths': list(expected['paths']), 'groups': selected['groups'],
         'limitation': 'Current real tests and compilation footprint; not PR authorization, regression quality, or P95 evidence.',
     }
     metadata_path = Path(str(output) + '.metadata.json')
@@ -223,41 +250,83 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
     return metadata
 
 
-def restore_baseline(repo, metadata):
+def restore_baseline(repo, metadata, *, sample=None, plan=None):
+    declared_sample = metadata.get('sample', 'runtime-world') if isinstance(metadata, dict) else None
+    if (sample is None) != (plan is None):
+        raise ValueError('bound preview restoration requires both the matrix sample and selection')
+    if sample is not None and sample != declared_sample:
+        raise ValueError('preview metadata disagrees with the matrix sample')
+    expected = sample_definition(declared_sample)
     if (not isinstance(metadata, dict) or metadata.get('schema_version') != 1
             or metadata.get('authority') != 'diagnostic-only'
             or metadata.get('workload') != 'synthetic-comment-diff'
-            or metadata.get('paths') != list(SAMPLE_PATHS)):
+            or metadata.get('paths') != list(expected['paths'])):
         raise ValueError('invalid diagnostic preview metadata')
     source = resolve(repo, 'HEAD')
     if any(metadata.get(key) != source for key in ('source_sha', 'tested_sha', 'policy_sha')):
         raise ValueError('preview checkout identity mismatch')
     if git(repo, 'rev-parse', source + '^{tree}').decode().strip() != metadata.get('source_tree'):
         raise ValueError('preview source tree mismatch')
-    synthetic, tree = synthetic_baseline(repo, source)
+    if plan is not None:
+        validate_plan(plan, source, sample=sample)
+        if (plan['groups'] != metadata.get('groups')
+                or plan['architecture'].get('base') != metadata.get('synthetic_base_sha')):
+            raise ValueError('preview selection disagrees with its metadata')
+    synthetic, tree = synthetic_baseline(repo, source, sample=declared_sample)
     if synthetic != metadata.get('synthetic_base_sha') or tree != metadata.get('synthetic_base_tree'):
         raise ValueError('preview synthetic baseline identity mismatch')
     print('Reconstructed diagnostic-only baseline ' + synthetic)
+
+
+def plan_matrix(repo, base_ref, head_ref, output_dir, github_output=None, *, source_ref=None):
+    # Publish one complete matrix only after every independent fixed sample has
+    # passed. A failed second plan must never leave enabled=true or a partial DAG.
+    metadata = [plan_preview(repo, base_ref, head_ref, Path(output_dir) / sample / 'selection.json',
+                             source_ref=source_ref, sample=sample) for sample in SAMPLES]
+    if not any(metadata):
+        write_outputs(github_output, {'enabled': 'false'})
+        return []
+    if any(item is None for item in metadata):
+        raise ValueError('diagnostic samples disagree on the actual trigger range')
+    if len({(item['source_sha'], item['tested_sha']) for item in metadata}) != 1:
+        raise ValueError('diagnostic samples must measure the same actual checkout')
+    matrix = {'include': [dict(sample=item['sample'], group=group,
+                                synthetic_base_sha=item['synthetic_base_sha'])
+                          for item in metadata for group in item['groups']]}
+    write_outputs(github_output, {'enabled': 'true', 'matrix': json.dumps(matrix, separators=(',', ':')),
+                                  'source_sha': metadata[0]['source_sha'], 'tested_sha': metadata[0]['tested_sha']})
+    return metadata
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     commands = parser.add_subparsers(dest='command', required=True)
-    plan = commands.add_parser('plan')
-    plan.add_argument('--base-ref', required=True)
-    plan.add_argument('--head-ref', required=True, help='exact tested checkout for the diagnostic benchmark')
-    plan.add_argument('--source-ref', help='real PR source HEAD; required when testing a PR merge')
-    plan.add_argument('--output', required=True)
-    plan.add_argument('--github-output')
+    for command in ('plan', 'plan-matrix'):
+        plan = commands.add_parser(command)
+        plan.add_argument('--base-ref', required=True)
+        plan.add_argument('--head-ref', required=True, help='exact tested checkout for the diagnostic benchmark')
+        plan.add_argument('--source-ref', help='real PR source HEAD; required when testing a PR merge')
+        plan.add_argument('--github-output')
+        if command == 'plan':
+            plan.add_argument('--output', required=True)
+            plan.add_argument('--sample', choices=SAMPLES, default='runtime-world')
+        else:
+            plan.add_argument('--output-dir', required=True)
     restore = commands.add_parser('restore')
     restore.add_argument('--metadata', required=True)
+    restore.add_argument('--sample', choices=SAMPLES)
+    restore.add_argument('--plan')
     args = parser.parse_args()
     if args.command == 'plan':
         plan_preview(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output, args.github_output,
-                     source_ref=args.source_ref)
+                     source_ref=args.source_ref, sample=args.sample)
+    elif args.command == 'plan-matrix':
+        plan_matrix(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output_dir, args.github_output,
+                    source_ref=args.source_ref)
     else:
-        restore_baseline(args.repo_root.resolve(), json.loads(Path(args.metadata).read_text()))
+        restore_baseline(args.repo_root.resolve(), json.loads(Path(args.metadata).read_text()),
+                         sample=args.sample, plan=json.loads(Path(args.plan).read_text()) if args.plan else None)
 
 
 if __name__ == '__main__':

@@ -259,8 +259,17 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 | Runtime `--lib` | 全部非 ignored 原生 unit tests | 已登记的增量 commit/allocator/clock/body/scheduler 实现或测试变化始终执行，同时以最低清单保留 parent/fence 拒绝、取消无成功前缀、stale clock、重复实例与 allocator 错误等负例 |
 | 组件 `--lib` | World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability、Launcher Config 各自全部非 ignored unit tests | 可信源码合同和真实 target 可达性同时成立；World State 同时执行 Runtime lib 与 `pr_fast_reducers`，保留跨 crate 的真实行为测试 owner；不以函数名过滤减少执行 |
 | Viewer Runtime `--lib` | `runtime_live/agent_service_*.rs` 与 `stream_budget_diagnostics.rs` 的行为由全部非 ignored library tests 承接 | 无默认 feature、启用 `test_tier_required`；最低清单保留同阶段精确分派、身份变化拒绝、失败后原请求查询恢复和诊断有界性；其他 Viewer 源码继续使用原范围 |
+| Game Client 本地服务 CLI | 完整 library，以及 `identity_cli`、`dev_test_catalog_cli`、`legacy_profile`、`dev_test_service_cli` 四个完整 integration targets | 仅登记私有 Unix CLI 适配文件及上述独立测试入口；真实二进制保护参数分派、私有配置、输入边界、socket 调用、凭据拒绝和子进程回收；共享 SDK、权限校验实现、身份、存储与恢复源码不在该合同内 |
 
-目标使用配置中明确登记的无默认 feature 组合；声明 `test_tier_required` 的目标启用该 feature。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
+目标使用配置中明确登记的默认 feature 设置与显式 features；声明 `test_tier_required` 的目标启用该 feature。Game Client 使用默认 features，与原 support library 入口相同；不能把该包没有 feature 声明当成永久不变量。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
+
+Game Client 的 `dev_test_service_cli.rs` 只承接参数分派与调用适配。私有配置的文件类型、权限、UID 校验和请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变；这些实现及公共命令入口变化继续扩测。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
+
+调用库存覆盖全部 workspace 的 Rust 宏来源及实际 include 输入，不能因导出宏没有普通依赖边就忽略它。raw identifier 按真实标识符比较，未知宏参数和模板保持保守；消费者依赖闭包出现未经审定的本地 proc-macro 时回退，不尝试分析任意常量生成的 Rust 源码。独立本地 commands 模块及标准断言中的普通字段、索引和值不作为公共 CLI 路线；本地断言宏覆盖、别名导入和 macro_use 不能借这个表达式例外放行。
+
+可信 `ordinary_fast_support_contracts` 明确登记该 owner 的精确输入和可延后到 full 的反向 support 消费者。只有每项相关输入都命中合同、真实 target 可达、native/test-only 证明成立且无风险扩测时，才把 support 自身的完整 library 测试交给 inline，把自身及被延期消费者原默认 feature 的全部 `--all-targets` strict Clippy 交给 rust-baseline。独立 integration 测试输入也必须经同一证明，不能仅因属于 support 包就跳过 ordinary。仅由同一私有适配输入传递触发、且已登记的消费者完整回归留在 full；计划保留完整 affected 集合和具体转交、延后清单。直接消费者修改、路径加测、显式请求、混合未知输入、测试政策变化和旧能力均保留原必要检查，不把任意 support 包或目录整体变成快速范围。
+
+该合同的性能目标是 workflow 创建到最终 required gate 不超过 600 秒，包含排队、checkout、缓存、编译、Clippy、全部所选测试与汇总。冷、暖缓存均按真实行为改动或新增回归取样，并核对 source/tested/policy、实际目标和完整用例回执。首次 CI 控制变更仍使用可信 BASE 范围；合成差异的诊断只证明候选计划和当前构建成本，不能代签真实 PR、P95 或把超时样本改列例外。
 
 完整反向消费者集合继续写入计划作为影响证据。已证明的组件合同承接普通行为，上层完整集成回归放入 periodic-full；直接规则、手动必要加测、未覆盖输入及平台风险仍取并集。Formal 显式风险规则先于组件合同应用，例如 retained history 仍选 world-history，projection 仍选 runtime-protocol 与 world-history；只有没有显式风险且行为已由快速目标承接的输入才取消默认五套长回归。Launcher release 构建只在其真实输入或必要风险要求时加入快速图。WASM 保留适用消费者编译；仅当源码路由与 cfg 可证明输入不进入 WASM 构建时，才排除纯传递依赖带来的无关 WASM 检查，解析不确定时保留。
 
@@ -276,7 +285,7 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 可信规则可为完整 library 目标登记 `static_module_additions`。它只接纳入口最外层新增的无属性 `mod name;` 及其可见性形式，要求源码实际新增于同一比较范围、使用唯一常规模块路径，且所选 target/features 能执行入口和新模块。此能力用于 Runtime `world/mod.rs` 与 Viewer `runtime_live.rs`，不放宽 `native.rs` 的导出合同。base/source/tested 的每一项实际差异均须通过；已有代码变更、模块删除/替换、`cfg/path` 属性、inline module、宏挂载或歧义路径不能借此准入。新模块内的门控和嵌入输入继续接受原有风险及可达性检查。
 
-periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、扩展 features 和平台组合，并通过独立 `ordinary_full_fast_targets` **追加全部快速目标的相同无默认 feature 组合**。默认 feature 的 full 不能抵扣仅在无 Wasmtime 下存在的行为。补充构建、Clippy 和测试均执行，产物按 feature 变体区分；验证补充后仍独立验证原库存，不能用补充 harness 顶替原 required。旧 BASE 缺此能力时仍使用旧入口。
+periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、扩展 features 和平台组合，并通过独立 `ordinary_full_fast_targets` **追加全部快速目标的相同默认 feature 设置与显式 features 组合**。默认 feature 的 full 不能抵扣仅在无 Wasmtime 下存在的行为。补充构建、Clippy 和测试均执行，产物按 feature 变体区分；验证补充后仍独立验证原库存，不能用补充 harness 顶替原 required。旧 BASE 缺此能力时仍使用旧入口。
 
 该机制和本地测试不证明 hosted 十分钟/P95 达标。仍按完整排队、准备、编译、Clippy、测试和汇总的真实时长验收；本 CI 控制 PR 自身接受旧可信规则，候选不能先减测使自己通过。
 
@@ -300,9 +309,11 @@ Viewer 的完整 UI 测试与 software-safe 构建在输入、输出互不依赖
 
 预览的触发差异复用 required 选择器的 Git 身份与比较范围：workflow 显式传入事件 BASE、实际 PR source 和 tested commit；在验证真实 target 与 source 父节点、BASE 祖先关系及唯一共同祖先后，取共同祖先到 source、实际 target 到 tested 的差异并集，包含删除和重命名两端。main 单独前进不触发预览，真实 source 改动与 merge resolution 改动仍触发；身份或差异无法确认时报告失败，不能安静跳过。这个范围只决定是否运行诊断，不改变可信 required 计划。
 
-预览以实际 tested tree 的两个固定 Rust 输入构造仅注释不同的 baseline，benchmark 的 source/tested checkout 保持该 tested commit 不变。`ci-fast-preview.py` 分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree、固定输入和全部组，下游 runner 按确定性 Git 身份重建比较对象。规划必须包含 baseline、rust-baseline 和 ordinary 三个必需组及 Runtime lib、World State lib、reducers、物理 incremental 四个完整 target；额外组仅接受上述 `architecture.consumer_groups` 明确证明的 native 反向消费者，消费者仍复核固定 policy 映射与实际 Cargo 关系。缺项、未解释的额外需求或错误 feature 策略均不能被静默省略。
+预览以实际 tested tree 构造两份仅注释不同的 baseline，benchmark 的 source/tested checkout 保持该 tested commit 不变。`runtime-world` 保留两个既有 Rust 输入，必须包含 baseline、rust-baseline、ordinary 及 Runtime lib、World State lib、reducers、物理 incremental 四个完整 target；额外组仅接受上述 `architecture.consumer_groups` 明确证明的 native 反向消费者。`game-client-private-unix` 只使用已登记的私有 CLI 适配输入，必须包含三个核心组、完整 game-client lib 与四个 CLI integration targets，以及自身运行转交、两项 support 消费者延后和原 all-targets Clippy 保留清单。两份期望目标与 feature 组合由预览独立固定，不能从候选选测结果反推应有覆盖。
 
-预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；从 workflow 创建到最后预览结束的时长仍包含排队与规划。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
+`ci-fast-preview.py` 按样本分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree、固定输入和全部组，下游 runner 按样本与确定性 Git 身份重建比较对象。`plan-matrix` 只有在所有样本完整校验成功后才一次发布执行矩阵；不发布半份成功。每行绑定 sample、group 与该样本的合成 BASE，selection、metadata 和结果 artifact 分别命名，禁止跨样本复用；Runtime 的额外消费者组仍全部执行。缺项、未解释的额外需求或错误 feature 策略均不能被静默省略。
+
+预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，不能把单个 job 的 runner_seconds 当成端到端或混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 
 baseline 保留必要治理、格式与一致性检查。文档路径按完整差异检查变更正文及受影响的索引、入站引用、删除/重命名和 authority 关系；无相关输入的子检查及时返回。Markdown block/html/link 共享有界、按精确文本缓存的 CommonMark 解析结果，fragment/可见文本查询复用纯解析结果；保留全局 ID/索引等必要不变量，不能只读取修改行。快速 baseline 不再附加 `--full-corpus` 历史内容报告，完整 profile 仍运行，原告警级别不变。
 

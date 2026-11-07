@@ -3,7 +3,84 @@
   "fast_test_inventory_version": 1,
   "fast_execution_version": 1,
   "architecture_build_policy_version": 1,
+  "ordinary_support_contract_version": 1,
+  "ordinary_fast_support_contracts": [
+    {
+      "package": "oasis7_game_client",
+      "source": "crates/oasis7_game_client/src/dev_test_service_cli.rs",
+      "entry": "run",
+      "callers": {
+        "crates/oasis7_game_client/src/commands.rs": "4a4d695938493fa665c741652a1e4effc50250f8c08607aedf8ae1e0d94e4d89",
+        "crates/oasis7_game_client/src/bin/oasis7_game_client.rs": "f0e672b7b81c4b6259ce3c6286ec2345558b9f7c3b5e1c87e4dd26cc2ed87587"
+      },
+      "tests": [
+        "crates/oasis7_game_client/tests/identity_cli.rs",
+        "crates/oasis7_game_client/tests/dev_test_catalog_cli.rs",
+        "crates/oasis7_game_client/tests/legacy_profile.rs",
+        "crates/oasis7_game_client/tests/dev_test_service_cli.rs"
+      ],
+      "deferred_consumers": ["oasis7_agent_harness", "oasis7_model_provider"]
+    }
+  ],
   "ordinary_fast_targets": {
+    "game-client-lib": {
+      "package": "oasis7_game_client",
+      "target_kind": "lib",
+      "target_name": "oasis7_game_client",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "commands::native_context_display::tests::required_native_context_list_confirms_default_validation",
+        "commands::native_context_display::tests::missing_native_context_grant_field_is_not_silently_empty",
+        "commands::native_context_display::tests::nonempty_native_context_keeps_revoked_grants_scoped",
+        "commands::native_context_display::tests::provider_local_display_bytes_are_unchanged",
+        "dev_test_service::tests::completed_peer_response_is_read_through_eof",
+        "dev_test_service::tests::slow_drip_cannot_extend_absolute_read_deadline",
+        "dev_test_service::tests::capabilities_enforce_credential_and_closed_methods"
+      ]
+    },
+    "game-client-identity-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "identity_cli",
+      "default_features": true,
+      "features": [],
+      "cases": ["executable_initializes_and_reopens_encrypted_identity_without_network_or_secret_output"]
+    },
+    "game-client-catalog-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "dev_test_catalog_cli",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "operator_cli_rejects_public_directory_and_lists_without_credential_references",
+        "trusted_tls_registration_is_idempotent_and_rejects_subject_replacement"
+      ]
+    },
+    "game-client-legacy-profile": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "legacy_profile",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "original_runtime_fixture_preserves_all_legacy_operations_and_results",
+        "published_lease_and_continuation_pure_helpers_preserve_defaults_and_reject_invalid_input"
+      ]
+    },
+    "game-client-service-cli": {
+      "package": "oasis7_game_client",
+      "target_kind": "test",
+      "target_name": "dev_test_service_cli",
+      "default_features": true,
+      "features": [],
+      "cases": [
+        "real_service_cli_preserves_credentials_closed_methods_and_usage",
+        "cli_rejects_public_symlink_and_invalid_configurations",
+        "cli_enforces_exact_input_boundaries_and_argument_errors"
+      ]
+    },
     "runtime-basic": {
       "package": "oasis7_runtime",
       "target_kind": "test",
@@ -240,6 +317,23 @@
     }
   },
   "ordinary_fast_rules": [
+    {
+      "paths": [
+        "crates/oasis7_game_client/src/dev_test_service_cli.rs",
+        "crates/oasis7_game_client/tests/identity_cli.rs",
+        "crates/oasis7_game_client/tests/dev_test_catalog_cli.rs",
+        "crates/oasis7_game_client/tests/legacy_profile.rs",
+        "crates/oasis7_game_client/tests/dev_test_service_cli.rs"
+      ],
+      "targets": [
+        "game-client-lib",
+        "game-client-identity-cli",
+        "game-client-catalog-cli",
+        "game-client-legacy-profile",
+        "game-client-service-cli"
+      ],
+      "reason": "private_unix_service_cli_with_complete_library_and_real_cli_contracts"
+    },
     {
       "paths": [
         "crates/oasis7_runtime/src/tests/basic.rs",

@@ -298,6 +298,11 @@ RUST_BASELINE_CHECKS = ('newapi_accounting', 'standalone_tool_lockfiles')
 
 def fast_plan(plan):
     """Old trusted planners retain the complete previous execution inventory."""
+    support_fields = {'ordinary_support_contract_version', 'ordinary_support_handoffs',
+                      'ordinary_support_deferred'}
+    support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
+    if support and 'fast_plan_version' not in plan:
+        raise ValueError('support handoff requires a compatible fast plan')
     if (isinstance(plan, dict) and 'fast_execution_version' in plan
             and type(plan['fast_execution_version']) is not int):
         raise ValueError('invalid fast execution capability')
@@ -331,7 +336,40 @@ def fast_plan(plan):
                 raise ValueError('invalid ordinary Clippy group')
             if clippy_group == 'rust_baseline' and 'rust_baseline' not in plan['groups']:
                 raise ValueError('ordinary Clippy owner is not a selected required group')
+    if support:
+        validate_support_handoff(plan)
     return plan
+
+
+def validate_support_handoff(plan):
+    """Moving support execution must retain its complete original lint calls."""
+    if (type(plan.get('ordinary_support_contract_version')) is not int
+            or plan['ordinary_support_contract_version'] != 1
+            or plan.get('fast_execution_version') != 1
+            or plan.get('ordinary_execution') != 'inline'
+            or plan.get('ordinary_clippy_group') != 'rust_baseline'):
+        raise ValueError('invalid ordinary support handoff capability or Clippy owner')
+    fields = ('ordinary_support_handoffs', 'ordinary_support_deferred', 'workspace_support_profiles')
+    for field in fields:
+        values = plan.get(field)
+        if (not isinstance(values, list)
+                or (field == 'ordinary_support_handoffs' and not values)
+                or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name) for name in values)
+                or len(values) != len(set(values))):
+            raise ValueError('invalid ordinary support profile inventory: ' + field)
+    handoffs, deferred, remaining = (set(plan[field]) for field in fields)
+    if (handoffs & deferred or (handoffs | deferred) & remaining
+            or bool(remaining) != ('workspace_support' in plan['groups'])):
+        raise ValueError('ordinary support profiles have overlapping or missing owners')
+    targets = plan.get('ordinary_fast_targets')
+    if not isinstance(targets, list) or any(not isinstance(target, dict) for target in targets):
+        raise ValueError('support handoff is missing ordinary targets')
+    for owner in handoffs:
+        selected = [target for target in targets if target.get('package') == owner]
+        if (not any(target.get('target_kind') == 'lib' for target in selected)
+                or any(target.get('default_features') is not True or target.get('features') != []
+                       for target in selected)):
+            raise ValueError('support handoff requires the same complete default library')
 
 
 def plan_list(plan, key, inventory, *, nonempty=True):
@@ -486,7 +524,10 @@ def target_native_arguments(target):
 def required_native_commands(plan=None):
     targets = ordinary_fast_targets(plan)
     if targets is not None:
-        return [target_native_arguments(target) for target in targets]
+        handoffs = set(plan.get('ordinary_support_handoffs', ()))
+        support = handoffs | set(plan.get('ordinary_support_deferred', ()))
+        return ([target_native_arguments(target) for target in targets if target['package'] not in handoffs]
+                + [['-p', package, '--all-targets'] for package in sorted(support)])
     return [required_arguments(plan)] + [target_native_arguments(target)
                                        for target in ordinary_full_fast_targets(plan) or []]
 
