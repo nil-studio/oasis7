@@ -423,6 +423,14 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - 区域「下一候选」：Assembler MK1 候选资格已满足。；建造仍需当前材料、电力与授权。；稳定运行与交付必须分别验证。
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
+#### 完整原生方案与首局交接补充
+
+- [方案稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)与[结果稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)为新增 `design_target`，均为 1440×900；沿[首局内容设计的唯一 fixture](first-session-content-delivery.design.md#native-three-batch-fixture)采用 `recipe.smelter.iron_ingot` 三批：`iron_ore ×12` + `carbon_fuel ×3` → `iron_ingot ×9` + 预计副产物 `slag ×3`，配方用电 `24`。旧图的 36/48/24 保留为历史字段示例，不能混入这套完整 native 方案。
+- 方案稿具体画 fresh 可行报价、当前工厂/配方/批次、工厂输入账本、完整主要投入、预计产出/副产物及单一“确认生产”入口；报价时长取实际 `preview.duration_ticks`，不从 catalog 基准推断运行 ETA。
+- 结果稿具体画匹配结算摘要、实际铁锭 `9`、实际投入与配方用电、示例 Agent A / job `17` / tick `102`、`production_only` 及 Assembler 候选。`9/10` 是本笔产出与建造需求的比较，不是当前库存；建造仍须核全部当前条件。
+- 当前成果摘要和归一化未发布 `byproducts`，故结果稿显示“副产物：当前摘要未发布”。只有同 job 完整结算原件确实提供时，目标消费分支才可显示实际 slag；不得从方案预计值补齐。详见[副产物接点](first-session-content-delivery.design.md#native-three-batch-fixture)。
+- [统一可操作原型](assets/ui-ux/interactive/index.html#industry)承接方案、缺料、显式提交、原结果未知、只读核对、匹配结算与回访，按 [P1～P6](first-session-content-delivery.manual.md#fs-content-prototype)逐项走查。两张 SVG 不代表其余状态均已画出，原型行为不升级为真实运行或真人验证；本补充不改变上方固定来源的 `conditional_current` 实现边界。
+
 <a id="r-game-19"></a>
 ### R-GAME-19 微型仓库设施、库存与技术证据
 

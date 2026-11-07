@@ -1,0 +1,688 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180" shape-rendering="crispEdges" role="img" aria-labelledby="title desc">
+  <title id="title">OASIS7 俯视像素世界场景</title>
+  <desc id="desc">320×180 逻辑像素的可复用世界背景。Smelter 占地 48×48，位于 144,64，中心 168,88，入口 168,112；场景不含 Agent、姓名、权限、库存、任务状态或选择标记。道路、矿床与建筑仅供设计示意，不是权威世界位置。</desc>
+  <metadata id="pixel-world-metadata">{
+  "artifact": "oasis7 UI/UE pixel-world design source",
+  "status": "design illustration; not an exported production renderer or authorized world state",
+  "projection": "top-down 2D",
+  "logical_pixel": 1,
+  "tile_size": [
+    16,
+    16
+  ],
+  "palette": {
+    "ink": "#0b1714",
+    "forest": "#15271f",
+    "ground": "#1e3428",
+    "grass": "#2b4732",
+    "leaf": "#426047",
+    "soil-dark": "#393b2d",
+    "soil": "#565643",
+    "stone": "#7a7656",
+    "machine-dark": "#3d4c4b",
+    "machine": "#5e716c",
+    "machine-light": "#91a39a",
+    "light": "#d6dec0",
+    "ochre": "#997943",
+    "gold": "#d0a85b",
+    "mint-dark": "#60997d",
+    "mint": "#9ec9ac"
+  },
+  "asset_sizes": {
+    "ground": [
+      16,
+      16
+    ],
+    "ground-alt": [
+      16,
+      16
+    ],
+    "grass": [
+      16,
+      16
+    ],
+    "path": [
+      16,
+      16
+    ],
+    "ore": [
+      16,
+      16
+    ],
+    "rock": [
+      16,
+      16
+    ],
+    "tree": [
+      16,
+      16
+    ],
+    "scrub": [
+      16,
+      16
+    ],
+    "smelter": [
+      48,
+      48
+    ],
+    "depot": [
+      32,
+      32
+    ],
+    "agent": [
+      16,
+      16
+    ]
+  },
+  "constraints": [
+    "integer rectangles only",
+    "no gradients, curves, diagonals, filters, strokes or opacity",
+    "rasterize at logical size, then upscale by integer nearest-neighbor",
+    "keep identity, provenance, selection, receipts and all UI text outside this world artwork"
+  ],
+  "anchors": {
+    "agent": [
+      8,
+      15
+    ],
+    "smelter_center": [
+      24,
+      24
+    ],
+    "smelter_entry": [
+      24,
+      48
+    ],
+    "depot_center": [
+      16,
+      16
+    ],
+    "depot_entry": [
+      16,
+      32
+    ]
+  }
+}</metadata>
+  <defs>
+    <symbol id="ground" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 基础地块；低对比固定像素纹理。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#1e3428" />
+      <rect x="2" y="3" width="3" height="1" fill="#2b4732" />
+      <rect x="12" y="10" width="2" height="1" fill="#2b4732" />
+      <rect x="7" y="14" width="2" height="1" fill="#15271f" />
+    </symbol>
+    <symbol id="ground-alt" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 基础地块变体；不承载资源或运行状态。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#1e3428" />
+      <rect x="10" y="2" width="2" height="1" fill="#15271f" />
+      <rect x="4" y="10" width="3" height="1" fill="#2b4732" />
+      <rect x="6" y="9" width="1" height="1" fill="#2b4732" />
+    </symbol>
+    <symbol id="grass" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 成片草地；固定实色，无透明纹理。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#2b4732" />
+      <rect x="0" y="12" width="4" height="4" fill="#1e3428" />
+      <rect x="12" y="0" width="4" height="3" fill="#1e3428" />
+      <rect x="3" y="3" width="2" height="1" fill="#426047" />
+      <rect x="4" y="2" width="1" height="1" fill="#426047" />
+      <rect x="10" y="10" width="2" height="1" fill="#426047" />
+      <rect x="11" y="9" width="1" height="1" fill="#426047" />
+      <rect x="2" y="13" width="2" height="1" fill="#2b4732" />
+    </symbol>
+    <symbol id="path" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 道路地块；整数拼接，纹理没有方向或物流量含义。</desc>
+      <rect x="0" y="0" width="16" height="16" fill="#565643" />
+      <rect x="2" y="3" width="3" height="1" fill="#7a7656" />
+      <rect x="10" y="12" width="2" height="1" fill="#393b2d" />
+      <rect x="6" y="8" width="1" height="1" fill="#7a7656" />
+      <rect x="13" y="4" width="2" height="1" fill="#393b2d" />
+    </symbol>
+    <symbol id="ore" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 矿床示意；外观不声明组成、储量、可用输入或授权。</desc>
+      <rect x="3" y="0" width="10" height="16" fill="#393b2d" />
+      <rect x="0" y="3" width="16" height="10" fill="#393b2d" />
+      <rect x="1" y="2" width="14" height="12" fill="#393b2d" />
+      <rect x="2" y="4" width="5" height="4" fill="#3d4c4b" />
+      <rect x="3" y="3" width="3" height="3" fill="#91a39a" />
+      <rect x="3" y="3" width="2" height="1" fill="#d6dec0" />
+      <rect x="5" y="6" width="3" height="3" fill="#5e716c" />
+      <rect x="10" y="2" width="3" height="4" fill="#5e716c" />
+      <rect x="10" y="2" width="2" height="1" fill="#91a39a" />
+      <rect x="9" y="7" width="5" height="5" fill="#3d4c4b" />
+      <rect x="10" y="7" width="3" height="3" fill="#91a39a" />
+      <rect x="10" y="7" width="2" height="1" fill="#d6dec0" />
+      <rect x="3" y="11" width="4" height="3" fill="#5e716c" />
+      <rect x="3" y="11" width="3" height="1" fill="#91a39a" />
+      <rect x="13" y="12" width="1" height="1" fill="#7a7656" />
+    </symbol>
+    <symbol id="rock" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 岩石精灵；阶梯边缘，不投射阴影。</desc>
+      <rect x="5" y="2" width="6" height="2" fill="#3d4c4b" />
+      <rect x="3" y="4" width="10" height="2" fill="#3d4c4b" />
+      <rect x="2" y="6" width="12" height="6" fill="#3d4c4b" />
+      <rect x="4" y="12" width="8" height="2" fill="#3d4c4b" />
+      <rect x="5" y="4" width="5" height="2" fill="#91a39a" />
+      <rect x="4" y="6" width="7" height="4" fill="#5e716c" />
+      <rect x="11" y="7" width="1" height="4" fill="#5e716c" />
+      <rect x="5" y="5" width="4" height="1" fill="#91a39a" />
+      <rect x="4" y="11" width="5" height="1" fill="#565643" />
+    </symbol>
+    <symbol id="tree" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 树冠精灵；俯视阶梯轮廓，无模糊或投影。</desc>
+      <rect x="7" y="12" width="2" height="4" fill="#565643" />
+      <rect x="6" y="0" width="4" height="2" fill="#15271f" />
+      <rect x="4" y="2" width="8" height="2" fill="#15271f" />
+      <rect x="2" y="4" width="12" height="4" fill="#15271f" />
+      <rect x="1" y="8" width="14" height="4" fill="#15271f" />
+      <rect x="4" y="12" width="8" height="2" fill="#15271f" />
+      <rect x="6" y="2" width="4" height="2" fill="#2b4732" />
+      <rect x="4" y="4" width="8" height="4" fill="#2b4732" />
+      <rect x="3" y="8" width="10" height="3" fill="#2b4732" />
+      <rect x="6" y="10" width="5" height="2" fill="#2b4732" />
+      <rect x="6" y="3" width="3" height="1" fill="#426047" />
+      <rect x="4" y="5" width="3" height="3" fill="#426047" />
+      <rect x="3" y="8" width="2" height="1" fill="#426047" />
+      <rect x="9" y="7" width="2" height="2" fill="#426047" />
+    </symbol>
+    <symbol id="scrub" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden">
+      <desc>16×16 低植被精灵；不参与目标或选中状态。</desc>
+      <rect x="2" y="10" width="5" height="3" fill="#2b4732" />
+      <rect x="3" y="7" width="3" height="3" fill="#2b4732" />
+      <rect x="9" y="8" width="5" height="4" fill="#2b4732" />
+      <rect x="10" y="5" width="2" height="4" fill="#2b4732" />
+      <rect x="3" y="8" width="2" height="2" fill="#426047" />
+      <rect x="10" y="6" width="1" height="2" fill="#426047" />
+      <rect x="11" y="9" width="2" height="1" fill="#426047" />
+      <rect x="6" y="12" width="3" height="1" fill="#15271f" />
+    </symbol>
+    <symbol id="smelter" viewBox="0 0 48 48" data-cell-size="48" overflow="hidden" data-anchor="24,24">
+      <desc>48×48（3×3 tile）俯视冶炼炉。暖金只表示固定外壳涂装，不表示点火、任务进行中、成功或库存。中心锚点 24,24；底部入口 24,48。</desc>
+      <rect x="0" y="0" width="48" height="48" fill="#0b1714" />
+      <rect x="1" y="1" width="46" height="46" fill="#3d4c4b" />
+      <rect x="2" y="2" width="44" height="44" fill="#393b2d" />
+      <rect x="2" y="2" width="8" height="2" fill="#7a7656" />
+      <rect x="2" y="2" width="2" height="8" fill="#7a7656" />
+      <rect x="38" y="2" width="8" height="2" fill="#7a7656" />
+      <rect x="44" y="2" width="2" height="8" fill="#7a7656" />
+      <rect x="2" y="38" width="2" height="8" fill="#7a7656" />
+      <rect x="2" y="44" width="8" height="2" fill="#7a7656" />
+      <rect x="44" y="38" width="2" height="8" fill="#7a7656" />
+      <rect x="38" y="44" width="8" height="2" fill="#7a7656" />
+      <rect x="6" y="5" width="34" height="33" fill="#0b1714" />
+      <rect x="7" y="6" width="32" height="31" fill="#5e716c" />
+      <rect x="8" y="7" width="30" height="2" fill="#91a39a" />
+      <rect x="8" y="9" width="2" height="26" fill="#91a39a" />
+      <rect x="10" y="9" width="27" height="26" fill="#5e716c" />
+      <rect x="37" y="9" width="1" height="26" fill="#3d4c4b" />
+      <rect x="10" y="34" width="27" height="2" fill="#3d4c4b" />
+      <rect x="11" y="10" width="24" height="21" fill="#3d4c4b" />
+      <rect x="12" y="11" width="22" height="19" fill="#5e716c" />
+      <rect x="8" y="5" width="11" height="12" fill="#0b1714" />
+      <rect x="9" y="6" width="9" height="10" fill="#91a39a" />
+      <rect x="10" y="7" width="7" height="8" fill="#5e716c" />
+      <rect x="11" y="8" width="5" height="6" fill="#0b1714" />
+      <rect x="12" y="9" width="3" height="4" fill="#3d4c4b" />
+      <rect x="9" y="15" width="9" height="1" fill="#3d4c4b" />
+      <rect x="27" y="8" width="9" height="10" fill="#0b1714" />
+      <rect x="28" y="9" width="7" height="8" fill="#91a39a" />
+      <rect x="29" y="10" width="5" height="6" fill="#3d4c4b" />
+      <rect x="31" y="10" width="1" height="6" fill="#5e716c" />
+      <rect x="29" y="12" width="5" height="1" fill="#5e716c" />
+      <rect x="31" y="12" width="1" height="1" fill="#d6dec0" />
+      <rect x="15" y="19" width="17" height="13" fill="#0b1714" />
+      <rect x="16" y="20" width="15" height="11" fill="#997943" />
+      <rect x="17" y="21" width="13" height="2" fill="#d0a85b" />
+      <rect x="17" y="24" width="13" height="5" fill="#393b2d" />
+      <rect x="18" y="24" width="2" height="5" fill="#997943" />
+      <rect x="22" y="24" width="2" height="5" fill="#997943" />
+      <rect x="26" y="24" width="2" height="5" fill="#997943" />
+      <rect x="33" y="20" width="2" height="11" fill="#91a39a" />
+      <rect x="33" y="23" width="2" height="1" fill="#3d4c4b" />
+      <rect x="33" y="27" width="2" height="1" fill="#3d4c4b" />
+      <rect x="40" y="18" width="6" height="14" fill="#0b1714" />
+      <rect x="41" y="19" width="4" height="12" fill="#5e716c" />
+      <rect x="41" y="20" width="4" height="2" fill="#91a39a" />
+      <rect x="42" y="24" width="2" height="5" fill="#3d4c4b" />
+      <rect x="3" y="18" width="2" height="18" fill="#3d4c4b" />
+      <rect x="3" y="20" width="2" height="2" fill="#d0a85b" />
+      <rect x="3" y="27" width="2" height="2" fill="#d0a85b" />
+      <rect x="3" y="34" width="2" height="2" fill="#d0a85b" />
+      <rect x="15" y="36" width="18" height="11" fill="#0b1714" />
+      <rect x="16" y="37" width="16" height="10" fill="#3d4c4b" />
+      <rect x="17" y="37" width="14" height="2" fill="#d0a85b" />
+      <rect x="18" y="40" width="12" height="1" fill="#5e716c" />
+      <rect x="18" y="42" width="12" height="1" fill="#5e716c" />
+      <rect x="18" y="44" width="12" height="1" fill="#5e716c" />
+      <rect x="9" y="32" width="2" height="2" fill="#d6dec0" />
+      <rect x="35" y="32" width="2" height="2" fill="#d6dec0" />
+      <rect x="36" y="38" width="6" height="3" fill="#5e716c" />
+      <rect x="37" y="38" width="4" height="1" fill="#91a39a" />
+      <rect x="8" y="39" width="3" height="3" fill="#997943" />
+    </symbol>
+    <symbol id="depot" viewBox="0 0 32 32" data-cell-size="32" overflow="hidden" data-anchor="16,16">
+      <desc>32×32（2×2 tile）仓储建筑示意。没有 Micro Depot 的 active/suspended/depleted 状态、库存或吞吐量含义。中心锚点 16,16；底部入口 16,32。</desc>
+      <rect x="0" y="0" width="32" height="32" fill="#0b1714" />
+      <rect x="1" y="1" width="30" height="30" fill="#393b2d" />
+      <rect x="2" y="2" width="28" height="28" fill="#3d4c4b" />
+      <rect x="2" y="2" width="4" height="2" fill="#7a7656" />
+      <rect x="26" y="2" width="4" height="2" fill="#7a7656" />
+      <rect x="2" y="28" width="4" height="2" fill="#7a7656" />
+      <rect x="26" y="28" width="4" height="2" fill="#7a7656" />
+      <rect x="4" y="4" width="24" height="21" fill="#0b1714" />
+      <rect x="5" y="5" width="22" height="19" fill="#5e716c" />
+      <rect x="6" y="6" width="20" height="2" fill="#91a39a" />
+      <rect x="6" y="8" width="2" height="14" fill="#91a39a" />
+      <rect x="8" y="8" width="17" height="14" fill="#5e716c" />
+      <rect x="25" y="8" width="1" height="14" fill="#3d4c4b" />
+      <rect x="9" y="9" width="2" height="12" fill="#3d4c4b" />
+      <rect x="15" y="9" width="2" height="12" fill="#3d4c4b" />
+      <rect x="21" y="9" width="2" height="12" fill="#3d4c4b" />
+      <rect x="9" y="9" width="1" height="10" fill="#91a39a" />
+      <rect x="15" y="9" width="1" height="10" fill="#91a39a" />
+      <rect x="21" y="9" width="1" height="10" fill="#91a39a" />
+      <rect x="10" y="23" width="12" height="8" fill="#0b1714" />
+      <rect x="11" y="24" width="10" height="2" fill="#d0a85b" />
+      <rect x="12" y="27" width="8" height="1" fill="#5e716c" />
+      <rect x="12" y="29" width="8" height="1" fill="#5e716c" />
+      <rect x="4" y="25" width="3" height="2" fill="#997943" />
+      <rect x="25" y="25" width="3" height="2" fill="#997943" />
+    </symbol>
+    <symbol id="agent" viewBox="0 0 16 16" data-cell-size="16" overflow="hidden" data-anchor="8,15">
+      <desc>16×16 Agent 静态设计精灵；普通薄荷色不编码选择、任务或权限。姓名、选择、来源、未知和回执由独立上层文字或标记表达。脚点锚点 8,15。</desc>
+      <rect x="6" y="0" width="4" height="1" fill="#0b1714" />
+      <rect x="5" y="1" width="6" height="1" fill="#0b1714" />
+      <rect x="4" y="2" width="8" height="5" fill="#0b1714" />
+      <rect x="5" y="2" width="6" height="4" fill="#9ec9ac" />
+      <rect x="5" y="2" width="5" height="1" fill="#d6dec0" />
+      <rect x="6" y="4" width="4" height="1" fill="#0b1714" />
+      <rect x="7" y="4" width="2" height="1" fill="#60997d" />
+      <rect x="5" y="7" width="6" height="1" fill="#3d4c4b" />
+      <rect x="4" y="8" width="8" height="5" fill="#0b1714" />
+      <rect x="5" y="8" width="6" height="4" fill="#9ec9ac" />
+      <rect x="5" y="8" width="5" height="1" fill="#d6dec0" />
+      <rect x="6" y="10" width="4" height="1" fill="#60997d" />
+      <rect x="2" y="8" width="2" height="4" fill="#0b1714" />
+      <rect x="3" y="8" width="1" height="3" fill="#60997d" />
+      <rect x="12" y="8" width="2" height="4" fill="#0b1714" />
+      <rect x="12" y="8" width="1" height="3" fill="#60997d" />
+      <rect x="5" y="13" width="2" height="2" fill="#3d4c4b" />
+      <rect x="9" y="13" width="2" height="2" fill="#3d4c4b" />
+      <rect x="5" y="13" width="2" height="1" fill="#91a39a" />
+      <rect x="9" y="13" width="2" height="1" fill="#91a39a" />
+    </symbol>
+  </defs>
+  <g id="scene-ground" data-layer="ground">
+    <use href="#ground-alt" x="0" y="0" width="16" height="16" />
+    <use href="#ground" x="16" y="0" width="16" height="16" />
+    <use href="#ground" x="32" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="48" y="0" width="16" height="16" />
+    <use href="#ground" x="64" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="80" y="0" width="16" height="16" />
+    <use href="#ground" x="96" y="0" width="16" height="16" />
+    <use href="#ground" x="112" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="128" y="0" width="16" height="16" />
+    <use href="#ground" x="144" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="160" y="0" width="16" height="16" />
+    <use href="#ground" x="176" y="0" width="16" height="16" />
+    <use href="#ground" x="192" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="208" y="0" width="16" height="16" />
+    <use href="#ground" x="224" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="240" y="0" width="16" height="16" />
+    <use href="#ground" x="256" y="0" width="16" height="16" />
+    <use href="#ground" x="272" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="288" y="0" width="16" height="16" />
+    <use href="#ground" x="304" y="0" width="16" height="16" />
+    <use href="#ground-alt" x="0" y="16" width="16" height="16" />
+    <use href="#ground" x="16" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="32" y="16" width="16" height="16" />
+    <use href="#ground" x="48" y="16" width="16" height="16" />
+    <use href="#ground" x="64" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="80" y="16" width="16" height="16" />
+    <use href="#ground" x="96" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="112" y="16" width="16" height="16" />
+    <use href="#ground" x="128" y="16" width="16" height="16" />
+    <use href="#ground" x="144" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="160" y="16" width="16" height="16" />
+    <use href="#ground" x="176" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="192" y="16" width="16" height="16" />
+    <use href="#ground" x="208" y="16" width="16" height="16" />
+    <use href="#ground" x="224" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="240" y="16" width="16" height="16" />
+    <use href="#ground" x="256" y="16" width="16" height="16" />
+    <use href="#ground-alt" x="272" y="16" width="16" height="16" />
+    <use href="#ground" x="288" y="16" width="16" height="16" />
+    <use href="#ground" x="304" y="16" width="16" height="16" />
+    <use href="#ground" x="0" y="32" width="16" height="16" />
+    <use href="#ground" x="16" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="32" y="32" width="16" height="16" />
+    <use href="#ground" x="48" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="64" y="32" width="16" height="16" />
+    <use href="#ground" x="80" y="32" width="16" height="16" />
+    <use href="#ground" x="96" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="112" y="32" width="16" height="16" />
+    <use href="#ground" x="128" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="144" y="32" width="16" height="16" />
+    <use href="#ground" x="160" y="32" width="16" height="16" />
+    <use href="#ground" x="176" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="192" y="32" width="16" height="16" />
+    <use href="#ground" x="208" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="224" y="32" width="16" height="16" />
+    <use href="#ground" x="240" y="32" width="16" height="16" />
+    <use href="#ground" x="256" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="272" y="32" width="16" height="16" />
+    <use href="#ground" x="288" y="32" width="16" height="16" />
+    <use href="#ground-alt" x="304" y="32" width="16" height="16" />
+    <use href="#ground" x="0" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="16" y="48" width="16" height="16" />
+    <use href="#ground" x="32" y="48" width="16" height="16" />
+    <use href="#ground" x="48" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="64" y="48" width="16" height="16" />
+    <use href="#ground" x="80" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="96" y="48" width="16" height="16" />
+    <use href="#ground" x="112" y="48" width="16" height="16" />
+    <use href="#ground" x="128" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="144" y="48" width="16" height="16" />
+    <use href="#ground" x="160" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="176" y="48" width="16" height="16" />
+    <use href="#ground" x="192" y="48" width="16" height="16" />
+    <use href="#ground" x="208" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="224" y="48" width="16" height="16" />
+    <use href="#ground" x="240" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="256" y="48" width="16" height="16" />
+    <use href="#ground" x="272" y="48" width="16" height="16" />
+    <use href="#ground" x="288" y="48" width="16" height="16" />
+    <use href="#ground-alt" x="304" y="48" width="16" height="16" />
+    <use href="#ground" x="0" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="16" y="64" width="16" height="16" />
+    <use href="#ground" x="32" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="48" y="64" width="16" height="16" />
+    <use href="#ground" x="64" y="64" width="16" height="16" />
+    <use href="#ground" x="80" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="96" y="64" width="16" height="16" />
+    <use href="#ground" x="112" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="128" y="64" width="16" height="16" />
+    <use href="#ground" x="144" y="64" width="16" height="16" />
+    <use href="#ground" x="160" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="176" y="64" width="16" height="16" />
+    <use href="#ground" x="192" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="208" y="64" width="16" height="16" />
+    <use href="#ground" x="224" y="64" width="16" height="16" />
+    <use href="#ground" x="240" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="256" y="64" width="16" height="16" />
+    <use href="#ground" x="272" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="288" y="64" width="16" height="16" />
+    <use href="#ground" x="304" y="64" width="16" height="16" />
+    <use href="#ground-alt" x="0" y="80" width="16" height="16" />
+    <use href="#ground" x="16" y="80" width="16" height="16" />
+    <use href="#ground" x="32" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="48" y="80" width="16" height="16" />
+    <use href="#ground" x="64" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="80" y="80" width="16" height="16" />
+    <use href="#ground" x="96" y="80" width="16" height="16" />
+    <use href="#ground" x="112" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="128" y="80" width="16" height="16" />
+    <use href="#ground" x="144" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="160" y="80" width="16" height="16" />
+    <use href="#ground" x="176" y="80" width="16" height="16" />
+    <use href="#ground" x="192" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="208" y="80" width="16" height="16" />
+    <use href="#ground" x="224" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="240" y="80" width="16" height="16" />
+    <use href="#ground" x="256" y="80" width="16" height="16" />
+    <use href="#ground" x="272" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="288" y="80" width="16" height="16" />
+    <use href="#ground" x="304" y="80" width="16" height="16" />
+    <use href="#ground-alt" x="0" y="96" width="16" height="16" />
+    <use href="#ground" x="16" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="32" y="96" width="16" height="16" />
+    <use href="#ground" x="48" y="96" width="16" height="16" />
+    <use href="#ground" x="64" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="80" y="96" width="16" height="16" />
+    <use href="#ground" x="96" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="112" y="96" width="16" height="16" />
+    <use href="#ground" x="128" y="96" width="16" height="16" />
+    <use href="#ground" x="144" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="160" y="96" width="16" height="16" />
+    <use href="#ground" x="176" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="192" y="96" width="16" height="16" />
+    <use href="#ground" x="208" y="96" width="16" height="16" />
+    <use href="#ground" x="224" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="240" y="96" width="16" height="16" />
+    <use href="#ground" x="256" y="96" width="16" height="16" />
+    <use href="#ground-alt" x="272" y="96" width="16" height="16" />
+    <use href="#ground" x="288" y="96" width="16" height="16" />
+    <use href="#ground" x="304" y="96" width="16" height="16" />
+    <use href="#ground" x="0" y="112" width="16" height="16" />
+    <use href="#ground" x="16" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="32" y="112" width="16" height="16" />
+    <use href="#ground" x="48" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="64" y="112" width="16" height="16" />
+    <use href="#ground" x="80" y="112" width="16" height="16" />
+    <use href="#ground" x="96" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="112" y="112" width="16" height="16" />
+    <use href="#ground" x="128" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="144" y="112" width="16" height="16" />
+    <use href="#ground" x="160" y="112" width="16" height="16" />
+    <use href="#ground" x="176" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="192" y="112" width="16" height="16" />
+    <use href="#ground" x="208" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="224" y="112" width="16" height="16" />
+    <use href="#ground" x="240" y="112" width="16" height="16" />
+    <use href="#ground" x="256" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="272" y="112" width="16" height="16" />
+    <use href="#ground" x="288" y="112" width="16" height="16" />
+    <use href="#ground-alt" x="304" y="112" width="16" height="16" />
+    <use href="#ground" x="0" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="16" y="128" width="16" height="16" />
+    <use href="#ground" x="32" y="128" width="16" height="16" />
+    <use href="#ground" x="48" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="64" y="128" width="16" height="16" />
+    <use href="#ground" x="80" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="96" y="128" width="16" height="16" />
+    <use href="#ground" x="112" y="128" width="16" height="16" />
+    <use href="#ground" x="128" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="144" y="128" width="16" height="16" />
+    <use href="#ground" x="160" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="176" y="128" width="16" height="16" />
+    <use href="#ground" x="192" y="128" width="16" height="16" />
+    <use href="#ground" x="208" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="224" y="128" width="16" height="16" />
+    <use href="#ground" x="240" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="256" y="128" width="16" height="16" />
+    <use href="#ground" x="272" y="128" width="16" height="16" />
+    <use href="#ground" x="288" y="128" width="16" height="16" />
+    <use href="#ground-alt" x="304" y="128" width="16" height="16" />
+    <use href="#ground" x="0" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="16" y="144" width="16" height="16" />
+    <use href="#ground" x="32" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="48" y="144" width="16" height="16" />
+    <use href="#ground" x="64" y="144" width="16" height="16" />
+    <use href="#ground" x="80" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="96" y="144" width="16" height="16" />
+    <use href="#ground" x="112" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="128" y="144" width="16" height="16" />
+    <use href="#ground" x="144" y="144" width="16" height="16" />
+    <use href="#ground" x="160" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="176" y="144" width="16" height="16" />
+    <use href="#ground" x="192" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="208" y="144" width="16" height="16" />
+    <use href="#ground" x="224" y="144" width="16" height="16" />
+    <use href="#ground" x="240" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="256" y="144" width="16" height="16" />
+    <use href="#ground" x="272" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="288" y="144" width="16" height="16" />
+    <use href="#ground" x="304" y="144" width="16" height="16" />
+    <use href="#ground-alt" x="0" y="160" width="16" height="16" />
+    <use href="#ground" x="16" y="160" width="16" height="16" />
+    <use href="#ground" x="32" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="48" y="160" width="16" height="16" />
+    <use href="#ground" x="64" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="80" y="160" width="16" height="16" />
+    <use href="#ground" x="96" y="160" width="16" height="16" />
+    <use href="#ground" x="112" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="128" y="160" width="16" height="16" />
+    <use href="#ground" x="144" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="160" y="160" width="16" height="16" />
+    <use href="#ground" x="176" y="160" width="16" height="16" />
+    <use href="#ground" x="192" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="208" y="160" width="16" height="16" />
+    <use href="#ground" x="224" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="240" y="160" width="16" height="16" />
+    <use href="#ground" x="256" y="160" width="16" height="16" />
+    <use href="#ground" x="272" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="288" y="160" width="16" height="16" />
+    <use href="#ground" x="304" y="160" width="16" height="16" />
+    <use href="#ground-alt" x="0" y="176" width="16" height="16" />
+    <use href="#ground" x="16" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="32" y="176" width="16" height="16" />
+    <use href="#ground" x="48" y="176" width="16" height="16" />
+    <use href="#ground" x="64" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="80" y="176" width="16" height="16" />
+    <use href="#ground" x="96" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="112" y="176" width="16" height="16" />
+    <use href="#ground" x="128" y="176" width="16" height="16" />
+    <use href="#ground" x="144" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="160" y="176" width="16" height="16" />
+    <use href="#ground" x="176" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="192" y="176" width="16" height="16" />
+    <use href="#ground" x="208" y="176" width="16" height="16" />
+    <use href="#ground" x="224" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="240" y="176" width="16" height="16" />
+    <use href="#ground" x="256" y="176" width="16" height="16" />
+    <use href="#ground-alt" x="272" y="176" width="16" height="16" />
+    <use href="#ground" x="288" y="176" width="16" height="16" />
+    <use href="#ground" x="304" y="176" width="16" height="16" />
+    <use href="#grass" x="0" y="0" width="16" height="16" />
+    <use href="#grass" x="16" y="0" width="16" height="16" />
+    <use href="#grass" x="32" y="0" width="16" height="16" />
+    <use href="#grass" x="48" y="0" width="16" height="16" />
+    <use href="#grass" x="64" y="0" width="16" height="16" />
+    <use href="#grass" x="80" y="0" width="16" height="16" />
+    <use href="#grass" x="272" y="0" width="16" height="16" />
+    <use href="#grass" x="288" y="0" width="16" height="16" />
+    <use href="#grass" x="304" y="0" width="16" height="16" />
+    <use href="#grass" x="0" y="16" width="16" height="16" />
+    <use href="#grass" x="16" y="16" width="16" height="16" />
+    <use href="#grass" x="32" y="16" width="16" height="16" />
+    <use href="#grass" x="48" y="16" width="16" height="16" />
+    <use href="#grass" x="64" y="16" width="16" height="16" />
+    <use href="#grass" x="272" y="16" width="16" height="16" />
+    <use href="#grass" x="288" y="16" width="16" height="16" />
+    <use href="#grass" x="304" y="16" width="16" height="16" />
+    <use href="#grass" x="0" y="32" width="16" height="16" />
+    <use href="#grass" x="16" y="32" width="16" height="16" />
+    <use href="#grass" x="32" y="32" width="16" height="16" />
+    <use href="#grass" x="48" y="32" width="16" height="16" />
+    <use href="#grass" x="288" y="32" width="16" height="16" />
+    <use href="#grass" x="304" y="32" width="16" height="16" />
+    <use href="#grass" x="0" y="48" width="16" height="16" />
+    <use href="#grass" x="16" y="48" width="16" height="16" />
+    <use href="#grass" x="32" y="48" width="16" height="16" />
+    <use href="#grass" x="288" y="48" width="16" height="16" />
+    <use href="#grass" x="304" y="48" width="16" height="16" />
+    <use href="#grass" x="0" y="64" width="16" height="16" />
+    <use href="#grass" x="16" y="64" width="16" height="16" />
+    <use href="#grass" x="304" y="64" width="16" height="16" />
+    <use href="#grass" x="0" y="80" width="16" height="16" />
+    <use href="#grass" x="0" y="128" width="16" height="16" />
+    <use href="#grass" x="16" y="128" width="16" height="16" />
+    <use href="#grass" x="288" y="128" width="16" height="16" />
+    <use href="#grass" x="304" y="128" width="16" height="16" />
+    <use href="#grass" x="0" y="144" width="16" height="16" />
+    <use href="#grass" x="16" y="144" width="16" height="16" />
+    <use href="#grass" x="32" y="144" width="16" height="16" />
+    <use href="#grass" x="256" y="144" width="16" height="16" />
+    <use href="#grass" x="272" y="144" width="16" height="16" />
+    <use href="#grass" x="288" y="144" width="16" height="16" />
+    <use href="#grass" x="304" y="144" width="16" height="16" />
+    <use href="#grass" x="0" y="160" width="16" height="16" />
+    <use href="#grass" x="16" y="160" width="16" height="16" />
+    <use href="#grass" x="32" y="160" width="16" height="16" />
+    <use href="#grass" x="48" y="160" width="16" height="16" />
+    <use href="#grass" x="240" y="160" width="16" height="16" />
+    <use href="#grass" x="256" y="160" width="16" height="16" />
+    <use href="#grass" x="272" y="160" width="16" height="16" />
+    <use href="#grass" x="288" y="160" width="16" height="16" />
+    <use href="#grass" x="304" y="160" width="16" height="16" />
+    <use href="#grass" x="0" y="176" width="16" height="16" />
+    <use href="#grass" x="16" y="176" width="16" height="16" />
+    <use href="#grass" x="32" y="176" width="16" height="16" />
+    <use href="#grass" x="48" y="176" width="16" height="16" />
+    <use href="#grass" x="64" y="176" width="16" height="16" />
+    <use href="#grass" x="224" y="176" width="16" height="16" />
+    <use href="#grass" x="240" y="176" width="16" height="16" />
+    <use href="#grass" x="256" y="176" width="16" height="16" />
+    <use href="#grass" x="272" y="176" width="16" height="16" />
+    <use href="#grass" x="288" y="176" width="16" height="16" />
+    <use href="#grass" x="304" y="176" width="16" height="16" />
+  </g>
+  <g id="scene-paths" data-layer="ground-detail">
+    <rect x="0" y="111" width="320" height="18" fill="#393b2d" />
+    <use href="#path" x="0" y="112" width="16" height="16" />
+    <use href="#path" x="16" y="112" width="16" height="16" />
+    <use href="#path" x="32" y="112" width="16" height="16" />
+    <use href="#path" x="48" y="112" width="16" height="16" />
+    <use href="#path" x="64" y="112" width="16" height="16" />
+    <use href="#path" x="80" y="112" width="16" height="16" />
+    <use href="#path" x="96" y="112" width="16" height="16" />
+    <use href="#path" x="112" y="112" width="16" height="16" />
+    <use href="#path" x="128" y="112" width="16" height="16" />
+    <use href="#path" x="144" y="112" width="16" height="16" />
+    <use href="#path" x="160" y="112" width="16" height="16" />
+    <use href="#path" x="176" y="112" width="16" height="16" />
+    <use href="#path" x="192" y="112" width="16" height="16" />
+    <use href="#path" x="208" y="112" width="16" height="16" />
+    <use href="#path" x="224" y="112" width="16" height="16" />
+    <use href="#path" x="240" y="112" width="16" height="16" />
+    <use href="#path" x="256" y="112" width="16" height="16" />
+    <use href="#path" x="272" y="112" width="16" height="16" />
+    <use href="#path" x="288" y="112" width="16" height="16" />
+    <use href="#path" x="304" y="112" width="16" height="16" />
+    <rect x="159" y="128" width="18" height="52" fill="#393b2d" />
+    <use href="#path" x="160" y="128" width="16" height="16" />
+    <use href="#path" x="160" y="144" width="16" height="16" />
+    <use href="#path" x="160" y="160" width="16" height="16" />
+    <use href="#path" x="160" y="176" width="16" height="16" />
+    <use href="#path" x="96" y="96" width="16" height="16" />
+    <use href="#path" x="112" y="96" width="16" height="16" />
+    <use href="#path" x="192" y="80" width="16" height="16" />
+    <use href="#path" x="208" y="80" width="16" height="16" />
+    <use href="#path" x="224" y="80" width="16" height="16" />
+    <use href="#path" x="224" y="64" width="16" height="16" />
+    <rect x="96" y="110" width="32" height="2" fill="#393b2d" />
+  </g>
+  <g id="scene-resources" data-layer="terrain-detail">
+    <use href="#ore" x="224" y="32" width="16" height="16" />
+    <use href="#ore" x="240" y="32" width="16" height="16" />
+    <use href="#ore" x="224" y="48" width="16" height="16" />
+    <use href="#ore" x="240" y="48" width="16" height="16" />
+    <use href="#ore" x="256" y="48" width="16" height="16" />
+    <use href="#rock" x="64" y="44" width="16" height="16" />
+    <use href="#rock" x="200" y="20" width="16" height="16" />
+    <use href="#rock" x="272" y="64" width="16" height="16" />
+    <use href="#rock" x="208" y="144" width="16" height="16" />
+    <use href="#rock" x="48" y="144" width="16" height="16" />
+    <use href="#tree" x="16" y="16" width="16" height="16" />
+    <use href="#tree" x="48" y="8" width="16" height="16" />
+    <use href="#tree" x="32" y="48" width="16" height="16" />
+    <use href="#tree" x="0" y="64" width="16" height="16" />
+    <use href="#tree" x="80" y="0" width="16" height="16" />
+    <use href="#tree" x="288" y="16" width="16" height="16" />
+    <use href="#tree" x="304" y="48" width="16" height="16" />
+    <use href="#tree" x="288" y="144" width="16" height="16" />
+    <use href="#tree" x="256" y="160" width="16" height="16" />
+    <use href="#tree" x="16" y="160" width="16" height="16" />
+    <use href="#scrub" x="80" y="32" width="16" height="16" />
+    <use href="#scrub" x="16" y="88" width="16" height="16" />
+    <use href="#scrub" x="112" y="24" width="16" height="16" />
+    <use href="#scrub" x="272" y="96" width="16" height="16" />
+    <use href="#scrub" x="272" y="128" width="16" height="16" />
+    <use href="#scrub" x="48" y="160" width="16" height="16" />
+    <use href="#scrub" x="224" y="160" width="16" height="16" />
+    <use href="#scrub" x="192" y="132" width="16" height="16" />
+  </g>
+  <g id="scene-facilities" data-layer="building">
+    <use href="#depot" x="96" y="64" width="32" height="32" />
+    <use href="#smelter" x="144" y="64" width="48" height="48" />
+  </g>
+</svg>

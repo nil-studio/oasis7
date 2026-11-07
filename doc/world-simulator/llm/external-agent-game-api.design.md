@@ -53,6 +53,8 @@ Game Task 创建复用既有签名 World Service submit/lookup 与 Runtime 共�
 
 Owner 使用 `game_executor_control/v1` 签署 `GameExecutorControlV1`，经原 `/v1/world/submit` 提交 Bind/替换/Stop。Bind 必须指向真实当前 delegation，推进 task revision 与 executor epoch，使任务 Active；Stop 推进 fence、清空 binding 并 Suspended。目标发布推进目标/task revision，保留现有 executor binding。全部控制由既有 canonical receipt 链恢复；新变体启用前执行、验证及恢复节点必须同步升级，旧 binary 不能读取新历史。
 
+原生入口的 pending DevLocal bootstrap 权威来源及正常共识周期推进规则统一见 [Runtime 绑定设计](../../world-runtime/runtime/agent-cognition-lifecycle.design.md#devlocal-pending-bootstrap-authority)；仍逐字段校验当前绑定，真实权限和 reorg 变化不由适配器绕过。
+
 当前 executor 以当前完整 fence 签署 POST `/v1/world/private-task/context-prepare`；同操作原 nonce 可恢复，异 nonce 冲突。私有记录包含完整 GoalContent/proof、同 pin 的原始 `world-agent-state/v1` AgentState、实际授权目录、Runtime/base binding、随机盐和原准备证明。独立 AEAD 密文保存并 fsync，不截断到旧 Harness 的 512 字节目标摘要。一个 Context 的租期为 `min(catalog.valid_until_tick, checked(base_tick + 16))`；canonical prefix 同样检验原 captured tick 的 16 tick 上限并拒绝溢出，不能靠后续 current tick 延期。超过期限不能获得正文或授权新效果。
 
 活跃任务的恢复证据保留必须覆盖该任务当前完整 fence 下所有已提交原 Context prefix、终止 outcome 与动作结果的实际历史提交材料，包括已消费或已过期 Context；不能只按 Context 当前可写性决定 GC pin。派生 pin 仅保留签名回读所需 snapshot、journal 与 head proof，不授予旧 Context 新写权，也不延长 16 tick 租期；任务／完整 fence 退休后释放对应依赖。

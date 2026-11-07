@@ -1430,6 +1430,70 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
                     assert 'oasis7_viewer_live' in records, records
 
+    def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(function)
+        governance = re.search(r'^run_workflow_governance_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(governance)
+        self.assertEqual(governance.group().count('  run_engineering_telemetry_contract_tests'), 1)
+        paths = (
+            'scripts/engineering_telemetry.py',
+            'scripts/engineering_telemetry_adapters.py',
+            'scripts/tests/fixtures/engineering-telemetry/input.json',
+            'scripts/tests/test_engineering_telemetry.py',
+            'scripts/tests/test_engineering_telemetry_adapters.py',
+        )
+        cases = [('absent', None), ('complete', None)]
+        cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
+        cases += [(kind, path) for kind in ('empty', 'failing') for path in paths[-2:]]
+        for kind, changed in cases:
+            with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if kind != 'absent':
+                    for path in paths:
+                        target = root / path
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        if path == changed and kind == 'missing':
+                            continue
+                        if path == changed and kind == 'directory':
+                            target.mkdir()
+                            continue
+                        if path == changed and kind == 'symlink':
+                            target.symlink_to(root / 'missing-target')
+                            continue
+                        content = '# synthetic telemetry input\n'
+                        if path in paths[-2:] and not (path == changed and kind == 'empty'):
+                            content = ("import unittest\nfrom pathlib import Path\n"
+                                       "class Contract(unittest.TestCase):\n"
+                                       "    def test_runs(self):\n"
+                                       "        Path(%r).write_text('once')\n"
+                                       "        self.assertTrue(%r)\n" %
+                                       (target.name + '.ran', not (path == changed and kind == 'failing')))
+                        target.write_text(content)
+                shell = ('set -euo pipefail\nrun() { "$@"; }\n'
+                         'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
+                         'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
+                         + function.group() + '\n' + governance.group()
+                         + '\nrun_workflow_governance_contract_tests\n')
+                result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
+                if kind in ('absent', 'complete'):
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines()[-2:],
+                                     ['governance-baseline', 'governance-operational'])
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('governance-baseline', result.stdout)
+                    self.assertNotIn('governance-operational', result.stdout)
+                if kind == 'absent':
+                    self.assertIn('not introduced', result.stdout)
+                if kind in ('complete', 'failing'):
+                    for path in paths[-2:]:
+                        self.assertTrue((root / (Path(path).name + '.ran')).is_file(), result.stderr)
+                    self.assertIn('Ran 2 tests', result.stderr)
+                if kind == 'empty':
+                    self.assertIn('no tests in', result.stderr)
+
     def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_dot_todo_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
@@ -2568,6 +2632,130 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                             case.index('run_oasis7_' + prefix + '_tests'))
 
 
+class SupportCapacity(unittest.TestCase):
+    def probe(self, root, *, enabled='1', extra='', env=None):
+        script = 'set -euo pipefail\nsource "$1/scripts/ci-tests.sh"\nsupport_capacity_snapshot fixture\n' + extra
+        return subprocess.run(['bash', '-c', script, 'fixture', str(ROOT)], cwd=root,
+                              env=dict(os.environ, OASIS7_SUPPORT_CAPACITY=enabled,
+                                       RUNNER_TEMP=str(root / 'runner-temp'),
+                                       CARGO_HOME=str(root / 'cargo'),
+                                       RUSTUP_HOME=str(root / 'rustup'), **(env or {})),
+                              text=True, capture_output=True, timeout=35)
+
+    def records(self, result):
+        return [json.loads(line.removeprefix('SUPPORT_CAPACITY '))
+                for line in result.stdout.splitlines() if line.startswith('SUPPORT_CAPACITY ')]
+
+    def test_opt_in_snapshot_reports_bytes_inodes_without_contents_or_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deps = root / 'target/debug/deps'; deps.mkdir(parents=True)
+            (root / 'runner-temp').mkdir()
+            payload = deps / 'secret-name'; payload.write_bytes(b'PRIVATE-CONTENT' * 100)
+            os.link(payload, deps / 'hardlink')
+            result = self.probe(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = self.records(result)
+            self.assertTrue(records, result.stdout)
+            identity = next(r for r in records if r.get('kind') == 'identity')
+            cache_family = re.search(r'^\s+shared-key: (\S+)$', JOBS['workspace-support'], re.M).group(1)
+            self.assertEqual(identity['cache_family'], cache_family)
+            fs = next(r for r in records if r.get('kind') == 'filesystem' and r['label'] == 'workspace')
+            self.assertGreater(fs['available_bytes'], 0)
+            self.assertGreater(fs['available_inodes'], 0)
+            usage = next(r for r in records if r.get('kind') == 'directory' and r['label'] == 'target/debug/deps')
+            self.assertGreaterEqual(usage['apparent_bytes'], payload.stat().st_size)
+            self.assertLessEqual(usage['apparent_bytes'], payload.stat().st_size + deps.stat().st_size)
+            self.assertEqual(usage['inodes'], 2)
+            self.assertNotIn('PRIVATE-CONTENT', result.stdout)
+            self.assertNotIn('secret-name', result.stdout)
+            self.assertEqual(payload.read_bytes(), b'PRIVATE-CONTENT' * 100)
+
+    def test_disabled_probe_is_silent_and_observer_failure_preserves_test_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            disabled = self.probe(root, enabled='0')
+            self.assertEqual((disabled.returncode, disabled.stdout, disabled.stderr), (0, '', ''))
+            result = self.probe(root, extra='exit 37\n', env={'PATH': '/bin', 'ci_python': '/missing-python'})
+            self.assertEqual(result.returncode, 37, result.stderr)
+            self.assertIn('SUPPORT_CAPACITY_WARNING', result.stdout)
+
+    def test_directory_symlinks_are_not_followed_and_missing_paths_are_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outside = root / 'outside'; outside.mkdir()
+            (outside / 'secret').write_text('secret-value')
+            (root / 'target').symlink_to(outside, target_is_directory=True)
+            result = self.probe(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = self.records(result)
+            for label in ('target', 'target/debug/deps'):
+                record = next(r for r in records if r.get('kind') == 'directory' and r['label'] == label)
+                self.assertEqual(record['status'], 'symlink')
+            missing = next(r for r in records if r.get('kind') == 'directory' and r['label'] == 'custody/artifacts')
+            self.assertEqual(missing['status'], 'missing')
+
+    def test_failed_directory_measurement_is_explicit_and_does_not_replace_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'target').mkdir()
+            binary = root / 'bin'; binary.mkdir()
+            du = binary / 'du'; du.write_text('#!/bin/sh\necho PRIVATE-DU-ERROR >&2\nexit 13\n'); du.chmod(0o755)
+            result = self.probe(root, extra='exit 41\n', env={'PATH': str(binary) + os.pathsep + os.environ['PATH']})
+            self.assertEqual(result.returncode, 41, result.stderr)
+            record = next(r for r in self.records(result) if r.get('kind') == 'directory' and r['label'] == 'target')
+            self.assertEqual(record['status'], 'error')
+            self.assertNotIn('PRIVATE-DU-ERROR', result.stdout + result.stderr)
+
+    def test_outer_timeout_keeps_partial_evidence_and_original_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); (root / 'target').mkdir()
+            binary = root / 'bin'; binary.mkdir()
+            wrapper = binary / 'timeout'
+            wrapper.write_text('#!/bin/sh\nshift\nexec /usr/bin/timeout 0.2s "$@"\n'); wrapper.chmod(0o755)
+            du = binary / 'du'; du.write_text('#!/bin/sh\nexec /bin/sleep 5\n'); du.chmod(0o755)
+            result = self.probe(root, extra='exit 43\n', env={'PATH': str(binary) + os.pathsep + os.environ['PATH']})
+            self.assertEqual(result.returncode, 43, result.stderr)
+            self.assertTrue(any(r['kind'] == 'filesystem' for r in self.records(result)))
+            self.assertIn('observer_status=124', result.stdout)
+
+    def test_enabled_observer_does_not_disable_profile_errexit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = r'''set -euo pipefail
+source "$1/scripts/ci-tests.sh"
+ci_python="$2"; driver_dir="$1/scripts"; support_profiles='["oasis7_context"]'
+run_cargo() { return 47; }
+run_selected_workspace_support
+printf 'unexpected-after-tests
+'
+'''
+            result = subprocess.run(['bash', '-c', script, 'fixture', str(ROOT), sys.executable],
+                                    cwd=root, env=dict(os.environ, OASIS7_SUPPORT_CAPACITY='1'),
+                                    text=True, capture_output=True, timeout=35)
+            self.assertEqual(result.returncode, 47, result.stderr)
+            self.assertIn('profile-before:oasis7_context', result.stdout)
+            self.assertNotIn('profile-after:oasis7_context', result.stdout)
+            self.assertNotIn('support profile completed:', result.stdout)
+            self.assertNotIn('unexpected-after-tests', result.stdout)
+
+    def test_read_only_probes_surround_cache_profiles_and_custody_native_boundary(self):
+        job = JOBS['workspace-support']
+        self.assertLess(job.index('support_capacity_snapshot before-cache'), job.index('Swatinem/rust-cache@'))
+        self.assertGreater(job.index('support_capacity_snapshot after-cache'), job.index('Swatinem/rust-cache@'))
+        self.assertIn('if: always()', job)
+        self.assertIn('support_capacity_snapshot job-exit', job)
+        self.assertIn('OASIS7_SUPPORT_CAPACITY: "1"', job)
+        self.assertIn('save-if: false', job)
+        self.assertIn('runs-on: ubuntu-24.04', job)
+        self.assertNotIn('continue-on-error:', job)
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        self.assertIn('support_capacity_snapshot "profile-before:$profile"', driver)
+        self.assertIn('support_capacity_snapshot "profile-after:$profile"', driver)
+        custody = (ROOT / 'crates/oasis7_custody_worker/scripts/verify.sh').read_text()
+        native = 'env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend'
+        self.assertLess(custody.index('support_capacity_snapshot custody-wasm-complete'), custody.index(native))
+        self.assertIn('support_capacity_snapshot custody-native-complete', custody)
+        self.assertIn('support_capacity_snapshot custody-platform-complete', custody)
 class AptWorkflow(unittest.TestCase):
     NATIVE = ('pkg-config libwayland-dev wayland-protocols libxkbcommon-dev '
               'libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev '

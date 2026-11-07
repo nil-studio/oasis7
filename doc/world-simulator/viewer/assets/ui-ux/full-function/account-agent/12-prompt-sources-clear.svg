@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="3072" viewBox="0 0 1440 3072" role="img" aria-labelledby="sheet-title sheet-desc">
+<title id="sheet-title">Prompt 五种来源、清除与完整影响</title>
+<desc id="sheet-desc">三张独立界面状态：已有覆盖清除、空覆盖无变化、完整 profile 更新后等待执行器读回。每张为高级 Prompt 展开状态，不是默认 Player 首屏布局；来源与数值均为设计夹具。</desc>
+<style>text{font-family:"Noto Sans CJK SC",sans-serif} .mono{font-family:"DejaVu Sans Mono","Noto Sans CJK SC",monospace}</style>
+<g id="sources-clear" transform="translate(0 0)" aria-label="01 / 五种来源与已有覆盖的清除">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="sources-clear-text-1" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="sources-clear-text-2" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">01 / 五种来源与已有覆盖的清除</text>
+<text id="sources-clear-text-3" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="sources-clear-text-4" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="sources-clear-text-5" x="1014" y="131" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="178">当前会话可控</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-6" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="sources-clear-text-7" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  配置 v7  ·  已授权读取  ·  Chat 与当前目标独立保留</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="1328" height="332" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-8" x="80" y="244" font-size="21" font-weight="600" fill="#edf1e6" data-max-width="650">短期目标覆盖</text>
+<rect x="1138" y="221" width="220" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="sources-clear-text-9" x="1152" y="243" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="192">✓ 清除覆盖</text>
+<text id="sources-clear-text-10" x="80" y="290" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="290">已加载配置默认</text>
+<text id="sources-clear-text-11" x="384" y="290" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="624">short-A · 先核对供给，再给出下一步</text>
+<text id="sources-clear-text-12" x="1034" y="290" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="308">配置 cfg-1 · 只读</text>
+<path d="M80 308H1356" stroke="#405346"/>
+<text id="sources-clear-text-13" x="80" y="340" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="290">当前已确认值</text>
+<text id="sources-clear-text-14" x="384" y="340" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="624">short-C · 优先核对冶炼设施</text>
+<text id="sources-clear-text-15" x="1034" y="340" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="308">执行器读回 t120 · 对应 v7</text>
+<path d="M80 358H1356" stroke="#405346"/>
+<text id="sources-clear-text-16" x="80" y="390" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="290">当前覆盖</text>
+<text id="sources-clear-text-17" x="384" y="390" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="624">short-C · 优先核对冶炼设施</text>
+<text id="sources-clear-text-18" x="1034" y="390" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="308">profile v7 · 当前基准</text>
+<path d="M80 408H1356" stroke="#405346"/>
+<text id="sources-clear-text-19" x="80" y="440" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="290">本地草稿</text>
+<text id="sources-clear-text-20" x="384" y="440" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="624">清除覆盖；候选为“未设置”</text>
+<text id="sources-clear-text-21" x="1034" y="440" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="308">Agent A · 基准 v7 · 已编辑</text>
+<path d="M80 458H1356" stroke="#405346"/>
+<text id="sources-clear-text-22" x="80" y="490" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="290">本地预设来源</text>
+<text id="sources-clear-text-23" x="384" y="490" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="624">preset-P · 先列出缺少的投入</text>
+<text id="sources-clear-text-24" x="1034" y="490" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="308">填入后已编辑；尚未提交</text>
+<rect x="56" y="556" width="650" height="82" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-25" x="76" y="585" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="555">系统提示词覆盖</text>
+<text id="sources-clear-text-26" x="643" y="585" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="44">展开</text>
+<text id="sources-clear-text-27" x="76" y="616" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="610">当前覆盖：未设置（保持）    已确认值：system-A</text>
+<rect x="728" y="556" width="656" height="82" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-28" x="748" y="585" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="561">长期目标覆盖</text>
+<text id="sources-clear-text-29" x="1321" y="585" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="44">展开</text>
+<text id="sources-clear-text-30" x="748" y="616" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="616">当前覆盖：未设置（保持）    已确认值：long-A</text>
+<rect x="56" y="654" width="1328" height="178" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-31" x="80" y="683" font-size="17" font-weight="500" fill="#d0a85b" data-max-width="1250">完整影响预告 · 尚未应用</text>
+<text id="sources-clear-text-32" x="80" y="712" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="220">字段</text>
+<text id="sources-clear-text-33" x="350" y="712" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="475">覆盖变化</text>
+<text id="sources-clear-text-34" x="845" y="712" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="475">执行器影响</text>
+<text id="sources-clear-text-35" x="80" y="742" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="230">系统提示词</text>
+<text id="sources-clear-text-36" x="350" y="742" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="460">未设置 → 未设置</text>
+<text id="sources-clear-text-37" x="845" y="742" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="505">system-A · 不变</text>
+<text id="sources-clear-text-38" x="80" y="778" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="230">短期目标</text>
+<text id="sources-clear-text-39" x="350" y="778" font-size="17" font-weight="400" fill="#d0a85b" data-max-width="460">short-C → 未设置</text>
+<text id="sources-clear-text-40" x="845" y="778" font-size="17" font-weight="400" fill="#d0a85b" data-max-width="505">short-C → short-A</text>
+<text id="sources-clear-text-41" x="80" y="814" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="230">长期目标</text>
+<text id="sources-clear-text-42" x="350" y="814" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="460">未设置 → 未设置</text>
+<text id="sources-clear-text-43" x="845" y="814" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="505">long-A · 不变</text>
+<text id="sources-clear-text-44" x="80" y="858" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1270">清除不会保存空字符串；执行器实际采用的值仍需匹配读回。</text>
+<rect x="56" y="888" width="222" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="sources-clear-text-45" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="182">应用清除</text>
+<rect x="294" y="888" width="210" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-46" x="314" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="170">预览变化</text>
+<rect x="520" y="888" width="210" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="sources-clear-text-47" x="540" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="170">放弃草稿</text>
+<text id="sources-clear-text-48" x="754" y="918" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="600">本次编辑不会自动发送 Chat。</text>
+<text id="sources-clear-text-49" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">组件展开稿；完整世界舞台与跨尺寸组合由交互原型承接。主动作须当前有权；预览不是已应用。</text>
+</g>
+<g id="clear-no-change" transform="translate(0 1024)" aria-label="02 / 空覆盖的 clear：没有配置变化">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="clear-no-change-text-50" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="clear-no-change-text-51" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">02 / 空覆盖的 clear：没有配置变化</text>
+<text id="clear-no-change-text-52" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="clear-no-change-text-53" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="clear-no-change-text-54" x="1014" y="131" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="178">当前会话可控</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="clear-no-change-text-55" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="clear-no-change-text-56" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  配置 v0  ·  新初始化夹具  ·  当前会话仍可控</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="650" height="286" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="clear-no-change-text-57" x="80" y="245" font-size="20" font-weight="500" fill="#edf1e6" data-max-width="570">已加载配置默认</text>
+<text id="clear-no-change-text-58" x="80" y="293" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="570">short-A</text>
+<text id="clear-no-change-text-59" x="80" y="333" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="570">先核对供给，再给出下一步</text>
+<text id="clear-no-change-text-60" x="80" y="386" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="570">配置 cfg-1 · 已加载的只读参考</text>
+<text id="clear-no-change-text-61" x="80" y="441" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="570">默认值没有自动填入覆盖字段。</text>
+<rect x="728" y="208" width="656" height="286" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="clear-no-change-text-62" x="752" y="245" font-size="20" font-weight="500" fill="#edf1e6" data-max-width="580">当前已确认值</text>
+<text id="clear-no-change-text-63" x="752" y="293" font-size="26" font-weight="600" fill="#d0a85b" data-max-width="580">short-B</text>
+<text id="clear-no-change-text-64" x="752" y="333" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="580">建立首个可用的生产环节</text>
+<rect x="752" y="365" width="160" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="clear-no-change-text-65" x="766" y="387" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="132">初始化来源</text>
+<text id="clear-no-change-text-66" x="752" y="441" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="580">执行器读回 t100 · 不是配置默认 A</text>
+<rect x="56" y="510" width="1328" height="178" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="clear-no-change-text-67" x="80" y="539" font-size="17" font-weight="500" fill="#d0a85b" data-max-width="1250">原 clear 请求的完整结果 · 无更改</text>
+<text id="clear-no-change-text-68" x="80" y="568" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="220">字段</text>
+<text id="clear-no-change-text-69" x="350" y="568" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="475">覆盖变化</text>
+<text id="clear-no-change-text-70" x="845" y="568" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="475">执行器影响</text>
+<text id="clear-no-change-text-71" x="80" y="598" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="230">系统提示词</text>
+<text id="clear-no-change-text-72" x="350" y="598" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="460">未设置 → 未设置</text>
+<text id="clear-no-change-text-73" x="845" y="598" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="505">system-A · 不变</text>
+<text id="clear-no-change-text-74" x="80" y="634" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="230">短期目标</text>
+<text id="clear-no-change-text-75" x="350" y="634" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="460">未设置 → 未设置</text>
+<text id="clear-no-change-text-76" x="845" y="634" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="505">short-B · 保持初始化值</text>
+<text id="clear-no-change-text-77" x="80" y="670" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="230">长期目标</text>
+<text id="clear-no-change-text-78" x="350" y="670" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="460">未设置 → 未设置</text>
+<text id="clear-no-change-text-79" x="845" y="670" font-size="17" font-weight="400" fill="#9ca89a" data-max-width="505">long-A · 不变</text>
+<rect x="56" y="706" width="1328" height="148" rx="8" fill="#0b100f" stroke="#405346"/>
+<rect x="80" y="724" width="212" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="clear-no-change-text-80" x="94" y="746" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="184">原结果：无更改</text>
+<text id="clear-no-change-text-81" x="80" y="790" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="1256">配置仍为 v0；没有生成新版本，也没有向执行器下发更新。</text>
+<text id="clear-no-change-text-82" x="80" y="825" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1256">当前 short-B 继续保留。本结果不表示已经恢复到 short-A。</text>
+<rect x="56" y="888" width="250" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="clear-no-change-text-83" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="210">返回 Command</text>
+<rect x="322" y="888" width="252" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="clear-no-change-text-84" x="342" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="212">重新读取当前值</text>
+<rect x="590" y="888" width="280" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="clear-no-change-text-85" x="610" y="919" font-size="17" font-weight="500" fill="#9ca89a" data-max-width="240">没有待应用的更改</text>
+<text id="clear-no-change-text-86" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">设计夹具沿 PV04：仅 clear 或空白 set、其余 unchanged。无 profile 变化时，版本、mutation 与 driver 更新均不变。</text>
+</g>
+<g id="full-profile-awaiting" transform="translate(0 2048)" aria-label="03 / 完整更新的间接影响与执行器待读回">
+<rect x="0" y="0" width="1440" height="1024" rx="0" fill="#0b100f" stroke="#0b100f"/>
+<text id="full-profile-awaiting-text-87" x="32" y="36" font-size="18" font-weight="600" fill="#d0a85b" data-max-width="470">OASIS7  /  DESIGN TARGET</text>
+<text id="full-profile-awaiting-text-88" x="540" y="36" font-size="17" font-weight="400" fill="#edf1e6" data-max-width="865">03 / 完整更新的间接影响与执行器待读回</text>
+<text id="full-profile-awaiting-text-89" x="32" y="64" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1200">设计状态稿 · 独立场景 · 示例数据 · 非运行截图</text>
+<rect x="32" y="88" width="1376" height="888" rx="8" fill="#19251f" stroke="#405346"/>
+<text id="full-profile-awaiting-text-90" x="56" y="132" font-size="26" font-weight="600" fill="#edf1e6" data-max-width="450">高级 Prompt</text>
+<rect x="1000" y="109" width="206" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="full-profile-awaiting-text-91" x="1014" y="131" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="178">当前会话可控</text>
+<rect x="1228" y="101" width="156" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="full-profile-awaiting-text-92" x="1248" y="132" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="116">收起</text>
+<text id="full-profile-awaiting-text-93" x="56" y="169" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="1280">Agent 示例 A  ·  本次 profile v0 → v1 已应用  ·  执行器读回尚未确认新版本</text>
+<path d="M56 188H1384" stroke="#405346"/>
+<rect x="56" y="208" width="1328" height="132" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="full-profile-awaiting-text-94" x="80" y="244" font-size="20" font-weight="500" fill="#edf1e6" data-max-width="600">系统提示词覆盖</text>
+<text id="full-profile-awaiting-text-95" x="80" y="284" font-size="21" font-weight="500" fill="#d0a85b" data-max-width="1220">system-D · 先核对授权和条件，再执行已确认的方案</text>
+<text id="full-profile-awaiting-text-96" x="80" y="317" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="1250">这是本次唯一修改的覆盖字段。短期和长期覆盖仍为“未设置”。</text>
+<rect x="56" y="358" width="1328" height="260" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="full-profile-awaiting-text-97" x="80" y="394" font-size="20" font-weight="500" fill="#edf1e6" data-max-width="1250">本次完整影响 · 执行器的新值仍待确认</text>
+<text id="full-profile-awaiting-text-98" x="80" y="436" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="190">字段</text>
+<text id="full-profile-awaiting-text-99" x="300" y="436" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="290">当前 profile v1</text>
+<text id="full-profile-awaiting-text-100" x="658" y="436" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="290">执行器已确认旧值</text>
+<text id="full-profile-awaiting-text-101" x="1005" y="436" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="310">匹配读回后预计</text>
+<text id="full-profile-awaiting-text-102" x="80" y="482" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="190">系统提示词</text>
+<text id="full-profile-awaiting-text-103" x="300" y="482" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="300">system-D</text>
+<text id="full-profile-awaiting-text-104" x="658" y="482" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="300">system-A</text>
+<text id="full-profile-awaiting-text-105" x="1005" y="482" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="310">system-D</text>
+<path d="M80 502H1356" stroke="#405346"/>
+<text id="full-profile-awaiting-text-106" x="80" y="534" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="190">短期目标</text>
+<text id="full-profile-awaiting-text-107" x="300" y="534" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="300">未设置（未编辑）</text>
+<text id="full-profile-awaiting-text-108" x="658" y="534" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="300">short-B · 初始化</text>
+<text id="full-profile-awaiting-text-109" x="1005" y="534" font-size="18" font-weight="400" fill="#d0a85b" data-max-width="310">short-A · 配置默认</text>
+<path d="M80 554H1356" stroke="#405346"/>
+<text id="full-profile-awaiting-text-110" x="80" y="586" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="190">长期目标</text>
+<text id="full-profile-awaiting-text-111" x="300" y="586" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="300">未设置（未编辑）</text>
+<text id="full-profile-awaiting-text-112" x="658" y="586" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="300">long-A</text>
+<text id="full-profile-awaiting-text-113" x="1005" y="586" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="310">long-A</text>
+<rect x="56" y="636" width="650" height="218" rx="8" fill="#0b100f" stroke="#405346"/>
+<rect x="80" y="656" width="180" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="full-profile-awaiting-text-114" x="94" y="678" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="152">配置已应用</text>
+<text id="full-profile-awaiting-text-115" x="80" y="717" font-size="24" font-weight="500" fill="#edf1e6" data-max-width="560">profile v1 已确认</text>
+<text id="full-profile-awaiting-text-116" x="80" y="757" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="560">完整三字段候选已下发一次。</text>
+<text id="full-profile-awaiting-text-117" x="80" y="812" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="560">本次原操作结果与当前配置分别保留。</text>
+<rect x="728" y="636" width="656" height="218" rx="8" fill="#0b100f" stroke="#405346"/>
+<rect x="752" y="656" width="228" height="32" rx="16" fill="#0b100f" stroke="#d0a85b"/>
+<text id="full-profile-awaiting-text-118" x="766" y="678" font-size="14" font-weight="400" fill="#d0a85b" data-max-width="200">等待执行器读回</text>
+<text id="full-profile-awaiting-text-119" x="752" y="717" font-size="24" font-weight="500" fill="#edf1e6" data-max-width="580">仍显示已确认的旧值</text>
+<text id="full-profile-awaiting-text-120" x="752" y="757" font-size="18" font-weight="400" fill="#edf1e6" data-max-width="580">最近读回 t100 · 对应 v0</text>
+<text id="full-profile-awaiting-text-121" x="752" y="812" font-size="15" font-weight="400" fill="#9ca89a" data-max-width="580">下发完成不能替代匹配的新版本读回。</text>
+<rect x="56" y="888" width="252" height="48" rx="8" fill="#d0a85b" stroke="#d0a85b"/>
+<text id="full-profile-awaiting-text-122" x="76" y="919" font-size="17" font-weight="500" fill="#0b100f" data-max-width="212">重新读取当前值</text>
+<rect x="324" y="888" width="250" height="48" rx="8" fill="#0b100f" stroke="#405346"/>
+<text id="full-profile-awaiting-text-123" x="344" y="919" font-size="17" font-weight="500" fill="#edf1e6" data-max-width="210">返回 Command</text>
+<text id="full-profile-awaiting-text-124" x="606" y="918" font-size="16" font-weight="400" fill="#9ca89a" data-max-width="750">读取不会重发本次 Apply，也不启动模型。</text>
+<text id="full-profile-awaiting-text-125" x="32" y="1008" font-size="14" font-weight="400" fill="#9ca89a" data-max-width="1370">设计夹具沿 PV05 / PV08；完整 profile 更新会影响未编辑的初始化值。在途模型调用不被本次图稿改写。</text>
+</g>
+</svg>

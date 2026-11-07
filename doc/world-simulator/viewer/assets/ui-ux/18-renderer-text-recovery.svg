@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="486" height="1028" viewBox="0 0 486 1028" role="img" aria-labelledby="title desc">
+  <title id="title">图形失败，文本路径仍可用 · UIUX 18</title>
+  <desc id="desc">390×844 窄屏。世界连接可用而图形渲染器不可用，舞台不保留旧图或绘制替代世界。显式重试图形与获准查询 A 的原结果分别存在；B 位置未知但获准文字仍可读。所有原请求身份保持不变。 设计目标，非运行截图。所有世界、对象与结果为虚构布局样例。实际视口 390 × 844 CSS px。</desc>
+  <metadata>Issue #5527. Static design target. Player shell only. Source layout baseline: 7df3d7d289789ee844c7486587fb49fd611968d4. No runtime behavior or authorization verification.</metadata>
+  <g font-family="Noto Sans CJK SC, Noto Sans, sans-serif" fill="#edf1e6">
+      <rect x="0" y="0" width="486" height="1028" rx="0" fill="#0b100f"/>
+      <text x="48" y="28" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">OASIS7 / UIUX 18</text>
+      <text x="438" y="28" font-size="14" fill="#d0a85b" font-weight="400" text-anchor="end">DESIGN TARGET</text>
+      <text x="48" y="62" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">图形失败，文本路径仍可用</text>
+      <rect x="47" y="91" width="392" height="846" rx="1" fill="#405346"/>
+    <svg id="viewport" x="48" y="92" width="390" height="844" viewBox="0 0 390 844" overflow="hidden">
+      <defs><clipPath id="viewport-clip"><rect width="390" height="844"/></clipPath></defs>
+      <g clip-path="url(#viewport-clip)">
+      <rect x="0" y="0" width="390" height="844" rx="0" fill="#050807"/>
+      <rect x="0" y="0" width="390" height="844" rx="0" fill="#0b100f" id="renderer-unavailable-stage"/>
+      <text x="16" y="34" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">北侧补给世界</text>
+      <circle cx="21" cy="61" r="4" fill="#7ed3a6"/>
+      <text x="33" y="67" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">世界连接可用 · Player</text>
+      <rect x="326" y="12" width="48" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="350.0" y="40.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">更多</text>
+      <rect x="16" y="88" width="358" height="168" rx="18" fill="#161d19" stroke="#6c6248" stroke-width="1" id="renderer-unavailable"/>
+      <text x="32" y="121" font-size="24" fill="#edf1e6" font-weight="700" text-anchor="start">渲染器不可用</text>
+      <text x="32" y="151" font-size="16" fill="#dfb66b" font-weight="400" text-anchor="start">图形暂不可用。</text>
+      <text x="32" y="177" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">可继续查看获准资料与原结果。</text>
+      <rect x="32" y="196" width="326" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="renderer-retry"/>
+      <text x="195.0" y="224.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">重试图形</text>
+      <rect x="16" y="272" width="358" height="164" rx="18" fill="#101412" stroke="#405346" stroke-width="1" id="next-move-original-receipt"/>
+      <rect x="16" y="288" width="3" height="132" rx="0" fill="#d0a85b"/>
+      <text x="32" y="299" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="start">下一步 · Next Move</text>
+      <text x="32" y="329" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">A · 原操作</text>
+      <text x="32" y="355" font-size="16" fill="#dfb66b" font-weight="400" text-anchor="start">结果待确认</text>
+      <rect x="32" y="376" width="326" height="44" rx="12" fill="#d0a85b" stroke="#d0a85b" stroke-width="1" id="receipt-query"/>
+      <text x="195.0" y="404.0" font-size="16" fill="#0b100f" font-weight="600" text-anchor="middle">查询原结果</text>
+      <rect x="16" y="452" width="358" height="204" rx="18" fill="#161d19" stroke="#405346" stroke-width="1" id="authorized-text-target"/>
+      <text x="32" y="484" font-size="20" fill="#edf1e6" font-weight="700" text-anchor="start">获准文字 · 当前查看 B</text>
+      <text x="32" y="516" font-size="18" fill="#edf1e6" font-weight="600" text-anchor="start">B · 巡检员</text>
+      <text x="32" y="544" font-size="16" fill="#edf1e6" font-weight="400" text-anchor="start">当前位置：未知</text>
+      <text x="32" y="574" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">可查看资料，无法定位或跟随。</text>
+      <rect x="32" y="596" width="326" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1" id="open-targets"/>
+      <text x="195.0" y="624.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">打开 Targets</text>
+      <text x="16" y="690" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">Command 仍按当前授权开放。</text>
+      <text x="16" y="718" font-size="16" fill="#9ca89a" font-weight="400" text-anchor="start">图形重试不重放原操作。</text>
+      <rect x="16" y="774" width="358" height="54" rx="18" fill="#101412" stroke="#405346" stroke-width="1"/>
+      <rect x="22" y="779" width="108" height="44" rx="12" fill="#161d19" stroke="#d0a85b" stroke-width="1"/>
+      <text x="76.0" y="807.0" font-size="16" fill="#d0a85b" font-weight="600" text-anchor="middle">World</text>
+      <rect x="138" y="779" width="108" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="192.0" y="807.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">Targets</text>
+      <rect x="254" y="779" width="114" height="44" rx="12" fill="#161d19" stroke="#405346" stroke-width="1"/>
+      <text x="311.0" y="807.0" font-size="16" fill="#edf1e6" font-weight="600" text-anchor="middle">Command</text>
+      </g>
+    </svg>
+      <text x="48" y="966" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">390 × 844 CSS px · Player · 连接可用 / 图形不可用</text>
+      <text x="48" y="988" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">获准查询 A 原结果；B 只有文本资料与未知位置。</text>
+      <text x="48" y="1010" font-size="14" fill="#9ca89a" font-weight="400" text-anchor="start">设计目标，非故障恢复、权限或设备测试结果。</text>
+  </g>
+</svg>

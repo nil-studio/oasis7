@@ -143,6 +143,8 @@ pub struct Resource {
 #[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
     #[serde(default)]
+    pub recovery_required: bool,
+    #[serde(default)]
     pub grant_generation_high_water: BTreeMap<String, u64>,
     pub service: crate::dev_test_service::Config,
     pub catalog_directory: std::path::PathBuf,
@@ -442,7 +444,7 @@ pub fn handle(
             .to_string(),
         };
         let (original, fresh) =
-            operations::admit(&config.service, &caller.caller_id, &scope, &call)?;
+            operations::admit_with_recovery(config, &caller.caller_id, &scope, &call)?;
         if std::time::Instant::now() >= deadline {
             return Err("downstream_deadline_unknown".into());
         }
@@ -505,6 +507,21 @@ pub fn handle(
 #[path = "dev_test_session_service.rs"]
 mod service;
 pub use service::run;
+
+/// Shared policy invariants for all trusted configuration writers and loaders.
+pub(crate) fn validate_configuration(config: &ServiceConfig) -> Result<(), String> {
+    config.service.validate()?;
+    crate::dev_test_recovery::validate_policy(config)?;
+    let mut refs = std::collections::BTreeSet::new();
+    if config.grants.iter().any(|g| {
+        g.grant_ref.is_empty()
+            || !refs.insert(&g.grant_ref)
+            || g.grant_id != config.service.grant_id
+    }) {
+        return Err("ambiguous_grant_configuration".into());
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

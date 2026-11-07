@@ -253,7 +253,7 @@ impl ViewerRuntimeLiveServer {
         #[cfg(any(test, feature = "test_tier_required"))]
         let executor_diagnostics = diagnostics.clone();
         // The executor owns only immutable jobs. It never accesses the Viewer mutex.
-        thread::spawn(move || {
+        let _executor = thread::spawn(move || {
             while let Ok(job) = incoming.recv() {
                 // Internal publication uses this same executor and capacity-1
                 // lane. Existing diagnostic counters describe remote service
@@ -278,7 +278,9 @@ impl ViewerRuntimeLiveServer {
             }
         });
         let weak = Arc::downgrade(shared);
-        thread::spawn(move || {
+        #[cfg(any(test, feature = "test_tier_required"))]
+        let worker_diagnostics = diagnostics.clone();
+        let _pump = thread::spawn(move || {
             let mut in_flight = false;
             let mut local_advances = 0;
             let mut returned_result = None;
@@ -288,6 +290,8 @@ impl ViewerRuntimeLiveServer {
                 let Some(shared) = weak.upgrade() else {
                     break;
                 };
+                #[cfg(test)]
+                diagnostics.hold_iteration();
                 let pump_phase = stream_budget_diagnostics::phase(20);
                 let wait_phase = stream_budget_diagnostics::phase(21);
                 let Ok(mut server) = shared.lock() else {
@@ -606,6 +610,15 @@ impl ViewerRuntimeLiveServer {
                 }
             }
         });
+        #[cfg(any(test, feature = "test_tier_required"))]
+        worker_diagnostics
+            .workers
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .push(super::agent_service_worker_cleanup::Workers {
+                pump: _pump,
+                executor: _executor,
+            });
         Ok(())
     }
 }

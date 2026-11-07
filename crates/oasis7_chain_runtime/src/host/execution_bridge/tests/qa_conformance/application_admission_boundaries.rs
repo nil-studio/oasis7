@@ -5,6 +5,9 @@ use oasis7_viewer_runtime::viewer::{
 };
 use std::io::{BufRead, BufReader, Write};
 
+#[path = "application_admission_cleanup.rs"]
+mod cleanup;
+
 #[test]
 fn real_tcp_fresh_admission_waits_for_successful_metadata() {
     run("fresh-metadata");
@@ -229,10 +232,14 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     let snapshot_completions = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let drained_completions = snapshot_completions.clone();
     let drain = thread::spawn(move || {
+        // Stopping observation returns ownership; it is not proof of peer EOF.
         let deadline = Instant::now() + Duration::from_secs(7);
-        while !draining.load(Ordering::SeqCst) && Instant::now() < deadline {
+        let observed = loop {
+            if draining.load(Ordering::SeqCst) || Instant::now() >= deadline {
+                break Ok(());
+            }
             match reader.read_line(&mut line) {
-                Ok(0) => return Ok(()),
+                Ok(0) => break Ok(()),
                 Ok(_) => {
                     if !line.ends_with('\n') {
                         continue;
@@ -261,10 +268,10 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
                         e.kind(),
                         std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
                     ) => {}
-                Err(e) => return Err(e.kind()),
+                Err(e) => break Err(e),
             }
-        }
-        Ok(())
+        };
+        (reader, observed)
     });
     let status_deadline = Instant::now() + Duration::from_millis(500);
     let status = loop {
@@ -342,10 +349,9 @@ pub(super) fn verify(client: &RemoteWorldServiceClient, mode: &str) {
     }
     let metadata_ready = compatible.load(Ordering::SeqCst);
     let after = observe(&root, "metadata-released");
-    socket.shutdown(std::net::Shutdown::Both).unwrap();
-    let joined = worker.join().unwrap();
-    drain_stop.store(true, Ordering::SeqCst);
-    let drained = drain.join().unwrap();
+    let (joined, drained) = cleanup::close(&socket, &drain_stop, drain, worker);
+    let joined = joined.unwrap();
+    let drained = drained.unwrap();
     println!(
         "fresh_admission_explicit_snapshot_requests={snapshot_requests} initial_request_complete={initial_request_complete}"
     );

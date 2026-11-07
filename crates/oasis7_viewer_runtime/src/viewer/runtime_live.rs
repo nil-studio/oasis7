@@ -48,6 +48,8 @@ mod agent_service_io_diagnostics;
 mod agent_service_phase;
 mod agent_service_pump;
 mod agent_service_result;
+#[cfg(any(test, feature = "test_tier_required"))]
+mod agent_service_worker_cleanup;
 mod periodic_connection_diagnostic;
 mod periodic_service_io;
 mod request_frame;

@@ -609,6 +609,9 @@ pub mod dev_test_operations;
 mod request_deadline;
 
 #[cfg(unix)]
+pub mod dev_test_recovery;
+
+#[cfg(unix)]
 pub mod dev_test_local_adapter;
 
 #[cfg(unix)]

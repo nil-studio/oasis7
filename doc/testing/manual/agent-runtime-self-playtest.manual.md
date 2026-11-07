@@ -244,17 +244,21 @@
 
 收尾先禁用本轮新调用，按实际需要和已获准权限执行既有世界控制／资源清理，保留 unknown。工具验收不把关闭本地会话写成世界已永久关闭。本节提供实施后的方法；仅修改设计或方法本身不产生一次真实运行证据，触发和执行授权仍遵循本手册入口及开发规范。
 
-# 开发测试服务共同入口
+### 开发测试服务共同入口
 
 Refs #5076、#5531。Trace refs: O7-REQ-56c3a553-8216-4e44-86dc-bd368f3b53cb。
 
 `dev-test-serve --profile <private-config.json>` 启动串行 Unix socket 服务；`dev-test-call --socket <approved-socket>` 从可信宿主 stdin 接受 JSON。模型隔离及实际外部 Agent 接入由 #5532/#5533 承接，本入口不证明该隔离。
 
-配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。无管理接口；管理认证后继复用既有身份能力。
+配置须由当前用户拥有且权限 0600，socket 父目录 0700。配置字段：profile=`dev-test-accounts-v1`、socket、usage_directory（固定私有目录）、grant_id（稳定授权标识）、max_request_bytes（256～65536）、timeout_ms（1～30000）、max_calls（正整数）、credentials（caller_id、token〔至少32字符〕、expires_at_unix、revoked）。认证材料只由可信宿主管理，不进入模型输入。本能力入口不提供账号管理操作。
 
 请求仅接受 profile、audience=`oasis7-dev-test-tools`、credential、method=`capabilities`。错误版本、用途、过期、撤销与未知方法拒绝，未知字段拒绝。返回 accounts_available=false、writes_available=false。并发固定1；超时断开请求。只有成功能力调用消耗累计上限，拒绝流量不扣。用量按 grant_id 与 caller_id 在 usage_directory 中保存，跨入口共用锁及原子提交，先持久化再回复；重连、重启或更换 socket 均不清零。重启前由可信运营者确认旧进程终止并删除遗留 socket，保留整个用量目录。只有显式新授权可使用新 grant_id；目录不能换成空目录来恢复旧授权。正式账号会话由 #5535 承接。
 
-当前验证：macOS canonical cargo check、能力认证单测和真实服务/CLI调用；Linux Docker daemon 启动失败，Linux实际启动尚未完成。实际外部 Agent 未验证。
+在 Linux native 环境执行 `env -u RUSTC_WRAPPER cargo build -p oasis7_game_client --locked`，使用生成的 `target/debug/oasis7_game_client` 运行以上命令。服务与可信调用适配器使用同一受信 OS 主体；客户端先核对 socket 路径、所有权、权限及服务 peer UID，再发送认证材料。模型使用的跨主体或远程接入另按对应适配方法配置。
+
+启动前准备私有 socket 父目录及固定 usage_directory，明确有限配置和绝对凭据到期时间。可信调用端通过私有 stdin 输入上述能力请求，检查返回 status；授权到期、撤销、额度耗尽或超时后均须按实际状态处理，不自动更换 grant_id。普通重启前确认旧进程停止，只删除遗留 socket，保留用量目录，重启后再次核对原授权用量连续。请求读取与可信调用传输使用绝对 deadline，持续发送零碎字节不能延长期限。
+
+按 DA-06 单独记录实际外部 Agent 接入结果；服务进程及 CLI 验证不代替外部 Agent 使用验收。
 
 ### 可信运营者账号目录准备
 
@@ -262,15 +266,15 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 `dev-test-catalog-register --directory <0700目录> --identity-config <0600配置> --operation <登录原操作ID> --alias <别名>` 核验当前 /session 主体并登记；同账号与环境返回稳定 account_ref，重复登记不得替换凭据主体。别名可修改。`dev-test-catalog-list --directory <目录>` 只展示非秘密引用、账号、环境、公开key与别名，不输出凭据路径或原登录引用。列表是登记投影，不能代替当前权限。目录中的 catalog.json 及锁和临时文件只供可信运营者访问；实际凭据保持在既有加密库，不复制私钥或Cookie。
 
-真实A/B隔离身份环境尚未核验；受控身份服务测试不能代签合法账号登记验收。
+真实A/B隔离原生身份登记已由#5534核验；本项继续以同一有限环境验证账号只读服务。受控身份服务测试或静态目录不能代签合法账号登记，实际证据按对应固定source/build记录。
 
-### 多账号只读会话候选（#5535，未验收）
+### 多账号只读会话（#5535）
 
-候选二进制 `oasis7_dev_test_sessions --serve PRIVATE_CONFIG` 从可信私有stdin读取账号引用到标准Base64编码unlock的JSON映射（opaque bytes，不假定UTF-8）。配置由可信运营者准备，包含共同 service 配置、catalog_directory、grants 和 resources；每项grant有独立grant_ref、共享稳定grant_id、caller_id、不可变binding、绝对expires_at_unix、enabled与只读methods。binding固定account_ref/environment/world/genesis_digest/agent_id/resource/executor_config_digest/authorization_version；resource只由管理员固定account_ref与executor_config路径。模型请求不能提供这些路径或unlock。
+二进制 `oasis7_dev_test_sessions --serve PRIVATE_CONFIG` 从可信私有stdin读取账号引用到标准Base64编码unlock的JSON映射（opaque bytes，不假定UTF-8）。配置由可信运营者准备，包含共同 service 配置、catalog_directory、grants 和 resources；每项grant有独立grant_ref、共享稳定grant_id、caller_id、不可变binding、绝对expires_at_unix、enabled与只读methods。binding固定account_ref/environment/world/genesis_digest/agent_id/resource/executor_config_digest/authorization_version；resource只由管理员固定account_ref与executor_config路径。模型请求不能提供这些路径或unlock。
 
 `oasis7_dev_test_sessions --call APPROVED_SOCKET` 从可信宿主stdin接收credential、method及可选grant_ref/session_ref/expires_at_unix。method仅有accounts、open、close、describe、task、capabilities。session_ref不能单独认证。打开和业务读取复核目录原生current_account与Executor配置的实际身份、环境和fence，再复用正式Client；不调用context、不写世界。累计用量复用共同grant/caller账本，不随session或别名变化。普通重启清空内存会话，保留账本；管理者确认旧进程停止后清理遗留socket再启动。
 
-本候选仅以空目录实际CLI查询验证认证拒绝、服务启动和重启累计用量连续；会话单测不等于真实A/B读取。当前真实A/B/C原生登录、获准world/task/resource和读取证据均待准备，未声明#5535完成。正式A/B读取与外部消费者的整体验收仍待补齐，不能因Draft或局部测试而关闭子项。真实消费者不得使用空目录或mock代签。
+固定组合 `2f292a3926da2f171593ea693d5f7475eb526049` 与目录／原生环境前置 `7193eb838ba088c0d0e3e138770c50d5755317a9` 已完成真实A/B读取、A→B→A、重启／累计用量／关闭／停用／到期边界及合法新增C不改变旧A/B会话、授权和用量；相关说明见 PR #5552。该证据来自受控原生CLI消费者，没有以空目录或mock代签。后续真实外部模型使用由#5538/#5539承接，当前仍blocked；本只读前置不声明外部模型或世界写入通过。合入真实main后的本次检查只证明代码整合，不改写既有受测source/build组合。
 
 运行中的策略仅通过可信运营者命令更新：`oasis7_dev_test_sessions --apply PRIVATE_CONFIG CANDIDATE_CONFIG`、`--disable-account PRIVATE_CONFIG ACCOUNT_REF`、`--enable-account PRIVATE_CONFIG ACCOUNT_REF`。命令与只读worker共用控制/准入锁；账号状态持久化到目录，策略及其授权版本先持久化后报告成功。变更授权范围或重新启用递增版本使旧会话失效，新增无关grant不改旧grant版本。启用账号不会自动启用其旧授权。不得绕过这些命令直接编辑运行中的策略或停用状态；普通账号登记/别名变更继续用既有目录入口，目录写入共用catalog.lock。
 
@@ -278,10 +282,9 @@ Refs #5534。首版本地管理 CLI 使用运营者 OS 主体和 0700 私有目�
 
 策略中的grant_generation_high_water由可信管理入口维护并持久保存，包括已移除的grant_ref；不能删掉该历史。移除后重新添加同名授权必须采用更高代数，旧session_ref不会复活。executor_config_digest是可信宿主为执行器配置原始bytes固定的BLAKE3摘要；读取从同一受信fd取得bytes后核对pin，完整配置（含task fence）变化立即拒绝，管理员更新pin时升授权版本并建立新会话。不可把同resource名字仍相同视为原资源合同仍相同。
 
-
 ### 固定写工具与原操作恢复（#5536，候选）
 
-Refs #5076、#5536。Trace refs: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5。固定前置 #5552 的 `2f292a3926da2f171593ea693d5f7475eb526049`，候选尚未证明真实移动验收。
+Refs #5076、#5536。Trace refs: O7-REQ-9dfc3e3f-250d-4e90-a246-42a7fcdc2ef5。固定前置 #5552 的 `2f292a3926da2f171593ea693d5f7475eb526049`，真实世界证据按下述固定组合记录，外部模型验收仍blocked。
 
 可信管理者在会话授权中明确 `methods` 的 `context`／`move`／`lookup`，以及 `move_targets` 的有限厘米坐标列表；默认没有写权限。更新目标列表使旧会话失效，扩大权限须重新开会话。模型只提交固定字段，不提供账号配置、origin、原始Action或解锁。以下是可信宿主注入认证后的结构示意，坐标必须先从实际隔离世界核验：
 
@@ -305,10 +308,37 @@ Context原件经SDK权威读取后持久固定完整TaskContextIdentity；未验
 
 原生prefix的canonical Committed与当前私有context可用性是两个状态。原结果查询已证实Committed后，lease过期、私有读取失败或目标证明不可用不覆盖该原终态；返回原operation及correlation，并单独标注 `usable_context=false`、`context_state=unavailable`，不附无证明目标、不创建替代context／nonce。只有私有快照当前仍可验证时才返回 `usable_context=true` 和完整目标；消费者不得用不可用context继续新动作。
 
+可信宿主可用 `dev_test_original_context_inspect_5536` example 检查已有原件：参数仅为私有Executor配置和既有native context引用，unlock仅从可信stdin读取。它读取已有Prepare／Prefix／Action缓存，离线核对原Prepare签名与作用域，并发送同fence的只读TASK_SNAPSHOT及task_fence读取；不调用Prepare、Prefix提交或Move。输出仅固定类别、布尔、摘要和公开commit，不输出私钥／Cookie／目标正文。Transport只能说明该次读取不可用，不能倒推初次Prepare的HTTP原因；启动窗口结束和业务失败须分开记录。
+
 局部验证先覆盖数字用量迁移、获准重放计费、冲突、跨作用域、同context重复移动、持久写失败和丢记录；SDK回归核对截止后不新发prepare／action及不继续poll。实际验收仍须A/B合法最小移动、原operation回执及权威AgentMoved证据、丢响应／重启／不重复效果，不能只看accepted或最终位置。
 
-实际Linux候选验证（固定生产源码 `4273a7239adb60b0bcf5cae181ea10660646d039`）：沿既有A/B world、完整fence和Executor pin，A的唯一目标 `[1,0,0]` 已由原lookup committed receipt `action:4` 与canonical `AgentMoved id66 / tick264 / caused_by Action4` 对应核验，仅一次效果。B原Move及经明确授权的B2独立轮次均得到canonical `stale_base`终态，无B移动；保留原RID和账本，不自动创建B3。A/B各成功一次及成功B丢响应恢复仍未完成，不能关闭本项。受信夹具 `crates/oasis7_game_client/tests/fixtures/dev_test_write_cli_5536.py` 只在显式 `--execute-authorized` 且原始前置成立时运行；独立CAS观察器验证blob摘要并扫描全部canonical journal，不以最终位置代替事件／receipt关联。真实外部模型验收仍blocked。
+实际Linux验证使用本项生产源码 `0e0eb8f83dcc8c5f215eefdf836d590775e6a49d`（后续 `083c66c` 仅新增只读诊断）与独立原生修复 `149cf00fc3501bbde1860dba4dc8ae1eeff884f7` 的无trace Runtime/chain binary。原world/genesis/pin不变：A的唯一目标 `[1,0,0]` 由 `action:4` 与canonical `AgentMoved id66 / tick264` 对应；B原轮和B2的stale_base拒绝、B3的过期Prepare unknown原件保留，不重签。经明确授权的B4独立有界轮先验证完整目标/source/fence/usable，再唯一首发Move并故意丢工具回复；重启新session Lookup及同RID/body replay均恢复同原Committed，`action:5`、actorB及原context commitment对应唯一 `AgentMoved id134 / tick640`。累计用量39→47/64，A未再次移动，无B5。权威恢复读取commit位置641与实际执行tick640分列，不以最终位置代签效果；完整证据见PR #5553 comment6690361833。
 
+本地业务适配固定 `57cb089aaf79575f1615120f11411303acd4a653`（#5538）通过真实UID1001的IPC call open+lookup原B4、stdio再次lookup同RID读取同原Committed；UID1002传输拒绝不计费，模型不可读policy/unlock/SDK配置。累计47→50/64，权威AgentMoved仍2条，无新Context/Move/replay。source/build/有限只读RunInput和清理receipt见PR #5554 comment6690887674。此为受控真实进程消费链，真实外部模型仍blocked，未启动模型或付费。
+### 可信备份恢复准备（#5537）
+
+operator入口与模型工具分离：`oasis7_dev_test_recovery backup PRIVATE_POLICY NEW_SNAPSHOT`、
+`restore SNAPSHOT NEW_PRIVATE_TARGET`、`reauthorize RESTORED_POLICY CANDIDATE PRIVATE_REVIEW`。
+快照与目标必须在可信私有目录；不交给模型，不放入公开证据。backup取得同一policy控制锁、
+目录锁与各caller累计账本锁；manifest只在有限文件完整复制后落盘。快照只含工具policy/catalog/
+累计用量及原操作关联，不包含解锁输入，也不回滚原生世界、身份密钥或SDK当前缓存。
+原配置所指的当前native证明仍须存在且通过共同客户端校验，缺失保持unknown。
+
+restore只写新私有目录，先持久restore_pending，再放置已退休旧授权／凭据与不可作为当前余额的
+历史账本。旧session属于旧启动epoch，不能恢复；旧grant ID/ref及credential不能被apply/enable复活。
+恢复配置要求退休状态文件，缺文件或中断pending时拒绝开放服务。完全恢复的目录不能再次覆盖，
+中断pending且snapshot一致时可重试；最早目录准备阶段失败但无marker时换新目标，不猜测继续。
+
+管理员私有review显式确认 `current_identity_and_permissions_checked`、
+`effects_and_pending_originals_checked`、`missing_usage_is_unknown` 均为true，代表可信人工核对，
+不是自动世界证明或新的recovery authority。candidate必须提供不同测试grant ID/ref及新credential，
+保留恢复目录绑定并选择有限max_calls／绝对期限／大小／timeout。然后重启到新启动实例，
+经当前同scope权限查询旧原件；新业务调用及同ID恢复仍计入新授权额度，旧快照used不能充当新余额。
+历史Context不能作为新Move的可写上下文；缺原件或无读权保持unknown／blocked，不造替代操作。
+
+本项局部自测为canonical `cargo test -p oasis7_game_client --lib dev_test_recovery --locked`。
+真实副本演练还须固定source/build、快照源／目标、运行命令、原世界pin、旧用量早于实际消耗的
+事实及当前native结果观察。不得只凭模块测试声称实际恢复通过，也不能回滚原世界制造成功证据。
 
 ### 本地受限接入准备（#5532）
 
@@ -330,7 +360,7 @@ Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_tes
 
 请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
 
-真实 Codex 模型接入仍未完成。已在独立 Linux 容器安装并验证 Codex CLI 0.137.0（固定 npm 包），模型 UID 1001 独立 HOME；根拥有的 stdio MCP 夹具仅注册 `dev_test_capabilities`，关闭 shell、unified_exec、multi_agent、apps、plugins、浏览器和 hooks。`codex mcp list` 与实际 UID 的 MCP→本地 CLI→IPC 预检通过；未发生模型调用。当前 UID 登录状态为 Not logged in，未发现可复用的获准有界 API key／可信 Responses 代理，真实模型认证与费用预算仍待准备。不能复制宿主认证或把业务服务凭据交给模型补齐该缺口。实际消费者、共享用量组合及合法账号业务后继仍分别验收；本项保持未完成。
+真实 `attached_codex_subagent` 已完成有限只读 A→B→A 和原件查询，具体 source/build 与用量见 PR #5554。该模型会话仍能访问宿主工具，隔离声明为 `instruction_only/source_visible`；UID 强制边界仅覆盖固定工具子进程。自主写入、重启恢复及远程实际消费者分别保留未完验收，不能以只读通过代签。
 
 ### 本地账号业务工具接线（#5538）
 

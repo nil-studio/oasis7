@@ -94,7 +94,7 @@ pub(super) fn adapt_input(input: &Value) -> Option<Value> {
                         json!({"type":"location","data":{"location_id":record["location_id"]}})
                     };
                     facilities.insert(id.into(), json!({"entity_id":id,"module_id":"runtime_factory",
-                        "kind":"factory","label":record.get("name").or_else(||record.get("label")),"anchor":anchor}));
+                        "kind":"factory","factory_kind":record.get("kind").and_then(Value::as_str),"label":record.get("name").or_else(||record.get("label")),"anchor":anchor}));
                 }
             }
             _ => (),
@@ -148,6 +148,41 @@ mod tests {
         assert!(facilities.get("private").is_none());
         input["navigation"]["mode"] = json!("follow");
         assert_eq!(adapt_input(&input).unwrap()["navigation"]["mode"], "stop");
+        input["worldView"]["entities"][0]["provenance"]["freshness"] = json!("expired");
+        assert!(
+            adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn factory_type_is_explicit_and_never_inferred_from_label() {
+        let mut input = json!({"worldView":{"source_cut":"C","entities":[{"entity_id":"F","kind":"factory","render_record":{"name":"Smelter Mk1","kind":"factory.smelter.mk1","pos":{"x_cm":10,"y_cm":20,"z_cm":0}},"provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}}]}});
+        let adapted = adapt_input(&input).unwrap();
+        let factory = &adapted["snapshot"]["model"]["module_visual_entities"]["F"];
+        assert_eq!(factory["kind"], "factory");
+        assert_eq!(factory["factory_kind"], "factory.smelter.mk1");
+        let state = super::super::build_render_state(&input);
+        let entities: Vec<crate::ModuleVisualEntity> =
+            serde_json::from_value(state["module_visual_entities"].clone()).unwrap();
+        assert_eq!(
+            entities[0].factory_kind.as_deref(),
+            Some("factory.smelter.mk1")
+        );
+        assert_eq!(entities[0].kind, "factory");
+
+        input["worldView"]["entities"][0]["render_record"]
+            .as_object_mut()
+            .unwrap()
+            .remove("kind");
+        assert!(adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]["F"]["factory_kind"].is_null());
+        input["worldView"]["entities"][0]["render_record"]["kind"] = json!("unsupported");
+        assert_eq!(
+            adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]["F"]["factory_kind"],
+            "unsupported"
+        );
         input["worldView"]["entities"][0]["provenance"]["freshness"] = json!("expired");
         assert!(
             adapt_input(&input).unwrap()["snapshot"]["model"]["module_visual_entities"]

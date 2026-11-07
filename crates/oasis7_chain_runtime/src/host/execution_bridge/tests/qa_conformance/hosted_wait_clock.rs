@@ -6,9 +6,14 @@ pub(super) struct Clock {
 }
 impl Drop for Clock {
     fn drop(&mut self) {
+        let cleanup = cleanup_deadline::CleanupDeadline::start("hosted_wait_clock");
         self.stop.store(true, Ordering::SeqCst);
         if let Some(worker) = self.worker.take() {
-            worker.join().unwrap();
+            let result = worker.join();
+            cleanup.complete();
+            result.unwrap();
+        } else {
+            cleanup.complete();
         }
     }
 }
