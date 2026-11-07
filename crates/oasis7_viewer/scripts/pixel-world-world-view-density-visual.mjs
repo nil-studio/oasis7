@@ -219,7 +219,12 @@ try {
     for (const socket of wss.clients) send(socket, connectionIds.get(socket), old.response,
       { kind: 'old_response_on_current_socket', originalConnection: old.connection, originalRequestGeneration: old.response.view.request_generation });
     await run(['wait', '300']); assert((await state()).metrics.source_cut === fixture.description().cut, 'old response crossed new world source fence');
-    fixture.revoke(); await reconnect(); await waitNegotiation(false); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.denied = await state();
+    const deniedWireStart = wire.length;
+    fixture.revoke(); await reconnect(); await waitNegotiation(true);
+    await waitFor(`document.querySelector('.pixel-world-exploration [role=status]')?.textContent.includes('Read unavailable')&&(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`);
+    const deniedReplies = wire.slice(deniedWireStart).filter(row => row.direction === 'out' && row.message.type === 'world_view' && row.message.view.unavailable_reasons?.includes('scope_unavailable'));
+    assert(deniedReplies.length > 0 && deniedReplies.every(row => row.message.view.entities.length === 0), 'scope denial did not produce an actual empty unavailable response');
+    summary.denied = { state: await state(), replies: deniedReplies, claim: 'controlled scope query refusal with protocol capability retained; not genuine service revocation' };
     fixture.restoreWorldView(); await reconnect(); await waitNegotiation(true); await waitProjection(1000); summary.restoredScope = await state();
     fixture.setLegacy(); await reconnect(); await waitNegotiation(false); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.legacyDowngrade = { state: await state(), claim: 'cleared/locked; no legitimate legacy reauthorization proof supplied' };
     fixture.restoreWorldView(); await reconnect(); await waitNegotiation(true); await waitProjection(1000);

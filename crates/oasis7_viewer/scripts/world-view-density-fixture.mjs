@@ -18,7 +18,7 @@ export function createDensityFixture() {
   function fail(q,reason) {return {type:'world_view',view:{...base(q.request_generation),entities:[],completeness:'unknown',unavailable_reasons:[reason]}};}
   function reply(message, connection = 'pure') {
     log.push(clone(message));
-    if(message.type==='hello_v2')return {type:'hello_ack',server:'controlled-density-qa',version:2,min_version:1,max_version:2,world_id:world,control_profile:'live',capabilities:mode==='world_view'?caps.filter(c=>message.capabilities?.includes(c)):[]};
+    if(message.type==='hello_v2')return {type:'hello_ack',server:'controlled-density-qa',version:2,min_version:1,max_version:2,world_id:world,control_profile:'live',capabilities:mode!=='legacy'?caps.filter(c=>message.capabilities?.includes(c)):[]};
     if(message.type==='subscribe')return null;
     if(message.type==='request_world_feed')return {type:'world_feed',feed:{schema_version:1,world_id:world,reorg_epoch:'0',status:'unavailable',events:[],cursor:null,unavailable_reason:'source_unavailable',snapshot_reload_required:false}};
     if(message.type==='request_snapshot')return {type:'snapshot',snapshot:snapshot()};
