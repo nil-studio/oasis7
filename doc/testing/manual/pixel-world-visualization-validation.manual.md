@@ -132,6 +132,8 @@ Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-2ede7851-f1c0-4
 
 IME合成期间Escape不关闭页面表面；非合成时先最内层drawer再Focus。聊天/文本输入不被画布快捷键截获。数据刷新不抢焦点，不逐实体洪泛辅助播报，原结果不重复宣布为新成功。对象名称按文本处理，含HTML样式输入不能变为脚本/原始HTML执行。
 
+原生CJK字形回归复用 `npm --prefix crates/oasis7_viewer run test:pixel-world:cjk:visual`，必须显式提供 `AGENT_CJK_ARTIFACT_ROOT`（不可变产物目录）与 `AGENT_CJK_SOURCE_HEAD`（实际构建提交），前提为 agent-browser、Python/Pillow。脚本先以实际Agent atlas确认已绘制，再以相同中文A/A像素不变、不同中文A/B像素有差的成对控制检查native label，保存长中文/Latin数字标点及真实context loss→Reload后的同一检查。检查前后产物SHA须不变；桌面、窄屏、DPR2逐一记录实际尺寸。该受控输入仅证明所采字形/输入与恢复，不代签全部Unicode、真实授权或原operation身份。`AGENT_CJK_MODE=cold-observation`分别记录bridge ready与实际atlas可见时点，只是单次观察；正式冷/热启动样本、网络和缓存方法仍按§9执行。
+
 记录实际键盘/触控操作与辅助语义，不用DOM节点存在代签真实可达；截图审读沿既有[S6](web-ui-agent-browser-closure-manual.manual.md)及[视觉评审SOP](model-visual-review-sop-2026-05-29.manual.md)，不新建另一套视觉放行机制。
 
 <a id="pw-readability"></a>
