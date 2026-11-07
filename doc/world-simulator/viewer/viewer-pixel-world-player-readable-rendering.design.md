@@ -391,7 +391,21 @@ Stop-ship visual findings for later implementation: terrain louder than relevant
 
 例如世界中心、zoom=1、pan=0 在 1280×720/DPR1 下落在逻辑 (320,180)、CSS (640,360)；zoom=2 中心不变。世界最左边界在同条件下为 CSS x=20；zoom=2 时为 -600，仍按原裁剪处理。1365×768 的中心 qx=341.25，snap 后显示 x=682，Web 和 Rust 必须使用这一值。命中不反向改变权威位置。
 
-仅地形、设施、Agent、美术关系线进入低分辨率世界层；文字、中文标签、HUD、语义提示和原回执在独立原生分辨率层合成，沿原来源、层次、密度与 reduced-motion 合同。缺位置不根据图像补造坐标。几何装饰不产生新目标或行动能力。
+世界 Sprite 默认进入同一个低分辨率深度空间；所有 Text2d 与下表明确的语义 UI 例外进入原生分辨率层。不能把“带身份/状态含义的实体图形”一概当作原生 UI，否则实体 detail 会跨相机压过原本位于其上方的 Agent。`render_layers.rs` 是实际生产者的统一分层入口，未知 Sprite 默认 world，不能通过遗漏 world 类型使其自动升到原生前景。沿原来源、密度及 reduced-motion 合同，缺位置不补造坐标，几何装饰不产生目标或行动能力。
+
+| 实际生产者 | 原 Z 关系与处理 | 合成层 |
+| --- | --- | --- |
+| Grid、fragment 主体/shadow/inset/fleck、Location 主体 | 网格后景；fragment 0.34–0.37，Location 1.0 | world，保持原同层 Z |
+| Micro Depot 主体/detail/service radius | 2.55/2.56/2.52，均低于 Agent 3.0；detail 与主体不能拆相机 | world |
+| Module 主体/identity chip | 2.7/2.71，均低于 Agent；glyph 与主体保持相同采样和遮挡 | world；模块文字仍 native |
+| Agent 主体/core/silhouette/grounding | 主体 3.0、选中加 1；装饰沿主体相对 Z；grounding 使用同一脚点派生中心及像素单位 | world |
+| Links/social links/assignment arrow、hotspot 主体/core/highlight/shadow/cue | 关系 0.42/0.55/0.62；hotspot 1.5 或 blocker 4.04 加既有局部偏移 | world，关系箭头与线不能拆采样 |
+| Industry aggregate/world event 的 Sprite 部分 | 2.85–2.87；同生产者的文字原 5.05 | 图形 world；Text2d native |
+| Agent/Location/Module/Map label、selected resource readout、depot throughput text | 原文字 Z 可在 2.1–5.05；独立文字平面不由主体原 Z 裁掉 | 所有 Text2d native |
+| Agent power、derived/missing position、selection、recommendation、receipt target、active intent；Location selection/corner frame/resource cue | 明确的语义 UI 例外；保留各自原 Z 的层内顺序 | native |
+| Depot stock runway 段/背景/zero cross、throughput 背景 | 原约 2.564–2.567，作为读数 UI 与文字一起独立清楚呈现 | native |
+
+native UI 在 world 合成之后绘制；跨层旧 Z 不再作为世界实体遮挡关系。只有上述明确 UI 可以这样提升；实体主体、glyph/detail、阴影、范围与关系图形必须留在 world 共享原 Z。分层不证明默认字体已具备原生 CJK 字形，字体可读性仍需实际证据。
 
 实现消费者为 lib.rs 的 setup_scene、to_canvas_point、renderer_to_css_scale，camera_viewport 的逆变换，render_camera_fit/focus、footprint/标签布局、Rust 命中与 Web host/Targets。尺寸布局必须由同一计算结果驱动这些消费者。resize/DPR 更新原子替换 RenderTarget 与布局代次，清除旧命中缓存，再切换 ready；旧纹理、相机和合成实体按所有权释放，不能每帧累计。尺寸变化保留原 CSS pan、zoom 和身份选择；授权输入变化仍沿原导航/恢复合同。
 
