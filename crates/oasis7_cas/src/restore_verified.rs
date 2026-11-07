@@ -50,6 +50,16 @@ impl LocalCasStore {
                 reason: "quarantine must be a regular directory".into(),
             });
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = fs::symlink_metadata(&quarantine)?;
+            if metadata.mode() & 0o077 != 0 || metadata.uid() != fs::metadata(&self.root)?.uid() {
+                return Err(WorldError::DistributedValidationFailed {
+                    reason: "quarantine must be private and owned by the CAS owner".into(),
+                });
+            }
+        }
         let evidence = unique_atomic_temp_path(&quarantine.join(content_hash));
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
@@ -63,7 +73,10 @@ impl LocalCasStore {
         file.sync_all()?;
         drop(file);
         #[cfg(unix)]
-        fs::File::open(&quarantine)?.sync_all()?;
+        {
+            fs::File::open(&quarantine)?.sync_all()?;
+            fs::File::open(&self.root)?.sync_all()?;
+        }
         let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;
         write_bytes_atomic(&path, &disk_bytes)?;
         self.get_verified(content_hash)?;
@@ -139,6 +152,21 @@ mod tests {
         assert!(store.restore_verified_blob(&hash, bytes).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"damaged");
         assert_eq!(fs::read_dir(&external_dir).unwrap().count(), 0);
+        fs::remove_file(root.join("quarantine")).unwrap();
+        fs::create_dir(root.join("quarantine")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(root.join("quarantine"), fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(store.restore_verified_blob(&hash, bytes).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"damaged");
+        assert_eq!(fs::read_dir(root.join("quarantine")).unwrap().count(), 0);
+        assert_eq!(
+            fs::metadata(root.join("quarantine"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o777
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }
