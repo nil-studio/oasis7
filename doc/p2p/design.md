@@ -625,6 +625,8 @@ Focused fixtures use real local FileEndpoints, actual NodeRuntime decisions and 
 
 端点 socket read timeout、客户端配置期限与测试等待期限保持原值；不能把端点首读等待误称为完整帧的 absolute deadline。未知结果仍查询原请求，不自动重试或推进信任锚。验证须覆盖受控慢编码时连接数为零、编码后过期/失败/超限零连接、原帧往返及现有慢分片 absolute deadline；小 loopback 模型只证明该排序契约，不追认历史 CI 超时或 RPC EOF 的根因。
 
+原生 monotonic Oracle 在同一 TCP 连接上保有 exclusive lease，并顺序交换长度前缀与 CBOR body 分写的请求和响应。客户端各连接入口复用同一配置，客户端与响应端均启用 `TCP_NODELAY`，避免持续小帧交互等待小包合并。此连接仍使用 Oracle 原有的 1 MiB 帧界、阻塞 I/O 和读写 timeout，保持原 canonical 字节、签名域、challenge、lease、断连失败和物理存储语义；配置失败按 I/O 错误传播，不增加重连、自动重试或续期。共享测试 Oracle 使用相同的及时发送配置，并继续执行真实签名、checkpoint、落盘和恢复场景；本机模拟仍不证明独立故障域或真实防回滚部署。
+
 ### des-p2p-original-candidate-recovery-v1
 
 本节选择“同原请求、同原决定输入的确定性 candidate 重建”，作为正式受控权威的目标协议。

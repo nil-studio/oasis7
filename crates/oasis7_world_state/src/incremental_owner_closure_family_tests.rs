@@ -373,7 +373,7 @@ fn verify_family_fixture(
         &mut values,
         &mut state_io,
         1 << 20,
-        || false,
+        never_cancel,
     )
 }
 
