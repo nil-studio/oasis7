@@ -1,9 +1,10 @@
 """Real Linux UID/stdio transport; synthetic backend only, never world requests."""
 import json, os, pathlib, shutil, socket, subprocess, sys, tempfile, threading, time
 binary = str(pathlib.Path(sys.argv[1]).resolve())
+os.umask(0o077)  # Trusted hosts can use a restrictive mask; public access is explicit.
 root = pathlib.Path(tempfile.mkdtemp(prefix='oasis7-business-', dir='/run')); root.chmod(0o755)
 private = root/'private'; private.mkdir(mode=0o700)
-public = root/'public'; public.mkdir(mode=0o755)
+public = root/'public'; public.mkdir(mode=0o755); public.chmod(0o755)
 policy = private/'policy.json'; backend_path = private/'backend.sock'
 token = 'synthetic-private-token-01234567890123456789'
 config = dict(service=dict(profile='dev-test-accounts-v1',socket=str(backend_path),usage_directory=str(private/'usage'),grant_id='fixture',max_request_bytes=65536,timeout_ms=1000,max_calls=100,credentials=[dict(caller_id='model',token=token,expires_at_unix=int(time.time())+120,revoked=False)]),catalog_directory=str(private/'catalog'),grants=[],resources={})
@@ -34,6 +35,9 @@ def call(value,uid=1001,stdio=False):
     assert token not in result.stdout+result.stderr
     return result
 try:
+    accessible=subprocess.run([sys.executable,'-c','import os,sys; assert os.access(sys.argv[1], os.X_OK)',str(public)],preexec_fn=identity(1001),capture_output=True)
+    assert accessible.returncode==0,accessible.stderr
+    assert private.stat().st_mode & 0o777 == 0o700
     for _ in range(100):
         if (public/'tools.sock').exists():break
         if process.poll() is not None:raise AssertionError(process.stderr.read().decode())
