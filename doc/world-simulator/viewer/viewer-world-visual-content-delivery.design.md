@@ -143,7 +143,7 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 
 #5527 / #5543 新增的二维俯视像素设计沿[视觉方向](viewer-visual-design-spec-2026-06-05.design.md#pixel-world-art-direction)，不更新上述生产源码审读基线。可编辑原件为 [atlas.svg](assets/ui-ux/pixel-world/atlas.svg) 与 [scene.svg](assets/ui-ux/pixel-world/scene.svg)：场景 `320×180` 逻辑像素、地块 `16×16`、Agent `16×16` 且局部脚点 `(8,15)`；Smelter `48×48`、场景左上角 `(144,64)`。两份原件共用固定 16 色与整数矩形轮廓，具体颜色及图形键由原件 metadata 拥有；它们不是新增品牌 token、Rust 材质常量或世界单位。地块、道路、建筑布局与脚点均为设计坐标，不表示合法世界位置、关系、可建设 tile 或点击执行能力。
 
-`atlas.svg` 拥有图形和色板；`scene.svg` 拥有 `<use>` 实例布局，其内联符号及 metadata 由 [build.py](assets/ui-ux/pixel-world/build.py) 同步。该脚本导出 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)，供[离线交互原型](assets/ui-ux/interactive/index.html)加载；同时将同一源的整数几何嵌入图 16、17 与工业方案／结果四张 SVG 的 `pixel-world:*` 标记区，使这些[页面稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)可以独立查看。不要手工编辑生成区或在各稿另画一套世界。场景底图不包含 Agent、姓名、权限、库存、任务状态或选择标记；Agent 按各 fixture 单独放置，HUD／中文／原回执保持独立。源文件、导出成功与设计操作均不证明正式 Viewer 已加载这些资产。
+`atlas.svg` 拥有图形和色板；`scene.svg` 拥有 `<use>` 实例布局，其内联符号及 metadata 由 [build.py](assets/ui-ux/pixel-world/build.py) 同步。该脚本从同源整数矩形导出 Agent、ore、smelter、depot 的独立 PNG；`--sprites-only` 只需 Python 3 与 Pillow，完整 scene／页面稿导出仍需 Inkscape。既有 Agent 导出在相同源下保持字节一致。该脚本导出 [scene.png](assets/ui-ux/pixel-world/scene.png) 与 [agent.png](assets/ui-ux/pixel-world/agent.png)，供[离线交互原型](assets/ui-ux/interactive/index.html)加载；同时将同一源的整数几何嵌入图 16、17 与工业方案／结果四张 SVG 的 `pixel-world:*` 标记区，使这些[页面稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)可以独立查看。不要手工编辑生成区或在各稿另画一套世界。场景底图不包含 Agent、姓名、权限、库存、任务状态或选择标记；Agent 按各 fixture 单独放置，HUD／中文／原回执保持独立。源文件、导出成功与设计操作均不证明正式 Viewer 已加载这些资产。
 
 | 图形键／层 | 原始尺寸与局部锚点 | 当前设计用途 |
 | --- | --- | --- |
