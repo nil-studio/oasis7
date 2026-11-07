@@ -4,6 +4,17 @@ use bevy::camera::{RenderTarget, ScalingMode, visibility::RenderLayers};
 use bevy::image::ImageSampler;
 use bevy::render::render_resource::{Extent3d, TextureFormat};
 
+thread_local! {
+    static ACTIVE_LAYOUT: std::cell::Cell<Option<PixelLayout>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn cache_layout(window: &Window) {
+    ACTIVE_LAYOUT.set(PixelLayout::new(
+        Vec2::new(window.width(), window.height()),
+        UVec2::new(window.physical_width(), window.physical_height()),
+    ));
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct PixelLayout {
     pub css: Vec2,
@@ -37,15 +48,16 @@ impl PixelLayout {
         (self.offset.as_vec2() + self.logical.as_vec2() * self.scale as f32 / 2.0) * self.css
             / self.frame.as_vec2()
     }
-    pub fn snap(self, p: Vec2, pan: Vec2) -> Vec2 {
-        let unit = self.pixel_css();
+    pub fn snap(self, p: bevy::math::DVec2, pan: bevy::math::DVec2) -> bevy::math::DVec2 {
+        let unit = self.css.as_dvec2() / self.frame.as_dvec2() * self.scale as f64;
         let t = pan / unit;
-        let snapped_pan = (t + Vec2::splat(0.5)).floor();
-        let q = (p * self.frame.as_vec2() / self.css - self.offset.as_vec2()) / self.scale as f32;
-        (((q - t + snapped_pan + Vec2::splat(0.5)).floor() * self.scale as f32)
-            + self.offset.as_vec2())
-            * self.css
-            / self.frame.as_vec2()
+        let snapped_pan = (t + bevy::math::DVec2::splat(0.5)).floor();
+        let q = (p * self.frame.as_dvec2() / self.css.as_dvec2() - self.offset.as_dvec2())
+            / self.scale as f64;
+        (((q - t + snapped_pan + bevy::math::DVec2::splat(0.5)).floor() * self.scale as f64)
+            + self.offset.as_dvec2())
+            * self.css.as_dvec2()
+            / self.frame.as_dvec2()
     }
 }
 #[derive(Component)]
@@ -139,6 +151,9 @@ pub(super) fn resize(
 
 pub(super) fn canvas_layout(width: f64, height: f64) -> Option<PixelLayout> {
     let css = Vec2::new(width as f32, height as f32);
+    if let Some(layout) = ACTIVE_LAYOUT.get().filter(|layout| layout.css == css) {
+        return Some(layout);
+    }
     #[cfg(target_arch = "wasm32")]
     let frame = BRIDGE_SHARED
         .with(|shared| {
@@ -188,11 +203,29 @@ mod tests {
         }
         let layout = PixelLayout::new(Vec2::new(1365., 768.), UVec2::new(1365, 768)).unwrap();
         assert_eq!(
-            layout.snap(Vec2::new(682.5, 384.), Vec2::ZERO),
-            Vec2::new(682., 384.)
+            layout.snap(bevy::math::DVec2::new(682.5, 384.), bevy::math::DVec2::ZERO),
+            bevy::math::DVec2::new(682., 384.)
         );
         assert!(PixelLayout::new(Vec2::ZERO, UVec2::ZERO).is_none());
     }
+    #[test]
+    fn fractional_pan_and_sub_f32_threshold_keep_double_precision() {
+        use bevy::math::DVec2;
+        let layout = PixelLayout::new(Vec2::new(1280., 720.), UVec2::new(1280, 720)).unwrap();
+        assert_eq!(
+            layout.snap(DVec2::new(640.6, 360.), DVec2::new(0.6, 0.)),
+            DVec2::new(640., 360.)
+        );
+        assert_eq!(
+            layout.snap(DVec2::new(641. - 1e-8, 360.), DVec2::ZERO).x,
+            640.
+        );
+        assert_eq!(
+            layout.snap(DVec2::new(641. + 1e-8, 360.), DVec2::ZERO).x,
+            642.
+        );
+    }
+
     #[test]
     fn resize_reuses_texture_and_preserves_native_overlay_camera() {
         let mut app = App::new();

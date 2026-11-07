@@ -10,6 +10,16 @@ describe('real renderer accessible projection', () => {
       expect(style.display, `${x},${y}`).toBe(visible ? undefined : 'none');
     }
   });
+  it('preserves fractional camera pan and double-precision snap thresholds', () => {
+    const size={width:1280,height:720};
+    const center=rendererEntityTargetStyle({id:'A',pos:{x_cm:50,y_cm:50}}, {width_cm:100,depth_cm:100},size,{pan_x_px:0.6});
+    expect(parseFloat(center.left)*1280/100).toBe(640);
+    for (const [delta, expected] of [[-1e-8,640],[1e-8,642]]) {
+      const position={x_cm:(641+delta-20)/1240*100,y_cm:50};
+      const style=rendererEntityTargetStyle({id:'A',pos:position},{width_cm:100,depth_cm:100},size,{});
+      expect(parseFloat(style.left)*1280/100).toBeCloseTo(expected,8);
+    }
+  });
   const bounds = { width_cm: 1000, depth_cm: 1000 };
   const agent = { id: 'agent-0', pos: { x_cm: 250, y_cm: 600 } };
   it('retains focused targets across snapshots while updating data, geometry and membership', async () => {

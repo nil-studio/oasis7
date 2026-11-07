@@ -842,6 +842,7 @@ pub(crate) fn render_scene(
     let Ok(window) = queries.windows.single() else {
         return;
     };
+    pixel_pipeline::cache_layout(window);
     let Some(_) = runtime.render_state.as_ref() else {
         grounding::clear(&mut commands, &queries.grounding);
         clear_runtime_visuals(&mut commands, &mut runtime);

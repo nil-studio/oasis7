@@ -290,8 +290,8 @@ struct RenderState {
 #[derive(Clone, Debug, Serialize)]
 struct CameraStatePayload {
     zoom: f64,
-    pan_x_px: i32,
-    pan_y_px: i32,
+    pan_x_px: f64,
+    pan_y_px: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -586,15 +586,15 @@ fn to_canvas_point(
     let base_y = 20.0 + (normalized_y * (height - 40.0).max(1.0));
     let centered_x = base_x - (width / 2.0);
     let centered_y = base_y - (height / 2.0);
-    let point = Vec2::new(
-        ((width / 2.0) + centered_x * camera.zoom.max(0.5) + camera.pan_x_px) as f32,
-        ((height / 2.0) + centered_y * camera.zoom.max(0.5) + camera.pan_y_px) as f32,
+    let point = bevy::math::DVec2::new(
+        (width / 2.0) + centered_x * camera.zoom.max(0.5) + camera.pan_x_px,
+        (height / 2.0) + centered_y * camera.zoom.max(0.5) + camera.pan_y_px,
     );
     let point = pixel_pipeline::canvas_layout(width, height)
         .map(|layout| {
             layout.snap(
                 point,
-                Vec2::new(camera.pan_x_px as f32, camera.pan_y_px as f32),
+                bevy::math::DVec2::new(camera.pan_x_px, camera.pan_y_px),
             )
         })
         .unwrap_or(point);
@@ -692,9 +692,9 @@ fn emit_camera_state(camera: &CameraState) -> Result<(), JsValue> {
     emit_event_value(&json!({
         "type": "camera_state_changed",
         "camera": CameraStatePayload {
-            zoom: (camera.zoom * 1000.0).round() / 1000.0,
-            pan_x_px: camera.pan_x_px.round() as i32,
-            pan_y_px: camera.pan_y_px.round() as i32,
+            zoom: camera.zoom,
+            pan_x_px: camera.pan_x_px,
+            pan_y_px: camera.pan_y_px,
         }
     }))
 }

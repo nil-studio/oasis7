@@ -6,9 +6,9 @@ use super::*;
 pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
     let camera = &runtime.camera;
     let mut payload = json!({
-        "zoom": (camera.zoom * 1000.0).round() / 1000.0,
-        "pan_x_px": camera.pan_x_px.round() as i32,
-        "pan_y_px": camera.pan_y_px.round() as i32,
+        "zoom": camera.zoom,
+        "pan_x_px": camera.pan_x_px,
+        "pan_y_px": camera.pan_y_px,
     });
     let Some((width, height)) = runtime.last_canvas_size else {
         return payload;
@@ -119,6 +119,17 @@ mod tests {
                 .unwrap()
                 < 718750
         );
+    }
+    #[test]
+    fn camera_payload_preserves_fractional_inputs_for_shared_snap() {
+        let mut runtime = BevyRuntimeState::default();
+        runtime.camera.pan_x_px = 0.6;
+        runtime.camera.pan_y_px = -0.6;
+        runtime.camera.zoom = 1.23456789;
+        let payload = camera_payload(&runtime);
+        assert_eq!(payload["pan_x_px"], json!(0.6));
+        assert_eq!(payload["pan_y_px"], json!(-0.6));
+        assert_eq!(payload["zoom"], json!(1.23456789));
     }
     #[test]
     fn no_world_or_invalid_viewport_omits_query_bounds() {
