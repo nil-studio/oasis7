@@ -299,6 +299,8 @@ workspace crate 缓存仅作有界加速：普通构建与正式进程构建使�
 
 共享原生、ECS、Release Web、Linux/Windows/macOS 原生及同族 Testnet Linux packaging 依赖缓存 writer 同样受完整仓库预算约束。自动 post 保存须在原清理与压缩完成后、任何远端预留或上传前，按最终待上传归档的真实字节重新清点；不得用 job 启动前的库存、历史包大小或原始 target 大小代替本次上传量。
 
+Web WASM 依赖缓存应有独立于产品发布成功的持续刷新入口，沿用同一缓存族、完整构建上下文和总容量预算。刷新不创建 tag、发布包或测试资格；消费者继续完成原有构建、ABI 与浏览器验证。迁移只允许一个有效写入者，首次刷新须确认旧版本写入任务已结束。验收区分归档恢复、实际编译复用与真实保存成功；过旧缓存或单次暖样本不能代替普通 Rust CI 的端到端十分钟及成功样本 P95。
+
 上游调用形式变化、归档缺失/变化或准入查询失败时跳过缓存上传，继续保留原构建与测试结果。保持现有 key、restore 范围、cache version 和成功后保存语义，候选不新增写入权限。
 
 Release 同样只允许 source plan、实际 checkout、事件与 workflow SHA 一致的可信 main 成功构建写入，其他 ref、历史 tag 和失败构建不得通过这些 cache action 保存。Release 保留既有缓存 token scope，此处保存限制由 action 条件和上传准入执行；Testnet 候选仍由独立 job 使用只读 token。

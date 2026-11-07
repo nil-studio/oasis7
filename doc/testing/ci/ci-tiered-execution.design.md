@@ -263,7 +263,11 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 目标使用配置中明确登记的默认 feature 设置与显式 features；声明 `test_tier_required` 的目标启用该 feature。Game Client 使用默认 features，与原 support library 入口相同；不能把该包没有 feature 声明当成永久不变量。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
 
-Game Client 的 `dev_test_service_cli.rs` 只承接参数分派与调用适配。私有配置的文件类型、权限、UID 校验和请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变；这些实现及公共命令入口变化继续扩测。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
+Game Client 的 `dev_test_service_cli.rs` 只承接原 `dev-test-serve`、`dev-test-call` 的参数分派与调用适配。Linux 本地身份代理的 `dev-test-local-serve`、`dev-test-local-call` 由可信公共分派入口按完整命令名提前交给未登记的 `dev_test_local_adapter`，平台条件、模型请求解码和本地身份校验均留在该模块；这些输入与公共分派入口变化继续扩测，不能进入 legacy 私有叶子的快速合同。私有配置的文件类型、权限、UID 校验和原请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
+
+边界回归同时使用真实 legacy 源码的正例与独立的带平台属性源码负例；后者不能随生产文件拆分而失去保守保护。完整仓库中的普通函数体变化及预览的注释变化都必须得到原五个完整 targets、inline/support 转交和三包 all-targets Clippy；Linux 代理、公共分派、身份或混合输入仍保留原必要范围。本地代理的命令兼容与跨 UID 成功、拒绝、权限和恢复由真实二进制及既有 Linux 进程夹具验证，不以同 UID 模拟替代内核主体校验。
+
+完整 Game Client support 在原 library 与 strict Clippy 之外执行 legacy 服务、本地传输和本地命令三个完整 integration targets；一次性 GitHub-hosted Linux runner 还构建真实 binary，由 root 所有的有限时进程组执行既有跨 UID 夹具。夹具仅复制本次 binary 和合成材料到 root 拥有的临时目录，私有材料另置 `0700` 子目录，保留获准／未获准主体、不可读私有文件、用途／版本、撤销／过期和滴流后重连断言；信号、断言或清理失败均不能完成 support。CI 缺失 Linux／hosted 身份或提权能力直接失败，不降为跳过；本地普通用户只运行可执行的 Cargo 合同，明确报告跨 UID 未执行，完整验收仍需隔离 Linux 证据。该入口仅随实际 Game Client support 执行，legacy 快速合同的五个目标保持不变。
 
 调用库存覆盖全部 workspace 的 Rust 宏来源及实际 include 输入，不能因导出宏没有普通依赖边就忽略它。raw identifier 按真实标识符比较，未知宏参数和模板保持保守；消费者依赖闭包出现未经审定的本地 proc-macro 时回退，不尝试分析任意常量生成的 Rust 源码。独立本地 commands 模块及标准断言中的普通字段、索引和值不作为公共 CLI 路线；本地断言宏覆盖、别名导入和 macro_use 不能借这个表达式例外放行。
 
@@ -556,6 +560,12 @@ registry 下载内容与 target 编译产物分别核对复用价值。当前固
 缓存可能被驱逐，保存后的 Cargo 清理也可能丢弃不活跃依赖；缺少产物仍由原命令补齐，不能承诺全部 fresh。不同 target/profile 可以共存；此版保留 Web 发布、ECS `ecs` profile 与 Formal workspace 的专用生产路径，以免这些构建的发布频率或源码恢复合同绑到主缓存。
 
 Testnet / Mainnet / ECS Web 与 Release Web gate 只读取 `release-packages-web-wasm-trusted-v3`；唯一 writer 是 Release `build-web-dist` 的成功 main 构建，计划源码和 workflow SHA 必须同时等于 event SHA。Web cache 前仅保留固定 stable，ECS Web 在 job 范围补齐相同 Cargo 环境。
+
+Web 缓存生产者迁移承接 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。上述 Release writer 是当前接线；目标是由现有 `rust-cache.yml` 的独立 `web-wasm-cache` job 持续刷新同一 v3 族，并使 Release `build-web-dist` 只读。两种接线只在合同准备阶段受支持：测试要求 workflow、job、admission 身份、写入权限及预算转发形成完整且互斥的一组，双 writer、零 writer、未知身份或半迁移均失败。先将兼容合同纳入可信 BASE，再用原子改动切换生产接线；不改变 selector 或可信 Python 执行器来避开旧合同。
+
+迁移后的 producer 只接受当前 main 的 schedule 或 `run_mode=full` 手动事件，checkout、事件、workflow 和 REST run 身份一致；使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 构建及校验过的 Trunk 安装器，不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 admission、20 GB 总预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
+
+两个 Viewer reader 的迁移合同只接受原 native-v4 配置，或同一 Web-v3、stable-only 工具链及默认环境指纹的完整配置；仍为只读，原 npm、wasm-bindgen、ABI、安全浏览器及性能验证保持。其他 native reader 不改变。真实 seed 以上传完成为准，并在同一候选上核对恢复 key、编译复用、准备成本和原验证结果；老归档前缀恢复可能清理过期编译产物，不能仅用下载成功认定暖缓存。合同准备不代表新 producer 或 reader 已上线，实际切换与 hosted 验收由后续实现完成。
 
 ECS 原生独立迁移到 `oasis7-ecs-native-linux-ecs-v2`，仍只允许既有 main 可信 lane 成功保存。计划源码缺少新工具链 helper 的历史包跳过这一 Rust 缓存路径，继续原冷构建；不能把缺失 helper 的空指纹作为新族写入。
 
