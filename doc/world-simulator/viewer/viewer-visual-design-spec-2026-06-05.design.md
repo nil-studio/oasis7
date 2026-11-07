@@ -86,6 +86,8 @@ Keep HUD, controls, CJK text, labels and original receipts independently legible
 
 The inspected production path remains [Rust/Bevy `Camera2d`](../../../crates/pixel_world_bridge/src/lib.rs) through WASM; the [canonical canvas](../../../crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx) already receives [CSS `image-rendering: pixelated` / `crisp-edges`](../../../crates/oasis7_viewer/viewer.html). That CSS is not proof of a fixed low-resolution RenderTarget, nearest texture sampling, integer scaling, camera pixel snapping or an integrated sprite loader. Those are implementation and candidate-verification targets; the design assets do not establish a new production renderer or JS fallback. Check source-pixel edges, scaled silhouettes and independent text at desktop/narrow sizes through the existing [visual review gate](#13-visual-review-gate) and [content validation](viewer-world-visual-content-delivery.manual.md#visual-content-target-validation); static references do not prove production GPU output.
 
+Production coordinate, variable RenderTarget size, framebuffer integer scaling, CSS-space LOD/hit targets and resource recovery are specified in the [production pixel coordinate contract](viewer-pixel-world-player-readable-rendering.design.md#production-pixel-coordinate-contract). These are implementation targets; the illustrative 320×180 scene does not determine production viewport size.
+
 ### 7.2 Surface Hierarchy
 
 | Level | Purpose | Examples | Prominence |

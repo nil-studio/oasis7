@@ -2,6 +2,9 @@
 use super::agent_service_io::{
     AgentServiceIoJob, AgentServiceIoOperation, AgentServiceIoResult, AgentServiceProgress,
 };
+#[cfg(test)]
+use super::agent_service_worker_cleanup::IterationGate;
+use super::agent_service_worker_cleanup::Workers;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -35,6 +38,9 @@ fn apply_error_class(execute_error: Option<&str>, apply_error: Option<&str>) -> 
 }
 
 pub(super) struct IoDiagnostics {
+    pub(super) workers: std::sync::Mutex<Vec<Workers>>,
+    #[cfg(test)]
+    pub(super) iteration_gate: std::sync::Mutex<Option<IterationGate>>,
     origin: Instant,
     state: AtomicU64,
     queued: AtomicU64,
@@ -62,6 +68,9 @@ pub(super) struct IoDiagnostics {
 impl Default for IoDiagnostics {
     fn default() -> Self {
         Self {
+            workers: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            iteration_gate: std::sync::Mutex::new(None),
             origin: Instant::now(),
             state: AtomicU64::new(0),
             queued: AtomicU64::new(0),

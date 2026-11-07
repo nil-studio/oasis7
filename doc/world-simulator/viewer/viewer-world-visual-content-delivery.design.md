@@ -153,6 +153,36 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 | `depot` | 32×32；中心 `(16,16)`、入口 `(16,32)` | 场景实例 `(96,64)`；不编码 Micro Depot 业务状态 |
 | `agent` | 16×16；脚点 `(8,15)` | 独立静态精灵；身份／选择／权限由上层文字和边框表达，同位候选仍用集合标记 |
 
+<a id="terrain-material-mapping"></a>
+#### 真实地形素材映射
+
+#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。当前 world_view_projection.rs 的 location record 未提供 fragment_profile 且位置非 current，本地代码沿[生成地形来源证明](external-agent-world-view.design.md#local-terrain-source-proof)补齐获准 fragment 与时效，远端缺证明保持无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
+
+| 获准输入 | 素材键与独立预期 | 未知及限制 |
+| --- | --- | --- |
+| `fragment_profile.blocks.blocks[].compounds.ppm` 中正数最大项；同值按键字典序 | Detail 使用共享 `ore` 的纹理轮廓，保留既有 dominant_compound 色板作为组成语义层 | 全空/全零为 unknown，仅用中性色块，不显示 ore；已知组成不声明库存、品位、价值或可采能力 |
+| block 的 origin_cm、size_cm，location.pos/profile.radius_cm | 沿当前 fragment 中心和 footprint_cm；纹理中心 `(8,8)` 对齐 patch 中心，在原 footprint 内采样 | tile 只是表现单位，不新增世界格子；不使用 scene 实例位置 |
+| 无道路、植被事实 | 本轮不启用 path、grass、tree、scrub、rock、ground-alt | 不用装饰填充成可识别道路、树林或矿床；ground 也不铺设为新的世界底图 |
+
+屏幕单位、整数采样与相机只引用[统一坐标合同](viewer-pixel-world-player-readable-rendering.design.md#production-pixel-coordinate-contract)。LOD 仍按 CSS footprint：固定 1.49 隐藏，1.5 与 9.99 使用原简化色块，10 起使用 Detail 纹理；不因 DPR 或纹理原尺寸改变阈值。源 atlas 的 ore 轮廓只承载纹理，组成色仍由原色板负责，不能把 atlas 固定颜色解释为另一组成。
+
+每次投影按当前列表完整 reconcile；fragment 的 location/index 键只用于当帧资源复用，重排后必须同时更新位置、组成和材质，不作为持久身份。删除、失权、换世界、缺 bounds 应清空主体及附属层；恢复只重建当前投影。地形没有 hit target，不遮盖 Actor/语义标记。固定回归应以两块不同组成交换顺序、移除一块、cut 失配及换世界为空集验证，不仅检查实体数。
+
+<a id="facility-material-mapping"></a>
+#### 真实设施素材映射
+
+#5559 沿生产 factory entity 的 entity_id、render_record 与 provenance 进入 `host_world_view.rs`，再消费既有 module visual 与 Web 目标。当前 adapter 仅输出 kind=factory，尚不具备启用 Smelter 外壳的类型事实；原类型字段已由 world_view_projection.rs 从 snapshot.model.factories[id].kind 写入 render_record.kind；实现须核对 Web allowlist 并在 Rust adapter 显式传递，不能从 label、recipe、manifest 展示名称或私有 snapshot 猜测。
+
+| 输入及来源 | 外壳与锚点 | 独立预期 |
+| --- | --- | --- |
+| 当前获准 factory，仅通用 kind 或未知/不支持具体类型 | 既有中性 factory glyph；原 pos 或合法 location anchor | 名称为 Smelter 也保持通用，不显示金色外壳 |
+| 当前获准 projection 明确携带原 authority 的 `factory.smelter.mk1` 类型 | 共享 smelter 48×48；局部中心 `(24,24)` 对齐既有设施锚点，入口 `(24,48)` 仅图形局部点 | 不将入口推为世界连接、导航终点或生产位置；类型映射必须随实际 DTO 字段合同交付后启用 |
+| 既有 Micro Depot 输入和状态 | 共享 depot 32×32，中心 `(16,16)` 对齐原可信设施锚点；入口 `(16,32)` 仅外观 | 原 facility_glyph 状态标记、stock_runway_ratio 和 stock_throughput_text 分层保留；金色不表示成功 |
+
+尺寸到屏幕和相机引用[统一坐标合同](viewer-pixel-world-player-readable-rendering.design.md#production-pixel-coordinate-contract)，不采用 scene 固定实例位置。没有可信锚点不补造位置；过期、cut 失配或撤权时不保留外壳、读数及命中。外壳不承载库存、吞吐、运行成功或解锁事实；缺读数保持 unknown，不填零。设施 identity 仍为原 entity_id，选中/可访问目标沿原来源，装饰和入口不新增目标。
+
+固定回归至少覆盖：同一 entity_id 从已知类型改为 unknown 后立即换回中性外壳；缺位置且无合法 location 时无空间命中；删除/撤权后外壳、状态、读数、命中一起清空；换世界的同名 ID 不继承旧状态；renderer 恢复仅重建当前输入，不重放 Command。真实 WASM/GPU 验证必须分别记录外壳加载、标签/选择及状态读数，不把 fixture 或外壳外观计为世界生产成功。具体类型的获准字段尚未接通前保留本项代码义务，不因本设计段落关闭 Issue。
+
 在仓库根执行 `python3 doc/world-simulator/viewer/assets/ui-ux/pixel-world/build.py` 重建；需要 Python 3、Pillow 与 PATH 中的 Inkscape。导出在原始逻辑尺寸完成，颜色和透明度经过脚本检查；不把旧平滑插画缩成马赛克。更改色板／图形时编辑 atlas，再重新生成；更改设施布局时编辑 scene 的实例并同步消费者锚点。尺寸、Smelter 相机中心和 Agent 脚点属于本次固定规格，若改变还须同步生成脚本与原型布局常量；不会由 SVG metadata 自动改变交互相机。
 
 **原型显示规则。** 以 `.world-art` 实际整数 CSS 尺寸 `W×H` 计算 `s=max(1,ceil(max(W/320,H/180)))`；图像为 `320s×180s`，围绕 `(168,88)` 居中后将整数偏移夹到 `[W−320s,0]`、`[H−180s,0]`，超出舞台的部分裁切。Agent 脚点与设施标签使用同一偏移和倍率，标签字号不乘 `s`。`ResizeObserver` 监听舞台，包含窄屏文档流和文字 200% 的高度变化；没有新增玩家相机或缩放操作。四张静态稿按其未被侧面板占据的世界区域构图：图 16 为 484×390、3×，图 17 为 1048×900、5×，工业稿为 944×844、5×；原型面板是覆盖层，按完整舞台裁切。这些是设计组合范围，不能把静态稿裁切当成已实现的响应式结果。源像素与整数 CSS 缩放也不证明任意 DPR、浏览器 zoom 或 GPU 采样均已逐物理像素对齐。

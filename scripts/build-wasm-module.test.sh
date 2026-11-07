@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Exercise the real wrapper with an isolated, fail-closed Docker model. No daemon,
-# Cargo, toolchain, or shared cache is used. Barriers model image publication,
+# Exercise the real wrapper with an isolated, fail-closed Docker model. No daemon
+# or shared cache is used; the workspace regression below uses tiny private
+# Cargo fixtures without product dependencies. Barriers model image publication,
 # not timing sleeps or a command that disappears when the defect is repaired.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python3 - "$ROOT_DIR" <<'PY'
@@ -395,3 +396,8 @@ else:
 
 unittest.main(argv=[sys.argv[0]], verbosity=2)
 PY
+
+# Keep the batch owner and its image workspace contract on the existing
+# canonical wrapper regression entry used by CI.
+bash "$ROOT_DIR/scripts/build-builtin-wasm-candidate-batch.test.sh"
+bash "$ROOT_DIR/scripts/build-wasm-builder-workspace.test.sh"

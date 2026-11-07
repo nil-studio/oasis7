@@ -155,15 +155,25 @@ pub(super) fn prepare(
         ))?;
     }
     for (id, l) in &snapshot.model.locations {
-        push(entity(
+        let terrain_current = authority.terrain_current(l);
+        let record = if terrain_current {
+            crate::viewer::world_view_authority::terrain_render_record(l)
+        } else {
+            json!({"id":l.id,"name":l.name,"pos":l.pos,"resources":l.resources})
+        };
+        let mut object = entity(
             "location",
             id,
             &l.name,
-            json!({"id":l.id,"name":l.name,"pos":l.pos,"resources":l.resources}),
-            (json!(l.pos), "location_derived", false),
+            record,
+            (json!(l.pos), "location_derived", terrain_current),
             snapshot,
             authority,
-        ))?;
+        );
+        if terrain_current {
+            object.value["provenance"]["source_ref"] = json!("local_generated_terrain_cut");
+        }
+        push(object)?;
     }
     for (id, f) in &snapshot.model.factories {
         let (position, location, geometry, explicit) =

@@ -366,3 +366,33 @@ Stop-ship visual findings for later implementation: terrain louder than relevant
 品牌值沿 [brand system](viewer-brand-system-2026-06-05.design.md)，总体视觉沿 [visual specification](viewer-visual-design-spec-2026-06-05.design.md)，关系权威沿 [semantic positioning](viewer-pixel-world-semantic-positioning.design.md#relation-authority-boundary)，LOD沿 [fragment LOD](viewer-pixel-world-fragment-lod.design.md#terrain-lod-boundary)，分层证据沿 [bridge rendering](viewer-pixel-world-bridge-rendering.design.md#render-reconcile-validation)。
 
 密集场景的真实可选性、CJK实际字体宽度、HUD遮挡、低高度布局、GPU失效恢复与真人理解仍需对应证据；静态图与源码常量不能关闭这些风险。既有原操作关联、权限与source/freshness表达不足时，保留合法文本而不制造图形事实。
+
+
+<a id="production-pixel-coordinate-contract"></a>
+### 生产像素坐标合同
+
+本节为 #5557 的设计目标，生产实现与 GPU 验收尚未交付。Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3。
+
+世界位置与探索权限继续使用原 projection。生产世界层采用可变尺寸 RenderTarget，640×360 是放大档位基准而非世界底图。令 canvas 实测 CSS 尺寸为 C，实际 framebuffer 整数尺寸为 F（配置时各轴 floor(C×devicePixelRatio)，读回实际值）；整数放大倍率 s=max(1,floor(min(Fw/640,Fh/360)))，逻辑尺寸 L 各轴为 floor(F/s)。剩余 framebuffer 像素用 o=floor((F-sL)/2) 居中，右/下承担奇数余量。零尺寸暂停渲染并不创建零尺寸纹理；恢复正尺寸重新配置。小视口 s=1，不裁成固定 16:9，也不放大虚构世界输入。
+
+| CSS C | DPR | F | s | L | 左/上余量 o |
+| --- | --- | --- | --- | --- | --- |
+| 1280×720 | 1 | 1280×720 | 2 | 640×360 | 0,0 |
+| 1280×720 | 2 | 2560×1440 | 4 | 640×360 | 0,0 |
+| 390×844 | 1 | 390×844 | 1 | 390×844 | 0,0 |
+| 390×844 | 2 | 780×1688 | 1 | 780×1688 | 0,0 |
+| 1365×768 | 1 | 1365×768 | 2 | 682×384 | 0,0 |
+
+窄屏 DPR 2 的结果有意保留原生采样，不能宣称所有 DPR 的素材 CSS 大小相等。浏览器缩放后重读 C、DPR 与 F，不假定缩放等于相机 zoom。
+
+世界投影先在 CSS 空间沿现有公式计算：每轴 b=20+clamp(position/extent,0,1)×max(C-40,1)，p=C/2+(b-C/2)×max(zoom,0.5)+pan；相机 pan 保持 CSS px。再映射 q=(p×F/C-o)/s。将相机平移单独换算为 t=pan×F/C/s，取 t_snap=floor(t+0.5)，再以 q_snap=q-t+t_snap 作为各对象的共同相机空间位置；对象脚点使用 floor(q_snap+0.5)。相机与对象都使用半值向正方向的取整，绝不分别按 sprite 中心与脚点对齐。下文 round(q) 专指 floor(q_snap+0.5)，不可再用未对齐的 pan 独立计算标签或命中。显示坐标为 (s×round(q)+o)×C/F；nearest sampler 和 nearest 合成共同生效。世界边缘余量保持 20 CSS px，不能误改成 20 低分辨率像素。
+
+鼠标先减 canvas rect 左上角，在 CSS 空间计算；若落入合成余量则无世界命中。Rust 命中中心使用上述最终显示坐标；44 CSS px 的可访问目标、标签与 footprint LOD 阈值继续以 CSS px 衡量，不能乘 DPR 或以 L 替代 C。Web Targets 消费同一布局结果，不另算一套 snap。逆投影先撤销合成及相机变换，实际 CSS pan 使用 t_snap×s×C/F，不能重新用未对齐 pan 求逆；查询可见世界边界按半个逻辑像素的 CSS 宽度向外扩张后 floor/ceil，避免 snap 后可见对象被排除。越界仍受原世界与授权范围裁剪。
+
+例如世界中心、zoom=1、pan=0 在 1280×720/DPR1 下落在逻辑 (320,180)、CSS (640,360)；zoom=2 中心不变。世界最左边界在同条件下为 CSS x=20；zoom=2 时为 -600，仍按原裁剪处理。1365×768 的中心 qx=341.25，snap 后显示 x=682，Web 和 Rust 必须使用这一值。命中不反向改变权威位置。
+
+仅地形、设施、Agent、美术关系线进入低分辨率世界层；文字、中文标签、HUD、语义提示和原回执在独立原生分辨率层合成，沿原来源、层次、密度与 reduced-motion 合同。缺位置不根据图像补造坐标。几何装饰不产生新目标或行动能力。
+
+实现消费者为 lib.rs 的 setup_scene、to_canvas_point、renderer_to_css_scale，camera_viewport 的逆变换，render_camera_fit/focus、footprint/标签布局、Rust 命中与 Web host/Targets。尺寸布局必须由同一计算结果驱动这些消费者。resize/DPR 更新原子替换 RenderTarget 与布局代次，清除旧命中缓存，再切换 ready；旧纹理、相机和合成实体按所有权释放，不能每帧累计。尺寸变化保留原 CSS pan、zoom 和身份选择；授权输入变化仍沿原导航/恢复合同。
+
+资源或 GPU 在 ready 后失效时立即使世界命中及旧布局失效，沿原故障 UI 回退，不增加 JS 世界 renderer。恢复只重建当前授权输入的图形资源和布局，不重放 Command；撤权/世界切换清除旧纹理内容、目标与标签，异步完成以世界身份和布局代次拒收旧结果。必要手算、resize、DPR1/2、zoom、密集目标、失权与恢复证据沿既有 PW-PROJECTION/PW-ACCESSIBILITY/PW-RECOVERY 方法记录；性能仍引用 view-quality，不能以本节计算替代实际 GPU 证据。

@@ -67,6 +67,17 @@ Viewer不拥有第二资源账本、任务完成规则或admission。外部execu
 
 观察焦点只控制浏览；原操作固定world/Agent/task/goal与操作身份；回执按原身份关联，缺绑定不借active_agent_id。具体映射见[主体绑定](viewer-pixel-world-player-readable-rendering.design.md#subject-binding)。目的/blocker/下一步与原结果的可读性按[质量预算](#view-quality)及专项首读验收，TaskContextPanel不能取代世界舞台成为诊断面。
 
+<a id="local-terrain-source-proof"></a>
+### 本地生成地形来源证明
+
+#5558 的本地生产路径仅在未连接 world service 且未启用 chain link 时，使用启动阶段已加载的 seed_model 作为本地生成地形 authority。它与 Runtime state 的空间证明分开：只提取每个 Location 的 id、name、pos、profile.radius_cm 与 fragment_profile.blocks，不包含资源账本、私有字段或新能力。获准 current 地形记录不附带未被该来源证明的 resources；缺资源保持未知，不填零，也不借地形时效提升库存事实。原始地形来自实际生成源，不在 Viewer 中合成或猜测。
+
+SourceAuthority 私有保存各地点上述字段的摘要，摘要集合进入 source cut key；来源种类/版本进入 scope，世界和 audience 仍沿原 cache 身份。投影候选必须同时通过原 Runtime snapshot 验证，并与该地点的生成源摘要完全相等，才以 local_generated_terrain_cut/current 发出获准 fragment 字段。缺源、位置或组成被改写、来源失效、world/epoch/audience 切换均不得借旧 current 结果；切换或拒绝后消费者沿原清理合同回收图块。摘要仅为同进程本地来源绑定，不是远端签名、用户授权凭据或公开资源承诺。
+
+远端 verified Runtime cut 不包含 simulator fragment，不能把运行态签名或本地 sidecar 旁路当成远端地形证明；没有服务明确交付且验证过的 terrain 来源时保持 unknown，不输出可绘制 fragment。新增远端地形证明不在本次实现范围。位置精度与组成仅为观察，不声明可采量、库存、道路或建造能力。
+
+验收覆盖同源正常、单字段位置/组成改写、缺源、seed 地形变更后的 cut 失效，以及 remote/unknown 调用不能获取本地证明；真实素材/GPU与组合仍由 #5558/#5555 后续承担。Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3。
+
 <a id="view-adapter"></a>
 ### 4.2 当前链路到WorldView的适配
 

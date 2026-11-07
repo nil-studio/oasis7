@@ -11,7 +11,12 @@ impl ViewerRuntimeLiveServer {
             } else {
                 spatial_state_digest(self.world.state())
                     .map(|digest| {
-                        SourceAuthority::local_bound(digest).with_events(
+                        let source = SourceAuthority::local_bound(digest);
+                        let source = match &self.seed_model {
+                            Some(model) => source.with_local_terrain(model),
+                            None => source,
+                        };
+                        source.with_events(
                             &self.world.journal().events,
                             &self.config.world_id,
                             self.reorg_epoch,
