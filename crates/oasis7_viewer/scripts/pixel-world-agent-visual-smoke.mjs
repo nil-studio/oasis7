@@ -145,7 +145,12 @@ try {
     await run(['set','viewport',String(width-40),String(height-40),String(before.dpr)]);
     await waitFor(`(${read}).ready&&(${read}).canvas?.cssWidth===${width-40}&&(${read}).canvas?.cssHeight===${height-40}`);
     assert(await evaluate('performance.timeOrigin')===resizeOrigin,'viewport emulation navigated instead of resizing');
-    await keyboardSelect(other);await settleTarget(target);await run(['click',target]);
+    const resizeReadyPng=resolve(out,`${name}-resize-ready.png`);await run(['screenshot','--full',resizeReadyPng]);
+    await verifyAgentPixels(resizeReadyPng);
+    await keyboardSelect(other);await settleTarget(target);
+    const clickReadyPng=resolve(out,`${name}-resize-click-ready.png`);await run(['screenshot','--full',clickReadyPng]);
+    await verifyAgentPixels(clickReadyPng);
+    await run(['click',target]);
     await waitFor(`document.querySelector(${JSON.stringify(target)})?.dataset.selected==='true'`);
     const resizedPng=resolve(out,`${name}-resized.png`);await run(['screenshot','--full',resizedPng]);
     const resizedPixels=await verifyAgentPixels(resizedPng);
@@ -158,6 +163,7 @@ try {
     await evaluate(`document.querySelector(${JSON.stringify(other)}).focus({preventScroll:true})`); await run(['press','Enter']);
     await waitFor(`document.querySelector(${JSON.stringify(other)})?.dataset.selected==='true'`);
     const dense=await state();
+    await run(['screenshot','--full',resolve(out,`${name}-dense.png`)]);
     assert(dense.dto.selection?.id==='agent-1','co-located keyboard selection lost Agent identity');
     assert(dense.dto.receipt_target?.agent_id===before.dto.receipt_target?.agent_id,'observing another Agent reassigned the original receipt');
     await evaluate(`(()=>{const s=JSON.parse(JSON.stringify(window.__OASIS7_AGENT_TEST_SNAPSHOT__));s.time=15;delete s.model.agents['agent-1'].pos;delete s.model.agents['agent-1'].location_id;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
