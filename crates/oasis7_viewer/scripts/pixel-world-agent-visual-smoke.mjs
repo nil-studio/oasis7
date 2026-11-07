@@ -6,13 +6,13 @@ import { createHash } from 'node:crypto';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 
 // Real WASM/WebGL evidence. Fixture results do not attest account authorization.
-const root = resolve(import.meta.dirname, '../.viewer-test-dist');
+const root = resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(import.meta.dirname, '../.viewer-test-dist'));
 const out = resolve(import.meta.dirname, '../../../output/playwright/pixel-world-agent', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(out, { recursive: true });
 const session = `pixel-agent-${process.pid}`;
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const lifecycle = createOwnedSessionLifecycle({ command, session, prefixArgs: [] });
-const summary = { source: execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', cases: [] };
+const summary = { source: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', cases: [] };
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]);
@@ -26,10 +26,27 @@ async function evaluate(code) {
   assert(result.success, JSON.stringify(result));
   return result.data.result;
 }
-const read = `(() => { const canvas=document.querySelector('#pixel-world-embedded-runtime-canvas'); const gl=canvas?.getContext('webgl2'); const debug=gl?.getExtension('WEBGL_debug_renderer_info'); return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true', dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.(), dpr:devicePixelRatio, canvas:canvas?{width:canvas.width,height:canvas.height,cssWidth:canvas.getBoundingClientRect().width,cssHeight:canvas.getBoundingClientRect().height}:null, gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null, targets:[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>({id:b.dataset.agentId,selected:b.dataset.selected,label:b.getAttribute('aria-label')}))}; })()`;
+const read = `(() => { const canvas=document.querySelector('#pixel-world-embedded-runtime-canvas'); const gl=canvas?.getContext('webgl2'); const debug=gl?.getExtension('WEBGL_debug_renderer_info'); return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true', dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.(), dpr:devicePixelRatio, viewport:{width:innerWidth,height:innerHeight}, canvas:canvas?{width:canvas.width,height:canvas.height,cssWidth:canvas.getBoundingClientRect().width,cssHeight:canvas.getBoundingClientRect().height}:null, gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null, targets:[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>({id:b.dataset.agentId,selected:b.dataset.selected,label:b.getAttribute('aria-label')}))}; })()`;
 async function state() { return JSON.parse(await evaluate(`JSON.stringify(${read})`)); }
 async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
+}
+async function verifyAgentPixels(path) {
+  const anchor=JSON.parse(await evaluate(`JSON.stringify((()=>{const r=document.querySelector('button[data-agent-id="agent-0"][data-renderer-target]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY};})())`));
+  const program=String.raw`import sys,json
+from PIL import Image
+shot=Image.open(sys.argv[1]).convert('RGB');sprite=Image.open(sys.argv[2]).convert('RGBA');a=json.loads(sys.argv[3]);scale=shot.width/a['width'];matched=total=0
+for y in range(16):
+ for x in range(16):
+  rgba=sprite.getpixel((x,y))
+  if rgba[3]!=255:continue
+  px=round((a['x']-8+x+0.5)*scale);py=round((a['y']+a['scroll']-15+y+0.5)*scale)
+  total+=1
+  if 0<=px<shot.width and 0<=py<shot.height and all(abs(shot.getpixel((px,py))[c]-rgba[c])<=3 for c in range(3)):matched+=1
+print(json.dumps({'matched':matched,'total':total,'ratio':matched/max(total,1),'scale':scale}))`;
+  const measured=JSON.parse(execFileSync('python3',['-c',program,path,resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'),JSON.stringify(anchor)],{encoding:'utf8'}));
+  assert(measured.ratio>=0.9,`shared Agent pixels absent or misaligned: ${JSON.stringify(measured)}`);
+  return measured;
 }
 const server = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -41,11 +58,11 @@ try {
   await new Promise(done=>server.listen(0,'127.0.0.1',done)); lifecycle.prepare();
   const url=`http://127.0.0.1:${server.address().port}/viewer.html?test_api=1&connect=0&locale=zh&pixel_world_visual_fixture=selected_blocker`;
   for(const [name,width,height] of [['desktop',1440,1000],['narrow',390,844],['dpr2',1440,1000]]) {
-    await run(['set','viewport',String(width),String(height),name==='dpr2'?'2':'1']); await run(['open',url]);
+    await run(['open',url]); await run(['set','viewport',String(width),String(height),name==='dpr2'?'2':'1']);
     await waitFor(`(${read}).ready`);
     await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('selected_blocker')();const auth=window.__AW_TEST__.getState();const a=s.model.agents['agent-0'];s.model.agents['agent-1']={...a,id:'agent-1',name:'独立观察目标一号长中文名称',pos:{...a.pos,x_cm:a.pos.x_cm+2000000}};for(const id of ['agent-0','agent-1']){s.model.agent_player_bindings[id]=auth.authPlayerId;s.model.agent_player_public_key_bindings[id]=auth.authPublicKey;}s.time=13;window.__OASIS7_AGENT_TEST_SNAPSHOT__=s;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
-    const before=await state(); summary.active={name,width,height,before}; assert(before.gpu,'missing GPU identity');
+    const before=await state(); summary.active={name,width,height,before}; assert(before.viewport.width===width&&before.viewport.height===height,'actual browser viewport differs from requested case'); assert(before.gpu,'missing GPU identity');
     if(name==='dpr2') assert(before.dpr===2,'DPR2 emulation did not take effect');
     await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');window.__OASIS7_AGENT_LOSS__=gl.getExtension('WEBGL_lose_context');if(!window.__OASIS7_AGENT_LOSS__)throw Error('WEBGL_lose_context unavailable');window.__OASIS7_AGENT_LOSS__.loseContext();return true;})()`);
     await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')`);
@@ -55,7 +72,9 @@ try {
     const recovered=await state();
     assert(recovered.dto.agents.some(agent=>agent.id==='agent-1'),'authorized Agent missing after renderer recovery');
     summary.active.recovered=recovered;
-    await run(['screenshot','--full',resolve(out,`${name}-recovered.png`)]);
+    const recoveredPng=resolve(out,`${name}-recovered.png`);
+    await run(['screenshot','--full',recoveredPng]);
+    summary.active.recoveredPixels=await verifyAgentPixels(recoveredPng);
     const target='button[data-agent-id="agent-0"][data-renderer-target]';
     // Native browser mouse and Enter dispatch go through the real rendered target.
     const other='button[data-agent-id="agent-1"][data-renderer-target]';
@@ -84,7 +103,11 @@ try {
     await evaluate(`window.__AW_TEST__.injectSnapshot(window.__OASIS7_AGENT_TEST_SNAPSHOT__);true`);
     await waitFor(`(${read}).ready&&(${read}).dto?.agents?.some(a=>a.id==='agent-1'&&a.pos)`);
     const restored=await state();
-    summary.cases.push({name,width,height,before,after,dense,missing,removed,restored,recovered,mouse:true,keyboard:true});
+    await evaluate(`window.__AW_TEST__.logoutHostedPlayerSession()`);
+    await waitFor(`!(${read}).ready&&(${read}).targets.length===0&&!((${read}).dto?.agents?.length)`);
+    const loggedOut=await state();
+    await run(['screenshot','--full',resolve(out,`${name}-logged-out.png`)]);
+    summary.cases.push({name,width,height,before,after,dense,missing,removed,restored,recovered,loggedOut,mouse:true,keyboard:true});
   }
   summary.status='passed';
 } catch(error) { summary.status='failed';summary.error=String(error);try{summary.failureState=await state();await run(['screenshot','--full',resolve(out,'failure.png')]);}catch{}throw error; }
