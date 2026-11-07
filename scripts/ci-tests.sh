@@ -610,7 +610,6 @@ PY_TELEMETRY
 }
 
 run_workflow_governance_baseline_contract_tests() {
-  run_engineering_telemetry_contract_tests
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run python3 ./scripts/plan-rust-required-scope.test.py
@@ -661,6 +660,7 @@ run_workflow_governance_operational_contract_tests() {
 }
 
 run_workflow_governance_contract_tests() {
+  run_engineering_telemetry_contract_tests
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests
 }

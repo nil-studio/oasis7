@@ -1434,8 +1434,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(function)
-        governance = driver.split('run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
-        self.assertEqual(governance.count('  run_engineering_telemetry_contract_tests'), 1)
+        governance = re.search(r'^run_workflow_governance_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
+        self.assertIsNotNone(governance)
+        self.assertEqual(governance.group().count('  run_engineering_telemetry_contract_tests'), 1)
         paths = (
             'scripts/engineering_telemetry.py',
             'scripts/engineering_telemetry_adapters.py',
@@ -1470,13 +1471,20 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                        "        self.assertTrue(%r)\n" %
                                        (target.name + '.ran', not (path == changed and kind == 'failing')))
                         target.write_text(content)
-                shell = ('set -euo pipefail\nrun() { "$@"; }\n' + function.group()
-                         + '\nrun_engineering_telemetry_contract_tests\n')
+                shell = ('set -euo pipefail\nrun() { "$@"; }\n'
+                         'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
+                         'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
+                         + function.group() + '\n' + governance.group()
+                         + '\nrun_workflow_governance_contract_tests\n')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
                 if kind in ('absent', 'complete'):
                     self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines()[-2:],
+                                     ['governance-baseline', 'governance-operational'])
                 else:
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn('governance-baseline', result.stdout)
+                    self.assertNotIn('governance-operational', result.stdout)
                 if kind == 'absent':
                     self.assertIn('not introduced', result.stdout)
                 if kind in ('complete', 'failing'):
