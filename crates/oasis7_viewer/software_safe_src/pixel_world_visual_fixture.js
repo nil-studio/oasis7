@@ -6,6 +6,7 @@ import {
   pixelWorldModuleVisualEntitiesFixture,
   pixelWorldRoutesAndEventsVisualFixture,
   pixelWorldPerformanceVisualFixture,
+  pixelWorldMaterialShellsVisualFixture,
 } from "./pixel_world_visual_fixture_data.js";
 
 const PIXEL_WORLD_VISUAL_FIXTURE_GLOBAL = "__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__";
@@ -182,6 +183,7 @@ export function installPixelWorldVisualFixtureHook() {
     routes_and_events: () => core.clone(pixelWorldRoutesAndEventsVisualFixture()),
     recommended_target: () => core.clone(pixelWorldRecommendedTargetVisualFixture()),
     module_visual_entities: () => core.clone(pixelWorldModuleVisualEntitiesFixture()),
+    material_shells: () => core.clone(pixelWorldMaterialShellsVisualFixture()),
     micro_depot_stock_runway: () => core.clone(pixelWorldMicroDepotStockRunwayVisualFixture()),
     performance_regular: () => pixelWorldPerformanceVisualFixture(1000),
     performance_high_load: () => pixelWorldPerformanceVisualFixture(10000),
