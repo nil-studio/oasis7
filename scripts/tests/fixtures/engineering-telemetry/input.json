@@ -1,44 +1,719 @@
 {
-  "schema_version": "oasis7-engineering-telemetry-input/v1",
+  "schema_version": "oasis7-engineering-telemetry-input/v2",
   "origin": "github",
-  "collection_id": "fixture-001",
-  "collected_at": "2026-01-01T00:00:00Z",
+  "collection_id": "synthetic-dag-001",
+  "collected_at": "2026-01-01T00:01:00Z",
+  "sample_kind": "synthetic",
   "sources": [
     {
-      "kind": "actions",
-      "reference": "fixture/actions.json",
-      "source_schema": "oasis7-engineering-telemetry-input/v1",
-      "records": [
-        {
-          "id": "select",
-          "kind": "job",
-          "run_id": 1,
-          "run_attempt": 1,
-          "job_id": 10,
-          "execution_result": "success",
-          "coverage": "partial",
-          "missing_reasons": [
-            "fixture-partial"
-          ],
-          "repository": "nil-studio/oasis7"
+      "reference": "fixture/facts.json",
+      "kind": "fixture",
+      "source_schema": "oasis7-telemetry-fixture/v1",
+      "payload": {
+        "contexts": [
+          {
+            "id": "attempt-1",
+            "repository": "nil-studio/oasis7",
+            "run_id": 101,
+            "run_attempt": 1,
+            "source_sha": "1111111111111111111111111111111111111111",
+            "tested_sha": "2222222222222222222222222222222222222222",
+            "policy_sha": "3333333333333333333333333333333333333333",
+            "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "local_invocation_id": null,
+            "dirty_inputs_digest": null,
+            "input_capture": null,
+            "created_at": "2026-01-01T00:00:00Z",
+            "gate_id": "gate",
+            "job_ids": [
+              "select",
+              "build",
+              "shard-a",
+              "shard-b",
+              "gate"
+            ],
+            "pagination_complete": true,
+            "dependencies_complete": true,
+            "conditions_complete": true
+          }
+        ],
+        "records": [
+          {
+            "id": "select",
+            "context_id": "attempt-1",
+            "kind": "job",
+            "job_id": 100,
+            "depends_on": [],
+            "job_key": "select",
+            "matrix": {},
+            "source_sha": "1111111111111111111111111111111111111111",
+            "tested_sha": "2222222222222222222222222222222222222222",
+            "policy_sha": "3333333333333333333333333333333333333333",
+            "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "started_at": "2026-01-01T00:00:00Z",
+            "completed_at": "2026-01-01T00:00:02Z",
+            "clock": "wall",
+            "execution_result": "success",
+            "condition": "true"
+          },
+          {
+            "id": "build",
+            "context_id": "attempt-1",
+            "kind": "job",
+            "job_id": 101,
+            "depends_on": [
+              "select"
+            ],
+            "job_key": "build",
+            "matrix": {},
+            "source_sha": "1111111111111111111111111111111111111111",
+            "tested_sha": "2222222222222222222222222222222222222222",
+            "policy_sha": "3333333333333333333333333333333333333333",
+            "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "started_at": "2026-01-01T00:00:02Z",
+            "completed_at": "2026-01-01T00:00:10Z",
+            "clock": "wall",
+            "execution_result": "success",
+            "condition": "true"
+          },
+          {
+            "id": "shard-a",
+            "context_id": "attempt-1",
+            "kind": "job",
+            "job_id": 102,
+            "depends_on": [
+              "build"
+            ],
+            "job_key": "shard",
+            "matrix": {
+              "shard": "a"
+            },
+            "source_sha": "1111111111111111111111111111111111111111",
+            "tested_sha": "2222222222222222222222222222222222222222",
+            "policy_sha": "3333333333333333333333333333333333333333",
+            "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "started_at": "2026-01-01T00:00:10Z",
+            "completed_at": "2026-01-01T00:00:16Z",
+            "clock": "wall",
+            "execution_result": "success",
+            "condition": "true"
+          },
+          {
+            "id": "shard-b",
+            "context_id": "attempt-1",
+            "kind": "job",
+            "job_id": 103,
+            "depends_on": [
+              "build"
+            ],
+            "job_key": "shard",
+            "matrix": {
+              "shard": "b"
+            },
+            "source_sha": "1111111111111111111111111111111111111111",
+            "tested_sha": "2222222222222222222222222222222222222222",
+            "policy_sha": "3333333333333333333333333333333333333333",
+            "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "started_at": "2026-01-01T00:00:12Z",
+            "completed_at": "2026-01-01T00:00:20Z",
+            "clock": "wall",
+            "execution_result": "success",
+            "condition": "true"
+          },
+          {
+            "id": "gate",
+            "context_id": "attempt-1",
+            "kind": "job",
+            "job_id": 104,
+            "depends_on": [
+              "shard-a",
+              "shard-b"
+            ],
+            "job_key": "gate",
+            "matrix": {},
+            "source_sha": "1111111111111111111111111111111111111111",
+            "tested_sha": "2222222222222222222222222222222222222222",
+            "policy_sha": "3333333333333333333333333333333333333333",
+            "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "started_at": "2026-01-01T00:00:20Z",
+            "completed_at": "2026-01-01T00:00:21Z",
+            "clock": "wall",
+            "execution_result": "success",
+            "condition": "true"
+          }
+        ]
+      }
+    }
+  ],
+  "contexts": [
+    {
+      "id": "attempt-1",
+      "repository": "nil-studio/oasis7",
+      "run_id": 101,
+      "run_attempt": 1,
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tested_sha": "2222222222222222222222222222222222222222",
+      "policy_sha": "3333333333333333333333333333333333333333",
+      "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "local_invocation_id": null,
+      "dirty_inputs_digest": null,
+      "input_capture": null,
+      "created_at": "2026-01-01T00:00:00Z",
+      "gate_id": "gate",
+      "job_ids": [
+        "select",
+        "build",
+        "shard-a",
+        "shard-b",
+        "gate"
+      ],
+      "pagination_complete": true,
+      "dependencies_complete": true,
+      "conditions_complete": true,
+      "field_sources": {
+        "repository": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/repository"
         },
-        {
-          "id": "build",
-          "kind": "job",
-          "run_id": 1,
-          "run_attempt": 1,
-          "job_id": 11,
-          "depends_on": [
-            "select"
-          ],
-          "execution_result": "failure",
-          "coverage": "partial",
-          "missing_reasons": [
-            "fixture-partial"
-          ],
-          "repository": "nil-studio/oasis7"
+        "run_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/run_id"
+        },
+        "run_attempt": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/run_attempt"
+        },
+        "source_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/source_sha"
+        },
+        "tested_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/tested_sha"
+        },
+        "policy_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/policy_sha"
+        },
+        "config_digest": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/config_digest"
+        },
+        "local_invocation_id": {
+          "state": "not_applicable",
+          "reason": "github-context"
+        },
+        "dirty_inputs_digest": {
+          "state": "not_applicable",
+          "reason": "github-context"
+        },
+        "input_capture": {
+          "state": "not_applicable",
+          "reason": "github-context"
+        },
+        "created_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/created_at"
+        },
+        "gate_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/gate_id"
+        },
+        "job_ids": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/job_ids"
+        },
+        "pagination_complete": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/pagination_complete"
+        },
+        "dependencies_complete": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/dependencies_complete"
+        },
+        "conditions_complete": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/contexts/0/conditions_complete"
         }
-      ]
+      }
+    }
+  ],
+  "records": [
+    {
+      "id": "select",
+      "context_id": "attempt-1",
+      "kind": "job",
+      "job_id": 100,
+      "depends_on": [],
+      "job_key": "select",
+      "matrix": {},
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tested_sha": "2222222222222222222222222222222222222222",
+      "policy_sha": "3333333333333333333333333333333333333333",
+      "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "started_at": "2026-01-01T00:00:00Z",
+      "completed_at": "2026-01-01T00:00:02Z",
+      "clock": "wall",
+      "execution_result": "success",
+      "condition": "true",
+      "field_sources": {
+        "kind": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/kind"
+        },
+        "job_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/job_id"
+        },
+        "depends_on": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/depends_on"
+        },
+        "job_key": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/job_key"
+        },
+        "matrix": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/matrix"
+        },
+        "source_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/source_sha"
+        },
+        "tested_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/tested_sha"
+        },
+        "policy_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/policy_sha"
+        },
+        "config_digest": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/config_digest"
+        },
+        "started_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/started_at"
+        },
+        "completed_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/completed_at"
+        },
+        "clock": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/clock"
+        },
+        "execution_result": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/execution_result"
+        },
+        "condition": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/0/condition"
+        }
+      }
+    },
+    {
+      "id": "build",
+      "context_id": "attempt-1",
+      "kind": "job",
+      "job_id": 101,
+      "depends_on": [
+        "select"
+      ],
+      "job_key": "build",
+      "matrix": {},
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tested_sha": "2222222222222222222222222222222222222222",
+      "policy_sha": "3333333333333333333333333333333333333333",
+      "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "started_at": "2026-01-01T00:00:02Z",
+      "completed_at": "2026-01-01T00:00:10Z",
+      "clock": "wall",
+      "execution_result": "success",
+      "condition": "true",
+      "field_sources": {
+        "kind": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/kind"
+        },
+        "job_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/job_id"
+        },
+        "depends_on": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/depends_on"
+        },
+        "job_key": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/job_key"
+        },
+        "matrix": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/matrix"
+        },
+        "source_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/source_sha"
+        },
+        "tested_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/tested_sha"
+        },
+        "policy_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/policy_sha"
+        },
+        "config_digest": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/config_digest"
+        },
+        "started_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/started_at"
+        },
+        "completed_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/completed_at"
+        },
+        "clock": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/clock"
+        },
+        "execution_result": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/execution_result"
+        },
+        "condition": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/1/condition"
+        }
+      }
+    },
+    {
+      "id": "shard-a",
+      "context_id": "attempt-1",
+      "kind": "job",
+      "job_id": 102,
+      "depends_on": [
+        "build"
+      ],
+      "job_key": "shard",
+      "matrix": {
+        "shard": "a"
+      },
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tested_sha": "2222222222222222222222222222222222222222",
+      "policy_sha": "3333333333333333333333333333333333333333",
+      "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "started_at": "2026-01-01T00:00:10Z",
+      "completed_at": "2026-01-01T00:00:16Z",
+      "clock": "wall",
+      "execution_result": "success",
+      "condition": "true",
+      "field_sources": {
+        "kind": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/kind"
+        },
+        "job_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/job_id"
+        },
+        "depends_on": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/depends_on"
+        },
+        "job_key": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/job_key"
+        },
+        "matrix": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/matrix"
+        },
+        "source_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/source_sha"
+        },
+        "tested_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/tested_sha"
+        },
+        "policy_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/policy_sha"
+        },
+        "config_digest": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/config_digest"
+        },
+        "started_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/started_at"
+        },
+        "completed_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/completed_at"
+        },
+        "clock": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/clock"
+        },
+        "execution_result": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/execution_result"
+        },
+        "condition": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/2/condition"
+        }
+      }
+    },
+    {
+      "id": "shard-b",
+      "context_id": "attempt-1",
+      "kind": "job",
+      "job_id": 103,
+      "depends_on": [
+        "build"
+      ],
+      "job_key": "shard",
+      "matrix": {
+        "shard": "b"
+      },
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tested_sha": "2222222222222222222222222222222222222222",
+      "policy_sha": "3333333333333333333333333333333333333333",
+      "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "started_at": "2026-01-01T00:00:12Z",
+      "completed_at": "2026-01-01T00:00:20Z",
+      "clock": "wall",
+      "execution_result": "success",
+      "condition": "true",
+      "field_sources": {
+        "kind": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/kind"
+        },
+        "job_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/job_id"
+        },
+        "depends_on": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/depends_on"
+        },
+        "job_key": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/job_key"
+        },
+        "matrix": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/matrix"
+        },
+        "source_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/source_sha"
+        },
+        "tested_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/tested_sha"
+        },
+        "policy_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/policy_sha"
+        },
+        "config_digest": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/config_digest"
+        },
+        "started_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/started_at"
+        },
+        "completed_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/completed_at"
+        },
+        "clock": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/clock"
+        },
+        "execution_result": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/execution_result"
+        },
+        "condition": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/3/condition"
+        }
+      }
+    },
+    {
+      "id": "gate",
+      "context_id": "attempt-1",
+      "kind": "job",
+      "job_id": 104,
+      "depends_on": [
+        "shard-a",
+        "shard-b"
+      ],
+      "job_key": "gate",
+      "matrix": {},
+      "source_sha": "1111111111111111111111111111111111111111",
+      "tested_sha": "2222222222222222222222222222222222222222",
+      "policy_sha": "3333333333333333333333333333333333333333",
+      "config_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "started_at": "2026-01-01T00:00:20Z",
+      "completed_at": "2026-01-01T00:00:21Z",
+      "clock": "wall",
+      "execution_result": "success",
+      "condition": "true",
+      "field_sources": {
+        "kind": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/kind"
+        },
+        "job_id": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/job_id"
+        },
+        "depends_on": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/depends_on"
+        },
+        "job_key": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/job_key"
+        },
+        "matrix": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/matrix"
+        },
+        "source_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/source_sha"
+        },
+        "tested_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/tested_sha"
+        },
+        "policy_sha": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/policy_sha"
+        },
+        "config_digest": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/config_digest"
+        },
+        "started_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/started_at"
+        },
+        "completed_at": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/completed_at"
+        },
+        "clock": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/clock"
+        },
+        "execution_result": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/execution_result"
+        },
+        "condition": {
+          "state": "known",
+          "reference": "fixture/facts.json",
+          "pointer": "/records/4/condition"
+        }
+      }
     }
   ]
 }
