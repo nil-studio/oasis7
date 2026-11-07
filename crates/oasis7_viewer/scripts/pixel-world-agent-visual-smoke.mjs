@@ -85,4 +85,8 @@ try {
   }
   summary.status='passed';
 } catch(error) { summary.status='failed';summary.error=String(error);try{summary.failureState=await state();await run(['screenshot','--full',resolve(out,'failure.png')]);}catch{}throw error; }
-finally { writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2));lifecycle.close();await new Promise(done=>server.close(done));console.log(out); }
+finally {
+  try { writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2)); }
+  finally { lifecycle.close(); await new Promise(done=>server.close(done)); }
+  console.log(out);
+}
