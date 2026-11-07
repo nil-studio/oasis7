@@ -68,8 +68,10 @@ def runtime(root, profile, metadata, material):
         phases = {}
         # The original world status glyph is centered and native stock/throughput
         # readouts sit above it. The source lower quarter lies below their
-        # footprints at every pixel unit; test its full seven-color pattern.
-        region = (0, 24, 32, 32)
+        # footprints at every pixel unit; include the lower left frame so every
+        # opaque source color participates in the spatial pattern.
+        regions = [(0, 24, 32, 32), (6, 18, 8, 22)]
+        expected_colors = {rgba[:3] for rgba in source.getdata() if rgba[3] == 255}
         for phase, shot in shots.items():
             matched = total = full_matched = full_total = 0
             colors = set()
@@ -83,18 +85,18 @@ def runtime(root, profile, metadata, material):
                     ok = all(abs(shot.getpixel((px, py))[ch] - rgba[ch]) <= 3 for ch in range(3))
                     full_total += 1
                     full_matched += ok
-                    if region[0] <= x < region[2] and region[1] <= y < region[3]:
+                    if any(r[0] <= x < r[2] and r[1] <= y < r[3] for r in regions):
                         total += 1
                         matched += ok
                         if ok:
                             colors.add(rgba[:3])
             ratio = matched / max(total, 1)
             phases[phase] = {"matched": matched, "total": total, "ratio": ratio,
-                             "matchedSourceColorClasses": len(colors),
+                             "matchedSourceColorClasses": len(colors), "matchedSourceColors": [list(c) for c in sorted(colors)],
                              "fullSourceDiagnostic": {"matched": full_matched, "total": full_total, "ratio": full_matched / max(full_total, 1)},
-                             "passed": ratio <= 0.05 if phase in ["absent", "deleted"] else ratio >= 0.95 and len(colors) >= 4}
+                             "passed": ratio <= 0.05 if phase in ["absent", "deleted"] else ratio >= 0.95 and colors == expected_colors}
         return {"passed": all(p["passed"] for p in phases.values()), "source": "depot.png",
-                "sourceRegion": region, "scope": "unoccluded lower-quarter source pattern; original status glyph and native readouts retain foreground ownership",
+                "sourceRegions": regions, "expectedSourceColors": [list(c) for c in sorted(expected_colors)], "scope": "unoccluded lower-quarter and left-frame patterns; every opaque source color; semantic foregrounds retained",
                 "unit": [ux, uy], "phases": phases}
 
     def linear(v):
@@ -109,10 +111,13 @@ def runtime(root, profile, metadata, material):
     # the negative-control framebuffer, excluding pixels occluded by old details.
     alpha = round((0.38 + 0.28) * 255) / 255
     initial, absent = shots["initial"], shots["absent"]
+    expected_colors = {rgba[:3] for rgba in source.getdata() if rgba[3] == 255}
     best = None
     for phase_x in [-0.5, 0, 0.5]:
         for phase_y in [-0.5, 0, 0.5]:
             matched = total = transparent = unchanged = changed = 0
+            matched_colors = set()
+            sampled_colors = set()
             for py in range(math.ceil((cy - 20) * scale), math.floor((cy + 20) * scale)):
                 for px in range(math.ceil((cx - 20) * scale), math.floor((cx + 20) * scale)):
                     sample_x = (math.floor((px + 0.5) / scale * c["width"] / c["cssWidth"] / step) + 0.5 + phase_x) * ux
@@ -128,10 +133,16 @@ def runtime(root, profile, metadata, material):
                     else:
                         total += 1
                         expected = [srgb(alpha * linear(rgba[ch]) + (1 - alpha) * linear(base[ch])) for ch in range(3)]
-                        matched += max(abs(known[ch] - expected[ch]) for ch in range(3)) <= 5
+                        sampled_colors.add(rgba[:3])
+                        ok = max(abs(known[ch] - expected[ch]) for ch in range(3)) <= 5
+                        matched += ok
+                        if ok:
+                            matched_colors.add(rgba[:3])
             result = {"matched": matched, "total": total, "ratio": matched / max(total, 1),
                       "transparent": transparent, "transparentUnchanged": unchanged,
-                      "changedPixels": changed, "rasterPhaseLogicalPixels": [phase_x, phase_y]}
+                      "changedPixels": changed, "rasterPhaseLogicalPixels": [phase_x, phase_y],
+                      "sampledSourceColors": [list(c) for c in sorted(sampled_colors)],
+                      "matchedSourceColors": [list(c) for c in sorted(matched_colors)]}
             if best is None or result["ratio"] > best["ratio"]:
                 best = result
     roi = (math.floor((cx - 20) * scale), math.floor((cy - 20) * scale),
@@ -141,8 +152,9 @@ def runtime(root, profile, metadata, material):
     deletion_changed = sum(a != b for a, b in zip(initial.crop(roi).getdata(), shots["deleted"].crop(roi).getdata()))
     passed = (deletion_changed > 100 and best["total"] >= 100 and best["ratio"] >= 0.75 and best["changedPixels"] > 100
               and best["transparent"] > 0 and best["transparentUnchanged"] / best["transparent"] >= 0.95
-              and all(restoration.values()))
+              and all(restoration.values()) and best["matchedSourceColors"] == [list(c) for c in sorted(expected_colors)])
     return {"passed": passed, "source": "ore.png", "alpha": alpha, "blendModel": "sRGB decoded linear alpha over same-color base negative control",
+            "expectedSourceColors": [list(c) for c in sorted(expected_colors)],
             "sourcePixelMatch": best, "deletionChangedPixels": deletion_changed, "roi": roi, "exactRestoration": restoration}
 
 
