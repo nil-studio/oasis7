@@ -61,12 +61,14 @@ const httpServer = createServer((req, res) => {
     let bytes = readFileSync(p);
     if (extname(p) === '.html') {
       const html = bytes.toString(), pattern = /<script\b[^>]*id=["']oasis7-viewer-runtime-config["'][^>]*>[\s\S]*?<\/script>/gi;
-      assert((html.match(pattern) || []).length === 1, 'expected exactly one trusted runtime config');
+      const configCount = (html.match(pattern) || []).length;
+      assert(configCount <= 1, 'duplicate trusted runtime config');
       const config = { deploymentMode: 'hosted_public_join', viewerWsEndpoint: `ws://127.0.0.1:${httpServer.address().port}/qa-world-ws` };
-      bytes = Buffer.from(html.replace(pattern, `<script id="oasis7-viewer-runtime-config" type="application/json">${JSON.stringify(config)}</script>`));
+      const configScript = `<script id="oasis7-viewer-runtime-config" type="application/json">${JSON.stringify(config)}</script>`;
+      bytes = Buffer.from(configCount ? html.replace(pattern, configScript) : html.replace('</head>', configScript + '</head>'));
     }
     res.writeHead(200, { 'Content-Type': ({ '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css; charset=utf-8', '.wasm': 'application/wasm' })[extname(p)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(bytes);
-  } catch { res.writeHead(404); res.end(); }
+  } catch (error) { if (pathname.endsWith('.html')) summary.entryError = String(error); res.writeHead(404); res.end(); }
 });
 const wss = new WebSocketServer({ server: httpServer, path: '/qa-world-ws', maxPayload: 512 * 1024 });
 wss.on('connection', socket => {
