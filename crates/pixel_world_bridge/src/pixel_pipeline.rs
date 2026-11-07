@@ -8,6 +8,44 @@ thread_local! {
     static ACTIVE_LAYOUT: std::cell::Cell<Option<PixelLayout>> = const { std::cell::Cell::new(None) };
 }
 
+fn desired_frame(css: Vec2, dpr: f64) -> Option<UVec2> {
+    if !css.is_finite() || css.min_element() <= 0. || !dpr.is_finite() || dpr <= 0. {
+        return None;
+    }
+    Some(UVec2::new(
+        (css.x as f64 * dpr).floor() as u32,
+        (css.y as f64 * dpr).floor() as u32,
+    ))
+}
+
+pub(super) fn sync_canvas_backing(mut windows: Query<&mut Window, With<PrimaryWindow>>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let request = BRIDGE_SHARED.with(|shared| {
+            let browser = web_sys::window()?;
+            let selector = shared.borrow().canvas_selector.clone()?;
+            let canvas = browser
+                .document()?
+                .query_selector(&selector)
+                .ok()??
+                .dyn_into::<HtmlCanvasElement>()
+                .ok()?;
+            let rect = canvas.get_bounding_client_rect();
+            desired_frame(
+                Vec2::new(rect.width() as f32, rect.height() as f32),
+                browser.device_pixel_ratio(),
+            )
+        });
+        if let (Some(frame), Ok(mut window)) = (request, windows.single_mut()) {
+            if window.physical_width() != frame.x || window.physical_height() != frame.y {
+                window.resolution.set_physical_resolution(frame.x, frame.y);
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = &mut windows;
+}
+
 pub(super) fn window_layout(window: &Window) -> Option<PixelLayout> {
     #[cfg(target_arch = "wasm32")]
     if let Some((css, frame)) = BRIDGE_SHARED.with(|shared| {
@@ -261,6 +299,15 @@ mod tests {
     #[test]
     fn dpr2_canvas_css_is_not_winit_scaled_logical_size() {
         use bevy::math::DVec2;
+        assert_eq!(
+            desired_frame(Vec2::new(1440., 1000.), 2.),
+            Some(UVec2::new(2880, 2000))
+        );
+        assert_eq!(
+            desired_frame(Vec2::new(390., 844.), 2.),
+            Some(UVec2::new(780, 1688))
+        );
+        assert!(desired_frame(Vec2::ZERO, 2.).is_none());
         // Real browser failure: CSS=1440x1000, backing=1440x1000,
         // while Winit logical dimensions were 720x500 at DPR2.
         let layout = canvas_css_layout(Vec2::new(1440., 1000.), UVec2::new(1440, 1000)).unwrap();
