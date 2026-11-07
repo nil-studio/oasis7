@@ -127,3 +127,13 @@ it('rejects an old permission-generation presentation even with the same cut',as
   release(['B']);await read;
   expect(controller.selection()?.id).not.toBe('B');
 });
+
+it('does not use the legacy snapshot fallback while worldView is awaiting a new scope',async()=>{
+  const {core,controller,read,release}=await fixture();
+  controller.resetScope();core.state.snapshot={model:{agents:{B:{id:'B'}}}};
+  controller.selectPresented({kind:'agent',id:'B'});
+  expect(controller.selectionStatus()).toBe('unavailable');
+  expect(core.applySelection).not.toHaveBeenCalled();
+  release(['B']);await read;
+  expect(controller.selection()?.id).not.toBe('B');
+});

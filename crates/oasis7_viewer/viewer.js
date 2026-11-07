@@ -21823,7 +21823,11 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		selectPresented(ref) {
 			if (disposed) return null;
 			const next = state(), view = next.view;
-			if (!view) return select(ref);
+			if (!view) {
+				if (!enabled()) return select(ref);
+				cancelPending("unavailable");
+				return null;
+			}
 			if (!enabled()) {
 				cancelPending();
 				return null;

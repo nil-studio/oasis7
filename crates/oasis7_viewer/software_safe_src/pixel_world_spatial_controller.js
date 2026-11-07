@@ -148,7 +148,10 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     selectPresented(ref) {
       if (disposed) return null;
       const next = state(), view = next.view;
-      if (!view) return select(ref);
+      if (!view) {
+        if (!enabled()) return select(ref); // Preserve the legacy snapshot path only.
+        cancelPending('unavailable');return null;
+      }
       if (!enabled()) {cancelPending();return null;}
       ref = canonicalRef(ref);
       if (!ref || typeof ref.id !== 'string' || !['agent','location','factory','industry_aggregate','world_event'].includes(ref.kind)) return null;
