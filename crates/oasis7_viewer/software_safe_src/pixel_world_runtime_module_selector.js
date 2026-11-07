@@ -29,6 +29,10 @@ export function derivePixelWorldRenderState(input) {
   return runtimeModule.derivePixelWorldRenderState(input);
 }
 
+export function readPixelWorldDisplayMetrics() {
+  return runtimeModule?.readPixelWorldDisplayMetrics?.() || {status:"uninitialized"};
+}
+
 export default async function initPixelWorldBridgeSelector() {
   await loadRuntimeModule();
 }

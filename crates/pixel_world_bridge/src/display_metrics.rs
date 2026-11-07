@@ -17,7 +17,6 @@ pub(crate) fn install(app: &mut App) {
 
 fn observe(
     runtime: Res<BevyRuntimeState>,
-    windows: Query<&Window, With<PrimaryWindow>>,
     labels: Query<(
         Entity,
         &Text2d,
@@ -33,11 +32,9 @@ fn observe(
     let mut hidden = 0;
     let mut layouts = Vec::new();
     let mut laid_out = 0;
-    let css = windows
-        .single()
-        .ok()
-        .and_then(pixel_pipeline::window_layout)
-        .map(|layout| layout.css);
+    let css = runtime
+        .last_canvas_css
+        .map(|(width, height)| bevy::math::DVec2::new(width, height));
     for (entity, text, visibility, view, layout, transform, anchor) in &labels {
         if text.0.is_empty() {
             continue;
