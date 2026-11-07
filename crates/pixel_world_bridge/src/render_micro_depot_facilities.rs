@@ -361,10 +361,7 @@ pub(super) fn reconcile_micro_depot_facilities(
             detail_transform.rotation = Quat::IDENTITY;
         }
         let detail = Sprite::from_color(Color::srgb_u8(15, 23, 42), detail_size * pixel);
-        let extra_half_height = f64::from(size) / 2.0
-            * (f64::from(rotation.sin().abs()) * (f64::from(pixel.x) - 1.0)
-                + f64::from(rotation.cos().abs()) * (f64::from(pixel.y) - 1.0));
-        let readout_offset_y = STOCK_RUNWAY_OFFSET_Y_PX + extra_half_height;
+        let readout_offset_y = readout_lane_offset(size, rotation, pixel);
         if let Some(entity) = details_by_id.get(&facility.id) {
             commands.entity(*entity).insert((detail, detail_transform));
         } else {
@@ -655,5 +652,32 @@ mod layer_tests {
             app.world().get::<Transform>(detail).unwrap().translation.z
                 < app.world().get::<Transform>(agent).unwrap().translation.z
         );
+    }
+}
+
+fn readout_lane_offset(size: f32, rotation: f32, pixel: Vec2) -> f64 {
+    let half_height = f64::from(size) / 2.0;
+    let vertical = |unit: Vec2| {
+        half_height
+            * (f64::from(rotation.sin().abs()) * f64::from(unit.x)
+                + f64::from(rotation.cos().abs()) * f64::from(unit.y))
+    };
+    let scaled = vertical(pixel);
+    // Native backing and type stay in CSS units even as the world body shrinks.
+    (STOCK_RUNWAY_OFFSET_Y_PX + scaled - vertical(Vec2::ONE))
+        .max(scaled + f64::from(STOCK_THROUGHPUT_BACKING_HEIGHT_PX) / 2.0 + 1.0)
+}
+
+#[test]
+fn native_readout_lane_never_covers_scaled_depot_body() {
+    for unit in [0.5, 1.0, 2.0, 6.0] {
+        for (size, rotation) in [(8.0, 0.0), (9.0, std::f32::consts::FRAC_PI_4)] {
+            let half_body =
+                f64::from(size * unit * (rotation.sin().abs() + rotation.cos().abs()) / 2.0);
+            let lane = readout_lane_offset(size, rotation, Vec2::splat(unit));
+            assert!(
+                lane - f64::from(STOCK_THROUGHPUT_BACKING_HEIGHT_PX) / 2.0 >= half_body + 0.99999
+            );
+        }
     }
 }

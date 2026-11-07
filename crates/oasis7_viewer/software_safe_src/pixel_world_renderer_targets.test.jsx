@@ -223,4 +223,11 @@ describe('real renderer accessible projection', () => {
     expect(offsets.get('module-0008')).toEqual({ x: -96, y: -96 });
     expect(offsets.get('module-4095')).toEqual({ x: 24576, y: 24576 });
   });
+  it('keeps co-anchor native hit boxes apart at six CSS pixels per logical pixel', () => {
+    const modules = [{id: 'a', kind: 'artifact', pos: {x_cm: 1,y_cm: 1}}, {id: 'b', kind: 'artifact', pos: {x_cm: 1,y_cm: 1}}];
+    const offsets = moduleTargetOffsets({agents: [], locations: [], moduleVisualEntities: modules}, {width:3840,height:2160}, {width:3840,height:2160});
+    expect(offsets.get('a')).toEqual({x:-102,y:-102});
+    expect(offsets.get('b')).toEqual({x:0,y:-102});
+  });
+
 });

@@ -179,6 +179,7 @@ try {
     await waitFor(`(${read}).dto?.world_tick===14`);
     await evaluate(`document.querySelector(${JSON.stringify(other)}).focus({preventScroll:true})`); await run(['press','Enter']);
     await waitFor(`document.querySelector(${JSON.stringify(other)})?.dataset.selected==='true'`);
+    await waitFor(`(${read}).dto?.selection?.id==='agent-1'`);
     const dense=await state();
     await run(['screenshot','--full',resolve(out,`${name}-dense.png`)]);
     assert(dense.dto.selection?.id==='agent-1','co-located keyboard selection lost Agent identity');

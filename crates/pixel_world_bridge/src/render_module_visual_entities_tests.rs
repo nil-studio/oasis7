@@ -343,8 +343,8 @@ fn co_anchored_module_hit_stack_keeps_agent_and_location_centers_selectable() {
 fn co_anchor_renderer_offsets_keep_the_48_css_gap_across_backing_scales() {
     for backing_scale in [1.0_f32, 1.5, 2.0] {
         let scale = Vec2::splat(backing_scale);
-        let first = module_co_anchor_offset(0, scale);
-        let second = module_co_anchor_offset(1, scale);
+        let first = module_co_anchor_offset(0, scale, Vec2::ONE);
+        let second = module_co_anchor_offset(1, scale, Vec2::ONE);
         let css_gap_x = (second.x - first.x) / backing_scale;
         let css_gap_y = (second.y - first.y) / backing_scale;
         assert!((css_gap_x - 48.0).abs() < f32::EPSILON);
@@ -633,4 +633,15 @@ fn authored_module_glyph_pixels_scale_with_world_unit_without_scaling_labels() {
         .unwrap();
     assert!((label.translation.y - center.y - 16.24264).abs() < 0.001);
     assert_eq!(font.font_size, FontSize::Px(10.));
+}
+
+#[test]
+fn large_pixel_module_slots_keep_hit_regions_separate() {
+    let pixel = Vec2::splat(6.0);
+    let first = module_co_anchor_offset(0, Vec2::ONE, pixel);
+    let second = module_co_anchor_offset(1, Vec2::ONE, pixel);
+    assert_eq!(first, Vec2::splat(-102.0));
+    assert_eq!(second.x - first.x, 102.0);
+    assert!(second.x - first.x > 2.0 * 8.0 * pixel.x);
+    assert_eq!(first.x % pixel.x, 0.0);
 }
