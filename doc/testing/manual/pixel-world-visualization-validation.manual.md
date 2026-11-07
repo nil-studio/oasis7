@@ -165,6 +165,14 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 - 持续交互：在F4里连续平移/缩放、选择、退出跟随和事件突发至少5分钟，记录可见帧间隔、输入反馈和query。静止的按需不渲染、后台节流和Runtime完成时间分别报告。
 - 长稳：同一已稳定负载执行30分钟区域往返/选择/过滤与恢复。比较预热后相同阶段的初/末窗口，记录JS、WASM、应用缓存及可获得的GPU/进程资源；无法测量的分量标unknown，不用JS heap代替全部内存。
 
+### 局部工具证据边界
+
+性能探查先检查 canonical `viewer_terminal_shell.css`：响应成功且 MIME 为 `text/css`、浏览器实际加载有规则的 stylesheet、非活动 renderer hit-only target 的背景图为 none、背景与边框透明、阴影为 none。该前置保存为 `canonical-style-prerequisite.json`；不满足时判入口无效并停止，不将缺样式造成的额外绘制耗时写作生产预算违约，也不让后续阈值通过覆盖无效入口。前置通过只证明测量入口正确，不能代签性能预算通过。
+
+`node crates/oasis7_viewer/scripts/viewer-performance-probe.mjs --agents 1000 --interaction-samples 20 --max-interaction-p95-ms 100` 使用 gated visual fixture 的正常身份对齐，再将本项受控 Agent 绑定到该身份；不建立真实服务授权。原生 Enter 的可信 keydown 时间到目标 `data-selected` 更新及两次 rAF 作为选择反馈探查，逐样本记录身份、时间和真实输入。两次 rAF 只是绘制机会，不等于屏幕光子或世界 Runtime 完成；未覆盖平移、缩放、stop、五分钟和正式 A/B。输入为空、null 或无目标时必须失败，不能用零延迟补样本。`actualProjection` 的 DTO 与 native target 数单独报告，不能从 `--agents` 的源对象数量推断可见密度。rAF 间隔也不能单独证明世界实际渲染 FPS。
+
+组合材料恢复可运行 `AGENT_VISUAL_SOURCE_HEAD=<固定构建源> MATERIAL_VISUAL_SCOPE=recovery node crates/oasis7_viewer/scripts/agent-browser-material-visual-test.mjs`。本地 HTTP QA shim 只包装原 gated `material_shells` 工厂，在每次真正页面 Reload 前提供当前受控 known/removed 输入；不保存或恢复私有 DTO，不新增生产权限 API。三个视口分别真实触发 context loss，检查失效目标清空、无自动 Reload、原生 Enter 显式重载、非空 fixture 身份及 receipt target 连续、无世界 Command 或变更 HTTP。PNG oracle 检查工厂全部源色与删除负对照，Depot 避开既有 Location 右下角框的源区域仍覆盖全部八色；矿纹使用结构化侧带检查组合画面恢复，独立矿纹消费须另用同底色 runtime oracle。它们不代签真实服务撤权、原 operation 身份或正式 P6 预算。
+
 ### 9.2 容量与过载反例
 
 测试100/1000/1001可见实体、200/201突出labels、200/201单页、2 MiB边界和超额事件；世界总量固定50000但不每帧传全量。授权后再聚合，记录实际绘制数量、关系端点和cache。关键选中/目标/blocker在裁剪后仍可达，partial不伪装对象不存在。

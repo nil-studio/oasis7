@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:f
 import { dirname, extname, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { collectNativeSelectionSamples } from "./viewer-performance-native-input.mjs";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
 import {
   VIEWER_PERF_PROFILES,
@@ -85,6 +86,7 @@ function parseArgs(argv) {
     outDir: null,
     agents: 80,
     locations: 24,
+    interactionSamples: 20,
     viewport: [1440, 1000],
     thresholds: {},
   };
@@ -101,6 +103,7 @@ function parseArgs(argv) {
       case "--out-dir": options.outDir = next(); break;
       case "--agents": options.agents = Number(next()); break;
       case "--locations": options.locations = Number(next()); break;
+      case "--interaction-samples": options.interactionSamples = positiveInteger(next(), 20); break;
       case "--viewport": {
         const [width, height] = next().split(/[x,]/).map((part) => Number(part.trim()));
         options.viewport = [width, height];
@@ -133,6 +136,7 @@ Measures the current canonical Viewer web entry in a real browser with agent-bro
 
 Options:
   --profile <smoke|release>       Threshold/duration profile (default: smoke)
+  --interaction-samples <n>      Trusted native selection inputs (default: 20)
   --duration-ms <n>               Override sampling duration
   --out-dir <path>                Artifact directory
   --agents <n>                    Synthetic agents in injected snapshot (default: 80)
@@ -156,6 +160,7 @@ function contentType(pathname) {
     case ".js":
     case ".mjs": return "text/javascript; charset=utf-8";
     case ".wasm": return "application/wasm";
+    case ".css": return "text/css; charset=utf-8";
     case ".ico": return "image/x-icon";
     case ".png": return "image/png";
     default: return "application/octet-stream";
@@ -349,7 +354,7 @@ function probeScript({ durationMs, agents, locations }) {
         }));
       };
       const rendererReadyState = await waitForRendererReady();
-      const model = { agents: {}, locations: {}, agent_prompt_profiles: {}, agent_execution_debug_contexts: {} };
+      const model = { agents: {}, locations: {}, agent_prompt_profiles: {}, agent_execution_debug_contexts: {}, agent_player_bindings: {}, agent_player_public_key_bindings: {} };
       for (let index = 0; index < ${locations}; index += 1) {
         const locationId = "loc-" + index;
         model.locations[locationId] = {
@@ -362,9 +367,12 @@ function probeScript({ durationMs, agents, locations }) {
       }
       for (let index = 0; index < ${agents}; index += 1) {
         const agentId = "agent-" + index;
+        model.agent_player_bindings[agentId] = rendererReadyState.authPlayerId;
+        model.agent_player_public_key_bindings[agentId] = rendererReadyState.authPublicKey;
         model.agents[agentId] = {
           id: agentId,
           name: "Perf Agent " + index,
+          pos: { x_cm: 1000000 + (index % 32) * 100000, y_cm: 1000000 + Math.floor(index / 32) * 60000, z_cm: 0 },
           location_id: "loc-" + (index % ${locations}),
           kind: index % 2 === 0 ? "builder" : "surveyor",
           resources: { energy: { amount: 40 + (index % 60), unit: "%" }, ore: { amount: index % 9, unit: "t" } },
@@ -460,7 +468,6 @@ function probeScript({ durationMs, agents, locations }) {
         sampleDurationMs,
         frameIntervals,
         longTasks,
-        interactionLatencies: [],
         domReadiness: {
           domInteractiveMs: navigation.domInteractive ?? null,
           domContentLoadedMs: navigation.domContentLoadedEventEnd ?? null,
@@ -487,6 +494,7 @@ function probeScript({ durationMs, agents, locations }) {
           };
         })(),
         rendererReadyState,
+        actualProjection: {agents:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.()?.agents?.length ?? null, nativeAgentTargets:document.querySelectorAll("button[data-agent-id][data-renderer-target]").length},
         finalState: api.getState ? api.getState() : null,
       });
     })()
@@ -519,7 +527,7 @@ const server = createServer(serveFile);
 try {
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const address = server.address();
-  const url = `http://127.0.0.1:${address.port}/viewer.html?test_api=1&connect=0&locale=en&hosted_bootstrap=0&t=${Date.now()}`;
+  const url = `http://127.0.0.1:${address.port}/viewer.html?test_api=1&connect=0&locale=en&hosted_bootstrap=0&pixel_world_visual_fixture=performance_regular&t=${Date.now()}`;
 
   prepareBrowserSession(); await new Promise((resolve) => setTimeout(resolve, 500));
   const cpuProcessBaseline = processSnapshot();
@@ -527,6 +535,23 @@ try {
   await runAgentBrowserJson(["open", url], { timeout: 120_000 });
   await runAgentBrowserJson(["eval", `new Promise((resolve,reject)=>{let n=0;const t=setInterval(()=>{if(window.__OASIS7_VIEWER_FIXTURE_READY__){clearInterval(t);resolve(true);}else if(++n>1200){clearInterval(t);reject(new Error("test assembly pending"));}},50);})`]);
   await runAgentBrowserJson(["set", "viewport", String(options.viewport[0]), String(options.viewport[1])]);
+  const stylePrerequisite = await evalJson(`(async()=>{
+    const result={passed:false,stylesheet:'viewer_terminal_shell.css'};
+    const link=[...document.querySelectorAll('link[rel="stylesheet"]')].find(e=>new URL(e.href).pathname.endsWith('/viewer_terminal_shell.css'));
+    if(!link)return {...result,error:'canonical stylesheet link missing'};
+    const response=await fetch(link.href);Object.assign(result,{href:link.href,status:response.status,contentType:response.headers.get('content-type')});
+    if(!response.ok||(result.contentType||'').split(';')[0].trim().toLowerCase()!=='text/css')return {...result,error:'canonical stylesheet requires successful text/css response'};
+    const deadline=performance.now()+20000;let target;
+    while(performance.now()<deadline){target=document.querySelector('.pixel-world-renderer-target:not([data-selected="true"]):not(:hover):not(:focus-visible)');if(target&&link.sheet)break;await new Promise(r=>setTimeout(r,50));}
+    try{result.cssRules=link.sheet?.cssRules.length??0;}catch(error){return {...result,error:String(error)};}
+    if(!target||!result.cssRules||link.disabled||link.sheet.disabled)return {...result,error:'canonical sheet or projected target not ready'};
+    const css=getComputedStyle(target);result.target={id:target.dataset.agentId||target.dataset.locationId||target.dataset.moduleId,projection:target.closest('.pixel-world-canvas')?.dataset.rendererProjection,backgroundImage:css.backgroundImage,backgroundColor:css.backgroundColor,borders:[css.borderTopColor,css.borderRightColor,css.borderBottomColor,css.borderLeftColor],boxShadow:css.boxShadow};
+    const clear=color=>color==='transparent'||color.replaceAll(' ','')==='rgba(0,0,0,0)';
+    result.passed=result.target.projection==='true'&&css.backgroundImage==='none'&&clear(css.backgroundColor)&&result.target.borders.every(clear)&&css.boxShadow==='none';
+    if(!result.passed)result.error='canonical hit-only target styles are not applied';return result;
+  })()`);
+  writeFileSync(join(outDir,"canonical-style-prerequisite.json"),JSON.stringify(stylePrerequisite,null,2));
+  if(!stylePrerequisite.passed)throw Error("invalid performance entry: "+JSON.stringify(stylePrerequisite));
   const cpuAttribution = establishCpuAttribution(cpuProcessBaseline);
 
   async function sampleScenario(name, agents, locations, iteration) {
@@ -558,6 +583,16 @@ try {
     denseRuns.push(await sampleScenario("dense", options.agents, options.locations, iteration));
   }
   const rawProbe = denseRuns[denseRuns.length - 1];
+  writeFileSync(join(outDir,"before-native-input.json"),JSON.stringify(rawProbe,null,2));
+  const interactionPath = join(outDir, "native-interactions.json");
+  const interactionEvidence = await collectNativeSelectionSamples({
+    evaluate: evalJson, run: args => runAgentBrowserJson(args), count: options.interactionSamples,
+    onSample: samples => writeFileSync(interactionPath, JSON.stringify({method:"trusted native Enter to selected DOM and two rAF paint opportunities",samples},null,2)),
+  });
+  rawProbe.interactionLatencies = interactionEvidence.map(sample => sample.durationMs);
+  rawProbe.interactionEvidence = interactionEvidence;
+  rawProbe.notes = [...(rawProbe.notes || []), "Interaction measures native selection UI feedback only; no Runtime/network completion, pan/zoom, stop, 5-minute interaction or formal A/B coverage is implied."];
+
   const cpuSamples = [...idleRuns, ...denseRuns].flatMap((run) => run.cpuSamples);
   const baselineRecord = (run, suffix) => {
     const measured = summarizeViewerPerformance({ runId: `${runId}-${suffix}`, thresholds, ...run });
@@ -580,6 +615,7 @@ try {
       dense: denseRuns.map((run, index) => baselineRecord(run, `dense-${index + 1}`)),
     },
   });
+  summary.canonicalStylePrerequisite=stylePrerequisite;
   summary.artifacts = { summaryJson: summaryJsonPath, summaryMarkdown: summaryMdPath, screenshot: screenshotPath };
 
   await runAgentBrowser(["screenshot", screenshotPath], { timeout: 20_000 });
