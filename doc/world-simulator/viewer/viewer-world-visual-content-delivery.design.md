@@ -158,7 +158,7 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 <a id="terrain-material-mapping"></a>
 #### 真实地形素材映射
 
-#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。当前 world_view_projection.rs 的 location record 未提供 fragment_profile 且位置非 current，本地代码沿[生成地形来源证明](external-agent-world-view.design.md#local-terrain-source-proof)补齐获准 fragment 与时效，远端缺证明保持无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
+#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。本地已加载生成源匹配的 location record 沿[生成地形来源证明](external-agent-world-view.design.md#local-terrain-source-proof)提供获准 fragment 与 current 时效（#5569 已交付）；远端缺证明保持 unknown／无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
 
 | 获准输入 | 素材键与独立预期 | 未知及限制 |
 | --- | --- | --- |
@@ -173,7 +173,7 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 <a id="facility-material-mapping"></a>
 #### 真实设施素材映射
 
-#5559 沿生产 factory entity 的 entity_id、render_record 与 provenance 进入 `host_world_view.rs`，再消费既有 module visual 与 Web 目标。当前 adapter 仅输出 kind=factory，尚不具备启用 Smelter 外壳的类型事实；原类型字段已由 world_view_projection.rs 从 snapshot.model.factories[id].kind 写入 render_record.kind；实现须核对 Web allowlist 并在 Rust adapter 显式传递，不能从 label、recipe、manifest 展示名称或私有 snapshot 猜测。
+#5559 沿生产 factory entity 的 entity_id、render_record 与 provenance 进入 `host_world_view.rs`，再消费既有 module visual 与 Web 目标。当前 adapter 保留 kind=factory 的原身份，并以可缺省 factory_kind 显式透传获准类型（#5568 已交付）；原类型字段由 world_view_projection.rs 从 snapshot.model.factories[id].kind 写入 render_record.kind。Web allowlist 与 Rust adapter 只传既有获准字段，不能从 label、recipe、manifest 展示名称或私有 snapshot 猜测；缺类型继续使用通用外观。
 
 | 输入及来源 | 外壳与锚点 | 独立预期 |
 | --- | --- | --- |
