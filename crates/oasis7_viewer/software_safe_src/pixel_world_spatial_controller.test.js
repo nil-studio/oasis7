@@ -11,6 +11,20 @@ function setup(request) {
  return {core,controller};
 }
 describe('viewport query controller',()=>{
+ it('keeps public reads available with no gameplay summary or business target',async()=>{
+  const {core,controller}=setup();
+  core.state.auth={};controller.resetScope();
+  core.buildGameplaySummary=()=>null;
+  expect(()=>controller.refresh({time:1,player_gameplay:null})).not.toThrow();
+  await Promise.resolve();await Promise.resolve();
+  expect(core.requestWorldView).toHaveBeenCalledOnce();
+  expect(core.requestWorldView.mock.lastCall[0].pinned_entities).toEqual([]);
+  await controller.returnTarget();
+  expect(core.requestWorldView).toHaveBeenCalledOnce();
+  expect(controller.navigation()).toBeNull();
+  expect(controller.selection()).toBeNull();
+  expect(core.applySelection).not.toHaveBeenCalled();
+ });
  it('coalesces camera events using only Rust bounds and ignores apply echoes',async()=>{
   vi.useFakeTimers();const {core,controller}=setup();
   controller.cameraChanged({viewport_bounds:bounds(1)});controller.cameraChanged({viewport_bounds:bounds(2)});controller.cameraChanged({viewport_bounds:bounds(3)});
