@@ -11,6 +11,7 @@ fn module_visual(id: &str, pos: Position) -> ModuleVisualEntity {
 
 fn module_visual_with_kind(id: &str, kind: &str, pos: Position) -> ModuleVisualEntity {
     ModuleVisualEntity {
+        factory_kind: None,
         id: id.to_string(),
         module_id: "opaque-module".to_string(),
         kind: kind.to_string(),
@@ -26,6 +27,7 @@ fn module_visual_with_label(
     pos: Position,
 ) -> ModuleVisualEntity {
     ModuleVisualEntity {
+        factory_kind: None,
         id: id.to_string(),
         module_id: "opaque-module".to_string(),
         kind: kind.to_string(),
