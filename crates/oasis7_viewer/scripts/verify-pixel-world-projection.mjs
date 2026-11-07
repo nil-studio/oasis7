@@ -46,5 +46,29 @@ export async function verifyPixelWorldProjection({ bindingsPath, wasmPath }) {
     assert.equal(source.lists.agents.length, count, "projection mutated the source world");
     reports.push({ sourceActors: count, richLabels, inputBytes, outputBytes, markers });
   }
+  for (const richLabels of [false,true]) {
+    const entities=Array.from({length:1000},(_,index)=>({kind:"agent",entity_id:`W${String(index).padStart(4,"0")}`,
+      render_record:{name:richLabels?"界".repeat(128):`Actor ${index}`,pos:{x_cm:index,y_cm:0,z_cm:0}},
+      provenance:{geometry_source:"authoritative",freshness:"current",valid_at_source_cut:"C"}}));
+    const input=projectPixelWorldRenderInput({worldView:{schema_version:1,world_id:"W",scope_id:"S",source_cut:"C",entities,aggregates:[],events:[],relations:[]},
+      snapshot:{model:{},config:{space:{width_cm:100000,depth_cm:100000,height_cm:1000}}},selectedKind:"agent",selectedId:"W0999"});
+    const output=runtime.build_pixel_world_render_state_json(JSON.stringify(input));
+    assert.equal(output.fatal,undefined,"actual WASM rejected world-view profile");
+    assert.equal(output.agents.length,1000);
+    assert.equal(output.display_profile,"world_view_v1");
+    assert.equal(output.display_source_cut,"C");
+    assert.ok(byteLength(input)<=2*1024*1024 && byteLength(output)<=2*1024*1024);
+    if(richLabels)assert.ok(byteLength(input)>256*1024,"Unicode fixture must cross the legacy byte boundary");
+    const invalid={...input,display_profile:"world_view_v2"};
+    assert.ok(runtime.build_pixel_world_render_state_json(JSON.stringify(invalid)).fatal,"unknown profile must fail across the real ABI");
+    if(!richLabels){
+      const legacy={...input,worldView:{...input.worldView,entities:[...input.worldView.entities.slice(0,499),input.worldView.entities.at(-1)]}};
+      delete legacy.display_profile;
+      const oldOutput=runtime.build_pixel_world_render_state_json(JSON.stringify(legacy));
+      assert.equal(oldOutput.fatal,undefined,"older V1 world-view input must remain compatible");
+      assert.ok(oldOutput.agents.length<=500 && byteLength(oldOutput)<=256*1024);
+    }
+    reports.push({profile:"world_view_v1",richLabels,inputBytes:byteLength(input),outputBytes:byteLength(output),markers:output.agents.length});
+  }
   return reports;
 }
