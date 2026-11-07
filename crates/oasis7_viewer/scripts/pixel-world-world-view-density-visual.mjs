@@ -154,17 +154,20 @@ function assertGuest(row) {
   assert(row.core?.authReady === false && row.core?.authPlayerId === null && row.core?.authPublicKey === null
     && row.core?.authRegistrationStatus === 'guest' && row.core?.authBoundAgentId === null, 'controlled observer probe acquired a player identity');
 }
+async function freezeCompleteBoundary() {
+  pauseAfterComplete = true;
+  const deadline = Date.now() + 10000;
+  while (!pauseReplies && Date.now() < deadline) await new Promise(done => setTimeout(done, 20));
+  assert(pauseReplies && !pauseAfterComplete, 'no complete wire boundary reached for observation');
+  await waitProjection(1000);
+}
 async function capture(name, labels = false) {
   await waitProjection(1000);
   if (labels) await waitFor(`(${browserState}).metrics.laid_out_in_view_labels===200&&(${browserState}).metrics.label_layouts?.length===200`);
   // Freeze future source replies only after a real complete response. Pausing
   // halfway through a new baseline would make the screenshot a partial page.
-  pauseAfterComplete = true;
   try {
-    const deadline = Date.now() + 10000;
-    while (!pauseReplies && Date.now() < deadline) await new Promise(done => setTimeout(done, 20));
-    assert(pauseReplies && !pauseAfterComplete, 'no complete wire boundary reached for screenshot');
-    await waitProjection(1000);
+    await freezeCompleteBoundary();
     await run(['wait', '1200']); const before = await state();
     const shot = resolve(out, name + '.png'); await run(['screenshot', '--full', shot]); const after = await state();
     assertGuest(before); assertGuest(after);
@@ -256,9 +259,15 @@ try {
     pauseReplies = false; release(); await overview(); await waitProjection(1000);
     const old = lastOldPage; fixture.newWorld(); await reconnect(); await waitNegotiation(true); await waitProjection(1000); summary.worldB = await state();
     assert(old?.response && old.connection, 'missing actual old-connection response for replay');
-    for (const socket of wss.clients) send(socket, connectionIds.get(socket), old.response,
-      { kind: 'old_response_on_current_socket', originalConnection: old.connection, originalRequestGeneration: old.response.view.request_generation });
-    await run(['wait', '300']); assert((await state()).metrics.source_cut === fixture.description().cut, 'old response crossed new world source fence');
+    try {
+      await freezeCompleteBoundary(); const before = await state();
+      for (const socket of wss.clients) send(socket, connectionIds.get(socket), old.response,
+        { kind: 'old_response_on_current_socket', originalConnection: old.connection, originalRequestGeneration: old.response.view.request_generation });
+      await run(['wait', '300']); const after = await state();
+      assert(after.metrics.status === 'observed' && after.metrics.source_cut === fixture.description().cut
+        && before.metrics.render_version === after.metrics.render_version, 'old response changed the observed new-world scene');
+      summary.oldResponseReplay = { before, after, originalConnection: old.connection, originalRequestGeneration: old.response.view.request_generation };
+    } finally { pauseAfterComplete = false; pauseReplies = false; release(); }
     const deniedWireStart = wire.length;
     fixture.revoke(); await reconnect(); await waitNegotiation(true);
     await waitFor(`document.querySelector('.pixel-world-exploration [role=status]')?.textContent.includes('Read unavailable')&&(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`);
