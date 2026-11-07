@@ -195,6 +195,11 @@ mod tests {
             color: [100, 110, 120],
             emphasis: None,
         }];
+        state.micro_depot_facilities = serde_json::from_value(json!([{
+            "id":"depot","facility_id":"depot","location_id":"L","status":"active",
+            "pos":{"x_cm":30,"y_cm":20,"z_cm":0},"throughput_remaining_units":7
+        }]))
+        .unwrap();
         let mut unknown_type = state.clone();
         unknown_type.module_visual_entities[0].factory_kind = None;
         assert_ne!(
@@ -223,11 +228,18 @@ mod tests {
             .world_mut()
             .spawn(Transform::from_xyz(56., 78., 1.))
             .id();
+        let depot_base = app
+            .world_mut()
+            .spawn(Transform::from_xyz(90., 12., 2.))
+            .id();
         let mut runtime = BevyRuntimeState::default();
         runtime.mounted = true;
         runtime.last_canvas_size = Some((1280, 720));
         runtime.render_state = Some(state);
         runtime.module_visual_entities.insert("F".into(), base);
+        runtime
+            .micro_depot_entities
+            .insert("depot".into(), depot_base);
         runtime
             .fragment_entities
             .insert("patch".into(), terrain_base);
@@ -238,7 +250,30 @@ mod tests {
             let world = app.world_mut();
             let mut query = world.query_filtered::<(&Sprite, &Transform), With<MaterialShell>>();
             let shells = query.iter(world).collect::<Vec<_>>();
-            assert_eq!(shells.len(), 2);
+            assert_eq!(shells.len(), 3);
+            let depot = shells
+                .iter()
+                .find(|(_, transform)| transform.translation.x == 90.)
+                .unwrap();
+            assert_eq!(depot.0.custom_size, Some(Vec2::splat(64.)));
+            assert_eq!(
+                world
+                    .resource::<Assets<Image>>()
+                    .get(&depot.0.image)
+                    .unwrap()
+                    .size(),
+                UVec2::splat(32)
+            );
+            assert_eq!(
+                world
+                    .resource::<BevyRuntimeState>()
+                    .render_state
+                    .as_ref()
+                    .unwrap()
+                    .micro_depot_facilities[0]
+                    .throughput_remaining_units,
+                7
+            );
             let smelter = shells
                 .iter()
                 .find(|(_, transform)| transform.translation.x == 12.)
@@ -261,6 +296,7 @@ mod tests {
             state.module_visual_entities[0].factory_kind = Some("unsupported".into());
             state.fragment_terrain[0].dominant_compound = "unknown".into();
         }
+        app.world_mut().despawn(depot_base);
         app.update();
         {
             let world = app.world_mut();
@@ -273,8 +309,34 @@ mod tests {
             );
             assert_eq!(world.resource::<Assets<Image>>().len(), 3);
         }
+
+        {
+            let mut runtime = app.world_mut().resource_mut::<BevyRuntimeState>();
+            let state = runtime.render_state.as_mut().unwrap();
+            state.module_visual_entities[0].factory_kind = Some("factory.smelter.mk1".into());
+            state.fragment_terrain[0].dominant_compound = "silicate_matrix".into();
+        }
+        app.update();
+        {
+            let world = app.world_mut();
+            assert_eq!(
+                world
+                    .query_filtered::<Entity, With<MaterialShell>>()
+                    .iter(world)
+                    .count(),
+                2
+            );
+        }
         app.world_mut().resource_mut::<BevyRuntimeState>().mounted = false;
         app.update();
         assert_eq!(app.world().resource::<Assets<Image>>().len(), 3);
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<MaterialShell>>()
+                .iter(world)
+                .count(),
+            0
+        );
     }
 }
