@@ -17,6 +17,7 @@ pub(crate) fn install(app: &mut App) {
 
 fn observe(
     runtime: Res<BevyRuntimeState>,
+    agent_bodies: Query<&ViewVisibility, (With<Sprite>, With<render::PixelWorldAgentVisual>)>,
     labels: Query<(
         Entity,
         &Text2d,
@@ -83,6 +84,11 @@ fn observe(
         }
     }
     let state = runtime.render_state.as_ref();
+    let agent_body_sprites = agent_bodies.iter().count();
+    let in_view_agent_body_sprites = agent_bodies
+        .iter()
+        .filter(|visibility| visibility.get())
+        .count();
     let profile = state.map_or(display_profile::DisplayProfile::Legacy, |state| {
         state.display_profile
     });
@@ -100,6 +106,7 @@ fn observe(
             "render_version":runtime.render_version,"display_profile":profile,
         "source_cut":state.and_then(|state|state.display_source_cut.as_deref()),
             "projected_marker_count":markers,"label_cap":profile.labels(),
+        "agent_body_sprites":agent_body_sprites,"in_view_agent_body_sprites":in_view_agent_body_sprites,
             "visible_nonempty_labels":visible,"in_view_nonempty_labels":in_view,
         "laid_out_in_view_labels":laid_out,"layout_rows_omitted":laid_out-layouts.len(),"label_layouts":layouts,
             "hidden_nonempty_labels":hidden,
@@ -115,7 +122,7 @@ pub fn display_metrics() -> String {
         shared.mounted.then_some(shared.render_version)
     });
     let Some(version) = version else {
-        return json!({"status":"unmounted","projected_marker_count":0,"visible_nonempty_labels":0,"in_view_nonempty_labels":0}).to_string();
+        return json!({"status":"unmounted","projected_marker_count":0,"agent_body_sprites":0,"in_view_agent_body_sprites":0,"visible_nonempty_labels":0,"in_view_nonempty_labels":0}).to_string();
     };
     COUNTS.with(|counts| {
         let counts = counts.borrow();
