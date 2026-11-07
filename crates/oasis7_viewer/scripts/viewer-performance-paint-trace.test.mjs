@@ -34,3 +34,8 @@ test('feedback inside rounded paint interval is unknown until it precedes lower 
  const boundary=matchInputPaintTrace([sample],{supported:true,mutations:[{target:'A',time:138,selected:true}],events:[event]});
  assert.equal(boundary.paintMatched,1);
 });
+
+test('feedback revoked and restored inside paint uncertainty remains unknown',()=>{
+ const result=matchInputPaintTrace([sample],{supported:true,mutations:[{target:'A',time:108,selected:true},{target:'A',time:140,selected:false},{target:'A',time:145,selected:true}],events:[event]});
+ assert.equal(result.paintMatched,0);assert.equal(result.rows[0].nextPaintEstimateMs,null);
+});
