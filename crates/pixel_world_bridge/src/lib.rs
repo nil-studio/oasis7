@@ -849,6 +849,7 @@ fn render_signature(render_state: Option<&RenderState>, mode: RenderSignatureMod
         if matches!(mode, RenderSignatureMode::Content) {
             entity.module_id.hash(&mut hasher);
             entity.kind.hash(&mut hasher);
+            entity.factory_kind.hash(&mut hasher);
             entity.label.hash(&mut hasher);
         }
     }

@@ -194,6 +194,16 @@ mod tests {
             color: [100, 110, 120],
             emphasis: None,
         }];
+        let mut unknown_type = state.clone();
+        unknown_type.module_visual_entities[0].factory_kind = None;
+        assert_ne!(
+            render_content_signature(Some(&state)),
+            render_content_signature(Some(&unknown_type))
+        );
+        assert_eq!(
+            camera_content_signature(Some(&state)),
+            camera_content_signature(Some(&unknown_type))
+        );
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
         app.init_resource::<Assets<Image>>();
