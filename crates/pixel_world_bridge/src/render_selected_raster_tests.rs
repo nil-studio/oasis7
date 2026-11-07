@@ -212,3 +212,59 @@ fn bevy_pixel_regression_exports_recommended_target_wayfinder_pixels() {
         "the recommended target bracket must contribute visible pixels above its target Agent"
     );
 }
+
+#[test]
+fn bevy_pixel_regression_gives_selected_agent_and_location_the_same_non_color_beacon() {
+    for (kind, selected_id, unselected_id) in [
+        ("agent", "agent-0", "agent-1"),
+        ("location", "loc-0", "loc-1"),
+    ] {
+        let mut app = render_test_app(sample_render_state_with_beacon_candidates(
+            kind,
+            selected_id,
+        ));
+        let summary = visual_probe_summary(&mut app);
+        let (selected, unselected) = match kind {
+            "agent" => (
+                summary
+                    .agents
+                    .iter()
+                    .find(|row| row.id == selected_id)
+                    .unwrap(),
+                summary
+                    .agents
+                    .iter()
+                    .find(|row| row.id == unselected_id)
+                    .unwrap(),
+            ),
+            "location" => (
+                summary
+                    .locations
+                    .iter()
+                    .find(|row| row.id == selected_id)
+                    .unwrap(),
+                summary
+                    .locations
+                    .iter()
+                    .find(|row| row.id == unselected_id)
+                    .unwrap(),
+            ),
+            _ => unreachable!("test cases use known render entity kinds"),
+        };
+        assert!(
+            (kind == "agent" && {
+                let world = app.world_mut();
+                world
+                    .query::<&PixelWorldSelectedAgentCue>()
+                    .iter(world)
+                    .count()
+                    == 8
+            }) || selected.size_px > unselected.size_px,
+            "selected {kind} must have a geometry beacon beyond its color"
+        );
+        assert!(
+            selected.z > unselected.z,
+            "selected {kind} must have a draw-priority beacon beyond its color"
+        );
+    }
+}
