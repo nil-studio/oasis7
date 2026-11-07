@@ -4259,13 +4259,30 @@ class NativeSupportContracts(unittest.TestCase):
             self.assertEqual(set(plan['groups']), set(config['groups']))
             self.assertNotIn('ordinary_support_handoffs', plan)
 
-    def test_real_adapter_body_is_supported_but_new_items_macros_and_exports_are_not(self):
+    def test_real_platform_gated_adapter_keeps_conservative_support_checks(self):
         config, _ = self.fixture()
         source = (HERE.parent / self.LEAF).read_text()
+        self.assertIn('#[cfg(', source)
         self.write(self.LEAF, source)
         base = self.commit()
         changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
         self.assertNotEqual(source, changed)
+        self.write(self.LEAF, changed)
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertIn('workspace_support', plan['groups'])
+
+    def test_supported_adapter_body_but_new_items_macros_and_exports_are_not(self):
+        config, _ = self.fixture()
+        # Keep the positive grammar example independent of the evolving real CLI.
+        source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> { '
+                  'if args.len() != 3 { return Err("invalid arguments".into()); } '
+                  'match args[0].as_str() { "serve" => Ok(()), '
+                  '_ => Err("unsupported command".into()) } }\n')
+        self.write(self.LEAF, source)
+        base = self.commit()
+        changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
         self.write(self.LEAF, changed)
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
         self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
