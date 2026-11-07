@@ -180,6 +180,8 @@ worldView密度回归用 `DENSITY_QA_ARTIFACT_ROOT=<immutable-dist> DENSITY_QA_S
 只读 `readPixelWorldDisplayMetrics()` 限test_api=1，从已挂载实例读取PostUpdate布局/可见性统计，不初始化第二实例。只采 `observed` 且render_version/source_cut与同次capture前后一致的帧；pending不借旧数。分别记录projected marker、独立查询Sprite组件得到的实际Agent body/相机内body数、budget visible、in-view与有glyph布局数、实际CSS/F/DPR及≤200诊断bbox；frame_entity只稳定于该帧，bbox不是GPU fence或遮挡证明。以公开名称normal→零宽名称负控→normal恢复，保持相机/几何等非名称输入相同，逐bbox比较真实PNG；不能只看到配置label_cap=200就签200个已绘字形。保留partial页、mixed-cut、删除、旧回应、新scope/拒绝、能力移除时清理、真实context loss/显式Reload的实际结果。缺新scope证明的legacy回切只可称清理/锁定，不以QA直接授权冒充恢复。
 
 
+#5605 的提示布局回归可执行 `PENDING_LAYOUT_ARTIFACT_ROOT=<冻结visual目录> PENDING_LAYOUT_SOURCE_HEAD=<实际构建源> node crates/oasis7_viewer/scripts/pixel-world-pending-status-layout.mjs`。此项在真实shell中复制Selected A和pending/unavailable状态，覆盖桌面/窄屏与Feed开闭，比较透明文字负控的真实像素、文本边界、可信指针穿透及Canvas CSS/backing尺寸不变；产物SHA前后核对。它是明确的DOM-only布局验证，不连接WS，不证明pending状态机、获准后页选择、玩家授权或性能；逻辑另跑 `pixel_world_pending_selection*.test.js`，真实标准WS/原生输入与性能沿同一固定生产组合另验，不能把pending冒充selected。
+
 worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENSITY_QA_PERFORMANCE_MS=300000`，用 `world-view-density-performance.mjs` 复用严格 DOM/EventTiming matcher。选择只观察现有 renderer target 的 `data-selected`，不把空间检查写成业务 core 选择；默认旧 sampler 仍使用 core 身份。每个真实 keydown 同时记录只读 metrics 及其观测耗时，分别保留确认1000/200、pending未知与真实partial输入，全部输入和确认密度子集的分布各自报告；不从延迟扣观测耗时，不把未知补零或静默丢样本。250ms密度监测、原生pan/zoom的实际相机变化、标准WS完整分页及获准资源变更另外落盘。原生滚轮采用实际固定倍率，越过本fixture的合法密度区间前只经真实World overview恢复并记录该动作，不修改相机DTO、producer LOD或目标数量。
 
 预算失败、DOM/paint未知或无法证明全部输入密度时，工具在保留raw后非零退出。EventTiming量化区间跨越主责阈值时另列不确定性，不据中心估计宣称确定的真实显示超时。`DENSITY_QA_PERFORMANCE_TRACE=1` 仅开启有界Chrome DevTools trace根因诊断，其开销与未开trace的预算窗口分开；rAF机会、长任务和trace都不单独证明世界GPU提交/物理呈现帧率。分页中的partial或pending使全程恒定1000/200尚未证明，不能因窗口跨越五分钟就签完整P6。
