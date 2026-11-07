@@ -68,7 +68,7 @@ fn sample_position(x_cm: f64, y_cm: f64) -> Position {
         z_cm: 0.0,
     }
 }
-fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
+pub(super) fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
     RenderState {
         exploration_mode: false,
         navigation: None,
@@ -124,7 +124,7 @@ fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
         active_intent_target: None,
     }
 }
-fn render_test_app(render_state: RenderState) -> App {
+pub(super) fn render_test_app(render_state: RenderState) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
     app.init_resource::<Assets<Image>>();

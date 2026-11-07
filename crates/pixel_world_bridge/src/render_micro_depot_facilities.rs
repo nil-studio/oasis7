@@ -613,3 +613,42 @@ pub(super) fn reconcile_micro_depot_facilities(
         }
     }
 }
+
+#[cfg(test)]
+mod layer_tests {
+    use super::*;
+    #[test]
+    fn opaque_depot_detail_and_agent_share_world_occlusion_layer() {
+        use bevy::camera::visibility::RenderLayers;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let detail = app
+            .world_mut()
+            .spawn((
+                Sprite::default(),
+                PixelWorldMicroDepotDetailVisual { id: "D".into() },
+                Transform::from_xyz(0., 0., 2.56),
+            ))
+            .id();
+        let agent = app
+            .world_mut()
+            .spawn((
+                Sprite::default(),
+                PixelWorldAgentVisual { id: "A".into() },
+                Transform::from_xyz(0., 0., 3.),
+            ))
+            .id();
+        app.add_systems(Update, pixel_pipeline::assign_layers);
+        app.update();
+        for entity in [detail, agent] {
+            assert_eq!(
+                app.world().get::<RenderLayers>(entity),
+                Some(&RenderLayers::layer(0))
+            );
+        }
+        assert!(
+            app.world().get::<Transform>(detail).unwrap().translation.z
+                < app.world().get::<Transform>(agent).unwrap().translation.z
+        );
+    }
+}

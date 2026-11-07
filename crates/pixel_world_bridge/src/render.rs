@@ -1170,22 +1170,7 @@ pub(crate) fn render_scene(
 #[path = "render_tests.rs"]
 mod tests;
 
-// Only authored world geometry is sampled by the low-resolution camera.
-// Text, receipts, provenance and selection remain native-resolution overlays.
-pub(super) fn is_world_visual(entity: &EntityRef<'_>) -> bool {
-    entity.contains::<world_materials::MaterialShell>()
-        || entity.contains::<PixelWorldGridVisual>()
-        || entity.contains::<PixelWorldAgentVisual>()
-        || entity.contains::<PixelWorldAgentCoreVisual>()
-        || entity.contains::<PixelWorldLocationVisual>()
-        || entity.contains::<PixelWorldFragmentVisual>()
-        || entity.contains::<PixelWorldFragmentShadowVisual>()
-        || entity.contains::<PixelWorldFragmentInsetVisual>()
-        || entity.contains::<PixelWorldFragmentFleckVisual>()
-        || entity.contains::<PixelWorldMicroDepotVisual>()
-        || entity.contains::<PixelWorldModuleVisualEntity>()
-        || entity.contains::<PixelWorldLinkVisual>()
-        || entity.contains::<PixelWorldSocialLinkVisual>()
-        || entity.contains::<PixelWorldAgentSilhouetteVisual>()
-        || entity.contains::<grounding::PixelWorldGroundingVisual>()
-}
+// Authored sprites retain world occlusion unless explicitly identified as UI.
+#[path = "render_layers.rs"]
+mod layers;
+pub(super) use layers::is_world_visual;
