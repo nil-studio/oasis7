@@ -13,6 +13,7 @@ pub(super) struct SourceAuthority {
     snapshot_digest: Option<String>,
     spatial_events: Vec<Value>,
     retirement_candidates: BTreeSet<String>,
+    local_terrain: std::collections::BTreeMap<String, String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SourceKind {
@@ -29,6 +30,7 @@ impl SourceAuthority {
             snapshot_digest: None,
             spatial_events: Vec::new(),
             retirement_candidates: BTreeSet::new(),
+            local_terrain: Default::default(),
         }
     }
     /// Compatibility for the existing local-only projection entrypoint.
@@ -40,6 +42,7 @@ impl SourceAuthority {
             snapshot_digest: None,
             spatial_events: Vec::new(),
             retirement_candidates: BTreeSet::new(),
+            local_terrain: Default::default(),
         }
     }
     pub(super) fn local_bound(snapshot_digest: String) -> Self {
@@ -56,6 +59,7 @@ impl SourceAuthority {
             snapshot_digest: Some(snapshot_digest),
             spatial_events: Vec::new(),
             retirement_candidates: BTreeSet::new(),
+            local_terrain: Default::default(),
         }
     }
     pub(super) fn with_events(
@@ -79,6 +83,26 @@ impl SourceAuthority {
     }
     pub(super) fn is_local(&self) -> bool {
         self.kind == SourceKind::LocalRuntime
+    }
+    pub(super) fn with_local_terrain(mut self, model: &crate::simulator::WorldModel) -> Self {
+        if self.is_local() {
+            self.scope_binding = json!([&self.scope_binding, "local_generated_terrain_v1"]);
+            self.local_terrain = model
+                .locations
+                .iter()
+                .filter(|(_, location)| location.fragment_profile.is_some())
+                .map(|(id, location)| (id.clone(), terrain_fingerprint(location)))
+                .collect();
+        }
+        self
+    }
+    pub(super) fn terrain_current(&self, location: &oasis7_simulator::Location) -> bool {
+        self.is_local()
+            && self.current()
+            && self
+                .local_terrain
+                .get(&location.id)
+                .is_some_and(|expected| *expected == terrain_fingerprint(location))
     }
     pub(super) fn current(&self) -> bool {
         self.kind != SourceKind::Unknown
@@ -109,7 +133,8 @@ impl SourceAuthority {
                 self.source_ref(),
                 &self.binding,
                 &self.snapshot_digest,
-                &self.spatial_events
+                &self.spatial_events,
+                &self.local_terrain
             ])
             .to_string()
             .as_bytes(),
@@ -168,4 +193,26 @@ fn decimal_integers(value: Value) -> Value {
         ),
         value => value,
     }
+}
+
+pub(super) fn terrain_render_record(location: &oasis7_simulator::Location) -> Value {
+    let blocks = location.fragment_profile.as_ref().map(|profile| {
+        profile
+            .blocks
+            .blocks
+            .iter()
+            .map(|block| {
+                json!({"origin_cm":block.origin_cm,"size_cm":block.size_cm,
+            "compounds":{"ppm":block.compounds.ppm}})
+            })
+            .collect::<Vec<_>>()
+    });
+    json!({"id":location.id,"name":location.name,"pos":location.pos,"profile":{"radius_cm":location.profile.radius_cm},
+        "fragment_profile":{"blocks":{"blocks":blocks}}})
+}
+
+fn terrain_fingerprint(location: &oasis7_simulator::Location) -> String {
+    blake3::hash(terrain_render_record(location).to_string().as_bytes())
+        .to_hex()
+        .to_string()
 }

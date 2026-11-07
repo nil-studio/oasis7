@@ -156,7 +156,7 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 <a id="terrain-material-mapping"></a>
 #### 真实地形素材映射
 
-#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。当前 world_view_projection.rs 的 location record 未提供 fragment_profile 且位置非 current，代码阶段须沿原 authority 补齐获准 fragment 与时效，缺来源保持无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
+#5558 的生产消费者沿 `host_world_view.rs` → `host_state.rs::build_fragment_terrain_for_location` → `render_fragment_visuals.rs`。当前 world_view_projection.rs 的 location record 未提供 fragment_profile 且位置非 current，本地代码沿[生成地形来源证明](external-agent-world-view.design.md#local-terrain-source-proof)补齐获准 fragment 与时效，远端缺证明保持无图块，不旁路读取私有 snapshot。输入必须来自当前授权 `worldView.entities` 中 location 的 `render_record`；`geometry_source` 为 authoritative/location_derived、freshness=current、valid_at_source_cut 等于本次 source_cut 且 worldViewStale=false。失效时清空位置与 fragment_profile，不能从旧 snapshot 回填。无 bounds、无合法位置、无 blocks 或非正 size 均不产生图块。
 
 | 获准输入 | 素材键与独立预期 | 未知及限制 |
 | --- | --- | --- |
