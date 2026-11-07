@@ -899,8 +899,11 @@ pub(crate) fn render_scene(
         }
         return;
     };
-    let width = window.width() as f64;
-    let height = window.height() as f64;
+    let Some(layout) = pixel_pipeline::window_layout(window) else {
+        return;
+    };
+    let width = layout.css.x as f64;
+    let height = layout.css.y as f64;
     let canvas_size_changed = runtime.last_canvas_size
         != Some((
             width.round().max(0.0) as u32,
