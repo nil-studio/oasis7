@@ -4,6 +4,7 @@ use crate::render::module_visual_entities::{
     ModuleIdentityChipPart, PixelWorldModuleIdentityChipVisual, PixelWorldModuleVisualEntity,
     PixelWorldModuleVisualLabel, module_co_anchor_offset, module_co_anchor_slots,
 };
+use bevy::math::DVec2;
 
 fn module_visual(id: &str, pos: Position) -> ModuleVisualEntity {
     module_visual_with_kind(id, "opaque-kind", pos)
@@ -343,12 +344,12 @@ fn co_anchored_module_hit_stack_keeps_agent_and_location_centers_selectable() {
 fn co_anchor_renderer_offsets_keep_the_48_css_gap_across_backing_scales() {
     for backing_scale in [1.0_f32, 1.5, 2.0] {
         let scale = Vec2::splat(backing_scale);
-        let first = module_co_anchor_offset(0, scale);
-        let second = module_co_anchor_offset(1, scale);
-        let css_gap_x = (second.x - first.x) / backing_scale;
-        let css_gap_y = (second.y - first.y) / backing_scale;
-        assert!((css_gap_x - 48.0).abs() < f32::EPSILON);
-        assert!(css_gap_y.abs() < f32::EPSILON);
+        let first = module_co_anchor_offset(0, scale, DVec2::ONE);
+        let second = module_co_anchor_offset(1, scale, DVec2::ONE);
+        let css_gap_x = (second.x - first.x) / f64::from(backing_scale);
+        let css_gap_y = (second.y - first.y) / f64::from(backing_scale);
+        assert!((css_gap_x - 48.0).abs() < f64::EPSILON);
+        assert!(css_gap_y.abs() < f64::EPSILON);
     }
 }
 
@@ -576,4 +577,80 @@ fn module_visual_labels_yield_to_shared_map_label_obstacles() {
         vec!["Current objective"],
         "the shared map label remains the readable priority"
     );
+}
+
+#[test]
+fn authored_module_glyph_pixels_scale_with_world_unit_without_scaling_labels() {
+    let mut state = sample_render_state(12000.);
+    state.module_visual_entities = vec![module_visual_with_kind(
+        "pixel",
+        "artifact",
+        sample_position(1_500_000., 1_000_000.),
+    )];
+    state.selection = Some(Selection {
+        kind: "module_visual".into(),
+        id: "pixel".into(),
+    });
+    let mut app = render_test_app(state);
+    {
+        let world = app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .resolution
+            .set(1280., 720.);
+        let mut runtime = world.resource_mut::<BevyRuntimeState>();
+        runtime.camera.zoom = 2.;
+        runtime.camera_user_override = true;
+    }
+    app.update();
+    let world = app.world_mut();
+    let (body, transform) = world
+        .query_filtered::<(&Sprite, &Transform), With<PixelWorldModuleVisualEntity>>()
+        .single(world)
+        .unwrap();
+    assert_eq!(body.custom_size, Some(Vec2::splat(12.)));
+    let center = transform.translation;
+    let dot = world
+        .query_filtered::<&Sprite, With<PixelWorldModuleIdentityChipVisual>>()
+        .single(world)
+        .unwrap();
+    assert_eq!(
+        dot.custom_size,
+        Some(Vec2::splat(2.)),
+        "one authored pixel must occupy one low-res texel, not half a texel"
+    );
+    let hit = &world
+        .resource::<BevyRuntimeState>()
+        .hit_regions
+        .iter()
+        .find(|hit| hit.kind == "module_visual")
+        .unwrap();
+    assert_eq!(hit.right - hit.left, 32.);
+    let (label, font) = world
+        .query_filtered::<(&Transform, &TextFont), With<PixelWorldModuleVisualLabel>>()
+        .single(world)
+        .unwrap();
+    assert!((label.translation.y - center.y - 16.24264).abs() < 0.001);
+    assert_eq!(font.font_size, FontSize::Px(10.));
+}
+
+#[test]
+fn large_pixel_module_slots_keep_hit_regions_separate() {
+    let pixel = DVec2::splat(6.0);
+    let first = module_co_anchor_offset(0, Vec2::ONE, pixel);
+    let second = module_co_anchor_offset(1, Vec2::ONE, pixel);
+    assert_eq!(first, DVec2::splat(-102.0));
+    assert_eq!(second.x - first.x, 102.0);
+    assert!(second.x - first.x > 2.0 * 8.0 * pixel.x);
+    assert_eq!(first.x % pixel.x, 0.0);
+}
+
+#[test]
+fn fractional_css_module_offset_keeps_web_f64_ceil_boundary() {
+    let unit = DVec2::new(959.99999999 / 1480.0 * 2.0, 720.0 / 1110.0 * 2.0);
+    let offset = module_co_anchor_offset(0, Vec2::ONE, unit);
+    assert!((offset.x + 38.0 * unit.x).abs() < 1e-12);
+    assert!(offset.x < -49.0);
 }

@@ -74,7 +74,10 @@ pub(super) fn reconcile_active_intent_cues(
         .selection
         .as_ref()
         .is_some_and(|selection| selection.kind == "agent" && selection.id == agent.id);
-    let body_half_size = agent_unanimated_size_px(agent, is_selected) as f32 / 2.0;
+    let style = agent_visual_style(agent, is_selected, 0.0, 0);
+    let canvas_y =
+        canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64;
+    let body_half_size = style.size_px as f32 * agent_pixel_scale(width, height).y / 2.0;
     let (cue_width, cue_height) = match target.status.as_str() {
         "submitted" => (ACTIVE_INTENT_CUE_THICKNESS_PX, ACTIVE_INTENT_CUE_WIDTH_PX),
         "accepted" => (ACTIVE_INTENT_CUE_WIDTH_PX, ACTIVE_INTENT_CUE_THICKNESS_PX),

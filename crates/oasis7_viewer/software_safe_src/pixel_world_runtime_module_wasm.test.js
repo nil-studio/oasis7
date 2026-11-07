@@ -140,7 +140,7 @@ describe("pixel world wasm runtime bridge", () => {
     return event;
   }
 
-  it("maps CSS click coordinates into the canvas backing coordinate space", async () => {
+  it("keeps pointer coordinates in CSS space when framebuffer is DPR2", async () => {
     const { createPixelWorldBridge } = await import("./pixel_world_runtime_module_wasm.js");
     const onEvent = vi.fn();
     const bridge = await createPixelWorldBridge({ onEvent });
@@ -185,12 +185,12 @@ describe("pixel world wasm runtime bridge", () => {
     }));
 
     expect(runtimeState.instances).toHaveLength(1);
-    expect(runtimeState.instances[0].click).toHaveBeenCalledWith(240, 150);
+    expect(runtimeState.instances[0].click).toHaveBeenCalledWith(120, 75);
     expect(onEvent).toHaveBeenCalledWith({
       type: "select_entity",
       selection: {
         kind: "agent",
-        id: "240,150",
+        id: "120,75",
       },
     });
   });

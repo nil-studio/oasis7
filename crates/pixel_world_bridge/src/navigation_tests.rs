@@ -167,3 +167,18 @@ fn event_can_be_located_at_its_original_point_but_never_becomes_a_follow_target(
     assert!(runtime.active_follow_target.is_none());
     assert!(runtime.pending_focus_target.is_none());
 }
+
+#[test]
+fn fit_subpixel_bounds_preserves_center_before_final_pixel_snap() {
+    let mut runtime = BevyRuntimeState::default();
+    runtime.render_state = Some(state("stop", "0"));
+    runtime.pending_fit_bounds =
+        Some(json!({"min_x_cm":1501400,"max_x_cm":1501600,"min_y_cm":999900,"max_y_cm":1000100}));
+    super::apply_pending_fit_bounds(&mut runtime, 1280., 720.);
+    // 200cm / 2,000,000cm * 680 CSS px = .068px; usable height is 656px.
+    assert!((runtime.camera.zoom - 9647.058823529412).abs() < 1e-6);
+    assert!(
+        (runtime.camera.pan_x_px + 5981.176470588235).abs() < 1e-6,
+        "subpixel bounds must not collapse through display snapping"
+    );
+}

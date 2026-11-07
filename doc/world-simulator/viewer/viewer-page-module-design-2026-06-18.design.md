@@ -824,6 +824,8 @@ module-state verification are still required before any completion claim.
 <a id="uiux-state-feedback"></a>
 ### 10.7 状态、反馈时序与恢复
 
+真正 WebGL context loss 的主恢复操作标为“重新加载页面恢复图形 / Reload page to restore graphics”，由用户显式重建 WASM/Bevy。原地 mount 不能证明已经丢失的 GPU 资源重建；普通资源失败仍使用 Renderer 重试。页面重载沿既有会话和当前授权读取世界及原操作回执，不持久化旧私有图像/DTO，也不重放 Command；原结果未知仍保持未知。此区分不授予新权限或更换原操作身份。
+
 | 状态 | 主文案示例 | 允许动作 / 禁止误读 |
 | --- | --- | --- |
 | 等待快照 | 正在同步世界 / Syncing world | 保留空间、显示连接恢复；不是空世界 |

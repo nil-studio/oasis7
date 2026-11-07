@@ -266,11 +266,9 @@ function toCanvasPoint(canvas, event) {
   if (!rect.width || !rect.height) {
     return null;
   }
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
   return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY,
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top,
   };
 }
 
