@@ -731,6 +731,7 @@ fn private_gateway_verifies_original_typed_cbor_not_normalized_json_payload() {
 
 #[test]
 fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
+    use crate::request_deadline::test_clock::ManualClock;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::time::Instant;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -772,8 +773,17 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
     let stop = Arc::new(AtomicBool::new(false));
     let posts = Arc::new(AtomicUsize::new(0));
     let sessions = Arc::new(AtomicUsize::new(0));
+    let lookups = Arc::new(AtomicUsize::new(0));
+    let capabilities = Arc::new(AtomicUsize::new(0));
     let (done, count, auth) = (stop.clone(), posts.clone(), sessions.clone());
-    let deadline = Instant::now() + Duration::from_millis(500);
+    let (queries, caps) = (lookups.clone(), capabilities.clone());
+    // Keep the complete signed, durable Lookup/Submit path, but advance time
+    // only once submit authentication arrives. CPU/fsync scheduling before
+    // that phase must not accidentally test an earlier deadline rejection.
+    let clock = ManualClock::new(Instant::now());
+    let _clock_scope = clock.enter();
+    let deadline = clock.now() + Duration::from_millis(500);
+    let server_clock = clock.clone();
     let server = thread::spawn(move || {
         while !done.load(Ordering::SeqCst) {
             let (mut socket, _) = match listener.accept() {
@@ -788,28 +798,32 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
             let (path, body) = read_http(&mut socket);
             let reply = if path.ends_with("/session") {
                 if auth.fetch_add(1, Ordering::SeqCst) == 1 {
-                    thread::sleep(Duration::from_millis(800));
+                    server_clock.advance(Duration::from_millis(800));
                 }
                 json!({"api_version":2,"ok":true,"account":{"account_id":"account"}})
             } else if path.ends_with("/capabilities") {
+                caps.fetch_add(1, Ordering::SeqCst);
                 json!({"api_version":2,"ok":true,"csrf_token":"c".repeat(64)})
             } else {
                 let outer: EntryExecutorControlRequestV1 = serde_json::from_value(body).unwrap();
                 let (path, digest, correlation) = match outer.operation {
-                    EntryExecutorOperationV1::Lookup(original) => (
-                        LOOKUP_PATH,
-                        ws::request_digest(LOOKUP_PATH, &original).unwrap(),
-                        oasis7_client_api::world_service_correlation::derive_correlation(
-                            WorldIdentity {
-                                world_id: "world".into(),
-                                genesis_digest: "genesis".into(),
-                            },
-                            &original.original,
+                    EntryExecutorOperationV1::Lookup(original) => {
+                        queries.fetch_add(1, Ordering::SeqCst);
+                        (
+                            LOOKUP_PATH,
+                            ws::request_digest(LOOKUP_PATH, &original).unwrap(),
+                            oasis7_client_api::world_service_correlation::derive_correlation(
+                                WorldIdentity {
+                                    world_id: "world".into(),
+                                    genesis_digest: "genesis".into(),
+                                },
+                                &original.original,
+                            )
+                            .unwrap(),
                         )
-                        .unwrap(),
-                    ),
+                    }
                     EntryExecutorOperationV1::Submit(original) => {
-                        assert!(Instant::now() >= deadline);
+                        assert!(server_clock.now() >= deadline);
                         count.fetch_add(1, Ordering::SeqCst);
                         (
                             SUBMIT_PATH,
@@ -850,6 +864,13 @@ fn review_native_submit_never_posts_after_slow_auth_expires_tool_deadline() {
         0,
         "new Submit POST started after auth crossed the tool deadline"
     );
+    assert_eq!(lookups.load(Ordering::SeqCst), 1, "no late recovery lookup");
+    assert_eq!(
+        capabilities.load(Ordering::SeqCst),
+        1,
+        "no late capabilities request"
+    );
+    assert!(result.is_err());
 }
 
 #[test]

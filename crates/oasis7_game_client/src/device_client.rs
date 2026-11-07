@@ -400,7 +400,7 @@ impl Client {
         self.submit_and_poll(&request)
     }
     pub(crate) fn check_tool_deadline(deadline: Option<std::time::Instant>) -> Result<(), String> {
-        if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+        if deadline.is_some_and(|deadline| crate::request_deadline::now() >= deadline) {
             return Err("tool deadline elapsed; retain original operation".into());
         }
         Ok(())
