@@ -47,6 +47,15 @@ try {
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
     const before=await state(); summary.active={name,width,height,before}; assert(before.gpu,'missing GPU identity');
     if(name==='dpr2') assert(before.dpr===2,'DPR2 emulation did not take effect');
+    await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');window.__OASIS7_AGENT_LOSS__=gl.getExtension('WEBGL_lose_context');if(!window.__OASIS7_AGENT_LOSS__)throw Error('WEBGL_lose_context unavailable');window.__OASIS7_AGENT_LOSS__.loseContext();return true;})()`);
+    await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')`);
+    assert((await state()).targets.length===0,'stale Agent targets survived context loss');
+    await evaluate(`window.__OASIS7_AGENT_LOSS__.restoreContext();document.querySelector('.pixel-world-render-unavailable__retry').focus({preventScroll:true});true`);
+    await run(['press','Enter']); await waitFor(`(${read}).ready`);
+    const recovered=await state();
+    assert(recovered.dto.agents.some(agent=>agent.id==='agent-1'),'authorized Agent missing after renderer recovery');
+    summary.active.recovered=recovered;
+    await run(['screenshot','--full',resolve(out,`${name}-recovered.png`)]);
     const target='button[data-agent-id="agent-0"][data-renderer-target]';
     // Native browser mouse and Enter dispatch go through the real rendered target.
     const other='button[data-agent-id="agent-1"][data-renderer-target]';
@@ -75,12 +84,6 @@ try {
     await evaluate(`window.__AW_TEST__.injectSnapshot(window.__OASIS7_AGENT_TEST_SNAPSHOT__);true`);
     await waitFor(`(${read}).ready&&(${read}).dto?.agents?.some(a=>a.id==='agent-1'&&a.pos)`);
     const restored=await state();
-    await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');window.__OASIS7_AGENT_LOSS__=gl.getExtension('WEBGL_lose_context');if(!window.__OASIS7_AGENT_LOSS__)throw Error('WEBGL_lose_context unavailable');window.__OASIS7_AGENT_LOSS__.loseContext();return true;})()`);
-    await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')`);
-    assert((await state()).targets.length===0,'stale Agent targets survived context loss');
-    await evaluate(`window.__OASIS7_AGENT_LOSS__.restoreContext();document.querySelector('.pixel-world-render-unavailable__retry').focus({preventScroll:true});true`);
-    await run(['press','Enter']); await waitFor(`(${read}).ready`);
-    const recovered=await state();
     summary.cases.push({name,width,height,before,after,dense,missing,removed,restored,recovered,mouse:true,keyboard:true});
   }
   summary.status='passed';
