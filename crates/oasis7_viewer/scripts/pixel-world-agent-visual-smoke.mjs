@@ -14,10 +14,12 @@ const expectedPipeline=process.env.AGENT_PIXEL_PIPELINE || 'native';
 if(!['native','integer'].includes(expectedPipeline)) throw Error('unsupported AGENT_PIXEL_PIPELINE');
 const scope=process.env.AGENT_VISUAL_SCOPE || 'all';
 if(!['all','interaction','recovery'].includes(scope)) throw Error('unsupported AGENT_VISUAL_SCOPE');
+const requestedCase=process.env.AGENT_VISUAL_CASE || 'all';
+if(!['all','desktop','narrow','dpr2'].includes(requestedCase))throw Error('unsupported AGENT_VISUAL_CASE');
 const session = `pixel-agent-${process.pid}`;
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const lifecycle = createOwnedSessionLifecycle({ command, session, prefixArgs: [] });
-const summary = { atlasSha256: createHash('sha256').update(readFileSync(resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'))).digest('hex'), source: process.env.AGENT_VISUAL_SOURCE_HEAD ? execFileSync('git',['rev-parse',process.env.AGENT_VISUAL_SOURCE_HEAD+'^{commit}'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim() : null, checkoutHead: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, expectedPipeline, cases: [] };
+const summary = { atlasSha256: createHash('sha256').update(readFileSync(resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'))).digest('hex'), source: process.env.AGENT_VISUAL_SOURCE_HEAD ? execFileSync('git',['rev-parse',process.env.AGENT_VISUAL_SOURCE_HEAD+'^{commit}'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim() : null, checkoutHead: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, requestedCase,fixture:'selected_blocker',liveConnection:false, expectedPipeline, cases: [] };
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]);
@@ -31,7 +33,7 @@ async function evaluate(code) {
   assert(result.success, JSON.stringify(result));
   return result.data.result;
 }
-const read = `(() => { const canvas=document.querySelector('#pixel-world-embedded-runtime-canvas'); const gl=canvas?.getContext('webgl2'); const debug=gl?.getExtension('WEBGL_debug_renderer_info'); return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true', dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.(), dpr:devicePixelRatio,browser:navigator.userAgent, viewport:{width:innerWidth,height:innerHeight}, canvas:canvas?{width:canvas.width,height:canvas.height,cssWidth:canvas.getBoundingClientRect().width,cssHeight:canvas.getBoundingClientRect().height}:null, gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null, targets:[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>({id:b.dataset.agentId,selected:b.dataset.selected,label:b.getAttribute('aria-label')}))}; })()`;
+const read = `(() => { const canvas=document.querySelector('#pixel-world-embedded-runtime-canvas'); const gl=canvas?.getContext('webgl2'); const debug=gl?.getExtension('WEBGL_debug_renderer_info'); return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true', dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.(), dpr:devicePixelRatio,browser:navigator.userAgent, viewport:{width:innerWidth,height:innerHeight}, canvas:canvas?{width:canvas.width,height:canvas.height,cssWidth:canvas.getBoundingClientRect().width,cssHeight:canvas.getBoundingClientRect().height,inlineWidth:canvas.style.width,inlineHeight:canvas.style.height,parents:[canvas.parentElement,canvas.parentElement?.parentElement].filter(Boolean).map(e=>({classes:e.className,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))}:null,documentLayout:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight}, gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null, targets:[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>({id:b.dataset.agentId,selected:b.dataset.selected,label:b.getAttribute('aria-label')}))}; })()`;
 async function state() { return JSON.parse(await evaluate(`JSON.stringify(${read})`)); }
 async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
@@ -77,12 +79,12 @@ const server = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const file = resolve(root, '.' + (pathname==='/'?'/viewer.html':pathname));
   if(relative(root,file).startsWith('..')) {res.writeHead(403);res.end();return;}
-  try { let bytes=readFileSync(file);if(extname(file)==='.html')bytes=Buffer.from(bytes.toString().replace('</head>',`<script>(()=>{const send=WebSocket.prototype.send;WebSocket.prototype.send=function(data){let type='unparsed';try{type=JSON.parse(data).type||'untyped';}catch{}const log=JSON.parse(sessionStorage.getItem('pixel-agent-outbound')||'[]');log.push(type);sessionStorage.setItem('pixel-agent-outbound',JSON.stringify(log.slice(-200)));return send.call(this,data);};})();</script></head>`));res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
+  try { let bytes=readFileSync(file);if(extname(file)==='.html')bytes=Buffer.from(bytes.toString().replace('</head>',`<script>(()=>{const send=WebSocket.prototype.send;WebSocket.prototype.send=function(data){let type='unparsed';try{type=JSON.parse(data).type||'untyped';}catch{}const log=JSON.parse(sessionStorage.getItem('pixel-agent-outbound')||'[]');log.push(type);sessionStorage.setItem('pixel-agent-outbound',JSON.stringify(log.slice(-200)));return send.call(this,data);};const fetch=window.fetch;window.fetch=function(input,init){const log=JSON.parse(sessionStorage.getItem('pixel-agent-http')||'[]');log.push({method:String(init?.method||input?.method||'GET').toUpperCase(),path:new URL(input?.url||input,location.href).pathname});sessionStorage.setItem('pixel-agent-http',JSON.stringify(log.slice(-200)));return fetch.call(this,input,init);};})();</script></head>`));res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
 });
 try {
   await new Promise(done=>server.listen(0,'127.0.0.1',done)); lifecycle.prepare();
   const url=`http://127.0.0.1:${server.address().port}/viewer.html?test_api=1&connect=0&locale=zh&pixel_world_visual_fixture=selected_blocker`;
-  for(const [name,width,height] of [['desktop',1440,1000],['narrow',390,844],['dpr2',1440,1000]]) {
+  for(const [name,width,height] of [['desktop',1440,1000],['narrow',390,844],['dpr2',1440,1000]].filter(([name])=>requestedCase==='all'||name===requestedCase)) {
     await run(['open',url]); await run(['set','viewport',String(width),String(height),name==='dpr2'?'2':'1']);
     const navigationOrigin=await evaluate('performance.timeOrigin');
     await evaluate(`setTimeout(()=>location.assign(${JSON.stringify(url)}),50);true`);
@@ -90,9 +92,10 @@ try {
     await run(['wait','--url',url]);
     await run(['wait','--load','domcontentloaded']);
     await waitFor(`performance.timeOrigin!==${navigationOrigin}&&(${read}).ready&&(${read}).canvas?.cssWidth===${width}&&(${read}).canvas?.cssHeight===${height}`);
+    await waitFor(`(${read}).canvas?.width===${width*(name==='dpr2'?2:1)}&&(${read}).canvas?.height===${height*(name==='dpr2'?2:1)}`);
     await installAgentFixture();
     const before=await state(); summary.active={name,width,height,before}; assert(before.viewport.width===width&&before.viewport.height===height,'actual browser viewport differs from requested case'); assert(before.gpu,'missing GPU identity');
-    if(name==='dpr2') assert(before.dpr===2,'DPR2 emulation did not take effect');
+    if(name==='dpr2') { assert(before.dpr===2,'DPR2 emulation did not take effect');assert(before.canvas.width===width*2&&before.canvas.height===height*2,'DPR2 framebuffer does not match CSS times DPR'); }
     const initialPng=resolve(out,`${name}-initial.png`);
     await run(['screenshot','--full',initialPng]);
     summary.active.initialPixels=await verifyAgentPixels(initialPng);
@@ -100,7 +103,7 @@ try {
     if(scope!=='interaction') {
     const beforeIdentity=await evaluate(`JSON.stringify((()=>{const s=window.__AW_TEST__.getState();return [s.authPlayerId,s.authPublicKey];})())`);
     const oldOrigin=await evaluate('performance.timeOrigin');
-    await evaluate(`sessionStorage.setItem('pixel-agent-outbound','[]');(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');const loss=gl.getExtension('WEBGL_lose_context');if(!loss)throw Error('WEBGL_lose_context unavailable');loss.loseContext();return true;})()`);
+    await evaluate(`sessionStorage.setItem('pixel-agent-outbound','[]');sessionStorage.setItem('pixel-agent-http','[]');(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas');const gl=c.getContext('webgl2');const loss=gl.getExtension('WEBGL_lose_context');if(!loss)throw Error('WEBGL_lose_context unavailable');loss.loseContext();return true;})()`);
     await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')`);
     assert((await state()).targets.length===0,'stale Agent targets survived context loss');
     assert(await evaluate('performance.timeOrigin')===oldOrigin,'context loss automatically reloaded the page');
@@ -114,7 +117,9 @@ try {
     assert(JSON.stringify(recovered.dto.receipt_target)===JSON.stringify(before.dto.receipt_target),'page reload lost or reassigned the original fixture receipt');
     const outbound=JSON.parse(await evaluate(`sessionStorage.getItem('pixel-agent-outbound')||'[]'`));
     assert(!outbound.some(type=>['control','gameplay_action','prompt_control','agent_chat'].includes(type)),'page reload replayed a world Command');
-    recovered={...recovered,outbound};
+    const http=JSON.parse(await evaluate(`sessionStorage.getItem('pixel-agent-http')||'[]'`));
+    assert(!http.some(request=>['POST','PUT','PATCH','DELETE'].includes(request.method)),'fixture reload issued a mutating HTTP request');
+    recovered={...recovered,outbound,http,explicitReload:true,sessionContinuity:true,originalReceiptContinuity:true};
     summary.active.recovered=recovered;
     const recoveredPng=resolve(out,`${name}-recovered.png`);
     await run(['screenshot','--full',recoveredPng]);
@@ -170,7 +175,7 @@ try {
     await run(['screenshot','--full',resolve(out,`${name}-logged-out.png`)]);
     summary.cases.push({name,width,height,before,after,resized,resizedPixels,dense,missing,removed,restored,recovered,loggedOut,mouse:true,keyboard:true});
   }
-  summary.status=scope==='all'?'passed':'passed_scope_only';
+  summary.status=scope==='all'&&requestedCase==='all'?'passed':'passed_scope_only';
 } catch(error) { summary.status='failed';summary.error=String(error);try{summary.failureState=await state();await run(['screenshot','--full',resolve(out,'failure.png')]);}catch{}throw error; }
 finally {
   try { writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2)); }
