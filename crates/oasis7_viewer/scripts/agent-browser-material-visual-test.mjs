@@ -136,10 +136,12 @@ try {
    assert(JSON.stringify(deletedProof)===JSON.stringify(originalProof),'isolated deletion changed unrelated DTO fields');
    row.inputDifferenceProof={negativeControlOnly:material==='ore'?'fragment_terrain[0].dominant_compound':'micro_depot_facilities',deletionOnly:material==='ore'?'fragment_terrain':'micro_depot_facilities'};
    const a=row.phases.initial; assert(a.canvas.width===w*d && a.canvas.height===h*d,'isolated runtime backing mismatch');
+   writeFileSync(resolve(out,`${name}-runtime-${material}-input.json`),JSON.stringify(row,null,2));
    row.oracle=oracle('runtime-'+material,out,name,JSON.stringify(a));
    summary.cases.push(row); assert(row.oracle.passed,'isolated material oracle failed: '+JSON.stringify(row.oracle));
   }
  }
+ if(summary.cases.some(row=>row.scope==='runtime-ore') && summary.cases.some(row=>row.scope==='runtime-depot')) summary.limitations=['局部public runtime ABI不代签真实世界授权或生产Explorer流程','生产fixture的terrain delta与独立同色源PNG oracle分开报告','全组合恢复与完整性能预算未覆盖'];
  summary.status='passed_scope_only';
 } catch(error){summary.status='failed';summary.error=String(error);process.exitCode=1;}
 finally { try { writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2)); console.log(out); } finally { lifecycle.close(); server.close(); } }
