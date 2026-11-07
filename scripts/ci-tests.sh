@@ -573,6 +573,42 @@ run_dot_todo_contract_tests() {
   fi
 }
 
+run_engineering_telemetry_contract_tests() {
+  # Register before the feature lands; a partial installation must fail closed.
+  local path present=0
+  local paths=(
+    scripts/engineering_telemetry.py
+    scripts/engineering_telemetry_adapters.py
+    scripts/tests/fixtures/engineering-telemetry/input.json
+    scripts/tests/test_engineering_telemetry.py
+    scripts/tests/test_engineering_telemetry_adapters.py
+  )
+  for path in "${paths[@]}"; do
+    if [[ -e "$path" || -L "$path" ]]; then present=1; fi
+  done
+  if [[ "$present" == 0 ]]; then
+    echo "engineering telemetry contracts: not introduced; no tests run"
+    return 0
+  fi
+  for path in "${paths[@]}"; do
+    if [[ ! -f "$path" || -L "$path" ]]; then
+      echo "engineering telemetry requires a regular source, fixture and test file: $path" >&2
+      return 1
+    fi
+  done
+  run python3 - <<'PY_TELEMETRY'
+import unittest
+
+suite = unittest.TestSuite()
+for name in ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py'):
+    tests = unittest.defaultTestLoader.discover('scripts/tests', pattern=name)
+    if tests.countTestCases() == 0:
+        raise SystemExit('engineering telemetry: no tests in ' + name)
+    suite.addTests(tests)
+raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+PY_TELEMETRY
+}
+
 run_workflow_governance_baseline_contract_tests() {
   run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
@@ -624,6 +660,7 @@ run_workflow_governance_operational_contract_tests() {
 }
 
 run_workflow_governance_contract_tests() {
+  run_engineering_telemetry_contract_tests
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests
 }
