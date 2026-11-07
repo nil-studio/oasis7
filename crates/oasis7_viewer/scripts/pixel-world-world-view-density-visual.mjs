@@ -33,6 +33,7 @@ const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'],
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = `world-view-density-${process.pid}`;
 const lifecycle = createOwnedSessionLifecycle({ command, session });
 const run = args => new Promise((yes, no) => {
+  summary.lastBrowserCommand = args;
   const child = spawn(command, ['--session', session, ...args]); let stdout = '', stderr = '';
   const timer = setTimeout(() => { child.kill('SIGTERM'); no(Error('browser command timeout: ' + args[0])); }, 45000);
   child.stdout.on('data', x => stdout += x); child.stderr.on('data', x => stderr += x);
@@ -133,6 +134,7 @@ async function centerWithNativePan() {
   const dx = -camera.pan_x_px, dy = -camera.pan_y_px;
   if (Math.abs(dx) < .5 && Math.abs(dy) < .5) return;
   const point = await evaluate(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect(),points=[];for(let y=1;y<20;y++)for(let x=1;x<20;x++){const px=r.left+r.width*x/20,py=r.top+r.height*y/20,ex=px+${dx},ey=py+${dy};if(ex>r.left&&ex<r.right&&ey>r.top&&ey<r.bottom&&document.elementFromPoint(px,py)===c)points.push({x:px,y:py,d:(x-10)**2+(y-10)**2})}points.sort((a,b)=>a.d-b.d);if(points.length)return points[0];throw Error('no actual canvas start for native centering pan')})()`);
+  summary.pendingNativePan = { point, dx, dy, before: camera };
   await run(['mouse', 'move', String(point.x), String(point.y)]); await run(['mouse', 'down']);
   await run(['mouse', 'move', String(point.x + dx), String(point.y + dy)]); await run(['mouse', 'up']);
   await run(['wait', '500']);
