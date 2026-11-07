@@ -3,6 +3,7 @@ import { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 export { buildPixelWorldRenderInput } from "./pixel_world_host_input.js";
 import { projectPixelWorldRenderInput } from "./pixel_world_render_input.js";
 import { createPixelWorldSpatialController } from "./pixel_world_spatial_controller.js";
+import { createPixelWorldHostSelection } from './pixel_world_host_selection.js';
 import { PixelWorldSpatialExplorer } from "./pixel_world_spatial_explorer.jsx";
 import { createPixelWorldScopeGuard } from "./pixel_world_scope.js";
 import { createPixelWorldHostAdapter } from "./pixel_world_host_adapter.js";
@@ -835,12 +836,9 @@ export function PixelWorldHost(props) {
   const rendererRoute = resolvePixelWorldRendererRoute();
   const [coreRevision, setCoreRevision] = createSignal(0);
   const [worldRevision, setWorldRevision] = createSignal(0);
-  const selectedEntity = () => {
-    coreRevision();
-    return spatial.selection();
-  };
   const spatial = createPixelWorldSpatialController({core,enabled:()=>core.state.viewerProtocol?.capabilities?.includes("world_view"),
     getLocale:locale,getRenderState:()=>rustRenderState()});
+  const selectedEntity = createPixelWorldHostSelection(coreRevision, spatial);
   const worldViewState = spatial.state, navigation = spatial.navigation;
   const spatialSupported = () => {
     coreRevision();
