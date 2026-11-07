@@ -48,5 +48,9 @@ describe("finite display profiles",()=>{
   const input={worldView:view(1)};
   input.worldView.entities[0].render_record.resources={['x'.repeat(8193)]:1};
   expect(()=>projectPixelWorldRenderInput(input)).toThrow(/capacity/);
+  input.worldView=view(1);
+  input.worldView.entities[0].entity_id='x'.repeat(8192);
+  input.selectedKind='agent';input.selectedId=input.worldView.entities[0].entity_id;
+  expect(()=>projectPixelWorldRenderInput(input)).toThrow(/capacity/);
  });
 });
