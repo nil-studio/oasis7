@@ -153,6 +153,8 @@ Agent、Location、selection、receipt、recommended target 及 derived／missin
 | `depot` | 32×32；中心 `(16,16)`、入口 `(16,32)` | 场景实例 `(96,64)`；不编码 Micro Depot 业务状态 |
 | `agent` | 16×16；脚点 `(8,15)` | 独立静态精灵；身份／选择／权限由上层文字和边框表达，同位候选仍用集合标记 |
 
+共享材质的生产接线由 [world_materials.rs](../../../crates/pixel_world_bridge/src/world_materials.rs) 在原实体 reconcile 后消费同源 PNG：外壳复用既有实体的 Transform，独立回收，不增加命中或重算事实。地形沿原 CSS LOD 与组成色；设施外壳置于原状态 glyph 后，姓名、读数、来源及选择仍由既有图层表达。接线源码与导出文件不证明真实 GPU／交互验收完成。
+
 在仓库根执行 `python3 doc/world-simulator/viewer/assets/ui-ux/pixel-world/build.py` 重建；需要 Python 3、Pillow 与 PATH 中的 Inkscape。导出在原始逻辑尺寸完成，颜色和透明度经过脚本检查；不把旧平滑插画缩成马赛克。更改色板／图形时编辑 atlas，再重新生成；更改设施布局时编辑 scene 的实例并同步消费者锚点。尺寸、Smelter 相机中心和 Agent 脚点属于本次固定规格，若改变还须同步生成脚本与原型布局常量；不会由 SVG metadata 自动改变交互相机。
 
 **原型显示规则。** 以 `.world-art` 实际整数 CSS 尺寸 `W×H` 计算 `s=max(1,ceil(max(W/320,H/180)))`；图像为 `320s×180s`，围绕 `(168,88)` 居中后将整数偏移夹到 `[W−320s,0]`、`[H−180s,0]`，超出舞台的部分裁切。Agent 脚点与设施标签使用同一偏移和倍率，标签字号不乘 `s`。`ResizeObserver` 监听舞台，包含窄屏文档流和文字 200% 的高度变化；没有新增玩家相机或缩放操作。四张静态稿按其未被侧面板占据的世界区域构图：图 16 为 484×390、3×，图 17 为 1048×900、5×，工业稿为 944×844、5×；原型面板是覆盖层，按完整舞台裁切。这些是设计组合范围，不能把静态稿裁切当成已实现的响应式结果。源像素与整数 CSS 缩放也不证明任意 DPR、浏览器 zoom 或 GPU 采样均已逐物理像素对齐。
