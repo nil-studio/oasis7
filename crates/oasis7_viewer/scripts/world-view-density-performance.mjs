@@ -43,7 +43,7 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
     try {
       await run(['mouse', 'move', String(point.x), String(point.y)]);
       if (type === 'pan') { await run(['mouse', 'down']); await run(['mouse', 'move', String(point.x + sign * 6), String(point.y)]); await run(['mouse', 'up']); }
-      else await run(['mouse', 'wheel', String(sign * 20)]);
+      else await run(['mouse', 'wheel', String(-sign * 20)]);
       const after = await dense(), input = await json('JSON.stringify(window.__DENSITY_CAMERA_INPUT__)');
       assert(input.some(row => row.trusted && row.type === (type === 'pan' ? 'pointerdown' : 'wheel')), 'camera input was not trusted');
       assert(JSON.stringify(before.camera) !== JSON.stringify(after.camera), 'native camera did not change');
