@@ -4,6 +4,8 @@
 
 本页是战争与政治成本、收益、冷却、评分和反支配风险的稳定玩法专业数值权威；产品层只承诺玩家结果与跨域边界，实现锚点与专业验证仍由 gameplay、runtime 和测试域承载。
 
+下列 native / m5 数值继续解释原版本的实际路径和历史回放；[War=Defer](../../world-runtime/prd.md#native-surface-分类与冻结规则)及[当前冲突范围](gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md)保持。新的情境声誉采用按[消费者政策](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)与[完整消费者适用性](../../world-runtime/runtime/contextual-reputation-evidence-and-review.design.md#reputation-all-consumers)隔离旧累计 score：咨询、认领取得单位或 R&D 历史不提供新战力，不能因字段仍叫 reputation 就复用；本文不重启战争、重平衡旧评分或改写已发生结算。
+
 所属产品模块：[`世界规则与玩法系统`](../../product/world-rules-core-gameplay/prd.md)。
 
 产品边界入口：[`区域冲突、软赛季与可恢复损失`](../../product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-001)；本页保留战争/政治的成本、收益、冷却与反支配数值权威。
@@ -196,6 +198,8 @@ Non-goal: 本预览不重平衡治理阈值、投票窗口、票权公式或冷�
 ### DES-WAR-POLITICS-002：治理参数与普通治理边界承接
 
 政治数值基线、投票窗口、法定人数和通过阈值承接 `REQ-WR-GCB-001` 的普通治理白名单边界；本设计不扩大治理权限或修改 runtime ABI。
+
+新情境采用对普通治理明确不从旧经济/战争累计 score 或 `agent_acquisition` 派生 reputation bonus，独立的 active/warmup/stake、事项授权与既有 cap 继续校验；不能用来源未知或 profile 缺失推导资格。该来源选择由[普通治理的当前来源](gameplay-ordinary-governance-subject-and-oc-rights-contract.prd.md#governance-context-source)与[情境用途政策](gameplay-contextual-reputation-contract.prd.md#contextual-reputation-consumer-policy)共同限定，旧提案 snapshot 的数值、原历史票权和结果不改变。未来代码切换须证明新旧版本、既有票局和全部真实消费者隔离；本文没有执行该迁移。
 
 ---
 

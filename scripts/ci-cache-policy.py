@@ -23,6 +23,18 @@ FAMILIES = {
         'max_upload_bytes': 1024 ** 3, 'staging_bytes': 8 * 1024 ** 3,
         'keep_generations': 2,
     },
+    'formal-debug': {
+        'current_pattern': re.compile(r'formal-debug-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
+        'managed_pattern': re.compile(r'formal-debug-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
+        'max_upload_bytes': 768 * 1024 ** 2, 'staging_bytes': 6 * 1024 ** 3,
+        'keep_generations': 2,
+    },
+    'formal-endpoint': {
+        'current_pattern': re.compile(r'formal-endpoint-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
+        'managed_pattern': re.compile(r'formal-endpoint-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
+        'max_upload_bytes': 256 * 1024 ** 2, 'staging_bytes': 2 * 1024 ** 3,
+        'keep_generations': 2,
+    },
     'ordinary': {
         'current_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'ordinary-workspace-v1-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
@@ -36,6 +48,10 @@ FAMILIES = {
         'keep_generations': 2,
     },
 }
+# The two component families together retain the old Formal allocation (two
+# GiB resident, three GiB during rotation). Legacy v3 remains separately managed
+# while readers migrate; it still counts against the complete repository quota
+# and cannot be evicted merely because one replacement component exists.
 for _specification in FAMILIES.values():
     # A raw staging cap is not a cache-storage entitlement. Two retained
     # uploads and a temporary third have distinct compressed-byte budgets;

@@ -71,7 +71,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v3
+          shared-key: ci-shared-native-trusted-v4
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
       - name: Resolve the existing producer workspace cache identity
         id: identity

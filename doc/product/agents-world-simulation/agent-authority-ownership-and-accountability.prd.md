@@ -76,12 +76,14 @@ Agent 的稳定身份、来源和已影响世界的历史不能被交易、组�
 Trace ID: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad
 
 - 功能点：[REQ-AGENT-AUTH-001](#req-agent-auth-001)；适用范围沿本条原条件与 [AC-AGENT-AUTH-001](#ac-agent-auth-001)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010)：累计授权的来源、对象、期间与 effect 前再校验；玩家额度可读性、组织 issuer、其他资源/权利/风险来源的完整承接仍须分项核对。
+- 系统设计状态：已覆盖
+- 系统设计依据：[IA010 累计授权](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-010)及[已采纳来源与完整额度接收](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agent-authority-adopted-profiles)：个人/组织 issuer、精确签署条款与代表授权、原 grant/source/object/period 的累计 D/O/C、多源完整保留和同根消费、当前撤销与可读剩余额度均有专业承接；不为相邻模块另建一套授权账。
+- 设计验证方法：[AD01 授权与额度方法](../../testing/manual/agent-economic-disposition-acceptance.manual.md#agent-disposition-authority)连接原 CF 方法验证拆分、并发、重试、重连及 owner 切换。
+- 设计核对日期与基线：2026-11-05；原要求与静态源码固定 `b3658f94a7755fc766fbefe95e83a24566e6068c`，接收本次专业设计与方法修订。下列历史实现/运行依据保持原日期与原范围，本次没有新业务运行结果。
 - 实现状态：部分实现
 - 实现与验证依据：[grant/source/object/period累计键](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_delegation.rs#L95-L103)、[来源与不重置额度约束](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_delegation.rs#L159-L245)及[剩余额度投影](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/world/agent_delegation.rs#L640-L662)确认starter-owner native电力grant子集；organization_source_unsupported明确拒绝组织issuer。[扣账/重试及失效复核测试](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/runtime/tests/agent_delegation.rs#L275-L397)及同文件L548并发测试仅为定义，本轮未运行。[既有任务#4349](https://github.com/nil-studio/oasis7/issues/4349)为相关交付溯源，不据此声称本条全范围通过。
 - 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
-- 剩余范围：已确认starter-owner native电力grant的累计键、修订不重置及余额投影；组织issuer、其他资源/权利/风险额度、玩家可读来源/有效期/余额与全部拆分并发重连切换组合仍未闭合。
+- 剩余范围：设计已接收个人/组织与已采纳资源/权利/风险来源的完整专业合同；实施须接入真实 issuer/代表原件、全部来源 resolver 与效果写者、原累计账和当前读面，并取得同候选跨入口、拆分并发重连切换的实际证据。历史 starter-owner native 电力子集不扩称完整支持；新来源必须先有原专业 authority 和适配，不通过字符串或通用额度旁路。
 
 - 要求：当玩家或组织提前授权会消耗资源、占用容量、转移权利或累积风险的行动时，产品必须让玩家知道授权的对象范围、来源、有效期和剩余额度；拆分、并发、重试、重连或控制权切换不得扩大同一授权。
 - 验收：AC-AGENT-AUTH-001
@@ -101,12 +103,14 @@ Trace refs: O7-REQ-bd548350-7fce-4026-aeec-5b26a10b86ad；承接[REQ-AGENT-AUTH-
 Trace ID: O7-REQ-be254f99-9b66-47b1-ad7f-4a356d296b2a
 
 - 功能点：[REQ-AGENT-AUTH-002](#req-agent-auth-002)；适用范围沿本条原条件与 [AC-AGENT-AUTH-002](#ac-agent-auth-002)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-011)：转让生效、旧授权失效与历史因果保留；完整经济转让、退休/报废与跨入口历史呈现仍须组合核对。
+- 系统设计状态：已覆盖
+- 系统设计依据：[IA011 生效与历史](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-011)及[完整处置消费者](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#agent-disposition-control-history-consumer)：消费正式经济处置的 typed 原结果，区分 Begin 当前风险守卫与 Final 控制切换，重验旧 pending，保留稳定身份/来源/责任及已确认结果；旧配置先在原受控存储留存，再以不可变引用同根接收，新 owner 只取得当前许可的新上下文。Launcher/Viewer/API 的现时读权、私有正文与可审计公开证明分开。
+- 设计验证方法：[AD04–AD07 处置与历史方法](../../testing/manual/agent-economic-disposition-acceptance.manual.md#agent-disposition-owner)覆盖转让、退休/报废、未知恢复及三端连续性。
+- 设计核对日期与基线：2026-11-05；原要求与静态源码固定 `b3658f94a7755fc766fbefe95e83a24566e6068c`，接收本次专业设计与方法修订。下列历史实现/运行依据保持原日期与原范围，本次没有新业务运行结果。
 - 实现状态：未核实
 - 实现与验证依据：[真实claim终态](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/agent_claim_terminal_publication.rs#L30-L78)核验原owner及退款；[终态安装](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/agent_claim_terminal_publication.rs#L225-L244)移除当前claim。[identity安装](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/runtime/world/capability_authorization_admin.rs#L136-L183)只接受不可回退generation并journal身份，不能据此把释放/重认领称为经济转让或退休/报废。[重配置ack](https://github.com/nil-studio/oasis7/blob/8a9d6b78c6fc94f1676cb29537c7af97665c3d0d/crates/oasis7/src/viewer/runtime_live/control_plane/prompt_control_enhanced.rs#L590-L635)有版本、更新主体/时点，但明确runtime-instance且persistence/sync=None；未核到这些处置后旧配置、来源、责任和既有结果的玩家历史reader。本轮静态审读。
 - 核对日期与基线：2026-10-17；需求与静态实现固定main `8a9d6b78c6fc94f1676cb29537c7af97665c3d0d`，引用源码逐文件Git blob与当前完整tree核验；#4865未合并，不使用其候选类型。本轮只读源码/本地产物，未执行模型、Runtime、产品验收或部署；测试源码和历史QA报告不改称本候选PASS。
-- 剩余范围：具体待核：经济转让/退休/报废的实际启用入口→生效事件writer→新owner控制绑定与不可变旧配置/责任历史→Launcher/Viewer/API历史读取。已有claim终态、identity generation和原intent/receipt不得拼接代签；仍需处置后既有世界结果不被改写的同候选验收。
+- 剩余范围：按本次明确的首版经济政策候选与领域合同实施正式入口、完整资产/义务来源、权威 Begin guard 和 Final 控制来源/全部 fence、原配置的受控持久归档与三端当前历史 reader；候选政策须随本组由原 owner 评审采纳。既有 claim 终态、单 identity 安装、局部 Prompt ACK 或原 intent/receipt 不代签处置；仍需同候选证明原私有记录不泄漏、既有结果与责任不被改写，未实现入口如实不可用。
 
 - 要求：Agent 转让、重配置、退休或报废后，产品必须把新 owner 的生效点与既有身份、来源、审计历史和已生效世界结果区分呈现，不得以处置抹除责任或历史。
 - 验收：AC-AGENT-AUTH-002

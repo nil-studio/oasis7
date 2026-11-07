@@ -13,6 +13,7 @@
 - 同一证据包可引用多个模块，按模块列出合同来源、实际 PR/CI/评审、测试层级与证据路径；Issue / Project 按需，不要求额外任务编号。
 - 截图、console、summary、日志等产物使用评审者可回读的仓库路径或实际 CI artifact 定位；按适用合同保存原始文件、字节长度与 digest，不把本机临时路径当作已共享证据，不记录 token/密钥。
 - 候选/场景/判定沿用[总手册](../../../testing-manual.md)与 [QA source-to-scene](../prd.md#qa-infrastructure-source-scene-method)，不是新增测试选择器：先明确声明范围，再满足该范围的全部必需 gate；每次 smoke 不因此要求所有 full 场景或新审批。
+- 用于阶段/公开 claim 的整包评估时，按 [QA 候选接收](../design.md#release-candidate-evidence-reception)和 [RC01–RC10](../../../testing-manual.md#release-candidate-reception-validation)，在下列既有覆盖行分别接收两 mode/适用入口、执行与恢复、经济、资产/材料、QA 和公开说明输入；保留各原窗口/单位、真实环境、逐输入对应与缺项。单 mode 或专题包只保留原窄范围，不自动满足整包要求。
 
 ## 目录建议
 | 字段 | 推荐路径 |
@@ -54,7 +55,7 @@
 | --- | --- | --- | --- | --- |
 |  |  |  |  |  |
 
-执行状态与 verdict 分开：代码存在、结构校验或旧绿灯不证明 executed/pass。每份输入证据绑定自身候选、构建和 attempt；不同身份的结果不能无说明汇总成一个候选的通过。
+执行状态与 verdict 分开：代码存在、结构校验或旧绿灯不证明 executed/pass。每份输入证据绑定自身候选、构建和 attempt；不同身份的结果不能无说明汇总成一个候选的通过。 对整包评估，同时记录每项来源与候选的具体对应依据：相同世界结果可由多端合法引用，但各端实际消费独立核验；旧版本/历史原件须明确只是前态或证明输入，不能改名为当前 pass。
 
 ### 执行命令
 | 套件 / 检查项 | 实际命令 / attempt | 最终退出码与结果 | 日志路径 |

@@ -803,6 +803,8 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    "scripts/ci-apt-install.py": ["workflow_governance"],
+    "scripts/ci-apt-install.test.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/config.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/decision.yml": ["workflow_governance"],
@@ -834,6 +836,8 @@
     "scripts/ci-formal-process.test.py": ["workflow_governance"],
     "scripts/ci-full-result.py": ["workflow_governance"],
     "scripts/ci-full-result.test.py": ["workflow_governance"],
+    "scripts/ci-local-check-plan.py": ["workflow_governance"],
+    "scripts/ci-local-check-plan.test.py": ["workflow_governance"],
     "scripts/ci-local-signer-tests.py": ["workflow_governance", "packaging_contracts", "fleet_health"],
     "scripts/ci-local-signer-tests.test.py": ["workflow_governance"],
     "scripts/ci-required-result.py": ["workflow_governance"],
@@ -843,6 +847,7 @@
     "scripts/ci-rust-cache-build.test.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.test.py": ["workflow_governance"],
+    "scripts/ci-shared-native-cache.py": ["workflow_governance"],
     "scripts/ci-storage-acceptance.py": ["workflow_governance"],
     "scripts/ci-storage-acceptance.test.py": ["workflow_governance"],
     "scripts/ci-storage-network.py": ["workflow_governance"],
@@ -859,6 +864,26 @@
   },
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-apt-install.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-apt-install.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-apt-install.test.py"]
+    },
+    "scripts/ci-local-check-plan.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-check-plan.test.py"
+      ]
+    },
+    "scripts/ci-local-check-plan.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-local-check-plan.test.py"
+      ]
+    },
     "scripts/ci-bin-ownership.test.py": {
       "group": "cargo_tooling_contracts",
       "tests": [
@@ -1050,6 +1075,14 @@
         "scripts/ci-rust-cache-toolchains.test.py"
       ]
     },
+    "scripts/ci-shared-native-cache.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-rust-cache-build.test.py",
+        "scripts/ci-rust-cache-admission.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
     "scripts/ci-storage-acceptance.py": {
       "group": "workflow_governance",
       "tests": [
@@ -1083,10 +1116,13 @@
     "scripts/ci-test-artifacts.py": {
       "group": "workflow_governance",
       "tests": [
+        "scripts/ci-cache-policy.test.py",
         "scripts/ci-ecs-cache.test.py",
         "scripts/ci-formal-process.test.py",
+        "scripts/ci-storage-acceptance.test.py",
         "scripts/ci-workflow.test.py",
-        "scripts/ci-workspace-cache.test.py"
+        "scripts/ci-workspace-cache.test.py",
+        "scripts/package-ecs-resource-monitor.test.py"
       ]
     },
     "scripts/ci-workflow.test.py": {
@@ -1099,6 +1135,7 @@
     "scripts/ci-workspace-cache.py": {
       "group": "workflow_governance",
       "tests": [
+        "scripts/ci-cache-maintenance.test.py",
         "scripts/ci-cache-policy.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/ci-workspace-cache.test.py"

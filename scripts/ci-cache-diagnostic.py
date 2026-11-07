@@ -56,9 +56,92 @@ def workflow_environment(text):
     return result
 
 
+def snapshot_outputs(root, limit=100_000, deadline=None):
+    """Bounded path-only observation before Cargo; no file contents are read."""
+    target = root.resolve() / 'target'
+    files = set()
+    complete = True
+    if type(limit) is not int or limit <= 0:
+        raise ValueError('output inventory limit must be positive')
+    stop_at = min(time.monotonic() + 5, deadline if deadline is not None else float('inf'))
+    if target.is_symlink():
+        return target, files, False
+    if not target.exists():
+        return target, files, True
+    if not target.is_dir():
+        return target, files, False
+    pending, visited = [target], 0
+    try:
+        while pending:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    visited += 1
+                    if visited > limit or time.monotonic() >= stop_at:
+                        return target, files, False
+                    if entry.is_symlink():
+                        complete = False
+                    elif entry.is_dir(follow_symlinks=False):
+                        pending.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        files.add(Path(entry.path).relative_to(target).as_posix())
+                    else:
+                        complete = False
+    except OSError:
+        complete = False
+    return target, files, complete
+
+
+def output_presence(filenames, snapshot):
+    """Existence is not validity, provenance, or proof of Cargo freshness."""
+    target, files, complete = snapshot
+    if not complete or not isinstance(filenames, list) or not filenames or len(filenames) > 64:
+        return {'prebuild_outputs': 'unknown'}
+    relative = []
+    for filename in filenames:
+        if not isinstance(filename, str):
+            return {'prebuild_outputs': 'unknown'}
+        path = Path(filename)
+        if (not path.is_absolute() or '..' in path.parts
+                or not path.is_relative_to(target)):
+            return {'prebuild_outputs': 'unknown'}
+        relative.append(path.relative_to(target).as_posix())
+    if len(relative) != len(set(relative)):
+        return {'prebuild_outputs': 'unknown'}
+    present = sum(name in files for name in relative)
+    return dict(prebuild_outputs='present' if present == len(relative) else 'partial' if present else 'absent',
+                output_count=len(relative), present_output_count=present,
+                output_set_sha256=hashlib.sha256('\0'.join(sorted(relative)).encode()).hexdigest())
+
+
+def safe_unit_identity(value):
+    """Keep bounded Cargo names/flags, never package IDs or filesystem paths."""
+    target, features, profile = value.get('target'), value.get('features'), value.get('profile')
+    if not isinstance(target, dict) or not isinstance(target.get('name'), str):
+        return {}
+    name, kinds = target['name'], target.get('kind')
+    allowed_kinds = {'lib', 'rlib', 'dylib', 'cdylib', 'staticlib', 'proc-macro', 'bin', 'test', 'example', 'bench', 'custom-build'}
+    if (re.fullmatch(r'[A-Za-z0-9_-]{1,128}', name) is None
+            or not isinstance(kinds, list) or not kinds or len(kinds) > 8
+            or any(not isinstance(kind, str) or kind not in allowed_kinds for kind in kinds)
+            or not isinstance(features, list) or len(features) > 64
+            or any(not isinstance(feature, str) or re.fullmatch(r'[A-Za-z0-9_+.-]{1,128}', feature) is None for feature in features)
+            or not isinstance(profile, dict)):
+        return {}
+    safe_profile = {key: profile[key] for key in ('test', 'debug_assertions', 'overflow_checks')
+                    if type(profile.get(key)) is bool}
+    level = profile.get('opt_level')
+    if isinstance(level, str) and level in ('0', '1', '2', '3', 's', 'z'):
+        safe_profile['opt_level'] = level
+    return dict(target=name, target_kind=kinds, features=sorted(features), profile=safe_profile)
+
+
 class Observation:
-    def __init__(self, root):
+    def __init__(self, root, snapshot=None):
         self.root = root.resolve()
+        self.snapshot = snapshot if snapshot is not None else (self.root / 'target', set(), False)
+        self.output_presence = Counter()
+        self.rebuilt_units = []
+        self.rebuilt_unit_count = 0
         self.units = Counter()
         self.reasons = Counter()
         self.samples = []
@@ -77,6 +160,12 @@ class Observation:
                     raise ValueError('invalid compiler artifact')
                 source = 'local' if Path(path).is_relative_to(self.root) else 'dependency'
                 self.units[source + ('_fresh' if fresh else '_rebuilt')] += 1
+                if not fresh:
+                    presence = output_presence(value.get('filenames'), self.snapshot)
+                    self.output_presence[source + '_' + presence['prebuild_outputs']] += 1
+                    self.rebuilt_unit_count += 1
+                    if sum(sample['source'] == source for sample in self.rebuilt_units) < SAMPLE_LIMIT // 2:
+                        self.rebuilt_units.append(dict(source=source, **safe_unit_identity(value), **presence))
             except (ValueError, KeyError, TypeError):
                 self.discarded['invalid_stdout_records'] += 1
             return
@@ -103,6 +192,9 @@ class Observation:
 
     def report(self):
         return dict(unit_observations=dict(self.units), fingerprint_line_observations=self.fingerprint_lines,
+            prebuild_output_inventory_complete=self.snapshot[2],
+            rebuilt_output_observations=dict(self.output_presence), rebuilt_unit_samples=self.rebuilt_units,
+            rebuilt_unit_samples_truncated=self.rebuilt_unit_count > len(self.rebuilt_units),
             reason_line_observations=dict(self.reasons), samples=self.samples,
             discarded=dict(self.discarded), unit_counts_complete=bool(self.units) and not any(
                 value for key, value in self.discarded.items() if 'stdout' in key),
@@ -126,11 +218,13 @@ def stop(process):
 def observe(command, root, environment, deadline, line_limit=LINE_LIMIT, stream_limit=STREAM_LIMIT):
     if os.name != 'posix':
         raise ValueError('diagnostic process containment requires POSIX')
-    observer = Observation(root)
+    started = time.monotonic()
+    snapshot = snapshot_outputs(root, deadline=deadline)
+    output_inventory_seconds = round(time.monotonic() - started, 3)
+    observer = Observation(root, snapshot)
     buffers = {'stdout': b'', 'stderr': b''}
     dropping = dict.fromkeys(buffers, False)
     totals = Counter()
-    started = time.monotonic()
     timed_out = False
     process = subprocess.Popen(command, cwd=root, env=environment, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -193,7 +287,7 @@ def observe(command, root, environment, deadline, line_limit=LINE_LIMIT, stream_
     report = observer.report()
     report.update(exit_code=124 if timed_out else process.returncode, timed_out=timed_out,
         elapsed_seconds=round(time.monotonic() - started, 3), bytes_observed=dict(totals),
-        line_limit=line_limit, stream_limit=stream_limit)
+        line_limit=line_limit, stream_limit=stream_limit, output_inventory_seconds=output_inventory_seconds)
     return report
 
 
@@ -232,7 +326,7 @@ def run(scope, output_dir, seconds):
         result = observe(command, ROOT, env, deadline)
         report['phases'].append(dict(phase=phase, **result))
         (output_dir / 'build.json').write_text(json.dumps(report, indent=2) + '\n')
-        print(json.dumps(dict(phase=phase, variant=variant, **{k: v for k, v in result.items() if k != 'samples'})), flush=True)
+        print(json.dumps(dict(phase=phase, variant=variant, **{k: v for k, v in result.items() if k not in ('samples', 'rebuilt_unit_samples')})), flush=True)
         if result['exit_code'] != 0:
             return result['exit_code'] if result['exit_code'] > 0 else 128 - result['exit_code']
     return 0 if all(phase['unit_counts_complete'] for phase in report['phases']) else 2

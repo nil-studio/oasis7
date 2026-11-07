@@ -92,7 +92,7 @@ function configureOptions(options){
       worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_alarm_runtime.mjs')},...worker.modules];
     }
     if(identityCloseReadTrap&&worker.name==='owner')delete worker.bindings.CUSTODY_ROLE_KEY_KEK;
-    worker.bindings={...worker.bindings,CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
+    worker.bindings={...worker.bindings,CUSTODY_REJECTION_DIAGNOSTIC:'true',CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
     worker.durableObjects={...worker.durableObjects,CLIENT_ENROLLMENTS:{className:'ClientEnrollmentAuthority',useSQLite:true,...(worker.name==='owner'?{scriptName:'identity'}:{})}};
     if(worker.name==='identity') {
       worker.serviceBindings={...worker.serviceBindings,TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'},TEST_SESSION_NATIVE_HISTORY:{name:'identity',entrypoint:'NativeProvisionHistory'}};
@@ -263,6 +263,8 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       const summary={stage:saved.provision_stage,setups:saved.setups.map(setup=>({stages:setup.stages.map(stage=>Object.fromEntries(keys.map(key=>[key,stage[key]])))}))};
       assert.fail(JSON.stringify({baseline_prepared:false,summary}));
     }
+    // Only the happy baseline may await real World commit; all target faults remain asynchronous.
+    runtime.disableBaselineSettlement();
     if(process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true'||process.env.OASIS7_TEST_SESSION_IDENTITY_DIAGNOSTIC==='true') {
       // Preserve the actual production Account/SQLite; only target operations use diagnostic Wasm.
       ownerDiagnosticActive=process.env.OASIS7_TEST_SESSION_OWNER_DIAGNOSTIC==='true';
@@ -322,7 +324,7 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
     await runtime.suspend();const finalState=stored(runtime,basis.session_id);assert.deepEqual(finalState.roots,['execution','reconcile_read','termination_plan']);assert.equal(finalState.credentials,0);assert.equal(finalState.terminations,0);assert.equal(finalState.reads,5);assert.deepEqual(finalState.source_reads,[7]);assert.deepEqual(finalState.steps,['fresh_access_pair','lifetime','owner_read']);
     await runtime.restart(selectedMode);const count=runtime.nativeRequests();const retry=await json(await runtime.managementFetch('/test-sessions/continue',{api_version:1,session_id:basis.session_id}));assert.equal(retry.stage,'active');assert.deepEqual(runtime.nativeRequests(),{...count,'/custody/management-session-status':(count['/custody/management-session-status']??0)+1},'history does not repeat source or preflight business HTTP');
     await run(runtime,basis,selectedMode,blocked);
-  },{configureOptions});
+  },{configureOptions,settleBaseline:true});
   } finally {
     ({ownerDiagnosticActive,identityDiagnosticActive,identitySecretsDisabled,identityCloseReadTrap,accountAlarmFixtureActive,accountAlarmFault,activationReadDelay,paidDirectoryBarrier,toolNonceFixtureActive,toolNonceFaultMode,toolNonceSignals,toolNoncePorts}=previousFixtureState);
   }
@@ -1280,14 +1282,34 @@ test('public Tool metadata uses only ReconcileRead funds with Native and private
 });
 
 
+// Failure-only bounded status/counter diagnostics; no originals or credentials.
+async function requirePaidResultParticipant(runtime){
+  const initial=await runtime.drive('session-participant');
+  if(initial.stage!=='participant_bound'){
+    const observedAt=Date.now();
+    const paths=new Set(['/participant/policy-original','/participant/authorize','/participant/submit','/participant/lookup','/participant/owner-view']);
+    const outcomes=new Set(['received','pending','committed','rejected','expired','unknown','history_unavailable']);
+    const stages=new Set(['draft','approved','role_keys_ready','native_registered','native_session_ready','participant_bound','ready_for_setup','prepared','frozen','cancelled']);
+    const nativePaths=new Set([...paths,'/custody/management-session-status','/custody/approvals/verify','/custody/managed-bindings/session-status']);
+    const native_requests=Object.fromEntries(Object.entries(runtime.nativeRequests()).filter(([path,count])=>nativePaths.has(path)&&Number.isSafeInteger(count)&&count>=0));
+    const world=runtime.worldResults().filter(row=>paths.has(row.path)).slice(-16).map(row=>{
+      const outcome=typeof row.outcome==='string'?row.outcome:row.outcome?.status;
+      return {path:row.path,http:Number.isInteger(row.http)&&row.http>=100&&row.http<=599?row.http:null,outcome:outcomes.has(outcome)?outcome:null};
+    });
+    const progress={stage:stages.has(initial.stage)?initial.stage:'unknown',pending_count:Array.isArray(initial.pending_operations)?initial.pending_operations.length:null};
+    await runtime.suspend();
+    console.error(JSON.stringify({paid_result_participant_failure:{progress,native_requests,world,state:baselineFailureState(runtime,observedAt)}}));
+  }
+  assert.equal(initial.stage,'participant_bound','the real participant prerequisite must complete before the selected paid result callback');
+}
+
 for(const selectedStage of ['bind','delegation']){
 const selectedLabel=selectedStage==='bind'?'Bind':'Delegation';
 test(`actual paid ${selectedLabel} result Directory and Fence reads overlap without renewing source`,{timeout:300000},async()=>{
   setupPaidResultStage=selectedStage;setupPaidResultBarrier=true;
   try{
     await withRoleRuntime(mode,async runtime=>{
-      const initial=await runtime.drive('session-participant');
-      assert.equal(initial.stage,'participant_bound','real participant prerequisite must complete before the selected Bind callback');
+      await requirePaidResultParticipant(runtime);
       const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
       const before=runtime.nativeRequests(),worldBefore=runtime.worldResults().length;
       const response=await runtime.continueSetup(setup.setup_id);
@@ -1317,7 +1339,7 @@ test(`actual paid ${selectedLabel} result Directory and Fence reads overlap with
       assert.equal(facts.released,'independent_reads_started');assert.ok(facts.elapsed_ms<5000);
       assert.equal(facts.source_unchanged,true);assert.equal(facts.spent_unchanged,true);assert.equal(facts.result_after,true);
       assert.equal(facts.setup_transport_spent,8+96*facts.stage_count,'the real preallocated stage96 remains charged exactly once');
-    },{configureOptions});
+    },{configureOptions,settleSubmits:true});
   }finally{setupPaidResultBarrier=false;setupPaidResultStage='bind';}
 });
 
@@ -1326,8 +1348,7 @@ for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'
   setupPaidResultStage=selectedStage;setupPaidResultBarrier=fault;
   try{
     await withRoleRuntime(mode,async runtime=>{
-      const initial=await runtime.drive('session-participant');
-      assert.equal(initial.stage,'participant_bound','the real participant prerequisite must complete');
+      await requirePaidResultParticipant(runtime);
       const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
       const response=await runtime.continueSetup(setup.setup_id);
       const status=response.status;let progress=null;
@@ -1359,7 +1380,7 @@ for(const fault of ['reject_gate','freeze_fence','over_window','prepay_sql_fail'
           }else assert.equal(facts.fence_disabled,true,'the actual independent RecoveryFence must be disabled');
         }
       }
-    },{configureOptions});
+    },{configureOptions,settleSubmits:true});
   }finally{setupPaidResultBarrier=false;setupPaidResultStage='bind';}
 });
 

@@ -153,12 +153,12 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/claim-ready.svg)；区域：named visible cards: 目标 Agent / 认领前核对。
   - 已画状态：可提交 · 示例数据。
   - 区域「目标 Agent」：候选 A ▾；位置 120, 0, 40 cm；Body / frame：已发布类型；专长：以 canonical 路线理由为准
-  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 12 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch；数字为设计示例，不是运行时事实
+  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 14 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch · 首期已计入 Upfront；数字为设计示例，不是运行时事实
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 - 表示：`normal_frame`。
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/claim-lifecycle.svg)；区域：named visible cards: 费用构成 · OC / 时间与风险 / 释放动作未发布。
   - 已画状态：只读生命周期。
-  - 区域「费用构成 · OC」：Upfront 12 = Activation 4 + Bond 8；Eligible 20 · Liquid 8 · Restricted 12；Auto starter 0；Bond locked：restricted 8 / liquid 0
+  - 区域「费用构成 · OC」：Upfront 14 = Activation 4 + Bond 8 + First upkeep 2；Eligible 20 · Liquid 8 · Restricted 12；Auto starter 0；Bond locked：restricted 8 / liquid 0
   - 区域「时间与风险」：Upkeep 2 OC / epoch · Paid through 20；Release ready in 2 epochs；Grace 3 · Idle warning 5 epochs；Forced reclaim 10 epochs · Penalty 500 bps；Reclaim terms：以已发布条款为准
   - 区域「释放动作未发布」：当前仅状态指导，不显示释放按钮。；已发布但阻塞时，应从正式动作列表查看原因。
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
@@ -177,7 +177,7 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - [具体frame](assets/ui-ux/full-function/gameplay/frames/claim-ready.svg)；区域：named visible cards: 目标 Agent / 认领前核对。
   - 已画状态：可提交 · 示例数据。
   - 区域「目标 Agent」：候选 A ▾；位置 120, 0, 40 cm；Body / frame：已发布类型；专长：以 canonical 路线理由为准
-  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 12 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch；数字为设计示例，不是运行时事实
+  - 区域「认领前核对」：Slot 1 · Owned / cap 0 / 1；Eligible 20 OC · Upfront 14 OC；Activation fee 4 OC · Bond 8 OC；Upkeep 2 OC / epoch · 首期已计入 Upfront；数字为设计示例，不是运行时事实
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
 
 <a id="r-game-06"></a>
@@ -353,8 +353,8 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 #### 具体稿字段与状态映射
 
 - 表示：`normal_frame`。
-  - [具体frame](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)；区域：named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用。
-  - 已画状态：只读 · 所有已发布选项保留。
+  - [具体frame](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)；标题：比较恢复方案（只读）；区域：named visible cards: 等待 safe_wait · 不可用 / 修复 repair_now · 可用 / 推荐 / 改道 reroute_now · 可用。
+  - 已画状态：仅比较，不提交 · 所有已发布选项保留。
   - 区域「等待 safe_wait · 不可用」：原因：当前条件不能安全等待；保留：已提交进度；成本：已发布成本；机会成本：错过当前窗口
   - 区域「修复 repair_now · 可用 / 推荐」：原因：运行时推荐的恢复路径；保留：已发布保留进度；成本：已发布本地投入；机会成本：延后其他计划
   - 区域「改道 reroute_now · 可用」：原因：运行时发布的替代路径；保留 / 成本 / 机会成本：以各字段为准；可用与推荐是标签；此组件没有执行按钮。
@@ -422,6 +422,14 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
   - 区域「已结算产出」：iron_ingot × 36；投入：iron_ore × 48；配方 powerRequired：24（源未指定单位）；Accepted batches 12 · Job 5 · Tick 27；产出归属：示例 Agent A
   - 区域「下一候选」：Assembler MK1 候选资格已满足。；建造仍需当前材料、电力与授权。；稳定运行与交付必须分别验证。
   - 未证明：Only the explicit rendered state/fields; narrative mentions are not additional state screenshots.；真实运行未执行。
+
+#### 完整原生方案与首局交接补充
+
+- [方案稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)与[结果稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)为新增 `design_target`，均为 1440×900；沿[首局内容设计的唯一 fixture](first-session-content-delivery.design.md#native-three-batch-fixture)采用 `recipe.smelter.iron_ingot` 三批：`iron_ore ×12` + `carbon_fuel ×3` → `iron_ingot ×9` + 预计副产物 `slag ×3`，配方用电 `24`。旧图的 36/48/24 保留为历史字段示例，不能混入这套完整 native 方案。
+- 方案稿具体画 fresh 可行报价、当前工厂/配方/批次、工厂输入账本、完整主要投入、预计产出/副产物及单一“确认生产”入口；报价时长取实际 `preview.duration_ticks`，不从 catalog 基准推断运行 ETA。
+- 结果稿具体画匹配结算摘要、实际铁锭 `9`、实际投入与配方用电、示例 Agent A / job `17` / tick `102`、`production_only` 及 Assembler 候选。`9/10` 是本笔产出与建造需求的比较，不是当前库存；建造仍须核全部当前条件。
+- 当前成果摘要和归一化未发布 `byproducts`，故结果稿显示“副产物：当前摘要未发布”。只有同 job 完整结算原件确实提供时，目标消费分支才可显示实际 slag；不得从方案预计值补齐。详见[副产物接点](first-session-content-delivery.design.md#native-three-batch-fixture)。
+- [统一可操作原型](assets/ui-ux/interactive/index.html#industry)承接方案、缺料、显式提交、原结果未知、只读核对、匹配结算与回访，按 [P1～P6](first-session-content-delivery.manual.md#fs-content-prototype)逐项走查。两张 SVG 不代表其余状态均已画出，原型行为不升级为真实运行或真人验证；本补充不改变上方固定来源的 `conditional_current` 实现边界。
 
 <a id="r-game-19"></a>
 ### R-GAME-19 微型仓库设施、库存与技术证据

@@ -129,3 +129,13 @@ fn complete_context_scenario(
 ) {
     super::complete_context_scenario_with_revision(authority_mode, other_provider, 1);
 }
+
+#[test]
+fn private_task_context_native_snapshot_and_action_survive_tick_epoch_rollover() {
+    super::complete_context_scenario_at_age(
+        Some(oasis7_agent_api::game::TaskContextAuthorityModeV1::NativeExecutorV1),
+        false,
+        1,
+        395,
+    );
+}

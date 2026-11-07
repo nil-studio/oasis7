@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "21d481b33b7e233e7dddff597403ecf5c2e044c5f2fa121dfc48654f7d0577b4",
+    "content_sha256": "ab2a0a9145acab20c5ee0721783f7e39e8780a513b23a7a3f5b996545184a40a",
     "current_authority": "doc/engineering/workflow/source-of-truth.md",
     "decision_owner": "repository_health_engineer",
     "disposition": "retain_current_authority",
-    "note": "保留开发流程唯一主责、原分类与路由。已定点复核可验证代码任务、子项内部可分离性与必要原子范围，及其与关键交付路径、代码模板、执行/并行方法、TPM、dot 交接及 Triage 的组合：父项保留总体目标、依赖和最终集成，可由协调者先接手拆分；实现派工只覆盖结果、消费者、输入、验证和交付边界明确的就绪子 Issue 或等价清单项。需独立跟踪的结果保留关联代码子 Issue，同会话短任务及临时 worker 不机械建单，归并不吞并有效子任务。既有授权、暂停、小而完整 PR、接口前置、实际版本及验证边界保持不变，不新增普通小任务表单、审批、状态或 CI 门禁。本次为新增条款及直接消费者的有界静态审读，不证明实际队列行为、执行效率、部署或业务验收。",
+    "note": "保留开发流程唯一主责及既有 owner、disposition 与路由。本次有界审读通用职责、独立开发会话、代码队列领取与状态维护和评审方式，并核对 AGENTS、工程 PRD/design、执行/并行/评审方法、TPM 与 dot 的直接承接。直接开发会话和可选 TPM 共用认领规则，由实际领取者更新实现标签；标签写入失败保留真实认领及待同步项，暂停与执行权限继续约束工作。角色卡作为专业参考，交接复用 Issue/PR；现行 PRD 的角色生命周期、每日日志和固定评审报告要求已对齐，旧格式校验退役而目录负责人等有效合同保留。设计缺口处理、原生父子任务、必要独立评审、共享预算、写入隔离和父项整体验收保留；Agent 自主试玩与 dot 时间表专项条款未变。本结论限于修改及直接消费者的静态一致性，不证明客户端多会话已采用、真实任务已验收或周期已缩短。",
     "path": "doc/engineering/workflow/source-of-truth.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

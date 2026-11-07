@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "tests_storage_challenge_gate/local_history_fixture.rs"]
+mod local_history_fixture;
+use local_history_fixture::seed_six_local_commits;
+
 #[path = "tests_storage_challenge_gate/provider_route_mocks.rs"]
 mod provider_route_mocks;
 use provider_route_mocks::*;

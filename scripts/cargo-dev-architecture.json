@@ -821,7 +821,7 @@
     },
     {
       "key": "custody-core",
-      "upstream": "doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust",
+      "upstream": "crates/oasis7_custody_worker/README.md#cargo-dependency-boundaries",
       "roots": [
         {
           "name": "oasis7_custody_core",
@@ -950,7 +950,7 @@
     },
     {
       "key": "custody-worker",
-      "upstream": "doc/p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#cloud-custody-rust",
+      "upstream": "crates/oasis7_custody_worker/README.md#cargo-dependency-boundaries",
       "roots": [
         {
           "name": "oasis7_custody_worker",

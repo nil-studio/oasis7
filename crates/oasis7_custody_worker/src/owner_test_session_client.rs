@@ -43,38 +43,55 @@ async fn live(
     source: &str,
     lifetime: SignedManagedNativeSessionLifetimeV1,
 ) -> Result<ClientLiveCurrent> {
-    let id = &rpc.http.selector.session_id;
-    let ticket = store
-        .reserve_test_session_source_read(id, source)
+    let diagnostic = crate::rejection_diagnostic::Trace::new(env, "live", None, None);
+    diagnostic.lifetime(&lifetime);
+    let stage = std::cell::Cell::new("unknown");
+    let result = async {
+        let id = &rpc.http.selector.session_id;
+        stage.set("live.reserve");
+        let ticket = store
+            .reserve_test_session_source_read(id, source)
+            .map_err(|_| denied())?;
+        stage.set("live.ticket");
+        if ticket != 4 {
+            return Err(denied());
+        }
+        let started = clock()?;
+        stage.set("live.snapshot");
+        let saved = store.snapshot().map_err(|_| denied())?;
+        diagnostic.session(&saved.state, id, Some(source));
+        let session = saved.state.test_sessions().get(id).ok_or_else(denied)?;
+        let raw = serde_json::to_string(&TestSessionAttestationRequest {
+            session: session.session.clone(),
+            lifetime: lifetime.clone(),
+        })?;
+        stage.set("live.attestation");
+        let proof: TestSessionPrivateAttestation = serde_json::from_str(
+            &super::super::super::text(attest(env, &raw).await.map_err(|_| denied())?)?,
+        )
         .map_err(|_| denied())?;
-    if ticket != 4 {
-        return Err(denied());
+        if proof.session_ref != session.session.session_ref
+            || proof.private_sid_generation != session.session.private_sid_generation
+            || proof.lifetime_digest != lifetime.lifetime.digest().map_err(|_| denied())?
+        {
+            return Err(denied());
+        }
+        stage.set("live.observation");
+        let current = observed(state, env, store, rpc, source, false).await?;
+        stage.set("live.current");
+        Ok(ClientLiveCurrent {
+            native: session_authority::current(state, env, &current, true).map_err(|_| denied())?,
+            lifetime,
+            private_sid_generation: proof.private_sid_generation,
+            source_operation_id: source.into(),
+            source_ticket: ticket,
+            observed_at: started,
+        })
     }
-    let started = clock()?;
-    let saved = store.snapshot().map_err(|_| denied())?;
-    let session = saved.state.test_sessions().get(id).ok_or_else(denied)?;
-    let raw = serde_json::to_string(&TestSessionAttestationRequest {
-        session: session.session.clone(),
-        lifetime: lifetime.clone(),
-    })?;
-    let proof: TestSessionPrivateAttestation = serde_json::from_str(&super::super::super::text(
-        attest(env, &raw).await.map_err(|_| denied())?,
-    )?)
-    .map_err(|_| denied())?;
-    if proof.session_ref != session.session.session_ref
-        || proof.private_sid_generation != session.session.private_sid_generation
-        || proof.lifetime_digest != lifetime.lifetime.digest().map_err(|_| denied())?
-    {
-        return Err(denied());
-    }
-    let current = observed(state, env, store, rpc, source, false).await?;
-    Ok(ClientLiveCurrent {
-        native: session_authority::current(state, env, &current, true).map_err(|_| denied())?,
-        lifetime,
-        private_sid_generation: proof.private_sid_generation,
-        source_operation_id: source.into(),
-        source_ticket: ticket,
-        observed_at: started,
+    .await;
+    result.map_err(|error| {
+        diagnostic.fail(stage.get());
+        error
     })
 }
 

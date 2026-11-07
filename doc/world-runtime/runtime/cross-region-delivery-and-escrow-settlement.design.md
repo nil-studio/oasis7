@@ -39,6 +39,8 @@
 
 物流负责货物位置、数量与损耗；目的地存储负责准入、容量和保管责任；商业合同负责所有权与支付。它们可以在同一 runtime 内执行，但不能互相伪造事实。Viewer/API/Agent 读取同一投影；LLM 建议、客户端时间、缓存、链上付款或单方证明均不是交付 authority。外部付款若被允许，必须由另行审定的资产桥合同证明可用余额，本文不直接消费外部 receipt 为世界资金。
 
+原采纳的持续运输使用[完整服务的运输政策](../../game/gameplay/gameplay-continuing-service-fulfillment-and-remedies-contract.prd.md#continuing-service-transport)及其[取消与责任](../../game/gameplay/gameplay-continuing-service-fulfillment-and-remedies-contract.prd.md#continuing-service-recovery)、[有限本地程序](../../game/gameplay/gameplay-continuing-service-fulfillment-and-remedies-contract.prd.md#continuing-service-review)。[共同形成](agent-mediated-contract-formation.design.md#contract-formation-common-terms)校验个人、组织和多方的完整同版接受；[服务运输适配](continuing-service-fulfillment-and-remedies.design.md#service-transport)接收本文真实物流/保管/结算事实。上述版本化政策拥有风险分配、部分履行、价款赚取和处置规则，本文继续拥有跨区分层及原义务去重；不新增第二套资金、库存或合同 authority。直接运输和历史 tariff receipt 仍保持原范围，不能仅凭改 profile 名称获得服务义务或最终交付资格。
+
 ## 5. 关键运行流程
 
 <a id="des-wr-cr-001"></a>
@@ -71,7 +73,7 @@ Viewer/API/Agent 在同一快照下给出等义结果；建议不能提交改道
 
 ## 6. 接口与数据合同
 
-以下为待实现的逻辑关系，不是已存在字段；实际 schema 必须另行审定并更新执行矩阵。
+以下为逻辑关系，不表示现有接口已实现。所选持续运输 family 的完整条款、必需接受、实际货物/资金来源和命令由[服务接口与实物证据](continuing-service-fulfillment-and-remedies.design.md#service-domain-evidence)承接，并与共同形成的原 terms/request 摘要绑定；不以一个空白“物流成功”字段代替这些输入。实际交付仍须更新执行矩阵并证明正式消费者兼容。
 
 | 接口 | producer → consumer | identity/version | ordering/idempotency | success/error | compatibility |
 | --- | --- | --- | --- | --- | --- |
@@ -80,7 +82,7 @@ Viewer/API/Agent 在同一快照下给出等义结果；建议不能提交改道
 | 里程碑/裁决 | runtime/有权裁决 → 资产账本 | 合同义务键、政策/裁决版本、receipt | 权威顺序；条件原子提交 | 单次结算或 blocked/rejected | 未知版本禁止产生新效果 |
 | 投影/查询 | 权威日志 → Viewer/API/Agent | 快照、合同与 receipt 身份 | 查询无效果；旧快照显式 stale | 真实状态、blocker 与合法下一步 | 不支持的能力不能显示成功 |
 
-每个请求、证据、路线和里程碑数量须有确定上限。超限、证据不可核验、超时或未知版本明确拒绝/阻断，不静默截断；producer/consumer 的 wire 版本、错误码与预算仍待实现前冻结。
+每个请求、证据、路线和里程碑数量按[服务资源预算](continuing-service-fulfillment-and-remedies.design.md#service-resource-budget)及原物流更严上限校验；输入/输出按完整编码封套计量，原本地读取和控制机会独立保护。超限、证据不可核验、超时或未知版本明确拒绝/阻断，不静默截断，也不在接受后才发现所签运输无法编码或无安全出口。共同形成和服务的版本化错误/原件恢复语义共同适用；没有该完整能力的旧 producer/consumer 不得激活此 family。
 
 ## 7. 状态、事务与持久化
 
@@ -89,6 +91,8 @@ Viewer/API/Agent 在同一快照下给出等义结果；建议不能提交改道
 账本必须能对账：起始货物 = 当前库存/占用 + 在途/边界保管 + 已接收量 + 确认损耗；locked escrow = 尚持有 + 已释放 + 已退回 + 合同允许的费用处置。每项转移只记一次且记录双方，入库可用性和所有权不是默认同时成立。生产、转售与后续转移另有新 lineage，不能再次消费原已履行义务。
 
 在单一 canonical world transaction 内提交跨子系统变更；不通过独立数据库双写加事后补偿伪装原子性。checkpoint 同时包含合同/义务/占用/货物事实/裁决/receipt，日志恢复逐提交核对；缺依赖或 commitment mismatch 停止相关执行。accepted 只是收到请求；applied 需 committed effect；persisted 需恢复可回读；finality 由 P2P 合同证明。
+
+持续运输沿[服务持久恢复](continuing-service-fulfillment-and-remedies.design.md#service-persistence)保存完整原件、已结数量、责任与索引。root G1 的提交状态若为 StatusUnknown，必须隔离旧 World 的全部 writer 与 tick，先判定原 generation；不能把全根未知缩成单合同 blocked 后继续写。已确认的局部缺源或受限争点才按原精确范围阻断；真实已发布的在途/损耗事实不因金融结算未知而重做或删除。
 
 去重与义务账本不得在合法重放、争议或旧请求仍可到达时清理。retention 由[存储治理](runtime-storage-footprint-governance.prd.md)确定；若压缩历史，保留可验证的累计量、终态与防重放边界。保管丢失或不可读不能推导库存可用或自动退款。
 
@@ -105,9 +109,9 @@ Viewer/API/Agent 在同一快照下给出等义结果；建议不能提交改道
 | 边界正确性 | 固定候选、拒收/容量竞争/部分损耗 | 前序状态无最终收益；货物守恒差为零 | CR-VERIFY-001 | 计划，未验证 |
 | 原子与去重 | 提交前/后 crash、重复身份/新身份、并发结算 | 每义务一次 effect；资金/库存/需求对账差为零 | CR-VERIFY-002 | 计划，未验证 |
 | 争议与恢复 | 争议竞态、退回/重谈、checkpoint/replay | 已结算历史不变；残余义务与账本一致 | CR-VERIFY-003 | 计划，未验证 |
-| 跨 surface / 容量 | 同快照、stale/断连、超限证据 | 同义状态与 blocker；超限明确失败且零部分 effect | CR-VERIFY-004 | 规模/延迟预算待冻结，无 SLA |
+| 跨 surface / 容量 | 同快照、stale/断连、超限证据 | 同义状态与 blocker；超限明确失败且零部分 effect | CR-VERIFY-004 | 规模上限沿所选服务 family 与原物流更严合同；无实测 SLA |
 
-各验证入口见下列验收手册。规模、并发、硬件、窗口、分位数与预算由 runtime_engineer / qa_engineer 在实现前确定；没有测量不能宣称吞吐或延迟达标。
+各验证入口见下列验收手册；持续运输同时执行[CSF-01 实物结果](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-01-domain-results)、[CSF-03 程序](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-03-review)、[CSF-05 完整预算](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-05-budgets)和[CSF-06 原件恢复](../../testing/manual/continuing-service-fulfillment-and-remedies-acceptance.manual.md#csf-06-recovery-read)。以选定 family 的工程上限固定规模、窗口和完整调用图；硬件、实际命令与测量环境记录在对应候选证据中，没有测量不能宣称吞吐或延迟达标。
 
 ## 10. 兼容、迁移与回滚
 
@@ -137,7 +141,7 @@ Viewer/API/Agent 在同一快照下给出等义结果；建议不能提交改道
 | 多维状态而非单一完成位 | 保留 arrival/acceptance/ownership 的独立因果；runtime_engineer。 | schema 与读面实现前复核部分交付表示。 |
 | 单世界原子提交 | 避免资金和货物分裂；runtime_engineer / blockchain_ops_engineer。 | 若引入独立 shard/存储事务，另行设计，不直接外推本文。 |
 | 义务 lineage 去重 | 防新请求/版本/重谈重复获益；runtime_engineer。 | 确定数量范围、补偿与压缩身份 schema 并验证。 |
-| 裁决/取消/部分交付政策未冻结 | 无默认退款或争议胜者；gameplay_designer。 | 发布版本化政策、权限与窗口，缺失前相关动作 blocked。 |
-| 预算、retention、wire 与容量未冻结 | 无当前实现或 SLA 承诺；runtime_engineer / qa_engineer。 | 实现前确定上限、兼容矩阵与故障注入并复核 §§6–10。 |
+| 持续运输的裁决/取消/部分交付政策 | 由完整服务政策唯一拥有；无默认退款或争议胜者；gameplay_designer。 | 实现时逐项接入真实物流、保管、责任和本地程序；缺权限或适配器保持不可激活，不以缺实现改写已定政策。 |
+| 所选 family 的预算、原件及编码容量 | 接收完整服务的实际调用、分阶段退出预算、完整原件与编码上限；runtime_engineer / qa_engineer。 | 依 §§6–10 与 CSF 方法取得实际同候选证据；旧 wire 不自动升级，工程预算不代签性能或 SLA。 |
 
 未来实际修改权限、持久化兼容或关键安全边界时，按[开发流程规范](../../engineering/workflow/source-of-truth.md)安排独立评审；本次设计不改变运行权限、协议或数据。
