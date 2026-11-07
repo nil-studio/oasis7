@@ -21,4 +21,4 @@ DAG 仅分析完整 GitHub context 的 job 层，不重复累计 step/phase/test
 
 原 v1 准备型输入保留在测试内，原 schema 始终 partial，analysis unavailable。`collect-source KIND INPUT OUTPUT --reference RELATIVE_PATH --collection-id ID --collected-at UTC --origin {github,local}` 继续支持 `actions-jobs`、`process-jsonl`、`build-manifest`、`compile-metrics`。它投影单份离线输入、记录原始字节 SHA-256，写出 partial snapshot 后返回 1，不验证引用真实性或把 artifact 绑定到 run。v1 准备型输入摘要针对规范化记录列表的 canonical JSON；v2 来源摘要针对各 payload 的 canonical JSON。
 
-仅使用整理过的非敏感输入。允许字段和受限标识符不是秘密检测器；输入限制为 32 MiB，完整请求/时间预算、live collector 和真实 CI/本地核验仍待实施。报告只支持复算，不签发 GitHub check。report 返回 0 只代表成功渲染，原测试退出码、失败/取消及清理结果不变。
+仅使用整理过的非敏感输入。允许字段和受限标识符不是秘密检测器；离线输入限制为 32 MiB。`collect-github` 与 `collect-metrics` 的预算、原件/投影摘要及独立 receipt 见[设计](../../../../doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)，不会从本合成 fixture 发网络请求；真实本地 warm 原件验收仍待补齐。报告只支持复算，不签发 GitHub check。report 返回 0 只代表成功渲染，原测试退出码、失败/取消及清理结果不变。

@@ -675,4 +675,280 @@ class ProvenanceDagTests(unittest.TestCase):
         self.assert_unavailable()
 
 
+
+
+class BoundedCollectionTests(unittest.TestCase):
+    def setUp(self):
+        import io, zipfile
+        self.run = {"id": 7, "run_attempt": 2, "head_sha": "a" * 40, "event": "pull_request",
+                    "created_at": "2026-01-01T00:00:00Z", "repository": {"full_name": "owner/repo"}}
+        self.job = {"id": 10, "run_id": 7, "run_attempt": 2, "head_sha": "a" * 40,
+                    "conclusion": "failure", "started_at": "2026-01-01T00:00:01Z",
+                    "completed_at": "2026-01-01T00:00:03Z", "name": "password=NEVER_COPY",
+                    "steps": [{"number": 1, "conclusion": "cancelled"}]}
+        self.plan = {"fast_plan_version": 1, "check_inventory_version": 1,
+                     "source_sha": "a" * 40, "tested_sha": "b" * 40, "policy_sha": "c" * 40}
+        self.archive = self.zip({"selection.json": json.dumps(self.plan).encode()})
+        self.artifact = {"id": 20, "name": "ci-selection-7-2", "expired": False,
+                         "size_in_bytes": len(self.archive), "workflow_run": {"id": 7, "head_sha": "a"*40},
+                         "digest": "sha256:" + __import__('hashlib').sha256(self.archive).hexdigest()}
+        self.responses = {"runs/7/attempts/2": self.run,
+                          "runs/7/attempts/2/jobs?per_page=100&page=1": {"total_count": 1, "jobs": [self.job]},
+                          "runs/7/artifacts?per_page=100&page=1": {"total_count": 1, "artifacts": [self.artifact]},
+                          "artifacts/20/zip": self.archive}
+        self.calls = []
+
+    @staticmethod
+    def zip(files):
+        import io, zipfile
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            for name, data in files.items(): z.writestr(name, data)
+        return out.getvalue()
+
+    def fetch(self, url, limit, timeout):
+        self.calls.append(url)
+        self.assertGreater(timeout, 0)
+        key = url.split('/actions/', 1)[1]
+        value = self.responses.get(key)
+        if value is None: return 503, None, b''
+        raw = value if isinstance(value, bytes) else json.dumps(value).encode()
+        return 200, None, raw[:limit + 1]
+
+    def collect(self, **kwargs):
+        budget = kwargs.pop('budget', t.CollectionBudget())
+        return t.collect_actions('owner/repo', 7, 2, budget, self.fetch, **kwargs)
+
+    def test_real_shapes_preserve_identity_result_without_guessing_graph(self):
+        snapshot, receipt = self.collect()
+        ctx = snapshot['contexts'][0]
+        self.assertEqual([ctx[k] for k in ('source_sha','tested_sha','policy_sha')], ['a'*40,'b'*40,'c'*40])
+        self.assertEqual([r['execution_result'] for r in snapshot['records']], ['failure','cancelled'])
+        self.assertEqual(snapshot['records'][0]['job_id'], 10)
+        self.assertIsNone(snapshot['records'][0]['tested_sha'])
+        self.assertIsNone(snapshot['records'][0]['depends_on'])
+        self.assertIsNone(ctx['config_digest'])
+        self.assertTrue(ctx['pagination_complete'])
+        self.assertEqual(receipt['budget']['requests'], 4)
+        self.assertNotIn('NEVER_COPY', json.dumps((snapshot,receipt)))
+        self.assertEqual(t.report(snapshot)['analysis']['status'], 'unavailable')
+        self.assertEqual(receipt['snapshot_sha256'], __import__('hashlib').sha256(t.adapters_bytes(snapshot)).hexdigest())
+
+    def test_second_page_failure_keeps_first_page(self):
+        jobs = [dict(self.job, id=i) for i in range(1,101)]
+        self.responses['runs/7/attempts/2/jobs?per_page=100&page=1'] = {'total_count':101,'jobs':jobs}
+        snapshot, receipt = self.collect()
+        self.assertEqual(len([r for r in snapshot['records'] if r['kind']=='job']),100)
+        self.assertFalse(snapshot['contexts'][0]['pagination_complete'])
+        self.assertIn('http_status_503',receipt['missing_reasons'])
+
+    def test_full_pagination_and_repeated_or_conflicting_page(self):
+        key='runs/7/attempts/2/jobs?per_page=100&page='
+        self.responses[key+'1']={'total_count':101,'jobs':[dict(self.job,id=i) for i in range(1,101)]}
+        self.responses[key+'2']={'total_count':101,'jobs':[dict(self.job,id=101)]}
+        snapshot,_=self.collect()
+        self.assertTrue(snapshot['contexts'][0]['pagination_complete'])
+        self.assertEqual(len(snapshot['contexts'][0]['job_ids']),101)
+        for item in (dict(self.job,id=1),dict(self.job,id=1,conclusion='success')):
+            self.responses[key+'2']={'total_count':101,'jobs':[item]}
+            snapshot,receipt=self.collect()
+            self.assertFalse(snapshot['contexts'][0]['pagination_complete'])
+            self.assertIn('repeated_page_identity',receipt['missing_reasons'])
+            self.assertTrue(all(r['execution_result']=='failure' for r in snapshot['records'] if r['kind']=='job'))
+
+    def test_run_job_plan_and_artifact_mismatch(self):
+        for target,field,value,reason in [(self.run,'run_attempt',3,'run_identity_mismatch_or_missing'),
+                                        (self.job,'run_attempt',1,'job_identity_mismatch'),
+                                        (self.artifact,'expired',True,'artifact_expired_or_unknown')]:
+            old=target[field];target[field]=value
+            snapshot,receipt=self.collect()
+            self.assertIn(reason,receipt['missing_reasons'])
+            self.assertEqual(snapshot['collection_status'],'partial')
+            target[field]=old
+        self.plan['source_sha']='d'*40
+        self.archive=self.zip({'selection.json':json.dumps(self.plan).encode()})
+        self.responses['artifacts/20/zip']=self.archive
+        self.artifact.update(size_in_bytes=len(self.archive),digest='sha256:'+__import__('hashlib').sha256(self.archive).hexdigest())
+        snapshot,receipt=self.collect()
+        self.assertIn('selection_identity_or_schema_mismatch',receipt['missing_reasons'])
+        self.assertIsNone(snapshot['contexts'][0]['tested_sha'])
+
+    def test_request_byte_and_clock_exhaustion(self):
+        snapshot,receipt=self.collect(budget=t.CollectionBudget(requests=2))
+        self.assertEqual(receipt['budget']['requests'],2)
+        self.assertEqual(snapshot['records'][0]['execution_result'],'failure')
+        self.assertIn('request_budget_exhausted',receipt['missing_reasons'])
+        snapshot,receipt=self.collect(budget=t.CollectionBudget(byte_limit=2))
+        self.assertIn('response_byte_budget_exhausted',receipt['missing_reasons'])
+        self.assertEqual(snapshot['records'],[])
+        snapshot,receipt=self.collect(budget=t.CollectionBudget(seconds=0))
+        self.assertEqual(receipt['budget']['requests'],0)
+        self.assertIn('time_budget_exhausted',receipt['missing_reasons'])
+        ticks=iter([0,0,121])
+        budget=t.CollectionBudget(clock=lambda:next(ticks))
+        budget.request()
+        with self.assertRaisesRegex(t.CollectionStopped,'time_budget'):budget.charge(1)
+
+    def test_redirect_never_sends_to_other_host_or_retries(self):
+        reader=t.ActionsReader('owner/repo',t.CollectionBudget(),lambda *args:(302,'https://attacker.example/x',b''))
+        with self.assertRaisesRegex(t.CollectionStopped,'unsafe_download'):reader.get('artifacts/20/zip','artifacts/20.zip',archive=True)
+        self.assertEqual(reader.budget.requests,1)
+        for url in ('http://api.github.com/repos/owner/repo/actions/runs/7/attempts/2',
+                    'https://api.github.com@attacker.example/x','https://api.github.com/repos/owner/repo/issues',
+                    'https://api.github.com:password=NEVER_COPY/x','https://[broken'):
+            with self.assertRaises(t.CollectionStopped):t._download_url(url)
+
+    def test_archive_paths_duplicates_links_and_bombs(self):
+        import io, zipfile, stat
+        for files in ({'../selection.json':b'{}'},{'/selection.json':b'{}'},{'a\\selection.json':b'{}'},
+                      {'selection.json':b'{}','./selection.json':b'{}'}):
+            with self.assertRaises(t.CollectionStopped):t.archive_document(self.zip(files),'selection.json',t.CollectionBudget())
+        raw=self.zip({'selection.json':b' '*10000})
+        with self.assertRaisesRegex(t.CollectionStopped,'decoded_byte_budget'):t.archive_document(raw,'selection.json',t.CollectionBudget(byte_limit=50))
+        out=io.BytesIO()
+        with zipfile.ZipFile(out,'w') as z:
+            info=zipfile.ZipInfo('selection.json');info.create_system=3;info.external_attr=(stat.S_IFLNK|0o777)<<16
+            z.writestr(info,'elsewhere')
+        with self.assertRaisesRegex(t.CollectionStopped,'unsupported_archive'):t.archive_document(out.getvalue(),'selection.json',t.CollectionBudget())
+
+    def test_nested_tar_reads_manifest_without_extracting_or_running_binary(self):
+        import io, tarfile
+        for bad in (False,True):
+            out=io.BytesIO()
+            with tarfile.open(fileobj=out,mode='w:gz',format=tarfile.USTAR_FORMAT) as archive:
+                info=tarfile.TarInfo('./bin/tool');info.size=16;archive.addfile(info,io.BytesIO(b'do not execute!!'))
+                info=tarfile.TarInfo('../manifest.json' if bad else './manifest.json');data=b'{"schema_version":2}';info.size=len(data);archive.addfile(info,io.BytesIO(data))
+            raw=self.zip({'bundle.tar.gz':out.getvalue()})
+            if bad:
+                with self.assertRaisesRegex(t.CollectionStopped,'unsafe_archive'):t.archive_document(raw,'manifest.json',t.CollectionBudget())
+            else:
+                doc,data=t.archive_document(raw,'manifest.json',t.CollectionBudget())
+                self.assertEqual(doc,{'schema_version':2});self.assertEqual(data,b'{"schema_version":2}')
+
+    def test_build_producer_is_not_consumer(self):
+        manifest={'schema_version':2,'source_sha':'a'*40,'tested_sha':'b'*40,'config_sha256':'e'*64,
+                  'producer_run_id':'6','producer_attempt':'1','execution_plan':self.plan,
+                  'build_timings':[{'elapsed_seconds':2.5}]}
+        raw=self.zip({'manifest.json':json.dumps(manifest).encode()})
+        artifact=dict(self.artifact,id=30,name='build',size_in_bytes=len(raw),digest='sha256:'+__import__('hashlib').sha256(raw).hexdigest())
+        self.responses['runs/7/artifacts?per_page=100&page=1']={'total_count':2,'artifacts':[self.artifact,artifact]}
+        self.responses['artifacts/30/zip']=raw
+        snapshot,receipt=self.collect(build_artifacts=[30])
+        observed=receipt['build_observations'][0]
+        self.assertEqual((observed['producer_run_id'],observed['producer_attempt'],observed['consumer_run_id'],observed['consumer_attempt']),(6,1,7,2))
+        self.assertIn('different_or_unknown_producer_attempt',observed['missing_reasons'])
+        self.assertIsNone(snapshot['records'][-2]['producer'])
+        self.assertEqual(snapshot['records'][-1]['elapsed_seconds'],2.5)
+
+    def test_metrics_never_signs_dirty_inputs_or_infers_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'current.metrics.json'
+            path.write_text(json.dumps({'schema_version':2,'commit_oid':'a'*40,'package':'crate','check_only':True,
+                                        'no_default_features':True,'warm_check_enabled':True,'cargo_check_seconds':4,
+                                        'cargo_check_warm_seconds':.5,'checkout_path':'/private/password=NEVER_COPY'}))
+            snapshot,receipt=t.collect_metrics(path,t.CollectionBudget())
+            self.assertEqual([r['elapsed_seconds'] for r in snapshot['records']],[4,.5])
+            self.assertTrue(all(r['execution_result'] is None for r in snapshot['records']))
+            self.assertIsNone(snapshot['contexts'][0]['source_sha'])
+            self.assertIsNone(snapshot['contexts'][0]['local_invocation_id'])
+            self.assertIsNone(snapshot['contexts'][0]['dirty_inputs_digest'])
+            self.assertNotIn('NEVER_COPY',json.dumps((snapshot,receipt)))
+            self.assertEqual(receipt['budget']['requests'],0)
+            self.assertEqual(t.report(snapshot)['analysis']['status'],'unavailable')
+
+    def test_cli_replay_and_receipt_failure_do_not_modify_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);exports=root/'exports';exports.mkdir()
+            (exports/'run.json').write_text(json.dumps(self.run))
+            (exports/'jobs-1.json').write_text(json.dumps(self.responses['runs/7/attempts/2/jobs?per_page=100&page=1']))
+            (exports/'artifacts-1.json').write_text(json.dumps(self.responses['runs/7/artifacts?per_page=100&page=1']))
+            (exports/'artifact-20.zip').write_bytes(self.archive)
+            args=['collect-github','owner/repo','7','2',str(root/'snapshot.json'),str(root/'receipt.json'),'--recorded-responses',str(exports)]
+            self.assertEqual(t.main(args),1)
+            self.assertEqual(json.loads((root/'receipt.json').read_text())['transport'],'recorded')
+            args[4]=str(exports/'run.json')
+            self.assertEqual(t.main(args),1)
+            self.assertEqual(json.loads((exports/'run.json').read_text()),self.run)
+            args[4]=str(root/'snapshot.json');args[5]=str(root/'missing'/'receipt.json')
+            self.assertEqual(t.main(args),1)
+            self.assertTrue((root/'snapshot.json').is_file())
+
+
+    def test_bad_schema_and_nonfinite_json_preserve_partial(self):
+        for repository in (None, [], {'full_name':12}):
+            self.run['repository']=repository
+            snapshot,receipt=self.collect()
+            self.assertIn('run_identity_mismatch_or_missing',receipt['missing_reasons'])
+            self.assertEqual(snapshot['collection_status'],'partial')
+        self.run['repository']={'full_name':'owner/repo'}
+        self.responses['runs/7/artifacts?per_page=100&page=1']=b'{"total_count":NaN,"artifacts":[]}'
+        snapshot,receipt=self.collect()
+        self.assertIn('invalid_response_json',receipt['missing_reasons'])
+        self.assertEqual(snapshot['records'][0]['execution_result'],'failure')
+
+    def test_unused_unicode_metadata_does_not_amplify_contract(self):
+        self.run['unused']='\u6c34'*(6*1024*1024)
+        self.responses['runs/7/attempts/2']=json.dumps(self.run,ensure_ascii=False).encode()
+        snapshot,receipt=self.collect()
+        self.assertEqual(snapshot['records'][0]['execution_result'],'failure')
+        self.assertLess(len(json.dumps(snapshot)),50000)
+        self.assertLess(receipt['budget']['response_bytes'],t.MAX_INPUT_BYTES)
+
+    def test_corrupt_deflate_is_partial_after_jobs(self):
+        import struct
+        raw=bytearray(self.archive)
+        size=30+struct.unpack_from('<H',raw,26)[0]+struct.unpack_from('<H',raw,28)[0]
+        raw[size]=(raw[size]&~7)|7  # reserved DEFLATE block type
+        self.responses['artifacts/20/zip']=bytes(raw)
+        self.artifact['digest']='sha256:'+__import__('hashlib').sha256(raw).hexdigest()
+        snapshot,receipt=self.collect()
+        self.assertIn('invalid_archive_document',receipt['missing_reasons'])
+        self.assertEqual(snapshot['records'][0]['execution_result'],'failure')
+
+    def test_projection_and_normalization_check_deadline(self):
+        self.job['steps']=[{'number':i+1} for i in range(3000)]
+        ticks=[0.0]
+        def clock():
+            ticks[0]+=.0001
+            return ticks[0]
+        snapshot,receipt=self.collect(budget=t.CollectionBudget(seconds=.03,clock=clock))
+        self.assertIn('time_budget_exhausted',receipt['missing_reasons'])
+        self.assertLess(len(snapshot['records']),512)
+        self.assertEqual(snapshot['collection_status'],'partial')
+        self.assertEqual(t.report(snapshot)['analysis']['status'],'unavailable')
+
+    @unittest.skipUnless(__import__('os').name=='posix','POSIX signal cancellation')
+    def test_cli_cancellation_and_timeout_reap_only_request_child(self):
+        import os, signal, time
+        for cancel in (True,False):
+            with self.subTest(cancel=cancel),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);pidfile=root/'child.pid'
+                code="""
+import sys, subprocess
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import engineering_telemetry as t
+original=subprocess.Popen
+def sleeper(*args,**kwargs):
+    child=original([sys.executable,'-c','import time;time.sleep(30)'],**kwargs)
+    Path(sys.argv[2]).write_text(str(child.pid))
+    return child
+subprocess.Popen=sleeper
+raise SystemExit(t.main(['collect-github','owner/repo','7','2',sys.argv[3],sys.argv[4],'--max-seconds',sys.argv[5]]))
+"""
+                proc=subprocess.Popen([sys.executable,'-c',code,str(ROOT/'scripts'),str(pidfile),str(root/'snapshot.json'),str(root/'receipt.json'),'10' if cancel else '.2'],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                try:
+                    until=time.monotonic()+5
+                    while not pidfile.exists() and time.monotonic()<until:time.sleep(.01)
+                    self.assertTrue(pidfile.exists())
+                    child=int(pidfile.read_text())
+                    if cancel:os.kill(proc.pid,signal.SIGTERM)
+                    stdout,stderr=proc.communicate(timeout=5)
+                    self.assertEqual(proc.returncode,1,stderr.decode())
+                    receipt=json.loads((root/'receipt.json').read_text())
+                    self.assertIn('collection_cancelled' if cancel else 'time_budget_exhausted',receipt['missing_reasons'])
+                    with self.assertRaises(ProcessLookupError):os.kill(child,0)
+                finally:
+                    if proc.poll() is None:proc.kill();proc.communicate()
+
 if __name__ == "__main__": unittest.main()
