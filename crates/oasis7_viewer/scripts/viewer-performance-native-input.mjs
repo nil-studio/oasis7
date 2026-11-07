@@ -45,7 +45,11 @@ export async function collectNativeSelectionSamples({ evaluate, run, count, mini
         }; requestAnimationFrame(check);
       }; document.addEventListener('keydown',listener,true);return true;
     })()`);
-    await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus({preventScroll:true});true`);
+    if (selectionSource === 'renderer') {
+      // A paginated read can detach this exact target between CLI commands.
+      // Wait before sending input; do not swap identities or fabricate latency.
+      await evaluate(`(async()=>{const deadline=performance.now()+10000;while(performance.now()<deadline){const b=document.querySelector(${JSON.stringify(selector)}),m=window.__QA_READ_METRICS__?.();if(b&&m?.status==='observed'&&m.display_profile==='world_view_v1'&&m.projected_marker_count===1000&&m.agent_body_sprites===1000&&m.in_view_agent_body_sprites===1000&&m.laid_out_in_view_labels===200){const r=b.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;if(r.width>0&&r.height>0&&x>20&&x<innerWidth-20&&y>20&&y<innerHeight-20){b.focus({preventScroll:true});return true}}await new Promise(resolve=>setTimeout(resolve,25));}throw Error('same native target did not become ready before input');})()`);
+    } else await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus({preventScroll:true});true`);
     await run(['press', 'Enter']);
     const sample = await evaluate(`(async()=>{const deadline=performance.now()+6000;while(performance.now()<deadline){const r=window.__VIEWER_PERF_INPUT__;if(r?.status==='complete'||r?.status==='timeout'||r?.status==='invalid_already_selected')return JSON.stringify(r);await new Promise(resolve=>setTimeout(resolve,10));}throw Error('native selection feedback timed out');})()`);
     if (sample.status !== 'complete' || !sample.isTrusted || sample.selectedKind !== 'agent' || sample.selectedId !== target.id || !Number.isFinite(sample.durationMs) || sample.durationMs < 0) {
