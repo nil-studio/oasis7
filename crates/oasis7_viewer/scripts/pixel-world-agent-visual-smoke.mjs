@@ -5,21 +5,25 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 
+// Build visual-test first and declare its fixed source. Integer pipeline is the
+// production contract; native is only a pre-pipeline diagnostic oracle.
 // Real WASM/WebGL evidence. Fixture results do not attest account authorization.
 const root = resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(import.meta.dirname, '../.viewer-test-dist'));
-if(process.env.AGENT_VISUAL_ARTIFACT_ROOT&&!process.env.AGENT_VISUAL_SOURCE_HEAD) throw Error('external artifacts require their fixed AGENT_VISUAL_SOURCE_HEAD');
+if(!process.env.AGENT_VISUAL_SOURCE_HEAD) throw Error('declare the fixed visual build AGENT_VISUAL_SOURCE_HEAD');
 const out = resolve(import.meta.dirname, '../../../output/playwright/pixel-world-agent', new Date().toISOString().replace(/[:.]/g, '-'));
 mkdirSync(out, { recursive: true });
-const expectedPipeline=process.env.AGENT_PIXEL_PIPELINE || 'native';
+const expectedPipeline=process.env.AGENT_PIXEL_PIPELINE || 'integer';
 if(!['native','integer'].includes(expectedPipeline)) throw Error('unsupported AGENT_PIXEL_PIPELINE');
 const scope=process.env.AGENT_VISUAL_SCOPE || 'all';
 if(!['all','interaction','recovery'].includes(scope)) throw Error('unsupported AGENT_VISUAL_SCOPE');
 const requestedCase=process.env.AGENT_VISUAL_CASE || 'all';
 if(!['all','desktop','narrow','dpr2'].includes(requestedCase))throw Error('unsupported AGENT_VISUAL_CASE');
+if(process.env.AGENT_VISUAL_BORDER&&!['0','1'].includes(process.env.AGENT_VISUAL_BORDER))throw Error('unsupported AGENT_VISUAL_BORDER');
+const border=process.env.AGENT_VISUAL_BORDER==='1'?1:0;
 const session = `pixel-agent-${process.pid}`;
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const lifecycle = createOwnedSessionLifecycle({ command, session, prefixArgs: [] });
-const summary = { atlasSha256: createHash('sha256').update(readFileSync(resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'))).digest('hex'), source: process.env.AGENT_VISUAL_SOURCE_HEAD ? execFileSync('git',['rev-parse',process.env.AGENT_VISUAL_SOURCE_HEAD+'^{commit}'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim() : null, checkoutHead: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, requestedCase,fixture:'selected_blocker',liveConnection:false, expectedPipeline, cases: [] };
+const summary = { atlasSha256: createHash('sha256').update(readFileSync(resolve(import.meta.dirname,'../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png'))).digest('hex'), source: process.env.AGENT_VISUAL_SOURCE_HEAD ? execFileSync('git',['rev-parse',process.env.AGENT_VISUAL_SOURCE_HEAD+'^{commit}'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim() : null, checkoutHead: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(root,'../../..'),encoding:'utf8'}).trim(), runnerScriptSha256: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), runnerSource: execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../../..'),encoding:'utf8'}).trim(), assets: Object.fromEntries(['viewer.js','pixel-world-bridge/webgl2/pixel_world_bridge_bindgen_bg.wasm'].map(path=>[path,createHash('sha256').update(readFileSync(resolve(root,path))).digest('hex')])), profile: 'visual-test', scope, requestedCase,fixture:'selected_blocker',liveConnection:false,controlledParentBorderCssPx:border, expectedPipeline, cases: [] };
 const assert = (ok, message) => { if (!ok) throw new Error(message); };
 const run = args => new Promise((yes, no) => {
   const child = spawn(command, ['--session', session, ...args]);
@@ -33,7 +37,7 @@ async function evaluate(code) {
   assert(result.success, JSON.stringify(result));
   return result.data.result;
 }
-const read = `(() => { const canvas=document.querySelector('#pixel-world-embedded-runtime-canvas'); const gl=canvas?.getContext('webgl2'); const debug=gl?.getExtension('WEBGL_debug_renderer_info'); return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true', dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.(), dpr:devicePixelRatio,browser:navigator.userAgent, viewport:{width:innerWidth,height:innerHeight}, canvas:canvas?{width:canvas.width,height:canvas.height,cssWidth:canvas.getBoundingClientRect().width,cssHeight:canvas.getBoundingClientRect().height,inlineWidth:canvas.style.width,inlineHeight:canvas.style.height,parents:[canvas.parentElement,canvas.parentElement?.parentElement].filter(Boolean).map(e=>({classes:e.className,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))}:null,documentLayout:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight}, gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null, targets:[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>({id:b.dataset.agentId,selected:b.dataset.selected,label:b.getAttribute('aria-label')}))}; })()`;
+const read = `(() => { const canvas=document.querySelector('#pixel-world-embedded-runtime-canvas'); const gl=canvas?.getContext('webgl2'); const debug=gl?.getExtension('WEBGL_debug_renderer_info'); return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true', dto:window.__OASIS7_PIXEL_WORLD_RENDER_DTO__?.(), dpr:devicePixelRatio,browser:navigator.userAgent, viewport:{width:innerWidth,height:innerHeight}, canvas:canvas?{width:canvas.width,height:canvas.height,cssWidth:canvas.getBoundingClientRect().width,cssHeight:canvas.getBoundingClientRect().height,inlineWidth:canvas.style.width,inlineHeight:canvas.style.height,parentBorderLeft:getComputedStyle(canvas.parentElement).borderLeftWidth,parents:[canvas.parentElement,canvas.parentElement?.parentElement].filter(Boolean).map(e=>({classes:e.className,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))}:null,documentLayout:{width:document.documentElement.clientWidth,height:document.documentElement.clientHeight}, gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null, targets:[...document.querySelectorAll('button[data-agent-id][data-renderer-target]')].map(b=>({id:b.dataset.agentId,selected:b.dataset.selected,label:b.getAttribute('aria-label')}))}; })()`;
 async function state() { return JSON.parse(await evaluate(`JSON.stringify(${read})`)); }
 async function waitFor(expression) {
   return evaluate(`(async()=>{const deadline=Date.now()+20000;while(Date.now()<deadline){if(${expression})return true;await new Promise(r=>setTimeout(r,50));}throw new Error('condition timed out: '+${JSON.stringify(expression)});})()`);
@@ -50,12 +54,12 @@ async function installAgentFixture() {
     await evaluate(`(()=>{const s=window.__OASIS7_PIXEL_WORLD_VISUAL_FIXTURES__.get('selected_blocker')();const auth=window.__AW_TEST__.getState();const a=s.model.agents['agent-0'];s.model.agents['agent-1']={...a,id:'agent-1',name:'独立观察目标一号长中文名称',pos:{...a.pos,x_cm:a.pos.x_cm+2000000}};for(const id of ['agent-0','agent-1']){s.model.agent_player_bindings[id]=auth.authPlayerId;s.model.agent_player_public_key_bindings[id]=auth.authPublicKey;}s.time=13;window.__OASIS7_AGENT_TEST_SNAPSHOT__=s;window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.agents?.some(a=>a.id==='agent-1')`);
 }
-async function verifyAgentPixels(path) {
+async function verifyAgentPixels(path, targetId='agent-0') {
   // Keep keyboard affordance screenshots separately. The intentional 44-CSS-px
   // focus ring can cross a 32px sprite; it is not part of the atlas color oracle.
   await evaluate(`document.querySelector('#pixel-world-embedded-runtime-canvas').focus({preventScroll:true});true`);
   await run(['screenshot','--full',path]);
-  const anchorScript=`JSON.stringify((()=>{const r=document.querySelector('button[data-agent-id="agent-0"][data-renderer-target]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`;
+  const anchorScript=`JSON.stringify((()=>{const r=document.querySelector(${JSON.stringify('button[data-agent-id="'+targetId+'"][data-renderer-target]')}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,scroll:scrollY,canvasWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').width,canvasHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').height,cssWidth:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().width,cssHeight:document.querySelector('#pixel-world-embedded-runtime-canvas').getBoundingClientRect().height};})())`;
   let anchor=JSON.parse(await evaluate(anchorScript));
   const program=String.raw`import sys,json,math
 from PIL import Image
@@ -83,7 +87,7 @@ const server = createServer((req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   const file = resolve(root, '.' + (pathname==='/'?'/viewer.html':pathname));
   if(relative(root,file).startsWith('..')) {res.writeHead(403);res.end();return;}
-  try { let bytes=readFileSync(file);if(extname(file)==='.html')bytes=Buffer.from(bytes.toString().replace('</head>',`<script>(()=>{const send=WebSocket.prototype.send;WebSocket.prototype.send=function(data){let type='unparsed';try{type=JSON.parse(data).type||'untyped';}catch{}const log=JSON.parse(sessionStorage.getItem('pixel-agent-outbound')||'[]');log.push(type);sessionStorage.setItem('pixel-agent-outbound',JSON.stringify(log.slice(-200)));return send.call(this,data);};const fetch=window.fetch;window.fetch=function(input,init){const log=JSON.parse(sessionStorage.getItem('pixel-agent-http')||'[]');log.push({method:String(init?.method||input?.method||'GET').toUpperCase(),path:new URL(input?.url||input,location.href).pathname});sessionStorage.setItem('pixel-agent-http',JSON.stringify(log.slice(-200)));return fetch.call(this,input,init);};})();</script></head>`));res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
+  try { let bytes=readFileSync(file);if(extname(file)==='.html')bytes=Buffer.from(bytes.toString().replace('</head>',`<script>(()=>{if(sessionStorage.getItem('pixel-agent-border')==='1'){const style=document.createElement('style');style.textContent='[data-viewer-overlay="world-hud"] > .pixel-world-canvas {border:1px solid transparent!important;box-sizing:border-box!important}';document.head.appendChild(style);}const send=WebSocket.prototype.send;WebSocket.prototype.send=function(data){let type='unparsed';try{type=JSON.parse(data).type||'untyped';}catch{}const log=JSON.parse(sessionStorage.getItem('pixel-agent-outbound')||'[]');log.push(type);sessionStorage.setItem('pixel-agent-outbound',JSON.stringify(log.slice(-200)));return send.call(this,data);};const fetch=window.fetch;window.fetch=function(input,init){const log=JSON.parse(sessionStorage.getItem('pixel-agent-http')||'[]');log.push({method:String(init?.method||input?.method||'GET').toUpperCase(),path:new URL(input?.url||input,location.href).pathname});sessionStorage.setItem('pixel-agent-http',JSON.stringify(log.slice(-200)));return fetch.call(this,input,init);};})();</script></head>`));res.writeHead(200,{'Content-Type':({'.js':'text/javascript','.wasm':'application/wasm','.html':'text/html','.css':'text/css'})[extname(file)]||'application/octet-stream','Cache-Control':'no-store'});res.end(bytes); } catch {res.writeHead(404);res.end();}
 });
 try {
   await new Promise(done=>server.listen(0,'127.0.0.1',done)); lifecycle.prepare();
@@ -95,11 +99,17 @@ try {
     await run(['wait','500']);
     await run(['wait','--url',url]);
     await run(['wait','--load','domcontentloaded']);
-    await waitFor(`performance.timeOrigin!==${navigationOrigin}&&(${read}).ready&&(${read}).canvas?.cssWidth===${width}&&(${read}).canvas?.cssHeight===${height}`);
-    await waitFor(`(${read}).canvas?.width===${width*(name==='dpr2'?2:1)}&&(${read}).canvas?.height===${height*(name==='dpr2'?2:1)}`);
+    await waitFor(`performance.timeOrigin!==${navigationOrigin}&&(${read}).ready`);
+    if(border) {
+      await evaluate(`(()=>{const style=document.createElement('style');style.textContent='[data-viewer-overlay="world-hud"] > .pixel-world-canvas {border:1px solid transparent!important;box-sizing:border-box!important}';document.head.appendChild(style);sessionStorage.setItem('pixel-agent-border','1');return true;})()`);
+      assert(await evaluate(`document.querySelector('.pixel-world-host').dataset.worldFocus!=='true'`),'border case must be outside cinematic focus mode');
+    }
+    await waitFor(`(${read}).canvas?.cssWidth===${width-border*2}&&(${read}).canvas?.cssHeight===${height-border*2}`);
+    await waitFor(`(${read}).canvas?.width===${(width-border*2)*(name==='dpr2'?2:1)}&&(${read}).canvas?.height===${(height-border*2)*(name==='dpr2'?2:1)}`);
     await installAgentFixture();
     const before=await state(); summary.active={name,width,height,before}; assert(before.viewport.width===width&&before.viewport.height===height,'actual browser viewport differs from requested case'); assert(before.gpu,'missing GPU identity');
-    if(name==='dpr2') { assert(before.dpr===2,'DPR2 emulation did not take effect');assert(before.canvas.width===width*2&&before.canvas.height===height*2,'DPR2 framebuffer does not match CSS times DPR'); }
+    if(border) assert(Number.parseFloat(before.canvas.parentBorderLeft)===1,'controlled parent border did not take effect');
+    if(name==='dpr2') { assert(before.dpr===2,'DPR2 emulation did not take effect');assert(before.canvas.width===(width-border*2)*2&&before.canvas.height===(height-border*2)*2,'DPR2 framebuffer does not match CSS times DPR'); }
     const initialPng=resolve(out,`${name}-initial.png`);
     await run(['screenshot','--full',initialPng]);
     summary.active.initialPixels=await verifyAgentPixels(initialPng);
@@ -147,10 +157,11 @@ try {
     const after=await state();
     const resizeOrigin=await evaluate('performance.timeOrigin');
     await run(['set','viewport',String(width-40),String(height-40),String(before.dpr)]);
-    await waitFor(`(${read}).ready&&(${read}).canvas?.cssWidth===${width-40}&&(${read}).canvas?.cssHeight===${height-40}`);
+    await waitFor(`(${read}).ready&&(${read}).canvas?.cssWidth===${width-40-border*2}&&(${read}).canvas?.cssHeight===${height-40-border*2}`);
     assert(await evaluate('performance.timeOrigin')===resizeOrigin,'viewport emulation navigated instead of resizing');
     const resizeReadyPng=resolve(out,`${name}-resize-ready.png`);await run(['screenshot','--full',resizeReadyPng]);
     await verifyAgentPixels(resizeReadyPng);
+    if(border) await verifyAgentPixels(resizeReadyPng,'agent-1');
     await keyboardSelect(other);await settleTarget(target);
     const clickReadyPng=resolve(out,`${name}-resize-click-ready.png`);await run(['screenshot','--full',clickReadyPng]);
     await verifyAgentPixels(clickReadyPng);
@@ -160,7 +171,7 @@ try {
     const resizedPixels=await verifyAgentPixels(resizedPng);
     const resized=await state();
     await run(['set','viewport',String(width),String(height),String(before.dpr)]);
-    await waitFor(`(${read}).ready&&(${read}).canvas?.cssWidth===${width}&&(${read}).canvas?.cssHeight===${height}`);
+    await waitFor(`(${read}).ready&&(${read}).canvas?.cssWidth===${width-border*2}&&(${read}).canvas?.cssHeight===${height-border*2}`);
     assert(await evaluate('performance.timeOrigin')===resizeOrigin,'viewport restoration navigated instead of resizing');
     await evaluate(`(()=>{const s=JSON.parse(JSON.stringify(window.__OASIS7_AGENT_TEST_SNAPSHOT__));s.time=14;s.model.agents['agent-1'].pos={...s.model.agents['agent-0'].pos};window.__AW_TEST__.injectSnapshot(s);return true;})()`);
     await waitFor(`(${read}).dto?.world_tick===14`);
@@ -185,7 +196,7 @@ try {
     await run(['screenshot','--full',resolve(out,`${name}-logged-out.png`)]);
     summary.cases.push({name,width,height,before,after,resized,resizedPixels,dense,missing,removed,restored,recovered,loggedOut,mouse:true,keyboard:true});
   }
-  summary.status=scope==='all'&&requestedCase==='all'?'passed':'passed_scope_only';
+  summary.status=scope==='all'&&requestedCase==='all'&&!border?'passed':'passed_scope_only';
 } catch(error) { summary.status='failed';summary.error=String(error);try{summary.failureState=await state();await run(['screenshot','--full',resolve(out,'failure.png')]);}catch{}throw error; }
 finally {
   try { writeFileSync(resolve(out,'summary.json'),JSON.stringify(summary,null,2)); }
