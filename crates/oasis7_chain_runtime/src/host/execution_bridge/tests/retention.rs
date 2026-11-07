@@ -826,6 +826,9 @@ fn checkpoint_gc_removes_every_pin_shard_pruned_after_keep_reduction() {
     let _ = fs::remove_dir_all(dir);
 }
 
+#[path = "retention_hot_window.rs"]
+mod hot_window;
+
 #[test]
 fn incremental_retention_pin_shard_count_is_bounded_at_ten_thousand_heights() {
     let dir = temp_dir("execution-retention-pin-shard-scale");

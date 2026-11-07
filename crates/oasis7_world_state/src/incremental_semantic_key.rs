@@ -84,6 +84,31 @@ impl<A: sealed::Key, B: sealed::Key> sealed::Key for (A, B) {
         self.1.encode(output, depth + 1)
     }
 }
+
+/// Borrowed view of an already encoded semantic-key-v1 value. This is useful
+/// when a fixed, bounded buffer is the only place a dynamically resolved
+/// composite key can live; parsing first keeps the source set closed and the
+/// writer re-emits the exact canonical token bytes without allocating.
+#[derive(serde::Serialize)]
+pub(crate) struct CanonicalSemanticKeyRefV1<'a>(#[serde(borrow)] &'a [u8]);
+
+impl<'a> CanonicalSemanticKeyRefV1<'a> {
+    pub(crate) fn new(bytes: &'a [u8]) -> Result<Self, &'static str> {
+        read_semantic_key_v1(bytes)?;
+        Ok(Self(bytes))
+    }
+}
+
+impl sealed::Key for CanonicalSemanticKeyRefV1<'_> {
+    fn encode<W: Write>(&self, output: &mut W, _depth: usize) -> io::Result<()> {
+        let token = self
+            .0
+            .strip_prefix(SEMANTIC_KEY_DOMAIN)
+            .ok_or_else(|| io::Error::other("semantic key reference domain"))?;
+        output.write_all(token)
+    }
+}
+
 /// Output remains provisional until this function succeeds. A node sink owns
 /// allocation/IO admission; this codec itself keeps no key-sized buffer.
 pub fn write_semantic_key_v1<K: SemanticKeyV1 + ?Sized>(

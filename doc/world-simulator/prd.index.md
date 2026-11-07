@@ -23,11 +23,13 @@
 - 想继续按文件名或子域精确下钻：直接使用下方完整清单
 
 ## 活跃补充文档
+- [社会动作后果预览](kernel/social-fact-ledger-declarative-reputation.prd.md#social-preview-contract)、[来源与执行设计](kernel/social-fact-ledger-declarative-reputation.design.md#social-preview-source)及[验收手册](../testing/manual/social-action-consequence-preview-acceptance.manual.md)：区分声明与证据、直接状态及逐资源质押后果、实际消费者和当前可见范围；五动作分别核来源、新鲜度、只读恢复和有界读取，不以固定提示或 seed 夹具代签正式能力。
 - `doc/world-simulator/viewer/README.md`：`viewer/` 热点子域 landing page，适合先做簇级分流，再决定进入 `manual`、`viewer` canonical / `software_safe` compat alias 或 runtime live 专题。
 - `doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md`：Viewer / player-facing surface 的 canonical 视觉设计规范，覆盖视觉方向、层级、pixel-world 可读性、响应式/可访问性与视觉 review gate。
 - `doc/world-simulator/viewer/viewer-brand-system-2026-06-05.design.md`：Viewer 视觉规范 companion，覆盖 brand book、语义 token、icon/status vocabulary、资产语言、稳定 DOM hook 与扩展截图矩阵。
 - [首局内容与交付规格](viewer/first-session-content-delivery.design.md)与[配套验收方法](viewer/first-session-content-delivery.manual.md)：消费已采纳的首局与反馈产品要求，定义 `production_only` 首局内容单元、文案语义、实际素材入口及制作/验证交接；不另立玩法 PRD，不代替原页面布局与运行验收。
 - [Viewer 本地化与上下文帮助](viewer/viewer-localization-and-context-help.design.md)与[验证手册](viewer/viewer-localization-and-context-help.manual.md)：维护语言范围、实际字符串来源、领域术语、帮助正文、翻译更新与逐语言验收；复用品牌短标签和原页面布局，保留 Viewer、Launcher、Site 的各自语言规则。
+- [Viewer 音频内容与交付](viewer/viewer-audio-content-delivery.design.md)与[验收手册](viewer/viewer-audio-content-delivery.manual.md)：定义当前 Viewer 的可选短提示、事件与事实归属、设置/失活/恢复消费、制作配方及静音等价验证；不把设计存在当成已提供播放器或素材。
 - [Viewer 世界视觉内容与交付](viewer/viewer-world-visual-content-delivery.design.md)与[制作验收手册](viewer/viewer-world-visual-content-delivery.manual.md)：维护当前四类程序化视觉内容的变体、事实边界、编辑源、构建消费关系、来源资料和替换交接；复用原 Bevy 详细视觉交接，六视图工具与正式消费资产分别核实。
 - `doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md`：Viewer 前端 `js/html/jsx` 结构治理标准，覆盖 source/generated/compat taxonomy、分层模型、拆分触发条件、组件/模块抽象边界与验证矩阵。
 - `doc/world-simulator/viewer/viewer-manual.manual.md`：Viewer / Web 闭环 / operator 手册，不在下方 PRD 三件套长表中展开。
@@ -38,6 +40,7 @@
 - `doc/world-simulator/launcher/game-client-launcher-control-plane-and-machine-interface.prd.md`：launcher control plane、共享 UI schema 与 GUI-agent operator HTTP-JSON 接口当前 authority；capabilities 响应是 action-list truth，hosted 的枚举 operator 路由 peer-IP gate 不构成 general auth/readiness 结论。
 - `doc/world-simulator/launcher/game-client-launcher-blockchain-explorer.prd.md`：launcher explorer 当前 authority，收敛既有概览、七个只读业务视图与状态呈现；五组历史源三件套已退役删除，历史追溯仅使用 Git 与 GitHub task issue evidence，且不得将历史 mainnet-grade/public-chain 命名外推为 readiness、公开服务、结算或 validator 承诺。
 - `doc/world-simulator/scenario/README.md`：`scenario/` 子域 landing page，适合先按场景文件、world initialization、seed/location、资源生成或 asteroid-fragment 问题分流，再进入精确专题。
+- [小行星碎片场景内容与交付](scenario/asteroid-scenario-content-delivery.design.md)与[验证手册](scenario/asteroid-scenario-content-delivery.manual.md)：整理四个现有 JSON 场景的内容差异、有效配置、材料和出生来源、Simulator 与 Runtime 消费差异，以及修改传播和制作交接；沿用原生成规则，正式 seed 与业务记录的统一仍按原专题处理。
 - launcher transfer 当前入口：`doc/world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md` 承接早期 `PRD-WORLD_SIMULATOR-004/005` 的链上转账基础条款；旧 `world-simulator` launcher blockchain-transfer singleton 分册与四组 2026-03 源三件套均已退役删除，不再作为 active supporting doc。
 - `doc/world-simulator/llm/README.md`：LLM/provider 专题入口，说明 decision-provider 权威、非声明与 PR 与实际验证记录 边界；2026-04 dual-mode remediation 的可复核摘要见下列 contract 和 retained evidence。
 - `doc/world-simulator/llm/provider-agent-dual-mode-contract.md`：`Local Provider` 双轨模式的 observation / action contract supporting spec。

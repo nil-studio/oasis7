@@ -196,7 +196,7 @@ world-state registry 的有效 membership/stake/signer 经[确定高度的集合
 
 上述关系不表示产品全部义务已覆盖、实现或验收；本条工程前置、目标协议及外部依赖仍按原文区分。
 
-历史链验证只允许只读；同世界材料、当前追加/finality、版本化 manifest compatibility、单调 head 全成立才可服务。陈旧/追赶/只读/隔离新 intent 无效果，committed receipt 为0；恢复按当前条件重审 pending，不继承期限/优先级，不改已确认 receipt。消费者反馈/lineage/manifest schema 由外部 authority 拥有，未闭合。
+历史链验证只允许只读；同世界材料、当前追加/finality、版本化 manifest compatibility、单调 head 全成立才可服务。陈旧/追赶/只读/隔离新 intent 无效果，committed receipt 为0；恢复按当前条件重审 pending，不继承期限/优先级，不改已确认 receipt。pending/lineage 的[持久与原子桥接](../world-runtime/module/module-lifecycle.md#sr2-pending-admission-recovery)和[消费者目标映射](../world-simulator/llm/external-agent-game-api.design.md#api-intent-results)已有准确外部承接，见[配对服务闸门](design.md#des-p2p-target-service-gate)；原 manifest schema 与版本 authority 保持。目标设计不证明当前持久实现、profile/proof 或实际消费者组合已闭合。
 
 配对设计必须用该条款的独立条件建立承接/验证关系；本条不把文档合并解释为运行能力或组合通过。
 

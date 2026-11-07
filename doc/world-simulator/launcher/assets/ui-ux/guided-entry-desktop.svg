@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1328" height="1040" viewBox="0 0 1328 1040" role="img" aria-labelledby="title desc">
+<title id="title">Launcher 配置与请求结果：桌面目标稿</title>
+<desc id="desc">DESIGN TARGET。1280×800 目标窗口；原配置仍运行，新草稿未应用，新启动请求被拒绝。仅为可编辑设计样例。</desc>
+<metadata>DESIGN TARGET; editable SVG; source baseline 4f6f20ece923c5705e26ef879c2b83e0e637b3f9; no runtime screenshot; no external image or font asset.</metadata>
+<style>text{font-family:"Noto Sans CJK SC",sans-serif} .strong{font-weight:700}</style>
+<rect x="0" y="0" width="1328" height="1040" rx="0" fill="#edf2f7"/>
+<text x="24" y="34" font-size="26" fill="#173044" class="strong">Launcher / 配置与请求结果</text>
+<rect x="1018" y="14" width="286" height="28" rx="5" fill="#edf3ff"/>
+<text x="1028" y="33" font-size="12" fill="#1f5fc7" class="strong">DESIGN TARGET · 可编辑源稿</text>
+<text x="24" y="65" font-size="14" fill="#536676">D1  ·  1280 × 800  ·  native / Web 共用阅读结构；字段按平台适用</text>
+<g id="desktop-target-window" transform="translate(24 112)">
+<rect x="0" y="0" width="1280" height="800" rx="12" fill="#edf2f7" stroke="#c4cfda"/>
+<rect x="0" y="0" width="1280" height="72" rx="12" fill="#ffffff"/>
+<text x="24" y="45" font-size="22" fill="#173044" class="strong">oasis7  /  Launcher</text>
+<rect x="300" y="22" width="208" height="28" rx="5" fill="#edf3ff"/>
+<text x="310" y="41" font-size="12" fill="#1f5fc7" class="strong">Web/UI 入口 · viewer</text>
+<rect x="962" y="14" width="150" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="976" y="42" font-size="14" fill="#173044" class="strong">中文 · 切换语言</text>
+<rect x="1124" y="14" width="132" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="1138" y="42" font-size="14" fill="#173044" class="strong">专家模式</text>
+<rect x="24" y="92" width="1232" height="118" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<rect x="44" y="107" width="130" height="28" rx="5" fill="#eaf5ef"/>
+<text x="54" y="126" font-size="12" fill="#166344" class="strong">游戏服务运行中</text>
+<text x="44" y="160" font-size="24" fill="#173044" class="strong">当前服务仍使用原配置</text>
+<text x="44" y="187" font-size="15" fill="#536676">新草稿尚未应用；可打开现有页面，或检查配置差异。</text>
+<rect x="886" y="130" width="176" height="44" rx="6" fill="#1f5fc7" stroke="#1f5fc7"/>
+<text x="900" y="158" font-size="14" fill="#ffffff" class="strong">打开游戏页</text>
+<rect x="1074" y="130" width="162" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="1088" y="158" font-size="14" fill="#173044" class="strong">高级配置</text>
+<rect x="24" y="230" width="760" height="274" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="44" y="260" font-size="18" fill="#173044" class="strong">配置与运行</text>
+<text x="578" y="260" font-size="13" fill="#536676">示例：Web 端口</text>
+<rect x="44" y="278" width="350" height="88" rx="6" fill="#fff4df"/>
+<text x="58" y="301" font-size="13" fill="#83500a" class="strong">本地草稿</text>
+<text x="58" y="330" font-size="19" fill="#173044" class="strong">Web 端口  8081</text>
+<text x="58" y="352" font-size="12" fill="#536676">尚未应用 · 当前编辑</text>
+<rect x="414" y="278" width="350" height="88" rx="6" fill="#edf3ff"/>
+<text x="428" y="301" font-size="13" fill="#1f5fc7" class="strong">服务已接受的配置</text>
+<text x="428" y="330" font-size="19" fill="#173044" class="strong">Web 端口  8080</text>
+<text x="428" y="352" font-size="12" fill="#536676">已接受 · 原配置</text>
+<rect x="44" y="378" width="350" height="88" rx="6" fill="#eaf5ef"/>
+<text x="58" y="401" font-size="13" fill="#166344" class="strong">当前运行使用</text>
+<text x="58" y="430" font-size="19" fill="#173044" class="strong">Web 端口  8080</text>
+<text x="58" y="452" font-size="12" fill="#536676">当前实例仍使用原配置</text>
+<rect x="414" y="378" width="350" height="88" rx="6" fill="#edf3ff"/>
+<text x="428" y="401" font-size="13" fill="#1f5fc7" class="strong">最近成功配置</text>
+<text x="428" y="430" font-size="19" fill="#173044" class="strong">Web 端口  8080</text>
+<text x="428" y="452" font-size="12" fill="#536676">上次成功运行的配置</text>
+<text x="44" y="490" font-size="13" fill="#536676">关闭编辑窗口保留本次草稿。启动时会重新检查。</text>
+<rect x="804" y="230" width="452" height="274" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="824" y="260" font-size="18" fill="#173044" class="strong">当前步骤</text>
+<text x="824" y="303" font-size="13" fill="#536676" class="strong">01</text>
+<text x="862" y="303" font-size="16" fill="#173044" class="strong">区块链</text>
+<rect x="1130" y="283" width="104" height="28" rx="5" fill="#edf3ff"/>
+<text x="1140" y="302" font-size="12" fill="#1f5fc7" class="strong">已关闭</text>
+<text x="862" y="329" font-size="13" fill="#536676">此配置没有启用链。</text>
+<text x="824" y="369" font-size="13" fill="#536676" class="strong">02</text>
+<text x="862" y="369" font-size="16" fill="#173044" class="strong">游戏服务</text>
+<rect x="1130" y="349" width="104" height="28" rx="5" fill="#eaf5ef"/>
+<text x="1140" y="368" font-size="12" fill="#166344" class="strong">运行中</text>
+<text x="862" y="395" font-size="13" fill="#536676">当前实例使用已接受的原配置。</text>
+<text x="824" y="435" font-size="13" fill="#536676" class="strong">03</text>
+<text x="862" y="435" font-size="16" fill="#173044" class="strong">游戏页面</text>
+<rect x="1130" y="415" width="104" height="28" rx="5" fill="#edf3ff"/>
+<text x="1140" y="434" font-size="12" fill="#1f5fc7" class="strong">可打开</text>
+<text x="862" y="461" font-size="13" fill="#536676">页面是否到达，在打开后确认。</text>
+<rect x="24" y="524" width="760" height="138" rx="8" fill="#fceef0" stroke="#c4cfda"/>
+<text x="44" y="554" font-size="17" fill="#173044" class="strong">最近请求 · 启动游戏</text>
+<rect x="648" y="540" width="116" height="28" rx="5" fill="#fceef0"/>
+<text x="658" y="559" font-size="12" fill="#a22b34" class="strong">本次未接受</text>
+<text x="44" y="587" font-size="17" fill="#a22b34" class="strong">已有游戏服务正在运行，本次启动未被接受。</text>
+<text x="44" y="616" font-size="15" fill="#173044">原实例未被替换；本地草稿继续保留。</text>
+<text x="44" y="643" font-size="13" fill="#536676">查看配置后，再按当前支持的停止与启动流程操作。</text>
+<rect x="804" y="524" width="452" height="138" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="824" y="554" font-size="17" fill="#173044" class="strong">入口与结果</text>
+<text x="824" y="583" font-size="14" fill="#536676">当前目标为 Web/UI。服务运行和页面到达分别确认；游戏中的行</text>
+<text x="824" y="605" font-size="14" fill="#536676">动结果在目标入口查看。</text>
+<rect x="24" y="682" width="1232" height="94" rx="8" fill="#ffffff" stroke="#c4cfda"/>
+<text x="44" y="708" font-size="14" fill="#173044" class="strong">工具</text>
+<rect x="108" y="697" width="142" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="122" y="725" font-size="14" fill="#173044" class="strong">高级配置</text>
+<rect x="262" y="697" width="112" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="276" y="725" font-size="14" fill="#173044" class="strong">引导</text>
+<rect x="386" y="697" width="112" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="400" y="725" font-size="14" fill="#173044" class="strong">设置</text>
+<rect x="510" y="697" width="126" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="524" y="725" font-size="14" fill="#173044" class="strong">更多 ▾</text>
+<rect x="958" y="697" width="276" height="44" rx="6" fill="#ffffff" stroke="#c4cfda"/>
+<text x="972" y="725" font-size="14" fill="#173044" class="strong">诊断与日志 ▸</text>
+<text x="44" y="760" font-size="13" fill="#536676">本次请求结果与草稿保留在原目标下。语言、窗口和引导切换只改变阅读方式。</text>
+</g>
+<text x="24" y="950" font-size="15" fill="#173044" class="strong">交接重点</text>
+<text x="24" y="978" font-size="14" fill="#536676">“运行中”与“本次未接受”同时成立。A/B 是方法变量；界面按实际字段和实例绑定表达，不新增命名 profile。More 内的 Stop、Restore 与其他动作沿既有前置；完整状态变化见配对设计与验收方法。</text>
+</svg>

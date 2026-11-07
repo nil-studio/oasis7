@@ -546,6 +546,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
         .network
         .as_ref()
         .map(|n| n.execution.clone());
+    worker.selected.rotation_requests.open()?;
     crate::runtime_util::lock_state(&runtime.state).last_error = None;
     runtime.running.store(true, Ordering::SeqCst);
     let spawn = runtime

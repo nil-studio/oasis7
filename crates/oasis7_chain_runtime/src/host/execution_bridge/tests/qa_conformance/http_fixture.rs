@@ -1,5 +1,6 @@
 //! Bounded real TCP request reader; unused speculative connections carry no request.
 use super::*;
+use fixture_failure_diagnostics::{self as failure, Stage as FailureStage, Worker};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
@@ -21,6 +22,8 @@ mod wait_admit_gate;
 mod rejected_resume_gate;
 #[path = "http_fixture_world_coherence_gate.rs"]
 mod world_coherence_gate;
+#[path = "http_fixture_lock_order_tests.rs"]
+mod lock_order_tests;
 
 const RESUME_VIEW_RENDEZVOUS_BUDGET: Duration = Duration::from_millis(1_200);
 const RESUME_VIEW_HOLD_BUDGET: Duration = Duration::from_secs(30);
@@ -125,19 +128,25 @@ pub(super) fn serve_listener<F>(
     concurrent: Arc<AtomicBool>,
     gate: Arc<WorldGate>,
     handler: Arc<F>,
+    diagnostics: Arc<failure::Diagnostics>,
 ) where
     F: Fn(TcpStream) + Send + Sync + 'static,
 {
+    let _failure_scope = failure::Scope::listener(diagnostics);
     let mut workers: Vec<thread::JoinHandle<thread::ThreadId>> = Vec::new();
     let mut failed = false;
     while !halt.load(Ordering::SeqCst) {
         let mut index = 0;
         while index < workers.len() {
             if workers[index].is_finished() {
+                failure::at(FailureStage::ListenerJoin);
                 let result = workers.swap_remove(index).join();
                 eprintln!("fixture_connection_worker_ok={}", result.is_ok());
                 match result {
-                    Ok(worker_id) => gate.connection_worker_joined(worker_id),
+                    Ok(worker_id) => {
+                        failure::at(FailureStage::JoinedCallback);
+                        gate.connection_worker_joined(worker_id);
+                    }
                     Err(_) => failed = true,
                 }
             } else {
@@ -148,34 +157,50 @@ pub(super) fn serve_listener<F>(
             thread::sleep(Duration::from_millis(2));
             continue;
         }
+        failure::at(FailureStage::Accept);
         match listener.accept() {
             Ok((stream, _)) if concurrent.load(Ordering::SeqCst) && gate.concurrent_ready() => {
                 let handler = handler.clone();
                 let worker_gate = gate.clone();
+                failure::at(FailureStage::Spawn);
+                let context = failure::child(Worker::Connection);
                 workers.push(thread::spawn(move || {
+                    let _failure_scope = failure::Scope::enter(context);
                     handler(stream);
+                    failure::at(FailureStage::ConnectionFinished);
                     worker_gate.connection_worker_finished();
                     thread::current().id()
                 }));
             }
             Ok((stream, _)) => {
+                failure::at(FailureStage::SerialDispatch);
+                let _failure_scope = failure::Scope::enter(failure::child(Worker::SerialConnection));
                 handler(stream);
+                failure::at(FailureStage::ConnectionFinished);
                 gate.connection_worker_finished();
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(2));
             }
-            Err(error) => panic!("accept: {error}"),
+            Err(error) => {
+                failure::io_error(&error);
+                panic!("accept: {error}");
+            }
         }
     }
     for worker in workers {
+        failure::at(FailureStage::ListenerJoin);
         let result = worker.join();
         eprintln!("fixture_connection_worker_ok={}", result.is_ok());
         match result {
-            Ok(worker_id) => gate.connection_worker_joined(worker_id),
+            Ok(worker_id) => {
+                failure::at(FailureStage::JoinedCallback);
+                gate.connection_worker_joined(worker_id);
+            }
             Err(_) => failed = true,
         }
     }
+    failure::at(FailureStage::ListenerFailed);
     assert!(!failed, "actual fixture connection worker failed");
 }
 #[derive(Default)]
@@ -189,7 +214,7 @@ impl Outage {
             return false;
         }
         self.observed.store(true, Ordering::SeqCst);
-        stream.shutdown(std::net::Shutdown::Both).unwrap();
+        failure::observe_io(stream.shutdown(std::net::Shutdown::Both)).unwrap();
         true
     }
 }
@@ -209,6 +234,7 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut buffer = [0u8; 4096];
     loop {
+        failure::at(FailureStage::ReadRequest);
         let n = match stream.read(&mut buffer) {
             Ok(0) if bytes.is_empty() => return Vec::new(),
             Ok(n) => n,
@@ -221,12 +247,17 @@ pub(super) fn read_request(stream: &mut TcpStream) -> Vec<u8> {
             {
                 return Vec::new();
             }
-            Err(error) => panic!("incomplete HTTP fixture request: {error}"),
+            Err(error) => {
+                failure::io_error(&error);
+                panic!("incomplete HTTP fixture request: {error}");
+            }
         };
         assert!(n > 0, "truncated request");
         bytes.extend_from_slice(&buffer[..n]);
+        failure::request_bytes(bytes.len());
         assert!(bytes.len() <= 262_144 + 8192, "unbounded request");
         if let Some(end) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+            failure::at(FailureStage::ParseRequest);
             let header = std::str::from_utf8(&bytes[..end]).unwrap();
             let length = header
                 .lines()
@@ -935,6 +966,10 @@ impl WorldGate {
     }
 
     fn connection_worker_finished(&self) {
+        self.connection_worker_finished_after_snapshot(|| {});
+    }
+
+    fn connection_worker_finished_after_snapshot(&self, after_snapshot: impl FnOnce()) {
         let current = thread::current().id();
         self.coherence_handler_returned(current);
         self.rejected_resume_returned(current);
@@ -956,7 +991,11 @@ impl WorldGate {
                 false
             }
         };
-        if let Some(root) = self.root.lock().unwrap().clone() {
+        // An if-let scrutinee would keep its root guard through the callbacks.
+        // Keep this statement separate: none of the gate locks may nest in root.
+        let root = self.root.lock().unwrap().clone();
+        after_snapshot();
+        if let Some(root) = root {
             self.compensation_handler_returned(&root, current);
             self.admit_wait_connection_worker_finished(&root, current);
             self.rejected_admit_connection_worker_finished(&root, current);
@@ -982,6 +1021,14 @@ impl WorldGate {
     }
 
     fn connection_worker_joined(&self, worker_id: thread::ThreadId) {
+        self.connection_worker_joined_after_snapshot(worker_id, || {});
+    }
+
+    fn connection_worker_joined_after_snapshot(
+        &self,
+        worker_id: thread::ThreadId,
+        after_snapshot: impl FnOnce(),
+    ) {
         self.coherence_worker_joined(worker_id);
         self.rejected_resume_joined(worker_id);
         let joined = {
@@ -997,11 +1044,13 @@ impl WorldGate {
                 false
             }
         };
-        if joined {
-            if let Some(root) = self.root.lock().unwrap().clone() {
-                self.compensation_worker_joined(&root, worker_id);
-                self.admit_wait_connection_worker_joined(&root, worker_id);
-                self.rejected_admit_connection_worker_joined(&root, worker_id);
+        let root = self.root.lock().unwrap().clone();
+        after_snapshot();
+        if let Some(root) = root {
+            self.compensation_worker_joined(&root, worker_id);
+            self.admit_wait_connection_worker_joined(&root, worker_id);
+            self.rejected_admit_connection_worker_joined(&root, worker_id);
+            if joined {
                 write_new_json(
                     &root.join("world-resume-view-worker-joined"),
                     &serde_json::json!({
@@ -1013,10 +1062,6 @@ impl WorldGate {
                 )
                 .expect("immutable Resume View worker-joined marker must be unique");
             }
-        } else if let Some(root) = self.root.lock().unwrap().clone() {
-            self.compensation_worker_joined(&root, worker_id);
-            self.admit_wait_connection_worker_joined(&root, worker_id);
-            self.rejected_admit_connection_worker_joined(&root, worker_id);
         }
     }
 }

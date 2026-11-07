@@ -38,6 +38,12 @@ scripts 模块不另行设计工程任务生命周期，统一引用
 - 每个常见意图只有一个推荐稳定入口；辅助或 fallback 路径必须有明确触发条件，且不能替代 canonical 路径。
 - 已发布脚本契约说明最小调用、改变验证范围的选项和失败类别；脚本行为、`--help` 与测试是可变 CLI 细节的实现权威。`dry-run`、`skip-*`、语法或 help 成功都不能证明完整门禁通过。
 
+### PR 评审线程工具
+
+`pr-review-thread-closeout.sh` 是 `pr-review-threads.py` 的兼容入口，承接 PRD-SCRIPTS-007B、SC-12C 和 AC-18C/D。工具默认查询 GitHub 原生线程；resolve 要求显式 PR 与线程范围，先核对归属，操作后重新读取并验证目标线程状态。返回 PR 身份、线程及统计和本次已核实的 resolve ID，失败按非零退出处理。
+
+这是可选的线程操作工具，合入检查由[开发流程规范](../engineering/workflow/source-of-truth.md#42-评审与合入)拥有。`pr-review-threads.test.py` 核验分页、查询错误、显式目标及写后确认失败；线程全关闭不证明必要 CI、独立评审或合入授权已满足。
+
 ### Harness 启动主链路
 
 - `worktree-harness.sh` 从解析后的当前 worktree 路径派生稳定身份，并把 runtime、artifact、browser、bundle、metadata、日志和 browser session 资源隔离到 `output/harness/<worktree_id>/`。它以 loopback endpoint 启动 lower-level launcher，并把 worktree-specific run ID、输出目录、metadata 文件和 chain node ID 传给 `run-launcher-stack.sh`。

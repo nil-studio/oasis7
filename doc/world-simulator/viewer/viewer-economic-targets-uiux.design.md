@@ -470,18 +470,18 @@ World / Targets / Command 是三个主Dock；Search在Targets内，Diagnostics/M
 <a id="t-eco-04-root-sc28-profile"></a>
 ### 条款 T-ECO-04 / root-sc28-profile
 - 唯一上游：[root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117。
-- 状态：源设计 `未核实`；源实现 `未实现`。这是原状态卡范围，不能从视觉改变实现结论。
-- 角色/条件：观察者只读；执行者必须有当前 recipe/factory scope；配方治理与工业处置是两个 authority。。
-- 字段：candidate A / pinned recipe / factory capability / candidate_available（示意）；candidate B / 缺 batch quality / custody / candidate_unknown，不补零；candidate C / 路线或 terminal 不适用 / candidate_blocked，保留原因；代表性档案 / 两类原料、cycle、power、主/副产物 / 任何必需 authority 缺失 → incomplete；下一用途 / production-only / terminal-admission / 选择 ≠ 排程 ≠ 生产 ≠ 交付
-- 单位：Exact profile/ledger unit; unknown remains unknown. No numeric assumptions.
-- 动作：打开完整档案；排程（禁用：仅条件目标）。
-- 状态规范：candidate_unknown：证据未齐，不同于无候选；recipe missing：解释能力与配方缺口；restricted：仅明确 scope 可排程；retiring：逐六 bucket 处置；retired：历史只读；successor 不自动迁移。
-- 具体表示：[具体目标稿](assets/ui-ux/full-function/economic-targets/frames/E07-recipe-discovery.svg)；`text_spec_only`；区域 `row 4 / R2`。
-- 写动作：`contract_blocked_pending_published_capability_and_exact_transport`；目标图不证明transport已接通。
-- 未绘制/非UI：Full enumerated state permutations and interaction/runtime behavior remain text-only / unverified.；Authority validation, atomicity, conservation, fairness, persistence/replay and settlement are professional runtime/domain duties; drawing does not validate them.
-  - 专业字段语义依赖：[industrial-resource-flow-contract.design.md](../m4/industrial-resource-flow-contract.design.md#industrial-quote-calculation-design)；不是当前Viewer DTO开放证明。
-  - 专业字段语义依赖：[industrial-resource-flow-contract.design.md](../m4/industrial-resource-flow-contract.design.md#starter-quote-submit-binding)；不是当前Viewer DTO开放证明。
-  - 专业字段语义依赖：[industrial-resource-flow-contract.design.md](../m4/industrial-resource-flow-contract.design.md#request-outcome-observation-separation)；不是当前Viewer DTO开放证明。
+- 状态：代表档案已具体化为本 PR 提议的 RIE-IRON-1/v1；设计接收以原产品卡为准，源实现仍为未实现。文本表示不证明当前 DTO、提交能力或真实体验已接通。
+- 角色/条件：观察者只读；执行者必须有当前 recipe/factory/material scope；配方准入、工业执行与 terminal recipient/admission 分别核权。A、L、V及S/I/T从授权原件解析，不以界面别名授予权限。
+- 档案源：[RI-01完整profile](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-profile)。同一read-anchor展示candidate/profile/version、exact Smelter/iron recipe、ore与fuel的真实批次/quality/custody、effective route、sent/received/loss与共享容量、full-only一批、power/validator费用、iron3与mandatory slag1、owner有限库存用途；每个数值保留单位、ledger和authority来源。
+- 具体正常表示：e-in ore5→I ore4+loss1、qualified custody transfer→两slot一次sink、一次iron3/slag1 bundle；T变体额外I iron3→transit3→T3，arrival仍terminal_pending，matching接收后T仍3。输出容量、已到货和终端接收分别显示，不给同一材料三份余额或把一次生产画成三次完成。
+- 完成/稳定：P只在matching全bundle production receipt完成produced/undelivered；T只在明确owner/recipient/purpose/capacity及父receipt匹配后完成库存接收；两变体均不减需求、发奖励或自动后继。首批不stable；稳定依原canonical历史与当前candidate匹配，证据不足为unknown。
+- 状态与恢复：[RI-03](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-recovery)。input unknown/not_applicable、route/global满、电力或factory漂移、slag去向失效、terminal失效分别给最早primary blocker、已消费/仍占用/损失、当前真实next_action与next_recheck；没有proof不补零、没有支持的return/salvage不画按钮。提交unknown保留原请求查询，不引导换ID重交。
+- 取舍与动作：打开完整档案、比较P/T/保留或延期；显示原已支持的补证/补料、等待容量、恢复电力/去向、未sink释放。未选路径无hold、顺位或W；改变因果建立新candidate W=0。排程/终端写动作仍禁用，直到相应真实capability和exact transport公布。
+- 单位与参数：仅消费本次profile的明确样本值；不是全局价格、容量或损耗默认。完整素材是专业可编辑表与本段文本，既有图中示意candidate不得当作当前可用世界候选。
+- 具体表示：[具体目标稿](assets/ui-ux/full-function/economic-targets/frames/E07-recipe-discovery.svg)；text_spec_only；区域 row 4 / R2。图稿的其他SC27区域不由本次接收。
+- 写动作：contract_blocked_pending_published_capability_and_exact_transport；目标图不证明transport已接通。
+- 验证：[RIE-M02正常/消费者](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m02)、[RIE-M03失败/恢复](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m03)；Viewer/pure API/Agent对同scope/read-anchor逐字段与原结果对照。此处未执行客户端/真人验证。
+- 未绘制/非UI：完整状态组合与full三阶段仍由[RI-04](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-full)及专业方法承接；原authority验证、共享容量、物理/terminal单写、原子性、费用、持久化与G1全World隔离不由文本/按钮证明。专业投影接口保持[原quote语义](../m4/industrial-resource-flow-contract.design.md#industrial-quote-calculation-design)与[原结果/观察分离](../m4/industrial-resource-flow-contract.design.md#request-outcome-observation-separation)，不是当前Viewer DTO开放证明。
 
 <a id="t-eco-05-root-sc30-subchoice"></a>
 ### 条款 T-ECO-05 / root-sc30-subchoice

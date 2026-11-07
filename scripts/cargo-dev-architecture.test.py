@@ -5,6 +5,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,21 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('architecture', HERE / 'cargo-dev-architecture.py')
 checker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checker)
+
+
+class RepositoryUpstreams(unittest.TestCase):
+    def test_markdown_rules_reference_defined_anchors(self):
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        for rule in rules:
+            path, anchor = rule['upstream'].split('#')
+            if not path.endswith('.md'):
+                continue
+            with self.subTest(rule=rule['key'], upstream=rule['upstream']):
+                source = (HERE.parent / path).read_text(encoding='utf-8')
+                anchors = set(re.findall(r'<a\s+(?:id|name)=["\']([^"\']+)["\']', source))
+                for heading in re.findall(r'^#{1,6}\s+(.+)$', source, re.MULTILINE):
+                    anchors.add(re.sub(r'[^\w\- ]', '', heading.strip()).lower().replace(' ', '-'))
+                self.assertIn(anchor, anchors, 'upstream must name a defined anchor, not a historical link')
 
 
 class CargoBoundaries(unittest.TestCase):
@@ -593,6 +609,89 @@ class OrdinaryTargetBuildPolicy(unittest.TestCase):
             self.inspect(selected)
         del selected['architecture']['build_policy_version']
         report = self.inspect(selected)
+        self.assertEqual(report['timings']['build_profiles'], 5)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 0)
+
+    def native_consumer_plan(self):
+        self.write('scripts/ci-required-scope.json', json.dumps({'package_groups': {
+            'root': ['distfs', 'net', 'node'], 'oasis7_custody': ['net']}}))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.commit()
+        plan = self.plan()
+        plan['groups'].extend(['distfs', 'net', 'node'])
+        plan['affected_packages'] = ['oasis7_runtime', 'root']
+        plan['architecture']['consumer_groups'] = {group: ['root'] for group in ('distfs', 'net', 'node')}
+        return plan
+
+    def test_native_reverse_consumer_groups_preserve_all_graphs_and_required_jobs(self):
+        selected = self.native_consumer_plan()
+        report = self.inspect(selected)
+        self.assertEqual(set(selected['groups']),
+                         {'baseline', 'rust_baseline', 'oasis7_required', 'distfs', 'net', 'node'})
+        self.assertEqual(report['timings']['graph_profiles'], 5)
+        self.assertEqual(report['timings']['deferred_build_profiles'], 5)
+        self.assertEqual(report['timings']['build_profiles'], 0)
+        self.assertFalse(any(command[:2] == ['cargo', 'check'] for command in report['commands']))
+        self.assertEqual(self.cli(selected).returncode, 0)
+
+    def test_extra_group_proofs_reject_missing_unmapped_duplicate_and_nonconsumer_owners(self):
+        original = self.native_consumer_plan()
+        cases = [None, {}, {'net': ['root']},
+                 {'distfs': ['root'], 'net': [], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['root', 'root'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['missing'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['oasis7_custody'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['oasis7_runtime'], 'node': ['root']},
+                 {'distfs': ['root'], 'net': ['root'], 'node': ['root'], 'workspace_support': ['root']}]
+        for groups in cases:
+            selected = copy.deepcopy(original)
+            selected['architecture']['consumer_groups'] = groups
+            selected['affected_packages'].extend(['missing', 'oasis7_custody'])
+            with self.subTest(groups=groups), self.assertRaises(checker.InspectionError):
+                self.inspect(selected)
+        for removed in ('net', 'node', 'distfs', 'oasis7_required', 'rust_baseline'):
+            selected = copy.deepcopy(original)
+            selected['groups'].remove(removed)
+            with self.subTest(removed=removed), self.assertRaises(checker.InspectionError):
+                self.inspect(selected)
+        selected = copy.deepcopy(original)
+        selected['affected_packages'] = ['oasis7_runtime']
+        with self.assertRaises(checker.InspectionError):
+            self.inspect(selected)
+
+    def test_native_consumer_proof_uses_pinned_policy_and_actual_cargo_edges(self):
+        original = self.native_consumer_plan()
+        policy = self.sha
+        # A candidate policy cannot lend an absent BASE package/group mapping.
+        self.write('scripts/ci-required-scope.json', json.dumps({'package_groups': {'root': ['consensus']}}))
+        self.command('git', 'add', 'scripts/ci-required-scope.json')
+        self.commit()
+        selected = self.plan()
+        selected['policy_sha'] = policy
+        selected['groups'].append('consensus')
+        selected['affected_packages'] = ['oasis7_runtime', 'root']
+        selected['architecture']['consumer_groups'] = {'consensus': ['root']}
+        with self.assertRaisesRegex(checker.InspectionError, 'consumer'):
+            self.inspect(selected)
+
+        # Keeping names in the plan does not preserve a removed dependency edge.
+        self.package('root', '[features]\ndefault=[]\nfull=[]\ntest-support=[]\nwasmtime=[]\n')
+        self.commit()
+        selected = self.plan()
+        selected['policy_sha'] = policy
+        selected['groups'] = original['groups']
+        selected['affected_packages'] = original['affected_packages']
+        selected['architecture']['consumer_groups'] = original['architecture']['consumer_groups']
+        with self.assertRaisesRegex(checker.InspectionError, 'consumer'):
+            self.inspect(selected)
+
+    def test_dirty_consumer_dependencies_restore_complete_profile_compilation(self):
+        selected = self.native_consumer_plan()
+        self.package('root', '[features]\ndefault=[]\nfull=[]\ntest-support=[]\nwasmtime=[]\n')
+        self.command('cargo', 'generate-lockfile', '--offline')
+        report = self.inspect(selected)
+        self.assertEqual(report['evidence']['selection']['mode'], 'full')
+        self.assertEqual(report['timings']['graph_profiles'], 5)
         self.assertEqual(report['timings']['build_profiles'], 5)
         self.assertEqual(report['timings']['deferred_build_profiles'], 0)
 

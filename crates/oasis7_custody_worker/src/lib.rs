@@ -183,3 +183,6 @@ mod management_metadata;
 mod management_metadata_abuse;
 #[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
 mod management_metadata_policy;
+
+#[cfg(all(target_arch = "wasm32", any(feature = "identity", feature = "owner")))]
+mod rejection_diagnostic;

@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/game/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "dc6bbebd5993efe7114c1b857d1ae0ff5ddad74891823d82ed6ed70eea796f71",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "prd",
+    "path": "doc/game/gameplay/gameplay-organization-custody-role-reputation-contract.prd.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "game-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "gameplay_designer",
+    "structural_owner": "gameplay_designer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

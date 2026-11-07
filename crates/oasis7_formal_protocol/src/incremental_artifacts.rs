@@ -6,7 +6,7 @@ use crate::incremental_history::{
     wire::{Reader, Writer, parse_hash},
 };
 use crate::incremental_state::MerkleNodeReader;
-use crate::merkle::{Codec, DEPTH, Node, Updater};
+use crate::merkle::{Codec, DEPTH, Node, Updater, VisitError};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 #[path = "incremental_artifact_codec.rs"]
 mod codec;
@@ -244,6 +244,36 @@ impl ArtifactCatalogV1 {
             .split(size)
             .map_err(|_| ExecutionError::Invalid("artifact delta admission"))?;
         Ok(charge.retain(delta))
+    }
+}
+
+impl ArtifactCatalogV1 {
+    /// Caller admits DFS workspace and controls source/visitor quotas. All
+    /// visitor effects remain provisional until the exact count is checked.
+    pub(crate) fn visit<E>(
+        &self,
+        source: &impl MerkleNodeReader,
+        mut visitor: impl FnMut(&ArtifactEntryV1) -> Result<(), E>,
+    ) -> Result<u64, VisitError<E>> {
+        self.validate()
+            .map_err(|e| VisitError::Tree(e.to_string()))?;
+        let mut view =
+            Updater::<ArtifactCodec, _>::new(source, empty().map_err(VisitError::Tree)?, 0);
+        let count = view
+            .visit_leaves(&self.node_root, |entry| {
+                if entry.kind != self.kind {
+                    return Err(VisitError::Tree("artifact catalog kind".into()));
+                }
+                visitor(entry).map_err(VisitError::Visitor)
+            })
+            .map_err(|error| match error {
+                VisitError::Tree(error) => VisitError::Tree(error),
+                VisitError::Visitor(error) => error,
+            })?;
+        if count != self.count {
+            return Err(VisitError::Tree("artifact catalog count".into()));
+        }
+        Ok(count)
     }
 }
 

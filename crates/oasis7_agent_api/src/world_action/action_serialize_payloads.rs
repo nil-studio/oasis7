@@ -809,3 +809,12 @@ pub(super) struct GovernFactoryProfilePayload<'a> {
     pub(super) proposal_id: &'a ProposalId,
     pub(super) profile: &'a FactoryProfileV1,
 }
+
+#[derive(Serialize)]
+#[serde(rename = "RotateGovernanceValidatorFinalityKeyV1")]
+pub(super) struct RotateGovernanceValidatorFinalityKeyV1Payload<'a> {
+    pub(super) controller_account_id: &'a String,
+    pub(super) body: &'a FinalityKeyRotationBodyV1,
+    pub(super) old_key_proof: &'a FinalityKeyRotationProofV1,
+    pub(super) new_key_proof: &'a FinalityKeyRotationProofV1,
+}

@@ -84,6 +84,23 @@ node scripts/hosted-passkey-world-runtime-smoke.mjs \
 
 撤销凭证、退出账号 session、完成恢复和冻结后，持续打开的 WebSocket 仍必须在不超过 60 秒内拒绝新受认证操作。关闭身份服务、漏推和陈旧缓存不得延长期限；签名授权最长 30 秒，来源读取时刻约束其期限。纯登录和这些恢复动作均不得修改资产 signer 或开放 operator/node/governance 权限。
 
+<a id="hosted-independent-continuation-validation"></a>
+### Hosted 便利停止后的同身份正常接续
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；对应 [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) / [AC-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#ac-entry-free-001)，验证[基础职责与正常接续](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-continuation)和[原件接续](../../p2p/blockchain/hosted-public-join-key-based-onboarding.design.md#hosted-independent-request-recovery)。以下是待实施方法，不是当前运行记录。
+
+固定同候选 source/build、Hosted 便利入口 profile、受影响对象与 T0/T1/T2、保留的免费基础账号/世界入口及其实际运营责任方。使用隔离且获准的身份、世界和存储，记录原 namespace、RP/origin、account/player/world/genesis、credential/session/控制 epoch 与待决原请求的安全关联。先取得健康前态，再只停止选定便利交付；凭据、完整签名原件、cookie 和私有正文不进入公开记录。实际正常世界读写连用 [AI01–AI07](external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)。
+
+| 样例 | 操作与独立判据 |
+| --- | --- |
+| HI01 基础职责独立 | 分别跨越 T1、T2 后从保留的同源免费基本入口登录并进入原世界。核对原 IdentityStore/issuer、固定 HTTPS gateway 与其受信 literal-loopback WorldService 仍承担基础职责，账号/玩家映射和原历史未因窗口到期失效；仅停止附加页面得到的结果与停止整个基础服务分别记录。与 AI01 联合取得合法写入及领域回执才构成正常链。 |
+| HI02 原 P0 凭证与可选 native | 仅 Passkey、未绑定邮箱/备份的既有账号仍可经基本 Viewer 正常接续。明确选择已支持 native 的另一例先以原凭证登录，执行新鲜敏感 bind 和原 native-key bind，再独立登录；原账号不变，登录 key 不取得 owner/delegate 权。缺少已支持的候选 key 生成/保护或 native 能力时只将该原生组合记缺项，不强制原用户补前置或复制 Passkey/cookie。 |
+| HI03 控制接管 | 第二设备/凭证登录仅得到当前原账号及 control_elsewhere；显式接管前核原 join/epoch。权威 CAS 提交前的确定拒绝/建立失败保持旧控制；已提交但回包丢失时，先查询原 join attempt 与当前 epoch，不能由错误或超时推定旧控制仍有效。成功后迟到旧 refresh/release 不能释放新 slot。便利停止、登录和原生绑定均不自动接管、恢复 grant 或重复领取。 |
+| HI04 原件可达与 scope | 在原签名请求发出后丢回复，停止便利页面并在原 origin/tab 的基本 Viewer 恢复；核 `/session`、原 join、完整 endpoint/world/authority/Feed/reorg scope，再使用原查询。另从合法 SDK cache 恢复其自身原件。复制 tab、另一 origin/native 读浏览器 capsule、损坏/缺失原件均不得自动搬运、补签或换 nonce；原材料确不可得的格记恢复缺口。 |
+| HI05 基础故障与撤销 | 分别中断 IdentityStore、固定 gateway、WorldService，以及撤销凭证/session 或改变 world epoch；沿原新鲜度和读权核拒绝，旧缓存不得续权或显示失权私有正文。恢复基础服务后先核当前身份与原请求，不产生替代账号或业务动作；故障期间的安全停止不算 HI01 的正常通过。 |
+
+分别记录身份/控制、业务结果和真实设备/部署层的结论；表中缺消费者或故障注入时保留未实施/未执行。该方法不要求在文档变更中运行真实身份、模型或世界，也不改变本手册原放量门槛。
+
 <a id="release-gates"></a>
 ## 迁移、性能与放量
 

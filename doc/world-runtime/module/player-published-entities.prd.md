@@ -39,19 +39,20 @@
 - Functional Specification Matrix:
 | 功能点 | 字段定义 | 按钮/动作行为 | 状态转换 | 排序/计算规则 | 权限逻辑 |
 | --- | --- | --- | --- | --- | --- |
-| 发布单提交 | `ModuleReleaseSubmit { manifest, activate, install_target, required_roles, profile_changes }` | 校验 artifact/identity/owner，创建发布单 | `Requested` | 计算 `shadow_manifest_hash` 覆盖当前 manifest + module_changes + 完整 profile_changes；格式兼容见设计文档 | 仅 artifact owner 可提交 |
+| 发布单提交 | `ModuleReleaseSubmit { manifest, activate, install_target, required_roles, profile_changes }` | 校验 artifact/identity/owner，保存完整待审内容并创建发布单 | `Requested` | Shadow 阶段才建立覆盖当前 manifest + module_changes + 完整 profile_changes 的 `shadow_manifest_hash`；格式兼容见设计文档 | 仅 artifact owner 可提交 |
 | Shadow 校验 | `ModuleReleaseShadow { request_id }` | 校验 wasm_hash/ABI/limits/profile 冲突与覆盖提交 | `Requested -> Shadowed` | `shadow_manifest_hash` 必须可复现 | 由当前已登记 agent 执行；审批 role binding 独立校验 |
 | 角色审批 | `ModuleReleaseApproveRole { request_id, role }` | 记录角色审批 | `Shadowed -> PartiallyApproved/Approved` | 角色集合归一化，去重 | 审批人必须绑定该 role |
 | 应用发布 | `ModuleReleaseApply { request_id }` | 复核冲突后应用 module_changes + profile_changes | `Approved -> Applied` | module_changes 先于 profile_changes，按 module_id/product_id/recipe_id 排序 | 须重验当前 owner/角色绑定与全部 required_roles，旧批准不预留权限 |
 | 产品 profile 治理 | `GovernProductProfile { proposal_id, profile }` | 校验字段白名单与覆盖冲突 | `pending -> governed` | `product_id` 作为唯一键；若 state 已存在同 ID 则拒绝（即使内容一致） | 必须引用 Applied 的 proposal_id |
 | 配方 profile 治理 | `GovernRecipeProfile { proposal_id, profile }` | 校验字段白名单与覆盖冲突 | `pending -> governed` | `recipe_id` 作为唯一键；若 state 已存在同 ID 则拒绝（即使内容一致） | 必须引用 Applied 的 proposal_id |
 | 工厂 profile 治理 | `GovernFactoryProfile { proposal_id, profile }` | 校验字段白名单与 tier/slots/覆盖冲突 | `pending -> governed` | `factory_id` 作为唯一键；若 state 已存在同 ID 则拒绝（即使内容一致） | 必须引用 Applied 的 proposal_id |
-| 发布拒绝 | `ActionRejected::RuleDenied` | 输出拒绝原因与审计事件 | `Requested/Shadowed/Approved -> Rejected` | 记录拒绝原因列表 | 任何校验失败即拒绝 |
+| 本次动作拒绝 | `ActionRejected::RuleDenied` | 输出该次提交、Shadow、审批或 Apply 的拒绝原因 | 不因动作拒绝自动改变发布单状态；重读原 request | 记录原 action 与拒绝原因；失败不产生部分 module/profile 效果 | 按该动作重验当前权限和前置 |
+| 发布单拒绝 | `ModuleReleaseRejected { request_id, ... }` | 明确拒绝该发布单并保留原因 | 由发布单的权威事件更新为 `Rejected` | 保留发布单身份与历史；不从超时、UI 或另一动作失败推断 | 由原发布拒绝 authority 校验，不新增客户端写状态权限 |
 <a id="ppe-release-acceptance"></a>
 - Acceptance Criteria:
   - AC-1 (PRD-WORLD_RUNTIME-010): 发布单支持携带 `profile_changes`（产品/配方/工厂），Apply 后 profile 与 payload 一致。
   - AC-2 (PRD-WORLD_RUNTIME-010): 发布单 Apply 后，新的制成品可在 `ValidateProductWithModule` 与 `ScheduleRecipeWithModule` 流程中被识别。
-  - AC-3 (PRD-WORLD_RUNTIME-011): 三节点测试场景中，提交到 Apply 的 `p95 <= 60s`，超时记录为发布失败并可诊断。
+  - AC-3 (PRD-WORLD_RUNTIME-011): 三节点测试场景中，提交到 Apply 的 `p95 <= 60s`；超出目标记录为本项时延验收未通过并给出诊断。发布单是否 Applied/Rejected 仍按原权威结果核对，计时超时不能修改发布单终态或触发第二次发布。
   - AC-4 (PRD-WORLD_RUNTIME-012): 缺少 artifact identity、角色审批不足、profile 覆盖提交均触发 `ActionRejected`，并记录审计事件。
   - AC-5 (PRD-WORLD_RUNTIME-012): 事件回放后 module registry + profile maps 与发布时一致。
   - AC-7 (PRD-WORLD_RUNTIME-012): Shadow/Approve 后改变任一 profile payload，Apply 必须原子拒绝；未发生 module/profile 部分生效。
@@ -83,7 +84,7 @@
   - profile 覆盖提交（同 `product_id/recipe_id/factory_id` 已存在，无论内容是否一致）-> `Shadow` 与 `Apply` 均拒绝并输出明确原因。
   - 角色审批重复或越权 -> 忽略重复、越权拒绝并记录。
   - 并发发布同一 module_id -> 按 proposal_id 序列化处理，后续发布需基于最新 manifest。
-  - Apply 过程中 profile 落账失败 -> Apply 回滚为 Rejected 并记录失败原因。
+  - Apply 过程中 profile 落账失败 -> 原子保留 Apply 前的 module/profile 与发布单状态，并记录本次动作失败；只有实际 `ModuleReleaseRejected` 才将发布单标为 Rejected，不以失败响应代写终态。
   - 模块执行返回非法输出 -> 触发 `ModuleCallFailed`，不影响已发布 profile。
 - Non-Functional Requirements:
   - NFR-1: 三节点测试场景下发布审批 `p95 <= 60s`。

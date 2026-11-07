@@ -16,7 +16,7 @@ use oasis7_formal_protocol::{
     incremental_state::{MerkleNodeReader, StateScanBudget, StateScanContext, StateScanError},
     incremental_value::{ValueNodeReader, ValueReadContext, ValueTreeError},
 };
-use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::{cell::RefCell, sync::Arc};
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("cognition current-state family closure")
@@ -24,10 +24,14 @@ fn invalid() -> ValueTreeError {
 #[derive(Debug)]
 pub struct CognitionCurrentStateQualificationV1 {
     roots: [u8; 32],
+    class: MemoryClass,
     controls: u16,
     entries: [Option<Arc<ReservedValue<CognitionJsonEntryQualificationV1>>>; 20],
 }
 impl CognitionCurrentStateQualificationV1 {
+    pub(crate) fn class(&self) -> MemoryClass {
+        self.class
+    }
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if &self.roots == roots {
             Ok(())
@@ -53,6 +57,62 @@ impl CognitionCurrentStateQualificationV1 {
             .position(|value| *value == field)
             .is_some_and(|index| self.controls & (1 << index) != 0)
     }
+}
+/// Crate-private resource copy; the History public gate additionally binds the
+/// exact accepted Ordinary view and prior head-value binding.
+pub(crate) fn copy_cognition_current_ordinary_v1(
+    source: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    roots: &RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if !source.uses_budget(memory)
+        || source.class != MemoryClass::Recovery
+        || source.reserved_bytes() < std::mem::size_of::<CognitionCurrentStateQualificationV1>()
+    {
+        return Err(ValueTreeError::Invalid(
+            "Cognition current readmission source",
+        ));
+    }
+    // Includes RootSet encoder scratch and all twenty new Arc control blocks.
+    let retained = memory.reserve(32 << 10, MemoryClass::Ordinary)?;
+    let roots = roots.digest().map_err(|_| invalid())?;
+    source.validate_binding(&roots)?;
+    let mut entries = std::array::from_fn(|_| None);
+    let arc_bound = 2 * std::mem::size_of::<usize>()
+        + std::mem::size_of::<ReservedValue<CognitionJsonEntryQualificationV1>>()
+        + 128;
+    let mut arc_bytes = std::mem::size_of::<CognitionCurrentStateQualificationV1>();
+    for (index, field) in CognitionJsonFieldV1::ALL.into_iter().enumerate() {
+        if let Some(entry) = &source.entries[index] {
+            if cancelled() {
+                return Err(ValueTreeError::Cancelled);
+            }
+            arc_bytes = arc_bytes.checked_add(arc_bound).ok_or_else(invalid)?;
+            if arc_bytes > retained.bytes() {
+                return Err(invalid());
+            }
+            let copied = json_read::copy_cognition_json_entry_ordinary_v1(
+                entry,
+                field,
+                memory,
+                &mut cancelled,
+            )?;
+            entries[index] = Some(Arc::new(copied));
+        }
+    }
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(retained.retain(CognitionCurrentStateQualificationV1 {
+        roots,
+        class: MemoryClass::Ordinary,
+        controls: source.controls,
+        entries,
+    }))
 }
 pub(crate) fn read_control<R: ValueNodeReader, C: FnMut() -> bool>(
     field: CognitionControlFieldV1,
@@ -284,6 +344,7 @@ pub fn qualify_cognition_current_state_v1<
         return Err(ValueTreeError::Cancelled);
     }
     Ok(retained.retain(CognitionCurrentStateQualificationV1 {
+        class: context.values.class,
         roots,
         controls,
         entries,

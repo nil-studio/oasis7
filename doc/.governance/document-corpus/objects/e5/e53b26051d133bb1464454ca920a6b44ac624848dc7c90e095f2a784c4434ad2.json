@@ -1,0 +1,17 @@
+{
+  "record": {
+    "authority_entry": "doc/testing/README.md",
+    "authority_layer": "professional_domain",
+    "content_sha256": "74cf04f830fd860d7b3f9684fa3059b2c4aeb1e30a5609fef95b60cae03a1d63",
+    "inventory_disposition": "retain_for_owner_review",
+    "lifecycle_candidate": "active_candidate",
+    "object_kind": "manual",
+    "path": "doc/testing/manual/mature-world-economic-audit-acceptance.manual.md",
+    "registry_type": "professional_domain",
+    "routing_batch": "testing-corpus-review",
+    "routing_note": "heuristic routing only; no lifecycle, authority, migration, or deletion decision is authorized by this inventory",
+    "semantic_decision_owner": "qa_engineer",
+    "structural_owner": "qa_engineer"
+  },
+  "schema": "oasis7.document-corpus-object/v1"
+}

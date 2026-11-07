@@ -80,7 +80,7 @@
   - `scripts/readme-reward-pr-intake-import.py`
   - `scripts/readme-reward-pr-intake-round-scan.py`
 - Edge Cases & Error Handling:
-  - 同一贡献被多人重复提交：只保留主记录 full row，其余记录在 `Notes` 标记 duplicate。
+  - 同一贡献被多人重复提交：先核真实归属与独立成果，再保留一个计分主项及其余不可变来源/duplicate关联；first-submit不能抢归属，不能删除原intake或已存在的决定/发放。具体见下文主记录合同。
   - 同一 contributor 有多条有效贡献：允许多行，但每行必须独立 `Ledger ID`。
   - producer 已批准但发放尚未执行：`Actual Amount / Distribution Ref` 可暂空，但 `Review Status` 不能写成 `distributed`。
   - producer 若批准某条普通 merged PR 高于 `150 OC`，但没有留下 exceptional case note：该 row 必须退回 `under_review`，不得继续进入待发放列表。
@@ -89,7 +89,7 @@
   - PR 来源且已删除 reward intake block：视为未申请 reward review；若后续要进入台账，必须补齐 `Reward Account` 并保留 approved follow-up 记录，否则不进入 producer 审批。
   - PR 来源且 intake block 保留但 `Request reward review` 不是显式 `yes`：导入脚本返回 `invalid_intake`，liveops 需先纠正 PR body，再决定是否入账。
   - 若只拿到 raw `public key` 或账户派生材料，必须先收口为 `Reward Account`，不得把 raw `public key` 直接作为台账名称层字段。
-  - 证据链接失效：该 row 退回 `draft` 或 `deferred`，不得进入正式批准。
+  - 证据链接失效：未批准候选的当前处理退回 `draft` 或 `deferred`，不得进入正式批准；已批准或已发放的历史不覆盖，按下文合同追加当前失效/暂停/复核与原件恢复。
   - round scan 未限定 merged 时间窗：该结果只能算 ad hoc exploration，不得直接当作本轮正式 ledger import。
 - Non-Functional Requirements:
   - NFR-LTRL-1: 每轮 ledger 的 `Round ID / Candidate ID / Window / Status` 完整率必须为 `100%`。
@@ -101,6 +101,20 @@
   - NFR-LTRL-7: 普通 merged PR row 的默认 producer 审批 ceiling 为 `150 OC`；任何 `>150 OC` 的 row 都必须带 exceptional case note，且 `1500 OC` 只能作为极少数 round-specific exceptional 决策。
   - NFR-LTRL-8: planned grant 若在 actual-value review 后被下调，ledger 必须同时保留原 candidate 上下文、最终金额和下调理由，避免只留下结果而丢失复核依据。
 - Security & Privacy: ledger 只记录公开 handle、证据链接、链上奖励账户与必要审批引用；不记录私人聊天原文或不必要个人隐私。raw `public key` 仅保留在底层签名/账户绑定流程中，不作为奖励台账名称字段。
+
+<a id="recognition-ledger-contract"></a>
+### 4.1 主贡献、不可变决定与当前反馈
+
+Trace refs: O7-REQ-c980624f-bb15-4fab-bc95-d950f6d83de5；O7-REQ-ff67822b-5943-4728-ad4c-795c94fca95a。直接承接[PART001](../../product/player-entry-distribution/participation-and-recognition-boundaries.prd.md#req-entry-part-001)及[PART002](../../product/player-entry-distribution/participation-and-recognition-boundaries.prd.md#req-entry-part-002)；完整生产者、版本与恢复合同由[专业设计](contributor-recognition-intake-and-review.design.md#recognition-intake-source)维护，操作字段见[附表](readme-limited-preview-contributor-reward-ledger.md#recognition-ledger-records)。
+
+- stable contribution_id标识可核独立成果，Ledger ID只是某轮行位置；channel、handle、Reward Account、round/purpose变化均不创建第二次认可资格。归属不明只hold受影响项，共同成果不复制整份分数，无关已核项继续；不把同收款账户当同一人。
+- intake/event、主项revision、建议bundle、decision/approval和allocation/原执行分别有稳定身份、前版与真实来源。当前投影可修订，原事件和真实决定不可静默覆盖；同ID同内容重试返回原记录，同ID异内容或旧版本拒绝冲突。
+- 评分消费[唯一首版政策](readme-limited-preview-contributor-reward-pack.prd.md#recognition-score-v1)：成员自身s/band与汇总S/band分开，未决/排除/已消费项明确列出；汇总不是付款行。普通PR的实际分配总额仍依原150 OC默认护栏，拆分收款、换包、补充批准或重试不重置。
+- 证据撤回、删除、失效、不可访问或与身份/scope不符时保留最初trace、可用性变化和理由。当前非rejected候选推进时仍须满足原有效证据要求；该要求不强迫把已批准/已发放历史改成rejected，也不授权复制已删内容来伪造可用证据。批准后失证先暂停依赖的新执行并复核；已经签定、提交或结果unknown的原支付按其真实在途边界处置，已发放保留事实，不自动追回/追债/补发。
+- 原actual-value review以新决定保留原计划值、当前核对理由及最终金额；不要覆盖旧批准。执行owner必须使用同一主贡献的有效分配与唯一占用，签发/提交前持久关联原执行身份，结果unknown先查原件。新allocation ID、fresh nonce或新round不能重复使用已消费批准。
+- 窗口关闭、渠道退出或身份无法确认只能按原计划延期、关闭、补证或有权交接；转交不延长原期限、不重排原审核优先权。每次受理/审核/查询的玩家反馈包含scope、证据状态、当前处理/决定/执行、blocker与真实下一步，不用感谢代签状态。
+
+本节是当前设计目标的补齐，沿用原LiveOps、producer及reward multisig权限；不声明脚本已实现完整去重/CAS/查询，也不批准任何新金额。历史round和distribution文件按原版本保留。方法分别为[RI02](../../testing/manual/contributor-recognition-acceptance.manual.md#contributor-recognition-02-dedup)、[RI04](../../testing/manual/contributor-recognition-acceptance.manual.md#contributor-recognition-04-decisions)、[RI05](../../testing/manual/contributor-recognition-acceptance.manual.md#contributor-recognition-05-distribution)与[RI06](../../testing/manual/contributor-recognition-acceptance.manual.md#contributor-recognition-06-feedback)。
 
 ## 5. Risks & Roadmap
 - Phased Rollout:

@@ -687,3 +687,8 @@ mod fact_originals;
 
 #[path = "incremental_event_fact_tests.rs"]
 mod event_fact_tests;
+
+#[path = "incremental_execution_artifact_material_tests.rs"]
+mod execution_artifact_material_tests;
+#[path = "incremental_native_material_tests.rs"]
+mod native_material_tests;

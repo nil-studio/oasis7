@@ -7,6 +7,19 @@ use super::*;
 mod action_to_event_core_main_token;
 
 impl World {
+    pub(super) fn select_material_consume_ledger_with_world_fallback(
+        &self,
+        preferred_ledger: MaterialLedgerId,
+        consume: &[MaterialStack],
+    ) -> MaterialLedgerId {
+        if self.has_materials_in_ledger(&preferred_ledger, consume) {
+            preferred_ledger
+        } else {
+            MaterialLedgerId::world()
+        }
+    }
+
+
     fn ensure_restricted_starter_claim_admin(&self, issuer_account_id: &str) -> Result<(), String> {
         let registry = self
             .governance_main_token_controller_registry()

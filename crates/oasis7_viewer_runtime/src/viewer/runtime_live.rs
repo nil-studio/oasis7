@@ -48,6 +48,8 @@ mod agent_service_io_diagnostics;
 mod agent_service_phase;
 mod agent_service_pump;
 mod agent_service_result;
+#[cfg(any(test, feature = "test_tier_required"))]
+mod agent_service_worker_cleanup;
 mod periodic_connection_diagnostic;
 mod periodic_service_io;
 mod request_frame;
@@ -117,6 +119,15 @@ mod player_gameplay;
 mod power_projection;
 mod power_sale_quote;
 mod prompt_control_result;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "runtime_live/provider_original_store.rs"]
+mod provider_original_store;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "runtime_live/provider_original_store_codec.rs"]
+mod provider_original_store_codec;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "runtime_live/provider_original_store_fs.rs"]
+mod provider_original_store_fs;
 mod recovery;
 mod recovery_audit;
 mod recovery_compensation;
@@ -174,6 +185,10 @@ use player_agency_projection::{
     PlayerGameplayCausalitySignal, player_gameplay_causality_from_runtime_events,
 };
 use prompt_control_result::PromptControlRuntimeAuthority;
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub use provider_original_store::{
+    ProviderOriginalMaterialOwnerV1, install_provider_original_material_owner,
+};
 use runtime_script::RuntimeLiveScript;
 use session_policy::{
     RuntimeSessionPolicy, RuntimeSessionRevokeMetadata, location_id_for_pos,

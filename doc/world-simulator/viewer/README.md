@@ -1,11 +1,14 @@
 # `world-simulator/viewer` 热点子域入口
 
-更新时间: 2026-11-03
+更新时间: 2026-11-06
 
 ## 从这里开始
+- 想直接操作 UI/UE 设计目标：有权限时打开[私有评审预览](https://oasis7-uiue-review-5527.chirpy-perch-3196.chatgpt.site)，或按[仓库原型与走查方法](viewer-page-module-design-2026-06-18.design.md#uiux-interactive-prototype)在本机打开。进入与指导、Prompt 恢复、首局生产共用一套界面，可切换中英文、长文和指定缺译情境。预览地址可以更新，用其 [source.json](https://oasis7-uiue-review-5527.chirpy-perch-3196.chatgpt.site/source.json) 核对源提交和资源哈希；实际浏览器记录归 [#5527](https://github.com/nil-studio/oasis7/issues/5527) 及对应 PR。原生 IME、辅助技术和生产功能另验。
+- 想修改或复用像素世界素材：从[俯视像素图集、场景与导出说明](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets)进入。16×16 地块／角色、48×48 Smelter 与 320×180 场景共用固定色板，四张页面稿和原型从同一源生成；这些设计资产的生产接入仍待实现与验证。
 - 想逐功能核对当前源码、条件目标、具体设计稿与尚未覆盖状态：读[全功能派生目录](viewer-full-function-coverage-catalog.md)。105个当前源码条目与经济/治理目标分开，不能以概览页数判完整覆盖。
 - 想逐屏核对游戏 Viewer / Bevy 像素世界的阅读顺序、观察/草稿/原回执身份、输入与恢复状态：读[详细 UI/UX 交接](viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)及[版本化设计稿](viewer-page-module-design-2026-06-18.design.md#uiux-design-sheets)。这些是设计目标，不是运行截图或实现验收。 账号、绑定、模型连接等外围旅程与状态覆盖见[页面模块§10.9](viewer-page-module-design-2026-06-18.design.md#uiux-entry-session-world)，09–14为补充目标稿。
 - 想制作或核验 `production_only` 首局的目标、首产物、受阻和回访内容：读[首局内容与交付规格](first-session-content-delivery.design.md)及[配套验收方法](first-session-content-delivery.manual.md)。这里承接事实到文案、素材和交付的关系；玩法条件、页面布局与运行结果仍由各自原主责核定。
+- 想设计可选声音、事件触发、默认静音和听觉替代表达：读[Viewer 音频内容与交付](viewer-audio-content-delivery.design.md)及[验收手册](viewer-audio-content-delivery.manual.md)。提示只消费已有可读事实；素材、平台接入和实际试听分别验收。
 - 想制作 Viewer 中英术语、上下文帮助，或核对语言切换、缺译和字体的交付边界：读[本地化与上下文帮助](viewer-localization-and-context-help.design.md)及[验证手册](viewer-localization-and-context-help.manual.md)。品牌短标签、实际语言机制与其他入口各沿原主责，帮助目标与已实现入口分别核对。
 - 想制作或交接世界材质、热点符号、模块标记和 Micro Depot 视觉内容：读[世界视觉内容与交付](viewer-world-visual-content-delivery.design.md)及[制作验收手册](viewer-world-visual-content-delivery.manual.md)。这里定位当前程序化变体、编辑源、构建消费者及来源资料；图层、尺寸、LOD、动效和场景仍沿原 Bevy 详细交接。
 - 想先理解 Pixel-world 对玩家承诺的首读层级、空间关系来源、可归因因果与诊断边界：读 [`doc/product/agents-world-simulation/player-readable-world-stage.prd.md`](../../product/agents-world-simulation/player-readable-world-stage.prd.md)；具体 DTO、LOD、renderer 与验证仍回到本目录专业文档。

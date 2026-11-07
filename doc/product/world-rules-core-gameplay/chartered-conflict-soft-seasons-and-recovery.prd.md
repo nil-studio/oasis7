@@ -77,12 +77,16 @@
 
 Trace ID: O7-REQ-2e68a48f-4a44-4135-9268-e17c6f32d0b3
 
-- 系统设计状态：部分覆盖
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：[gameplay-war-politics-mvp-baseline.design / des-war-politics-001](../../game/gameplay/gameplay-war-politics-mvp-baseline.design.md#des-war-politics-001)。已承接：冲突授权内的战争成本与结果预览。
+- 系统设计依据：[参战与资产授权](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-authority)、[有界离线防御](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-defense)；共同覆盖原宣战/参加、暴露范围、非参与者保护、可撤销/到期的防御及拒绝和恢复。专业设计的需求分配与验证表反向承接本条原 Trace/AC；结论只属目标设计覆盖，不改变现有实现或战争重启条件。
+- 玩法政策：[原主责政策](../../game/gameplay/gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md#conflict-enrollment-policy)。
+- 验证方法：[独立组合方法](../../testing/manual/chartered-conflict-recovery-and-soft-season-acceptance.manual.md#conflict-scope) 的 CF-01、CF-02；真实资产、授权、并发及恢复分别核对，本次未运行。
+- 历史相邻设计依据：[gameplay-war-politics-mvp-baseline.design / des-war-politics-001](../../game/gameplay/gameplay-war-politics-mvp-baseline.design.md#des-war-politics-001)。已承接：冲突授权内的战争成本与结果预览。 该局部设计与原实现证据继续保留其候选和范围。
 - 实现与验证依据：已交付 core 宣战只读报价：检查主体/联盟、资源和 active conflict；active M5 reducer 缺权威读回时 fail closed。 实现定位：[代码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/world/war_declaration_quote.rs#L50-L141)；断言/历史样本：[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/war_declaration_quote.rs#L42-L72)、[证据](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/runtime/tests/war_declaration_quote.rs#L144-L157)。本轮只读源码和断言，未运行 Rust、正式入口或真人验收；历史样本仍以其原候选/环境为准。 其余实现交付 PR 与适用运行记录未逐条核定；[核对任务 #4698](https://github.com/eng-cc/oasis7/issues/4698)仅记录审查。
-- 核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
-- 剩余范围：core 宣战报价已有只读、成员与资源检查；charter、暴露资产、离线防御及非参与者保护的完整执行链未核清，active M5 reducer 报价明确拒绝。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行世界、业务或玩家验收，既有实现记录保留原候选。
+- 历史实现核对日期与基线：2026-10-15；需求、专业设计与静态源码基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；本轮无新运行环境或端到端验收结果。
+- 剩余范围：上述目标设计已补齐，正式实现、实际参数平衡和组合验收仍未交付；原实现缺口继续按其原候选理解：core 宣战报价已有只读、成员与资源检查；charter、暴露资产、离线防御及非参与者保护的完整执行链未核清，active M5 reducer 报价明确拒绝。
 
 - 性质：`目标要求`
 - 适用条件：区域冲突宣战、参战登记和离线防御授权。
@@ -97,12 +101,15 @@ Trace ID: O7-REQ-2e68a48f-4a44-4135-9268-e17c6f32d0b3
 
 Trace ID: O7-REQ-19ea1035-2d0a-43fc-a3a8-b0309030273c
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：部分实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[实际资产损失](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-assets)、[同一损失后的恢复比较](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-recovery)；共同覆盖冲突、区域危机及一般经营受损三类原因，真实损失、身份/历史连续、投入和 repair/rebuild/pivot/撤离。专业设计的需求分配与验证表反向承接本条原 Trace/AC；结论只属目标设计覆盖，不改变现有实现或战争重启条件。
+- 玩法政策：[原主责政策](../../game/gameplay/gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md#conflict-recovery-policy)。
+- 验证方法：[独立组合方法](../../testing/manual/chartered-conflict-recovery-and-soft-season-acceptance.manual.md#conflict-scope) 的 CF-03、CF-06；真实资产、授权、并发及恢复分别核对，本次未运行。
 - 实现与验证依据：原REQ适用包括冲突、区域危机或经营能力受损，不能仅因无chassis schema抹去真实资源损失与同一身份保留；但war结果目前证到持久状态与事件，完整玩家战损展示尚未证。工业维护/损失显示仅属于经营受损窄范围，不是恢复项目，也不使AC-4冲突摧毁组合通过。 [native-war](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L515-L712)；[module-war](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs#L300-L480)；[war-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/alliance_war_publication.rs#L232-L330)；[war-debit](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/alliance_war_publication.rs#L460-L481)；[war-state](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/gameplay_state.rs#L33-L77)；[wear-producer](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/economy.rs#L712-L776)；[repair-command](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/event_processing/action_to_event_economy.rs#L252-L356)；[repair-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/industry_transition/factory_lifecycle.rs#L574-L666)；[repair-install](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/industry_transition/factory_lifecycle.rs#L771-L813)；[loss-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/industry_transition/recipe_lifecycle.rs#L580-L700)；[loss-read](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/viewer/runtime_live/gameplay_snapshot.rs#L227-L290)；[loss-ui](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_viewer/software_safe_src/viewer_factory_failure_disposition_display_model.js#L32-L157)；[snapshot](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/persistence.rs#L306-L380)；[restore](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/persistence.rs#L735-L785)。仅当前默认/内置路径静态审读，未运行业务测试或正式玩家验收。
-- 核对日期与基线：2026-10-17；需求固定 PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；实现固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；所引源码逐 Git blob 复验，与前轮同源部分复用；无新运行验收。
-- 剩余范围：repair/rebuild/pivot/撤离可比较与可执行：未交付完整组合：现有失败卡只选择真实enabled动作，且清空陈旧repair/rebuild/pivot投影；没有冲突资产多路线比较；保留全部AC-4冲突损毁后资产/身份/投入/恢复比较组合验收，现有窄交付不代签。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行世界、业务或玩家验收，既有实现记录保留原候选。
+- 历史实现核对日期与基线：2026-10-17；需求固定 PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；实现固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；所引源码逐 Git blob 复验，与前轮同源部分复用；无新运行验收。
+- 剩余范围：上述目标设计已补齐，正式实现、实际参数平衡和组合验收仍未交付；原实现缺口继续按其原候选理解：repair/rebuild/pivot/撤离可比较与可执行：未交付完整组合：现有失败卡只选择真实enabled动作，且清空陈旧repair/rebuild/pivot投影；没有冲突资产多路线比较；保留全部AC-4冲突损毁后资产/身份/投入/恢复比较组合验收，现有窄交付不代签。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。
 
 - 性质：`目标要求`
 - 适用条件：冲突、区域危机或经营能力受损后。
@@ -137,12 +144,15 @@ Trace ID: O7-REQ-eedaa5cf-e91e-48df-9c33-158774b40168
 
 Trace ID: O7-REQ-a2b47612-d2c2-4331-811e-58a61366b64d
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[持续占有与到期](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-occupation)、[物理提取与安全入库](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-extraction)、[tenure 条件转让](../../world-runtime/runtime/location-tenure-and-disposition.design.md#tenure-temporary-use)；共同覆盖占据、连续 hold、到期冻结、真实权利转移、提取/运输和当前合法目的地接收的独立结果。专业设计的需求分配与验证表反向承接本条原 Trace/AC；结论只属目标设计覆盖，不改变现有实现或战争重启条件。
+- 玩法政策：[原主责政策](../../game/gameplay/gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md#conflict-occupation-policy)。
+- 验证方法：[独立组合方法](../../testing/manual/chartered-conflict-recovery-and-soft-season-acceptance.manual.md#conflict-scope) 的 CF-04、CF-05、TN-07；真实资产、授权、并发及恢复分别核对，本次未运行。
 - 实现与验证依据：原适用要求冲突到期同时有占领/hold/提取/物流结果，普通war settlement与普通transit均不能作为该前提内直接子交付。 [typed-action](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_agent_api/src/world_action/action.rs#L355-L418)；[typed-event](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/events/domain_event.rs#L823-L889)；[native-war](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L515-L712)；[module-war](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs#L300-L480)；[war-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/alliance_war_publication.rs#L232-L330)；[war-state](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/gameplay_state.rs#L33-L77)；[logistics-write](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/state/industry_transition/material_transit.rs#L44-L115)；[snapshot](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/persistence.rs#L306-L380)。仅当前默认/内置路径静态审读，未运行业务测试或正式玩家验收。
-- 核对日期与基线：2026-10-17；需求固定 PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；实现固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；所引源码逐 Git blob 复验，与前轮同源部分复用；无新运行验收。
-- 剩余范围：contested occupation、持续hold与expiry独立判断：native/M5 WarConclude的authority为成员/声誉/疲劳与到期比分，不追踪tenure/occupation持续条件；物理战利品提取与受保护目的地交割分离：普通TransferMaterial/transit有物理运输，但无war entitlement/loot/custody及保护目的地绑定；war资源即时加减不是safe extraction；结果可读已成立权利/已交割/仍有风险物流：WarState只有胜负及participant_outcomes，缺前述独立权利与提取状态，读面不能补成。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行世界、业务或玩家验收，既有实现记录保留原候选。
+- 历史实现核对日期与基线：2026-10-17；需求固定 PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；实现固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；所引源码逐 Git blob 复验，与前轮同源部分复用；无新运行验收。
+- 剩余范围：上述目标设计已补齐，正式实现、实际参数平衡和组合验收仍未交付；原实现缺口继续按其原候选理解：contested occupation、持续hold与expiry独立判断：native/M5 WarConclude的authority为成员/声誉/疲劳与到期比分，不追踪tenure/occupation持续条件；物理战利品提取与受保护目的地交割分离：普通TransferMaterial/transit有物理运输，但无war entitlement/loot/custody及保护目的地绑定；war资源即时加减不是safe extraction；结果可读已成立权利/已交割/仍有风险物流：WarState只有胜负及participant_outcomes，缺前述独立权利与提取状态，读面不能补成。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。
 
 - 性质：`目标要求`
 - 适用条件：冲突时间窗口到期，且同时存在 contested occupation、持续 hold、战利品提取和物流中的结果。
@@ -157,12 +167,15 @@ Trace ID: O7-REQ-a2b47612-d2c2-4331-811e-58a61366b64d
 
 Trace ID: O7-REQ-ce9fbace-7fc6-4973-8bcf-8b58e11b3339
 
-- 系统设计状态：未核实
+- 系统设计状态：已覆盖
 - 实现状态：未实现
-- 系统设计依据：本条产品与专业权威已按原适用范围复核；尚未建立覆盖下列剩余义务的准确专业设计条款、反向承接和验证计划组合。相邻设计或产品体验 design 不作为完整技术覆盖依据。
+- 系统设计依据：[软赛季边界与未结义务](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-season)；共同覆盖竞争窗口、公共项目、排行榜及部分区域资格刷新，保留世界/身份/核心能力、可迁移价值、原 receipt 和历史因果。专业设计的需求分配与验证表反向承接本条原 Trace/AC；结论只属目标设计覆盖，不改变现有实现或战争重启条件。
+- 玩法政策：[原主责政策](../../game/gameplay/gameplay-chartered-conflict-recovery-and-soft-season-contract.prd.md#soft-season-policy)。
+- 验证方法：[独立组合方法](../../testing/manual/chartered-conflict-recovery-and-soft-season-acceptance.manual.md#conflict-scope) 的 CF-08；真实资产、授权、并发及恢复分别核对，本次未运行。
 - 实现与验证依据：内置周期与普通历史连续性是相邻能力；当前未启用满足该卡适用前提的season producer及消费者。 [typed-action](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_agent_api/src/world_action/action.rs#L355-L418)；[typed-event](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/events/domain_event.rs#L823-L889)；[module-dispatch](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/gameplay_loop.rs#L28-L109)；[module-war](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_builtin_wasm_modules/m5_gameplay_war_core/src/lib.rs#L300-L480)；[module-crisis](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7_builtin_wasm_modules/m5_gameplay_crisis_cycle/src/lib.rs#L78-L206)；[war-state](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/gameplay_state.rs#L33-L77)；[snapshot](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/persistence.rs#L306-L380)；[restore](https://github.com/nil-studio/oasis7/blob/e27f4d990bc4d481097c003ff75afc582fd8f65d/crates/oasis7/src/runtime/world/persistence.rs#L735-L785)。仅当前默认/内置路径静态审读，未运行业务测试或正式玩家验收。
-- 核对日期与基线：2026-10-17；需求固定 PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；实现固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；所引源码逐 Git blob 复验，与前轮同源部分复用；无新运行验收。
-- 剩余范围：竞争窗口/公共项目/排行榜/部分区域权利刷新对象和边界：当前typed事件与M5 tick producer只实现战争/危机/治理/meta变化，未建立软赛季刷新对象和boundary；刷新时保持时间线、身份、核心能力、价值、历史因果：已有WorldState持久化保留普通历史，但无真实刷新调用，不能将无刷新等同赛季连续性通过；刷新条件与恢复/申诉可读可审计：无刷新权威对象供消费者关联；war到期/危机周期并非软赛季。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。
+- 核对日期与基线：2026-11-05（Asia/Shanghai）；本轮设计对照固定 main `cca8cda97cf121ebc1e25e96d6b0204a421323ea`；未运行世界、业务或玩家验收，既有实现记录保留原候选。
+- 历史实现核对日期与基线：2026-10-17；需求固定 PR #4844 `5d03f1fcda523b071c2d75f634165af344ca7b6b`；实现固定 main `e27f4d990bc4d481097c003ff75afc582fd8f65d`；所引源码逐 Git blob 复验，与前轮同源部分复用；无新运行验收。
+- 剩余范围：上述目标设计已补齐，正式实现、实际参数平衡和组合验收仍未交付；原实现缺口继续按其原候选理解：竞争窗口/公共项目/排行榜/部分区域权利刷新对象和边界：当前typed事件与M5 tick producer只实现战争/危机/治理/meta变化，未建立软赛季刷新对象和boundary；刷新时保持时间线、身份、核心能力、价值、历史因果：已有WorldState持久化保留普通历史，但无真实刷新调用，不能将无刷新等同赛季连续性通过；刷新条件与恢复/申诉可读可审计：无刷新权威对象供消费者关联；war到期/危机周期并非软赛季。结论限当前仓库默认/内置及已审正式路径；未提供的线上自定义artifact不在本轮结论范围。
 
 - 性质：`目标要求`
 - 适用条件：软赛季刷新竞争窗口、公共项目、排行榜或部分区域权利/资格时。

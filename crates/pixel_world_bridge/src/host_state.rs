@@ -447,6 +447,7 @@ fn build_module_visual_entities(
                 "id": id,
                 "module_id": str_key(entity, "module_id").unwrap_or(""),
                 "kind": str_key(entity, "kind").unwrap_or(""),
+                "factory_kind": string_key(entity, "factory_kind"),
                 "label": string_key(entity, "label"),
                 "anchor": anchor.clone(),
                 "pos": pos,

@@ -13,6 +13,7 @@ try:
 except ModuleNotFoundError:
     raise SystemExit("Python 3.11 or newer is required; use scripts/plan-rust-required-scope.sh to discover it")
 from pathlib import Path
+from types import MappingProxyType
 
 PLATFORM_GROUPS = ('windows_rollout', 'macos_package_contract', 'fleet_health')
 EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
@@ -41,7 +42,8 @@ NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',
-           'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py')
+           'scripts/plan-rust-required-scope*', 'scripts/document_corpus.py',
+           'scripts/ci_process_runner.py')
 
 
 class UnknownInputsError(ValueError):
@@ -361,7 +363,51 @@ def rust_source_inputs(source, return_tokens=False, with_module_paths=False):
     return literals, calls
 
 
-def cargo_graph(ref, generated_inputs=()):
+class GitSourceCache:
+    """One selection's immutable blob bytes and context-free Rust input scans.
+
+    Paths, modes, manifests, generated-output permissions and consumer edges are
+    still interpreted separately for every Git tree. No ref name or worktree
+    content is a cache key, and no state survives a select() invocation.
+    """
+
+    def __init__(self):
+        self.blobs = {}
+        self.rust_inputs = {}
+
+    def load(self, oids):
+        missing = list(dict.fromkeys(oid for oid in oids if oid not in self.blobs))
+        if not missing:
+            return
+        data = subprocess.check_output(['git', 'cat-file', '--batch'],
+                                       input=b''.join(oid + b'\n' for oid in missing))
+        fetched, offset = {}, 0
+        for oid in missing:
+            end = data.find(b'\n', offset)
+            fields = data[offset:end].split() if end >= offset else []
+            if (len(fields) != 3 or fields[:2] != [oid, b'blob']
+                    or not fields[2].isdigit()):
+                raise ValueError('invalid Git blob batch header')
+            size = int(fields[2])
+            start, offset = end + 1, end + 1 + size
+            if data[offset:offset + 1] != b'\n':
+                raise ValueError('incomplete Git blob batch body')
+            fetched[oid] = data[start:offset]
+            offset += 1
+        if offset != len(data):
+            raise ValueError('unexpected trailing Git blob batch data')
+        self.blobs.update(fetched)
+
+    def inputs(self, oid):
+        if oid not in self.rust_inputs:
+            literals, calls, uncertain = rust_source_inputs(
+                self.blobs[oid].decode('utf-8', 'replace'), with_module_paths=True)
+            self.rust_inputs[oid] = (tuple(literals),
+                                    tuple(MappingProxyType(call) for call in calls), uncertain)
+        return self.rust_inputs[oid]
+
+
+def cargo_graph(ref, generated_inputs=(), *, source_cache=None):
     """Resolve workspace path edges including dev/build/target and renamed dependencies.
 
     Optional dependencies are included conservatively, so no feature combination is lost.
@@ -380,15 +426,10 @@ def cargo_graph(ref, generated_inputs=()):
         if kind == b'blob' and (path.endswith(b'Cargo.toml') or path.endswith(b'.rs')):
             entries.append((oid, path.decode('utf-8', 'surrogateescape')))
             blob_modes[path.decode('utf-8', 'surrogateescape')] = mode
-    data = subprocess.check_output(['git', 'cat-file', '--batch'], input=b''.join(oid + b'\n' for oid, _ in entries))
-    blobs = {}
-    offset = 0
-    for _, path in entries:
-        end = data.index(b'\n', offset)
-        size = int(data[offset:end].split()[2])
-        offset = end + 1
-        blobs[path] = data[offset:offset + size]
-        offset += size + 1
+    source_cache = source_cache if source_cache is not None else GitSourceCache()
+    source_cache.load(oid for oid, _ in entries)
+    blob_oids = {path: oid for oid, path in entries}
+    blobs = {path: source_cache.blobs[oid] for oid, path in entries}
     paths = list(blobs)
     root = tomllib.loads(blobs['Cargo.toml'].decode())
     workspace = root.get('workspace', {})
@@ -474,7 +515,7 @@ def cargo_graph(ref, generated_inputs=()):
     def inputs(path):
         if path not in source_inputs:
             try:
-                source_inputs[path] = rust_source_inputs(blobs[path].decode('utf-8', 'replace'), with_module_paths=True)
+                source_inputs[path] = source_cache.inputs(blob_oids[path])
             except ValueError as error:
                 raise ValueError(f'{path}: {error}') from error
         return source_inputs[path]
@@ -899,8 +940,15 @@ def only_registered_declarations_added(path, comparisons, declarations):
     return True
 
 
-def only_static_modules_added(path, comparisons):
-    """Permit new root-level modules whose regular source is new in each diff."""
+def added_static_module_sources(path, comparisons, *, native_root=False):
+    """Return newly wired regular sources, or None for any wider token change.
+
+    The native mode is only used after proving an actual selected Cargo lib
+    root. It requires an exact exclusion gate on every new module; the existing
+    static_module_additions contract continues to allow no attributes at all.
+    """
+    added_sources = set()
+    native_gate = ('#', '[', 'cfg', '(', 'not', '(', 'target_arch', '=', '"wasm32"', ')', ')', ']')
     for before, after in comparisons:
         patch = git('diff', '--no-ext-diff', '--unified=0', before, after, '--', path).decode()
         added_lines, line = set(), 0
@@ -911,7 +959,7 @@ def only_static_modules_added(path, comparisons):
             if hunk:
                 line = int(hunk[1])
             elif change.startswith('-') and change[1:].strip():
-                return False
+                return None
             elif change.startswith('+'):
                 added_lines.add(line)
                 line += 1
@@ -922,7 +970,7 @@ def only_static_modules_added(path, comparisons):
             tokens, closing = rust_source_inputs(source, return_tokens=True)
             previous, _ = rust_source_inputs(git('show', before + ':' + path).decode(), return_tokens=True)
         except (subprocess.CalledProcessError, UnicodeDecodeError, ValueError):
-            return False
+            return None
         starts = [0, *(match.end() for match in re.finditer('\n', source))]
         additions = {index for index, (_, _, position) in enumerate(tokens)
                      if bisect_right(starts, position) in added_lines}
@@ -932,7 +980,10 @@ def only_static_modules_added(path, comparisons):
             cursor = index
             # An existing attribute must not become attached to the new item.
             boundary = index == 0 or tokens[index - 1][1] in (';', '}')
-            if boundary and tokens[cursor][1] == 'pub':
+            if native_root:
+                boundary &= tuple(value for _, value, _ in tokens[cursor:cursor + len(native_gate)]) == native_gate
+                cursor += len(native_gate)
+            if boundary and cursor < len(tokens) and tokens[cursor][1] == 'pub':
                 cursor += 1
                 if cursor + 2 < len(tokens) and tokens[cursor][1] == '(':
                     if (tokens[cursor + 1][1] not in ('crate', 'self', 'super')
@@ -950,17 +1001,23 @@ def only_static_modules_added(path, comparisons):
                 index = closing.get(index, index) + 1
         if (additions or [(kind, value) for index, (kind, value, _) in enumerate(tokens) if index not in inserted]
                 != [(kind, value) for kind, value, _ in previous]):
-            return False
-        directory = (posixpath.dirname(path) if posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
+            return None
+        directory = (posixpath.dirname(path) if native_root or posixpath.basename(path) in ('lib.rs', 'main.rs', 'mod.rs')
                      else path.removesuffix('.rs'))
         for name in modules:
             candidates = [directory + '/' + name + '.rs', directory + '/' + name + '/mod.rs']
             if git('ls-tree', '-z', before, '--', *candidates):
-                return False  # Mounting old untested source needs the original expanded checks.
+                return None  # Mounting old untested source needs the original expanded checks.
             entries = [entry for entry in git('ls-tree', '-z', after, '--', *candidates).split(b'\0') if entry]
             if len(entries) != 1 or entries[0].split(b'\t', 1)[0].split()[:2] != [b'100644', b'blob']:
-                return False
-    return True
+                return None
+            added_sources.add(entries[0].split(b'\t', 1)[1].decode())
+    return added_sources
+
+
+def only_static_modules_added(path, comparisons):
+    """Permit new root-level modules whose regular source is new in each diff."""
+    return added_static_module_sources(path, comparisons) is not None
 
 
 def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_core, comparisons):
@@ -1167,7 +1224,7 @@ def worker_exact_signer_guard(source, attribute, owner):
 def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
                         ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
                         narrow_unavailable=None, selected_targets=None, required_source_paths=(),
-                        portable_paths=None, worker_wasm_compile=False):
+                        portable_paths=None, worker_wasm_compile=False, native_root_deltas=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -1439,7 +1496,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 or (owner[0] == 'mod'
                     and (short_name == 'tests' or short_name.startswith('test_') or short_name.endswith('_tests'))))
 
-    def gate_value(attribute, native_linux, enabled=None, wasm_compile=False):
+    def gate_value(attribute, native_linux, enabled=None, wasm_compile=False, test_build=True):
         # Accept only a known expression that is actually true in the expanded
         # driver feature and native target combination. Mentioning an allowed
         # feature is insufficient: all(feature="test_tier_full", any()) is false.
@@ -1453,7 +1510,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 raise ValueError('missing cfg predicate')
             value = values[cursor]
             if value == 'test':
-                return not wasm_compile, cursor + 1
+                return test_build and not wasm_compile, cursor + 1
             if wasm_compile and value in ('unix', 'windows'):
                 return False, cursor + 1
             if native_linux and value in ('unix', 'windows'):
@@ -1520,6 +1577,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     production_roots = production_target_roots(sources, directories, source_inputs.get('manifests', {}))
     host_roots = build_script_roots(sources, directories, source_inputs.get('manifests', {}))
     parsed_sources, parent_cache, context_cache, reference_cache = {}, {}, {}, {}
+    ordinary_structure_cache = {}
 
     def source_owners(path):
         return {name for name, directory in directories.items()
@@ -1635,10 +1693,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         parent_cache[key] = references
         return references
 
-    def ordinary_source_context(path, native, visiting=frozenset()):
+    def ordinary_source_structure(path, native, visiting=frozenset()):
         key = path, native
-        if key in context_cache:
-            return context_cache[key]
+        if key in ordinary_structure_cache:
+            return ordinary_structure_cache[key]
         if path in visiting:
             return False
         if source_inputs.get('uncertain_modules'):
@@ -1652,9 +1710,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # for nested modules; no one convenient context can authorise the other.
         mixed = len({kind for _, kind, _, _ in references}) > 1
         enabled = bool(path in ordinary_roots or references) and not mixed
-        enabled &= all(known and ordinary_source_context(parent, native, visiting | {path})
-                       for parent, _, known, _ in references)
-        context_cache[key] = enabled
+        enabled &= all(known and resolved and not opaque
+                       and ordinary_source_structure(parent, native, visiting | {path})
+                       for parent, known, opaque, resolved, _ in reference_cache[(path, native, None)])
+        ordinary_structure_cache[key] = enabled
         return enabled
 
     def inherited_paths(path, native, visiting=frozenset(), roots=None):
@@ -1674,6 +1733,30 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}, roots):
                 result.append((previous + gates, proven and known, uncertain or opaque, packages))
         return result
+
+    def ordinary_source_context(path, native):
+        key = path, native
+        if key in context_cache:
+            return context_cache[key]
+        context_cache[key] = False
+        # Keep every reference closed and unambiguous before evaluating cfgs.
+        # A convenient executable route cannot hide a different unknown owner,
+        # include context, disabled harness or unresolved/cyclic mount.
+        if not ordinary_source_structure(path, native):
+            return False
+        defaults = source_inputs.get('default_features', {})
+        executable = False
+        for gates, proven, opaque, packages in inherited_paths(path, native):
+            features = set.intersection(*(set(defaults.get(package, ())) for package in packages)) if packages else set()
+            values = [gate_value(gate, native, features) for gate in gates]
+            if not proven or opaque or any(value is None for value in values):
+                return False
+            # A production-only mount is a false alternative in a test build,
+            # not a condition on a separate real test mount. Unknown or expanded
+            # features above still prevent the ordinary-addition exemption.
+            executable |= all(values)
+        context_cache[key] = executable
+        return executable
 
     def inherited_gates(path, native, visiting=frozenset()):
         # Narrow inventory keeps its conservative ancestor check; the legacy
@@ -1742,14 +1825,15 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         selected_context_cache[key] = result
         return result
 
-    def native_only_source(path):
+    def native_only_source(path, *, native_root_delta=False):
         """Prove every production mount is absent from a non-test WASM build.
 
         A reverse dependency alone is neither proof of portability nor proof of
         native-only ownership. Keep portable checks for unknown cfgs, alternate
         mounts, includes and cycles. Only literal, already resolved exclusion
-        gates establish this optimization; no candidate annotation authorizes
-        itself because production cfg edits expand the plan below.
+        gates establish this optimization. A candidate annotation alone cannot
+        authorize deferral: production cfg edits expand the plan below, and a
+        native root delta requires a separate additive module/source proof.
         """
         if (path not in sources or source_inputs.get('uncertain_modules')
                 or (production_roots | host_roots) - sources.keys()
@@ -1775,7 +1859,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             # An independent integration target is absent from production builds.
             # This is separate from, and cannot replace, executable source proof.
             absent = (all(proven and not opaque and not packages & set(source_inputs.get('host_execution_inputs', ()))
-                          and any(gate in excluded for gate in gates)
+                          and ((native_root_delta and current == path) or any(gate in excluded for gate in gates))
                           for gates, proven, opaque, packages in routes) if routes else
                       current in ordinary_roots and current not in production_roots)
             # include_str!/include_bytes! are dependency edges only. They never
@@ -1785,6 +1869,24 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 
         return excluded_mounts(path) and all(excluded_mounts(reader)
                                             for reader in source_inputs.get('unresolved_data_readers', ()))
+
+    def native_only_root_additions(path):
+        # A portable lib root can change only its native module wiring. Prove
+        # the actual delta and the new sources, without treating the whole root
+        # as excluded or trusting a path/name convention. Alternate code mounts
+        # remain conservative; data/host readers are checked by the same proof
+        # as ordinary native-only sources, including readers of the root text.
+        targets = [target for target in selected_targets or ()
+                   if target['target_kind'] == 'lib' and selected_target_root(target) == path
+                   and selected_source_context(path, target)]
+        if not targets or parents(path, True):
+            return False
+        modules = added_static_module_sources(path, [(base, source)], native_root=True)
+        if not modules or not modules.issubset(required_source_paths):
+            return False
+        return (all(any(selected_source_context(module, target) for target in targets)
+                    and native_only_source(module) for module in modules)
+                and native_only_source(path, native_root_delta=True))
 
     def inherited_execution(path, native):
         combinations = []
@@ -1869,6 +1971,93 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 return False
         return True
 
+    def production_import_proves(path, attribute, owner):
+        # Only a direct sibling-module alias, mounted in both real Cargo
+        # contexts, may use the production (test=false) compilation tuple.
+        # This never witnesses a fn/mod test execution gate.
+        if owner[0] != "use" or attribute[0] != "cfg" or "feature" in attribute:
+            return False
+        info = parsed(path, True)
+        tokens, closing, items = info[7], info[8], info[9]
+        starts = [index for index, item in items.items() if item == owner]
+        if len(starts) != 1:
+            return False
+        start = starts[0]
+        if any(left < start < right and tokens[left][1] == "{" for left, right in closing.items()):
+            return False
+        declaration = [value for _, value, _ in tokens[start:start + 8]]
+        if (len(declaration) != 8 or declaration[:4] != ["use", "super", ":", ":"]
+                or declaration[5] != "as" or declaration[7] != ";"
+                or tokens[start + 4][0] != "identifier" or tokens[start + 6][0] != "identifier"):
+            return False
+        if gate_value(attribute, True, set(), test_build=False) is not True or gate_value(attribute, True, set()) is not False:
+            return False
+        local = [gate for gate, _ in lexical_attributes(info, start)]
+        if any(gate[0] == "cfg_attr" or (gate[0] == "cfg" and (
+                "feature" in gate or gate_value(gate, True, set(), test_build=False) is not True))
+                or (gate[0] not in ("cfg", "cfg_attr") and not ordinary_attribute(gate, True))
+                for gate in local):
+            return False
+        def tuple_features(packages, test_build):
+            defaults = source_inputs.get("default_features", {})
+            features = set.intersection(*(set(defaults.get(package, ())) for package in packages)) if packages else set()
+            declared = set.intersection(*(set(available_features.get(package, ())) for package in packages)) if packages else set()
+            if test_build and packages and packages.issubset(feature_packages):
+                features |= enabled_features & declared
+            return features
+        def compile_route(roots, test_build):
+            routes = inherited_paths(path, True, roots=roots)
+            if not routes:
+                return False
+            values = []
+            for gates, proven, opaque, packages in routes:
+                features = tuple_features(packages, test_build)
+                current = [gate_value(gate, True, features, test_build=test_build) for gate in gates]
+                if not proven or opaque or any(value is None for value in current):
+                    return False
+                values.append(all(current))
+            # Alternative literal mounts may be disabled in this tuple; one
+            # actual route must execute, and no unresolved route is hidden.
+            return any(values)
+        if not compile_route(ordinary_roots, True) or not compile_route(production_roots, False):
+            return False
+        parents(path, True)  # Populate literal provenance, independently of cfg truth.
+        provenance = reference_cache[(path, True, None)]
+        if any(not known or opaque or not resolved for _, known, opaque, resolved, _ in provenance):
+            return False
+        references = sorted({parent for parent, _, _, _, gates in provenance
+                             if all(gate_value(gate, True, tuple_features(source_owners(parent), False), test_build=False) is True for gate in gates)})
+        if not references:
+            return False
+        # The imported sibling must have a literal declaration and actual source;
+        # an unresolved import cannot become a compiler-coverage exemption.
+        name = declaration[4]
+        for parent in references:
+            parent_info = parsed(parent, True)
+            matches = []
+            for index, item in parent_info[9].items():
+                if item[0] != "mod" or parent_info[7][index + 1][1] != name:
+                    continue
+                if any(left < index < right and parent_info[7][left][1] == "{" for left, right in parent_info[8].items()):
+                    continue
+                gates = [gate for gate, _ in lexical_attributes(parent_info, index) if gate[0] in ("cfg", "cfg_attr")]
+                if any(gate_value(gate, True, tuple_features(source_owners(parent), False), test_build=False) is not True for gate in gates):
+                    continue
+                if parent_info[7][index + 2][1] == "{":
+                    matches.append(True)
+                else:
+                    paths = [gate for gate, target in parent_info[6] if target == item and gate[0] == "path"]
+                    if paths and not (len(paths) == 1 and len(paths[0]) == 3 and rust_literal_path(paths[0][2]) is not None):
+                        continue
+                    directory = posixpath.dirname(parent) if parent in production_roots or posixpath.basename(parent) in ("mod.rs", "main.rs", "lib.rs") else parent.removesuffix(".rs")
+                    candidates = ([posixpath.normpath(posixpath.join(posixpath.dirname(parent), rust_literal_path(paths[0][2])))]
+                        if len(paths) == 1 and len(paths[0]) == 3 and rust_literal_path(paths[0][2]) is not None
+                        else [posixpath.join(directory,name + ".rs"),posixpath.join(directory,name,"mod.rs")])
+                    matches.append(sum(candidate in sources for candidate in candidates) == 1)
+            if matches != [True]:
+                return False
+        return True
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
@@ -1890,8 +2079,12 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 selected_source_context(path, target) for target in selected_targets)
             if not selected_source and narrow_unavailable is not None:
                 narrow_unavailable.add(path)
-            if portable_paths is not None and (not selected_source or not native_only_source(path)):
-                portable_paths.add(path)
+            if portable_paths is not None and not (selected_source and native_only_source(path)):
+                if selected_source and native_only_root_additions(path):
+                    if native_root_deltas is not None:
+                        native_root_deltas.add(path)
+                else:
+                    portable_paths.add(path)
         # Unchanged full/WASM gates still matter when the enclosed body changes.
         # Attribute diffs alone cannot prove that a narrower driver runs it.
         if narrow_unavailable is not None and path in (narrow_features_by_path or {}):
@@ -1952,6 +2145,9 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             raise TestPolicyError('new ignored test lacks a trusted execution mapping: ' + path
                                   + '; keep it executable or register its actual ignored-test runner')
         for attribute, owner in added_attrs:
+            if production_import_proves(path, attribute, owner):
+                production_cfg_paths.append(path)
+                continue
             worker = 'oasis7_custody_worker'
             manifest = source_inputs.get('manifests', {}).get(worker, {})
             worker_root = posixpath.join(directories.get(worker, ''), 'src/lib.rs')
@@ -1973,7 +2169,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             ordinary_gate = enabled_gate(attribute, native, inherited_defaults)
             if not ordinary_gate and features and not mapped_native_driver:
                 raise TestPolicyError('changed test feature has no expanded-feature driver for its package: ' + path)
-            if not ordinary_gate and not enabled_gate(attribute, mapped_native_driver, inherited_expanded):
+            if not ordinary_gate and not enabled_gate(attribute, native, inherited_expanded):
                 raise TestPolicyError('changed cfg is outside the validated test feature combinations: ' + path)
             if features and (not feature_owners.get(path) or any(
                     not features.issubset(available_features.get(package, set()))
@@ -2037,7 +2233,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             config, paths, path_affected, path_rules, selected_core, comparisons or [(base, source)])
     narrow_features_by_path, narrow_unavailable = {}, set()
     execution_capable = config.get('fast_execution_version') == FAST_EXECUTION_VERSION
-    portable_paths = set()
+    portable_paths, native_root_comparisons = set(), []
     if config.get('fast_test_inventory_version') == FAST_TEST_INVENTORY_VERSION:
         for rule in config['ordinary_fast_rules']:
             if 'added_declarations' not in rule and not rule.get('static_module_additions'):
@@ -2047,6 +2243,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     if native_fast_candidate is not None:
         narrow_features_by_path.update(native_fast_candidate[3])
     for before, after in comparisons or [(base, source)]:
+        comparison_native_roots = set()
         changed_policy, changed_ignored, production_cfg = changed_test_policy(
             before, after, paths, feature_owners or {},
             set(config['oasis7_required_packages']) | set(SUPPORT_PROFILES),
@@ -2058,10 +2255,17 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             native_fast_candidate[1] if execution_capable and native_fast_candidate else (),
             portable_paths if execution_capable else None,
             worker_wasm_compile=(conservative or 'oasis7_custody_worker'
-                                 in plan.get('workspace_support_profiles', ())))
+                                 in plan.get('workspace_support_profiles', ())),
+            native_root_deltas=comparison_native_roots)
+        native_root_comparisons.append(comparison_native_roots)
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
         production_cfg_paths.update(production_cfg)
+    # A successful source diff cannot erase an unproved tested-merge diff,
+    # including an empty delta after a merge resolution restores the old tree.
+    native_root_deltas = set().union(*native_root_comparisons)
+    for proven in native_root_comparisons:
+        portable_paths.update(native_root_deltas - proven)
     policy_paths = sorted(policy_paths)
     if narrow_unavailable:
         plan['reasons'].extend('changed source is not proven executable by the selected fast target/features; expanded coverage: ' + path
@@ -2113,12 +2317,14 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             baseline_checks.append('standalone_tool_lockfiles')
         plan['rust_baseline_checks'] = baseline_checks
         native_paths = native_fast[1] - portable_paths
+        plan['reasons'].extend('new native-only library module wiring; existing portable tokens unchanged: ' + path
+                               for path in sorted(native_root_deltas & native_paths))
         portable_consumers = {package for path in paths if path not in native_paths
                               for package in path_affected.get(path, ())}
         deferred_wasm = wasm - portable_consumers
         wasm -= deferred_wasm
         if deferred_wasm:
-            plan['reasons'].append('all changed production mounts are native/test-only; portable checks stay in full: '
+            plan['reasons'].append('all changed production input deltas are native/test-only; portable checks stay in full: '
                                    + ', '.join(sorted(deferred_wasm)))
         launcher_paths = {path for path in paths if 'launcher_web' in path_rules.get(path, ()) or any(
             'launcher_web' in config['package_groups'].get(package, ())
@@ -2184,17 +2390,30 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     architecture = plan['architecture']
     inputs = set(architecture['packages'])
     owners = {target['package'] for target in plan.get('ordinary_fast_targets', ())}
+    required_groups = {'baseline', 'rust_baseline', 'oasis7_required'}
+    extra_groups = set(plan['groups']) - required_groups
+    consumer_groups = {group: sorted(package for package in affected - inputs
+                                    if group in config['package_groups'].get(package, ()))
+                       for group in sorted(extra_groups)}
+    # Native reverse-consumer jobs retain their complete existing checks. A
+    # direct path contract or an explicit request is a separate input, not proof
+    # that an extra group only exercises an already-covered component change.
+    native_consumers = (extra_groups <= {'consensus', 'distfs', 'net', 'node'}
+                        and all(consumer_groups.values())
+                        and not any(extra_groups.intersection(groups) for groups in path_rules.values()))
     if (config.get('architecture_build_policy_version') == ARCHITECTURE_BUILD_POLICY_VERSION
             and plan.get('fast_execution_version') == FAST_EXECUTION_VERSION
             and plan.get('ordinary_execution') == 'inline' and plan['scope'] == 'targeted'
             and architecture['mode'] == 'targeted' and not additions
-            and set(plan['groups']) == {'baseline', 'rust_baseline', 'oasis7_required'}
+            and required_groups.issubset(plan['groups']) and native_consumers
             and not plan['test_policy_changed'] and not plan['fast_plan_exceptions']
             and not plan['formal_suites'] and not plan['oasis7_required_wasm_packages']
             and not any(fnmatch.fnmatchcase(path, pattern) for path in paths for pattern in CONTROL)
             and inputs and inputs.issubset(owners)):
         architecture.update(build_policy_version=ARCHITECTURE_BUILD_POLICY_VERSION,
                             build_policy='ordinary-targets')
+        if consumer_groups:
+            architecture['consumer_groups'] = consumer_groups
         plan['reasons'].append('all architecture inputs have mandatory fast targets; '
                                'extra profile compilation stays in full, all dependency graphs remain required')
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
@@ -2249,9 +2468,10 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
             full = True
             reasons.append('uncertain tested merge inputs: ' + str(error))
         graphs = []
+        source_cache = GitSourceCache()
         for ref in dict.fromkeys(graph_refs):
             try:
-                graph = cargo_graph(ref, config.get('generated_inputs', []))
+                graph = cargo_graph(ref, config.get('generated_inputs', []), source_cache=source_cache)
                 graphs.append(graph)
                 sources = graph[2].pop('__rust_sources__', {})
                 if profile is not None:

@@ -587,9 +587,17 @@ pub(super) fn lookup_original_commit(
     client: &RemoteWorldServiceClient,
     original: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<oasis7_client_api::world_service::CommitRef, String> {
-    let response = client
-        .lookup_formal_original(original.clone())
-        .map_err(|error| format!("ordinary signed formal lookup: {error}"))?;
+    original_commit_from_lookup(client.lookup_formal_original(original.clone()), original)
+}
+
+pub(super) fn original_commit_from_lookup(
+    response: Result<
+        oasis7_client_api::world_service::IntentResponse<Value>,
+        oasis7::world_service::client::WorldServiceClientError,
+    >,
+    original: &SubmitIntentRequest<WorldServicePayloadV1>,
+) -> Result<oasis7_client_api::world_service::CommitRef, String> {
+    let response = response.map_err(|error| format!("ordinary signed formal lookup: {error}"))?;
     if response.correlation != original.correlation
         || response.formal_profile.as_ref()
             != Some(&oasis7_client_api::world_service::FormalReadProfileV1::controlled())

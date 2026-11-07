@@ -37,5 +37,10 @@ docker build \
 - repo 内模块默认以仓库根目录作为 workspace root。
 - `ModuleSourcePackage` 这类临时源码包应在其临时 workspace root 下调用该脚本。
 
-## 后续
-- WDBP-2 会在此基础上补 `build receipt`、builder digest 绑定和 manifest token 迁移。
+## 批量候选构建
+
+使用 `scripts/build-builtin-wasm-modules.sh --candidate-build` 构建一组模块。每批核对当前 producer recipe 并固定一个真实不可变镜像 ID；本地没有匹配镜像时只构建一次。已有镜像仍须通过平台、recipe labels、入口与环境检查，每个模块还会验证镜像中的实际 producer 源码，并独立使用空 Cargo/TMP 目录。
+
+批次运行前后若 producer 输入发生变化则失败。镜像 tag 改变不会改变已经选定的 image ID；批次结束只清理自身临时目录和用于保持镜像引用的未运行容器，不删除共享镜像或缓存。
+
+构建成功的 receipt 保留真实 recipe 和实际执行镜像身份。优化镜像或更新 producer 后必须重新构建对应工件，不能给旧字节重新标注新 receipt。批量优化本身不授予发布或运行时启用资格。

@@ -12,11 +12,11 @@ impl IdentityClient {
             .connect_timeout(Duration::from_secs(3))
             .build()
             .map_err(|_| "identity discovery unavailable")?;
-        let response = client
-            .get(format!(
-                "{}{IDENTITY_PREFIX}/entry/discovery",
-                config.endpoint
-            ))
+        let pending = client.get(format!(
+            "{}{IDENTITY_PREFIX}/entry/discovery",
+            config.endpoint
+        ));
+        let response = crate::request_deadline::bound(pending, Duration::from_secs(10))?
             .send()
             .map_err(|_| "identity discovery unavailable")?;
         if response.status() != reqwest::StatusCode::OK {

@@ -83,6 +83,7 @@ mod gameplay_layer;
 mod gameplay_loop;
 mod governance;
 mod governance_authorization;
+mod governance_finality_key_rotation;
 mod governance_bft_parent;
 mod governance_history;
 mod governance_history_snapshot;
@@ -1114,6 +1115,7 @@ pub mod incremental_step;
 pub mod incremental_agent_genesis;
 pub mod incremental_agent_verified_genesis;
 pub mod incremental_scheduler;
+pub mod incremental_scheduler_recovery;
 mod incremental_scheduler_index;
 
 pub mod incremental_projection;

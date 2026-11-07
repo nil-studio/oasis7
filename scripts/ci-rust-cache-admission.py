@@ -32,7 +32,9 @@ policy = maintenance.policy
 ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0'
 DENIED = 78
 FAMILIES = {
-    'shared-native': ('ci-shared-native-trusted-v3', '.github/workflows/rust.yml', 'full-regression'),
+    'shared-native': ('ci-shared-native-trusted-v4', '.github/workflows/rust-cache.yml', 'shared-native-cache'),
+    'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
+    'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
     'ecs': ('oasis7-ecs-native-linux-ecs-v2', '.github/workflows/ecs-packages.yml', 'native-trusted'),
     'release-web': ('release-packages-web-wasm-trusted-v3', '.github/workflows/release-packages.yml', 'build-web-dist'),
     'release-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
@@ -109,7 +111,8 @@ def trusted_writer(environment, api):
     namespace, workflow, job = FAMILIES[family]
     sha, event, run_id = (environment.get(name, '') for name in
                          ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
-    events = ('schedule', 'workflow_dispatch') if family == 'shared-native' else ('workflow_dispatch',)
+    rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint')
+    events = ('schedule', 'workflow_dispatch') if rust_full else ('workflow_dispatch',)
     if (environment.get('GITHUB_ACTIONS') != 'true'
             or (environment.get('RUNNER_OS'), environment.get('RUNNER_ARCH')) not in PLATFORMS[family]
             or environment.get('GITHUB_REF') != maintenance.MAIN_REF
@@ -120,7 +123,7 @@ def trusted_writer(environment, api):
             or environment.get('GITHUB_WORKFLOW_REF') != f'{api.repository}/{workflow}@refs/heads/main'
             or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'[1-9][0-9]*', run_id)):
         raise AdmissionError('dependency upload requires the current trusted main writer identity')
-    if family == 'shared-native' and event == 'workflow_dispatch':
+    if rust_full and event == 'workflow_dispatch':
         try:
             payload = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text())
             full = payload.get('inputs', {}).get('run_mode') == 'full'
@@ -132,6 +135,7 @@ def trusted_writer(environment, api):
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
+    if family == 'shared-native' or family.startswith('release-') or family == 'testnet-linux':
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()
@@ -140,9 +144,9 @@ def trusted_writer(environment, api):
                 cwd=environment.get('GITHUB_WORKSPACE'), env=git_environment,
                 text=True, stderr=subprocess.DEVNULL, timeout=10).strip()
         except (OSError, subprocess.SubprocessError):
-            raise AdmissionError('package source HEAD could not be verified') from None
+            raise AdmissionError('dependency source HEAD could not be verified') from None
         if head != sha:
-            raise AdmissionError('package source HEAD does not match the planned main source')
+            raise AdmissionError('dependency source HEAD does not match the trusted main source')
     if family == 'testnet-linux':
         try:
             inputs = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text()).get('inputs', {})

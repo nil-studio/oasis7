@@ -83,12 +83,14 @@
 Trace ID: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef
 
 - 功能点：[REQ-AGENT-SURFACE-001](#req-agent-surface-001)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-001](#ac-agent-surface-001)，不扩大入口或阶段。
-- 系统设计状态：未核实
-- 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“viewport/语言/连接状态的同一决策锚点”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
+- 系统设计状态：已覆盖
+- 系统设计依据：[语言/来源](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#locale-scope)、[缺译/字体降级](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#language-fallback)和[可访问表达](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#language-accessibility)承接跨语言、viewport 和输入的可读语义；[退出再入旅程](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-primary-journeys)与[首次/重入](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-first-return-targets)承接四个决策锚点的恢复。
+- 验证方法：[LH-LOCALE](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-locale)、[LH-FALLBACK](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-fallback)、[LH-ACCESSIBILITY](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-accessibility)及 [PW-FRESHNESS](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-freshness)，同候选逐项核桌面/窄屏/低高度、200%/IME、当前身份与恢复状态；方法存在不等于运行通过。
 - 实现状态：部分实现
 - 实现与验证依据：[Runtime gameplay快照生产](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L345-L455)→[snapshot到玩家摘要](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L332-L380)→[snapshot/summary输入host](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L44-L65)→[世界HUD目标/blocker/next入口](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L315-L350)及[同一原回执读取](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L231-L273)构成真实生产/读取链；[双语locale选择与fallback](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_locale_preferences_module.js#L68-L78)与[Web世界host与图形失败文本/恢复](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/pixel_world_host.jsx#L1255-L1325)支持双语及图形失效保留目标/回执的直接子范围。
-- 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
-- 剩余范围：完整desktop/窄屏/低高度、双语fallback和连接中断/恢复中/恢复失败组合仍未逐一核清；不是仅欠测试。需核四个决策锚点在每个适用表面的实现、可读性与真实下一步；保留权限/世界结果不因展示变化改变的验收。
+- 历史实现核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
+- 核对日期与基线：2026-11-05；固定已合入基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 及本轮明确列出的专业条款；只做设计/源码审读，未运行 Runtime、模型、浏览器或产品验收。
+- 剩余范围：设计已分别规定布局重排/四个锚点、语言与字体降级、连接/权限/原结果的组合语义。实际各 Web/native/适用相邻表面是否完整实现、当前状态消费者、目标设备可读性与真实下一步仍须逐项实施核验；原部分实现记录只证明其固定子范围，不能写成仅欠测试。
 
 - 要求：在受支持 viewport、语言和连接状态下，玩家必须能找到当前目标、主要 blocker、最近可信反馈和下一决策或恢复入口；呈现变化不得改写权限或世界结果。
 - 验收：AC-AGENT-SURFACE-001
@@ -108,12 +110,14 @@ Trace refs: O7-REQ-20b49f66-b663-41ed-9b52-253ce76ed1ef；承接[REQ-AGENT-SURFA
 Trace ID: O7-REQ-d7081137-94a9-4524-b08a-fc3fbfcb9f64
 
 - 功能点：[REQ-AGENT-SURFACE-002](#req-agent-surface-002)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-002](#ac-agent-surface-002)，不扩大入口或阶段。
-- 系统设计状态：未核实
-- 系统设计依据：本轮已读本条、对应验收及所列专业 authority；尚未核清“模式不支持、权限/规则阻塞、传输中断与未知请求区分”的逐项专业设计承接。产品体验 design 或模块入口本身不作技术覆盖证明；不据此断言无设计。
+- 系统设计状态：已覆盖
+- 系统设计依据：[当前模式](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-live-playback-context)与[全表面状态矩阵](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#uiux-whole-viewer-state-matrix)分别承接能力、连接、renderer、新鲜度、权限与原件状态；[原操作语义](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#original-outcome)承接 accepted/unknown/rejected/committed 的双语与恢复解释。
+- 验证方法：[LH-OUTCOME O1/O3](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-outcome)、[H05 独立审校](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-review)及 [Viewer QA 清单](../../world-simulator/viewer/viewer-manual.manual.md#target-qa-evidence-checklist)，分别核当前模式未支持、权限阻塞、原件未知和断连的叠加；无查询能力时保留受阻/安全返回。
 - 实现状态：部分实现
 - 实现与验证依据：[模式/就绪拒绝代码](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/control_blocking.rs#L482-L527)生产llm_mode_required/llm_init_failed；[实际发送前gate及请求状态](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L1207-L1297)区分blocked、unsupported-before-send与queued，[状态读取和可读解释](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_feedback_module.js#L475-L553)区分accepted等待committed、world_constraint、rejected及completed。[FeedbackCard 实际界面](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L491-L516)；[gameplay 执行状态实际界面](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/viewer_app.jsx#L2575-L2602)消费独立状态。这是模式/阻塞/已受理的直接子范围，不是仅凭enum存在。
-- 核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
-- 剩余范围：断连时[pending失败处理](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_viewer/software_safe_src/legacy_core.js#L1134-L1152)仍写semantic error；尚需核清每条实际行动的unknown原请求lookup、适用替代/等待/返回，以及重连不会创造能力/效果的全链。不能把完整未知请求恢复仅写成待验收；本轮未执行行为验证。
+- 历史实现核对日期与基线：2026-10-17；需求/设计/静态实现固定 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`，源码逐文件 Git blob 校验；本轮未运行模型、Runtime、浏览器或产品验收。既有PR运行记录仅按各自候选/范围引用。
+- 核对日期与基线：2026-11-05；固定已合入基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 及本轮明确列出的专业条款；只做设计/源码审读，未运行 Runtime、模型、浏览器或产品验收。
+- 剩余范围：完整目标恢复语义已由专业设计规定；仍须核验各入口实际能力、原请求持久恢复/授权 lookup 与消费者接线，验证断连/刷新/迟到不改变原结果或创造第二次效果。历史局部 pending 实现与当前真实行为应按各候选独立复核，不能由设计覆盖升级实现状态。
 
 - 要求：当当前模式不支持某行动、权限/规则阻塞或请求已被接受时，surface 必须与连接中断和未确认请求区分，并给出适用的替代、等待、返回或重新验证路径。
 - 验收：AC-AGENT-SURFACE-002
@@ -133,12 +137,14 @@ Trace refs: O7-REQ-d7081137-94a9-4524-b08a-fc3fbfcb9f64；承接[REQ-AGENT-SURFA
 Trace ID: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6
 
 - 功能点：[REQ-AGENT-SURFACE-003](#req-agent-surface-003)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-003](#ac-agent-surface-003)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-feedback-isolation)：请求连接、已验证玩家及世界故障的隔离与身份切换；各正式表面的呈现及真实多人组合范围须另核。
+- 系统设计状态：已覆盖
+- 系统设计依据：[反馈归属](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-feedback-isolation)规定连接、已验证玩家、世界故障三范围、当前 fence、异步迟到与失效；[身份表达](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#identity-expression)规定跨语言/观察切换的真实归因。原请求查询和各正式表面的状态/重入消费者沿这些条款的专业依赖承接。
+- 验证方法：上述控制面验证映射中的 A/B/匿名、同玩家多连接、切换/轮换/撤销、迟到及公共故障恢复矩阵，结合 [LH-OUTCOME O2](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-outcome)与 [Viewer QA 清单](../../world-simulator/viewer/viewer-manual.manual.md#target-qa-evidence-checklist)，核对每份实际可读反馈及原 correlation；本轮无运行结果。
 - 实现状态：部分实现
 - 实现与验证依据：[固定生产源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/gameplay_feedback_scope.rs#L60)：生产反馈按已验证player/key/session/world/binding归属并隔离旧代次；[对应隔离回归源码](https://github.com/eng-cc/oasis7/blob/ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad/crates/oasis7/src/viewer/runtime_live/tests/auth_actions_feedback.rs#L263)已审读但未重跑；实际交付PR映射未核清，文档Task [#4694](https://github.com/eng-cc/oasis7/issues/4694)不代签。剩余实际双玩家/匿名浏览器与跨surface验收。
-- 核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
-- 剩余范围：设计：保留现有已核实范围，完整承接仍须核对；实现/验证：实际双玩家/匿名浏览器与跨surface验收。
+- 历史实现核对日期与基线：2026-10-15；需求/设计与静态实现基线 `ef28aa8461e45fe277ca2ec28b485a1c9a0ac0ad`；入口为条目所述子集；本轮未执行真实Runtime、浏览器、部署或真人验收，历史运行候选依各记录独立限定。
+- 核对日期与基线：2026-11-05；固定已合入基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 及本轮明确列出的专业条款；只做设计/源码审读，未运行 Runtime、模型、浏览器或产品验收。
+- 剩余范围：完整反馈归属、当前读取权限、失效与表面表达的设计已承接；实际跨 Runtime/浏览器重启、两玩家与匿名、各表面的消费者完整性和真实多人组合仍需核验。保持原部分实现证据，不从目标合同推定全部私有反馈隔离已交付。
 
 - 性质与适用条件：目标要求；适用于正式玩家表面的个人行动反馈及其重连、刷新和身份切换。
 - 要求：产品必须依据经确认的当前身份展示该玩家有权读取的行动反馈；无关玩家或匿名请求的失败不得覆盖、追加到或暴露为本人的个人反馈。匿名请求可以获得自身有权获得的拒绝说明，但不能借请求中的身份声明影响已鉴权玩家。
@@ -162,12 +168,14 @@ Trace refs: O7-REQ-41b03765-cccf-4a1f-814c-7b498dc975f6；承接[REQ-AGENT-SURFA
 Trace ID: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4
 
 - 功能点：[REQ-AGENT-SURFACE-004](#req-agent-surface-004)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-004](#ac-agent-surface-004)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-error-code-preservation)：合法鉴权后的业务错误码保真；各失败类别到玩家恢复动作的完整表现承接须另核。
+- 系统设计状态：已覆盖
+- 系统设计依据：[typed 错误保真](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-error-code-preservation)、[H03 不能提交](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#help-submit-blocked)及 [H05 原结果核对](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#help-original-result)共同承接输入、身份/权限、世界条件、不支持、等待及结果未知的具体下一步；未知原因安全降级不反推世界效果。
+- 验证方法：控制面合法鉴权后的精确 builder code 矩阵，结合 [LH-REVIEW H03a/H05](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-review)、[LH-OUTCOME O3](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-outcome)及 [LH-PLAYER](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-player)的真实原因/下一步独立对照；所有实际 surface 均按同候选取证。
 - 实现状态：部分实现
 - 实现与验证依据：[合法鉴权后builder错误码保真](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7_chain_runtime/src/bin/oasis7_chain_runtime/gameplay_submit_api.rs#L275-L295)当前直接返回err.code/err.message，已不再把该分支统一改写为invalid_request。这是HTTP adapter切片，不是所有失败类型的玩家恢复体验。历史[PR#2485 review](https://github.com/nil-studio/oasis7/pull/2485#discussion_r3614431998)保留原问题语境；本轮没有取得此修复的独立运行结果，不将现状静态核对写成测试通过。
-- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
-- 剩余范围：已确认合法鉴权后的builder错误码保真；各失败类别到修正输入、身份/权限、世界条件、等待和安全停止的正式surface映射、未知结果与所有入口验收仍未核清。
+- 历史实现核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 核对日期与基线：2026-11-05；固定已合入基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 及本轮明确列出的专业条款；只做设计/源码审读，未运行 Runtime、模型、浏览器或产品验收。
+- 剩余范围：各失败类别到原 typed 原因、合法恢复及未知原件的完整目标设计已规定；仍须实施/核对各正式入口实际接线、权限下的可读内容、翻译/缺译表现及世界结果。既有 HTTP adapter 静态事实不代签全入口恢复或真实玩家理解。
 
 - 性质与适用条件：目标要求；适用于本人有权获得的行动拒绝与失败说明。
 - 要求：产品必须保留足以区分修正输入、重新确认身份或权限、补齐世界条件、等待或安全停止的失败含义；已有明确原因不能统一降成“请求错误”或“请重连”。原因不足或结果未知时如实说明，不能编造成功、失败细节或必然有效的重试。
@@ -191,12 +199,14 @@ Trace refs: O7-REQ-e3a70494-b3f3-4220-a654-6c9f07cdb8a4；承接[REQ-AGENT-SURFA
 Trace ID: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d
 
 - 功能点：[REQ-AGENT-SURFACE-005](#req-agent-surface-005)；适用范围沿本条原条件与 [AC-AGENT-SURFACE-005](#ac-agent-surface-005)，不扩大入口或阶段。
-- 系统设计状态：部分覆盖
-- 系统设计依据：[专业承接条款](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#collect-data-preflight-consistency)：CollectData 同一权威状态下预检与提交资格一致；其他受支持行动的适用范围和正式表面反馈须另核。
+- 系统设计状态：已覆盖
+- 系统设计依据：[CollectData 共同资格](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#collect-data-preflight-consistency)与[全部现有预检的适用性](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#preflight-family-applicability)明确当前 backend/authority、actor/参数/来源绑定、逐入口共享判断、估计/实际提交能力和漂移/未知恢复；[H03 解释](../../world-simulator/viewer/viewer-localization-and-context-help.design.md#help-submit-blocked)承接玩家可读语义。
+- 验证方法：[PF-01～06](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#preflight-applicability-validation)要求独立导出全入口清单、固定同 cut 对照真实准入、非 canonical/估计反例、漂移/乱序、无玩法/实际配置写入、认证/控制元数据按原合同独立核验与原请求未知；依 [LH-REVIEW H03b](../../world-simulator/viewer/viewer-localization-and-context-help.manual.md#lh-review)核文本，不将文案核对代签真实资格一致。
 - 实现状态：部分实现
 - 实现与验证依据：[CollectData共同授权和资格计算](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/collect_data.rs#L113-L164)确认Preflight/Submit消费同一请求及data_collection_preflight，blocked时拒绝；[精确签名请求测试](https://github.com/nil-studio/oasis7/blob/3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9/crates/oasis7/src/viewer/runtime_live/tests/auth_actions_collect_data.rs#L855)为已读测试定义。[原交付#2485](https://github.com/nil-studio/oasis7/pull/2485)在source cac54892196bfd304401cebc6bb70d2b3ea3d681报告局部测试通过，不能代签当前全部受支持行动；本轮未执行。
-- 核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
-- 剩余范围：已确认runtime-live CollectData同请求共用资格计算切片；需逐项核清chain/WorldService正式路径、其他已提供preflight的受支持行动及状态漂移时玩家提示，并取得同候选组合验收。
+- 历史实现核对日期与基线：2026-10-17；需求、设计与静态实现固定基线 `3c0a31a6e9d1e7b8633e3bcfcb11b89ebfcddbe9`；历史执行候选、入口和环境分别按上列记录限定。本轮只读核查，未运行测试、模型、浏览器或部署。
+- 核对日期与基线：2026-11-05；固定已合入基线 `4f6f20ece923c5705e26ef879c2b83e0e637b3f9` 及本轮明确列出的专业条款；只做设计/源码审读，未运行 Runtime、模型、浏览器或产品验收。
+- 剩余范围：设计适用范围已覆盖安全替代候选、Prompt 配置预览、CollectData、精炼、排产/原生建厂、运输、售电/续航、Product、市场、fragment、治理/战争与社会预览，并明确哪些仅是估计或当前无实际提交。各实际受支持入口的 authority/参数/共享准入与消费者接线及组合运行仍待实施验证；不能从现有部分实现、字段名或本轮设计推定全部预检已交付。
 
 - 性质与适用条件：目标要求；仅适用于已提供提交前检查的受支持行动，不要求所有行动新增检查入口。
 - 要求：对同一经确认身份、同一行动意图与同一权威世界状态，检查对共享资格条件的判断必须与提交时的资格校验一致；无法确认身份或权威状态时明确不可确认或阻塞。检查不得被表达为行动已接受、已执行或已结算，也不保证状态变化后的提交成功。
@@ -213,6 +223,35 @@ Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；承接[REQ-AGENT-SURFA
 - 给定：相同身份、行动与权威状态下的合格和不合格样例，另有检查后权限、绑定或资源条件改变的样例。
 - 当：依次进行提交前检查和真实提交。
 - 则：未变化样例对共享资格条件给出一致判断；条件变化时按提交时权威事实重新判断，并能读到变化或拒绝原因。检查通过及请求受理均不显示为世界执行成功；无法取得权威状态时不使用旧检查结果继续承诺资格。
+
+<a id="req-agent-surface-006"></a>
+### REQ-AGENT-SURFACE-006：可选声音只辅助当前可读事实
+
+Trace ID: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34
+
+- 功能点：Viewer 的可选短功能提示、静音等价阅读和播放失败恢复。
+- 适用范围：提供世界观察与间接指导的 Web/native Viewer；`pure_api` 保留同一结果语义，不产生声音交付义务。Launcher、官网和工程控制台不继承 Viewer 的声音开关或事件。
+- 要求：声音默认为关闭，只有玩家在当前 Viewer 会话明确开启后才播放。提示只消费当前身份有权读取、已有可读解释且来源明确的事件；声音不能补造可见性、请求结果、空间关系或控制资格。未确认、断连、重放和历史重新读取不能伪装成新的成功提示。关闭声音、设备不可用或播放失败时，目标、阻塞、反馈和下一步仍有完整文本或视觉表达；音频失败不阻断世界观察与合法操作，也不触发世界重试。
+- 体验取舍：当前工业指挥舞台采用简短功能提示，保持长时间观察安静、可自主控制；不制作持续背景音乐、环境循环、空间世界声或配音。这里是当前声音方案的明确内容取舍，不是因为缺素材而宣称整个声音领域不适用。新增叙事台词、空间声源玩法或音乐体验时，重新评估对应内容、设置与替代表达。
+- 系统设计状态：已覆盖
+- 系统设计依据：[入口与内容取舍](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-surface-scope)、[事件与原操作关联](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-event-contract)、[设置、播放与生命周期](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-settings-lifecycle)及[有界提示调度](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-mix-budget)共同承接 Web/native 的默认静音与显式开启、当前身份与原操作匹配、先展示完整文字再提示、重复/历史不补播、失活/切换/退出停止旧提示及局部播放失败；不由声音改变原权限、反馈或世界请求。
+- 验证方法：[AU-EVENT AE01～13](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-event-cases)、[AU-STATE AS01～12](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-state-cases)及[AU-EQUIVALENCE](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-equivalence-cases)核事实、归属、重复/迟到、设备失败及静音/双语/输入等价；[AU-ASSET](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-asset-check)、[AU-RUNTIME](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-runtime-cases)与[AU-CANDIDATE](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-candidate-binding)分别核实际声波、同候选 Web/native 播放和内容消费，不把方法记为已执行。
+- 设计核对日期与基线：2026-11-06；已合入 `4c80cd131adb1b3a37323a42bad847c2d7836ce2` 的本条要求、完整音频专业设计及手册。仅核设计承接与验收方法，未制作素材、运行播放器或执行真人验证。
+- 实现状态：未核实
+- 实现与验证依据：固定源码 `f4f8e1bb1be6cb9746ea767af3bdf71204e347e3` 的 Viewer、pixel-world bridge、Launcher 和官网入口审读未定位到本条可选音频接入；所审路径和检索边界见[音频当前基线](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-current-baseline)。这不证明全部部署、第三方依赖或未经审读入口没有声音。
+- 核对日期与基线：2026-11-04；上述固定源码和本条设计输入；仅静态审读，未制作音频、执行播放器或取得真实试听/可访问性证据。
+- 剩余范围：本条声音目的、内容、消费与主要失败边界已有设计和验证方法；实际生成器/参考声波、反馈与设置/播放接入、身份/世界切换及重连恢复组合、目标设备试听、静音等价和真人理解仍须分别交付核验。既有页面布局没有这些控件，设计覆盖不改变原实现未核实状态。
+- 验收：[AC-AGENT-SURFACE-006](#ac-agent-surface-006)。
+
+<a id="ac-agent-surface-006"></a>
+### AC-AGENT-SURFACE-006：静音、重复与播放失败不改变事实
+
+Trace refs: O7-REQ-f914fafa-e682-4216-aef2-23354792cf34；承接[REQ-AGENT-SURFACE-006](#req-agent-surface-006)。
+
+- 给定：同一候选的 Web/native Viewer、默认关闭和显式开启状态，以及本人可读结果、他人结果、未知请求、历史重读、身份切换和播放失败样例。
+- 当：玩家开启或关闭声音、读取新结果、重连、切换身份或离开页面，或设备拒绝播放。
+- 则：只有符合当前事实和披露条件的新提示可响；个人提示不跨身份泄露，重放不产生新的成功感；关闭和不可用状态仍能完成同一决策，播放失败不重复提交请求，离开或切换身份后旧提示停止。
+- 方法：[音频交付与验收手册](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-validation-cases)分别核对静态事件映射、素材试听与实际入口。设计推演、素材存在及单一平台结果不能相互代签。
 
 ## 5.1 组合验收
 
@@ -235,6 +274,7 @@ Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；承接[REQ-AGENT-SURFA
 | [REQ-AGENT-SURFACE-003](#req-agent-surface-003) / [AC-AGENT-SURFACE-003](#ac-agent-surface-003) | viewer_engineer / runtime_engineer：身份与个人反馈隔离；qa_engineer：交叉负例 | PRD-WORLD_SIMULATOR-039 / PRD-TESTING-003 | [反馈隔离系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-feedback-isolation) | 两名玩家和匿名请求的反馈读取、刷新、重连及身份切换；本人拒绝可达、其他个人反馈不变 | test_tier_required |
 | [REQ-AGENT-SURFACE-004](#req-agent-surface-004) / [AC-AGENT-SURFACE-004](#ac-agent-surface-004) | viewer_engineer / gameplay_designer：错误与恢复语义；runtime_engineer：真实拒绝原因；qa_engineer：分类与入口核对 | PRD-WORLD_SIMULATOR-039 / PRD-TESTING-003 | [错误语义系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#gameplay-error-code-preservation) | 输入、权限、世界条件和未知结果独立判定；身份有效但输入非法的专项负例 | test_tier_required |
 | [REQ-AGENT-SURFACE-005](#req-agent-surface-005) / [AC-AGENT-SURFACE-005](#ac-agent-surface-005) | viewer_engineer / gameplay_designer / runtime_engineer：检查与提交资格；qa_engineer：同状态及变化样例 | PRD-WORLD_SIMULATOR-039 / PRD-TESTING-003 | [检查与提交系统设计](../../world-simulator/viewer/viewer-control-plane-split-live-playback.design.md#collect-data-preflight-consistency) | 同身份/意图/权威状态的资格正反例，以及检查后权限、绑定或资源变化与未知状态 | test_tier_required |
+| [REQ-AGENT-SURFACE-006](#req-agent-surface-006) / [AC-AGENT-SURFACE-006](#ac-agent-surface-006) | `producer_system_designer`：声音目的、静音等价与范围；`game_visual_interaction_designer`：提示辨识与可访问内容；`viewer_engineer`：播放器、设置和事件消费；`qa_engineer`：素材与实际入口分别验证 | `PRD-PRODUCT-003` | [音频内容与消费合同](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-event-contract) | [音频验收方法](../../world-simulator/viewer/viewer-audio-content-delivery.manual.md#audio-validation-cases)，含当前身份、未知结果、重复、静音和平台失败；尚未取得实际结果 | `test_tier_required`：适用播放器和事件合同；实际 Viewer 与试听按手册独立执行 |
 
 ### 5.3 表现与视觉证据边界
 
@@ -244,7 +284,7 @@ Trace refs: O7-REQ-e393156d-2326-4d75-a0cb-ffba6ed74e5d；承接[REQ-AGENT-SURFA
 
 ## 6. 范围与非目标
 
-覆盖可用空间、信息密度、当前模式支持的行动、语言、关键文本、连接中断与恢复的跨 surface 产品连续性。不定义具体 panel/module、fullscreen 控件、布局宽度、hit boundary、字体/资产、local JSON/cache、控制 profile、时间/事件计数、WebSocket 时序、Test API、测试命令或发布/readiness claim。
+覆盖可用空间、信息密度、当前模式支持的行动、语言、关键文本、连接中断与恢复，以及可选声音下的跨 surface 产品连续性。音频素材、事件和平台消费规格由专业设计拥有；本分册不定义具体 panel/module、fullscreen 控件、布局宽度、hit boundary、字体/资产文件、local JSON/cache、控制 profile、时间/事件计数、WebSocket 时序、Test API、测试命令或发布/readiness claim。
 
 同一受支持行动也通过 `pure_api` 提供时，个人反馈归属、拒绝含义和提交资格保持一致；不要求两种入口布局相同，也不据此新增行动能力。反馈存储、鉴权机制、错误码、数据结构、检查算法及性能指标仍归专业域。
 

@@ -410,6 +410,31 @@ English/Chinese long-text overflow. Source/package
 tests now cover the World Feed and fail-closed Director boundary; this manual does not
 turn those tests into issuer-backed production access or a release claim.
 
+<a id="uiux-design-prototype-walkthrough"></a>
+### UI/UE 设计原型走查（#5527）
+
+本节验证[三条可操作设计旅程](viewer-page-module-design-2026-06-18.design.md#uiux-interactive-prototype)与[展示/状态合同](viewer-page-module-design-2026-06-18.design.md#uiux-prototype-presentation)，对象是本地 fixture 原型；上文生产 Viewer 验收继续沿原消费者。以下是可复用方法，不登记英文审校、真实浏览器、原生 IME 或辅助技术已经通过。
+
+从仓库根运行 `python3 -m http.server 8765 --directory doc/world-simulator/viewer/assets/ui-ux`，同机访问 `http://127.0.0.1:8765/interactive/`。使用获准的托管 HTTP 预览时，完整保留 `interactive/`、`pixel-world/` 相对路径，并确认页面与素材属于同一候选。浏览器不能访问该入口时记录阻断及受影响项目，不改用被策略禁止的协议或绕过沙箱。原型不需要游戏账号、Key、模型或世界后端。
+
+源码状态检查复用 Viewer 已声明的 `jsdom` 开发依赖；依赖安装后，从仓库根执行 `node doc/world-simulator/viewer/assets/ui-ux/interactive/prototype.test.cjs`。该脚本只向 stdout 输出逐项结果及受测 JS 哈希，失败返回非零，不写原型文件；需要报告时由调用方显式重定向。它覆盖原请求、草稿/权限、三条旅程及展示切换，不能替代下面的真实布局和输入走查。
+
+先由非作者按页面说明依次完成 `#entry` 的进入/发送/查询、`#prompt` 的清除/应用/过期恢复、`#industry` 的补给读回/提交/原结果/重入，再走下表。顶部旅程和情境会重置演示；元素 `#locale`、`#copy-mode` 仅改变展示。它们不是 URL 旅程 hash，也不新增玩家 Help 页面；帮助仍在操作所在面板，生产语言入口沿既有 More/语言表面。
+
+| 项目 | 操作 | 应核对的结果 |
+| --- | --- | --- |
+| UP-01 语言与身份 | 在 `#entry` 选“观察 B / 草稿 C / 原请求 A”，填写多行中文草稿，依次切换 `#locale` 的 `zh-CN`、`en` 与 `#copy-mode`，再查询原指导结果；在 `#prompt` 的 stale/unknown 情境重复展示切换 | 草稿逐字保留，观察 B、草稿 C、原请求 A 及其状态不串写；切换不发送、查询、丢弃编辑或重置情境。界面名称随语言切换，玩家输入、Prompt 值与原请求标识不被翻译 |
+| UP-02 长文与完整画面 | 三条旅程分别选 `long`，检查长世界名、Targets 显示名和对应面板说明；再返回 `normal` | 同一对象身份和配方/成本数值不变；主动作、错误、关闭、原回执和帮助可读、可达，长名称不覆盖世界/面板入口 |
+| UP-03 缺译回退 | 在 `#prompt` 选择 `en` + `missing`，读取第五种来源说明，再切回 `normal` | 缺译处显示中文原文和明确提示，原文 `lang="zh-CN"`；无翻译 key、空白或假成功。恢复普通模式只改变文案；本例只验证指定缺译点 |
+| UP-04 当前对象的位置 | 在 `#entry` 选“位置未知”，依次查看 A、C、未知目标 | A/C 显示各自已知位置及当前获准动作；未知目标只保留文字状态，不出现虚构坐标或定位动作 |
+| UP-05 集合成员选择 | 在 `#entry` 选“同位置密集目标”，查看独立的未知目标，再查看 A/B/C 任一成员 | 查看未知目标时，三人集合不保留选中外框；选中成员时恢复集合选中态，目标身份与草稿主体各自保持 |
+| UP-06 失权后的 Targets | 在 `#prompt` 选“控制权失效”，打开 Targets 并观察 A/C | 不出现可指导状态或新建指导草稿动作；允许的观察与已隐藏私有值保持一致，语言/文案切换也不恢复权限 |
+| UP-07 退出和重入工具栏 | 在 `#entry` 选身份分离情境，打开示例账号并退出，再选择“恢复已有示例会话” | 工具栏依次显示实际 `first`、`return` 情境，旅程/示例回读/供给读回同步；不会留下旧情境标签冒充当前状态。此步骤只验证本地演示重置，不证明真实会话持久化 |
+
+布局取同一候选的 `1440×900`、`1280×720`、`1024×768`、`390×844`，以及 Command 展开的 `844×390`。至少在窄屏/低高度检查英文与 `long`，在 Prompt 检查 `missing`；`文字 200%` 是原型根字号模式，真实浏览器 200% zoom 另记结果。以 Tab/Shift+Tab、Enter/Shift+Enter、Escape 走发送、查询、关闭、丢弃确认与取消；原生中文组合输入另验，不能把合成 `isComposing`/229 事件计为真实 IME 通过。
+
+在原 Issue/PR 记录候选 commit 或明确的未提交差异、预览入口、浏览器、视口、语言/文案模式/情境、实际步骤及截图；非作者指出看不懂或无法完成的步骤。源级 DOM 结果只证明状态逻辑，截图只证明实际捕获的画面，缺少原生输入或辅助技术条件的项目分别写待核/受阻。对照[截至 4a477f8 的源码差异](viewer-page-module-design-2026-06-18.design.md#uiux-prototype-source-delta)时，`LiveControlStatus` 只表示 Viewer 新决策调度，不能读作世界暂停或在途作业取消。设计原型的验证不替代生产消费者验收；生产接入也不新增为 #5527 的关闭条件。
+
 <a id="industry-detail-acceptance"></a>
 ### 产业关系与细节层级验收入口（未来适用）
 
@@ -435,6 +460,53 @@ turn those tests into issuer-backed production access or a release claim.
 - 产品层的对话、草稿、默认/override 与反馈承诺见 [`Agent 对话与 Prompt 控制`](../../product/agents-world-simulation/agent-conversation-and-prompt-control.prd.md)；自动化 grammar 与状态字段见 [`viewer-web-semantic-test-api.prd.md`](viewer-web-semantic-test-api.prd.md)。
 
 浏览器 BYOK 另沿[网页自带模型系统设计](../llm/self-supplied-model-connection.design.md)和[整体模型交互](viewer-page-module-design-2026-06-18.design.md#uiux-byok-control-flow)。当前源码将账号原绑定、任务、执行身份、模型检查与明确开始分开；浏览器表面为 DeepSeek 官方 `deepseek-flash`，OpenRouter 明确未支持。模型 Key 按账号保存到本站 localStorage，保存/检查不自动开始；Stop 保留 Key，Forget 删除对应本站 Key，均不取消已受理世界作业。该静态源码说明不代签部署、真实供应商或游戏验收；旧托管运行手册不能证明浏览器路径已通过。
+
+<a id="prompt-source-clear-stale-validation"></a>
+### Prompt 来源、清除和 stale 的独立验收
+
+Trace refs: O7-REQ-395be972-59c0-4cd2-babc-f582ae659c5d；O7-REQ-a9797fdb-39f7-48fb-9202-9700d9d86159；O7-REQ-6f348a2d-cb87-4838-8447-21c8eebf6d07；O7-REQ-3bbcade1-3f73-4899-b324-f857fd27b245。方法对应[授权值投影](viewer-control-plane-split-live-playback.design.md#prompt-authorized-value-projection)、[五源交互](viewer-account-agent-uiux.design.md#prompt-source-clear-stale-consumer)与[输入/失败接收](viewer-account-agent-uiux.design.md#prompt-input-and-failure-consumer)，补充 REQ-PROMPT-003/006/008/010 的完整消费者，不改变上文当前支持状态。
+
+**来源与前置。** 固定 source/build、平台/入口、真实 Runtime authority epoch、世界/Agent、当前获权 player/session/binding 及测试前 profile version/digest。使用正常配置和已注册 Builtin：三项已加载 config 分别为 `system-A`、`short-A`、`long-A`；B 是该固定 source 的 `runtime_live_phase1_short_term_goal()` 原文本，初始化时 short-term profile 为 None、driver 实际使用 B。B 与 `short-A` 不同，不能在 fixture 中偷换为同一值。C、D、P 分别使用不同的 `short-C`、`short-D`、`short-P` 代表已提交 override、未提交草稿与本地 preset。需要 C 的样例先经原合法 Apply 建立，再记录新的 baseline；各样例独立开始，不能把上一样例清除后的 runner 当初始化前态。
+
+确定性层在现有 `prompt_control_enhanced_preview.rs`、`prompt_control_enhanced_race.rs` 和真实 Builtin/runner 接点增加以下断言；允许 test-only 受控 driver 暂缓消费，但 production reader/patch/鉴权/回包必须真实经过对应 adapter。独立 oracle 来自下表的固定前态与原 `sanitize_patch_string`/完整 profile 下发规则，不能调用被测投影函数生成 expected。配置/profile/runner 原件、版本、driver 调用、mutation、nonce/ledger、回包及 UI 各自取证；伪造一份 UI JSON 不证明读 producer。
+
+实现接通后按本手册和 S6 启动真实受支持 Viewer，在桌面 1440×900 与窄屏 390×844、软键盘展开及长中英文文本下核最终消费者；实际支持 native/API Prompt 的组合另按原能力分别执行，未提供此能力不伪造完整支持。这里无需启动真实付费模型；以 read/preview/受控 runner 验证不能代签实际模型使用或真人可用性。
+
+| 方法 | 操作及独立预期 |
+| --- | --- |
+| PV01 五源正常读取 | 先读新初始化实例：config 为三个 A，profile 三项 None，runner effective 为 `(system-A,B,long-A)`，B 标初始化来源。再合法 Apply `short-C` 并读回：authority profile 与 runner 匹配后 short-term effective 为 C；在实际支持 preset 的表面填 P 再编辑为 D，profile/effective 仍为 C，P/D 均标本地来源。只读和编辑阶段 model call、Prompt mutation、driver 更新均为 0；不把默认值填入 set |
+| PV02 unchanged 与未修改默认 | 在上述合法基准上不改字段；确认三个 patch 均为 unchanged。显式原 Preview/无变化 Apply 可消耗其原合法认证/结果槽位，但 `accepted/no_change`、版本不变、mutation=0、driver 更新=0；普通读取本身不消耗这些写资源。未知/hidden 字段不能按 None 参与构造 |
+| PV03 已有 override 的 clear | 在 profile short-term=C、driver=C 的前态明确 clear；提交前显示“C→未设置，成功消费后使用 short-A”。Preview 不 mutation；原 Apply 成功只有一项 profile changed、版本+1、mutation=1、完整 driver 更新一次；匹配读回后 effective=`short-A`，不是 B 或空串；scope 仍为 `runtime_instance/none/none` |
+| PV04 空 profile 的 no-op | 回到新初始化前态 `(None,None,None)`、effective `(system-A,B,long-A)`，仅 clear short-term，再独立测试 `set(" \t\n ")`。原规范化后整个 profile 均无变化，故 accepted/no_change、版本不变、mutation=0、driver 更新=0，B 仍是 effective；不能显示“已恢复 short-A”。UI 的无需清除说明与 API 实际 no-op 分别核对 |
+| PV05 完整 profile 的间接影响 | 同 PV04 前态，仅 set system 为 `system-D`，short/long unchanged。profile 差异只有 system，但完整候选 `(system-D,None,None)` 下发一次后 effective=`(system-D,short-A,long-A)`。预览必须同时说明 short-term 的 B→short-A，不能只根据 `applied_fields` 画一个变化。Apply 未消费时仍显示原 effective 与等待，读回后才确认这组三值 |
+| PV06 合法 stale 与失败恢复 | 编辑 D 后由另一当前合法窗口把 C 改为 C2；用原 expected version 提交 D，应得到 stale、无该次 mutation。保留 D 和旧基准，当前授权读取 C2/effective 后可比较；模拟重读失败，旧值不得叫最新且 D 不丢失，显示真实再次读取/退出路径。重新编辑并明确采用新基准才形成新 request；刷新、比较和重载不得隐式 Apply，旧请求结果保持原身份 |
+| PV07 失权优先与隐私 | 在 PV06 的变化同时使原 session/binding/control 失效；分别在读取开始前、runner 回包前和最终投递前发生。输出按原 control_lost/hidden，不能泄露 config、最新 profile/effective、digest 或差异；原安全草稿未提交且不能重发/转移。切账号/Agent 后注入迟到旧回包，当前页面/缓存/日志/新主体均不得出现旧私有正文；world-service 原 private goal redaction 不被新字段补露 |
+| PV08 异步读回与旧响应 | 真实 authority Apply 已提交但受控 runner 尚未消费时，读出 authority 新 profile 和带时点的旧 effective/等待，不伪造 driver ACK。随后只消费一次完整更新并读回对应关联；再注入旧 read correlation、旧 runner/config 实例、乱序 Preview/Apply 响应，不能覆盖当前值/草稿或清新等待。其间 profile/权限变化时不拼混合“同切点”投影 |
+| PV09 兼容、配置来源与 unsupported | 已初始化后只改外部配置文件，不重启：显示的默认仍为实际已加载 A。经原实例更换取得新 epoch/新配置后才读新值，旧 epoch 提交保持原 result_unknown，不自动重执行。旧客户端无新投影、runner 未初始化、ProviderBacked production 和缺合法私有 goal 读权分别显示准确边界；合法正常 Builtin 已实现的 producer 不得一律 unknown，Hosted local-mock 成功也不代签 production |
+| PV10 有界读取和实际输入 | 用真实配置/profile 值使生产 reader 形成编码后 65,536 bytes/65,537 bytes 的完整合法候选投影，并核实际更小下层限制；后者明确不可用，不截断成完整值、不改 profile。限制同读取上下文至多一个 runner read 在途；超时及后续恢复不触发 Prompt/model/world 写或取消。桌面/窄屏分别核来源标签、完整三字段预告、Compare/Re-edit/Reload/Discard 与失败下一步可达，CJK/IME/换行不提交；文字规格或原 SVG 不代签实际浏览器结果 |
+| PV11 输入、焦点与低高度 | 依原布局样本在 1280×720、390×844、844×390 及 200% 文本/软键盘状态，分别编辑 Chat 和 Prompt 长中英文。触发 compositionstart→组合输入→Enter/Escape 或 229→compositionend/input：只形成一次文本，无请求、无关闭；非组合态 Enter/Shift+Enter 只换行，显式主动作才发对应一次请求。Tab/Shift+Tab、展开/关闭、旋转、选择复制及区域滚动后核 Agent/草稿归属、动作/错误/恢复可达、原焦点返回；真正模态与非模态分别验，不让输入点击/滚轮穿透世界或 resize 自动提交。保留实际键盘/IME/浏览器及 state/console/截图/请求计数，不以 synthetic Escape 单测代签全部输入 |
+| PV12 原失败与恢复再失败 | 分别用原无效 rollback target、认证/批准失败、ProviderBacked unsupported、result_unknown 及读取/容量失败触发真实拒绝；当前页面只能给接收设计规定且原 authority 确实提供的修正/认证/检查/读取/退出。再使该恢复失败，保留两次各自原因，不无限 pending、自动换请求或显示 applied。用受控 transport 连续两次 session_not_found 并替换 feedback/注入迟到响应，自动恢复至多一次且第二次终止；A rollback(999) 旧 error 到达 B Apply 期间不能改 B timer/结果。旧结果未知时业务重发为 0，即使最新 profile 可读也不能改旧结果为成功；现场不支持安全查询时明确停止，并保持当前有权的独立读取 |
+
+每例记录配置/初始化/profile/driver 关联、读取与写请求身份、三字段前后值和原 authority 结果；记录只保留获权的脱敏测试材料。通过要求完整 producer、协议权限过滤、真实表面与独立 expected 一致。当前缺投影/driver 读取接线时保持该层未实施，缺实际 UI/环境时保留未验证；不会用本方法文字、旧 snapshot 或 profile-only 测试宣称整个 Prompt 已可用。
+
+<a id="prompt-command-entry-validation"></a>
+### 实际入口的 Chat/Prompt 接收方法
+
+Trace refs: O7-REQ-14ddd9ba-2d94-48e8-b2e4-0dbae26ddc36；O7-REQ-a82f1ee8-9d70-442c-9972-5f49f6665293；O7-REQ-b6140b6c-ca2c-4734-84ce-7963f9385fff。分别验收 REQ-PROMPT-001/002/005，唯一消费者目录为[跨入口接收](viewer-control-plane-split-live-playback.design.md#prompt-command-entry-applicability)，并复用原六个 PromptControl 合同和上述 PV01–PV12。以下为目标验证方法，本轮未运行。
+
+**固定对象与方法层。** 同一候选记录 build/入口/适配版本、endpoint/world、实际 backend、Hello 协商、当前 player/session/binding/authority、可调用 route、真实支持的操作与结果恢复子集。分别列 canonical Web、native Launcher 实际打开的 Web、确实已声明的 native 协议适配、TCP legacy/enhanced、HTTP/SDK 包装；未声明 native 编辑器不凭历史 egui 或服务端类名生成一个样本。当前 HTTP GET-only 与只提供签名类型/Chat 的 SDK 用无 Prompt route 的反例接收；不把该行记为整种 pure_api 不支持。其余声明采用但消费者缺接线的格如实 blocked/not_run，不删掉以换取全入口通过。
+
+每例独立准备原合法 controller P 与可控 Agent A、只可观察不可控制的 Agent X，采用实际原授权/注册流程；有 enhanced 能力时固定 authority E、合法 session/binding 与 profile version 7，三字段/历史均由原合法变更建立。需要回滚的例子保存可解析 v6（short-term=`C0`）及当前 v7（`C1`），其余字段相同，保证回滚不是 no-op；本地 preset `P-text`（仅实际提供时）、草稿 `D-text`、Chat `M-text` 互异。不得用自造授予、测试页面缓存或无来源 JSON 替代权限与历史。只读、Chat 提交、Prompt Preview、Apply/Rollback、profile mutation 和原结果查询各自计数，expected 来自上述固定前态与原动作语义，不能调用被测显示函数生成。
+
+先在实际 parser/签名/authority/回包和消费者接点用受控 transport、合法 Builtin/runner 做确定性检查；旧 CLI 不改协商就不能用 enhanced fixture 代签。真实支持的 Web/Native 表面再按 S6 记录实际输入和可见结果；非 GUI 消费者记录实际 argv/请求（凭据脱敏）及完整结构化输出。无需在本轮启动模型；受控接点与协议检查不证明真实 provider/真人或发行阶段。
+
+| 方法与原义务 | 正常、失败与恢复的独立预期 |
+| --- | --- |
+| PV13 目标/当前控制（001） | 每个实际有 Chat/Prompt route 的组合，进入 A 时目标、当前主体和原 authority 的控制状态相符；本地选择 X、换 `--agent-id` 或仅看到 snapshot 不得到控制。发送前失去 binding/session/control 后，原签名请求由真实 authority 拒绝/blocked，Prompt mutation=0，私有当前值隐藏，消费者不能仍显示可操作成功；这里的故障请求用于验证 authority，不作为自动探测权限的产品动作。恢复只走当前真实认证/绑定同步/合法读取，恢复失败保持原因与受阻。在 A 有原在途请求时切到 X，再注入 A 的旧 ACK/error：归属 A 的原操作，不改 X 的内容、状态或等待；当前无此权限读面的入口显示待核/受阻，不能把本地参数标为已获权。native 打开 Web 只取得实际 Web 这一份证据，不能重复计作独立 native 编辑器通过 |
+| PV14 Chat/preset/draft/profile（002） | 在实际有 preset/编辑器的表面选 `P-text`、改 `D-text`，以及非 GUI 客户端仅准备对应未发送参数/请求：Chat 与 Prompt 发送计数、profile mutation 均为0，v7/C1仍当前值，来源不能显示成已发送/applied。未提供 preset 的组合明确未提供，不制造按钮。显式 Send `M-text` 仅派发本次原 Chat 请求，其 ACK/intent receipt 按真实合同显示；PromptControl 发送计数仍为0，不将 M 自动复制为 profile，也不以“一次消息”否认原 canonical intent 后续合法目标效果。独立重置前态后显式 Preview D：无 profile mutation；合法不同值 Apply 才由原 authority 形成 v8、一次 mutation，实际 runner 消费另按 PV08 核。故意丢 Chat 或 Prompt 回包时，草稿/当前值与该原请求未知分开，重读/切换入口不自动再次 Send/Apply；失败后的编辑仍为草稿，新操作须当前有权主体明确决定，不得把旧未知静默改成成功 |
+| PV15 能力/回执/scope（005） | 在有该能力的组合，Preview 后 authority 当前 profile 仍为 v7且 mutation=0（候选 ACK 可报预览 v8）；合法 Rollback v6 应追加当前 v8、short-term=C0、一次 mutation，并保留 `rolled_back_to_version=6`，不能把当前版本直接倒退为6。不存在 target 999 或失权则按原错误且无 mutation，Reload current 不计作 rollback。分别测 legacy 三命令真实可用子集、完整协商 enhanced、未协商却带增强字段、协商后缺 epoch/身份：后两者按原 capability/required-field 错误且无 mutation；legacy 原回包缺失的身份/scope不得补成增强证明。enhanced 的完整关联结果保持 `runtime_instance/none/none`；适配器缺完整关联时即使收到某类 ACK也不能结案。Apply 已提交但丢 ACK后，同 instance 且原身份/ledger仍有效时仅原 same-key精确重试，第二次 mutation=0；换 E/重启/缓存丢失时原结果未知，授权读当前 profile不改判，恢复再失败仍受阻且新 Apply=0。当前 GET-only/无 Prompt route 包装的 Prompt 写请求计数始终为0，输出真实不支持/只读边界与原已提供下一步，不拼造 preview/rollback、durable历史或跨入口同步 |
+
+验收保留每个实际组合的目录行、原请求/回包/权限关联、独立计数、当前与历史版本及适用表面记录；记录和展示均遵守当前读权与隐私。PV13–PV15 全部适用分支通过才支持对应能力的消费者结论；明确未提供的能力只通过其边界/零副作用反例，不被计为正向业务能力。仅补协议/类型、只读 snapshot、旧 R-CMD 单一表面或本手册文字，均不代签其余实际入口；缺实现与缺验证分别列出。
 
 ### 已退役的 legacy 操作
 

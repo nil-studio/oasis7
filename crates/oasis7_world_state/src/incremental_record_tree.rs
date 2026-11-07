@@ -277,3 +277,34 @@ pub(crate) fn lookup<R: ValueNodeReader, C: FnMut() -> bool>(
     };
     source.finish(root.get(key.as_bytes(), &source))
 }
+
+/// Charged authenticated point lookup over a record-local StateRoot.
+pub(crate) fn get<R: ValueNodeReader, C: FnMut() -> bool>(
+    root: &StateRootV1,
+    key: &WorldFieldKeyV1,
+    values: &mut oasis7_formal_protocol::incremental_value::ValueReadContext<'_, R>,
+    cancelled: &mut C,
+    labels: RecordTreeLabelsV1,
+) -> Result<Option<[u8; 32]>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    let _workspace = match values.memory.reserve(8 << 10, values.class) {
+        Ok(workspace) => workspace,
+        Err(_) if cancelled() => return Err(ValueTreeError::Cancelled),
+        Err(error) => return Err(ValueTreeError::Memory(error)),
+    };
+    let error = RefCell::new(None);
+    let io = RefCell::new(&mut *values.io);
+    let cancelled = RefCell::new(cancelled);
+    let source = Source {
+        source: values.source,
+        memory: values.memory,
+        class: values.class,
+        io: &io,
+        cancelled: &cancelled,
+        error: &error,
+        labels,
+    };
+    source.finish(root.get(key.as_bytes(), &source))
+}

@@ -21,6 +21,8 @@
 | --- | --- | --- | --- | --- |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | 给出当前 native 内容的稳定身份、数量、引用和源文件 | [内容目录](#native-content-catalog) | gameplay / agent API canonical 来源 | 产品层 N/A；理由：本行组织已有内容，不新增玩家功能；范围：native 目录与来源。不是全游戏库存或已解锁清单。 |
 | [REQ-FIRST-INDUSTRIAL-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-001)；Trace refs: O7-REQ-68214dc7-c00b-4c0d-8c3b-c1c24fb52502 | 当前首局候选必须使用实际初态与 fresh authority，不能由目录推出可行 | [初态适用关系](#starter-and-initial-state-applicability) | Runtime bootstrap、starter feasibility、场景 owner | 不为全部世界或配置提供可行性证明 |
+| [REQ-FIRST-INDUSTRIAL-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-001)；Trace refs: O7-REQ-68214dc7-c00b-4c0d-8c3b-c1c24fb52502 | 推荐前从同一fresh初态证明当前profile完整有限路径，预算逐步累计且只读 | [前向组合Gate](#starter-fresh-forward-gate) | Runtime共享评估者、M4原准入/完成转换、入口能力 | 本节是目标合同，不把单步quote或现有milestone投影当完整Gate已实现。 |
+| [REQ-FIRST-INDUSTRIAL-003](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-003)；Trace refs: O7-REQ-d4944a59-ccf3-4f96-95ac-45c0ca50cf51 | 按真实profile判定来源/handoff/物流适用性；当前直接输入不能伪造前置，真实未知不能跳过 | [当前来源边界](#starter-canonical-source-boundary) | M4原来源、ledger与运输authority | 仅核当前已采纳canonical路径；未来选定条件来源链需独立专业接线与验收。 |
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002)；Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | 制作方能追踪工厂、配方输入和实际产物的关系，按 profile 纳入真实前置 | [内容依赖与消费](#content-dependency-and-consumption) | M4 同方案报价；gameplay 完成边界 | 关系图不提供物流、解锁或自动排程能力 |
 | [REQ-FIRST-INDUSTRIAL-006](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-006)；Trace refs: O7-REQ-d0041aa9-1dfb-46a0-95e0-67417b39bfa3 | 初态、账本或 authority 缺失时保留具体 blocker 和复查条件 | [阻塞处置](#content-blocker-boundary) | gameplay / Runtime 的当前有效查询与动作 | 不补发资源、不替换配方、不发明跨账本转移 |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | 内容变更有实际源、消费者、版本/权利和交接路径 | [变更交接](#content-change-handoff) | Runtime / WASM / 场景 / Viewer 原 owner | 产品层 N/A；理由：本行规范制作交接；范围：当前 native 内容变更。不授予模块激活或发行权限。 |
@@ -99,6 +101,35 @@ bootstrap 在 owner 建造账本预置 iron_ingot/copper_wire，而 Smelter 的�
 
 首次推荐按[产品适用范围](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#starter-profile-applicability)核查同一 fresh snapshot 的 factory/profile、site/owner、合法输入、电力和完成边界。generated-world 的当前加载仅检查 provenance 文件存在，按[来源合同](../../world-simulator/scenario/scenario-files.prd.md#generated-world-provenance-contract)保留“来源未验证”；文档列出初态不补齐该技术缺口。
 
+<a id="starter-fresh-forward-gate"></a>
+### 3.3.1 同一初态的前向可行性组合
+
+Trace refs: O7-REQ-68214dc7-c00b-4c0d-8c3b-c1c24fb52502；承接 [REQ-FIRST-INDUSTRIAL-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-001)。本节是 Runtime 共享只读评估者的目标合同。现有 `starter_industrial_feasibility` 及两个 native 单步 quote 是可复用接点，尚不等于本节完整组合已经实现。
+
+评估从同一份当前可合法读取的 Runtime 快照出发，绑定 world/genesis、owner/Agent、入口能力、profile/revision、规则版本、工厂实例与 site/location authority、实际输入/输出账本、owner 电力、grant 及已用累计额度、当前 tick 和未决操作。候选摘要必须覆盖实际读取且改变可达性的全部事实；缺失或无法绑定的事实不能用旧 hash、默认 owner 或世界总库存补齐。相同上下文与候选参数得到同一判断，输入变化后旧候选失效。
+
+当前 canonical 候选只评估一条有限路径：已有合法 Smelter 时，从其实际就绪状态进入指定 iron 配方；尚未建厂时，先评估一次规范建造及其合法完成，再评估一次指定批量的 iron 排程及其匹配结算。完成后核 owner-bound 正量产出、原持久 milestone 条件和 Assembler 候选边界；不把建成 Assembler、gear 或稳定窗口加入首产物门槛。存在相关未决操作时先查询原件，不以假设其取消、重复建厂或再开 job 绕过未知结果。
+
+| 组合步骤 | 共享评估者的职责 | 必须保持的边界 |
+| --- | --- | --- |
+| 固定本次选择 | 使用当前入口真实可提交的 factory/recipe/batches 与原 canonical plan；区分已有工厂和待建工厂 | Viewer 固定批量不能被评估者悄悄替换为 native 小批；后者只有入口支持且玩家实际选择后才是新候选。 |
+| 形成条件后继 | 在不可写回 live 世界的私有投影中，复用真实授权、准入、资源消费和完成转换；仅推进本候选已有规则定义的建造/生产完成边界 | 不直接插入一个 ready 工厂、产物、receipt 或 milestone；不调用外部模型/服务，不为补足条件推进无关任务、补资源或临时安装模块。 |
+| 逐步消耗并复验 | 建厂使用 owner 建造账，配方使用实际 site 输入账；后继使用前一步的剩余电力、材料与原 grant 累计额度 | 两个各自单步 quote 都成功，不能证明同一余额足够完成整链。授权有效期、执行限制、输出/副产物接收及真实完成条件须在其适用阶段检查。 |
+| 形成结论 | 到达原完成边界且全部适用条件可证明时，按原 Gate 返回候选及风险、首成果、下一 beat 和复查点；否则返回最早 blocker 与实际恢复选择 | 私有投影中的条件后继只是同一当前条件下的可行性依据，不是已发生的结算、容量预留、未来价格/电力保证或执行承诺。 |
+
+私有投影的工作量由该 profile 固定的至多一次建厂和一次配方决定；它不是任意配方搜索或全世界未来模拟。实际已开始工作的结果、无法有界求出的完成依赖、外部输入及未支持转换保持 `unknown/not_tracked`，返回 `no_safe_starter_chain`。时间推进只用于核对该路径规定的完成与到期条件，不把环境未来补给当作确定输入；共享评估者缺失或该入口尚无适用组合证据时，仍依产品原 `target-contract` / 当前证据切线停止正式推荐。
+
+Viewer、pure API 和 Agent 推荐消费同一结果与上下文绑定；它们可以展示不同布局或不支持某种参数，但不能在客户端重新判定可行。真实提交仍逐动作按当前 authority 重新报价/重验；旧候选可达不允许在漂移后继续扣款。原请求结果未知时先按原身份恢复；切换候选只替换未提交的选择，不撤销已接受义务。验证由 [IC-STARTER-GATE](industrial-native-content-delivery.manual.md#ic-starter-forward-gate)统一承接。
+
+<a id="starter-canonical-source-boundary"></a>
+### 3.3.2 当前直接输入与条件来源链
+
+Trace refs: O7-REQ-d4944a59-ccf3-4f96-95ac-45c0ca50cf51；承接 [REQ-FIRST-INDUSTRIAL-003](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-003)的原适用条件。
+
+§3.3 已列明当前合法 starter 的三类初始账本。native iron 排程的 `logistics_route_ids` 与 `logistics_path_ids` 为空，消费已有 `site-smelter` 输入；owner 建造材料与 `site-assembler` 预置输入各自独立。对这个已采纳的直接输入路径，来源/精炼、source→owner handoff 与运输不是前置，不生成相应 receipt，也不把后续 Assembler 预置料说成新产铁的用途。
+
+这一适用判断要求实际初态及当前账本与原 authority 可核对；仅知道 bootstrap 文件或场景名称不够。输入不足、来源不明、权限失效或当前 profile 真正要求另一来源链时，返回对应缺口，不能沿“直接输入”标签跳过。未来采纳确需来源/精炼、handoff、运输或目的地检验的 profile，须先由原 M4/来源 owner 接通各阶段真实生产者、独立结果与消费资格，再启用该候选；本节不代签这些尚未选定路径的设计或实现完成。正反例见 [IC-STARTER-GATE](industrial-native-content-delivery.manual.md#ic-starter-forward-gate)。
+
 <a id="content-blocker-boundary"></a>
 ### 3.4 内容集成中的阻塞处置
 
@@ -157,6 +188,8 @@ bootstrap 在 owner 建造账本预置 iron_ingot/copper_wire，而 Smelter 的�
 | --- | --- | --- | --- | --- | --- |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | [内容目录](#native-content-catalog) | 当前 native ID、种类关系与对应定义完整可定位 | [IC-CATALOG](industrial-native-content-delivery.manual.md#ic-catalog)；同 source revision，静态目录/源检查 | 原 PR 的版本、脚本输出与语义审读 | 不证明工件已构建、世界已注册或当前可生产 |
 | [REQ-FIRST-INDUSTRIAL-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-001)；Trace refs: O7-REQ-68214dc7-c00b-4c0d-8c3b-c1c24fb52502 | [初态适用关系](#starter-and-initial-state-applicability) | starter 推荐使用真实初始化来源和同一候选 authority | [IC-INITIAL-STATE](industrial-native-content-delivery.manual.md#ic-initial-state)；先审源，运行声明使用实际入口/profile/snapshot | 原 PR / QA 的来源链、账本与候选定位 | 文档审读不证明任一 live 世界就绪 |
+| [REQ-FIRST-INDUSTRIAL-001](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-001)；Trace refs: O7-REQ-68214dc7-c00b-4c0d-8c3b-c1c24fb52502 | [前向组合Gate](#starter-fresh-forward-gate) | 同一fresh初态的完整条件路径、累计预算、绑定与无副作用 | [IC-STARTER-GATE FG01/03–07](industrial-native-content-delivery.manual.md#ic-starter-forward-gate)；同候选/真实入口分别核静态、组合与运行层 | 原PR/QA的各阶段预算、live不变和入口输出 | 不能由两个单步quote或静态算术代签组合实现与正式推荐。 |
+| [REQ-FIRST-INDUSTRIAL-003](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-003)；Trace refs: O7-REQ-d4944a59-ccf3-4f96-95ac-45c0ca50cf51 | [当前来源边界](#starter-canonical-source-boundary) | 真实直接输入不增source/handoff前置，真正依赖未知仍拒绝 | [IC-STARTER-GATE FG02/04/05](industrial-native-content-delivery.manual.md#ic-starter-forward-gate)；固定当前profile、实际三类账本和route/path，并做单变量反例 | 原来源/账本核对、适用判断与拒绝结果 | 不证明未来来源/精炼/运输profile的完整生产消费链。 |
 | [REQ-FIRST-INDUSTRIAL-002](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002)；Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95 | [内容依赖与消费](#content-dependency-and-consumption) | 主/副产物、消费来源与实际方案一致 | [IC-INTEGRATION](industrial-native-content-delivery.manual.md#ic-integration)；按受影响 plan/quote/初态选择原测试及实际候选 | 原测试输出及适用组合运行记录 | source parity 不代签编译 WASM、物流或端到端全工业链 |
 | [REQ-FIRST-INDUSTRIAL-006](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-006)；Trace refs: O7-REQ-d0041aa9-1dfb-46a0-95e0-67417b39bfa3 | [阻塞处置](#content-blocker-boundary) | ID、账本/authority、结果未知各自保留真实阻塞 | [IC-BLOCKERS](industrial-native-content-delivery.manual.md#ic-blockers)；静态反例与实际受影响拒绝/恢复分开记录 | 原 PR 的逐项判定；运行部分回原 QA | 没有真实输入的反例不能标为运行通过 |
 | [游戏设计领域覆盖](../../engineering/doc-governance/product-documentation-standard.design.md#game-design-coverage)；Trace refs: O7-REQ-2ed6648d-2987-474a-a58f-d5b77f683748 | [变更交接](#content-change-handoff) | 源/消费者/身份与初态变化能传到交付和证据 | [IC-CHANGE](industrial-native-content-delivery.manual.md#ic-change)；使用实际受影响 ID 与原构建流程 | 原变更 PR 的依赖核查、产物引用及剩余项 | 纸面传播演练不证明生产试验或世界激活 |

@@ -66,6 +66,8 @@ P1 增加原生 Ed25519 **登录**密钥及项目定义的加密备份格式；�
 ### 2.1 需求承接与分配表
 | 上游需求 | 具体义务与适用条件 | 本设计条款 | 主责与依赖 | 未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | 新采用 Hosted 便利入口停止后，保留免费基础身份、原世界映射与正常控制；仅 Passkey 玩家也有正常入口。 | [同身份接续](#hosted-independent-continuation) | 原身份与世界运营责任方；identity / viewer / agent / runtime | 本次是具体 profile 的目标接线，不证明生产部署、P1 生成/备份或任意跨站迁移已完成。 |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | 便利停止后由原合法消费者取得所选组合的受保护原件，并按当前读权核对原请求。 | [原件接续](#hosted-independent-request-recovery) | 原客户端/玩家设备存储与世界结果 authority | 不新增跨 origin/客户端凭证搬运，不接收缺少所选用户侧原件路径的远程托管执行组合。 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) | 可信机器身份的首次注册、独立登录与原操作恢复；关闭新注册保留已有账号。 | [机器注册](#machine-registration) | identity / SDK；按[机器身份回归](#machine-registration-validation)验证 | 仅身份前置，不证明世界准入、逐账号 Agent/owner 或完整冷入场。 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | P0 在声明的 `viewer` 入口使用可发现凭证完成认证；通行密钥是本设计选用的协议，不改变产品的 primary mode。 | [条款](#webauthn) | identity / viewer / runtime | 不证明真实设备兼容、生产 custody 或公开放量。 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | 身份认证失败、中断或会话失效时提供真实恢复路径；稳定账号登录与重新认证不得恢复已失效 authority。 | [条款](#auth-flows) | identity / viewer / runtime | 不证明真实邮件送达、真实设备矩阵或 P1 原生密钥。 |
@@ -481,11 +483,33 @@ HostedAuthContextV2 {
 
 **不回滚世界历史：** 已接受 intent、已 committed receipt、独立 Agent 授权仍按各自 authority 处理。账号 session 失效不自动撤销离线 Agent 委托，重新登录也不延长它；原结果未知时按原请求核对，不重发新世界动作。
 
+<a id="hosted-independent-continuation"></a>
+### 10.7 Hosted 便利入口停止后的同身份正常接续
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；承接 [REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) / [AC-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#ac-entry-free-001)。本节为 [Hosted 便利入口 profile](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-profile-policy)新增技术接收条款，核对基线为 2026-11-05、`4912e079baca375637fdd4eff36be58edec32c42`；原实现状态、部署开关及 §18.4 的验证条件保持原范围。
+
+该 profile 停止的是所声明的附加部署或入口便利。免费基础身份和世界通路须在其外继续交付；[退出政策](../../readme/governance/player-support-and-service-lifecycle.design.md#support-service-exit-policy)的 T1/T2 不构成账号、凭证、issuer、world 权限或原件的失效时刻。实际采用部署须明确下表原运营责任方；便利交付责任终止不解除尚未被合法接收的基础职责。
+
+| 保留的基础职责 | 原 owner、存储与接续关系 |
+| --- | --- |
+| 账号、认证与身份签发 | 原身份运营责任方由 identity 工程主责维护同一 IdentityStoreV2、namespace、账号/凭证状态、安全 epoch、PlayerBinding 与受控 issuer。稳定 RP ID、allowed_origins、身份 HTTPS origin 和当前信任配置继续由 §3.3/§10.5 决定；新入口不能初始化空库或换 issuer 冒充原身份。 |
+| 同身份网关与权威世界 | 原身份运营责任方保留[现有 HTTPS participant/owner/executor 网关](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)，继续由已配置的 endpoint/service_public_key/world 只转发固定 literal-loopback WorldService。原世界运营责任方由 runtime 工程主责保持准入、控制 epoch、canonical 历史/receipt 与受控私有正文的原 authority；native 客户端不绕过网关直连任意节点。 |
+| 正常玩家入口 | viewer 主责保留同 RP/来源的免费基础账号页和世界入口，其认证、join、合法动作及原结果消费者不得只打包在退役的附加页面中。agent 主责维护声明采用的原生 SDK/Runtime 组合；正常读写和领域完成按 [API 独立接续](../../world-simulator/llm/external-agent-game-api.design.md#api-independent-entry-continuation)接收。 |
+| 请求原件与已确认结果 | 本 profile 选择玩家设备上的原浏览器 capsule 或既有受保护 SDK operation cache，由原客户端保持读取能力；世界 authority 持有原 canonical 请求/receipt 和授权历史。具体保管、合法消费者与未接收的远程执行范围按 [§12.5](#hosted-independent-request-recovery)；便利材料窗口届满不删除这些权威对象。 |
+
+正常接续先用当前合法凭证登录原账号，再以 `/session` 核对账号，并查询原 join attempt/绑定或已采纳 participant 的 owner-view；由权威结果核对同一 service/environment/account、world/genesis、player 与原 Agent。已有角色不重注册、不重复领取 starter；确无角色时仍沿原首次准入合同。需要控制切换时按 §10.4 明确确认、核期望 epoch 并原子接管；登录成功和便利退出本身均不接管、撤销或延长世界授权。
+
+仅有 P0 Passkey 的玩家继续使用上述免费 Viewer，不要求原先可跳过的邮箱或备份成为新前置。玩家明确选择原生入口时，先在同源基础页以原凭证登录，经 §8 的新鲜敏感 `bind` 授权，按 §15.2.1 的 `native-key/options`、`complete` 和 `purpose=bind` 将合法候选公钥绑定到同一账号，再独立执行原生登录。候选 key 的生成/保护必须属于该部署已支持的方式；未提供时保留原生入口缺项并继续提供基本 Viewer，不能导出 Passkey、复制 cookie 或用新账号替代。原生登录 key 仍不是 owner/delegate signer，后者须分别满足原世界 authority。
+
+本节要求免费正常通路在便利层停止后仍可用，不以 guest observation 或安全停止代替。若基础 IdentityStore、固定网关、WorldService 或当前授权实际不可用，按 §10.6 的原新鲜度、撤销和原请求合同处理并报告受影响能力；这是基础故障，不能计为正常独立接续。迁移基础责任、RP/origin 或存储仍须原 authority 的既有迁移/恢复合同，本节不新增身份库、签发者或离线授权。
+
 <a id="api"></a>
 ## 11. HTTP / 内部接口合同
 ### 11.1 验证映射表
 | 上游需求 | 本设计条款 | 独立义务与适用条件 | 准确验证方法 / test / manual source | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | [同身份接续](#hosted-independent-continuation) | 便利停止后同账号认证、原角色/控制保持；正常接续与基础故障分开判定。 | [HI01–HI03/HI05](../../testing/manual/hosted-passkey-account.manual.md#hosted-independent-continuation-validation)，按该方法联用实际世界读写判据。 | 同候选部署/入口范围、原身份/控制关联与差量；方法待执行。 | 静态合同不证明基础服务正在运行、P1 已开放、跨站迁移或全部可选服务已验收。 |
+| Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；[REQ-ENTRY-FREE-001](../../product/player-entry-distribution/free-entry-world-progression-and-recognition.prd.md#req-entry-free-001) | [原件接续](#hosted-independent-request-recovery) | 原合法消费者持有可读取的用户侧原件，按原 scope/读权恢复；材料缺失不生成替代请求。 | [HI04/HI05](../../testing/manual/hosted-passkey-account.manual.md#hosted-independent-continuation-validation)，分别核同 tab capsule、原 SDK cache 与错误消费者。 | 同候选原件持有/读取、原请求和结果关联；方法待执行。 | 不证明浏览器材料跨 origin/客户端可搬运或任意远程 executor 原件已交接。 |
 | Trace refs: O7-REQ-126d54f5-6d4a-4406-8d75-915c04d5d196；[REQ-EXT-018](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-018) | [机器注册](#machine-registration) | 双开关控制首次开户；原操作绑定、原子消费、受保护存储与独立登录。 | [机器注册回归](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_identity/machine_registration_tests.rs)，canonical hosted_identity 测试过滤器；客户端与 CLI 另见 §17.6。 | 当前候选 PR 的冻结 HEAD 与测试记录。 | 不证明世界准入、逐账号 Agent/owner、公开 bootstrap 或 OpenClaw/Codex 冷入场。 |
 | Trace refs: O7-REQ-f3f198ce-2afd-4487-a99e-9f371bdd8264；[REQ-ENTRY-MODE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-001) | [条款](#webauthn) | P0 可发现凭证仅作为声明 viewer 入口的认证方式。 | [验收手册](../../testing/manual/hosted-passkey-account.manual.md#contract-suite)；候选 hosted v2 / 隔离测试环境。 | 同候选测试记录 | 真实设备、真实云事务、性能与外部灾备须另验。 |
 | Trace refs: O7-REQ-94ed85c5-c05d-4385-a919-687bfd66b270；[REQ-ENTRY-MODE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-mode-002) | [条款](#auth-flows) | 身份认证失败、中断或会话失效时须沿可解释恢复路径重新认证。 | [验收手册](../../testing/manual/hosted-passkey-account.manual.md#contract-suite)；候选 hosted v2 / 隔离测试环境。 | 同候选测试记录 | 真实设备、真实邮件送达、生产恢复服务须另验。 |
@@ -650,6 +674,19 @@ CSRF/Origin 防护与 Cookie 安全属性必须同时存在。对来自受信任
 区分用户取消、设备不支持、服务器不可达与明确验证失败。某些浏览器异常可能不能精确区分“用户取消”和“未找到凭证”，UI 应使用不超出可观测信息的表述，不假装读取到了系统内部原因。
 
 按钮需键盘可达，焦点从系统弹窗返回后落在可理解位置；状态变化可由读屏感知；复制诊断只包含脱敏编号。首次操作 300 毫秒内反馈，不以无限 spinner 隐藏失败。
+
+<a id="hosted-independent-request-recovery"></a>
+### 12.5 独立入口的原件保管与恢复消费
+
+Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898；接 [同身份正常通路](#hosted-independent-continuation)。本 profile 的基本 Viewer 与原生客户端分别消费既有原件，不把登录 receipt、join attempt、世界 action 或 executor correlation 合并为一种成功凭证。
+
+| 原件及持有者 | 便利停止后的合法消费者与边界 |
+| --- | --- |
+| 玩家浏览器中的同 tab capsule 与 non-extractable AES key | 免费基础 Viewer 在原 origin 按 §12.2 先 `/session`、原 join/控制和精确 scope 核对，再恢复原请求。RP 相同不使另一 origin 能读取此存储；跨 tab、跨设备或 native 不得自动搬运、解密或补签。原退出/账号切换清理规则保持，材料已丢失时不假定原请求未发生。 |
+| 玩家设备上的受保护 SDK operation cache/outbox | 本 profile 选择在玩家设备运行的原客户端及其既有受保护 operation cache；该客户端按原发送前规则持久保存正文、签名、nonce 与 correlation。附加页面/连接协助结束后，仍由这个原消费者以原用途密钥和当前授权读取自己的原件，不通过 owner 身份自动解密另一 executor 的 outbox。便利服务内的引用/摘要不替代该本地原件，窗口届满不清除 unknown 原件。 |
+| 原世界 authority 的请求、receipt、私有正文与历史 | 当前获权主体沿各原结果接口读取；执行方已停止但仍获独立读权时可核原结果，owner 查询旧 executor 仍须原 signer/历史 binding 和当前 owner/fence。便利方不自动向 owner 解密旧 executor 私有 outbox，也不以新登录生成历史正文。 |
+
+恢复顺序为当前认证与读权、可用原件及其原 scope、原请求查询、匹配的权威结果，之后才按当前条件继续新的合法意图。浏览器 gameplay 使用原协商 lookup，native 使用原 payload/correlation；仅原领域允许的精确重放可重送原字节，不能统一重试所有动作。由远程托管 executor 独占原件、或没有上述用户侧存储及原合法消费者的组合，不在本次 profile 接收范围；其已接受的历史服务/执行义务仍归原责任方，不因该排除缩减。任何另行采用的交接须由原 authority 设计并验证，本文不以未来“须有”代替交付、不虚构通用导出包。具体判定见 [HI04/HI05](../../testing/manual/hosted-passkey-account.manual.md#hosted-independent-continuation-validation) 与 [AI03–AI05](../../testing/manual/external-agent-runtime-contract-validation.manual.md#api-independent-entry-validation)。
 
 <a id="migration"></a>
 ## 13. 数据迁移、旧会话与兼容回退
