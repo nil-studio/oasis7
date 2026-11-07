@@ -227,6 +227,27 @@ mod tests {
     }
 
     #[test]
+    fn background_grid_stays_behind_world_while_text_is_native_resolution() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let grid = app
+            .world_mut()
+            .spawn((Sprite::default(), render::PixelWorldGridVisual))
+            .id();
+        let text = app.world_mut().spawn(Text2d::new("中文")).id();
+        app.add_systems(Update, assign_layers);
+        app.update();
+        assert_eq!(
+            app.world().get::<RenderLayers>(grid),
+            Some(&RenderLayers::layer(0))
+        );
+        assert_eq!(
+            app.world().get::<RenderLayers>(text),
+            Some(&RenderLayers::layer(1))
+        );
+    }
+
+    #[test]
     fn resize_reuses_texture_and_preserves_native_overlay_camera() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
