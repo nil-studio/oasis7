@@ -184,6 +184,9 @@ struct MicroDepotFacility {
 #[derive(Clone, Debug, Deserialize)]
 struct ModuleVisualEntity {
     id: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    factory_kind: Option<String>,
     #[allow(dead_code)]
     module_id: String,
     #[allow(dead_code)]
