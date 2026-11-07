@@ -33,6 +33,8 @@ export async function verifyPixelWorldProjection({ bindingsPath, wasmPath }) {
     assert.equal(input.snapshot.history, undefined, "history crossed the display boundary");
     const output = runtime.build_pixel_world_render_state_json(JSON.stringify(input));
     assert.equal(output.fatal, undefined, `actual WASM rejected projected input (${count} actors): ${JSON.stringify(output.fatal)}`);
+    assert.equal(output.goal_highlight,null,"guidance without a published goal must not become a goal highlight");
+    assert.ok(!output.visual_hotspots.some(hotspot=>hotspot.kind==="goal"),"missing goal facts produced a spatial goal");
     const outputBytes = byteLength(output);
     assert.ok(outputBytes <= PIXEL_WORLD_RENDER_INPUT_MAX_BYTES, "actual WASM output exceeds wire budget");
     const markers = MARKERS.reduce((total, field) => total + (output[field]?.length || 0), 0);
@@ -57,6 +59,10 @@ export async function verifyPixelWorldProjection({ bindingsPath, wasmPath }) {
     assert.equal(output.agents.length,1000);
     assert.equal(output.display_profile,"world_view_v1");
     assert.equal(output.display_source_cut,"C");
+    assert.equal(output.goal_highlight,null);
+    assert.ok(!output.visual_hotspots.some(hotspot=>hotspot.kind==="goal"));
+    const actualGoal={...input,gameplay:{...input.gameplay,goalKind:"RecoverCapability"}};
+    assert.ok(runtime.build_pixel_world_render_state_json(JSON.stringify(actualGoal)).visual_hotspots.some(hotspot=>hotspot.kind==="goal"),"published canonical goal was suppressed");
     assert.ok(byteLength(input)<=2*1024*1024 && byteLength(output)<=2*1024*1024);
     if(richLabels)assert.ok(byteLength(input)>256*1024,"Unicode fixture must cross the legacy byte boundary");
     const invalid={...input,display_profile:"world_view_v2"};

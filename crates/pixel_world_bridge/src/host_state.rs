@@ -738,6 +738,19 @@ fn localized_goal_title(locale: &str, gameplay: &Value) -> String {
     }
 }
 
+fn has_published_goal(gameplay: &Value) -> bool {
+    str_key(gameplay, "goalTitle").is_some_and(|title| !title.trim().is_empty())
+        || matches!(
+            normalize_gameplay_token(str_key(gameplay, "goalKind")).as_str(),
+            "recovercapability"
+                | "stabilizefirstline"
+                | "establishfirstcapability"
+                | "choosefirstexpansiontradeoff"
+                | "choosemidlooppath"
+                | "createfirstworldfeedback"
+        )
+}
+
 fn localized_objective_detail(locale: &str, gameplay: &Value) -> String {
     let published = str_key(gameplay, "objective").or_else(|| str_key(gameplay, "progressDetail"));
     match normalize_gameplay_token(str_key(gameplay, "goalKind")).as_str() {
@@ -1067,10 +1080,16 @@ pub(crate) fn build_render_state(input: &Value) -> Value {
                     .and_then(|location| normalize_position(obj(location, "pos")))
             })
             .or_else(|| world_center_position(&world_bounds));
-    let goal_highlight = json!({
-        "title": localized_goal_title(locale, gameplay),
-        "objective": localized_objective_detail(locale, gameplay),
-    });
+    // Generic onboarding copy belongs in the ordinary guidance surface. It is
+    // not a published business goal and cannot acquire a spatial Agent anchor.
+    let goal_highlight = if has_published_goal(gameplay) {
+        json!({
+            "title": localized_goal_title(locale, gameplay),
+            "objective": localized_objective_detail(locale, gameplay),
+        })
+    } else {
+        Value::Null
+    };
     let blocker_highlight = if str_key(gameplay, "blockerKind").is_some()
         || str_key(gameplay, "blockerDetail").is_some()
     {

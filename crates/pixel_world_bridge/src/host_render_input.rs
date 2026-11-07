@@ -139,6 +139,49 @@ mod tests {
         input
     }
     #[test]
+    fn absent_goal_facts_never_create_a_spatial_goal_from_onboarding_copy() {
+        let mut source = world_input(1000);
+        source["display_profile"] = json!("world_view_v1");
+        for gameplay in [
+            Value::Null,
+            json!({}),
+            json!({"receiptTargetAgentId":null}),
+            json!({"goalTitle":"  "}),
+            json!({"goalKind":"unknown"}),
+        ] {
+            source["gameplay"] = gameplay;
+            let state = derive(&source.to_string()).unwrap();
+            assert!(state["goal_highlight"].is_null());
+            assert!(
+                !state["visual_hotspots"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|hotspot| hotspot["kind"] == "goal")
+            );
+            assert_eq!(state["agents"].as_array().unwrap().len(), 1000);
+            assert!(
+                state["commercial_surface"]["objective"]["title"].is_string(),
+                "ordinary onboarding guidance remains available"
+            );
+        }
+        for gameplay in [
+            json!({"goalTitle":"Published goal"}),
+            json!({"goalKind":"RecoverCapability"}),
+        ] {
+            source["gameplay"] = gameplay;
+            let state = derive(&source.to_string()).unwrap();
+            assert!(state["goal_highlight"]["title"].is_string());
+            assert!(
+                state["visual_hotspots"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|hotspot| hotspot["kind"] == "goal")
+            );
+        }
+    }
+    #[test]
     fn explicit_world_profile_keeps_1000_records_and_old_world_inputs_keep_legacy_budget() {
         let mut input = world_input(1000);
         input["display_profile"] = json!("world_view_v1");
