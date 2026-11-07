@@ -22,6 +22,7 @@ mod facility_signature;
 mod host_render_input;
 mod host_state;
 mod pixel_pipeline;
+mod world_materials;
 mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
@@ -1029,6 +1030,7 @@ fn boot_bevy_app(canvas_selector: String) {
             sync_external_state,
             pixel_pipeline::resize,
             render::render_scene,
+            world_materials::reconcile,
             render::label_budget::enforce_label_budget,
             pixel_pipeline::assign_layers,
         )

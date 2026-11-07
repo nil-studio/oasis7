@@ -1173,7 +1173,8 @@ mod tests;
 // Only authored world geometry is sampled by the low-resolution camera.
 // Text, receipts, provenance and selection remain native-resolution overlays.
 pub(super) fn is_world_visual(entity: &EntityRef<'_>) -> bool {
-    entity.contains::<PixelWorldAgentVisual>()
+    entity.contains::<world_materials::MaterialShell>()
+        || entity.contains::<PixelWorldAgentVisual>()
         || entity.contains::<PixelWorldAgentCoreVisual>()
         || entity.contains::<PixelWorldLocationVisual>()
         || entity.contains::<PixelWorldFragmentVisual>()
