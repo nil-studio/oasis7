@@ -359,14 +359,24 @@ Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构�
 <a id="engineering-telemetry-validation"></a>
 ### 工程遥测报告核验
 
-Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。归一化报告器尚未实现；以下是实施验收方法，不是本次已取得的运行结果。
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。当前提供离线 v1 投影及 v2 来源/身份合同与 DAG 报告；以下先验证离线合同，再列后续真实接入核验，不以合成样例代签真实运行。
 
-1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒；改变依赖或错误地把并行时间相加时，同一断言应失败。
-2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复仅去重，不丢失来源。
+从仓库根目录运行：
+
+```sh
+python3 scripts/engineering_telemetry.py collect scripts/tests/fixtures/engineering-telemetry/input.json /tmp/telemetry-snapshot.json
+python3 scripts/engineering_telemetry.py report /tmp/telemetry-snapshot.json /tmp/telemetry-report.json /tmp/telemetry-report.md
+python3 -m unittest discover -s scripts/tests -p 'test_engineering_telemetry*.py'
+```
+
+v2 完整合成输入的 collect 应返回 0；缺失/冲突或 v1 输入保留 partial 并返回 1。report 成功渲染返回 0 不等于测试执行成功；核对原 execution_result、退出码与 cleanup_result 未变。输入与输出格式见 [fixture 说明](scripts/tests/fixtures/engineering-telemetry/README.md)。
+
+1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒、含等待观测链 21 秒与首次启动延迟 0 秒；核对 `analysis.formula_version`、各指标的 status/value/unit/formula/input_ids 及 job_timings；改变依赖或错误地把并行时间相加时，同一断言应失败。
+2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复合并 alias 与来源列表。加入 step/phase/test 不重复增加 job 资源；条件为 false 且 skipped 可零执行，但不能成为 pass。核对 known 指针的类型和值、unknown/not_applicable 的 null 与 reason、输出无 raw payload，未知来源不能凭名称补齐。
 3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
-4. 验证 API/字节/时间预算、归档越界、敏感字段清理、截断产物与采集器失败。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
-5. 在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
-6. 读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+4. 离线核验字节上限、允许字段、截断输入与采集器失败。API/时间预算及归档越界留待 live collector 实施后核验。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
+5. 后续真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+6. 后续真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
 
 ### 当前 CI 未直接覆盖（需手册补齐）
 - Web UI agent-browser 闭环（现为手动/agent 流程，不在 CI 默认路径中）。

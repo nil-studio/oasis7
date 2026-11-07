@@ -723,7 +723,7 @@ helper 以具备清理权限的独立进程管理受控子进程，超时和取�
 <a id="engineering-telemetry-design"></a>
 ### 7.1 共享事件与诊断报告
 
-Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；承接[工程遥测要求](ci-tiered-execution.prd.md#engineering-telemetry)。owner 为 `repository_health_engineer`，计算与证据边界由 `qa_engineer` 独立审读。此节定义待实施的只读归一化与报告器，不改变 required、缓存保存或发布资格的判定。
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；承接[工程遥测要求](ci-tiered-execution.prd.md#engineering-telemetry)。owner 为 `repository_health_engineer`，计算与证据边界由 `qa_engineer` 独立审读。此节定义只读归一化与报告器。当前实现离线 v1 投影、v2 字段来源/身份合同与完整 job DAG 计算；live collector、真实 Formal 链和本地量测接入仍待核验，不改变 required、缓存保存或发布资格的判定。
 
 #### 当前输入与首版接缝
 
@@ -736,50 +736,59 @@ Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；承接[工程遥测要
 | [构建与产物记录](../../../scripts/ci-test-artifacts.py) | manifest 的 source_sha/tested_sha、producer_run_id/attempt、配置摘要、构建变体、Fresh/rebuilt；打包及恢复报告 | producer 身份不等于当前 consumer；features/profile 从对应 binary、计划与配置读取，缺项保留未知 |
 | [本地 compile metrics](../../../scripts/ci-compile-metrics.sh) | current/baseline.metrics.json、comparison.json、固定 commit、命令与日志 | 使用[既有量测设计](../performance/compile-metrics-v2-warm-check.design.md)的隔离 target/环境；不能代表开发 wrapper、远端缓存或全部构建入口 |
 
-首条 CI 链选择 PR 中实际命中的 `select → formal-test-build → formal-process-tests → formal-process → required-gate`；展开真实矩阵分片，保留互斥 `formal-test-build-trusted` 的 skipped 事实，并读取 gate 的其他必要上游。main writer 分支还依赖 `cache-bootstrap-maintenance`，不能套用 PR 子图。只采到子链时标 `coverage=partial`，不发布整条 required 的完整关键路径。首个本地入口读取一次 `ci-compile-metrics.sh` 的 `--check-only --measure-warm-check` 输出（实际 package/out-dir 以原命令为准）；适配器不自动执行新的构建。
+后续真实接入的首条 CI 链选择 PR 中实际命中的 `select → formal-test-build → formal-process-tests → formal-process → required-gate`；展开真实矩阵分片，保留互斥 `formal-test-build-trusted` 的 skipped 事实，并读取 gate 的其他必要上游。main writer 分支还依赖 `cache-bootstrap-maintenance`，不能套用 PR 子图。只采到子链时标 `coverage=partial`，不发布整条 required 的完整关键路径。首个本地入口读取一次 `ci-compile-metrics.sh` 的 `--check-only --measure-warm-check` 输出（实际 package/out-dir 以原命令为准）；适配器不自动执行新的构建。
 
 #### 版本化数据合同
 
-目标接口为一个 Python 标准库报告器的 `collect` 与 `report` 子命令：前者按显式仓库/run/attempt 或本地目录取得输入，后者离线消费该固定快照，输出 `report.json` 与简短 Markdown。实现时参数、schema 和适配器一起交付；本节的子命令尚不可运行。归一化 schema v1 包含以下字段，原始文件只通过证据引用关联：
+[Python 标准库报告器](../../../scripts/engineering_telemetry.py)提供 `collect INPUT SNAPSHOT` 与 `report SNAPSHOT JSON MARKDOWN`，消费准备好的离线输入，不请求 GitHub API 或执行构建。`collect-source` 保留已有单来源投影。v1 输入、snapshot 与 report 保持原 schema，始终为 partial，DAG analysis 为 unavailable；完整来源合同使用 `oasis7-engineering-telemetry-input/v2`，snapshot/report 同步使用 v2，避免旧消费者误读完整性。
+
+v2 输入的 `sources` 每项包含 `reference / kind / source_schema / payload`。`source_schema` 是本合同支持的适配标签，不宣称准备型 payload 就是真实 GitHub 原始响应。`contexts` 和 `records` 的每个事实字段通过 `field_sources` 说明来源：known 项含 `reference / pointer`，JSON Pointer 必须解析到与该字段同类型、同值的输入；unknown 或 not_applicable 项含 `reason`，对应值必须为 null。缺字段、未知来源 schema、引用不成立或来源冲突，使受影响范围 unavailable。输出仅保留允许字段、`evidence` 中的来源内容 SHA-256 与引用，不复制 raw payload。摘要及字段绑定支持离线复算，不认证来源真实性。
+
+输出 `field_sources` 每个值为来源列表；同身份且同值的事实合并 alias 与来源，不同值保留 conflict，不选取有利值。`sample_kind=synthetic` 显式保留。主要事实字段与后续真实来源映射如下：
 
 | 字段组 | 含义及真实来源 |
 | --- | --- |
 | `origin / collection_id / collected_at / schema_version` | origin 为 github 或 local；一次采集的 UUID、UTC 查询时间及明确 schema |
 | `repository / run_id / run_attempt / job_id / step_number` | GitHub API 原值；`GITHUB_JOB` 是符号键，不能代替数值 job ID。矩阵实例需从可信执行上下文或完整 API 记录精确对应 |
 | `source_sha / tested_sha / policy_sha / config_digest` | 从事件、可信计划与实际产物逐项核对；分别表示候选、实际 checkout、规则版本及实际配置。原来源缺 policy 时标 unknown，不能用 source 代填 |
-| `local_invocation_id / dirty_inputs_digest` | 本地调用 UUID、固定源码及测量时实际未提交/未跟踪输入的摘要；未取得完整输入清单时标身份不完整，事后工作区不能补签。GitHub 专属字段为不适用，本地结果不生成 GitHub check |
-| `scope / target / profile / features / toolchain / runner` | 实际执行命令、计划与 manifest；目标/默认 feature 模式明确，缺字段不根据 job 名反推 |
-| `kind / phase / parent_id / depends_on` | run/job/step/phase/test 层级；依赖来自该次运行的 workflow 与计划，parent 只表示包含关系。阶段为实际已有 build/restore/verify/test/pack/save 等 |
+| `local_invocation_id / dirty_inputs_digest / input_capture` | 本地调用身份、固定源码及测量时实际未提交/未跟踪输入的摘要；`input_capture=at_measurement` 明确采集时点；未取得完整输入清单时标身份不完整，事后工作区不能补签。GitHub 专属字段为不适用，本地结果不生成 GitHub check |
+| `target / profile / features / default_features / toolchain / runner` | 实际执行命令、计划与 manifest；目标/默认 feature 模式明确，缺字段不根据 job 名反推 |
+| `kind / parent_id / depends_on / condition` | context 内 job/step/phase/test 层级；依赖来自该次运行的 workflow 与计划，parent 只表示包含关系。阶段为实际已有 build/restore/verify/test/pack/save 等 |
 | `started_at / completed_at / elapsed_seconds / clock` | API 墙钟或本进程单调计时，保留精度和来源；不能将不同进程单调时间相减。仅有开始加耗时得到的结束估计不作跨 job 的精确边界 |
 | `execution_result / collection_status / missing_reasons` | 原始结果和采集状态独立；缺失与 unknown 不等于 0，skipped 不等于 pass。退出码、清理失败与首次失败原样保留 |
+| `created_at / gate_id / job_ids / pagination_complete / dependencies_complete / conditions_complete` | context 声明创建时间、最终 gate、必要 job 集合及分页/依赖/条件完整性；缺项不推定完整。 |
 | `evidence / source_schema / coverage` | run/job/artifact 链接或本地相对路径、内容摘要、适配版本、完整/部分及缺失范围；每个派生指标可回查其输入与公式版本 |
 
-同一来源身份重复且内容相同可以去重，身份相同但值不同须报告冲突；不择取有利值。不同 attempt 独立存储，跨 attempt 复用产物按现有 producer/consumer 规则关联，不能把旧成功拼成新 attempt 的成功。报告只说明原系统的执行结论，不能签发验证资格。
+同一来源身份重复且内容相同可以去重，身份相同但值不同须报告冲突；不择取有利值。不同 attempt 与数值矩阵 job ID 独立存储，跨 attempt 复用产物按现有 producer/consumer 规则关联，不能把旧成功拼成新 attempt 的成功。报告只说明原系统的执行结论，不能签发验证资格。
 
 #### 时间、成本与样本计算
 
-1. workflow 反馈墙钟为创建至该次最终 gate 终态；job 墙钟为 completed_at 减 started_at。只对已终止且时间完整的记录计算；运行中给截至查询时刻的等待下界，缺终态给 unknown。
+当前离线分析只对完整 GitHub context 的 job 层进行，step/phase/test 不重复累计资源。所有声明的必要 job 必须具备可核验身份/来源、完整终态、依赖、条件与时间，图无环且最终 gate 覆盖全部必要上游。条件为 false 且 skipped 的节点可保留为零执行节点，但不是 pass。失败或取消的完整终态可计算时间，原结论不变；缺终态则禁止完整指标。
+
+1. workflow 反馈墙钟为创建至该次最终 gate 终态；job 墙钟为 completed_at 减 started_at。只对已终止且时间完整的记录计算；当前离线版本对运行中或缺终态给 unavailable；将来若另报截至查询时刻的等待下界，须明确下界口径。
 2. 首次启动延迟是第一个 job 开始减 run 创建。依赖等待依据准确 needs/条件及依赖完成时刻；job 具备执行条件到实际开始之间仅能确认为“未归因等待”，除非有独立 runner 就绪/分配事实。审批、并发限制和服务调度不能默认归到 runner 排队。
 3. 完整 DAG 可计算执行时长的最长依赖链，并另列该链的观测等待；不把纯执行链称为完整墙钟。识别观测墙钟链时，给每个 job 增加从实际依赖就绪到启动的等待边，保留其未知成因。缺依赖、条件求值、时刻或必要上游时只报告已知子图，不输出完整关键路径结论。
 4. runner-minutes 汇总实际 job 执行区间，单独计资源；并行 job 相加不等于用户等待。共享准备只按实际所属节点计算一次。缓存对照使用同配置的总区间，恢复、校验、构建/链接、打包及保存均计成本；重叠阶段取时间区间并集，无法判断重叠时不伪造净收益。
 5. 样本遵循[现行 CI 回顾口径](../../../.agents/dot/tasks/ci-duration-review.md#耗时口径)：固定窗口、同 runner/范围、失败/取消及 carry-in 分开，至少 20 个可比完成样本才报告 P95，少于此数只给样本数、中位数及范围。成功反馈沿用 PRD 的普通成功 cohort；合入阻塞还需 PR 就绪、评审和合入时间线。
 
-可重算的合成例：select 在 0–2 秒，build 在 2–10 秒，两个分片在 10–16 与 12–20 秒，gate 在 20–21 秒。完整反馈为 21 秒；job 执行合计 25 秒；后一个分片有 2 秒未归因等待，执行最长链为 19 秒，含该等待的观测链为 21 秒。删掉该分片终态后，不再输出完整反馈或关键路径，只保留已知记录。此例只验证算法，不是实际性能数据。
+可重算的合成例：select 在 0–2 秒，build 在 2–10 秒，两个分片在 10–16 与 12–20 秒，gate 在 20–21 秒。完整反馈为 21 秒；job 执行合计 25 秒；后一个分片有 2 秒未归因等待，执行最长链为 19 秒，含该等待的观测链为 21 秒。删掉该分片终态后，不再输出完整反馈或关键路径，只保留已知记录。首次启动延迟为 0 秒。此例只验证算法，不是实际性能数据。
+
+报告使用 `analysis.formula_version=oasis7-engineering-dag/v1`；`analysis.contexts[].metrics` 每个指标含 `status / value / unit / formula / input_ids`，可回查公式及输入。非空已知子集通过 `known_job_execution_seconds` 列出可证 job 的 input_ids 与 partial 状态；完全没有可证区间时为 status=unavailable、value=null，不冒充完整 DAG；完整图的 `job_timings` 保留未归因等待，图不完整时留空，具体缺口在含 job ID 的 `missing_reasons` 中说明。UTC 时间保留原精度，不从不同进程的单调时钟或开始时间加 elapsed 推导精确跨 job 端点。
 
 #### 采集、保留与故障隔离
 
-首版使用已有只读 API 权限（Actions/仓库内容读取），本地模式不需要 GitHub token。外部服务导出留作可选适配器；新权限、付费服务或产品运行追踪需要各自主责设计。受信任的采集程序不执行候选 artifact 中的脚本，读取归档时拒绝路径越界，并按内容大小限额处理。
+当前离线版本不使用 token 或网络，输入限额为 32 MiB。后续 live collector 使用已有只读 API 权限（Actions/仓库内容读取），本地模式不需要 GitHub token。外部服务导出留作可选适配器；新权限、付费服务或产品运行追踪需要各自主责设计。受信任的采集程序不执行候选 artifact 中的脚本，读取归档时拒绝路径越界，并按内容大小限额处理。
 
-每次采集显式记录请求和字节预算。首版建议默认上限为 120 秒、100 次 API 请求、32 MiB 解码 JSON，任一耗尽即保留 partial 与原因，不无限重试；这些是报告器的初始资源限额，不是 CI 门禁或性能 SLO。未知 schema、后页失败、重复页、时间逆序和身份冲突均使相应指标 unavailable，保留可复核的已知输入。
+后续 live collector 每次采集显式记录请求和字节预算，建议默认上限为 120 秒、100 次 API 请求、32 MiB 解码 JSON，任一耗尽即保留 partial 与原因，不无限重试；这些是报告器的初始资源限额，不是 CI 门禁或性能 SLO。未知 schema、后页失败、重复页、时间逆序和身份冲突均使相应指标 unavailable，保留可复核的已知输入。
 
 只收集允许字段；不采集 token、环境变量全集、原始命令参数中的密钥、个人绝对路径、世界目录或模型请求。已有产物保留期保持不变；新增 CI 归一化报告建议 7 天并遵守仓库更短上限，本地输出由调用者指定目录与保留策略。正文引用的原 artifact 过期时显式显示证据不可读取，不能凭报告摘要补出完整证明。
 
-采集器错误单独输出非零采集状态。接入现有诊断上传时由该步骤记录失败并保留原测试结果，不改写 gate、吞原测试退出码或让遥测控制测试清理；取消时也不要求重任务为上传继续运行。离线报告不读活动写入中的半份文件；生产者完成后原子发布，缺失/截断文件标 partial。
+`collect` 在失败或 partial 时返回 1；`report` 成功渲染返回 0，只说明报告生成成功，不等同执行通过。采集器错误单独输出非零采集状态。接入现有诊断上传时由该步骤记录失败并保留原测试结果，不改写 gate、吞原测试退出码或让遥测控制测试清理；取消时也不要求重任务为上传继续运行。离线报告不读活动写入中的半份文件；生产者完成后原子发布，缺失/截断文件标 partial。
 
 <a id="engineering-telemetry-validation"></a>
 #### 最小交付与验证
 
-第一片交付版本化适配器、离线报告与合成输入测试，消费现有产物；第二片在上述一条 CI 链及本地入口核对真实报告，再让既有 dot 回顾和指挥中心只读消费。共享生成配置、缓存实现和产品节点监控分别留在原主责，报告器不新增日程或自动优化动作。
+当前离线交付包含兼容 v1 的单来源投影、v2 字段来源与身份核验、完整 DAG 报告及合成输入测试；后续在上述一条 CI 链及本地入口核对真实报告，再让既有 dot 回顾和指挥中心只读消费。共享生成配置、缓存实现和产品节点监控分别留在原主责，报告器不新增日程或自动优化动作。
 
 具体验收按[报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)执行，包含并行计算、身份与重跑、缺失/取消、采集预算和原结论保留的正反例。每项预期具体到报告字段或失败分类，故意改变依赖/等待计算应使同一断言失败。
 
@@ -846,7 +855,7 @@ full 可以按依赖图合并重复构建、并行独立测试，但不删除 Cl
 | [缓存复用](ci-tiered-execution.prd.md#ci-install-cache-evidence) | [缓存边界](#ci-install-cache-design) | main writer 与不同 tag readers 的真实身份、恢复及验证 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | writer/reader run/job 链接与实际 key | 未 seed 或未执行 reader 时仍未证明跨 tag 命中 |
 | [apt 预算](ci-tiered-execution.prd.md#ci-install-apt-budget) | [apt 有界安装](#ci-install-apt-design) | 验证总预算、分类重试、超时/取消及受控进程清理 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 实际 apt 观察与 helper 的 fixture 输出 | 本地合同与 hosted 分别验收，仅限临时 Linux CI runner |
 | [量测与判定](ci-tiered-execution.prd.md#ci-install-measurement) | [耗时证据](#ci-install-measurement-design) | 相同工具/平台下分冷暖计入准备与缓存成本，保留失败样本 | [依赖安装核验](../../../testing-manual.md#ci-dependency-installation-validation) | 原始耗时、样本窗口/数量和条件差异 | 不以本地测试宣称 hosted 性能收益 |
-| Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；[工程遥测](ci-tiered-execution.prd.md#engineering-telemetry) | [共享模型与诊断](#engineering-telemetry-design) | 身份精确关联、并行时间计算、缺失与执行结论分离、有界只读采集 | [报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)，固定合成快照与一条真实 CI 链、一个本地 compile metrics 输出 | 实施 PR 的 schema、输入摘要、实际报告、命令和独立复核 | 设计尚未接线；合成输入不证明性能收益、真实合入阻塞或产品节点健康 |
+| Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；[工程遥测](ci-tiered-execution.prd.md#engineering-telemetry) | [共享模型与诊断](#engineering-telemetry-design) | 身份精确关联、并行时间计算、缺失与执行结论分离、有界只读采集 | [报告核验手册](../../../testing-manual.md#engineering-telemetry-validation)，固定合成快照与一条真实 CI 链、一个本地 compile metrics 输出 | 实施 PR 的 schema、输入摘要、实际报告、命令和独立复核 | 离线 v2 来源合同与 DAG 已实现；live collector 与真实 CI/本地核验未完成，合成输入不证明性能收益、真实合入阻塞或产品节点健康 |
 | [真实覆盖](ci-tiered-execution.prd.md#ci-real-coverage) | [执行清单与结果](#ci-real-coverage-design) | 漏项/错误传播、真实 WASM 消费者、wrapper 退出及 Windows 锁边界 | [测试手册](../../../testing-manual.md)；实际 CI driver、构建/wrapper 回归和原生平台运行 | source、计划清单、命令与真实结果 | fake 工具和计划存在不代签执行；CodeQL 启用另验 |
 | [RustSec 基线](ci-tiered-execution.prd.md#ci-advisory-baseline) | [例外检查](#ci-advisory-baseline-design) | 空 ignore、无条件禁止包和真实依赖图 | [基线回归](../../../scripts/check-rustsec-ignore-baseline.test.sh)及真实依赖查询 | 配置正反例、cargo-deny 真实依赖图 | fixture 不证明实际依赖已移除 |
 | [共享产物](ci-tiered-execution.prd.md#ci-formal-process) | [进程调度](#ci-formal-process-design) | 独立分片、精确清单、同源产物、旧基线扩大、错误与超时传播 | [分片核验](../../../testing-manual.md#ci-formal-process-validation) | 当前 PR 的真实 runner、测试与评审结果 | fixture 不代签完整产物消费；未完成 hosted 验证保持未证明 |
