@@ -112,6 +112,7 @@ pub(super) fn derive(raw: &str) -> Result<Value, String> {
         state["display_source_cut"] = Value::String(cut.to_owned());
     }
     budget::fit(&mut state, &input)?;
+    profile.validate_structure(&state)?;
     let encoded = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
     if encoded.len() > profile.bytes() {
         return Err("pixel world display output capacity exceeded".into());
@@ -172,6 +173,27 @@ mod tests {
         source["display_profile"] = json!("world_view_v1");
         source["worldView"]["relations"] = json!([{"relation_id":"R"}]);
         assert!(derive(&source.to_string()).is_err());
+    }
+    #[test]
+    fn derived_output_is_independently_checked_after_input_passes() {
+        let mut source = input();
+        // The published kind fits the input string boundary, but its derived
+        // "kind=" status badge does not. Byte limits alone cannot catch this.
+        source["lists"]["agents"] = json!([{"id":"A","kind":"x".repeat(8192),
+            "pos":{"x_cm":1,"y_cm":1,"z_cm":0}}]);
+        DisplayProfile::Legacy.validate_structure(&source).unwrap();
+        let raw_state = super::super::host_state::build_render_state(&source);
+        assert!(serde_json::to_vec(&raw_state).unwrap().len() < 256 * 1024);
+        assert!(
+            DisplayProfile::Legacy
+                .validate_structure(&raw_state)
+                .is_err()
+        );
+        assert!(
+            derive(&source.to_string())
+                .unwrap_err()
+                .contains("structure capacity")
+        );
     }
     #[test]
     fn bounded_json_preserves_the_existing_render_projection() {
