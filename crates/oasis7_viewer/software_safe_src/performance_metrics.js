@@ -33,7 +33,7 @@ export const VIEWER_PERF_PROFILES = Object.freeze({
 });
 
 function asNumber(value, fallback = null) {
-  if (value == null || value === "") return fallback;
+  if (value == null || typeof value === "boolean" || (typeof value === "string" && value.trim() === "")) return fallback;
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
