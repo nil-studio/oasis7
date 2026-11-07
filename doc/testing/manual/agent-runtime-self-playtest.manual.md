@@ -339,3 +339,70 @@ restore只写新私有目录，先持久restore_pending，再放置已退休旧�
 本项局部自测为canonical `cargo test -p oasis7_game_client --lib dev_test_recovery --locked`。
 真实副本演练还须固定source/build、快照源／目标、运行命令、原世界pin、旧用量早于实际消耗的
 事实及当前native结果观察。不得只凭模块测试声称实际恢复通过，也不能回滚原世界制造成功证据。
+
+### 本地受限接入准备（#5532）
+
+Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同入口前置 #5531 固定提交 `03a5c97231f56718f8586a41d74b4dc0494fd2b1`。
+
+本适配仅面向 Linux。可信服务主体保管私有配置与凭据；模型运行在不同 UID 下，只能访问本地工具 socket。管理员固定调用 UID 与 `caller_id` 的映射；模型请求只有 `profile`、`audience`、`method`，未知字段拒绝。内核 `SO_PEERCRED` 先验证 UID，再读取有限请求。
+
+可信代理逐次读取私有配置并核对有效期／撤销，然后向唯一共同服务的私有 socket 转发认证请求。共同服务执行累计准入，代理不单设可重置用量。凭据只存在可信进程内存；模型输出仅重新编码共同 `Response` 的非秘密字段。管理操作不在本地工具集合中。
+
+管理员须准备服务拥有且其他主体不可写的 socket 目录，模型主体只有遍历和连接权限。凭据目录另置 `0700`，配置文件 `0600`。不得把真实凭据置于模型工作目录、参数、环境、工具输出或日志。已有 broker 的同 UID／`0600` 行为不改变。
+
+启动顺序为先启动共同私有服务，再以相同可信 UID 启动本地代理，最后由不同模型 UID 经 CLI／IPC 发出 `capabilities` 请求。模型不得访问启动管理面。模型侧使用 `dev-test-local-call --socket <固定路径>`，只接受无秘密的 LocalRequest；它验证受信祖先和服务内核 peer，并以绝对时限调用。共同 `dev-test-call` 接受含凭据的可信Request，不能替代此模型侧命令。
+
+#### 当前验证边界
+
+2026-11-06 已恢复 Docker 并使用 Linux arm64 / Rust 1.96.0 实际构建。canonical Cargo 参数使用 `--offline --locked -p oasis7_game_client --target aarch64-unknown-linux-gnu`。默认 bfd 链接 lib test 被系统 signal 9 终止；保留缓存并对最终 target 使用 rustc 自带 lld（`cargo rustc ... -- -C link-arg=-B<lld目录> -C link-arg=-fuse-ld=lld`），不是测试通过替代证据。
+
+Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_test_local_linux.py <Linux CLI路径>` 在 root 可信进程和 UID 1001／1002 模型进程之间实际验证：获准主体取得能力、未获准主体拒绝、当前配置与同边界凭据夹具不可读、用途／版本拒绝、持续滴流按绝对时限退出且重连可用、当前撤销与过期拒绝。夹具仅使用合成材料，需在隔离 Linux 容器以 root 运行；不是实际外部 Agent。
+
+请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
+
+真实 `attached_codex_subagent` 已完成有限只读 A→B→A 和原件查询，具体 source/build 与用量见 PR #5554。该模型会话仍能访问宿主工具，隔离声明为 `instruction_only/source_visible`；UID 强制边界仅覆盖固定工具子进程。自主写入、重启恢复及远程实际消费者分别保留未完验收，不能以只读通过代签。
+
+### 本地账号业务工具接线（#5538）
+
+本地完整业务入口为 `oasis7_dev_test_local_tools`。可信宿主以服务 UID 执行
+`serve PUBLIC_SOCKET PRIVATE_POLICY CALLER_UID CALLER_ID`；`PRIVATE_POLICY` 沿用
+会话服务配置并指向唯一私有后端 socket，不复制授权、累计额度或原操作账本。
+服务 UID 必须不同于模型 UID。公开 socket 的父目录须由服务所有且不可被模型
+写入；私有配置及祖先目录沿用共同受信读取检查。每请求重新读取当前配置与认证，
+模型输入不能提供凭据、身份或配置路径。后端仍执行唯一业务准入。
+
+准备环境时须核对实际权限而非仅相信创建参数：严格 `umask` 会把请求创建的
+0755 目录收窄为 0700。可信宿主应显式设置公开目录权限，并以模型 UID 验证
+可穿越、可执行入口及私有材料不可读。后端重启前先确认旧进程已退出，再清理
+本服务遗留 socket；仅 socket 文件存在不能证明 ready，须同时核对本轮进程、
+新 ready 日志和实际模型 UID 的受限调用。预检调用单独记录、正常计费。
+复用 Executor 时保持其原件存储绑定的绝对目录，不以搬移目录替代新操作。
+RunInput 应提供公开的单请求时间预算与恢复调用预留，按实际链路预算足够的有限会话寿命及调用额度，包含异步 Context 查询、丢回复、重启后重新 open 与原 Move lookup。不得把仅够首发 Move 的剩余额度当作恢复验收已就绪；已有账本不归零，独立新测试授权须明确身份、范围与有限额度。
+RunInput 还应固定宿主可用空间的启动预算及运行停线；容器内余量不能代替
+宿主稀疏磁盘的真实余量。到停线时关闭工具入口并停止本轮服务，保留原件，
+不得继续运行至存储 I/O 失败后再把环境错误当业务拒绝。
+
+模型进程仅由可信宿主固定命令 `oasis7_dev_test_local_tools stdio APPROVED_SOCKET`，
+以受限 UID 运行，并加载正式 Skill 中的 `references/dev-test-accounts.md`。
+唯一 MCP 工具为 `dev_test_accounts_call`，闭合开放 accounts/open/close/describe/
+task/capabilities/context/move/lookup；操作参数沿用共同 DTO，请求及结果不重写。
+stdio 按行接收最多 65536 字节，传输失败不自动重试。根级 ok 不代替世界结果。
+已明确 canonical Rejected 的原 Move 可作为新目标明确授权下重新规划的反馈，不能改旧base/nonce或把unknown当拒绝。需要此场景时，可信侧先固定最多决策数和最多成功效果数：第二新Context只在匹配原Move/作用域/correlation的权威拒绝且当前原生fence允许时开放；不从位置未变推定无效果。代理重启不得归零此门禁或预算，缺记录保持unknown并关闭新写。新Goal/新授权必须明确独立范围，不以改场景名规避自测轮数；最后一次仍拒绝后停止，保留未完成义务。
+宿主负责操作系统进程隔离；不能让模型同时拥有服务 UID、可变启动参数或任意 shell。
+
+本项局部复现：
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_game_client --lib dev_test_local_business --locked
+env -u RUSTC_WRAPPER cargo clippy -p oasis7_game_client --lib --tests --bins --locked -- -D warnings
+# Linux root 隔离夹具：仅合成私有后端，无模型调用或世界请求。
+python3 crates/oasis7_game_client/tests/fixtures/dev_test_local_business_linux.py /absolute/path/oasis7_dev_test_local_tools
+```
+
+夹具验证不同 UID 拒绝、私有配置不可读、九方法与操作 ID/正文原样传递、
+stdio unknown 保留、凭据注入不可从模型覆盖、停用及到期拒绝。后端收到原 Move 请求后断连时，
+适配必须返回 unknown 并保留原 RID/session 及 lookup 下一步；只有转发前明确失败
+才返回 local_request_denied。每条调用最多转发一次，不自动重建操作。该证据不代签
+DA-01～06 的外部模型实玩、真实世界效果、普通重启或故障后原件恢复；这些仍须
+在固定运行组合下独立记录。实际模型运行须有当前授权和有限预算，
+本入口不得自行启动模型或扩大付费权限。

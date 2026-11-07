@@ -407,7 +407,7 @@ pub(crate) fn read_until(
     result
 }
 
-fn connect_until(
+pub(crate) fn connect_until(
     path: &std::path::Path,
     deadline: std::time::Instant,
 ) -> Result<std::os::unix::net::UnixStream, String> {
