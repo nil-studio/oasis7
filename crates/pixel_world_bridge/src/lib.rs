@@ -25,11 +25,11 @@ mod host_render_input;
 mod host_state;
 mod pixel_pipeline;
 mod pointer_gesture;
-mod world_materials;
 mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
 mod test_hit_targets;
+mod world_materials;
 mod world_strokes;
 
 #[cfg(test)]
