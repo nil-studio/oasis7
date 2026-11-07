@@ -30,6 +30,8 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     if (ref?.kind === 'industry_aggregate') return view?.aggregates?.some(v=>v.aggregate_id === ref.id) ? ref : null;
     return view?.entities?.some(v=>v.kind === ref?.kind && v.entity_id === ref.id) ? ref : null;
   }
+  const deleted = (next, ref) => next.changes?.some(change=>change.world_deleted
+    && change.id === ref.id && change.kind === ref.kind);
   function cancelPending(status = null) {
     clearTimeout(pendingTimer);pendingTimer = null;pending = null;setSelectionStatus(status);
   }
@@ -38,7 +40,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     const view = next.view;
     if (disposed || pixelWorldScope(core.state) !== scope || pending.scope !== scope || pending.command !== command
       || pending.coreKey !== coreKey() || !enabled() || next.error || next.stale || !view || requestBinding(view) !== pending.binding
-      || next.changes?.some(change=>change.world_deleted && (change.id === pending.ref.id || `${change.kind}:${change.id}` === refKey(pending.ref)))) {
+      || deleted(next,pending.ref)) {
       cancelPending('unavailable');return;
     }
     const selected = proved(pending.ref,view);
@@ -144,15 +146,16 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       if (refs.size <= 1000) presented = {scope,authority:worldViewAuthorityKey(view),cut:view.source_cut,request:view.request_generation,refs};
     },
     selectPresented(ref) {
-      if (disposed || !enabled()) {cancelPending();return null;}
+      if (disposed) return null;
       const next = state(), view = next.view;
       if (!view) return select(ref);
+      if (!enabled()) {cancelPending();return null;}
       ref = canonicalRef(ref);
       if (!ref || typeof ref.id !== 'string' || !['agent','location','factory','industry_aggregate','world_event'].includes(ref.kind)) return null;
       if (proved(ref,view)) return select(ref);
       cancelPending();command += 1;
       if (disposed || pixelWorldScope(core.state) !== scope || !next.loading || next.error || next.stale
-        || view.completeness !== 'partial' || !presented || presented.scope !== scope
+        || deleted(next,ref) || view.completeness !== 'partial' || !presented || presented.scope !== scope
         || presented.authority !== worldViewAuthorityKey(view) || presented.cut !== view.source_cut || !presented.refs.has(refKey(ref))) return null;
       pending = {ref:{kind:ref.kind,id:ref.id},scope,command,coreKey:coreKey(),binding:requestBinding(view)};
       setSelectionStatus('pending');

@@ -1011,7 +1011,7 @@ export function PixelWorldHost(props) {
     }
     if (result?.renderState) setRetainedSurface(null);
     setRustRenderState(result?.renderState || null);
-    spatial.present(presentedView, result?.fatal ? null : result?.renderState, presentedScope);
+    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
     setRendererStatus(result?.status || "ready");
     setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
     core.updatePixelWorldRuntimeMeta({
@@ -1087,7 +1087,7 @@ export function PixelWorldHost(props) {
     }
     if (result?.renderState) setRetainedSurface(null);
     setRustRenderState(result?.renderState || null);
-    spatial.present(presentedView, result?.fatal ? null : result?.renderState, presentedScope);
+    spatial.present(presentedView, result?.status === "ready" && !result?.fatal ? result?.renderState : null, presentedScope);
     setRendererStatus(result?.status || "ready");
     setRuntimeSource(result?.runtimeSource || adapter().runtimeSource());
     core.updatePixelWorldRuntimeMeta({

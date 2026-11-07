@@ -6,14 +6,14 @@ afterEach(() => {dispose?.();vi.useRealTimers();});
 const entity = id => ({kind:'agent',entity_id:id});
 const page = (q, ids, extra={}) => ({world_id:'W',scope_id:'S',source_cut:'C',request_generation:q.request_generation,
   entities:ids.map(entity),relations:[],completeness:'complete',...extra});
-async function fixture() {
+async function fixture(presentedIds = ['A','C','B']) {
   let release;
   const core={state:{worldId:'W',auth:{sessionEpoch:1},selectedKind:null,selectedId:null,viewerProtocol:{capabilities:['world_view']}},
     applySelection:vi.fn(),buildGameplaySummary:()=>null,requestWorldView:vi.fn(async q=>page(q,['A','C','B']))};
   let controller;createRoot(cleanup=>{dispose=cleanup;controller=createPixelWorldSpatialController({core,enabled:()=>true,getRenderState:()=>null,getLocale:()=> 'en'});});
   await controller.query({});controller.select({kind:'agent',id:'A'});
   // The Host still presents B from the preceding completed update.
-  controller.present(controller.state().view,{display_source_cut:'C',agents:[{id:'A'},{id:'C'},{id:'B'}]});
+  controller.present(controller.state().view,{display_source_cut:'C',agents:presentedIds.map(id=>({id}))});
   core.requestWorldView.mockImplementation(q=>q.cursor==='third'?new Promise((resolve,reject)=>{release=(ids,extra={})=>ids instanceof Error ? reject(ids) : resolve(page(q,ids,extra));}):Promise.resolve(page(q,q.cursor?['C']:['A'],{next_cursor:q.cursor?'third':'second'})));
   const read=controller.query({});await vi.waitFor(()=>expect(release).toBeTypeOf('function'));
   return {core,controller,read,release};
@@ -103,5 +103,27 @@ it('clearing the presented scene immediately discards pending inspection',async(
   const {controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
   controller.present(null,null);release(['B']);await read;
   expect(controller.selectionStatus()).toBeNull();
+  expect(controller.selection()?.id).not.toBe('B');
+});
+
+it('does not queue an authorized but unpresented reference or request pins',async()=>{
+  const {controller,core,read,release}=await fixture(['A','C']);
+  const calls=core.requestWorldView.mock.calls.length;
+  controller.selectPresented({kind:'agent',id:'B'});
+  expect(controller.selectionStatus()).toBeNull();
+  release(['B']);await read;
+  expect(controller.selection()?.id).not.toBe('B');
+  expect(core.requestWorldView).toHaveBeenCalledTimes(calls);
+  expect(core.requestWorldView.mock.lastCall[0]).not.toHaveProperty('pinned_entities');
+});
+
+it('rejects an old permission-generation presentation even with the same cut',async()=>{
+  const {controller,read,release}=await fixture();
+  const view=controller.state().view;
+  controller.present({...view,source_binding:{version:{commit:{binding:{permission_generation:'old'}}}}},
+    {display_source_cut:'C',agents:[{id:'B'}]});
+  controller.selectPresented({kind:'agent',id:'B'});
+  expect(controller.selectionStatus()).toBeNull();
+  release(['B']);await read;
   expect(controller.selection()?.id).not.toBe('B');
 });
