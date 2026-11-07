@@ -48,7 +48,7 @@ export function matchInputPaintTrace(samples, trace) {
     const event = entries.length === 1 ? entries[0] : null;
     const paintEnd = event ? event.startTime + event.duration : null;
     const stateAtPaint=event?trace.mutations.filter(row=>row.target===sample.expectedId&&row.time>=sample.startTime&&row.time<=paintEnd+4).at(-1)?.selected:null;
-    const eligible = Boolean(stateAtPaint===true && sample.isTrusted && sample.clickTrusted && mutation && event && Number.isFinite(event.duration) && event.duration >= 16 && paintEnd >= sample.startTime && mutation.time <= paintEnd + 4);
+    const eligible = Boolean(stateAtPaint===true && sample.isTrusted && sample.clickTrusted && mutation && event && Number.isFinite(event.duration) && event.duration >= 16 && paintEnd >= sample.startTime && mutation.time <= paintEnd - 4);
     return { index: sample.index, target: sample.expectedId, startTime: sample.startTime,
       domAcceptedMs: mutation ? mutation.time - sample.startTime : null,
       legacyRafOpportunityMs: sample.durationMs,

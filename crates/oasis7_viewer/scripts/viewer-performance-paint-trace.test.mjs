@@ -25,3 +25,12 @@ test('feedback coalesced away before native next paint is not signed as presente
  const result=matchInputPaintTrace([sample],{supported:true,mutations:[{target:'A',time:108,selected:true},{target:'A',time:130,selected:false}],events:[event]});
  assert.equal(result.paintMatched,0);assert.equal(result.rows[0].domAcceptedMs,8);
 });
+
+test('feedback inside rounded paint interval is unknown until it precedes lower bound',()=>{
+ for(const time of [139,142,144]){
+  const result=matchInputPaintTrace([sample],{supported:true,mutations:[{target:'A',time,selected:true}],events:[event]});
+  assert.equal(result.paintMatched,0);assert.equal(result.rows[0].nextPaintEstimateMs,null);
+ }
+ const boundary=matchInputPaintTrace([sample],{supported:true,mutations:[{target:'A',time:138,selected:true}],events:[event]});
+ assert.equal(boundary.paintMatched,1);
+});
