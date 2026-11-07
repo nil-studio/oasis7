@@ -24618,15 +24618,24 @@ function positionKey(position) {
 	const z = Number(position.z_cm ?? position.zCm ?? 0);
 	return `${x}|${y}|${Number.isFinite(z) ? z : 0}`;
 }
-function moduleCoAnchorOffset(index) {
+function moduleCoAnchorOffset(index, unit) {
 	const ring = Math.floor(index / MODULE_CO_ANCHOR_RING_OFFSETS.length) + 1;
 	const [x, y] = MODULE_CO_ANCHOR_RING_OFFSETS[index % MODULE_CO_ANCHOR_RING_OFFSETS.length];
+	const step = (value) => Math.ceil(Math.max(48, 16 * value + 4) / value) * value;
 	return {
-		x: x * ring,
-		y: y * ring
+		x: x / 48 * step(unit.x) * ring,
+		y: y / 48 * step(unit.y) * ring
 	};
 }
-function moduleTargetOffsets(visualState) {
+function moduleTargetOffsets(visualState, size = {
+	width: 960,
+	height: 540
+}, rendererSize = size) {
+	const scale = Math.max(1, Math.floor(Math.min(rendererSize.width / 640, rendererSize.height / 360)));
+	const unit = {
+		x: scale * size.width / rendererSize.width,
+		y: scale * size.height / rendererSize.height
+	};
 	const modules = visualState.moduleVisualEntities.filter((entity) => entity?.pos).slice().sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 	const parentPositions = new Set([...visualState.agents.filter((entity) => entity?.pos), ...visualState.locations.filter((entity) => entity?.pos)].map((entity) => positionKey(entity.pos)).filter((key) => key !== null));
 	const modulesByPosition = /* @__PURE__ */ new Map();
@@ -24649,7 +24658,7 @@ function moduleTargetOffsets(visualState) {
 	modules.forEach((module, index) => {
 		const slot = coAnchorSlots.get(module);
 		const hasParent = slot ? parentPositions.has(slot.key) : false;
-		offsets.set(module.id, hasParent || slot?.count > 1 ? moduleCoAnchorOffset(slot?.index ?? index) : {
+		offsets.set(module.id, hasParent || slot?.count > 1 ? moduleCoAnchorOffset(slot?.index ?? index, unit) : {
 			x: 0,
 			y: 0
 		});
@@ -24691,7 +24700,7 @@ function rendererEntityTargetStyle(entity, worldBounds, size, camera, screenOffs
 function PixelWorldRendererTargets(props) {
 	const state = createMemo(() => pixelWorldVisualState(props.renderState()));
 	const isZh = () => isLocaleZh(props.locale());
-	const moduleOffsets = createMemo(() => moduleTargetOffsets(state()));
+	const moduleOffsets = createMemo(() => moduleTargetOffsets(state(), props.stageSize(), props.rendererSize?.() || props.stageSize()));
 	const entities = createMemo(() => new Map([
 		...state().agents.map((entity) => [JSON.stringify(["agent", entity.id]), entity]),
 		...(state().worldBounds ? state().locations.filter((entity) => entity.pos) : []).map((entity) => [JSON.stringify(["location", entity.id]), entity]),
