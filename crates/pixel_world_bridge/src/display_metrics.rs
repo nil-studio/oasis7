@@ -146,17 +146,19 @@ mod tests {
         });
         COUNTS.with(|counts| {
             *counts.borrow_mut() =
-                json!({"status":"observed","render_version":9,"visible_nonempty_labels":200})
+                json!({"status":"observed","render_version":9,"visible_nonempty_labels":200,"agent_body_sprites":1000})
         });
         let pending: Value = serde_json::from_str(&display_metrics()).unwrap();
         assert_eq!(pending["status"], "awaiting_frame");
         assert!(pending.get("visible_nonempty_labels").is_none());
+        assert!(pending.get("agent_body_sprites").is_none());
         COUNTS.with(|counts| counts.borrow_mut()["render_version"] = json!(10));
         let current: Value = serde_json::from_str(&display_metrics()).unwrap();
         assert_eq!(current["visible_nonempty_labels"], 200);
         BRIDGE_SHARED.with(|shared| shared.borrow_mut().mounted = false);
         let cleared: Value = serde_json::from_str(&display_metrics()).unwrap();
         assert_eq!(cleared["visible_nonempty_labels"], 0);
+        assert_eq!(cleared["agent_body_sprites"], 0);
         assert_eq!(cleared["status"], "unmounted");
     }
 }

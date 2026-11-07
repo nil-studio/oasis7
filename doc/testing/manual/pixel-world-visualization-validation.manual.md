@@ -177,7 +177,7 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 
 worldView密度回归用 `DENSITY_QA_ARTIFACT_ROOT=<immutable-dist> DENSITY_QA_SOURCE_HEAD=<actual-built-commit> node crates/oasis7_viewer/scripts/pixel-world-world-view-density-visual.mjs`，需要仓库固定的ws开发依赖、agent-browser与Python/Pillow。owned loopback WS仅作为受控只读peer，借现有runtime config/hello协商与标准request_world_view五页200项取得1000记录；snapshot基底无对象，不注入worldView或修改客户端cap/权限。它不证明signed WorldService、真实玩家授权、operation身份或P5。
 
-只读 `readPixelWorldDisplayMetrics()` 限test_api=1，从已挂载实例读取PostUpdate布局/可见性统计，不初始化第二实例。只采 `observed` 且render_version/source_cut与同次capture前后一致的帧；pending不借旧数。分别记录projected marker、budget visible、in-view与有glyph布局数、实际CSS/F/DPR及≤200诊断bbox；frame_entity只稳定于该帧，bbox不是GPU fence或遮挡证明。以公开名称normal→零宽名称负控→normal恢复，保持相机/几何等非名称输入相同，逐bbox比较真实PNG；不能只看到配置label_cap=200就签200个已绘字形。保留partial页、mixed-cut、删除、旧回应、新scope/拒绝、能力移除时清理、真实context loss/显式Reload的实际结果。缺新scope证明的legacy回切只可称清理/锁定，不以QA直接授权冒充恢复。
+只读 `readPixelWorldDisplayMetrics()` 限test_api=1，从已挂载实例读取PostUpdate布局/可见性统计，不初始化第二实例。只采 `observed` 且render_version/source_cut与同次capture前后一致的帧；pending不借旧数。分别记录projected marker、独立查询Sprite组件得到的实际Agent body/相机内body数、budget visible、in-view与有glyph布局数、实际CSS/F/DPR及≤200诊断bbox；frame_entity只稳定于该帧，bbox不是GPU fence或遮挡证明。以公开名称normal→零宽名称负控→normal恢复，保持相机/几何等非名称输入相同，逐bbox比较真实PNG；不能只看到配置label_cap=200就签200个已绘字形。保留partial页、mixed-cut、删除、旧回应、新scope/拒绝、能力移除时清理、真实context loss/显式Reload的实际结果。缺新scope证明的legacy回切只可称清理/锁定，不以QA直接授权冒充恢复。
 
 
 测量必须显式声明实际构建 `AGENT_VISUAL_SOURCE_HEAD` 和冻结的 `AGENT_VISUAL_ARTIFACT_ROOT`，保存全部产物与runner内容hash、tracked dirty状态、真实设备/电源/viewport/DPR和采样窗口。移除QA专用计数面板及其周期读数时用 `--dispose-fixture-controls` 明示，不能删除产品HUD/世界目标或裁剪权限。浏览器rAF仍只作为heartbeat观察，不能单独判世界实际帧预算；16GiB/headless/loopback子集不代签8GiB A/B、物理显示、50k query或30分钟长稳。
