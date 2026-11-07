@@ -259,7 +259,7 @@ Retain brand spacing 18px panel gap / 16px stack / 8px controls, tool/stage/pane
 <a id="bevy-density-handoff"></a>
 ### 13.3. Density, labels and overlap
 
-**Existing limits:** one global canvas text budget of 100 visible labels and 128 Unicode scalars per label. Budget priority is selected identity/resource readout → primary goal hotspot → primary blocker hotspot → other hotspots → identities → other labels; stable ID ordering breaks ties. Primary goal/blocker here means lexicographically first supported hotspot of that kind, not an inferred player-business priority. Do not describe this helper as a complete intelligent prioritization system.
+**Existing limits:** the legacy snapshot profile has one global canvas text budget of 100 visible labels and 128 Unicode scalars per label. Budget priority is selected identity/resource readout → primary goal hotspot → primary blocker hotspot → other hotspots → identities → other labels; stable ID ordering breaks ties. Primary goal/blocker here means lexicographically first supported hotspot of that kind, not an inferred player-business priority. Do not describe this helper as a complete intelligent prioritization system.
 
 Identity labels are 10px, max 24 characters plus ellipsis; Agent offset 12px above marker, Location 14px. Ordinary identity labels require zoom >=1.75. Selected Agent and qualifying active-intent labels bypass that zoom gate; recommended/receipt targets alone do **not**. Agent candidate ordering is selected → active intent submitted/accepted/blocked → recommended or receipt → ordinary. Existing rectangular overlap checks and map-label obstacles suppress labels, with priority exceptions. Location selection bypasses ordinary suppression. Map objective/blocker/route text is 11px, max 28 characters, offsets 22/22/14px.
 
@@ -268,7 +268,7 @@ Native `Text2d` keeps Bevy’s Fira Mono primary face and a fixed, locally embed
 **Design review rules (not a new algorithm):**
 
 1. Demonstrate the existing suppression at 0.6, 1.75 and 3.5 camera zoom in the same fixture; keep marker identity and full Targets list despite hidden labels. Do not add more text to make a dense sheet appear complete.
-2. Treat 100 as a hard existing ceiling, not a target to fill and not proof that 100 labels remain legible. Remove secondary map text/texture before shrinking primary Next Move, blocker or receipt.
+2. Treat 100 as the legacy snapshot hard ceiling; the bounded authorized worldView profile uses [200](external-agent-world-view.design.md#world-view-render-density-profile). Neither ceiling is a target to fill or proof that the resulting labels remain legible. Remove secondary map text/texture before shrinking primary Next Move, blocker or receipt.
 3. Show full selected identity, position source and operation ownership in accessible context; a truncated 10px canvas label cannot be the only reading route. Do not shrink CJK to fit the approximate Latin glyph-advance model.
 4. Crowded markers need the existing accessible Targets route to individually choose the correct visible authorized object. Deterministic scattering does not prove overlap selection works. No invented radial menu, grouping control or collision algorithm is part of this docs-only handoff.
 5. Include same-position Agents A/B/C, selected Location plus Agent, goal and blocker collocation, and a long CJK label. If markers/cues still collide, label it **unverified readability risk** rather than changing position authority or implying hidden objects were deleted.
