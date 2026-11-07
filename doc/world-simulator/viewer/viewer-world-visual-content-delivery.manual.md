@@ -51,6 +51,8 @@ rg -n 'optional-payloads.json|size_bytes|sha256|resolvePixelWorldWasmDescriptor'
 
 以下路径供审读制作关系，不表示本专题执行了改色或试产：`water_ice` 原键 → host palette → fragment shading／LOD → bridge WASM → loader／host → 实际地形与 Actor 同屏检查；`resource_transfer` 原 kind → hotspot 类别细节 → 原 hotspot 组合／身份 → 同候选 bridge → 类别区分与无虚构路线检查。
 
+共享地形／设施材质候选可在完整 visual-test 构建后执行 `AGENT_VISUAL_SOURCE_HEAD=<构建固定提交> npm --prefix crates/oasis7_viewer run test:pixel-world:materials:gpu`。可用 `AGENT_VISUAL_ARTIFACT_ROOT` 指定同源产物，`AGENT_VISUAL_CASE=desktop|narrow|dpr2` 与 `MATERIAL_VISUAL_SCOPE=factory|terrain|runtime` 缩小范围；默认覆盖三种尺寸与两类材质。需要 agent-browser、真实 WebGL2 与 Pillow。runner 保存实际 JS/WASM 和源 PNG hash、受控输入改动、DTO、截图及离线 PNG oracle；工厂校验已知／未知／删除／恢复，地形仅校验可见局部变化和精确恢复；原 base 组成色同时变化，不能单凭 delta 证明 ore PNG 纹理已被 GPU 消费，独立纹理特征／受控启停仍留原 P3。独立纹理消费另由 `runtime` scope 在本地 QA 页面使用既有公开 WASM mount/update ABI；输入从相同门控 fixture 的 RenderDTO 取得，不添加产品／授权 API。ore 固定白色 base、位置、footprint、emphasis、LOD 与原 inset parity，仅将 `silicate_matrix` 切为 `unknown`；完整 DTO 差异检查只允许该字段变化，排除原组成底色假阳性。离线 oracle 用源 ore PNG 的线性 sRGB alpha 混合预测及透明区不变负控制，覆盖全部六种不透明源色，并检查删除／精确恢复；GPU raster sample 相位只允许半个逻辑像素以内。depot 固定位置和读数，按源 PNG 下四分之一区域 `[0,24,32,32]` 与主体左侧框 `[6,18,8,22]` 共264源像素采样：这些区域避开原主体／grounding 和原生读数，不把合法前景覆盖计为缺纹理；至少95%匹配且覆盖全部八种不透明源色，负控制仅删除 facility 后至多5%，重建应恢复。全图匹配比例同时保留为遮挡诊断，不能以它冒称完整无覆盖。阈值、实际匹配数和源 PNG hash 随原始证据保存。局部方法不证明真实世界授权、全组合恢复或性能预算，未实际执行／失败的 scope 留原 Issue。
+
 ### 3.2 替换、退役和外部素材
 
 替换内容保留仍被消费的身份与旧版本证据，明确受影响输出、引用、缓存、署名和消费者；不能用新源覆盖旧截图的候选身份。依赖或生成配置变化时重新判断哪些结果可复用，未变的内容键不等于字形、颜色、像素或加载行为未变。

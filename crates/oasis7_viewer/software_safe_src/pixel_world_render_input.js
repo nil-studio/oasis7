@@ -15,7 +15,7 @@ const entity = {
   resources: true, power: fields("state"), relation, assignment: relation,
   profile: fields("radius_cm"), fragment_profile: { blocks: { blocks: true } },
 };
-const moduleVisual = { ...fields("entity_id module_id kind label"), anchor: true };
+const moduleVisual = { ...fields("entity_id module_id kind factory_kind label"), anchor: true };
 const gameplay = {
   ...fields("acceptedIntentDetail acceptedIntentId acceptedIntentScope acceptedIntentSummary acceptedIntentTarget blockerDetail blockerKind blockerLabel executionCauseDetail executionCauseKind executionState executionStateLabel executionSummary goalKind goalTitle lastWorldChange narrativeBlockerDetail narrativeNextStep nextStepHint objective progressDetail progressPercent receiptTargetAgentId"),
   availableActions: true, recentFeedback: true, recommendedAction: true,

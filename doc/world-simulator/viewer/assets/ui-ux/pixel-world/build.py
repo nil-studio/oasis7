@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Export the design pixel sources and refresh only generated world layers.
 
-Run from any directory with Python 3, Pillow and Inkscape on PATH. This does
+Run --sprites-only with Python 3 and Pillow. Full scene/page exports also
+require Inkscape on PATH. This does
 not build or change the Bevy renderer. Atlas symbols are the drawing source;
 scene.svg owns their illustrative placement, not authoritative world positions.
 """
 
+import argparse
 import copy
 import json
 import math
 import re
 import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -108,10 +109,37 @@ def export(source, output, palette, transparent=False):
     print(f"{output.name}: {image.width}x{image.height}, {len(colors)} RGBA colors")
 
 
+def export_sprite(atlas, metadata, name):
+    # Validated symbols contain only opaque integer rectangles. Half-open pixel
+    # bounds preserve SVG coverage without antialiasing or another art source.
+    width, height = metadata["asset_sizes"][name]
+    symbol = atlas.find(f".//{tag('symbol')}[@id='{name}']")
+    assert symbol is not None
+    assert symbol.get("viewBox") == f"0 0 {width} {height}"
+    image = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    for rectangle in symbol:
+        if rectangle.tag in (tag("title"), tag("desc")):
+            continue
+        assert rectangle.tag == tag("rect"), f"Unsupported sprite geometry: {name}"
+        x, y, w, h = (int(rectangle.get(key, "0")) for key in ("x", "y", "width", "height"))
+        assert w > 0 and h > 0
+        image.paste(rectangle.get("fill"), (x, y, x + w, y + h))
+    output = ROOT / f"{name}.png"
+    image.save(output, optimize=True)
+    print(f"{output.name}: {width}x{height}, source atlas.svg#{name}")
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sprites-only", action="store_true", help="export validated atlas symbols with Pillow; no Inkscape needed")
+    args = parser.parse_args()
     atlas = ET.parse(ROOT / "atlas.svg").getroot()
     metadata = json.loads(atlas.find(tag("metadata")).text)
     validate(atlas, metadata)
+    for name in ("agent", "ore", "smelter", "depot"):
+        export_sprite(atlas, metadata, name)
+    if args.sprites_only:
+        return
     scene_path = ROOT / "scene.svg"
     scene_text = scene_path.read_text()
     # The scene placement is authored; its embedded symbols/metadata are synced.
@@ -122,13 +150,6 @@ def main():
     validate(scene, metadata)
     palette = metadata["palette"].values()
     export(scene_path, ROOT / "scene.png", palette)
-    with tempfile.TemporaryDirectory() as temporary:
-        sprite = ET.Element(tag("svg"), {"width": "16", "height": "16", "viewBox": "0 0 16 16", "shape-rendering": "crispEdges"})
-        sprite.append(copy.deepcopy(atlas.find(tag("defs"))))
-        ET.SubElement(sprite, tag("use"), {"href": "#agent", "width": "16", "height": "16"})
-        source = Path(temporary) / "agent.svg"
-        source.write_text(ET.tostring(sprite, encoding="unicode"))
-        export(source, ROOT / "agent.png", palette, transparent=True)
     frames = [
         ("16-low-height-command-expanded.svg", (0, 0, 484, 390), "world-stage", (136, 77)),
         ("17-dense-and-unknown-targets.svg", (0, 0, 1048, 900), "world-stage", None),

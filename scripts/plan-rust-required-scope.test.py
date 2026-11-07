@@ -4259,9 +4259,27 @@ class NativeSupportContracts(unittest.TestCase):
             self.assertEqual(set(plan['groups']), set(config['groups']))
             self.assertNotIn('ordinary_support_handoffs', plan)
 
-    def test_real_adapter_body_is_supported_but_new_items_macros_and_exports_are_not(self):
+    def test_real_platform_adapter_without_registered_module_keeps_full_coverage(self):
         config, _ = self.fixture()
         source = (HERE.parent / self.LEAF).read_text()
+        self.write(self.LEAF, source)
+        base = self.commit()
+        changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
+        self.assertNotEqual(source, changed)
+        self.write(self.LEAF, changed)
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertIn('workspace_support', plan['groups'])
+        self.assertEqual(plan['scope'], 'full')
+
+    def test_adapter_body_is_supported_but_new_items_macros_and_exports_are_not(self):
+        config, _ = self.fixture()
+        # Keep the positive input inside this fixture's registered ordinary
+        # contract. The real CLI also contains platform-gated local adapters,
+        # which this minimal module graph intentionally does not authorize.
+        source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> { '
+                  'if args.len() != 3 { return Err("invalid arguments".into()); } '
+                  'Ok(()) }\n')
         self.write(self.LEAF, source)
         base = self.commit()
         changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')

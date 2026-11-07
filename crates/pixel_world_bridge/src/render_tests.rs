@@ -68,7 +68,7 @@ fn sample_position(x_cm: f64, y_cm: f64) -> Position {
         z_cm: 0.0,
     }
 }
-fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
+pub(super) fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
     RenderState {
         exploration_mode: false,
         navigation: None,
@@ -124,9 +124,10 @@ fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
         active_intent_target: None,
     }
 }
-fn render_test_app(render_state: RenderState) -> App {
+pub(super) fn render_test_app(render_state: RenderState) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
+    app.init_resource::<Assets<Image>>();
     app.insert_resource(test_runtime(render_state));
     app.world_mut().spawn((
         Window {
@@ -486,6 +487,11 @@ fn sample_pixel(image: &RgbaImage, layer: &PixelLayer) -> [u8; 4] {
 }
 fn rasterize_pixel_regression(app: &mut App) -> (RgbaImage, PixelRegressionSummary) {
     let layers = collect_pixel_layers(app);
+    let agent_pixels = image::load_from_memory(include_bytes!(
+        "../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png"
+    ))
+    .unwrap()
+    .to_rgba8();
     let mut image = RgbaImage::from_pixel(VIEWPORT_WIDTH, VIEWPORT_HEIGHT, Rgba(PIXEL_BACKGROUND));
     let mut kind_buffer = vec![0u8; (VIEWPORT_WIDTH * VIEWPORT_HEIGHT) as usize];
     for layer in &layers {
@@ -517,8 +523,22 @@ fn rasterize_pixel_regression(app: &mut App) -> (RgbaImage, PixelRegressionSumma
                         continue;
                     }
                 }
+                let rgba = if layer.kind == "agent" {
+                    agent_pixels
+                        .get_pixel(
+                            ((x - left) * 16 / width).clamp(0, 15) as u32,
+                            ((y - top) * 16 / height).clamp(0, 15) as u32,
+                        )
+                        .0
+                        .map(|channel| f32::from(channel) / 255.0)
+                } else {
+                    layer.rgba
+                };
+                if rgba[3] == 0.0 {
+                    continue;
+                }
                 let pixel = image.get_pixel_mut(x as u32, y as u32);
-                let next = blend_src_over(layer.rgba, pixel.0);
+                let next = blend_src_over(rgba, pixel.0);
                 pixel.0 = next;
                 kind_buffer[(y as u32 * VIEWPORT_WIDTH + x as u32) as usize] =
                     layer_kind_id(layer.kind);
@@ -705,7 +725,7 @@ fn bevy_ecs_reconciles_fragment_location_agent_visuals_from_render_state() {
         summary.agent_cores[0].size_px,
         agent_core_size_px(&sample_render_state(12_000.0).agents[0], true)
     );
-    assert!(summary.agent_cores[0].z > summary.agents[0].z);
+    assert!(summary.agent_cores[0].z < summary.agents[0].z);
     assert_eq!(summary.hit_regions, 2);
 }
 #[test]
@@ -995,7 +1015,7 @@ fn bevy_render_probe_contract_captures_visual_hierarchy() {
     assert!(summary.agents[0].size_px >= 15.0);
     assert!(summary.fragments[0].z < summary.agents[0].z);
     assert_eq!(summary.agent_cores.len(), 1);
-    assert!(summary.agent_cores[0].z > summary.agents[0].z);
+    assert!(summary.agent_cores[0].z < summary.agents[0].z);
     assert!(summary.agent_cores[0].size_px < summary.agents[0].size_px);
     assert_eq!(summary.fragment_insets.len(), 1);
     assert!(summary.fragment_insets[0].z > summary.fragments[0].z);
@@ -1132,54 +1152,5 @@ fn bevy_pixel_regression_keeps_canvas_visible_for_agent_and_location_selection()
         );
     }
 }
-#[test]
-fn bevy_pixel_regression_gives_selected_agent_and_location_the_same_non_color_beacon() {
-    for (kind, selected_id, unselected_id) in [
-        ("agent", "agent-0", "agent-1"),
-        ("location", "loc-0", "loc-1"),
-    ] {
-        let mut app = render_test_app(sample_render_state_with_beacon_candidates(
-            kind,
-            selected_id,
-        ));
-        let summary = visual_probe_summary(&mut app);
-        let (selected, unselected) = match kind {
-            "agent" => (
-                summary
-                    .agents
-                    .iter()
-                    .find(|row| row.id == selected_id)
-                    .unwrap(),
-                summary
-                    .agents
-                    .iter()
-                    .find(|row| row.id == unselected_id)
-                    .unwrap(),
-            ),
-            "location" => (
-                summary
-                    .locations
-                    .iter()
-                    .find(|row| row.id == selected_id)
-                    .unwrap(),
-                summary
-                    .locations
-                    .iter()
-                    .find(|row| row.id == unselected_id)
-                    .unwrap(),
-            ),
-            _ => unreachable!("test cases use known render entity kinds"),
-        };
-        assert!(
-            selected.size_px > unselected.size_px,
-            "selected {kind} must have a geometry beacon beyond its color"
-        );
-        assert!(
-            selected.z > unselected.z,
-            "selected {kind} must have a draw-priority beacon beyond its color"
-        );
-    }
-}
-
 #[path = "render_spatial_overlay_tests.rs"]
 mod spatial_overlay_tests;

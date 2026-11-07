@@ -968,7 +968,7 @@ export function PixelWorldHost(props) {
     const lost = (event) => {
       event.preventDefault();
       // Stop the old session and its hit regions before exposing recovery.
-      adapter().simulateFatal({ code: "pixel_world_context_lost", message: "World graphics interrupted. Retry to restore the authorized view." });
+      adapter().simulateFatal({ code: "pixel_world_context_lost", message: "World graphics context lost. Reload the page to rebuild graphics." });
     };
     let start = null;
     const stopFollow = spatial.pauseFollow;
@@ -1096,7 +1096,12 @@ export function PixelWorldHost(props) {
       applyRendererUpdate();
     }
   }
+  const rendererNeedsReload = () => rendererFatal()?.code === "pixel_world_context_lost";
+  const rendererReloadLabel = () => tr(locale(), "重新加载页面恢复图形", "Reload page to restore graphics");
   function requestReadyMode() {
+    // This WASM module owns a boot-once Bevy App. Reusing its bridge cannot
+    // recreate GPU resources destroyed by an actual WebGL context loss.
+    if (rendererNeedsReload()) { window.location.reload(); return; }
     if (scopeGuard.check().blocked) { scopeReadPending = null; core.requestRender(); return; }
     const canvas = mountedCanvas?.isConnected ? mountedCanvas : null;
     mountedCanvas = canvas;
@@ -1311,7 +1316,7 @@ export function PixelWorldHost(props) {
             <p>{surface().objective?.title}</p><p>{surface().objective?.detail}</p>
             <PixelWorldActionReceipt locale={locale} surface={surface} />
           </>}</Show>
-          {rendererStatus() === "unavailable" ? <><div>{rendererFatal()?.code === "pixel_world_scope_changed" ? tr(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : tr(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser")}</div><button type="button" class="pixel-world-render-unavailable__retry" onClick={requestReadyMode}>{tr(locale(), "重试 Renderer", "Retry Renderer")}</button></> : tr(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.")}
+          {rendererStatus() === "unavailable" ? <><div>{rendererFatal()?.code === "pixel_world_scope_changed" ? tr(locale(), "正在重新确认可见范围；旧内容已清除。", "Reconfirming visible scope; previous content cleared.") : rendererNeedsReload() ? tr(locale(), "图形上下文已丢失，需要重新加载页面恢复图形。", "The graphics context was lost. Reload the page to restore graphics.") : tr(locale(), "此浏览器中的图形不可用", "Graphics unavailable in this browser")}</div><button type="button" class="pixel-world-render-unavailable__retry" onClick={requestReadyMode}>{rendererNeedsReload() ? rendererReloadLabel() : tr(locale(), "重试 Renderer", "Retry Renderer")}</button></> : tr(locale(), "Rust bridge 正在生成世界显示状态。", "Rust bridge is deriving the world display state.")}
         </div>
       </Show>
       <Show when={focusMode() && renderState()?.commercial_surface}>
@@ -1369,7 +1374,7 @@ export function PixelWorldHost(props) {
               <span class="badge">{`hover=${hoverSelection().kind}/${hoverSelection().id}`}</span>
             </Show>
             <button type="button" onClick={requestReadyMode}>
-              {tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
+              {rendererNeedsReload() ? rendererReloadLabel() : tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
             </button>
             <button type="button" onClick={simulateFatal}>
               {tr(locale(), "模拟 Renderer Fatal", "Simulate Renderer Fatal")}
@@ -1416,7 +1421,7 @@ export function PixelWorldHost(props) {
             </div>
             <div class="toolbar toolbar--spaced">
               <button type="button" onClick={requestReadyMode}>
-                {tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
+                {rendererNeedsReload() ? rendererReloadLabel() : tr(locale(), "重新挂载嵌入式 Renderer", "Reattach Embedded Renderer")}
               </button>
             </div>
           </div>

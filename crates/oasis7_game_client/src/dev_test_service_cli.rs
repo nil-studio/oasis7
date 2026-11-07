@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+use std::io::Read as _;
+
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     if args.first().map(String::as_str) == Some("dev-test-local-serve") {
         #[cfg(target_os = "linux")]

@@ -10,6 +10,21 @@ describe('real renderer accessible projection', () => {
       expect(style.display, `${x},${y}`).toBe(visible ? undefined : 'none');
     }
   });
+  it('preserves fractional camera pan and double-precision snap thresholds', () => {
+    const size={width:1280,height:720};
+    const center=rendererEntityTargetStyle({id:'A',pos:{x_cm:50,y_cm:50}}, {width_cm:100,depth_cm:100},size,{pan_x_px:0.6});
+    expect(parseFloat(center.left)*1280/100).toBe(640);
+    for (const [delta, expected] of [[-1e-8,640],[1e-8,642]]) {
+      const position={x_cm:(641+delta-20)/1240*100,y_cm:50};
+      const style=rendererEntityTargetStyle({id:'A',pos:position},{width_cm:100,depth_cm:100},size,{});
+      expect(parseFloat(style.left)*1280/100).toBeCloseTo(expected,8);
+    }
+  });
+  it('keeps fractional CSS dimensions in the same snap cell as Rust', () => {
+    const width=1365.3333333333;
+    const style=rendererEntityTargetStyle({id:'A',pos:{x_cm:1728326,y_cm:50}},{width_cm:10000000,depth_cm:100},{width,height:768},{},null,{width:1365,height:768});
+    expect(parseFloat(style.left)*width/100).toBeCloseTo(250.061050061044,8);
+  });
   const bounds = { width_cm: 1000, depth_cm: 1000 };
   const agent = { id: 'agent-0', pos: { x_cm: 250, y_cm: 600 } };
   it('retains focused targets across snapshots while updating data, geometry and membership', async () => {
@@ -107,7 +122,7 @@ describe('real renderer accessible projection', () => {
     ).left);
   });
 
-  it('projects agent, location, and module targets through the actual backing canvas size', () => {
+  it('projects in CSS units and snaps through the actual framebuffer at DPR2', () => {
     const cssSize = { width: 1440, height: 900 };
     const backingSize = { width: 2880, height: 1800 };
     const camera = { zoom: 1.563, pan_x_px: 932, pan_y_px: -523 };
@@ -121,24 +136,25 @@ describe('real renderer accessible projection', () => {
       y: parseFloat(style.top) * cssSize.height / 100,
     });
 
+    // F=2880x1800: s=4, each logical pixel is 2 CSS px; pan y=-523 snaps to -522.
     expect(center(rendererEntityTargetStyle(agent, renderBounds, cssSize, camera, null, backingSize))).toEqual({
-      x: expect.closeTo(719.9134, 4),
-      y: expect.closeTo(449.8336, 4),
+      x: expect.closeTo(1192, 4),
+      y: expect.closeTo(184, 4),
     });
     expect(center(rendererEntityTargetStyle(location, renderBounds, cssSize, camera, null, backingSize))).toEqual({
-      x: expect.closeTo(1030.6378, 4),
-      y: expect.closeTo(353.5528, 4),
+      x: expect.closeTo(1498, 4),
+      y: expect.closeTo(90, 4),
     });
     expect(center(rendererEntityTargetStyle(moduleAgent, renderBounds, cssSize, camera, { x: -48, y: -48 }, backingSize))).toEqual({
-      x: expect.closeTo(671.9134, 4),
-      y: expect.closeTo(401.8336, 4),
+      x: expect.closeTo(1144, 4),
+      y: expect.closeTo(136, 4),
     });
     expect(center(rendererEntityTargetStyle(moduleLocation, renderBounds, cssSize, camera, { x: -48, y: -48 }, backingSize))).toEqual({
-      x: expect.closeTo(982.6378, 4),
-      y: expect.closeTo(305.5528, 4),
+      x: expect.closeTo(1450, 4),
+      y: expect.closeTo(42, 4),
     });
-    expect(719.9134 - 671.9134).toBeCloseTo(48, 4);
-    expect(449.8336 - 401.8336).toBeCloseTo(48, 4);
+    expect(1192 - 1144).toBeCloseTo(48, 4);
+    expect(184 - 136).toBeCloseTo(48, 4);
   });
 
   it('keeps co-anchored parent and module DOM targets aligned and independently clickable', async () => {
@@ -207,4 +223,17 @@ describe('real renderer accessible projection', () => {
     expect(offsets.get('module-0008')).toEqual({ x: -96, y: -96 });
     expect(offsets.get('module-4095')).toEqual({ x: 24576, y: 24576 });
   });
+  it('keeps co-anchor native hit boxes apart at six CSS pixels per logical pixel', () => {
+    const modules = [{id: 'a', kind: 'artifact', pos: {x_cm: 1,y_cm: 1}}, {id: 'b', kind: 'artifact', pos: {x_cm: 1,y_cm: 1}}];
+    const offsets = moduleTargetOffsets({agents: [], locations: [], moduleVisualEntities: modules}, {width:3840,height:2160}, {width:3840,height:2160});
+    expect(offsets.get('a')).toEqual({x:-102,y:-102});
+    expect(offsets.get('b')).toEqual({x:0,y:-102});
+  });
+
+  it('keeps fractional CSS ceil in f64 at the shared Rust boundary', () => {
+    const modules = [{id:'a',pos:{x_cm:1,y_cm:1}}, {id:'b',pos:{x_cm:1,y_cm:1}}];
+    const offsets = moduleTargetOffsets({agents:[],locations:[],moduleVisualEntities:modules}, {width:959.99999999,height:720}, {width:1480,height:1110});
+    expect(offsets.get('a').x).toBeCloseTo(-38 * (959.99999999 / 1480 * 2), 10);
+  });
+
 });

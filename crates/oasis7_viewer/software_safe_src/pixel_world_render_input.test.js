@@ -3,6 +3,15 @@ import { createStore, $RAW } from "solid-js/store";
 import { projectPixelWorldRenderInput, encodePixelWorldRenderInput } from "./pixel_world_render_input.js";
 
 describe("bounded renderer input", () => {
+  it("keeps explicit factory type in display-only module fields without reading private data", () => {
+    const module = {entity_id:"F",module_id:"runtime_factory",kind:"factory",factory_kind:"factory.smelter.mk1",label:"Fixture smelter",anchor:{type:"absolute",data:{pos:{x_cm:1,y_cm:2,z_cm:0}}}};
+    Object.defineProperty(module,"private_stock",{enumerable:true,get(){throw Error("private field read");}});
+    const source = {snapshot:{model:{module_visual_entities:{F:module}}}};
+    expect(projectPixelWorldRenderInput(source).snapshot.model.module_visual_entities.F.factory_kind).toBe("factory.smelter.mk1");
+    delete module.factory_kind;
+    expect(projectPixelWorldRenderInput(source).snapshot.model.module_visual_entities.F.factory_kind).toBeUndefined();
+  });
+
   it("does not traverse unrelated snapshot history or private agent data", () => {
     const agent = { id: "A", pos: { x_cm: 4, y_cm: 5, z_cm: 0 } };
     Object.defineProperty(agent, "cognition", { enumerable: true, get() { throw Error("private tree traversed"); } });
