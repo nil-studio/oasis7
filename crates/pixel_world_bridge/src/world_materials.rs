@@ -113,7 +113,7 @@ pub(super) fn reconcile(
                 false,
             );
         }
-        let scale = agent_pixel_scale(width, height);
+        let scale = layout.pixel_css();
         for facility in &state.module_visual_entities {
             if facility.kind != "factory"
                 || facility.factory_kind.as_deref() != Some("factory.smelter.mk1")
@@ -289,6 +289,27 @@ mod tests {
                 UVec2::splat(48)
             );
             assert_eq!(world.resource::<BevyRuntimeState>().hit_regions.len(), 0);
+        }
+        {
+            let world = app.world_mut();
+            let mut query = world.query_filtered::<&mut Window, With<PrimaryWindow>>();
+            let mut window = query.single_mut(world).unwrap();
+            window.resolution.set_scale_factor_override(Some(2.));
+            window.resolution.set_physical_resolution(780, 1688);
+        }
+        app.update();
+        {
+            let world = app.world_mut();
+            let mut query = world.query_filtered::<(&Sprite, &Transform), With<MaterialShell>>();
+            let smelter = query
+                .iter(world)
+                .find(|(_, transform)| transform.translation.x == 12.)
+                .unwrap();
+            assert_eq!(
+                smelter.0.custom_size,
+                Some(Vec2::splat(24.)),
+                "390 CSS px with 780 backing px uses half-CSS-pixel authored units"
+            );
         }
         {
             let mut runtime = app.world_mut().resource_mut::<BevyRuntimeState>();
