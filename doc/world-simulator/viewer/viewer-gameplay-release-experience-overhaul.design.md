@@ -465,6 +465,8 @@ Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维�
 ### 显示投影与调度
 
 1. **投影先于跨 WASM 边界**。Host 从同一有效、经会话可见性过滤的 snapshot 构造普通、无 Solid Proxy 的 `RenderInputV1`；仅包含当前显示所需的实体 identity/位置/标签、地形/设施显示字段、选择/相机、目标/阻塞/回执展示字段及 world/scope/revision。明确字段白名单，不直接传 snapshot、modelLists 的原实体、完整 gameplay/history 或 auth 对象。嵌套数组/对象同样投影成普通数据，单独 `unwrap` 或 `JSON.stringify(snapshot)` 不算解决完整树遍历。Rust 改为具体 DTO 解析，不先递归转换完整 `serde_json::Value` 再挑字段；Rust 继续拥有已有渲染派生规则，JS 只裁剪/复制，不补算游戏后果。
+本节500/100/256 KiB用于旧snapshot显示profile；已协商授权 `worldView` 使用[独立显示profile](external-agent-world-view.design.md#world-view-render-density-profile)的1000/200及有界字节/结构合同。两者按输入来源选择，不能自由调cap或提升授权。
+
 2. **限制数据成本**。输入与输出均有 schema/version、字段类型、数目、文本长度及总字节上限，未知版本明确 unavailable。目标每个方向序列化等价 UTF-8 大小不超过 256 KiB；按实体稳定排序，场景投影最多 500 个普通可见标记，文字标签最多 100 个、每个最多 128 Unicode 标量。当前选择、主目标和主要 blocker 的语义优先，装饰先裁剪；无法容纳必需语义时明确“显示容量不足”，不得悄悄丢掉关键结果。可见细节裁剪不改变 Targets 完整的有权列表、世界尺度与实际实体计数。Targets 每类别最多挂载 50 行，以分页展示当前范围与完整授权搜索结果计数；搜索仍覆盖完整授权列表，所有页可达、翻页不改变选择。关键词变化回到首页，删除或权限收缩立即移除失效行并夹紧页码，不保留上一授权范围的行。沿用 fragment LOD/空间查询权威；被裁剪数量与原因可诊断，输入输出都检查预算，不发送截断的非法 JSON。
 3. **按显示 revision 更新**。memo 依赖只读显示投影的确切输入（相关字段 revision、locale、selection、相机/LOD、权限 scope），网络心跳、diagnostics、无关 feed 和 renderer meta 不使全世界重新派生。世界 tick 可经轻量 readout 更新；同一显示内容不因 tick 变化重新转换几何。旧协议没有 revision 时，在接收边界按有关字段计算 revision，禁止每帧深度比较全 snapshot。实体删除、不可见、目标/阻塞和最新动作结果变化必须使正确子投影失效。
 4. **合并展示，保留权威事件**。同一 animation frame 只消费一个最新待显示投影，最多一个派生在途及一个待处理槽；旧待处理投影可覆盖，动作提交、回执、journal/feed 的权威 reducer 仍逐条处理，不能套用 latest-only。显示保留真实 world revision 和 freshness；追赶期间不能显示 LIVE。单次转换超预算时先缩小 DTO 和拆分无关派生；Worker 仅在测量证明仍需隔离纯派生时采用，不把 Bevy/WebGL 或 auth 转移到 Worker 当作本轮前提。

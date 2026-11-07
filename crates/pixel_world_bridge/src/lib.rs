@@ -23,6 +23,7 @@ use canvas_projection::to_canvas_point_unsnapped;
 mod facility_signature;
 mod host_render_input;
 mod host_state;
+mod native_fonts;
 mod pixel_pipeline;
 mod pointer_gesture;
 mod presentation_clock;
@@ -1016,6 +1017,7 @@ fn boot_bevy_app(canvas_selector: String) {
         }),
         ..default()
     }));
+    native_fonts::install(&mut app);
     app.insert_resource(WinitSettings {
         // Pointer/window events wake immediately; the timeout is only the
         // low-power ambient animation heartbeat and stays below the 12 Hz cap.
