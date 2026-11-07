@@ -205,7 +205,7 @@ try {
   await run(['open', 'about:blank']); await run(['set', 'viewport', '1440', '1000', String(dpr)]); await run(['open', url]); await attachMetrics();
   await waitProjection(800); summary.partial = await state(); assertGuest(summary.partial);
   assert(held.some(x => x.response.view?.entities?.length === 200), 'last200-page was not actually held');
-  holdLastPage = false; release(); await overview(); await waitProjection(1000); await zoomForLabels(); await waitProjection(1000);
+  holdLastPage = false; release(); await waitProjection(1000); await overview(); await run(['wait', '500']); await waitProjection(1000); await zoomForLabels(); await waitProjection(1000);
   const css = await evaluate(`(async()=>{const l=[...document.querySelectorAll('link[rel=stylesheet]')].find(l=>l.href.includes('viewer_terminal_shell.css')),r=l?await fetch(l.href):null,t=document.querySelector('.pixel-world-renderer-target:not([data-selected=true])'),s=t?getComputedStyle(t):null;return{status:r?.status,mime:r?.headers.get('content-type'),rules:l?.sheet?.cssRules.length,background:s?.backgroundColor,border:s?.borderTopColor,shadow:s?.boxShadow}})()`);
   assert(css.status === 200 && css.mime?.startsWith('text/css') && css.rules > 0 && css.background === 'rgba(0, 0, 0, 0)' && css.border === 'rgba(0, 0, 0, 0)' && css.shadow === 'none', 'canonical style prerequisite failed'); summary.css = css;
   const initial = await state();
