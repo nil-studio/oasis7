@@ -1,8 +1,11 @@
 import { createServer } from "node:http";
-import { cpSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
+import { densityScript, installSnapshotFeedScript, nativeCameraGesture } from "./viewer-performance-interaction-window.mjs";
+import { installPaintTraceScript, matchInputPaintTrace } from "./viewer-performance-paint-trace.mjs";
 import { collectNativeSelectionSamples } from "./viewer-performance-native-input.mjs";
 import { createOwnedSessionLifecycle } from "./agent-browser-visual-runner-lifecycle.mjs";
 import {
@@ -87,6 +90,14 @@ function parseArgs(argv) {
     agents: 80,
     locations: 24,
     interactionSamples: 20,
+    interactionWindowMs: 0,
+    paintTrace: false,
+    compactScene: false,
+    mixCamera: false,
+    snapshotFeed: false,
+    minimumViewportMarkers: 0,
+    disposeFixtureControls: false,
+    locale: "en",
     viewport: [1440, 1000],
     thresholds: {},
   };
@@ -103,6 +114,14 @@ function parseArgs(argv) {
       case "--out-dir": options.outDir = next(); break;
       case "--agents": options.agents = Number(next()); break;
       case "--locations": options.locations = Number(next()); break;
+      case "--interaction-window-ms": options.interactionWindowMs = Number(next()); break;
+      case "--paint-trace": options.paintTrace = true; break;
+      case "--mixed-camera": options.mixCamera = true; break;
+      case "--snapshot-feed": options.snapshotFeed = true; break;
+      case "--min-viewport-markers": options.minimumViewportMarkers = Number(next()); break;
+      case "--compact-scene": options.compactScene = true; break;
+      case "--dispose-fixture-controls": options.disposeFixtureControls = true; break;
+      case "--locale": options.locale = next(); break;
       case "--interaction-samples": options.interactionSamples = positiveInteger(next(), 20); break;
       case "--viewport": {
         const [width, height] = next().split(/[x,]/).map((part) => Number(part.trim()));
@@ -126,6 +145,10 @@ function parseArgs(argv) {
         throw new Error(`unknown option: ${arg}`);
     }
   }
+  if(!Number.isSafeInteger(options.interactionWindowMs)||options.interactionWindowMs<0||options.interactionWindowMs>3600000)throw Error("interaction window must be 0..3600000 integer milliseconds");
+  if(options.compactScene&&options.agents+options.locations>500)throw Error("compact scene has500 controlled cells; do not claim higher density");
+  if(!Number.isSafeInteger(options.minimumViewportMarkers)||options.minimumViewportMarkers<0)throw Error("invalid minimum viewport marker count");
+  if(!["en","zh"].includes(options.locale))throw Error("locale must be en or zh");
   return normalizeProbeOptions(options);
 }
 
@@ -137,6 +160,14 @@ Measures the current canonical Viewer web entry in a real browser with agent-bro
 Options:
   --profile <smoke|release>       Threshold/duration profile (default: smoke)
   --interaction-samples <n>      Trusted native selection inputs (default: 20)
+  --interaction-window-ms <n>    Minimum first-input to last-feedback span (0 disables)
+  --paint-trace                  Passive DOM mutation and native EventTiming trace
+  --compact-scene                Controlled 500-cell grid; actual budgets still apply
+  --mixed-camera                 Include trusted native pan/zoom between selections
+  --snapshot-feed                Controlled2Hz snapshots and5-second10Hz bursts (not WorldFeed)
+  --min-viewport-markers <n>      Reject windows below measured projected/in-viewport density
+  --dispose-fixture-controls     Remove QA-only diagnostic panel/timer before sampling
+  --locale <en|zh>               Fixture UI locale (default: en)
   --duration-ms <n>               Override sampling duration
   --out-dir <path>                Artifact directory
   --agents <n>                    Synthetic agents in injected snapshot (default: 80)
@@ -201,7 +232,7 @@ function serveFile(request, response) {
 }
 
 function prepareViewerWebDist(distDir) {
-  const testDist = resolve(viewerRoot, ".viewer-test-dist");
+  const testDist = resolve(process.env.AGENT_VISUAL_ARTIFACT_ROOT || resolve(viewerRoot, ".viewer-test-dist"));
   if (!statSync(testDist, { throwIfNoEntry: false })?.isDirectory()) {
     throw new Error("viewer performance probe requires npm run build:viewer:visual-test");
   }
@@ -323,7 +354,7 @@ function collectProcessTreeCpuSample(attribution) {
   };
 }
 
-function probeScript({ durationMs, agents, locations }) {
+function probeScript({ durationMs, agents, locations, compactScene }) {
   return `
     (async () => {
       const startedAt = performance.now();
@@ -354,13 +385,18 @@ function probeScript({ durationMs, agents, locations }) {
         }));
       };
       const rendererReadyState = await waitForRendererReady();
+      const grid = [];
+      if (${compactScene}) {
+        for(const [col,row] of [[12,10],[13,10]])grid.push({x_cm:3000000+(col-12)*120000,y_cm:2000000+(row-10)*100000,z_cm:0});
+        for(let row=0;row<20;row++)for(let col=0;col<25;col++)if(!(row===10&&(col===12||col===13)))grid.push({x_cm:3000000+(col-12)*120000,y_cm:2000000+(row-10)*100000,z_cm:0});
+      }
       const model = { agents: {}, locations: {}, agent_prompt_profiles: {}, agent_execution_debug_contexts: {}, agent_player_bindings: {}, agent_player_public_key_bindings: {} };
       for (let index = 0; index < ${locations}; index += 1) {
         const locationId = "loc-" + index;
         model.locations[locationId] = {
           id: locationId,
           name: "Perf Location " + index,
-          pos: { x_cm: (index % 8) * 400000, y_cm: Math.floor(index / 8) * 260000, z_cm: 0 },
+          pos: grid[${agents}+index] || { x_cm: (index % 8) * 400000, y_cm: Math.floor(index / 8) * 260000, z_cm: 0 },
           profile: { radius_cm: 25000 + (index % 4) * 5000, radiation_emission_per_tick: index % 3, material: "silicate" },
           resources: { ore: { amount: 20 + index, unit: "t" }, energy: { amount: 60 + (index % 20), unit: "%" } },
         };
@@ -371,14 +407,14 @@ function probeScript({ durationMs, agents, locations }) {
         model.agent_player_public_key_bindings[agentId] = rendererReadyState.authPublicKey;
         model.agents[agentId] = {
           id: agentId,
-          name: "Perf Agent " + index,
-          pos: { x_cm: 1000000 + (index % 32) * 100000, y_cm: 1000000 + Math.floor(index / 32) * 60000, z_cm: 0 },
+          name: ${compactScene} ? (index<2 ? "性能观察者"+index : "P"+String(index).padStart(4,"0")) : "Perf Agent " + index,
+          pos: grid[index] || { x_cm: 1000000 + (index % 32) * 100000, y_cm: 1000000 + Math.floor(index / 32) * 60000, z_cm: 0 },
           location_id: "loc-" + (index % ${locations}),
           kind: index % 2 === 0 ? "builder" : "surveyor",
           resources: { energy: { amount: 40 + (index % 60), unit: "%" }, ore: { amount: index % 9, unit: "t" } },
         };
       }
-      api.injectSnapshot({
+      const sourceSnapshot = {
         time: 128,
         config: { space: { width_cm: 6000000, depth_cm: 4000000, height_cm: 800000 } },
         model,
@@ -413,7 +449,9 @@ function probeScript({ durationMs, agents, locations }) {
           recent_feedback: null,
           agent_claim: null,
         },
-      }, { returnState: false });
+      };
+      window.__VIEWER_PERF_SOURCE__ = structuredClone(sourceSnapshot);
+      api.injectSnapshot(sourceSnapshot, { returnState: false });
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const readyMs = performance.now() - startedAt;
       const frameIntervals = [];
@@ -506,6 +544,7 @@ if (options.help) {
   console.log(usage());
   process.exit(0);
 }
+if((options.paintTrace||options.interactionWindowMs)&&!process.env.AGENT_VISUAL_SOURCE_HEAD)throw Error("declare AGENT_VISUAL_SOURCE_HEAD for traced/window measurements");
 
 const profile = VIEWER_PERF_PROFILES[options.profile];
 if (!profile) throw new Error(`unknown profile: ${options.profile}`);
@@ -521,13 +560,22 @@ const thresholds = normalizeViewerPerfThresholds({ ...profile.thresholds, ...opt
 mkdirSync(outDir, { recursive: true });
 ensureAgentBrowser();
 staticRoot = prepareViewerWebDist(webDistDir);
+const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const walk=dir=>readdirSync(dir,{withFileTypes:true}).flatMap(entry=>entry.isDirectory()?walk(resolve(dir,entry.name)):[resolve(dir,entry.name)]);
+const manifest=()=>Object.fromEntries(walk(webDistDir).sort().map(path=>[relative(webDistDir,path),{bytes:statSync(path).size,sha256:hash(readFileSync(path))}]));
+const assets=manifest();
+const git=args=>{const result=spawnSync('git',args,{cwd:repoRoot,encoding:'utf8'});if(result.status!==0)throw Error(result.stderr);return result.stdout.trim();};
+const commandText=(command,args)=>{const result=spawnSync(command,args,{encoding:'utf8'});return result.status===0?result.stdout.trim():'unknown';};
+const context={runnerHead:git(['rev-parse','HEAD']),trackedWorktreeDirty:git(['status','--porcelain','--untracked-files=no'])!=='',declaredRendererSource:process.env.AGENT_VISUAL_SOURCE_HEAD?git(['rev-parse',process.env.AGENT_VISUAL_SOURCE_HEAD+'^{commit}']):'unknown',artifactRoot:process.env.AGENT_VISUAL_ARTIFACT_ROOT||'default',assets,scripts:Object.fromEntries(['viewer-performance-probe.mjs','viewer-performance-native-input.mjs','viewer-performance-paint-trace.mjs','viewer-performance-interaction-window.mjs'].map(path=>[path,hash(readFileSync(resolve(scriptDir,path)))])),hardware:commandText('sysctl',['hw.model','hw.memsize']),os:commandText('sw_vers',[]),power:commandText('pmset',['-g','batt']),refreshHz:'unknown; headless timing does not prove physical refresh/presentation',network:'unshaped loopback; not formal A/B',formalP6:false};
+writeFileSync(join(outDir,'run-context.json'),JSON.stringify(context,null,2));
+
 
 const server = createServer(serveFile);
 
 try {
   await new Promise((resolveServer) => server.listen(0, "127.0.0.1", resolveServer));
   const address = server.address();
-  const url = `http://127.0.0.1:${address.port}/viewer.html?test_api=1&connect=0&locale=en&hosted_bootstrap=0&pixel_world_visual_fixture=performance_regular&t=${Date.now()}`;
+  const url = `http://127.0.0.1:${address.port}/viewer.html?test_api=1&connect=0&locale=${options.locale}&hosted_bootstrap=0&pixel_world_visual_fixture=performance_regular&t=${Date.now()}`;
 
   prepareBrowserSession(); await new Promise((resolve) => setTimeout(resolve, 500));
   const cpuProcessBaseline = processSnapshot();
@@ -552,6 +600,7 @@ try {
   })()`);
   writeFileSync(join(outDir,"canonical-style-prerequisite.json"),JSON.stringify(stylePrerequisite,null,2));
   if(!stylePrerequisite.passed)throw Error("invalid performance entry: "+JSON.stringify(stylePrerequisite));
+  if(options.disposeFixtureControls)await evalJson("(()=>{window.__OASIS7_PIXEL_WORLD_PERFORMANCE_CONTROL__?.dispose();if(document.querySelector('#pixel-world-performance-fixture-controls'))throw Error('QA control panel disposal failed');return true;})()");
   const cpuAttribution = establishCpuAttribution(cpuProcessBaseline);
 
   async function sampleScenario(name, agents, locations, iteration) {
@@ -562,7 +611,7 @@ try {
     const sampler = setInterval(sampleCpu, 500);
     let rawProbe;
     try {
-      rawProbe = await evalJson(probeScript({ durationMs, agents, locations }), {
+      rawProbe = await evalJson(probeScript({ durationMs, agents, locations, compactScene: options.compactScene }), {
         timeout: durationMs + 45_000,
       });
     } finally {
@@ -585,13 +634,40 @@ try {
   const rawProbe = denseRuns[denseRuns.length - 1];
   writeFileSync(join(outDir,"before-native-input.json"),JSON.stringify(rawProbe,null,2));
   const interactionPath = join(outDir, "native-interactions.json");
-  const interactionEvidence = await collectNativeSelectionSamples({
-    evaluate: evalJson, run: args => runAgentBrowserJson(args), count: options.interactionSamples,
-    onSample: samples => writeFileSync(interactionPath, JSON.stringify({method:"trusted native Enter to selected DOM and two rAF paint opportunities",samples},null,2)),
+  const windowEvidence={density:[],gestures:[],cpuSamples:[],warmup:[],unsupported:['formal1000entities/200labels: current500marker/100label cap','formal8GiB A/B target unavailable','world query/follow/stop release UI not negotiated in legacy fixture','controlled snapshot bursts are not WorldFeed events','rAF does not prove actual world render frame interval']};
+  const checkDensity=async()=>{const row=await evalJson(densityScript);windowEvidence.density.push(row);if(row.visibility!=='visible'||row.projectedMarkers<options.minimumViewportMarkers||row.inViewportTargets<options.minimumViewportMarkers)throw Error('interaction density/foreground prerequisite failed: '+JSON.stringify(row));};
+  if(options.compactScene)windowEvidence.warmup=await collectNativeSelectionSamples({evaluate:evalJson,run:args=>runAgentBrowserJson(args),count:2});
+  await checkDensity();
+  if(options.snapshotFeed)windowEvidence.snapshotFeed=await evalJson(installSnapshotFeedScript);
+  if(options.paintTrace)await evalJson(installPaintTraceScript);
+  const interactionCpuTimer=setInterval(()=>windowEvidence.cpuSamples.push(collectProcessTreeCpuSample(cpuAttribution)),500);
+  let interactionEvidence;
+  try { interactionEvidence = await collectNativeSelectionSamples({
+    evaluate: evalJson, run: args => runAgentBrowserJson(args), count: options.interactionSamples, minimumDurationMs: options.interactionWindowMs,
+    onSample: samples => {appendFileSync(join(outDir,"native-interactions.jsonl"),JSON.stringify(samples.at(-1))+"\n");if(!options.interactionWindowMs||samples.length%50===0)writeFileSync(interactionPath,JSON.stringify({method:"trusted native Enter to selected DOM and two rAF paint opportunities",samples},null,2));},
+    betweenSamples: async ({index})=>{
+      if(options.mixCamera&&index%8===7)windowEvidence.gestures.push(await nativeCameraGesture({evaluate:evalJson,run:args=>runAgentBrowserJson(args),index}));
+      if(options.snapshotFeed&&index%40===39)await evalJson("window.__VIEWER_SNAPSHOT_FEED__.burst();true");
+      if(index%20===19)await checkDensity();
+    },
   });
+  } catch(error){windowEvidence.error=String(error);writeFileSync(join(outDir,"interaction-window.partial.json"),JSON.stringify(windowEvidence,null,2));throw error;} finally {clearInterval(interactionCpuTimer);}
+  writeFileSync(interactionPath,JSON.stringify({method:"trusted native Enter to selected DOM and two rAF paint opportunities",samples:interactionEvidence},null,2));
+  await checkDensity();
+  if(options.snapshotFeed){windowEvidence.snapshotFeed=await evalJson("(()=>{__VIEWER_SNAPSHOT_FEED__.dispose();return JSON.stringify(__VIEWER_SNAPSHOT_FEED__);})()");}
+  windowEvidence.actualSpanMs=interactionEvidence.at(-1).endTime-interactionEvidence[0].startTime;
+  windowEvidence.formalP6=false;
+  writeFileSync(join(outDir,"interaction-window.json"),JSON.stringify(windowEvidence,null,2));
+  if(options.paintTrace) {
+    await evalJson("new Promise(resolve=>setTimeout(()=>resolve(true),2000))");
+    const trace=await evalJson("JSON.stringify(window.__VIEWER_INPUT_TRACE__)");
+    rawProbe.inputPaintTrace=matchInputPaintTrace(interactionEvidence,trace);
+    writeFileSync(join(outDir,"input-paint-trace.json"),JSON.stringify({trace,matched:rawProbe.inputPaintTrace},null,2));
+    await evalJson("window.__VIEWER_INPUT_TRACE__.dispose();true");
+  }
   rawProbe.interactionLatencies = interactionEvidence.map(sample => sample.durationMs);
   rawProbe.interactionEvidence = interactionEvidence;
-  rawProbe.notes = [...(rawProbe.notes || []), "Interaction measures native selection UI feedback only; no Runtime/network completion, pan/zoom, stop, 5-minute interaction or formal A/B coverage is implied."];
+  rawProbe.notes = [...(rawProbe.notes || []), "Selection samples measure local UI feedback only. Any controlled pan/zoom and interaction duration are recorded separately; Runtime/network completion, explicit stop/follow, formal 1000/200 density and A/B coverage remain unproved."];
 
   const cpuSamples = [...idleRuns, ...denseRuns].flatMap((run) => run.cpuSamples);
   const baselineRecord = (run, suffix) => {
@@ -615,7 +691,12 @@ try {
       dense: denseRuns.map((run, index) => baselineRecord(run, `dense-${index + 1}`)),
     },
   });
+  if(JSON.stringify(manifest())!==JSON.stringify(assets))throw Error("served artifact tree changed during measurement");
+  summary.runContext=context;
   summary.canonicalStylePrerequisite=stylePrerequisite;
+  summary.inputPaintTrace=rawProbe.inputPaintTrace;
+  summary.interactionWindow=windowEvidence;
+  summary.controlledSetup={rendererSource:process.env.AGENT_VISUAL_SOURCE_HEAD||"unknown",artifactRoot:process.env.AGENT_VISUAL_ARTIFACT_ROOT||"default",compactScene:options.compactScene,qaPanelDisposed:options.disposeFixtureControls,locale:options.locale,interactionWindowRequestedMs:options.interactionWindowMs};
   summary.artifacts = { summaryJson: summaryJsonPath, summaryMarkdown: summaryMdPath, screenshot: screenshotPath };
 
   await runAgentBrowser(["screenshot", screenshotPath], { timeout: 20_000 });

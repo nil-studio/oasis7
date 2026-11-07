@@ -171,6 +171,12 @@ Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；O7-REQ-24cbdd98-cf69-4
 
 `node crates/oasis7_viewer/scripts/viewer-performance-probe.mjs --agents 1000 --interaction-samples 20 --max-interaction-p95-ms 100` 使用 gated visual fixture 的正常身份对齐，再将本项受控 Agent 绑定到该身份；不建立真实服务授权。原生 Enter 的可信 keydown 时间到目标 `data-selected` 更新及两次 rAF 作为选择反馈探查，逐样本记录身份、时间和真实输入。两次 rAF 只是绘制机会，不等于屏幕光子或世界 Runtime 完成；未覆盖平移、缩放、stop、五分钟和正式 A/B。输入为空、null 或无目标时必须失败，不能用零延迟补样本。`actualProjection` 的 DTO 与 native target 数单独报告，不能从 `--agents` 的源对象数量推断可见密度。rAF 间隔也不能单独证明世界实际渲染 FPS。
 
+扩展交互测量使用 `--paint-trace` 分开保留三种终点：可信输入后 `data-selected` 首次变true的观察时间（末端core选中身份另核）、同目标/时间关联且带 interaction ID 的 browser EventTiming next-rendering estimate、原有 DOM 后两次 rAF 绘制机会。DOM 接受不是可见绘制；EventTiming 也不是世界 GPU fence 或 Runtime 结果。[W3C Event Timing](https://www.w3.org/TR/2026/WD-event-timing-20260223/) 的事件暴露下限为16ms、duration以8ms粒度呈现，因此缺条目记 unknown、不补零；保留±4ms区间，并核对选中变化不晚于关联绘制区间下界（中心−4ms），且直到区间上界（中心+4ms）未撤销。不选取较快的一组替换旧门槛或代签正式P6。
+
+`--interaction-window-ms 300000 --mixed-camera --snapshot-feed` 使首个可信输入到最后反馈的实际浏览器时间跨越至少五分钟，期间使用原生pan/zoom与受控snapshot的2Hz/有限10Hz更新；snapshot更新不是WorldFeed事件，未协商的follow/stop/query不得用QA的Stop updates冒充。用独立窗口遵守适用[发布性能合同](../../world-simulator/viewer/viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-verification)的重复要求，逐窗报告与保留最差一次，不以平均数掩盖失败。`--compact-scene --agents 476 --locations 24 --min-viewport-markers 500` 只用于既有500 marker边界，逐段对账真实投影与屏内DOM几何，不旁路256KiB/500 marker或100 label的硬上限。100 label是上限而非实测负载/可读保证；没有原生实际label计数时标unknown。正式1000/200与现有上限的后续设计/实现义务仍保留。
+
+测量必须显式声明实际构建 `AGENT_VISUAL_SOURCE_HEAD` 和冻结的 `AGENT_VISUAL_ARTIFACT_ROOT`，保存全部产物与runner内容hash、tracked dirty状态、真实设备/电源/viewport/DPR和采样窗口。移除QA专用计数面板及其周期读数时用 `--dispose-fixture-controls` 明示，不能删除产品HUD/世界目标或裁剪权限。浏览器rAF仍只作为heartbeat观察，不能单独判世界实际帧预算；16GiB/headless/loopback子集不代签8GiB A/B、物理显示、50k query或30分钟长稳。
+
 组合材料恢复可运行 `AGENT_VISUAL_SOURCE_HEAD=<固定构建源> MATERIAL_VISUAL_SCOPE=recovery node crates/oasis7_viewer/scripts/agent-browser-material-visual-test.mjs`。本地 HTTP QA shim 只包装原 gated `material_shells` 工厂，在每次真正页面 Reload 前提供当前受控 known/removed 输入；不保存或恢复私有 DTO，不新增生产权限 API。三个视口分别真实触发 context loss，检查失效目标清空、无自动 Reload、原生 Enter 显式重载、非空 fixture 身份及 receipt target 连续、无世界 Command 或变更 HTTP。PNG oracle 检查工厂全部源色与删除负对照，Depot 避开既有 Location 右下角框的源区域仍覆盖全部八色；矿纹使用结构化侧带检查组合画面恢复，独立矿纹消费须另用同底色 runtime oracle。它们不代签真实服务撤权、原 operation 身份或正式 P6 预算。
 
 ### 9.2 容量与过载反例
