@@ -4259,25 +4259,66 @@ class NativeSupportContracts(unittest.TestCase):
             self.assertEqual(set(plan['groups']), set(config['groups']))
             self.assertNotIn('ordinary_support_handoffs', plan)
 
-    def test_real_platform_adapter_without_registered_module_keeps_full_coverage(self):
+    def test_real_legacy_cli_body_retains_registered_complete_targets(self):
         config, _ = self.fixture()
         source = (HERE.parent / self.LEAF).read_text()
-        self.assertIn('#[cfg(', source)
         self.write(self.LEAF, source)
         base = self.commit()
         changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
         self.assertNotEqual(source, changed)
         self.write(self.LEAF, changed)
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
+        self.assertEqual(plan['ordinary_support_deferred'], self.CONSUMERS)
+        self.assertEqual({target['target_name'] for target in plan['ordinary_fast_targets']},
+                         {self.OWNER, 'identity_cli', 'dev_test_catalog_cli',
+                          'legacy_profile', 'dev_test_service_cli'})
+
+    def test_platform_adapter_without_registered_module_keeps_full_coverage(self):
+        config, _ = self.fixture()
+        # Preserve the rejected platform boundary independently of the current
+        # production leaf, which must remain limited to the legacy commands.
+        source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> {\n'
+                  '  #[cfg(target_os = "linux")]\n'
+                  '  if args.len() != 3 { return Err("invalid arguments".into()); }\n'
+                  '  Ok(())\n}\n')
+        self.assertIn('#[cfg(', source)
+        self.write(self.LEAF, source)
+        base = self.commit()
+        self.write(self.LEAF, source.replace('args.len() != 3',
+                                            'args.len() != 3 || args.is_empty()'))
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
         self.assertNotIn('ordinary_support_handoffs', plan)
         self.assertNotIn('ordinary_execution', plan)
         self.assertIn('workspace_support', plan['groups'])
         self.assertEqual(plan['scope'], 'full')
 
+    def test_local_adapter_and_public_dispatch_cannot_borrow_legacy_handoff(self):
+        config, _ = self.fixture()
+        local = f'crates/{self.OWNER}/src/dev_test_local_adapter.rs'
+        parent = f'crates/{self.OWNER}/src/lib.rs'
+        dispatch = f'crates/{self.OWNER}/src/commands.rs'
+        self.write(local, 'pub fn transport() -> u8 { 1 }\n')
+        self.write(parent, Path(parent).read_text()
+                   + '#[cfg(unix)]\npub mod dev_test_local_adapter;\n')
+        base = self.commit()
+        for path in (local, dispatch):
+            for mixed in (False, True):
+                with self.subTest(path=path, mixed=mixed):
+                    self.git('reset', '--hard', base)
+                    self.write(path, Path(path).read_text() + '\npub fn new_entry() {}\n')
+                    head = self.change() if mixed else self.commit()
+                    plan = selector.select(config, base, head, profile='pr-fast')
+                    self.assertNotIn('ordinary_support_handoffs', plan)
+                    self.assertNotIn('ordinary_execution', plan)
+                    self.assertIn('workspace_support', plan['groups'])
+
     def test_adapter_body_is_supported_but_new_items_macros_and_exports_are_not(self):
         config, _ = self.fixture()
-        # Keep the positive grammar inside the registered module contract;
-        # the real CLI also references platform-gated local adapters.
+        # Keep this synthetic positive input inside the registered contract;
+        # real source and platform boundaries have independent cases above.
         source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> { '
                   'if args.len() != 3 { return Err("invalid arguments".into()); } '
                   'match args[0].as_str() { "serve" => Ok(()), '

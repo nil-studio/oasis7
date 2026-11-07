@@ -414,6 +414,24 @@ module.run_worker_wasm_compile_checks(manifest)
 PY_WORKER_COMPILE
 }
 
+run_game_client_cli_contracts() {
+  run_cargo test -p oasis7_game_client --test dev_test_service_cli --test dev_test_local_transport --test dev_test_local_cli --locked
+  if [[ "${GITHUB_ACTIONS:-}" == true ]]; then
+    if [[ "${RUNNER_OS:-}" != Linux || "${RUNNER_ENVIRONMENT:-}" != github-hosted ]]; then
+      echo "game-client cross-UID fixture requires an isolated GitHub-hosted Linux runner" >&2
+      return 2
+    fi
+    run_cargo build -p oasis7_game_client --bin oasis7_game_client --locked
+    # Root timeout owns the entire inherited process group, including the
+    # fixture's distinct-UID clients. Failure/cancellation never completes support.
+    run sudo -n timeout --signal=TERM --kill-after=5s 60s "$ci_python" \
+      crates/oasis7_game_client/tests/fixtures/dev_test_local_linux.py \
+      target/debug/oasis7_game_client
+  else
+    echo "+ cross-UID fixture NOT EXECUTED locally; hosted Linux evidence still required" >&2
+  fi
+}
+
 run_oasis7_workspace_support_crate_tests() {
   run_signed_read_protocol_contract_tests
   run_cargo test -p oasis7_custody_core --all-targets --locked
@@ -428,6 +446,7 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo test -p oasis7_agent_harness --lib
   run_cargo test -p oasis7_client_storage -p oasis7_signer_protocol --lib
   run_cargo test -p oasis7_game_client --lib
+  run_game_client_cli_contracts
   run_cargo test -p oasis7_model_provider --all-targets
   run_cargo test \
     -p oasis7_browser_game_client \
@@ -505,7 +524,8 @@ PY
     case "$profile" in
       oasis7_agent_api) run_signed_read_protocol_contract_tests; run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" ;;
       oasis7_model_provider) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --all-targets; complete_targets=true ;;
-      oasis7_agent_harness|oasis7_game_client|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
+      oasis7_agent_harness|oasis7_browser_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
+      oasis7_game_client) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib; run_game_client_cli_contracts ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
       oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;

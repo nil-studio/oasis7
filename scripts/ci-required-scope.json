@@ -12,7 +12,7 @@
       "source": "crates/oasis7_game_client/src/dev_test_service_cli.rs",
       "entry": "run",
       "callers": {
-        "crates/oasis7_game_client/src/commands.rs": "4a4d695938493fa665c741652a1e4effc50250f8c08607aedf8ae1e0d94e4d89",
+        "crates/oasis7_game_client/src/commands.rs": "0aba38c4f9e32c35facd42ac443c4eb382f74f8ce949512cf22f4ad7dac0f7dd",
         "crates/oasis7_game_client/src/bin/oasis7_game_client.rs": "f0e672b7b81c4b6259ce3c6286ec2345558b9f7c3b5e1c87e4dd26cc2ed87587"
       },
       "tests": [
