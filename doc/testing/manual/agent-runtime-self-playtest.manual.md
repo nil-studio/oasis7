@@ -358,6 +358,8 @@ Trace refs: O7-REQ-7405a6cf-1d2a-4518-8521-013b64ae33c7。父项 #5076；共同�
 
 Linux `dev_test_local_transport` 实际执行 3 passed。`tests/fixtures/dev_test_local_linux.py <Linux CLI路径>` 在 root 可信进程和 UID 1001／1002 模型进程之间实际验证：获准主体取得能力、未获准主体拒绝、当前配置与同边界凭据夹具不可读、用途／版本拒绝、持续滴流按绝对时限退出且重连可用、当前撤销与过期拒绝。夹具仅使用合成材料，需在隔离 Linux 容器以 root 运行；不是实际外部 Agent。
 
+自动回归沿[完整 Game Client support](../ci/ci-tiered-execution.design.md)执行：一次性专用 GitHub-hosted Linux runner 可承担同一隔离环境责任，先构建本次真实 CLI，再使用 `sudo -n timeout --signal=TERM --kill-after=5s 60s python3 crates/oasis7_game_client/tests/fixtures/dev_test_local_linux.py target/debug/oasis7_game_client`。夹具将可执行文件复制到本次 root 拥有的 `/run` 临时目录，使不同 UID 的读取与执行不依赖 checkout 父目录权限；退出、断言失败和可处理的取消信号均回收服务与临时材料。共享 self-hosted 或普通本机不自动提权，本地 Cargo 测试不能代签这份跨 UID 证据。CI 必须保留真实运行结果及失败状态，不能以恢复缓存、编译通过或夹具未执行作通过结论。
+
 请求正文、共同服务调用与响应共用同一个绝对 deadline；已设置拒绝响应的有限写时限。私有配置读取复用 `dev_test_private_config` 的可信祖先、`O_NOFOLLOW` 和同文件描述符检查。macOS 配置读取及持续滴流定向回归通过。
 
 真实 `attached_codex_subagent` 已完成有限只读 A→B→A 和原件查询，具体 source/build 与用量见 PR #5554。该模型会话仍能访问宿主工具，隔离声明为 `instruction_only/source_visible`；UID 强制边界仅覆盖固定工具子进程。自主写入、重启恢复及远程实际消费者分别保留未完验收，不能以只读通过代签。

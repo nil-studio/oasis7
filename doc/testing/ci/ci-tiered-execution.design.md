@@ -263,7 +263,11 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 目标使用配置中明确登记的默认 feature 设置与显式 features；声明 `test_tier_required` 的目标启用该 feature。Game Client 使用默认 features，与原 support library 入口相同；不能把该包没有 feature 声明当成永久不变量。增量生产修改同时选择 Runtime lib 和物理 integration，保留正常、拒绝和取消保护；不默认构建或执行 Chain Runtime 等上层完整测试包。精确输入规则优先，已有 module/导出声明限制失败时，组件规则不能再次放行。组件规则使用有界的 owner 源码范围及排除项，并在 base/source/tested 比较中核对真实可达性，不能把整个目录无条件视为已覆盖。
 
-Game Client 的 `dev_test_service_cli.rs` 只承接参数分派与调用适配。私有配置的文件类型、权限、UID 校验和请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变；这些实现及公共命令入口变化继续扩测。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
+Game Client 的 `dev_test_service_cli.rs` 只承接原 `dev-test-serve`、`dev-test-call` 的参数分派与调用适配。Linux 本地身份代理的 `dev-test-local-serve`、`dev-test-local-call` 由可信公共分派入口按完整命令名提前交给未登记的 `dev_test_local_adapter`，平台条件、模型请求解码和本地身份校验均留在该模块；这些输入与公共分派入口变化继续扩测，不能进入 legacy 私有叶子的快速合同。私有配置的文件类型、权限、UID 校验和原请求解码、65536 字节上限由未登记的 service 实现拥有，语义保持不变。适配文件仅允许审定私有入口的函数体变化，新增 import、导出、impl、trait、模块、unsafe、属性或未知宏不能借此放行。每个比较树都核对私有模块引用库存及实际反向消费者的 commands 路线；新增 SDK 包装、重导出或别名导入均使合同失效。已审定 commands 分派与唯一二进制入口以可信摘要固定，变化后须重新评审登记，不能假定目标分支先合入的新调用边无影响。固定 `wasm32-unknown-unknown` 不执行稳定的 `cfg(unix)` 路由，但仍须核对所有挂载、嵌入与 host 生成路线；新增或改写 production cfg 不享受此豁免。
+
+边界回归同时使用真实 legacy 源码的正例与独立的带平台属性源码负例；后者不能随生产文件拆分而失去保守保护。完整仓库中的普通函数体变化及预览的注释变化都必须得到原五个完整 targets、inline/support 转交和三包 all-targets Clippy；Linux 代理、公共分派、身份或混合输入仍保留原必要范围。本地代理的命令兼容与跨 UID 成功、拒绝、权限和恢复由真实二进制及既有 Linux 进程夹具验证，不以同 UID 模拟替代内核主体校验。
+
+完整 Game Client support 在原 library 与 strict Clippy 之外执行 legacy 服务、本地传输和本地命令三个完整 integration targets；一次性 GitHub-hosted Linux runner 还构建真实 binary，由 root 所有的有限时进程组执行既有跨 UID 夹具。夹具仅复制本次 binary 和合成材料到 root 拥有的临时目录，私有材料另置 `0700` 子目录，保留获准／未获准主体、不可读私有文件、用途／版本、撤销／过期和滴流后重连断言；信号、断言或清理失败均不能完成 support。CI 缺失 Linux／hosted 身份或提权能力直接失败，不降为跳过；本地普通用户只运行可执行的 Cargo 合同，明确报告跨 UID 未执行，完整验收仍需隔离 Linux 证据。该入口仅随实际 Game Client support 执行，legacy 快速合同的五个目标保持不变。
 
 调用库存覆盖全部 workspace 的 Rust 宏来源及实际 include 输入，不能因导出宏没有普通依赖边就忽略它。raw identifier 按真实标识符比较，未知宏参数和模板保持保守；消费者依赖闭包出现未经审定的本地 proc-macro 时回退，不尝试分析任意常量生成的 Rust 源码。独立本地 commands 模块及标准断言中的普通字段、索引和值不作为公共 CLI 路线；本地断言宏覆盖、别名导入和 macro_use 不能借这个表达式例外放行。
 
