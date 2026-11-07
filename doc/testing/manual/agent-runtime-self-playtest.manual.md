@@ -387,6 +387,7 @@ RunInput 还应固定宿主可用空间的启动预算及运行停线；容器�
 唯一 MCP 工具为 `dev_test_accounts_call`，闭合开放 accounts/open/close/describe/
 task/capabilities/context/move/lookup；操作参数沿用共同 DTO，请求及结果不重写。
 stdio 按行接收最多 65536 字节，传输失败不自动重试。根级 ok 不代替世界结果。
+已明确 canonical Rejected 的原 Move 可作为新目标明确授权下重新规划的反馈，不能改旧base/nonce或把unknown当拒绝。需要此场景时，可信侧先固定最多决策数和最多成功效果数：第二新Context只在匹配原Move/作用域/correlation的权威拒绝且当前原生fence允许时开放；不从位置未变推定无效果。代理重启不得归零此门禁或预算，缺记录保持unknown并关闭新写。新Goal/新授权必须明确独立范围，不以改场景名规避自测轮数；最后一次仍拒绝后停止，保留未完成义务。
 宿主负责操作系统进程隔离；不能让模型同时拥有服务 UID、可变启动参数或任意 shell。
 
 本项局部复现：
