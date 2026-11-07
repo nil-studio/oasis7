@@ -67,8 +67,9 @@ pub(super) fn reconcile(
         && let Some(state) = &runtime.render_state
         && let Some(bounds) = &state.world_bounds
         && let Ok(window) = windows.single()
+        && let Some(layout) = pixel_pipeline::window_layout(window)
     {
-        let (width, height) = (window.width() as f64, window.height() as f64);
+        let (width, height) = (layout.css.x as f64, layout.css.y as f64);
         if materials.textures.is_none() {
             materials.textures = Some(textures(&mut images));
         }
