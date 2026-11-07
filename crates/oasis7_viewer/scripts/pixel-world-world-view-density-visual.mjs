@@ -41,7 +41,7 @@ const run = args => new Promise((yes, no) => {
 async function evaluate(code) { const r = JSON.parse(await run(['--json', 'eval', code])); assert(r.success, JSON.stringify(r)); return r.data.result; }
 const browserState = `(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c?.getBoundingClientRect(),gl=c?.getContext('webgl2'),debug=gl?.getExtension('WEBGL_debug_renderer_info');return {ready:document.querySelector('.pixel-world-canvas')?.dataset.rendererReady==='true',metrics:window.__QA_READ_METRICS__?.()||{status:'uninitialized'},core:window.__AW_TEST__?.getState(),browser:{userAgent:navigator.userAgent,platform:navigator.platform},viewport:{width:innerWidth,height:innerHeight},dpr:devicePixelRatio,scrollX,scrollY,origin:performance.timeOrigin,gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null,canvas:c?{left:r.left,top:r.top,cssWidth:r.width,cssHeight:r.height,width:c.width,height:c.height}:null,targets:[...document.querySelectorAll('.pixel-world-renderer-target')].map(b=>{const r=b.getBoundingClientRect();return{id:b.dataset.agentId||b.dataset.locationId||b.dataset.moduleId,selected:b.dataset.selected,x:r.x+r.width/2,y:r.y+r.height/2,width:r.width,height:r.height,inView:r.right>0&&r.bottom>0&&r.left<innerWidth&&r.top<innerHeight}})}})()`;
 const state = async () => JSON.parse(await evaluate(`JSON.stringify(${browserState})`));
-const waitFor = expression => evaluate(`(async()=>{const end=Date.now()+30000;while(Date.now()<end){if(${expression})return true;await new Promise(r=>setTimeout(r,100))}throw Error('condition timed out: '+${JSON.stringify(expression)})})()`);
+const waitFor = expression => evaluate(`(async()=>{const end=Date.now()+30000;while(Date.now()<end){const error=window.__AW_TEST__?.getState()?.lastError;if(typeof error==='string'&&error.startsWith('window.error:'))throw Error(error);if(${expression})return true;await new Promise(r=>setTimeout(r,100))}throw Error('condition timed out: '+${JSON.stringify(expression)})})()`);
 let pauseReplies = false, holdLastPage = true, corruptNextCursorPage = false;
 let held = [], lastOldPage = null;
 const wire = [], http = [];
@@ -91,6 +91,9 @@ wss.on('connection', socket => {
 });
 const release = () => { const queue = held; held = []; for (const x of queue) send(x.socket, x.connection, x.response); };
 async function reconnect() { held = []; for (const socket of wss.clients) socket.close(1012, 'controlled source transition'); await run(['wait', '1400']); }
+async function waitNegotiation(worldView) {
+  await waitFor(`(${browserState}).core?.connectionStatus==='connected'&&(${browserState}).core?.viewerProtocol?.negotiated===true&&(${browserState}).core?.worldId===${JSON.stringify(fixture.description().world)}&&(${browserState}).core?.viewerProtocol?.capabilities?.includes('world_view')===${worldView}`);
+}
 async function attachMetrics() {
   await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');if(typeof m.readPixelWorldDisplayMetrics!=='function')throw Error('candidate lacks active-instance readonly metrics');window.__QA_READ_METRICS__=m.readPixelWorldDisplayMetrics;return true})()`);
 }
@@ -142,13 +145,17 @@ function sourceFor(capture) {
   const cut = capture.metrics.source_cut;
   const pages = wire.filter(row => row.direction === 'out' && !row.replay && row.message.type === 'world_view'
     && row.message.view.delivery === 'baseline' && row.message.view.source_cut === cut);
-  const records = new Map(); let binding;
+  const records = new Map(), groups = new Map(); let binding;
   for (const page of pages) {
     const view = page.message.view;
     const current = { world_id: view.world_id, scope_id: view.scope_id, world_bounds: view.world_bounds,
       source_binding: view.source_binding, reorg_epoch: view.reorg_epoch, source_frozen: view.source_frozen };
     if (binding) assert(isDeepStrictEqual(binding, current), 'source pages crossed authority/world/bounds');
     binding = current;
+    const match = /^(\d+):\d+$/.exec(view.request_generation);
+    assert(match, 'world-view wire correlation did not use the existing transport');
+    const groupKey = page.connection + ':' + match[1];
+    const group = groups.get(groupKey) || []; group.push(view); groups.set(groupKey, group);
     for (const entity of view.entities) {
       const key = `${entity.kind}:${entity.entity_id}`;
       if (records.has(key)) assert(isDeepStrictEqual(records.get(key), entity), 'same cut contains conflicting source records');
@@ -156,6 +163,10 @@ function sourceFor(capture) {
     }
   }
   assert(records.size === 1000, 'actual wire did not disclose1000 source records at capture cut');
+  const completeFivePages = [...groups.values()].some(group => group.length === 5 && group.every(view => view.entities.length === 200)
+    && group.at(-1).completeness === 'complete' && !group.at(-1).next_cursor
+    && new Set(group.flatMap(view => view.entities.map(entity => `${entity.kind}:${entity.entity_id}`))).size === 1000);
+  assert(completeFivePages, 'no single actual wire query supplied five200-page complete1000 baseline');
   return { cut, binding, records: [...records.values()].sort((a, b) => `${a.kind}:${a.entity_id}`.localeCompare(`${b.kind}:${b.entity_id}`)),
     pages: pages.map(row => ({ connection: row.connection, request_generation: row.message.view.request_generation, bytes: row.bytes, entities: row.message.view.entities.length })) };
 }
@@ -203,15 +214,15 @@ try {
     await waitFor(`(${browserState}).metrics.status==='observed'&&(${browserState}).metrics.projected_marker_count===200`);
     summary.mixedCutRejected = await state();
     pauseReplies = false; release(); await overview(); await waitProjection(1000);
-    const old = lastOldPage; fixture.newWorld(); await reconnect(); await waitProjection(1000); summary.worldB = await state();
+    const old = lastOldPage; fixture.newWorld(); await reconnect(); await waitNegotiation(true); await waitProjection(1000); summary.worldB = await state();
     assert(old?.response && old.connection, 'missing actual old-connection response for replay');
     for (const socket of wss.clients) send(socket, connectionIds.get(socket), old.response,
       { kind: 'old_response_on_current_socket', originalConnection: old.connection, originalRequestGeneration: old.response.view.request_generation });
     await run(['wait', '300']); assert((await state()).metrics.source_cut === fixture.description().cut, 'old response crossed new world source fence');
-    fixture.revoke(); await reconnect(); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.denied = await state();
-    fixture.restoreWorldView(); await reconnect(); await waitProjection(1000); summary.restoredScope = await state();
-    fixture.setLegacy(); await reconnect(); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.legacyDowngrade = { state: await state(), claim: 'cleared/locked; no legitimate legacy reauthorization proof supplied' };
-    fixture.restoreWorldView(); await reconnect(); await waitProjection(1000);
+    fixture.revoke(); await reconnect(); await waitNegotiation(false); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.denied = await state();
+    fixture.restoreWorldView(); await reconnect(); await waitNegotiation(true); await waitProjection(1000); summary.restoredScope = await state();
+    fixture.setLegacy(); await reconnect(); await waitNegotiation(false); await waitFor(`(${browserState}).targets.length===0&&!((${browserState}).metrics.projected_marker_count>0)`); summary.legacyDowngrade = { state: await state(), claim: 'cleared/locked; no legitimate legacy reauthorization proof supplied' };
+    fixture.restoreWorldView(); await reconnect(); await waitNegotiation(true); await waitProjection(1000);
     const origin = await evaluate('performance.timeOrigin');
     await evaluate(`(()=>{const gl=document.querySelector('#pixel-world-embedded-runtime-canvas').getContext('webgl2'),loss=gl.getExtension('WEBGL_lose_context');if(!loss)throw Error('loss extension unavailable');loss.loseContext();return true})()`);
     await waitFor(`document.querySelector('.pixel-world-render-unavailable__retry')&&(${browserState}).targets.length===0`); assert(await evaluate('performance.timeOrigin') === origin, 'automatic page reload occurred');
