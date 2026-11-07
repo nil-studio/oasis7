@@ -505,10 +505,18 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), WorldError> {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         };
-        let result = file.write_all(bytes).and_then(|()| {
+        let result = (|| {
+            file.write_all(bytes)?;
+            file.sync_all()?;
             drop(file);
-            fs::rename(&tmp, path)
-        });
+            fs::rename(&tmp, path)?;
+            // A successful rename alone does not persist the directory entry.
+            #[cfg(unix)]
+            if let Some(parent) = path.parent() {
+                fs::File::open(parent)?.sync_all()?;
+            }
+            Ok::<(), std::io::Error>(())
+        })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
         }

@@ -44,6 +44,8 @@ DistFS拥有local index/CAS/audit/manifest/probe算法；chain-runtime拥有CLI/
 
 `LocalCasStore` 规范化相对路径并拒绝 empty、absolute 和 ..；`write_file` 先落 CAS，再更新本地 files_index。原子文件替换不是 CAS、索引及调用方之间的跨组件事务；写失败时不能由错误反推不存在已写 CAS。read/stat/list/delete 保持本地 FileStore 抽象。
 
+CAS `put` 对已有同名 blob 必须读取并校验解码后的内容哈希；损坏时返回错误并保留原文件，不把文件存在当作写入成功，也不自动覆盖故障证据。重新写入仅能由已核验原字节及适用修复流程承接。CAS 原子发布在 rename 前同步临时文件，Unix 上在 rename 后同步父目录；同步失败返回错误，可能已发布的文件不能据错误推定不存在。已有文件的幂等成功仅证明当前内容校验通过，不重新执行同步屏障；新建目录的祖先链接未逐级同步。共享原子发布 helper 同时影响 blob、索引和 pin JSON 的写入成本。该本地顺序不保证完整目录树、磁盘控制器、虚拟机或宿主掉电后的绝对耐久性，不构成世界历史恢复或跨组件事务。
+
 产品适用性：N/A；reason=本地路径映射与I/O接口不独立构成世界状态；scope=路径校验、CAS到索引的写入顺序。
 
 
