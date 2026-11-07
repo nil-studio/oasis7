@@ -29,6 +29,7 @@ mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
 mod test_hit_targets;
+mod world_materials;
 mod world_strokes;
 
 #[cfg(test)]
@@ -845,6 +846,7 @@ fn render_signature(render_state: Option<&RenderState>, mode: RenderSignatureMod
         if matches!(mode, RenderSignatureMode::Content) {
             entity.module_id.hash(&mut hasher);
             entity.kind.hash(&mut hasher);
+            entity.factory_kind.hash(&mut hasher);
             entity.label.hash(&mut hasher);
         }
     }
@@ -1028,6 +1030,7 @@ fn boot_bevy_app(canvas_selector: String) {
             pixel_pipeline::sync_canvas_backing,
             pixel_pipeline::resize,
             render::render_scene,
+            world_materials::reconcile,
             render::label_budget::enforce_label_budget,
             pixel_pipeline::assign_layers,
         )

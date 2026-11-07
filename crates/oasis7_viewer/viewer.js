@@ -21381,7 +21381,7 @@ var entity = {
 	fragment_profile: { blocks: { blocks: true } }
 };
 var moduleVisual = {
-	...fields("entity_id module_id kind label"),
+	...fields("entity_id module_id kind factory_kind label"),
 	anchor: true
 };
 var gameplay = {
