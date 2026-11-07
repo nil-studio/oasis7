@@ -96,6 +96,9 @@ def canonical(value):
 
 
 def collect(document):
+    if isinstance(document, dict) and document.get("schema_version") == CONTRACT_INPUT:
+        import engineering_telemetry_adapters as adapters
+        return adapters.collect_contract(document)
     if not isinstance(document, dict) or document.get("schema_version") != INPUT:
         raise ValueError("unsupported input schema")
     origin = document.get("origin")
@@ -191,6 +194,8 @@ def collect(document):
 
 
 def report(snapshot):
+    if isinstance(snapshot, dict) and snapshot.get("schema_version") == CONTRACT_SNAPSHOT:
+        return report_contract(snapshot)
     if not isinstance(snapshot, dict) or snapshot.get("schema_version") != SNAPSHOT:
         raise ValueError("unsupported snapshot schema")
     records = snapshot.get("records")
@@ -244,14 +249,281 @@ def report(snapshot):
             "analysis": {"status": "unavailable", "reason": "timing and DAG analysis not implemented"}}
 
 
+# v2 is additive at the CLI boundary; older snapshot readers cannot mistake a
+# provenance-backed calculation for the deliberately partial v1 projection.
+CONTRACT_INPUT = "oasis7-engineering-telemetry-input/v2"
+CONTRACT_SNAPSHOT = "oasis7-engineering-telemetry-snapshot/v2"
+CONTRACT_REPORT = "oasis7-engineering-telemetry-report/v2"
+DAG_FORMULA = "oasis7-engineering-dag/v1"
+METRIC_FORMULAS = {
+    "feedback_wall_seconds": "gate.completed_at - context.created_at",
+    "job_execution_seconds": "sum(job.completed_at - job.started_at), excluding skipped",
+    "execution_longest_chain_seconds": "max dependency-chain sum of job execution durations to gate",
+    "unattributed_wait_seconds": "sum(job.started_at - max(context.created_at, dependency completion))",
+    "observed_wall_chain_seconds": "max dependency-chain sum of execution and unattributed wait to gate",
+    "first_job_start_delay_seconds": "min(executed job.started_at) - context.created_at",
+}
+TERMINAL_RESULTS = {"success", "failure", "cancelled", "timed_out", "neutral",
+                    "action_required", "stale", "startup_failure"}
+
+
+def precise_timestamp(value):
+    """UTC wall-clock seconds as Decimal, retaining sub-microsecond precision."""
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    if not isinstance(value, str):
+        raise ValueError("missing timestamp")
+    match = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d{1,18})?(?:Z|\+00:00)", value)
+    if not match:
+        raise ValueError("invalid UTC timestamp")
+    instant = datetime.fromisoformat(match[1]).replace(tzinfo=timezone.utc)
+    delta = instant - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return Decimal(delta.days * 86400 + delta.seconds) + Decimal(match[2] or "0")
+
+
+def _number(value):
+    # JSON has no Decimal. Do arithmetic before converting the final value, so
+    # close timestamps are never subtracted as large binary floating-point times.
+    return int(value) if value == value.to_integral_value() else float(value)
+
+
+def _known(record, field):
+    entries = record.get("field_sources", {}).get(field, [])
+    return bool(entries) and all(entry.get("state") == "known" for entry in entries)
+
+
+def analyze_context(context, records, origin):
+    """Compute a complete gate-required DAG, or expose only known job intervals.
+
+    parent_id means containment, not scheduling. Only explicit depends_on edges
+    between the declared job instances affect the graph. No test/step/phase is
+    added to job resource time, and no successful result is inferred here.
+    """
+    from decimal import Decimal
+    import heapq
+    zero = Decimal(0)
+    reasons = []
+    jobs = [record for record in records if record.get("kind") == "job"]
+    result = {"context_id": context["id"], "status": "unavailable", "coverage": "partial",
+              "missing_reasons": reasons, "metrics": {}, "job_timings": [],
+              "execution_results": [{"id": record["id"], "result": record.get("execution_result", "unknown")}
+                                    for record in jobs]}
+    for key, formula in METRIC_FORMULAS.items():
+        result["metrics"][key] = {"status": "unavailable", "value": None, "unit": "seconds",
+                                  "formula": formula, "input_ids": []}
+    def fail(reason):
+        reasons.append(reason)
+    if origin != "github":
+        fail("github_job_dag_not_applicable_to_local")
+    if context.get("identity_status") != "complete":
+        fail("incomplete_context_identity")
+    if context.get("identity_conflict"):
+        fail("context_identity_conflict")
+    if context.get("provenance_missing_reasons"):
+        fail("incomplete_context_provenance")
+    for flag in ("pagination_complete", "dependencies_complete", "conditions_complete"):
+        if context.get(flag) is not True or not _known(context, flag):
+            fail(flag + "_not_proven")
+    required = context.get("job_ids")
+    if not isinstance(required, list) or not required or len(set(required)) != len(required) or not _known(context, "job_ids"):
+        fail("invalid_declared_job_set")
+        required = []
+    try:
+        created = precise_timestamp(context.get("created_at"))
+        if not _known(context, "created_at"):
+            raise ValueError("missing creation provenance")
+    except ValueError:
+        created = None
+        fail("run_creation_unavailable")
+    aliases, ambiguous_ids = {}, set()
+    for record in jobs:
+        for alias in record.get("aliases", [record["id"]]):
+            if alias in aliases and aliases[alias] is not record:
+                fail("ambiguous_job_alias")
+                ambiguous_ids.update((aliases[alias]["id"], record["id"]))
+            aliases[alias] = record
+    selected = {}
+    for alias in required:
+        if alias not in aliases:
+            fail("missing_required_job:" + alias)
+        else:
+            selected[aliases[alias]["id"]] = aliases[alias]
+    if set(selected) != {record["id"] for record in jobs}:
+        fail("undeclared_or_conflicting_job")
+    if len(selected) != len(required):
+        fail("declared_jobs_not_unique_instances")
+    gate_alias = context.get("gate_id")
+    gate = aliases.get(gate_alias, {}).get("id")
+    if gate not in selected or not _known(context, "gate_id"):
+        fail("missing_final_gate")
+    dependencies, durations, intervals, skipped = {}, {}, {}, set()
+    # Even with an incomplete DAG, known unconflicted job intervals remain useful
+    # as a partial resource observation, never as the complete job total.
+    for job_id, record in selected.items():
+        if record.get("identity_status") != "complete":
+            fail("incomplete_job_identity:" + job_id)
+        if record.get("identity_conflict"):
+            fail("job_identity_conflict:" + job_id)
+        if record.get("provenance_missing_reasons"):
+            fail("incomplete_job_provenance:" + job_id)
+        for field in ("source_sha", "tested_sha", "policy_sha", "config_digest"):
+            if not _known(record, field) or record.get(field) != context.get(field):
+                fail("job_context_identity_mismatch:" + job_id + ":" + field)
+        if not _known(record, "depends_on") or not isinstance(record.get("depends_on"), list):
+            fail("dependencies_unavailable:" + job_id)
+            dependencies[job_id] = []
+        else:
+            raw = record["depends_on"]
+            resolved = [aliases.get(alias, {}).get("id") for alias in raw]
+            if len(set(raw)) != len(raw) or any(dep not in selected for dep in resolved) or len(set(resolved)) != len(resolved):
+                fail("invalid_dependency:" + job_id)
+            dependencies[job_id] = sorted({dep for dep in resolved if dep in selected})
+        condition = record.get("condition")
+        execution = record.get("execution_result")
+        if not _known(record, "condition") or condition not in ("true", "false"):
+            fail("condition_unavailable:" + job_id)
+        if not _known(record, "execution_result"):
+            fail("terminal_result_unavailable:" + job_id)
+        if execution == "skipped":
+            if condition != "false":
+                fail("unresolved_skipped_job:" + job_id)
+            # A proven false branch has no execution interval. Its virtual
+            # dependency boundary is calculated below, not read as zero elapsed.
+            skipped.add(job_id)
+            durations[job_id] = zero
+            continue
+        if condition == "false":
+            fail("executed_false_condition:" + job_id)
+        if execution not in TERMINAL_RESULTS:
+            fail("terminal_result_unavailable:" + job_id)
+        try:
+            if record.get("clock") != "wall" or not all(_known(record, field) for field in ("started_at", "completed_at", "clock")):
+                raise ValueError("inexact boundary")
+            start = precise_timestamp(record.get("started_at"))
+            end = precise_timestamp(record.get("completed_at"))
+            if end < start or (created is not None and start < created):
+                raise ValueError("reversed interval")
+            if execution not in TERMINAL_RESULTS or job_id in ambiguous_ids or record.get("identity_conflict") or record.get("identity_status") != "complete" or record.get("provenance_missing_reasons"):
+                raise ValueError("unverified interval")
+            durations[job_id] = end - start
+            intervals[job_id] = (start, end)
+        except ValueError:
+            fail("job_interval_unavailable:" + job_id)
+    known_total = sum((durations[job] for job in intervals), zero)
+    result["known_job_execution_seconds"] = {"status": "partial" if intervals else "unavailable",
+                                             "value": _number(known_total) if intervals else None,
+                                             "unit": "seconds", "input_ids": sorted(intervals)}
+    if gate in skipped:
+        fail("final_gate_not_executed")
+    # Iterative topological traversal also handles large input without recursion.
+    outgoing = {job: [] for job in selected}
+    indegree = {job: len(dependencies[job]) for job in selected}
+    for job, needs in dependencies.items():
+        for dep in needs:
+            outgoing[dep].append(job)
+    pending = [job for job, degree in indegree.items() if degree == 0]
+    heapq.heapify(pending)
+    order = []
+    while pending:
+        job = heapq.heappop(pending)
+        order.append(job)
+        for child in outgoing[job]:
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                heapq.heappush(pending, child)
+    if len(order) != len(selected):
+        fail("cyclic_dependencies")
+    if gate in selected:
+        ancestors, stack = set(), [gate]
+        while stack:
+            job = stack.pop()
+            if job not in ancestors:
+                ancestors.add(job)
+                stack.extend(dependencies[job])
+        if ancestors != set(selected):
+            fail("gate_does_not_cover_declared_jobs")
+    # Defects stop complete aggregation but never overwrite source conclusions.
+    if reasons:
+        result["missing_reasons"] = sorted(set(reasons))
+        return result
+    boundaries, waits, execution_dp, observed_dp = {}, {}, {}, {}
+    execution_paths, observed_paths = {}, {}
+    for job in order:
+        needs = dependencies[job]
+        ready = max([created] + [boundaries[dep] for dep in needs])
+        if job in skipped:
+            waits[job], boundaries[job] = zero, ready
+        else:
+            start, end = intervals[job]
+            if start < ready:
+                fail("job_started_before_dependencies:" + job)
+            waits[job], boundaries[job] = start - ready, end
+        # Select a deterministic path for ties. These paths can differ: pure
+        # execution does not include any scheduler/concurrency/approval waiting.
+        ep = max(needs, key=lambda dep: (execution_dp[dep], dep)) if needs else None
+        op = max(needs, key=lambda dep: (observed_dp[dep], dep)) if needs else None
+        execution_dp[job] = durations[job] + (execution_dp[ep] if ep else zero)
+        observed_dp[job] = durations[job] + waits[job] + (observed_dp[op] if op else zero)
+        execution_paths[job] = (execution_paths[ep] if ep else []) + [job]
+        observed_paths[job] = (observed_paths[op] if op else []) + [job]
+        result["job_timings"].append({"id": job, "execution_seconds": _number(durations[job]),
+                                      "unattributed_wait_seconds": _number(waits[job]),
+                                      "skipped": job in skipped, "depends_on": needs})
+    if reasons:
+        result["job_timings"] = []
+        result["missing_reasons"] = sorted(set(reasons))
+        return result
+    values = {
+        "feedback_wall_seconds": boundaries[gate] - created,
+        "job_execution_seconds": sum(durations.values(), zero),
+        "execution_longest_chain_seconds": execution_dp[gate],
+        "unattributed_wait_seconds": sum(waits.values(), zero),
+        "observed_wall_chain_seconds": observed_dp[gate],
+        "first_job_start_delay_seconds": min(start for start, _ in intervals.values()) - created,
+    }
+    for key, value in values.items():
+        result["metrics"][key].update(status="available", value=_number(value), input_ids=sorted(selected))
+    result.update(status="available", coverage="complete", execution_longest_chain=execution_paths[gate],
+                  observed_wall_chain=observed_paths[gate],
+                  execution_chain_wait_seconds=_number(sum((waits[job] for job in execution_paths[gate]), zero)))
+    result["known_job_execution_seconds"]["status"] = "complete"
+    return result
+
+
+def report_contract(snapshot):
+    import engineering_telemetry_adapters as adapters
+    adapters.validate_contract_snapshot(snapshot)
+    contexts = [analyze_context(context, [row for row in snapshot["records"] if row["context_id"] == context["id"]], snapshot["origin"])
+                for context in snapshot["contexts"]]
+    available = sum(context["status"] == "available" for context in contexts)
+    status = "available" if contexts and available == len(contexts) else "partial" if available else "unavailable"
+    return {"schema_version": CONTRACT_REPORT, "snapshot_schema": CONTRACT_SNAPSHOT,
+            "collection_id": snapshot["collection_id"], "origin": snapshot["origin"],
+            "sample_kind": snapshot["sample_kind"], "collected_at": snapshot["collected_at"],
+            "collection_status": snapshot["collection_status"], "missing_reasons": snapshot["missing_reasons"],
+            "contexts": snapshot["contexts"], "records": snapshot["records"], "evidence": snapshot["evidence"],
+            "analysis": {"status": status, "formula_version": DAG_FORMULA, "contexts": contexts}}
+
+
+
 def markdown(result):
-    return ("# Engineering telemetry (offline)\n\n"
-            + "- Collection: " + str(result["collection_id"]) + "\n"
-            + "- Origin: " + str(result["origin"]) + "\n"
-            + "- Collection status: " + str(result["collection_status"]) + "\n"
-            + "- Records: " + str(len(result["records"])) + "\n"
-            + "- Analysis: unavailable (timing and DAG analysis not implemented)\n"
-            + "- Missing reasons: " + (", ".join(result["missing_reasons"]) or "none reported") + "\n")
+    lines = ["# Engineering telemetry (offline)", "",
+             "- Collection: " + str(result["collection_id"]),
+             "- Origin: " + str(result["origin"]),
+             "- Collection status: " + str(result["collection_status"]),
+             "- Records: " + str(len(result["records"])),
+             "- Analysis: " + result["analysis"]["status"],
+             "- Missing reasons: " + (", ".join(result["missing_reasons"]) or "none reported")]
+    if result.get("sample_kind"):
+        lines.append("- Sample kind: " + result["sample_kind"] + " (not a performance or validation certificate)")
+    for context in result["analysis"].get("contexts", []):
+        lines.extend(["", "## " + context["context_id"], "", "- Coverage: " + context["coverage"]])
+        for key, metric in context["metrics"].items():
+            value = str(metric["value"]) + " seconds" if metric["status"] == "available" else "unavailable"
+            lines.append("- " + key + ": " + value)
+        if context["missing_reasons"]:
+            lines.append("- Reasons: " + ", ".join(context["missing_reasons"]))
+    return "\n".join(lines) + "\n"
 
 
 def write_json(path, value):
