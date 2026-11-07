@@ -4,6 +4,7 @@ use crate::render::module_visual_entities::{
     ModuleIdentityChipPart, PixelWorldModuleIdentityChipVisual, PixelWorldModuleVisualEntity,
     PixelWorldModuleVisualLabel, module_co_anchor_offset, module_co_anchor_slots,
 };
+use bevy::math::DVec2;
 
 fn module_visual(id: &str, pos: Position) -> ModuleVisualEntity {
     module_visual_with_kind(id, "opaque-kind", pos)
@@ -343,12 +344,12 @@ fn co_anchored_module_hit_stack_keeps_agent_and_location_centers_selectable() {
 fn co_anchor_renderer_offsets_keep_the_48_css_gap_across_backing_scales() {
     for backing_scale in [1.0_f32, 1.5, 2.0] {
         let scale = Vec2::splat(backing_scale);
-        let first = module_co_anchor_offset(0, scale, Vec2::ONE);
-        let second = module_co_anchor_offset(1, scale, Vec2::ONE);
-        let css_gap_x = (second.x - first.x) / backing_scale;
-        let css_gap_y = (second.y - first.y) / backing_scale;
-        assert!((css_gap_x - 48.0).abs() < f32::EPSILON);
-        assert!(css_gap_y.abs() < f32::EPSILON);
+        let first = module_co_anchor_offset(0, scale, DVec2::ONE);
+        let second = module_co_anchor_offset(1, scale, DVec2::ONE);
+        let css_gap_x = (second.x - first.x) / f64::from(backing_scale);
+        let css_gap_y = (second.y - first.y) / f64::from(backing_scale);
+        assert!((css_gap_x - 48.0).abs() < f64::EPSILON);
+        assert!(css_gap_y.abs() < f64::EPSILON);
     }
 }
 
@@ -637,11 +638,19 @@ fn authored_module_glyph_pixels_scale_with_world_unit_without_scaling_labels() {
 
 #[test]
 fn large_pixel_module_slots_keep_hit_regions_separate() {
-    let pixel = Vec2::splat(6.0);
+    let pixel = DVec2::splat(6.0);
     let first = module_co_anchor_offset(0, Vec2::ONE, pixel);
     let second = module_co_anchor_offset(1, Vec2::ONE, pixel);
-    assert_eq!(first, Vec2::splat(-102.0));
+    assert_eq!(first, DVec2::splat(-102.0));
     assert_eq!(second.x - first.x, 102.0);
     assert!(second.x - first.x > 2.0 * 8.0 * pixel.x);
     assert_eq!(first.x % pixel.x, 0.0);
+}
+
+#[test]
+fn fractional_css_module_offset_keeps_web_f64_ceil_boundary() {
+    let unit = DVec2::new(959.99999999 / 1480.0 * 2.0, 720.0 / 1110.0 * 2.0);
+    let offset = module_co_anchor_offset(0, Vec2::ONE, unit);
+    assert!((offset.x + 38.0 * unit.x).abs() < 1e-12);
+    assert!(offset.x < -49.0);
 }

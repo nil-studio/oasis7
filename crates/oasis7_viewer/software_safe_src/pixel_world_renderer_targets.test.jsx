@@ -230,4 +230,10 @@ describe('real renderer accessible projection', () => {
     expect(offsets.get('b')).toEqual({x:0,y:-102});
   });
 
+  it('keeps fractional CSS ceil in f64 at the shared Rust boundary', () => {
+    const modules = [{id:'a',pos:{x_cm:1,y_cm:1}}, {id:'b',pos:{x_cm:1,y_cm:1}}];
+    const offsets = moduleTargetOffsets({agents:[],locations:[],moduleVisualEntities:modules}, {width:959.99999999,height:720}, {width:1480,height:1110});
+    expect(offsets.get('a').x).toBeCloseTo(-38 * (959.99999999 / 1480 * 2), 10);
+  });
+
 });
