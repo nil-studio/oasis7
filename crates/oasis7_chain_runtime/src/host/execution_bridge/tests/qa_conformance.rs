@@ -38,6 +38,7 @@ mod cleanup_deadline;
 mod controlled_admission;
 mod fixture_cleanup;
 mod fixture_failure_diagnostics;
+mod response_relay;
 use fixture_failure_diagnostics::{self as failure, Stage as FailureStage, Worker};
 mod fixture_stage_diagnostics;
 mod hosted_wait_clock;
@@ -456,7 +457,14 @@ impl Fixture {
                 let capture_read = method == "POST"
                     && (matches!(path, VIEW_PATH | CHANGES_PATH | LOOKUP_PATH)
                         || (path == SUBMIT_PATH
-                            && application_hosted_unpublished_cadence::active(&worker_gate)));
+                            && (application_hosted_unpublished_cadence::active(&worker_gate)
+                                || (!lose
+                                    && !tamper
+                                    && !capture_ack
+                                    && gated_ack.is_none()
+                                    && worker_gate.root.lock().unwrap().as_ref().is_some_and(
+                                        |root| root.join("world-concurrent-ready").exists(),
+                                    )))));
                 let mut read_reader = None;
                 let mut capture_peer = None;
                 failure::at(FailureStage::CaptureSetup);
@@ -470,7 +478,9 @@ impl Fixture {
                         failure::at(FailureStage::CaptureRead);
                         let mut response = Vec::new();
                         failure::observe_io(
-                            (&mut peer).take(16 * 1024 * 1024 + 1).read_to_end(&mut response),
+                            (&mut peer)
+                                .take(16 * 1024 * 1024 + 1)
+                                .read_to_end(&mut response),
                         )
                         .unwrap();
                         assert!(
@@ -586,18 +596,16 @@ impl Fixture {
                         thread::sleep(successful_view_delay);
                     }
                     failure::at(FailureStage::ResponseRelay);
-                    if let Err(error) = stream.write_all(&response) {
-                        failure::io_error(&error);
-                        assert!(
-                            verified_success
-                                && matches!(
-                                    error.raw_os_error(),
-                                    Some(libc::EPIPE) | Some(libc::ECONNRESET)
-                                ),
-                            "Read response relay failed without a verified successful read: {error}"
-                        );
+                    let cancelled = response_relay::relay(&mut stream, &response, verified_success)
+                        .unwrap_or_else(|error| {
+                            failure::io_error(&error);
+                            panic!(
+                                "Response relay failed without verified successful capture: {error}"
+                            );
+                        });
+                    if cancelled {
                         println!(
-                            "PRE2_VERIFIED_READ_RESPONSE_CANCELLED route={path} dispatcher_completed=true signed_response_verified=true unchanged_response_relay_attempted=true"
+                            "PRE2_VERIFIED_RESPONSE_CANCELLED route={path} dispatcher_completed=true signed_response_verified=true unchanged_response_relay_attempted=true"
                         );
                     }
                 }
