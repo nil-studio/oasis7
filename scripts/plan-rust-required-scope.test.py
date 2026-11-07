@@ -4284,12 +4284,14 @@ class NativeSupportContracts(unittest.TestCase):
                   '  #[cfg(target_os = "linux")]\n'
                   '  if args.len() != 3 { return Err("invalid arguments".into()); }\n'
                   '  Ok(())\n}\n')
+        self.assertIn('#[cfg(', source)
         self.write(self.LEAF, source)
         base = self.commit()
         self.write(self.LEAF, source.replace('args.len() != 3',
                                             'args.len() != 3 || args.is_empty()'))
         plan = selector.select(config, base, self.commit(), profile='pr-fast')
         self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertNotIn('ordinary_execution', plan)
         self.assertIn('workspace_support', plan['groups'])
         self.assertEqual(plan['scope'], 'full')
 
@@ -4319,7 +4321,8 @@ class NativeSupportContracts(unittest.TestCase):
         # real source and platform boundaries have independent cases above.
         source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> { '
                   'if args.len() != 3 { return Err("invalid arguments".into()); } '
-                  'Ok(()) }\n')
+                  'match args[0].as_str() { "serve" => Ok(()), '
+                  '_ => Err("unsupported command".into()) } }\n')
         self.write(self.LEAF, source)
         base = self.commit()
         changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
