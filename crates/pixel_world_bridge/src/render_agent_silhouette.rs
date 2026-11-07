@@ -82,8 +82,9 @@ pub(super) fn reconcile_agent_silhouettes(
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
         let canvas_y =
             canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64;
-        let offset = agent_silhouette_offset(&agent.id, agent.size_hint_px.unwrap_or(12.0));
-        let sprite = sprite_for_square(AGENT_SILHOUETTE_COLOR, size_px);
+        let pixel = agent_pixel_scale(width, height);
+        let offset = agent_silhouette_offset(&agent.id, agent.size_hint_px.unwrap_or(12.0)) * pixel;
+        let sprite = sprite_for_rect(AGENT_SILHOUETTE_COLOR, size_px * pixel.x, size_px * pixel.y);
         let transform = Transform::from_translation(to_bevy_translation(
             canvas_x + f64::from(offset.x),
             canvas_y + f64::from(offset.y),

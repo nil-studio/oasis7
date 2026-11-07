@@ -1,3 +1,4 @@
+use bevy::math::DVec2;
 use std::collections::{HashMap, HashSet};
 
 use super::map_labels::map_label_obstacles;
@@ -82,17 +83,17 @@ const CO_ANCHOR_RING_OFFSETS: [Vec2; 8] = [
 pub(crate) fn module_co_anchor_offset(
     index: usize,
     renderer_to_css_scale: Vec2,
-    pixel: Vec2,
-) -> Vec2 {
-    let ring = (index / CO_ANCHOR_RING_OFFSETS.len() + 1) as f32;
+    pixel: DVec2,
+) -> DVec2 {
+    let ring = (index / CO_ANCHOR_RING_OFFSETS.len() + 1) as f64;
     let css_offset = CO_ANCHOR_RING_OFFSETS[index % CO_ANCHOR_RING_OFFSETS.len()];
-    Vec2::new(
-        css_offset.x / 48.0
-            * ((48.0_f32.max(16.0 * pixel.x + 4.0) / pixel.x).ceil() * pixel.x)
-            * renderer_to_css_scale.x,
-        css_offset.y / 48.0
-            * ((48.0_f32.max(16.0 * pixel.y + 4.0) / pixel.y).ceil() * pixel.y)
-            * renderer_to_css_scale.y,
+    DVec2::new(
+        f64::from(css_offset.x) / 48.0
+            * ((48.0_f64.max(16.0 * pixel.x + 4.0) / pixel.x).ceil() * pixel.x)
+            * f64::from(renderer_to_css_scale.x),
+        f64::from(css_offset.y) / 48.0
+            * ((48.0_f64.max(16.0 * pixel.y + 4.0) / pixel.y).ceil() * pixel.y)
+            * f64::from(renderer_to_css_scale.y),
     ) * ring
 }
 
@@ -194,6 +195,9 @@ pub(super) fn reconcile_module_visual_entities(
     let mut active_labels = HashSet::new();
     let mut accepted_label_rects: Vec<ModuleLabelRect> = Vec::new();
     let pixel = agent_pixel_scale(width, height);
+    let offset_pixel = pixel_pipeline::canvas_layout(width, height)
+        .map(|layout| layout.css / layout.frame.as_dvec2() * layout.scale as f64)
+        .unwrap_or(DVec2::ONE);
     for (index, entity) in entities.iter().enumerate() {
         let Some((canvas_x, canvas_y)) =
             to_canvas_point(&entity.pos, world_bounds, width, height, &runtime.camera)
@@ -207,10 +211,10 @@ pub(super) fn reconcile_module_visual_entities(
             module_co_anchor_offset(
                 co_anchor_slot.map_or(index, |(co_anchor_index, _)| co_anchor_index),
                 renderer_to_css_scale,
-                pixel,
+                offset_pixel,
             )
         } else {
-            Vec2::ZERO
+            DVec2::ZERO
         };
         active_ids.insert(entity.id.clone());
         let mut transform = Transform::from_translation(to_bevy_translation(
@@ -264,8 +268,8 @@ pub(super) fn reconcile_module_visual_entities(
             let key = (entity.id.clone(), part);
             active_chips.insert(key.clone());
             let chip_transform = Transform::from_translation(to_bevy_translation(
-                canvas_x + f64::from(co_anchor_offset.x + glyph_offset.x),
-                canvas_y + f64::from(co_anchor_offset.y + glyph_offset.y),
+                canvas_x + co_anchor_offset.x + f64::from(glyph_offset.x),
+                canvas_y + co_anchor_offset.y + f64::from(glyph_offset.y),
                 width,
                 height,
                 MODULE_VISUAL_ENTITY_LAYER_Z + MODULE_IDENTITY_CHIP_LAYER_Z_OFFSET,
