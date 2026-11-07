@@ -549,6 +549,14 @@ export function derivePixelWorldRenderState(input) {
   return activeModule.build_pixel_world_render_state_json(JSON.stringify(input));
 }
 
+// Observe the already mounted instance. Reading must never initialize a second
+// WASM instance, mount a bridge, or change the selected entity/authority.
+export function readPixelWorldDisplayMetrics() {
+  if (!pixelWorldTestApiEnabled()) return {status:"disabled"};
+  if (!activeModule?.display_metrics) return {status:"uninitialized"};
+  return JSON.parse(activeModule.display_metrics());
+}
+
 export {
   PIXEL_WORLD_OPTIONAL_PAYLOAD_MANIFEST_NAME,
   PIXEL_WORLD_OPTIONAL_PAYLOAD_MISSING_CODE,

@@ -21,7 +21,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
   const coreKey = () => `${core.state.selectedKind}:${core.state.selectedId}`;
   client.reset(scope,core.state.worldId);
-  const mainTarget = () => core.buildGameplaySummary(getLocale()).acceptedIntentTarget
+  const mainTarget = () => core.buildGameplaySummary(getLocale())?.acceptedIntentTarget
     || getRenderState()?.commercial_surface?.next_action?.target_agent_id || null;
   const selection = () => {
     if (untrack(() => pixelWorldScope(core.state)) !== scope) return null;

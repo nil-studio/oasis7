@@ -70,6 +70,8 @@ fn sample_position(x_cm: f64, y_cm: f64) -> Position {
 }
 pub(super) fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
     RenderState {
+        display_profile: display_profile::DisplayProfile::Legacy,
+        display_source_cut: None,
         exploration_mode: false,
         navigation: None,
         locale: "en".to_string(),

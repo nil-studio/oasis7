@@ -21258,6 +21258,39 @@ function buildPixelWorldRenderInput(locale = state.uiLocale) {
 		}
 	};
 }
+// software_safe_src/pixel_world_display_profile.js
+var LEGACY_DISPLAY_PROFILE = Object.freeze({
+	name: "legacy_snapshot_v1",
+	markers: 500,
+	labels: 100,
+	bytes: 262144,
+	nodes: 16384
+});
+var WORLD_VIEW_DISPLAY_PROFILE = Object.freeze({
+	name: "world_view_v1",
+	markers: 1e3,
+	labels: 200,
+	bytes: 2097152,
+	nodes: 131072
+});
+function pixelWorldDisplayProfile(input) {
+	const view = input?.worldView;
+	if (view == null) return LEGACY_DISPLAY_PROFILE;
+	if (typeof view !== "object" || Array.isArray(view)) throw Error("invalid world view display profile");
+	let items = 0;
+	for (const field of [
+		"entities",
+		"aggregates",
+		"events",
+		"relations"
+	]) {
+		const values = view[field] ?? [];
+		if (!Array.isArray(values)) throw Error("pixel world world-view capacity exceeded");
+		items += values.length;
+	}
+	if (items > 1e3) throw Error("pixel world world-view capacity exceeded");
+	return WORLD_VIEW_DISPLAY_PROFILE;
+}
 // software_safe_src/pixel_world_display_budget.js
 var raw$2 = (value) => value?.[$RAW] || value;
 var MAX_SOURCE = 1e4;
@@ -21266,8 +21299,11 @@ var fail = () => {
 };
 var key = (kind, id) => `${kind}:${id}`;
 var compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-function budgetPixelWorldDisplay(input, limit = 500) {
+function budgetPixelWorldDisplay(input, limit) {
 	input = raw$2(input) || {};
+	const profile = pixelWorldDisplayProfile(input);
+	limit ?? (limit = profile.markers);
+	if (!Number.isSafeInteger(limit) || limit < 0 || limit > profile.markers) fail();
 	const view = raw$2(input.worldView);
 	const model = raw$2(raw$2(input.snapshot)?.model) || {};
 	const candidates = /* @__PURE__ */ new Map();
@@ -21362,7 +21398,6 @@ function budgetPixelWorldDisplay(input, limit = 500) {
 	};
 }
 var MAX_ITEMS = 500;
-var MAX_NODES = 16384;
 var raw$1 = (value) => value?.[$RAW] || value;
 var capacity = () => {
 	throw new Error("pixel world display capacity exceeded");
@@ -21393,10 +21428,11 @@ var gameplay = {
 	micro_depot_facilities: true
 };
 function projectOnce(input, markerLimit) {
+	const profile = pixelWorldDisplayProfile(raw$1(input));
 	let nodes = 0;
 	function copy(value, schema = true, depth = 0) {
 		value = raw$1(value);
-		if (++nodes > MAX_NODES) throw new RangeError("pixel world projection budget exceeded");
+		if (++nodes > profile.nodes) throw new RangeError("pixel world projection budget exceeded");
 		if (depth > 16) capacity();
 		if (value === void 0) return void 0;
 		if (value === null || typeof value === "boolean") return value;
@@ -21409,7 +21445,7 @@ function projectOnce(input, markerLimit) {
 			return value;
 		}
 		if (Array.isArray(value)) {
-			if (value.length > MAX_ITEMS) capacity();
+			if (value.length > profile.markers) capacity();
 			return value.map((item) => copy(item, schema, depth + 1));
 		}
 		if (typeof value !== "object") capacity();
@@ -21417,6 +21453,7 @@ function projectOnce(input, markerLimit) {
 		const keys = schema === true ? Object.keys(value) : Object.keys(schema);
 		if (keys.length > MAX_ITEMS) capacity();
 		for (const key of keys) {
+			if (key.length > 8192) capacity();
 			if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
 			let sourceItem = value[key];
 			if ((key === "name" || key === "label") && typeof sourceItem === "string") {
@@ -21477,7 +21514,7 @@ function projectOnce(input, markerLimit) {
 			feed_ref: identity,
 			position
 		})),
-		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, MAX_ITEMS), {
+		relations: copy(relations.filter((item) => budget.retained.has(`${item.from?.kind}:${item.from?.id}`) && budget.retained.has(`${item.to?.kind}:${item.to?.id}`)).slice(0, profile.markers), {
 			...fields("relation_id kind source_class status freshness valid_at_source_cut label route_count"),
 			from: relationEndpoint,
 			to: relationEndpoint
@@ -21509,6 +21546,7 @@ function projectOnce(input, markerLimit) {
 	}
 	const dto = {
 		schema_version: 1,
+		display_profile: profile.name,
 		...copy(source, fields("locale selectedKind selectedId worldViewStale")),
 		snapshot: {
 			...copy(snapshot, fields("time")),
@@ -21520,7 +21558,7 @@ function projectOnce(input, markerLimit) {
 			...snapshot.player_gameplay && { player_gameplay: copy(snapshot.player_gameplay, { primary_intent: fields("schema_version source_class freshness control_state status intent_id agent_id world_id reorg_epoch logical_time event_seq updated_at") }) }
 		},
 		lists,
-		display_budget: budget.metadata,
+		display_budget: copy(budget.metadata),
 		gameplay: copy(source.gameplay || {}, gameplay),
 		...source.selected && { selected: copy(source.selected, entity) },
 		...source.presentation && { presentation: copy(source.presentation, fields("world_bounds_label marker_truth_note")) },
@@ -21528,11 +21566,13 @@ function projectOnce(input, markerLimit) {
 		...source.navigation && { navigation: copy(source.navigation) }
 	};
 	if (dto.lists.agents.length + dto.lists.locations.length > MAX_ITEMS) capacity();
-	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > 262144) throw new RangeError("pixel world projection budget exceeded");
+	if (new TextEncoder().encode(JSON.stringify(dto)).byteLength > profile.bytes) throw new RangeError("pixel world projection budget exceeded");
 	return dto;
 }
-function projectPixelWorldRenderInput(input, markerLimit = MAX_ITEMS) {
-	for (let limit = markerLimit; limit >= 1; limit = Math.floor(limit * .75)) try {
+function projectPixelWorldRenderInput(input, markerLimit) {
+	const profile = pixelWorldDisplayProfile(raw$1(input));
+	if (markerLimit !== void 0 && (!Number.isSafeInteger(markerLimit) || markerLimit < 1 || markerLimit > profile.markers)) capacity();
+	for (let limit = markerLimit ?? profile.markers; limit >= 1; limit = Math.floor(limit * .75)) try {
 		return projectOnce(input, limit);
 	} catch (error) {
 		if (!(error instanceof RangeError) || error.message !== "pixel world projection budget exceeded") throw error;
@@ -21575,7 +21615,7 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 	let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
 	const coreKey = () => `${core.state.selectedKind}:${core.state.selectedId}`;
 	client.reset(scope, core.state.worldId);
-	const mainTarget = () => core.buildGameplaySummary(getLocale()).acceptedIntentTarget || getRenderState()?.commercial_surface?.next_action?.target_agent_id || null;
+	const mainTarget = () => core.buildGameplaySummary(getLocale())?.acceptedIntentTarget || getRenderState()?.commercial_surface?.next_action?.target_agent_id || null;
 	const selection = () => {
 		if (untrack(() => pixelWorldScope(core.state)) !== scope) return null;
 		const selected = spatialSelection();
