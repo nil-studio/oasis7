@@ -11,7 +11,7 @@ import {
 } from "./pixel_world_host_test_support.jsx";
 
 describe("pixel world host production refresh", () => {
-  it("clears hit targets after ready context loss and retries only on explicit request", async () => {
+  it("clears hit targets after context loss and requires explicit page reload", async () => {
     runtimeMock.deriveRenderState = vi.fn(buildTestRustRenderState);
     const { core } = await renderPixelWorldHost(sampleSnapshot(), "?connect=0&locale=en", "en", {injectionSearch:"?test_api=1&connect=0&locale=en"});
     await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe("ready"));
@@ -21,14 +21,23 @@ describe("pixel world host production refresh", () => {
     await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe("unavailable"));
     expect(document.querySelector(".pixel-world-canvas__selection")).not.toBeInTheDocument();
     expect(runtimeMock.mountCalls).toBe(mounted);
-    runtimeMock.mountError = new Error("still unavailable");
-    fireEvent.click(screen.getByRole("button", {name:/retry renderer/i}));
+    expect(document.querySelector('.pixel-world-render-unavailable__retry')).toHaveTextContent('Reload page to restore graphics');
+    expect(screen.queryByRole('button', {name:/retry renderer/i})).toBeNull();
+    expect(document.querySelector('.pixel-world-action-receipt')).toBeInTheDocument();
+    expect(runtimeMock.mountCalls).toBe(mounted);
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+  it('keeps ordinary resource failures on explicit in-page renderer retry', async () => {
+    runtimeMock.deriveRenderState = vi.fn(buildTestRustRenderState);
+    runtimeMock.mountError = new Error('resource unavailable');
+    const { core } = await renderPixelWorldHost(sampleSnapshot());
+    await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe('unavailable'));
+    const mounted = runtimeMock.mountCalls;
+    fireEvent.click(screen.getByRole('button', {name:/retry renderer/i}));
     await waitFor(() => expect(runtimeMock.mountCalls).toBe(mounted + 1));
-    await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe("unavailable"));
-    expect(document.querySelector(".pixel-world-action-receipt")).toBeInTheDocument();
+    expect(core.state.pixelWorldRuntimeStatus).toBe('unavailable');
     runtimeMock.mountError = null;
-    fireEvent.click(screen.getByRole("button", {name:/retry renderer/i}));
-    await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe("ready"));
+    fireEvent.click(screen.getByRole('button', {name:/retry renderer/i}));
+    await waitFor(() => expect(core.state.pixelWorldRuntimeStatus).toBe('ready'));
     expect(runtimeMock.mountCalls).toBe(mounted + 2);
   }, HEAVY_UI_TEST_TIMEOUT_MS);
   it("clears private graphics and retained text on account change and rejects late callbacks", async () => {
