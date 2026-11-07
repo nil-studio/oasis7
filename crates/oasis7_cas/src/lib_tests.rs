@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn temp_dir(prefix: &str) -> PathBuf {
+pub(super) fn temp_dir(prefix: &str) -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("duration")
@@ -737,4 +737,34 @@ fn legacy_zstd_0133_frame_verified_and_range_reads() {
         assert_eq!(bytes, raw[offset..raw.len().min(offset + limit)]);
     }
     fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn put_rejects_existing_corrupt_blob_without_overwriting_evidence() {
+    for corruption in [b"".as_slice(), b"wrong bytes".as_slice()] {
+        let dir = temp_dir("existing-corrupt");
+        let store = LocalCasStore::new(&dir);
+        let original = b"authoritative original bytes";
+        let hash = store.put_bytes(original).expect("initial put");
+        let path = store.blob_path(&hash).expect("path");
+        fs::write(&path, corruption).expect("simulate damaged disk bytes");
+        assert!(matches!(
+            store.put(&hash, original),
+            Err(WorldError::BlobHashMismatch { .. })
+        ));
+        assert_eq!(fs::read(&path).expect("preserved evidence"), corruption);
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+}
+
+#[test]
+fn duplicate_put_accepts_verified_compressed_and_raw_blobs() {
+    let dir = temp_dir("verified-duplicate");
+    let store = LocalCasStore::new(&dir);
+    for original in [b"small original".to_vec(), vec![42; 16384]] {
+        let hash = store.put_bytes(&original).expect("initial put");
+        store.put(&hash, &original).expect("verified duplicate");
+        assert_eq!(store.get_verified(&hash).expect("verified read"), original);
+    }
+    fs::remove_dir_all(dir).expect("cleanup");
 }
