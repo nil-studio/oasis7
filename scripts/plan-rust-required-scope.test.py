@@ -1880,6 +1880,40 @@ class Selection(unittest.TestCase):
             self.assertEqual(plan['oasis7_required_wasm_packages'], [])
             self.assertNotIn('launcher_web', plan['groups'])
 
+    def test_native_package_partition_capability_keeps_the_full_parent_and_old_fallback(self):
+        self.assertEqual(selector.ORDINARY_PARTITION_PACKAGES,
+                         frozenset(('oasis7_runtime', 'oasis7_world_state')))
+        config = self.component_config()
+        config['ordinary_partition_version'] = 1
+        config['ordinary_fast_targets']['consumer-lib'] = dict(
+            config['ordinary_fast_targets']['core-lib'], package='consumer', target_name='consumer')
+        config['ordinary_fast_component_rules'][0]['targets'].append('consumer-lib')
+        base, head = self.component_fixture()
+        # Use the existing miniature Cargo graph as the two allowlisted owners;
+        # the production allowlist is checked independently above.
+        with patch.object(selector, 'ORDINARY_PARTITION_PACKAGES', frozenset(('core', 'consumer'))):
+            for profile in ('pr-fast', 'main-fast'):
+                plan = selector.select(config, base, head, profile=profile)
+                self.assertEqual(plan['ordinary_partition_version'], 1)
+                self.assertEqual(plan['ordinary_partitions'], ['consumer', 'core'])
+                self.assertEqual({target['package'] for target in plan['ordinary_fast_targets']}, {'core', 'consumer'})
+                self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+                old = dict(config)
+                del old['ordinary_partition_version']
+                self.assertNotIn('ordinary_partitions', selector.select(old, base, head, profile=profile))
+            full = selector.full_plan(config, 'candidate-full', head)
+            self.assertNotIn('ordinary_partition_version', full)
+            self.assertNotIn('ordinary_partitions', full)
+        # Other package combinations keep one complete inline execution.
+        self.assertEqual(selector.select(config, base, head, profile='pr-fast')['ordinary_partitions'], ['all'])
+        for version in (True, False, None, '1', 2):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, ordinary_partition_version=version))
+        unsupported = dict(config)
+        del unsupported['fast_execution_version']
+        with self.assertRaises(ValueError):
+            selector.validate_config(unsupported)
+
     def test_component_architecture_policy_requires_independent_trusted_capability(self):
         config = self.component_config()
         base, head = self.component_fixture()

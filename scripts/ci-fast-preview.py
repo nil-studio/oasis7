@@ -135,6 +135,11 @@ def validate_plan(plan, source, *, sample='runtime-world'):
             or plan.get('rust_baseline_checks') != []
             or plan.get('oasis7_required_wasm_packages') != []):
         raise ValueError('preview did not select the expected bounded native execution')
+    partitions = expected['packages'] if len(expected['packages']) > 1 else ['all']
+    if (type(plan.get('ordinary_partition_version')) is not int
+            or plan['ordinary_partition_version'] != 1
+            or plan.get('ordinary_partitions') != partitions):
+        raise ValueError('preview ordinary partitions do not cover the complete fixed sample')
     groups = plan.get('groups')
     if (not isinstance(groups, list) or any(not isinstance(group, str) for group in groups)
             or len(groups) != len(set(groups)) or not EXPECTED_GROUPS <= set(groups)):
@@ -240,6 +245,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
         'policy_sha': source, 'source_tree': git(repo, 'rev-parse', source + '^{tree}').decode().strip(),
         'synthetic_base_sha': synthetic, 'synthetic_base_tree': tree,
         'paths': list(expected['paths']), 'groups': selected['groups'],
+        'ordinary_partitions': selected['ordinary_partitions'],
         'limitation': 'Current real tests and compilation footprint; not PR authorization, regression quality, or P95 evidence.',
     }
     metadata_path = Path(str(output) + '.metadata.json')
@@ -251,10 +257,12 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
     return metadata
 
 
-def restore_baseline(repo, metadata, *, sample=None, plan=None):
+def restore_baseline(repo, metadata, *, sample=None, plan=None, group=None, partition=None):
     declared_sample = metadata.get('sample', 'runtime-world') if isinstance(metadata, dict) else None
     if (sample is None) != (plan is None):
         raise ValueError('bound preview restoration requires both the matrix sample and selection')
+    if (group is None) != (partition is None) or group is not None and plan is None:
+        raise ValueError('bound preview partition requires the group and selection')
     if sample is not None and sample != declared_sample:
         raise ValueError('preview metadata disagrees with the matrix sample')
     expected = sample_definition(declared_sample)
@@ -271,8 +279,12 @@ def restore_baseline(repo, metadata, *, sample=None, plan=None):
     if plan is not None:
         validate_plan(plan, source, sample=sample)
         if (plan['groups'] != metadata.get('groups')
+                or plan['ordinary_partitions'] != metadata.get('ordinary_partitions')
                 or plan['architecture'].get('base') != metadata.get('synthetic_base_sha')):
             raise ValueError('preview selection disagrees with its metadata')
+        if group is not None and (group not in plan['groups'] or partition not in (
+                plan['ordinary_partitions'] if group == 'oasis7_required' else ['all'])):
+            raise ValueError('preview matrix group/partition disagrees with the complete selection')
     synthetic, tree = synthetic_baseline(repo, source, sample=declared_sample)
     if synthetic != metadata.get('synthetic_base_sha') or tree != metadata.get('synthetic_base_tree'):
         raise ValueError('preview synthetic baseline identity mismatch')
@@ -297,9 +309,10 @@ def plan_matrix(repo, base_ref, head_ref, output_dir, github_output=None, *, sou
         raise ValueError('diagnostic samples disagree on the actual trigger range')
     if len({(item['source_sha'], item['tested_sha']) for item in metadata}) != 1:
         raise ValueError('diagnostic samples must measure the same actual checkout')
-    matrix = {'include': [dict(sample=item['sample'], group=group,
+    matrix = {'include': [dict(sample=item['sample'], group=group, partition=partition,
                                 synthetic_base_sha=item['synthetic_base_sha'])
-                          for item in metadata for group in item['groups']]}
+                          for item in metadata for group in item['groups']
+                          for partition in (item['ordinary_partitions'] if group == 'oasis7_required' else ['all'])]}
     write_outputs(github_output, {'enabled': 'true', 'matrix': json.dumps(matrix, separators=(',', ':')),
                                   'source_sha': metadata[0]['source_sha'], 'tested_sha': metadata[0]['tested_sha']})
     return metadata
@@ -324,6 +337,8 @@ def main():
     restore.add_argument('--metadata', required=True)
     restore.add_argument('--sample', choices=SAMPLES)
     restore.add_argument('--plan')
+    restore.add_argument('--group')
+    restore.add_argument('--partition')
     args = parser.parse_args()
     if args.command == 'plan':
         plan_preview(args.repo_root.resolve(), args.base_ref, args.head_ref, args.output, args.github_output,
@@ -333,7 +348,8 @@ def main():
                     source_ref=args.source_ref)
     else:
         restore_baseline(args.repo_root.resolve(), json.loads(Path(args.metadata).read_text()),
-                         sample=args.sample, plan=json.loads(Path(args.plan).read_text()) if args.plan else None)
+                         sample=args.sample, plan=json.loads(Path(args.plan).read_text()) if args.plan else None,
+                         group=args.group, partition=args.partition)
 
 
 if __name__ == '__main__':

@@ -20,6 +20,8 @@ EXECUTION_PROFILES = ('pr-fast', 'main-fast', 'periodic-full', 'candidate-full')
 FAST_PLAN_VERSION = 1
 FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
+ORDINARY_PARTITION_VERSION = 1
+ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
 ARCHITECTURE_BUILD_POLICY_VERSION = 1
 CHECK_INVENTORY_VERSION = 1
 PYTHON_CONTROL_CONTRACT_VERSION = 1
@@ -750,6 +752,11 @@ def validate_config(config):
         if (type(version) is not int or version == ARCHITECTURE_BUILD_POLICY_VERSION
                 and config.get('fast_execution_version') != FAST_EXECUTION_VERSION):
             raise ValueError('invalid architecture build policy capability')
+    if 'ordinary_partition_version' in config:
+        if (type(config['ordinary_partition_version']) is not int
+                or config['ordinary_partition_version'] != ORDINARY_PARTITION_VERSION
+                or config.get('fast_execution_version') != FAST_EXECUTION_VERSION):
+            raise ValueError('invalid ordinary partition capability')
     validate_fast_test_inventory(config)
     validate_fast_support_contracts(config)
     return config
@@ -2672,6 +2679,15 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             architecture['consumer_groups'] = consumer_groups
         plan['reasons'].append('all architecture inputs have mandatory fast targets; '
                                'extra profile compilation stays in full, all dependency graphs remain required')
+    if (config.get('ordinary_partition_version') == ORDINARY_PARTITION_VERSION
+            and plan.get('fast_execution_version') == FAST_EXECUTION_VERSION
+            and plan.get('ordinary_execution') == 'inline'
+            and plan.get('ordinary_clippy_group') == 'rust_baseline'
+            and plan['scope'] == 'targeted' and not plan['test_policy_changed']
+            and not plan['oasis7_required_wasm_packages']):
+        packages = sorted({target['package'] for target in plan['ordinary_fast_targets']})
+        plan.update(ordinary_partition_version=ORDINARY_PARTITION_VERSION,
+                    ordinary_partitions=packages if set(packages) == ORDINARY_PARTITION_PACKAGES else ['all'])
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
     return plan
 
@@ -2940,6 +2956,7 @@ def main():
             for group in config['groups']:
                 output.write(f'run_{group}=' + str(group in plan['groups']).lower() + '\n')
             if args.profile:
+                output.write('ordinary_partitions=' + json.dumps(plan.get('ordinary_partitions', ['all']), separators=(',', ':')) + '\n')
                 output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
                 output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
     print(encoded)

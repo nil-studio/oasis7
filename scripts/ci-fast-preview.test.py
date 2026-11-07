@@ -43,6 +43,8 @@ def fixture(directory):
 def valid_plan(source, sample='runtime-world'):
     plan = {'scope': 'targeted', 'execution_profile': 'pr-fast',
             'fast_execution_version': 1, 'ordinary_execution': 'inline',
+            'ordinary_partition_version': 1,
+            'ordinary_partitions': ['oasis7_runtime', 'oasis7_world_state'],
             'ordinary_clippy_group': 'rust_baseline',
             'test_policy_changed': False, 'fast_plan_exceptions': [],
             'rust_baseline_checks': [], 'oasis7_required_wasm_packages': [],
@@ -55,6 +57,7 @@ def valid_plan(source, sample='runtime-world'):
                                           default_features=False, features=['test_tier_required'])
                 for package, kind, name in sorted(PREVIEW.EXPECTED_TARGETS)]}
     if sample == 'game-client-private-unix':
+        plan['ordinary_partitions'] = ['all']
         plan['architecture']['packages'] = ['oasis7_game_client']
         plan['ordinary_fast_targets'] = [dict(package='oasis7_game_client', target_kind=kind,
             target_name=name, default_features=True, features=[]) for kind, name in (
@@ -167,6 +170,7 @@ class Preview(unittest.TestCase):
             PREVIEW.restore_baseline(clone, metadata, sample='game-client-private-unix', plan=plan)
             other_base, other_tree = PREVIEW.synthetic_baseline(clone, source)
             other = metadata | {'sample': 'runtime-world', 'paths': list(PREVIEW.SAMPLE_PATHS),
+                                'ordinary_partitions': ['oasis7_runtime', 'oasis7_world_state'],
                                 'synthetic_base_sha': other_base, 'synthetic_base_tree': other_tree}
             other_plan = valid_plan(source)
             other_plan['architecture']['base'] = other_base
@@ -174,6 +178,14 @@ class Preview(unittest.TestCase):
             # by its artifact directory or matrix row; swapping only the plan
             # must also fail before any product command starts.
             PREVIEW.restore_baseline(clone, other, sample='runtime-world', plan=other_plan)
+            for partition in ('oasis7_runtime', 'oasis7_world_state'):
+                PREVIEW.restore_baseline(clone, other, sample='runtime-world', plan=other_plan,
+                                         group='oasis7_required', partition=partition)
+            for group, partition in (('oasis7_required', 'all'), ('oasis7_required', 'unknown'),
+                                     ('rust_baseline', 'oasis7_runtime'), ('unknown', 'all')):
+                with self.subTest(group=group, partition=partition), self.assertRaises(ValueError):
+                    PREVIEW.restore_baseline(clone, other, sample='runtime-world', plan=other_plan,
+                                             group=group, partition=partition)
             for changed_metadata, changed_plan in ((other, other_plan), (metadata, other_plan)):
                 with self.assertRaises(ValueError):
                     PREVIEW.restore_baseline(clone, changed_metadata,
@@ -189,8 +201,10 @@ class Preview(unittest.TestCase):
             root = Path(directory) / 'plans'
             source = 'a' * 40
             metadata = [dict(sample='runtime-world', source_sha=source, tested_sha=source,
+                             ordinary_partitions=['oasis7_runtime', 'oasis7_world_state'],
                              synthetic_base_sha='b' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required', 'net']),
                         dict(sample='game-client-private-unix', source_sha=source, tested_sha=source,
+                             ordinary_partitions=['all'],
                              synthetic_base_sha='c' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required'])]
             by_sample = {item['sample']: item for item in metadata}
             with patch.object(PREVIEW, 'plan_preview',
@@ -199,9 +213,13 @@ class Preview(unittest.TestCase):
                 calls = plan.call_args_list
             values = dict(line.split('=', 1) for line in output.read_text().splitlines())
             rows = json.loads(values['matrix'])['include']
-            self.assertEqual(len(rows), 7)
+            self.assertEqual(len(rows), 8)
             self.assertEqual({row['sample'] for row in rows}, {'runtime-world', 'game-client-private-unix'})
-            self.assertIn({'sample': 'runtime-world', 'group': 'net', 'synthetic_base_sha': 'b' * 40}, rows)
+            self.assertIn({'sample': 'runtime-world', 'group': 'net', 'partition': 'all',
+                           'synthetic_base_sha': 'b' * 40}, rows)
+            ordinary = [row for row in rows if row['sample'] == 'runtime-world' and row['group'] == 'oasis7_required']
+            self.assertEqual([row['partition'] for row in ordinary], ['oasis7_runtime', 'oasis7_world_state'])
+            self.assertEqual(len({(row['sample'], row['group'], row['partition']) for row in rows}), len(rows))
             self.assertEqual(len({str(call.args[3]) for call in calls}), 2)
             self.assertTrue(all(len(call.args) == 4 and 'github_output' not in call.kwargs for call in calls))
             output.unlink()
@@ -231,6 +249,7 @@ class Preview(unittest.TestCase):
                     self.assertTrue(runtime_finished.wait(5))
                     self.assertFalse(output.exists())
                 return dict(sample=sample, source_sha=source, tested_sha=source,
+                            ordinary_partitions=['oasis7_runtime', 'oasis7_world_state'] if sample == 'runtime-world' else ['all'],
                             synthetic_base_sha=('b' if sample == 'runtime-world' else 'c') * 40,
                             groups=['baseline', 'rust_baseline', 'oasis7_required'])
 

@@ -768,6 +768,134 @@ class InlineExecutionSelection(unittest.TestCase):
         self.assertEqual(len(supplements), len(targets))
 
 
+class NativePackagePartitions(unittest.TestCase):
+    def selection(self):
+        targets = [FastTargetInventory().target(package=package, target_kind=kind, target_name=name)
+                   for package in ('oasis7_runtime', 'oasis7_world_state')
+                   for kind, name in (('lib', package), ('test', 'pr_fast'))]
+        return InlineExecutionSelection().selection() | {
+            'ordinary_fast_targets': targets, 'ordinary_partition_version': 1,
+            'ordinary_partitions': ['oasis7_runtime', 'oasis7_world_state'],
+            'groups': ['baseline', 'rust_baseline', 'oasis7_required'],
+            'oasis7_required_packages': ['oasis7_runtime', 'oasis7_world_state'],
+            'ordinary_clippy_group': 'rust_baseline', 'oasis7_required_wasm_packages': [],
+        }
+
+    def manifest(self, plan, partition):
+        manifest = ParallelNativeExecution().manifest(plan)
+        manifest['ordinary_partition'] = partition
+        manifest['binaries'] = {name: binary for name, binary in manifest['binaries'].items()
+                                if binary['package'] == partition}
+        return manifest
+
+    def test_package_partitions_cover_the_complete_parent_and_keep_original_variants(self):
+        plan = self.selection()
+        original = json.dumps(plan, sort_keys=True)
+        self.assertEqual(artifacts.ordinary_partitions(plan), ['oasis7_runtime', 'oasis7_world_state'])
+        selected = []
+        for package, variant in (('oasis7_runtime', 'required-fast-0'),
+                                 ('oasis7_world_state', 'required-fast-2')):
+            targets = artifacts.ordinary_partition_targets(plan, package)
+            self.assertEqual(len(targets), 2)
+            self.assertTrue(all(target['package'] == package for target in targets))
+            selected.extend(targets)
+            commands = artifacts.build_variants('ordinary', plan, ordinary_partition=package)
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][0], variant)
+            self.assertEqual(commands[0][1], ['test', '-p', package, '--lib', '--test', 'pr_fast',
+                                             '--no-default-features', '--features', 'test_tier_required', '--no-run'])
+        self.assertEqual(selected, plan['ordinary_fast_targets'])
+        self.assertEqual(len(artifacts.required_native_commands(plan)), 4)
+        self.assertEqual(json.dumps(plan, sort_keys=True), original)
+
+    def test_partition_contract_rejects_missing_duplicate_unknown_and_incompatible_owners(self):
+        invalid = [('ordinary_partition_version', True), ('ordinary_partition_version', 2),
+                   ('ordinary_partitions', []), ('ordinary_partitions', ['all']),
+                   ('ordinary_partitions', ['oasis7_runtime']),
+                   ('ordinary_partitions', ['oasis7_runtime', 'oasis7_runtime']),
+                   ('ordinary_partitions', ['oasis7_runtime', 'unknown']),
+                   ('ordinary_clippy_group', 'oasis7_required'),
+                   ('oasis7_required_wasm_packages', ['oasis7_world_state']),
+                   ('fast_execution_version', 2), ('scope', 'full')]
+        for key, value in invalid:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(self.selection() | {key: value})
+        for key in ('ordinary_partition_version', 'ordinary_partitions', 'fast_plan_version'):
+            plan = self.selection()
+            del plan[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(plan)
+        for partition in ('all', 'unknown', '', '../oasis7_runtime'):
+            with self.subTest(partition=partition), self.assertRaises(ValueError):
+                artifacts.ordinary_partition_targets(self.selection(), partition)
+
+    def test_legacy_and_single_package_keep_complete_all_execution(self):
+        for plan in (None, {}, InlineExecutionSelection().selection()):
+            self.assertEqual(artifacts.ordinary_partitions(plan), ['all'])
+        plan = self.selection()
+        plan['ordinary_fast_targets'] = plan['ordinary_fast_targets'][:2]
+        plan['ordinary_partitions'] = ['all']
+        self.assertEqual(artifacts.ordinary_partition_targets(plan, 'all'), plan['ordinary_fast_targets'])
+        self.assertEqual(artifacts.ordinary_partition_targets(self.selection()),
+                         self.selection()['ordinary_fast_targets'])
+        with self.assertRaises(ValueError):
+            artifacts.build_variants('formal', self.selection(), ordinary_partition='oasis7_runtime')
+
+    def test_partition_inventory_cannot_accept_missing_cross_package_or_relabelled_targets(self):
+        plan = self.selection()
+        manifest = self.manifest(plan, 'oasis7_runtime')
+        artifacts.validate_ordinary_selection(manifest)
+        for change in ('missing', 'cross-package', 'variant', 'features'):
+            damaged = json.loads(json.dumps(manifest))
+            if change == 'missing':
+                damaged['binaries'].pop('harness-1')
+            elif change == 'cross-package':
+                damaged['binaries']['harness-2'] = FastTargetInventory().binary(plan['ordinary_fast_targets'][2])
+            elif change == 'variant':
+                damaged['binaries']['harness-0']['variant'] = 'required-fast-2'
+            else:
+                damaged['binaries']['harness-0']['requested_features'] = []
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(damaged)
+
+    def test_load_cannot_consume_a_different_partition_or_present_it_as_the_whole_group(self):
+        plan = self.selection()
+        with tempfile.TemporaryDirectory() as temporary, patch.object(artifacts, 'validate_plan_identity'):
+            root = Path(temporary)
+            (root / 'manifest.json').write_text(json.dumps(self.manifest(plan, 'oasis7_runtime')))
+            for partition in (None, 'all', 'oasis7_world_state'):
+                with self.subTest(partition=partition), self.assertRaisesRegex(ValueError, 'partition'):
+                    artifacts.load(root, 'ordinary', plan=plan, ordinary_partition=partition)
+
+    def test_validated_partition_runs_complete_harnesses_serially_with_the_cpu_budget(self):
+        plan = self.selection()
+        for limit, expected_threads in ((None, '4'), ('1', '1')):
+            second_started = threading.Event()
+            calls = []
+            def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                self.assertEqual(len(command), 1)
+                self.assertEqual(expected_count, 2)
+                self.assertEqual(env['RUST_TEST_THREADS'], expected_threads)
+                calls.append(name)
+                if name == 'harness-0':
+                    self.assertFalse(second_started.wait(timeout=0.1))
+                else:
+                    second_started.set()
+                return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+            environment = {} if limit is None else {'RUST_TEST_THREADS': limit}
+            with tempfile.TemporaryDirectory() as temporary, \
+                    patch.object(artifacts, 'load', return_value=(self.manifest(plan, 'oasis7_runtime'), environment)), \
+                    patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                    patch('ci_process_runner.run', side_effect=invoke):
+                results = Path(temporary) / 'results.jsonl'
+                artifacts.execute(Path(temporary), 'ordinary', results, plan=plan,
+                                  ordinary_partition='oasis7_runtime')
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+            self.assertEqual(calls, ['harness-0', 'harness-1'])
+            self.assertEqual(len(records), 2)
+            self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
+
+
 class ParallelNativeExecution(unittest.TestCase):
     def selection(self, count=3):
         return InlineExecutionSelection().selection() | {
@@ -1088,6 +1216,26 @@ class ParallelNativeExecution(unittest.TestCase):
 
 
 class DriverCoverage(unittest.TestCase):
+    def test_partition_driver_rejects_explicit_all_for_a_split_parent_before_consuming_artifacts(self):
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
+        plan = NativePackagePartitions().selection() | {
+            'source_sha': sha, 'tested_sha': sha, 'policy_sha': sha,
+            'architecture': dict(source=sha, tested=sha)}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            selection = root / 'selection.json'
+            selection.write_text(json.dumps(plan))
+            for partition in ('all', 'unknown'):
+                result = subprocess.run(['bash', str(HERE / 'ci-tests.sh'), 'required',
+                    '--group', 'oasis7_required', '--plan', str(selection),
+                    '--ordinary-partition', partition, '--repo-root', str(artifacts.ROOT)],
+                    text=True, capture_output=True,
+                    env=dict(os.environ, SOURCE_SHA=sha, OASIS7_CI_TEST_BUNDLE=str(root / 'missing-bundle')))
+                with self.subTest(partition=partition):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('unknown ordinary partition', result.stderr)
+                    self.assertNotIn('missing-bundle/manifest.json', result.stderr)
+
     def test_whole_cli_assigns_exact_strict_clippy_commands_once_and_preserves_failures(self):
         # Keep the actual entrypoint, trusted-plan parser and command builder.
         # Stub only unrelated baseline executables and the expensive Cargo process.
@@ -1211,22 +1359,28 @@ if action == 'build':
 if os.environ['FAILED'] == action:
     sys.exit(19)
 ''')
-            for failed in ('', 'build', 'run'):
+            for partition, failed in ((partition, failed) for partition in ('', 'all', 'oasis7_runtime')
+                                      for failed in ('', 'build', 'run')):
                 log = root / 'calls.jsonl'
                 log.unlink(missing_ok=True)
-                script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"; repo_root="$2"; required_plan=fixture\n'
+                script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"; repo_root="$2"; required_plan=fixture; ordinary_partition="$3"\n'
                 script += 'run() { "$@"; }\nrun_cargo() { echo unexpected-Cargo; return 83; }\n'
                 script += 'run_oasis7_required_tier_tests() {\n' + body + '}\nrun_oasis7_required_tier_tests\n'
-                result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(root)],
+                result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(root), partition],
                                         text=True, capture_output=True,
                                         env=dict(os.environ, FAILED=failed, CALL_LOG=str(log), OASIS7_CI_TEST_BUNDLE=''))
                 calls = [json.loads(line) for line in log.read_text().splitlines()]
-                with self.subTest(failed=failed):
+                with self.subTest(partition=partition, failed=failed):
                     self.assertEqual(result.returncode, 19 if failed else 0, result.stderr)
                     self.assertEqual([call['args'][0] for call in calls], ['build'] if failed == 'build' else ['build', 'run'])
                     self.assertEqual(calls[0]['args'][calls[0]['args'].index('--scope') + 1], 'ordinary')
                     self.assertEqual(len({call['bundle'] for call in calls}), 1)
                     self.assertFalse(Path(calls[0]['bundle']).exists())
+                    for call in calls:
+                        if partition and partition != 'all':
+                            self.assertEqual(call['args'][call['args'].index('--ordinary-partition') + 1], partition)
+                        else:
+                            self.assertNotIn('--ordinary-partition', call['args'])
 
     def test_baseline_executes_selected_real_extra_commands_and_propagates_failure(self):
         driver = (HERE / 'ci-tests.sh').read_text()
@@ -3437,6 +3591,83 @@ class Process(unittest.TestCase):
         result = self.execute([str(self.binary), '--exact', 'renamed', '--ignored'])
         self.assertEqual(result['exit_code'], 0)
         self.assertFalse(result['passed'])
+
+    def test_real_native_partitions_preserve_feature_isolation_and_complete_harnesses(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'Cargo.toml').write_text('[workspace]\nmembers=["runtime","world"]\nresolver="2"\n')
+            for directory, package in (('runtime', 'oasis7_runtime'), ('world', 'oasis7_world_state')):
+                member = root / directory
+                (member / 'src').mkdir(parents=True)
+                (member / 'tests').mkdir()
+                manifest = ('[package]\nname="' + package + '"\nversion="0.1.0"\nedition="2021"\n'
+                            '[features]\ndefault=["bad-default"]\nbad-default=[]\ntest_tier_required=[]\ntest-support=[]\n')
+                if directory == 'runtime':
+                    manifest += ('[dev-dependencies]\noasis7_world_state={path="../world",'
+                                 'default-features=false,features=["test-support"]}\n')
+                (member / 'Cargo.toml').write_text(manifest)
+                source = ('pub fn test_support_enabled() -> bool { cfg!(feature="test-support") }\n'
+                          '#[test] fn required_case() { assert!(cfg!(feature="test_tier_required")); '
+                          'assert!(!cfg!(feature="bad-default")); CHECK }\n'
+                          '#[test] fn added_regression() { assert_eq!(2 + 2, 4); }\n'
+                          '#[test] #[ignore] fn ignored_case() { panic!("ignored inventory changed"); }\n')
+                if directory == 'runtime':
+                    source = source.replace('CHECK', 'assert!(oasis7_world_state::test_support_enabled());')
+                else:
+                    source = ('#[cfg(all(test, feature="test-support"))]\n'
+                              'compile_error!("cross-package test-support leaked into WorldState root");\n'
+                              + source.replace('CHECK', 'assert!(!test_support_enabled());'))
+                (member / 'src/lib.rs').write_text(source)
+                (member / 'tests/pr_fast.rs').write_text(
+                    '#[test] fn required_case() { assert!(cfg!(feature="test_tier_required")); }\n'
+                    '#[test] fn added_integration() { assert_eq!(3 + 3, 6); }\n')
+            config = root / 'scripts/ci-formal-process-suites.json'
+            config.parent.mkdir()
+            config.write_text('{}')
+            subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=root, check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for command in (['git', 'init', '-q'], ['git', 'add', '.'],
+                            ['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                             'commit', '-qm', 'fixture']):
+                subprocess.run(command, cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
+            plan = NativePackagePartitions().selection() | {
+                'source_sha': sha, 'tested_sha': sha, 'policy_sha': sha,
+                'architecture': dict(source=sha, tested=sha)}
+            for target in plan['ordinary_fast_targets']:
+                target['cases'] = ['required_case']
+            # The negative control proves this real fixture detects the feature
+            # union which independent package builds must continue to avoid.
+            merged = subprocess.run(['cargo', 'test', '--locked', '-p', 'oasis7_runtime', '-p', 'oasis7_world_state',
+                '--lib', '--no-default-features', '--features', 'test_tier_required', '--no-run'],
+                cwd=root, text=True, capture_output=True)
+            self.assertNotEqual(merged.returncode, 0)
+            self.assertIn('cross-package test-support leaked', merged.stderr)
+            observed = []
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                    patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                    patch.dict(os.environ, SOURCE_SHA=sha):
+                for partition in plan['ordinary_partitions']:
+                    bundle = root / ('bundle-' + partition)
+                    artifacts.build(bundle, 'ordinary', plan=plan, ordinary_partition=partition)
+                    manifest = json.loads((bundle / 'manifest.json').read_text())
+                    self.assertEqual(manifest['execution_plan'], plan)
+                    self.assertEqual(manifest['ordinary_partition'], partition)
+                    binaries = [binary for binary in manifest['binaries'].values() if binary['ordinary']]
+                    self.assertEqual(len(binaries), 2)
+                    self.assertTrue(all(binary['package'] == partition for binary in binaries))
+                    self.assertEqual(sorted(len(binary['ignored_tests']) for binary in binaries), [0, 1])
+                    observed.extend(binary['variant'] for binary in binaries)
+                    archive = root / ('partial-' + partition + '.tar.gz')
+                    with self.assertRaisesRegex(ValueError, 'complete bundles'):
+                        artifacts.pack(bundle, archive, suite='ordinary', plan=plan)
+                    self.assertFalse(archive.exists())
+                    results = root / (partition + '.jsonl')
+                    artifacts.execute(bundle, 'ordinary', results, plan=plan, ordinary_partition=partition)
+                    records = [json.loads(line) for line in results.read_text().splitlines()]
+                    self.assertEqual(len(records), 2)
+                    self.assertTrue(all(record['passed'] and record['expected_count'] == 2 for record in records))
+            self.assertEqual(sorted(observed), ['required-fast-' + str(index) for index in range(4)])
 
     def test_real_selected_build_keeps_required_features_and_excludes_unrelated_package(self):
         with tempfile.TemporaryDirectory() as temporary:
