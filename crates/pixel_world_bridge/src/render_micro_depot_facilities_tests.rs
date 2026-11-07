@@ -1139,7 +1139,7 @@ fn depot_authored_body_detail_and_native_readout_keep_one_unit_contract() {
     let (text,transform,font)=world.query_filtered::<(&Text2d,&Transform,&TextFont),With<crate::render::micro_depot_facilities::PixelWorldMicroDepotThroughputTextVisual>>().single(world).unwrap();
     assert_eq!(text.0, "7/10");
     assert_eq!(font.font_size, FontSize::Px(12.));
-    assert_eq!(transform.translation.y - y, 12.);
+    assert_eq!(transform.translation.y - y, 16.);
     assert!(
         world
             .resource::<BevyRuntimeState>()

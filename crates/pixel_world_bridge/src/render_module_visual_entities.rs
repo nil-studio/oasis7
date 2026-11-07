@@ -79,12 +79,20 @@ const CO_ANCHOR_RING_OFFSETS: [Vec2; 8] = [
     Vec2::new(48.0, 48.0),
 ];
 
-pub(crate) fn module_co_anchor_offset(index: usize, renderer_to_css_scale: Vec2) -> Vec2 {
+pub(crate) fn module_co_anchor_offset(
+    index: usize,
+    renderer_to_css_scale: Vec2,
+    pixel: Vec2,
+) -> Vec2 {
     let ring = (index / CO_ANCHOR_RING_OFFSETS.len() + 1) as f32;
     let css_offset = CO_ANCHOR_RING_OFFSETS[index % CO_ANCHOR_RING_OFFSETS.len()];
     Vec2::new(
-        css_offset.x * renderer_to_css_scale.x,
-        css_offset.y * renderer_to_css_scale.y,
+        css_offset.x / 48.0
+            * ((48.0_f32.max(16.0 * pixel.x + 4.0) / pixel.x).ceil() * pixel.x)
+            * renderer_to_css_scale.x,
+        css_offset.y / 48.0
+            * ((48.0_f32.max(16.0 * pixel.y + 4.0) / pixel.y).ceil() * pixel.y)
+            * renderer_to_css_scale.y,
     ) * ring
 }
 
@@ -199,6 +207,7 @@ pub(super) fn reconcile_module_visual_entities(
             module_co_anchor_offset(
                 co_anchor_slot.map_or(index, |(co_anchor_index, _)| co_anchor_index),
                 renderer_to_css_scale,
+                pixel,
             )
         } else {
             Vec2::ZERO
@@ -287,7 +296,7 @@ pub(super) fn reconcile_module_visual_entities(
             let label_x = canvas_x + f64::from(co_anchor_offset.x);
             let extra_half_height = f64::from(MODULE_VISUAL_ENTITY_SIZE_PX)
                 * std::f64::consts::FRAC_1_SQRT_2
-                * ((f64::from(pixel.x) + f64::from(pixel.y)) / 2.0 - 1.0);
+                * (((f64::from(pixel.x) + f64::from(pixel.y)) / 2.0 - 1.0).max(0.0));
             let label_y = canvas_y + f64::from(co_anchor_offset.y)
                 - MODULE_LABEL_ABOVE_MARKER_PX
                 - extra_half_height;
