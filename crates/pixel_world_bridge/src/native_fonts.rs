@@ -106,4 +106,34 @@ mod tests {
             bevy::text::DEFAULT_FONT_DATA
         );
     }
+
+    #[test]
+    fn removing_an_unrelated_font_restores_cjk_fallback_after_collection_rebuild() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Font>>()
+            .init_resource::<FontCx>();
+        let temporary = app
+            .world_mut()
+            .resource_mut::<Assets<Font>>()
+            .add(Font::from_bytes(bevy::text::DEFAULT_FONT_DATA.to_vec()));
+        install(&mut app);
+        app.add_systems(PostUpdate, load_font_assets_into_font_collection);
+        app.update();
+        app.world_mut()
+            .resource_mut::<Assets<Font>>()
+            .remove(temporary.id());
+        app.update();
+        let mut fonts = app.world_mut().resource_mut::<FontCx>();
+        let family = fonts.collection.family_id(FAMILY).unwrap();
+        assert!(
+            fonts
+                .collection
+                .fallback_families(Script::from_bytes(*b"Hani"))
+                .any(|id| id == family)
+        );
+        let notice = native_font_notices();
+        assert!(notice.contains("Copyright © 2014–2021 Adobe"));
+        assert!(notice.contains("SIL OPEN FONT LICENSE Version 1.1"));
+        assert!(notice.contains("PERMISSION & CONDITIONS"));
+    }
 }
