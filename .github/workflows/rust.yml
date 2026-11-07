@@ -1848,23 +1848,21 @@ jobs:
           browser_bin="$RUNNER_TEMP/viewer-security-browser/node_modules/.bin/agent-browser"
           "$browser_bin" install --with-deps
           printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
-      - name: Install pinned Rust toolchains
+      - name: Install pinned Rust toolchain
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
-          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
-          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
-          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
         shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v4
+          shared-key: release-packages-web-wasm-trusted-v3
           add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta
@@ -1932,23 +1930,21 @@ jobs:
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
       - name: Install viewer dependencies
         run: npm ci --prefix crates/oasis7_viewer
-      - name: Install pinned Rust toolchains
+      - name: Install pinned Rust toolchain
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
-          rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
-          rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
-          rustup target add wasm32-unknown-unknown
+          rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
       - name: Stabilize Rust cache toolchains
         shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-shared-native-trusted-v4
+          shared-key: release-packages-web-wasm-trusted-v3
           add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST
           cache-on-failure: false
       - name: Resolve wasm-bindgen tool cache metadata
         id: bindgen-meta
