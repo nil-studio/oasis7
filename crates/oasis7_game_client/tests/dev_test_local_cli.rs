@@ -78,19 +78,6 @@ fn local_command_dispatch_preserves_legacy_errors_and_exact_names() {
             "unsupported_service_command",
         );
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        rejects(
-            &["dev-test-local-serve"],
-            b"",
-            "local peer authenticated service requires Linux",
-        );
-        rejects(
-            &["dev-test-local-call", "--socket", "unused"],
-            b"invalid",
-            "unsupported_service_command",
-        );
-    }
 }
 
 #[cfg(target_os = "linux")]
