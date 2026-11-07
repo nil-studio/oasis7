@@ -297,6 +297,8 @@ periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、�
 
 完整构建清单通过核验后，inline 的独立 harness 可最多两个并行执行，全部 libtest 线程的预算按可用 CPU 分配。经完整身份与实际库存核验的 library harness 优先派发，避免短 integration 先占 worker 推迟长库的完成；两类各自保持原顺序，未知或旧 capability 保留原调度。每个 harness 仍执行全部非 ignored 用例并独立核对计数、退出、超时及后代清理；不拆分或截短单个场景。任一失败保留原失败，停止启动待执行项并取消、回收本轮已启动任务；后续成功不能覆盖失败或取消，未执行项不能算通过。进程监督器的可选取消信号只作用于本次拥有的进程树，默认串行调用和完整 profile 保留原行为。
 
+调试与测试构建中的密码学热点沿用根 manifest 的精确 package/version 优化：可执行文件校验同时覆盖实际使用的两个 SHA-256 版本，重复私钥封套派生覆盖锁定的 Argon2 实现。仅提高这些依赖的 `opt-level`，保留 debug assertions、overflow checks、固定 KDF 参数、封套格式与完整行为回归；不通过降低安全参数或复用解锁结果缩短测试。Cargo 的 test profile 继承 dev profile，包级配置与继承按 [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#overrides) 执行。比较相同产品源码、features、runner 和冷暖状态下的编译加测试关键路径后判断收益，不能只报告函数速度或忽略新增编译成本。
+
 `rust-baseline` 的格式、架构、RustSec 与文件约束继续执行。NewAPI accounting 仅在其真实 package/依赖输入受影响时执行；独立工具锁文件检查在相应 manifest/lock、检查器或共享构建输入变化时执行。选择来自可信计划及完整差异，不靠候选环境变量自由关闭；没有新能力的旧计划和完整 profile 保留原检查。周期 full 仍执行这些专项全部原命令。
 
 架构编译分层遵循[主责合同](../../engineering/rust-governance/rust-engineering-contracts.design.md#trusted-local-architecture)，Trace refs: O7-REQ-f2a285fe-6e46-4b51-aea7-3ba32e06cf84。可信配置的 `architecture_build_policy_version=1` 仅对完整符合普通快速合同的直接输入启用 `ordinary-targets`；消费者重核目标 owner、source/tested、必需组和干净 checkout。全部登记 profile 的声明/依赖图持续阻断违规，额外编译以 `deferred_to_full` 记录，快速目标的真实构建、Clippy 与测试继续由当轮两个必需组执行。混合非普通输入、必要加测、共享控制、旧能力或 full 保留相应原矩阵，不通过诊断 `--graphs-only` 放行。周期 full 承担额外 feature/平台及上层组合的实际兼容编译。
@@ -311,7 +313,7 @@ Viewer 的完整 UI 测试与 software-safe 构建在输入、输出互不依赖
 
 预览以实际 tested tree 构造两份仅注释不同的 baseline，benchmark 的 source/tested checkout 保持该 tested commit 不变。`runtime-world` 保留两个既有 Rust 输入，必须包含 baseline、rust-baseline、ordinary 及 Runtime lib、World State lib、reducers、物理 incremental 四个完整 target；额外组仅接受上述 `architecture.consumer_groups` 明确证明的 native 反向消费者。`game-client-private-unix` 只使用已登记的私有 CLI 适配输入，必须包含三个核心组、完整 game-client lib 与四个 CLI integration targets，以及自身运行转交、两项 support 消费者延后和原 all-targets Clippy 保留清单。两份期望目标与 feature 组合由预览独立固定，不能从候选选测结果反推应有覆盖。
 
-`ci-fast-preview.py` 按样本分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree、固定输入和全部组，下游 runner 按样本与确定性 Git 身份重建比较对象。`plan-matrix` 只有在所有样本完整校验成功后才一次发布执行矩阵；不发布半份成功。每行绑定 sample、group 与该样本的合成 BASE，selection、metadata 和结果 artifact 分别命名，禁止跨样本复用；Runtime 的额外消费者组仍全部执行。缺项、未解释的额外需求或错误 feature 策略均不能被静默省略。
+`ci-fast-preview.py` 按样本分别记录实际 PR BASE/source/target、分支共同祖先和触发比较范围，以及 benchmark 的 policy/source/tested、合成 BASE/tree、固定输入和全部组，下游 runner 按样本与确定性 Git 身份重建比较对象。两个独立样本最多并行规划两路，各自使用临时 Git index 和独立输出路径，不修改 checkout、真实 index 或 ref。`plan-matrix` 只有在所有样本完整校验成功后才一次发布执行矩阵；不发布半份成功。每行绑定 sample、group 与该样本的合成 BASE，selection、metadata 和结果 artifact 分别命名，禁止跨样本复用；Runtime 的额外消费者组仍全部执行。缺项、未解释的额外需求或错误 feature 策略均不能被静默省略。
 
 预览矩阵直接消费已验证计划输出的完整组列表，所有选中组并行运行真实 driver，不恢复缓存，记录准备、编译、测试与结果；每个样本从 workflow 创建到其全部所选 job 完成的时长独立验收，包含排队、规划和产物上传，不能把单个 job 的 runner_seconds 当成端到端或混用另一份样本的完成时间。不能只运行三个核心组而漏掉计划中的消费者。该预览测量当前 Rust 测试与编译成本，不证明一般差异覆盖、回归质量或 P95；它不是本 CI 控制 PR 的 authoritative required 计划，不生成 release 可接受的完整结果。metadata、日志和状态使用独立名称，不把预览成功混记为当前 PR 已按新策略通过。
 

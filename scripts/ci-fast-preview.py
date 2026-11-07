@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Measure a candidate fast policy on current code, without authorizing a PR gate."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -281,8 +282,14 @@ def restore_baseline(repo, metadata, *, sample=None, plan=None):
 def plan_matrix(repo, base_ref, head_ref, output_dir, github_output=None, *, source_ref=None):
     # Publish one complete matrix only after every independent fixed sample has
     # passed. A failed second plan must never leave enabled=true or a partial DAG.
-    metadata = [plan_preview(repo, base_ref, head_ref, Path(output_dir) / sample / 'selection.json',
-                             source_ref=source_ref, sample=sample) for sample in SAMPLES]
+    # Each worker owns its output path and temporary Git index. The checkout,
+    # real index and refs remain read-only, and each planner has its own process.
+    def plan_sample(sample):
+        return plan_preview(repo, base_ref, head_ref, Path(output_dir) / sample / 'selection.json',
+                            source_ref=source_ref, sample=sample)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        metadata = list(pool.map(plan_sample, SAMPLES))
     if not any(metadata):
         write_outputs(github_output, {'enabled': 'false'})
         return []

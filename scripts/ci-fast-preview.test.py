@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -191,7 +192,9 @@ class Preview(unittest.TestCase):
                              synthetic_base_sha='b' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required', 'net']),
                         dict(sample='game-client-private-unix', source_sha=source, tested_sha=source,
                              synthetic_base_sha='c' * 40, groups=['baseline', 'rust_baseline', 'oasis7_required'])]
-            with patch.object(PREVIEW, 'plan_preview', side_effect=metadata) as plan:
+            by_sample = {item['sample']: item for item in metadata}
+            with patch.object(PREVIEW, 'plan_preview',
+                              side_effect=lambda *args, **kwargs: by_sample[kwargs['sample']]) as plan:
                 PREVIEW.plan_matrix(Path(directory), 'base', 'head', root, output, source_ref='source')
                 calls = plan.call_args_list
             values = dict(line.split('=', 1) for line in output.read_text().splitlines())
@@ -202,10 +205,39 @@ class Preview(unittest.TestCase):
             self.assertEqual(len({str(call.args[3]) for call in calls}), 2)
             self.assertTrue(all(len(call.args) == 4 and 'github_output' not in call.kwargs for call in calls))
             output.unlink()
-            with patch.object(PREVIEW, 'plan_preview', side_effect=[metadata[0], ValueError('bad CLI plan')]):
+            def fail_cli(*args, **kwargs):
+                if kwargs['sample'] == 'game-client-private-unix':
+                    raise ValueError('bad CLI plan')
+                return by_sample[kwargs['sample']]
+
+            with patch.object(PREVIEW, 'plan_preview', side_effect=fail_cli):
                 with self.assertRaises(ValueError):
                     PREVIEW.plan_matrix(Path(directory), 'base', 'head', root, output)
             self.assertFalse(output.exists())
+
+    def test_sample_planners_overlap_without_publishing_before_both_finish(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'github-output'
+            entered = threading.Barrier(2, timeout=5)
+            runtime_finished = threading.Event()
+            source = 'a' * 40
+
+            def plan_sample(*args, **kwargs):
+                sample = kwargs['sample']
+                entered.wait()  # A serial implementation cannot enter both planners.
+                if sample == 'runtime-world':
+                    runtime_finished.set()
+                else:
+                    self.assertTrue(runtime_finished.wait(5))
+                    self.assertFalse(output.exists())
+                return dict(sample=sample, source_sha=source, tested_sha=source,
+                            synthetic_base_sha=('b' if sample == 'runtime-world' else 'c') * 40,
+                            groups=['baseline', 'rust_baseline', 'oasis7_required'])
+
+            with patch.object(PREVIEW, 'plan_preview', side_effect=plan_sample):
+                result = PREVIEW.plan_matrix(Path(directory), 'base', 'head', directory, output)
+            self.assertEqual([item['sample'] for item in result], list(PREVIEW.SAMPLES))
+            self.assertEqual(output.read_text().count('enabled=true\n'), 1)
 
     def test_current_source_unchanged_and_diagnostic_baseline_exact(self):
         with tempfile.TemporaryDirectory() as directory:
