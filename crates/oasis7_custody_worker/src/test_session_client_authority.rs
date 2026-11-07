@@ -15,6 +15,7 @@ fn rejected() -> JsValue {
 /// Public deployment metadata only. There is no signing seed or private session access here.
 pub(crate) struct ClientHttpConfiguration {
     origin: String,
+    diagnostic: crate::rejection_diagnostic::Trace,
 }
 impl ClientHttpConfiguration {
     pub(crate) fn load(env: &Env) -> Result<Self, JsValue> {
@@ -32,7 +33,10 @@ impl ClientHttpConfiguration {
             .map_err(|_| rejected())?
             .to_string();
         CanonicalHttpTarget::new(&origin, HttpPopRoute::ProofChallenges).map_err(|_| rejected())?;
-        Ok(Self { origin })
+        Ok(Self {
+            origin,
+            diagnostic: crate::rejection_diagnostic::Trace::new(env, "proof", None, None),
+        })
     }
     /// This operation is injected by a fixed Rust route, never deserialized from the transport.
     pub(crate) fn prepare(
@@ -42,6 +46,7 @@ impl ClientHttpConfiguration {
         operation: SessionClientOperation,
         time: UnixMillis,
     ) -> Result<PreparedHttpPop, JsValue> {
+        self.diagnostic.session(state, &request.session_id, None);
         state
             .prepare_test_session_client_http(
                 request,
@@ -54,6 +59,9 @@ impl ClientHttpConfiguration {
                 },
                 time,
             )
-            .map_err(|_| rejected())
+            .map_err(|error| {
+                self.diagnostic.core_at("proof.prepare", &error, time.get());
+                rejected()
+            })
     }
 }

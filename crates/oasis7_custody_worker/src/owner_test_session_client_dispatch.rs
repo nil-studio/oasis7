@@ -12,173 +12,194 @@ pub(crate) async fn dispatch(
     operation: SessionClientOperation,
     role: Role,
 ) -> Result<String> {
-    if role != Role::Identity {
-        return Err(denied());
-    }
-    session_authority::enabled(env)?;
-    let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
-    let admission = &rpc.admission;
-    let selector = &admission.http.selector;
-    let id = &selector.session_id;
-    if matches!(operation, SessionClientOperation::ToolNonce) {
-        if !matches!(&rpc.action, TestSessionClientAction::ToolNonce) {
+    let diagnostic = crate::rejection_diagnostic::Trace::new(env, "account", None, None);
+    let stage = std::cell::Cell::new("unknown");
+    let result = async {
+        if role != Role::Identity {
             return Err(denied());
         }
-        return json(
-            store
-                .issue_client_tool_nonce(env, admission)
-                .await
-                .map_err(|_| denied())?,
-        );
-    }
-    if matches!(&rpc.action, TestSessionClientAction::ToolNonce) {
-        return Err(denied());
-    }
-    let purpose = store
-        .revalidate_client_http(env, admission, operation)
-        .await
-        .map_err(|_| denied())?;
-    let source = client_source_operation_id(admission).map_err(|_| denied())?;
-    let local = matches!(
-        operation,
-        SessionClientOperation::Control(SessionControlKindV1::Finish | SessionControlKindV1::Abort)
-    );
-    match rpc.action {
-        TestSessionClientAction::ToolNonce => Err(denied()),
-        TestSessionClientAction::Admit => {
-            let reserved = store
-                .admit_client_http(env, admission, operation, purpose)
-                .await
-                .map_err(|_| denied())?;
-            json((reserved.source, reserved.descriptor))
-        }
-        TestSessionClientAction::Complete { lifetime } if local => {
-            if lifetime.is_some() {
+        session_authority::enabled(env)?;
+        let store = OwnerProvisionApprovalStore::open(state.clone()).map_err(|_| denied())?;
+        let admission = &rpc.admission;
+        let selector = &admission.http.selector;
+        let id = &selector.session_id;
+        if matches!(operation, SessionClientOperation::ToolNonce) {
+            if !matches!(&rpc.action, TestSessionClientAction::ToolNonce) {
                 return Err(denied());
             }
-            let SessionClientOperation::Control(kind) = operation else {
-                return Err(denied());
-            };
-            json(
+            return json(
                 store
-                    .control_client_session(env, admission, kind, purpose, || {
-                        Err(JsValue::from_str("no live authority"))
-                    })
+                    .issue_client_tool_nonce(env, admission)
                     .await
                     .map_err(|_| denied())?,
-            )
+            );
         }
-        _ if local => Err(denied()),
-        TestSessionClientAction::ClaimSource => {
-            let current = observed(state, env, &store, admission, &source, true).await?;
-            json(
+        if matches!(&rpc.action, TestSessionClientAction::ToolNonce) {
+            return Err(denied());
+        }
+        stage.set("account.revalidate");
+        let purpose = store
+            .revalidate_client_http(env, admission, operation)
+            .await
+            .map_err(|_| denied())?;
+        let source = client_source_operation_id(admission).map_err(|_| denied())?;
+        let local = matches!(
+            operation,
+            SessionClientOperation::Control(
+                SessionControlKindV1::Finish | SessionControlKindV1::Abort
+            )
+        );
+        match rpc.action {
+            TestSessionClientAction::ToolNonce => Err(denied()),
+            TestSessionClientAction::Admit => {
+                stage.set("account.admit");
+                let reserved = store
+                    .admit_client_http(env, admission, operation, purpose)
+                    .await
+                    .map_err(|_| denied())?;
+                json((reserved.source, reserved.descriptor))
+            }
+            TestSessionClientAction::Complete { lifetime } if local => {
+                if lifetime.is_some() {
+                    return Err(denied());
+                }
+                let SessionClientOperation::Control(kind) = operation else {
+                    return Err(denied());
+                };
+                json(
+                    store
+                        .control_client_session(env, admission, kind, purpose, || {
+                            Err(JsValue::from_str("no live authority"))
+                        })
+                        .await
+                        .map_err(|_| denied())?,
+                )
+            }
+            _ if local => Err(denied()),
+            TestSessionClientAction::ClaimSource => {
+                stage.set("account.claim_source");
+                let current = observed(state, env, &store, admission, &source, true).await?;
+                json(
+                    store
+                        .claim_test_session_source(id, &source, || {
+                            session_authority::current(state, env, &current, false)
+                        })
+                        .map_err(|_| denied())?,
+                )
+            }
+            TestSessionClientAction::RecordSource { signed } => {
+                stage.set("account.record_source");
+                let saved = store.snapshot().map_err(|_| denied())?;
+                let input = session_authority::input(&saved, selector)?;
+                let current =
+                    session_authority::observe(env, &saved, input, &signed, false).await?;
                 store
-                    .claim_test_session_source(id, &source, || {
-                        session_authority::current(state, env, &current, false)
+                    .complete_test_session_source(id, &source, *signed, || {
+                        session_authority::current(state, env, &current, true)
                     })
-                    .map_err(|_| denied())?,
-            )
-        }
-        TestSessionClientAction::RecordSource { signed } => {
-            let saved = store.snapshot().map_err(|_| denied())?;
-            let input = session_authority::input(&saved, selector)?;
-            let current = session_authority::observe(env, &saved, input, &signed, false).await?;
-            store
-                .complete_test_session_source(id, &source, *signed, || {
-                    session_authority::current(state, env, &current, true)
-                })
-                .await
-                .map_err(|_| denied())?;
-            json(())
-        }
-        TestSessionClientAction::Observe { index } => {
-            let ticket = store
-                .reserve_test_session_source_read(id, &source)
-                .map_err(|_| denied())?;
-            let expected = match index {
-                TestSessionClientObservation::PreDecrypt => 1,
-                TestSessionClientObservation::PostDecrypt => 2,
-            };
-            if ticket != expected {
-                return Err(denied());
+                    .await
+                    .map_err(|_| denied())?;
+                json(())
             }
-            let started = clock()?;
-            let current = observed(state, env, &store, admission, &source, false).await?;
-            let descriptor = store
-                .client_source_descriptor(id, &source, ticket, purpose, || {
-                    session_authority::current(state, env, &current, true)
-                })
-                .await
-                .map_err(|_| denied())?;
-            let native =
-                session_authority::current(state, env, &current, true).map_err(|_| denied())?;
-            json(observation(
-                &store, id, descriptor, ticket, &native, started,
-            )?)
-        }
-        TestSessionClientAction::ClaimLifetime => {
-            let ticket = store
-                .reserve_test_session_source_read(id, &source)
-                .map_err(|_| denied())?;
-            if ticket != 3 {
-                return Err(denied());
+            TestSessionClientAction::Observe { index } => {
+                stage.set("client.current");
+                let ticket = store
+                    .reserve_test_session_source_read(id, &source)
+                    .map_err(|_| denied())?;
+                let expected = match index {
+                    TestSessionClientObservation::PreDecrypt => 1,
+                    TestSessionClientObservation::PostDecrypt => 2,
+                };
+                if ticket != expected {
+                    return Err(denied());
+                }
+                let started = clock()?;
+                let current = observed(state, env, &store, admission, &source, false).await?;
+                let descriptor = store
+                    .client_source_descriptor(id, &source, ticket, purpose, || {
+                        session_authority::current(state, env, &current, true)
+                    })
+                    .await
+                    .map_err(|_| denied())?;
+                let native =
+                    session_authority::current(state, env, &current, true).map_err(|_| denied())?;
+                json(observation(
+                    &store, id, descriptor, ticket, &native, started,
+                )?)
             }
-            let started = clock()?;
-            let current = observed(state, env, &store, admission, &source, false).await?;
-            let descriptor = store
-                .claim_client_lifetime(id, &source, purpose, || {
-                    session_authority::current(state, env, &current, true)
-                })
-                .await
-                .map_err(|_| denied())?;
-            let native =
-                session_authority::current(state, env, &current, true).map_err(|_| denied())?;
-            json(observation(
-                &store, id, descriptor, ticket, &native, started,
-            )?)
-        }
-        TestSessionClientAction::Complete { lifetime } => {
-            let current = live(
-                state,
-                env,
-                &store,
-                admission,
-                &source,
-                *lifetime.ok_or_else(denied)?,
-            )
-            .await?;
-            match operation {
-                SessionClientOperation::ToolNonce => Err(denied()),
-                SessionClientOperation::Challenge => {
-                    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-                    let random = Zeroizing::new(
-                        crate::approval_crypto::verification_nonce().map_err(|_| denied())?,
-                    );
-                    let bytes = Zeroizing::new(hex::decode(random.as_str()).map_err(|_| denied())?);
-                    let nonce = URL_SAFE_NO_PAD.encode(bytes.as_slice());
-                    json(
+            TestSessionClientAction::ClaimLifetime => {
+                stage.set("client.claim_lifetime");
+                let ticket = store
+                    .reserve_test_session_source_read(id, &source)
+                    .map_err(|_| denied())?;
+                if ticket != 3 {
+                    return Err(denied());
+                }
+                let started = clock()?;
+                let current = observed(state, env, &store, admission, &source, false).await?;
+                let descriptor = store
+                    .claim_client_lifetime(id, &source, purpose, || {
+                        session_authority::current(state, env, &current, true)
+                    })
+                    .await
+                    .map_err(|_| denied())?;
+                let native =
+                    session_authority::current(state, env, &current, true).map_err(|_| denied())?;
+                json(observation(
+                    &store, id, descriptor, ticket, &native, started,
+                )?)
+            }
+            TestSessionClientAction::Complete { lifetime } => {
+                stage.set("account.live");
+                let current = live(
+                    state,
+                    env,
+                    &store,
+                    admission,
+                    &source,
+                    *lifetime.ok_or_else(denied)?,
+                )
+                .await?;
+                match operation {
+                    SessionClientOperation::ToolNonce => Err(denied()),
+                    SessionClientOperation::Challenge => {
+                        stage.set("account.challenge");
+                        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+                        let random = Zeroizing::new(
+                            crate::approval_crypto::verification_nonce().map_err(|_| denied())?,
+                        );
+                        let bytes =
+                            Zeroizing::new(hex::decode(random.as_str()).map_err(|_| denied())?);
+                        let nonce = URL_SAFE_NO_PAD.encode(bytes.as_slice());
+                        json(
+                            store
+                                .issue_client_challenge(env, admission, &nonce, purpose, || {
+                                    Ok(current.clone())
+                                })
+                                .await
+                                .map_err(|_| denied())?,
+                        )
+                    }
+                    SessionClientOperation::Control(kind) => json(
                         store
-                            .issue_client_challenge(env, admission, &nonce, purpose, || {
+                            .control_client_session(env, admission, kind, purpose, || {
                                 Ok(current.clone())
                             })
                             .await
                             .map_err(|_| denied())?,
-                    )
-                }
-                SessionClientOperation::Control(kind) => json(
-                    store
-                        .control_client_session(env, admission, kind, purpose, || {
-                            Ok(current.clone())
-                        })
-                        .await
-                        .map_err(|_| denied())?,
-                ),
-                SessionClientOperation::CredentialClaim => {
-                    credentials(env, &store, admission, current).await
+                    ),
+                    SessionClientOperation::CredentialClaim => {
+                        credentials(env, &store, admission, current).await
+                    }
                 }
             }
         }
     }
+    .await;
+    result.map_err(|error| {
+        diagnostic.fail(stage.get());
+        error
+    })
 }
 fn claim_purpose(purpose: TestSessionPurposeV1) -> Result<SessionPurposeV1> {
     match purpose {

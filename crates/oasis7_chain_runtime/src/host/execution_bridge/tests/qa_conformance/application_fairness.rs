@@ -282,11 +282,15 @@ impl Session {
         let _ = self.reader.get_mut().shutdown(std::net::Shutdown::Both);
     }
     fn finish(&mut self) -> Result<(), String> {
+        let cleanup = cleanup_deadline::CleanupDeadline::start("fairness_session_finish");
         self.shutdown();
         let Some(worker) = self.worker.take() else {
+            cleanup.complete();
             return Ok(());
         };
-        match worker.join() {
+        let result = worker.join();
+        cleanup.complete();
+        match result {
             Ok(Ok(())) => Ok(()),
             Ok(Err(error)) => Err(format!("Viewer worker returned {error:?}")),
             Err(_) => Err("Viewer worker panicked".into()),
@@ -295,9 +299,12 @@ impl Session {
 }
 impl Drop for Session {
     fn drop(&mut self) {
+        let cleanup = cleanup_deadline::CleanupDeadline::start("fairness_session_drop");
         self.shutdown();
-        if let Some(worker) = self.worker.take() {
-            println!("hosted_service_viewer_worker_result={:?}", worker.join());
+        let result = self.worker.take().map(|worker| worker.join());
+        cleanup.complete();
+        if let Some(result) = result {
+            println!("hosted_service_viewer_worker_result={result:?}");
         }
     }
 }

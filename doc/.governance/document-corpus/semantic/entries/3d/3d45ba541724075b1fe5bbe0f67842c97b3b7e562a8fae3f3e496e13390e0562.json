@@ -1,10 +1,10 @@
 {
   "record": {
-    "content_sha256": "3ee926d0b5c9a425e6ea01fc121e165a26aab5dfcad080bbd99b0858351bd85b",
+    "content_sha256": "8c8675e470f684bd4c2e205c730178347cab53a2b1cf7ac8ea20424133fb0d03",
     "current_authority": "doc/product/agents-world-simulation/player-readable-world-stage.prd.md",
     "decision_owner": "game_visual_interaction_designer",
     "disposition": "retain_current_authority",
-    "note": "保留当前 Viewer 视觉主责规范；本次明确二维俯视像素世界、共享整数图形和独立 HUD 文字，复用原世界首读要求与 Bevy/WASM 边界。设计源及原型的整数缩放不证明生产 RenderTarget、纹理采样或 sprite loader 已接入，不改变产品 authority。",
+    "note": "保留当前 Viewer 视觉主责规范；本次明确二维俯视像素世界、共享整数图形和独立 HUD 文字，复用原世界首读要求与 Bevy/WASM 边界。设计源及原型的整数缩放不证明生产 RenderTarget、纹理采样或 sprite loader 已接入，不改变产品 authority。 本次仅补充生产坐标合同反链，原产品 authority、像素方向和未实现边界保持；坐标设计详见原主责 rendering design。",
     "path": "doc/world-simulator/viewer/viewer-visual-design-spec-2026-06-05.design.md"
   },
   "schema": "oasis7.document-semantic-entry/v1"

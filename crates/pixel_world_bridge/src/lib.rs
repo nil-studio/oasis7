@@ -404,6 +404,7 @@ struct BevyRuntimeState {
     camera: CameraState,
     camera_fit_version: u64,
     last_canvas_size: Option<(u32, u32)>,
+    last_canvas_css: Option<(f64, f64)>,
     camera_user_override: bool,
     pending_focus_target: Option<FocusTarget>,
     pending_fit_bounds: Option<Value>,
@@ -969,6 +970,7 @@ fn apply_external_render_snapshot(
     {
         runtime.camera_fit_version = 0;
         runtime.last_canvas_size = None;
+        runtime.last_canvas_css = None;
         runtime.camera_user_override = false;
         runtime.hit_regions_dirty = true;
     }

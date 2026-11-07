@@ -241,17 +241,13 @@ impl OwnerProvisionApprovalStore {
         private_sid_generation: DecimalU64,
         source: String,
         current: F,
-        #[cfg(feature = "approval-harness")]
-        diagnostic: &crate::provision_approval_store::native::activation_diagnostic::Trace,
+        diagnostic: &crate::rejection_diagnostic::Trace,
     ) -> Result<TestSessionAuthorityV1>
     where
         F: Fn() -> Result<TestSessionApprovalOwned>,
     {
         let report = |stage: &'static str, error| {
-            #[cfg(feature = "approval-harness")]
             diagnostic.fail(stage);
-            #[cfg(not(feature = "approval-harness"))]
-            let _ = stage;
             error
         };
         let saved = self.snapshot().map_err(|e| report("activate.restore", e))?;
@@ -259,11 +255,17 @@ impl OwnerProvisionApprovalStore {
         let write = super::super::alarm::write_deadline(&session.input)?;
         let lease = now()?.checked_add(90_000).ok_or_else(rejected)?;
         let deadline = UnixMillis::new(write.get().min(lease));
+        let check_count = std::cell::Cell::new(0_u8);
         self.native_verified_with_alarm_traced(
             &|| Ok(current()?.native),
             ("test_session_activated", id),
             deadline,
             |s, _, _, t| {
+                let check_stage = if check_count.replace(1) == 0 {
+                    "core.checks.before"
+                } else {
+                    "core.checks.final"
+                };
                 current()
                     .map_err(|e| report("current.checks", e))?
                     .with_core(|approval| {
@@ -284,7 +286,10 @@ impl OwnerProvisionApprovalStore {
                             },
                             UnixMillis::new(t),
                         )
-                        .map_err(|_| rejected())
+                        .map_err(|e| {
+                            diagnostic.core_at(check_stage, &e, t);
+                            rejected()
+                        })
                     })
             },
             |s, _, _, t, v| {
@@ -309,10 +314,12 @@ impl OwnerProvisionApprovalStore {
                             UnixMillis::new(t),
                             v,
                         )
-                        .map_err(|_| rejected())
+                        .map_err(|e| {
+                            diagnostic.core_at("core.transition.final", &e, t);
+                            rejected()
+                        })
                     })
             },
-            #[cfg(feature = "approval-harness")]
             Some(diagnostic),
         )
         .await

@@ -56,25 +56,64 @@ impl Client {
         self.lookup_typed(request)
             .map_err(|error| query_error(&error))
     }
+    pub fn lookup_until(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        let _scope = crate::request_deadline::Scope::enter(deadline);
+        Client::check_tool_deadline(Some(deadline))?;
+        self.lookup(request)
+    }
     pub fn submit_and_poll(
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
     ) -> Result<IntentResponse<Value>, String> {
+        self.submit_and_poll_bounded(request, None, true)
+    }
+    pub fn submit_and_poll_until(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        self.submit_and_poll_bounded(request, Some(deadline), true)
+    }
+    /// Only a newly cached first attempt may skip recovery before its single send.
+    /// A retry must use lookup/poll instead; this is not a consumer-controlled mode.
+    #[cfg(unix)]
+    pub(crate) fn submit_new_and_poll_until(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Instant,
+    ) -> Result<IntentResponse<Value>, String> {
+        self.submit_and_poll_bounded(request, Some(deadline), false)
+    }
+    fn submit_and_poll_bounded(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Option<Instant>,
+        lookup_before_send: bool,
+    ) -> Result<IntentResponse<Value>, String> {
+        let _deadline_scope = deadline.map(crate::request_deadline::Scope::enter);
+        Client::check_tool_deadline(deadline)?;
+        #[cfg(not(unix))]
+        let _ = lookup_before_send;
         #[cfg(unix)]
-        if self.gateway.is_some() {
+        if lookup_before_send && self.gateway.is_some() {
             let response = self
                 .lookup_typed(request)
                 .map_err(|error| query_error(&error))?;
             match response.outcome {
                 IntentOutcome::Unknown => {}
                 IntentOutcome::Received { .. } | IntentOutcome::Pending => {
-                    return self.poll_original(request);
+                    return self.poll_original_bounded(request, deadline);
                 }
                 _ => return Ok(response),
             }
         }
         // The original signed payload is durable before this single send. Lost
         // delivery can only lead to queries of this exact correlation/payload.
+        Client::check_tool_deadline(deadline)?;
         let submission = self.remote.submit(request.clone());
         if let Ok(SubmitObservation::Response(response)) = submission
             && matches!(
@@ -86,7 +125,7 @@ impl Client {
         {
             return Ok(*response);
         }
-        self.poll_original(request)
+        self.poll_original_bounded(request, deadline)
     }
     /// Query only the exact original signed intent within the existing bounded
     /// recovery window. Never submits, signs, or creates an operation identity.
@@ -94,10 +133,18 @@ impl Client {
         &self,
         request: &SubmitIntentRequest<WorldServicePayloadV1>,
     ) -> Result<IntentResponse<Value>, String> {
+        self.poll_original_bounded(request, None)
+    }
+    fn poll_original_bounded(
+        &self,
+        request: &SubmitIntentRequest<WorldServicePayloadV1>,
+        deadline: Option<Instant>,
+    ) -> Result<IntentResponse<Value>, String> {
         // Keep the former forty 200ms polls within their existing eight-second
         // window. A single bounded five-second HTTP read already in flight may
         // finish after the deadline; no further HTTP call then starts.
-        let deadline = Instant::now() + POLL_WINDOW;
+        let window = Instant::now() + POLL_WINDOW;
+        let deadline = deadline.map_or(window, |deadline| deadline.min(window));
         let mut last_response = None;
         let mut last_error = None;
         for _ in 0..POLL_ATTEMPTS {

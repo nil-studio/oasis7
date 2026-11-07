@@ -904,11 +904,8 @@ pub(crate) fn render_scene(
     };
     let width = layout.css.x as f64;
     let height = layout.css.y as f64;
-    let canvas_size_changed = runtime.last_canvas_size
-        != Some((
-            width.round().max(0.0) as u32,
-            height.round().max(0.0) as u32,
-        ));
+    let canvas_size_changed = runtime.last_canvas_css != Some((width, height));
+    runtime.last_canvas_css = Some((width, height));
     let static_reconcile =
         !runtime.reactive_scheduling || runtime.needs_reconcile || canvas_size_changed;
     let animation_reconcile = runtime.animation_dirty;

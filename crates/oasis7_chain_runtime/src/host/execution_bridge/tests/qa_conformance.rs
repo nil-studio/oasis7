@@ -33,7 +33,12 @@ mod application_memory_tamper;
 mod application_metadata;
 mod application_sandbox;
 mod application_stream_boundaries;
+mod checkpoint_service_cleanup;
+mod cleanup_deadline;
 mod controlled_admission;
+mod fixture_cleanup;
+mod fixture_failure_diagnostics;
+use fixture_failure_diagnostics::{self as failure, Stage as FailureStage, Worker};
 mod fixture_stage_diagnostics;
 mod hosted_wait_clock;
 use fixture_stage_diagnostics::Stage;
@@ -106,6 +111,7 @@ struct Fixture {
     node: Arc<Mutex<NodeRuntime>>,
     halt: Arc<AtomicBool>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
+    failure_diagnostics: Arc<failure::Diagnostics>,
     client: RemoteWorldServiceClient,
     owner: String,
     lose_next_submit: Arc<AtomicBool>,
@@ -372,18 +378,24 @@ impl Fixture {
             "causal View delay must remain below the transport timeout"
         );
         let trusted_service_public_key = signer.public_key_hex.clone();
+        let failure_diagnostics = Arc::new(failure::Diagnostics::default());
+        let worker_failures = failure_diagnostics.clone();
         let worker = thread::spawn(move || {
             let concurrency_gate = worker_gate.clone();
             let handler = Arc::new(move |mut stream: TcpStream| {
+                failure::at(FailureStage::ConfigureSocket);
                 http_fixture::configure_accepted_stream(&stream);
                 let bytes = read_request(&mut stream);
                 if bytes.is_empty() {
                     return;
                 }
+                failure::at(FailureStage::ParseRequest);
                 let first = std::str::from_utf8(&bytes).unwrap().lines().next().unwrap();
                 let mut parts = first.split_whitespace();
                 let method = parts.next().unwrap();
                 let path = parts.next().unwrap();
+                failure::route(path);
+                failure::at(FailureStage::Gate);
                 if matches!(
                     worker_gate.pause(path, &bytes),
                     http_fixture::GateDisposition::FeedbackAckAbandoned
@@ -393,6 +405,7 @@ impl Fixture {
                 ) {
                     return;
                 }
+                failure::at(FailureStage::Outage);
                 if worker_outage.reject(&stream) {
                     return;
                 }
@@ -404,6 +417,7 @@ impl Fixture {
                 ) {
                     return;
                 }
+                failure::at(FailureStage::ObserveRequest);
                 if path == LOOKUP_PATH {
                     http_fixture::record_lookup_digest(&bytes, &worker_lookups);
                 }
@@ -413,7 +427,7 @@ impl Fixture {
                     && (worker_lose.swap(false, Ordering::SeqCst)
                         || (release && worker_release.swap(false, Ordering::SeqCst)));
                 if lose {
-                    stream.shutdown(std::net::Shutdown::Write).unwrap();
+                    failure::observe_io(stream.shutdown(std::net::Shutdown::Write)).unwrap();
                 }
                 let tamper = path == DESCRIBE_PATH && worker_tamper.swap(false, Ordering::SeqCst);
                 let capture_ack = worker_gate.capture_feedback_ack_response(path, &bytes);
@@ -445,16 +459,20 @@ impl Fixture {
                             && application_hosted_unpublished_cadence::active(&worker_gate)));
                 let mut read_reader = None;
                 let mut capture_peer = None;
+                failure::at(FailureStage::CaptureSetup);
                 let mut output_stream = if capture_read {
                     let capture = TcpListener::bind("127.0.0.1:0").unwrap();
                     let mut peer = TcpStream::connect(capture.local_addr().unwrap()).unwrap();
                     peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                    let context = failure::child(Worker::CaptureReader);
                     read_reader = Some(thread::spawn(move || {
+                        let _failure_scope = failure::Scope::enter(context);
+                        failure::at(FailureStage::CaptureRead);
                         let mut response = Vec::new();
-                        (&mut peer)
-                            .take(16 * 1024 * 1024 + 1)
-                            .read_to_end(&mut response)
-                            .unwrap();
+                        failure::observe_io(
+                            (&mut peer).take(16 * 1024 * 1024 + 1).read_to_end(&mut response),
+                        )
+                        .unwrap();
                         assert!(
                             response.len() <= 16 * 1024 * 1024,
                             "Read response capture exceeds bound"
@@ -469,7 +487,10 @@ impl Fixture {
                 } else {
                     stream.try_clone().unwrap()
                 };
+                failure::at(FailureStage::Gate);
+                let response_gate = checkpoint_service_cleanup::hold_response(&worker_gate, path);
                 let dispatch_started = Instant::now();
+                failure::at(FailureStage::Dispatch);
                 let result = crate::world_service_api::maybe_handle(
                     &mut output_stream,
                     &bytes,
@@ -482,7 +503,9 @@ impl Fixture {
                     &worker_root.join("store"),
                     &signer,
                 );
+                failure::dispatcher_elapsed(dispatch_started.elapsed());
                 worker_diagnostics.record(Stage::Dispatcher, dispatch_started.elapsed());
+                checkpoint_service_cleanup::response_finished(response_gate, &result);
                 eprintln!("fixture_dispatch method={method} path={path} result={result:?}");
                 // A verified whole-process exit at the intentional Settle gate may
                 // close its response socket. Admission and canonical execution must
@@ -509,6 +532,10 @@ impl Fixture {
                         "PRE2_VERIFIED_CRASH_SETTLE_RESPONSE_DISCONNECTED original_bytes_preserved=true canonical_commit_still_required=true"
                     );
                 }
+                failure::at(FailureStage::DispatcherResult);
+                if let Err(error) = &result {
+                    failure::dispatcher_error(error);
+                }
                 if !lose && !expected_settle_disconnect {
                     assert!(
                         result.unwrap(),
@@ -516,6 +543,7 @@ impl Fixture {
                     );
                 }
                 if gated_ack.is_some() && worker_controlled.load(Ordering::SeqCst) {
+                    failure::at(FailureStage::ControlledCommit);
                     let body = crate::feedback_submit_api::extract_http_json_body(&bytes).unwrap();
                     let request = serde_json::from_slice(body).unwrap();
                     controlled_admission::execute(
@@ -530,6 +558,7 @@ impl Fixture {
                 let relay_started = Instant::now();
                 drop(output_stream);
                 if let Some(reader) = read_reader {
+                    failure::at(FailureStage::CaptureJoin);
                     let response = reader.join().expect("Read response capture reader failed");
                     let verified_success = response.starts_with(b"HTTP/1.1 200 ");
                     if verified_success {
@@ -556,7 +585,9 @@ impl Fixture {
                         );
                         thread::sleep(successful_view_delay);
                     }
+                    failure::at(FailureStage::ResponseRelay);
                     if let Err(error) = stream.write_all(&response) {
+                        failure::io_error(&error);
                         assert!(
                             verified_success
                                 && matches!(
@@ -570,9 +601,10 @@ impl Fixture {
                         );
                     }
                 }
+                failure::at(FailureStage::AckResponse);
                 if let Some(mut peer) = capture_peer {
                     let mut response = Vec::new();
-                    peer.read_to_end(&mut response).unwrap();
+                    failure::observe_io(peer.read_to_end(&mut response)).unwrap();
                     if tamper {
                         let offset = response
                             .windows(4)
@@ -629,7 +661,7 @@ impl Fixture {
                             "actual ACK dispatcher response captured"
                         );
                         if !capture_ack {
-                            stream.write_all(&response).unwrap();
+                            failure::observe_io(stream.write_all(&response)).unwrap();
                         }
                     } else {
                         assert!(capture_ack);
@@ -640,6 +672,7 @@ impl Fixture {
                     }
                 }
                 worker_diagnostics.record(Stage::ResponseCaptureRelay, relay_started.elapsed());
+                failure::at(FailureStage::ControlledCommit);
                 if path == SUBMIT_PATH
                     && gated_ack.is_none()
                     && worker_controlled.load(Ordering::SeqCst)
@@ -670,6 +703,7 @@ impl Fixture {
                 worker_concurrent,
                 concurrency_gate,
                 handler,
+                worker_failures,
             );
         });
         let client = RemoteWorldServiceClient::new(WorldServiceClientConfig {
@@ -694,6 +728,7 @@ impl Fixture {
             node,
             halt,
             worker: Mutex::new(Some(worker)),
+            failure_diagnostics,
             client,
             owner,
             lose_next_submit,
@@ -790,33 +825,6 @@ impl Fixture {
             min_commit,
             fixed_commit: None,
             deadline_unix_ms: None,
-        }
-    }
-}
-impl Fixture {
-    fn finish_http_workers(&self) -> Result<(), &'static str> {
-        self.halt.store(true, Ordering::SeqCst);
-        let worker = self
-            .worker
-            .lock()
-            .map_err(|_| "actual fixture listener ownership lock poisoned")?
-            .take();
-        if let Some(worker) = worker {
-            worker
-                .join()
-                .map_err(|_| "actual fixture listener or connection worker failed")?;
-        }
-        Ok(())
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = self.finish_http_workers();
-        self.abort_automatic_commit.store(true, Ordering::SeqCst);
-        self.automatic_commit_gate.store(true, Ordering::SeqCst);
-        let _ = self.node.lock().unwrap().stop();
-        if !self.preserve_root {
-            let _ = fs::remove_dir_all(&self.root);
         }
     }
 }

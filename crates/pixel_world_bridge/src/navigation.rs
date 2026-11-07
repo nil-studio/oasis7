@@ -92,6 +92,7 @@ pub(super) fn apply(runtime: &mut BevyRuntimeState, state: Option<&RenderState>,
             "overview" => {
                 runtime.camera_fit_version = 0;
                 runtime.last_canvas_size = None;
+                runtime.last_canvas_css = None;
                 runtime.camera_user_override = false;
             }
             "fit_bounds" => {

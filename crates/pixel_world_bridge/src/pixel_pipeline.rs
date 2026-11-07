@@ -2,13 +2,14 @@
 use super::*;
 use bevy::camera::{RenderTarget, ScalingMode, visibility::RenderLayers};
 use bevy::image::ImageSampler;
+use bevy::math::DVec2;
 use bevy::render::render_resource::{Extent3d, TextureFormat};
 
 thread_local! {
     static ACTIVE_LAYOUT: std::cell::Cell<Option<PixelLayout>> = const { std::cell::Cell::new(None) };
 }
 
-fn desired_frame(css: Vec2, dpr: f64) -> Option<UVec2> {
+fn desired_frame(css: DVec2, dpr: f64) -> Option<UVec2> {
     if !css.is_finite() || css.min_element() <= 0. || !dpr.is_finite() || dpr <= 0. {
         return None;
     }
@@ -30,9 +31,11 @@ pub(super) fn sync_canvas_backing(mut windows: Query<&mut Window, With<PrimaryWi
                 .ok()??
                 .dyn_into::<HtmlCanvasElement>()
                 .ok()?;
-            let rect = canvas.get_bounding_client_rect();
+            let rect = canvas.parent_element()?.get_bounding_client_rect();
+            let _ = canvas.style().set_property("width", "100%");
+            let _ = canvas.style().set_property("height", "100%");
             desired_frame(
-                Vec2::new(rect.width() as f32, rect.height() as f32),
+                DVec2::new(rect.width(), rect.height()),
                 browser.device_pixel_ratio(),
             )
         });
@@ -56,21 +59,21 @@ pub(super) fn window_layout(window: &Window) -> Option<PixelLayout> {
             .ok()??
             .dyn_into::<HtmlCanvasElement>()
             .ok()?;
-        let rect = canvas.get_bounding_client_rect();
+        let rect = canvas.parent_element()?.get_bounding_client_rect();
         Some((
-            Vec2::new(rect.width() as f32, rect.height() as f32),
+            DVec2::new(rect.width(), rect.height()),
             UVec2::new(canvas.width(), canvas.height()),
         ))
     }) {
         return canvas_css_layout(css, frame);
     }
     canvas_css_layout(
-        Vec2::new(window.width(), window.height()),
+        DVec2::new(window.width() as f64, window.height() as f64),
         UVec2::new(window.physical_width(), window.physical_height()),
     )
 }
-fn canvas_css_layout(css: Vec2, frame: UVec2) -> Option<PixelLayout> {
-    PixelLayout::new(css, frame)
+fn canvas_css_layout(css: DVec2, frame: UVec2) -> Option<PixelLayout> {
+    PixelLayout::from_css(css, frame)
 }
 
 pub(super) fn cache_layout(window: &Window) {
@@ -79,14 +82,18 @@ pub(super) fn cache_layout(window: &Window) {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct PixelLayout {
-    pub css: Vec2,
+    pub css: DVec2,
     pub frame: UVec2,
     pub logical: UVec2,
     pub scale: u32,
     pub offset: UVec2,
 }
 impl PixelLayout {
+    #[cfg(test)]
     pub fn new(css: Vec2, frame: UVec2) -> Option<Self> {
+        Self::from_css(css.as_dvec2(), frame)
+    }
+    pub fn from_css(css: DVec2, frame: UVec2) -> Option<Self> {
         if !css.is_finite() || css.min_element() <= 0.0 || frame.min_element() == 0 {
             return None;
         }
@@ -101,24 +108,24 @@ impl PixelLayout {
         })
     }
     pub fn pixel_css(self) -> Vec2 {
-        self.css / self.frame.as_vec2() * self.scale as f32
+        (self.css / self.frame.as_dvec2() * self.scale as f64).as_vec2()
     }
     pub fn content_size(self) -> Vec2 {
         self.logical.as_vec2() * self.pixel_css()
     }
     pub fn content_center(self) -> Vec2 {
-        (self.offset.as_vec2() + self.logical.as_vec2() * self.scale as f32 / 2.0) * self.css
-            / self.frame.as_vec2()
+        ((self.offset.as_dvec2() + self.logical.as_dvec2() * self.scale as f64 / 2.) * self.css
+            / self.frame.as_dvec2())
+        .as_vec2()
     }
     pub fn snap(self, p: bevy::math::DVec2, pan: bevy::math::DVec2) -> bevy::math::DVec2 {
-        let unit = self.css.as_dvec2() / self.frame.as_dvec2() * self.scale as f64;
+        let unit = self.css / self.frame.as_dvec2() * self.scale as f64;
         let t = pan / unit;
         let snapped_pan = (t + bevy::math::DVec2::splat(0.5)).floor();
-        let q = (p * self.frame.as_dvec2() / self.css.as_dvec2() - self.offset.as_dvec2())
-            / self.scale as f64;
+        let q = (p * self.frame.as_dvec2() / self.css - self.offset.as_dvec2()) / self.scale as f64;
         (((q - t + snapped_pan + bevy::math::DVec2::splat(0.5)).floor() * self.scale as f64)
             + self.offset.as_dvec2())
-            * self.css.as_dvec2()
+            * self.css
             / self.frame.as_dvec2()
     }
 }
@@ -195,13 +202,13 @@ pub(super) fn resize(
     if let Ok(mut outer) = outer.single_mut() {
         if let Projection::Orthographic(projection) = &mut *outer {
             projection.scaling_mode = ScalingMode::Fixed {
-                width: layout.css.x,
-                height: layout.css.y,
+                width: layout.css.x as f32,
+                height: layout.css.y as f32,
             };
         }
     }
     let size = layout.content_size();
-    let center = layout.content_center() - layout.css / 2.0;
+    let center = layout.content_center() - layout.css.as_vec2() / 2.0;
     if let Projection::Orthographic(projection) = &mut *projection {
         projection.scaling_mode = ScalingMode::Fixed {
             width: size.x,
@@ -220,7 +227,7 @@ pub(super) fn resize(
 }
 
 pub(super) fn canvas_layout(width: f64, height: f64) -> Option<PixelLayout> {
-    let css = Vec2::new(width as f32, height as f32);
+    let css = DVec2::new(width, height);
     if let Some(layout) = ACTIVE_LAYOUT.get().filter(|layout| layout.css == css) {
         return Some(layout);
     }
@@ -239,7 +246,7 @@ pub(super) fn canvas_layout(width: f64, height: f64) -> Option<PixelLayout> {
         .unwrap_or_else(|| css.as_uvec2());
     #[cfg(not(target_arch = "wasm32"))]
     let frame = css.as_uvec2();
-    PixelLayout::new(css, frame)
+    PixelLayout::from_css(css, frame)
 }
 
 pub(super) fn assign_layers(
@@ -300,24 +307,32 @@ mod tests {
     fn dpr2_canvas_css_is_not_winit_scaled_logical_size() {
         use bevy::math::DVec2;
         assert_eq!(
-            desired_frame(Vec2::new(1440., 1000.), 2.),
+            desired_frame(DVec2::new(1440., 1000.), 2.),
             Some(UVec2::new(2880, 2000))
         );
         assert_eq!(
-            desired_frame(Vec2::new(390., 844.), 2.),
+            desired_frame(DVec2::new(390., 844.), 2.),
             Some(UVec2::new(780, 1688))
         );
-        assert!(desired_frame(Vec2::ZERO, 2.).is_none());
+        assert!(desired_frame(DVec2::ZERO, 2.).is_none());
         // Real browser failure: CSS=1440x1000, backing=1440x1000,
         // while Winit logical dimensions were 720x500 at DPR2.
-        let layout = canvas_css_layout(Vec2::new(1440., 1000.), UVec2::new(1440, 1000)).unwrap();
+        let layout = canvas_css_layout(DVec2::new(1440., 1000.), UVec2::new(1440, 1000)).unwrap();
         assert_eq!(layout.logical, UVec2::new(720, 500));
         assert_eq!(layout.pixel_css(), Vec2::splat(2.));
         assert_eq!(
             layout.snap(DVec2::new(720., 500.), DVec2::ZERO),
             DVec2::new(720., 500.)
         );
-        assert!(canvas_css_layout(Vec2::ZERO, UVec2::new(1440, 1000)).is_none());
+        assert!(canvas_css_layout(DVec2::ZERO, UVec2::new(1440, 1000)).is_none());
+    }
+
+    #[test]
+    fn fractional_css_keeps_shared_projection_on_the_same_snap_cell() {
+        let css = 1365.3333333333;
+        let layout = PixelLayout::from_css(DVec2::new(css, 768.), UVec2::new(1365, 768)).unwrap();
+        let point = DVec2::new(20. + 1_728_326. / 10_000_000. * (css - 40.), 384.);
+        assert!((layout.snap(point, DVec2::ZERO).x - 250.061050061044).abs() < 1e-9);
     }
 
     #[test]

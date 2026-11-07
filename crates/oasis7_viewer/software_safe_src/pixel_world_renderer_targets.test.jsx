@@ -20,6 +20,11 @@ describe('real renderer accessible projection', () => {
       expect(parseFloat(style.left)*1280/100).toBeCloseTo(expected,8);
     }
   });
+  it('keeps fractional CSS dimensions in the same snap cell as Rust', () => {
+    const width=1365.3333333333;
+    const style=rendererEntityTargetStyle({id:'A',pos:{x_cm:1728326,y_cm:50}},{width_cm:10000000,depth_cm:100},{width,height:768},{},null,{width:1365,height:768});
+    expect(parseFloat(style.left)*width/100).toBeCloseTo(250.061050061044,8);
+  });
   const bounds = { width_cm: 1000, depth_cm: 1000 };
   const agent = { id: 'agent-0', pos: { x_cm: 250, y_cm: 600 } };
   it('retains focused targets across snapshots while updating data, geometry and membership', async () => {
