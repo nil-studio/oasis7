@@ -170,6 +170,34 @@ fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
     crate::dev_test_operations::admit_read(config, caller)
 }
 
+// Security-sensitive input validation stays outside the bounded CLI adapter.
+pub(crate) fn read_private_cli_config(path: &str) -> Result<Config, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| "configuration_unavailable")?;
+    if !metadata.is_file()
+        || metadata.permissions().mode() & 0o077 != 0
+        // SAFETY: geteuid has no arguments or memory preconditions.
+        || metadata.uid() != unsafe { libc::geteuid() }
+    {
+        return Err("private_configuration_required".into());
+    }
+    let body = std::fs::read(path).map_err(|_| "configuration_unavailable")?;
+    serde_json::from_slice(&body).map_err(|_| "invalid_service_configuration".into())
+}
+
+pub(crate) fn read_cli_request(input: impl std::io::Read) -> Result<Request, String> {
+    use std::io::Read;
+    let mut body = Vec::new();
+    input
+        .take(65537)
+        .read_to_end(&mut body)
+        .map_err(|_| "request_unavailable")?;
+    if body.len() > 65536 {
+        return Err("request_too_large".into());
+    }
+    serde_json::from_slice(&body).map_err(|_| "invalid_request".into())
+}
+
 #[cfg(unix)]
 pub fn serve(config: Config) -> Result<(), String> {
     use std::io::Write;
@@ -379,7 +407,7 @@ pub(crate) fn read_until(
     result
 }
 
-fn connect_until(
+pub(crate) fn connect_until(
     path: &std::path::Path,
     deadline: std::time::Instant,
 ) -> Result<std::os::unix::net::UnixStream, String> {

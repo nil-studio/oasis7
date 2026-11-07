@@ -143,12 +143,12 @@ impl Client {
         // Keep the former forty 200ms polls within their existing eight-second
         // window. A single bounded five-second HTTP read already in flight may
         // finish after the deadline; no further HTTP call then starts.
-        let window = Instant::now() + POLL_WINDOW;
+        let window = crate::request_deadline::now() + POLL_WINDOW;
         let deadline = deadline.map_or(window, |deadline| deadline.min(window));
         let mut last_response = None;
         let mut last_error = None;
         for _ in 0..POLL_ATTEMPTS {
-            if Instant::now() >= deadline {
+            if crate::request_deadline::now() >= deadline {
                 break;
             }
             let delay = match self.lookup_typed(request) {
@@ -173,7 +173,8 @@ impl Client {
                     delay
                 }
             };
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            let Some(remaining) = deadline.checked_duration_since(crate::request_deadline::now())
+            else {
                 break;
             };
             // If Retry-After exceeds the remaining window, stop at the deadline

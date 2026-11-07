@@ -196,13 +196,7 @@ fn runtime_replication_storage_challenge_gate_degrades_on_network_unavailable() 
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 120));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let network: Arc<
         dyn oasis7_proto::distributed_net::DistributedNetwork<WorldError> + Send + Sync,
@@ -296,13 +290,7 @@ fn runtime_replication_storage_challenge_gate_hard_fails_on_wrong_generic_fallba
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 122));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let network_impl = Arc::new(ProviderRouteFailureGenericTrapNetwork::new());
     let network: Arc<
@@ -398,13 +386,7 @@ fn runtime_replication_storage_challenge_gate_blocks_on_malformed_provider_respo
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 123));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let network: Arc<
         dyn oasis7_proto::distributed_net::DistributedNetwork<WorldError> + Send + Sync,
@@ -606,20 +588,16 @@ fn runtime_replication_storage_challenge_gate_falls_back_to_older_samples_during
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 113));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    let seeded_height = seed_runtime.snapshot().consensus.committed_height;
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication_runtime = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 113),
         "node-a",
     )
     .expect("open local replication runtime");
+    let seeded_height = replication_runtime
+        .latest_persisted_commit_height(world_id)
+        .expect("read seeded history height");
     let dht = Arc::new(TestReplicaMaintenanceDht::new(
         "storage-provider-1",
         "node-a",
@@ -761,20 +739,16 @@ fn runtime_replication_storage_challenge_gate_allows_single_match_during_warmup(
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 114));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    let seeded_height = seed_runtime.snapshot().consensus.committed_height;
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication_runtime = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 114),
         "node-a",
     )
     .expect("open local replication runtime");
+    let seeded_height = replication_runtime
+        .latest_persisted_commit_height(world_id)
+        .expect("read seeded history height");
     let dht = Arc::new(TestReplicaMaintenanceDht::new(
         "storage-provider-1",
         "node-a",
@@ -915,13 +889,7 @@ fn runtime_replication_storage_challenge_gate_skips_network_probe_during_warmup_
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 115));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let request_count = Arc::new(Mutex::new(0usize));
     let request_count_for_handler = Arc::clone(&request_count);
@@ -1001,20 +969,16 @@ fn runtime_replication_storage_challenge_gate_allows_single_match_without_peer_h
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 116));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(4), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    let seeded_height = seed_runtime.snapshot().consensus.committed_height;
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication_runtime = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 116),
         "node-a",
     )
     .expect("open local replication runtime");
+    let seeded_height = replication_runtime
+        .latest_persisted_commit_height(world_id)
+        .expect("read seeded history height");
     let dht = Arc::new(TestReplicaMaintenanceDht::new(
         "storage-provider-1",
         "node-a",

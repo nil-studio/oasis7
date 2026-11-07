@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--support-plan JSON|--support-profiles JSON]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan JSON|--support-profiles JSON]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -211,9 +211,16 @@ run_oasis7_test_tier_with_viewer() {
 }
 
 run_oasis7_required_tier_tests() {
-  local plan_args=() wasm_args=() argument selected
+  local plan_args=() wasm_args=() partition_args=() argument selected
+  if [[ -n "${ordinary_partition:-}" && "$ordinary_partition" != all ]]; then
+    partition_args=(--ordinary-partition "$ordinary_partition")
+  fi
   if [[ -n "${required_plan:-}" ]]; then
     plan_args=(--plan "$required_plan")
+    if [[ -n "${ordinary_partition:-}" ]]; then
+      run python3 "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" "${plan_args[@]}" \
+        --phase partition --ordinary-partition "$ordinary_partition" || return
+    fi
     selected=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" "${plan_args[@]}" --phase wasm) || return
     while IFS= read -r argument; do
       [[ -z "$argument" ]] || wasm_args+=("$argument")
@@ -223,14 +230,14 @@ run_oasis7_required_tier_tests() {
     run_cargo check -p oasis7_agent_api -p oasis7_simulator -p oasis7_viewer_codec -p oasis7_viewer_runtime --lib --target wasm32-unknown-unknown --locked
   fi
   if [[ -n "${OASIS7_CI_TEST_BUNDLE:-}" ]]; then
-    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}"
+    run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$OASIS7_CI_TEST_BUNDLE" --suite ordinary "${plan_args[@]}" "${partition_args[@]}"
     return
   fi
   if [[ -n "${required_plan:-}" ]]; then
     local temporary status=0
     temporary=$(mktemp -d)
-    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}"; then
-      run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$temporary/bundle" --suite ordinary "${plan_args[@]}" || status=$?
+    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}"; then
+      run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$temporary/bundle" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" || status=$?
     else
       status=$?
     fi
@@ -329,6 +336,16 @@ run_oasis7_distfs_tests() {
 }
 
 run_oasis7_distfs_clippy() {
+  if [[ "${tier:-}" == required && -n "${required_plan:-}" ]]; then
+    local owner
+    owner=$("$ci_python" "$driver_dir/ci-test-artifacts.py" required-args --repo-root "$repo_root" \
+      --plan "$required_plan" --phase distfs-clippy-group) || return
+    case "$owner" in
+      rust_baseline) return 0 ;;
+      distfs) ;;
+      *) echo "Unknown DistFS Clippy group: $owner" >&2; return 2 ;;
+    esac
+  fi
   run_cargo_clippy -p oasis7_cas -p oasis7_formal_protocol --lib
   run_cargo_clippy -p oasis7_distfs --lib --bin oasis7_durability_endpoint
 }
@@ -1161,6 +1178,7 @@ shift
 group=""
 support_profiles=""
 required_plan=""
+ordinary_partition=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1188,6 +1206,11 @@ while [[ $# -gt 0 ]]; do
       required_plan="$2"
       shift 2
       ;;
+    --ordinary-partition)
+      [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
+      ordinary_partition="$2"
+      shift 2
+      ;;
     *)
       usage
       exit 1
@@ -1205,8 +1228,12 @@ if [[ -n "$support_profiles" && ( "$tier" != required || "$group" != workspace_s
   echo '--support-profiles requires required --group workspace_support' >&2
   exit 2
 fi
-if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline ) ) ]]; then
-  echo '--plan requires required --group oasis7_required or rust_baseline' >&2
+if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
+  echo '--plan requires required --group oasis7_required, rust_baseline or distfs' >&2
+  exit 2
+fi
+if [[ -n "$ordinary_partition" && ( "$tier" != required || "$group" != oasis7_required || -z "$required_plan" ) ]]; then
+  echo '--ordinary-partition requires required --group oasis7_required --plan' >&2
   exit 2
 fi
 if [[ -z "$group" ]]; then
