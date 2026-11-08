@@ -17,3 +17,13 @@ export function numericRetentionRecord(input) {
   }
   return { ...input };
 }
+
+export function summarizeRetentionWindow(first,last,{actualSpanMs,samples}) {
+  const eligible=actualSpanMs>=1800000&&samples>=12&&first.length===6&&last.length===6&&last[0].timeMs>first.at(-1).timeMs;
+  const median=(rows,key)=>{const values=rows.map(x=>x[key]).filter(Number.isFinite).sort((a,b)=>a-b);return values.length===rows.length&&values.length?values[Math.floor(values.length/2)]:null;};
+  const components={};
+  for(const key of ['jsUsedHeapBytes','wasmLinearBytes','rendererBytes','gpuBytes','ownedRssBytes'])components[key]=eligible?compareRetentionComponent(median(first,key),median(last,key)):{status:'unknown',reason:'short_or_overlapping_method_probe',initial:median(first,key),final:median(last,key)};
+  const diagnosticTrends={};
+  for(const key of ['viewJsonBytes','viewObjects','jsTotalHeapBytes','domNodes','listeners']){const initial=median(first,key),final=median(last,key);diagnosticTrends[key]={initial,final,growth:initial>0&&final!==null?(final-initial)/initial:null,interpretation:'diagnostic trend only; not a memory budget or total cache cap'};}
+  return {eligible,components,diagnosticTrends,failedComponents:Object.entries(components).filter(([,value])=>value.status==='over_budget').map(([key])=>key)};
+}

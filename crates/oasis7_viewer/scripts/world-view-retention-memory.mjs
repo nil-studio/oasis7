@@ -1,7 +1,7 @@
 import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { numericRetentionRecord, compareRetentionComponent } from './viewer-retention-components.mjs';
+import { numericRetentionRecord, summarizeRetentionWindow } from './viewer-retention-components.mjs';
 const assert = (value, reason) => { if (!value) throw Error(reason); };
 // No trace, DTO snapshots, GC or reload. Only bounded numeric receipts are retained.
 export async function measureWorldViewRetention({ evaluate, run, fixture, out, durationMs, overview,
@@ -60,10 +60,9 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     for(let n=0;n<3;n++){await cycle();await sample('warmup');}
     homeCamera=null,homeScopeSequence=null;const windowStarted=Date.now();await sample('home');
     do{await cycle();await run(['wait','10000']);await sample('home');}while(Date.now()-windowStarted<durationMs);
-    const median=(rows,key)=>{const values=rows.map(x=>x[key]).filter(Number.isFinite).sort((a,b)=>a-b);return values.length===rows.length?values[Math.floor(values.length/2)]:null;};
-    const eligible=Date.now()-windowStarted>=1800000&&samples>=12;
-    const components={};for(const key of ['viewJsonBytes','viewObjects','jsUsedHeapBytes','jsTotalHeapBytes','wasmLinearBytes','rendererBytes','gpuBytes','ownedRssBytes'])components[key]=eligible?compareRetentionComponent(median(first,key),median(last,key)):{status:'unknown',reason:'short_method_probe',initial:median(first,key),final:median(last,key)};
-    Object.assign(summary,{actualSpanMs:Date.now()-windowStarted,longStabilityEligible:eligible,samples,cycles,initial:first,final:last,components,nativeCounts:await json('JSON.stringify(window.__RETENTION_NATIVE_COUNTS__)'),wire:await readWireSummary(),status:'observed_components_only'});
+    const {eligible,components,diagnosticTrends,failedComponents}=summarizeRetentionWindow(first,last,{actualSpanMs:Date.now()-windowStarted,samples});
+    Object.assign(summary,{actualSpanMs:Date.now()-windowStarted,longStabilityEligible:eligible,samples,cycles,initial:first,final:last,components,diagnosticTrends,overallMemoryBudget:'unknown; unmeasured components and incomplete cache coverage',nativeCounts:await json('JSON.stringify(window.__RETENTION_NATIVE_COUNTS__)'),wire:await readWireSummary(),status:failedComponents.length?'component_budget_failure':'observed_components_only'});
+    if(failedComponents.length)throw Error('known memory component growth exceeds10%: '+failedComponents.join(','));
     return summary;
   } catch(error){summary.error=String(error);Object.assign(summary,{samples,cycles,initial:first,final:last});throw error;} finally { nativeInput?.close();await evaluate('window.__RETENTION_NATIVE_DISPOSE__?.();true').catch(()=>{}); writeFileSync(resolve(out,'retention-memory-summary.json'),JSON.stringify(summary,null,2)); }
 }
