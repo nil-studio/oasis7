@@ -30,7 +30,7 @@ const source = execFileSync('git', ['rev-parse', process.env.QUERY_OVERVIEW_SOUR
 assert(provenance.source === source && isDeepStrictEqual(provenance.files, assets), 'artifact provenance mismatch');
 const viewportWidth=Number(process.env.QUERY_OVERVIEW_WIDTH||1440);assert([390,1440].includes(viewportWidth),'unsupported viewport');const qaCase = process.env.QUERY_OVERVIEW_CASE || 'complete'; assert(['complete','cancel','terminal'].includes(qaCase),'unknown case');
 const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
-  scripts: Object.fromEntries(['query-overview-visual.mjs', 'scope-pending-fixture.mjs', 'viewer-owned-cdp-input.mjs', 'viewer-owned-cdp-session.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
+  scripts: Object.fromEntries(['query-overview-visual.mjs', 'scope-pending-fixture.mjs', 'agent-browser-visual-runner-lifecycle.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
   assets, provenance, case: qaCase, viewportWidth,
   scope: 'Finite controlled observer/debug query-overview transport; not real grant/revocation, P5, density, P6 or long-window proof.', phases: {} };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = 'query-overview-' + process.pid;
