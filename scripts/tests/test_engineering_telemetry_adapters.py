@@ -141,6 +141,20 @@ class RuntimeBindings(unittest.TestCase):
         with self.assertRaises(ValueError):self.b.parse_job_log(bad,self.job,'owner/repo',7,2)
         with self.assertRaises(ValueError):self.b.parse_job_log(self.log().replace(b'00:00:02.000Z',b'00:00:02.150Z'),self.job,'owner/repo',7,2)
 
+    def test_cross_second_completion_requires_exact_fence_before_next_step(self):
+        self.job['steps'].append(dict(number=6,name='Post cleanup',started_at='2026-01-01T00:00:03Z'))
+        raw=self.log().replace(b'00:00:02.100Z',b'00:00:03.004Z')
+        fenced=raw+b'2026-01-01T00:00:03.019Z Post job cleanup.\n'
+        row,_=self.b.parse_job_log(fenced,self.job,'owner/repo',7,2)
+        self.assertEqual(row['job_key'],'select')
+        completed=fenced.replace(b'Post job cleanup.',b'Cleaning up orphan processes')
+        self.b.parse_job_log(completed,self.job,'owner/repo',7,2)
+        for bad in (raw, fenced.replace(b'00:00:03.019Z',b'00:00:04.019Z'),
+                    fenced.replace(b'00:00:03.004Z',b'00:00:04.004Z'),
+                    raw.replace(b'2026-01-01T00:00:03.004Z',
+                        b'2026-01-01T00:00:03.001Z Post job cleanup.\n2026-01-01T00:00:03.004Z')):
+            with self.assertRaises(ValueError):self.b.parse_job_log(bad,self.job,'owner/repo',7,2)
+
     def test_live_transport_fetches_exact_job_and_workflow_and_bounds_failure(self):
         import base64
         import engineering_telemetry as t

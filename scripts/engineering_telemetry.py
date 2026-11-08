@@ -1198,19 +1198,24 @@ def parse_job_log(raw, job, repository, run_id, attempt):
         raise ValueError('observation_step_unavailable')
     step = steps[0]
     start, end = (precise_timestamp(step.get(k)) for k in ('started_at', 'completed_at'))
-    # Actions timestamps have whole-second precision. End is exclusive at the
-    # next step start only when it is strictly later than this step's start.
+    # Actions API timestamps have whole-second precision, including a next
+    # step that begins in the observation's completion second.
     next_starts = [precise_timestamp(s['started_at']) for s in job.get('steps', [])
                    if type(s.get('number')) is int and s['number'] > step['number'] and s.get('started_at')]
     # Coarse equal-second API boundaries are resolved by the dedicated log
     # group and cleanup/next-group fences, not by inventing subsecond times.
-    stop = min([end + 1] + [value for value in next_starts if value > start])
+    next_starts = [value for value in next_starts if value >= start]
+    stop = min([end + 1] + [value + 1 for value in next_starts])
     candidates = []
     active = False
     groups = 0
     header_stamp = None
+    fences = []
     for number, line in enumerate(raw.decode('utf-8').splitlines(), 1):
-        if re.match(r'^\d{4}-\d\d-\d\dT\S+ Post job cleanup\.', line):
+        cleanup = re.match(r'^\d{4}-\d\d-\d\dT\S+ (?:Post job cleanup\.|Cleaning up orphan processes$)', line)
+        if active and (cleanup or '##[group]' in line):
+            fences.append(precise_timestamp(line.split(' ', 1)[0]))
+        if cleanup:
             active = False
         if '##[group]' in line:
             active = "##[group]Run python3 - <<'PY_OBSERVATION' # oasis7-engineering-job-observation/v1" in line
@@ -1227,10 +1232,14 @@ def parse_job_log(raw, job, repository, run_id, attempt):
         stamp = precise_timestamp(match[1])
         if not start <= stamp < stop or stop <= start or header_stamp is None or stamp < header_stamp:
             raise ValueError('observation_outside_step')
-        candidates.append((number, json.loads(match[2])))
+        candidates.append((number, json.loads(match[2]), stamp))
     if len(candidates) != 1 or groups != 1:
         raise ValueError('observation_missing_or_ambiguous')
-    number, row = candidates[0]
+    number, row, stamp = candidates[0]
+    # A marker in a coarse next-step second is accepted only with a later
+    # exact log fence in that second, never from timestamps alone or truncation.
+    if next_starts and stamp >= min(next_starts) and not any(stamp <= fence < stop for fence in fences):
+        raise ValueError('observation_boundary_ambiguous')
     validate_observation(row, repository, run_id, attempt)
     return row, dict(step_number=step['number'], log_line=number, raw_sha256=hashlib.sha256(raw).hexdigest())
 
