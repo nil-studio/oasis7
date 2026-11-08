@@ -27,7 +27,11 @@ export async function createOwnedCdpInput(run, evaluate) {
       ws.addEventListener('open', () => { clearTimeout(timer); yes(); }, { once: true });
       ws.addEventListener('error', () => { clearTimeout(timer); no(Error('owned CDP open failed')); }, { once: true });
     });
-    const href = await evaluate('location.href'), targets = await send('Target.getTargets');
+    // Samplers may decode JSON strings while raw visual adapters leave them encoded.
+    const value = await evaluate('JSON.stringify(location.href)');
+    const href = typeof value === 'string' && value.startsWith('\"') ? JSON.parse(value) : value;
+    if (typeof href !== 'string') throw Error('owned Viewer URL was not a string');
+    const targets = await send('Target.getTargets');
     const page = targets.targetInfos.filter(t => t.type === 'page' && t.url === href);
     if (page.length !== 1) throw Error('CDP target did not uniquely match owned Viewer');
     const { sessionId } = await send('Target.attachToTarget', { targetId: page[0].targetId, flatten: true });

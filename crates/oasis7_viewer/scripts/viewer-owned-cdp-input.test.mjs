@@ -47,3 +47,18 @@ test('ambiguous pages fail closed and close the owned connection before input', 
     assert(sockets.every(socket => socket.closed));
   });
 });
+
+test('JSON-decoding sampler adapters and raw visual adapters read the same owned URL', async () => {
+  for (const decoded of [false, true]) {
+    await fakeBrowser([{ type: 'page', url: 'http://owned/', targetId: 'owned' }], async (messages, sockets) => {
+      const evaluate = async code => {
+        const value = code === 'JSON.stringify(location.href)' ? JSON.stringify('http://owned/') : 'http://owned/';
+        return decoded ? JSON.parse(value) : value;
+      };
+      const input = await createOwnedCdpInput(run, evaluate);
+      try { await input.enter(); } finally { input.close(); }
+      assert.equal(messages.filter(m => m.method === 'Input.dispatchKeyEvent').length, 2);
+      assert(sockets.every(socket => socket.closed));
+    });
+  }
+});
