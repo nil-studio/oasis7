@@ -616,7 +616,6 @@ run_engineering_telemetry_contract_tests() {
   local paths=(
     scripts/engineering_telemetry.py
     scripts/engineering_telemetry_adapters.py
-    scripts/engineering_telemetry_bindings.py
     scripts/tests/fixtures/engineering-telemetry/input.json
     scripts/tests/test_engineering_telemetry.py
     scripts/tests/test_engineering_telemetry_adapters.py

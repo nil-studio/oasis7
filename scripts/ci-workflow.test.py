@@ -165,7 +165,7 @@ def without_optional_dependency_cache_install(workflow):
         workflow = (workflow[:job.start()] + job[0].replace(installer, '', 1).replace(diagnostics, '', 1)
                     + workflow[job.end():])
     if '      - &engineering-job-observation\n' in workflow:
-        import engineering_telemetry_bindings as bindings
+        import engineering_telemetry as bindings
         workflow = workflow.replace(bindings.workflow_step(), '', 1)
     return workflow
 
@@ -1945,7 +1945,6 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         paths = (
             'scripts/engineering_telemetry.py',
             'scripts/engineering_telemetry_adapters.py',
-            'scripts/engineering_telemetry_bindings.py',
             'scripts/tests/fixtures/engineering-telemetry/input.json',
             'scripts/tests/test_engineering_telemetry.py',
             'scripts/tests/test_engineering_telemetry_adapters.py',

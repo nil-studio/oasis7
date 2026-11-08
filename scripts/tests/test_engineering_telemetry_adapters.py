@@ -47,7 +47,7 @@ class AdapterTests(unittest.TestCase):
 
 class RuntimeBindings(unittest.TestCase):
     def setUp(self):
-        import engineering_telemetry_bindings as b
+        import engineering_telemetry as b
         self.b = b
         self.row = dict(schema_version='oasis7-engineering-job/v1', repository='owner/repo', run_id=7, run_attempt=2,
             job_key='select', workflow_sha='d'*40, matrix={}, needs={}, target_source_sha='a'*40,
@@ -130,6 +130,16 @@ class RuntimeBindings(unittest.TestCase):
         for raw in (self.log().replace(b'00:00:02.100Z',b'00:00:10.100Z'),
                     self.log().replace(b'00:00:02.000Z',b'00:00:00.000Z')):
             with self.assertRaises(ValueError):self.b.parse_job_log(raw,self.job,'owner/repo',7,2)
+
+    def test_same_second_step_is_bound_by_log_group_and_cleanup_fence(self):
+        self.job['steps'][0]['completed_at']='2026-01-01T00:00:02Z'
+        self.job['steps'].append(dict(number=6,name='Post cleanup',started_at='2026-01-01T00:00:02Z'))
+        row,_=self.b.parse_job_log(self.log()+b'2026-01-01T00:00:02.200Z Post job cleanup.\n',self.job,'owner/repo',7,2)
+        self.assertEqual(row['job_key'],'select')
+        bad=self.log().replace(b'2026-01-01T00:00:02.100Z '+self.b.MARKER.encode(),
+                              b'2026-01-01T00:00:02.050Z Post job cleanup.\n2026-01-01T00:00:02.100Z '+self.b.MARKER.encode())
+        with self.assertRaises(ValueError):self.b.parse_job_log(bad,self.job,'owner/repo',7,2)
+        with self.assertRaises(ValueError):self.b.parse_job_log(self.log().replace(b'00:00:02.000Z',b'00:00:02.150Z'),self.job,'owner/repo',7,2)
 
     def test_live_transport_fetches_exact_job_and_workflow_and_bounds_failure(self):
         import base64
