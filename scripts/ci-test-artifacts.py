@@ -2474,8 +2474,11 @@ def ordinary_artifact_entries(manifest, plan, partition):
 
 def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
     from ci_process_runner import run
+    # An omitted partition retains the local full-bundle execution path.
+    # Explicit hosted consumers still require a known native partition.
     artifact_partition = bool(suite == 'ordinary' and not shard and plan
-                              and plan.get('ordinary_artifact_partition_version') == 1)
+                              and plan.get('ordinary_artifact_partition_version') == 1
+                              and ordinary_partition is not None)
     if artifact_partition and (suite != 'ordinary' or shard or ordinary_partition not in ORDINARY_ARTIFACT_PARTITIONS[1:]):
         raise ValueError('complete ordinary execution requires its native artifact partition')
     manifest, env = (load(bundle, suite if not shard else None, shard, plan, ordinary_partition=ordinary_partition)

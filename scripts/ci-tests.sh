@@ -512,10 +512,11 @@ if raw.startswith('plan:') and ('workspace_support_partition_version' in plan or
     if (type(plan.get('workspace_support_partition_version')) is not int
             or plan['workspace_support_partition_version'] != 1
             or plan.get('workspace_support_partitions') != module.support_partitions(profiles)
-            or partition not in plan['workspace_support_partitions']):
+            or (partition != 'all' and partition not in plan['workspace_support_partitions'])):
         raise SystemExit('invalid complete workspace support partitions')
-    profiles = [profile for profile in profiles
-                if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
+    if partition != 'all':
+        profiles = [profile for profile in profiles
+                    if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
 expanded = raw.startswith('plan:') and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True

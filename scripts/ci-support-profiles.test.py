@@ -154,6 +154,29 @@ after(()=>{assert.equal(completed,2);record('finish');});
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count('+ support profile: '), 2)
 
+    def test_unpartitioned_support_plan_runs_all_profiles_and_keeps_validation(self):
+        for profiles, partitions in ((['oasis7_context'], ['other']),
+                                     (['oasis7_custody_worker', 'oasis7_context'], ['custody', 'other'])):
+            selected = dict(scope='targeted', groups=['workspace_support'],
+                            workspace_support_profile_version=1, workspace_support_profiles=profiles,
+                            workspace_support_partition_version=1, workspace_support_partitions=partitions)
+            for environment in ({}, {'support_partition': 'all'}):
+                with self.subTest(profiles=profiles, environment=environment):
+                    result = self.invoke('plan:' + json.dumps(selected), environment=environment)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertCountEqual([line for line in result.stdout.splitlines()
+                                           if line.startswith('+ support profile: ')],
+                                          ['+ support profile: ' + profile for profile in profiles])
+                    result = self.invoke('plan:' + json.dumps(selected), fail=True, environment=environment)
+                    self.assertEqual(result.returncode, 17, result.stderr)
+            for partitions in ([], ['all'], ['custody', 'custody'], ['unknown']):
+                result = self.invoke('plan:' + json.dumps(selected | {'workspace_support_partitions': partitions}))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn('+ support profile: ', result.stdout)
+            result = self.invoke('plan:' + json.dumps(selected), environment={'support_partition': 'unknown'})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn('+ support profile: ', result.stdout)
+
     def test_driver_library_preserves_shell_context_without_running_cli(self):
         script = '''set +e
 set +u

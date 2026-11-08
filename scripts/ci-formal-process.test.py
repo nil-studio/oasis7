@@ -993,6 +993,31 @@ class CompleteArtifactPartitions(unittest.TestCase):
             self.assertNotIn('OASIS7_FORMAL_TEST', runner.call_args.args[2])
             self.assertNotIn('ordinary_partition', load.call_args.kwargs)
 
+    def test_unpartitioned_complete_execution_runs_every_harness_and_propagates_failure(self):
+        selected = self.selection()
+        manifest = self.manifest(selected)
+        for passed in (True, False):
+            with self.subTest(passed=passed), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'load', return_value=(manifest, {})) as load, \
+                 patch('ci_process_runner.run', return_value=dict(passed=passed, cleanup_result='clean')) as runner:
+                def execute():
+                    artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results', plan=selected)
+                if passed:
+                    execute()
+                else:
+                    with self.assertRaises(RuntimeError):
+                        execute()
+                self.assertCountEqual([call.args[4] for call in runner.call_args_list],
+                    ['runtime-tests', 'oasis7-lib-tests', 'component', 'new-integration', 'supplement',
+                     *[pattern for _, pattern in artifacts.DEFAULT_SNAPSHOT_REGRESSIONS]])
+                self.assertNotIn('ordinary_partition', load.call_args.kwargs)
+        for partition in ('controls', 'all', 'unknown'):
+            with self.subTest(partition=partition), patch.object(artifacts, 'load') as load:
+                with self.assertRaises(ValueError):
+                    artifacts.execute(Path('.'), 'ordinary', Path('results'), plan=selected,
+                                      ordinary_partition=partition)
+                load.assert_not_called()
+
     def test_environment_batch_destinations_are_exact_and_nonempty(self):
         fixture = Coverage()
         fixture.setUp()
@@ -1467,8 +1492,9 @@ class DriverCoverage(unittest.TestCase):
             temporary = Path(temporary)
             executable = temporary / 'cargo'
             executable.write_text('#!' + sys.executable + '\nimport json,os,sys\n'
-                'with open(os.environ["CARGO_CALLS"],"a") as stream: stream.write(json.dumps(sys.argv[1:])+"\\n")\n'
-                'raise SystemExit(19 if os.environ.get("FAIL_CARGO") == sys.argv[1] else 0)\n')
+                'args = [arg for arg in sys.argv[1:] if arg != "--verbose"]\n'
+                'with open(os.environ["CARGO_CALLS"],"a") as stream: stream.write(json.dumps(args)+"\\n")\n'
+                'raise SystemExit(19 if os.environ.get("FAIL_CARGO") == args[0] else 0)\n')
             executable.chmod(0o755)
             selection = temporary / 'selection.json'
             selection.write_text(json.dumps(selected))
@@ -1484,22 +1510,27 @@ class DriverCoverage(unittest.TestCase):
                     capture_output=True, text=True)
                 calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
                 return result, calls
-            result, calls = invoke('controls')
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual([call[0] for call in calls], ['clippy', 'check'])
-            self.assertIn('-D', calls[0])
-            self.assertIn('clippy::correctness', calls[0])
-            self.assertIn('wasm32-unknown-unknown', calls[1])
-            for failure, expected in [('clippy', ['clippy']), ('check', ['clippy', 'check'])]:
-                result, calls = invoke('controls', failure)
-                self.assertEqual(result.returncode, 19)
-                self.assertEqual([call[0] for call in calls], expected)
-                self.assertNotIn('manifest.json', result.stderr)
-            for partition in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]:
-                result, calls = invoke(partition)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(calls, [])
-                self.assertIn('manifest.json', result.stderr)
+            # Hosted governance enables verbosity. Cargo accepts it before the
+            # subcommand as well as after clippy; neither form changes dispatch.
+            for verbose in ('', '1'):
+                environment['CI_VERBOSE'] = verbose
+                with self.subTest(verbose=verbose):
+                    result, calls = invoke('controls')
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual([call[0] for call in calls], ['clippy', 'check'])
+                    self.assertIn('-D', calls[0])
+                    self.assertIn('clippy::correctness', calls[0])
+                    self.assertIn('wasm32-unknown-unknown', calls[1])
+                    for failure, expected in [('clippy', ['clippy']), ('check', ['clippy', 'check'])]:
+                        result, calls = invoke('controls', failure)
+                        self.assertEqual(result.returncode, 19)
+                        self.assertEqual([call[0] for call in calls], expected)
+                        self.assertNotIn('manifest.json', result.stderr)
+                    for partition in artifacts.ORDINARY_ARTIFACT_PARTITIONS[1:]:
+                        result, calls = invoke(partition)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertEqual(calls, [])
+                        self.assertIn('manifest.json', result.stderr)
 
     def test_partition_driver_rejects_explicit_all_for_a_split_parent_before_consuming_artifacts(self):
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
@@ -4283,11 +4314,12 @@ class Process(unittest.TestCase):
                 artifacts.pack(bundle, archive_path, suite='ordinary', plan=selected)
                 with tarfile.open(archive_path) as archive:
                     archive.extractall(consumer, filter='data')
-                results = root / 'results.jsonl'
-                artifacts.execute(consumer, 'ordinary', results, plan=selected, ordinary_partition='component-libs')
-                records = [json.loads(line) for line in results.read_text().splitlines()]
-                self.assertEqual(sorted(record['expected_count'] for record in records), [2, 3])
-                self.assertTrue(all(record['passed'] for record in records))
+                for partition in ('component-libs', None):
+                    results = root / f'results-{partition}.jsonl'
+                    artifacts.execute(consumer, 'ordinary', results, plan=selected, ordinary_partition=partition)
+                    records = [json.loads(line) for line in results.read_text().splitlines()]
+                    self.assertEqual(sorted(record['expected_count'] for record in records), [2, 3])
+                    self.assertTrue(all(record['passed'] for record in records))
                 original = json.loads((consumer / 'manifest.json').read_text())
                 for logical in manifest['binaries']:
                     altered = copy.deepcopy(original)
