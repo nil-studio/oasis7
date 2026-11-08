@@ -71,8 +71,15 @@ it('defers already scheduled refreshes only until actual navigation consumption'
 });
 
 it('lets Rust judge the complete projected geometry and surfaces no-position refusal',async()=>{
- const {controller}=fixture(async q=>page(q,[],{aggregates:[{aggregate_id:'group'}]}));
+ const {controller}=fixture(async q=>page(q,[]));
  await controller.query({});controller.overview();expect(controller.overviewStatus()).toBe('applying');
  controller.navigationResult({request_id:controller.navigation().request_id,status:'unavailable',render_version:3});
  expect(controller.overviewStatus()).toBe('unavailable');
+});
+it('terminates an applying overview when the actual renderer presentation is unavailable',async()=>{
+ const {controller}=fixture();await controller.query({});controller.overview();const old=controller.navigation().request_id;
+ expect(controller.overviewStatus()).toBe('applying');controller.present(controller.state().view,null);
+ expect(controller.overviewStatus()).toBe('unavailable');
+ controller.navigationResult({request_id:old,status:'applied',render_version:3});
+ expect(controller.overviewStatus()).toBe('unavailable');expect(controller.navigation().mode).toBe('stop');
 });

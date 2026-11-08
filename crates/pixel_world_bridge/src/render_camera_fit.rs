@@ -28,10 +28,9 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
         navigation::finish_overview(runtime, "unavailable");
         return;
     }
-    let modern = render_state
-        .navigation
-        .as_ref()
-        .is_some_and(|n| n.mode == "overview" && !matches!(n.overview_query, overview_query::Declaration::Legacy));
+    let modern = render_state.navigation.as_ref().is_some_and(|n| {
+        n.mode == "overview" && !matches!(n.overview_query, overview_query::Declaration::Legacy)
+    });
     let mut points = Vec::new();
     let base_camera = CameraState::default();
     for location in &render_state.locations {
@@ -393,5 +392,19 @@ mod overview_partial_regression {
             assert_eq!(runtime.overview.retired_generation, 2);
             assert!(runtime.overview.pending_result.is_none());
         }
+    }
+
+    #[test]
+    fn invalid_request_id_or_missing_modern_context_cannot_use_initial_autofit() {
+        for invalid in ["invalid-id", "0"] {
+            let mut runtime = BevyRuntimeState::default();
+            consume_modern(&mut runtime, modern_scene(200, "complete", invalid), 1);
+            assert_eq!(runtime.camera.pan_y_px, 0.);
+        }
+        let mut state = modern_scene(200, "complete", "2");
+        state.overview_query_context = None;
+        let mut runtime = BevyRuntimeState::default();
+        consume_modern(&mut runtime, state, 1);
+        assert_eq!(runtime.camera.pan_y_px, 0.);
     }
 }

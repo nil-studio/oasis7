@@ -210,7 +210,11 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     // never the previous scene's entity facts or coordinates.
     present(view, scene, presentedScope = scope) {
       presented = null;
-      if (!view || !scene) { cancelPending();return; }
+      if (!view || !scene) {
+        cancelPending();
+        if (pendingOverview) cancelOverview('unavailable',true);
+        return;
+      }
       if (pixelWorldScope(core.state) !== scope || presentedScope !== scope
         || worldViewAuthorityKey(view) !== worldViewAuthorityKey(state().view)
         || !view.source_cut || scene.display_source_cut !== view.source_cut) return;
