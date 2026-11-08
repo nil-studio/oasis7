@@ -4,7 +4,8 @@ function installBrowserTrace() {
   const trace = { native: [], mutations: [], events: [], overflow: false,
     supported: PerformanceObserver.supportedEntryTypes?.includes('event') === true,
     visibility: document.visibilityState, timeOrigin: performance.timeOrigin };
-  const append = (list, row) => { if (list.length >= 20000) trace.overflow = true; else list.push(row); };
+  const traceLimit = 20000;
+  const append = (list, row) => { if (list.length >= traceLimit) trace.overflow = true; else list.push(row); };
   const input = event => {
     const button = event.target.closest?.('button[data-agent-id][data-renderer-target]');
     if (!button || (event.type === 'keydown' && event.key !== 'Enter')) return;
@@ -12,15 +13,74 @@ function installBrowserTrace() {
   };
   document.addEventListener('keydown', input, true);
   document.addEventListener('click', input, true);
-  const mutations = new MutationObserver(records => {
-    for (const record of records) {
-      const target = record.target;
-      if (target.matches?.('button[data-agent-id][data-renderer-target]')) {
-        append(trace.mutations, { target: target.dataset.agentId, time: performance.now(), selected: target.dataset.selected === 'true' });
+  // Keep a sparse stream of final connected selection-state changes. Counts
+  // retain coalesced/irrelevant DOM records; no history is inferred between callbacks.
+  const selector = 'button[data-agent-id][data-renderer-target]';
+  const nodesById = new Map(), identities = new WeakMap(), selectedStates = new Map();
+  let connectedTargets = 0;
+  trace.domObserver = { records: 0, callbacks: 0, maxConnectedTargets: 0, maxIndexedTargets: 0, workMs: 0, maxWorkMs: 0 };
+  const reconcileNode = node => {
+    const previous = identities.get(node);
+    const current = node.isConnected && node.matches?.(selector) ? node.dataset.agentId : null;
+    if (previous !== undefined && previous !== current) {
+      const nodes = nodesById.get(previous); nodes.delete(node); connectedTargets--;
+      if (!nodes.size) nodesById.delete(previous);
+      identities.delete(node);
+    }
+    if (current !== null && previous !== current) {
+      if (connectedTargets >= traceLimit) trace.overflow = true;
+      else {
+        if (!nodesById.has(current)) nodesById.set(current, new Set());
+        nodesById.get(current).add(node); identities.set(node, current); connectedTargets++;
       }
     }
+    trace.domObserver.maxIndexedTargets = Math.max(trace.domObserver.maxIndexedTargets, connectedTargets);
+    return [previous, current].filter(id => id !== undefined && id !== null);
+  };
+  const isSelected = id => [...(nodesById.get(id) || [])].some(node => node.isConnected && node.dataset.selected === 'true');
+  for (const node of document.querySelectorAll(selector)) reconcileNode(node);
+  trace.domObserver.maxConnectedTargets = connectedTargets;
+  for (const id of nodesById.keys()) selectedStates.set(id, isSelected(id));
+  const mutations = new MutationObserver(records => {
+    const started = performance.now(), candidates = new Map(), affected = new Map();
+    trace.domObserver.callbacks++; trace.domObserver.records += records.length;
+    const remember = (node, cause) => {
+      if (node.nodeType !== 1) return;
+      if (!candidates.has(node)) {
+        if (candidates.size >= traceLimit) { trace.overflow = true; return; }
+        candidates.set(node, new Set());
+      }
+      candidates.get(node).add(cause);
+    };
+    const subtree = (node, cause) => {
+      if (node.nodeType !== 1) return;
+      if (node.matches('button')) remember(node, cause);
+      for (const button of node.querySelectorAll('button')) remember(button, cause);
+    };
+    for (const record of records) {
+      if (record.type === 'attributes') remember(record.target, 'attribute');
+      else {
+        for (const node of record.addedNodes) subtree(node, 'insert');
+        for (const node of record.removedNodes) subtree(node, 'remove');
+      }
+    }
+    for (const [node, causes] of candidates) for (const id of reconcileNode(node)) {
+      if (!affected.has(id)) affected.set(id, new Set());
+      for (const cause of causes) affected.get(id).add(cause);
+    }
+    trace.domObserver.maxConnectedTargets = Math.max(trace.domObserver.maxConnectedTargets, connectedTargets);
+    for (const [id, causes] of affected) {
+      const selected = isSelected(id), present = nodesById.has(id);
+      if (selected !== (selectedStates.get(id) ?? false)) append(trace.mutations, {
+        target: id, time: performance.now(), selected, present, causes: [...causes],
+      });
+      if (present) selectedStates.set(id, selected); else selectedStates.delete(id);
+    }
+    const elapsed = performance.now() - started;
+    trace.domObserver.workMs += elapsed; trace.domObserver.maxWorkMs = Math.max(trace.domObserver.maxWorkMs, elapsed);
   });
-  mutations.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-selected'] });
+  mutations.observe(document.body, { attributes: true, subtree: true, childList: true,
+    attributeFilter: ['data-selected', 'data-agent-id', 'data-renderer-target'] });
   let observer;
   if (trace.supported) {
     observer = new PerformanceObserver(list => {
@@ -33,7 +93,7 @@ function installBrowserTrace() {
     });
     observer.observe({ type: 'event', buffered: false, durationThreshold: 16 });
   }
-  trace.dispose = () => { observer?.disconnect(); mutations.disconnect(); document.removeEventListener('keydown', input, true); document.removeEventListener('click', input, true); };
+  trace.dispose = () => { observer?.disconnect(); mutations.disconnect(); nodesById.clear(); selectedStates.clear(); document.removeEventListener('keydown', input, true); document.removeEventListener('click', input, true); };
   window.__VIEWER_INPUT_TRACE__ = trace;
   return { supported: trace.supported, timeOrigin: trace.timeOrigin, visibility: trace.visibility };
 }
