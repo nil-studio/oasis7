@@ -61,9 +61,9 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     intent.binding = key;
     if (intent.applying) return;
     if (view.completeness==='complete') {
-      if (!view.entities?.some(e=>worldViewPosition(e,view,false,true))) {cancelOverview('unavailable',true);return;}
       const request_id = intent.requestId;
       intent.applying = true;
+      setOverviewStatus('applying');
       setNavigation({request_id,mode:'overview',target:null,overview_query:{version:1,binding}});
     } else if (!next.loading || view.budget_limited) cancelOverview('unavailable',true);
   }

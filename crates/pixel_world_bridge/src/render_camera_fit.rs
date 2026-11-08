@@ -8,14 +8,30 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
         return;
     };
     if render_state.navigation.as_ref().is_some_and(|nav| {
-        nav.mode == "overview" && !overview_query::permits(&nav.overview_query, render_state)
+        nav.mode == "overview"
+            && !matches!(nav.overview_query, overview_query::Declaration::Legacy)
+            && (!overview_query::permits(&nav.overview_query, render_state)
+                || runtime.overview.pending_result.as_deref() != Some(nav.request_id.as_str()))
     }) {
         runtime.camera_fit_version = runtime.render_version;
         return;
     }
     let Some(world_bounds) = render_state.world_bounds.as_ref() else {
+        navigation::finish_overview(runtime, "unavailable");
         return;
     };
+    if !world_bounds.width_cm.is_finite()
+        || !world_bounds.depth_cm.is_finite()
+        || world_bounds.width_cm <= 0.
+        || world_bounds.depth_cm <= 0.
+    {
+        navigation::finish_overview(runtime, "unavailable");
+        return;
+    }
+    let modern = render_state
+        .navigation
+        .as_ref()
+        .is_some_and(|n| !matches!(n.overview_query, overview_query::Declaration::Legacy));
     let mut points = Vec::new();
     let base_camera = CameraState::default();
     for location in &render_state.locations {
@@ -54,11 +70,26 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
             points.push(point);
         }
     }
-    for hotspot in &render_state.visual_hotspots {
+    for hotspot in render_state.visual_hotspots.iter().filter(|_| !modern) {
         if let Some(point) =
             to_canvas_point_unsnapped(&hotspot.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
+        }
+    }
+    if modern {
+        // These positions already passed the authorized overlay projector.
+        // A historical event anchor remains historical; this does not follow it.
+        for visual in render_state
+            .industry_aggregates
+            .iter()
+            .chain(&render_state.world_events)
+        {
+            if let Some(point) =
+                to_canvas_point_unsnapped(&visual.pos, world_bounds, width, height, &base_camera)
+            {
+                points.push(point);
+            }
         }
     }
     if points.is_empty() {
@@ -301,6 +332,66 @@ mod overview_partial_regression {
                 (runtime.camera.pan_y_px - 99.6923076923077).abs() < 1e-9,
                 "a new explicit intent must still work after clearing"
             );
+        }
+    }
+
+    #[test]
+    fn complete_aggregate_or_historical_event_uses_only_its_projected_anchor() {
+        for historical in [false, true] {
+            let mut state = modern_scene(0, "complete", "2");
+            let visual = spatial_display::SpatialVisual {
+                id: "anchor".into(),
+                label: "Anchor".into(),
+                pos: Position {
+                    x_cm: 600_000.,
+                    y_cm: 400_000.,
+                    z_cm: 0.,
+                },
+                historical,
+                member_count: None,
+            };
+            if historical {
+                state.world_events.push(visual);
+            } else {
+                state.industry_aggregates.push(visual);
+            }
+            let mut runtime = BevyRuntimeState::default();
+            consume_modern(&mut runtime, state, 1);
+            let (x, y) = to_canvas_point_unsnapped(
+                &Position {
+                    x_cm: 600_000.,
+                    y_cm: 400_000.,
+                    z_cm: 0.,
+                },
+                runtime
+                    .render_state
+                    .as_ref()
+                    .unwrap()
+                    .world_bounds
+                    .as_ref()
+                    .unwrap(),
+                1440.,
+                1000.,
+                &runtime.camera,
+            )
+            .unwrap();
+            assert!((x - 720.).abs() < 1e-9 && (y - 500.).abs() < 1e-9);
+            assert!(runtime.active_follow_target.is_none());
+        }
+    }
+
+    #[test]
+    fn missing_bounds_or_empty_geometry_finishes_without_camera_movement() {
+        for missing_bounds in [true, false] {
+            let mut state = modern_scene(0, "complete", "2");
+            if missing_bounds {
+                state.world_bounds = None;
+            }
+            let mut runtime = BevyRuntimeState::default();
+            consume_modern(&mut runtime, state, 1);
+            assert_eq!(runtime.camera.pan_y_px, 0.);
+            assert_eq!(runtime.overview.retired_generation, 2);
+            assert!(runtime.overview.pending_result.is_none());
         }
     }
 }

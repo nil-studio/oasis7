@@ -19,8 +19,8 @@ it('overviews a complete current query without clearing search or making another
   const {core,controller}=fixture();await controller.query({search:'mine'});const calls=core.requestWorldView.mock.calls.length;
   controller.overview();const nav=controller.navigation();
   expect(nav).toMatchObject({mode:'overview',overview_query:{version:1,binding:expect.any(Array)}});
-  expect(controller.overviewStatus()).toBe('pending');expect(core.requestWorldView).toHaveBeenCalledTimes(calls);
-  controller.navigationResult({request_id:'other',status:'applied',render_version:2});expect(controller.overviewStatus()).toBe('pending');
+  expect(controller.overviewStatus()).toBe('applying');expect(core.requestWorldView).toHaveBeenCalledTimes(calls);
+  controller.navigationResult({request_id:'other',status:'applied',render_version:2});expect(controller.overviewStatus()).toBe('applying');
   applied(controller);expect(controller.overviewStatus()).toBeNull();
   expect(core.applySelection).not.toHaveBeenCalled();
 });
@@ -43,7 +43,7 @@ it('does not mistake the retained previous complete view for a new in-flight que
   release();await read;expect(controller.navigation().overview_query.binding[2]).toBe(controller.state().view.request_generation);
   expect(controller.navigation().mode).toBe('overview');
 });
-for(const variant of ['terminal partial','frozen','no positions','unknown']) it(`makes ${variant} unavailable without a new read`,async()=>{
+for(const variant of ['terminal partial','frozen','unknown']) it(`makes ${variant} unavailable without a new read`,async()=>{
   const {core,controller}=fixture(async q=>page(q,['A'],variant==='terminal partial'?{completeness:'partial'}:variant==='frozen'?{source_frozen:true}:variant==='unknown'?{completeness:'unknown',unavailable_reasons:['scope_unavailable']}:{entities:[{kind:'agent',entity_id:'A'}]}));
   await controller.query({});const calls=core.requestWorldView.mock.calls.length;controller.overview();
   expect(controller.overviewStatus()).toBe('unavailable');expect(controller.navigation().mode).not.toBe('overview');
@@ -68,4 +68,11 @@ it('defers already scheduled refreshes only until actual navigation consumption'
   controller.refresh({time:2});expect(core.requestWorldView).toHaveBeenCalledTimes(calls);
   applied(controller);await vi.waitFor(()=>expect(core.requestWorldView).toHaveBeenCalledTimes(calls+1));
   expect(controller.overviewStatus()).toBeNull();
+});
+
+it('lets Rust judge the complete projected geometry and surfaces no-position refusal',async()=>{
+ const {controller}=fixture(async q=>page(q,[],{aggregates:[{aggregate_id:'group'}]}));
+ await controller.query({});controller.overview();expect(controller.overviewStatus()).toBe('applying');
+ controller.navigationResult({request_id:controller.navigation().request_id,status:'unavailable',render_version:3});
+ expect(controller.overviewStatus()).toBe('unavailable');
 });
