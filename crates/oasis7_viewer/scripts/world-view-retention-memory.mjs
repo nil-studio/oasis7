@@ -11,7 +11,7 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
   const read = () => json(`(()=>{const s=window.__AW_TEST__.getState(),m=window.__QA_READ_METRICS__(),r=window.__OASIS7_WORLD_VIEW_RETENTION__?.();return {stats:r,metrics:{status:m.status,cut:m.source_cut,bodies:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels},camera:s.pixelWorldCamera,identity:{ready:s.authReady,player:s.authPlayerId,key:s.authPublicKey,bound:s.authBoundAgentId,registration:s.authRegistrationStatus},target:document.querySelector('button[data-agent-id="qa-agent-0499"][data-renderer-target]')?.dataset.selected}})()`);
   const settle = async expected => {
     const end = Date.now()+12000; let row;
-    do { row = await read(); if (row.stats && !row.stats.loading && row.metrics.status==='observed' && row.stats.published.entities===expected) return row; await run(['wait','50']); } while(Date.now()<end);
+    do { row = await read(); if (row.stats && !row.stats.loading && !row.stats.stale && !row.stats.hasError && row.stats.published.completeness==='complete' && row.metrics.status==='observed' && row.metrics.cut===fixture.description().cut && row.stats.published.entities===expected) return row; await run(['wait','50']); } while(Date.now()<end);
     throw Error('retention phase did not settle: '+JSON.stringify({expected,metrics:row?.metrics,loading:row?.stats?.loading}));
   };
   const disclosure='.pixel-world-exploration-disclosure';
@@ -35,7 +35,7 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     if(phase==='home'){samples++;if(first.length<6)first.push(record);last.push(record);if(last.length>6)last.shift();}return record;
   };
   const cycle = async () => { await select();await pan(6);await pan(-6);await filter();await overview();await settle(1000);await select();cycles++; };
-  const summary={durationMs,scope:'M3/16GiB component observation; not formalP6, physical GPU memory, P5 or8GiB A/B; client counts current generation only, old inflight closure residual unknown',missingComponents:[],status:'incomplete'};
+  const summary={durationMs,scope:'M3/16GiB component observation; not formalP6, physical GPU memory, P5 or8GiB A/B; client counts current generation only, old inflight closure residual unknown',missingComponents:['WASM linear / renderer / GPU / owned RSS remain unknown unless an active-instance capability is established'],observationPolicy:'natural GC only; no forced GC. JS heap includes product plus bounded observer allocation; not attribution to client cache. Upper median of first/last six matched home samples; short windows are method probes only.',status:'incomplete'};
   try {
     for(let n=0;n<3;n++){await cycle();await sample('warmup');}
     homeCamera=null;const windowStarted=Date.now();await sample('home');

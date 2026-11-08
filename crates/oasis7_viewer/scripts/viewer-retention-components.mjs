@@ -1,5 +1,6 @@
 // Component comparisons never equate encoded JSON, heap, linear memory and RSS.
-export function compareRetentionComponent(initial, final, limit = 0.10) {
+export function compareRetentionComponent(initial, final) {
+  const limit = 0.10;
   if (!Number.isFinite(initial) || !Number.isFinite(final) || initial < 0 || final < 0) return { status: 'unknown', reason: 'component_unavailable' };
   if (initial === 0) return final === 0 ? { status: 'within_budget', growth: 0 } : { status: 'unknown', reason: 'zero_initial_component', initial, final };
   const growth = (final - initial) / initial;
@@ -10,7 +11,8 @@ export function numericRetentionRecord(input) {
   for (const [key, value] of Object.entries(input)) {
     if (!allowed.has(key)) throw Error('unrecognized retention field');
     if (key === 'phase') { if (!['warmup','home','away','filtered','restored'].includes(value)) throw Error('unknown retention phase'); }
-    else if (value !== null && typeof value !== 'boolean' && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw Error('retention field must be nonnegative numeric or unknown');
+    else if (key === 'pagingActive') { if (typeof value !== 'boolean') throw Error('paging active must be boolean'); }
+    else if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) throw Error('retention field must be nonnegative numeric or unknown');
   }
   return { ...input };
 }
