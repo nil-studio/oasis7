@@ -11,3 +11,10 @@ test('persist failure cannot prevent stopping or replace budget error',()=>{
  let stops=0;const guard=createBoundedWireAudit({limitBytes:1,append:()=>{},persistFailure:()=>{throw Error('ENOSPC')},stopSource:()=>stops++});
  assert.equal(guard.record(1),false);assert.equal(stops,1);assert.match(guard.failure().message,/limit exceeded/);assert.match(guard.failure().persistenceError,/ENOSPC/);
 });
+
+test('append failure is terminal, preserves the original error and never claims the row saved',()=>{
+ const original=Error('ENOSPC append');let stops=0,writes=0;const reports=[];
+ const guard=createBoundedWireAudit({limitBytes:100,append:()=>{writes++;throw original},persistFailure:r=>reports.push(r),stopSource:()=>stops++});
+ assert.equal(guard.record(1),false);assert.equal(guard.failure(),original);assert.equal(guard.accepting(),false);assert.equal(stops,1);assert.equal(reports[0].rowPreserved,false);
+ assert.equal(guard.record({reconnect:true}),false);assert.equal(writes,1);assert.equal(stops,1);
+});
