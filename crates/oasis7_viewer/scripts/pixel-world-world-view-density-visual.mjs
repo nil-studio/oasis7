@@ -17,7 +17,7 @@ import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifec
 import { createDensityFixture } from './world-view-density-fixture.mjs';
 import { measureDensityPerformance } from './world-view-density-performance.mjs';
 import {createBoundedWireAudit} from './viewer-bounded-wire-audit.mjs';
-import { probeWorldFrameCapabilities } from './world-view-frame-capability.mjs';
+import { probeWorldFrameCapabilities, withObservationCleanup } from './world-view-frame-capability.mjs';
 import { probePendingWorldSelection } from './world-view-pending-selection-probe.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)), repo = resolve(here, '../../..');
@@ -305,8 +305,7 @@ try {
     const {measureWorldViewRetention}=await import('./world-view-retention-memory.mjs');
     const memorySession=await createOwnedCdpSession(run,evaluate);
     for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
-    try { summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)}); }
-    finally { memorySession.close(); }
+    await withObservationCleanup(async()=>{summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)});},()=>memorySession.close(),summary);
   }
   if (process.env.DENSITY_QA_FRAME_OBSERVATION_MS) summary.frameObservation = await probeWorldFrameCapabilities({run,evaluate,out,durationMs:Number(process.env.DENSITY_QA_FRAME_OBSERVATION_MS)});
   if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
