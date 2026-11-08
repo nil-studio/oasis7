@@ -31,7 +31,7 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     let modern = render_state
         .navigation
         .as_ref()
-        .is_some_and(|n| !matches!(n.overview_query, overview_query::Declaration::Legacy));
+        .is_some_and(|n| n.mode == "overview" && !matches!(n.overview_query, overview_query::Declaration::Legacy));
     let mut points = Vec::new();
     let base_camera = CameraState::default();
     for location in &render_state.locations {
