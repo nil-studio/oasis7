@@ -43,8 +43,10 @@ export async function createOwnedCdpSession(run, evaluate) {
     return {
       pageCount: targets.targetInfos.filter(t => t.type === 'page').length,
       page: (method, params = {}) => checked(pageMethods, method, params, sessionId),
-      browser(method, params = {}) {
-        if (targets.targetInfos.filter(t => t.type === 'page').length !== 1) throw Error('browser-wide observation requires one owned page');
+      async browser(method, params = {}) {
+        if (!browserMethods.has(method)) throw Error('CDP method outside owned observation/input contract: ' + method);
+        const current = (await send('Target.getTargets')).targetInfos.filter(t => t.type === 'page');
+        if (current.length !== 1 || current[0].targetId !== page[0].targetId || current[0].url !== href) throw Error('browser-wide observation requires one owned page');
         return checked(browserMethods, method, params);
       },
       onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
