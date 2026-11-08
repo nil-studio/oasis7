@@ -16,3 +16,8 @@ test('cleanup failure does not mask the original observation error',async()=>{
  assert.deepEqual(report.cleanupErrors,['Error: stop failed']);
  await assert.rejects(withObservationCleanup(async()=>true,async()=>{throw Error('stop failed')},{}),/stop failed/);
 });
+
+test('outer report-write failure preserves body error and exposes the failed cleanup',async()=>{
+ const original=Error('capture failed'),report={};
+ await assert.rejects(withObservationCleanup(async()=>{throw original},async()=>{throw Error('ENOSPC report write')},report),e=>e===original&&e.observationCleanupErrors[0]==='Error: ENOSPC report write');
+});

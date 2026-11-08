@@ -12,13 +12,14 @@ export async function withObservationCleanup(body,cleanup,report) {
  let original,value;
  try { value=await body(); } catch(error) { original=error; }
  try { await cleanup(); } catch(error) { (report.cleanupErrors??=[]).push(String(error));if(!original)original=error; }
- if(original)throw original;return value;
+ if(original) { if(report.cleanupErrors?.length) { try { original.observationCleanupErrors=[...report.cleanupErrors]; } catch {} console.error('observation cleanup failed: '+JSON.stringify(report.cleanupErrors)); } throw original; }return value;
 }
 // Page-target images only. No browser-global trace is started, including when
 // one page happens to exist: another page could be created while tracing.
 export async function probeWorldFrameCapabilities({run,evaluate,out,durationMs=3000,action}) {
  if(!Number.isFinite(durationMs)||durationMs<1000||durationMs>10000)throw Error('frame probe duration must be 1..10 seconds');
  const session=await createOwnedCdpSession(run,evaluate),report={durationMs,scope:'bounded page image capability; not P6 acceptance',browserTrace:'not started: session-tab ownership does not prove exclusive browser process ownership'};
+ return withObservationCleanup(async()=>{
  try {
   report.initialPageCount=session.pageCount;
   try { report.browser=await session.browser('Browser.getVersion');report.traceCategories=await session.browser('Tracing.getCategories'); }
@@ -26,7 +27,9 @@ export async function probeWorldFrameCapabilities({run,evaluate,out,durationMs=3
   report.pageImages=await observePageImages({session,run,out,durationMs,action,report});
   report.observation=summarizeFrameEvents([]);report.status='page_image_capability_only';return report;
  }catch(error){report.status='failed';report.error=String(error);throw error;}
- finally{session.close();writeFileSync(resolve(out,'frame-capability.json'),JSON.stringify(report,null,2));}
+ },async()=>{
+  session.close();writeFileSync(resolve(out,'frame-capability.json'),JSON.stringify(report,null,2));
+ },report);
 }
 async function observePageImages({session,run,out,durationMs,action,report}) {
  const dir=resolve(out,'page-frame-images');mkdirSync(dir);let count=0,bytes=0,overflow=false,error=null;const pending=new Set();

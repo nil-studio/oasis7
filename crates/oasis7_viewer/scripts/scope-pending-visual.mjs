@@ -31,7 +31,7 @@ const source = execFileSync('git', ['rev-parse', process.env.SCOPE_PENDING_SOURC
 assert(provenance.source === source && isDeepStrictEqual(provenance.files, assets), 'artifact provenance mismatch');
 const resetCase = process.env.SCOPE_PENDING_RESET_CASE === '1';
 const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
-  scripts: Object.fromEntries(['scope-pending-visual.mjs', 'scope-pending-fixture.mjs', 'viewer-owned-cdp-input.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
+  scripts: Object.fromEntries(['scope-pending-visual.mjs', 'scope-pending-fixture.mjs', 'viewer-owned-cdp-input.mjs', 'viewer-owned-cdp-session.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
   assets, provenance, case: resetCase ? 'connection_scope_reset' : 'same_request_scope_unavailable',
   scope: 'Finite controlled observer/debug transport, one input attempt, no real grant/revocation/auth-epoch, world_deleted, density or performance proof.', phases: {} };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = 'scope-pending-' + process.pid;
