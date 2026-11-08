@@ -21600,7 +21600,14 @@ function projectOnce(input, markerLimit) {
 	const relations = raw$1(source.worldView?.relations) || [];
 	if (!Array.isArray(relations) || relations.length > 1e4) capacity();
 	const worldView = source.worldView ? {
-		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch")),
+		...copy(source.worldView, fields("schema_version world_id scope_id source_cut request_generation completeness reorg_epoch source_frozen")),
+		...source.worldView.source_binding && { source_binding: copy(source.worldView.source_binding, { version: {
+			...fields("visibility_scope projection_revision"),
+			commit: {
+				world: fields("world_id genesis_digest"),
+				binding: fields("provider_world_id branch_id reorg_generation authority_generation permission_generation governing_manifest_ref")
+			}
+		} }) },
 		...source.worldView.world_bounds && { world_bounds: copy(source.worldView.world_bounds, fields("width_cm depth_cm height_cm")) },
 		entities: budget.selected.filter((item) => [
 			"agents",
