@@ -209,7 +209,13 @@ export function PixelWorldCanvasRenderer(props) {
         </Show>
       </div>
       <Show when={visualState().selection || props.selectionStatus?.()}>
-        <div class="pixel-world-canvas__selection">
+        <div class="pixel-world-canvas__selection"
+          data-world-feedback-intent={props.selectionFeedback?.()?.intent_generation}
+          data-world-feedback-kind={props.selectionFeedback?.()?.ref.kind}
+          data-world-feedback-id={props.selectionFeedback?.()?.ref.id}
+          data-world-feedback-world={props.selectionFeedback?.()?.world_id}
+          data-world-feedback-scope={props.selectionFeedback?.()?.scope_generation}
+          data-world-feedback-phase={props.selectionFeedback?.()?.phase}>
           <Show when={visualState().selection}>
             <span>{`${tr(props.locale(), "已选中", "Selected")}: ${selectedEntityLabel()}`}</span>
           </Show>
@@ -1309,6 +1315,7 @@ export function PixelWorldHost(props) {
           renderState={renderState}
           selection={selectedEntity}
           selectionStatus={spatial.selectionStatus}
+          selectionFeedback={spatial.selectionFeedback}
           hoveredEntity={hoverSelection}
           visualOverlayEnabled={visualOverlayEnabled}
           onSelect={(selection) => adapter().simulateSelect(selection)}

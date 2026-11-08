@@ -3,6 +3,8 @@ import { createWorldViewClient, worldViewPosition } from './pixel_world_world_vi
 import { pixelWorldScope } from './pixel_world_scope.js';
 import { worldViewAuthorityKey } from './pixel_world_world_view_delta.js';
 
+// Page-local only: a remounted controller must not reuse an earlier intent ID.
+let selectionIntentGeneration = 0;
 const refKey = ref => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
   if (!value || !['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].every(key => typeof value[key] === 'string' && /^-?(0|[1-9]\d*)$/.test(value[key]))) return null;
@@ -17,6 +19,8 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   const [pauseVersion,setPauseVersion] = createSignal(0);
   const [spatialSelection,setSpatialSelection] = createSignal(null);
   const [selectionStatus,setSelectionStatus] = createSignal(null);
+  const [selectionFeedback,setSelectionFeedback] = createSignal(null);
+  let feedbackScopeGeneration = 1, feedbackAuthority = null;
   const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);}});
   let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = '', currentQuery = {};
   let cameraBounds = null, cameraKey = '', timer = null, command = 0, disposed = false;
@@ -34,9 +38,24 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     && change.id === ref.id && change.kind === ref.kind);
   function cancelPending(status = null) {
     clearTimeout(pendingTimer);pendingTimer = null;pending = null;setSelectionStatus(status);
+    setSelectionFeedback(previous => status && previous ? Object.freeze({...previous,phase:status}) : null);
+  }
+  function beginFeedback(ref, phase) {
+    setSelectionFeedback(Object.freeze({intent_generation:++selectionIntentGeneration,
+      ref:Object.freeze({kind:ref.kind,id:ref.id}),world_id:core.state.worldId ?? null,
+      scope_generation:feedbackScopeGeneration,phase}));
   }
   function checkPending(next) {
-    if (!pending) return;
+    const authority = next.view ? worldViewAuthorityKey(next.view) : null;
+    if (authority !== feedbackAuthority) {
+      if (feedbackAuthority !== null) feedbackScopeGeneration += 1;
+      feedbackAuthority = authority;setSelectionFeedback(null);
+    }
+    if (!pending) {
+      if (selectionFeedback()?.phase === 'selected' && (disposed || pixelWorldScope(core.state) !== scope
+        || selectedCoreKey !== coreKey() || next.error || next.stale || (next.view && !proved(selectionFeedback().ref,next.view)))) setSelectionFeedback(null);
+      return;
+    }
     const view = next.view;
     if (disposed || pixelWorldScope(core.state) !== scope || pending.scope !== scope || pending.command !== command
       || pending.coreKey !== coreKey() || !enabled() || next.error || next.stale || !view || requestBinding(view) !== pending.binding
@@ -45,7 +64,9 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     }
     const selected = proved(pending.ref,view);
     if (selected) {
+      const feedback = selectionFeedback();
       cancelPending();selectedCoreKey = coreKey();setSpatialSelection(selected);
+      if (feedback) setSelectionFeedback(Object.freeze({...feedback,phase:'selected'}));
     } else if (!next.loading || view.completeness === 'complete') cancelPending('unavailable');
   }
   const coreKey = () => `${core.state.selectedKind}:${core.state.selectedId}`;
@@ -110,7 +131,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     if (view) {
       if (ref?.kind === 'industry_aggregate' && view.aggregates?.some(value=>value.aggregate_id === ref.id)
         || ref?.kind === 'world_event' && view.events?.some(value=>value.event_id === ref.id)) {
-        selectedCoreKey=coreKey();setSpatialSelection(ref);return ref;
+        selectedCoreKey=coreKey();setSpatialSelection(ref);beginFeedback(ref,'selected');return ref;
       }
       const entity = view.entities?.find(entity => entity.entity_id === ref?.id
         && (entity.kind === ref.kind || (entity.kind === 'factory' && ref.kind === 'module_visual')));
@@ -124,17 +145,21 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
         selectedCoreKey = refKey(selected);
         core.applySelection(selected);
       }
-      return selected;
+      beginFeedback(selected,'selected');return selected;
     }
     setSpatialSelection(null);
-    return core.applySelection(ref);
+    const applied = core.applySelection(ref);
+    if (applied?.kind && typeof applied.id === 'string') {
+      selectedCoreKey = coreKey();beginFeedback(canonicalRef(applied),'selected');
+    }
+    return applied;
   }
   const controller = {
     readStatistics(expectedSourceCut = null) {
       if (disposed || pixelWorldScope(core.state) !== scope) return null;
       return client.statistics?.(expectedSourceCut) ?? null;
     },
-    state,navigation,pauseVersion,selection,selectionStatus,scope:()=>scope,
+    state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,scope:()=>scope,
     // Called by Host only after publishing this render DTO. Store identities,
     // never the previous scene's entity facts or coordinates.
     present(view, scene, presentedScope = scope) {
@@ -170,7 +195,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
         || deleted(next,ref) || view.completeness !== 'partial' || !presented || presented.scope !== scope
         || presented.authority !== worldViewAuthorityKey(view) || presented.cut !== view.source_cut || !presented.refs.has(refKey(ref))) return null;
       pending = {ref:{kind:ref.kind,id:ref.id},scope,command,coreKey:coreKey(),binding:requestBinding(view)};
-      setSelectionStatus('pending');
+      setSelectionStatus('pending');beginFeedback(ref,'pending');
       pendingTimer = setTimeout(()=>cancelPending('unavailable'),30000);
       return null;
     },
@@ -217,7 +242,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     resetScope() {
       cancelPending();presented = null;
-      scope = pixelWorldScope(core.state);cancelScheduled();command += 1;
+      scope = pixelWorldScope(core.state);feedbackScopeGeneration += 1;feedbackAuthority = null;cancelScheduled();command += 1;
       dirty = false;lastSnapshot = null;lastPins = '';cameraBounds = null;cameraKey = '';currentQuery = {};following = null;selectedCoreKey = null;
       setSpatialSelection(null);setNavigation(null);client.reset(scope,core.state.worldId);
     },
