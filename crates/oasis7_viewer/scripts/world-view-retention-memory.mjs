@@ -3,7 +3,7 @@ import { withObservationCleanup } from './world-view-frame-capability.mjs';
 import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { numericRetentionRecord, summarizeRetentionWindow, classifyRetentionPhase } from './viewer-retention-components.mjs';
+import { numericRetentionRecord, summarizeRetentionWindow, classifyRetentionPhase, describeHomeCameraMismatch } from './viewer-retention-components.mjs';
 const assert = (value, reason) => { if (!value) throw Error(reason); };
 // No trace, DTO snapshots, GC or reload. Only bounded numeric receipts are retained.
 export async function measureWorldViewRetention({ evaluate, run, fixture, out, durationMs, overview,
@@ -42,7 +42,7 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     const end=performance.now()+5000;do{const after=(await read()).camera;if(after.zoom!==before.zoom){const nativeAfter=await nativeCount('zoom');assert(nativeAfter>nativeBefore,'zoom lacked trusted wheel');const wire=await waitRegion(after,requestsBefore);action({type:'zoom',before:before.zoom,after:after.zoom,nativeBefore,nativeAfter,requestCount:wire.requestCount,requestBoundsMatched:true});return;}await run(['wait','25']);}while(performance.now()<end);throw Error('native wheel did not change zoom');
   };
   await beginStreamingWire();
-  const started=performance.now(), first=[],last=[];let samples=0,cycles=0,homeCamera=null,homeScopeSequence=null,homeInstanceSequence=null,homeTimeOrigin=null;
+  const started=performance.now(), first=[],last=[];let samples=0,cycles=0,homeCamera=null,homeScopeSequence=null,homeInstanceSequence=null,homeTimeOrigin=null,windowStarted=null;
   const sample = async (phase, expected=1000) => {
     const row=await settle(expected,true), stats=row.stats, memoryStarted=performance.now(), mem=await readMemory(), memoryReadMs=performance.now()-memoryStarted;
     const after=await read(false);
@@ -52,7 +52,10 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     if(homeScopeSequence===null){homeScopeSequence=stats.scopeSequence;homeInstanceSequence=stats.instanceSequence;homeTimeOrigin=row.origin;}else assert(homeScopeSequence===stats.scopeSequence&&homeInstanceSequence===stats.instanceSequence&&homeTimeOrigin===row.origin,'scope/instance/page changed during stable workload');
     assert(row.identity.ready===false&&row.identity.player===null&&row.identity.key===null&&row.identity.bound===null&&row.identity.registration==='guest','observer acquired identity');
     assert(row.metrics.bodies===expected&&(expected!==1000||row.metrics.labels===200),'phase density changed');
-    if(phase==='home'||phase==='warmup'){if(homeCamera===null)homeCamera=row.camera;else assert(JSON.stringify(homeCamera)===JSON.stringify(row.camera),'matched home camera changed');}
+    if(phase==='home'||phase==='warmup'){
+      if(homeCamera===null)homeCamera=row.camera;
+      else { const mismatch=describeHomeCameraMismatch(homeCamera,row.camera,phase);if(mismatch){summary.failedPhase={...mismatch,observedAtModuleMs:performance.now()-started,generation:stats.localGeneration,scopeSequence:stats.scopeSequence,instanceSequence:stats.instanceSequence};throw Error('matched home camera changed');} }
+    }
     const record=numericRetentionRecord({timeMs:performance.now()-started,phase,memoryPhaseMatched:phaseMatch==='matched',memoryReadMs,afterGeneration:after.stats?.localGeneration??null,afterScopeSequence:after.stats?.scopeSequence??null,afterInstanceSequence:after.stats?.instanceSequence??null,afterTimeOrigin:after.origin,afterLoading:after.stats?.loading===true,afterQueryCurrent:after.stats?.published.queryGenerationMatches===true,afterObserved:after.metrics.status==='observed',afterEntities:after.stats?.published.entities??null,afterBodies:after.metrics.bodies??null,timeOrigin:row.origin,instanceSequence:stats.instanceSequence,scopeSequence:stats.scopeSequence,cameraZoom:row.camera.zoom,cameraPanX:row.camera.pan_x_px,cameraPanY:row.camera.pan_y_px,viewportWidth:row.camera.viewport_size_px.width,viewportHeight:row.camera.viewport_size_px.height,generation:stats.localGeneration,viewJsonBytes:stats.published.logicalJsonBytes,viewObjects:stats.published.uniqueObjects,viewArrays:stats.published.uniqueArrays,pagingJsonBytes:stats.paging.logicalJsonBytes,pagingObjects:stats.paging.uniqueObjects,pagingArrays:stats.paging.uniqueArrays,pagingActive:stats.paging.active,pagingEntities:stats.paging.maps[0],pagingRelations:stats.paging.maps[1],pagingAggregates:stats.paging.maps[2],pagingEvents:stats.paging.maps[3],pagingCursors:stats.paging.cursors,observationMs:stats.observationMs,jsUsedHeapBytes:mem.jsUsedHeapBytes??null,jsTotalHeapBytes:mem.jsTotalHeapBytes??null,domNodes:mem.domNodes??null,documents:mem.documents??null,listeners:mem.listeners??null,wasmLinearBytes:mem.wasmLinearBytes??null,rendererBytes:mem.rendererBytes??null,gpuBytes:mem.gpuBytes??null,ownedRssBytes:mem.ownedRssBytes??null});
     appendFileSync(resolve(out,'retention-memory.jsonl'),JSON.stringify(record)+'\n');
     summary.memoryPhaseUnmatched=(summary.memoryPhaseUnmatched||0)+(phaseMatch==='matched'?0:1);
@@ -66,13 +69,13 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     nativeInput=await createOwnedCdpInput(run,evaluate);
     await evaluate(`(()=>{const counts=window.__RETENTION_NATIVE_COUNTS__={selection:0,pan:0,zoom:0};const handler=e=>{if(!e.isTrusted)return;if(e.type==='click'&&e.target.closest?.('button[data-agent-id][data-renderer-target]'))counts.selection++;if(e.target.id==='pixel-world-embedded-runtime-canvas'){if(e.type==='pointerdown')counts.pan++;if(e.type==='wheel')counts.zoom++;}};for(const t of ['click','pointerdown','wheel'])document.addEventListener(t,handler,true);window.__RETENTION_NATIVE_DISPOSE__=()=>{for(const t of ['click','pointerdown','wheel'])document.removeEventListener(t,handler,true);delete window.__RETENTION_NATIVE_COUNTS__;delete window.__RETENTION_NATIVE_DISPOSE__;};return true})()`);
     for(let n=0;n<3;n++){await cycle();await sample('warmup');}
-    homeCamera=null,homeScopeSequence=null,homeInstanceSequence=null,homeTimeOrigin=null;const windowStarted=performance.now();await sample('home');
+    homeCamera=null,homeScopeSequence=null,homeInstanceSequence=null,homeTimeOrigin=null;windowStarted=performance.now();await sample('home');
     do{await cycle();await run(['wait','10000']);await sample('home');}while(performance.now()-windowStarted<durationMs);
     const {eligible,components,diagnosticTrends,failedComponents}=summarizeRetentionWindow(first,last,{actualSpanMs:performance.now()-windowStarted,samples});
     Object.assign(summary,{actualSpanMs:performance.now()-windowStarted,longStabilityEligible:eligible,samples,cycles,initial:first,final:last,components,diagnosticTrends,overallMemoryBudget:'unknown; unmeasured components and incomplete cache coverage',nativeCounts:await json('JSON.stringify(window.__RETENTION_NATIVE_COUNTS__)'),wire:await readWireSummary(),status:failedComponents.length?'component_budget_failure':'observed_components_only'});
     if(failedComponents.length)throw Error('known memory component growth exceeds10%: '+failedComponents.join(','));
     return summary;
-  } catch(error){summary.error=String(error);Object.assign(summary,{samples,cycles,initial:first,final:last});throw error;}
+  } catch(error){summary.error=String(error);Object.assign(summary,{samples,cycles,initial:first,final:last,moduleElapsedMs:performance.now()-started,actualSpanMs:windowStarted===null?null:performance.now()-windowStarted});throw error;}
   },[
     ()=>nativeInput?.close(),
     ()=>evaluate('window.__RETENTION_NATIVE_DISPOSE__?.();true'),

@@ -36,3 +36,7 @@ export function classifyRetentionPhase(before,after) {
   if(!after.complete||after.entities!==before.entities||after.bodies!==before.bodies||after.labels!==before.labels)return 'precondition_lost';
   return 'matched';
 }
+
+export function describeHomeCameraMismatch(expectedCamera,actualCamera,phase) {
+  return JSON.stringify(expectedCamera)===JSON.stringify(actualCamera)?null:{phase,expectedCamera,actualCamera};
+}

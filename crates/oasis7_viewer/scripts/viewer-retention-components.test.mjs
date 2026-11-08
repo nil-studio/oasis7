@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareRetentionComponent, numericRetentionRecord, summarizeRetentionWindow, classifyRetentionPhase } from './viewer-retention-components.mjs';
+import { compareRetentionComponent, numericRetentionRecord, summarizeRetentionWindow, classifyRetentionPhase, describeHomeCameraMismatch } from './viewer-retention-components.mjs';
 test('unknown and zero baselines cannot masquerade as memory growth passes', () => {
  assert.equal(compareRetentionComponent(null, 100).status, 'unknown'); assert.equal(compareRetentionComponent(0, 100).status, 'unknown'); assert.equal(compareRetentionComponent(100, 111).status, 'over_budget'); assert.equal(compareRetentionComponent(100, 110).status, 'within_budget');
 });
@@ -21,4 +21,9 @@ test('normal query crossing stays unknown while scope, identity or physical phas
  const before={identityValid:true,clientSourceMatches:true,renderCutMatches:true,instance:1,scope:1,generation:2,origin:10,camera:{zoom:2},stale:false,error:false,loading:false,currentQuery:true,observed:true,complete:true,entities:1000,bodies:1000,labels:200};
  assert.equal(classifyRetentionPhase(before,{...before}),'matched');assert.equal(classifyRetentionPhase(before,{...before,generation:3,loading:true,complete:false,entities:400,bodies:400}),'poll_crossed');assert.equal(classifyRetentionPhase(before,{...before,generation:3,complete:true,entities:999}),'precondition_lost');assert.equal(classifyRetentionPhase(before,{...before,generation:3,observed:false,renderCutMatches:null}),'poll_crossed');assert.equal(classifyRetentionPhase(before,{...before,generation:3,observed:true,renderCutMatches:false}),'precondition_lost');
  for(const change of [{scope:2},{instance:2},{origin:11},{identityValid:false},{bodies:800},{camera:{zoom:3}}])assert.equal(classifyRetentionPhase(before,{...before,...change}),'precondition_lost');
+});
+
+test('failed home phase retains both exact cameras without rounding or relaxing the contract',()=>{
+ const expected={zoom:1.8461538461538465,pan_y_px:0},actual={zoom:1.8461538461538463,pan_y_px:99.6923076923077};
+ assert.deepEqual(describeHomeCameraMismatch(expected,actual,'home'),{phase:'home',expectedCamera:expected,actualCamera:actual});assert.equal(describeHomeCameraMismatch(expected,{...expected},'home'),null);
 });
