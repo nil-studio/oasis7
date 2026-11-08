@@ -29,8 +29,9 @@ export function summarizeRetentionWindow(first,last,{actualSpanMs,samples}) {
 }
 
 export function classifyRetentionPhase(before,after) {
-  const valid=row=>row&&row.identityValid===true&&row.sourceMatches===true&&Number.isSafeInteger(row.instance)&&Number.isSafeInteger(row.scope)&&Number.isSafeInteger(row.generation)&&Number.isFinite(row.origin)&&row.camera&&Number.isFinite(row.camera.zoom);
-  if(!valid(before)||before.loading||!before.currentQuery||!before.complete||!before.observed||!valid(after)||before.instance!==after.instance||before.scope!==after.scope||before.origin!==after.origin||JSON.stringify(before.camera)!==JSON.stringify(after.camera)||after.stale||after.error)return 'precondition_lost';
+  const valid=row=>row&&row.identityValid===true&&row.clientSourceMatches===true&&Number.isSafeInteger(row.instance)&&Number.isSafeInteger(row.scope)&&Number.isSafeInteger(row.generation)&&Number.isFinite(row.origin)&&row.camera&&Number.isFinite(row.camera.zoom);
+  if(!valid(before)||before.loading||!before.currentQuery||!before.complete||!before.observed||before.renderCutMatches!==true||!valid(after)||before.instance!==after.instance||before.scope!==after.scope||before.origin!==after.origin||JSON.stringify(before.camera)!==JSON.stringify(after.camera)||after.stale||after.error)return 'precondition_lost';
+  if(after.complete&&after.entities!==before.entities||after.observed&&after.renderCutMatches!==true)return 'precondition_lost';
   if(after.generation!==before.generation||after.loading||!after.currentQuery||!after.observed)return 'poll_crossed';
   if(!after.complete||after.entities!==before.entities||after.bodies!==before.bodies||after.labels!==before.labels)return 'precondition_lost';
   return 'matched';
