@@ -5,6 +5,15 @@
   "ordinary_partition_version": 1,
   "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
+  "engineering_job_observation": {
+    "schema_version": 1,
+    "workflow_path": ".github/workflows/rust.yml",
+    "step_name": "Record engineering job observation",
+    "step_anchor": "engineering-job-observation",
+    "timeout_minutes": 1,
+    "failure_mode": "nonblocking",
+    "emitter_sha256": "ee74f43758b6d6feb98232c4153875a49dc3336021aee894a9af3ab883006144"
+  },
   "ordinary_support_contract_version": 1,
   "ordinary_fast_support_contracts": [
     {
