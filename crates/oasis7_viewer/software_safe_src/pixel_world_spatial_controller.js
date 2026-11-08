@@ -18,7 +18,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   const [spatialSelection,setSpatialSelection] = createSignal(null);
   const [selectionStatus,setSelectionStatus] = createSignal(null);
   const [selectionFeedback,setSelectionFeedback] = createSignal(null);
-  let intentGeneration = 0, feedbackScopeGeneration = 1;
+  let intentGeneration = 0, feedbackScopeGeneration = 1, feedbackAuthority = null;
   const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);}});
   let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = '', currentQuery = {};
   let cameraBounds = null, cameraKey = '', timer = null, command = 0, disposed = false;
@@ -44,6 +44,11 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       scope_generation:feedbackScopeGeneration,phase}));
   }
   function checkPending(next) {
+    const authority = next.view ? worldViewAuthorityKey(next.view) : null;
+    if (authority !== feedbackAuthority) {
+      if (feedbackAuthority !== null) feedbackScopeGeneration += 1;
+      feedbackAuthority = authority;setSelectionFeedback(null);
+    }
     if (!pending) {
       if (selectionFeedback()?.phase === 'selected' && (disposed || pixelWorldScope(core.state) !== scope
         || selectedCoreKey !== coreKey() || next.error || next.stale || (next.view && !proved(selectionFeedback().ref,next.view)))) setSelectionFeedback(null);
@@ -231,7 +236,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     resetScope() {
       cancelPending();presented = null;
-      scope = pixelWorldScope(core.state);feedbackScopeGeneration += 1;cancelScheduled();command += 1;
+      scope = pixelWorldScope(core.state);feedbackScopeGeneration += 1;feedbackAuthority = null;cancelScheduled();command += 1;
       dirty = false;lastSnapshot = null;lastPins = '';cameraBounds = null;cameraKey = '';currentQuery = {};following = null;selectedCoreKey = null;
       setSpatialSelection(null);setNavigation(null);client.reset(scope,core.state.worldId);
     },

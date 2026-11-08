@@ -203,3 +203,11 @@ it('keeps a genuine legacy selection correlation until the business identity cha
  core.state.selectedId='other';controller.refresh({});expect(controller.selectionFeedback()).toBeNull();
  expect(core.requestWorldView).not.toHaveBeenCalled();
 });
+
+it('clears correlation when read authority changes even if the same entity is present',async()=>{
+ const {core,controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});release(['B']);await read;
+ const before=controller.selectionFeedback();
+ core.requestWorldView.mockImplementation(async q=>page(q,['A','B'],{scope_id:'new-read-scope'}));
+ await controller.query({});expect(controller.selectionFeedback()).toBeNull();
+ controller.select({kind:'agent',id:'B'});expect(controller.selectionFeedback().scope_generation).toBeGreaterThan(before.scope_generation);
+});
