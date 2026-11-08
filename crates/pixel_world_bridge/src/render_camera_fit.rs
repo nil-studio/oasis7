@@ -31,6 +31,16 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     let modern = render_state.navigation.as_ref().is_some_and(|n| {
         n.mode == "overview" && !matches!(n.overview_query, overview_query::Declaration::Legacy)
     });
+    if modern
+        && render_state
+            .overview_query_context
+            .as_ref()
+            .is_none_or(|c| c["display_limited"].as_bool() != Some(false))
+    {
+        runtime.camera_fit_version = runtime.render_version;
+        navigation::finish_overview(runtime, "unavailable");
+        return;
+    }
     let mut points = Vec::new();
     let base_camera = CameraState::default();
     for location in &render_state.locations {
@@ -40,14 +50,18 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
             points.push(point);
         }
     }
-    for fragment in &render_state.fragment_terrain {
+    for fragment in render_state.fragment_terrain.iter().filter(|_| !modern) {
         if let Some(point) =
             to_canvas_point_unsnapped(&fragment.pos, world_bounds, width, height, &base_camera)
         {
             points.push(point);
         }
     }
-    for facility in &render_state.micro_depot_facilities {
+    for facility in render_state
+        .micro_depot_facilities
+        .iter()
+        .filter(|_| !modern)
+    {
         if let Some(point) =
             to_canvas_point_unsnapped(&facility.pos, world_bounds, width, height, &base_camera)
         {
@@ -406,5 +420,27 @@ mod overview_partial_regression {
         let mut runtime = BevyRuntimeState::default();
         consume_modern(&mut runtime, state, 1);
         assert_eq!(runtime.camera.pan_y_px, 0.);
+    }
+
+    #[test]
+    fn complete_read_with_output_omissions_does_not_fit_the_retained_subset() {
+        let mut source = json!({"schema_version":1,"display_profile":"world_view_v1",
+            "snapshot":{"time":1,"model":{},"config":{"space":{"width_cm":100,"depth_cm":100,"height_cm":10}}},
+            "lists":{"agents":[],"locations":[]},"gameplay":{},
+            "worldView":{"world_id":"W","scope_id":"S","source_cut":"C","request_generation":"read-1","completeness":"complete",
+                "entities":[0,1].iter().map(|id|json!({"kind":"agent","entity_id":format!("A{id}"),
+                    "render_record":{"name":"A","pos":{"x_cm":id,"y_cm":0,"z_cm":0}},
+                    "provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}})).collect::<Vec<_>>()}});
+        source["worldView"]["entities"][0]["render_record"]["kind"] = json!("k".repeat(8192));
+        let context = overview_query::context(&source["worldView"]);
+        source["navigation"] = json!({"mode":"overview","request_id":"2","overview_query":{"version":1,"binding":context["binding"]}});
+        let output = crate::host_render_input::derive(&source.to_string()).unwrap();
+        assert_eq!(output["agents"].as_array().unwrap().len(), 1);
+        assert_eq!(output["overview_query_context"]["completeness"], "complete");
+        assert_eq!(output["overview_query_context"]["display_limited"], true);
+        let mut runtime = BevyRuntimeState::default();
+        consume_modern(&mut runtime, serde_json::from_value(output).unwrap(), 1);
+        assert_eq!(runtime.camera.pan_y_px, 0.);
+        assert!(runtime.overview.pending_result.is_none());
     }
 }

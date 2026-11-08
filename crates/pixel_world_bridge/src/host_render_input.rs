@@ -115,6 +115,18 @@ pub(super) fn derive(raw: &str) -> Result<Value, String> {
         state["overview_query_context"] = super::overview_query::context(&input["worldView"]);
     }
     budget::fit(&mut state, &input)?;
+    if state["overview_query_context"].is_object() {
+        // A complete read can still have display markers omitted on either
+        // side of the ABI; the retained subset is not the complete extent.
+        let limited = ["omitted_markers", "output_omitted_markers"]
+            .iter()
+            .any(|key| {
+                state["display_budget"]
+                    .get(*key)
+                    .is_some_and(|v| v.as_u64().is_none_or(|n| n > 0))
+            });
+        state["overview_query_context"]["display_limited"] = Value::Bool(limited);
+    }
     profile.validate_structure(&state)?;
     let encoded = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
     if encoded.len() > profile.bytes() {
@@ -150,7 +162,7 @@ mod tests {
         let context = &state["overview_query_context"];
         assert_eq!(context["completeness"], "partial");
         assert_eq!(context["binding"][2], "read-7");
-        assert_eq!(context.as_object().unwrap().len(), 3);
+        assert_eq!(context.as_object().unwrap().len(), 4);
         assert!(!context.to_string().contains("A0000"));
         source["worldView"]["completeness"] = json!("complete");
         assert_eq!(

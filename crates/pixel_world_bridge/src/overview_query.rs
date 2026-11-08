@@ -52,7 +52,7 @@ pub(super) fn context(view: &Value) -> Value {
         binding["governing_manifest_ref"]
     ]);
     json!({"binding":[authority,view["source_cut"],view["request_generation"]],
-        "completeness":view["completeness"],"source_frozen":view["source_frozen"]})
+        "completeness":view["completeness"],"source_frozen":view["source_frozen"],"display_limited":false})
 }
 
 fn matches_binding(declaration: &Declaration, state: &RenderState) -> bool {
