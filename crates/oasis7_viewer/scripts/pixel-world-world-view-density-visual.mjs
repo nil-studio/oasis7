@@ -70,7 +70,9 @@ function armPendingGate(search, onThird) {
 const wire = [], http = [];
 const connectionIds = new WeakMap();
 const latestQueryByConnection = new Map();
-const streamingWireLimitBytes=256*1024*1024;
+// Predeclared collection capacity: short probe 2.82MB/cycle, ~361MB/30min.
+// This is raw evidence storage, not the application cache budget.
+const streamingWireLimitBytes=512*1024*1024;
 let streamingWire = false, latestRequest = null;
 let streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0,requestCount:0};
 const beginStreamingWire = () => { streamingWire = true; streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0,requestCount:0}; };
