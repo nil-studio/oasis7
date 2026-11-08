@@ -7539,6 +7539,7 @@ name = "pixel_world_bridge"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "fontique",
  "image",
  "js-sys",
  "serde",

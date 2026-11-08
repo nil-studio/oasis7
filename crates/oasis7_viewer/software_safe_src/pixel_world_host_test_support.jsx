@@ -3,6 +3,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 
 const runtimeMock = vi.hoisted(() => ({
   deriveRenderState: null,
+  sourceOverride: null,
   mountError: null,
   mountGates: [],
   mountResults: [],
@@ -15,7 +16,7 @@ vi.mock("./pixel_world_runtime_loader.js", async () => ({
   createPixelWorldRuntimeBridge: async ({ onEvent, onFatal }) => {
     runtimeMock.onEvent = onEvent;
     return {
-      source: runtimeMock.deriveRenderState ? "test_rust_runtime" : "wasm_import_failed",
+      source: runtimeMock.sourceOverride || (runtimeMock.deriveRenderState ? "test_rust_runtime" : "wasm_import_failed"),
       moduleUrl: "http://127.0.0.1:4173/pixel-world-bridge/pixel_world_bridge.js",
       deriveRenderState: runtimeMock.deriveRenderState,
       bridge: {
@@ -436,6 +437,7 @@ function cleanupMountedHost() {
 }
 beforeEach(() => {
   runtimeMock.deriveRenderState = null;
+  runtimeMock.sourceOverride = null;
   runtimeMock.mountError = null;
   runtimeMock.mountGates = [];
   runtimeMock.mountResults = [];

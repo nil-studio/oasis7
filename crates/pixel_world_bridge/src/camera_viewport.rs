@@ -6,11 +6,14 @@ use super::*;
 pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
     let camera = &runtime.camera;
     let mut payload = json!({
-        "zoom": (camera.zoom * 1000.0).round() / 1000.0,
-        "pan_x_px": camera.pan_x_px.round() as i32,
-        "pan_y_px": camera.pan_y_px.round() as i32,
+        "zoom": camera.zoom,
+        "pan_x_px": camera.pan_x_px,
+        "pan_y_px": camera.pan_y_px,
     });
-    let Some((width, height)) = runtime.last_canvas_size else {
+    let Some((width, height)) = runtime
+        .last_canvas_css
+        .or_else(|| runtime.last_canvas_size.map(|(w, h)| (w as f64, h as f64)))
+    else {
         return payload;
     };
     let Some(bounds) = runtime
@@ -27,8 +30,8 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
         camera.pan_x_px,
         camera.pan_y_px,
     ];
-    if width <= 40
-        || height <= 40
+    if width <= 40.0
+        || height <= 40.0
         || values.iter().any(|v| !v.is_finite())
         || bounds.width_cm <= 0.0
         || bounds.depth_cm <= 0.0
@@ -37,7 +40,12 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
     {
         return payload;
     }
-    let axis = |size: f64, extent: f64, pan: f64| {
+    let layout = pixel_pipeline::canvas_layout(width as f64, height as f64);
+    let pixel = layout
+        .map(|layout| layout.css / layout.frame.as_dvec2() * layout.scale as f64)
+        .unwrap_or(bevy::math::DVec2::ONE);
+    let axis = |size: f64, extent: f64, pan: f64, unit: f64| {
+        let pan = ((pan / unit) + 0.5).floor() * unit;
         let inverse = |pixel: f64| {
             (((pixel - size / 2.0 - pan) / camera.zoom.max(0.5) + size / 2.0 - 20.0)
                 / (size - 40.0)
@@ -45,12 +53,22 @@ pub(super) fn camera_payload(runtime: &BevyRuntimeState) -> Value {
                 .clamp(0.0, extent)
         };
         (
-            format!("{:.0}", inverse(0.0).floor()),
-            format!("{:.0}", inverse(size).ceil().min(extent)),
+            format!("{:.0}", inverse(-unit / 2.0).floor()),
+            format!("{:.0}", inverse(size + unit / 2.0).ceil().min(extent)),
         )
     };
-    let (min_x, max_x) = axis(width as f64, bounds.width_cm, camera.pan_x_px);
-    let (min_y, max_y) = axis(height as f64, bounds.depth_cm, camera.pan_y_px);
+    let (min_x, max_x) = axis(
+        width as f64,
+        bounds.width_cm,
+        camera.pan_x_px,
+        pixel.x as f64,
+    );
+    let (min_y, max_y) = axis(
+        height as f64,
+        bounds.depth_cm,
+        camera.pan_y_px,
+        pixel.y as f64,
+    );
     payload["viewport_bounds"] =
         json!({"min_x_cm":min_x,"max_x_cm":max_x,"min_y_cm":min_y,"max_y_cm":max_y});
     payload["viewport_size_px"] = json!({"width":width,"height":height});
@@ -79,8 +97,9 @@ mod tests {
         runtime.camera.zoom = 2.0;
         let payload = camera_payload(&runtime);
         let bounds = &payload["viewport_bounds"];
-        assert_eq!(bounds["min_x_cm"], "718750");
-        assert_eq!(bounds["max_x_cm"], "2281250");
+        // Half a logical pixel is included on each side of the visible query.
+        assert_eq!(bounds["min_x_cm"], "717968");
+        assert_eq!(bounds["max_x_cm"], "2282032");
         let state = runtime.render_state.as_ref().unwrap();
         let point = Position {
             x_cm: 718750.0,
@@ -105,6 +124,17 @@ mod tests {
                 .unwrap()
                 < 718750
         );
+    }
+    #[test]
+    fn camera_payload_preserves_fractional_inputs_for_shared_snap() {
+        let mut runtime = BevyRuntimeState::default();
+        runtime.camera.pan_x_px = 0.6;
+        runtime.camera.pan_y_px = -0.6;
+        runtime.camera.zoom = 1.23456789;
+        let payload = camera_payload(&runtime);
+        assert_eq!(payload["pan_x_px"], json!(0.6));
+        assert_eq!(payload["pan_y_px"], json!(-0.6));
+        assert_eq!(payload["zoom"], json!(1.23456789));
     }
     #[test]
     fn no_world_or_invalid_viewport_omits_query_bounds() {

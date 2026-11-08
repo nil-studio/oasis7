@@ -430,10 +430,18 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 50)
-                self.assertIn('cache_build_complete variants=50 verification=false', result.stdout)
+                worker_name = 'ordinary-runtime-worker-companion'
+                expected_count = 51 + int(sys.platform == 'linux')
+                self.assertEqual(len(named), expected_count)
+                self.assertIn(f'cache_build_complete variants={expected_count} verification=false', result.stdout)
+                if sys.platform == 'linux':
+                    self.assertEqual(compile_context(named[worker_name]),
+                                     ('build', ('oasis7_wasm_executor',), (('--bin', 'oasis7-wasm-worker'),),
+                                      False, ('wasmtime',), 'default', '1'))
+                else:
+                    self.assertNotIn(worker_name, named)
                 self.assertEqual({compile_context(call) for name, call in named.items()
-                                  if not name.startswith('fast-')}, legacy)
+                                  if not name.startswith('fast-') and name != worker_name}, legacy)
                 self.assert_fast_inventory(named, self.config)
                 self.assertFalse(self.behaviors.exists(), 'cache warming must not execute a verification guard')
                 for call in named.values():
@@ -450,7 +458,7 @@ run() {
                                       'CARGO_PROFILE_TEST_DEBUG': '0'})
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51 + int(sys.platform == 'linux')):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -517,7 +525,7 @@ run() {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 13)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 14)
 
 
 if __name__ == '__main__':

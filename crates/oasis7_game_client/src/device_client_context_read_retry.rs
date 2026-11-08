@@ -31,10 +31,22 @@ impl Client {
         &self,
         original: &SignedReadRequest<TaskContextGetV1>,
     ) -> Result<CapturedTaskContextV1, E> {
+        self.read_context_original_bounded(original, None)
+    }
+    pub(super) fn read_context_original_bounded(
+        &self,
+        original: &SignedReadRequest<TaskContextGetV1>,
+        deadline: Option<Instant>,
+    ) -> Result<CapturedTaskContextV1, E> {
+        let window = deadline.map_or(Duration::from_secs(8), |deadline| {
+            deadline
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_secs(8))
+        });
         retry_read(
             original,
             |original| self.remote.read_task_context(original),
-            Duration::from_secs(8),
+            window,
         )
     }
 }

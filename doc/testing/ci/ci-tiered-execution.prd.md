@@ -223,7 +223,7 @@ Trace ID: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6
 - 墙钟、执行时间、依赖等待、排队代理值和资源用量分别计算，样本口径沿用[反馈目标](#ci-fast-pr-periodic-full)及既有[CI 回顾](../../../.agents/dot/tasks/ci-duration-review.md#耗时口径)。缓存收益须计入恢复、校验、构建、打包和保存成本；没有可比对照时只报告成本。
 - 采集器只读、有限预算、最小权限，默认读取已有 API 与脱敏产物。dot 和指挥中心消费报告及来源，不新增同用途调度、人工台账或外部遥测服务依赖。
 
-系统设计状态：已覆盖；依据：[共享事件、计算与接入设计](ci-tiered-execution.design.md#engineering-telemetry-design)。实现状态：未实现共享归一化与报告器；已有 JSONL、构建阶段记录及 compile metrics 是输入，不能据此宣称关联与计算已完成。剩余范围：适配器、可复核计算、失败反例及真实 CI/本地报告核验。
+系统设计状态：已覆盖；依据：[共享事件、计算与接入设计](ci-tiered-execution.design.md#engineering-telemetry-design)。实现状态：已实现离线 v1 投影、v2 字段来源/身份合同、完整 job DAG 算法和有界只读采集，支持 Actions 分页、selection、构建 manifest 及既有 compile metrics；真实 Formal 导出已回放核验，仍缺数字 job 依赖和生产者/消费者绑定，按 partial 展示。剩余范围：本地真实 warm 原件验收、live 网络开销实测及只读消费者接入；合成样本与导出回放不认证性能收益。
 
 验收采用同一固定输入分别核对完整并行链、缺页/缺终态、取消、重跑和身份冲突；检查机器报告能够重算墙钟与等待，保留原结论及未覆盖项。真实接入须各读取一条准确 CI 链与一次本地测量，产物和证据保留于实施 PR；合成样本不证明实际性能、合入阻塞或产品运行健康。
 
@@ -297,7 +297,11 @@ workspace crate 缓存仅作有界加速：普通构建与正式进程构建使�
 
 远端容量使用 GitHub 实际存储的压缩字节按缓存族和 ref 汇总，不能把 raw 上限、下载流量或恢复次数当成库存。若使用预压缩 payload 估计新增量，必须另计实际上传包装的保守上界，不得将硬链接去重体积直接当成压缩体积。
 
-共享原生、ECS、Release Web、Linux/Windows/macOS 原生及同族 Testnet Linux packaging 依赖缓存 writer 同样受完整仓库预算约束。自动 post 保存须在原清理与压缩完成后、任何远端预留或上传前，按最终待上传归档的真实字节重新清点；不得用 job 启动前的库存、历史包大小或原始 target 大小代替本次上传量。
+共享原生、ECS、Web WASM、Linux/Windows/macOS 原生及同族 Testnet Linux packaging 依赖缓存 writer 同样受完整仓库预算约束。自动 post 保存须在原清理与压缩完成后、任何远端预留或上传前，按最终待上传归档的真实字节重新清点；不得用 job 启动前的库存、历史包大小或原始 target 大小代替本次上传量。
+
+Web WASM 依赖缓存应有独立于产品发布成功的持续刷新入口，沿用同一缓存族、完整构建上下文和总容量预算。刷新不创建 tag、发布包或测试资格；消费者继续完成原有构建、ABI 与浏览器验证。迁移只允许一个有效写入者，首次刷新须确认旧版本写入任务已结束。验收区分归档恢复、实际编译复用与真实保存成功；过旧缓存或单次暖样本不能代替普通 Rust CI 的端到端十分钟及成功样本 P95。
+
+系统设计已覆盖该独立刷新边界；当前候选已接线 main-only Web producer、Release Web 只读降级，以及两个 Viewer CI reader 的同族读取，保持原测试与失败语义。真实 hosted 保存及同一候选的 reader 冷暖收益仍待验收，普通 Rust 端到端样本须使用新的完整 required 运行。
 
 上游调用形式变化、归档缺失/变化或准入查询失败时跳过缓存上传，继续保留原构建与测试结果。保持现有 key、restore 范围、cache version 和成功后保存语义，候选不新增写入权限。
 

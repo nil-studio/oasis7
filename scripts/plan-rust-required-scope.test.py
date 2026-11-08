@@ -68,6 +68,54 @@ class Selection(unittest.TestCase):
             with self.assertRaises(selector.UnknownInputsError):
                 selector.select(trusted, self.base, self.commit())
 
+    def test_engineering_telemetry_exact_registration_and_old_baseline(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        paths = (
+            'scripts/engineering_telemetry.py',
+            'scripts/engineering_telemetry_adapters.py',
+            'scripts/tests/fixtures/engineering-telemetry/input.json',
+            'scripts/tests/test_engineering_telemetry.py',
+            'scripts/tests/test_engineering_telemetry_adapters.py',
+        )
+        old = dict(config, rules=[r for r in config['rules']
+                                  if r['reason'] != 'engineering_telemetry_contracts'])
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for path in paths:
+                with self.subTest(path=path):
+                    self.write(path, '# synthetic telemetry input')
+                    head = self.commit()
+                    plan = selector.select(config, self.base, head)
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance'})
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(old, self.base, head)
+                    self.base = head
+                    self.git('rm', path)
+                    head = self.commit()
+                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
+                                     {'baseline', 'workflow_governance'})
+                    self.base = head
+            # Candidate registration plus a full control edit cannot establish authority.
+            self.write('scripts/ci-required-scope.json', json.dumps(config))
+            self.write(paths[0], '# candidate input')
+            head = self.commit()
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, head)
+            self.base = head
+            for unknown in ('scripts/engineering_telemetry_extra.py',
+                            'scripts/tests/test_engineering_telemetry_extra.py',
+                            'scripts/tests/fixtures/engineering-telemetry/extra.json'):
+                with self.subTest(unknown=unknown):
+                    self.write(unknown, '# unregistered neighbor')
+                    with self.assertRaises(selector.UnknownInputsError):
+                        selector.select(config, self.base, self.commit())
+                    self.git('rm', unknown)
+                    self.base = self.commit()
+            unknown = 'scripts/engineering_telemetry_renamed.py'
+            self.git('mv', paths[0], unknown)
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_dot_todo_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'dot_todo_contracts'])
@@ -1832,6 +1880,40 @@ class Selection(unittest.TestCase):
             self.assertEqual(plan['oasis7_required_wasm_packages'], [])
             self.assertNotIn('launcher_web', plan['groups'])
 
+    def test_native_package_partition_capability_keeps_the_full_parent_and_old_fallback(self):
+        self.assertEqual(selector.ORDINARY_PARTITION_PACKAGES,
+                         frozenset(('oasis7_runtime', 'oasis7_world_state')))
+        config = self.component_config()
+        config['ordinary_partition_version'] = 1
+        config['ordinary_fast_targets']['consumer-lib'] = dict(
+            config['ordinary_fast_targets']['core-lib'], package='consumer', target_name='consumer')
+        config['ordinary_fast_component_rules'][0]['targets'].append('consumer-lib')
+        base, head = self.component_fixture()
+        # Use the existing miniature Cargo graph as the two allowlisted owners;
+        # the production allowlist is checked independently above.
+        with patch.object(selector, 'ORDINARY_PARTITION_PACKAGES', frozenset(('core', 'consumer'))):
+            for profile in ('pr-fast', 'main-fast'):
+                plan = selector.select(config, base, head, profile=profile)
+                self.assertEqual(plan['ordinary_partition_version'], 1)
+                self.assertEqual(plan['ordinary_partitions'], ['consumer', 'core'])
+                self.assertEqual({target['package'] for target in plan['ordinary_fast_targets']}, {'core', 'consumer'})
+                self.assertEqual(plan['ordinary_clippy_group'], 'rust_baseline')
+                old = dict(config)
+                del old['ordinary_partition_version']
+                self.assertNotIn('ordinary_partitions', selector.select(old, base, head, profile=profile))
+            full = selector.full_plan(config, 'candidate-full', head)
+            self.assertNotIn('ordinary_partition_version', full)
+            self.assertNotIn('ordinary_partitions', full)
+        # Other package combinations keep one complete inline execution.
+        self.assertEqual(selector.select(config, base, head, profile='pr-fast')['ordinary_partitions'], ['all'])
+        for version in (True, False, None, '1', 2):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, ordinary_partition_version=version))
+        unsupported = dict(config)
+        del unsupported['fast_execution_version']
+        with self.assertRaises(ValueError):
+            selector.validate_config(unsupported)
+
     def test_component_architecture_policy_requires_independent_trusted_capability(self):
         config = self.component_config()
         base, head = self.component_fixture()
@@ -1925,6 +2007,49 @@ class Selection(unittest.TestCase):
                                  ['consumer', 'core', 'oasis7_distfs', 'oasis7_net', 'oasis7_node'])
                 self.assertEqual(plan['formal_suites'], [])
                 self.assertEqual(plan['fast_plan_exceptions'], [])
+
+    def test_distfs_clippy_handoff_requires_its_independent_trusted_capability_and_complete_native_parent(self):
+        self.assertEqual(selector.DISTFS_CLIPPY_TARGETS, frozenset((
+            ('oasis7_runtime', 'lib', 'oasis7_runtime'),
+            ('oasis7_runtime', 'test', 'pr_fast_incremental'),
+            ('oasis7_world_state', 'lib', 'oasis7_world_state'),
+            ('oasis7_world_state', 'test', 'pr_fast_reducers'))))
+        config, base, head = self.native_consumer_fixture()
+        config.update(ordinary_partition_version=1, distfs_clippy_contract_version=1)
+        config['ordinary_fast_targets']['consumer-lib'] = dict(
+            config['ordinary_fast_targets']['core-lib'], package='consumer', target_name='consumer')
+        config['ordinary_fast_component_rules'][0]['targets'].append('consumer-lib')
+        # Preserve both complete miniature lib owners; pin the real four-target
+        # inventory independently above rather than inventing a new fast scope.
+        identities = frozenset((package, 'lib', package) for package in ('core', 'consumer'))
+        with patch.object(selector, 'ORDINARY_PARTITION_PACKAGES', frozenset(('core', 'consumer'))), \
+             patch.object(selector, 'DISTFS_CLIPPY_TARGETS', identities):
+            for profile in ('pr-fast', 'main-fast'):
+                plan = selector.select(config, base, head, profile=profile)
+                self.assertEqual(plan['distfs_clippy_contract_version'], 1)
+                self.assertEqual(plan['distfs_clippy_group'], 'rust_baseline')
+                self.assertTrue({'distfs', 'rust_baseline', 'oasis7_required'}.issubset(plan['groups']))
+                self.assertEqual(len(plan['ordinary_fast_targets']), 2)
+                old = dict(config)
+                del old['distfs_clippy_contract_version']
+                previous = selector.select(old, base, head, profile=profile)
+                self.assertNotIn('distfs_clippy_group', previous)
+                self.assertEqual(plan['groups'], previous['groups'])
+                self.assertEqual(plan['ordinary_fast_targets'], previous['ordinary_fast_targets'])
+            explicit = selector.select(config, base, head, additions=('distfs',), profile='pr-fast')
+            self.assertNotIn('distfs_clippy_group', explicit)
+            for profile in ('candidate-full', 'periodic-full'):
+                self.assertNotIn('distfs_clippy_group', selector.full_plan(config, profile, head))
+        # A different owner/target inventory retains the original lint owner.
+        self.assertNotIn('distfs_clippy_group', selector.select(config, base, head, profile='pr-fast'))
+        for version in (True, False, None, '1', 2):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                selector.validate_config(dict(config, distfs_clippy_contract_version=version))
+        for capability in ('fast_execution_version', 'ordinary_partition_version', 'architecture_build_policy_version'):
+            old = dict(config)
+            del old[capability]
+            with self.subTest(missing=capability), self.assertRaises(ValueError):
+                selector.validate_config(old)
 
     def test_native_consumer_group_does_not_cover_direct_unmapped_inputs_or_requests(self):
         config, base, head = self.native_consumer_fixture()
@@ -2639,6 +2764,99 @@ class Selection(unittest.TestCase):
             with self.subTest(gate=gate), self.assertRaisesRegex(
                     selector.TestPolicyError, 'validated test feature combinations'):
                 selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def pixel_config(self):
+        config = self.fast_config()
+        config['groups'].append('pixel_world_bridge')
+        config['resources']['pixel_world_bridge'] = []
+        config['package_groups']['pixel_world_bridge'] = ['pixel_world_bridge']
+        self.write('crates/pixel_world_bridge/Cargo.toml',
+                   '[package]\nname="pixel_world_bridge"\nversion="0.1.0"\n'
+                   '[features]\ndefault=["webgl2_runtime"]\nwebgl2_runtime=[]\noptional=[]\n')
+        self.write('crates/pixel_world_bridge/src/lib.rs',
+                   '#[cfg(feature="webgl2_runtime")] #[path="navigation.rs"] mod navigation;\n')
+        self.write('crates/pixel_world_bridge/src/navigation.rs', 'pub fn existing() {}\n')
+        return config, self.commit()
+
+    def test_pixel_new_library_tests_and_platform_statements_keep_real_driver(self):
+        config, base = self.pixel_config()
+        self.write('crates/pixel_world_bridge/src/navigation.rs',
+                   'pub fn existing() {}\npub fn finish_overview() {\n'
+                   '#[cfg(target_arch="wasm32")] let _ = json!({"status": "done"});\n'
+                   '#[cfg(not(target_arch="wasm32"))] let _ = 1;\n}\n'
+                   '#[test] fn direct_case() {}\n'
+                   '#[cfg(test)] mod tests { #[test] fn added() {} }\n')
+        self.write('crates/pixel_world_bridge/src/lib.rs',
+                   '#[cfg(feature="webgl2_runtime")] #[path="navigation.rs"] mod navigation;\nmod overview;\n')
+        self.write('crates/pixel_world_bridge/src/overview.rs',
+                   '#[cfg(test)] mod tests { #[test] fn query() {} }\n')
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['scope'], 'targeted')
+        self.assertIn('pixel_world_bridge', plan['groups'])
+        self.assertFalse(plan['test_policy_changed'])
+        self.assertEqual(plan['formal_suites'], [])
+        self.assertEqual(plan['oasis7_required_packages'], [])
+
+    def test_pixel_platform_statement_proof_rejects_existing_opaque_and_unknown_context(self):
+        config, base = self.pixel_config()
+        path = 'crates/pixel_world_bridge/src/navigation.rs'
+        statements = [
+            'pub fn existing() { #[cfg(target_arch="wasm32")] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg(windows)] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg(unknown_target)] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg(feature="optional")] let _ = 1; }',
+            'pub fn existing() {} fn new() { #[cfg_attr(unix,cfg(target_arch="wasm32"))] let _ = 1; }',
+            *('pub fn existing() {} fn new() { make!' + left +
+              '#[cfg(target_arch="wasm32")] let _ = 1;' + right + '; }'
+              for left, right in [('(', ')'), ('[', ']'), ('{', '}')]),
+            'pub fn existing() {} impl Thing { fn new() { #[cfg(target_arch="wasm32")] let _ = 1; } }',
+            'pub fn existing() {} #[cfg(unix)] fn new() { #[cfg(target_arch="wasm32")] let _ = 1; }',
+            'pub fn existing() {} #[cfg(unix)] mod native { fn new() { #[cfg(target_arch="wasm32")] let _ = 1; } }',
+        ]
+        for content in statements:
+            with self.subTest(content=content):
+                self.write(path, content)
+                result = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertEqual(result['scope'], 'full')
+        self.write(path, 'pub fn existing() {} #[cfg(target_arch="wasm32")] #[test] fn wasm_case() {}')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_pixel_platform_statement_cannot_hide_unknown_route_or_retired_test(self):
+        config, base = self.pixel_config()
+        path = 'crates/pixel_world_bridge/src/navigation.rs'
+        added = 'pub fn existing() {} fn new() { #[cfg(target_arch="wasm32")] let _ = 1; }'
+        self.write(path, added)
+        self.write('crates/pixel_world_bridge/src/lib.rs',
+                   '#[path="navigation.rs"] mod known;\n'
+                   '#[cfg(unknown_target)] #[path="navigation.rs"] mod unknown;\n')
+        self.assertEqual(selector.select(config, base, self.commit(), profile='pr-fast')['scope'], 'full')
+        self.write('crates/pixel_world_bridge/src/lib.rs', 'mod navigation;\n')
+        self.write(path, 'pub fn existing() {} #[test] fn retired() {}\n')
+        base = self.commit()
+        self.write(path, added)
+        result = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(result['scope'], 'full')
+        self.assertTrue(result['test_policy_changed'])
+
+    def test_full_artifact_and_support_partitions_require_trusted_capabilities(self):
+        config = self.fast_config()
+        config.update(ordinary_artifact_partition_version=1, workspace_support_partition_version=1)
+        self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# control input\n')
+        head = self.commit()
+        complete = selector.select(config, self.base, head, profile='pr-fast')
+        self.assertEqual(complete['ordinary_partitions'], ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+        for profile in ('periodic-full', 'candidate-full'):
+            full = selector.full_plan(config, profile, head)
+            self.assertEqual(full['ordinary_partitions'], complete['ordinary_partitions'])
+        old = copy.deepcopy(config)
+        old.pop('ordinary_artifact_partition_version')
+        old.pop('workspace_support_partition_version')
+        self.assertNotIn('ordinary_partitions', selector.select(old, self.base, head, profile='pr-fast'))
+        for field in ('ordinary_artifact_partition_version', 'workspace_support_partition_version'):
+            for invalid in (True, 2, None):
+                with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                    selector.validate_config(dict(config, **{field: invalid}))
 
     def test_fast_new_native_items_keep_affected_packages_and_formal_risks(self):
         config = self.fast_config()
@@ -4006,6 +4224,351 @@ class AlternativeModuleMounts(unittest.TestCase):
         self.assertEqual(paths, [self.LEAF])
         self.assertFalse(ignored)
         self.assertFalse(production)
+
+class NativeSupportContracts(unittest.TestCase):
+    setUp = Selection.setUp
+    tearDown = Selection.tearDown
+    git = Selection.git
+    write = Selection.write
+    commit = Selection.commit
+
+    OWNER = 'oasis7_game_client'
+    LEAF = 'crates/oasis7_game_client/src/dev_test_service_cli.rs'
+    TEST = 'crates/oasis7_game_client/tests/dev_test_service_cli.rs'
+    CONSUMERS = ['oasis7_agent_harness', 'oasis7_model_provider']
+
+    def fixture(self, *, portable=False):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        # This is a real Git/module/dependency fixture, not a mocked fast plan.
+        packages = [self.OWNER, *self.CONSUMERS, 'oasis7_chain_runtime']
+        for package in packages:
+            manifest = f'[package]\nname="{package}"\nversion="0.1.0"\n'
+            if package != self.OWNER:
+                manifest += f'[dependencies]\n{self.OWNER}={{path="../{self.OWNER}"}}\n'
+            self.write(f'crates/{package}/Cargo.toml', manifest)
+            self.write(f'crates/{package}/src/lib.rs', '')
+        gate = '' if portable else '#[cfg(unix)]\n'
+        self.write(f'crates/{self.OWNER}/src/lib.rs', gate + 'mod dev_test_service_cli;\n'
+                   + '#[cfg(unix)]\nmod dev_test_service;\npub mod commands;\n')
+        self.write(self.LEAF, 'pub(crate) fn run() -> u8 { 1 }\n')
+        contract = config['ordinary_fast_support_contracts'][0]
+        callers = {f'crates/{self.OWNER}/src/commands.rs':
+                   'pub fn run() { crate::dev_test_service_cli::run(); }\n',
+                   f'crates/{self.OWNER}/src/bin/{self.OWNER}.rs':
+                   f'fn main() {{ {self.OWNER}::commands::run(); }}\n'}
+        for path, source in callers.items():
+            self.write(path, source)
+        contract['callers'] = {path: hashlib.sha256(source.encode()).hexdigest() for path, source in callers.items()}
+        self.write(f'crates/{self.OWNER}/src/dev_test_service.rs', 'pub fn protected() {}\n')
+        for target in ('identity_cli', 'dev_test_catalog_cli', 'legacy_profile', 'dev_test_service_cli'):
+            self.write(f'crates/{self.OWNER}/tests/{target}.rs',
+                       '#![cfg(unix)]\n#[test] fn contract() {}\n')
+        return config, self.commit()
+
+    def change(self, path=None):
+        path = path or self.LEAF
+        self.write(path, Path(path).read_text().replace('{ 1 }', '{ 2 }')
+                   + ('#[test] fn added_regression() {}\n' if '/tests/' in path else ''))
+        return self.commit()
+
+    def test_private_unix_adapter_replaces_only_registered_support_consumers(self):
+        config, base = self.fixture()
+        head = self.change()
+        for profile in ('pr-fast', 'main-fast'):
+            plan = selector.select(config, base, head, profile=profile)
+            self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+            self.assertEqual(plan['ordinary_execution'], 'inline')
+            self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
+            self.assertEqual(plan['ordinary_support_deferred'], self.CONSUMERS)
+            self.assertEqual(plan['workspace_support_profiles'], [])
+            self.assertEqual(plan['oasis7_required_wasm_packages'], [])
+            self.assertEqual(plan['formal_suites'], [])
+            self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+            self.assertTrue(set(self.CONSUMERS) <= set(plan['affected_packages']))
+            self.assertEqual({target['package'] for target in plan['ordinary_fast_targets']}, {self.OWNER})
+            self.assertEqual(len(plan['ordinary_fast_targets']), 5)
+
+    def test_independent_cli_regression_promotes_support_to_real_inline_targets(self):
+        config, base = self.fixture()
+        plan = selector.select(config, base, self.change(self.TEST), profile='pr-fast')
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
+        self.assertEqual(plan['ordinary_support_deferred'], [])
+        self.assertNotIn('workspace_support', plan['groups'])
+        self.assertEqual(plan['affected_packages'], [self.OWNER])
+        self.assertEqual(plan['architecture']['build_policy'], 'ordinary-targets')
+
+    def test_portable_mount_and_host_reader_keep_support_and_platform_checks(self):
+        for mode in ('portable', 'host'):
+            config, base = self.fixture(portable=mode == 'portable')
+            if mode == 'host':
+                self.write(f'crates/{self.OWNER}/build.rs',
+                           '#[path="src/dev_test_service_cli.rs"] mod adapter;\nfn main() {}\n')
+                base = self.commit()
+            plan = selector.select(config, base, self.change(), profile='pr-fast')
+            self.assertIn('workspace_support', plan['groups'])
+            self.assertNotIn('ordinary_support_handoffs', plan)
+            self.assertNotIn('build_policy', plan['architecture'])
+
+    def test_mixed_security_source_and_explicit_support_request_keep_original_checks(self):
+        config, base = self.fixture()
+        self.write(f'crates/{self.OWNER}/src/dev_test_service.rs', 'pub fn protected() { panic!(); }\n')
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertIn('workspace_support', plan['groups'])
+        self.git('reset', '--hard', base)
+        plan = selector.select(config, base, self.change(), profile='pr-fast', additions=['workspace_support'])
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertEqual(set(plan['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+
+    def test_mixed_direct_consumer_and_cross_package_path_contract_are_not_deferred(self):
+        config, base = self.fixture()
+        consumer = self.CONSUMERS[0]
+        self.write(f'crates/{consumer}/tests/direct.rs', '#[test] fn direct() {}\n')
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertIn(consumer, plan['workspace_support_profiles'])
+        self.assertIn('workspace_support', plan['groups'])
+        self.assertNotIn('build_policy', plan['architecture'])
+        self.git('reset', '--hard', base)
+        config['workspace_support_profile_paths'][self.OWNER] = ['doc/readme.md']
+        self.write('doc/readme.md', 'direct audited support contract')
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertIn(self.OWNER, plan['workspace_support_profiles'])
+        self.assertNotIn('ordinary_support_handoffs', plan)
+
+    def test_old_policy_and_full_profiles_cannot_borrow_support_handoff(self):
+        config, base = self.fixture()
+        old = copy.deepcopy(config)
+        old.pop('ordinary_support_contract_version', None)
+        old.pop('ordinary_fast_support_contracts', None)
+        plan = selector.select(old, base, self.change(self.TEST), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertIn('workspace_support', plan['groups'])
+        for profile in ('periodic-full', 'candidate-full'):
+            plan = selector.full_plan(config, profile, self.git('rev-parse', 'HEAD'))
+            self.assertEqual(set(plan['workspace_support_profiles']), set(selector.SUPPORT_PROFILES))
+            self.assertEqual(set(plan['groups']), set(config['groups']))
+            self.assertNotIn('ordinary_support_handoffs', plan)
+
+    def test_real_legacy_cli_body_retains_registered_complete_targets(self):
+        config, _ = self.fixture()
+        source = (HERE.parent / self.LEAF).read_text()
+        self.write(self.LEAF, source)
+        base = self.commit()
+        changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
+        self.assertNotEqual(source, changed)
+        self.write(self.LEAF, changed)
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(set(plan['groups']), {'baseline', 'rust_baseline', 'oasis7_required'})
+        self.assertEqual(plan['ordinary_execution'], 'inline')
+        self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
+        self.assertEqual(plan['ordinary_support_deferred'], self.CONSUMERS)
+        self.assertEqual({target['target_name'] for target in plan['ordinary_fast_targets']},
+                         {self.OWNER, 'identity_cli', 'dev_test_catalog_cli',
+                          'legacy_profile', 'dev_test_service_cli'})
+
+    def test_platform_adapter_without_registered_module_keeps_full_coverage(self):
+        config, _ = self.fixture()
+        # Preserve the rejected platform boundary independently of the current
+        # production leaf, which must remain limited to the legacy commands.
+        source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> {\n'
+                  '  #[cfg(target_os = "linux")]\n'
+                  '  if args.len() != 3 { return Err("invalid arguments".into()); }\n'
+                  '  Ok(())\n}\n')
+        self.assertIn('#[cfg(', source)
+        self.write(self.LEAF, source)
+        base = self.commit()
+        self.write(self.LEAF, source.replace('args.len() != 3',
+                                            'args.len() != 3 || args.is_empty()'))
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertNotIn('ordinary_execution', plan)
+        self.assertIn('workspace_support', plan['groups'])
+        self.assertEqual(plan['scope'], 'full')
+
+    def test_local_adapter_and_public_dispatch_cannot_borrow_legacy_handoff(self):
+        config, _ = self.fixture()
+        local = f'crates/{self.OWNER}/src/dev_test_local_adapter.rs'
+        parent = f'crates/{self.OWNER}/src/lib.rs'
+        dispatch = f'crates/{self.OWNER}/src/commands.rs'
+        self.write(local, 'pub fn transport() -> u8 { 1 }\n')
+        self.write(parent, Path(parent).read_text()
+                   + '#[cfg(unix)]\npub mod dev_test_local_adapter;\n')
+        base = self.commit()
+        for path in (local, dispatch):
+            for mixed in (False, True):
+                with self.subTest(path=path, mixed=mixed):
+                    self.git('reset', '--hard', base)
+                    self.write(path, Path(path).read_text() + '\npub fn new_entry() {}\n')
+                    head = self.change() if mixed else self.commit()
+                    plan = selector.select(config, base, head, profile='pr-fast')
+                    self.assertNotIn('ordinary_support_handoffs', plan)
+                    self.assertNotIn('ordinary_execution', plan)
+                    self.assertIn('workspace_support', plan['groups'])
+
+    def test_adapter_body_is_supported_but_new_items_macros_and_exports_are_not(self):
+        config, _ = self.fixture()
+        # Keep this synthetic positive input inside the registered contract;
+        # real source and platform boundaries have independent cases above.
+        source = ('pub(crate) fn run(args: &[String]) -> Result<(), String> { '
+                  'if args.len() != 3 { return Err("invalid arguments".into()); } '
+                  'match args[0].as_str() { "serve" => Ok(()), '
+                  '_ => Err("unsupported command".into()) } }\n')
+        self.write(self.LEAF, source)
+        base = self.commit()
+        changed = source.replace('args.len() != 3', 'args.len() != 3 || args.is_empty()')
+        self.assertNotEqual(source, changed)
+        self.write(self.LEAF, changed)
+        plan = selector.select(config, base, self.commit(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
+        for source in (
+            'pub(crate) fn run(args: &[String]) -> Result<(), String> { impl Local {} Ok(()) }\n',
+            'pub(crate) fn run(args: &[String]) -> Result<(), String> { custom!(); Ok(()) }\n',
+            'pub fn run(args: &[String]) -> Result<(), String> { Ok(()) }\n',
+            changed + '\nmod extra;\n',
+            changed + '\npub(crate) fn added() {}\n',
+        ):
+            self.write(self.LEAF, source)
+            with self.subTest(source=source):
+                plan = selector.select(config, base, self.commit(), profile='pr-fast')
+                self.assertNotIn('ordinary_support_handoffs', plan)
+                self.assertNotIn('ordinary_execution', plan)
+                self.assertIn('workspace_support', plan['groups'])
+
+    def test_candidate_cannot_change_stable_mount_or_retire_cli_cases(self):
+        config, base = self.fixture()
+        self.write(f'crates/{self.OWNER}/src/lib.rs',
+                   '#[cfg(unix)] pub mod dev_test_service_cli;\n')
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.git('reset', '--hard', base)
+        self.write(self.TEST, '#![cfg(unix)]\n#[test] #[ignore] fn contract() {}\n')
+        with self.assertRaises(selector.TestPolicyError):
+            selector.select(config, base, self.commit(), profile='pr-fast')
+
+    def test_contract_rejects_incomplete_targets_and_unknown_capability(self):
+        config, _ = self.fixture()
+        for key, value in (('ordinary_support_contract_version', True),
+                           ('ordinary_support_contract_version', 2),
+                           ('ordinary_fast_support_contracts', [])):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                selector.validate_config(config | {key: value})
+        for key, value in (('default_features', False), ('features', ['test_tier_required'])):
+            changed = copy.deepcopy(config)
+            changed['ordinary_fast_targets']['game-client-lib'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                selector.validate_config(changed)
+
+    def test_preexisting_public_wrapper_and_new_consumer_import_invalidate_old_contract(self):
+        config, base = self.fixture()
+        root = f'crates/{self.OWNER}/src/lib.rs'
+        self.write(root, Path(root).read_text()
+                   + 'pub fn sdk_behavior() -> u8 { dev_test_service_cli::run() }\n')
+        consumer = f'crates/{self.CONSUMERS[0]}/src/lib.rs'
+        self.write(consumer, f'pub fn sdk() -> u8 {{ {self.OWNER}::sdk_behavior() }}\n')
+        target = self.commit()
+        plan = selector.select(config, target, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertNotIn('ordinary_execution', plan)
+        self.git('reset', '--hard', base)
+        self.write(root, Path(root).read_text()
+                   + 'pub fn sdk_behavior() -> u8 { r#dev_test_service_cli::run() }\n')
+        target = self.commit()
+        plan = selector.select(config, target, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        for source in (f'use {self.OWNER}::commands as cli;\npub fn sdk() {{ cli::run(); }}\n',
+                       f'use {self.OWNER}::{{commands as cli}};\npub fn sdk() {{ cli::run(); }}\n',
+                       f'use {self.OWNER}::*;\npub fn sdk() {{ commands::run(); }}\n',
+                       f'use {self.OWNER}::r#commands as cli;\npub fn sdk() {{ cli::run(); }}\n',
+                       f'use {self.OWNER}::*;\nmacro_rules! invoke {{ ($m:ident) => {{ $m::run() }} }}\n'
+                       + 'pub fn sdk() { invoke!(commands); }\n'):
+            self.git('reset', '--hard', base)
+            self.write(consumer, source)
+            target = self.commit()
+            plan = selector.select(config, target, self.change(), profile='pr-fast')
+            with self.subTest(source=source):
+                self.assertNotIn('ordinary_support_handoffs', plan)
+                self.assertIn(self.CONSUMERS[0], plan['workspace_support_profiles'])
+
+    def test_exported_macro_without_a_dependency_edge_cannot_hide_a_cli_consumer(self):
+        config, _ = self.fixture()
+        self.write('crates/macro_tools/Cargo.toml', '[package]\nname="macro_tools"\nversion="0.1.0"\n')
+        self.write('crates/macro_tools/src/lib.rs',
+                   '#[macro_export] macro_rules! call_game_client { () => { oasis7_game_client::commands::run() } }\n')
+        manifest = f'crates/{self.CONSUMERS[0]}/Cargo.toml'
+        self.write(manifest, Path(manifest).read_text() + 'macro_tools={path="../macro_tools"}\n')
+        self.write(f'crates/{self.CONSUMERS[0]}/src/lib.rs',
+                   'pub fn sdk() { macro_tools::call_game_client!(); }\n')
+        target = self.commit()
+        plan = selector.select(config, target, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertIn(self.CONSUMERS[0], plan['workspace_support_profiles'])
+        self.write('crates/macro_tools/src/lib.rs', 'mod commands {}\n'
+                   + '#[macro_export] macro_rules! call_game_client { ($method:ident) => { commands::$method() } }\n')
+        self.write(f'crates/{self.CONSUMERS[0]}/src/lib.rs',
+                   f'use {self.OWNER}::*;\npub fn sdk() {{ macro_tools::call_game_client!(run); }}\n')
+        target = self.commit()
+        self.write(self.LEAF, 'pub(crate) fn run() -> u8 { 3 }\n')
+        plan = selector.select(config, target, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+
+    def test_unrelated_local_commands_and_asserted_data_fields_do_not_disable_real_contract(self):
+        config, _ = self.fixture()
+        self.write('crates/other/src/lib.rs',
+                   'mod commands { pub fn apply() {} }\npub fn ordinary() { commands::apply(); }\n'
+                   + '#[test] fn data() { let mut commands = std::collections::BTreeSet::new(); '
+                   + 'assert!(commands.insert("value")); struct Manifest { commands: Vec<u8> } '
+                   + 'let manifest = Manifest { commands: vec![] }; assert!(manifest.commands.is_empty()); '
+                   + 'let commands = [1]; assert_eq!(commands[0], 1); assert_eq!(commands, [1]); }\n')
+        base = self.commit()
+        plan = selector.select(config, base, self.change(), profile='pr-fast')
+        self.assertEqual(plan['ordinary_support_handoffs'], [self.OWNER])
+        self.write('crates/other/src/lib.rs', '#[macro_export] macro_rules! assert { ($m:ident) => { $m::run() } }\n')
+        target = self.commit()
+        self.write(self.LEAF, 'pub(crate) fn run() -> u8 { 3 }\n')
+        plan = selector.select(config, target, self.commit(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+
+    def test_local_proc_macro_in_consumer_dependencies_requires_generator_review(self):
+        config, _ = self.fixture()
+        self.write('crates/macro_tools/Cargo.toml',
+                   '[package]\nname="macro_tools"\nversion="0.1.0"\n[lib]\nproc-macro=true\n')
+        self.write('crates/macro_tools/src/lib.rs', 'extern crate proc_macro;\n#[proc_macro]\n'
+                   + 'pub fn call(_:proc_macro::TokenStream)->proc_macro::TokenStream { '
+                   + '"oasis7_game_client::commands::run()".parse().unwrap() }\n')
+        manifest = f'crates/{self.CONSUMERS[0]}/Cargo.toml'
+        self.write(manifest, Path(manifest).read_text() + 'macro_tools={path="../macro_tools"}\n')
+        self.write(f'crates/{self.CONSUMERS[0]}/src/lib.rs', 'pub fn sdk() { macro_tools::call!(); }\n')
+        target = self.commit()
+        plan = selector.select(config, target, self.change(), profile='pr-fast')
+        self.assertNotIn('ordinary_support_handoffs', plan)
+        self.assertIn(self.CONSUMERS[0], plan['workspace_support_profiles'])
+
+    def test_unknown_macro_cannot_generate_a_shadowed_standard_assertion(self):
+        config, _ = self.fixture()
+        self.write('crates/macro_tools/Cargo.toml', '[package]\nname="macro_tools"\nversion="0.1.0"\n')
+        manifest = f'crates/{self.CONSUMERS[0]}/Cargo.toml'
+        self.write(manifest, Path(manifest).read_text() + 'macro_tools={path="../macro_tools"}\n')
+        for factory, invocation in (
+            ('#[macro_export] macro_rules! define_expr { ($name:ident,$d:tt) => { '
+             'macro_rules! $name { ($d module:ident) => { $d module::run() }; } }; }\n',
+             'macro_tools::define_expr!(assert, $);'),
+            ('#[macro_export] macro_rules! forward { ($m:ident) => { $m::run() }; }\n'
+             '#[macro_export] macro_rules! import_as { ($p:path,$name:ident) => { use $p as $name; }; }\n',
+             'macro_tools::import_as!(macro_tools::forward, assert);'),
+        ):
+            self.write('crates/macro_tools/src/lib.rs', factory)
+            self.write(f'crates/{self.CONSUMERS[0]}/src/lib.rs',
+                       f'use {self.OWNER}::*;\n{invocation}\npub fn sdk() {{ assert!(commands); }}\n')
+            self.write(self.LEAF, 'pub(crate) fn run() -> u8 { 1 }\n')
+            target = self.commit()
+            plan = selector.select(config, target, self.change(), profile='pr-fast')
+            with self.subTest(factory=factory):
+                self.assertNotIn('ordinary_support_handoffs', plan)
+                self.assertIn(self.CONSUMERS[0], plan['workspace_support_profiles'])
+
 
 class ExpandedNativeContracts(unittest.TestCase):
     setUp = Selection.setUp

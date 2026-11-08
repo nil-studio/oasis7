@@ -18,13 +18,22 @@ use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 
 mod bridge_api;
+mod canvas_projection;
+use canvas_projection::to_canvas_point_unsnapped;
+mod display_metrics;
+mod display_profile;
 mod facility_signature;
 mod host_render_input;
 mod host_state;
+mod native_fonts;
+mod pixel_pipeline;
+mod pointer_gesture;
 mod presentation_clock;
 mod render;
 #[path = "lib_test_hit_targets.rs"]
 mod test_hit_targets;
+mod world_materials;
+mod world_strokes;
 
 #[cfg(test)]
 use test_hit_targets::hotspot_test_hit_targets;
@@ -184,6 +193,9 @@ struct MicroDepotFacility {
 #[derive(Clone, Debug, Deserialize)]
 struct ModuleVisualEntity {
     id: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    factory_kind: Option<String>,
     #[allow(dead_code)]
     module_id: String,
     #[allow(dead_code)]
@@ -252,6 +264,10 @@ mod spatial_display;
 #[derive(Clone, Debug, Deserialize)]
 struct RenderState {
     #[serde(default)]
+    display_profile: display_profile::DisplayProfile,
+    #[serde(default)]
+    display_source_cut: Option<String>,
+    #[serde(default)]
     exploration_mode: bool,
     #[serde(default)]
     navigation: Option<navigation::Navigation>,
@@ -286,8 +302,8 @@ struct RenderState {
 #[derive(Clone, Debug, Serialize)]
 struct CameraStatePayload {
     zoom: f64,
-    pan_x_px: i32,
-    pan_y_px: i32,
+    pan_x_px: f64,
+    pan_y_px: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -399,11 +415,14 @@ struct BevyRuntimeState {
     camera: CameraState,
     camera_fit_version: u64,
     last_canvas_size: Option<(u32, u32)>,
+    last_canvas_css: Option<(f64, f64)>,
+    last_pixel_layout: Option<pixel_pipeline::PixelLayout>,
     camera_user_override: bool,
     pending_focus_target: Option<FocusTarget>,
     pending_fit_bounds: Option<Value>,
     active_follow_target: Option<FocusTarget>,
     drag_state: Option<DragState>,
+    pointer_click_target: Option<Option<(String, String)>>,
     hit_regions: Vec<HitRegion>,
     hit_region_cache_key: Option<HitRegionCacheKey>,
     hit_regions_dirty: bool,
@@ -574,18 +593,23 @@ fn to_canvas_point(
     height: f64,
     camera: &CameraState,
 ) -> Option<(f64, f64)> {
-    let safe_width = world_bounds.width_cm.max(1.0);
-    let safe_depth = world_bounds.depth_cm.max(1.0);
-    let normalized_x = clamp(position.x_cm / safe_width, 0.0, 1.0);
-    let normalized_y = clamp(position.y_cm / safe_depth, 0.0, 1.0);
-    let base_x = 20.0 + (normalized_x * (width - 40.0).max(1.0));
-    let base_y = 20.0 + (normalized_y * (height - 40.0).max(1.0));
-    let centered_x = base_x - (width / 2.0);
-    let centered_y = base_y - (height / 2.0);
-    Some((
-        (width / 2.0) + (centered_x * camera.zoom.max(0.5)) + camera.pan_x_px,
-        (height / 2.0) + (centered_y * camera.zoom.max(0.5)) + camera.pan_y_px,
-    ))
+    let (x, y) = to_canvas_point_unsnapped(position, world_bounds, width, height, camera)?;
+    let point = bevy::math::DVec2::new(x, y);
+    let point = pixel_pipeline::canvas_layout(width, height)
+        .map(|layout| {
+            layout.snap(
+                point,
+                bevy::math::DVec2::new(camera.pan_x_px, camera.pan_y_px),
+            )
+        })
+        .unwrap_or(point);
+    Some((point.x as f64, point.y as f64))
+}
+
+fn agent_pixel_scale(width: f64, height: f64) -> Vec2 {
+    pixel_pipeline::canvas_layout(width, height)
+        .map(|layout| layout.pixel_css())
+        .unwrap_or(Vec2::ONE)
 }
 
 fn to_bevy_translation(canvas_x: f64, canvas_y: f64, width: f64, height: f64, z: f32) -> Vec3 {
@@ -673,9 +697,9 @@ fn emit_camera_state(camera: &CameraState) -> Result<(), JsValue> {
     emit_event_value(&json!({
         "type": "camera_state_changed",
         "camera": CameraStatePayload {
-            zoom: (camera.zoom * 1000.0).round() / 1000.0,
-            pan_x_px: camera.pan_x_px.round() as i32,
-            pan_y_px: camera.pan_y_px.round() as i32,
+            zoom: camera.zoom,
+            pan_x_px: camera.pan_x_px,
+            pan_y_px: camera.pan_y_px,
         }
     }))
 }
@@ -829,6 +853,7 @@ fn render_signature(render_state: Option<&RenderState>, mode: RenderSignatureMod
         if matches!(mode, RenderSignatureMode::Content) {
             entity.module_id.hash(&mut hasher);
             entity.kind.hash(&mut hasher);
+            entity.factory_kind.hash(&mut hasher);
             entity.label.hash(&mut hasher);
         }
     }
@@ -948,6 +973,7 @@ fn apply_external_render_snapshot(
     {
         runtime.camera_fit_version = 0;
         runtime.last_canvas_size = None;
+        runtime.last_canvas_css = None;
         runtime.camera_user_override = false;
         runtime.hit_regions_dirty = true;
     }
@@ -997,27 +1023,29 @@ fn boot_bevy_app(canvas_selector: String) {
         }),
         ..default()
     }));
+    native_fonts::install(&mut app);
     app.insert_resource(WinitSettings {
         // Pointer/window events wake immediately; the timeout is only the
         // low-power ambient animation heartbeat and stays below the 12 Hz cap.
         focused_mode: UpdateMode::reactive(Duration::from_millis(500)),
         unfocused_mode: UpdateMode::reactive_low_power(Duration::from_millis(500)),
     });
-    app.add_systems(Startup, setup_scene);
+    app.add_systems(Startup, pixel_pipeline::setup);
+    display_metrics::install(&mut app);
     app.add_systems(
         Update,
         (
             sync_external_state,
+            pixel_pipeline::sync_canvas_backing,
+            pixel_pipeline::resize,
             render::render_scene,
+            world_materials::reconcile,
             render::label_budget::enforce_label_budget,
+            pixel_pipeline::assign_layers,
         )
             .chain(),
     );
     app.run();
-}
-
-fn setup_scene(mut commands: Commands) {
-    commands.spawn(Camera2d);
 }
 
 fn hit_test(hit_regions: &[HitRegion], x: f64, y: f64) -> Option<(String, String)> {
@@ -1036,6 +1064,7 @@ fn click_selection_from_hit(hit: Option<(String, String)>) -> Option<(String, St
 fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
     match event {
         InputEvent::PointerDown { x, y, pointer_id } => {
+            runtime.pointer_click_target = Some(hit_test(&runtime.hit_regions, x, y));
             runtime.drag_state = Some(DragState {
                 pointer_id,
                 start_x: x,
@@ -1063,6 +1092,9 @@ fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
                     )
                 })
             {
+                if (x - start_x).hypot(y - start_y) > 4.0 {
+                    runtime.pointer_click_target = Some(None);
+                }
                 runtime.camera.pan_x_px = start_pan_x + (x - start_x);
                 runtime.camera.pan_y_px = start_pan_y + (y - start_y);
                 runtime.camera_user_override = true;
@@ -1124,8 +1156,7 @@ fn process_input_event(runtime: &mut BevyRuntimeState, event: InputEvent) {
             let _ = camera_viewport::emit(&runtime);
         }
         InputEvent::Click { x, y } => {
-            if let Some((kind, id)) = click_selection_from_hit(hit_test(&runtime.hit_regions, x, y))
-            {
+            if let Some((kind, id)) = pointer_gesture::click_selection(runtime, x, y) {
                 let _ = emit_event_value(&json!({
                     "type": "select_entity",
                     "selection": { "kind": kind, "id": id }

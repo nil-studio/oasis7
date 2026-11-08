@@ -16,6 +16,13 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return crate::dev_test_catalog::run(&args);
     }
     #[cfg(unix)]
+    if args
+        .first()
+        .is_some_and(|v| v == "dev-test-local-serve" || v == "dev-test-local-call")
+    {
+        return crate::dev_test_local_adapter::run_cli(&args);
+    }
+    #[cfg(unix)]
     if args.first().is_some_and(|v| v.starts_with("dev-test-")) {
         return crate::dev_test_service_cli::run(&args);
     }

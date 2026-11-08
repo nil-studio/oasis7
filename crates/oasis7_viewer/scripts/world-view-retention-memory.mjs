@@ -1,0 +1,88 @@
+import { retentionFocusScript, validateRetentionFocusAnchor } from './viewer-retention-focus.mjs';
+import { performance } from 'node:perf_hooks';
+import { withObservationCleanup } from './world-view-frame-capability.mjs';
+import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { numericRetentionRecord, summarizeRetentionWindow, classifyRetentionPhase, describeHomeCameraMismatch } from './viewer-retention-components.mjs';
+const assert = (value, reason) => { if (!value) throw Error(reason); };
+// No trace, DTO snapshots, GC or reload. Only bounded numeric receipts are retained.
+export async function measureWorldViewRetention({ evaluate, run, fixture, out, durationMs, overview,
+  beginStreamingWire, readWireSummary, readMemory }) {
+  assert(Number.isFinite(durationMs) && durationMs > 0 && durationMs <= 2400000, 'memory duration must be bounded to40min');
+  assert(typeof readMemory === 'function' && typeof beginStreamingWire === 'function' && typeof readWireSummary === 'function', 'declare shared read-only memory observer and streaming wire');
+  const json = async code => { const value = await evaluate(code); return typeof value === 'string' ? JSON.parse(value) : value; };
+  const read = async (measure=false) => { await readWireSummary(); return json(`(()=>{const s=window.__AW_TEST__.getState(),m=window.__QA_READ_METRICS__(),r=window.__OASIS7_WORLD_VIEW_RETENTION__?.(${JSON.stringify(fixture.description().cut)},${measure});return {origin:performance.timeOrigin,stats:r,metrics:{status:m.status,cut:m.source_cut,bodies:m.in_view_agent_body_sprites,labels:m.laid_out_in_view_labels},camera:s.pixelWorldCamera,identity:{ready:s.authReady,player:s.authPlayerId,key:s.authPublicKey,bound:s.authBoundAgentId,registration:s.authRegistrationStatus},target:document.querySelector('button[data-agent-id="qa-agent-0499"][data-renderer-target]')?.dataset.selected}})()`); };
+  const settle = async (expected,measure=false) => {
+    const end = performance.now()+12000; let row;
+    do { row = await read(measure); if (row.stats && !row.stats.loading && !row.stats.stale && !row.stats.hasError && row.stats.published.queryGenerationMatches===true && row.stats.published.sourceCutMatches===true && row.stats.published.completeness==='complete' && row.metrics.status==='observed' && row.metrics.cut===fixture.description().cut && row.stats.published.entities===expected) return row; await run(['wait','50']); } while(performance.now()<end);
+    throw Error('retention phase did not settle: '+JSON.stringify({expected,metrics:row?.metrics,loading:row?.stats?.loading}));
+  };
+  const disclosure='.pixel-world-exploration-disclosure';
+  const setOpen = async wanted => { const open=await json(`document.querySelector(${JSON.stringify(disclosure)})?.open`); assert(typeof open==='boolean','exploration disclosure missing'); if(open!==wanted)await run(['click',disclosure+' > summary']); };
+  let nativeInput, inputIdentityAnchor=null;
+  const nativeCount = type => json(`window.__RETENTION_NATIVE_COUNTS__?.[${JSON.stringify(type)}]`);
+  const select = async (id='qa-agent-0499') => { const nativeBefore=await nativeCount('selection'); const prepared=await json(retentionFocusScript('button[data-agent-id="'+id+'"][data-renderer-target]',fixture.description().cut));
+    inputIdentityAnchor=validateRetentionFocusAnchor(inputIdentityAnchor,prepared,homeScopeSequence===null?null:{scope:homeScopeSequence,instance:homeInstanceSequence,origin:homeTimeOrigin});
+    action({type:'focus_preparation',variant:id==='qa-agent-0498'?0:1,...prepared});
+    await nativeInput.enter(); const end=performance.now()+5000; do {if(await json(`document.querySelector('button[data-agent-id="${id}"][data-renderer-target]')?.dataset.selected==='true'`)){const nativeAfter=await nativeCount('selection');assert(nativeAfter>nativeBefore,'selection lacked trusted click');action({type:'selection',variant:id==='qa-agent-0498'?0:1,nativeBefore,nativeAfter,confirmed:true});return;}await run(['wait','25']);}while(performance.now()<end);throw Error('trusted selection not confirmed'); };
+  const filter = async () => { await setOpen(true); await run(['fill','.pixel-world-exploration input','qa-agent-049']); await run(['click','.pixel-world-exploration button[type="submit"]']); await settle(10);const wire=await readWireSummary({search:'qa-agent-049'});assert(wire.latestSearchMatches===true,'filter was not a matching actual read query');action({type:'filter',entities:10,requestCount:wire.requestCount,searchMatched:true});await setOpen(false); await sample('filtered',10); };
+  const waitRegion = async (camera, previousRequests) => {
+    const keys=['min_x_cm','max_x_cm','min_y_cm','max_y_cm'],end=performance.now()+12000;
+    do { const wire=await readWireSummary(); if(wire.requestCount>previousRequests&&wire.latestBounds&&keys.every(key=>String(wire.latestBounds[key])===String(camera.viewport_bounds[key]))){await settle(1000);return wire;} await run(['wait','50']); } while(performance.now()<end);
+    throw Error('native camera region never reached a matching read query');
+  };
+  const action = row => appendFileSync(resolve(out,'retention-actions.jsonl'),JSON.stringify({wallMs:Date.now(),...row})+'\n');
+  const restoreFilter = async () => { await setOpen(true);await run(['fill','.pixel-world-exploration input','']);await run(['click','.pixel-world-exploration button[type="submit"]']);await settle(1000);const wire=await readWireSummary({search:''});assert(wire.latestSearchMatches===true&&!wire.latestSearchPresent,'empty filter restore did not reach transport');action({type:'restore_filter',entities:1000,requestCount:wire.requestCount,searchMatched:true});await setOpen(false); };
+  const pan = async dx => {
+    const point=await json(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect();for(const y of [2,8,16,...Array.from({length:19},(_,i)=>r.height*(i+1)/20),r.height-16,r.height-8,r.height-2])for(const x of [2,8,16,...Array.from({length:19},(_,i)=>r.width*(i+1)/20),r.width-16,r.width-8,r.width-2]){const px=Math.round(r.left+x),py=Math.round(r.top+y);if(px+${dx}>r.left&&px+${dx}<r.right&&document.elementFromPoint(px,py)===c&&document.elementFromPoint(px+${dx},py)===c)return{x:px,y:py}}throw Error('no native pan point')})()`);
+    const before=(await read()).camera,nativeBefore=await nativeCount('pan'),requestsBefore=(await readWireSummary()).requestCount;await run(['mouse','move',String(point.x),String(point.y)]);await run(['mouse','down']);await run(['mouse','move',String(point.x+dx),String(point.y)]);await run(['mouse','up']);
+    const end=performance.now()+5000;do{const after=(await read()).camera;if(before.zoom===after.zoom&&(before.pan_x_px!==after.pan_x_px||before.pan_y_px!==after.pan_y_px)){const nativeAfter=await nativeCount('pan');assert(nativeAfter>nativeBefore,'pan lacked trusted pointer input');const wire=await waitRegion(after,requestsBefore);action({type:'pan',before:{zoom:before.zoom,x:before.pan_x_px,y:before.pan_y_px},after:{zoom:after.zoom,x:after.pan_x_px,y:after.pan_y_px},nativeBefore,nativeAfter,requestCount:wire.requestCount,requestBoundsMatched:true});return;}await run(['wait','25']);}while(performance.now()<end);throw Error('native pan did not change camera');
+  };
+  const zoom = async () => {
+    const before=(await read()).camera,nativeBefore=await nativeCount('zoom'),requestsBefore=(await readWireSummary()).requestCount;
+    const point=await json(`(()=>{const c=document.querySelector('#pixel-world-embedded-runtime-canvas'),r=c.getBoundingClientRect();for(const y of [2,8,16,...Array.from({length:19},(_,i)=>r.height*(i+1)/20),r.height-16,r.height-8,r.height-2])for(const x of [2,8,16,...Array.from({length:19},(_,i)=>r.width*(i+1)/20),r.width-16,r.width-8,r.width-2]){const px=Math.round(r.left+x),py=Math.round(r.top+y);if(document.elementFromPoint(px,py)===c)return{x:px,y:py}}throw Error('no native zoom point')})()`);
+    await run(['mouse','move',String(point.x),String(point.y)]);await run(['mouse','wheel','-20']);
+    const end=performance.now()+5000;do{const after=(await read()).camera;if(after.zoom!==before.zoom){const nativeAfter=await nativeCount('zoom');assert(nativeAfter>nativeBefore,'zoom lacked trusted wheel');const wire=await waitRegion(after,requestsBefore);action({type:'zoom',before:before.zoom,after:after.zoom,nativeBefore,nativeAfter,requestCount:wire.requestCount,requestBoundsMatched:true});return;}await run(['wait','25']);}while(performance.now()<end);throw Error('native wheel did not change zoom');
+  };
+  await beginStreamingWire();
+  const started=performance.now(), first=[],last=[];let samples=0,cycles=0,homeCamera=null,homeScopeSequence=null,homeInstanceSequence=null,homeTimeOrigin=null,windowStarted=null;
+  const sample = async (phase, expected=1000) => {
+    const row=await settle(expected,true), stats=row.stats, memoryStarted=performance.now(), mem=await readMemory(), memoryReadMs=performance.now()-memoryStarted;
+    const after=await read(false);
+    const stamp=value=>({identityValid:value.identity.ready===false&&value.identity.player===null&&value.identity.key===null&&value.identity.bound===null&&value.identity.registration==='guest',clientSourceMatches:value.stats?.published.sourceCutMatches===true,renderCutMatches:value.metrics.cut?value.metrics.cut===fixture.description().cut:null,instance:value.stats?.instanceSequence,scope:value.stats?.scopeSequence,generation:value.stats?.localGeneration,origin:value.origin,camera:value.camera,loading:value.stats?.loading,stale:value.stats?.stale,error:value.stats?.hasError,currentQuery:value.stats?.published.queryGenerationMatches,complete:value.stats?.published.completeness==='complete',observed:value.metrics.status==='observed',entities:value.stats?.published.entities,bodies:value.metrics.bodies,labels:value.metrics.labels});
+    const phaseMatch=classifyRetentionPhase(stamp(row),stamp(after));
+    summary.capabilityReasons=mem.capabilityReasons??{};
+    if(homeScopeSequence===null){homeScopeSequence=stats.scopeSequence;homeInstanceSequence=stats.instanceSequence;homeTimeOrigin=row.origin;}else assert(homeScopeSequence===stats.scopeSequence&&homeInstanceSequence===stats.instanceSequence&&homeTimeOrigin===row.origin,'scope/instance/page changed during stable workload');
+    assert(row.identity.ready===false&&row.identity.player===null&&row.identity.key===null&&row.identity.bound===null&&row.identity.registration==='guest','observer acquired identity');
+    assert(row.metrics.bodies===expected&&(expected!==1000||row.metrics.labels===200),'phase density changed');
+    if(phase==='home'||phase==='warmup'){
+      if(homeCamera===null)homeCamera=row.camera;
+      else { const mismatch=describeHomeCameraMismatch(homeCamera,row.camera,phase);if(mismatch){summary.failedPhase={...mismatch,observedAtModuleMs:performance.now()-started,generation:stats.localGeneration,scopeSequence:stats.scopeSequence,instanceSequence:stats.instanceSequence};throw Error('matched home camera changed');} }
+    }
+    const record=numericRetentionRecord({timeMs:performance.now()-started,phase,memoryPhaseMatched:phaseMatch==='matched',memoryReadMs,afterGeneration:after.stats?.localGeneration??null,afterScopeSequence:after.stats?.scopeSequence??null,afterInstanceSequence:after.stats?.instanceSequence??null,afterTimeOrigin:after.origin,afterLoading:after.stats?.loading===true,afterQueryCurrent:after.stats?.published.queryGenerationMatches===true,afterObserved:after.metrics.status==='observed',afterEntities:after.stats?.published.entities??null,afterBodies:after.metrics.bodies??null,timeOrigin:row.origin,instanceSequence:stats.instanceSequence,scopeSequence:stats.scopeSequence,cameraZoom:row.camera.zoom,cameraPanX:row.camera.pan_x_px,cameraPanY:row.camera.pan_y_px,viewportWidth:row.camera.viewport_size_px.width,viewportHeight:row.camera.viewport_size_px.height,generation:stats.localGeneration,viewJsonBytes:stats.published.logicalJsonBytes,viewObjects:stats.published.uniqueObjects,viewArrays:stats.published.uniqueArrays,pagingJsonBytes:stats.paging.logicalJsonBytes,pagingObjects:stats.paging.uniqueObjects,pagingArrays:stats.paging.uniqueArrays,pagingActive:stats.paging.active,pagingEntities:stats.paging.maps[0],pagingRelations:stats.paging.maps[1],pagingAggregates:stats.paging.maps[2],pagingEvents:stats.paging.maps[3],pagingCursors:stats.paging.cursors,observationMs:stats.observationMs,jsUsedHeapBytes:mem.jsUsedHeapBytes??null,jsTotalHeapBytes:mem.jsTotalHeapBytes??null,domNodes:mem.domNodes??null,documents:mem.documents??null,listeners:mem.listeners??null,wasmLinearBytes:mem.wasmLinearBytes??null,rendererBytes:mem.rendererBytes??null,gpuBytes:mem.gpuBytes??null,ownedRssBytes:mem.ownedRssBytes??null});
+    appendFileSync(resolve(out,'retention-memory.jsonl'),JSON.stringify(record)+'\n');
+    summary.memoryPhaseUnmatched=(summary.memoryPhaseUnmatched||0)+(phaseMatch==='matched'?0:1);
+    assert(phaseMatch!=='precondition_lost','scope/instance/identity or actual phase lost across memory observation');
+    if(phase==='home'){samples++;if(first.length<6)first.push(record);last.push(record);if(last.length>6)last.shift();}return record;
+  };
+  const cycle = async () => { await select('qa-agent-0498');await pan(6);await pan(-6);await zoom();await filter();await restoreFilter();await overview();await settle(1000);await select();cycles++; };
+  const summary={durationMs,formalP6:false,scope:'M3/16GiB component observation; not formalP6, physical GPU memory, P5 or8GiB A/B; client counts current generation only, old inflight closure residual unknown',applicationCacheCoverage:'current client published view/changes and current paging roots only; transport pending and old inflight closure residual unknown; quiescent samples do not establish active paging peak or the total64MiB cache cap',missingComponents:['WASM linear / renderer / GPU / owned RSS remain unknown unless an active-instance capability is established'],observationPolicy:'natural GC only; no forced GC. JS heap includes product plus bounded observer allocation; not attribution to client cache. Upper median of first/last six matched home samples; short windows are method probes only.',status:'incomplete'};
+  return withObservationCleanup(async()=>{
+  try {
+    nativeInput=await createOwnedCdpInput(run,evaluate);
+    await evaluate(`(()=>{const counts=window.__RETENTION_NATIVE_COUNTS__={selection:0,pan:0,zoom:0};const handler=e=>{if(!e.isTrusted)return;if(e.type==='click'&&e.target.closest?.('button[data-agent-id][data-renderer-target]'))counts.selection++;if(e.target.id==='pixel-world-embedded-runtime-canvas'){if(e.type==='pointerdown')counts.pan++;if(e.type==='wheel')counts.zoom++;}};for(const t of ['click','pointerdown','wheel'])document.addEventListener(t,handler,true);window.__RETENTION_NATIVE_DISPOSE__=()=>{for(const t of ['click','pointerdown','wheel'])document.removeEventListener(t,handler,true);delete window.__RETENTION_NATIVE_COUNTS__;delete window.__RETENTION_NATIVE_DISPOSE__;};return true})()`);
+    for(let n=0;n<3;n++){await cycle();await sample('warmup');}
+    homeCamera=null,homeScopeSequence=null,homeInstanceSequence=null,homeTimeOrigin=null;windowStarted=performance.now();await sample('home');
+    do{await cycle();await run(['wait','10000']);await sample('home');}while(performance.now()-windowStarted<durationMs);
+    const {eligible,components,diagnosticTrends,failedComponents}=summarizeRetentionWindow(first,last,{actualSpanMs:performance.now()-windowStarted,samples});
+    Object.assign(summary,{actualSpanMs:performance.now()-windowStarted,longStabilityEligible:eligible,samples,cycles,initial:first,final:last,components,diagnosticTrends,overallMemoryBudget:'unknown; unmeasured components and incomplete cache coverage',nativeCounts:await json('JSON.stringify(window.__RETENTION_NATIVE_COUNTS__)'),wire:await readWireSummary(),status:failedComponents.length?'component_budget_failure':'observed_components_only'});
+    if(failedComponents.length)throw Error('known memory component growth exceeds10%: '+failedComponents.join(','));
+    return summary;
+  } catch(error){summary.error=String(error);Object.assign(summary,{samples,cycles,initial:first,final:last,moduleElapsedMs:performance.now()-started,actualSpanMs:windowStarted===null?null:performance.now()-windowStarted});throw error;}
+  },[
+    ()=>nativeInput?.close(),
+    ()=>evaluate('window.__RETENTION_NATIVE_DISPOSE__?.();true'),
+    ()=>{if(!summary.error&&summary.cleanupErrors?.length)summary.status='cleanup_failed';writeFileSync(resolve(out,'retention-memory-summary.json'),JSON.stringify(summary,null,2));},
+  ],summary);
+}

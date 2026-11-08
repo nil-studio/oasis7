@@ -24,6 +24,8 @@ pub struct Grant {
     pub expires_at_unix: u64,
     pub enabled: bool,
     pub methods: Vec<String>,
+    #[serde(default)]
+    pub move_targets: Vec<[i64; 3]>,
 }
 struct Session {
     grant_ref: String,
@@ -32,6 +34,7 @@ struct Session {
     binding: Binding,
     expires: u64,
     methods: Vec<String>,
+    move_targets: Vec<[i64; 3]>,
 }
 pub struct Sessions {
     epoch: String,
@@ -60,10 +63,17 @@ impl Sessions {
             || expires <= now
             || expires > grant.expires_at_unix
             || grant.methods.is_empty()
-            || grant
-                .methods
-                .iter()
-                .any(|m| !["describe", "task", "capabilities"].contains(&m.as_str()))
+            || grant.methods.iter().any(|m| {
+                ![
+                    "describe",
+                    "task",
+                    "capabilities",
+                    "context",
+                    "move",
+                    "lookup",
+                ]
+                .contains(&m.as_str())
+            })
         {
             return Err("session_scope_denied".into());
         }
@@ -81,6 +91,7 @@ impl Sessions {
                 binding: grant.binding.clone(),
                 expires,
                 methods: grant.methods.clone(),
+                move_targets: grant.move_targets.clone(),
             },
         );
         Ok(reference)
@@ -99,6 +110,7 @@ impl Sessions {
             || session.grant_ref != current.grant_ref
             || session.grant_id != current.grant_id
             || session.binding != current.binding
+            || session.move_targets != current.move_targets
             || !current.enabled
             || now >= session.expires
             || now >= current.expires_at_unix
@@ -131,6 +143,8 @@ pub struct Resource {
 #[serde(deny_unknown_fields)]
 pub struct ServiceConfig {
     #[serde(default)]
+    pub recovery_required: bool,
+    #[serde(default)]
     pub grant_generation_high_water: BTreeMap<String, u64>,
     pub service: crate::dev_test_service::Config,
     pub catalog_directory: std::path::PathBuf,
@@ -145,6 +159,7 @@ pub struct ToolRequest {
     pub grant_ref: Option<String>,
     pub session_ref: Option<String>,
     pub expires_at_unix: Option<u64>,
+    pub operation: Option<crate::dev_test_operations::Call>,
 }
 fn verify_resource_bytes(binding: &Binding, bytes: &[u8]) -> Result<(), String> {
     if blake3::hash(bytes).to_hex().as_str() != binding.executor_config_digest {
@@ -229,6 +244,15 @@ pub fn handle(
 ) -> Result<serde_json::Value, String> {
     use crate::dev_test_service::{AUDIENCE, PROFILE, authenticate_token, dispatch_authenticated};
     let caller = authenticate_token(&config.service, &request.credential, now)?;
+    let is_operation = ["context", "move", "lookup"].contains(&request.method.as_str());
+    if is_operation != request.operation.is_some() {
+        return Err("invalid_tool_arguments".into());
+    }
+    if let Some(call) = &request.operation
+        && call.arguments.method() != request.method
+    {
+        return Err("invalid_tool_arguments".into());
+    }
     if request.method == "accounts" {
         if request.grant_ref.is_some()
             || request.session_ref.is_some()
@@ -311,6 +335,40 @@ pub fn handle(
     if grant.grant_id != config.service.grant_id {
         return Err("grant_configuration_mismatch".into());
     }
+    let mut authorization_expiry = grant.expires_at_unix.min(
+        config
+            .service
+            .credentials
+            .iter()
+            .find(|credential| credential.caller_id == caller.caller_id)
+            .ok_or("unauthorized")?
+            .expires_at_unix,
+    );
+    if let Some(reference) = request.session_ref.as_deref() {
+        authorization_expiry = authorization_expiry.min(
+            sessions
+                .sessions
+                .get(reference)
+                .ok_or("session_unavailable")?
+                .expires,
+        );
+    }
+    let wall_now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "clock_unavailable")?;
+    let remaining = std::time::Duration::from_secs(authorization_expiry)
+        .checked_sub(wall_now)
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or("session_scope_denied")?;
+    let deadline = deadline.min(
+        std::time::Instant::now()
+            .checked_add(remaining)
+            .ok_or("invalid_authorization_expiry")?,
+    );
+    if std::time::Instant::now() >= deadline {
+        return Err("downstream_deadline_unknown".into());
+    }
+    let _deadline_scope = crate::request_deadline::Scope::enter(deadline);
     let client = current_client(config, grant, unlocks, deadline)?;
     if std::time::Instant::now() >= deadline {
         return Err("downstream_deadline_unknown".into());
@@ -361,6 +419,56 @@ pub fn handle(
             serde_json::json!({"session_ref":reference,"binding":grant.binding,"expires_at_unix":expires}),
         );
     }
+    if let Some(call) = request.operation {
+        use crate::dev_test_operations::{self as operations, Arguments, Scope};
+        authenticate_token(&config.service, &request.credential, now)?;
+        if let Arguments::Move { to, .. } = &call.arguments
+            && !grant.move_targets.contains(to)
+        {
+            return Err("move_target_denied".into());
+        }
+        let gateway = client.gateway.as_ref().ok_or("native_executor_required")?;
+        let scope = Scope {
+            account_ref: grant.binding.account_ref.clone(),
+            environment: grant.binding.environment.clone(),
+            world: grant.binding.world.clone(),
+            genesis_digest: grant.binding.genesis_digest.clone(),
+            agent: grant.binding.agent_id.clone(),
+            resource: grant.binding.resource.clone(),
+            executor: client.public_key.clone(),
+            fence_digest: blake3::hash(
+                &serde_json::to_vec(gateway.resource_fence())
+                    .map_err(|_| "invalid_resource_fence")?,
+            )
+            .to_hex()
+            .to_string(),
+        };
+        let (original, fresh) =
+            operations::admit_with_recovery(config, &caller.caller_id, &scope, &call)?;
+        if std::time::Instant::now() >= deadline {
+            return Err("downstream_deadline_unknown".into());
+        }
+        let observation = match operations::execute(&client, &original, fresh, deadline) {
+            Ok(value) => value,
+            Err(operations::Failure::Conflict) => {
+                return Err("native_original_body_conflict".into());
+            }
+            Err(operations::Failure::Unavailable) => {
+                return Ok(
+                    serde_json::json!({"request_id":call.request_id,"native_context":original.native_context,"status":"unknown","next":"lookup_same_original"}),
+                );
+            }
+        };
+        operations::observe(
+            &config.service,
+            &caller.caller_id,
+            &call,
+            observation.clone(),
+        )?;
+        return Ok(
+            serde_json::json!({"request_id":call.request_id,"native_context":original.native_context,"observation":observation}),
+        );
+    }
     let admitted = dispatch_authenticated(
         &config.service,
         now,
@@ -400,6 +508,21 @@ pub fn handle(
 mod service;
 pub use service::run;
 
+/// Shared policy invariants for all trusted configuration writers and loaders.
+pub(crate) fn validate_configuration(config: &ServiceConfig) -> Result<(), String> {
+    config.service.validate()?;
+    crate::dev_test_recovery::validate_policy(config)?;
+    let mut refs = std::collections::BTreeSet::new();
+    if config.grants.iter().any(|g| {
+        g.grant_ref.is_empty()
+            || !refs.insert(&g.grant_ref)
+            || g.grant_id != config.service.grant_id
+    }) {
+        return Err("ambiguous_grant_configuration".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +561,7 @@ mod tests {
             expires_at_unix: 100,
             enabled: true,
             methods: vec!["task".into()],
+            move_targets: vec![],
         };
         let a = sessions.open("caller", &grant, 99, 1).unwrap();
         let mut b = grant.clone();

@@ -1,3 +1,4 @@
+import {continuePreparedBaseline} from './fixtures/setup_baseline_settlement.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash,createPrivateKey,createPublicKey,sign} from 'node:crypto';
@@ -92,7 +93,7 @@ function configureOptions(options){
       worker.modules=[{type:'ESModule',path:resolve(root,'tests/fixtures/test_session_alarm_runtime.mjs')},...worker.modules];
     }
     if(identityCloseReadTrap&&worker.name==='owner')delete worker.bindings.CUSTODY_ROLE_KEY_KEK;
-    worker.bindings={...worker.bindings,CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
+    worker.bindings={...worker.bindings,CUSTODY_REJECTION_DIAGNOSTIC:'true',CUSTODY_TEST_SESSION_ENABLED:'true',CUSTODY_CLIENT_ENROLLMENT_ENABLED:'true',CUSTODY_PUBLIC_ORIGIN:origin,CUSTODY_ENROLLMENT_REALM:'session-fixture-enrollment',CUSTODY_HOST_DEPLOYMENTS:JSON.stringify([{environment:'test',host_instance_id:descriptor.host_instance_id,descriptor_digest:descriptorDigest,client_public_key:publicKey}])};
     worker.durableObjects={...worker.durableObjects,CLIENT_ENROLLMENTS:{className:'ClientEnrollmentAuthority',useSQLite:true,...(worker.name==='owner'?{scriptName:'identity'}:{})}};
     if(worker.name==='identity') {
       worker.serviceBindings={...worker.serviceBindings,TEST_SESSION_PRIVATE_HISTORY:{name:'identity',entrypoint:'TestSessionPrivateHistory'},TEST_SESSION_NATIVE_HISTORY:{name:'identity',entrypoint:'NativeProvisionHistory'}};
@@ -254,7 +255,7 @@ async function withActiveSession(run,{lostInitial=false,approvalFault=null,prefl
       assert.equal(initial.stage,'participant_bound');
     }
     const setup=setupPlan(await runtime.setupBasis());await runtime.approveSetup(setup);
-    const setupProgress=await json(await runtime.continueSetup(setup.setup_id));
+    const setupProgress=await json(await continuePreparedBaseline(runtime,setup));
     if(setupProgress.stage!=='prepared') {
       const observedAt=Date.now(),native_requests=runtime.nativeRequests();await runtime.suspend();
       console.error(JSON.stringify({baseline_setup_failure:{native_requests,state:baselineFailureState(runtime,observedAt)}}));

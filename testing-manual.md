@@ -38,6 +38,10 @@ Hosted fresh admission、metadata release 和 ordinary cadence 的功能验证�
 
 final-budget 夹具只为已结算的原 continuation 推进 canonical 空时钟；生成 wake 后，在同一次 driver 持锁期间记录该 wake 与原请求的选择关系，避免 App 已消费 wake 后夹具继续为旧等待推进时钟。`real_tcp_hosted_final_budget_clock_rescan_preserves_resumed_reserve` 通过子进程隔离的 rendezvous，强制 App 在时钟下一轮轮询前消费原 wake 并准备第二次 Reserve；它只控制线程交错，不改写请求或提交额外世界操作。通过仍须满足原 final-budget 写失败注入、18 项状态与 5 项 Runtime ledger 回滚、原身份恢复和清理断言，不以同步 marker 代替这些结果。
 
+Wait rejection 的初次与恢复子进程同样使用既有 60 秒上限和嵌套清理预留，分别保存 `completion-wait-rejection-initial.*.log` 与 `completion-wait-rejection-recovery.*.log`，不提高 ordinary/runtime-tests 总时限。fixture 生命周期回调先复制 root 并释放锁，再进入 gate 状态；补偿 selector 不持 gate 锁读取 root。`http_fixture::lock_order_tests` 用 channel 固定补偿锁与真实 finished/joined 回调的交错，旧锁作用域应明确失败而非挂起。`application_completion::launcher_tests` 覆盖真实初次挂起、exit73 后恢复挂起与独立日志；原 canonical、原身份、写失败及 exit73 断言仍须通过。
+
+清理采用独立 10 秒 watchdog，必须在 worker join、node stop 完成后显式取消；超时、提前退出或无法证明全部 HTTP worker 已停止时以非零状态终止测试进程，不能丢弃活线程后释放场景 permit。`cleanup_deadline::tests` 用独立子进程注入卡死 join、锁等待、未完成清理及满 stderr 下的退出，外层仍受既有 child 监督。清理诊断是 best-effort：100 毫秒后备退出不能等待日志，输出可能为空或截断；stage/reason/exit code 的完整格式由可控 writer 回归验证，不把日志存在误作有界终止的必要条件。stream Session 的 EOF drain 使用总计 2 秒截止，不以每次读取重新计时；保留 EOF 前排队的 1 MiB 响应回归，并用持续可读 peer 验证超时后仍完成 join。这些是失败收口边界，不替代业务通过条件；宿主调度或系统调用异常仍由外层进程监督兜底。
+
 <a id="local-check-entry"></a>
 ## 显式本地检查：当前入口与目标分层
 
@@ -355,14 +359,42 @@ Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构�
 <a id="engineering-telemetry-validation"></a>
 ### 工程遥测报告核验
 
-Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。归一化报告器尚未实现；以下是实施验收方法，不是本次已取得的运行结果。
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。当前提供离线 v1 投影、v2 来源/身份合同与 DAG 报告，以及有界 Actions/既有指标适配；以下分别验证离线合同和真实接入，不以合成样例代签真实运行。
 
-1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒；改变依赖或错误地把并行时间相加时，同一断言应失败。
-2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复仅去重，不丢失来源。
+从仓库根目录运行：
+
+```sh
+python3 scripts/engineering_telemetry.py collect scripts/tests/fixtures/engineering-telemetry/input.json /tmp/telemetry-snapshot.json
+python3 scripts/engineering_telemetry.py report /tmp/telemetry-snapshot.json /tmp/telemetry-report.json /tmp/telemetry-report.md
+python3 -m unittest discover -s scripts/tests -p 'test_engineering_telemetry*.py'
+```
+
+v2 完整合成输入的 collect 应返回 0；缺失/冲突或 v1 输入保留 partial 并返回 1。report 成功渲染返回 0 不等于测试执行成功；核对原 execution_result、退出码与 cleanup_result 未变。输入与输出格式见 [fixture 说明](scripts/tests/fixtures/engineering-telemetry/README.md)。
+
+1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒、含等待观测链 21 秒与首次启动延迟 0 秒；核对 `analysis.formula_version`、各指标的 status/value/unit/formula/input_ids 及 job_timings；改变依赖或错误地把并行时间相加时，同一断言应失败。
+2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复合并 alias 与来源列表。加入 step/phase/test 不重复增加 job 资源；条件为 false 且 skipped 可零执行，但不能成为 pass。核对 known 指针的类型和值、unknown/not_applicable 的 null 与 reason、输出无 raw payload，未知来源不能凭名称补齐。
 3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
-4. 验证 API/字节/时间预算、归档越界、敏感字段清理、截断产物与采集器失败。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
-5. 在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
-6. 读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+4. 离线核验字节上限、允许字段、截断输入与采集器失败。继续核验请求/时长/响应与解码字节额度、重复/截断分页、坏压缩流、越界/重复/链接归档、非有限 JSON、未知大字段和信号取消。截止停止新读取与记录归一化；有界保存收尾和实际 elapsed_seconds 单列，不把尾部当作预算内。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
+5. 真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+6. 真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+
+有界采集命令（输出目录须已存在，partial 返回 1 是预期结果，不代表原测试失败）：
+
+```sh
+python3 scripts/engineering_telemetry.py collect-github nil-studio/oasis7 RUN_ID ATTEMPT /tmp/snapshot.json /tmp/collection.json --build-artifact ARTIFACT_ID
+python3 scripts/engineering_telemetry.py collect-metrics /path/to/existing/current.metrics.json /tmp/local-snapshot.json /tmp/local-collection.json
+python3 scripts/engineering_telemetry.py report /tmp/snapshot.json /tmp/report.json /tmp/report.md
+```
+
+只使用已有权限；API 请求不自动登录。可用 `--max-requests`、`--max-seconds`、`--max-bytes` 调低额度，以已知成功/失败结果检查耗尽后的局部证据。`--recorded-responses DIRECTORY` 用固定 API 原件及 ZIP 回放同一路径，文件名和摘要合同见[设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。receipt.transport 区分 live/recorded/local；检查 raw_sha256、投影 content_sha256、snapshot_sha256，记录回放和真实网络成本的区别。collector 不解包执行脚本，不读取当前 Git/dirty 环境补签历史测量。
+
+本轮真实来源样本为 [PR #5582 的 run 42371045878 attempt 1](https://github.com/nil-studio/oasis7/actions/runs/42371045878)：51/51 jobs、20/20 artifacts，实际 Formal 五分片成功，source `4dab41ef854cd521387b9980d0789ebef56d0367`、tested `2d56f4e270e0753e566ee4bb0b8d187e5cf59c91`、policy `8bb642d22d641fc9beccee78f0a032b2e3c9eeb7`。selection 与 endpoint manifest.execution_plan 一致；artifact 13574395298 的 SHA-256 为 `19daaf7cd8148c754e85a9d6461eccea319ce91726ef1da10140fbcbe4061469`，经 ZIP→gzip/tar 只读 manifest。回放按 5 次逻辑读取、7,212,629 响应字节、28,892,776 解码字节核对，不能作为 live 请求成本。job 的 tested/policy/config、数字 needs/条件、producer/consumer job 尚无正式绑定，因此真实整图指标 unavailable。原件按原服务保留期可能过期，摘要不能代替原件。已有真实本地 warm 原件尚未取得，本地真实验收未完成，不新跑 Cargo 补证；#5391 保持开放。
+
+前向 live 入口为 `python3 scripts/engineering_telemetry.py bindings collect-live nil-studio/oasis7 RUN_ID ATTEMPT REPORT.json`，复用有界只读 GET、取消与请求/字节/时间上限，仅读取含专用观察步骤的 job 日志与实际 workflow SHA 的固定文件，不登录或触发构建。
+
+前向 job 观察的固定导出包含 `run.json`、完整的 `jobs-N.json`、`job-ID.log` 及从实际 `workflow_sha` 取得的 `workflow-SHA.yml`。运行 `python3 scripts/engineering_telemetry.py bindings EXPORT_DIRECTORY REPORT.json --workflow-sha SHA`；输出必须在输入目录外。新 bindings/v1 报告绑定数字 job 与运行时 job key/matrix，保留观察时 checkout 与 run 目标不同的事实；Formal gate 没有 checkout，不补造 SHA。它仅证明实际取得的内容绑定，当前未核实矩阵总数、artifact ID/传输与消费者验证时返回 partial，不输出完整 DAG 或替代 v2 报告。用 `--scope required-gate` 时其他必要上游没有观察，同样必须列缺口。
+
+回归应覆盖错 attempt、重复实例/标记、专用步骤以外的标记、来源 workflow 不符、文件符号链接、无 checkout 控制节点、两端 manifest 摘要相同但 producer attempt 不同；保留原 job 结论。观察步骤仅在非取消终态尝试，`continue-on-error` 仅适用该精确诊断步骤，不能吞掉构建、测试、上传 required 工件或 gate 的失败。新运行验收与缺口写入对应 PR，不把旧历史 run 补签为完整。
 
 ### 当前 CI 未直接覆盖（需手册补齐）
 - Web UI agent-browser 闭环（现为手动/agent 流程，不在 CI 默认路径中）。

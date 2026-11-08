@@ -259,14 +259,16 @@ Retain brand spacing 18px panel gap / 16px stack / 8px controls, tool/stage/pane
 <a id="bevy-density-handoff"></a>
 ### 13.3. Density, labels and overlap
 
-**Existing limits:** one global canvas text budget of 100 visible labels and 128 Unicode scalars per label. Budget priority is selected identity/resource readout → primary goal hotspot → primary blocker hotspot → other hotspots → identities → other labels; stable ID ordering breaks ties. Primary goal/blocker here means lexicographically first supported hotspot of that kind, not an inferred player-business priority. Do not describe this helper as a complete intelligent prioritization system.
+**Existing limits:** the legacy snapshot profile has one global canvas text budget of 100 visible labels and 128 Unicode scalars per label. Budget priority is selected identity/resource readout → primary goal hotspot → primary blocker hotspot → other hotspots → identities → other labels; stable ID ordering breaks ties. Primary goal/blocker here means lexicographically first supported hotspot of that kind, not an inferred player-business priority. Do not describe this helper as a complete intelligent prioritization system.
 
 Identity labels are 10px, max 24 characters plus ellipsis; Agent offset 12px above marker, Location 14px. Ordinary identity labels require zoom >=1.75. Selected Agent and qualifying active-intent labels bypass that zoom gate; recommended/receipt targets alone do **not**. Agent candidate ordering is selected → active intent submitted/accepted/blocked → recommended or receipt → ordinary. Existing rectangular overlap checks and map-label obstacles suppress labels, with priority exceptions. Location selection bypasses ordinary suppression. Map objective/blocker/route text is 11px, max 28 characters, offsets 22/22/14px.
+
+Native `Text2d` keeps Bevy’s Fira Mono primary face and a fixed, locally embedded Noto Sans SC Regular 2.004 regional fallback for Han and supported CJK punctuation. The full upstream regional face is retained, rather than a character subset derived from fixtures or current labels. The font asset and OFL/provenance live in `crates/pixel_world_bridge/assets/fonts/noto-sans-sc/`; all seven native text producers share the same collection fallback. Font collection rebuilds must restore it. This does not depend on Launcher fonts, remote Google Fonts requests or host-installed fonts; label sizes, world/native layers and hit geometry remain unchanged. The 8,331,336-byte asset is an explicit transfer/memory cost; actual cold-start and mixed CJK/Latin glyph evidence are required. `native_font_notices()` retains the copyright and full OFL in each generated WASM backend. Upstream’s 30,890 mapped code points are finite, not a promise of every Unicode character or complete typography support for every CJK language.
 
 **Design review rules (not a new algorithm):**
 
 1. Demonstrate the existing suppression at 0.6, 1.75 and 3.5 camera zoom in the same fixture; keep marker identity and full Targets list despite hidden labels. Do not add more text to make a dense sheet appear complete.
-2. Treat 100 as a hard existing ceiling, not a target to fill and not proof that 100 labels remain legible. Remove secondary map text/texture before shrinking primary Next Move, blocker or receipt.
+2. Treat 100 as the legacy snapshot hard ceiling; the bounded authorized worldView profile uses [200](external-agent-world-view.design.md#world-view-render-density-profile). Neither ceiling is a target to fill or proof that the resulting labels remain legible. Remove secondary map text/texture before shrinking primary Next Move, blocker or receipt.
 3. Show full selected identity, position source and operation ownership in accessible context; a truncated 10px canvas label cannot be the only reading route. Do not shrink CJK to fit the approximate Latin glyph-advance model.
 4. Crowded markers need the existing accessible Targets route to individually choose the correct visible authorized object. Deterministic scattering does not prove overlap selection works. No invented radial menu, grouping control or collision algorithm is part of this docs-only handoff.
 5. Include same-position Agents A/B/C, selected Location plus Agent, goal and blocker collocation, and a long CJK label. If markers/cues still collide, label it **unverified readability risk** rather than changing position authority or implying hidden objects were deleted.
@@ -310,7 +312,7 @@ World Feed remains ambient, even if busy or LIVE. LIVE does not prove causal pro
 
 Production world graphics remain Bevy/WASM only. A static design mockup is not a JS fallback renderer. Failure sheet replaces the world drawing with a quiet unavailable region labeled **Renderer Unavailable / 渲染器不可用**, explains the affected capability and available recovery, retains still-authorized Next Move/context, Targets, original receipt and safe controls. Diagnostics is available but not the dominant card. No decorative fake map behind an error pretending the world remains live.
 
-Distinguish initial GPU/resource absence, renderer loss after genuine ready, query/network unavailability and authorization loss. On post-ready loss stop stale canvas hit targets and animation; if a prior frame is retained it is explicitly non-live and only while still authorized. Retry concerns renderer/session reconstruction, not replay of world action. Recovery reapplies current authorized view/camera/selection, validates render and hit state, and never restores revoked pixels. A successful probe alone is not recovered interaction. Original operation/result identity survives where authorized; a renderer error does not prove world execution stopped.
+Distinguish initial GPU/resource absence, renderer loss after genuine ready, query/network unavailability and authorization loss. On post-ready loss stop stale canvas hit targets and animation; if a prior frame is retained it is explicitly non-live and only while still authorized. Retry concerns renderer/session reconstruction, not replay of world action. Recovery reapplies current authorized view/camera/selection, validates render and hit state, and never restores revoked pixels. 真正的 WebGL context loss 使用明确的“重新加载页面恢复图形 / Reload page to restore graphics”操作，重建 WASM/Bevy 实例；不得将已启动实例的再次 mount 回报为图形恢复。此操作只由用户触发，不在 context-loss 回调中自动刷新。普通资源下载、初次装配失败继续使用原地 Renderer 重试，不能因此刷新整页。重新加载后沿既有会话、当前授权快照及原操作结果恢复读取，不持久化旧私有 renderer DTO，不自动重发 Command 或用新请求替代未知原件。A successful probe alone is not recovered interaction. Original operation/result identity survives where authorized; a renderer error does not prove world execution stopped.
 
 <a id="bevy-design-state-matrix"></a>
 ### 13.7. Required design-state/acceptance matrix
@@ -366,3 +368,49 @@ Stop-ship visual findings for later implementation: terrain louder than relevant
 品牌值沿 [brand system](viewer-brand-system-2026-06-05.design.md)，总体视觉沿 [visual specification](viewer-visual-design-spec-2026-06-05.design.md)，关系权威沿 [semantic positioning](viewer-pixel-world-semantic-positioning.design.md#relation-authority-boundary)，LOD沿 [fragment LOD](viewer-pixel-world-fragment-lod.design.md#terrain-lod-boundary)，分层证据沿 [bridge rendering](viewer-pixel-world-bridge-rendering.design.md#render-reconcile-validation)。
 
 密集场景的真实可选性、CJK实际字体宽度、HUD遮挡、低高度布局、GPU失效恢复与真人理解仍需对应证据；静态图与源码常量不能关闭这些风险。既有原操作关联、权限与source/freshness表达不足时，保留合法文本而不制造图形事实。
+
+
+<a id="production-pixel-coordinate-contract"></a>
+### 生产像素坐标合同
+
+本节为 #5557 的设计目标，生产实现与 GPU 验收尚未交付。Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3。
+
+世界位置与探索权限继续使用原 projection。生产世界层采用可变尺寸 RenderTarget，640×360 是放大档位基准而非世界底图。令 canvas 实测 CSS 尺寸为 C，实际 framebuffer 整数尺寸为 F（配置时各轴 floor(C×devicePixelRatio)，读回实际值）；整数放大倍率 s=max(1,floor(min(Fw/640,Fh/360)))，逻辑尺寸 L 各轴为 floor(F/s)。剩余 framebuffer 像素用 o=floor((F-sL)/2) 居中，右/下承担奇数余量。零尺寸暂停渲染并不创建零尺寸纹理；恢复正尺寸重新配置。小视口 s=1，不裁成固定 16:9，也不放大虚构世界输入。
+
+| CSS C | DPR | F | s | L | 左/上余量 o |
+| --- | --- | --- | --- | --- | --- |
+| 1280×720 | 1 | 1280×720 | 2 | 640×360 | 0,0 |
+| 1280×720 | 2 | 2560×1440 | 4 | 640×360 | 0,0 |
+| 390×844 | 1 | 390×844 | 1 | 390×844 | 0,0 |
+| 390×844 | 2 | 780×1688 | 1 | 780×1688 | 0,0 |
+| 1365×768 | 1 | 1365×768 | 2 | 682×384 | 0,0 |
+
+窄屏 DPR 2 的结果有意保留原生采样，不能宣称所有 DPR 的素材 CSS 大小相等。浏览器缩放后重读 C、DPR 与 F，不假定缩放等于相机 zoom。
+
+世界投影先在 CSS 空间沿现有公式计算：每轴 b=20+clamp(position/extent,0,1)×max(C-40,1)，p=C/2+(b-C/2)×max(zoom,0.5)+pan；相机 pan 保持 CSS px。再映射 q=(p×F/C-o)/s。将相机平移单独换算为 t=pan×F/C/s，取 t_snap=floor(t+0.5)，再以 q_snap=q-t+t_snap 作为各对象的共同相机空间位置；对象脚点使用 floor(q_snap+0.5)。相机与对象都使用半值向正方向的取整，绝不分别按 sprite 中心与脚点对齐。下文 round(q) 专指 floor(q_snap+0.5)，不可再用未对齐的 pan 独立计算标签或命中。显示坐标为 (s×round(q)+o)×C/F；nearest sampler 和 nearest 合成共同生效。世界边缘余量保持 20 CSS px，不能误改成 20 低分辨率像素。
+
+鼠标先减 canvas rect 左上角，在 CSS 空间计算；若落入合成余量则无世界命中。Rust 命中中心使用上述最终显示坐标；44 CSS px 的可访问目标、标签与 footprint LOD 阈值继续以 CSS px 衡量，不能乘 DPR 或以 L 替代 C。Web Targets 消费同一布局结果，不另算一套 snap。逆投影先撤销合成及相机变换，实际 CSS pan 使用 t_snap×s×C/F，不能重新用未对齐 pan 求逆；查询可见世界边界按半个逻辑像素的 CSS 宽度向外扩张后 floor/ceil，避免 snap 后可见对象被排除。越界仍受原世界与授权范围裁剪。
+
+例如世界中心、zoom=1、pan=0 在 1280×720/DPR1 下落在逻辑 (320,180)、CSS (640,360)；zoom=2 中心不变。世界最左边界在同条件下为 CSS x=20；zoom=2 时为 -600，仍按原裁剪处理。1365×768 的中心 qx=341.25，snap 后显示 x=682，Web 和 Rust 必须使用这一值。命中不反向改变权威位置。
+
+世界 Sprite 默认进入同一个低分辨率深度空间；所有 Text2d 与下表明确的语义 UI 例外进入原生分辨率层。不能把“带身份/状态含义的实体图形”一概当作原生 UI，否则实体 detail 会跨相机压过原本位于其上方的 Agent。`render_layers.rs` 是实际生产者的统一分层入口，未知 Sprite 默认 world，不能通过遗漏 world 类型使其自动升到原生前景。沿原来源、密度及 reduced-motion 合同，缺位置不补造坐标，几何装饰不产生目标或行动能力。
+
+| 实际生产者 | 原 Z 关系与处理 | 合成层 |
+| --- | --- | --- |
+| Grid、fragment 主体/shadow/inset/fleck、Location 主体 | 网格后景；fragment 0.34–0.37，Location 1.0 | world，保持原同层 Z |
+| Micro Depot 主体/detail/service radius | 2.55/2.56/2.52，均低于 Agent 3.0；detail 与主体不能拆相机 | world |
+| Module 主体/identity chip | 2.7/2.71，均低于 Agent；glyph 与主体保持相同采样和遮挡 | world；模块文字仍 native |
+| Agent 主体/core/silhouette/grounding | 主体 3.0、选中加 1；装饰沿主体相对 Z；grounding 使用同一脚点派生中心及像素单位 | world |
+| Links/social links/assignment arrow、hotspot 主体/core/highlight/shadow/cue | 关系 0.42/0.55/0.62；hotspot 1.5 或 blocker 4.04 加既有局部偏移 | world，关系箭头与线不能拆采样 |
+| Industry aggregate/world event 的 Sprite 部分 | 2.85–2.87；同生产者的文字原 5.05 | 图形 world；Text2d native |
+| Agent/Location/Module/Map label、selected resource readout、depot throughput text | 原文字 Z 可在 2.1–5.05；独立文字平面不由主体原 Z 裁掉 | 所有 Text2d native |
+| Agent power、derived/missing position、selection、recommendation、receipt target、active intent；Location selection/corner frame/resource cue | 明确的语义 UI 例外；保留各自原 Z 的层内顺序 | native |
+| Depot stock runway 段/背景/zero cross、throughput 背景 | 原约 2.564–2.567，作为读数 UI 与文字一起独立清楚呈现 | native |
+
+作者化 glyph 的局部单位与世界 cm 分开：Agent 16×16、Module 6×6 主体及 beacon/relay/artifact/sensor 全部 identity chip 的尺寸/offset、Micro Depot 8/9 主体及 active/suspended/depleted detail 使用逻辑像素，进入 CSS 前逐轴乘 `s×C/F`。不能把 1 CSS px detail 直接送入低分辨率目标；在 unit2 下它只有半个逻辑像素，可能完全不产生片元。module 的 Rust hit 半径随同单位转换，co-anchor 每轴间距为 `ceil(max(48,16×unit+4)/unit)×unit` CSS px，保留 48 CSS px 最小间距并使原生 hit 分离，unit 与 ceil/offset 从原始 CSS f64 算到最终 GPU 转换，不先转 f32；Web 44 CSS px 最小目标不改；module label 字号仍 10 CSS px，只按 glyph 正扩大量补齐原间距，缩小时不向内收。depot 仍非交互，grounding 同单位，stock/throughput 的原生字号和数值不缩放，读数 lane 至少离开 scaled body 半高加 native backing 半高及 1 CSS px 间隙，不能因 glyph 缩小而让固定字号背景盖住主体。world 线生产者（普通关系、social/方向标记、assignment、service radius、grid）的横向厚度使用共同的逻辑像素单位，至少 1 logical px；按线垂线方向换算到 CSS，端点及实际世界长度/半径不变。箭头局部长度/宽度与 social endpoint glyph 同单位，箭头保留原 CSS 最小长度判断，并以可用线长限制局部扩大量；native UI 描边不随此转换。CSS 相同但 backing/DPR 改变时，必须重建静态几何/命中及 grid 单位缓存，不能只改 render target。terrain footprint LOD 的 1.5/10 CSS 条件不改。未拖动 pointer gesture 在 down 时捕获当时 renderer 命中身份，click 不因期间自动相机位移改选其他实体；click 时必须仍在当前 render input 和 hit region 中，已删除/失效输入不复用旧候选。空白按下或超过 4 CSS px 拖动不能获取之后移入的对象，销毁 renderer 清除候选。Agent selected resource 文字 lane 随脚点上方 15 逻辑像素的顶部正扩大量外移，固定原生字号与 location lane 不变。不得对已转换的共享材质尺寸或其 Transform 再乘一次单位；世界位置、service radius 的 cm 与 footprint LOD 的 CSS 条件不因此变化。测试必须同时证明未遮挡 glyph 可见与被上层 Actor 正确遮挡，不能用“两次都没画 glyph”的零差分当作遮挡通过。
+
+native UI 在 world 合成之后绘制；跨层旧 Z 不再作为世界实体遮挡关系。只有上述明确 UI 可以这样提升；实体主体、glyph/detail、阴影、范围与关系图形必须留在 world 共享原 Z。分层不证明默认字体已具备原生 CJK 字形，字体可读性仍需实际证据。
+
+实现消费者为 lib.rs 的 setup_scene、to_canvas_point、renderer_to_css_scale，camera_viewport 的逆变换，render_camera_fit/focus、footprint/标签布局、Rust 命中与 Web host/Targets。尺寸布局必须由同一计算结果驱动这些消费者。resize/DPR 更新原子替换 RenderTarget 与布局代次，清除旧命中缓存，再切换 ready；旧纹理、相机和合成实体按所有权释放，不能每帧累计。尺寸变化保留原 CSS pan、zoom 和身份选择；授权输入变化仍沿原导航/恢复合同。
+
+资源或 GPU 在 ready 后失效时立即使世界命中及旧布局失效，沿原故障 UI 回退，不增加 JS 世界 renderer。恢复只重建当前授权输入的图形资源和布局，不重放 Command；撤权/世界切换清除旧纹理内容、目标与标签，异步完成以世界身份和布局代次拒收旧结果。必要手算、resize、DPR1/2、zoom、密集目标、失权与恢复证据沿既有 PW-PROJECTION/PW-ACCESSIBILITY/PW-RECOVERY 方法记录；性能仍引用 view-quality，不能以本节计算替代实际 GPU 证据。

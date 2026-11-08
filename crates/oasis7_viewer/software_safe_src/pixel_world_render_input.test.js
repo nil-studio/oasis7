@@ -3,6 +3,15 @@ import { createStore, $RAW } from "solid-js/store";
 import { projectPixelWorldRenderInput, encodePixelWorldRenderInput } from "./pixel_world_render_input.js";
 
 describe("bounded renderer input", () => {
+  it("keeps explicit factory type in display-only module fields without reading private data", () => {
+    const module = {entity_id:"F",module_id:"runtime_factory",kind:"factory",factory_kind:"factory.smelter.mk1",label:"Fixture smelter",anchor:{type:"absolute",data:{pos:{x_cm:1,y_cm:2,z_cm:0}}}};
+    Object.defineProperty(module,"private_stock",{enumerable:true,get(){throw Error("private field read");}});
+    const source = {snapshot:{model:{module_visual_entities:{F:module}}}};
+    expect(projectPixelWorldRenderInput(source).snapshot.model.module_visual_entities.F.factory_kind).toBe("factory.smelter.mk1");
+    delete module.factory_kind;
+    expect(projectPixelWorldRenderInput(source).snapshot.model.module_visual_entities.F.factory_kind).toBeUndefined();
+  });
+
   it("does not traverse unrelated snapshot history or private agent data", () => {
     const agent = { id: "A", pos: { x_cm: 4, y_cm: 5, z_cm: 0 } };
     Object.defineProperty(agent, "cognition", { enumerable: true, get() { throw Error("private tree traversed"); } });
@@ -57,11 +66,12 @@ describe("bounded renderer input", () => {
     expect(dto.lists.agents.some(a=>a.id==="A499")).toBe(true);
     expect(dto.display_budget.omitted_markers).toBeGreaterThan(0);
   });
-  it("clips authorized world-view factories while preserving navigation and freshness", () => {
+  it("fits authorized world-view factories in the bounded 1000 marker profile", () => {
     const entities = Array.from({length:1000},(_,i)=>({kind:"factory",entity_id:`F${String(i).padStart(4,"0")}`,render_record:{name:"Factory",pos:{x_cm:i,y_cm:0,z_cm:0}},provenance:{geometry_source:"authoritative",freshness:"current",valid_at_source_cut:"C"}}));
     const input = {worldView:{schema_version:1,source_cut:"C",entities,aggregates:[],events:[],relations:[]},navigation:{mode:"locate",target:{kind:"factory",id:"F0999"}}};
     const dto = projectPixelWorldRenderInput(input);
-    expect(dto.worldView.entities).toHaveLength(500);
+    expect(dto.worldView.entities).toHaveLength(1000);
+    expect(dto.display_profile).toBe("world_view_v1");
     expect(dto.worldView.entities.some(e=>e.entity_id==="F0999")).toBe(true);
     expect(dto.display_budget.required_entities).toContain("factory:F0999");
     expect(dto.worldView.entities[0].provenance.freshness).toBe("current");

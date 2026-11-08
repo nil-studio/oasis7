@@ -166,67 +166,36 @@ pub fn dispatch(config: &Config, request: &Request, now: u64) -> Response {
     }
 }
 
-fn usage_key(grant: &str, caller: &str) -> String {
-    let mut hash = blake3::Hasher::new();
-    hash.update(&(grant.len() as u64).to_be_bytes());
-    hash.update(grant.as_bytes());
-    hash.update(&(caller.len() as u64).to_be_bytes());
-    hash.update(caller.as_bytes());
-    hash.finalize().to_hex().to_string()
+fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
+    crate::dev_test_operations::admit_read(config, caller)
 }
 
-fn admit(config: &Config, caller: &str) -> Result<(), &'static str> {
-    use std::io::Write;
-    use std::os::unix::{
-        fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
-        io::AsRawFd,
-    };
-    let directory = &config.usage_directory;
-    let metadata =
-        std::fs::symlink_metadata(directory).map_err(|_| "usage_directory_unavailable")?;
-    if !metadata.is_dir()
+// Security-sensitive input validation stays outside the bounded CLI adapter.
+pub(crate) fn read_private_cli_config(path: &str) -> Result<Config, String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| "configuration_unavailable")?;
+    if !metadata.is_file()
         || metadata.permissions().mode() & 0o077 != 0
+        // SAFETY: geteuid has no arguments or memory preconditions.
         || metadata.uid() != unsafe { libc::geteuid() }
     {
-        return Err("private_usage_directory_required");
+        return Err("private_configuration_required".into());
     }
-    let key = usage_key(&config.grant_id, caller);
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(directory.join(format!("{key}.lock")))
-        .map_err(|_| "usage_lock_failed")?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err("usage_lock_failed");
+    let body = std::fs::read(path).map_err(|_| "configuration_unavailable")?;
+    serde_json::from_slice(&body).map_err(|_| "invalid_service_configuration".into())
+}
+
+pub(crate) fn read_cli_request(input: impl std::io::Read) -> Result<Request, String> {
+    use std::io::Read;
+    let mut body = Vec::new();
+    input
+        .take(65537)
+        .read_to_end(&mut body)
+        .map_err(|_| "request_unavailable")?;
+    if body.len() > 65536 {
+        return Err("request_too_large".into());
     }
-    let path = directory.join(format!("{key}.json"));
-    let used: u64 = match std::fs::read_to_string(&path) {
-        Ok(value) => value.parse().map_err(|_| "invalid_usage_record")?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(_) => return Err("usage_unavailable"),
-    };
-    if used >= config.max_calls {
-        return Err("call_limit_exhausted");
-    }
-    let temporary = directory.join(format!("{key}.pending"));
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&temporary)
-        .map_err(|_| "usage_write_failed")?;
-    file.write_all((used + 1).to_string().as_bytes())
-        .and_then(|_| file.sync_all())
-        .map_err(|_| "usage_write_failed")?;
-    std::fs::rename(temporary, path).map_err(|_| "usage_write_failed")?;
-    std::fs::File::open(directory)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| "usage_write_failed")?;
-    Ok(())
+    serde_json::from_slice(&body).map_err(|_| "invalid_request".into())
 }
 
 #[cfg(unix)]
@@ -385,53 +354,51 @@ pub(crate) fn read_until(
     stream
         .set_nonblocking(true)
         .map_err(|_| "socket_configuration_failed")?;
-    let result = (|| {
-        loop {
-            let remaining = deadline
-                .checked_duration_since(std::time::Instant::now())
-                .filter(|r| !r.is_zero())
-                .ok_or("service_deadline_exceeded")?;
-            let mut poll = libc::pollfd {
-                fd: stream.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let ready = unsafe {
-                libc::poll(
-                    &mut poll,
-                    1,
-                    remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
-                )
-            };
-            if ready == 0 {
-                return Err("service_deadline_exceeded".into());
+    let result = (|| loop {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|r| !r.is_zero())
+            .ok_or("service_deadline_exceeded")?;
+        let mut poll = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe {
+            libc::poll(
+                &mut poll,
+                1,
+                remaining.as_millis().min(i32::MAX as u128).max(1) as i32,
+            )
+        };
+        if ready == 0 {
+            return Err("service_deadline_exceeded".into());
+        }
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
             }
-            if ready < 0 {
-                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-                    continue;
+            return Err("socket_poll_failed".into());
+        }
+        let mut buffer = [0; 4096];
+        match stream.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(count) => {
+                if output.len() + count > limit {
+                    return Err("request_too_large".into());
                 }
-                return Err("socket_poll_failed".into());
+                output.extend_from_slice(&buffer[..count]);
             }
-            let mut buffer = [0; 4096];
-            match stream.read(&mut buffer) {
-                Ok(0) => return Ok(()),
-                Ok(count) => {
-                    if output.len() + count > limit {
-                        return Err("request_too_large".into());
-                    }
-                    output.extend_from_slice(&buffer[..count]);
-                }
-                Err(error)
-                    if [
-                        std::io::ErrorKind::WouldBlock,
-                        std::io::ErrorKind::Interrupted,
-                    ]
-                    .contains(&error.kind()) =>
-                {
-                    continue;
-                }
-                Err(_) => return Err("request_transport_failed".into()),
+            Err(error)
+                if [
+                    std::io::ErrorKind::WouldBlock,
+                    std::io::ErrorKind::Interrupted,
+                ]
+                .contains(&error.kind()) =>
+            {
+                continue;
             }
+            Err(_) => return Err("request_transport_failed".into()),
         }
     })();
     stream
@@ -440,7 +407,7 @@ pub(crate) fn read_until(
     result
 }
 
-fn connect_until(
+pub(crate) fn connect_until(
     path: &std::path::Path,
     deadline: std::time::Instant,
 ) -> Result<std::os::unix::net::UnixStream, String> {
@@ -571,11 +538,16 @@ mod tests {
     #[test]
     fn capabilities_enforce_credential_and_closed_methods() {
         use std::os::unix::fs::PermissionsExt;
-        let directory =
-            std::env::temp_dir().join(format!("oasis7-service-test-{}", std::process::id()));
+        let directory = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("oasis7-service-test-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert_ne!(usage_key("a", "b\0c"), usage_key("a\0b", "c"));
+        assert_ne!(
+            crate::dev_test_operations::usage_key("a", "b\0c"),
+            crate::dev_test_operations::usage_key("a\0b", "c")
+        );
         let request = Request {
             profile: PROFILE.into(),
             audience: AUDIENCE.into(),

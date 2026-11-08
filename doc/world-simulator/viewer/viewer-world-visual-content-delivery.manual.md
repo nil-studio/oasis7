@@ -51,6 +51,8 @@ rg -n 'optional-payloads.json|size_bytes|sha256|resolvePixelWorldWasmDescriptor'
 
 以下路径供审读制作关系，不表示本专题执行了改色或试产：`water_ice` 原键 → host palette → fragment shading／LOD → bridge WASM → loader／host → 实际地形与 Actor 同屏检查；`resource_transfer` 原 kind → hotspot 类别细节 → 原 hotspot 组合／身份 → 同候选 bridge → 类别区分与无虚构路线检查。
 
+共享地形／设施材质候选可在完整 visual-test 构建后执行 `AGENT_VISUAL_SOURCE_HEAD=<构建固定提交> npm --prefix crates/oasis7_viewer run test:pixel-world:materials:gpu`。可用 `AGENT_VISUAL_ARTIFACT_ROOT` 指定同源产物，`AGENT_VISUAL_CASE=desktop|narrow|dpr2` 与 `MATERIAL_VISUAL_SCOPE=factory|terrain|runtime` 缩小范围；默认覆盖三种尺寸与两类材质。需要 agent-browser、真实 WebGL2 与 Pillow。runner 保存实际 JS/WASM 和源 PNG hash、受控输入改动、DTO、截图及离线 PNG oracle；工厂校验已知／未知／删除／恢复，地形仅校验可见局部变化和精确恢复；原 base 组成色同时变化，不能单凭 delta 证明 ore PNG 纹理已被 GPU 消费，独立纹理特征／受控启停仍留原 P3。独立纹理消费另由 `runtime` scope 在本地 QA 页面使用既有公开 WASM mount/update ABI；输入从相同门控 fixture 的 RenderDTO 取得，不添加产品／授权 API。ore 固定白色 base、位置、footprint、emphasis、LOD 与原 inset parity，仅将 `silicate_matrix` 切为 `unknown`；完整 DTO 差异检查只允许该字段变化，排除原组成底色假阳性。离线 oracle 用源 ore PNG 的线性 sRGB alpha 混合预测及透明区不变负控制，覆盖全部六种不透明源色，并检查删除／精确恢复；GPU raster sample 相位只允许半个逻辑像素以内。depot 固定位置和读数，按源 PNG 下四分之一区域 `[0,24,32,32]` 与主体左侧框 `[6,18,8,22]` 共264源像素采样：这些区域避开原主体／grounding 和原生读数，不把合法前景覆盖计为缺纹理；至少95%匹配且覆盖全部八种不透明源色，负控制仅删除 facility 后至多5%，重建应恢复。全图匹配比例同时保留为遮挡诊断，不能以它冒称完整无覆盖。阈值、实际匹配数和源 PNG hash 随原始证据保存。局部方法不证明真实世界授权、全组合恢复或性能预算，未实际执行／失败的 scope 留原 Issue。
+
 ### 3.2 替换、退役和外部素材
 
 替换内容保留仍被消费的身份与旧版本证据，明确受影响输出、引用、缓存、署名和消费者；不能用新源覆盖旧截图的候选身份。依赖或生成配置变化时重新判断哪些结果可复用，未变的内容键不等于字形、颜色、像素或加载行为未变。
@@ -84,6 +86,7 @@ Loader 变更可执行 `npm --prefix crates/oasis7_viewer run test:ui -- pixel_w
 1. 按原构建合同执行适用的 `npm --prefix crates/oasis7_viewer run build:viewer`；视觉 fixture 使用 `build:viewer:visual-test`，不得将其 profile 当 release。记录实际 source／profile／输出；finalize 同时构建其他模块，不能把其中任一步跳过后仍称完整构建。
 2. 核该候选实际 `viewer.js`、bindings 和 bridge payload；采用 optional payload 时核原 `optional-payloads.json`、所引用实际字节数／hash 和 loader 结果。检查发生在同一候选，不从 checkout 里的 dist 推断线上资源。
 3. 按[PW-PROJECTION](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-projection)与[PW-ACCESSIBILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-accessibility)选择受影响场景；实际桌面／窄屏、DPR、字体和动效组合遵循原手册，保留未测组合。
+   统一像素渲染候选同时按[生产坐标合同](viewer-pixel-world-player-readable-rendering.design.md#production-pixel-coordinate-contract)记录 C/F/DPR/s/L/o、相机与实际 CSS 命中中心；复核表中桌面、窄屏、奇数边缘和 zoom 手算，以及 Rust/Web 对同一最终坐标的消费。手算只核合同，另以真实 GPU 检查 nearest、source-pixel 边缘和独立中文层。
 4. 复用 `test:pixel-world:visual`、`test:pixel-world:module-visual` 或 `test:pixel-world:location-frame:visual` 的适用入口。先检查其 fixture 是否包含本次变体；已有脚本没覆盖的材质／设施用例不能因名称含 visual 就计入。缺实际 fixture 或环境时记录 blocked／未覆盖，由该实现负责人补齐。
 5. 保存实际尺度截图／crop 和输入身份，沿[视觉评审 SOP](../../testing/manual/model-visual-review-sop-2026-05-29.manual.md#模型评审-rubric)审读；材质不压过 Actor，未知不变已知，热点类别不冒充路线／成功，设施状态和读数含义一致。构图／层级／动效直接引用原 B01～B13，不另建一套状态矩阵。
 
