@@ -192,3 +192,14 @@ it('uses a new local scope sequence after reset without exposing the scope bindi
  expect(next.intent_generation).toBeGreaterThan(before.intent_generation);
  expect(JSON.stringify(next)).not.toMatch(/authority|sessionEpoch|source_cut|request_generation/);
 });
+
+it('keeps a genuine legacy selection correlation until the business identity changes',()=>{
+ const core={state:{worldId:'W',auth:{},selectedKind:null,selectedId:null},requestWorldView:vi.fn(),buildGameplaySummary:()=>null,
+ applySelection:vi.fn(ref=>{core.state.selectedKind=ref.kind;core.state.selectedId=ref.id;return ref;})};
+ let controller;createRoot(cleanup=>{dispose=cleanup;controller=createPixelWorldSpatialController({core,enabled:()=>false,getRenderState:()=>null,getLocale:()=> 'en'});});
+ controller.selectPresented({kind:'agent',id:'legacy'});const feedback=controller.selectionFeedback();
+ expect(feedback).toMatchObject({ref:{kind:'agent',id:'legacy'},phase:'selected'});
+ controller.refresh({});expect(controller.selectionFeedback()).toBe(feedback);
+ core.state.selectedId='other';controller.refresh({});expect(controller.selectionFeedback()).toBeNull();
+ expect(core.requestWorldView).not.toHaveBeenCalled();
+});

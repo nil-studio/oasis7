@@ -142,7 +142,9 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     }
     setSpatialSelection(null);
     const applied = core.applySelection(ref);
-    if (applied?.kind && typeof applied.id === 'string') beginFeedback(canonicalRef(applied),'selected');
+    if (applied?.kind && typeof applied.id === 'string') {
+      selectedCoreKey = coreKey();beginFeedback(canonicalRef(applied),'selected');
+    }
     return applied;
   }
   const controller = {
