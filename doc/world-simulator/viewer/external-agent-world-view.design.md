@@ -23,6 +23,7 @@ Runtime拥有世界、控制版本、观察资格、admission及持久结果；A
 
 | 上游 requirement / product AC | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251；[REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) | WorldView负载下本地可见接受、selected确认和网络完成分别可核，原预算不变。 | [本地反馈测量](#view-local-feedback-measurement) | Viewer反馈所有者/QA、真实意图及可见帧观测。 | DOM状态/设计不代签可见时延、网络完成或P6。 |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001) | 世界/目的/blocker/下一步与原结果可读，选择不改归属。 | [共享舞台](#view-scene) | Viewer/visual；Runtime因果。 | 局部HUD/截图不证明真人理解。 |
 | Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；[AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002) | 来源/时效、冲突、旧响应、撤权与生效重验闭环。 | [观察到生效](#view-admission) | Runtime/API Context、fence、授权与原操作。 | Viewer不另建真值裁决/admission。 |
 | Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；[AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003) | 多尺度探索、partial适配、跟随/返回与有界密度。 | [探索查询](#view-query) | 授权空间投影、Rust/renderer、QA。 | 地形LOD不等于完整semantic zoom或已测容量。 |
@@ -336,12 +337,42 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 | 核心目标/反馈/恢复UI可操作 | A冷P95≤3 s；B≤5 s。 | 从认证已完成的导航起，不等待可选renderer；登录另计。 |
 | 首个真实可交互世界帧 | A冷P95≤20 s、热≤5 s；B冷≤90 s、热≤10 s。 | 含payload下载/编译、snapshot、派生、首帧；实际字节冷/热分别报，不把占位/DOM算世界帧。 |
 | 有界query服务耗时 | P95≤300 ms。 | 50000对象授权scope；网络/响应体与e2e另报，不以热缓存替冷索引。 |
-| 本地选择/退出跟随/stopUI反馈 | P95≤100 ms；无连续1 s输入无响应。 | 只是UI接受，不等于网络/Runtime完成。 |
+| 本地选择/退出跟随/stopUI反馈 | P95≤100 ms；无连续1 s输入无响应。 | 只是UI接受，不等于网络/Runtime完成；端点分层见[本地反馈测量](#view-local-feedback-measurement)。 |
 | 连续平移/缩放帧间隔 | P95≤33.3 ms，P99≤100 ms。 | 1000实体/200labels、前台交互；静止按需和后台节流分开。 |
 | 应用可归因缓存 | ≤64 MiB且有对象上限。 | renderer/进程/WASM/GPU另测；LRU不删权威结果或留旧权限。 |
 | 30分钟长稳 | 无崩溃/旧命中；稳定同负载末窗口内存较初窗口增长≤10%。 | GC和测量方法明确，未知分量不以JS heap代替。 |
 
 实测失败先报告/修复或缩小支持范围；改预算须同fixture证据和owner决定，不临时放宽。方法见[专项性能验证](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-performance)。这些不是新通用CI gate，文档PR不需GPU/付费模型。
+
+<a id="view-local-feedback-measurement"></a>
+### 9.3 本地接受与选择确认的测量
+
+本节解释9.2既有本地UI预算，不改阈值或授权范围。上游是 [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) / AC（Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251）；[5.1](#view-query)的待检查选择仍沿 O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf。通用发行的[连续交互预算](viewer-gameplay-release-experience-overhaul.design.md#viewer-performance-verification)与本专项按profile和端点分别报告，不用通用预算替代WorldView预算。
+
+当前观测切片仅定义只读选择。退出跟随及stop继续保留9.2预算，但分别沿原导航和原operation身份单独设计验证；选择pending不代表stop已接受或世界已停止。
+
+| 端点 | 可表达的事实 | 判据与报告边界 |
+| --- | --- | --- |
+| 本地接受状态 | 对本次输入显示pending、已选择或明确不可用。 | 只是DOM状态接受时间；单独不足以证明反馈可见或达到9.2预算。 |
+| 首个本地可见响应（ACK） | 同一输入意图已被UI处理，玩家获得可辨的等待、选择或拒绝反馈。 | 9.2的本地UI接受预算适用于此列；结果类型分别报告，拒绝不写成选择成功。必须有匹配身份与可见帧证据。 |
+| 选择确认 | 对象由当前获准读模型重新证明并成为实际选择。 | 继续保留原strict selected的DOM、同目标EventTiming及额外rAF列、阈值和unknown；pending不算selected，不能把ACK列的通过复制到本列。 |
+| 网络/世界完成 | 后页、真实操作/回执或Runtime结果完成。 | 沿原请求/主体/操作身份另报，不把UI接受当作完成或改写原结果。 |
+
+只从下一轮事先注册的测量计划使用ACK列；旧样本和旧strict selected结论原样保留，不能事后挑较快的端点重算。ACK合格与strict selected unknown可以并列，不由此宣布P6整体通过。所有计划输入保留，未送达、错误目标、关联缺失、时钟/可见性未知分别记录，不补零、不静默丢弃。
+
+ACK单项结论不改变既有selected runner的退出码；若新探针只验ACK，必须显式声明组件scope，不能冒充完整P6 gate。已经选中的对象被再次点击也不能因状态原已为true记零时延；该类幂等输入要么在计划中单列处理证明，要么明确未测。
+
+ACK必须绑定实际可信输入的typed ref、world/当前scope代及显式用户选择代际，沿同一page/timeOrigin。分页请求代不能充当用户意图代；新选择、导航、换scope或卸载终止旧关联。若需补只读观测字段，只能由真实输入/状态所有者发布本地关联，不接受工具写入的token，不保留旧实体/坐标/权限事实，不新增读取、pin、grant或世界命令；不输出私有authority key。现有泛pending文案或role=status本身不提供此完整证据。
+
+可见响应必须相对输入前有可辨的反馈变化。新的局部代号或DOM属性、仍在显示的旧pending徽标、无变化的Selected旧对象均不能单独给新输入记成功。连续两个pending意图若只有不可见metadata变化而画面相同，后一输入的可见ACK为unknown；需要新的目标提示时作为后续独立UI实现，不用测试字段伪造可见变化。反馈的目标来源仍限于5.1已呈现证明。
+
+观测分两步。先以冻结候选实际shell核对反馈状态、关联、文本范围、viewport/clip、祖先display/visibility/opacity及遮挡；另在非计时校准中以实际字形正控、A/A稳定对照和透明/遮挡负控固定字形区域、噪声与覆盖判据，不能拿背景变化或一个变化像素证明语义可见。计时路径不复制状态节点、不改文本/样式、不隐藏目标或产品HUD、不暂停rAF/renderer、不强制绘制。
+
+随后只做有界可见帧能力核对：保存当前浏览器协议/trace字段和实际合成图像，用可核验的同帧关系及前后时钟锚将图像时间限定到输入的performance时基。不能把Paint、DrawFrame、截图API返回或rAF自动等同物理呈现；未验证图像/正常产生的帧/时钟关联时，可见时延保持unknown。图像证据还须落在同意图、同scope反馈状态未改变的完整时间区间；区间跨意图或不同scope不借用。采集开销单列，不从时延扣除，trace诊断不自动代签无trace预算窗口。
+
+稀疏图像只能给出已经可见的上界，首个捕获帧不自动是首次可见帧；缺帧区间不能用来推迟下界或证明此前没有响应。时钟或覆盖不足的下界保留unknown。
+
+对新ACK列保存逐样本可见时间上下界及未知原因；仅在全部必需样本可关联、可见且P95上界及连续无响应情况满足9.2时报告该列合格。P95下界已超过预算才称已证超标；区间跨阈值或任一样本未知均不签通过。原strict selected的判法不因本规则改变；EventTiming target=null仍按原判据unknown，禁止仅凭时间戳补目标。具体短场景和实施前置见[专项手册](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-local-feedback-measurement)。
 
 ## 10. 兼容、迁移与回滚
 
@@ -357,6 +388,7 @@ Trace refs: O7-REQ-9cb09cbd-3c98-4742-a290-ea98a64ab096。除逐端恢复外，�
 
 | 上游 requirement / AC | 本设计条款 | 独立 obligation 与条件 | 验证方法 / source / scenario / environment | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251；[REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) | [本地反馈测量](#view-local-feedback-measurement) | 可见ACK、selected确认及网络完成分列，原预算/unknown不改 | [PW-PERFORMANCE](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-performance)与事先注册的短关联/可见帧能力核对 | 原始输入/反馈代际/图像与时钟区间、旧样本独立保留 | 设计/DOM属性不代签可见帧、P5或P6 |
 | [AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001) | [共享舞台](#view-scene) | 首读/原归属和ambient分离。 | [PW-IDENTITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-identity)及PW-READABILITY，Rust/host与真实S6同候选。 | 原操作/DTO/图像/回答分层记录。 | DOM/模型不证明真人理解。 |
 | [AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002) | [观察到生效](#view-admission) | 来源/冲突/过期/撤权与原结果恢复。 | [PW-FRESHNESS](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-freshness)，确定性竞争+真实API/Runtime临时世界。 | 显示cut、原operation、权威原因和前后结果。 | fake authority不证明接线。 |
 | [AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003) | [探索查询](#view-query) | partial/cut/空间适配、完整旅程与密度质量。 | [PW-PROJECTION](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-projection)、PW-EXPLORATION、PW-PERFORMANCE，固定世界/build/设备。 | 页集合、删除/淘汰、交互及实测帧/内存。 | helper阈值不证明像素/容量。 |

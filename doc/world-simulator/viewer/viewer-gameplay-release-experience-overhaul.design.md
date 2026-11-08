@@ -488,6 +488,8 @@ Owner：`viewer_engineer`；QA 维护测量与场景，发行/部署 owner 维�
 
 承接 [REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001)（Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251）与 [REQ-ENTRY-PERFORMANCE-002](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-002)（Trace refs: O7-REQ-25030f5c-c246-4b72-b637-de9dc6b520ae），分别验证运行响应和资源准备。
 
+WorldView独立显示profile另沿[专项质量预算](external-agent-world-view.design.md#view-quality)及[本地接受/选择确认分层](external-agent-world-view.design.md#view-local-feedback-measurement)。两处端点和负载分别标明，不把后页/Runtime完成混为本地接受，不用一个profile的门槛替代另一profile。
+
 以下是后续实现验收目标，不是当前已达到的指标。复用 `viewer-performance-probe.mjs`、`performance_metrics`、Host/loader 回归和测试手册 S6，补齐缺失测量，不新增全仓通用门禁或付费模型测试。
 
 | 测量范围 | 目标与明确口径 | 条件 / 不能代签 |
