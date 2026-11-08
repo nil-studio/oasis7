@@ -428,9 +428,9 @@ mod overview_partial_regression {
             "snapshot":{"time":1,"model":{},"config":{"space":{"width_cm":100,"depth_cm":100,"height_cm":10}}},
             "lists":{"agents":[],"locations":[]},"gameplay":{},
             "worldView":{"world_id":"W","scope_id":"S","source_cut":"C","request_generation":"read-1","completeness":"complete",
-                "entities":[0,1].iter().map(|id|json!({"kind":"agent","entity_id":format!("A{id}"),
+                "entities":([0,1].iter().map(|id|json!({"kind":"agent","entity_id":format!("A{id}"),
                     "render_record":{"name":"A","pos":{"x_cm":id,"y_cm":0,"z_cm":0}},
-                    "provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}})).collect::<Vec<_>>()}});
+                    "provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}})).collect::<Vec<_>>())}});
         source["worldView"]["entities"][0]["render_record"]["kind"] = json!("k".repeat(8192));
         let context = overview_query::context(&source["worldView"]);
         source["navigation"] = json!({"mode":"overview","request_id":"2","overview_query":{"version":1,"binding":context["binding"]}});
