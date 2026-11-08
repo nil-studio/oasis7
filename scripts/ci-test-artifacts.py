@@ -307,13 +307,16 @@ DISTFS_CLIPPY_COMMANDS = (
 )
 
 
+ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
+
+
 def fast_plan(plan):
     """Old trusted planners retain the complete previous execution inventory."""
     support_fields = {'ordinary_support_contract_version', 'ordinary_support_handoffs',
                       'ordinary_support_deferred'}
     support = isinstance(plan, dict) and bool(support_fields.intersection(plan))
     partitioned = isinstance(plan, dict) and bool(
-        {'ordinary_partition_version', 'ordinary_partitions'}.intersection(plan))
+        {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions'}.intersection(plan))
     distfs_clippy = isinstance(plan, dict) and bool(
         {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
     if distfs_clippy and 'fast_plan_version' not in plan:
@@ -403,6 +406,17 @@ def validate_distfs_clippy_handoff(plan):
 
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
+    if 'ordinary_artifact_partition_version' in plan:
+        if (type(plan['ordinary_artifact_partition_version']) is not int
+                or plan['ordinary_artifact_partition_version'] != 1
+                or 'ordinary_partition_version' in plan
+                or 'fast_execution_version' in plan
+                or plan.get('ordinary_execution') == 'inline'
+                or plan.get('scope') not in ('full', 'explicit-full')
+                or 'oasis7_required' not in plan.get('groups', [])
+                or plan.get('ordinary_partitions') != list(ORDINARY_ARTIFACT_PARTITIONS)):
+            raise ValueError('invalid complete ordinary artifact partitions')
+        return
     targets = plan.get('ordinary_fast_targets')
     if (type(plan.get('ordinary_partition_version')) is not int
             or plan['ordinary_partition_version'] != 1
@@ -432,6 +446,8 @@ def ordinary_partition_targets(plan=None, partition=None):
         return targets
     if partition not in ordinary_partitions(plan):
         raise ValueError('unknown ordinary partition for the complete parent plan')
+    if plan is not None and plan.get('ordinary_artifact_partition_version') == 1:
+        raise ValueError('complete artifact partitions cannot rebuild or narrow Cargo targets')
     if partition == 'all':
         return targets
     selected = [target for target in targets if target['package'] == partition]
@@ -743,6 +759,11 @@ def formal_shards(plan=None):
               for suite, entries in suites.items() for entry in entries}
     shards.update(suite for suite, entries in config['shell_tests'].items() if suite in selected and entries)
     shards.update(suite for suite in config['environment_formal_batches'].values() if suite in selected)
+    for binary, suite in config['environment_formal_batches'].items():
+        if suite in selected:
+            explicit = {entry.get('name') for entries in config['suites'].values()
+                        for entry in entries if entry.get('binary') == binary}
+            shards.update(shard for name, shard in overrides.get(binary, {}).items() if name not in explicit)
     if shards - set(SHARDS):
         raise ValueError('unknown physical Formal shard')
     if fast_plan(plan) is not None and 'formal_shards' in plan:
@@ -2411,20 +2432,58 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_par
         raise RuntimeError(f'{label} failed; see {results}')
 
 
+def ordinary_entries(manifest):
+    entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items()
+               if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
+    for owner, pattern in snapshot_regressions(manifest):
+        if owner not in manifest['binaries']:
+            raise ValueError('missing default-feature snapshot harness: ' + owner)
+        binary = manifest['binaries'][owner]
+        names = [name for name in binary['tests'] if pattern in name and name not in binary['ignored_tests']]
+        if not names:
+            raise ValueError('missing snapshot regression: ' + pattern)
+        entries.append(dict(binary=owner, filter=pattern, count=len(names)))
+    return entries
+
+
+def ordinary_artifact_entries(manifest, plan, partition):
+    fast_plan(plan)
+    if plan.get('ordinary_artifact_partition_version') != 1 or partition not in ordinary_partitions(plan):
+        raise ValueError('unknown complete ordinary artifact partition')
+    buckets = {name: [] for name in ORDINARY_ARTIFACT_PARTITIONS}
+    entries = ordinary_entries(manifest)
+    identities = [(entry['binary'], entry.get('filter')) for entry in entries]
+    if len(identities) != len(set(identities)):
+        raise ValueError('duplicate ordinary execution item')
+    integration_index = 0
+    for entry in sorted(entries, key=lambda item: (item['binary'], item.get('filter', ''))):
+        binary = manifest['binaries'][entry['binary']]
+        owner = 'integrations-' + str(integration_index % 2)
+        if entry.get('batch') and binary['target_kind'] == ['lib']:
+            owner = 'component-libs'
+            if (binary.get('variant') == 'required'
+                    and binary['package'] == binary['target'] == 'oasis7_chain_runtime'):
+                owner = 'runtime'
+        else:
+            integration_index += 1
+        buckets[owner].append(entry)
+    if sum(map(len, buckets.values())) != len(entries):
+        raise ValueError('incomplete ordinary artifact partition inventory')
+    return buckets[partition]
+
+
 def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=None):
     from ci_process_runner import run
+    artifact_partition = bool(suite == 'ordinary' and not shard and plan
+                              and plan.get('ordinary_artifact_partition_version') == 1)
+    if artifact_partition and (suite != 'ordinary' or shard or ordinary_partition not in ORDINARY_ARTIFACT_PARTITIONS[1:]):
+        raise ValueError('complete ordinary execution requires its native artifact partition')
     manifest, env = (load(bundle, suite if not shard else None, shard, plan, ordinary_partition=ordinary_partition)
-                     if ordinary_partition is not None else load(bundle, suite if not shard else None, shard, plan))
+                     if ordinary_partition is not None and not artifact_partition
+                     else load(bundle, suite if not shard else None, shard, plan))
     if suite == 'ordinary' and not shard:
-        entries = [dict(binary=name, batch=True) for name, binary in manifest['binaries'].items() if binary['ordinary'] and set(binary['tests']) - set(binary['ignored_tests'])]
-        for owner, pattern in snapshot_regressions(manifest):
-            if owner not in manifest['binaries']:
-                raise ValueError('missing default-feature snapshot harness: ' + owner)
-            binary = manifest['binaries'][owner]
-            names = [name for name in binary['tests'] if pattern in name and name not in binary['ignored_tests']]
-            if not names:
-                raise ValueError('missing snapshot regression: ' + pattern)
-            entries.append(dict(binary=owner, filter=pattern, count=len(names)))
+        entries = (ordinary_artifact_entries(manifest, plan, ordinary_partition)
+                   if artifact_partition else ordinary_entries(manifest))
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
@@ -2540,7 +2599,11 @@ def main():
         if args.phase == 'partition':
             if args.ordinary_partition is None:
                 parser.error('partition validation requires --ordinary-partition')
-            ordinary_partition_targets(plan, args.ordinary_partition)
+            if plan is not None and plan.get('ordinary_artifact_partition_version') == 1:
+                if args.ordinary_partition not in ordinary_partitions(plan):
+                    raise ValueError('unknown complete ordinary artifact partition')
+            else:
+                ordinary_partition_targets(plan, args.ordinary_partition)
         elif args.phase == 'native-commands':
             print(json.dumps(required_native_commands(plan)))
         else:

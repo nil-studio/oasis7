@@ -147,6 +147,7 @@ jobs:
       trusted_source: ${{ steps.select.outputs.trusted_source }}
       formal_shards: ${{ steps.select.outputs.formal_shards || '["runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli"]' }}
       ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '["all"]' }}
+      workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '["all"]' }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -1469,6 +1470,7 @@ jobs:
       fail-fast: false
       matrix:
         partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}
+      max-parallel: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -2113,12 +2115,18 @@ jobs:
         run: bash ./scripts/ci-tests.sh required --group "launcher_web" --repo-root "$GITHUB_WORKSPACE"
 
   workspace-support:
+    name: workspace-support (${{ matrix.partition }})
     needs: select
     if: >-
       needs.select.result == 'success' &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        partition: ${{ fromJSON(needs.select.outputs.workspace_support_partitions) }}
     env:
       OASIS7_SUPPORT_CAPACITY: "1"
       OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
@@ -2177,10 +2185,11 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           SUPPORT_PLAN: ${{ needs.select.outputs.plan }}
+          SUPPORT_PARTITION: ${{ matrix.partition }}
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-native-libraries
-          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN"
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan "$SUPPORT_PLAN" --support-partition "$SUPPORT_PARTITION"
       - name: Observe support capacity on job exit
         if: always()
         shell: bash

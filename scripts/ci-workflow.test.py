@@ -192,8 +192,17 @@ def validate_candidate_graph(workflow, config):
         if ("needs.select.result == 'success'" not in job
                 or "fromJSON(needs.select.outputs.plan).scope == 'full'" not in job):
             raise ValueError('group requires successful select and full migration fallback')
-        if group not in ('fleet_health', 'oasis7_required') and 'strategy:' in job:
+        if group not in ('fleet_health', 'oasis7_required', 'workspace_support') and 'strategy:' in job:
             raise ValueError('ordinary groups must not have singleton matrices')
+        if group == 'workspace_support':
+            header = job.split('    steps:', 1)[0]
+            if ('fail-fast: false' not in header or 'max-parallel: 2' not in header
+                    or 'partition: ${{ fromJSON(needs.select.outputs.workspace_support_partitions) }}' not in header
+                    or 'include:' in header or 'exclude:' in header
+                    or "workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '[\"all\"]' }}" not in jobs['select']
+                    or 'SUPPORT_PARTITION: ${{ matrix.partition }}' not in job
+                    or '--support-partition "$SUPPORT_PARTITION"' not in job):
+                raise ValueError('support matrix must retain every trusted profile partition and the legacy all fallback')
         if group == 'oasis7_required':
             strategy = ('    strategy:\n      fail-fast: false\n      matrix:\n'
                         '        partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}\n')
@@ -1545,6 +1554,18 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         with self.assertRaises(ValueError):
             validate_candidate_graph(WORKFLOW.replace(fallback, "ordinary_partitions: '[\"oasis7_runtime\"]'"), CONFIG)
 
+    def test_support_matrix_retains_all_selected_profiles_and_failure_boundary(self):
+        job = JOBS['workspace-support']
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+        for damaged in (
+            job.replace('fail-fast: false', 'fail-fast: true'),
+            job.replace('${{ fromJSON(needs.select.outputs.workspace_support_partitions) }}', '[other]'),
+            job.replace('      matrix:\n', '      matrix:\n        exclude: [{partition: custody}]\n'),
+            job.replace('--support-partition "$SUPPORT_PARTITION"', ''),
+        ):
+            with self.subTest(damaged=damaged[:120]), self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW.replace(job, damaged), CONFIG)
+
     def test_workspace_maintenance_recovers_without_a_new_confirmed_save(self):
         job = JOBS.get('cache-maintenance', '')
         self.assertIn('needs: [select, oasis7-test-build-trusted, formal-debug-build-trusted, formal-endpoint-build-trusted]', job)
@@ -2767,7 +2788,7 @@ run_cargo() {
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
             self.assertIn("fromJSON(needs.select.outputs.plan).scope == 'full'", job)
-            if group not in ('fleet_health', 'oasis7_required'):
+            if group not in ('fleet_health', 'oasis7_required', 'workspace_support'):
                 self.assertNotIn('strategy:', job)
             if group != 'workflow_governance':
                 self.assertNotIn('ci-authority', job)
@@ -3133,9 +3154,13 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
 
     def test_clippy_precedes_heavy_group_tests(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        ordinary = re.search(r'^    oasis7_required\).*?;;', driver, re.M).group()
+        ordinary = driver.split('    oasis7_required)\n', 1)[1].split('    formal_process)', 1)[0]
         self.assertLess(ordinary.index('run_oasis7_required_clippy_for_group oasis7_required'),
                         ordinary.index('run_oasis7_required_tier_tests'))
+        consumer = ordinary.split('        *)', 1)[0]
+        self.assertIn('--ordinary-partition "$ordinary_partition"', consumer)
+        self.assertNotIn('run_cargo', consumer)
+        self.assertIn('Complete ordinary partition requires the shared artifact', consumer)
         baseline = driver.split('run_rust_baseline() {', 1)[1].split('\n}', 1)[0]
         self.assertIn('run_oasis7_required_clippy_for_group rust_baseline', baseline)
         for group, prefix in [('consensus', 'consensus'), ('distfs', 'distfs'),
