@@ -7,7 +7,7 @@
 import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync } from 'node:fs';
-import { resolve, dirname, extname, relative } from 'node:path';
+import { resolve, dirname, extname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify, isDeepStrictEqual } from 'node:util';
@@ -47,7 +47,7 @@ const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl')
 const send = (socket, response, replay = false) => { assert(socket.readyState === 1, 'response socket is not open'); audit({ direction: 'out', connection: ids.get(socket), wall: Date.now(), replay, message: response }); socket.send(JSON.stringify(response)); };
 const server = createServer((req, res) => {
   try { const pathname = new URL(req.url, 'http://unused').pathname; http.push({ method: req.method, pathname });
-    const p = resolve(root, '.' + (pathname === '/' ? '/viewer.html' : pathname)); assert(p.startsWith(root + '/'), 'path escaped artifacts'); let bytes = readFileSync(p);
+    const p = resolve(root, '.' + (pathname === '/' ? '/viewer.html' : pathname)); assert(p.startsWith(root + sep), 'path escaped artifacts'); let bytes = readFileSync(p);
     if (pathname.endsWith('.html')) { const config = `<script id="oasis7-viewer-runtime-config" type="application/json">${JSON.stringify({ deploymentMode: 'trusted_local_only', viewerWsEndpoint: `ws://scope-observer.localhost:${server.address().port}/scope-ws` })}</script>`;
       let html = bytes.toString(); const pattern = /<script\b[^>]*id=["']oasis7-viewer-runtime-config["'][^>]*>[\s\S]*?<\/script>/g;
       const count = [...html.matchAll(pattern)].length; assert(count <= 1, 'ambiguous runtime config'); html = count ? html.replace(pattern, config) : html.replace('</head>', config + '</head>'); bytes = Buffer.from(html); }
