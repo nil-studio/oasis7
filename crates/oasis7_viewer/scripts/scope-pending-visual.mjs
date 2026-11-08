@@ -5,7 +5,7 @@
  * One native input attempt; a missed presented-target window exits unmeasured.
  */
 import { createServer } from 'node:http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { resolve, dirname, extname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,7 @@ import { promisify, isDeepStrictEqual } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 import { createScopePendingFixture } from './scope-pending-fixture.mjs';
+import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
 
 const assert = (value, message) => { if (!value) throw Error(message); };
 const within = async (promise, name) => { let timer; try { return await Promise.race([promise, new Promise((_, reject) => timer = setTimeout(() => reject(Error(name + ' timed out')), 10000))]); } finally { clearTimeout(timer); } };
@@ -30,7 +31,7 @@ const source = execFileSync('git', ['rev-parse', process.env.SCOPE_PENDING_SOURC
 assert(provenance.source === source && isDeepStrictEqual(provenance.files, assets), 'artifact provenance mismatch');
 const resetCase = process.env.SCOPE_PENDING_RESET_CASE === '1';
 const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
-  scripts: Object.fromEntries(['scope-pending-visual.mjs', 'scope-pending-fixture.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
+  scripts: Object.fromEntries(['scope-pending-visual.mjs', 'scope-pending-fixture.mjs', 'viewer-owned-cdp-input.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
   assets, provenance, case: resetCase ? 'connection_scope_reset' : 'same_request_scope_unavailable',
   scope: 'Finite controlled observer/debug transport, one input attempt, no real grant/revocation/auth-epoch, world_deleted, density or performance proof.', phases: {} };
 const command = process.env.AGENT_BROWSER_BIN || 'agent-browser', session = 'scope-pending-' + process.pid;
@@ -72,15 +73,9 @@ wss.on('connection', socket => {
   });
 });
 async function connectCdp() {
-  const info = JSON.parse(await run(['--json', 'get', 'cdp-url'])), url = info.data?.cdpUrl; assert(url?.startsWith('ws://127.0.0.1:'), 'CDP is not owned loopback');
-  const ws = new WebSocket(url, { handshakeTimeout: 10000 }), pending = new Map(); let sequence = 0;
-  try { await within(new Promise((yes, no) => { ws.once('open', yes); ws.once('error', no); }), 'CDP open'); } catch (error) { ws.terminate(); throw error; }
-  ws.on('message', bytes => { const r = JSON.parse(bytes); const p = pending.get(r.id); if (p) { clearTimeout(p.timer); pending.delete(r.id); r.error ? p.no(Error(JSON.stringify(r.error))) : p.yes(r.result); } });
-  const call = (method, params = {}, sessionId) => new Promise((yes, no) => { const id = ++sequence, timer = setTimeout(() => { pending.delete(id); no(Error(method + ' timed out')); }, 10000); pending.set(id, { yes, no, timer }); ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); });
-  const href = await evaluate('location.href'), targets = (await call('Target.getTargets')).targetInfos.filter(t => t.type === 'page' && t.url === href); assert(targets.length === 1, 'ambiguous owned Viewer page');
-  const { sessionId } = await call('Target.attachToTarget', { targetId: targets[0].targetId, flatten: true });
-  return { async frame() { return (await call('Runtime.evaluate', { expression: 'new Promise(resolve=>requestAnimationFrame(frame=>resolve({frame,now:performance.now(),wall:Date.now()})))', awaitPromise: true, returnByValue: true }, sessionId)).result.value; },
-    async enter() { summary.cdpInputAt = Date.now(); const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }; await call('Input.dispatchKeyEvent', { type: 'keyDown', text: '\r', unmodifiedText: '\r', ...key }, sessionId); await call('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, sessionId); }, close() { ws.close(); } };
+  const input = await createOwnedCdpInput(run, evaluate);
+  return { frame: input.frameBoundary,
+    async enter() { summary.cdpInputAt = Date.now(); await input.enter(); }, close: input.close };
 }
 async function reconnect() { for (const socket of wss.clients) socket.close(1012, 'controlled connection-scope transition'); await run(['wait', '1400']); }
 try {
