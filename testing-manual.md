@@ -390,6 +390,12 @@ python3 scripts/engineering_telemetry.py report /tmp/snapshot.json /tmp/report.j
 
 本轮真实来源样本为 [PR #5582 的 run 42371045878 attempt 1](https://github.com/nil-studio/oasis7/actions/runs/42371045878)：51/51 jobs、20/20 artifacts，实际 Formal 五分片成功，source `4dab41ef854cd521387b9980d0789ebef56d0367`、tested `2d56f4e270e0753e566ee4bb0b8d187e5cf59c91`、policy `8bb642d22d641fc9beccee78f0a032b2e3c9eeb7`。selection 与 endpoint manifest.execution_plan 一致；artifact 13574395298 的 SHA-256 为 `19daaf7cd8148c754e85a9d6461eccea319ce91726ef1da10140fbcbe4061469`，经 ZIP→gzip/tar 只读 manifest。回放按 5 次逻辑读取、7,212,629 响应字节、28,892,776 解码字节核对，不能作为 live 请求成本。job 的 tested/policy/config、数字 needs/条件、producer/consumer job 尚无正式绑定，因此真实整图指标 unavailable。原件按原服务保留期可能过期，摘要不能代替原件。已有真实本地 warm 原件尚未取得，本地真实验收未完成，不新跑 Cargo 补证；#5391 保持开放。
 
+前向 live 入口为 `python3 scripts/engineering_telemetry_bindings.py collect-live nil-studio/oasis7 RUN_ID ATTEMPT REPORT.json`，复用有界只读 GET、取消与请求/字节/时间上限，仅读取含专用观察步骤的 job 日志与实际 workflow SHA 的固定文件，不登录或触发构建。
+
+前向 job 观察的固定导出包含 `run.json`、完整的 `jobs-N.json`、`job-ID.log` 及从实际 `workflow_sha` 取得的 `workflow-SHA.yml`。运行 `python3 scripts/engineering_telemetry_bindings.py EXPORT_DIRECTORY REPORT.json --workflow-sha SHA`；输出必须在输入目录外。新 bindings/v1 报告绑定数字 job 与运行时 job key/matrix，保留观察时 checkout 与 run 目标不同的事实；Formal gate 没有 checkout，不补造 SHA。它仅证明实际取得的内容绑定，当前未核实矩阵总数、artifact ID/传输与消费者验证时返回 partial，不输出完整 DAG 或替代 v2 报告。用 `--scope required-gate` 时其他必要上游没有观察，同样必须列缺口。
+
+回归应覆盖错 attempt、重复实例/标记、专用步骤以外的标记、来源 workflow 不符、文件符号链接、无 checkout 控制节点、两端 manifest 摘要相同但 producer attempt 不同；保留原 job 结论。观察步骤仅在非取消终态尝试，`continue-on-error` 仅适用该精确诊断步骤，不能吞掉构建、测试、上传 required 工件或 gate 的失败。新运行验收与缺口写入对应 PR，不把旧历史 run 补签为完整。
+
 ### 当前 CI 未直接覆盖（需手册补齐）
 - Web UI agent-browser 闭环（现为手动/agent 流程，不在 CI 默认路径中）。
 - `m4/m5` builtin wasm hash 校验（`scripts/ci-tests.sh` 已移除 `sync-m4/m5 --check`）。

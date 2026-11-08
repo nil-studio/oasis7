@@ -613,8 +613,12 @@ def _download_url(url):
     trusted = host == "api.github.com" or host.endswith(".blob.core.windows.net") or host == "productionresultssa0.blob.core.windows.net" or host.endswith(".actions.githubusercontent.com")
     if not trusted or parsed.scheme != "https" or port not in (None, 443) or parsed.username or parsed.password or parsed.fragment:
         raise CollectionStopped("unsafe_download_destination")
-    if host == "api.github.com" and not re.fullmatch(r"/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/(?:runs/[0-9]+(?:/attempts/[0-9]+(?:/jobs)?|/artifacts)|artifacts/[0-9]+/zip)", parsed.path):
-        raise CollectionStopped("unsupported_api_endpoint")
+    if host == "api.github.com":
+        actions = re.fullmatch(r"/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/(?:runs/[0-9]+(?:/attempts/[0-9]+(?:/jobs)?|/artifacts)|artifacts/[0-9]+/zip|jobs/[0-9]+/logs)", parsed.path)
+        workflow = (re.fullmatch(r"/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/contents/\.github/workflows/rust\.yml", parsed.path)
+                    and re.fullmatch(r"ref=[0-9a-f]{40}", parsed.query))
+        if not actions and not workflow:
+            raise CollectionStopped("unsupported_api_endpoint")
     return host
 
 
