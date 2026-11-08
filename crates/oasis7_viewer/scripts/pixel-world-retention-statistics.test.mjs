@@ -17,7 +17,7 @@ describe('read-only retention components', () => {
     const client = createWorldViewClient({ request: query => { const response = fixture.reply({type:'request_world_view',query},'owned').view; return query.cursor ? new Promise(resolve=>{finish=()=>resolve(response);}) : Promise.resolve(response); } });
     client.reset('public',fixture.describe().world); const pending = client.query({});
     await new Promise(resolve=>setImmediate(resolve));
-    const partial=client.statistics(); assert.equal(partial.published.entities,1); assert.equal(partial.published.completeness,'partial'); assert.equal(partial.paging.maps[0],1); assert(partial.paging.logicalJsonBytes>0); assert(!JSON.stringify(partial).includes('scope-A'));
+    const partial=client.statistics('scope-qa-cut-1'); assert.equal(partial.published.sourceCutMatches,true); assert.equal(client.statistics('wrong-cut').published.sourceCutMatches,false); assert.equal(partial.published.entities,1); assert.equal(partial.published.completeness,'partial'); assert.equal(partial.paging.maps[0],1); assert(partial.paging.logicalJsonBytes>0); assert(!JSON.stringify(partial).includes('scope-A'));
     client.reset('another'); assert.equal(client.statistics().paging.active,false); finish();await pending;assert.equal(client.statistics().published.entities,0);
   });
   it('does not expose pending old-generation paging data after reset' , async () => {

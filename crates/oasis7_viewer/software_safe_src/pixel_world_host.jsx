@@ -848,7 +848,7 @@ export function PixelWorldHost(props) {
   const spatial = createPixelWorldSpatialController({core,enabled:()=>core.state.viewerProtocol?.capabilities?.includes("world_view"),
     getLocale:locale,getRenderState:()=>rustRenderState()});
   if (pixelWorldTestApiEnabled()) {
-    const readRetention = () => spatial.readStatistics();
+    const readRetention = expectedSourceCut => spatial.readStatistics(expectedSourceCut);
     window.__OASIS7_WORLD_VIEW_RETENTION__ = readRetention;
     onCleanup(() => {
       if (window.__OASIS7_WORLD_VIEW_RETENTION__ === readRetention) delete window.__OASIS7_WORLD_VIEW_RETENTION__;

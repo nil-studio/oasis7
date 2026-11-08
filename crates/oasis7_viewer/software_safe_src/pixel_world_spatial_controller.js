@@ -130,9 +130,9 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     return core.applySelection(ref);
   }
   const controller = {
-    readStatistics() {
+    readStatistics(expectedSourceCut = null) {
       if (disposed || pixelWorldScope(core.state) !== scope) return null;
-      return client.statistics?.() ?? null;
+      return client.statistics?.(expectedSourceCut) ?? null;
     },
     state,navigation,pauseVersion,selection,selectionStatus,scope:()=>scope,
     // Called by Host only after publishing this render DTO. Store identities,
