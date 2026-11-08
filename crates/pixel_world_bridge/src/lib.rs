@@ -417,9 +417,7 @@ struct BevyRuntimeState {
     reactive_scheduling: bool,
     camera: CameraState,
     camera_fit_version: u64,
-    retired_overview_request: Option<String>,
-    navigation_highwater: u64,
-    pending_overview_result: Option<String>,
+    overview: overview_query::Runtime,
     last_canvas_size: Option<(u32, u32)>,
     last_canvas_css: Option<(f64, f64)>,
     last_pixel_layout: Option<pixel_pipeline::PixelLayout>,
@@ -961,11 +959,7 @@ fn apply_external_render_snapshot(
         return;
     };
 
-    if render_state.is_none() {
-        runtime.pending_fit_bounds = None;
-        runtime.retired_overview_request = None;
-        runtime.pending_overview_result = None;
-    }
+    navigation::reset_if_detached(runtime, render_state.as_deref());
     let previous_focus_target = focus_target_from_render_state(runtime.render_state.as_ref());
     let next_focus_target = focus_target_from_render_state(render_state.as_deref());
     let navigation_changed =

@@ -1,6 +1,13 @@
 //! Query identity is a display fence, never authorization or a world version.
 use super::*;
 
+#[derive(Default)]
+pub(super) struct Runtime {
+    pub retired_request: Option<String>,
+    pub navigation_highwater: u64,
+    pub pending_result: Option<String>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) enum Declaration {
     #[default]
