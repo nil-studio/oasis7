@@ -20,6 +20,11 @@ describe('read-only retention components', () => {
     const partial=client.statistics('scope-qa-cut-1'); assert.equal(partial.published.queryGenerationMatches,true); assert.equal(partial.published.sourceCutMatches,true); assert.equal(client.statistics('wrong-cut').published.sourceCutMatches,false); assert.equal(partial.published.entities,1); assert.equal(partial.published.completeness,'partial'); assert.equal(partial.paging.maps[0],1); assert(partial.paging.logicalJsonBytes>0); assert(!JSON.stringify(partial).includes('scope-A'));
     const previousScope=partial.scopeSequence; client.reset('another'); assert.equal(client.statistics().scopeSequence,previousScope+1); assert.equal(client.statistics().published.queryGenerationMatches,false); assert.equal(client.statistics().paging.active,false); finish();await pending;assert.equal(client.statistics().published.entities,0);
   });
+  it('cheap phase stamps never traverse DTO values or trigger a read', () => {
+    let requests=0;const client=createWorldViewClient({request:async()=>{requests++;return null;}}),original=globalThis.TextEncoder;
+    globalThis.TextEncoder=class {constructor(){throw Error('DTO traversal attempted');}};
+    try{const stamp=client.statistics('known-cut',false);assert.equal(stamp.measured,false);assert.equal(stamp.published.logicalJsonBytes,null);assert.equal(stamp.published.visitedNodes,0);assert.equal(requests,0);}finally{globalThis.TextEncoder=original;}
+  });
   it('distinguishes client remounts without exposing scope identity', () => { const a=createWorldViewClient({request:async()=>null}), b=createWorldViewClient({request:async()=>null}); assert.notEqual(a.statistics().instanceSequence,b.statistics().instanceSequence); });
   it('does not expose pending old-generation paging data after reset' , async () => {
     let finish; const client = createWorldViewClient({ request: () => new Promise(resolve => { finish = resolve; }) });

@@ -14,12 +14,13 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
   const publish = patch => { state = { ...state, ...patch }; onChange(state); };
   return {
     state: () => state,
-    statistics(expectedSourceCut = null) {
+    statistics(expectedSourceCut = null, measure = true) {
       const started = performance.now(), query = retainedQuery?.generation === generation ? retainedQuery : null;
-      const published = measureRetainedJson([state.view, state.changes]);
-      const pagingRoots = query ? [query.first(), query.last(), ...query.maps().flatMap(map => [...map.values()])] : [];
-      const paging = measureRetainedJson(pagingRoots);
-      return { instanceSequence: retentionInstance, localGeneration: generation, scopeSequence, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
+      const measured=measure!==false, unknown={logicalJsonBytes:null,uniqueObjects:null,uniqueArrays:null,visitedNodes:0,heapBytes:null};
+      const published = measured ? measureRetainedJson([state.view, state.changes]) : unknown;
+      const pagingRoots = measured && query ? [query.first(), query.last(), ...query.maps().flatMap(map => [...map.values()])] : [];
+      const paging = measured ? measureRetainedJson(pagingRoots) : unknown;
+      return { measured, instanceSequence: retentionInstance, localGeneration: generation, scopeSequence, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
         published: { ...published, entities: state.view?.entities?.length || 0, changes: state.changes.length, queryGenerationMatches: state.view?.request_generation === String(generation), sourceCutMatches: typeof expectedSourceCut === 'string' ? state.view?.source_cut === expectedSourceCut : null, completeness: ['complete','partial','unknown'].includes(state.view?.completeness) ? state.view.completeness : null },
         paging: { ...paging, active: Boolean(query), maps: query?.maps().map(map => map.size) || [0,0,0,0], cursors: query?.seen.size || 0 },
         observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory' };
