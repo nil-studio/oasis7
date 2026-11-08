@@ -1190,7 +1190,8 @@ def parse_job_log(raw, job, repository, run_id, attempt):
     """Read exactly one marker emitted inside the dedicated step's time window.
 
     Raw logs are never persisted in a report. API step number/time and the marker
-    offset are retained. Boundary-equal timestamps are rejected as ambiguous.
+    offset are retained. Equal-second API boundaries require dedicated log-group
+    and next-group/cleanup fences; their subsecond timing is not inferred.
     """
     steps = [s for s in job.get('steps', []) if s.get('name') == STEP]
     if len(steps) != 1 or steps[0].get('conclusion') != 'success':
