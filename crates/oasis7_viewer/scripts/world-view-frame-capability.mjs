@@ -9,10 +9,10 @@ export function summarizeFrameEvents(events) {
   reason:'Browser image/swap records do not map the active world render version/pass through GPU completion to physical presentation; UI redraw and reused world textures are not new world frames.'};
 }
 export async function withObservationCleanup(body,cleanup,report) {
- let original,value;
- try { value=await body(); } catch(error) { original=error; }
- try { await cleanup(); } catch(error) { (report.cleanupErrors??=[]).push(String(error));if(!original)original=error; }
- if(original) { if(report.cleanupErrors?.length) { try { original.observationCleanupErrors=[...report.cleanupErrors]; } catch {} console.error('observation cleanup failed: '+JSON.stringify(report.cleanupErrors)); } throw original; }return value;
+ let original,value,failed=false;
+ try { value=await body(); } catch(error) { original=error;failed=true; }
+ try { await cleanup(); } catch(error) { (report.cleanupErrors??=[]).push(String(error));if(!failed){original=error;failed=true;} }
+ if(failed) { if(report.cleanupErrors?.length) { try { original.observationCleanupErrors=[...report.cleanupErrors]; } catch {} console.error('observation cleanup failed: '+JSON.stringify(report.cleanupErrors)); } throw original; }return value;
 }
 // Page-target images only. No browser-global trace is started, including when
 // one page happens to exist: another page could be created while tracing.
