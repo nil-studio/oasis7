@@ -26,8 +26,10 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const files = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(resolve(dir, e.name)) : [resolve(dir, e.name)]);
 const manifest = () => Object.fromEntries(files(root).sort().map(p => [relative(root, p), { bytes: readFileSync(p).length, sha256: sha(readFileSync(p)) }]));
 const provenance = JSON.parse(readFileSync(process.env.QUERY_OVERVIEW_COMPOSED_MANIFEST)), assets = manifest();
+const declaredFiles = Array.isArray(provenance.files) ? Object.fromEntries(provenance.files.map(f => [f.path, {bytes:f.size,sha256:f.sha256}])) : provenance.files;
+assert(!Array.isArray(provenance.files) || Object.keys(declaredFiles).length===provenance.files.length, 'duplicate manifest paths');
 const source = execFileSync('git', ['rev-parse', process.env.QUERY_OVERVIEW_SOURCE_HEAD + '^{commit}'], { cwd: repo, encoding: 'utf8' }).trim();
-assert(provenance.source === source && isDeepStrictEqual(provenance.files, assets), 'artifact provenance mismatch');
+assert(provenance.source === source && isDeepStrictEqual(declaredFiles, assets), 'artifact provenance mismatch');
 const viewportWidth=Number(process.env.QUERY_OVERVIEW_WIDTH||1440);assert([390,1440].includes(viewportWidth),'unsupported viewport');const qaCase = process.env.QUERY_OVERVIEW_CASE || 'complete'; assert(['complete','cancel','terminal'].includes(qaCase),'unknown case');
 const summary = { source, runnerHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
   scripts: Object.fromEntries(['query-overview-visual.mjs', 'scope-pending-fixture.mjs', 'agent-browser-visual-runner-lifecycle.mjs'].map(n => [n, sha(readFileSync(resolve(here, n)))])),
