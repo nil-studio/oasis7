@@ -304,7 +304,7 @@ try {
     const {readOwnedMemory}=await import('./viewer-owned-cdp-memory.mjs');
     const {measureWorldViewRetention}=await import('./world-view-retention-memory.mjs');
     const memorySession=await createOwnedCdpSession(run,evaluate);
-    for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
+    for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs','viewer-retention-focus.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
     await withObservationCleanup(async()=>{summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)});},()=>memorySession.close(),summary);
   }
   if (process.env.DENSITY_QA_FRAME_OBSERVATION_MS) summary.frameObservation = await probeWorldFrameCapabilities({run,evaluate,out,durationMs:Number(process.env.DENSITY_QA_FRAME_OBSERVATION_MS)});

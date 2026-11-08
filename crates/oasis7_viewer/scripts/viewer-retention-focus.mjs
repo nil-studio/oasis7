@@ -21,3 +21,10 @@ export async function focusRetentionTarget(selector,expectedCut) {
   throw Error('same native target did not become ready before input: '+JSON.stringify(last));
 }
 export const retentionFocusScript=(selector,cut)=>`(${focusRetentionTarget.toString()})(${JSON.stringify(selector)},${JSON.stringify(cut)})`;
+
+export function validateRetentionFocusAnchor(previous,prepared,stable=null) {
+ if(prepared?.focused!==true||!Number.isSafeInteger(prepared.scope)||!Number.isSafeInteger(prepared.instance)||!Number.isFinite(prepared.origin))throw Error('native preparation identity missing');
+ const anchor={scope:prepared.scope,instance:prepared.instance,origin:prepared.origin};
+ for(const expected of [previous,stable])if(expected&&(expected.scope!==anchor.scope||expected.instance!==anchor.instance||expected.origin!==anchor.origin))throw Error('scope/instance/page changed before native input');
+ return anchor;
+}

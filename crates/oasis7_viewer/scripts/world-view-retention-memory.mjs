@@ -1,3 +1,4 @@
+import { retentionFocusScript, validateRetentionFocusAnchor } from './viewer-retention-focus.mjs';
 import { performance } from 'node:perf_hooks';
 import { withObservationCleanup } from './world-view-frame-capability.mjs';
 import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
@@ -19,9 +20,12 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
   };
   const disclosure='.pixel-world-exploration-disclosure';
   const setOpen = async wanted => { const open=await json(`document.querySelector(${JSON.stringify(disclosure)})?.open`); assert(typeof open==='boolean','exploration disclosure missing'); if(open!==wanted)await run(['click',disclosure+' > summary']); };
-  let nativeInput;
+  let nativeInput, inputIdentityAnchor=null;
   const nativeCount = type => json(`window.__RETENTION_NATIVE_COUNTS__?.[${JSON.stringify(type)}]`);
-  const select = async (id='qa-agent-0499') => { const nativeBefore=await nativeCount('selection'); await json(`(()=>{const b=document.querySelector('button[data-agent-id="${id}"][data-renderer-target]');if(!b?.isConnected)throw Error('selection target detached before native input');const r=b.getBoundingClientRect();if(r.width<=0||r.height<=0||r.right<0||r.bottom<0||r.left>=innerWidth||r.top>=innerHeight)throw Error('selection target not in viewport');b.focus({preventScroll:true});if(document.activeElement!==b)throw Error('selection focus failed');return true})()`);await nativeInput.enter(); const end=performance.now()+5000; do {if(await json(`document.querySelector('button[data-agent-id="${id}"][data-renderer-target]')?.dataset.selected==='true'`)){const nativeAfter=await nativeCount('selection');assert(nativeAfter>nativeBefore,'selection lacked trusted click');action({type:'selection',variant:id==='qa-agent-0498'?0:1,nativeBefore,nativeAfter,confirmed:true});return;}await run(['wait','25']);}while(performance.now()<end);throw Error('trusted selection not confirmed'); };
+  const select = async (id='qa-agent-0499') => { const nativeBefore=await nativeCount('selection'); const prepared=await json(retentionFocusScript('button[data-agent-id="'+id+'"][data-renderer-target]',fixture.description().cut));
+    inputIdentityAnchor=validateRetentionFocusAnchor(inputIdentityAnchor,prepared,homeScopeSequence===null?null:{scope:homeScopeSequence,instance:homeInstanceSequence,origin:homeTimeOrigin});
+    action({type:'focus_preparation',variant:id==='qa-agent-0498'?0:1,...prepared});
+    await nativeInput.enter(); const end=performance.now()+5000; do {if(await json(`document.querySelector('button[data-agent-id="${id}"][data-renderer-target]')?.dataset.selected==='true'`)){const nativeAfter=await nativeCount('selection');assert(nativeAfter>nativeBefore,'selection lacked trusted click');action({type:'selection',variant:id==='qa-agent-0498'?0:1,nativeBefore,nativeAfter,confirmed:true});return;}await run(['wait','25']);}while(performance.now()<end);throw Error('trusted selection not confirmed'); };
   const filter = async () => { await setOpen(true); await run(['fill','.pixel-world-exploration input','qa-agent-049']); await run(['click','.pixel-world-exploration button[type="submit"]']); await settle(10);const wire=await readWireSummary({search:'qa-agent-049'});assert(wire.latestSearchMatches===true,'filter was not a matching actual read query');action({type:'filter',entities:10,requestCount:wire.requestCount,searchMatched:true});await setOpen(false); await sample('filtered',10); };
   const waitRegion = async (camera, previousRequests) => {
     const keys=['min_x_cm','max_x_cm','min_y_cm','max_y_cm'],end=performance.now()+12000;

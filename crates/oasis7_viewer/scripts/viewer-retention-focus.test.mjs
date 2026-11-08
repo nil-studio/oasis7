@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
-import {retentionFocusScript} from './viewer-retention-focus.mjs';
+import {retentionFocusScript,validateRetentionFocusAnchor} from './viewer-retention-focus.mjs';
 function context({readyAfter=0,count=1000,identity=false}={}) {
  let now=0,attempts=0,focused=0;const reads=[];
  const document={activeElement:null,querySelector(){attempts++;return attempts>readyAfter?button:null;}};
@@ -12,3 +12,5 @@ function context({readyAfter=0,count=1000,identity=false}={}) {
 test('waits for the same attached target then focuses once, using cheap reads only',async()=>{const c=context({readyAfter:2});const result=await runInNewContext(retentionFocusScript('button','cut'),c.globals);assert.equal(result.focused,true);assert.equal(c.focused,1);assert.equal(c.elapsed,50);assert(c.reads.every(row=>row.measure===false));});
 test('never-ready preparation is bounded and sends no focus/input',async()=>{const c=context({readyAfter:Infinity});await assert.rejects(runInNewContext(retentionFocusScript('button','cut'),c.globals),/did not become ready/);assert.equal(c.focused,0);assert.equal(c.elapsed,10000);});
 test('complete999 or acquired identity stops before focus instead of retrying',async()=>{for(const options of [{count:999},{identity:true}]){const c=context(options);await assert.rejects(runInNewContext(retentionFocusScript('button','cut'),c.globals),/cardinality|identity/);assert.equal(c.focused,0);assert.equal(c.elapsed,0);}});
+
+test('scope, instance and page changes reject before the caller can send Enter',()=>{const before={scope:2,instance:1,origin:1000};for(const change of [{scope:3},{instance:2},{origin:1001}]){let sent=0;assert.throws(()=>{validateRetentionFocusAnchor(before,{focused:true,...before,...change});sent++;},/changed/);assert.equal(sent,0);}assert.deepEqual(validateRetentionFocusAnchor(before,{focused:true,...before,generation:99},before),before);});
