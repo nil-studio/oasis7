@@ -25,7 +25,9 @@ import shlex
 RUNTIME_WORKER_TEST = 'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter'
 RUNTIME_WORKER_PACKAGE = 'oasis7_runtime'
 RUNTIME_WORKER_TARGET = 'oasis7_runtime'
-RUNTIME_WORKER_VARIANT = 'runtime-worker-companion'
+# Observation label for an inventory-selected test resource, never a planned
+# test variant or a dependency-cache warming context.
+RUNTIME_WORKER_BUILD = 'runtime-worker-companion'
 RUNTIME_WORKER_PATH = 'bin/oasis7-wasm-worker'
 RUNTIME_WORKER_VARIABLE = 'OASIS7_WASM_WORKER_TEST_EXE'
 RUNTIME_WORKER_FEATURE = 'wasmtime'
@@ -959,17 +961,15 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         ('viewer-snapshot-tests', ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'], []),
     ]
     if scope == 'all':
-        result = variants + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
-        return add_runtime_worker_companion(result, scope, plan)
+        return variants + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
     if scope == 'ordinary':
         targets = ordinary_fast_targets(plan)
         selected_targets = ordinary_partition_targets(plan, ordinary_partition)
         if targets is not None:
             variants = target_build_variants(targets, 'required-fast-',
                                             combine=plan.get('fast_execution_version') == 1)
-            result = [(name, args, features) for name, args, features in variants
-                      if targets[int(name.removeprefix('required-fast-'))] in selected_targets]
-            return add_runtime_worker_companion(result, scope, plan, ordinary_partition)
+            return [(name, args, features) for name, args, features in variants
+                    if targets[int(name.removeprefix('required-fast-'))] in selected_targets]
         if fast_plan(plan) is not None:
             packages = set(required_packages(plan))
             native_args = required_arguments(plan)
@@ -981,10 +981,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
                                                '--features', ','.join(viewer_features)], viewer_features))
             owners = {'snapshot-tests': 'oasis7', 'viewer-snapshot-tests': 'oasis7_viewer_runtime'}
             selected.extend(v for v in variants if owners.get(v[0]) in packages)
-            result = selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
-            return add_runtime_worker_companion(result, scope, plan)
-        result = [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
-        return add_runtime_worker_companion(result, scope, plan)
+            return selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
+        return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
     if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
         # Keep both core libraries and the exact Chain binary harness. Chain
         # configuration library tests belong to the ordinary required variant;
@@ -1008,36 +1006,6 @@ def runtime_worker_case_selected(cases):
     return any(isinstance(case, str) and
                (case == RUNTIME_WORKER_TEST or case.endswith('::' + RUNTIME_WORKER_TEST))
                for case in cases)
-
-
-def runtime_worker_companion_selected(scope, plan, ordinary_partition=None):
-    """Match the artifact's selected ordinary Runtime harness, never unrelated scopes."""
-    if sys.platform != 'linux' or scope not in ('ordinary', 'all'):
-        return False
-    if scope == 'all':
-        return True
-    selected_plan = fast_plan(plan)
-    if selected_plan is None:
-        return True
-    targets = ordinary_partition_targets(plan, ordinary_partition)
-    if targets is not None:
-        return any(target['package'] == RUNTIME_WORKER_PACKAGE
-                   and target['target_kind'] == 'lib'
-                   and target['target_name'] == RUNTIME_WORKER_TARGET
-                   for target in targets)
-    if (selected_plan.get('scope') in ('full', 'explicit-full')
-            or selected_plan.get('execution_profile') in ('periodic-full', 'candidate-full')):
-        return True
-    return RUNTIME_WORKER_PACKAGE in selected_plan.get('oasis7_required_packages', [])
-
-
-def add_runtime_worker_companion(variants, scope, plan, ordinary_partition=None):
-    if not runtime_worker_companion_selected(scope, plan, ordinary_partition):
-        return variants
-    return variants + [(RUNTIME_WORKER_VARIANT,
-                        ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
-                         '--features', RUNTIME_WORKER_FEATURE, '--bin', 'oasis7-wasm-worker'],
-                        [RUNTIME_WORKER_FEATURE])]
 
 
 def artifact_logical_name(variant, package, target, test):
@@ -1090,8 +1058,6 @@ def build_cache_dependencies(scope):
     """Compile the producer's exact variants without copying/running a bundle."""
     env = build_environment(scope)
     for name, args, _ in build_variants(scope):
-        if name == RUNTIME_WORKER_VARIANT:
-            continue
         command = ['cargo', *args, '--locked']
         print('cache_build_variant=' + name + ' command=' + ' '.join(command), flush=True)
         subprocess.run(command, env=env, cwd=ROOT, check=True)
@@ -1244,7 +1210,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
                                 ('required-full-fast-', ordinary_full_fast_targets(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
-    for variant, args, features in variants:
+    def build_variant(variant, args, features):
+        nonlocal worker_companion
         members = {variant: target_specs[variant]} if variant in target_specs else {}
         if (members and scope == 'ordinary' and plan is not None
                 and plan.get('fast_execution_version') == 1):
@@ -1289,7 +1256,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 name = target['name']
                 manifest = Path(artifact['manifest_path'])
                 package = tomllib.loads(manifest.read_text())['package']['name']
-                if variant == RUNTIME_WORKER_VARIANT:
+                if variant == RUNTIME_WORKER_BUILD:
                     if (worker_companion is not None or package != 'oasis7_wasm_executor'
                             or name != 'oasis7-wasm-worker' or target['kind'] != ['bin'] or test
                             or artifact['features'] != [RUNTIME_WORKER_FEATURE]
@@ -1356,6 +1323,9 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         if len(members) > 1:
             timings[-1]['target_variants'] = list(members)
         print('native_build=' + json.dumps(timings[-1]), flush=True)
+
+    for variant, args, features in variants:
+        build_variant(variant, args, features)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
         producer_run_id=os.environ.get('GITHUB_RUN_ID', 'local'),
@@ -1365,8 +1335,6 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), checkout=str(ROOT), binaries=binaries,
         config_sha256=digest(CONFIG), build_timings=timings)
-    if worker_companion is not None:
-        manifest['worker_companion'] = worker_companion
     if fast_plan(plan) is not None:
         manifest['execution_plan'] = plan
     if ordinary_partition is not None:
@@ -1379,6 +1347,17 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             binary['tests'] = inventory(bundle / binary['path'], env=list_env)
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+    # Companion executables are test resources, not additional test variants.
+    # The actual active libtest inventory is authoritative: a minimum case list
+    # or a package name cannot prove that this particular harness needs a worker.
+    if scope in ('ordinary', 'all') and runtime_worker_test_selected(manifest):
+        build_variant(RUNTIME_WORKER_BUILD,
+                      ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
+                       '--features', RUNTIME_WORKER_FEATURE, '--bin', 'oasis7-wasm-worker'],
+                      [RUNTIME_WORKER_FEATURE])
+        if worker_companion is None:
+            raise ValueError('missing Runtime worker companion build artifact')
+        manifest['worker_companion'] = worker_companion
     config = formal_configuration()
     component = scope in FORMAL_COMPONENTS
     manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
@@ -1390,6 +1369,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     if scope != 'ordinary' and not component:
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
+    if worker_companion is not None:
+        validate_runtime_worker_companion(bundle, manifest)
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
