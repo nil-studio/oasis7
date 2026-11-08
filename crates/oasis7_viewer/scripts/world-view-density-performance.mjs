@@ -31,6 +31,27 @@ export function summarizeDensityFeedback(samples, trace) {
     observedBelowDensity: samples.length - confirmed.length - pending }, allInputsConfirmedDensity: confirmed.length === samples.length && samples.length > 0,
     allFeedback100ms: gate(all), confirmedDensityFeedback100ms: gate(dense), formalP6: false };
 }
+// Persist collection evidence before scoring: an invalid trace must never erase
+// the original input failure or the density monitor collected alongside it.
+export function persistDensityPerformanceEvidence({ out, evidence, samples, monitor, trace }) {
+  evidence.actualInputSpanMs = samples.length ? samples.at(-1).endTime - samples[0].startTime : null;
+  evidence.monitorOverflow = monitor?.overflow ?? null;
+  if (monitor) writeFileSync(resolve(out, 'performance-monitor.json'), JSON.stringify(monitor, null, 2));
+  if (trace) writeFileSync(resolve(out, 'performance-input-paint-trace.raw.json'), JSON.stringify(trace, null, 2));
+  writeFileSync(resolve(out, 'performance-window.json'), JSON.stringify(evidence, null, 2));
+  try {
+    assert(monitor && trace, 'performance collection incomplete');
+    evidence.feedback = summarizeDensityFeedback(samples, trace);
+    evidence.input = evidence.feedback.all;
+    evidence.inputDensity = evidence.feedback.counts;
+    evidence.rafOpportunities = distribution(monitor.raf.map(row => row.interval));
+    evidence.densityMonitor = { total: monitor.density.length, dense: monitor.density.filter(row => row.status === 'observed' && row.inView === 1000 && row.labels === 200).length,
+      pending: monitor.density.filter(row => row.status !== 'observed').length, observedBelowDensity: monitor.density.filter(row => row.status === 'observed' && (row.inView !== 1000 || row.labels !== 200)).length };
+    evidence.localFeedback100ms = evidence.feedback.allFeedback100ms;
+    writeFileSync(resolve(out, 'performance-input-paint-trace.json'), JSON.stringify({ trace, matched: evidence.input }, null, 2));
+  } catch (error) { evidence.scoringError = String(error); }
+  finally { writeFileSync(resolve(out, 'performance-window.json'), JSON.stringify(evidence, null, 2)); }
+}
 const densityExpression = `(()=>{const s=window.__AW_TEST__.getState();return {time:performance.now(),origin:performance.timeOrigin,visibility:document.visibilityState,metrics:window.__QA_READ_METRICS__(),targets:document.querySelectorAll('.pixel-world-renderer-target').length,camera:s.pixelWorldCamera,authReady:s.authReady,playerId:s.authPlayerId,publicKey:s.authPublicKey,boundAgent:s.authBoundAgentId,registration:s.authRegistrationStatus}})()`;
 function assertDensity(row) {
   assert(row.visibility === 'visible' && row.metrics.status === 'observed'
@@ -110,25 +131,24 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
     await evaluate('new Promise(resolve=>setTimeout(()=>resolve(true),2000))');
   } catch (error) { evidence.error = String(error); throw error; }
   finally {
-    const monitor = await json('(()=>{__DENSITY_MONITOR__.dispose();return JSON.stringify(__DENSITY_MONITOR__)})()');
-    if (profiling) { try { await run(['profiler', 'stop', resolve(out, 'performance-cpu-trace.json')]); } catch(error) { evidence.profilingError = String(error); } }
-    const trace = await json('JSON.stringify(window.__VIEWER_INPUT_TRACE__)');
-    await evaluate('window.__VIEWER_INPUT_TRACE__.dispose();true');
-    writeFileSync(resolve(out, 'performance-input-paint-trace.raw.json'), JSON.stringify(trace, null, 2));
-    evidence.monitorOverflow = monitor.overflow;
-    evidence.actualInputSpanMs = samples.length ? samples.at(-1).endTime - samples[0].startTime : null;
-    evidence.feedback = summarizeDensityFeedback(samples, trace);
-    evidence.input = evidence.feedback.all;
-    evidence.inputDensity = evidence.feedback.counts;
-    evidence.rafOpportunities = distribution(monitor.raf.map(row => row.interval));
-    evidence.densityMonitor = { total: monitor.density.length, dense: monitor.density.filter(row => row.status === 'observed' && row.inView === 1000 && row.labels === 200).length,
-      pending: monitor.density.filter(row => row.status !== 'observed').length, observedBelowDensity: monitor.density.filter(row => row.status === 'observed' && (row.inView !== 1000 || row.labels !== 200)).length };
-    evidence.localFeedback100ms = evidence.feedback.allFeedback100ms;
+    // Capture each source independently; cleanup/scoring failures are secondary
+    // to the original input error and must not prevent the other raw writes.
     evidence.profilingEnabled = profiling;
-    writeFileSync(resolve(out, 'performance-input-paint-trace.json'), JSON.stringify({ trace, matched: evidence.input }, null, 2));
-    writeFileSync(resolve(out, 'performance-monitor.json'), JSON.stringify(monitor, null, 2));
     writeFileSync(resolve(out, 'performance-window.json'), JSON.stringify(evidence, null, 2));
+    const capture = async (name, fn) => {
+      try { return await fn(); }
+      catch (error) { (evidence.collectionErrors ||= {})[name] = String(error); return null; }
+    };
+    const monitor = await capture('monitor', () => json('(()=>{__DENSITY_MONITOR__.dispose();return JSON.stringify(__DENSITY_MONITOR__)})()'));
+    if (monitor) writeFileSync(resolve(out, 'performance-monitor.json'), JSON.stringify(monitor, null, 2));
+    if (profiling) { try { await run(['profiler', 'stop', resolve(out, 'performance-cpu-trace.json')]); } catch(error) { evidence.profilingError = String(error); } }
+    const trace = await capture('trace', () => json('JSON.stringify(window.__VIEWER_INPUT_TRACE__)'));
+    if (trace) writeFileSync(resolve(out, 'performance-input-paint-trace.raw.json'), JSON.stringify(trace, null, 2));
+    await capture('traceDispose', () => evaluate('window.__VIEWER_INPUT_TRACE__.dispose();true'));
+    persistDensityPerformanceEvidence({ out, evidence, samples, monitor, trace });
   }
+  assert(!evidence.collectionErrors, JSON.stringify(evidence.collectionErrors));
+  assert(!evidence.scoringError, evidence.scoringError);
   assert(!evidence.profilingError, evidence.profilingError);
   assert(!evidence.monitorOverflow, 'monitor overflow');
   assert(evidence.actualInputSpanMs >= durationMs && evidence.gestures.some(row => row.type === 'pan') && evidence.gestures.some(row => row.type === 'zoom') && evidence.updates.length > 0, 'requested actual input window was incomplete');
