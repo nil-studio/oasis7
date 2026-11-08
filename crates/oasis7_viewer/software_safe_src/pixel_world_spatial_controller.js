@@ -29,7 +29,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   let cameraBounds = null, cameraKey = '', timer = null, command = 0, disposed = false;
   let following = null, selectedCoreKey = null, inFlight = null, dirty = false;
   let presented = null, pending = null, pendingTimer = null;
-  let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartView = null;
+  let pendingOverview = null, overviewTimer = null, queryToken = 0, readingQueryToken = -1, readStartViews = new WeakSet();
   function cancelOverview(status = null, stop = false) {
     const retire = stop && (pendingOverview || navigation()?.overview_query);
     clearTimeout(overviewTimer);overviewTimer = null;pendingOverview = null;setOverviewStatus(status);
@@ -48,7 +48,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
       cancelOverview('unavailable',true);return;
     }
     // A queued read or the retained old complete view is not a page of this read.
-    if (readingQueryToken!==intent.queryToken || (next.loading && view===readStartView)) {
+    if (readingQueryToken!==intent.queryToken || (next.loading && (view==null || readStartViews.has(view)))) {
       if (!next.loading) cancelOverview('unavailable',true);
       return;
     }
@@ -148,7 +148,8 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     const caps = core.state.viewerProtocol?.capabilities || [];
     if (caps.includes('world_view_aggregate_v1')) query.detail_level ||= 'auto'; else delete query.detail_level;
     if (caps.includes('world_view_event_anchor_v1')) query.include_events = true; else delete query.include_events;
-    readingQueryToken = queryToken;readStartView = state().view;
+    readingQueryToken = queryToken;readStartViews = new WeakSet();
+    if (state().view) readStartViews.add(state().view);
     inFlight = client.query(query,{delta:caps.includes('world_view_delta_v1'),preserveChanges:true});
     try { return await inFlight; } finally {
       inFlight = null;
@@ -313,7 +314,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     },
     resetScope() {
       cancelPending();presented = null;
-      cancelOverview();queryToken += 1;
+      cancelOverview();queryToken += 1;readStartViews = new WeakSet();
       scope = pixelWorldScope(core.state);feedbackScopeGeneration += 1;feedbackAuthority = null;cancelScheduled();command += 1;
       dirty = false;lastSnapshot = null;lastPins = '';cameraBounds = null;cameraKey = '';currentQuery = {};following = null;selectedCoreKey = null;
       setSpatialSelection(null);setNavigation(null);client.reset(scope,core.state.worldId);
