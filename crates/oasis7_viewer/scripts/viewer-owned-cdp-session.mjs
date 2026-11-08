@@ -34,7 +34,7 @@ export async function createOwnedCdpSession(run, evaluate) {
     const page = targets.targetInfos.filter(t => t.type === 'page' && t.url === href);
     if (page.length !== 1) throw Error('CDP target did not uniquely match owned Viewer');
     const { sessionId } = await send('Target.attachToTarget', { targetId: page[0].targetId, flatten: true });
-    const pageMethods = new Set(['Input.dispatchKeyEvent','Input.dispatchMouseEvent','Runtime.evaluate','Runtime.getHeapUsage','Performance.enable','Performance.getMetrics','Memory.getDOMCounters','Page.getLayoutMetrics']);
+    const pageMethods = new Set(['Input.dispatchKeyEvent','Input.dispatchMouseEvent','Runtime.evaluate','Runtime.getHeapUsage','Performance.enable','Performance.getMetrics','Memory.getDOMCounters','Page.getLayoutMetrics','Page.startScreencast','Page.stopScreencast','Page.screencastFrameAck']);
     const browserMethods = new Set(['Browser.getVersion','SystemInfo.getProcessInfo','Tracing.getCategories','Tracing.start','Tracing.end','IO.read','IO.close']);
     const checked = (methods, method, params, session) => {
       if (!methods.has(method)) throw Error('CDP method outside owned observation/input contract: ' + method);
@@ -46,9 +46,10 @@ export async function createOwnedCdpSession(run, evaluate) {
       async browser(method, params = {}) {
         if (!browserMethods.has(method)) throw Error('CDP method outside owned observation/input contract: ' + method);
         const current = (await send('Target.getTargets')).targetInfos.filter(t => t.type === 'page');
-        if (current.length !== 1 || current[0].targetId !== page[0].targetId || current[0].url !== href) throw Error('browser-wide observation requires one owned page');
+        if (current.length !== 1 || current[0].targetId !== page[0].targetId || current[0].url !== href) throw Error('browser-wide observation requires one owned page: ' + JSON.stringify({pages:current.length,attachedMatches:current.filter(t=>t.targetId===page[0].targetId).length,urlMatches:current.filter(t=>t.url===href).length,blankPages:current.filter(t=>t.url==='about:blank').length}));
         return checked(browserMethods, method, params);
       },
+      onPageEvent(listener) { const scoped = event => { if (event.sessionId === sessionId) listener(event); }; listeners.add(scoped); return () => listeners.delete(scoped); },
       onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
       close,
     };

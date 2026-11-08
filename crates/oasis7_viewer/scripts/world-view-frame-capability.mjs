@@ -1,4 +1,4 @@
-import {writeFileSync,openSync,writeSync,closeSync} from 'node:fs';
+import {writeFileSync,openSync,writeSync,closeSync,appendFileSync,mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {createOwnedCdpSession} from './viewer-owned-cdp-session.mjs';
 
@@ -15,7 +15,13 @@ export async function probeWorldFrameCapabilities({run,evaluate,out,durationMs=3
  const session=await createOwnedCdpSession(run,evaluate),report={durationMs,scope:'bounded browser frame observation capability; not P6 acceptance'},path=resolve(out,'frame-capability.json');
  let tracing=false,fd=null,unsubscribe=()=>{};
  try {
-  report.browser=await session.browser('Browser.getVersion');
+  report.initialPageCount=session.pageCount;
+  try { report.browser=await session.browser('Browser.getVersion'); } catch(error) {
+    if (!String(error.message).startsWith('browser-wide observation requires one owned page')) throw error;
+    report.browserTrace={status:'unavailable',reason:String(error.message)};
+    report.pageImages=await observePageImages({session,run,out,durationMs,action});
+    report.observation=summarizeFrameEvents([]);report.status='page_image_capability_only';return report;
+  }
   const available=(await session.browser('Tracing.getCategories')).categories;
   if(!Array.isArray(available))throw Error('missing trace category capability response');
   const desired=['devtools.timeline','blink.user_timing','disabled-by-default-devtools.screenshot','cc','benchmark'];
@@ -48,4 +54,23 @@ export async function probeWorldFrameCapabilities({run,evaluate,out,durationMs=3
   report.status='capabilities_observed_only';return report;
  }catch(error){report.status='failed';report.error=String(error);throw error;}
  finally{if(fd!==null)closeSync(fd);if(tracing)try{await session.browser('Tracing.end');}catch{}unsubscribe();session.close();writeFileSync(path,JSON.stringify(report,null,2));}
+}
+
+// Page-target stream, independent of browser-global tracing. These images are not
+// a promise of every presentation or a world-pass/version fence.
+async function observePageImages({session,run,out,durationMs,action}) {
+ const dir=resolve(out,'page-frame-images');mkdirSync(dir);let count=0,bytes=0,overflow=false,error=null;const pending=new Set();
+ const anchor=async()=>{const r=await session.page('Runtime.evaluate',{expression:'({now:performance.now(),origin:performance.timeOrigin,wall:Date.now()})',returnByValue:true});return r.result.value;};
+ const before=await anchor();
+ const remove=session.onPageEvent(event=>{
+  if(event.method!=='Page.screencastFrame')return;
+  const row=event.params;count++;const data=Buffer.from(row.data,'base64');bytes+=data.length;
+  if(count>600||bytes>64*1024*1024)overflow=true;
+  else try {writeFileSync(resolve(dir,String(count).padStart(4,'0')+'.jpg'),data);appendFileSync(resolve(out,'page-frame-metadata.jsonl'),JSON.stringify({index:count,bytes:data.length,metadata:row.metadata,sessionId:row.sessionId,receivedWall:Date.now()})+'\n');} catch(e) { error=String(e); }
+  const ack=session.page('Page.screencastFrameAck',{sessionId:row.sessionId}).catch(e=>{error=String(e);}).finally(()=>pending.delete(ack));pending.add(ack);
+ });
+ try {await session.page('Page.startScreencast',{format:'jpeg',quality:80,everyNthFrame:1});if(action)await action();await run(['wait',String(durationMs)]);}
+ finally {try{await session.page('Page.stopScreencast');}finally{remove();await Promise.all(pending);}}
+ const after=await anchor();if(overflow||error)throw Error('page image observation incomplete: '+JSON.stringify({overflow,error,count,bytes}));
+ return {count,bytes,before,after,clockMapping:'raw frame-swap timestamp metadata retained; page performance/timeOrigin/wall anchors retained; no calibrated per-input visible ACK timing yet',coverage:'page-target screencast only; not every-frame delivery, physical display presentation, GPU completion or new world texture proof'};
 }
