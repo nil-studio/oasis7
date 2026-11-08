@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 import { createDensityFixture } from './world-view-density-fixture.mjs';
 import { measureDensityPerformance } from './world-view-density-performance.mjs';
+import {createBoundedWireAudit} from './viewer-bounded-wire-audit.mjs';
 import { probeWorldFrameCapabilities } from './world-view-frame-capability.mjs';
 import { probePendingWorldSelection } from './world-view-pending-selection-probe.mjs';
 
@@ -70,14 +71,15 @@ const wire = [], http = [];
 const connectionIds = new WeakMap();
 const latestQueryByConnection = new Map();
 const streamingWireLimitBytes=256*1024*1024;
-let streamingWire = false, latestRequest = null, streamingFailure = null;
+let streamingWire = false, latestRequest = null;
 let streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0,requestCount:0};
 const beginStreamingWire = () => { streamingWire = true; streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0,requestCount:0}; };
-const readWireSummary = (expected={}) => { if(streamingFailure)throw streamingFailure;return ({limitBytes:streamingWireLimitBytes,...streamedWire,streaming:streamingWire,latestBounds:latestRequest?.bounds??null,latestGeneration:latestRequest?.generation??null,latestSearchPresent:latestRequest?.searchPresent??false,latestSearchMatches:latestRequest?latestRequest.searchHash===sha(String(expected.search??'')):null}); };
-const audit = row => { if (!streamingWire) wire.push(row); else { streamedWire.messages++; if (row.direction==='in'&&row.message?.type==='request_world_view') { const query=row.message.query; streamedWire.requestCount++; latestRequest={bounds:query.bounds?Object.fromEntries(['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].map(key=>[key,String(query.bounds[key])])):null,generation:String(query.request_generation),searchPresent:!!query.search,searchHash:sha(String(query.search??''))}; } streamedWire.bytes += Buffer.byteLength(JSON.stringify(row)); if (row.direction==='out'&&row.message?.type==='world_view') { streamedWire.worldViewPages++; streamedWire.entityRecords += row.message.view?.entities?.length||0; } } appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); if(streamingWire&&streamedWire.bytes>streamingWireLimitBytes&&!streamingFailure) { streamingFailure=Error('streamed wire byte limit exceeded; source stopped, raw crossing row preserved'); writeFileSync(resolve(out,'wire-limit-failure.json'),JSON.stringify({limitBytes:streamingWireLimitBytes,...streamedWire,error:String(streamingFailure)},null,2)); for(const socket of wss.clients)socket.terminate(); } };
+const wireBudget=createBoundedWireAudit({limitBytes:streamingWireLimitBytes,append:line=>appendFileSync(resolve(out,'wire.jsonl'),line),persistFailure:row=>writeFileSync(resolve(out,'wire-limit-failure.json'),JSON.stringify(row,null,2)),stopSource:()=>{for(const socket of wss.clients)socket.terminate();}});
+const readWireSummary = (expected={}) => { if(wireBudget.failure())throw wireBudget.failure();return ({limitBytes:streamingWireLimitBytes,...streamedWire,streaming:streamingWire,latestBounds:latestRequest?.bounds??null,latestGeneration:latestRequest?.generation??null,latestSearchPresent:latestRequest?.searchPresent??false,latestSearchMatches:latestRequest?latestRequest.searchHash===sha(String(expected.search??'')):null}); };
+const audit = row => { if(streamingWire&&!wireBudget.accepting())return false; if (!streamingWire) wire.push(row); else { streamedWire.messages++; if (row.direction==='in'&&row.message?.type==='request_world_view') { const query=row.message.query; streamedWire.requestCount++; latestRequest={bounds:query.bounds?Object.fromEntries(['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].map(key=>[key,String(query.bounds[key])])):null,generation:String(query.request_generation),searchPresent:!!query.search,searchHash:sha(String(query.search??''))}; } streamedWire.bytes += Buffer.byteLength(JSON.stringify(row)); if (row.direction==='out'&&row.message?.type==='world_view') { streamedWire.worldViewPages++; streamedWire.entityRecords += row.message.view?.entities?.length||0; } } if(streamingWire)return wireBudget.record(row);appendFileSync(resolve(out,'wire.jsonl'),JSON.stringify(row)+'\n');return true; };
 const send = (socket, connection, response, replay = false) => {
-  if (socket.readyState !== 1) return;
-  audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }); socket.send(JSON.stringify(response));
+  if (socket.readyState !== 1 || (streamingWire&&!wireBudget.accepting())) return;
+  if(!audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }))return; socket.send(JSON.stringify(response));
   if (pauseAfterComplete && response.type === 'world_view' && response.view.completeness === 'complete'
     && ['baseline', 'unchanged'].includes(response.view.delivery)
     && response.view.request_generation?.split(':')[0] === latestQueryByConnection.get(connection)) { pauseAfterComplete = false; pauseReplies = true; }
@@ -106,11 +108,13 @@ const httpServer = createServer((req, res) => {
 });
 const wss = new WebSocketServer({ server: httpServer, path: '/qa-world-ws', maxPayload: 512 * 1024 });
 wss.on('connection', socket => {
+  if(streamingWire&&!wireBudget.accepting()){socket.terminate();return;}
   const connection = randomUUID();
   connectionIds.set(socket, connection);
   socket.on('message', bytes => {
+    if(streamingWire&&!wireBudget.accepting()){socket.terminate();return;}
     try {
-      const message = JSON.parse(bytes.toString()); audit({ direction: 'in', connection, message });
+      const message = JSON.parse(bytes.toString()); if(!audit({ direction: 'in', connection, message }))return;
       if (message.type === 'request_world_view') latestQueryByConnection.set(connection, message.query?.request_generation?.split(':')[0]);
       const response = fixture.reply(message, connection); if (!response) return;
       if (pendingGate && message.type === 'request_world_view' && message.query.search === pendingGate.search && response.view?.delivery === 'baseline') {
@@ -298,7 +302,7 @@ try {
     const {readOwnedMemory}=await import('./viewer-owned-cdp-memory.mjs');
     const {measureWorldViewRetention}=await import('./world-view-retention-memory.mjs');
     const memorySession=await createOwnedCdpSession(run,evaluate);
-    for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
+    for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
     try { summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)}); }
     finally { memorySession.close(); }
   }
