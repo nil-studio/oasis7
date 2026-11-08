@@ -20,7 +20,7 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       return { localGeneration: generation, scopeBound: scope !== null, loading: state.loading,
         published: { ...published, entities: state.view?.entities?.length || 0, changes: state.changes.length },
         paging: { ...paging, active: Boolean(query), maps: query?.maps().map(map => map.size) || [0,0,0,0], cursors: query?.seen.size || 0 },
-        observationMs: performance.now() - started, semantics: 'logical JSON bytes and unique objects per component; shared references may overlap; not heap/GPU/total memory' };
+        observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory' };
     },
     invalidate() { generation += 1; retainedQuery = null; },
     clearChanges() { publish({changes:[]}); },

@@ -8,11 +8,13 @@ export function measureRetainedJson(roots) {
     if (++nodes > 524288) throw Error('retention observation node budget exceeded');
     if (value === null) return 4;
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return encoder.encode(JSON.stringify(value)).length;
-    if (typeof value !== 'object') return 0;
+    if (value === undefined) return 0;
+    if (typeof value !== 'object') throw Error('retention observation requires JSON values');
+    if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw Error('retention observation requires JSON objects');
     if (active.has(value)) throw Error('retention observation cycle');
     if (!unique.has(value)) { unique.add(value); Array.isArray(value) ? arrays++ : objects++; }
     active.add(value); let size;
-    if (Array.isArray(value)) size = 2 + Math.max(0, value.length - 1) + value.reduce((sum, item) => sum + (item === undefined ? 4 : bytes(item, depth + 1)), 0);
+    if (Array.isArray(value)) { size = 2 + Math.max(0, value.length - 1); for (const item of value) size += item === undefined ? 4 : bytes(item, depth + 1); }
     else { const keys = Object.keys(value).filter(key => value[key] !== undefined); size = 2 + Math.max(0, keys.length - 1); for (const key of keys) size += encoder.encode(JSON.stringify(key)).length + 1 + bytes(value[key], depth + 1); }
     active.delete(value); return size;
   };

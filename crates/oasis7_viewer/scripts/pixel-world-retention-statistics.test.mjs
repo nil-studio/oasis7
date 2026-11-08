@@ -9,6 +9,7 @@ describe('read-only retention components', () => {
     assert.equal(stats.logicalJsonBytes, 2 * new TextEncoder().encode(JSON.stringify(shared)).length);
     assert.equal(stats.uniqueObjects, 1); assert.equal(stats.uniqueArrays, 1); assert.equal(stats.heapBytes, null); assert.equal(JSON.stringify(roots), before);
   });
+  it('matches sparse JSON arrays and omitted undefined fields', () => { const value = { missing: undefined, slots: Array(3) }; assert.equal(measureRetainedJson([value]).logicalJsonBytes, new TextEncoder().encode(JSON.stringify(value)).length); });
   it('refuses cycles and bounds observation work', () => { const cycle = {}; cycle.self = cycle; assert.throws(() => measureRetainedJson([cycle]), /cycle/); assert.throws(() => measureRetainedJson([Array(524289).fill(null)]), /budget/); });
   it('does not expose pending old-generation paging data after reset', async () => {
     let finish; const client = createWorldViewClient({ request: () => new Promise(resolve => { finish = resolve; }) });

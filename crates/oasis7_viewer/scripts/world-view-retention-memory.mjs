@@ -35,7 +35,7 @@ export async function measureWorldViewRetention({ evaluate, run, fixture, out, d
     if(phase==='home'){samples++;if(first.length<6)first.push(record);last.push(record);if(last.length>6)last.shift();}return record;
   };
   const cycle = async () => { await select();await pan(6);await pan(-6);await filter();await overview();await settle(1000);await select();cycles++; };
-  const summary={durationMs,scope:'M3/16GiB component observation; not formalP6, physical GPU memory, P5 or8GiB A/B',missingComponents:[],status:'incomplete'};
+  const summary={durationMs,scope:'M3/16GiB component observation; not formalP6, physical GPU memory, P5 or8GiB A/B; client counts current generation only, old inflight closure residual unknown',missingComponents:[],status:'incomplete'};
   try {
     for(let n=0;n<3;n++){await cycle();await sample('warmup');}
     homeCamera=null;const windowStarted=Date.now();await sample('home');
