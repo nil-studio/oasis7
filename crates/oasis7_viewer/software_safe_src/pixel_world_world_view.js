@@ -7,7 +7,7 @@ export function worldViewScopeKey(state, deployment = '') {
 }
 const binding = view => JSON.stringify([view.world_id, view.scope_id, view.source_cut, view.world_bounds, worldViewAuthorityKey(view)]);
 export function createWorldViewClient({ request, onChange = () => {} }) {
-  let generation = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
+  let generation = 0, scopeSequence = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
   let state = { view: null, loading: false, stale: false, error: null, changes: [] };
   const publish = patch => { state = { ...state, ...patch }; onChange(state); };
   return {
@@ -17,14 +17,14 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       const published = measureRetainedJson([state.view, state.changes]);
       const pagingRoots = query ? [query.first(), query.last(), ...query.maps().flatMap(map => [...map.values()])] : [];
       const paging = measureRetainedJson(pagingRoots);
-      return { localGeneration: generation, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
-        published: { ...published, entities: state.view?.entities?.length || 0, changes: state.changes.length, sourceCutMatches: typeof expectedSourceCut === 'string' ? state.view?.source_cut === expectedSourceCut : null, completeness: ['complete','partial','unknown'].includes(state.view?.completeness) ? state.view.completeness : null },
+      return { localGeneration: generation, scopeSequence, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
+        published: { ...published, entities: state.view?.entities?.length || 0, changes: state.changes.length, queryGenerationMatches: state.view?.request_generation === String(generation), sourceCutMatches: typeof expectedSourceCut === 'string' ? state.view?.source_cut === expectedSourceCut : null, completeness: ['complete','partial','unknown'].includes(state.view?.completeness) ? state.view.completeness : null },
         paging: { ...paging, active: Boolean(query), maps: query?.maps().map(map => map.size) || [0,0,0,0], cursors: query?.seen.size || 0 },
         observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory' };
     },
     invalidate() { generation += 1; retainedQuery = null; },
     clearChanges() { publish({changes:[]}); },
-    reset(nextScope, worldId = null) { generation += 1; retainedQuery = null; scope = nextScope; expectedWorld = worldId; publish({ view: null, loading: false, stale: false, error: null, changes: [] }); },
+    reset(nextScope, worldId = null) { generation += 1; scopeSequence += 1; retainedQuery = null; scope = nextScope; expectedWorld = worldId; publish({ view: null, loading: false, stale: false, error: null, changes: [] }); },
     async query(query = {}, { delta = false, preserveChanges = false } = {}) {
       const current = ++generation, currentScope = scope;
       const active = () => current === generation && currentScope === scope;
