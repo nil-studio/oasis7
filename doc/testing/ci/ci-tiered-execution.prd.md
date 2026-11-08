@@ -223,7 +223,7 @@ Trace ID: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6
 - 墙钟、执行时间、依赖等待、排队代理值和资源用量分别计算，样本口径沿用[反馈目标](#ci-fast-pr-periodic-full)及既有[CI 回顾](../../../.agents/dot/tasks/ci-duration-review.md#耗时口径)。缓存收益须计入恢复、校验、构建、打包和保存成本；没有可比对照时只报告成本。
 - 采集器只读、有限预算、最小权限，默认读取已有 API 与脱敏产物。dot 和指挥中心消费报告及来源，不新增同用途调度、人工台账或外部遥测服务依赖。
 
-系统设计状态：已覆盖；依据：[共享事件、计算与接入设计](ci-tiered-execution.design.md#engineering-telemetry-design)。实现状态：已实现离线 v1 投影、v2 字段来源/身份合同与完整 job DAG 计算，含合成输入及失败反例；已有 JSONL、构建阶段记录及 compile metrics 仍是待核验的真实输入。剩余范围：live collector、真实 Formal 链与本地报告核验，以及只读消费者接入；离线复算不认证真实来源或性能收益。
+系统设计状态：已覆盖；依据：[共享事件、计算与接入设计](ci-tiered-execution.design.md#engineering-telemetry-design)。实现状态：已实现离线 v1 投影、v2 字段来源/身份合同、完整 job DAG 算法和有界只读采集，支持 Actions 分页、selection、构建 manifest 及既有 compile metrics；真实 Formal 导出已回放核验，仍缺数字 job 依赖和生产者/消费者绑定，按 partial 展示。剩余范围：本地真实 warm 原件验收、live 网络开销实测及只读消费者接入；合成样本与导出回放不认证性能收益。
 
 验收采用同一固定输入分别核对完整并行链、缺页/缺终态、取消、重跑和身份冲突；检查机器报告能够重算墙钟与等待，保留原结论及未覆盖项。真实接入须各读取一条准确 CI 链与一次本地测量，产物和证据保留于实施 PR；合成样本不证明实际性能、合入阻塞或产品运行健康。
 

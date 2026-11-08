@@ -359,7 +359,7 @@ Trunk 的本地合同测试只证明其实际范围；main 合入、hosted 构�
 <a id="engineering-telemetry-validation"></a>
 ### 工程遥测报告核验
 
-Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。当前提供离线 v1 投影及 v2 来源/身份合同与 DAG 报告；以下先验证离线合同，再列后续真实接入核验，不以合成样例代签真实运行。
+Trace refs: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6；要求与模型见 [工程遥测](doc/testing/ci/ci-tiered-execution.prd.md#engineering-telemetry)及[共享事件设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。当前提供离线 v1 投影、v2 来源/身份合同与 DAG 报告，以及有界 Actions/既有指标适配；以下分别验证离线合同和真实接入，不以合成样例代签真实运行。
 
 从仓库根目录运行：
 
@@ -374,9 +374,21 @@ v2 完整合成输入的 collect 应返回 0；缺失/冲突或 v1 输入保留 
 1. 固定 source/tested/policy、schema、输入文件摘要及运行命令，先用合成快照执行离线报告。对设计中的并行例断言反馈墙钟 21 秒、资源合计 25 秒、纯执行最长链 19 秒、长分片未归因等待 2 秒、含等待观测链 21 秒与首次启动延迟 0 秒；核对 `analysis.formula_version`、各指标的 status/value/unit/formula/input_ids 及 job_timings；改变依赖或错误地把并行时间相加时，同一断言应失败。
 2. 分别删去一页、一条必要终态或依赖，注入时间逆序、未知 schema 和同身份冲突；断言 coverage、missing_reasons 及受影响指标 unavailable，不能输出完整成功。相同记录重复合并 alias 与来源列表。加入 step/phase/test 不重复增加 job 资源；条件为 false 且 skipped 可零执行，但不能成为 pass。核对 known 指针的类型和值、unknown/not_applicable 的 null 与 reason、输出无 raw payload，未知来源不能凭名称补齐。
 3. 保留失败、取消与重跑的每次 attempt，核对首败不会被后续成功覆盖；错 source/tested/policy 的记录不得混合。本地输入缺测量时刻的 dirty/untracked 身份时报告不完整，事后读取当前工作区不能补成测量证据。
-4. 离线核验字节上限、允许字段、截断输入与采集器失败。API/时间预算及归档越界留待 live collector 实施后核验。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
-5. 后续真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
-6. 后续真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+4. 离线核验字节上限、允许字段、截断输入与采集器失败。继续核验请求/时长/响应与解码字节额度、重复/截断分页、坏压缩流、越界/重复/链接归档、非有限 JSON、未知大字段和信号取消。截止停止新读取与记录归一化；有界保存收尾和实际 elapsed_seconds 单列，不把尾部当作预算内。只处理自有临时资源；collector 的失败单独呈现，原测试成功/失败与清理结论保持。
+5. 真实接入：在一条命中的真实 PR Formal 链核对 API、完整分页、实际互斥 build 分支、所有矩阵分片及 gate 其他必要上游；与原 manifest/JSONL/日志逐字段比较。仅得到子图时明确标 partial，不外推完整 gate 关键路径。
+6. 真实接入：读取一次既有本地 compile metrics 输出，核对原 package/features、命令、commit 与环境；适配器不另启 Cargo。采集时长、文件字节和输出保留期也要记录。实际输入、报告、退出码和独立核对结论归实施 PR，不把合成例、本地结果或单次运行当作 hosted P95、缓存净收益或合入卡点证明。
+
+有界采集命令（输出目录须已存在，partial 返回 1 是预期结果，不代表原测试失败）：
+
+```sh
+python3 scripts/engineering_telemetry.py collect-github nil-studio/oasis7 RUN_ID ATTEMPT /tmp/snapshot.json /tmp/collection.json --build-artifact ARTIFACT_ID
+python3 scripts/engineering_telemetry.py collect-metrics /path/to/existing/current.metrics.json /tmp/local-snapshot.json /tmp/local-collection.json
+python3 scripts/engineering_telemetry.py report /tmp/snapshot.json /tmp/report.json /tmp/report.md
+```
+
+只使用已有权限；API 请求不自动登录。可用 `--max-requests`、`--max-seconds`、`--max-bytes` 调低额度，以已知成功/失败结果检查耗尽后的局部证据。`--recorded-responses DIRECTORY` 用固定 API 原件及 ZIP 回放同一路径，文件名和摘要合同见[设计](doc/testing/ci/ci-tiered-execution.design.md#engineering-telemetry-design)。receipt.transport 区分 live/recorded/local；检查 raw_sha256、投影 content_sha256、snapshot_sha256，记录回放和真实网络成本的区别。collector 不解包执行脚本，不读取当前 Git/dirty 环境补签历史测量。
+
+本轮真实来源样本为 [PR #5582 的 run 42371045878 attempt 1](https://github.com/nil-studio/oasis7/actions/runs/42371045878)：51/51 jobs、20/20 artifacts，实际 Formal 五分片成功，source `4dab41ef854cd521387b9980d0789ebef56d0367`、tested `2d56f4e270e0753e566ee4bb0b8d187e5cf59c91`、policy `8bb642d22d641fc9beccee78f0a032b2e3c9eeb7`。selection 与 endpoint manifest.execution_plan 一致；artifact 13574395298 的 SHA-256 为 `19daaf7cd8148c754e85a9d6461eccea319ce91726ef1da10140fbcbe4061469`，经 ZIP→gzip/tar 只读 manifest。回放按 5 次逻辑读取、7,212,629 响应字节、28,892,776 解码字节核对，不能作为 live 请求成本。job 的 tested/policy/config、数字 needs/条件、producer/consumer job 尚无正式绑定，因此真实整图指标 unavailable。原件按原服务保留期可能过期，摘要不能代替原件。已有真实本地 warm 原件尚未取得，本地真实验收未完成，不新跑 Cargo 补证；#5391 保持开放。
 
 ### 当前 CI 未直接覆盖（需手册补齐）
 - Web UI agent-browser 闭环（现为手动/agent 流程，不在 CI 默认路径中）。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline engineering telemetry snapshot and report (no network or build execution)."""
+"""Read-only bounded engineering telemetry collection and offline reports; no builds."""
 import argparse
 import hashlib
 import json
@@ -550,9 +550,482 @@ def distinct_paths(*paths):
                 raise ValueError("input and output paths must be distinct")
 
 
+
+class CollectionStopped(Exception):
+    """A safe, fixed failure code, never an exception containing a URL or token."""
+
+
+class CollectionBudget:
+    def __init__(self, requests=100, seconds=120, byte_limit=MAX_INPUT_BYTES, clock=None):
+        import time
+        if type(requests) is not int or not 0 <= requests <= 100 or type(byte_limit) is not int or not 0 <= byte_limit <= MAX_INPUT_BYTES or type(seconds) not in (int, float) or not math.isfinite(seconds) or not 0 <= seconds <= 120:
+            raise ValueError("collection limits must be within 100 requests, 120 seconds and 32 MiB")
+        self.clock = clock or time.monotonic
+        self.started = self.clock()
+        self.limits = dict(requests=requests, seconds=seconds, bytes=byte_limit)
+        self.requests = self.response_bytes = self.decoded_bytes = 0
+        self.cancelled = False
+
+    def remaining(self):
+        if self.cancelled:
+            raise CollectionStopped("collection_cancelled")
+        remaining = self.limits["seconds"] - (self.clock() - self.started)
+        if remaining <= 0:
+            raise CollectionStopped("time_budget_exhausted")
+        return remaining
+
+    def request(self):
+        self.remaining()
+        if self.requests >= self.limits["requests"]:
+            raise CollectionStopped("request_budget_exhausted")
+        if self.response_bytes >= self.limits["bytes"]:
+            raise CollectionStopped("response_byte_budget_exhausted")
+        self.requests += 1
+
+    def stop_reason(self):
+        try:
+            self.remaining()
+        except CollectionStopped as exc:
+            return str(exc)
+        return None
+
+    def charge(self, size, decoded=False):
+        self.remaining()
+        key = "decoded_bytes" if decoded else "response_bytes"
+        setattr(self, key, getattr(self, key) + size)
+        if getattr(self, key) > self.limits["bytes"]:
+            raise CollectionStopped("decoded_byte_budget_exhausted" if decoded else "response_byte_budget_exhausted")
+
+    def summary(self):
+        return dict(limits=self.limits, requests=self.requests, response_bytes=self.response_bytes,
+                    decoded_bytes=self.decoded_bytes, elapsed_seconds=max(0, self.clock() - self.started))
+
+
+def _download_url(url):
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+        port = parsed.port
+    except (ValueError, TypeError) as exc:
+        raise CollectionStopped("unsafe_download_destination") from exc
+    # Only the API and GitHub's artifact storage. Never forward API credentials to storage.
+    trusted = host == "api.github.com" or host.endswith(".blob.core.windows.net") or host == "productionresultssa0.blob.core.windows.net" or host.endswith(".actions.githubusercontent.com")
+    if not trusted or parsed.scheme != "https" or port not in (None, 443) or parsed.username or parsed.password or parsed.fragment:
+        raise CollectionStopped("unsafe_download_destination")
+    if host == "api.github.com" and not re.fullmatch(r"/repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions/(?:runs/[0-9]+(?:/attempts/[0-9]+(?:/jobs)?|/artifacts)|artifacts/[0-9]+/zip)", parsed.path):
+        raise CollectionStopped("unsupported_api_endpoint")
+    return host
+
+
+def http_worker():
+    """One GET in a disposable child; the parent owns the hard wall deadline."""
+    import base64
+    import urllib.error
+    import urllib.request
+    try:
+        request = json.loads(sys.stdin.buffer.read(8192))
+        url, limit, timeout = request["url"], request["limit"], request["timeout"]
+        host = _download_url(url)
+        if type(limit) is not int or not 0 <= limit <= MAX_INPUT_BYTES or not 0 < timeout <= 120:
+            raise ValueError("invalid request budget")
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        credential = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        if credential and host == "api.github.com":
+            headers["Authorization"] = "Bearer " + credential
+        opener = urllib.request.build_opener(NoRedirect())
+        try:
+            response = opener.open(urllib.request.Request(url, headers=headers, method="GET"), timeout=timeout)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            status = response.status
+            # Error bodies can contain private request context; do not return them.
+            raw = response.read(limit + 1) if status == 200 else b""
+            result = dict(status=status, location=response.headers.get("Location"),
+                          body=base64.b64encode(raw).decode("ascii"))
+        print(json.dumps(result))
+        return 0
+    except Exception:
+        print('{"error":"http_request_failed"}')
+        return 1
+
+
+class LiveTransport:
+    def __init__(self, budget=None):
+        self.budget, self.child = budget, None
+
+    def cancel(self):
+        if self.child is not None:
+            self.child.kill()
+
+    def __call__(self, url, limit, timeout):
+        import base64
+        import subprocess
+        _download_url(url)
+        try:
+            child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "_http-get"],
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.child = child
+            try:
+                if self.budget:
+                    self.budget.remaining()
+                output, _ = child.communicate(json.dumps(dict(url=url, limit=limit, timeout=timeout)).encode(), timeout=timeout)
+            except BaseException:
+                # Includes SIGTERM/SIGINT translated by the CLI, not just timeouts.
+                child.kill()
+                child.communicate()
+                raise
+            finally:
+                self.child = None
+        except subprocess.TimeoutExpired as exc:
+            # subprocess.run kills and reaps only this request child on timeout.
+            raise CollectionStopped("time_budget_exhausted") from exc
+        except OSError as exc:
+            raise CollectionStopped("http_request_failed") from exc
+        try:
+            data = json.loads(output)
+            if child.returncode or "error" in data:
+                raise ValueError("failed request")
+            return data["status"], data.get("location"), base64.b64decode(data["body"], validate=True)
+        except (KeyError, ValueError, TypeError) as exc:
+            raise CollectionStopped("http_request_failed") from exc
+
+
+class RecordedTransport:
+    """Replay an explicitly supplied export; never describe it as a live fetch."""
+    def __init__(self, directory):
+        self.directory = Path(directory).resolve()
+
+    def __call__(self, url, limit, timeout):
+        from urllib.parse import urlsplit, parse_qs
+        parsed = urlsplit(url)
+        parts = parsed.path.split("/")
+        page = parse_qs(parsed.query).get("page", ["1"])[0]
+        if parts[-1] == "jobs":
+            name = f"jobs-{page}.json"
+        elif parts[-1] == "artifacts":
+            name = f"artifacts-{page}.json"
+        elif parts[-1] == "zip":
+            name = f"artifact-{parts[-2]}.zip"
+        else:
+            name = "run.json"
+        path = self.directory / name
+        if path.is_symlink() or not path.is_file() or path.parent.resolve() != self.directory:
+            raise CollectionStopped("recorded_response_missing")
+        with path.open("rb") as stream:
+            return 200, None, stream.read(limit + 1)
+
+
+class ActionsReader:
+    def __init__(self, repository, budget, transport):
+        self.base = "https://api.github.com/repos/" + repository + "/actions/"
+        self.budget, self.transport = budget, transport
+        self.sources = []
+
+    def get(self, path, reference, archive=False):
+        url = self.base + path
+        for redirect in range(2):
+            _download_url(url)
+            self.budget.request()
+            status, location, raw = self.transport(url, self.budget.limits["bytes"] - self.budget.response_bytes,
+                                                    self.budget.remaining())
+            self.budget.charge(len(raw))
+            if status == 200:
+                self.sources.append(dict(reference=reference, resource=path,
+                                         raw_sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)))
+                return raw
+            if archive and redirect == 0 and status in (301, 302, 303, 307, 308) and isinstance(location, str):
+                # Signed locations remain transient; they are never persisted in a receipt.
+                _download_url(location)
+                url = location
+                continue
+            raise CollectionStopped("http_status_" + str(status) if type(status) is int and 100 <= status <= 599 else "invalid_http_response")
+        raise CollectionStopped("redirect_limit")
+
+    def json(self, path, reference):
+        raw = self.get(path, reference)
+        self.budget.charge(len(raw), decoded=True)
+        try:
+            return json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
+        except (UnicodeError, ValueError, RecursionError) as exc:
+            raise CollectionStopped("invalid_response_json") from exc
+
+    def pages(self, path, key, prefix):
+        pages, seen, total = [], set(), None
+        try:
+            for page in range(1, 102):
+                obj = self.json(path + f"?per_page=100&page={page}", f"actions/{prefix}-{page}.json")
+                if not isinstance(obj, dict) or type(obj.get("total_count")) is not int or not 0 <= obj["total_count"] <= 10000 or not isinstance(obj.get(key), list) or len(obj[key]) > 100:
+                    raise CollectionStopped("invalid_pagination_schema")
+                if total is not None and total != obj["total_count"]:
+                    raise CollectionStopped("pagination_total_changed")
+                total = obj["total_count"]
+                ids = [item.get("id") if isinstance(item, dict) else None for item in obj[key]]
+                if any(type(value) is not int or value <= 0 for value in ids):
+                    raise CollectionStopped("invalid_page_identity")
+                if len(set(ids)) != len(ids) or seen.intersection(ids):
+                    # Do not merge conflicting or repeated pages into a successful collection.
+                    raise CollectionStopped("repeated_page_identity")
+                if len(seen) + len(ids) > total:
+                    raise CollectionStopped("pagination_count_mismatch")
+                pages.append(obj)
+                seen.update(ids)
+                if len(seen) == total:
+                    return pages, True, []
+                if len(ids) < 100:
+                    raise CollectionStopped("pagination_truncated")
+            raise CollectionStopped("pagination_page_limit")
+        except CollectionStopped as exc:
+            return pages, False, [str(exc)]
+
+
+def archive_document(raw, filename, budget):
+    """Read selected JSON only, never extract files or execute candidate code.
+
+    ZIP and one gzip/tar layer are bounded independently of compressed size. All
+    entries, including unused binaries, are checked and charged. PAX, links and
+    special files are deliberately unsupported rather than partially interpreted.
+    """
+    import io
+    import gzip
+    import stat
+    import zipfile
+    import zlib
+    found = []
+    def safe_name(name, directory=False):
+        if not isinstance(name, str) or "\\" in name or name.startswith("/") or "\0" in name:
+            raise CollectionStopped("unsafe_archive_path")
+        parts = name.split("/")
+        if ".." in parts or any(":" in part for part in parts):
+            raise CollectionStopped("unsafe_archive_path")
+        clean = "/".join(part for part in parts if part not in ("", "."))
+        if not clean and not directory:
+            raise CollectionStopped("unsafe_archive_path")
+        return clean
+    def read(stream, size):
+        out = bytearray()
+        while len(out) < size:
+            budget.remaining()
+            chunk = stream.read(min(65536, size - len(out)))
+            if not chunk:
+                break
+            budget.charge(len(chunk), decoded=True)
+            out.extend(chunk)
+        return bytes(out)
+    def tar_member(data):
+        seen = set()
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
+            for _ in range(257):
+                header = read(stream, 512)
+                if header == b"\0" * 512:
+                    tail = read(stream, 512)
+                    if tail != b"\0" * 512:
+                        raise CollectionStopped("invalid_tar_end")
+                    while True:
+                        tail = read(stream, 65536)
+                        if any(tail):
+                            raise CollectionStopped("trailing_tar_data")
+                        if not tail:
+                            return
+                if len(header) != 512:
+                    raise CollectionStopped("truncated_tar")
+                try:
+                    size = int(header[124:136].strip(b"\0 ") or b"0", 8)
+                    checksum = int(header[148:156].strip(b"\0 "), 8)
+                    name = header[:100].split(b"\0", 1)[0].decode("utf-8")
+                    prefix = header[345:500].split(b"\0", 1)[0].decode("utf-8")
+                except (ValueError, UnicodeError) as exc:
+                    raise CollectionStopped("invalid_tar_header") from exc
+                if checksum != sum(header[:148]) + 256 + sum(header[156:]) or size < 0:
+                    raise CollectionStopped("invalid_tar_header")
+                kind = header[156:157]
+                if kind not in (b"0", b"\0", b"5") or (kind == b"5" and size):
+                    raise CollectionStopped("unsupported_archive_member")
+                name = safe_name((prefix + "/" if prefix else "") + name, kind == b"5")
+                if name in seen:
+                    raise CollectionStopped("duplicate_archive_member")
+                seen.add(name)
+                if size > budget.limits["bytes"] - budget.decoded_bytes:
+                    raise CollectionStopped("decoded_byte_budget_exhausted")
+                selected = name == filename
+                payload = bytearray()
+                remaining = (size + 511) // 512 * 512
+                while remaining:
+                    block = read(stream, min(65536, remaining))
+                    if not block:
+                        raise CollectionStopped("truncated_tar")
+                    if selected:
+                        payload.extend(block[:max(0, size - len(payload))])
+                    remaining -= len(block)
+                if selected:
+                    found.append(bytes(payload))
+            raise CollectionStopped("archive_member_limit")
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            members = archive.infolist()
+            if len(members) > 256:
+                raise CollectionStopped("archive_member_limit")
+            names = set()
+            for item in members:
+                name = safe_name(item.filename, item.is_dir())
+                if name in names:
+                    raise CollectionStopped("duplicate_archive_member")
+                names.add(name)
+                kind = stat.S_IFMT(item.external_attr >> 16)
+                if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or item.flag_bits & 1:
+                    raise CollectionStopped("unsupported_archive_member")
+                if item.file_size > budget.limits["bytes"] - budget.decoded_bytes:
+                    raise CollectionStopped("decoded_byte_budget_exhausted")
+                with archive.open(item) as stream:
+                    data = read(stream, item.file_size + 1)
+                if len(data) != item.file_size:
+                    raise CollectionStopped("archive_size_mismatch")
+                if name == filename:
+                    found.append(data)
+                elif name.endswith(".tar.gz"):
+                    tar_member(data)
+        if len(found) != 1:
+            raise CollectionStopped("archive_document_missing_or_ambiguous")
+        return json.loads(found[0], parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON"))), found[0]
+    except CollectionStopped:
+        raise
+    except (OSError, ValueError, EOFError, UnicodeError, RecursionError, zipfile.BadZipFile, NotImplementedError, zlib.error) as exc:
+        raise CollectionStopped("invalid_archive_document") from exc
+
+
+def collect_actions(repository, run_id, attempt, budget, transport, build_artifacts=()):
+    import uuid
+    from datetime import datetime, timezone
+    import engineering_telemetry_adapters as adapters
+    if not adapters._REPOSITORY.fullmatch(repository) or adapters._SECRET.search(repository) or any(type(v) is not int or not 0 < v <= 2**63-1 for v in (run_id, attempt, *build_artifacts)):
+        raise ValueError("invalid repository/run/attempt/artifact identity")
+    reader = ActionsReader(repository, budget, transport)
+    reasons, run, pages, plan, builds = [], None, [], None, []
+    complete = False
+    collected_at = datetime.now(timezone.utc).isoformat()
+    try:
+        run = reader.json(f"runs/{run_id}/attempts/{attempt}", "actions/run.json")
+        pages, complete, errors = reader.pages(f"runs/{run_id}/attempts/{attempt}/jobs", "jobs", "jobs")
+        reasons += errors
+        artifact_pages, artifacts_complete, errors = reader.pages(f"runs/{run_id}/artifacts", "artifacts", "artifacts")
+        reasons += errors
+        artifacts = [item for page in artifact_pages for item in page["artifacts"]]
+        selection = [item for item in artifacts if item.get("name") == f"ci-selection-{run_id}-{attempt}"]
+        selected = [(selection[0], "selection.json")] if artifacts_complete and len(selection) == 1 else []
+        if not selected:
+            reasons.append("selection_artifact_unavailable_or_ambiguous")
+        for artifact_id in dict.fromkeys(build_artifacts):
+            matches = [item for item in artifacts if item["id"] == artifact_id]
+            if artifacts_complete and len(matches) == 1:
+                selected.append((matches[0], "manifest.json"))
+            else:
+                reasons.append("build_artifact_unavailable_or_ambiguous")
+        for artifact, member in selected:
+            try:
+                binding = artifact.get("workflow_run")
+                if not isinstance(binding, dict) or not isinstance(run, dict) or binding.get("id") != run_id or binding.get("head_sha") != run.get("head_sha"):
+                    raise CollectionStopped("artifact_run_binding_mismatch")
+                if artifact.get("expired") is not False:
+                    raise CollectionStopped("artifact_expired_or_unknown")
+                size = artifact.get("size_in_bytes")
+                if type(size) is not int or not 0 <= size <= budget.limits["bytes"] - budget.response_bytes:
+                    raise CollectionStopped("artifact_exceeds_byte_budget")
+                ref = f"artifacts/{artifact['id']}.zip"
+                raw = reader.get(f"artifacts/{artifact['id']}/zip", ref, archive=True)
+                checksum = artifact.get("digest")
+                if isinstance(checksum, str) and checksum.startswith("sha256:"):
+                    if checksum != "sha256:" + hashlib.sha256(raw).hexdigest():
+                        raise CollectionStopped("artifact_digest_mismatch")
+                else:
+                    reasons.append("artifact_digest_unavailable")
+                payload, member_raw = archive_document(raw, member, budget)
+                reference = "artifacts/selection.json" if member == "selection.json" else f"artifacts/build-{artifact['id']}.json"
+                reader.sources.append(dict(reference=reference, artifact_id=artifact["id"], member=member,
+                                           raw_sha256=hashlib.sha256(member_raw).hexdigest(), bytes=len(member_raw),
+                                           expires_at=adapters.stamp(artifact.get("expires_at"))))
+                if member == "selection.json":
+                    plan = payload
+                else:
+                    builds.append((reference, payload))
+            except CollectionStopped as exc:
+                reasons.append(str(exc))
+    except CollectionStopped as exc:
+        reasons.append(str(exc))
+    doc, adapter_reasons, build_observations = adapters.actions_document(repository, run_id, attempt, run, pages, complete,
+                                                                       plan, builds, str(uuid.uuid4()), collected_at, budget)
+    return finish_collection(doc, reasons + adapter_reasons, budget, reader.sources,
+                             "recorded" if isinstance(transport, RecordedTransport) else "live", build_observations)
+
+
+def finish_collection(doc, reasons, budget, sources, mode, build_observations=None):
+    try:
+        budget.remaining()
+    except CollectionStopped as exc:
+        reasons.append(str(exc))
+    snapshot = doc.finish(reasons)
+    try:
+        budget.remaining()
+    except CollectionStopped as exc:
+        if str(exc) not in snapshot["missing_reasons"]:
+            snapshot["missing_reasons"].append(str(exc))
+            snapshot["missing_reasons"].sort()
+            snapshot["collection_status"] = "partial"
+    receipt = dict(schema_version="oasis7-engineering-collection/v1", collection_id=snapshot["collection_id"],
+                   collected_at=snapshot["collected_at"], transport=mode, budget=budget.summary(),
+                   collection_status=snapshot["collection_status"], missing_reasons=snapshot["missing_reasons"],
+                   snapshot_sha256=hashlib.sha256(adapters_bytes(snapshot)).hexdigest(), sources=sources,
+                   projection=doc.projection, build_observations=build_observations or [],
+                   retention=dict(recommended_report_days=7, raw_payloads_retained=False, automatic_deletion=False))
+    return snapshot, receipt
+
+
+def adapters_bytes(value):
+    import engineering_telemetry_adapters as adapters
+    return adapters._json_bytes(value)
+
+
+def collect_metrics(path, budget):
+    import uuid
+    from datetime import datetime, timezone
+    import engineering_telemetry_adapters as adapters
+    reasons, metrics, sources = [], None, []
+    try:
+        budget.remaining()
+        if Path(path).is_symlink() or not Path(path).is_file():
+            raise CollectionStopped("metrics_file_unavailable")
+        with open(path, "rb") as stream:
+            raw = stream.read(budget.limits["bytes"] + 1)
+        budget.charge(len(raw), decoded=True)
+        metrics = json.loads(raw, parse_constant=lambda value: (_ for _ in ()).throw(ValueError("non-finite JSON")))
+        sources.append(dict(reference="local/current.metrics.json", bytes=len(raw), raw_sha256=hashlib.sha256(raw).hexdigest()))
+    except CollectionStopped as exc:
+        reasons.append(str(exc))
+    except (OSError, ValueError, RecursionError) as exc:
+        reasons.append("invalid_metrics_file")
+    doc, adapter_reasons = adapters.metrics_document(metrics, str(uuid.uuid4()), datetime.now(timezone.utc).isoformat())
+    return finish_collection(doc, reasons + adapter_reasons, budget, sources, "local")
+
+
 def main(argv=None):
+    if (sys.argv[1:] if argv is None else argv) == ["_http-get"]:
+        return http_worker()
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    live = sub.add_parser("collect-github", help="read one explicit Actions attempt, without triggering work")
+    live.add_argument("repository"); live.add_argument("run_id", type=int); live.add_argument("attempt", type=int)
+    live.add_argument("--recorded-responses", type=Path, help="replay run.json, jobs-N.json, artifacts-N.json and artifact-ID.zip exports")
+    live.add_argument("--build-artifact", action="append", type=int, default=[])
+    local = sub.add_parser("collect-metrics", help="read an existing compile metrics JSON; never run Cargo")
+    local.add_argument("input")
+    for command in (live, local):
+        command.add_argument("output"); command.add_argument("receipt")
+        command.add_argument("--max-requests", type=int, default=100)
+        command.add_argument("--max-seconds", type=float, default=120)
+        command.add_argument("--max-bytes", type=int, default=MAX_INPUT_BYTES)
     c = sub.add_parser("collect", help="freeze explicitly prepared offline input")
     c.add_argument("input"); c.add_argument("output")
     source = sub.add_parser("collect-source", help="project one raw offline source as partial evidence")
@@ -565,7 +1038,36 @@ def main(argv=None):
     r.add_argument("snapshot"); r.add_argument("json_output"); r.add_argument("markdown_output")
     args = parser.parse_args(argv)
     try:
-        if args.command == "collect":
+        if args.command in ("collect-github", "collect-metrics"):
+            distinct_paths(args.output, args.receipt, *([args.input] if args.command == "collect-metrics" else []))
+            if args.command == "collect-github" and args.recorded_responses:
+                root = args.recorded_responses.resolve()
+                if any(root == Path(p).resolve() or root in Path(p).resolve().parents for p in (args.output, args.receipt)):
+                    raise ValueError("outputs must be outside recorded response directory")
+            budget = CollectionBudget(args.max_requests, args.max_seconds, args.max_bytes)
+            import signal
+            transport = None
+            def cancel(signum, frame):
+                budget.cancelled = True
+                # During CPU projection, the next checkpoint preserves the work
+                # already normalized. During HTTP, terminate only our own child.
+                if isinstance(transport, LiveTransport):
+                    transport.cancel()
+            previous = {sig: signal.signal(sig, cancel) for sig in (signal.SIGINT, signal.SIGTERM)}
+            try:
+                if args.command == "collect-github":
+                    transport = RecordedTransport(args.recorded_responses) if args.recorded_responses else LiveTransport(budget)
+                    result, receipt = collect_actions(args.repository, args.run_id, args.attempt, budget, transport, args.build_artifact)
+                else:
+                    result, receipt = collect_metrics(args.input, budget)
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+            write_json(args.output, result)
+            # The receipt's digest detects an old receipt if the second atomic write fails.
+            write_json(args.receipt, receipt)
+            return 1 if result["collection_status"] != "complete" else 0
+        elif args.command == "collect":
             distinct_paths(args.input, args.output)
             result = collect(read_json(args.input))
             write_json(args.output, result)

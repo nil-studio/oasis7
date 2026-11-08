@@ -112,6 +112,7 @@ def project(kind, raw):
 CONTRACT_INPUT = "oasis7-engineering-telemetry-input/v2"
 CONTRACT_SNAPSHOT = "oasis7-engineering-telemetry-snapshot/v2"
 SOURCE_SCHEMAS = {
+    "oasis7-readonly-projection/v1": "projection",
     "github-actions-run/v1": "actions",
     "github-actions-jobs/v1": "actions",
     "oasis7-workflow-plan/v1": "workflow-plan",
@@ -138,6 +139,9 @@ _POINTER_KEYS = frozenset(CONTEXT_FIELDS + RECORD_FIELDS + (
     "head_commit", "sha", "conclusion", "status", "number", "attempt", "full_name",
     "commit_oid", "producer_run_id", "producer_attempt", "producer_job_id", "matrix",
     "os", "arch", "package", "packages", "shard", "variant", "target_triple",
+    "config_sha256", "rust_toolchain", "runner_image", "build_timings",
+    "cargo_check_seconds", "cargo_check_warm_seconds", "cargo_build_release_seconds",
+    "projection", "default_features", "repository", "execution_plan",
 ))
 
 
@@ -345,7 +349,7 @@ def _envelope(document, schema):
     digest(_json_bytes(document))
 
 
-def collect_contract(document):
+def collect_contract(document, checkpoint=None):
     """Verify exact source projections and emit a bounded, payload-free snapshot.
 
     Unknown schemas and conflicting source references remain evidence, but cannot
@@ -433,6 +437,11 @@ def collect_contract(document):
                 context["identity_conflict"] = True
     records, groups = [], {}
     for raw in document["records"]:
+        if checkpoint:
+            stopped = checkpoint()
+            if stopped:
+                reasons.append(stopped)
+                break
         record = normalize(raw, RECORD_FIELDS)
         _require(record["context_id"] in context_map, "missing record context")
         context = context_map[record["context_id"]]
@@ -577,3 +586,290 @@ def _ambiguous_aliases(records, contexts, origin):
                 ambiguous = True
             owners[key] = identity
     return ambiguous
+
+
+class SourceDocument:
+    """Build existing v2 contracts from actual sources, without inventing identity."""
+    def __init__(self, origin, collection_id, collected_at, budget=None):
+        self.budget = budget
+        self.positions = {}
+        self.stop_reasons = []
+        self.document = dict(schema_version=CONTRACT_INPUT, origin=origin,
+                             sample_kind="recorded", collection_id=collection_id,
+                             collected_at=collected_at, sources=[], contexts=[], records=[])
+        self.projection = {"contexts": [], "records": []}
+        self.document["sources"].append(dict(reference="collection/projection.json", kind="projection",
+                                             source_schema="oasis7-readonly-projection/v1", payload=self.projection))
+
+    def source(self, reference, schema, payload):
+        # The receipt hashes the original bytes. Contract evidence hashes this
+        # allowlisted projection, retaining the original field paths and values.
+        # Unknown metadata cannot amplify serialization or smuggle secrets.
+        fields = {
+            "github-actions-run/v1": ("id", "run_attempt", "head_sha", "created_at", "repository"),
+            "oasis7-workflow-plan/v1": ("source_sha", "tested_sha", "policy_sha", "fast_plan_version", "check_inventory_version"),
+            "oasis7-build-manifest/v2": ("schema_version", "source_sha", "tested_sha", "config_sha256", "rust_toolchain", "target_triple", "runner_image", "build_timings"),
+            "oasis7-compile-metrics/v2": ("schema_version", "commit_oid", "package", "no_default_features", "check_only", "warm_check_enabled", "cargo_check_seconds", "cargo_check_warm_seconds", "cargo_build_release_seconds"),
+        }
+        def small(value):
+            if isinstance(value, str):
+                return value if len(value) <= 256 and not _SECRET.search(value) else None
+            if value is None or type(value) in (bool, int):
+                return value
+            if type(value) is float and math.isfinite(value):
+                return value
+            return None
+        if schema == "github-actions-jobs/v1":
+            projected = {"jobs": []}
+            for job in payload["jobs"]:
+                row = {key: small(job.get(key)) for key in ("id", "run_id", "run_attempt", "head_sha", "started_at", "completed_at", "conclusion")}
+                steps = job.get("steps")
+                row["steps"] = [{key: small(step.get(key)) for key in ("number", "started_at", "completed_at", "conclusion")} if isinstance(step, dict) else {} for step in steps[:512]] if isinstance(steps, list) else []
+                projected["jobs"].append(row)
+            payload = projected
+        elif isinstance(payload, dict):
+            original = payload
+            payload = {key: small(original.get(key)) for key in fields[schema]}
+            if schema == "github-actions-run/v1":
+                repo = original.get("repository")
+                payload["repository"] = {"full_name": small(repo.get("full_name"))} if isinstance(repo, dict) else {}
+            if schema == "oasis7-build-manifest/v2":
+                timings = original.get("build_timings")
+                payload["build_timings"] = [{"elapsed_seconds": small(timing.get("elapsed_seconds"))} if isinstance(timing, dict) else {} for timing in timings[:512]] if isinstance(timings, list) else []
+        else:
+            payload = {}
+        self.document["sources"].append(dict(reference=reference, kind=SOURCE_SCHEMAS[schema],
+                                             source_schema=schema, payload=payload))
+
+    def available(self):
+        reason = self.budget.stop_reason() if self.budget else None
+        if len(self.document["records"]) >= 1000:
+            reason = reason or "record_limit_exhausted"
+        if reason:
+            if reason not in self.stop_reasons:
+                self.stop_reasons.append(reason)
+            return False
+        return True
+
+    def entity(self, entity_id, context_id=None):
+        collection = "contexts" if context_id is None else "records"
+        row = {"id": entity_id, "field_sources": {}}
+        if context_id is not None:
+            row["context_id"] = context_id
+        self.document[collection].append(row)
+        self.projection[collection].append({})
+        self.positions[id(row)] = len(self.projection[collection]) - 1
+        return row
+
+    def known(self, row, key, value, reference, pointer):
+        if value is None:
+            return
+        try:
+            _field_value(key, value)
+        except ValueError:
+            self.unknown(row, key, "invalid_source_value")
+            return
+        row[key] = value
+        row["field_sources"][key] = dict(state="known", reference=reference, pointer=pointer)
+
+    @staticmethod
+    def unknown(row, key, reason, state="unknown"):
+        row[key] = None
+        row["field_sources"][key] = dict(state=state, reason=reason)
+
+    def derived(self, row, key, value):
+        collection = "records" if "context_id" in row else "contexts"
+        index = self.positions[id(row)]
+        self.projection[collection][index][key] = value
+        self.known(row, key, value, "collection/projection.json", f"/{collection}/{index}/{key}")
+
+    def finish(self, reasons):
+        snapshot = collect_contract(self.document, self.budget.stop_reason if self.budget else None)
+        snapshot["missing_reasons"] = sorted(set(snapshot["missing_reasons"] + reasons + self.stop_reasons))
+        snapshot["collection_status"] = "partial" if snapshot["missing_reasons"] else "complete"
+        validate_contract_snapshot(snapshot)
+        return snapshot
+
+
+def actions_document(repository, run_id, attempt, run, pages, pagination_complete,
+                     plan, builds, collection_id, collected_at, budget=None):
+    """Raw Actions values and an attempt-named selection artifact only.
+
+    An API job name is not a symbolic job key, matrix binding, or dependency map.
+    Selection identities describe the run, not proof of each job's checkout.
+    A manifest identifies a producer run/attempt but normally not its numeric job.
+    """
+    doc = SourceDocument("github", collection_id, collected_at, budget)
+    ctx = doc.entity("run")
+    for field in ("local_invocation_id", "dirty_inputs_digest", "input_capture"):
+        doc.unknown(ctx, field, "github_context", "not_applicable")
+    reasons = ["job_dependency_binding_unavailable", "job_configuration_binding_unavailable"]
+    doc.derived(ctx, "pagination_complete", pagination_complete)
+    doc.derived(ctx, "dependencies_complete", False)
+    doc.derived(ctx, "conditions_complete", False)
+    repo = run.get("repository") if isinstance(run, dict) else None
+    valid_run = (isinstance(run, dict) and isinstance(repo, dict) and isinstance(repo.get("full_name"), str) and run.get("id") == run_id and
+                 type(run.get("id")) is int and run.get("run_attempt") == attempt and
+                 type(run.get("run_attempt")) is int and
+                 run.get("repository", {}).get("full_name", "").lower() == repository.lower() and
+                 sha(run.get("head_sha")) is not None)
+    if run is not None:
+        doc.source("actions/run.json", "github-actions-run/v1", run)
+    candidate_event = valid_run and run.get("event") in ("pull_request", "push")
+    if not candidate_event:
+        reasons.append("unsupported_source_event")
+    if valid_run:
+        for key, pointer, value in (("repository", "/repository/full_name", run["repository"]["full_name"]),
+                                    ("run_id", "/id", run_id), ("run_attempt", "/run_attempt", attempt),
+                                    ("created_at", "/created_at", run.get("created_at"))):
+            doc.known(ctx, key, value, "actions/run.json", pointer)
+        if candidate_event:
+            doc.known(ctx, "source_sha", run["head_sha"], "actions/run.json", "/head_sha")
+    else:
+        reasons.append("run_identity_mismatch_or_missing")
+    if plan is not None:
+        doc.source("artifacts/selection.json", "oasis7-workflow-plan/v1", plan)
+        if (candidate_event and isinstance(plan, dict) and type(plan.get("fast_plan_version")) is int and
+                plan.get("fast_plan_version") == 1 and plan.get("check_inventory_version") == 1 and
+                plan.get("source_sha") == run["head_sha"] and
+                all(sha(plan.get(f)) for f in ("source_sha", "tested_sha", "policy_sha"))):
+            for field in ("source_sha", "tested_sha", "policy_sha"):
+                doc.known(ctx, field, plan[field], "artifacts/selection.json", "/" + field)
+        else:
+            reasons.append("selection_identity_or_schema_mismatch")
+    else:
+        reasons.append("selection_unavailable")
+    ids = []
+    for page_number, page in enumerate(pages, 1):
+        if not doc.available():
+            break
+        ref = f"actions/jobs-{page_number}.json"
+        doc.source(ref, "github-actions-jobs/v1", page)
+        for index, job in enumerate(page["jobs"]):
+            if not doc.available():
+                break
+            if not (valid_run and isinstance(job, dict) and type(job.get("id")) is int and job["id"] > 0 and
+                    type(job.get("run_id")) is int and job.get("run_id") == run_id and
+                    type(job.get("run_attempt")) is int and job.get("run_attempt") == attempt and
+                    job.get("head_sha") == run["head_sha"]):
+                reasons.append("job_identity_mismatch")
+                continue
+            jid = "job-" + str(job["id"])
+            ids.append(jid)
+            row = doc.entity(jid, "run")
+            doc.derived(row, "kind", "job")
+            doc.derived(row, "clock", "wall")
+            pointer = f"/jobs/{index}"
+            for field, source_field in (("job_id", "id"), ("source_sha", "head_sha"),
+                                         ("started_at", "started_at"), ("completed_at", "completed_at"),
+                                         ("execution_result", "conclusion")):
+                if field != "source_sha" or candidate_event:
+                    doc.known(row, field, job.get(source_field), ref, pointer + "/" + source_field)
+            # The job API cannot attest tested/policy/config or evaluate skipped conditions.
+            for field in ("tested_sha", "policy_sha", "config_digest", "job_key", "matrix", "depends_on", "condition"):
+                doc.unknown(row, field, "not_in_actions_job")
+            steps = job.get("steps", [])
+            if not isinstance(steps, list):
+                reasons.append("invalid_steps"); continue
+            if len(steps) > 512:
+                reasons.append("step_limit_exhausted")
+            step_numbers = set()
+            for step_index, step in enumerate(steps[:512]):
+                if not doc.available():
+                    break
+                if not isinstance(step, dict) or type(step.get("number")) is not int or step["number"] <= 0:
+                    reasons.append("invalid_step"); continue
+                if step["number"] in step_numbers:
+                    reasons.append("duplicate_step_identity"); continue
+                step_numbers.add(step["number"])
+                sub = doc.entity(f"{jid}-step-{step['number']}", "run")
+                for field, value in (("kind", "step"), ("parent_id", jid), ("clock", "wall")):
+                    doc.derived(sub, field, value)
+                for field, value, subpointer in (("job_id", job["id"], pointer + "/id"),
+                                                 ("source_sha", job["head_sha"], pointer + "/head_sha")):
+                    if field != "source_sha" or candidate_event:
+                        doc.known(sub, field, value, ref, subpointer)
+                for field, original in (("step_number", "number"), ("started_at", "started_at"),
+                                         ("completed_at", "completed_at"), ("execution_result", "conclusion")):
+                    doc.known(sub, field, step.get(original), ref, f"{pointer}/steps/{step_index}/{original}")
+    doc.derived(ctx, "job_ids", list(dict.fromkeys(ids)))
+    # Local copies or downloaded manifests never make the consumer the producer.
+    build_observations = []
+    for number, (reference, manifest) in enumerate(builds):
+        if not doc.available():
+            break
+        doc.source(reference, "oasis7-build-manifest/v2", manifest)
+        if not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 2:
+            reasons.append("unsupported_build_manifest"); continue
+        producer_run = manifest.get("producer_run_id")
+        producer_attempt = manifest.get("producer_attempt")
+        def decimal_id(value):
+            return int(value) if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,18}", value) and int(value) <= 2**63-1 else None
+        observed = dict(reference=reference, producer_run_id=decimal_id(producer_run),
+                        producer_attempt=decimal_id(producer_attempt), producer_job_id=None,
+                        consumer_run_id=run_id, consumer_attempt=attempt, consumer_job_id=None,
+                        binding_status="partial", missing_reasons=["producer_job_unavailable", "consumer_job_unavailable"])
+        if (observed["producer_run_id"] != run_id or observed["producer_attempt"] != attempt):
+            observed["missing_reasons"].append("different_or_unknown_producer_attempt")
+        if plan is None or manifest.get("execution_plan") != plan:
+            observed["missing_reasons"].append("execution_plan_mismatch_or_missing")
+        build_observations.append(observed)
+        row = doc.entity(f"build-{number}", "run")
+        doc.derived(row, "kind", "phase")
+        for field, rawfield in (("source_sha", "source_sha"), ("tested_sha", "tested_sha"),
+                                ("config_digest", "config_sha256"), ("toolchain", "rust_toolchain"),
+                                ("target", "target_triple"), ("runner", "runner_image")):
+            doc.known(row, field, manifest.get(rawfield), reference, "/" + rawfield)
+        doc.unknown(row, "producer", "incomplete_producer_identity")
+        # Preserve measured build phases without adding them to job resource totals.
+        timings = manifest.get("build_timings", [])
+        if not isinstance(timings, list):
+            reasons.append("invalid_build_timings"); continue
+        if len(timings) > 512:
+            reasons.append("build_timing_limit_exhausted")
+        for index, timing in enumerate(timings[:512]):
+            if not doc.available():
+                break
+            if not isinstance(timing, dict):
+                reasons.append("invalid_build_timings"); continue
+            phase = doc.entity(f"build-{number}-phase-{index}", "run")
+            for field, value in (("kind", "phase"), ("clock", "monotonic"), ("parent_id", row["id"])):
+                doc.derived(phase, field, value)
+            doc.known(phase, "elapsed_seconds", timing.get("elapsed_seconds"), reference, f"/build_timings/{index}/elapsed_seconds")
+    if builds:
+        reasons.append("producer_consumer_job_binding_unavailable")
+    return doc, reasons, build_observations
+
+
+def metrics_document(metrics, collection_id, collected_at):
+    """Read the existing v2 compile output; never inspect today's checkout."""
+    doc = SourceDocument("local", collection_id, collected_at)
+    ctx = doc.entity("local")
+    for field in ("repository", "run_id", "run_attempt"):
+        doc.unknown(ctx, field, "local_context", "not_applicable")
+    ref = "local/current.metrics.json"
+    doc.source(ref, "oasis7-compile-metrics/v2", metrics)
+    reasons = ["measurement_invocation_unavailable", "measurement_inputs_not_captured",
+               "measurement_environment_unavailable", "measurement_command_unavailable"]
+    if not isinstance(metrics, dict) or type(metrics.get("schema_version")) is not int or metrics["schema_version"] != 2:
+        reasons.append("unsupported_compile_metrics"); return doc, reasons
+    doc.known(ctx, "tested_sha", metrics.get("commit_oid"), ref, "/commit_oid")
+    # commit_oid is not evidence that the measured dirty tree equalled that commit.
+    for field in ("source_sha", "dirty_inputs_digest", "input_capture", "local_invocation_id", "policy_sha", "config_digest"):
+        doc.unknown(ctx, field, "not_in_metrics_output")
+    for field, phase_id in (("cargo_check_seconds", "cold-check"), ("cargo_check_warm_seconds", "warm-check"),
+                            ("cargo_build_release_seconds", "release-build")):
+        if metrics.get(field) is None:
+            continue
+        row = doc.entity(phase_id, "local")
+        doc.derived(row, "kind", "phase")
+        doc.derived(row, "clock", "monotonic")
+        doc.known(row, "elapsed_seconds", metrics[field], ref, "/" + field)
+        doc.known(row, "tested_sha", metrics.get("commit_oid"), ref, "/commit_oid")
+        doc.known(row, "target", metrics.get("package"), ref, "/package")
+        if type(metrics.get("no_default_features")) is bool:
+            doc.derived(row, "default_features", not metrics["no_default_features"])
+        # Presence of a metrics file is not an exit code, cleanup result or success.
+    if metrics.get("check_only") is not True or metrics.get("warm_check_enabled") is not True or metrics.get("cargo_check_warm_seconds") is None:
+        reasons.append("warm_check_sample_unavailable")
+    return doc, reasons
