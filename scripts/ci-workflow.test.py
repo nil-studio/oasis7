@@ -135,7 +135,9 @@ def viewer_cache_kind(job):
     return 'native' if inputs == native else 'web'
 
 
-def without_optional_dependency_cache_install(workflow):
+def without_optional_dependency_cache_install(workflow, config=None):
+    if config is None:
+        config = CONFIG
     # Only these exact optional installers and diagnostics uploads may fail.
     # Removing a writer condition, renaming the command or swallowing any build,
     # required artifact, merge or test failure is never exempt.
@@ -164,6 +166,18 @@ def without_optional_dependency_cache_install(workflow):
                        '          retention-days: 2\n')
         workflow = (workflow[:job.start()] + job[0].replace(installer, '', 1).replace(diagnostics, '', 1)
                     + workflow[job.end():])
+    if '      - &engineering-job-observation\n' in workflow:
+        import engineering_telemetry as bindings
+        import hashlib
+        policy = config.get('engineering_job_observation', {})
+        expected = dict(schema_version=1, workflow_path='.github/workflows/rust.yml',
+                        step_name=bindings.STEP, step_anchor='engineering-job-observation',
+                        timeout_minutes=1, failure_mode='nonblocking',
+                        emitter_sha256=hashlib.sha256(bindings.EMITTER.encode()).hexdigest())
+        step = re.search(r'^      - &engineering-job-observation\n.*?(?=^      - |^  [a-z][a-z0-9-]*:|\Z)',
+                         workflow, re.M | re.S)
+        if policy == expected and step and step[0].rstrip('\n') == bindings.workflow_step().rstrip('\n'):
+            workflow = workflow[:step.start()] + workflow[step.end():]
     return workflow
 
 
@@ -175,7 +189,7 @@ def validate_candidate_graph(workflow, config):
     expected = {'select', *(g.replace('_', '-') for g in config['groups'])}
     if set(dependencies) != expected or len(dependencies) != len(expected):
         raise ValueError('gate dependencies must exactly cover candidate groups')
-    if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow):
+    if 'always()' not in gate or 'continue-on-error:' in without_optional_dependency_cache_install(workflow, config):
         raise ValueError('failure propagation must remain intact')
     fleet = jobs['fleet-health']
     if ('os: [ubuntu-24.04, windows-2022, macos-15]' not in fleet
@@ -1952,6 +1966,25 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     records = trace.read_text().splitlines()
                     assert records[:2] == [('raw' if ci or raw == '1' else 'wrapper'), str(repo)], records
                     assert 'oasis7_viewer_live' in records, records
+
+    def test_engineering_observation_policy_is_exact_and_never_exempts_required_steps(self):
+        import engineering_telemetry as bindings
+        from unittest.mock import patch
+        self.assertNotIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW))
+        changed = dict(CONFIG)
+        changed['engineering_job_observation'] = dict(CONFIG['engineering_job_observation'], emitter_sha256='0' * 64)
+        with patch.dict(globals(), CONFIG=changed):
+            self.assertIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW))
+        absent = {key: value for key, value in CONFIG.items() if key != 'engineering_job_observation'}
+        for policy in (absent, changed):
+            with self.assertRaises(ValueError):
+                validate_candidate_graph(WORKFLOW, policy)
+        for mutation in (bindings.workflow_step().replace('timeout-minutes: 1', 'timeout-minutes: 10'),
+                         bindings.workflow_step().replace('PY_OBSERVATION\n', 'PY_OBSERVATION\n          false\n')):
+            self.assertIn('continue-on-error:', without_optional_dependency_cache_install(WORKFLOW.replace(bindings.workflow_step(), mutation)))
+        required = WORKFLOW.replace('      - name: Validate all expected results\n',
+                                    '      - name: Validate all expected results\n        continue-on-error: true\n')
+        with self.assertRaises(ValueError):validate_candidate_graph(required,CONFIG)
 
     def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
