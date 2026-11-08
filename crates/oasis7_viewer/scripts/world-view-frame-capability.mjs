@@ -11,7 +11,9 @@ export function summarizeFrameEvents(events) {
 export async function withObservationCleanup(body,cleanup,report) {
  let original,value,failed=false;
  try { value=await body(); } catch(error) { original=error;failed=true; }
- try { await cleanup(); } catch(error) { (report.cleanupErrors??=[]).push(String(error));if(!failed){original=error;failed=true;} }
+ for (const step of Array.isArray(cleanup) ? cleanup : [cleanup]) {
+  try { await step(); } catch(error) { (report.cleanupErrors??=[]).push(String(error));if(!failed){original=error;failed=true;} }
+ }
  if(failed) { if(report.cleanupErrors?.length) { try { original.observationCleanupErrors=[...report.cleanupErrors]; } catch {} console.error('observation cleanup failed: '+JSON.stringify(report.cleanupErrors)); } throw original; }return value;
 }
 // Page-target images only. No browser-global trace is started, including when
@@ -27,9 +29,7 @@ export async function probeWorldFrameCapabilities({run,evaluate,out,durationMs=3
   report.pageImages=await observePageImages({session,run,out,durationMs,action,report});
   report.observation=summarizeFrameEvents([]);report.status='page_image_capability_only';return report;
  }catch(error){report.status='failed';report.error=String(error);throw error;}
- },async()=>{
-  session.close();writeFileSync(resolve(out,'frame-capability.json'),JSON.stringify(report,null,2));
- },report);
+ },[()=>session.close(),()=>writeFileSync(resolve(out,'frame-capability.json'),JSON.stringify(report,null,2))],report);
 }
 async function observePageImages({session,run,out,durationMs,action,report}) {
  const dir=resolve(out,'page-frame-images');mkdirSync(dir);let count=0,bytes=0,overflow=false,error=null;const pending=new Set();
