@@ -211,3 +211,11 @@ it('clears correlation when read authority changes even if the same entity is pr
  await controller.query({});expect(controller.selectionFeedback()).toBeNull();
  controller.select({kind:'agent',id:'B'});expect(controller.selectionFeedback().scope_generation).toBeGreaterThan(before.scope_generation);
 });
+
+it('does not reuse an intent generation after a controller is disposed and remounted',async()=>{
+ const first=await fixture();first.controller.selectPresented({kind:'agent',id:'B'});const old=first.controller.selectionFeedback();
+ first.controller.dispose();first.release(['B']);await first.read;dispose();dispose=null;
+ const second=await fixture();second.controller.selectPresented({kind:'agent',id:'B'});
+ expect(second.controller.selectionFeedback().intent_generation).toBeGreaterThan(old.intent_generation);
+ second.release(['B']);await second.read;
+});

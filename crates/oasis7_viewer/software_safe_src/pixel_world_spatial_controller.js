@@ -3,6 +3,8 @@ import { createWorldViewClient, worldViewPosition } from './pixel_world_world_vi
 import { pixelWorldScope } from './pixel_world_scope.js';
 import { worldViewAuthorityKey } from './pixel_world_world_view_delta.js';
 
+// Page-local only: a remounted controller must not reuse an earlier intent ID.
+let selectionIntentGeneration = 0;
 const refKey = ref => `${ref.kind}:${ref.id}`;
 function viewportBounds(value) {
   if (!value || !['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].every(key => typeof value[key] === 'string' && /^-?(0|[1-9]\d*)$/.test(value[key]))) return null;
@@ -18,7 +20,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
   const [spatialSelection,setSpatialSelection] = createSignal(null);
   const [selectionStatus,setSelectionStatus] = createSignal(null);
   const [selectionFeedback,setSelectionFeedback] = createSignal(null);
-  let intentGeneration = 0, feedbackScopeGeneration = 1, feedbackAuthority = null;
+  let feedbackScopeGeneration = 1, feedbackAuthority = null;
   const client = createWorldViewClient({request:core.requestWorldView,onChange:next=>{setState(next);checkPending(next);}});
   let scope = pixelWorldScope(core.state), lastSnapshot = null, lastPins = '', currentQuery = {};
   let cameraBounds = null, cameraKey = '', timer = null, command = 0, disposed = false;
@@ -39,7 +41,7 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     setSelectionFeedback(previous => status && previous ? Object.freeze({...previous,phase:status}) : null);
   }
   function beginFeedback(ref, phase) {
-    setSelectionFeedback(Object.freeze({intent_generation:++intentGeneration,
+    setSelectionFeedback(Object.freeze({intent_generation:++selectionIntentGeneration,
       ref:Object.freeze({kind:ref.kind,id:ref.id}),world_id:core.state.worldId ?? null,
       scope_generation:feedbackScopeGeneration,phase}));
   }
