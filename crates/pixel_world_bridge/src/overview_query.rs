@@ -97,3 +97,22 @@ pub(super) fn permits(declaration: &Declaration, state: &RenderState) -> bool {
                 .as_ref()
                 .is_some_and(|c| c["completeness"] == "complete"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn absent_declaration_is_legacy_but_explicit_null_is_not() {
+        let old: navigation::Navigation =
+            serde_json::from_value(json!({"mode":"overview","request_id":"2"})).unwrap();
+        assert!(matches!(old.overview_query, Declaration::Legacy));
+        let new: navigation::Navigation = serde_json::from_value(
+            json!({"mode":"overview","request_id":"2","overview_query":null}),
+        )
+        .unwrap();
+        assert!(matches!(
+            new.overview_query,
+            Declaration::Declared(Value::Null)
+        ));
+    }
+}
