@@ -129,7 +129,10 @@ export async function measureDensityPerformance({ evaluate, run, waitProjection,
         await dense();
       } });
     await evaluate('new Promise(resolve=>setTimeout(()=>resolve(true),2000))');
-  } catch (error) { evidence.error = String(error); throw error; }
+  } catch (error) { evidence.error = String(error);
+    if (error.nativeInputDiagnostic) evidence.nativeInputDiagnostic = error.nativeInputDiagnostic;
+    if (error.nativeInputDiagnosticError) evidence.nativeInputDiagnosticError = error.nativeInputDiagnosticError;
+    throw error; }
   finally {
     // Capture each source independently; cleanup/scoring failures are secondary
     // to the original input error and must not prevent the other raw writes.

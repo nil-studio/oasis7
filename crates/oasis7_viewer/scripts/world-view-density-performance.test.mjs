@@ -89,3 +89,18 @@ test('measurement rethrows the original collection error even when final trace o
     assert.deepEqual(JSON.parse(readFileSync(join(out, 'performance-monitor.json'))), monitor);
   } finally { rmSync(out, { recursive: true }); }
 });
+
+test('an armed input miss is retained with focus and attachment evidence without a retry', async () => {
+  const primary = Error('controlled native input timeout'), commands = [];
+  const diagnostic = { input: { status: 'armed', expectedId: 'A' }, active: { tag: 'BODY', id: null }, expectedTargetAttached: false, transport: 'cli' };
+  await assert.rejects(collectNativeSelectionSamples({ count: 1,
+    run: async args => commands.push(args),
+    evaluate: async code => {
+      if (code.includes('return candidates[0]')) return { id: 'A' };
+      if (code.includes('const deadline=performance.now()+6000')) throw primary;
+      if (code.includes('expectedTargetAttached')) return diagnostic;
+      return true;
+    },
+  }), error => error === primary && error.nativeInputDiagnostic === diagnostic);
+  assert.deepEqual(commands, [['press', 'Enter']]);
+});

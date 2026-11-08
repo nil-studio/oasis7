@@ -5,20 +5,10 @@
 // Agent complete-projection omission is not an authoritative world_deleted event.
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createOwnedCdpInput } from './viewer-owned-cdp-input.mjs';
 const assert = (value, message) => { if (!value) throw Error(message); };
 const timeout = (promise, name) => Promise.race([promise, new Promise((_, reject) => { const t = setTimeout(() => reject(Error(name + ' timed out')), 12000); t.unref(); })]);
-async function ownedCdp(run, evaluate) {
-  const reply = JSON.parse(await run(['--json', 'get', 'cdp-url']));
-  const url = reply.data?.cdpUrl; assert(url?.startsWith('ws://127.0.0.1:'), 'CDP endpoint was not the owned local browser');
-  const ws = new WebSocket(url), pending = new Map(); let sequence = 0;
-  await timeout(new Promise((yes, no) => { ws.addEventListener('open', yes, { once: true }); ws.addEventListener('error', no, { once: true }); }), 'owned CDP open');
-  ws.addEventListener('message', event => { const r = JSON.parse(event.data); const p = pending.get(r.id); if (p) { pending.delete(r.id); r.error ? p.no(Error(JSON.stringify(r.error))) : p.yes(r.result); } });
-  const send = (method, params = {}, sessionId) => timeout(new Promise((yes, no) => { const id = ++sequence; pending.set(id, { yes, no }); ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); }), method);
-  const href = await evaluate('location.href'), targets = await send('Target.getTargets');
-  const page = targets.targetInfos.filter(t => t.type === 'page' && t.url === href); assert(page.length === 1, 'CDP target did not uniquely match owned Viewer');
-  const { sessionId } = await send('Target.attachToTarget', { targetId: page[0].targetId, flatten: true });
-  return { async frameBoundary() { const r = await send('Runtime.evaluate', { expression: 'new Promise(resolve=>requestAnimationFrame(frame=>resolve({frame,now:performance.now(),wall:Date.now()})))', awaitPromise: true, returnByValue: true }, sessionId); return r.result.value; }, async enter() { const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }; await send('Input.dispatchKeyEvent', { type: 'keyDown', text: '\r', unmodifiedText: '\r', ...key }, sessionId); await send('Input.dispatchKeyEvent', { type: 'keyUp', ...key }, sessionId); }, async click(point) { const p={x:point.x,y:point.y,button:'left',clickCount:1};await send('Input.dispatchMouseEvent',{type:'mousePressed',buttons:1,...p},sessionId);await send('Input.dispatchMouseEvent',{type:'mouseReleased',buttons:0,...p},sessionId); }, close() { ws.close(); } };
-}
+
 export async function probePendingWorldSelection({ run, evaluate, state, waitProjection, armPendingGate, freezeCompleteBoundary, unfreeze, fixture, reconnect, waitNegotiation, out }) {
   const mode = process.env.DENSITY_QA_PENDING_CASE || 'confirm';
   const inputMode = process.env.DENSITY_QA_PENDING_INPUT || 'keyboard';
@@ -26,7 +16,7 @@ export async function probePendingWorldSelection({ run, evaluate, state, waitPro
   assert(['confirm', 'replace', 'scope', 'absence'].includes(mode), 'unknown pending probe case');
   const result = { case: mode, inputMode, scope: 'controlled actual WS third-page hold + CDP trusted Enter; not signed service/P5 or latency/P6. Prepared held replies are not wire delivery; wire.jsonl is authoritative.', target: 'qa-agent-0500' };
   const selector = 'button[data-agent-id="qa-agent-0500"][data-renderer-target]';
-  const cdp = await ownedCdp(run, evaluate); let gate;
+  const cdp = await createOwnedCdpInput(run, evaluate); let gate;
   try {
     await freezeCompleteBoundary();
     result.before = JSON.parse(await evaluate(`(async()=>{const end=Date.now()+10000;while(Date.now()<end){const m=window.__QA_READ_METRICS__();if(m.status==='observed'&&m.projected_marker_count===1000&&m.agent_body_sprites===1000&&m.in_view_agent_body_sprites===1000&&document.querySelector(${JSON.stringify(selector)}))return JSON.stringify({metrics:m,core:window.__AW_TEST__.getState(),targetPresent:true});await new Promise(r=>setTimeout(r,50))}throw Error('initial full observed scene did not settle')})()`));
