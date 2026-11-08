@@ -72,15 +72,14 @@ impl Codec for oasis7_wasm_abi::ModuleSchemaDeclarations {
             d,
             &["commands"],
             |name, before, after, d| match name {
-                "commands" => {
-                    crate::incremental_typed_record_diff::accept_projected::<Self, _, _, _, _, _>(
-                        |owner| &owner.commands,
-                        profile,
-                        before,
-                        after,
-                        d,
-                    )
-                }
+                "commands" => crate::incremental_typed_record_diff::accept_projected::<
+                    Self,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                >(|owner| &owner.commands, profile, before, after, d),
                 _ => Err(ValueTreeError::Invalid("typed struct changed field")),
             },
         )
