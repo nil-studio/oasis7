@@ -68,7 +68,11 @@ function armPendingGate(search, onThird) {
 const wire = [], http = [];
 const connectionIds = new WeakMap();
 const latestQueryByConnection = new Map();
-const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); };
+let streamingWire = false;
+let streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0};
+const beginStreamingWire = () => { streamingWire = true; streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0}; };
+const readWireSummary = () => ({...streamedWire,streaming:streamingWire});
+const audit = row => { if (!streamingWire) wire.push(row); else { streamedWire.messages++; streamedWire.bytes += Buffer.byteLength(JSON.stringify(row)); if (row.direction==='out'&&row.message?.type==='world_view') { streamedWire.worldViewPages++; streamedWire.entityRecords += row.message.view?.entities?.length||0; } } appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); };
 const send = (socket, connection, response, replay = false) => {
   if (socket.readyState !== 1) return;
   audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }); socket.send(JSON.stringify(response));
@@ -287,6 +291,15 @@ try {
   summary.labelOnlyInvariant = labelOnlyInvariant(labelCaptures);
   summary.labelOracle = JSON.parse(execFileSync('python3', [resolve(here, 'world-view-label-oracle.py'), out], { encoding: 'utf8' })); assert(summary.labelOracle.passed, '200 native label paired PNG oracle failed');
   if (process.env.DENSITY_QA_PENDING === '1') summary.pendingSelection = await probePendingWorldSelection({ run, evaluate, state, waitProjection, armPendingGate, freezeCompleteBoundary, unfreeze: () => { pauseReplies = false; pauseAfterComplete = false; release(); }, fixture, reconnect, waitNegotiation, out });
+  if (process.env.DENSITY_QA_MEMORY_MS) {
+    const {createOwnedCdpSession}=await import('./viewer-owned-cdp-session.mjs');
+    const {readOwnedMemory}=await import('./viewer-owned-cdp-memory.mjs');
+    const {measureWorldViewRetention}=await import('./world-view-retention-memory.mjs');
+    const memorySession=await createOwnedCdpSession(run,evaluate);
+    summary.scripts['world-view-retention-memory.mjs']=sha(readFileSync(resolve(here,'world-view-retention-memory.mjs')));
+    try { summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)}); }
+    finally { memorySession.close(); }
+  }
   if (process.env.DENSITY_QA_FRAME_OBSERVATION_MS) summary.frameObservation = await probeWorldFrameCapabilities({run,evaluate,out,durationMs:Number(process.env.DENSITY_QA_FRAME_OBSERVATION_MS)});
   if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
   if (scope === 'all') {
