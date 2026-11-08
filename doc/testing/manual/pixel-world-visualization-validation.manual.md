@@ -207,6 +207,8 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 
 首轮实施限定为能力探查：由owned Chrome读取Browser版本和`Tracing.getCategories`，只使用实际支持的timeline/图像/UserTiming记录；每组trace预设短时限，前后以`performance.mark`及其调用时间区间建立可审计时钟锚。归档原始字段/图像及映射误差，不假定某个截图事件天然带可用呈现时间。若采集会主动推进帧，或只有稀疏截图而不能证明同帧/时钟关系，该数据只作诊断，ACK可见时延不计合格。既有pending布局helper只能供非计时校准，不能提供真实意图接受证据。
 
+`DENSITY_QA_FRAME_OBSERVATION_MS=3000` 在既有冻结source/artifact、真实WS与1000/200字形前置后运行1–10秒能力探针；与performance、memory、pending模式互斥。工具session只有一个managed tab不证明整个Chrome独占：browser-wide只读枚举每次重新核对唯一owned page；额外newtab/其他页导致该项unavailable，不关闭未知页、不启动global trace。独立page-target screencast只接attached session的正常图像与原始swap metadata，保存page performance/timeOrigin/wall锚；600图/64 MiB上限，任何overflow、采集或清理错误保留且非零退出。稀疏图像不证明每帧覆盖或物理显示，缺world render-version→GPU完成→合成映射时帧预算仍unknown，未校准输入/字形可见性前不计ACK。图像/metadata保全不改变原selected oracle。
+
 ### 9.2 容量与过载反例
 
 测试100/1000/1001可见实体、200/201突出labels、200/201单页、2 MiB边界和超额事件；世界总量固定50000但不每帧传全量。授权后再聚合，记录实际绘制数量、关系端点和cache。关键选中/目标/blocker在裁剪后仍可达，partial不伪装对象不存在。
