@@ -153,3 +153,69 @@ it('an unavailable Feed navigation cancels pending inspection before its early r
   expect(controller.selection()?.id).not.toBe('B');
   expect(controller.selectionStatus()).not.toBe('pending');
 });
+
+it('binds pending and selected to one immutable local intent without authority facts',async()=>{
+ const {core,controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
+ const first=controller.selectionFeedback();
+ expect(first).toEqual({intent_generation:expect.any(Number),ref:{kind:'agent',id:'B'},world_id:'W',scope_generation:1,phase:'pending'});
+ expect(Object.isFrozen(first)).toBe(true);expect(Object.isFrozen(first.ref)).toBe(true);
+ controller.selectPresented({kind:'agent',id:'B'});const second=controller.selectionFeedback();
+ expect(second.intent_generation).toBeGreaterThan(first.intent_generation);release(['B']);await read;
+ expect(controller.selectionFeedback()).toEqual({...second,phase:'selected'});expect(core.applySelection).not.toHaveBeenCalled();
+});
+it('clears feedback on navigation and disposal; unavailable retains only the same intent',async()=>{
+ const {controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
+ const pending=controller.selectionFeedback();release([]);await read;
+ expect(controller.selectionFeedback()).toEqual({...pending,phase:'unavailable'});
+ controller.overview();expect(controller.selectionFeedback()).toBeNull();controller.dispose();expect(controller.selectionFeedback()).toBeNull();
+});
+
+for(const action of ['scope','business identity','new selection','dispose']) it(`does not retain an older feedback intent after ${action}`,async()=>{
+ const {core,controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
+ const previous=controller.selectionFeedback();
+ if(action==='scope'){core.state.auth.sessionEpoch=2;controller.resetScope();}
+ if(action==='business identity'){core.state.selectedKind='agent';core.state.selectedId='different';controller.refresh({});}
+ if(action==='new selection')controller.select({kind:'agent',id:'C'});
+ if(action==='dispose')controller.dispose();
+ release(['B']);await read;
+ const next=controller.selectionFeedback();
+ expect(next?.phase).not.toBe('pending');
+ if(next?.phase==='selected'){expect(next.ref.id).toBe('C');expect(next.intent_generation).toBeGreaterThan(previous.intent_generation);}
+ else if(next)expect(next).toEqual({...previous,phase:'unavailable'});
+});
+it('uses a new local scope sequence after reset without exposing the scope binding',async()=>{
+ const {core,controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});
+ const before=controller.selectionFeedback();release(['B']);await read;
+ core.state.auth.sessionEpoch=2;controller.resetScope();expect(controller.selectionFeedback()).toBeNull();
+ core.requestWorldView.mockImplementation(async q=>page(q,['A']));await controller.query({});controller.select({kind:'agent',id:'A'});
+ const next=controller.selectionFeedback();expect(next.scope_generation).toBeGreaterThan(before.scope_generation);
+ expect(next.intent_generation).toBeGreaterThan(before.intent_generation);
+ expect(JSON.stringify(next)).not.toMatch(/authority|sessionEpoch|source_cut|request_generation/);
+});
+
+it('keeps a genuine legacy selection correlation until the business identity changes',()=>{
+ const core={state:{worldId:'W',auth:{},selectedKind:null,selectedId:null},requestWorldView:vi.fn(),buildGameplaySummary:()=>null,
+ applySelection:vi.fn(ref=>{core.state.selectedKind=ref.kind;core.state.selectedId=ref.id;return ref;})};
+ let controller;createRoot(cleanup=>{dispose=cleanup;controller=createPixelWorldSpatialController({core,enabled:()=>false,getRenderState:()=>null,getLocale:()=> 'en'});});
+ controller.selectPresented({kind:'agent',id:'legacy'});const feedback=controller.selectionFeedback();
+ expect(feedback).toMatchObject({ref:{kind:'agent',id:'legacy'},phase:'selected'});
+ controller.refresh({});expect(controller.selectionFeedback()).toBe(feedback);
+ core.state.selectedId='other';controller.refresh({});expect(controller.selectionFeedback()).toBeNull();
+ expect(core.requestWorldView).not.toHaveBeenCalled();
+});
+
+it('clears correlation when read authority changes even if the same entity is present',async()=>{
+ const {core,controller,read,release}=await fixture();controller.selectPresented({kind:'agent',id:'B'});release(['B']);await read;
+ const before=controller.selectionFeedback();
+ core.requestWorldView.mockImplementation(async q=>page(q,['A','B'],{scope_id:'new-read-scope'}));
+ await controller.query({});expect(controller.selectionFeedback()).toBeNull();
+ controller.select({kind:'agent',id:'B'});expect(controller.selectionFeedback().scope_generation).toBeGreaterThan(before.scope_generation);
+});
+
+it('does not reuse an intent generation after a controller is disposed and remounted',async()=>{
+ const first=await fixture();first.controller.selectPresented({kind:'agent',id:'B'});const old=first.controller.selectionFeedback();
+ first.controller.dispose();first.release(['B']);await first.read;dispose();dispose=null;
+ const second=await fixture();second.controller.selectPresented({kind:'agent',id:'B'});
+ expect(second.controller.selectionFeedback().intent_generation).toBeGreaterThan(old.intent_generation);
+ second.release(['B']);await second.read;
+});
