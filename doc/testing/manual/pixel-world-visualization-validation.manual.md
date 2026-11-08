@@ -194,6 +194,19 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 
 组合材料恢复可运行 `AGENT_VISUAL_SOURCE_HEAD=<固定构建源> MATERIAL_VISUAL_SCOPE=recovery node crates/oasis7_viewer/scripts/agent-browser-material-visual-test.mjs`。本地 HTTP QA shim 只包装原 gated `material_shells` 工厂，在每次真正页面 Reload 前提供当前受控 known/removed 输入；不保存或恢复私有 DTO，不新增生产权限 API。三个视口分别真实触发 context loss，检查失效目标清空、无自动 Reload、原生 Enter 显式重载、非空 fixture 身份及 receipt target 连续、无世界 Command 或变更 HTTP。PNG oracle 检查工厂全部源色与删除负对照，Depot 避开既有 Location 右下角框的源区域仍覆盖全部八色；矿纹使用结构化侧带检查组合画面恢复，独立矿纹消费须另用同底色 runtime oracle。它们不代签真实服务撤权、原 operation 身份或正式 P6 预算。
 
+<a id="pw-local-feedback-measurement"></a>
+### 本地接受与最终确认的前置测量计划
+
+权威端点和预算沿[WorldView本地反馈](../../world-simulator/viewer/external-agent-world-view.design.md#view-local-feedback-measurement)及[9.2质量预算](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)。以下是待实现/验证的方法，不声明当前helper已取得完整ACK证据；旧strict selected列、阈值和unknown继续保留，旧466样本不重新标记。通用发行profile与WorldView专项分别报告。
+
+1. **采样前注册。** 固定生产/runner/观测脚本及资产hash、设备/浏览器/电源/viewport/DPR、schema/profile、输入集合、端点、字形校准和失败判据。每个计划输入保留，明确区分本地接受状态、可见ACK、selected最终确认、网络/Runtime完成；不得事后挑较快的一列替换原结果。错误目标/无可信输入/无新反馈/代际不符/时间或可见性缺证据均有独立unknown原因，不填零。
+2. **真实关联。** 保存实际native输入的ref、timeStamp/timeOrigin及同world/scope的显式用户意图代。反馈所有者需提供同一次意图的只读关联，不能由QA写入或从邻近时间猜测。现有泛pending文本/role=status不足以绑定输入；连续旧pending不因不可见token更新就算新的可见响应。字段缺失时只报告状态观察，不开始完整ACK预算计分。新增观测不保存旧实体/权限事实、不发pin或命令，不暴露私有authority key。
+3. **可见性校准。** 在实际shell中先覆盖桌面/窄屏、声明DPR、Feed开闭及遮挡/裁切反例。固定相同候选/字体/文本的完整语义字形区域；A/A稳定正控、透明文本和遮挡负控须能区分有效字形与背景变化，再冻结覆盖与噪声门槛。此校准在计时外单独留证；计时内只观察真实反馈，不复制节点、改文本/样式、隐藏HUD/目标或降低密度。DOM rect、aria-live和非零像素差本身不证明可见ACK。
+4. **短能力核对先行。** 每轮至多三组预声明的短探查，先测直接selected、本查询partial的pending→后页确认、旧徽标/错误代际负控；错误目标、快速替换、换scope与未送达另有确定性负例。只用原有标准读查询，实际输入窄窗未命中即保存unmeasured停止，不重试求pass、不造grant、不冻renderer/rAF。先验证当前Chrome实际提供的图像、正常产生的合成帧关联和前后时钟锚；保存协议版本/trace字段，传播时钟误差到逐样本区间。不把Paint/DrawFrame或截图API返回当作呈现，不强制paint，不用缺帧证明此前无ACK；条件不足时可见时间unknown。trace开销与无trace预算窗口分开，不从时延扣除。
+5. **分列判定。** 记录反馈类型、意图绑定、输入前基线、DOM状态时间、可见性检查/字形证据、帧与时钟区间、密度、撤销/更新状态及未知原因。图像必须对应同意图、同scope且状态持续的完整区间，不能跨代借图。新ACK列按主责上界/连续无响应判据评估；原selected DOM/EventTiming/额外rAF分布与原gate不动。ACK合格也不把target=null的selected unknown改成通过，不代签P6整体。
+
+首轮实施限定为能力探查：由owned Chrome读取Browser版本和`Tracing.getCategories`，只使用实际支持的timeline/图像/UserTiming记录；每组trace预设短时限，前后以`performance.mark`及其调用时间区间建立可审计时钟锚。归档原始字段/图像及映射误差，不假定某个截图事件天然带可用呈现时间。若采集会主动推进帧，或只有稀疏截图而不能证明同帧/时钟关系，该数据只作诊断，ACK可见时延不计合格。既有pending布局helper只能供非计时校准，不能提供真实意图接受证据。
+
 ### 9.2 容量与过载反例
 
 测试100/1000/1001可见实体、200/201突出labels、200/201单页、2 MiB边界和超额事件；世界总量固定50000但不每帧传全量。授权后再聚合，记录实际绘制数量、关系端点和cache。关键选中/目标/blocker在裁剪后仍可达，partial不伪装对象不存在。
@@ -203,6 +216,20 @@ worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENS
 不达标保留原失败与样本，修复后同fixture比较；预算调整须有实测依据和owner决定，不能为通过临时改门槛。该专项不新增统一CI gate；普通CI覆盖算法/容量边界，实测组合由适用实现和发行验证运行。
 
 <a id="pw-platform"></a>
+### 9.3 P6剩余工作与依赖次序
+
+下表是同一P6义务的实施顺序，不新增阈值、通用CI gate或已完成声明；数值沿[专项质量预算](../../world-simulator/viewer/external-agent-world-view.design.md#view-quality)与本节原测量窗口。测试资源按Cargo/CPU/GPU串行协调，未知分量不补零。
+
+| 优先级/项 | 本机可执行部分 | 必要依赖与仍不能代签的范围 |
+| --- | --- | --- |
+| 先做：反馈合同与短观测 | 独立审定上述端点，再补真实意图只读关联/可辨反馈及至多三组短校准。 | 同意图/可见时钟缺证据先unknown；定义未定不再运行五分钟，不借旧466样本。 |
+| 随后：真实世界帧间隔 | 在冻结硬件加速候选上先做短连续pan/zoom能力核对，分别确认world pass提交、GPU完成、浏览器合成/呈现的实际信号与关联。 | 当前PostUpdate metrics和rAF不是世界呈现fence；原生UI刷新或重复旧texture不能充世界帧。缺实际世界帧关联不签帧率；可能需要Render/浏览器只读观测实现。 |
+| 可独立准备：30分钟长稳 | 固定预热后同负载、区域往返/选择/过滤/恢复序列；初末匹配同阶段，分别采JS、WASM线性内存、应用缓存对象/字节、可取得的GPU及owned进程资源。 | 需先补缺失的只读计数与有界长期采集；不长期累积诊断trace把工具缓存算产品增长，不在末端清缓存/重载伪造下降。缺GPU/进程/缓存分量标unknown；M3/16GiB子集不代签8GiB目标机。 |
+| 条件具备后：退出跟随/stop | 只读follow/退出可先做受控UI技术回归，保实际位置/失效与手动导航语义。 | 正常hosted及真实可停止操作沿P5的合法owner/原operation/receipt；guest或假授权Stop不证明可用Stop预算，UI接受仍不等于世界已停止。 |
+| 外部与发布前置：A/B、冷/热与50k query | 可先核实际encoded字节/响应头/cache语义，准备固定样本/网络和50000对象获准scope夹具。 | 正式8GiB CPU/GPU/OS与两条真实受控链路缺失时不能用16GiB或CPU节流冒充；WS/HTTP的实际RTT/带宽分别核，假page延迟不是链路。冷/热样本数、重复窗口、真实50k索引/授权与query耗时均沿原合同；1000对象fake peer或热cache不代签服务端50k。 |
+
+组件可测不等于整项完成。正式headed硬件加速与目标机要求不能由headless子集代签；普通Web、原生容器和正常玩家认证各沿自身环境。同候选/frame/内存记录不替代P5或发布就绪。新增可并行实施片段另按原生子Issue/独立owner领取，不在本表重复创建已归属的义务。
+
 ## 10. PW-PLATFORM：Web与原生各自通过
 
 Trace refs: O7-REQ-ecbc5765-ec25-4bfe-9aaa-4bbdd0a3064a。
