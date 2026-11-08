@@ -3,9 +3,19 @@ use super::*;
 
 #[derive(Default)]
 pub(super) struct Runtime {
-    pub retired_request: Option<String>,
+    pub retired_generation: u64,
     pub navigation_highwater: u64,
     pub pending_result: Option<String>,
+}
+
+impl Runtime {
+    pub fn retire(&mut self, id: &str) {
+        self.retired_generation = self.retired_generation.max(id.parse::<u64>().unwrap_or(0));
+    }
+    pub fn retire_seen(&mut self) {
+        self.retired_generation = self.retired_generation.max(self.navigation_highwater);
+        self.pending_result = None;
+    }
 }
 
 #[derive(Clone, Debug, Default)]

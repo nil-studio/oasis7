@@ -274,4 +274,33 @@ mod overview_partial_regression {
             assert_eq!(runtime.camera.pan_y_px, camera.pan_y_px);
         }
     }
+
+    #[test]
+    fn clearing_the_scene_retires_pending_and_consumed_ids_without_revival() {
+        for completeness in ["partial", "complete"] {
+            let mut runtime = BevyRuntimeState::default();
+            consume_modern(&mut runtime, modern_scene(200, completeness, "2"), 1);
+            crate::apply_external_render_snapshot(
+                &mut runtime,
+                false,
+                RenderSnapshot::Changed {
+                    version: 2,
+                    state: None,
+                },
+            );
+            let before = runtime.camera.clone();
+            let mut late = modern_scene(200, "complete", "2");
+            for agent in &mut late.agents {
+                agent.pos.as_mut().unwrap().y_cm += 10_000.;
+            }
+            consume_modern(&mut runtime, late, 3);
+            assert_eq!(runtime.camera.zoom, before.zoom);
+            assert_eq!(runtime.camera.pan_y_px, before.pan_y_px);
+            consume_modern(&mut runtime, modern_scene(200, "complete", "3"), 4);
+            assert!(
+                (runtime.camera.pan_y_px - 99.6923076923077).abs() < 1e-9,
+                "a new explicit intent must still work after clearing"
+            );
+        }
+    }
 }

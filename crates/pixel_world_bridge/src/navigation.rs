@@ -3,8 +3,7 @@ use super::*;
 pub(super) fn reset_if_detached(runtime: &mut BevyRuntimeState, state: Option<&RenderState>) {
     if state.is_none() {
         runtime.pending_fit_bounds = None;
-        runtime.overview.retired_request = None;
-        runtime.overview.pending_result = None;
+        runtime.overview.retire_seen();
     }
 }
 
@@ -22,11 +21,10 @@ pub(super) struct Navigation {
 fn overview_allowed(runtime: &BevyRuntimeState, state: &RenderState, nav: &Navigation) -> bool {
     overview_query::permits(&nav.overview_query, state)
         && (matches!(nav.overview_query, overview_query::Declaration::Legacy)
-            || (nav
-                .request_id
-                .parse::<u64>()
-                .is_ok_and(|id| id > 0 && id >= runtime.overview.navigation_highwater)
-                && runtime.overview.retired_request.as_deref() != Some(&nav.request_id)))
+            || (nav.request_id.parse::<u64>().is_ok_and(|id| {
+                id > runtime.overview.retired_generation
+                    && id >= runtime.overview.navigation_highwater
+            })))
 }
 
 pub(super) fn retire_overview_after_manual_camera(runtime: &mut BevyRuntimeState) {
@@ -38,7 +36,7 @@ pub(super) fn retire_overview_after_manual_camera(runtime: &mut BevyRuntimeState
         && nav.mode == "overview"
         && !matches!(nav.overview_query, overview_query::Declaration::Legacy)
     {
-        runtime.overview.retired_request = Some(nav.request_id.clone());
+        runtime.overview.retire(&nav.request_id);
     }
 }
 
@@ -87,7 +85,7 @@ pub(super) fn prepare_camera(
         && nav.mode == "overview"
         && overview_query::terminally_invalid(&nav.overview_query, state)
     {
-        runtime.overview.retired_request = Some(nav.request_id.clone());
+        runtime.overview.retire(&nav.request_id);
         runtime.overview.pending_result = None;
     }
     let navigation_changed = state
@@ -159,7 +157,7 @@ pub(super) fn apply(runtime: &mut BevyRuntimeState, state: Option<&RenderState>,
         match command.mode.as_str() {
             "overview" => {
                 if !matches!(command.overview_query, overview_query::Declaration::Legacy) {
-                    runtime.overview.retired_request = Some(command.request_id.clone());
+                    runtime.overview.retire(&command.request_id);
                     runtime.overview.pending_result = Some(command.request_id.clone());
                 }
                 runtime.camera_fit_version = 0;
