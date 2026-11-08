@@ -23,6 +23,7 @@ Runtime拥有世界、控制版本、观察资格、admission及持久结果；A
 
 | 上游 requirement / product AC | 具体 obligation 与适用条件 | 本设计条款 | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
+| Trace refs: O7-REQ-7e64b369-3c32-4671-a1af-205bc5a75251；[REQ-ENTRY-PERFORMANCE-001](../../product/player-entry-distribution/access-modes-and-release-readiness.prd.md#req-entry-performance-001) | WorldView负载下本地可见接受、selected确认和网络完成分别可核，原预算不变。 | [本地反馈测量](#view-local-feedback-measurement) | Viewer反馈所有者/QA、真实意图及可见帧观测。 | DOM状态/设计不代签可见时延、网络完成或P6。 |
 | Trace refs: O7-REQ-24cbdd98-cf69-4f7b-8342-6216b1b91616；[AC-AGENT-STAGE-001](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-001) | 世界/目的/blocker/下一步与原结果可读，选择不改归属。 | [共享舞台](#view-scene) | Viewer/visual；Runtime因果。 | 局部HUD/截图不证明真人理解。 |
 | Trace refs: O7-REQ-8b88187a-985b-4cf0-a9d4-b6137882ffc3；[AC-AGENT-STAGE-002](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-002) | 来源/时效、冲突、旧响应、撤权与生效重验闭环。 | [观察到生效](#view-admission) | Runtime/API Context、fence、授权与原操作。 | Viewer不另建真值裁决/admission。 |
 | Trace refs: O7-REQ-2ede7851-f1c0-4851-8d6b-5da4afcdefcf；[AC-AGENT-STAGE-003](../../product/agents-world-simulation/player-readable-world-stage.prd.md#ac-agent-stage-003) | 多尺度探索、partial适配、跟随/返回与有界密度。 | [探索查询](#view-query) | 授权空间投影、Rust/renderer、QA。 | 地形LOD不等于完整semantic zoom或已测容量。 |
