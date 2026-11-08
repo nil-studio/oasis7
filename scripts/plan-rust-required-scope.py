@@ -759,6 +759,16 @@ def validate_config(config):
         if (type(version) is not int or version == ARCHITECTURE_BUILD_POLICY_VERSION
                 and config.get('fast_execution_version') != FAST_EXECUTION_VERSION):
             raise ValueError('invalid architecture build policy capability')
+    if 'workspace_support_partition_version' in config:
+        if (type(config['workspace_support_partition_version']) is not int
+                or config['workspace_support_partition_version'] != 1
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid workspace support partition capability')
+    if 'ordinary_artifact_partition_version' in config:
+        if (type(config['ordinary_artifact_partition_version']) is not int
+                or config['ordinary_artifact_partition_version'] != 1
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid ordinary artifact partition capability')
     if 'ordinary_partition_version' in config:
         if (type(config['ordinary_partition_version']) is not int
                 or config['ordinary_partition_version'] != ORDINARY_PARTITION_VERSION
@@ -1326,6 +1336,14 @@ def formal_shards(suites, inventory):
             if shard not in FORMAL_SUITES:
                 raise ValueError('unknown trusted formal shard')
             result.add(shard)
+    for binary, suite in inventory.get('environment_formal_batches', {}).items():
+        if suite in suites:
+            explicit = {entry.get('name') for entries in inventory['suites'].values()
+                        for entry in entries if entry.get('binary') == binary}
+            destinations = {shard for name, shard in overrides.get(binary, {}).items() if name not in explicit}
+            if destinations - set(FORMAL_SUITES):
+                raise ValueError('unknown trusted formal shard')
+            result.update(destinations)
     return sorted(result)
 
 
@@ -1465,7 +1483,8 @@ def worker_exact_signer_guard(source, attribute, owner):
 def changed_test_policy(base, source, paths, feature_owners, feature_packages, available_features,
                         ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
                         narrow_unavailable=None, selected_targets=None, required_source_paths=(),
-                        portable_paths=None, worker_wasm_compile=False, native_root_deltas=None):
+                        portable_paths=None, worker_wasm_compile=False, native_root_deltas=None,
+                        pixel_platform_driver=False):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -1542,7 +1561,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             if cursor in closing and tokens[cursor][1] == '{':
                 function_bodies.append((cursor, closing[cursor], owner))
                 function_starts[cursor] = start
-        statement_owners, statement_occurrences = {}, {}
+        statement_owners, statement_occurrences, statement_context = {}, {}, {}
         for start, (_, value, _) in enumerate(tokens):
             if value != 'let':
                 continue
@@ -1572,6 +1591,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             occurrence = statement_occurrences.get(key, 0)
             statement_occurrences[key] = occurrence + 1
             statement_owners[start] = ('statement', f'{function[1]}#{function[2]}::let:{identity}', occurrence)
+            if function in ordinary_context:
+                statement_context[statement_owners[start]] = (function, function_starts[left], start)
 
         # An unresolved field/statement inside an unchanged method must not get
         # a new identity merely because an earlier module or item was inserted.
@@ -1639,6 +1660,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         if (opening and tokens[opening - 1][1] == '!')
                         or (opening > 1 and tokens[opening - 2][1] == '!'
                             and tokens[opening - 1][0] == 'identifier')]
+        statement_context = {owner: context for owner, context in statement_context.items()
+                             if not any(left < context[2] < right for left, right in macro_ranges)}
 
         def enclosing_function_owner(index, fallback):
             bodies = [left for left, right, _ in function_bodies if left < index < right]
@@ -1699,7 +1722,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                                  for attribute, target in annotations if applies_to(target, owner))}
         return (selection, ignored, test_owners, set(item_owners.values()),
                 test_owners & ordinary_items, ordinary_items, annotations,
-                tokens, closing, item_owners, modules, ordinary_context, lexical_annotations)
+                tokens, closing, item_owners, modules, ordinary_context, lexical_annotations, statement_context)
 
     def lexical_attributes(info, position):
         # Keep stable named/occurrence owners for edit comparison. Compilation
@@ -2300,6 +2323,45 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 return False
         return True
 
+    def new_pixel_platform_statement(path, attribute, owner, old_items, test_owners):
+        # The trusted pixel group executes default-feature native lib tests AND
+        # a wasm32 production check. This witnesses only new direct free-function
+        # statements, never a test or a change to an existing function's gates.
+        package = 'pixel_world_bridge'
+        predicates = {
+            ('cfg', '(', 'target_arch', '=', '"wasm32"', ')'),
+            ('cfg', '(', 'not', '(', 'target_arch', '=', '"wasm32"', ')', ')'),
+        }
+        if (not pixel_platform_driver or source_owners(path) != {package}
+                or attribute not in predicates or not ordinary_source_structure(path, True)):
+            return False
+        info = parsed(path, True)
+        context = info[13].get(owner)
+        if context is None:
+            return False
+        function, function_start, position = context
+        if function in old_items or function in test_owners:
+            return False
+        local = set(lexical_attributes(info, function_start) + lexical_attributes(info, position))
+        local.update(item for item in info[6] if item[1] == owner)
+        if any(gate[0] == 'cfg_attr' or (gate[0] != 'cfg' and not ordinary_attribute(gate, True))
+               for gate, _ in local):
+            return False
+        gates_here = [gate for gate, _ in local if gate[0] == 'cfg']
+        features = set(source_inputs.get('default_features', {}).get(package, ()))
+        routes = inherited_paths(path, True)
+        witnessed = False
+        for gates, proven, opaque, packages in routes:
+            if not proven or opaque or packages != {package}:
+                return False
+            for wasm in (False, True):
+                values = [gate_value(gate, not wasm, features, wasm, test_build=not wasm)
+                          for gate in (*gates, *gates_here)]
+                if any(value is None for value in values):
+                    return False
+                witnessed |= all(values)
+        return witnessed
+
     analyses = []
     for path in rust_paths:
         before, after = source_at(base, path), source_at(source, path)
@@ -2340,13 +2402,16 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             ordinary_source = any(selected_source_context(path, target) for target in selected_targets)
         new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
+        production_additions = {item for item in after_attrs - before_attrs
+                                if not has_removed_tests and new_pixel_platform_statement(
+                                    path, *item, old_items, test_owners)}
         for attribute, owner in after_attrs - before_attrs:
             if (ordinary_source and not has_removed_tests
                     and ordinary_attribute(attribute, native)
                     and ((owner in after[5] and owner not in old_items)
                          or (owner == ('module', '', 0) and not source_at(base, path)))):
                 benign_additions.add((attribute, owner))
-        changes -= benign_additions
+        changes -= benign_additions | production_additions
         test_changes = {item for item in changes if test_related(item, test_owners, path)}
         added_attrs = {item for item in after_attrs - before_attrs if test_related(item, test_owners, path)}
         added_attrs.update(item for item in benign_additions if item[0][0] in ('cfg', 'cfg_attr'))
@@ -2420,6 +2485,25 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
     return sorted(policy_paths), False, sorted(production_cfg_paths)
 
 
+ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
+
+
+def complete_ordinary_partitions(config, plan):
+    if (config.get('ordinary_artifact_partition_version') == 1
+            and 'oasis7_required' in plan['groups']
+            and plan.get('ordinary_execution') != 'inline'
+            and plan['scope'] in ('full', 'explicit-full')):
+        plan.update(ordinary_artifact_partition_version=1,
+                    ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
+    if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
+        plan.update(workspace_support_partition_version=1,
+                    workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))
+
+
+def support_partitions(profiles):
+    return sorted({'custody' if profile == 'oasis7_custody_worker' else 'other' for profile in profiles})
+
+
 def full_plan(config, profile, source_head, test_head=None, policy_ref=None, formal_inventory=None):
     """Expand the trusted full inventory, independently of a commit diff."""
     validate_config(config)
@@ -2452,6 +2536,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
                                                for key in sorted(config['ordinary_fast_targets'])]
     plan.update(python_control_plan(config))
+    complete_ordinary_partitions(config, plan)
     return plan
 
 
@@ -2500,7 +2585,9 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             portable_paths if execution_capable else None,
             worker_wasm_compile=(conservative or 'oasis7_custody_worker'
                                  in plan.get('workspace_support_profiles', ())),
-            native_root_deltas=comparison_native_roots)
+            native_root_deltas=comparison_native_roots,
+            pixel_platform_driver=('pixel_world_bridge' in chosen
+                                   and 'pixel_world_bridge' in config['package_groups'].get('pixel_world_bridge', ())))
         native_root_comparisons.append(comparison_native_roots)
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
@@ -2716,6 +2803,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         plan['reasons'].append('complete DistFS/CAS/Formal strict Clippy stays required in rust_baseline; '
                                'all original DistFS group test targets remain serial')
     plan['reasons'] = list(dict.fromkeys(plan['reasons']))
+    complete_ordinary_partitions(config, plan)
     return plan
 
 
@@ -2786,7 +2874,8 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         if known_test_target_root(path, directory, manifest)
                         and (package in config.get('oasis7_required_packages', ())
                              or (set(config['package_groups'].get(package, ()))
-                                 & {'consensus', 'distfs', 'node', 'net'}
+                                 & ({'consensus', 'distfs', 'node', 'net'}
+                                    | ({'pixel_world_bridge'} if package == 'pixel_world_bridge' else set()))
                                  and posixpath.relpath(path, directory or '.')
                                  == manifest.get('lib', {}).get('path', 'src/lib.rs')))}
                     source_inputs[resolve_commit(ref)] = {
@@ -2796,7 +2885,8 @@ def select(config, base, source_head, test_head=None, additions=(), profile=None
                         'manifests': {package: manifest for package, (_, manifest) in graph[0].items()},
                         'default_features': {package: default_feature_closure(manifest)
                                              for package, (_, manifest) in graph[0].items()
-                                             if package in config.get('oasis7_required_packages', ())},
+                                             if package in config.get('oasis7_required_packages', ())
+                                             or package == 'pixel_world_bridge'},
                         'includes': graph[2].get('__rust_include_targets__', ()),
                         'unresolved_includes': graph[2].get('__unresolved_rust_include_owners__', ()),
                         'uncertain_modules': graph[2].get('__uncertain_module_sources__', ()),
@@ -2984,6 +3074,7 @@ def main():
                 output.write(f'run_{group}=' + str(group in plan['groups']).lower() + '\n')
             if args.profile:
                 output.write('ordinary_partitions=' + json.dumps(plan.get('ordinary_partitions', ['all']), separators=(',', ':')) + '\n')
+                output.write('workspace_support_partitions=' + json.dumps(plan.get('workspace_support_partitions', ['all']), separators=(',', ':')) + '\n')
                 output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
                 output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
     print(encoded)
