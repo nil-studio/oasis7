@@ -853,6 +853,13 @@ export function PixelWorldHost(props) {
   const [worldRevision, setWorldRevision] = createSignal(0);
   const spatial = createPixelWorldSpatialController({core,enabled:()=>core.state.viewerProtocol?.capabilities?.includes("world_view"),
     getLocale:locale,getRenderState:()=>rustRenderState()});
+  if (pixelWorldTestApiEnabled()) {
+    const readRetention = (expectedSourceCut, measure = true) => spatial.readStatistics(expectedSourceCut, measure);
+    window.__OASIS7_WORLD_VIEW_RETENTION__ = readRetention;
+    onCleanup(() => {
+      if (window.__OASIS7_WORLD_VIEW_RETENTION__ === readRetention) delete window.__OASIS7_WORLD_VIEW_RETENTION__;
+    });
+  }
   const selectedEntity = createPixelWorldHostSelection(coreRevision, spatial);
   const worldViewState = spatial.state, navigation = spatial.navigation;
   const spatialSupported = () => {
