@@ -188,7 +188,7 @@ worldView密度回归用 `DENSITY_QA_ARTIFACT_ROOT=<immutable-dist> DENSITY_QA_S
 
 worldView交互窗口在上述技术入口增加 `DENSITY_QA_SCOPE=baseline DENSITY_QA_PERFORMANCE_MS=300000`，用 `world-view-density-performance.mjs` 复用严格 DOM/EventTiming matcher。选择只观察现有 renderer target 的 `data-selected`，不把空间检查写成业务 core 选择；默认旧 sampler 仍使用 core 身份。每个真实 keydown 同时记录只读 metrics 及其观测耗时，分别保留确认1000/200、pending未知与真实partial输入，全部输入和确认密度子集的分布各自报告；不从延迟扣观测耗时，不把未知补零或静默丢样本。250ms密度监测、原生pan/zoom的实际相机变化、标准WS完整分页及获准资源变更另外落盘。原生滚轮采用实际固定倍率，越过本fixture的合法密度区间前只经真实World overview恢复并记录该动作，不修改相机DTO、producer LOD或目标数量。
 
-预算失败、DOM/paint未知或无法证明全部输入密度时，工具在保留raw后非零退出。EventTiming量化区间跨越主责阈值时另列不确定性，不据中心估计宣称确定的真实显示超时。`DENSITY_QA_PERFORMANCE_TRACE=1` 仅开启有界Chrome DevTools trace根因诊断，其开销与未开trace的预算窗口分开；rAF机会、长任务和trace都不单独证明世界GPU提交/物理呈现帧率。分页中的partial或pending使全程恒定1000/200尚未证明，不能因窗口跨越五分钟就签完整P6。
+预算失败、DOM/paint未知或无法证明全部输入密度时，工具在保留raw后非零退出。输入或采集失败时，先保存原始错误、performance-window、可取得的monitor和完整paint trace，再尝试评分；评分异常单列scoringError，不覆盖原输入错误。overflow仍失败且不清标记，不过滤异常条目后重新签通过；未取得的采集项明确记录collectionErrors，不补空数据冒充完整。EventTiming量化区间跨越主责阈值时另列不确定性，不据中心估计宣称确定的真实显示超时。`DENSITY_QA_PERFORMANCE_TRACE=1` 仅开启有界Chrome DevTools trace根因诊断，其开销与未开trace的预算窗口分开；rAF机会、长任务和trace都不单独证明世界GPU提交/物理呈现帧率。分页中的partial或pending使全程恒定1000/200尚未证明，不能因窗口跨越五分钟就签完整P6。
 
 测量必须显式声明实际构建 `AGENT_VISUAL_SOURCE_HEAD` 和冻结的 `AGENT_VISUAL_ARTIFACT_ROOT`，保存全部产物与runner内容hash、tracked dirty状态、真实设备/电源/viewport/DPR和采样窗口。移除QA专用计数面板及其周期读数时用 `--dispose-fixture-controls` 明示，不能删除产品HUD/世界目标或裁剪权限。浏览器rAF仍只作为heartbeat观察，不能单独判世界实际帧预算；16GiB/headless/loopback子集不代签8GiB A/B、物理显示、50k query或30分钟长稳。
 

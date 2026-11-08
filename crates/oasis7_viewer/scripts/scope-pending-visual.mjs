@@ -73,8 +73,8 @@ wss.on('connection', socket => {
 });
 async function connectCdp() {
   const info = JSON.parse(await run(['--json', 'get', 'cdp-url'])), url = info.data?.cdpUrl; assert(url?.startsWith('ws://127.0.0.1:'), 'CDP is not owned loopback');
-  const ws = new WebSocket(url), pending = new Map(); let sequence = 0;
-  await new Promise((yes, no) => { ws.once('open', yes); ws.once('error', no); });
+  const ws = new WebSocket(url, { handshakeTimeout: 10000 }), pending = new Map(); let sequence = 0;
+  try { await within(new Promise((yes, no) => { ws.once('open', yes); ws.once('error', no); }), 'CDP open'); } catch (error) { ws.terminate(); throw error; }
   ws.on('message', bytes => { const r = JSON.parse(bytes); const p = pending.get(r.id); if (p) { clearTimeout(p.timer); pending.delete(r.id); r.error ? p.no(Error(JSON.stringify(r.error))) : p.yes(r.result); } });
   const call = (method, params = {}, sessionId) => new Promise((yes, no) => { const id = ++sequence, timer = setTimeout(() => { pending.delete(id); no(Error(method + ' timed out')); }, 10000); pending.set(id, { yes, no, timer }); ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); });
   const href = await evaluate('location.href'), targets = (await call('Target.getTargets')).targetInfos.filter(t => t.type === 'page' && t.url === href); assert(targets.length === 1, 'ambiguous owned Viewer page');

@@ -24,6 +24,7 @@ test('same held request can terminate as scope unavailable; late prepared page i
     if (outgoing.length === 3) third = { message, response }; else queueMicrotask(() => transport.handle(response)); } });
   const client = createWorldViewClient({ request: query => transport.request(query) }); client.reset('public', f.describe().world);
   const pending = client.query({});
+  try {
   const deadline = Date.now() + 1000;
   while (!third && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1));
   assert(third, 'third request was not reached within the fixture budget');
@@ -35,4 +36,5 @@ test('same held request can terminate as scope unavailable; late prepared page i
   transport.handle(unavailable); await pending; assert.match(client.state().error, /scope unavailable/);
   transport.handle(third.response); assert(!client.state().view.entities.some(row => row.entity_id === 'scope-B'));
   assert(outgoing.every(row => row.query.page_size === 200 && !row.query.resume_cursor));
+  } finally { transport.clear(); await pending.catch(() => {}); }
 });
