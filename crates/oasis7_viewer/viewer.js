@@ -8948,6 +8948,44 @@ function createScopeSnapshotTransport({ send, getScope, getConnection, timeoutMs
 		}
 	};
 }
+// software_safe_src/pixel_world_retention.js
+function measureRetainedJson(roots) {
+	const unique = /* @__PURE__ */ new Set(), active = /* @__PURE__ */ new Set(), encoder = new TextEncoder();
+	let objects = 0, arrays = 0, nodes = 0;
+	const bytes = (value, depth = 0) => {
+		if (depth > 64) throw Error("retention observation depth budget exceeded");
+		if (++nodes > 524288) throw Error("retention observation node budget exceeded");
+		if (value === null) return 4;
+		if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return encoder.encode(JSON.stringify(value)).length;
+		if (value === void 0) return 0;
+		if (typeof value !== "object") throw Error("retention observation requires JSON values");
+		if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw Error("retention observation requires JSON objects");
+		if (active.has(value)) throw Error("retention observation cycle");
+		if (!unique.has(value)) {
+			unique.add(value);
+			Array.isArray(value) ? arrays++ : objects++;
+		}
+		active.add(value);
+		let size;
+		if (Array.isArray(value)) {
+			size = 2 + Math.max(0, value.length - 1);
+			for (const item of value) size += item === void 0 ? 4 : bytes(item, depth + 1);
+		} else {
+			const keys = Object.keys(value).filter((key) => value[key] !== void 0);
+			size = 2 + Math.max(0, keys.length - 1);
+			for (const key of keys) size += encoder.encode(JSON.stringify(key)).length + 1 + bytes(value[key], depth + 1);
+		}
+		active.delete(value);
+		return size;
+	};
+	return {
+		logicalJsonBytes: roots.reduce((sum, value) => sum + bytes(value), 0),
+		uniqueObjects: objects,
+		uniqueArrays: arrays,
+		visitedNodes: nodes,
+		heapBytes: null
+	};
+}
 // software_safe_src/pixel_world_world_view_delta.js
 var collections = {
 	entity: ["entities", (value) => `${value.kind}:${value.entity_id}`],
@@ -9096,8 +9134,10 @@ var binding = (view) => JSON.stringify([
 	view.world_bounds,
 	worldViewAuthorityKey(view)
 ]);
+var nextRetentionInstance = 0;
 function createWorldViewClient({ request, onChange = () => {} }) {
-	let generation = 0, scope = null, expectedWorld = null, baselineQuery = null;
+	const retentionInstance = ++nextRetentionInstance;
+	let generation = 0, scopeSequence = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
 	let state = {
 		view: null,
 		loading: false,
@@ -9114,14 +9154,69 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 	};
 	return {
 		state: () => state,
+		statistics(expectedSourceCut = null, measure = true) {
+			const started = performance.now(), query = retainedQuery?.generation === generation ? retainedQuery : null;
+			const measured = measure !== false, unknown = {
+				logicalJsonBytes: null,
+				uniqueObjects: null,
+				uniqueArrays: null,
+				visitedNodes: 0,
+				heapBytes: null
+			};
+			const published = measured ? measureRetainedJson([state.view, state.changes]) : unknown;
+			const pagingRoots = measured && query ? [
+				query.first(),
+				query.last(),
+				...query.maps().flatMap((map) => [...map.values()])
+			] : [];
+			const paging = measured ? measureRetainedJson(pagingRoots) : unknown;
+			return {
+				measured,
+				instanceSequence: retentionInstance,
+				localGeneration: generation,
+				scopeSequence,
+				scopeBound: scope !== null,
+				loading: state.loading,
+				stale: state.stale,
+				hasError: Boolean(state.error),
+				published: {
+					...published,
+					entities: state.view?.entities?.length || 0,
+					changes: state.changes.length,
+					queryGenerationMatches: state.view?.request_generation === String(generation),
+					sourceCutMatches: typeof expectedSourceCut === "string" ? state.view?.source_cut === expectedSourceCut : null,
+					completeness: [
+						"complete",
+						"partial",
+						"unknown"
+					].includes(state.view?.completeness) ? state.view.completeness : null
+				},
+				paging: {
+					...paging,
+					active: Boolean(query),
+					maps: query?.maps().map((map) => map.size) || [
+						0,
+						0,
+						0,
+						0
+					],
+					cursors: query?.seen.size || 0
+				},
+				observationMs: performance.now() - started,
+				semantics: "current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory"
+			};
+		},
 		invalidate() {
 			generation += 1;
+			retainedQuery = null;
 		},
 		clearChanges() {
 			publish({ changes: [] });
 		},
 		reset(nextScope, worldId = null) {
 			generation += 1;
+			scopeSequence += 1;
+			retainedQuery = null;
 			scope = nextScope;
 			expectedWorld = worldId;
 			publish({
@@ -9145,6 +9240,18 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 			let resume = delta && baselineQuery === queryKey && !state.stale && !state.view?.source_frozen ? state.view?.resume_cursor : null;
 			if (!resume && !preserveChanges) publish({ changes: [] });
 			let lastPublished = null, recoveries = 0, restart = false, first = null, cursor, entities = /* @__PURE__ */ new Map(), relations = /* @__PURE__ */ new Map(), aggregates = /* @__PURE__ */ new Map(), events = /* @__PURE__ */ new Map(), seen = /* @__PURE__ */ new Set(), pages = 0;
+			retainedQuery = {
+				generation: current,
+				maps: () => [
+					entities,
+					relations,
+					aggregates,
+					events
+				],
+				seen,
+				first: () => first,
+				last: () => lastPublished
+			};
 			const deadline = Date.now() + 3e4;
 			try {
 				do {
@@ -9317,6 +9424,8 @@ function createWorldViewClient({ request, onChange = () => {} }) {
 					error: String(error?.message || error)
 				});
 				return null;
+			} finally {
+				if (retainedQuery?.generation === current) retainedQuery = null;
 			}
 		}
 	};
@@ -21828,6 +21937,10 @@ function createPixelWorldSpatialController({ core, enabled, getRenderState, getL
 		return applied;
 	}
 	const controller = {
+		readStatistics(expectedSourceCut = null, measure = true) {
+			if (disposed || pixelWorldScope(core.state) !== scope) return null;
+			return client.statistics?.(expectedSourceCut, measure) ?? null;
+		},
 		state,
 		navigation,
 		pauseVersion,
@@ -26267,6 +26380,13 @@ function PixelWorldHost(props) {
 		getLocale: locale,
 		getRenderState: () => rustRenderState()
 	});
+	if (pixelWorldTestApiEnabled()) {
+		const readRetention = (expectedSourceCut, measure = true) => spatial.readStatistics(expectedSourceCut, measure);
+		window.__OASIS7_WORLD_VIEW_RETENTION__ = readRetention;
+		onCleanup(() => {
+			if (window.__OASIS7_WORLD_VIEW_RETENTION__ === readRetention) delete window.__OASIS7_WORLD_VIEW_RETENTION__;
+		});
+	}
 	const selectedEntity = createPixelWorldHostSelection(coreRevision, spatial);
 	const worldViewState = spatial.state, navigation = spatial.navigation;
 	const spatialSupported = () => {
