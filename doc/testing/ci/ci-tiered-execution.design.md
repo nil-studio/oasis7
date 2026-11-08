@@ -315,6 +315,8 @@ periodic-full/candidate-full 保留原 26 组、全部包级测试、Formal、�
 
 Viewer 的完整 UI 测试与 software-safe 构建在输入、输出互不依赖时可并行，前置的共享 fixture/产物清理合同先串行完成。构建内部的 Cargo 命令顺序、目标和 features 保持，不能通过另设 target 目录绕过构建锁。只有 UI 与真实构建都成功且各自进程完成清理后，才执行使用新产物的浏览器安全验证；任何失败、超时、取消或遗留后代均阻断，不使用旧 dist 抵扣构建。并发收益计入同一 runner 的实际资源竞争，不能直接以两个历史耗时相减宣称 hosted 达标。
 
+Viewer 的 Vitest UI 测试保留单 worker、逐文件独立 fork 与 jsdom，只复用 Node 编译字节码，不复用测试文件的可变模块或全局状态。worker 默认使用本工作区 `node_modules/.cache/vitest-node-compile`；调用者显式的 `NODE_COMPILE_CACHE` 路径和 `NODE_DISABLE_COMPILE_CACHE=1` 仍有效。沿用 Node 对源码和运行时版本的缓存校验、Vitest 对 V8 coverage 的禁用保护；缓存不可用时仍执行原测试。该目录不上传为跨 job 缓存，完整文件集合、原断言、Solid 模块身份及失败/清理合同保持。
+
 候选策略可通过独立、只读的性能预览取得合入前数据。现有 Rust workflow 的 `pr-fast-preview-plan` 在 `rust.yml`、`ci-required-scope.json`、`ci-tests.sh`、`cargo-dev-architecture.json` 或实际构建驱动 `ci-test-artifacts.py`、`cargo-dev-architecture.py` 变化时启用产品预览；单独修改 planner 或 preview 编排的 Python 实现及测试时，执行其所属合同与实际 required 消费者，不额外构建产品性能样本。混合修改仍由执行配置或构建驱动启用预览。
 
 预览的触发差异复用 required 选择器的 Git 身份与比较范围：workflow 显式传入事件 BASE、实际 PR source 和 tested commit；在验证真实 target 与 source 父节点、BASE 祖先关系及唯一共同祖先后，取共同祖先到 source、实际 target 到 tested 的差异并集，包含删除和重命名两端。main 单独前进不触发预览，真实 source 改动与 merge resolution 改动仍触发；身份或差异无法确认时报告失败，不能安静跳过。这个范围只决定是否运行诊断，不改变可信 required 计划。
