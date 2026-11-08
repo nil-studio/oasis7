@@ -41,7 +41,7 @@ const browserState = `(()=>{const c=document.querySelector('#pixel-world-embedde
 const state = async () => JSON.parse(await evaluate(`JSON.stringify(${browserState})`));
 const wait = async condition => JSON.parse(await evaluate(`(async()=>{const end=Date.now()+12000;let s;while(Date.now()<end){s=${browserState};if(s.core.lastError?.startsWith('window.error:'))throw Error(s.core.lastError);if(${condition})return JSON.stringify(s);await new Promise(r=>setTimeout(r,25))}throw Error('scope condition not observed: '+JSON.stringify(s))})()`));
 const guest = s => assert(s.core.authReady === false && s.core.authPlayerId === null && s.core.authPublicKey === null && s.core.selectedId === null && s.core.selectedKind === null, 'observer became a business identity/selection');
-const observed = n => wait(`s.metrics?.status==='observed'&&s.metrics.display_profile==='world_view_v1'&&s.metrics.projected_marker_count===${n}&&s.metrics.agent_body_sprites===${n}&&s.targets.length===${n}`);
+const observed = n => wait(`s.metrics?.status==='observed'&&s.metrics.display_profile==='world_view_v1'&&s.metrics.projected_marker_count===${n}&&s.metrics.agent_body_sprites===${n}&&s.metrics.in_view_agent_body_sprites===${n}&&s.targets.length===${n}`);
 const wire = [], http = [], ids = new WeakMap(); let gate = null, cdp = null;
 const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); };
 const send = (socket, response, replay = false) => { assert(socket.readyState === 1, 'response socket is not open'); audit({ direction: 'out', connection: ids.get(socket), wall: Date.now(), replay, message: response }); socket.send(JSON.stringify(response)); };
@@ -90,6 +90,8 @@ try {
   await evaluate(`(async()=>{const m=await import('/pixel-world-bridge/pixel_world_bridge.js');window.__SCOPE_METRICS__=m.readPixelWorldDisplayMetrics;return true})()`);
   await observed(3); await run(['click', 'button[data-agent-id="scope-A"][data-renderer-target]']);
   summary.phases.initial = await wait(`s.metrics?.status==='observed'&&s.targets.length===3&&s.targets.some(t=>t.id==='scope-A'&&t.selected==='true')`); guest(summary.phases.initial);
+  const initialB = summary.phases.initial.targets.find(t => t.id === 'scope-B')?.rect;
+  assert(summary.phases.initial.metrics.in_view_agent_body_sprites === 3 && initialB?.left >= 0 && initialB.right <= 1440 && initialB.top >= 0 && initialB.bottom <= 1000, 'initial B was not actually in view');
   assert(!summary.phases.initial.core.viewerProtocol.capabilities.includes('world_view_delta_v1'), 'background delta poll was enabled');
   cdp = await connectCdp(); let firstReady, thirdReady;
   gate = { pages: [], firstReceived: new Promise(r => firstReady = r), thirdReceived: new Promise(r => thirdReady = r), firstReady, thirdReady };
