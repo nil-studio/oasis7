@@ -155,6 +155,10 @@ export function createPixelWorldSpatialController({core, enabled, getRenderState
     return applied;
   }
   const controller = {
+    readStatistics(expectedSourceCut = null, measure = true) {
+      if (disposed || pixelWorldScope(core.state) !== scope) return null;
+      return client.statistics?.(expectedSourceCut, measure) ?? null;
+    },
     state,navigation,pauseVersion,selection,selectionStatus,selectionFeedback,scope:()=>scope,
     // Called by Host only after publishing this render DTO. Store identities,
     // never the previous scene's entity facts or coordinates.

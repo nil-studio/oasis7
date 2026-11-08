@@ -28,3 +28,15 @@ test('all thrown values remain failures, including falsy JavaScript rejection va
   assert(rejected);
  }
 });
+
+test('ordered cleanup always reaches report writing after close failure and keeps falsy body error',async()=>{
+ const calls=[],report={};let rejected=false;
+ try { await withObservationCleanup(async()=>{throw 0},[()=>{calls.push('close');throw Error('close failed')},()=>calls.push('dispose'),()=>{calls.push('write');throw Error('write failed')}],report); }
+ catch(actual){rejected=true;assert.equal(actual,0);}
+ assert(rejected);assert.deepEqual(calls,['close','dispose','write']);assert.deepEqual(report.cleanupErrors,['Error: close failed','Error: write failed']);
+});
+test('without body failure the first cleanup error wins and remaining cleanup still runs',async()=>{
+ const first=Error('first'),calls=[],report={};
+ await assert.rejects(withObservationCleanup(async()=>true,[()=>{throw first},()=>calls.push('written')],report),e=>e===first);
+ assert.deepEqual(calls,['written']);
+});

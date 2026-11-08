@@ -16,7 +16,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { createOwnedSessionLifecycle } from './agent-browser-visual-runner-lifecycle.mjs';
 import { createDensityFixture } from './world-view-density-fixture.mjs';
 import { measureDensityPerformance } from './world-view-density-performance.mjs';
-import { probeWorldFrameCapabilities } from './world-view-frame-capability.mjs';
+import {createBoundedWireAudit} from './viewer-bounded-wire-audit.mjs';
+import { probeWorldFrameCapabilities, withObservationCleanup } from './world-view-frame-capability.mjs';
 import { probePendingWorldSelection } from './world-view-pending-selection-probe.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)), repo = resolve(here, '../../..');
@@ -26,6 +27,7 @@ const root = resolve(process.env.DENSITY_QA_ARTIFACT_ROOT);
 const source = execFileSync('git', ['rev-parse', process.env.DENSITY_QA_SOURCE_HEAD + '^{commit}'], { cwd: repo, encoding: 'utf8' }).trim();
 const scope = process.env.DENSITY_QA_SCOPE || 'all', dpr = Number(process.env.DENSITY_QA_DPR || 1);
 assert([process.env.DENSITY_QA_FRAME_OBSERVATION_MS,process.env.DENSITY_QA_MEMORY_MS,process.env.DENSITY_QA_PERFORMANCE_MS,process.env.DENSITY_QA_PENDING==='1'].filter(Boolean).length<=1,'observation modes must be exclusive');
+assert(!process.env.DENSITY_QA_MEMORY_MS || scope==='baseline','retention observation requires baseline-only scope');
 assert(['baseline', 'all'].includes(scope) && [1, 2].includes(dpr), 'unsupported scope/DPR');
 const out = resolve(process.env.DENSITY_QA_OUTPUT || resolve(repo, 'output/playwright/world-view-density', new Date().toISOString().replace(/[:.]/g, '-')));
 mkdirSync(dirname(out), { recursive: true }); mkdirSync(out);
@@ -68,10 +70,18 @@ function armPendingGate(search, onThird) {
 const wire = [], http = [];
 const connectionIds = new WeakMap();
 const latestQueryByConnection = new Map();
-const audit = row => { wire.push(row); appendFileSync(resolve(out, 'wire.jsonl'), JSON.stringify(row) + '\n'); };
+// Predeclared collection capacity: short probe 2.82MB/cycle, ~361MB/30min.
+// This is raw evidence storage, not the application cache budget.
+const streamingWireLimitBytes=512*1024*1024;
+let streamingWire = false, latestRequest = null;
+let streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0,requestCount:0};
+const beginStreamingWire = () => { streamingWire = true; streamedWire = {messages:0,bytes:0,worldViewPages:0,entityRecords:0,requestCount:0}; };
+const wireBudget=createBoundedWireAudit({limitBytes:streamingWireLimitBytes,append:line=>appendFileSync(resolve(out,'wire.jsonl'),line),persistFailure:row=>writeFileSync(resolve(out,'wire-limit-failure.json'),JSON.stringify(row,null,2)),stopSource:()=>{for(const socket of wss.clients)socket.terminate();}});
+const readWireSummary = (expected={}) => { if(!wireBudget.accepting())throw wireBudget.failure();return ({limitBytes:streamingWireLimitBytes,recordedBytes:wireBudget.statistics().bytes,recordedRows:wireBudget.statistics().rows,...streamedWire,streaming:streamingWire,latestBounds:latestRequest?.bounds??null,latestGeneration:latestRequest?.generation??null,latestSearchPresent:latestRequest?.searchPresent??false,latestSearchMatches:latestRequest?latestRequest.searchHash===sha(String(expected.search??'')):null}); };
+const audit = row => { if(streamingWire&&!wireBudget.accepting())return false; if (!streamingWire) wire.push(row); else { streamedWire.messages++; if (row.direction==='in'&&row.message?.type==='request_world_view') { const query=row.message.query; streamedWire.requestCount++; latestRequest={bounds:query.bounds?Object.fromEntries(['min_x_cm','max_x_cm','min_y_cm','max_y_cm'].map(key=>[key,String(query.bounds[key])])):null,generation:String(query.request_generation),searchPresent:!!query.search,searchHash:sha(String(query.search??''))}; } streamedWire.bytes += Buffer.byteLength(JSON.stringify(row)); if (row.direction==='out'&&row.message?.type==='world_view') { streamedWire.worldViewPages++; streamedWire.entityRecords += row.message.view?.entities?.length||0; } } if(streamingWire)return wireBudget.record(row);appendFileSync(resolve(out,'wire.jsonl'),JSON.stringify(row)+'\n');return true; };
 const send = (socket, connection, response, replay = false) => {
-  if (socket.readyState !== 1) return;
-  audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }); socket.send(JSON.stringify(response));
+  if (socket.readyState !== 1 || (streamingWire&&!wireBudget.accepting())) return;
+  if(!audit({ direction: 'out', connection, replay, bytes: Buffer.byteLength(JSON.stringify(response)), message: response }))return; socket.send(JSON.stringify(response));
   if (pauseAfterComplete && response.type === 'world_view' && response.view.completeness === 'complete'
     && ['baseline', 'unchanged'].includes(response.view.delivery)
     && response.view.request_generation?.split(':')[0] === latestQueryByConnection.get(connection)) { pauseAfterComplete = false; pauseReplies = true; }
@@ -100,11 +110,13 @@ const httpServer = createServer((req, res) => {
 });
 const wss = new WebSocketServer({ server: httpServer, path: '/qa-world-ws', maxPayload: 512 * 1024 });
 wss.on('connection', socket => {
+  if(streamingWire&&!wireBudget.accepting()){socket.terminate();return;}
   const connection = randomUUID();
   connectionIds.set(socket, connection);
   socket.on('message', bytes => {
+    if(streamingWire&&!wireBudget.accepting()){socket.terminate();return;}
     try {
-      const message = JSON.parse(bytes.toString()); audit({ direction: 'in', connection, message });
+      const message = JSON.parse(bytes.toString()); if(!audit({ direction: 'in', connection, message }))return;
       if (message.type === 'request_world_view') latestQueryByConnection.set(connection, message.query?.request_generation?.split(':')[0]);
       const response = fixture.reply(message, connection); if (!response) return;
       if (pendingGate && message.type === 'request_world_view' && message.query.search === pendingGate.search && response.view?.delivery === 'baseline') {
@@ -287,6 +299,14 @@ try {
   summary.labelOnlyInvariant = labelOnlyInvariant(labelCaptures);
   summary.labelOracle = JSON.parse(execFileSync('python3', [resolve(here, 'world-view-label-oracle.py'), out], { encoding: 'utf8' })); assert(summary.labelOracle.passed, '200 native label paired PNG oracle failed');
   if (process.env.DENSITY_QA_PENDING === '1') summary.pendingSelection = await probePendingWorldSelection({ run, evaluate, state, waitProjection, armPendingGate, freezeCompleteBoundary, unfreeze: () => { pauseReplies = false; pauseAfterComplete = false; release(); }, fixture, reconnect, waitNegotiation, out });
+  if (process.env.DENSITY_QA_MEMORY_MS) {
+    const {createOwnedCdpSession}=await import('./viewer-owned-cdp-session.mjs');
+    const {readOwnedMemory}=await import('./viewer-owned-cdp-memory.mjs');
+    const {measureWorldViewRetention}=await import('./world-view-retention-memory.mjs');
+    const memorySession=await createOwnedCdpSession(run,evaluate);
+    for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs','viewer-bounded-wire-audit.mjs','viewer-retention-focus.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
+    await withObservationCleanup(async()=>{summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)});},()=>memorySession.close(),summary);
+  }
   if (process.env.DENSITY_QA_FRAME_OBSERVATION_MS) summary.frameObservation = await probeWorldFrameCapabilities({run,evaluate,out,durationMs:Number(process.env.DENSITY_QA_FRAME_OBSERVATION_MS)});
   if (process.env.DENSITY_QA_PERFORMANCE_MS) summary.performance = await measureDensityPerformance({ evaluate, run, waitProjection, fixture, wire, out, overview, durationMs: Number(process.env.DENSITY_QA_PERFORMANCE_MS) });
   if (scope === 'all') {
