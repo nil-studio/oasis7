@@ -72,6 +72,7 @@ pub(super) fn sample_render_state(fragment_footprint_cm: f64) -> RenderState {
     RenderState {
         display_profile: display_profile::DisplayProfile::Legacy,
         display_source_cut: None,
+        overview_query_context: None,
         exploration_mode: false,
         navigation: None,
         locale: "en".to_string(),

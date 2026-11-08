@@ -111,6 +111,9 @@ pub(super) fn derive(raw: &str) -> Result<Value, String> {
     if let Some(cut) = input["worldView"]["source_cut"].as_str() {
         state["display_source_cut"] = Value::String(cut.to_owned());
     }
+    if input["worldView"].is_object() {
+        state["overview_query_context"] = super::overview_query::context(&input["worldView"]);
+    }
     budget::fit(&mut state, &input)?;
     profile.validate_structure(&state)?;
     let encoded = serde_json::to_vec(&state).map_err(|error| error.to_string())?;
@@ -137,6 +140,29 @@ mod tests {
                 "render_record":{"name":"界".repeat(128),"pos":{"x_cm":i,"y_cm":0,"z_cm":0}},
                 "provenance":{"geometry_source":"authoritative","freshness":"current","valid_at_source_cut":"C"}})).collect::<Vec<_>>()});
         input
+    }
+    #[test]
+    fn overview_context_preserves_partial_and_query_identity_without_entity_facts() {
+        let mut source = world_input(2);
+        source["worldView"]["request_generation"] = json!("read-7");
+        source["worldView"]["completeness"] = json!("partial");
+        let state = derive(&source.to_string()).unwrap();
+        let context = &state["overview_query_context"];
+        assert_eq!(context["completeness"], "partial");
+        assert_eq!(context["binding"][2], "read-7");
+        assert_eq!(context.as_object().unwrap().len(), 3);
+        assert!(!context.to_string().contains("A0000"));
+        source["worldView"]["completeness"] = json!("complete");
+        assert_eq!(
+            derive(&source.to_string()).unwrap()["overview_query_context"]["completeness"],
+            "complete"
+        );
+        assert!(
+            derive(&input().to_string())
+                .unwrap()
+                .get("overview_query_context")
+                .is_none()
+        );
     }
     #[test]
     fn absent_goal_facts_never_create_a_spatial_goal_from_onboarding_copy() {

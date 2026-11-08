@@ -7,6 +7,42 @@ pub(super) struct Navigation {
     target: Option<Selection>,
     #[serde(default)]
     bounds: Option<Value>,
+    #[serde(default)]
+    pub(super) overview_query: overview_query::Declaration,
+}
+
+fn overview_allowed(runtime: &BevyRuntimeState, state: &RenderState, nav: &Navigation) -> bool {
+    overview_query::permits(&nav.overview_query, state)
+        && (matches!(nav.overview_query, overview_query::Declaration::Legacy)
+            || (nav
+                .request_id
+                .parse::<u64>()
+                .is_ok_and(|id| id > 0 && id >= runtime.navigation_highwater)
+                && runtime.retired_overview_request.as_deref() != Some(&nav.request_id)))
+}
+
+pub(super) fn retire_overview_after_manual_camera(runtime: &mut BevyRuntimeState) {
+    runtime.pending_overview_result = None;
+    if let Some(nav) = runtime
+        .render_state
+        .as_ref()
+        .and_then(|s| s.navigation.as_ref())
+        && nav.mode == "overview"
+        && !matches!(nav.overview_query, overview_query::Declaration::Legacy)
+    {
+        runtime.retired_overview_request = Some(nav.request_id.clone());
+    }
+}
+
+pub(super) fn finish_overview(runtime: &mut BevyRuntimeState, status: &str) {
+    let Some(request_id) = runtime.pending_overview_result.take() else {
+        return;
+    };
+    #[cfg(target_arch = "wasm32")]
+    let _ = emit_event_value(&json!({"type":"navigation_result","request_id":request_id,
+        "status":status,"render_version":runtime.render_version}));
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (request_id, status);
 }
 
 fn available(state: &RenderState, target: &FocusTarget) -> bool {
@@ -33,9 +69,27 @@ pub(super) fn prepare_camera(
     state: Option<&RenderState>,
     version: u64,
 ) -> bool {
+    if let Some(id) = state
+        .and_then(|s| s.navigation.as_ref())
+        .and_then(|n| n.request_id.parse::<u64>().ok())
+    {
+        runtime.navigation_highwater = runtime.navigation_highwater.max(id);
+    }
+    if let Some((state, nav)) = state.and_then(|s| s.navigation.as_ref().map(|n| (s, n)))
+        && nav.mode == "overview"
+        && overview_query::terminally_invalid(&nav.overview_query, state)
+    {
+        runtime.retired_overview_request = Some(nav.request_id.clone());
+        runtime.pending_overview_result = None;
+    }
     let navigation_changed = state
         .and_then(|state| state.navigation.as_ref())
         .is_some_and(|next| {
+            if next.mode == "overview"
+                && !matches!(next.overview_query, overview_query::Declaration::Legacy)
+            {
+                return state.is_some_and(|state| overview_allowed(runtime, state, next));
+            }
             runtime
                 .render_state
                 .as_ref()
@@ -81,15 +135,25 @@ pub(super) fn apply(runtime: &mut BevyRuntimeState, state: Option<&RenderState>,
         .as_ref()
         .and_then(|state| state.navigation.as_ref());
     let command = state.navigation.as_ref().filter(|command| {
+        if command.mode == "overview"
+            && !matches!(command.overview_query, overview_query::Declaration::Legacy)
+        {
+            return !command.request_id.is_empty() && overview_allowed(runtime, state, command);
+        }
         !command.request_id.is_empty()
             && previous.is_none_or(|old| old.request_id != command.request_id)
     });
     if let Some(command) = command {
+        runtime.pending_overview_result = None;
         runtime.active_follow_target = None;
         runtime.pending_focus_target = None;
         runtime.pending_fit_bounds = None;
         match command.mode.as_str() {
             "overview" => {
+                if !matches!(command.overview_query, overview_query::Declaration::Legacy) {
+                    runtime.retired_overview_request = Some(command.request_id.clone());
+                    runtime.pending_overview_result = Some(command.request_id.clone());
+                }
                 runtime.camera_fit_version = 0;
                 runtime.last_canvas_size = None;
                 runtime.last_canvas_css = None;

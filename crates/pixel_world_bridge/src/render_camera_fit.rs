@@ -7,6 +7,12 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     let Some(render_state) = runtime.render_state.as_ref() else {
         return;
     };
+    if render_state.navigation.as_ref().is_some_and(|nav| {
+        nav.mode == "overview" && !overview_query::permits(&nav.overview_query, render_state)
+    }) {
+        runtime.camera_fit_version = runtime.render_version;
+        return;
+    }
     let Some(world_bounds) = render_state.world_bounds.as_ref() else {
         return;
     };
@@ -57,6 +63,7 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     }
     if points.is_empty() {
         runtime.camera_fit_version = runtime.render_version;
+        navigation::finish_overview(runtime, "unavailable");
         return;
     }
     let mut min_x = f64::INFINITY;
@@ -82,6 +89,7 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     runtime.camera.pan_x_px = -(centered_x * target_zoom);
     runtime.camera.pan_y_px = -(centered_y * target_zoom);
     runtime.camera_fit_version = runtime.render_version;
+    navigation::finish_overview(runtime, "applied");
     let _ = camera_viewport::emit(runtime);
 }
 
@@ -156,6 +164,29 @@ mod overview_partial_regression {
         maybe_auto_fit_camera(runtime, 1440., 1000.);
     }
 
+    fn modern_scene(count: usize, completeness: &str, request: &str) -> RenderState {
+        let mut state = scene(count, "overview", request);
+        let context = overview_query::context(&json!({"world_id":"W","scope_id":"S",
+            "source_cut":"C","request_generation":"query-1","completeness":completeness}));
+        state.navigation.as_mut().unwrap().overview_query = overview_query::Declaration::Declared(
+            json!({"version":1,"binding":context["binding"]}),
+        );
+        state.overview_query_context = Some(context);
+        state
+    }
+
+    fn consume_modern(runtime: &mut BevyRuntimeState, state: RenderState, version: u64) {
+        crate::apply_external_render_snapshot(
+            runtime,
+            true,
+            RenderSnapshot::Changed {
+                version,
+                state: Some(Box::new(state)),
+            },
+        );
+        maybe_auto_fit_camera(runtime, 1440., 1000.);
+    }
+
     #[test]
     fn records_same_navigation_consuming_first_page_then_complete_scene() {
         let mut runtime = BevyRuntimeState::default();
@@ -172,20 +203,75 @@ mod overview_partial_regression {
         assert!((runtime.camera.pan_y_px - 99.6923076923077).abs() < 1e-9);
     }
 
-    // Candidate desired behavior for explicit overview: a progressive page
-    // must not consume the request as if it described the complete extent.
-    // Intentionally red until the missing completeness/navigation contract is
-    // agreed and carried into RenderState; not a production-ready change.
+    // Modern behavior is opt-in; the legacy characterization above remains.
     #[test]
     fn overview_must_not_finalize_the_partial_extent_as_complete() {
         let mut runtime = BevyRuntimeState::default();
         consume(&mut runtime, 1000, "stop", "1", 1);
-        consume(&mut runtime, 200, "overview", "2", 2);
-        consume(&mut runtime, 1000, "overview", "2", 3);
+        consume_modern(&mut runtime, modern_scene(200, "partial", "2"), 2);
+        assert!(runtime.camera.pan_y_px.abs() < 1e-9);
+        consume_modern(&mut runtime, modern_scene(1000, "complete", "2"), 3);
         assert!(
             runtime.camera.pan_y_px.abs() < 1e-9,
             "same overview intent consumed partial version 2 and never fit complete version 3: pan_y={}",
             runtime.camera.pan_y_px
         );
+        let mut background = modern_scene(1000, "complete", "2");
+        for agent in &mut background.agents {
+            agent.pos.as_mut().unwrap().y_cm += 10_000.;
+        }
+        consume_modern(&mut runtime, background, 4);
+        assert!(
+            runtime.camera.pan_y_px.abs() < 1e-9,
+            "a background update replayed the consumed overview"
+        );
+    }
+
+    #[test]
+    fn complete_two_hundred_is_not_confused_with_a_partial_page() {
+        let mut runtime = BevyRuntimeState::default();
+        consume_modern(&mut runtime, modern_scene(200, "complete", "2"), 1);
+        assert!((runtime.camera.pan_y_px - 99.6923076923077).abs() < 1e-9);
+    }
+
+    #[test]
+    fn declared_invalid_or_changed_binding_cannot_fall_back_or_revive() {
+        for invalid in [Value::Null, json!({"version":2}), json!({"version":1})] {
+            let mut runtime = BevyRuntimeState::default();
+            let mut state = modern_scene(200, "complete", "2");
+            state.navigation.as_mut().unwrap().overview_query =
+                overview_query::Declaration::Declared(invalid);
+            consume_modern(&mut runtime, state, 1);
+            assert_eq!(runtime.camera.pan_y_px, 0.);
+            consume_modern(&mut runtime, modern_scene(200, "complete", "2"), 2);
+            assert_eq!(
+                runtime.camera.pan_y_px, 0.,
+                "invalid declaration later revived"
+            );
+        }
+        let mut runtime = BevyRuntimeState::default();
+        consume_modern(&mut runtime, modern_scene(200, "partial", "2"), 1);
+        let mut changed = modern_scene(200, "complete", "2");
+        changed.overview_query_context.as_mut().unwrap()["binding"][1] = json!("new-cut");
+        consume_modern(&mut runtime, changed, 2);
+        consume_modern(&mut runtime, modern_scene(200, "complete", "2"), 3);
+        assert_eq!(runtime.camera.pan_y_px, 0.);
+    }
+
+    #[test]
+    fn manual_camera_or_new_navigation_retires_the_old_overview() {
+        for manual in [true, false] {
+            let mut runtime = BevyRuntimeState::default();
+            consume_modern(&mut runtime, modern_scene(200, "partial", "2"), 1);
+            if manual {
+                crate::process_input_event(&mut runtime, InputEvent::Wheel { delta_y: -1. });
+            } else {
+                consume(&mut runtime, 200, "stop", "3", 2);
+            }
+            let camera = runtime.camera.clone();
+            consume_modern(&mut runtime, modern_scene(200, "complete", "2"), 3);
+            assert_eq!(runtime.camera.zoom, camera.zoom);
+            assert_eq!(runtime.camera.pan_y_px, camera.pan_y_px);
+        }
     }
 }
