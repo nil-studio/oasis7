@@ -26,6 +26,7 @@ const root = resolve(process.env.DENSITY_QA_ARTIFACT_ROOT);
 const source = execFileSync('git', ['rev-parse', process.env.DENSITY_QA_SOURCE_HEAD + '^{commit}'], { cwd: repo, encoding: 'utf8' }).trim();
 const scope = process.env.DENSITY_QA_SCOPE || 'all', dpr = Number(process.env.DENSITY_QA_DPR || 1);
 assert([process.env.DENSITY_QA_FRAME_OBSERVATION_MS,process.env.DENSITY_QA_MEMORY_MS,process.env.DENSITY_QA_PERFORMANCE_MS,process.env.DENSITY_QA_PENDING==='1'].filter(Boolean).length<=1,'observation modes must be exclusive');
+assert(!process.env.DENSITY_QA_MEMORY_MS || scope==='baseline','retention observation requires baseline-only scope');
 assert(['baseline', 'all'].includes(scope) && [1, 2].includes(dpr), 'unsupported scope/DPR');
 const out = resolve(process.env.DENSITY_QA_OUTPUT || resolve(repo, 'output/playwright/world-view-density', new Date().toISOString().replace(/[:.]/g, '-')));
 mkdirSync(dirname(out), { recursive: true }); mkdirSync(out);
@@ -296,7 +297,7 @@ try {
     const {readOwnedMemory}=await import('./viewer-owned-cdp-memory.mjs');
     const {measureWorldViewRetention}=await import('./world-view-retention-memory.mjs');
     const memorySession=await createOwnedCdpSession(run,evaluate);
-    summary.scripts['world-view-retention-memory.mjs']=sha(readFileSync(resolve(here,'world-view-retention-memory.mjs')));
+    for (const name of ['world-view-retention-memory.mjs','viewer-retention-components.mjs']) summary.scripts[name]=sha(readFileSync(resolve(here,name)));
     try { summary.retention=await measureWorldViewRetention({evaluate,run,waitProjection,fixture,out,overview,durationMs:Number(process.env.DENSITY_QA_MEMORY_MS),beginStreamingWire,readWireSummary,readMemory:()=>readOwnedMemory(memorySession)}); }
     finally { memorySession.close(); }
   }
