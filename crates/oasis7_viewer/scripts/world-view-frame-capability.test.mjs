@@ -21,3 +21,10 @@ test('outer report-write failure preserves body error and exposes the failed cle
  const original=Error('capture failed'),report={};
  await assert.rejects(withObservationCleanup(async()=>{throw original},async()=>{throw Error('ENOSPC report write')},report),e=>e===original&&e.observationCleanupErrors[0]==='Error: ENOSPC report write');
 });
+
+test('all thrown values remain failures, including falsy JavaScript rejection values',async()=>{
+ for(const value of [null,undefined,0,'',false]) {
+  let rejected=false;try{await withObservationCleanup(async()=>{throw value},async()=>{},{});}catch(actual){rejected=true;assert.equal(actual,value);}
+  assert(rejected);
+ }
+});
