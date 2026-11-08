@@ -84,3 +84,108 @@ pub(super) fn maybe_auto_fit_camera(runtime: &mut BevyRuntimeState, width: f64, 
     runtime.camera_fit_version = runtime.render_version;
     let _ = camera_viewport::emit(runtime);
 }
+
+#[cfg(test)]
+mod overview_partial_regression {
+    use super::*;
+
+    // Same authorized geometry and pinned-first order as the controlled 1k
+    // fixture. Count=200 is the first partial page, not a complete 200 scene.
+    // The current RenderState loses that distinction; this is the contract gap.
+    fn scene(count: usize, mode: &str, request: &str) -> RenderState {
+        let mut state = crate::lib_tests::sample_render_state_for_camera("agent");
+        state.exploration_mode = true;
+        state.navigation = Some(
+            serde_json::from_value(json!({
+                "request_id":request,"mode":mode
+            }))
+            .unwrap(),
+        );
+        state.world_bounds = Some(WorldBounds {
+            width_cm: 1_000_000.,
+            depth_cm: 1_000_000.,
+            height_cm: 100_000.,
+        });
+        state.locations.clear();
+        state.fragment_terrain.clear();
+        state.micro_depot_facilities.clear();
+        state.module_visual_entities.clear();
+        state.visual_hotspots.clear();
+        let prototype = state.agents[0].clone();
+        let cells: Vec<(usize, usize)> = (0..200)
+            .map(|i| (i % 40, 6 + i / 40))
+            .chain(
+                (0..1000)
+                    .map(|i| (i % 40, i / 40))
+                    .filter(|(_, row)| *row < 6 || *row > 10),
+            )
+            .collect();
+        state.agents = std::iter::once(499)
+            .chain((0..1000).filter(|id| *id != 499))
+            .take(count)
+            .map(|id| {
+                let mut agent = prototype.clone();
+                agent.id = format!("qa-agent-{id:04}");
+                let (col, row) = cells[id];
+                agent.pos = Some(Position {
+                    x_cm: 256_250. + col as f64 * 12_500.,
+                    y_cm: 275_000. + row as f64 * 18_750.,
+                    z_cm: 0.,
+                });
+                agent
+            })
+            .collect();
+        state
+    }
+
+    fn consume(
+        runtime: &mut BevyRuntimeState,
+        count: usize,
+        mode: &str,
+        request: &str,
+        version: u64,
+    ) {
+        crate::apply_external_render_snapshot(
+            runtime,
+            true,
+            RenderSnapshot::Changed {
+                version,
+                state: Some(Box::new(scene(count, mode, request))),
+            },
+        );
+        maybe_auto_fit_camera(runtime, 1440., 1000.);
+    }
+
+    #[test]
+    fn records_same_navigation_consuming_first_page_then_complete_scene() {
+        let mut runtime = BevyRuntimeState::default();
+        consume(&mut runtime, 1000, "stop", "1", 1);
+        assert!(runtime.camera.pan_y_px.abs() < 1e-9);
+        consume(&mut runtime, 200, "overview", "2", 2);
+        assert_eq!(runtime.render_version, 2);
+        assert_eq!(runtime.render_state.as_ref().unwrap().agents.len(), 200);
+        assert!((runtime.camera.pan_y_px - 99.6923076923077).abs() < 1e-9);
+        consume(&mut runtime, 1000, "overview", "2", 3);
+        assert_eq!(runtime.render_version, 3);
+        assert_eq!(runtime.camera_fit_version, 3);
+        assert_eq!(runtime.render_state.as_ref().unwrap().agents.len(), 1000);
+        assert!((runtime.camera.pan_y_px - 99.6923076923077).abs() < 1e-9);
+    }
+
+    // Candidate desired behavior for explicit overview: a progressive page
+    // must not consume the request as if it described the complete extent.
+    // Intentionally red until the missing completeness/navigation contract is
+    // agreed and carried into RenderState; not a production-ready change.
+    #[test]
+    fn overview_must_not_finalize_the_partial_extent_as_complete() {
+        let mut runtime = BevyRuntimeState::default();
+        consume(&mut runtime, 1000, "stop", "1", 1);
+        consume(&mut runtime, 200, "overview", "2", 2);
+        consume(&mut runtime, 1000, "overview", "2", 3);
+        assert!(
+            runtime.camera.pan_y_px.abs() < 1e-9,
+            "same overview intent consumed partial version 2 and never fit complete version 3: pan_y={}",
+            runtime.camera.pan_y_px
+        );
+    }
+}
