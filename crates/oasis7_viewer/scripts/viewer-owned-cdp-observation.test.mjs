@@ -24,7 +24,8 @@ test('session restricts routing, browser-global observation, and closes pending 
   const s=await createOwnedCdpSession(async()=>JSON.stringify({data:{cdpUrl:'ws://127.0.0.1:9222/devtools/browser/owned'}}),async()=> 'http://owned/');
   await s.browser('Browser.getVersion');
   pages.push({type:'page',url:'http://other/',targetId:'b'});
-  await assert.rejects(s.browser('Tracing.start'),/one owned page/);
+  await assert.rejects(s.browser('Tracing.getCategories'),/one owned page/);
+  await assert.rejects(s.browser('Tracing.start'),/outside/);
   assert(!sent.some(row=>row.method==='Tracing.start'));
   assert.throws(()=>s.page('HeapProfiler.collectGarbage'),/outside/);
   await s.page('Memory.getDOMCounters');assert.equal(sent.at(-1).sessionId,'owned');
