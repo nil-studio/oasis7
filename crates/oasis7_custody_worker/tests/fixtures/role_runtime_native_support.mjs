@@ -19,7 +19,7 @@ function roleBindings(role, wrongKek=false) {
   return {CUSTODY_PROVISION_KEYS_ENABLED:'true',CUSTODY_ROLE_KEY_ENVIRONMENT:'test',CUSTODY_SERVICE_EPOCH:'1',CUSTODY_ROLE_WRAPPING_KEY_VERSION:'1',
     CUSTODY_ROLE_KEY_KEK:Buffer.alloc(32,wrongKek?64:{identity:61,owner:62,executor:63}[role]).toString('hex')};
 }
-function options(persist, data, bridge, mode, configureOptions) {
+export function roleRuntimeOptions(persist, data, bridge, mode, configureOptions) {
   const native = mode.startsWith('native-');
   const world=data.world??defaultWorld;
   const routes={...defaultRoutes,world_identity:world.world_id};
@@ -29,9 +29,11 @@ function options(persist, data, bridge, mode, configureOptions) {
     ...(mode.startsWith('native-participant-owner-setup')?{CUSTODY_OWNER_SETUP_ENABLED:'true'}:{}),
     ...(mode.startsWith('native-participant')?{CUSTODY_PARTICIPANT_PROVISION_ENABLED:'true'}:{}),
     CUSTODY_NATIVE_PRIVATE_KEK:Buffer.alloc(32,94).toString('hex'),CUSTODY_NATIVE_PRIVATE_WRAPPING_KEY_VERSION:'1'} : {};
-  const moduleOptions={modulesRoot:root,compatibilityDate:'2026-10-25',cf:false};
+  const moduleOptions={modulesRoot:root,compatibilityDate:'2026-10-25'};
   const artifact=role=>[{type:'ESModule',path:resolve(root,`artifacts/${role}/entry.mjs`)},{type:'ESModule',path:resolve(root,`artifacts/${role}/index.js`)},{type:'CompiledWasm',path:resolve(root,`artifacts/${role}/index_bg.wasm`)}];
-  const rawOptions={workers:[{
+  // Request.cf metadata fetching is shared, not a per-worker option. Keep the
+  // local fixture offline when converting its multi-worker config to Miniflare v5.
+  const rawOptions={cf:false,workers:[{
     name:'identity',...moduleOptions,
     modules:[{type:'ESModule',path:resolve(root,'tests/fixtures/native_revocation_scheduler.mjs')},...artifact('identity')],
     bindings:{CUSTODY_NATIVE_ORIGIN:'https://localhost',CUSTODY_NATIVE_RP_ID:'localhost',CUSTODY_NATIVE_NAMESPACE:data.namespace,
@@ -217,7 +219,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       }
       return new MiniflareResponse(body,{status:response.status,headers:outputHeaders});
     };
-    const restart=async nextMode=>{await mf?.dispose();const configured=options(persist,native.data,bridge,nextMode,configureOptions);mf=new Miniflare(configured);};
+    const restart=async nextMode=>{await mf?.dispose();const configured=roleRuntimeOptions(persist,native.data,bridge,nextMode,configureOptions);mf=new Miniflare(configured);};
     await restart(mode);
     if(realFenceMode(mode)) {
       const controller=await mf.getWorker('fence-controller');
@@ -412,7 +414,7 @@ print(json.dumps(result))
 // before any directory/provision request; it does not patch signed payloads.
 export function browserUvRoleOptions(persist,data,bridge,manager,origin,adapterModule) {
   assert.ok(typeof manager==='string' && manager.length>0);
-  return options(persist,data,bridge,'native-participant-owner-setup-real-fence',raw=>{
+  return roleRuntimeOptions(persist,data,bridge,'native-participant-owner-setup-real-fence',raw=>{
     const identity=raw.workers.find(w=>w.name==='identity');
     identity.modules[0]={type:'ESModule',path:adapterModule};
     identity.bindings.CUSTODY_NATIVE_ORIGIN=origin;
