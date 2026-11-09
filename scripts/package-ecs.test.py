@@ -564,6 +564,87 @@ class PackageTests(unittest.TestCase):
             finally:
                 smoke.close()
 
+    @unittest.skipUnless(shutil.which("openssl"), "actual TLS fixture requires OpenSSL")
+    def test_fixture_tls_proxy_enforces_tls12_and_trusted_ca(self):
+        from contextlib import ExitStack
+        import http.client
+        import http.server
+        import ssl
+        import threading
+        import time
+        from types import SimpleNamespace
+
+        module_spec = importlib.util.spec_from_file_location(
+            "ecs_cold_entry_smoke_tls_transport_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
+        smoke_module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(smoke_module)
+        discovery = {"transport_fixture": "verified TLS discovery"}
+        requests = []
+
+        class Upstream(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                requests.append(self.path)
+                payload = json.dumps(discovery).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as cleanup:
+            root = Path(directory)
+            smoke = smoke_module.Smoke({}, root, time.monotonic() + 30)
+            cleanup.callback(smoke.close)
+            smoke_module.generate_tls(smoke)
+            upstream = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+            cleanup.callback(upstream.server_close)
+            upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+            upstream_thread.start()
+            cleanup.callback(upstream_thread.join, timeout=5)
+            cleanup.callback(upstream.shutdown)
+
+            def permissive_default(protocol):
+                context = ssl.SSLContext(protocol)
+                context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+                return context
+
+            # Override only this module's factory, not ssl.SSLContext itself:
+            # its real property setters must continue to use the real class.
+            facade = SimpleNamespace(SSLContext=permissive_default,
+                                     PROTOCOL_TLS_SERVER=ssl.PROTOCOL_TLS_SERVER,
+                                     TLSVersion=ssl.TLSVersion)
+            with patch.object(smoke_module, "ssl", facade):
+                proxy = smoke_module.forwarder(smoke, upstream.server_address)
+            cleanup.callback(proxy.server_close)
+            cleanup.callback(proxy.shutdown)
+            self.assertEqual(proxy.socket.context.minimum_version, ssl.TLSVersion.TLSv1_2)
+            self.assertEqual(proxy.socket.context.maximum_version, ssl.TLSVersion.MAXIMUM_SUPPORTED)
+
+            port = proxy.server_address[1]
+            smoke.variables["origin"] = f"https://localhost:{port}"
+            self.assertEqual(smoke_module.read_initial_discovery(smoke, {}), discovery)
+            self.assertEqual(requests, ["/api/public/hosted-account/v2/entry/discovery"])
+
+            trusted = ssl.create_default_context(cafile=str(root / "root.crt"))
+            trusted.maximum_version = ssl.TLSVersion.TLSv1_2
+            client = http.client.HTTPSConnection("localhost", port, context=trusted, timeout=3)
+            cleanup.callback(client.close)
+            client.connect()
+            self.assertEqual(client.sock.version(), "TLSv1.2")
+            client.request("GET", "/tls12")
+            self.assertEqual(json.loads(client.getresponse().read()), discovery)
+            client.close()
+
+            untrusted = http.client.HTTPSConnection(
+                "localhost", port, context=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT), timeout=3)
+            cleanup.callback(untrusted.close)
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                untrusted.connect()
+            self.assertEqual(requests, ["/api/public/hosted-account/v2/entry/discovery", "/tls12"])
+
     def test_fixture_tls_proxy_supplies_one_actual_identity_source_ip(self):
         module_spec = importlib.util.spec_from_file_location(
             "ecs_cold_entry_smoke_headers_test", ROOT / "scripts/package-ecs-cold-entry-smoke.py")
