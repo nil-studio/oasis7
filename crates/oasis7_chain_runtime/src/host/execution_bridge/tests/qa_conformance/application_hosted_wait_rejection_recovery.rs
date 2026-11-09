@@ -218,6 +218,7 @@ pub(super) fn recover_parent(
     rejection: thread::JoinHandle<Result<(), String>>,
     selector: thread::JoinHandle<Result<SubmitIntentRequest<WorldServicePayloadV1>, String>>,
 ) {
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_compensation_recovery_prepare");
     application_hosted_wait_rejection::secure_artifact(fixture, root, first, "compensation-crash");
     let rejected = rejection.join().unwrap();
     let original = selector
@@ -270,7 +271,10 @@ pub(super) fn recover_parent(
         .filter(|entry| *entry == &compensation_key)
         .count();
     command.env("PRE2_APP_ADMISSION", "wait-rejection-recover");
-    let output = command.output().unwrap();
+    // The recovery child keeps its own 60-second budget; cleanup must not time it.
+    cleanup.complete();
+    let output = application_completion::run_child_phase(command, root, "wait-rejection-recovery");
+    let cleanup = cleanup_deadline::CleanupDeadline::start("wait_compensation_recovery_finish");
     let lookup_after = fixture
         .lookup_digests
         .lock()
@@ -293,4 +297,5 @@ pub(super) fn recover_parent(
     assert_original_terminal(fixture, root);
     application_hosted_wait_rejection::finish_with_result(fixture, root, &output, rejected);
     println!("PRE2_REJECTED_WAIT_COMPENSATION_PROCESS_RECOVERY_PASSED");
+    cleanup.complete();
 }

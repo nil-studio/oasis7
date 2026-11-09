@@ -1,3 +1,4 @@
+use bevy::math::DVec2;
 use std::collections::{HashMap, HashSet};
 
 use super::map_labels::map_label_obstacles;
@@ -79,12 +80,20 @@ const CO_ANCHOR_RING_OFFSETS: [Vec2; 8] = [
     Vec2::new(48.0, 48.0),
 ];
 
-pub(crate) fn module_co_anchor_offset(index: usize, renderer_to_css_scale: Vec2) -> Vec2 {
-    let ring = (index / CO_ANCHOR_RING_OFFSETS.len() + 1) as f32;
+pub(crate) fn module_co_anchor_offset(
+    index: usize,
+    renderer_to_css_scale: Vec2,
+    pixel: DVec2,
+) -> DVec2 {
+    let ring = (index / CO_ANCHOR_RING_OFFSETS.len() + 1) as f64;
     let css_offset = CO_ANCHOR_RING_OFFSETS[index % CO_ANCHOR_RING_OFFSETS.len()];
-    Vec2::new(
-        css_offset.x * renderer_to_css_scale.x,
-        css_offset.y * renderer_to_css_scale.y,
+    DVec2::new(
+        f64::from(css_offset.x) / 48.0
+            * ((48.0_f64.max(16.0 * pixel.x + 4.0) / pixel.x).ceil() * pixel.x)
+            * f64::from(renderer_to_css_scale.x),
+        f64::from(css_offset.y) / 48.0
+            * ((48.0_f64.max(16.0 * pixel.y + 4.0) / pixel.y).ceil() * pixel.y)
+            * f64::from(renderer_to_css_scale.y),
     ) * ring
 }
 
@@ -185,6 +194,10 @@ pub(super) fn reconcile_module_visual_entities(
     let mut active_chips = HashSet::new();
     let mut active_labels = HashSet::new();
     let mut accepted_label_rects: Vec<ModuleLabelRect> = Vec::new();
+    let pixel = agent_pixel_scale(width, height);
+    let offset_pixel = pixel_pipeline::canvas_layout(width, height)
+        .map(|layout| layout.css / layout.frame.as_dvec2() * layout.scale as f64)
+        .unwrap_or(DVec2::ONE);
     for (index, entity) in entities.iter().enumerate() {
         let Some((canvas_x, canvas_y)) =
             to_canvas_point(&entity.pos, world_bounds, width, height, &runtime.camera)
@@ -198,9 +211,10 @@ pub(super) fn reconcile_module_visual_entities(
             module_co_anchor_offset(
                 co_anchor_slot.map_or(index, |(co_anchor_index, _)| co_anchor_index),
                 renderer_to_css_scale,
+                offset_pixel,
             )
         } else {
-            Vec2::ZERO
+            DVec2::ZERO
         };
         active_ids.insert(entity.id.clone());
         let mut transform = Transform::from_translation(to_bevy_translation(
@@ -215,13 +229,23 @@ pub(super) fn reconcile_module_visual_entities(
             runtime.hit_regions.push(HitRegion {
                 kind: "module_visual",
                 id: entity.id.clone(),
-                left: canvas_x + f64::from(co_anchor_offset.x) - MODULE_VISUAL_HIT_HALF_SIZE,
-                top: canvas_y + f64::from(co_anchor_offset.y) - MODULE_VISUAL_HIT_HALF_SIZE,
-                right: canvas_x + f64::from(co_anchor_offset.x) + MODULE_VISUAL_HIT_HALF_SIZE,
-                bottom: canvas_y + f64::from(co_anchor_offset.y) + MODULE_VISUAL_HIT_HALF_SIZE,
+                left: canvas_x + f64::from(co_anchor_offset.x)
+                    - MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.x),
+                top: canvas_y + f64::from(co_anchor_offset.y)
+                    - MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.y),
+                right: canvas_x
+                    + f64::from(co_anchor_offset.x)
+                    + MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.x),
+                bottom: canvas_y
+                    + f64::from(co_anchor_offset.y)
+                    + MODULE_VISUAL_HIT_HALF_SIZE * f64::from(pixel.y),
             });
         }
-        let sprite = sprite_for_square(MODULE_VISUAL_ENTITY_COLOR, MODULE_VISUAL_ENTITY_SIZE_PX);
+        let sprite = sprite_for_rect(
+            MODULE_VISUAL_ENTITY_COLOR,
+            MODULE_VISUAL_ENTITY_SIZE_PX * pixel.x,
+            MODULE_VISUAL_ENTITY_SIZE_PX * pixel.y,
+        );
         if let Some(existing) = runtime.module_visual_entities.get(&entity.id).copied() {
             commands.entity(existing).insert((sprite, transform));
         } else {
@@ -239,11 +263,13 @@ pub(super) fn reconcile_module_visual_entities(
                 .insert(entity.id.clone(), spawned);
         }
         for (part, glyph_offset, size) in module_identity_chip_specs(&entity.kind) {
+            let glyph_offset = glyph_offset * pixel;
+            let size = size * pixel;
             let key = (entity.id.clone(), part);
             active_chips.insert(key.clone());
             let chip_transform = Transform::from_translation(to_bevy_translation(
-                canvas_x + f64::from(co_anchor_offset.x + glyph_offset.x),
-                canvas_y + f64::from(co_anchor_offset.y + glyph_offset.y),
+                canvas_x + co_anchor_offset.x + f64::from(glyph_offset.x),
+                canvas_y + co_anchor_offset.y + f64::from(glyph_offset.y),
                 width,
                 height,
                 MODULE_VISUAL_ENTITY_LAYER_Z + MODULE_IDENTITY_CHIP_LAYER_Z_OFFSET,
@@ -272,7 +298,12 @@ pub(super) fn reconcile_module_visual_entities(
                 &render_state.locale,
             );
             let label_x = canvas_x + f64::from(co_anchor_offset.x);
-            let label_y = canvas_y + f64::from(co_anchor_offset.y) - MODULE_LABEL_ABOVE_MARKER_PX;
+            let extra_half_height = f64::from(MODULE_VISUAL_ENTITY_SIZE_PX)
+                * std::f64::consts::FRAC_1_SQRT_2
+                * (((f64::from(pixel.x) + f64::from(pixel.y)) / 2.0 - 1.0).max(0.0));
+            let label_y = canvas_y + f64::from(co_anchor_offset.y)
+                - MODULE_LABEL_ABOVE_MARKER_PX
+                - extra_half_height;
             let label_rect = ModuleLabelRect::above_marker(label_x, label_y, &display);
             if accepted_label_rects
                 .iter()

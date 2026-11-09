@@ -72,6 +72,6 @@ it('removes a selected projected object on a delta while preserving actor and re
  expect(screen.getByText(/1 objects confirmed removed from the world/)).toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'Projected Factory'})).toBeNull();
  expect(core.state.selectedId).toBe('agent-0');expect(core.state.auth.boundAgentId).toBe(actor);expect(core.state.lastGameplayActionFeedback).toBe(receipt);
- fireEvent.click(screen.getByRole('button',{name:'World overview'}));
+ fireEvent.click(screen.getByRole('button',{name:'Overview query results'}));
  expect(screen.queryByText(/1 objects confirmed removed from the world/)).toBeNull();
 });

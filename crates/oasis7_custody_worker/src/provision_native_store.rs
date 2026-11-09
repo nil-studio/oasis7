@@ -1,8 +1,6 @@
 //! Account-local native stage transitions. All authority/config inputs are Rust-owned.
 use super::*;
-#[cfg(feature = "approval-harness")]
-#[path = "activation_diagnostic.rs"]
-pub(crate) mod activation_diagnostic;
+use crate::rejection_diagnostic as activation_diagnostic;
 #[path = "test_session_alarm_store.rs"]
 pub mod alarm;
 #[path = "provision_native_history_store.rs"]
@@ -225,14 +223,7 @@ impl OwnerProvisionApprovalStore {
             u64,
         ) -> Result<R>,
     {
-        self.native_step_traced(
-            current,
-            event,
-            reference,
-            transition,
-            #[cfg(feature = "approval-harness")]
-            None,
-        )
+        self.native_step_traced(current, event, reference, transition, None)
     }
     fn native_step_traced<F, R, T>(
         &self,
@@ -240,7 +231,7 @@ impl OwnerProvisionApprovalStore {
         event: &str,
         reference: &str,
         mut transition: T,
-        #[cfg(feature = "approval-harness")] diagnostic: Option<&activation_diagnostic::Trace>,
+        diagnostic: Option<&activation_diagnostic::Trace>,
     ) -> Result<R>
     where
         F: Fn() -> Result<NativeStageCurrent>,
@@ -252,12 +243,9 @@ impl OwnerProvisionApprovalStore {
         ) -> Result<R>,
     {
         let report = |stage: &'static str, error| {
-            #[cfg(feature = "approval-harness")]
             if let Some(trace) = diagnostic {
                 trace.fail(stage);
             }
-            #[cfg(not(feature = "approval-harness"))]
-            let _ = stage;
             error
         };
         let initial = read(&self.state, KEY).map_err(|e| report("sql.initial_read", e))?;
@@ -384,7 +372,6 @@ impl OwnerProvisionApprovalStore {
             deadline,
             checks,
             transition,
-            #[cfg(feature = "approval-harness")]
             None,
         )
         .await
@@ -396,7 +383,7 @@ impl OwnerProvisionApprovalStore {
         deadline: oasis7_custody_core::time_units::UnixMillis,
         checks: C,
         mut transition: T,
-        #[cfg(feature = "approval-harness")] diagnostic: Option<&activation_diagnostic::Trace>,
+        diagnostic: Option<&activation_diagnostic::Trace>,
     ) -> Result<R>
     where
         F: Fn() -> Result<NativeStageCurrent>,
@@ -416,12 +403,9 @@ impl OwnerProvisionApprovalStore {
     {
         let (event, reference) = audit;
         let report = |stage: &'static str, error| {
-            #[cfg(feature = "approval-harness")]
             if let Some(trace) = diagnostic {
                 trace.fail(stage);
             }
-            #[cfg(not(feature = "approval-harness"))]
-            let _ = stage;
             error
         };
         let snapshot = self.snapshot().map_err(|e| report("store.restore", e))?;
@@ -458,7 +442,6 @@ impl OwnerProvisionApprovalStore {
                     transition(state, scope, context, time, &mut cache)
                         .map_err(|e| report("core.transition.final", e))
                 },
-                #[cfg(feature = "approval-harness")]
                 diagnostic,
             )
         })

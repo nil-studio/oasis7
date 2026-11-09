@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -161,10 +162,10 @@ class Runtime(unittest.TestCase):
 
 class OfficialInputs(unittest.TestCase):
     def test_real_saved_official_manifest_closure_is_exact(self):
-        # Small fixture uses the official manifest grammar and two separate versions.
+        # Small fixture uses the official manifest grammar and separate bundle versions.
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            for version,rust in [('2.27.2','0.2.23'),('2.27.3','0.2.24')]:
+            for version,rust in [('2.27.2','0.2.23'),('2.27.3','0.2.24'),('2.27.4','0.2.25')]:
                 bundle=root/version
                 for name,v,deps in [('rust-all',rust,'\n  codeql/util: 1.0.0'),('util','1.0.0',' {}')]:
                     folder=bundle/'qlpacks/codeql'/name/v;folder.mkdir(parents=True)
@@ -183,6 +184,17 @@ class OfficialInputs(unittest.TestCase):
         for changed in [dict(value,libraryPath=['/query','/other/rust-all']),dict(value,extra=True)]:
             with self.assertRaises(RuntimeError):m.verify_library_path(changed,Path('/query'),'Test',closure)
 
+    def test_capacity_bundle_is_not_admitted_by_legacy_model_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            result=subprocess.run([sys.executable,str(P),'--codeql',str(root/'codeql'),'--bundle-version','2.27.4',
+                '--business-source',str(root/'source'),'--output',str(root/'out'),'--work',str(root/'work'),
+                '--deadline',str(time.time()+300)],capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,2)
+            self.assertIn("invalid choice: '2.27.4'",result.stderr)
+            self.assertFalse((root/'out').exists())
+            self.assertFalse((root/'work').exists())
+
 
 class Workflow(unittest.TestCase):
     def test_literal_manual_has_no_scan_or_required_override(self):
@@ -195,7 +207,8 @@ class Workflow(unittest.TestCase):
             self.assertNotIn(forbidden,job)
         self.assertIn("if: github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full'",text)
         self.assertIn("if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')",text)
-        for version,pin in m.BUNDLES.items():self.assertIn(version,job);self.assertIn(pin['sha256'],job)
+        self.assertEqual(m.MODEL_BUNDLE_VERSIONS,('2.27.2','2.27.3'))
+        for version in m.MODEL_BUNDLE_VERSIONS:self.assertIn(version,job);self.assertIn(m.BUNDLES[version]['sha256'],job)
         self.assertIn(' + 1080 ',job);self.assertIn('64 * 1024**2',job)
         for test in ('codeql-rust-model-diagnostic.test.py','codeql-rust-refactored-source.test.py'):
             self.assertIn('run python3 ./scripts/security/'+test,(root/'scripts/ci-tests.sh').read_text())

@@ -36,7 +36,7 @@ export function PixelWorldWorldViewExplorer(props) {
     <form onSubmit={event => {event.preventDefault();setFollowing(null);props.onFollow?.(null);props.onQuery?.({search:search().trim()});}}>
       <label>{text('授权空间搜索','Search authorized space')} <input value={search()} maxlength="128" onInput={event=>setSearch(event.currentTarget.value)} /></label>
       <button type="submit" disabled={props.state?.loading}>{text('搜索','Search')}</button>
-      <button type="button" onClick={()=>{setSearch('');setFollowing(null);props.onFollow?.(null);props.onOverview?.();props.onQuery?.({});}}>{text('返回总览','World overview')}</button>
+      <button type="button" data-query-overview onClick={()=>{setFollowing(null);props.onOverview?.();}}>{text('总览当前查询结果','Overview query results')}</button>
       <button type="button" onClick={()=>{setSearch('');setFollowing(null);props.onFollow?.(null);props.onReturnTarget?.();}}>{text('返回主目标','Return to target')}</button>
     </form>
     <p role="status">{props.state?.loading ? text('正在读取授权范围…','Reading authorized scope…') : props.state?.stale ? text('最近已知；当前范围读取失败','Last known; scope refresh failed') : view()?.completeness === 'complete' ? text('当前查询范围完整','Current query scope complete') : view()?.completeness === 'partial' ? text('当前查询范围不完整','Current query scope partial') : text('查询范围完整性未知','Query scope completeness unknown')}
@@ -44,6 +44,13 @@ export function PixelWorldWorldViewExplorer(props) {
       <Show when={view()?.source_frozen}> · {text('同一来源切点的历史视图','Historical view at one source cut')}</Show>
       <Show when={props.state?.error}> · {text('读取不可用，请重试','Read unavailable; retry')}</Show>
     </p>
+    <Show when={props.overviewStatus}><p role="status" data-query-overview-status={props.overviewStatus}>
+      {props.overviewStatus==='pending'
+        ? text('查询尚未完成；保留当前视角，等待完整结果后总览。','Query incomplete; keeping the current camera until complete results arrive.')
+        : props.overviewStatus==='applying'
+        ? text('查询结果完整，正在应用总览。','Query results complete; applying the overview.')
+        : text('当前查询无法完整总览；已保留视角。请缩小范围或重新查询。','The current query cannot be overviewed completely; camera kept. Narrow the scope or query again.')}
+    </p></Show>
     <Show when={props.state?.notice === 'target_unavailable'}><p>{text('主目标当前没有获准且可信的位置；可检查目标上下文。','The target has no authorized trusted position; inspect its context instead.')}</p></Show>
     <Show when={props.state?.changes?.length}><p class="pixel-world-update-notice" role="status">
       {props.state.changes.filter(value=>value.world_deleted).length} {text('个对象已确认从世界移除','objects confirmed removed from the world')} · {props.state.changes.filter(value=>!value.world_deleted).length} {text('个记录离开当前查询；不代表世界删除','records left this query; world deletion is not implied')}

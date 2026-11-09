@@ -17,6 +17,7 @@ export function PixelWorldSpatialExplorer(props) {
   });
   return <div ref={root} class="pixel-world-exploration-panel"><PixelWorldWorldViewExplorer state={props.controller.state()} locale={props.locale}
     selection={props.controller.selection()} pauseVersion={props.controller.pauseVersion()}
+    overviewStatus={props.controller.overviewStatus?.()}
     onDrilldown={props.controller.drilldown} onEventFeed={props.controller.eventFeed} onQuery={props.controller.query} onSelect={props.controller.select}
     onLocate={props.controller.locate} onFollow={props.controller.follow}
     onOverview={props.controller.overview} onReturnTarget={props.controller.returnTarget} /></div>;

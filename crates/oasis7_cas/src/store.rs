@@ -16,6 +16,9 @@ impl LocalCasStore {
         }
         let path = self.blob_path(content_hash)?;
         if path.exists() {
+            // Existence is not proof that a previous publication survived intact.
+            // Fail closed and preserve damaged bytes for explicit recovery.
+            self.get_verified(content_hash)?;
             return Ok(());
         }
         let disk_bytes = self.maybe_encode_blob_for_disk(content_hash, bytes)?;

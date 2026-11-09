@@ -125,7 +125,14 @@ done
 printf '%s\n' 'doc/README.md' >"$FIXTURE/doc/.governance/doc-root-md-allowlist.txt"
 printf '%s\n' 'fixture documentation landing page' >"$FIXTURE/doc/README.md"
 printf '%s\n' 'fixture many-doc landing page' >"$FIXTURE/doc/many/README.md"
-printf '%s\n' 'fixture retired archive landing page' >"$FIXTURE/doc/devlog/README.md"
+# Archived prose and optional handoff notes do not create role-format gates.
+cat >"$FIXTURE/doc/devlog/README.md" <<'DOC'
+# Fixture retired archive
+
+## Historical observation / archived_contributor
+
+Preserve the original attribution without adding a current role card.
+DOC
 printf '%s\n' '# testing fixture landing page' >"$FIXTURE/doc/testing/README.md"
 cat >"$FIXTURE/doc/testing/upstream.md" <<'DOC'
 # Fixture upstream
@@ -183,6 +190,12 @@ doc/many/README.md
 doc/testing/README.md
 DOC
 printf '%s\n' '# repository health role' >"$FIXTURE/.agents/roles/repository_health_engineer.md"
+cat >"$FIXTURE/.agents/roles/templates/handoff-brief.md" <<'DOC'
+# Optional handoff notes
+
+- From Role: `task_owner`
+- To Role: `review_session`
+DOC
 
 cat >"$TMPDIR/bin/rg" <<'SH'
 #!/usr/bin/env bash

@@ -1746,6 +1746,35 @@
           ],
           "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
           "runtime": "not_run"
+        },
+        {
+          "family": "account-agent",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg",
+              "region": "sources-clear",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg",
+              "region": "clear-no-change",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/12-prompt-sources-clear.svg",
+              "region": "full-profile-awaiting",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "五源、clear/no-change、完整 profile 间接影响及执行器待读回；具体设计目标，不声明生产已接入。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#prompt",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
+          "runtime": "not_run"
         }
       ]
     },
@@ -1796,6 +1825,41 @@
             }
           ],
           "uncovered": "Shown form/state examples only; all remaining source combinations and runtime behavior unverified.",
+          "runtime": "not_run"
+        },
+        {
+          "family": "account-agent",
+          "representation": "state_snippet",
+          "frames": [
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "stale-compare",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "read-failed-again",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "original-result-unknown",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            },
+            {
+              "path": "assets/ui-ux/full-function/account-agent/13-prompt-stale-recovery.svg",
+              "region": "control-lost-hidden",
+              "selector_kind": "svg_id",
+              "design_target_only": true
+            }
+          ],
+          "authored_scope": "stale 比较、恢复再失败、原结果 unknown 与失权隐藏；原请求查询只在获准可读时展示。",
+          "design_contract_baseline": "7df3d7d289789ee844c7486587fb49fd611968d4",
+          "interactive_prototype": "assets/ui-ux/interactive/index.html#prompt",
+          "uncovered": "仅列明的设计状态；真实浏览器响应式、输入法、辅助技术和生产接入未验证。",
           "runtime": "not_run"
         }
       ]

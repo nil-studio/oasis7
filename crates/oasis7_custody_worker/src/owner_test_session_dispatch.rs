@@ -250,19 +250,19 @@ async fn activate(
         .reserve_test_session_source_read(id, &descriptor.source_operation_id)
         .map_err(|_| denied())?;
     let started = clock()?;
-    #[cfg(feature = "approval-harness")]
-    let diagnostic = crate::provision_approval_store::native::activation_diagnostic::Trace::new(
-        started,
+    let diagnostic = crate::rejection_diagnostic::Trace::new(
+        env,
+        "activation",
+        Some(started),
         s.sources
             .get(&descriptor.source_operation_id)
             .and_then(|source| source.verification.as_ref())
             .map(|signed| signed.verification.observed_at.0),
     );
+    diagnostic.session(&saved.state, id, Some(&descriptor.source_operation_id));
+    diagnostic.lifetime(&lifetime);
     let report = |stage: &'static str, error| {
-        #[cfg(feature = "approval-harness")]
         diagnostic.fail(stage);
-        #[cfg(not(feature = "approval-harness"))]
-        let _ = stage;
         error
     };
     let attestation_request = serde_json::to_string(&TestSessionAttestationRequest {
@@ -271,16 +271,30 @@ async fn activate(
     })?;
     // These fixed readonly inputs depend only on the same saved originals. Start
     // all three after prepayment; retain the common earliest observation bound.
+    let enrollment = enrollment_id(&s.input)?;
     let (attested, enrolled, observed) = activation_inputs(
-        attest(env, &attestation_request),
-        session_authority::enrollment(env, enrollment_id(&s.input)?),
-        session_authority::runtime_observe(
-            env,
-            saved,
-            request,
-            &descriptor.source_operation_id,
-            false,
-        ),
+        async {
+            attest(env, &attestation_request).await.map_err(|e| {
+                diagnostic.fail("join.attestation");
+                e
+            })
+        },
+        async {
+            session_authority::enrollment(env, enrollment)
+                .await
+                .map_err(|e| report("join.enrollment", e))
+        },
+        async {
+            session_authority::runtime_observe(
+                env,
+                saved,
+                request,
+                &descriptor.source_operation_id,
+                false,
+            )
+            .await
+            .map_err(|e| report("join.observation", e))
+        },
     )
     .await;
     let attestation: TestSessionPrivateAttestation = serde_json::from_str(
@@ -305,7 +319,6 @@ async fn activate(
             attestation.private_sid_generation,
             descriptor.source_operation_id,
             || session_authority::approval_current(state, env, &observed, &enrolled, started),
-            #[cfg(feature = "approval-harness")]
             &diagnostic,
         )
         .await

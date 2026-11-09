@@ -24,7 +24,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
+      "producer_recipe_hash": "9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -51,17 +51,17 @@
         {
           "kind": "source-file",
           "path": ".dockerignore",
-          "sha256": "1711e368f49c184c0b06e0bccaf3374ae04143105cbcdfc086448e005ce6c46e"
+          "sha256": "f4cbd8a21fc84c5948e449259abba5ee035a028e7cc085e69ef5438e05361aae"
         },
         {
           "kind": "source-file",
           "path": "Cargo.lock",
-          "sha256": "180fc6e897fa5deacfcc21c3cdfbc9b3d7d2563b0ca86820dedebfd233a2b2b2"
+          "sha256": "eaa3fa6d9551d3e43572d4375613a78e194ed6806f0be9d612c72591713e5079"
         },
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "2cf67eb7f3f447018132a3139e75f74b33f9c97d835c75dd77a77f52d08d7887"
+          "sha256": "f6fcfaa53f77da36a31517012943cf6bedddbe7e38e7debd8638e2c9516903cc"
         },
         {
           "kind": "source-file",
@@ -81,7 +81,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/src/producer_recipe.rs",
-          "sha256": "838ed4a839dbd3457633f12a060ee18bb5a4612d60b6d7b7859093b11528be1d"
+          "sha256": "c937d4a573224b65511bf4de8e4ae1e1cefdce8db01cae1d0846fbd30a8a964a"
         },
         {
           "kind": "source-file",
@@ -106,7 +106,12 @@
         {
           "kind": "source-file",
           "path": "docker/wasm-builder/Dockerfile",
-          "sha256": "9189b29e7c0136cb9a4f81000396dfa09ad539164060f0f9012aa1880a32adc6"
+          "sha256": "1e92bcbe6e6f48f49d3405341d60f145fb1f8544cbfd95f014d24eb703902615"
+        },
+        {
+          "kind": "source-file",
+          "path": "docker/wasm-builder/prepare-workspace.sh",
+          "sha256": "7fe6c4ae543c471b797c3d873d851696cc6f75a09562ea17c9eaa87170a34f5d"
         },
         {
           "kind": "source-file",
@@ -136,7 +141,7 @@
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/builder_context_tests.rs",
-          "sha256": "2d2c2f165b2c884345702ae9c6fe2f8778a88cd32f762196912f53c16a4c41d4"
+          "sha256": "04d58a189e36cb2cc900af03386b8a09a88789bdf802733d23b3370d3167a082"
         },
         {
           "kind": "source-file",
@@ -160,260 +165,260 @@
     "m1.body.core": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.memory.core": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.mobility.basic": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.power.radiation_harvest": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.power.storage": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.rule.move": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.rule.transfer": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.rule.visibility": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.sensor.basic": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m1.storage.cargo": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:ef3549c174a0483d50b307590be980d56d3bbe4fd23578c37c4d8b7388418c25",
       "docker_platform": "linux/amd64"
     },
     "m4.factory.assembler.mk1": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.factory.miner.mk1": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.factory.smelter.mk1": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.component.control_chip": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.component.motor_mk1": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.component.sensor_pack": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.finished.logistics_drone": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.finished.module_rack": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.infrastructure.factory_core": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.material.alloy_plate": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.product.material.iron_ingot": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.control_chip": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.factory_core": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.gear": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.logistics_drone": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.module_rack": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.motor_mk1": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.assembler.sensor_pack": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.smelter.alloy_plate": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.smelter.copper_wire": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.smelter.iron_ingot": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m4.recipe.smelter.polymer_resin": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:e49e769b5e65f9633fae26d0e36e9458b01a35a72d7c3049ecb3f89612afa12e",
       "docker_platform": "linux/amd64"
     },
     "m5.gameplay.crisis.cycle": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:071e482316c7d9fde3cfadb55866a121ef068327d2c591bfa886b15d76058dc6",
       "docker_platform": "linux/amd64"
     },
     "m5.gameplay.economic.overlay": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:071e482316c7d9fde3cfadb55866a121ef068327d2c591bfa886b15d76058dc6",
       "docker_platform": "linux/amd64"
     },
     "m5.gameplay.governance.council": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:071e482316c7d9fde3cfadb55866a121ef068327d2c591bfa886b15d76058dc6",
       "docker_platform": "linux/amd64"
     },
     "m5.gameplay.meta.progression": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:071e482316c7d9fde3cfadb55866a121ef068327d2c591bfa886b15d76058dc6",
       "docker_platform": "linux/amd64"
     },
     "m5.gameplay.war.core": {
       "execution_schema_version": 1,
       "kind": "local-docker-build",
-      "image_ref": "oasis7/wasm-builder:candidate-92ff3a6c4e179277c81f221bb355887b33e68a922a2aababf18113cd67bffe65",
-      "image_id": "sha256:c279463ba0c8d5006cd473fb36118b7a7b1c8d631d6feda60fc83ad0de14dad4",
+      "image_ref": "oasis7/wasm-builder:candidate-9ce2cb09643db888fed5867ee58430eb7fa57d23b759ff6559d081a7e7b49952",
+      "image_id": "sha256:071e482316c7d9fde3cfadb55866a121ef068327d2c591bfa886b15d76058dc6",
       "docker_platform": "linux/amd64"
     }
   },
@@ -428,27 +433,27 @@
   "module_sets": {
     "m1": {
       "identity_file": "m1_builtin_modules.source-rule2-candidate.identity.json",
-      "identity_sha256": "645a7f03c15b44d064ab8c43044e7346e46a06c509cfa7712efcf2ce3c358e8a",
+      "identity_sha256": "d065137deececc02eb14fa2854bd265db8ca688b020e1c58d875bf0290503077",
       "hash_file": "m1_builtin_modules.source-rule2-candidate.sha256",
       "hash_sha256": "9e6aeea92080bc983bd0b54f7c3b234cc78cbb06a238b7b3511f84f6842e3b26",
       "module_count": 10,
-      "build_manifest_hash": "4cd1572babc0497fc33d43d97664211871a7dd9e0f5076de98bcfc48bbff111a"
+      "build_manifest_hash": "2ca05c0a0468a6deb03b3ca69ba4d3779c5a94eee9d349834114e7bef76e4d43"
     },
     "m4": {
       "identity_file": "m4_builtin_modules.source-rule2-candidate.identity.json",
-      "identity_sha256": "e4125d17782097f8d23e7bd550bdd269ae0f01239e565874606b4df73b48929b",
+      "identity_sha256": "cf910e24d67eabee07159ae2f4dd67eefc7e227824d93ad8f7c73214f34e0398",
       "hash_file": "m4_builtin_modules.source-rule2-candidate.sha256",
       "hash_sha256": "ceb30356b66a2a78a79effe1a7d092ccb1f51e9920a845200b0f0d2846e654c2",
       "module_count": 22,
-      "build_manifest_hash": "4cd1572babc0497fc33d43d97664211871a7dd9e0f5076de98bcfc48bbff111a"
+      "build_manifest_hash": "2ca05c0a0468a6deb03b3ca69ba4d3779c5a94eee9d349834114e7bef76e4d43"
     },
     "m5": {
       "identity_file": "m5_builtin_modules.source-rule2-candidate.identity.json",
-      "identity_sha256": "d8f3ca4e58b2c69e8b91964dd273b26bfc4b96537a4fef6db0e6d9ec63e105e0",
+      "identity_sha256": "d3c11cc459428b5585f1339de17ab8973a9fa534734cd49ed08521b4126ec62d",
       "hash_file": "m5_builtin_modules.source-rule2-candidate.sha256",
       "hash_sha256": "e271c3168fdde0e3c836dd9339c4cb19acc52d8fa02f145f43cc9e328261f97e",
       "module_count": 5,
-      "build_manifest_hash": "4cd1572babc0497fc33d43d97664211871a7dd9e0f5076de98bcfc48bbff111a"
+      "build_manifest_hash": "2ca05c0a0468a6deb03b3ca69ba4d3779c5a94eee9d349834114e7bef76e4d43"
     }
   }
 }

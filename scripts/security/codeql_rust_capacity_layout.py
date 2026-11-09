@@ -18,6 +18,8 @@ TOOL_FILES = (
     'codeql_rust_cfg_graph.py',
     'codeql_rust_callee_diagnostic.py',
     'codeql-rust-capacity.py',
+    'codeql-rust-qualifier-comparison.py',
+    'codeql-rust-omitted-qualifier.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',
     'codeql-rust-refactored-source.py',

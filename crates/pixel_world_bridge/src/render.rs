@@ -153,6 +153,8 @@ pub(crate) struct GridLayoutKey {
     offset_y_milli: i32,
     major_phase_x: i32,
     major_phase_y: i32,
+    pixel_x_bits: u32,
+    pixel_y_bits: u32,
 }
 #[derive(Component)]
 pub(crate) struct PixelWorldGridVisual;
@@ -226,6 +228,8 @@ pub(crate) fn build_grid_layout(camera: &CameraState, width: f64, height: f64) -
         offset_y_milli: (offset_y * 1000.0).round() as i32,
         major_phase_x: (camera.pan_x_px / grid_step).floor().rem_euclid(5.0) as i32,
         major_phase_y: (camera.pan_y_px / grid_step).floor().rem_euclid(5.0) as i32,
+        pixel_x_bits: agent_pixel_scale(width, height).x.to_bits(),
+        pixel_y_bits: agent_pixel_scale(width, height).y.to_bits(),
     }
 }
 pub(crate) fn fragment_screen_size_px(
@@ -323,10 +327,10 @@ pub(crate) fn agent_visual_style(
     animation_ms: f64,
     index: usize,
 ) -> AgentVisualStyle {
-    let pulse = 1.0 + (0.12 * ((animation_ms / 240.0) + index as f64).sin());
-    let base_size = agent_unanimated_size_px(agent, is_selected);
+    let _ = (agent, animation_ms, index);
     AgentVisualStyle {
-        size_px: base_size * pulse,
+        // Shared atlas is displayed at its native logical-pixel size.
+        size_px: 16.0,
         layer_z: AGENT_LAYER_Z
             + if is_selected {
                 SELECTED_ENTITY_LAYER_Z_OFFSET
@@ -382,7 +386,11 @@ fn reconcile_grid(
                 grid_color
             };
         commands.spawn((
-            sprite_for_rect(color, 1.0, layout_height as f32),
+            sprite_for_rect(
+                color,
+                world_strokes::thickness(1.0, width, height, 0.0, 1.0),
+                layout_height as f32,
+            ),
             Transform::from_translation(to_bevy_translation(
                 x,
                 layout_height / 2.0,
@@ -403,7 +411,11 @@ fn reconcile_grid(
                 grid_color
             };
         commands.spawn((
-            sprite_for_rect(color, layout_width as f32, 1.0),
+            sprite_for_rect(
+                color,
+                layout_width as f32,
+                world_strokes::thickness(1.0, width, height, 1.0, 0.0),
+            ),
             Transform::from_translation(to_bevy_translation(
                 layout_width / 2.0,
                 y,
@@ -510,6 +522,7 @@ fn reconcile_agents(
     height: f64,
     animation_ms: f64,
     rebuild_hit_regions: bool,
+    texture: &Handle<Image>,
 ) {
     let Some(render_state) = runtime.render_state.as_ref() else {
         for (_, entity) in runtime.agent_entities.drain() {
@@ -537,19 +550,19 @@ fn reconcile_agents(
             .map(|selection| selection.kind == "agent" && selection.id == agent.id)
             .unwrap_or(false);
         let style = agent_visual_style(agent, is_selected, animation_ms, index);
-        let color = if is_selected {
-            Color::srgb_u8(251, 191, 36)
-        } else {
-            Color::srgb_u8(99, 179, 255)
-        };
+
         let transform = Transform::from_translation(to_bevy_translation(
             canvas_x,
-            canvas_y,
+            canvas_y - style.size_px * 7.0 / 16.0 * agent_pixel_scale(width, height).y as f64,
             width,
             height,
             style.layer_z,
         ));
-        let sprite = sprite_for_rect(color, style.size_px as f32 * 0.66, style.size_px as f32);
+        let sprite = Sprite {
+            image: texture.clone(),
+            custom_size: Some(agent_pixel_scale(width, height) * style.size_px as f32),
+            ..default()
+        };
         if let Some(entity) = runtime.agent_entities.get(&agent.id).copied() {
             commands.entity(entity).insert((sprite, transform));
         } else {
@@ -568,10 +581,10 @@ fn reconcile_agents(
             runtime.hit_regions.push(HitRegion {
                 kind: "agent",
                 id: agent.id.clone(),
-                left: canvas_x - AGENT_HIT_HALF_SIZE,
-                top: canvas_y - AGENT_HIT_HALF_SIZE,
-                right: canvas_x + AGENT_HIT_HALF_SIZE,
-                bottom: canvas_y + AGENT_HIT_HALF_SIZE,
+                left: canvas_x - AGENT_HIT_HALF_SIZE * agent_pixel_scale(width, height).x as f64,
+                top: canvas_y - 15.0 * agent_pixel_scale(width, height).y as f64,
+                right: canvas_x + AGENT_HIT_HALF_SIZE * agent_pixel_scale(width, height).x as f64,
+                bottom: canvas_y + AGENT_HIT_HALF_SIZE * agent_pixel_scale(width, height).y as f64,
             });
         }
     }
@@ -672,6 +685,7 @@ fn clear_runtime_visuals(commands: &mut Commands, runtime: &mut BevyRuntimeState
         commands.entity(entity).despawn();
     }
     runtime.grid_layout = None;
+    runtime.pointer_click_target = Some(None);
     runtime.hit_regions.clear();
     runtime.hit_region_cache_key = None;
     runtime.hit_regions_dirty = true;
@@ -721,7 +735,23 @@ pub(crate) fn render_scene(
     mut runtime: ResMut<BevyRuntimeState>,
     queries: RenderSceneQueries,
     time: Res<Time>,
+    mut images: ResMut<Assets<Image>>,
+    mut agent_texture: Local<Option<Handle<Image>>>,
 ) {
+    if agent_texture.is_none() {
+        let image = Image::from_buffer(
+            include_bytes!(
+                "../../../doc/world-simulator/viewer/assets/ui-ux/pixel-world/agent.png"
+            ),
+            bevy::image::ImageType::Extension("png"),
+            bevy::image::CompressedImageFormats::NONE,
+            true,
+            bevy::image::ImageSampler::nearest(),
+            bevy::asset::RenderAssetUsages::default(),
+        )
+        .expect("checked-in Agent PNG must decode");
+        *agent_texture = Some(images.add(image));
+    }
     if !runtime.mounted {
         spatial_overlays::clear(&mut commands, &queries.spatial_overlays);
         grounding::clear(&mut commands, &queries.grounding);
@@ -825,6 +855,7 @@ pub(crate) fn render_scene(
     let Ok(window) = queries.windows.single() else {
         return;
     };
+    pixel_pipeline::cache_layout(window);
     let Some(_) = runtime.render_state.as_ref() else {
         grounding::clear(&mut commands, &queries.grounding);
         clear_runtime_visuals(&mut commands, &mut runtime);
@@ -881,15 +912,20 @@ pub(crate) fn render_scene(
         }
         return;
     };
-    let width = window.width() as f64;
-    let height = window.height() as f64;
-    let canvas_size_changed = runtime.last_canvas_size
-        != Some((
-            width.round().max(0.0) as u32,
-            height.round().max(0.0) as u32,
-        ));
-    let static_reconcile =
-        !runtime.reactive_scheduling || runtime.needs_reconcile || canvas_size_changed;
+    let Some(layout) = pixel_pipeline::window_layout(window) else {
+        return;
+    };
+    let width = layout.css.x as f64;
+    let height = layout.css.y as f64;
+    let canvas_size_changed = runtime.last_canvas_css != Some((width, height));
+    let pixel_layout_changed = runtime.last_pixel_layout != Some(layout);
+    runtime.last_pixel_layout = Some(layout);
+    runtime.hit_regions_dirty |= pixel_layout_changed;
+    runtime.last_canvas_css = Some((width, height));
+    let static_reconcile = !runtime.reactive_scheduling
+        || runtime.needs_reconcile
+        || canvas_size_changed
+        || pixel_layout_changed;
     let animation_reconcile = runtime.animation_dirty;
     if runtime.reactive_scheduling && !static_reconcile && !animation_reconcile {
         return;
@@ -1033,6 +1069,7 @@ pub(crate) fn render_scene(
         height,
         animation_ms,
         rebuild_hit_regions,
+        agent_texture.as_ref().expect("texture initialized"),
     );
     grounding::reconcile(
         &mut commands,
@@ -1150,3 +1187,8 @@ pub(crate) fn render_scene(
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod tests;
+
+// Authored sprites retain world occlusion unless explicitly identified as UI.
+#[path = "render_layers.rs"]
+mod layers;
+pub(super) use layers::is_world_visual;

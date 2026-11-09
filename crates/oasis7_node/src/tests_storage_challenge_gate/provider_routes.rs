@@ -237,13 +237,7 @@ fn runtime_replication_storage_challenge_gate_degrades_after_provider_route_not_
         .expect("seed pos config")
         .with_auto_attest_all_validators(true)
         .with_replication(signed_replication_config(dir.clone(), 112));
-    let mut seed_runtime = with_noop_execution_hook(NodeRuntime::new(seed_config));
-    seed_runtime.start().expect("start seed runtime");
-    let seeded = wait_until(Instant::now() + Duration::from_secs(2), || {
-        seed_runtime.snapshot().consensus.committed_height >= 6
-    });
-    assert!(seeded, "seed runtime did not build enough local commits");
-    seed_runtime.stop().expect("stop seed runtime");
+    seed_six_local_commits(&seed_config);
 
     let replication = super::replication::ReplicationRuntime::new(
         &signed_replication_config(dir.clone(), 112),

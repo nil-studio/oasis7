@@ -740,6 +740,19 @@ loading、empty、unavailable、permission denied、pending、unknown与明确�
 
 遵循既有brand与visual规范。窄屏/低高度、触控、键盘、焦点回返、读屏语义、IME/reduced-motion须按实际候选验证；静态SVG与文字不证明这些运行行为。错误近字段，busy和禁用原因可读，重要结果不只靠颜色。
 
+<a id="complete-world-layout-combinations"></a>
+### 9.1 #5527 完整组合稿的精确接点
+
+以下是 [Player shell 完整组合稿](viewer-page-module-design-2026-06-18.design.md#uiux-complete-layout-combinations)的设计目标接点，不更改上文固定 source 的 `current`/`conditional_current` 判定或 `coverage-catalog.json` 的实现证据。图内身份、位置与数据为虚构示例；未画出的状态继续按原条款验证。
+
+| 原条款 | 完整画面及具体区域 | 此次补齐与边界 |
+| --- | --- | --- |
+| [R-WORLD-02](#r-world-02)、[R-WORLD-03](#r-world-03)、[R-WORLD-07](#r-world-07)、[R-WORLD-10](#r-world-10) | [16 · 844×390 Command 展开](assets/ui-ux/16-low-height-command-expanded.svg#command-drawer)，同视口保留 `original-receipt` | 观察 B、C 的未提交草稿、A 的未知原结果分离；正文 16 px、44 px 控件、关闭/原因/发送与恢复可达。关闭不取消 A；非模态抽屉不锁 Tab，回到 Command 导航。图示 Chat 服务未配置，不从渲染成功或对象选择推出可发送 |
+| [R-TARGET-02](#r-target-02)、[R-TARGET-03](#r-target-03)、[R-WORLD-09](#r-world-09)、[R-SPACE-02](#r-space-02)、[R-SPACE-03](#r-space-03) | [17 · 1440×900 同位候选与未知位置](assets/ui-ux/17-dense-and-unknown-targets.svg#targets-drawer)，`selected-unknown-c` 与 `unknown-target-context` | A/B/D 同位候选合并为一个集合标记；已选 C 未知位置只有获准文字，无假坐标、定位或跟随。“已加载 4 个”限于当前获准的部分范围。候选移除、位置失效/冲突与键盘逐项选择仍需真实验证；不把地点锚点当 Agent 精确位置 |
+| [R-DIAG-01](#r-diag-01)、[R-WORLD-03](#r-world-03)、[R-SPACE-03](#r-space-03) | [18 · 390×844 图形失败文本路径](assets/ui-ux/18-renderer-text-recovery.svg#viewport)，`renderer-unavailable`、`authorized-text-target` 与 `next-move-original-receipt` | 世界连接可用、图形不可用、B 位置未知、A 原结果未知并存。只保留当前获准的文本与安全控制，显式图形重试不重放世界请求；恢复前重新核验授权，不保留旧图命中或绘制 JS 替代世界 |
+
+16–18 的“查询原结果”是查询确实获准时的 shell 恢复设计目标；现有 Action Receipt 的字段/控件仍以 [R-WORLD-03](#r-world-03) 为准，不能据稿新增当前组件查询按钮、`next_step` 字段或读取权限。16/17 沿用侧向按需展开，18 沿用窄屏单路线；没有引入第二默认布局或 Player/Director 混用。200% 文字、长 CJK、软键盘、焦点、真实渲染失败及恢复竞态不由静态几何证明。
+
 ## 10. 兼容、迁移与回滚
 
 沿用原14张概览与兼容入口，不移除旧authority锚点。新稿先按具体source/条件接入，不将target-only按钮启用为当前。文档/资产回退只恢复对应呈现规范，不撤销任何外部世界效果；本设计不改变运行合同。

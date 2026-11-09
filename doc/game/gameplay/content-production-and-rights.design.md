@@ -73,6 +73,7 @@
 | 官网远程字体 | [styles.css](../../../site/assets/styles.css)与 [deck.css](../../../site/deck/deck.css)实际使用 Google Fonts CSS `@import`，包含 Bricolage Grotesque、JetBrains Mono、Manrope；传播包还各有自己的请求 | 当前请求入口不同于系统 fallback，浮动响应没有固定为本地资产。实际发布保留其请求／返回版本和失败 fallback 的验证范围；改为本地打包时核具体字体文件与许可，不从服务名推定取得全部再分发材料。 |
 | 官网图像、SVG 与 raster 导出 | §3.1 的具体路径、Git 版本、原 [Site 设计](../../site/github-pages/public-site-discovery-and-showcase.design.md)和公开 provenance 标签 | SVG 可编辑只证明形式；raster 文件不等于原生编辑源、生成输入或完整权利材料。原作者、外部／生成来源未有对应记录时，明确该项缺口，不把概念图写为运行截图。 |
 | 原传播包 | 八图包有 [generate_carousel.py](../../readme/production/assets/xhs-ai-economy-2026-06-18/generate_carousel.py)、storyboard、manifest；其 manifest 说明外部研究材料未随仓库提交 | 生成脚本和上传顺序不替代外部资料、图像、字体、署名与复用依据；继续使用原受控来源入口，不在公开文档复制凭据或未授权材料。 |
+| Pixel World 原生 CJK fallback | Noto Sans SC Regular 2.004，固定上游 `notofonts/noto-cjk@f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的原样 SC 地区 OTF；[资产及 OFL](../../../crates/pixel_world_bridge/assets/fonts/noto-sans-sc/README.md)记录原始路径、SHA-256、版权、大小与覆盖边界 | OFL 1.1 允许随软件嵌入及再分发并要求附版权与许可；源码目录保留全文，每个 WASM backend 通过 `native_font_notices()`保留全文。未采用 Launcher 微软雅黑，不把此证据扩写为其他资产权利齐备。 |
 | 六视图／后续外部或生成素材 | [工具合同](../../../tools/voxel_asset_pipeline/DESIGN.md#source-image-contract)规定实际源图和导出格式 | 采用时绑定真实源图／输出、工具及相关输入来源；不可确定重建的输出保留其固定版本。合成测试长方体不是正式机器人源，生成服务名也不是完整权利证明。 |
 
 权利核对是所声明用途的材料核对，不能把未取得材料改写成“违规已证实”或“可自由复用”。已核范围写明具体文件／版本、用途、限制和证据；有未决输入时保留该内容的采用限制，原 owner 补证、换源或调整对外内容。尚未核实的材料不支持“全资产权利齐备”或正式发行结论。

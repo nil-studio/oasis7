@@ -1,3 +1,4 @@
+import { measureRetainedJson } from './pixel_world_retention.js';
 import { applyWorldViewDelta, worldViewAuthorityKey, worldViewQueryKey, validateWorldViewEvolution, freezeWorldView } from "./pixel_world_world_view_delta.js";
 import { pixelWorldScope } from "./pixel_world_scope.js";
 // A read-only client. Request generation fences callbacks; it is not a world version.
@@ -5,15 +6,28 @@ export function worldViewScopeKey(state, deployment = '') {
   return JSON.stringify([deployment, pixelWorldScope(state)]);
 }
 const binding = view => JSON.stringify([view.world_id, view.scope_id, view.source_cut, view.world_bounds, worldViewAuthorityKey(view)]);
+let nextRetentionInstance = 0;
 export function createWorldViewClient({ request, onChange = () => {} }) {
-  let generation = 0, scope = null, expectedWorld = null, baselineQuery = null;
+  const retentionInstance = ++nextRetentionInstance;
+  let generation = 0, scopeSequence = 0, scope = null, expectedWorld = null, baselineQuery = null, retainedQuery = null;
   let state = { view: null, loading: false, stale: false, error: null, changes: [] };
   const publish = patch => { state = { ...state, ...patch }; onChange(state); };
   return {
     state: () => state,
-    invalidate() { generation += 1; },
+    statistics(expectedSourceCut = null, measure = true) {
+      const started = performance.now(), query = retainedQuery?.generation === generation ? retainedQuery : null;
+      const measured=measure!==false, unknown={logicalJsonBytes:null,uniqueObjects:null,uniqueArrays:null,visitedNodes:0,heapBytes:null};
+      const published = measured ? measureRetainedJson([state.view, state.changes]) : unknown;
+      const pagingRoots = measured && query ? [query.first(), query.last(), ...query.maps().flatMap(map => [...map.values()])] : [];
+      const paging = measured ? measureRetainedJson(pagingRoots) : unknown;
+      return { measured, instanceSequence: retentionInstance, localGeneration: generation, scopeSequence, scopeBound: scope !== null, loading: state.loading, stale: state.stale, hasError: Boolean(state.error),
+        published: { ...published, entities: state.view?.entities?.length || 0, changes: state.changes.length, queryGenerationMatches: state.view?.request_generation === String(generation), sourceCutMatches: typeof expectedSourceCut === 'string' ? state.view?.source_cut === expectedSourceCut : null, completeness: ['complete','partial','unknown'].includes(state.view?.completeness) ? state.view.completeness : null },
+        paging: { ...paging, active: Boolean(query), maps: query?.maps().map(map => map.size) || [0,0,0,0], cursors: query?.seen.size || 0 },
+        observationMs: performance.now() - started, semantics: 'current-generation-only logical JSON bytes and unique objects per component; shared references may overlap; old inflight closure residual unknown; not heap/GPU/total memory' };
+    },
+    invalidate() { generation += 1; retainedQuery = null; },
     clearChanges() { publish({changes:[]}); },
-    reset(nextScope, worldId = null) { generation += 1; scope = nextScope; expectedWorld = worldId; publish({ view: null, loading: false, stale: false, error: null, changes: [] }); },
+    reset(nextScope, worldId = null) { generation += 1; scopeSequence += 1; retainedQuery = null; scope = nextScope; expectedWorld = worldId; publish({ view: null, loading: false, stale: false, error: null, changes: [] }); },
     async query(query = {}, { delta = false, preserveChanges = false } = {}) {
       const current = ++generation, currentScope = scope;
       const active = () => current === generation && currentScope === scope;
@@ -24,6 +38,7 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       let resume = delta && baselineQuery === queryKey && !state.stale && !state.view?.source_frozen ? state.view?.resume_cursor : null;
       if (!resume && !preserveChanges) publish({changes:[]});
       let lastPublished = null, recoveries = 0, restart = false, first = null, cursor, entities = new Map(), relations = new Map(), aggregates = new Map(), events = new Map(), seen = new Set(), pages = 0;
+      retainedQuery = { generation: current, maps: () => [entities, relations, aggregates, events], seen, first: () => first, last: () => lastPublished };
       const deadline = Date.now() + 30000;
       try {
         do {
@@ -93,7 +108,7 @@ export function createWorldViewClient({ request, onChange = () => {} }) {
       } catch (error) {
         if (active()) publish({ loading: false, stale: Boolean(state.view), error: String(error?.message || error) });
         return null;
-      }
+      } finally { if (retainedQuery?.generation === current) retainedQuery = null; }
     },
   };
 }

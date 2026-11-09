@@ -2,12 +2,12 @@ use super::*;
 
 #[test]
 fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
-    let complete = verify(&fixture(true), || false).unwrap();
+    let complete = verify(&fixture(true), never_cancel).unwrap();
     assert_eq!(complete.checked_module_marketplace_fields(), 3);
 
     let empty = verify(
         &fixture_with_issue(true, Some(FixtureIssue::EmptyModuleMarketplaceMaps)),
-        || false,
+        never_cancel,
     )
     .unwrap();
     assert_eq!(empty.checked_module_marketplace_fields(), 3);
@@ -30,7 +30,7 @@ fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
             "module marketplace root binding",
         ),
     ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        let result = verify(&fixture_with_issue(true, Some(issue)), never_cancel);
         assert!(
             matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
             "{issue:?}: {result:?}"
@@ -47,7 +47,7 @@ fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
             "module marketplace child semantic key",
         ),
     ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        let result = verify(&fixture_with_issue(true, Some(issue)), never_cancel);
         assert!(
             matches!(result, Err(WorldStateOwnerError::Invalid(actual)) if actual == expected),
             "{issue:?}: {result:?}"
@@ -57,7 +57,7 @@ fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
     assert!(matches!(
         verify(
             &fixture_with_issue(true, Some(FixtureIssue::WrongModuleMarketplaceChildCount)),
-            || false
+            never_cancel
         ),
         Err(WorldStateOwnerError::Invalid("state scan leaf count"))
     ));
@@ -67,7 +67,7 @@ fn module_marketplace_fields_require_metadata_and_closed_typed_members() {
         FixtureIssue::SharedModuleBidChild,
         FixtureIssue::ModuleBidChildCycle,
     ] {
-        let result = verify(&fixture_with_issue(true, Some(issue)), || false);
+        let result = verify(&fixture_with_issue(true, Some(issue)), never_cancel);
         assert!(
             matches!(result, Err(WorldStateOwnerError::Invalid(_))),
             "{issue:?}: {result:?}"
@@ -91,7 +91,7 @@ fn marketplace_owner_closure_uses_recovery_class_when_ordinary_is_full() {
         .unwrap();
     assert_eq!(fixture.memory.used(), ordinary_limit);
 
-    let report = verify_with_class(&fixture, MemoryClass::Recovery, || false).unwrap();
+    let report = verify_with_class(&fixture, MemoryClass::Recovery, never_cancel).unwrap();
     assert_eq!(report.checked_module_marketplace_fields(), 3);
     assert!(fixture.memory.reserve(1, MemoryClass::Ordinary).is_err());
     drop(report);

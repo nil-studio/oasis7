@@ -43,12 +43,15 @@ pub(super) fn reconcile(
                 .unwrap_or_else(|| {
                     fallback_point_for_entity(&agent.id, width, height, &runtime.camera)
                 });
+            let pixel = agent_pixel_scale(width, height);
+            let point = (point.0, point.1 - 7.0 * pixel.y as f64);
             specs.push((
                 format!("agent:{}", agent.id),
                 point,
                 style.size_px as f32,
                 style.layer_z,
                 true,
+                pixel,
             ));
         }
         if let Some(bounds) = state.world_bounds.as_ref() {
@@ -67,6 +70,7 @@ pub(super) fn reconcile(
                         style.size_px as f32,
                         style.layer_z,
                         false,
+                        Vec2::ONE,
                     ));
                 }
             }
@@ -86,12 +90,13 @@ pub(super) fn reconcile(
                         9.0,
                         MICRO_DEPOT_LAYER_Z,
                         false,
+                        agent_pixel_scale(width, height),
                     ));
                 }
             }
         }
     }
-    for (id, (x, y), size, z, upright) in specs {
+    for (id, (x, y), size, z, upright, pixel) in specs {
         let half_height = size * if upright { 0.5 } else { 0.36 };
         // Shared light direction: upper-left rim, lower-right contact shadow.
         for (part, dx, dy, w, h, color, layer) in [
@@ -124,10 +129,10 @@ pub(super) fn reconcile(
             ),
         ] {
             let key = format!("{id}:{part}");
-            let sprite = sprite_for_rect(color, w, h);
+            let sprite = sprite_for_rect(color, w * pixel.x, h * pixel.y);
             let transform = Transform::from_translation(to_bevy_translation(
-                x + f64::from(dx),
-                y + f64::from(dy),
+                x + f64::from(dx * pixel.x),
+                y + f64::from(dy * pixel.y),
                 width,
                 height,
                 layer,
@@ -141,5 +146,43 @@ pub(super) fn reconcile(
     }
     for entity in existing.into_values() {
         commands.entity(entity).despawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn agent_contact_and_rim_follow_scaled_sprite_body() {
+        let mut app =
+            super::super::tests::render_test_app(super::super::tests::sample_render_state(12000.));
+        {
+            let world = app.world_mut();
+            world
+                .query::<&mut Window>()
+                .single_mut(world)
+                .unwrap()
+                .resolution
+                .set(1280., 720.);
+        }
+        app.update();
+        let world = app.world_mut();
+        let body = *world
+            .query_filtered::<&Transform, With<PixelWorldAgentVisual>>()
+            .single(world)
+            .unwrap();
+        let mut query = world.query::<(&Transform, &Sprite, &PixelWorldGroundingVisual)>();
+        let (shadow, sprite, _) = query
+            .iter(world)
+            .find(|(_, _, v)| v.key.starts_with("agent:") && v.key.ends_with(":shadow"))
+            .unwrap();
+        assert_eq!(shadow.translation.x, body.translation.x + 2.);
+        assert_eq!(shadow.translation.y, body.translation.y - 18.);
+        assert_eq!(sprite.custom_size.unwrap().y, 4.);
+        let (rim, _, _) = query
+            .iter(world)
+            .find(|(_, _, v)| v.key.starts_with("agent:") && v.key.ends_with(":rim"))
+            .unwrap();
+        assert_eq!(rim.translation.y, body.translation.y + 14.);
     }
 }

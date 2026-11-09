@@ -10,6 +10,9 @@ use wasm_bindgen_test::wasm_bindgen_test;
 
 pub(super) fn sample_render_state_for_camera(selection_kind: &str) -> RenderState {
     RenderState {
+        display_profile: display_profile::DisplayProfile::Legacy,
+        display_source_cut: None,
+        overview_query_context: None,
         exploration_mode: false,
         navigation: None,
         locale: "en".to_string(),
@@ -302,6 +305,7 @@ fn agent_label_changes_the_render_content_signature() {
 fn sample_render_state_with_presentation_metadata() -> RenderState {
     let mut state = sample_render_state_for_camera("agent");
     state.module_visual_entities = vec![ModuleVisualEntity {
+        factory_kind: None,
         id: "module-visual-0".to_string(),
         module_id: "module-0".to_string(),
         kind: "relay".to_string(),

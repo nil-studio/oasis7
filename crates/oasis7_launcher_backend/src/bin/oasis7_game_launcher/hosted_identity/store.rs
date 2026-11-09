@@ -66,6 +66,14 @@ pub struct IdentityTransaction<'a> {
 }
 const SCHEMA: i64 = 2;
 const MAX_PAGE: usize = 1000;
+fn ensure_safe_sqlite() -> Result<(), StoreError> {
+    if rusqlite::version_number() < 3_054_000 {
+        return Err(StoreError::Unavailable(
+            "SQLite >= 3.54.0 required for WAL page-size safety".into(),
+        ));
+    }
+    Ok(())
+}
 fn sql_integer(value: u64) -> Result<i64, StoreError> {
     i64::try_from(value).map_err(|_| StoreError::Rejected("integer_out_of_range".into()))
 }
@@ -179,6 +187,7 @@ impl IdentityStore {
                 "sqlite_path_must_not_replace_legacy_json".into(),
             ));
         }
+        ensure_safe_sqlite()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -195,11 +204,6 @@ impl IdentityStore {
                 .map_err(|_| StoreError::Unavailable("database permission setup failed".into()))?;
         }
         let mut connection = Connection::open(path)?;
-        if rusqlite::version_number() < 3_051_003 {
-            return Err(StoreError::Unavailable(
-                "SQLite WAL reset fix required".into(),
-            ));
-        }
         let has_meta: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='identity_meta')", [], |row| row.get(0))?;
         if !has_meta {
             let existing_tables: i64 = connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", [], |row| row.get(0))?;
@@ -273,6 +277,7 @@ impl IdentityStore {
                 "maintenance_fence_and_revocation_history_required".into(),
             ));
         }
+        ensure_safe_sqlite()?;
         let mut connection =
             Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         connection.busy_timeout(Duration::from_millis(750))?;
@@ -446,7 +451,7 @@ impl IdentityStore {
         self.connection
             .as_ref()
             .ok_or_else(|| StoreError::Rejected("use_tablestore_consistent_snapshot".into()))?
-            .backup("main", destination, None)?;
+            .backup("main", destination, rusqlite::backup::NO_PROGRESS)?;
         Ok(())
     }
 }

@@ -3,7 +3,6 @@
 //! touching markers, input regions, or the complete host-side Targets list.
 use super::*;
 
-const MAX_VISIBLE_LABELS: usize = 100;
 const MAX_LABEL_SCALARS: usize = 128;
 
 #[derive(Component)]
@@ -49,6 +48,7 @@ pub(crate) fn enforce_label_budget(
 ) {
     let labels = &mut queries.labels;
     let state = runtime.render_state.as_ref();
+    let max_visible_labels = state.map_or(100, |state| state.display_profile.labels());
     let selection = state.and_then(|state| state.selection.as_ref());
     let primary_hotspot = |kind: &str| {
         state.and_then(|state| {
@@ -125,7 +125,7 @@ pub(crate) fn enforce_label_budget(
                 .chain(['…'])
                 .collect();
         }
-        if index < MAX_VISIBLE_LABELS {
+        if index < max_visible_labels {
             if let Some(hidden) = hidden {
                 *visibility = hidden.0;
                 commands.entity(entity).remove::<BudgetHidden>();

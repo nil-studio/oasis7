@@ -5,6 +5,7 @@ on:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, closed]
   schedule:
     - cron: '17 */6 * * *'
+    - cron: '29 3 * * *'
     - cron: '43 18 * * *'
   workflow_dispatch:
     inputs:
@@ -71,11 +72,23 @@ jobs:
               raise SystemExit('invalid CodeQL batch modes')
           default = event['repository']['default_branch']
           pr = event.get('pull_request', {})
-          profile = 'extended' if event.get('schedule') == '43 18 * * *' else os.environ['CODEQL_PROFILE']
+          profile, scope = os.environ['CODEQL_PROFILE'], 'all'
+          if kind == 'schedule':
+              schedules = {'17 */6 * * *': ('default', 'non-rust'),
+                           '29 3 * * *': ('default', 'rust'), '43 18 * * *': ('extended', 'all')}
+              if event.get('schedule') not in schedules:
+                  raise SystemExit('unknown CodeQL maintenance schedule')
+              profile, scope = schedules[event['schedule']]
           if kind == 'pull_request':
               profile = 'default'
           if profile not in ('default', 'extended'):
               raise SystemExit('invalid CodeQL profile')
+          def in_scope(unit):
+              return scope == 'all' or (unit == 'rust-repo') == (scope == 'rust')
+          def timeout_minutes(language):
+              if language == 'rust' and profile == 'default' and kind != 'pull_request':
+                  return 90
+              return 45 if language == 'rust' or profile == 'extended' else 20
           checkout = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           if checkout != os.environ['GITHUB_SHA']:
               raise SystemExit('actual checkout differs from event analysis identity')
@@ -85,7 +98,7 @@ jobs:
                       (mode != 'observe' or pr.get('draft') or event.get('action') in ('closed', 'converted_to_draft'))))
           if kind != 'pull_request' and os.environ['GITHUB_REF'] != 'refs/heads/' + default:
               raise SystemExit('maintenance scan requires trusted default branch')
-          plan = {'schema': 'oasis7-codeql-plan/v1', 'profile': profile,
+          plan = {'schema': 'oasis7-codeql-plan/v1', 'profile': profile, 'maintenance_scope': scope,
                   'status': 'disabled', 'identity': {'event_base': base, 'source_head': head, 'checkout': checkout},
                   'matrix': {'include': []}, 'selected_units': [], 'batch_modes': batches,
                   'candidate_units': [], 'not_selected_reasons': {u: 'global_or_event_disabled' for u in allowed}}
@@ -111,23 +124,25 @@ jobs:
                                  '--pr-number', str(pr.get('number', 0)), '--max-slots', slots,
                                  '--batch-modes', json.dumps(batches)]
                       if kind != 'pull_request':
-                          command.append('--full')
+                          # A PR may still run the previous trusted-base CLI.
+                          command.extend(['--full', '--maintenance-scope', scope])
                       subprocess.run(command, check=True, cwd=trusted)
                       plan = json.loads(out.read_text())
                   else:
                       # Fixed full-context candidates; operational batches still constrain bootstrap.
                       units = list(allowed.items())
-                      selected = [u for u in allowed if batches.get(u + '/' + profile) and
+                      selected = [u for u in allowed if batches.get(u + '/' + profile) and in_scope(u) and
                                   (kind != 'pull_request' or batches[u + '/' + profile] == 'observe')]
                       plan.update(status='selected' if selected else 'disabled', selected_units=selected,
                                   candidate_units=list(allowed), not_selected_reasons={u: 'batch_disabled'
-                                      if u + '/' + profile not in batches else 'pr_baseline_only'
+                                      if u + '/' + profile not in batches else
+                                      ('maintenance_scope' if not in_scope(u) else 'pr_baseline_only')
                                       for u in allowed if u not in selected},
                                   fallback_reasons=['trusted-base planner unavailable: four-language candidates'])
                       plan['matrix']['include'] = [dict(unit=u, language=lang, slot=i % int(slots),
                           category='oasis7/' + u + '/' + profile, build_mode='none',
                           queries='security-extended' if profile == 'extended' else '',
-                          timeout_minutes=45 if lang == 'rust' or profile == 'extended' else 20)
+                          timeout_minutes=timeout_minutes(lang))
                           for i, (u, lang) in enumerate(units) if u in selected]
           if plan['identity']['checkout'] != checkout or plan.get('profile') != profile:
               raise SystemExit('planner identity/profile mismatch')
@@ -138,10 +153,12 @@ jobs:
               raise SystemExit('invalid planner status/matrix')
           for row in rows:
               batch_mode = batches.get(row['unit'] + '/' + profile)
-              if (inactive or batch_mode is None or (kind == 'pull_request' and batch_mode != 'observe') or
+              if (inactive or batch_mode is None or not in_scope(row['unit']) or
+                  (kind == 'pull_request' and batch_mode != 'observe') or
                   allowed.get(row['unit']) != row['language'] or row['slot'] not in range(int(slots)) or
                   row['category'] != 'oasis7/' + row['unit'] + '/' + profile or row['build_mode'] != 'none' or
-                  row['queries'] != ('security-extended' if profile == 'extended' else '')):
+                  row['queries'] != ('security-extended' if profile == 'extended' else '') or
+                  row.get('timeout_minutes') != timeout_minutes(row['language'])):
                   raise SystemExit('planner matrix contract mismatch')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for key, value in {'matrix': json.dumps(plan['matrix'], separators=(',', ':')),
@@ -188,8 +205,38 @@ jobs:
       - name: Minimal stable Rust extraction toolchain
         if: matrix.language == 'rust'
         run: rustup toolchain install 1.96.0 --profile minimal
+      - id: rust_native
+        name: Prepare Rust native extraction prerequisites
+        if: matrix.language == 'rust'
+        timeout-minutes: 5
+        run: |
+          python3 -I - <<'PY'
+          import importlib.util, json, os, pathlib, sys, time
+          source = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          helpers = source / 'scripts/security'
+          sys.path.insert(0, str(helpers))
+          spec = importlib.util.spec_from_file_location('native_prerequisites', helpers / 'codeql-rust-cargo-check.py')
+          native = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(native)
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-native'
+          out.mkdir(exist_ok=False)
+          native.runtime.CAP, native.runtime.WRITE_CAP = 16 * 1024**2, 15 * 1024**2
+          env = {key: value for key, value in os.environ.items()
+                 if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
+          started = time.monotonic()
+          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
+          try:
+              native.prepare_native(source, out, started + 270, env)
+              terminal['status'] = 'PASS'
+          except Exception as error:
+              terminal.update(error_type=type(error).__name__, error=str(error))
+              raise
+          finally:
+              terminal['elapsed_seconds'] = time.monotonic() - started
+              (out / 'native-terminal.json').write_text(json.dumps(terminal, sort_keys=True) + '\n')
+          PY
       - id: init
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4, official tag resolved 2026-10-01
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4, official tag resolved 2026-10-01
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
@@ -204,16 +251,58 @@ jobs:
               - .pm/**
               - tools/oasis7-command-center/src-tauri/src/generated_context.rs
               - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
+      - id: rust_budget
+        name: Reserve Rust upload time within the actual job budget
+        if: matrix.language == 'rust' && needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request'
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I - <<'PY'
+          import datetime, email.utils, json, os, time, urllib.request
+          url = ('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] +
+                 '/actions/runs/' + os.environ['GITHUB_RUN_ID'] + '/attempts/' +
+                 os.environ['GITHUB_RUN_ATTEMPT'] + '/jobs?per_page=100')
+          request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+              'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+          requested = time.monotonic()
+          with urllib.request.urlopen(request, timeout=20) as response:
+              server_date = response.headers['Date']
+              value = json.load(response)
+          request_seconds = time.monotonic() - requested
+          server_time = email.utils.parsedate_to_datetime(server_date)
+          jobs = [job for job in value['jobs'] if job['name'] == 'CodeQL / rust-repo / default'
+                  and job['status'] == 'in_progress']
+          if value['total_count'] > 100 or len(jobs) != 1 or not jobs[0].get('started_at'):
+              raise SystemExit('unknown actual Rust job start')
+          started = datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z', '+00:00'))
+          if server_time.tzinfo is None or started.tzinfo is None:
+              raise SystemExit('invalid GitHub job clock')
+          age = server_time.timestamp() - started.timestamp() + request_seconds + 1
+          if not 0 <= age < 5400:
+              raise SystemExit('invalid or exhausted Rust job clock')
+          minutes = min(75, int((5400 - age - 600) // 60))
+          if minutes < 1:
+              raise SystemExit('no Rust analysis budget after upload reserve')
+          receipt = dict(job_id=jobs[0]['id'], started_at=jobs[0]['started_at'], github_date=server_date,
+                         job_age_upper_seconds=age, job_budget_seconds=5400,
+                         analysis_allocated_minutes=minutes, post_analysis_reserve_seconds=600)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('Rust analysis budget\n```json\n' + json.dumps(receipt, indent=2) + '\n```\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('analysis_minutes=' + str(minutes) + '\n')
+          PY
       - id: analyze
         name: CodeQL extraction and queries
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        timeout-minutes: ${{ steps.rust_budget.outputs.analysis_minutes && fromJSON(steps.rust_budget.outputs.analysis_minutes) || matrix.timeout_minutes }}
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: ${{ matrix.category }}
           output: ${{ runner.temp }}/codeql-results
           upload: never
       - id: upload
         name: CodeQL SARIF upload
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           sarif_file: ${{ runner.temp }}/codeql-results
           category: ${{ matrix.category }}
@@ -279,6 +368,15 @@ jobs:
         with:
           name: oasis7-codeql-upload-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.unit }}-${{ needs.plan.outputs.profile }}
           path: ${{ runner.temp }}/codeql-upload-evidence/evidence.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+      - name: Persist Rust native preparation evidence
+        if: always() && matrix.language == 'rust' && steps.rust_native.outcome != 'skipped'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oasis7-codeql-native-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.unit }}-${{ needs.plan.outputs.profile }}
+          path: ${{ runner.temp }}/codeql-rust-native
           if-no-files-found: error
           overwrite: false
           retention-days: 7

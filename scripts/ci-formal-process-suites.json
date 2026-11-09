@@ -3,7 +3,9 @@
   "case_shards": {
     "runtime-tests": {
       "formal_live_runtime::tests::protected_process_tests::durable_set_tests::formal_protected_healthy_durable_set_cold_original_lookup_after_restart": "storage-recovery",
-      "formal_live_runtime::tests::protected_process_tests::healthy_operation_tests::formal_protected_healthy_durable_set_operation_cli_owner_and_original_result": "lifecycle-cli"
+      "formal_live_runtime::tests::protected_process_tests::healthy_operation_tests::formal_protected_healthy_durable_set_operation_cli_owner_and_original_result": "lifecycle-cli",
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_actual_world_noise_follower_installs_at_h_plus_two": "healthy-set",
+      "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_confirmation_proposal_timeout_recovers_after_original_governance_commit": "lifecycle-cli"
     }
   },
   "binary_dependencies": {
