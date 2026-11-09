@@ -143,7 +143,7 @@ class PlannerTests(unittest.TestCase):
         self.assertIn('vendor-patch/Cargo.toml', result['completeness']['manifest_inventory']['head'])
         self.assertEqual(result['selected_units'], ['rust-repo'])
 
-    def test_wasm_candidate_bundle_selects_rust(self):
+    def test_wasm_candidate_bundle_selects_rust_and_python_consumers(self):
         root = 'crates/oasis7_runtime/src/world/artifacts/'
         names = ['builtin_wasm_candidate_baseline.v1.json']
         names += [f'{group}_builtin_modules.source-rule2-candidate.{suffix}'
@@ -153,7 +153,8 @@ class PlannerTests(unittest.TestCase):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(root + name); self.commit()
                 result = self.run_plan()
-                self.assertEqual(result['selected_units'], ['rust-repo'])
+                self.assertEqual(result['selected_units'], ['python-repo', 'rust-repo'])
+                self.assertIn(root + name, result['reasons']['python-repo'])
                 self.assertIn(root + name, result['reasons']['rust-repo'])
 
     def test_wasm_candidate_registration_preserves_non_rust_batches(self):
@@ -162,9 +163,10 @@ class PlannerTests(unittest.TestCase):
         batches = json.dumps({unit + '/default': 'observe' for unit in
                               ('actions-repo', 'python-repo', 'javascript-repo')})
         result = self.run_plan(batch_modes=batches)
-        self.assertEqual(result['candidate_units'], ['rust-repo'])
-        self.assertEqual(result['status'], 'disabled')
-        self.assertEqual(result['matrix']['include'], [])
+        self.assertEqual(result['candidate_units'], ['python-repo', 'rust-repo'])
+        self.assertEqual(result['status'], 'selected')
+        self.assertEqual(result['selected_units'], ['python-repo'])
+        self.assertEqual([row['unit'] for row in result['matrix']['include']], ['python-repo'])
         self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
         self.write('scripts/probe.py')
         self.write('web/app.js')
@@ -179,12 +181,12 @@ class PlannerTests(unittest.TestCase):
         self.write(path, 'unique candidate fixture'); self.base = self.commit()
         (self.root / path).rename(self.root / 'moved.js'); self.commit()
         result = self.run_plan()
-        self.assertEqual(result['selected_units'], ['javascript-repo', 'rust-repo'])
+        self.assertEqual(result['selected_units'], ['python-repo', 'javascript-repo', 'rust-repo'])
         self.assertIn(path, result['completeness']['diff_paths'])
         self.assertIn('moved.js', result['completeness']['diff_paths'])
         self.write(path); self.base = self.commit()
         (self.root / path).unlink(); self.commit()
-        self.assertEqual(self.run_plan()['selected_units'], ['rust-repo'])
+        self.assertEqual(self.run_plan()['selected_units'], ['python-repo', 'rust-repo'])
 
     def test_wasm_candidate_registration_does_not_accept_other_artifacts(self):
         root = 'crates/oasis7_runtime/src/world/artifacts/'
